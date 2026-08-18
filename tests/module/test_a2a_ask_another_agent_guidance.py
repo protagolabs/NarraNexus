@@ -59,7 +59,7 @@ def test_instructions_require_relaying_the_reply_to_the_owner():
     """Sending the question is only half the errand — the acceptance
     criterion is 「能实际发起查询并回报」."""
     text = _bus_instructions()
-    assert "send_message_to_user_directly" in text
+    assert "notify_owner" in text
     assert "relay" in text.lower()
 
 

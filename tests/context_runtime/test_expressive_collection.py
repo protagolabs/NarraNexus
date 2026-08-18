@@ -84,7 +84,7 @@ async def _collect(instances, monkeypatch, working_source=None, extra=None) -> l
     return expressive
 
 
-CHAT_TOOL = "mcp__chat_module__send_message_to_user_directly"
+CHAT_TOOL = "mcp__chat_module__reply_owner"
 LARK_TOOL = "mcp__lark_module__lark_cli"
 
 
@@ -130,7 +130,7 @@ async def test_origin_module_declaration_sorts_first(monkeypatch):
     its first tool becomes the default reply tool, so a bus-triggered
     turn defaults to the bus delivery tool — not the owner-chat tool
     that priority order alone would put first (the model would be told
-    "this turn's default: send_message_to_user_directly" on a turn
+    "this turn's default: reply_owner" on a turn
     whose contact came over the bus)."""
     instances = [
         _inst(_FakeModule("ChatModule", 1, [CHAT_TOOL])),
@@ -170,10 +170,15 @@ async def test_modules_without_owns_hook_keep_priority_order(monkeypatch):
 @pytest.mark.asyncio
 async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     """Integration seam, real modules: on a MESSAGE_BUS turn the collected
-    surface leads with the bus delivery tools (origin-first), with the
-    owner-chat tool still present for Owner Relay. This is the exact list
-    both frameworks render — NexusPower's per-step reminder and the claude
-    adapter's user-message reminder."""
+    surface LEADS with the peer send (origin-first), with the owner-notify tool
+    still present for Owner Relay. This is the exact list both frameworks
+    render — NexusPower's per-step reminder and the claude adapter's
+    user-message reminder.
+
+    Two names, not three: since 2026-08-17 each turn declares exactly ONE send
+    verb (`message_agent` on a peer turn, `message_team` in a room) plus the
+    owner lane. The old list carried both bus sends at once and left the model
+    to pick."""
     from unittest.mock import MagicMock
 
     from xyz_agent_context.module.chat_module.chat_module import ChatModule
@@ -190,29 +195,47 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
 
     collected = await _collect(instances, monkeypatch, working_source="message_bus")
     assert collected[0] == "mcp__message_bus_module__message_agent"
-    assert collected[1] == "mcp__message_bus_module__bus_send_to_agent"
-    assert "mcp__chat_module__send_message_to_user_directly" in collected
+    assert collected[1] == "mcp__chat_module__notify_owner"
+    assert len(collected) == 2
 
 
 @pytest.mark.asyncio
-async def test_team_room_turn_has_empty_reply_surface(monkeypatch):
-    """Team rooms deliver via plain-text auto-post and their prompt FORBIDS
-    delivery tools — the turn's reply surface must be EMPTY, from every
-    declarer. Gating only the bus module left ChatModule's unconditional
-    declaration in the list, which made both frameworks' reminders assert
-    "plain text is never delivered" right next to the team prompt saying
-    the opposite (PR #230 review, Critical #1). Central gate: the
-    collection returns [] whenever the bus_team_room marker is set."""
-    instances = [
-        _inst(_FakeModule("ChatModule", 1, [CHAT_TOOL])),
-        _inst(_FakeModule("LarkModule", 6, [LARK_TOOL])),
-        _inst(_FakeModule("MessageBusModule", 5, [BUS_TOOL], owns_source="message_bus")),
-    ]
-    collected = await _collect(
-        instances, monkeypatch,
-        working_source="message_bus", extra={"bus_team_room": True},
+async def test_team_room_turn_declares_the_room_send(monkeypatch):
+    """A team room is no longer the one surface with an empty reply surface.
+
+    It used to be: the agent's plain text auto-posted, the prompt forbade
+    delivery tools, and the declaration was emptied so neither framework's
+    reminder would contradict that. The cost was an exception to the most
+    fundamental rule in the system ("plain text reaches nobody"), asserted by
+    three layers of which only one could be switched off — six review rounds of
+    contradictions grew out of it.
+
+    Since 2026-08-17 the room takes a tool call like everywhere else, so the
+    surface names `message_team` and the general rule is true again.
+    """
+    from unittest.mock import MagicMock
+
+    from xyz_agent_context.module.chat_module.chat_module import ChatModule
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        MessageBusModule,
     )
-    assert collected == []
+    from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY
+
+    bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
+    chat = ChatModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
+    instances = [
+        SimpleNamespace(module_class="ChatModule", module=chat, instance_id="i1"),
+        SimpleNamespace(module_class="MessageBusModule", module=bus, instance_id="i2"),
+    ]
+
+    collected = await _collect(
+        instances, monkeypatch, working_source="message_bus",
+        extra={BUS_TEAM_ROOM_EXTRA_KEY: True},
+    )
+    assert collected[0] == "mcp__message_bus_module__message_team"
+    assert "mcp__chat_module__notify_owner" in collected
+    assert "mcp__message_bus_module__message_agent" not in collected
+
 
 
 def test_every_module_expressive_signature_accepts_ctx_data():

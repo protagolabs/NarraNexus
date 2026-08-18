@@ -16,7 +16,7 @@ Two invariants matter most here:
 
 1. A turn that DID call the channel reply tool must never be re-sent —
    ``_has_organic_reply`` used to look only for
-   ``send_message_to_user_directly``, so every successful WeChat turn
+   ``notify_owner``, so every successful WeChat turn
    read as "no reply" and would have been double-sent by this fallback.
 2. Group rooms keep the silence default. The fallback is for 1:1 DMs
    only, where a real person is waiting on an answer.
@@ -59,7 +59,7 @@ def _wechat_send(text: str = "hi") -> ProgressMessage:
 
 def _direct_notify(content: str = "fyi") -> ProgressMessage:
     return _tool_progress(
-        "mcp__chat_module__send_message_to_user_directly", content=content
+        "mcp__chat_module__notify_owner", content=content
     )
 
 
@@ -250,7 +250,7 @@ def fake_wechat_sender():
 
 class TestImReplyToolName:
     def test_prefers_the_channel_send_tool(self):
-        """Tagging the synthetic frame with send_message_to_user_directly
+        """Tagging the synthetic frame with notify_owner
         would file the reply as an OWNER notification and surface it in
         the owner's chat panel — a message the agent never sent them."""
         assert _im_reply_tool_name("wechat") == "wechat_send"

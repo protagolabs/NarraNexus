@@ -126,3 +126,54 @@ async def test_declared_short_names_are_actually_registered():
     assert mcp is not None
     registered = {t.name for t in await mcp.list_tools()}
     assert {"message_agent", "message_team"} <= registered
+
+
+# ── the desk: declaration ∪ suppression ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_the_desk_holds_exactly_the_verb_for_this_turn():
+    """Declaration and suppression have to agree, or the invariant is a slogan.
+
+    Declaring one verb while both schemas stay in the model's context is how a
+    rule ends up arguing with a tool the agent can still see — and prose loses
+    that argument: 615 prod calls landed on two tools whose docstrings said "Do
+    NOT call".
+
+    The two hooks are called separately and only one is handed ctx_data, so this
+    also pins the instance-state seam between them: a mismatch would put both
+    verbs on the desk, or neither.
+    """
+    module = _module()
+    config = await module.get_mcp_config()
+    q = f"mcp__{config.server_name}__"
+
+    for extra, kept, dropped in (
+        ({}, "message_agent", "message_team"),
+        ({"bus_team_room": True}, "message_team", "message_agent"),
+    ):
+        declared = await module.get_expressive_tools(
+            _ctx(WorkingSource.MESSAGE_BUS, **extra)
+        )
+        suppressed = await module.get_disallowed_tools()
+
+        assert declared == [q + kept]
+        assert suppressed == [q + dropped]
+        assert q + kept not in suppressed, "the turn's own verb was taken away"
+        assert q + dropped not in declared
+
+
+@pytest.mark.asyncio
+async def test_suppression_follows_the_turn_it_was_last_told_about():
+    """The seam itself: `get_disallowed_tools` takes no ctx and must not go stale
+    across turns of different kinds."""
+    module = _module()
+    config = await module.get_mcp_config()
+    q = f"mcp__{config.server_name}__"
+
+    await module.get_expressive_tools(
+        _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
+    )
+    assert await module.get_disallowed_tools() == [q + "message_agent"]
+
+    await module.get_expressive_tools(_ctx(WorkingSource.MESSAGE_BUS))
+    assert await module.get_disallowed_tools() == [q + "message_team"]

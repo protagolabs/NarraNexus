@@ -44,7 +44,7 @@ def test_bus_sends_count_as_delivery_tools():
     assert _handler().is_user_reply_tool("mcp__message_bus_module__bus_send_message")
     assert _handler().is_user_reply_tool("mcp__message_bus_module__bus_send_to_agent")
     assert _handler().is_user_reply_tool(
-        "mcp__chat_module__send_message_to_user_directly"
+        "mcp__chat_module__notify_owner"
     )
 
 

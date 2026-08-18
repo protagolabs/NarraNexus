@@ -37,7 +37,7 @@ def test_detects_create_with_title():
 
 
 def test_none_when_no_routing_tool():
-    resp = [_tool_pm("mcp__chat_module__send_message_to_user_directly", {"content": "hi"})]
+    resp = [_tool_pm("mcp__chat_module__notify_owner", {"content": "hi"})]
     assert _detect_narrative_routing_signal(resp) is None
     assert _detect_narrative_routing_signal([]) is None
 

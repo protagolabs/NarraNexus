@@ -19,6 +19,7 @@ Note: ChatModule itself does not include "multi-turn conversation" capability; m
 """
 
 
+import re
 from datetime import timedelta
 from typing import Optional, Any, List, Dict
 from loguru import logger
@@ -179,6 +180,13 @@ def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, 
     return out
 
 
+#: The owner-facing delivery tools. One name, two registers — see
+#: `get_expressive_tools`. Anything that classifies "did this reach the
+#: owner" must accept both; a per-surface list would be wrong on the other
+#: surface, which is how the split can quietly become a delivery bug.
+_OWNER_TOOL_RE = re.compile(r"(?:reply|notify)_owner$")
+
+
 class ChatModule(XYZBaseModule):
     """
     Chat Module - Core module for Agent-user communication
@@ -269,6 +277,10 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
+    #: Last ctx_data seen by `get_expressive_tools`, so the disallow hook
+    #: (which is not handed one) answers about the SAME turn.
+    _last_ctx: Any = None
+
     def owns_working_source(self, working_source: Any) -> bool:
         """Owner web chat originates CHAT turns (and is the origin-first
         default on turns that fall through with no declared origin owner,
@@ -276,16 +288,62 @@ class ChatModule(XYZBaseModule):
         return working_source_matches(working_source, WorkingSource.CHAT.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """The owner-chat delivery tool. On CHAT turns the origin-first
-        collection puts this first; on other turns priority 1 keeps it
-        directly after the origin module's declaration — it stays on the
-        surface everywhere because Owner Relay legitimately delivers
-        through it from non-chat turns. Derived from get_mcp_config's
-        server_name — a rename must not silently mute the agent.
-        ``ctx_data`` is accepted for the origin-aware base signature; the
-        owner-chat declaration does not vary by turn origin."""
+        """The owner-facing tool THIS turn can actually deliver through.
+
+        Exactly one of the two, never both — which is the whole reason the old
+        `send_message_to_user_directly` was split:
+
+        * an owner-chat turn gets ``reply_owner``. ``notify_owner`` would be a
+          second name for the same destination and a choice with no meaning.
+        * every other turn gets ``notify_owner``. The owner is not part of that
+          conversation, and the "default is not to use this" discipline that
+          belongs to it is then the only owner-facing rule on the desk.
+
+        Paired with ``get_disallowed_tools`` below: declaring one while both
+        schemas stay in context is how a rule ends up arguing with a tool the
+        model can still see. 615 calls to two tools documented "Do NOT call"
+        (prod, 2026-08-17) is what that argument is worth.
+        """
         config = await self.get_mcp_config()
-        return [f"mcp__{config.server_name}__send_message_to_user_directly"]
+        name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"
+        return [f"mcp__{config.server_name}__{name}"]
+
+    async def get_disallowed_tools(self) -> list[str]:
+        """Take the owner tool that does NOT apply this turn off the desk.
+
+        The declaration above only decides what the reply REMINDER names. The
+        schemas reach the model separately, so without this the agent still sees
+        both and has to pick — and the disciplines attached to the two are
+        opposites, so picking wrong is not free.
+
+        ``get_disallowed_tools`` takes no ctx_data (base signature), so the turn
+        is read from the same instance state the declaration used.
+        """
+        config = await self.get_mcp_config()
+        drop = "notify_owner" if self._is_owner_chat_turn(self._last_ctx) else "reply_owner"
+        return [f"mcp__{config.server_name}__{drop}"]
+
+    def _is_owner_chat_turn(self, ctx_data: Any) -> bool:
+        """Is the owner the one who started this turn?
+
+        Remembered on the instance because the two hooks above are called
+        separately and only one of them is handed ctx_data — a mismatch between
+        them would put both tools on the desk, or neither.
+        """
+        if ctx_data is not None:
+            self._last_ctx = ctx_data
+        ctx = ctx_data if ctx_data is not None else self._last_ctx
+        source = getattr(ctx, "working_source", None)
+        if not source:
+            # No declared origin — ChatModule's own fall-through rule (see
+            # `owns_working_source`) says that is the owner's desk. It is also
+            # the safer of the two wrong answers: guessing `notify_owner` on a
+            # real chat turn hands the agent a tool whose documented discipline
+            # is "default is not to use this", and the owner gets silence for
+            # something they just said. Guessing `reply_owner` on a non-chat
+            # turn only misses a register.
+            return True
+        return working_source_matches(source, WorkingSource.CHAT.value)
 
     def create_mcp_server(self) -> Optional[Any]:
         """
@@ -346,10 +404,10 @@ class ChatModule(XYZBaseModule):
           - the platform reply tool (tg_cli sendMessage, slack_cli
             chat.postMessage, lark_cli +messages-send/reply), which goes
             back to the IM sender;
-          - ``send_message_to_user_directly``, which surfaces in the
-            owner's chat panel for the "this is important, the owner
-            should know about it" carve-out spelled out in the iron
-            rules.
+          - the owner-facing tool (``notify_owner`` on an IM turn), which
+            surfaces in the owner's chat panel for the "this is important,
+            the owner should know about it" carve-out spelled out in the
+            iron rules.
 
         Both currently get joined into one ``assistant_content`` string,
         which means downstream consumers can't tell them apart. The
@@ -359,14 +417,15 @@ class ChatModule(XYZBaseModule):
 
         Returns ``(im_reply, direct_notify, combined)``:
           - ``im_reply``: parts that came from non-direct platform tools.
-          - ``direct_notify``: parts from ``send_message_to_user_directly``.
+          - ``direct_notify``: parts from the owner-facing tool
+            (``reply_owner`` / ``notify_owner``).
           - ``combined``: the original "\\n\\n"-joined string, preserved
             for callers (long-term memory write, log lines) that want
             the full picture.
 
-        For working_source="chat", direct_notify will hold everything
-        (the handler only matches ``send_message_to_user_directly``)
-        and im_reply will be empty — backward-compatible.
+        For working_source="chat", direct_notify holds everything (the
+        default handler matches only the two owner-facing names) and im_reply
+        is empty.
         """
         from xyz_agent_context.schema import ProgressMessage
         from xyz_agent_context.channel.message_source_handler import (
@@ -389,9 +448,14 @@ class ChatModule(XYZBaseModule):
             reply = handler.extract_owner_visible_text(tool_name, arguments)
             if not reply:
                 continue
-            # send_message_to_user_directly is the owner-notify path
-            # regardless of which channel triggered the turn.
-            if "send_message_to_user_directly" in tool_name:
+            # The owner-facing path, whichever of its two registers the turn
+            # put on the desk. `reply_owner` (owner chat) and `notify_owner`
+            # (every other surface) are one delivery split in two so the agent
+            # knows which voice it is speaking in — they are the SAME
+            # destination, so classification must accept both. Matching only
+            # one sends every owner reply on the other surface into the IM
+            # bucket, where the chat panel renders it as "Background activity".
+            if _OWNER_TOOL_RE.search(tool_name):
                 direct_parts.append(reply)
             else:
                 im_parts.append(reply)

@@ -13,7 +13,7 @@ conversational anchor:
    message hours/days later.
 
 2. `_turn_delivered_user_message` detects whether a turn delivered a
-   user-visible message (via send_message_to_user_directly / IM reply tools),
+   user-visible message (via reply_owner / IM reply tools),
    so step_4 can anchor the session even for background-trigger turns that
    messaged the user.
 
@@ -83,7 +83,7 @@ def _reply_pm(content: str) -> ProgressMessage:
         description="",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -91,7 +91,7 @@ def _reply_pm(content: str) -> ProgressMessage:
 
 def test_delivered_true_when_message_sent_even_from_job():
     pm = _reply_pm("Confirm and I'll delete all 7.")
-    # A JOB-source turn that called send_message_to_user_directly counts.
+    # A JOB-source turn that called reply_owner counts.
     assert _turn_delivered_user_message([pm], "job") is True
 
 

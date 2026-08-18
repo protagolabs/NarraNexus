@@ -21,7 +21,7 @@ from xyz_agent_context.agent_framework.adapters.claude.prompts import (
 
 TOOLS = (
     "mcp__message_bus_module__bus_send_message",
-    "mcp__chat_module__send_message_to_user_directly",
+    "mcp__chat_module__reply_owner",
 )
 
 
@@ -30,7 +30,7 @@ def test_appends_reminder_with_all_tools_in_declared_order():
     assert out.startswith("hello")
     body = out[len("hello"):]
     first = body.index("mcp__message_bus_module__bus_send_message")
-    second = body.index("mcp__chat_module__send_message_to_user_directly")
+    second = body.index("mcp__chat_module__reply_owner")
     assert first < second
 
 

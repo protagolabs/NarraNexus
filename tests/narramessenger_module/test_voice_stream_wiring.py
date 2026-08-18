@@ -64,7 +64,7 @@ async def test_speak_delta_feeds_bridge_and_nonspeak_does_not():
     )
 
     await trigger._handle_stream_event(
-        _delta(tool="mcp__chat_module__send_message_to_user_directly"),
+        _delta(tool="mcp__chat_module__notify_owner"),
         state,
         _cred(),
         "!r",

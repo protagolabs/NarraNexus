@@ -200,60 +200,71 @@ class MessageBusModule(XYZBaseModule):
     # Reply surface (origin-aware declaration)
     # =========================================================================
 
+    #: Last ctx_data seen by `get_expressive_tools` — the disallow hook is
+    #: not handed one and must answer about the SAME turn.
+    _last_ctx: Any = None
+
     def owns_working_source(self, working_source: Any) -> bool:
         """This module is the origin of MESSAGE_BUS turns — the collection
         sorts the origin module's declaration first, so the bus delivery
         tool becomes the turn's default reply tool."""
         return working_source_matches(working_source, WorkingSource.MESSAGE_BUS.value)
 
-    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """The tools that reach whoever contacted the agent on THIS turn.
+    #: The turn's ctx, remembered because `get_disallowed_tools` is called
+    #: separately and is handed none. Same seam ChatModule uses, for the same
+    #: reason: if the two hooks disagreed about which turn this is, the desk would
+    #: end up with both send verbs or neither.
+    _last_ctx: Any = None
 
-        The framework's reply reminder is rendered from this list, so a name in
-        it is a promise the tool can deliver right now. Declaring a tool that
-        does not exist, or cannot deliver on this surface, is misinformation the
-        model acts on (2026-08-01: with only the owner-chat tool declared,
-        finished work ended as undelivered plain text).
+    def _is_team_turn(self, ctx_data: Any = None) -> bool:
+        """Is this turn a team room?
 
-        One verb per surface, and the surface decides which:
-
-        * team room → ``message_team`` (the room is a tool call now; it used to
-          be the agent's plain text, which made this the one surface where "plain
-          text reaches nobody" was false — see `team_posting`);
-        * peer DM → ``message_agent``;
-        * not a bus turn → nothing. Advertising these on a chat turn invites
-          replying to the owner over the bus.
+        Reads the marker MessageBusTrigger stamps into `trigger_extra_data`
+        (`bus_team_room`), which reaches `ctx_data.extra_data`.
         """
+        if ctx_data is not None:
+            self._last_ctx = ctx_data
+        ctx = ctx_data if ctx_data is not None else self._last_ctx
+        extra = getattr(ctx, "extra_data", None) or {}
+        return bool(extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
+
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
+        """The peer/room tools this turn can deliver through.
+
+        Declared only on a bus turn — advertising them on an owner-chat turn
+        invites replying to the owner over the bus (2026-08-04). The team-room
+        carve-out that used to sit here is GONE: a team reply is now a tool call
+        like every other surface, so there is no longer a turn whose delivery
+        happens without one.
+        """
+        self._last_ctx = ctx_data
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
             return []
         config = await self.get_mcp_config()
         extra = getattr(ctx_data, "extra_data", None) or {}
-        verb = "message_team" if extra.get(BUS_TEAM_ROOM_EXTRA_KEY) else "message_agent"
-        return [f"mcp__{config.server_name}__{verb}"]
+        name = "message_team" if extra.get(BUS_TEAM_ROOM_EXTRA_KEY) else "message_agent"
+        return [f"mcp__{config.server_name}__{name}"]
 
     async def get_disallowed_tools(self) -> list[str]:
-        """Take the other send verb OFF the table, rather than arguing with it.
+        """Take the send verb that does NOT apply this turn off the desk.
 
-        Prose does not constrain: on prod, the two tools whose own docstrings
-        said "Do NOT call" were the second and fourth most-called in this family
-        — 615 calls between them. What decides whether a tool is used is whether
-        its schema is in the context, so the per-turn surface has to be made of
-        suppression, not advice.
+        The declaration above only decides what the reply REMINDER names. The
+        schemas reach the model separately, so without this the agent sees both
+        `message_agent` and `message_team` and has to choose — and the wrong
+        branch posts into the wrong conversation, which is the one mistake this
+        redesign is built to make impossible.
 
-        This is also what keeps "one reply verb per turn" true rather than
-        aspirational: with both verbs present the model has a choice it should
-        never have had, and the wrong branch posts into the wrong conversation.
+        Prose cannot do this job. On prod the two tools whose own docstrings said
+        "Do NOT call" were the second and fourth most-called in this family: 615
+        calls. What decides whether a tool is used is whether its schema is in the
+        context.
 
-        No ctx_data here — the base hook takes none, so the marker has to come
-        from the instance's turn state. Until that seam exists this suppresses
-        nothing and the declaration above is the only narrowing; the desktop
-        table in the spec (§4.5) is not fully enforced yet.
+        Takes no ctx_data (base signature), so the turn is read from the same
+        instance state the declaration used.
         """
-        return []
-
-    # =========================================================================
-    # Instructions — natural language guidance for the agent
-    # =========================================================================
+        config = await self.get_mcp_config()
+        drop = "message_agent" if self._is_team_turn() else "message_team"
+        return [f"mcp__{config.server_name}__{drop}"]
 
     def _static_instruction_parts(self) -> list:
         """The usage-rules half of the instruction — constant for a given agent,

@@ -13,7 +13,6 @@ from loguru import logger
 
 # Schema
 from xyz_agent_context.schema import (
-    BUS_TEAM_ROOM_EXTRA_KEY,
     ContextData,
     ModuleInstructions,
     ContextRuntimeOutput,
@@ -1175,14 +1174,17 @@ class ContextRuntime:
         # falling back to priority order (chat=1 first) when no module
         # owns the source. Deterministic across turns either way.
         #
-        # Team rooms are the one surface with NO delivery surface at all:
-        # the agent's plain text auto-posts to the room and the prompt
-        # forbids delivery tools. An empty declaration keeps both
-        # frameworks' reply reminders silent there — listing ANY tool
-        # (chat's unconditional owner-notify included) would put a
-        # "plain text is never delivered" reminder right next to the
-        # team prompt saying the opposite.
-        team_room_turn = bool(turn_extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
+        # Team rooms USED to be the one surface with no delivery surface at
+        # all: the agent's plain text auto-posted and the prompt forbade
+        # delivery tools, so an empty declaration was the only way to keep both
+        # frameworks' reminders from contradicting the team prompt.
+        #
+        # That exception is gone (2026-08-17). A team reply is a `message_team`
+        # call like every other surface's reply, so the general rule — "whoever
+        # contacted you receives only what you send through a reply tool" — is
+        # true everywhere again and the reminder can simply be rendered. The
+        # modules decide WHICH verb belongs on this turn; the collection no
+        # longer needs to know that team rooms exist.
         expressive_declarations: list[tuple[int, int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0
@@ -1240,14 +1242,8 @@ class ContextRuntime:
                     )
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
-                # Team rooms skip collection entirely (empty surface — see
-                # the declaration comment above).
                 try:
-                    declared = (
-                        []
-                        if team_room_turn
-                        else await inst.module.get_expressive_tools(ctx_data)
-                    )
+                    declared = await inst.module.get_expressive_tools(ctx_data)
                     if declared:
                         # Origin-first: the module that OWNS this turn's
                         # working_source sorts ahead of everyone, so the

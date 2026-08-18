@@ -50,14 +50,14 @@ def test_extracts_text_when_args_arrived_as_json_string():
     assert out == "stringified args"
 
 
-# ── send_message_to_user_directly path ─────────────────────────────────
+# ── notify_owner path ─────────────────────────────────
 
 
-def test_extracts_content_from_send_message_to_user_directly():
+def test_extracts_content_from_notify_owner():
     """Slack agents may still echo to NarraNexus UI via the generic
     chat tool; the extractor recognises it and returns ``content``."""
     out = _extract_slack_reply(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": "echo to UI"},
     )
     assert out == "echo to UI"

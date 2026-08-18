@@ -129,7 +129,7 @@ class _StubChannel:
     def list_tools(self):
         return [
             ToolSpec(
-                name="mcp__chat__send_message_to_user_directly",
+                name="mcp__chat__reply_owner",
                 description="Reply to the user.",
                 input_schema={"type": "object"},
                 annotations=ToolAnnotations(
@@ -163,7 +163,7 @@ async def test_dispatcher_routing_marker_and_filters(ctx, engine):
 
     # Marker tool short-circuits: channel never invoked.
     marker = await dispatcher.execute(
-        ToolCall(id="c1", name="mcp__chat__send_message_to_user_directly",
+        ToolCall(id="c1", name="mcp__chat__reply_owner",
                  args={"content": "hi"})
     )
     assert marker.ok and stub.calls == []
@@ -197,11 +197,11 @@ async def test_search_lines_multi_word_query_tokenizes(ctx, engine):
     # probe still surfaces each tool that matches some word.
     lines = dispatcher.search_lines("zeta reply")
     assert any("zeta_tool" in line for line in lines)
-    assert any("send_message_to_user_directly" in line for line in lines)
+    assert any("reply_owner" in line for line in lines)
 
     # ALL-token matches rank alone when they exist.
     lines = dispatcher.search_lines("reply user")
-    assert any("send_message_to_user_directly" in line for line in lines)
+    assert any("reply_owner" in line for line in lines)
     assert not any("zeta_tool" in line for line in lines)
 
 
@@ -233,7 +233,7 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
         for i in range(30)
     ]
     specs.append(ToolSpec(
-        name="mcp__chat__send_message_to_user_directly",
+        name="mcp__chat__reply_owner",
         description="Reply to the user.", input_schema={"type": "object"},
     ))
     # The hostile shape (round 4): a reply tool whose NAME shares zero
@@ -256,7 +256,7 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
 
     expressive_names = {
         "mcp__narramessenger_module__speak",
-        "mcp__chat__send_message_to_user_directly",
+        "mcp__chat__reply_owner",
     }
     dispatcher = ToolDispatcher(
         (builtin, _Chan()), policy=engine, ctx=ctx,
@@ -269,7 +269,7 @@ async def test_search_lines_any_token_fallback_is_ranked_and_capped(ctx, engine)
     # name shape by content-word scoring, the hostile `speak` shape by
     # its guaranteed expressive seat — granted through the production
     # name-list path, no annotation involved.
-    assert any("send_message_to_user_directly" in line for line in lines)
+    assert any("reply_owner" in line for line in lines)
     assert any("__speak" in line for line in lines)
     # Seats require a filter hit: an expressive tool unrelated to the
     # probe gets no free ride.

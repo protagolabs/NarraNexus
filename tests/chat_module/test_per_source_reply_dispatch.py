@@ -9,7 +9,7 @@ Validates that for each WorkingSource value, the right reply tool is
 recognised (so the row gets written as a real chat message rather than
 a lossy `(Agent decided no response needed)` activity placeholder).
 
-Pre-fix: only send_message_to_user_directly was recognised → Lark turns
+Pre-fix: only reply_owner was recognised → Lark turns
 where the agent really replied via `lark_cli +messages-send` ended up as
 `message_type=activity` with content rewritten to "Handled a message
 from X +N" — actual reply text lost at write time, the root cause of
@@ -53,16 +53,36 @@ def chat_module(db_client):
     )
 
 
+def _progress_notify_owner(content: str) -> ProgressMessage:
+    """The owner-facing tool as it appears on a NON-chat turn.
+
+    `reply_owner` and `notify_owner` are the same delivery split in two so the
+    register is unambiguous; the desk carries exactly one per turn, so a bus or
+    job turn can only ever produce THIS name. A test that emitted the chat name
+    on a bus turn would be asserting against a call the agent cannot make.
+    """
+    return ProgressMessage(
+        step="3.4.1",
+        title="Tool call",
+        description="notify_owner",
+        status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__chat_module__notify_owner",
+            "arguments": {"content": content},
+        },
+    )
+
+
 def _progress_send_message(content: str) -> ProgressMessage:
-    """Standard send_message_to_user_directly tool call. Recognised by
+    """Standard reply_owner tool call. Recognised by
     the default and Lark handlers alike."""
     return ProgressMessage(
         step="3.4.1",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -119,12 +139,12 @@ def _hook_params(
     )
 
 
-# --------- chat trigger: default handler, send_message_to_user_directly --------
+# --------- chat trigger: default handler, reply_owner --------
 
 
 @pytest.mark.asyncio
 async def test_chat_trigger_send_message_recognised_as_reply(chat_module):
-    """Baseline: chat trigger + send_message_to_user_directly → real
+    """Baseline: chat trigger + reply_owner → real
     chat row written, no activity tag."""
     reply = _progress_send_message("hello from chat trigger")
     params = _hook_params(
@@ -222,10 +242,10 @@ async def test_lark_trigger_non_send_lark_cli_does_not_count_as_reply(chat_modul
 
 @pytest.mark.asyncio
 async def test_message_bus_trigger_send_message_recognised(chat_module):
-    """message_bus trigger registered to use send_message_to_user_directly
+    """message_bus trigger registered to use notify_owner
     (the trigger prompt explicitly instructs agents to call it for Owner
     Relay). Verify a real reply is preserved, not flagged activity."""
-    reply = _progress_send_message("relay back from bus turn")
+    reply = _progress_notify_owner("relay back from bus turn")
     params = _hook_params(
         working_source=WorkingSource.MESSAGE_BUS,
         agent_loop_response=[reply],
@@ -269,10 +289,10 @@ async def test_message_bus_trigger_no_reply_writes_activity(chat_module):
 
 @pytest.mark.asyncio
 async def test_job_trigger_send_message_recognised(chat_module):
-    """Job trigger likewise uses send_message_to_user_directly (no
+    """Job trigger likewise uses notify_owner (no
     handler registered, default fallback). When a scheduled job decides
     to message the user, the reply must be persisted."""
-    reply = _progress_send_message("job finished, here's the result")
+    reply = _progress_notify_owner("job finished, here's the result")
     params = _hook_params(
         working_source=WorkingSource.JOB,
         agent_loop_response=[reply],

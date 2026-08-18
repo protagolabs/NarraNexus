@@ -119,7 +119,7 @@ class TestSilentDmTurnReachesThePerson:
 
         details = progress[0].details
         assert details["tool_name"] == "wechat_send"
-        assert "send_message_to_user_directly" not in details["tool_name"]
+        assert "notify_owner" not in details["tool_name"]
         assert details["reply_via"] == "helper_llm_no_reply_im_dm"
 
     async def test_no_text_deltas_leak_to_the_owner_panel(

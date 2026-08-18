@@ -42,7 +42,7 @@ def test_prompt_without_owner_stays_minimal():
     prompt = _trigger()._build_prompt([_msg()], owner_user_id="", i_started_this_exchange=True)
     assert "[Message Bus - Incoming Messages]" in prompt
     assert "Owner Relay" not in prompt
-    assert "send_message_to_user_directly" not in prompt
+    assert "notify_owner" not in prompt
 
 
 def test_prompt_with_owner_includes_relay_directive():
@@ -57,7 +57,7 @@ def test_prompt_with_owner_includes_relay_directive():
     # Owner ID embedded so the agent can pass it to the tool
     assert "user_tc" in prompt
     # The actual tool name the agent must invoke
-    assert "send_message_to_user_directly" in prompt
+    assert "notify_owner" in prompt
     # Peer content still present
     assert "S&P closed at 7109" in prompt
 
@@ -81,7 +81,7 @@ def test_relay_directive_covers_followup_case():
     case (b) without telling the owner the thread is alive."""
     prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc", i_started_this_exchange=True)
     assert "message_agent" in prompt  # follow-up path
-    assert "send_message_to_user_directly" in prompt  # both paths
+    assert "notify_owner" in prompt  # both paths
     # Status-update framing for case (b)
     assert "waiting" in prompt or "status" in prompt
 

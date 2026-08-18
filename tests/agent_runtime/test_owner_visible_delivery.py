@@ -49,7 +49,7 @@ def test_bus_handler_counts_bus_send_as_delivered_but_not_owner_visible():
         "mcp__message_bus_module__bus_send_message"
     )
     assert h.is_owner_visible_reply_tool(
-        "mcp__chat_module__send_message_to_user_directly"
+        "mcp__chat_module__notify_owner"
     )
 
 
@@ -70,7 +70,7 @@ def test_extract_owner_visible_text_gates_on_owner_list():
     )
     assert (
         h.extract_owner_visible_text(
-            "mcp__chat_module__send_message_to_user_directly", {"content": "hi owner"}
+            "mcp__chat_module__notify_owner", {"content": "hi owner"}
         )
         == "hi owner"
     )
@@ -90,5 +90,5 @@ def test_bus_only_delivery_does_not_count_as_user_message():
 
 
 def test_owner_relay_still_counts_as_user_message():
-    responses = [_tool_progress("mcp__chat_module__send_message_to_user_directly")]
+    responses = [_tool_progress("mcp__chat_module__notify_owner")]
     assert _turn_delivered_user_message(responses, "message_bus") is True

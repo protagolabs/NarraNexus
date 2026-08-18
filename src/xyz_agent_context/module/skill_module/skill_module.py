@@ -73,7 +73,8 @@ WORKSPACE_RULES_CLOUD = (
     "inside the skill directory.\n"
     "- **If a SKILL.md demands a global CLI / system package you can't "
     "install** (e.g. needs `brew install ...`), do NOT keep trying. Call "
-    '`send_message_to_user_directly` and tell the user: *"This skill '
+    "the owner-facing tool on your desk this turn and tell the user: "
+    '*"This skill '
     "needs a global CLI install, which this cloud deployment does not "
     "yet support. Please either pick a different skill, or run this on "
     'a local NarraNexus install."*\n'
@@ -99,14 +100,14 @@ WORKSPACE_RULES_LOCAL = (
     "`npm install -g`, `pip install`, etc. when a skill needs it. "
     "**Good practice (not strict)**: before a large global change "
     "(new binary, modifying system PATH), briefly mention to the user "
-    "via `send_message_to_user_directly` what you're about to install "
+    "tell your owner what you're about to install "
     "and where, so they know what changed on their computer.\n"
     "- **Credentials and API keys** — do BOTH of the following:\n"
     "  1. If the SKILL.md specifies where credentials live (e.g., "
     "`~/.config/foo/` or `credentials.json` inside the skill dir), save "
     "them there. If the skill is happy with a workspace-local file, "
     "prefer `skills/<skill-name>/`. **Good practice**: tell the user "
-    "via `send_message_to_user_directly` where the credential was "
+    "tell your owner where the credential was "
     "saved so they can rotate / revoke it later.\n"
     "  2. **Also** call `skill_save_config` for each key — this registers "
     "it in the system so it appears in the frontend config panel and is "
@@ -192,7 +193,7 @@ If a user sends a skill URL and asks you to learn/study it:
 ##### 6. Human Assistance
 Some skills require human intervention to activate (e.g., Twitter/X verification, \
 email confirmation, OAuth browser login). When the SKILL.md describes a step that \
-**only a human can complete**, you MUST use `send_message_to_user_directly` to:
+**only a human can complete**, you MUST use the owner-facing tool on your desk to:
 1. Clearly explain what the human needs to do (with exact URLs, steps, codes)
 2. Provide any claim tokens, verification codes, or links the human will need
 3. Wait for the human to confirm completion before proceeding

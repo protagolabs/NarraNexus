@@ -14,7 +14,7 @@ from a peer was told:
 
 For the RECIPIENT that is simply false: its owner asked for nothing. Three
 live runs confirmed the consequence — 羽书 called
-``send_message_to_user_directly`` and reported the errand discharged
+``notify_owner`` and reported the errand discharged
 ("未回复小雀 — 她是转发…按 Reply Discipline"), while 小雀, which had promised
 its user a report, waited forever. The models were obeying the prompt; the
 prompt was wrong.
@@ -113,7 +113,7 @@ def test_reply_to_our_own_errand_still_gets_owner_relay():
 
     assert "## Owner Relay — REQUIRED" in prompt
     assert "Answer the peer" not in prompt
-    assert "send_message_to_user_directly" in prompt
+    assert "notify_owner" in prompt
 
 
 def test_no_owner_means_no_directive_either_way():

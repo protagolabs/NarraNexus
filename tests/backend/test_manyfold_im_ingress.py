@@ -372,7 +372,7 @@ def _tool_event(tool_name, arguments):
 
 def test_classify_owner_chat_reply_tool_is_content():
     kind, payload = compat_mod._classify_event(
-        _tool_event("mcp__chat_module__send_message_to_user_directly", {"content": "hi"}),
+        _tool_event("mcp__chat_module__notify_owner", {"content": "hi"}),
         _DEFAULT,
     )
     assert (kind, payload) == ("content", "hi")
@@ -891,7 +891,7 @@ async def test_endpoint_schedules_after_run_with_reply(compat_app, monkeypatch):
         {
             "type": "progress",
             "details": {
-                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "tool_name": "mcp__chat_module__notify_owner",
                 "arguments": {"content": "hey"},
             },
         },

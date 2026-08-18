@@ -92,11 +92,11 @@ JOB_EXECUTION_PROMPT_TEMPLATE = """You are executing a background scheduled task
 #### Execution Context
 - **Target entity**: {related_entity_id}
 - Your Narrative, memory, and chat history are loaded for this entity
-- When you call `send_message_to_user_directly`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
+- When you call `notify_owner`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
 
 #### Important Requirements
 1. Complete all steps required for the task (search, analyze, organize, etc.)
-2. **After completing the task, you MUST use `send_message_to_user_directly` to send the final report to the user**
+2. **After completing the task, you MUST use `notify_owner` to send the final report to the user**
 3. The content sent should be the final report — do not include your thinking process
 4. The content should be complete, valuable, and clearly formatted (use Markdown)
 5. Send exactly ONE message with the final report. Do NOT send intermediate progress updates
