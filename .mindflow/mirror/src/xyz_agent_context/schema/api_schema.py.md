@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-30
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17(补)— `_StrippedText` 迁到 entity_schema
+
+本文件原来自己定义 `_strip_if_text` / `_StrippedText`。manyfold 的两个写边模型
+(`backend/routes/manyfold/agents.py`)也需要同一个行为,而它们**不能** import
+api_schema(成环),所以定义搬到 [[entity_schema]] 的 `StrippedText`,本文件深引
+并别名回 `_StrippedText`。
+
+深引不是疏忽:`xyz_agent_context.schema` 门面反过来再导出本文件的模型,本文件引
+门面就成环 —— 与本文件引 `AGENT_TEXT_MAX_LENGTH` 的方式一致,已在 import 处注明。
+
+## 2026-08-17 — Create/UpdateAgentRequest 的长度上限改为量归一后的值
+
+两个模型的 `agent_name` / `agent_description` 类型换成 `_StrippedText`
+(`Annotated[str, BeforeValidator(_strip_if_text)]`),`max_length` 不变。
+
+原来 cap 量的是**原始串**,于是 `"x"*255 + " "` 在 HTTP 侧 422、在 agent 侧
+([[_awareness_writes]] 对 strip 后判长度)通过 —— 同一个输入两条路径两个答案,
+正是这一轮在消灭的形态。归一后再量,两边验收集合一致。
+
+`None` **必须原样穿过**:更新路径上 `None`="没传这个字段"、`""`="清空这个字段",
+只有这一点区分二者,collapse 掉就没法清空描述了。`_strip_if_text` 因此只对
+`str` 动手,其余交给 pydantic 自己报错。
+
+422 的契约没动(`tests/backend/test_agent_request_length.py` 钉着四个写边模型
+统一 422,是 2026-07-23 补 #71 时立的)。本次给它补了三条:尾随空白不该把合法值
+顶过上限、真超长 strip 完仍拒、`None` 不被变成 `""`。
+
+> 走过一次弯路:先把 `UpdateAgentRequest` 的 `max_length` 摘了、改在路由里判,
+> 结果打破了那条四模型统一的契约(Update 变成 200+success=false 而 Create 仍 422),
+> 被上面那个测试当场抓住。BeforeValidator 才是既保 422 又对齐两条写路径的解。
 
 ## 2026-07-30 — Cost*/EventLogMeta 加缓存两桶字段
 

@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18(补)— 空名兜底,五条创建路径就此闭环
+
+`final_name = final_name or "Imported Agent"`,放在 dedupe **之后**。
+
+本文件是五条创建路径里最后一条还能把**空名**存进库的:auth 路由回退
+`"New Agent"`、[[applier.py]] 回退 `"Imported Agent"`、两条 `create_agent` 腿直接拒,
+而这里归一出 `""` 之后没有兜底,`dedupe_name` 无冲突时原样返回就落库了。
+bundle 是用户上传的 zip,`agent.json` 里名字为空或纯空格是很正常的输入;
+存成空名的 agent 在侧栏、peer 名录里都只能显示裸 `agent_id`。
+
+**放在 dedupe 之后**:放之前,每一个空名 bundle 都会去和库里已有的
+`"Imported Agent"` 撞名、被加 `" (n)"` 后缀;放之后同名重复是允许的
+(`agent_name` 无 UNIQUE,上面的注释已说明)。
+
+测试:`tests/bundle/test_agent_field_normalization.py`
+`test_an_empty_bundle_name_gets_the_import_fallback`,用「删掉这行再跑」验证过会红。
+
 ## 2026-08-18 五审 — manifest 的 `agents` 一并收口
 
 四审给 `archive_ref` 加了闸，但 `manifest["agents"]` 的每一项同样会变成
@@ -94,6 +111,38 @@ full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉�
 > 这个缺陷藏了这么久的直接原因是 `skill_backup.py` 那个宽
 > `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
 > 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
+
+## 2026-08-17(补)— dedupe 之后要**重新归一**,不只是重新 clamp
+
+原来的注释论证了「clamp 必须在 dedupe 之后再来一次,因为 ` (n)` 自己没有长度预算」
+—— 同一个论证对**归一**同样成立,当时只做了 clamp。`dedupe_name` 在候选名为空串时
+返回 `" (1)"`,**带前导空格**,而这个值不再经过任何归一就进了 `_ins`,于是成了本 PR
+之后唯一还能产出未归一 `agents` 行的路径(命中很窄:bundle 里名字为空/纯空格,且
+该 owner 名下已有一行空名 —— 现实中只能由上一次同样的导入产生)。
+
+现在是 `_clamp_agent_text(normalize_agent_text(deduped_name))`。顺序契约完整表述:
+**归一在 dedupe 前**(否则带空白的名字匹配不上库里已归一的同名行,该去重的没去重),
+**dedupe 后归一 + clamp 各再来一次**(` (n)` 既没有长度预算也没有空白预算)。
+
+测试:`tests/bundle/test_agent_field_normalization.py`(5 条)。其中区分「归一在
+dedupe 前」与「在后」的**只有一条输入**:库里已有归一的同名行 + bundle 带空白的同名,
+断言最终值是 `小绿 (1)`。注意 `agents_renamed == 1` **不是**判别式 —— 错误顺序下
+它也为真(post-dedupe 归一让 `final_name != clamped_name`),测试里就地注明了。
+两条都用「移动那行代码再跑」验证过确实会红。
+
+## 2026-08-17 — 导入的 agent 名字/描述先归一,再 dedupe、再 clamp
+
+`_ins("agents", …)` 是绕过 [[agent_repository]] 的直写,所以归一必须在这里自己做:
+库里存着 `" 小绿 "` 的行**永远改不了名** —— 改名路径([[auth.py]])比较归一后的值,
+owner 存去掉空白的同名会被判「已相等」,一次写都不发而接口答成功。
+装一个名字带空白的 bundle 就会落下这样一行(team marketplace 安装走同一条路)。
+
+**顺序是三步,不能换**:`normalize_agent_text` → `dedupe_name` → `_clamp_agent_text`。
+
+- 归一在 dedupe **之前**:带空白的名字不会与库里已归一的同名行匹配上,
+  该去重的没去重。
+- clamp 仍在 dedupe **之后**再来一次(原有理由不变):`dedupe_name` 追加的
+  " (n)" 自己没有长度预算,255 + " (1)" = 259 会重新越过上限。
 
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 

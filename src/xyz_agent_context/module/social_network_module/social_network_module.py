@@ -23,6 +23,7 @@ from xyz_agent_context.module import XYZBaseModule, mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
+    AGENT_TEXT_MAX_LENGTH,
     ModuleConfig,
     MCPServerConfig,
     ContextData,
@@ -98,6 +99,67 @@ def format_stats_result(sort_by: str, stats: list) -> dict:
 # threaded through as an input (not generated independently on each path), which
 # is what makes create-with-a-random-id parity-able at all.
 CREATE_AGENT_NO_OWNER_MSG = "Cannot determine your owner (created_by). Aborting."
+
+# A nameless agent renders its raw agent_id in every surface, and a
+# whitespace-only one renders as blank — less identifiable still. The rename
+# paths (update_agent_profile and PUT /api/auth/agents) both refuse this
+# already; creation used to accept it, which meant the same value was legal to
+# create and illegal to change to. Shared between the two create paths for the
+# same byte-parity reason as the message above.
+CREATE_AGENT_EMPTY_NAME_MSG = "agent_name cannot be empty. Aborting."
+
+# Over-length is refused by BOTH legs with this one string, for the same reason
+# the empty-name message is shared — and specifically NOT by a `max_length` on
+# the route's body model. A model-level cap makes the HTTP leg answer 422 before
+# the handler runs, so the caller gets a transport-level string ("invalid
+# arguments…") while the DirectStore leg answers with the pydantic message
+# `Agent(...)` raises inside add_agent. Same tool call, two answers, and the
+# cloud one carries no number the model could correct itself with.
+CREATE_AGENT_TEXT_TOO_LONG_MSG = (
+    f"agent_name and agent_description must each be at most "
+    f"{AGENT_TEXT_MAX_LENGTH} characters. Aborting."
+)
+
+
+def create_agent_text_reject(
+    agent_name: str, agent_description: str
+) -> Optional[str]:
+    """The refusal rule for create_agent's text arguments, in one place.
+
+    Returns the sentence to hand back, or None to proceed. Takes ALREADY
+    NORMALIZED values — normalization stays with the caller, which needs the
+    normalized strings afterwards for the write, the echo and the log.
+
+    A string, not a response dict: the route answers under an ``error`` key and
+    DirectStore under ``message`` (folded back by the seam's
+    ``_write_message_key``), so the shape belongs to each leg and only the
+    wording is shared.
+
+    THE ORDER IS PART OF THE RULE and therefore lives here, not in the callers:
+    empty before length, or `" " * 300` gets refused as over-long — consistent
+    between the legs, and wrong. Sharing the two message constants but writing
+    this sequence twice is how the legs drifted in the first place; every future
+    create-agent check belongs in this function, not in a caller.
+    """
+    if not agent_name:
+        return CREATE_AGENT_EMPTY_NAME_MSG
+    if (
+        len(agent_name) > AGENT_TEXT_MAX_LENGTH
+        or len(agent_description) > AGENT_TEXT_MAX_LENGTH
+    ):
+        return CREATE_AGENT_TEXT_TOO_LONG_MSG
+    return None
+
+
+def default_created_by_description(author: str) -> str:
+    """The description an agent-created agent gets when none was supplied.
+
+    Clamped rather than refused: this string is ours, not the caller's, and it
+    is the one value on the path assembled AFTER the checks above (17 chars plus
+    a creator name that may itself sit near the ceiling). Refusing a value the
+    caller never typed cannot be explained to them.
+    """
+    return f"Agent created by {author}"[:AGENT_TEXT_MAX_LENGTH]
 
 
 def format_create_agent_success(agent_name: str, new_agent_id: str, warnings: list | None = None) -> dict:
