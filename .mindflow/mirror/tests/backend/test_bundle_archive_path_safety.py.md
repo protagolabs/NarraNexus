@@ -33,6 +33,11 @@ stub: false
 - happy path 落在 `{root}/{user_id}/{name}.zip`，且 DB 记的是**解析后**的
   路径而不是原始客户端串。
 - 超过 `max_upload_bytes` → 400，且不落盘。
+- **上传的字节必须真的是 zip，且不能是炸弹**（2026-08-18 新增）：假 zip 头、纯文本、空文件
+  三种 → 400 且文案含 "zip"，磁盘和 DB 都不留痕。配一条断言校验**顺序**：
+  超大 + 非 zip 同时成立时报的是"太大了"，因为那条更可操作。
+  注意本文件的 `_upload` 现在默认发**真 zip**（`_zip_bytes()`）——原来用
+  `b"PK\x03\x04payload"` 冒充，正是被修掉的那个洞让它当时能绿。
 - `/export`：请求体里带 `archive_path` / `manual_zip_path` 时，进 builder 的
   `skill_methods` 条目里**不含**这两个 key，且整条 repr 里不出现那个路径。
 
@@ -48,3 +53,18 @@ stub: false
   `{"warnings": [...], "manifest": {"integrity_sha256": ..., "info": [...]}}`
   —— route 拿这些拼 `X-Bundle-*` 响应头，少一个 key 就是 500，很容易误读
   成"路由挂了"。
+
+## 2026-08-18 二审 — 压缩炸弹用例为什么这么写
+
+`test_upload_rejects_a_decompression_bomb_without_decompressing_it` 断言两件
+事：包被拒 **且整个请求没有解压过任何一个成员**。第二件靠"给
+`ZipFile.open` 打一个会炸的替身"来保证，不是靠计时——测试规模的 payload 解压
+只要几十毫秒，计时断言根本抓不住回归，而回归恰恰会在那个规模发生。
+
+⚠️ **payload 必须先造好再装替身**：`writestr` 内部就是走 `ZipFile.open`，先装
+替身会炸在自己的夹具上（第一版就是这么红的）。
+
+`test_upload_admits_a_crc_corrupt_archive_on_purpose` 是**故意记录一个缺口**：
+中央目录完好、数据段损坏的包会被放行，因为验 CRC 就得解压。哪天有人要加 CRC
+校验，应该是**明确地**改掉这条用例，而不是让它悄悄变绿/变红。
+

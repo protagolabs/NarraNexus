@@ -19,7 +19,7 @@ from loguru import logger
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.repository import SkillArchiveRepository
-from .security import bytes_sha256, file_sha256
+from .security import bytes_sha256, file_sha256, validate_skill_archive_path
 from .skill_secrets import dir_is_builtin as _dir_is_builtin
 from xyz_agent_context.utils.file_safety import (
     ensure_within_directory,
@@ -263,14 +263,13 @@ async def archive_local_zip(
     if not src.exists() or not src.is_file():
         raise ValueError(f"file not found: {src}")
 
-    # Verify SKILL.md inside
-    try:
-        with zipfile.ZipFile(src, "r") as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith("skill.md")]
-            if not names:
-                raise ValueError("zip does not contain SKILL.md")
-    except zipfile.BadZipFile:
-        raise ValueError("Not a valid zip file")
+    # Same admission rules as the upload route — `skill_archives` has two write
+    # entry points and they used to disagree about what a valid archive is.
+    # This one additionally demands SKILL.md: the caller hands us a path inside
+    # its own workspace, so "you pointed at the wrong file" is the likely error
+    # and is worth saying immediately. The route stays lenient by design (see
+    # `_validate_skill_archive`).
+    validate_skill_archive_path(src, require_skill_md=True)
 
     out_path = prepare_archive_target(user_id, skill_name)
     shutil.copy2(src, out_path)

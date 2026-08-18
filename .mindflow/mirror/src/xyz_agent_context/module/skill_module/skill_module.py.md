@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-08-13
+last_verified: 2026-08-18
 ---
+
+## 2026-08-18 — `_extract_zip_safely` 的两个上限改读 [[file_safety.py]]
+
+原先是函数内两个字面量（500 / 100MB）。它们和 bundle 侧的归档准入闸
+（[[security.py]]）必须一致——门口按一个数收、安装时按另一个数拒，就是"A 接口
+收下、B 接口失败"。现在两边读同一个常量，且是模块属性、调用时解析。
+本文件行为不变。
 
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
 

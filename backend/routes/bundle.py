@@ -12,7 +12,7 @@ Subproject 2 endpoints (under /api/bundle):
 - GET  /skills/archives           List skill archives for current user
 """
 
-import io
+import asyncio
 import json
 import os
 import shutil
@@ -30,7 +30,11 @@ from pydantic import BaseModel
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
-from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
+from xyz_agent_context.bundle.security import (
+    MAX_BUNDLE_BYTES,
+    file_sha256,
+    validate_skill_archive_bytes,
+)
 from xyz_agent_context.bundle.skill_backup import archive_target, ensure_archive_dir
 from xyz_agent_context.repository import SkillArchiveRepository
 from xyz_agent_context.utils.file_safety import enforce_max_bytes
@@ -626,11 +630,32 @@ async def upload_archive(
         raise HTTPException(status_code=400, detail="file required for zip")
     contents = await file.read()
     try:
+        # Size first: it is the cheap check, and "too big" is the more
+        # actionable message when both would fire.
         enforce_max_bytes(
             len(contents),
             backend_settings.max_upload_bytes,
             label="Skill archive",
         )
+        # Then: are these bytes a usable skill archive? Accepting anything here
+        # used to push the failure one endpoint away — `/export` opened the
+        # archive in `scan_zip_for_sensitive`, raised `BadZipFile`, and returned
+        # a 500 naming neither the skill nor the file. The installer
+        # (`skill_module._extract_zip_safely`) has enforced entry/size caps all
+        # along; this admission point had nothing.
+        #
+        # Metadata only — it must never decompress. See
+        # `security._validate_skill_archive` for why (a 50 MB upload deflates to
+        # ~50 GB).
+        #
+        # Still off the event loop: parsing the central directory is itself
+        # O(entries), and `ZipFile()` materialises every `ZipInfo` BEFORE our
+        # entry cap can reject them. Measured: a 33 MB upload declaring 400k
+        # empty members costs 655 ms of pure sync CPU. That is 1-2 orders of
+        # magnitude below the decompression bomb it replaced, but it is the same
+        # failure mode — one user's request stalling everyone else's frames — so
+        # it belongs in a thread regardless of how cheap the check "should" be.
+        await asyncio.to_thread(validate_skill_archive_bytes, contents)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -4,6 +4,42 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 五审 — manifest 的 `agents` 一并收口
+
+四审给 `archive_ref` 加了闸，但 `manifest["agents"]` 的每一项同样会变成
+`work_dir/agents/{aid}/agent.json` / `.../channel_credentials.json` 的路径段，
+仍然裸着——**同一份 manifest、同一类字符串，只收了一个字段**，正是四审刚写下
+的"逐字段补闸"教训的又一次现场。
+
+现在闸在 **manifest 入口**（preflight 读完 manifest、任何人用它拼路径之前），
+每一项过 `sanitize_filename`，不合格 **整份 bundle 拒掉**。
+
+拒整份而不是跳过该 agent 是有意的：`aid` 同时是 `id_map` 的键、也出现在 summary
+里，过滤一半会让 id_map 与 per-agent 写入对不上（`id_map[old_aid]` 直接
+KeyError）。legacy bundle 的 agent id 形状不保证是 `agent_*`，所以判据用
+`sanitize_filename`（单段 / 无分隔符 / 非 `..`），不是前缀断言。
+
+最现实的命中面不是宿主机随机路径，而是**另一个用户同时在做导入**时的
+`bundle_preflight/nx-import-*`（前缀固定，只有 mkdtemp 后缀要猜）。
+
+## 2026-08-18 四审 — `archive_ref` 也是不受信字符串
+
+`zip_path = work_dir / archive_ref` 两处（zip / full_copy 分支）。`archive_ref`
+来自**被导入 bundle 的 manifest**，即由 bundle 作者完全控制，却被原样 join。
+`"../../../root/.nexusagent/.../x.zip"` 让导入流程读 work_dir 之外的文件，zip
+分支随后把它 `copy2` 进导入者自己的 `skill_archives` 并装成 skill——之后这个用
+户导出时，这份"战利品"会正常随包走出去。
+
+这是导出侧 `skill_dir` 的**镜像面**：同一个 bug 类，只是不受信字符串来自
+manifest 而不是请求体。收进 `_bundle_member_path(work_dir, archive_ref)`：
+`validate_zip_member_path` 校验段序列 → resolve 后判前缀 → 不安全返回 `None`。
+返回 `None` 而不是抛：调用方本来就把 `None` 当"包里没有这个归档"处理、记进
+`skill_install_failures`，形状不变。
+
+⚠️ 用 `validate_zip_member_path` 而**不是** `ensure_within_directory`：合法
+`archive_ref` 是多段路径（`skills/{agent_id}/{name}-full.zip`），后者只接单段，
+直接套会把所有正常 bundle 打死。
+
 ## 2026-08-17 — SEC-07：manifest 里的 `skill_name` 也是不可信输入
 
 skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和

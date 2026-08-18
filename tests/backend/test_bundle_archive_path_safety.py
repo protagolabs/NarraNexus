@@ -22,6 +22,8 @@ Two attack surfaces, both "user-supplied string used in path composition":
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -74,11 +76,21 @@ def client(monkeypatch):
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _upload(client, skill_name: str, content: bytes = b"PK\x03\x04payload"):
+def _zip_bytes(name: str = "SKILL.md", body: str = "---\nname: x\n---\n") -> bytes:
+    """A REAL zip. The archive routes now verify the bytes really are one, so
+    `b"PK\\x03\\x04..."` stand-ins no longer stand in."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(name, body)
+    return buf.getvalue()
+
+
+def _upload(client, skill_name: str, content: bytes | None = None):
     return client.post(
         "/api/bundle/skills/archives/upload",
         data={"skill_name": skill_name, "source_type": "zip"},
-        files={"file": ("whatever.zip", content, "application/zip")},
+        files={"file": ("whatever.zip", content if content is not None else _zip_bytes(),
+                        "application/zip")},
     )
 
 
@@ -149,12 +161,136 @@ def test_oversize_rejection_creates_no_directory(client, archives_root, monkeypa
     assert not archives_root.exists(), "an oversize upload created the archives tree"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"PK\x03\x04not-really-a-zip",   # right magic bytes, garbage after
+        b"just some text",               # no magic at all
+        b"",                             # empty upload
+    ],
+)
+def test_upload_rejects_bytes_that_are_not_a_zip(client, archives_root, content):
+    """A corrupt archive used to be accepted here (200) and only blow up later in
+    /export as a 500 out of `scan_zip_for_sensitive` — a user-controlled bad
+    input surfacing as a server error on a different endpoint, one endpoint
+    removed from the cause. Reject it at the door, like skills.py does."""
+    r = _upload(client, "legit-skill", content=content)
+    assert r.status_code == 400, r.text
+    assert "zip" in r.json()["detail"].lower()
+    assert not archives_root.exists(), "a rejected upload created the archives tree"
+    assert _FakeRepo.calls == [], "a rejected upload still wrote a DB row"
+
+
+def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
+    client, archives_root, monkeypatch
+):
+    """The declared-size gate, and the reason it is declared-size and not CRC.
+
+    `testzip()` (the first version of this check) decompresses everything to
+    verify CRCs: 199 KB of deflate expands to 200 MB, so a 50 MB upload — well
+    within `max_upload_bytes` — reaches ~50 GB, synchronously, on the event
+    loop, stalling every other user (binding rule #16).
+
+    So this asserts two things: the bomb is refused, AND the request never
+    decompressed a single entry. The second half is enforced directly by
+    exploding if anything opens an entry — a timing assertion would not catch a
+    regression at a test-sized payload, which is exactly when it would be
+    reintroduced.
+    """
+    # Patch the single source of truth. If the gate ever goes back to a
+    # `from … import MAX_…` copy, this stops taking effect and the test fails —
+    # which is how that copy got caught in the first place.
+    from xyz_agent_context.utils import file_safety
+
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+
+    # Build the payload BEFORE arming the tripwire: `writestr` itself goes
+    # through `ZipFile.open`, so patching first would trip on our own fixture.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))  # 4 MB, still 4x the patched cap
+    bomb = buf.getvalue()
+    assert len(bomb) < 1024 * 1024, "payload should be tiny compressed"
+
+    def _boom(self, *a, **kw):
+        raise AssertionError(
+            "the admission gate decompressed an entry — it must read the "
+            "central directory only"
+        )
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", _boom)
+
+    r = _upload(client, "legit-skill", content=bomb)
+    assert r.status_code == 400, r.text
+    assert "unpacks to" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_rejects_too_many_entries(client, archives_root, monkeypatch):
+    from xyz_agent_context.utils import file_safety
+
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in range(20):
+            z.writestr(f"f{i}.txt", "x")
+    r = _upload(client, "legit-skill", content=buf.getvalue())
+    assert r.status_code == 400
+    assert "too many entries" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_rejects_an_encrypted_archive(client, archives_root):
+    """An encrypted zip can never be installed. Say so now — with the password
+    hint — instead of letting it fail on the far side of an import. Detected
+    from the general-purpose flag bit, i.e. still metadata only."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SKILL.md", "---\nname: x\n---\n")
+    raw = bytearray(buf.getvalue())
+    raw[6] |= 0x01                       # local header flag
+    idx = raw.find(b"PK\x01\x02")
+    raw[idx + 8] |= 0x01                 # central directory flag
+    r = _upload(client, "legit-skill", content=bytes(raw))
+    assert r.status_code == 400
+    assert "encrypted" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_admits_a_crc_corrupt_archive_on_purpose(client, archives_root):
+    """Documents a deliberate gap: the gate reads the central directory only,
+    so an archive with intact metadata and a corrupt data section is stored.
+    Verifying CRC means decompressing — see the bomb test. That failure is
+    caught per-skill on the importer instead. If someone later adds a CRC pass,
+    this test should be updated *deliberately*, not silently."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SKILL.md", "---\nname: x\n---\n" + "payload" * 50)
+    raw = bytearray(buf.getvalue())
+    raw[60] ^= 0xFF                      # corrupt the data section only
+    r = _upload(client, "legit-skill", content=bytes(raw))
+    assert r.status_code == 200, r.text
+
+
+def test_upload_size_limit_is_checked_before_zip_validity(client, archives_root, monkeypatch):
+    """An oversized payload should say so, not complain about zip structure —
+    the cheap check runs first and gives the actionable message."""
+    from backend.config import settings as backend_settings
+
+    monkeypatch.setattr(backend_settings, "max_upload_bytes", 16)
+    r = _upload(client, "legit-skill", content=b"x" * 64)
+    assert r.status_code == 400
+    assert "maximum size" in r.json()["detail"].lower()
+    assert not (archives_root / "victim_neighbour" / "legit-skill.zip").exists()
+
+
 def test_upload_happy_path_lands_inside_the_user_directory(client, archives_root):
-    r = _upload(client, "legit-skill")
+    payload = _zip_bytes()
+    r = _upload(client, "legit-skill", content=payload)
     assert r.status_code == 200, r.text
     target = archives_root / "victim_neighbour" / "legit-skill.zip"
     assert target.exists(), f"archive not at {target}"
-    assert target.read_bytes() == b"PK\x03\x04payload"
+    assert target.read_bytes() == payload, "stored bytes must be the upload, verbatim"
     # DB row must record the resolved path, not the raw client string.
     assert len(_FakeRepo.calls) == 1
     assert _FakeRepo.calls[0]["archive_path"] == str(target)
@@ -173,16 +309,6 @@ def test_upload_github_mode_also_validates_skill_name(client, archives_root):
     )
     assert r.status_code == 400
     assert _FakeRepo.calls == []
-
-
-def test_upload_enforces_the_max_upload_size(client, archives_root, monkeypatch):
-    from backend.config import settings as backend_settings
-
-    monkeypatch.setattr(backend_settings, "max_upload_bytes", 16)
-    r = _upload(client, "legit-skill", content=b"x" * 64)
-    assert r.status_code == 400
-    assert "maximum size" in r.json()["detail"].lower()
-    assert not (archives_root / "victim_neighbour" / "legit-skill.zip").exists()
 
 
 # ─── 2. export: client-supplied archive paths must not be trusted ───────────

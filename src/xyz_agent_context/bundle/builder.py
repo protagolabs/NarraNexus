@@ -33,6 +33,7 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 )
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.file_safety import ensure_within_directory, sanitize_filename
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
     bytes_sha256,
@@ -720,14 +721,19 @@ async def build_bundle(
         # one archive_ref is enough; per-agent bundle entries still each
         # point to it. Full-copy is always per-agent (different .skill_meta).
         copied_zip_ref: Dict[str, str] = {}  # skill_name → archive_ref already copied
+        packed_zip_names: Set[str] = set()  # in-bundle zip filenames already used
 
         # SEC-07: server-side archive resolution. Load THIS user's archive rows
         # once, and key the zip-method lookup off them — the export request no
         # longer carries a path for us to open.
         from xyz_agent_context.repository import SkillArchiveRepository
 
-        archive_paths_by_skill: Dict[str, str] = {
-            a.skill_name: a.archive_path
+        # Keep `source_type` alongside the path: a github-installed skill's
+        # archive is a real `.tar.gz`, and telling that user "your archive is
+        # not a readable zip" would send them off to re-upload a file that is
+        # perfectly fine. The actual mistake there is method vs source_type.
+        archive_rows_by_skill: Dict[str, tuple[str, Optional[str]]] = {
+            a.skill_name: (a.archive_path, a.source_type)
             for a in await SkillArchiveRepository(db).list_for_user(user_id)
             if a.archive_path
         }
@@ -739,10 +745,45 @@ async def build_bundle(
             # skills/ folder. SKILL.md frontmatter `name` can duplicate across
             # multiple dirs under one agent (user installed the same skill twice
             # into different folders), so we need the dir name to disambiguate.
-            skill_dir = cfg.get("skill_dir") or skill_name
+            #
+            # SEC-07, third field: this arrives in the export request body and is
+            # used to decide which directory to READ (`_find_skill_dir`, the
+            # built-in guard below, the full_copy branch) and which file to
+            # WRITE. `skill_dir="../../.."` resolved to `base_working_path`
+            # itself — every user's every agent workspace — and full_copy zipped
+            # that whole tree into the requester's download. Cross-tenant read,
+            # strictly worse than the single-file read SEC-07 closed.
+            #
+            # Validated HERE, at the one place it is derived, and not in the
+            # branches: a per-branch gate is what let full_copy stay open while
+            # zip was fixed. Everything downstream (built-in guard,
+            # `_safe_bundle_zip_name`, `_find_skill_dir`, the manifest entry)
+            # now sees the sanitized value, so export and import agree on what
+            # this string means.
+            #
+            # Note this gate applies to ALL methods, including `url` / `builtin`
+            # which never touch the filesystem with it. That is intentional, not
+            # an oversight: `entry["skill_dir"]` goes into the manifest and the
+            # importer uses it as a directory name, so a value we would refuse
+            # to write must not be shipped either. The visible cost is narrow —
+            # a skill whose SKILL.md frontmatter `name` contains a separator,
+            # exported by url with no explicit skill_dir, is now skipped with a
+            # warning instead of silently exported.
+            raw_skill_dir = cfg.get("skill_dir") or skill_name
             method = cfg.get("install_method")
             if not agent_id or agent_id not in closure_set:
                 warnings.append(f"skill {skill_name}: agent {agent_id} not in closure, skipping")
+                continue
+            try:
+                skill_dir = sanitize_filename(raw_skill_dir or "", label="skill dir")
+            except ValueError as e:
+                warnings.append(
+                    f"skill {skill_name} on {agent_id}: unusable skill_dir ({e}), skipping"
+                )
+                logger.warning(
+                    f"rejected skill_dir for user={user_id} skill={skill_name}: "
+                    f"{raw_skill_dir!r} ({e})"
+                )
                 continue
             # Server-side built-in guard. The workspace-tar path already strips
             # built-in skills via `_builtin_skill_relpaths`, but this explicit
@@ -779,7 +820,7 @@ async def build_bundle(
                 # the host exportable. Same stance as the built-in guard
                 # above: the client picks the *method*, the server resolves
                 # the *bytes*.
-                src_zip = archive_paths_by_skill.get(skill_name)
+                src_zip, src_type = archive_rows_by_skill.get(skill_name, (None, None))
                 if not src_zip or not Path(src_zip).exists():
                     warnings.append(f"skill {skill_name} on {agent_id}: zip not found, skipping")
                     continue
@@ -813,21 +854,53 @@ async def build_bundle(
                     entry["archive_ref"] = copied_zip_ref[cache_key]
                     entry["sha256"] = "shared"
                 else:
-                    hits = scan_zip_for_sensitive(Path(src_zip))
+                    # `skill_dir` was sanitized where it was derived, so this is
+                    # only about picking a unique name (and re-anchoring, as
+                    # depth).
+                    tgt_zip = _safe_bundle_zip_name(
+                        skills_dir, skill_dir, taken=packed_zip_names
+                    )
+                    # Everything that touches the source archive lives in this
+                    # try. One unreadable or unreadable-mid-copy file must not
+                    # fail the whole export — the caller loses this skill and is
+                    # told which one, same as "zip not found" above. Before this,
+                    # `BadZipFile` escaped to the route as a 500 naming neither
+                    # skill nor file. Scoping the guard to the scan alone would
+                    # leave `copy2` / `file_sha256` (same file, later) able to
+                    # take the export down the moment anything shifts between
+                    # the two.
+                    try:
+                        hits = scan_zip_for_sensitive(Path(src_zip))
+                        await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
+                        sha = await asyncio.to_thread(file_sha256, tgt_zip)
+                    except (zipfile.BadZipFile, OSError) as e:
+                        # Drop a half-written tgt_zip so the manifest can never
+                        # reference a truncated archive_ref.
+                        tgt_zip.unlink(missing_ok=True)
+                        # Only blame the source type when the file itself is the
+                        # thing that failed to parse. An OSError here means I/O
+                        # died mid-copy, and telling that user "your archive is a
+                        # github source" would be the same misdirection this
+                        # branch was added to remove, pointing the other way.
+                        if isinstance(e, zipfile.BadZipFile) and src_type and src_type != "zip":
+                            detail = (
+                                f"archive is a {src_type} source, not a zip — "
+                                f"export it with install_method='url' instead"
+                            )
+                        else:
+                            detail = f"archive is not a readable zip ({e})"
+                        warnings.append(f"skill {skill_name} on {agent_id}: {detail}, skipping")
+                        logger.warning(
+                            f"unusable skill archive for user={user_id} "
+                            f"skill={skill_name} source_type={src_type}: {src_zip} ({e})"
+                        )
+                        continue
                     if hits:
                         zip_secrets_warnings.append({"skill": skill_name, "hits": hits})
-                    # Use dir-based filename to disambiguate same-named-different-dir
-                    # zips packed in the same bundle.
-                    tgt_zip = skills_dir / f"{skill_dir}.zip"
-                    if tgt_zip.exists():
-                        # Defensive: another (different agent) entry already
-                        # wrote a zip with this dir name. Append agent suffix.
-                        tgt_zip = skills_dir / f"{skill_dir}__{agent_id}.zip"
-                    await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
                     archive_ref = f"skills/{tgt_zip.name}"
                     copied_zip_ref[cache_key] = archive_ref
                     entry["archive_ref"] = archive_ref
-                    entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
+                    entry["sha256"] = sha
             elif method == "full_copy":
                 # Per-agent: pack THIS specific agent's skill dir
                 src_dir = await _find_skill_dir({agent_id}, user_id, skill_name, skill_dir)
@@ -837,16 +910,40 @@ async def build_bundle(
                 # Use per-agent + dir-name path inside bundle so duplicate-named
                 # skills under the same agent don't collide.
                 per_agent_dir = skills_dir / agent_id
-                per_agent_dir.mkdir(parents=True, exist_ok=True)
+                # Path computation only — needs no directory to exist, and must
+                # stay outside the try because the except below unlinks it.
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
-                await asyncio.to_thread(
-                    _zip_dir,
-                    src_dir,
-                    tgt_zip,
-                    not selection.include_skill_secrets,
-                )
+                # Same degrade contract as the zip branch above — this PR's whole
+                # claim is "one bad skill must not fail the whole export", and it
+                # was only true on that side. `_zip_dir` walks the entire skill
+                # directory: one unreadable file (permissions, deleted
+                # concurrently, dangling symlink), a full disk, or a non-UTF-8
+                # `.skill_meta.json` (it is read as text) all reached the route's
+                # `except Exception` and became a 500 that named neither the
+                # skill nor the file — the exact shape this PR opened with.
+                try:
+                    per_agent_dir.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(
+                        _zip_dir,
+                        src_dir,
+                        tgt_zip,
+                        not selection.include_skill_secrets,
+                    )
+                    full_sha = await asyncio.to_thread(file_sha256, tgt_zip)
+                except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as e:
+                    # Deliberately not `except Exception`: SensitiveZipDetected
+                    # and friends are control flow and must keep propagating.
+                    tgt_zip.unlink(missing_ok=True)
+                    warnings.append(
+                        f"skill {skill_name} on {agent_id}: full_copy failed ({e}), skipping"
+                    )
+                    logger.warning(
+                        f"full_copy pack failed for user={user_id} "
+                        f"skill={skill_name} dir={src_dir}: {e}"
+                    )
+                    continue
                 entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
-                entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
+                entry["sha256"] = full_sha
             elif method == "builtin":
                 pass
             elif method == "skip" or method is None:
@@ -1076,6 +1173,54 @@ async def build_bundle(
         "warnings": warnings,
         "output_path": str(output_path),
     }
+
+
+def _safe_bundle_zip_name(
+    skills_dir: Path,
+    skill_dir: str,
+    *,
+    taken: Set[str],
+) -> Path:
+    """Pick a unique in-bundle filename for a skill's zip, and claim it.
+
+    `skill_dir` is already sanitized at its single derivation point in
+    `build_bundle` — the `ensure_within_directory` call here is depth, not the
+    primary gate, so that a future caller that forgets cannot escape silently.
+
+    Uniqueness matters because the old `{dir}.zip` → `{dir}__{agent_id}.zip`
+    fallback only disambiguated *different agents*. Two `skill_name`s sharing
+    one `skill_dir` on the SAME agent both landed on `{dir}__{agent}.zip`: the
+    second copy overwrote the first (whose manifest sha256 then described the
+    wrong bytes), and on failure the cleanup deleted it outright.
+
+    The name is added to `taken` here rather than by the caller: the whole point
+    of this function is "the name is unique", and half an invariant maintained
+    by whoever remembers to call `.add()` is not that.
+
+    Note the scope: uniqueness holds *inside the bundle*. The importer pins the
+    install directory by `skill_dir` (`importer.py`), so two skills sharing one
+    `skill_dir` still merge into one `skills/{dir}/` on the receiving side.
+
+    Args:
+        skills_dir: Staging dir inside the bundle; the result stays under it.
+        skill_dir: Sanitized directory name.
+        taken: Names already used in this bundle; mutated here.
+
+    Returns:
+        A path inside `skills_dir` whose name was not in `taken`.
+
+    Raises:
+        ValueError: If the name is not a usable single path segment.
+    """
+    candidate = ensure_within_directory(skills_dir, f"{skill_dir}.zip", label="skill dir")
+    n = 1
+    while candidate.name in taken or candidate.exists():
+        candidate = ensure_within_directory(
+            skills_dir, f"{skill_dir}__{n}.zip", label="skill dir"
+        )
+        n += 1
+    taken.add(candidate.name)
+    return candidate
 
 
 def _entity_to_flat(e) -> dict:

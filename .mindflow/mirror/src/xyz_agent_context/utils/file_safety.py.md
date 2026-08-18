@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/file_safety.py
-last_verified: 2026-05-27
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -39,3 +39,20 @@ Two flows in the application accept user-supplied filenames: the API upload endp
 **`enforce_max_bytes` takes the size in bytes, not the file object.** The caller must determine the size before calling this function (e.g., `len(content)` or from a `Content-Length` header). There is no streaming check.
 
 **Windows drive-letter paths are still relative after normalization.** A zip entry like `C:\foo\bar` normalizes to `C:/foo/bar`, which `PurePosixPath.is_absolute()` reports `False`. In practice, Windows-created skill zips don't contain drive-letter paths (the zip stores paths relative to the source), so this is a non-issue — but if it ever appears, the entry would be extracted into a `C:` subdirectory under the target. Not a security risk (still confined), just ugly.
+
+## 2026-08-18 — skill 归档的两个上限搬到这里
+
+`MAX_SKILL_ARCHIVE_ENTRIES = 500` / `MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES =
+100MB`。
+
+它们要被两个地方读：准入闸 [[security.py]]（上传/注册时判，只看元数据）和真
+正解压的安装器 `skill_module._extract_zip_safely`。**两者必须相等**，否则归档
+能进库、能导出，到安装时才被拒——"A 接口收下、B 接口失败"，正是这对检查存在的
+理由所反对的。原先是两份字面量靠注释宣称相等。
+
+放这里是因为 `file_safety` 本来就是双方共同的上游依赖，不引入新方向（让
+`bundle/security` 去 import `module/skill_module` 才是错的方向）。
+
+⚠️ 两边都用 `import file_safety as _file_safety` + 调用时取属性。`from ...
+import MAX_...` 会在 import 时绑死值，等于又复制一份。
+
