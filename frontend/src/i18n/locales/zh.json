@@ -13,7 +13,7 @@
     "teams": "团队",
     "agents": "智能体",
     "local": "本地",
-    "dashboard": "仪表盘",
+    "dashboard": "智能体管理",
     "settings": "设置",
     "system": "系统",
     "clearHistory": "清空历史",
@@ -849,7 +849,7 @@
       "delete": "删除"
     },
     "topBar": {
-      "crumbDashboard": "仪表盘",
+      "crumbDashboard": "智能体管理",
       "crumbSettings": "设置",
       "crumbSystem": "系统",
       "crumbTeam": "团队",
@@ -872,7 +872,7 @@
       "hintPage": "页面",
       "hintPanel": "面板",
       "pageChat": "对话",
-      "pageDashboard": "仪表盘",
+      "pageDashboard": "智能体管理",
       "pageSettings": "设置",
       "pageSystem": "系统",
       "placeholder": "跳转到智能体或页面…",
@@ -1561,10 +1561,10 @@
       "cloudDesc": "连接托管的 NetMind.AI 云端，可从任意设备访问。"
     },
     "dashboard": {
-      "title": "智能体仪表盘",
+      "title": "智能体管理",
       "agentsCount": "{{count}} 个智能体",
       "emptyLabel": "暂无智能体",
-      "emptyHint": "从侧边栏创建一个智能体来填充此仪表盘。",
+      "emptyHint": "从侧边栏创建一个智能体,它会出现在这里。",
       "statRunning": "运行中",
       "statQueued": "排队中",
       "statErrors": "错误",
