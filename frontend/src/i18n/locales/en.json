@@ -1024,7 +1024,8 @@
       "renewBtn": "Renew",
       "renewTitle": "Keep Pro going",
       "renewProcessing": "Waiting for payment… complete it in the opened window; your plan updates automatically.",
-      "renewSuccess": "Pro extended — new end date shown above."
+      "renewSuccess": "Pro extended — new end date shown above.",
+      "planExplOnetime": "Valid until {{date}} — one-time purchase, does not renew"
     },
     "modal": {
       "title": "Settings",

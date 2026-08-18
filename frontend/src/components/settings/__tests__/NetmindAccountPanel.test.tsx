@@ -1167,10 +1167,8 @@ const CARD_CANCELLED_SUB = {
 test('one-time: never offers "Resume auto-renew" — it does not apply', async () => {
   mockGetSubscription.mockResolvedValue(ONETIME_SUB());
   render(<NetmindAccountPanel />);
-  await screen.findByText(/Pro/);
-  await waitFor(() =>
-    expect(screen.queryByRole('button', { name: /Resume auto-renew/ })).toBeNull(),
-  );
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.queryByRole('button', { name: /Resume auto-renew/ })).toBeNull();
 });
 
 test('one-time: offers Renew instead', async () => {
@@ -1285,4 +1283,18 @@ test('CNY figures are rounded for display, not echoed at upstream precision', as
   // text rather than on an element.
   expect(document.body.textContent).toMatch(/Minimum ¥5\.00 per payment/);
   expect(document.body.textContent).toMatch(/1 USD = 6\.753148 CNY/);
+});
+
+test('one-time: the plan ROW says Pro, not Free', async () => {
+  // The state machine drives three independent surfaces — badge, plan
+  // explanation, action zone — and the first version of pro_onetime only
+  // taught the third. Both of the others fell through to their Free branch, so
+  // a paying subscriber read "Free — usage billed from your balance" directly
+  // above "Pro is active". Assert the row, not just the button.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.getByText(/Nexus Pro/)).toBeTruthy();
+  expect(screen.queryByText(/Free — usage billed from your balance/)).toBeNull();
+  expect(screen.getByText(/one-time purchase, does not renew/i)).toBeTruthy();
 });

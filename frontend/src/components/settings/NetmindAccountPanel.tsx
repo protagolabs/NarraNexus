@@ -734,6 +734,19 @@ export function NetmindAccountPanel() {
         </span>
       );
     }
+    // Same badge as an auto-renewing Pro, deliberately NOT the warning one
+    // pro_cancelled gets. "Ending" is a state a card subscriber chose and can
+    // undo; for a one-time purchase it is simply what the product IS, for its
+    // whole life. A permanent warning chip on a normal, paid-up state is how
+    // you train someone to stop reading warnings. The end date and the
+    // does-not-renew fact live in planExpl, right next to it.
+    if (state === 'pro_onetime') {
+      return (
+        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
+          {t('settings.netmind.planPro', 'Nexus Pro')}
+        </span>
+      );
+    }
     if (state === 'free') {
       return (
         <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
@@ -792,6 +805,12 @@ export function NetmindAccountPanel() {
             date: formatDate(me.subscription.current_period_end),
           })
         : t('settings.netmind.planExplProActive', 'Member · valid until {{date}}', { date: '—' });
+    }
+    if (state === 'pro_onetime' && me?.subscription) {
+      return t('settings.netmind.planExplOnetime',
+        'Valid until {{date}} — one-time purchase, does not renew', {
+          date: formatDate(me.subscription.current_period_end),
+        });
     }
     if (state === 'pro_cancelled' && me?.subscription) {
       return t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {

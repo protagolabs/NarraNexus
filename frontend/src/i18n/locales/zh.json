@@ -1024,7 +1024,8 @@
       "renewBtn": "续订",
       "renewTitle": "继续使用 Pro",
       "renewProcessing": "等待付款完成…请在打开的窗口中完成支付，套餐会自动更新。",
-      "renewSuccess": "Pro 已延长 —— 新的到期日见上方。"
+      "renewSuccess": "Pro 已延长 —— 新的到期日见上方。",
+      "planExplOnetime": "有效至 {{date}} —— 一次性购买，到期不会自动续费"
     },
     "modal": {
       "title": "设置",
