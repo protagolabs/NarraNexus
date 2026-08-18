@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `billing_channel`（默认 `"nexus"`）
+
+选哪个 Stripe 账号收款。NarraNexus 本身就是接入文档里说的 "nexus 场景"，而且
+**只有这个账号开了支付宝和微信**，所以它是默认值而不是可选项。上游把"不传"读作
+原来的共享 "power" 账号；我们总是显式发出去，让 body 表达它真正的意思。
+
+做成 setting 而不是常量只有一个理由：nexus 账号出事时，切回 `"power"` 一个 deploy
+就能恢复原来的付款链路。**绝不能从客户端输入到达** —— 见 [[billing]]。
+
+已知代价（写在这里，省得日后在客服工单里重新发现一遍）：之前走 "power" 付过款的
+用户在这里是**另一个 Stripe customer**，第一次走 nexus 结账时不会出现已保存的卡。
+免费额度和订阅状态两边落同一个 NetMind 账本；卡订阅的取消/恢复由上游路由到它所属
+的那个账号。
+
 
 ## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
 

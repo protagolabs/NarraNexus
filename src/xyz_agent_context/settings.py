@@ -356,6 +356,27 @@ class Settings(BaseSettings):
     billing_api_base: str = "https://billing.api.netmind.ai"
     billing_api_timeout_seconds: float = 10.0
 
+    # Which Stripe account collects. NarraNexus IS the "nexus" scenario, and
+    # only that account has Alipay + WeChat Pay enabled, so it is the default
+    # rather than something a caller opts into. Upstream reads an absent value
+    # as "power" (the original shared account); we always send ours explicitly
+    # so the body says what it means.
+    #
+    # It is a SETTING and not a constant for one reason: if the nexus account
+    # has an incident, flipping this to "power" restores the previous payment
+    # path in one deploy. It must never be reachable from client input — the
+    # merchant that collects a payment is exactly as attacker-interesting as
+    # the post-payment redirect target, which backend/routes/billing.py already
+    # refuses to take from a request body (see `_return_urls`).
+    #
+    # Consequence of the default, stated so nobody rediscovers it in support:
+    # a user who previously paid through "power" is a DIFFERENT Stripe customer
+    # here, so their saved card is not offered on the first nexus checkout.
+    # Free credit and subscription state land on the same NetMind ledger either
+    # way, and cancelling/reactivating a card subscription is routed by upstream
+    # to whichever account owns it.
+    billing_channel: str = "nexus"
+
     # NetMind Key-management API (generate/list inference API keys). This is a
     # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),
     # body is form-encoded, envelope is HTTP 200 + {success:false} on error.

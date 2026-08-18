@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 支付宝 / 微信：payment_method + months + `GET /fx-rate`
+
+路由这一层只做三件事，币种映射不在这里（在 [[netmind_billing_client]]，那是上游
+契约所在的层）：
+
+- **`channel` 从 `settings.billing_channel` 注入，不从 body 读**。和 `_return_urls`
+  同一条判断：能选「哪个 Stripe 账号收款」的调用方，和能选「付完跳去哪」的调用方
+  是同一类攻击面。默认 `"nexus"`（只有这个账号开了支付宝和微信），留成 setting 是
+  为了出事时一个 deploy 切回 `"power"`。
+- **`RechargeRequest` 删掉 `currency`，换成 `payment_method`**。客户端仍然传
+  `currency` 的话**被忽略而不是拒绝** —— 滚动发布期间新后端会先于新前端上线，
+  两者的差别是「这个字段不起作用」还是「谁都付不了款」。
+- **`months` 传给卡订阅要报错，不能忽略**（`SubscribeRequest` 的
+  `model_validator`）。发"卡 + 6 个月"的人以为自己在买六个月，**静默按一个月扣款
+  是三种结果里最坏的那个**。用 `model_fields_set` 而不是哨兵默认值来区分"显式要了
+  1 个月"和"压根没提 months"。
+- `POST /subscribe` 的 body 是**可选**的：只想要卡订阅的调用方可以继续什么都不发。
+- `GET /fx-rate` 的 `currency` **钉死 CNY**，不从 query 读 —— 这个账号只有 CNY
+  一种非美元币种，开成参数只是多一个「问上游我们没有界面能展示的问题」的入口。
+  读端点的错误映射与 `/plans` `/subscription` 一致：业务 4xx 也归 502。
+
+**⚠ 作废下方 2026-07-05 条目里的一句**：那里把 `RechargeRequest` 写成
+「amount>0, currency=USD」—— `currency` 已经不是请求字段了。同条目里
+"success_url/cancel_url 不从客户端接受"的判断依旧成立，且现在扩展到了 `channel`。
 
 ## 2026-08-10 — checkout and subscription facts
 

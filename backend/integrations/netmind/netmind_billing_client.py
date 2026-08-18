@@ -88,6 +88,34 @@ def _redirect_fields(
     return fields
 
 
+# Which currency each payment method is settled in on the nexus Stripe account.
+# Upstream VALIDATES this pairing and 400s on a mismatch, so it is derived here
+# rather than accepted as a parameter: a caller able to pass both could only
+# ever use that freedom to break its own payment. WeChat Pay is enabled for CNY
+# only on this account; card and Alipay settle in USD.
+#
+# Note what does NOT change with currency: `amount` is always the USD figure
+# (the credit the user receives / the subscription's value). A WeChat payer is
+# charged an equivalent in CNY that upstream computes at its own live rate and
+# reports back as `charge_amount` + `fx_rate`; we never compute it ourselves,
+# because a rate we made up would disagree with the one they actually charge.
+PAYMENT_METHOD_CURRENCY: dict[str, str] = {
+    "default": "USD",   # card (+ Alipay on the same hosted page)
+    "alipay": "USD",
+    "wechat": "CNY",
+}
+
+
+def _channel_field(channel: Optional[str]) -> dict[str, Any]:
+    """``{"channel": …}`` only when the caller resolved one.
+
+    Same "omitted, not null" discipline as ``_redirect_fields``: upstream reads
+    an absent channel as the original shared "power" account, which is exactly
+    the behaviour a caller that passes nothing should keep getting.
+    """
+    return {"channel": channel} if channel else {}
+
+
 DEFAULT_BASE_URL_ENV = "BILLING_API_BASE"
 DEFAULT_TIMEOUT_ENV = "BILLING_API_TIMEOUT_SECONDS"
 _FALLBACK_TIMEOUT_SECONDS = 10.0
@@ -202,6 +230,10 @@ class NetmindBillingClient:
     async def subscribe(
         self,
         login_token: str,
+        *,
+        payment_method: str = "stripe",
+        months: Optional[int] = None,
+        channel: Optional[str] = None,
         success_url: Optional[str] = None,
         cancel_url: Optional[str] = None,
     ) -> Any:
@@ -214,9 +246,31 @@ class NetmindBillingClient:
         resolves them from deploy config, NEVER from client input; see
         ``routes.billing._return_urls``.
 
+        Two different products share this endpoint, and ``payment_method``
+        picks which:
+
+        - ``stripe`` — a real Stripe subscription on a card. Renews itself, can
+          be cancelled/reactivated. ``months`` does not apply and is omitted:
+          "a card subscription for 6 months" is not a state upstream has.
+        - ``alipay`` / ``wechat`` — Stripe subscriptions cannot be paid with
+          either, so this is a ONE-TIME purchase of ``months`` months, granted
+          monthly and then simply ending. Nothing renews it; buying again while
+          one is live EXTENDS the period. WeChat settles in CNY at upstream's
+          live rate (same rate quoted by ``fx_rate``).
+
+        The two modes are mutually exclusive per user and upstream enforces it:
+        a card subscriber gets 400 ``already_subscribed_card`` here, and a
+        one-time holder gets 400 "Already subscribed to Pro." from the card
+        path. Switching modes requires letting the live one expire.
+
         Raises BillingBusinessError on 400 (e.g. "Already subscribed to Pro.").
         """
-        body = _redirect_fields(success_url, cancel_url)
+        body: dict[str, Any] = {
+            "payment_method": payment_method,
+            **({"months": months} if months is not None else {}),
+            **_channel_field(channel),
+            **_redirect_fields(success_url, cancel_url),
+        }
         return await self._request(
             "POST",
             "/v1/power-subscription/subscribe",
@@ -248,7 +302,9 @@ class NetmindBillingClient:
         self,
         login_token: str,
         amount: float,
-        currency: str = "USD",
+        *,
+        payment_method: str = "default",
+        channel: Optional[str] = None,
         success_url: Optional[str] = None,
         cancel_url: Optional[str] = None,
     ) -> Any:
@@ -268,12 +324,26 @@ class NetmindBillingClient:
         an unvalidated redirect target inside a payment session is attack
         surface. See ``routes.billing._return_urls``.
 
+        ``payment_method`` picks the rail (``default`` card / ``alipay`` /
+        ``wechat``) and DETERMINES the currency — see
+        ``PAYMENT_METHOD_CURRENCY``. The caller does not get to choose a
+        currency, because the only thing a disagreeing pair can produce is a
+        400. ``channel`` selects the Stripe account and comes from deploy
+        config, never from client input.
+
         Returns the wrapped body ``{success, data: {recharge_id, session_id,
-        checkout_url, status}}``.
+        checkout_url, status}}`` — plus ``charge_currency`` / ``charge_amount``
+        / ``fx_rate`` when the charge is in CNY.
         """
         body: dict[str, Any] = {
             "amount": amount,
-            "currency": currency or "USD",
+            # USD is the fallback rather than an exception because it is the
+            # conservative answer: it is what both non-WeChat rails use and what
+            # this endpoint sent before payment methods existed. The real gate on
+            # unknown values is the route's Literal — nothing else calls this.
+            "currency": PAYMENT_METHOD_CURRENCY.get(payment_method, "USD"),
+            "payment_method": payment_method,
+            **_channel_field(channel),
             **_redirect_fields(success_url, cancel_url),
         }
         return await self._request(
@@ -281,6 +351,37 @@ class NetmindBillingClient:
             "/v1/finance/recharge/stripe/checkout",
             login_token=login_token,
             json_body=body,
+        )
+
+    async def fx_rate(
+        self, login_token: str, currency: str, amount: Optional[float] = None
+    ) -> Any:
+        """Quote the USD -> ``currency`` rate the next charge would actually use.
+
+        Exists so a WeChat payer can be shown "$10 ≈ ¥73" BEFORE they commit:
+        they think in the USD credit they are buying, but their bank statement
+        will say CNY, and an unexplained number at the QR code is where people
+        abandon a payment.
+
+        Upstream states this is the SAME rate the real charge is priced at, so
+        we deliberately do not cache it — a cached quote is a second, quietly
+        disagreeing source of truth for a number the user is about to be
+        charged.
+
+        ``amount`` is optional: omitted asks for the bare rate, present also
+        returns ``charge_amount``. It is left out of the query entirely rather
+        than sent empty, which would be a different request. The reply also
+        carries ``min_amount_usd`` / ``min_charge`` — the floor below which a
+        recharge is rejected with a 400, so callers can stop it earlier.
+        """
+        params: dict[str, Any] = {"currency": currency}
+        if amount is not None:
+            params["amount"] = amount
+        return await self._request(
+            "GET",
+            "/v1/finance/recharge/fx-rate",
+            login_token=login_token,
+            params=params,
         )
 
     async def recharge_status(self, login_token: str, session_id: str) -> Any:
