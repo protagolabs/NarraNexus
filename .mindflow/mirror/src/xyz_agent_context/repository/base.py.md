@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/base.py
-last_verified: 2026-07-27
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -44,3 +44,8 @@ All 14 concrete repository classes in this directory extend `BaseRepository`. Th
 
 - `EmbeddingStoreRepository` does **not** extend `BaseRepository`. It operates directly on dicts because its data structure is too simple to justify the entity mapping overhead. This is the one exception to the "all repositories extend BaseRepository" rule.
 - The `id_field` class attribute refers to the **business primary key**, not the database auto-increment `id` column. For example, `EventRepository.id_field = "event_id"` even though the events table also has an auto-increment `id`. Methods like `get_by_id()` query against `event_id`, not the numeric auto-increment column.
+
+## 2026-08-18 — 公开只读 `db` property
+
+domain-impl 代码(artifact 事件staging)需要在自家表之外发写。伸手拿 `_db` 是越界,
+所以给一个只读暴露;不支持中途换 client。

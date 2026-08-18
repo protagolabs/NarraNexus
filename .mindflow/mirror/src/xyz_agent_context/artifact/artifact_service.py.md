@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/artifact_service.py
-last_verified: 2026-08-07
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -53,3 +53,10 @@ single table write, it belongs here; otherwise call the repository.
   (welcome artifact).
 - All failures raise the `ArtifactError` hierarchy (`.code` → HTTP status), so
   MCP and HTTP callers convert uniformly with a single except clause.
+
+## 2026-08-18 — `bulk_delete` 上移进 Service(事件化的连带)
+
+文件头说「plain CRUD 留在 Repository」——bulk_delete 是**刻意的例外**:事件化让删除
+变成域操作(归属校验+行捕获+删除+staging "deleted"),调用方不允许「只拿删除不拿
+事件」,所以路由薄化、逻辑收进来。register 的三个分支(新建/重注册/去重原地)也在
+_impl 里各自 stage(registered/updated)。

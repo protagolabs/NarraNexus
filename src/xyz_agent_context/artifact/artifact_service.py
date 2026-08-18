@@ -21,7 +21,7 @@ uniformly.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from xyz_agent_context.artifact._artifact_impl import (
     heal,
@@ -29,6 +29,7 @@ from xyz_agent_context.artifact._artifact_impl import (
     registration,
     url_artifact,
 )
+from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.artifact._artifact_impl.raw_access import ResolvedRawFile
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
@@ -84,6 +85,38 @@ class ArtifactService:
             team_id=team_id,
             event_id=event_id,
         )
+
+    async def bulk_delete(
+        self, *, user_id: str, artifact_ids: List[str]
+    ) -> Tuple[int, List[str]]:
+        """Delete registry rows owned by `user_id`, staging one "deleted"
+        event per row.
+
+        Lives here rather than on the repository (despite the "plain CRUD
+        stays on ArtifactRepository" rule above) because eventing made
+        deletion a domain operation: ownership check, row capture for the
+        event payload, delete, stage — callers must not be able to take the
+        delete without the event. Workspace files are NOT touched.
+
+        Returns:
+            (deleted_count, skipped_not_owned_ids) — unowned or unknown ids
+            are reported, never silently deleted.
+        """
+        to_delete: List[Artifact] = []
+        skipped: List[str] = []
+        for aid in artifact_ids:
+            art = await self._repo.get_by_id(aid)
+            if art is None or art.user_id != user_id:
+                skipped.append(aid)
+                continue
+            to_delete.append(art)
+
+        deleted = await self._repo.bulk_delete([a.artifact_id for a in to_delete])
+        for art in to_delete:
+            await stage_artifact_event(
+                self._repo.db, action="deleted", artifact=art
+            )
+        return deleted, skipped
 
     async def heal(
         self,

@@ -31,6 +31,7 @@ from typing import Optional
 
 from loguru import logger
 
+from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactError,
     ArtifactKindMismatch,
@@ -409,6 +410,9 @@ async def register_artifact(
             file_path=rel_path, size_bytes=size_bytes, action="updated",
             event_id=event_id,
         )
+        refreshed = await repo.get_by_id(target_artifact_id)
+        if refreshed is not None:
+            await stage_artifact_event(repo.db, action="updated", artifact=refreshed)
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
             artifact_id=target_artifact_id,
@@ -439,12 +443,18 @@ async def register_artifact(
                     size_bytes=size_bytes,
                     title=title[:200],
                     description=description,
+                    content_hash=content_hash,
                 )
                 await _record_history(
                     repo, artifact_id=existing.artifact_id, agent_id=agent_id,
                     file_path=rel_path, size_bytes=size_bytes, action="updated",
                     event_id=event_id,
                 )
+                refreshed = await repo.get_by_id(existing.artifact_id)
+                if refreshed is not None:
+                    await stage_artifact_event(
+                        repo.db, action="updated", artifact=refreshed
+                    )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
                 )
@@ -482,6 +492,9 @@ async def register_artifact(
         file_path=rel_path, size_bytes=size_bytes, action="created",
         event_id=event_id,
     )
+    created = await repo.get_by_id(artifact_id)
+    if created is not None:
+        await stage_artifact_event(repo.db, action="registered", artifact=created)
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(
         artifact_id=artifact_id,

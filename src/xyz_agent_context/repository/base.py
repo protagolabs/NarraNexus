@@ -62,6 +62,13 @@ class BaseRepository(ABC, Generic[T]):
             raise ValueError(f"{self.__class__.__name__} must define 'table_name'")
         self._db = db_client
 
+    @property
+    def db(self) -> 'AsyncDatabaseClient':
+        """The underlying client, for domain-impl code that must issue writes
+        outside this repository's own table (e.g. artifact event staging).
+        Read-only exposure — swapping the client mid-life is not supported."""
+        return self._db
+
     async def get_by_id(self, entity_id: str) -> Optional[T]:
         """
         Get a single entity by ID
