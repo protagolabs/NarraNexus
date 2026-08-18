@@ -36,57 +36,26 @@ if TYPE_CHECKING:
     )
 
 
-def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
-    """Did this turn deliver a user-visible message?
+def _owner_visible_reply_texts(agent_loop_response, working_source: str) -> list:
+    """Every piece of text the OWNER actually saw this turn, in order.
 
-    True iff the agent fired a reply tool that surfaces in the user's chat
-    (``send_message_to_user_directly`` for any source; plus the per-channel
-    reply tools like ``lark_cli`` for IM sources). Uses the same
-    ``MessageSourceRegistry`` source-of-truth the ChatModule uses to split
-    user-visible replies, so the two never disagree.
+    THE single traversal for "what did the owner see" in this file. Two
+    consumers read it: the session anchor asks only whether the list is
+    non-empty, the temporal guard reads the texts themselves. Keeping one
+    implementation is what stops them from ever disagreeing — and a
+    disagreement here is nasty to find, because the symptom is an audit
+    probe silently skipping part of the traffic while its numbers look fine.
+
+    Owner-visible specifically: a bus reply to a peer agent is a delivery,
+    but no human read it, so it must not re-anchor the owner's session
+    (see MessageSourceHandler.owner_visible_reply_tool_names) and it is not
+    something to measure human-facing accuracy against.
 
     Imports the channel registry (not any concrete Module) on purpose —
     Modules stay hot-pluggable (铁律 #3); the registry is shared infra.
-    On any shape/registry mismatch we return False, which only means the
-    background-delivery anchor is skipped — the human-turn anchor path is
-    unaffected, so we never regress existing behavior.
-    """
-    try:
-        from xyz_agent_context.schema import ProgressMessage
-        from xyz_agent_context.channel.message_source_handler import (
-            MessageSourceRegistry,
-        )
-
-        handler = MessageSourceRegistry.get(working_source)
-        for resp in agent_loop_response or []:
-            if not (isinstance(resp, ProgressMessage) and resp.details):
-                continue
-            tool_name = resp.details.get("tool_name", "")
-            arguments = resp.details.get("arguments", {})
-            # Owner-visible only: a bus reply to a peer agent is a delivery,
-            # but the owner saw nothing — it must not re-anchor the owner's
-            # session (see MessageSourceHandler.owner_visible_reply_tool_names).
-            if handler.extract_owner_visible_text(tool_name, arguments):
-                return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"_turn_delivered_user_message: detection failed ({e}); treating as not delivered")
-        return False
-    return False
-
-
-def _owner_visible_reply_texts(agent_loop_response, working_source: str) -> list:
-    """Every piece of text the OWNER actually saw this turn.
-
-    Same traversal and same source-of-truth registry as
-    `_turn_delivered_user_message` — that one answers "was there a delivery",
-    this one hands back what was delivered. Kept separate rather than
-    generalising the existing helper because its boolean contract is used on
-    a path (the session anchor) where a shape change would be expensive to
-    get wrong.
-
-    Owner-visible specifically: a bus reply to a peer agent is a delivery,
-    but no human read it, so it is not something to measure human-facing
-    accuracy against.
+    On any shape/registry mismatch we return `[]`, which reads as "nothing
+    delivered": the background-delivery anchor is skipped and the guard runs
+    on nothing. The human-turn anchor path is unaffected either way.
     """
     texts: list = []
     try:
@@ -103,11 +72,33 @@ def _owner_visible_reply_texts(agent_loop_response, working_source: str) -> list
                 resp.details.get("tool_name", ""),
                 resp.details.get("arguments", {}),
             )
+            # Falsy covers both "not a reply tool" (None) and "reply that
+            # stripped to blank" ("") — same two cases the boolean predicate
+            # below has always treated as "nothing delivered".
             if text:
                 texts.append(text)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"_owner_visible_reply_texts: extraction failed ({e})")
+        logger.warning(
+            f"_owner_visible_reply_texts: detection failed ({e}); "
+            "treating as not delivered"
+        )
+        return []
     return texts
+
+
+def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
+    """Did this turn deliver a user-visible message?
+
+    True iff the agent fired a reply tool that surfaces in the user's chat
+    (``send_message_to_user_directly`` for any source; plus the per-channel
+    reply tools like ``lark_cli`` for IM sources).
+
+    Value-identical to the hand-rolled loop this used to be: that loop
+    returned True on the first truthy `extract_owner_visible_text` and False
+    otherwise, which is exactly `bool()` of the list above, including the
+    empty-string case and the exception path.
+    """
+    return bool(_owner_visible_reply_texts(agent_loop_response, working_source))
 
 
 def _detect_narrative_routing_signal(agent_loop_response):

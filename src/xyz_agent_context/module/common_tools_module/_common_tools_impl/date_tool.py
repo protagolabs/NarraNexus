@@ -47,6 +47,7 @@ can see is wrong is recoverable; a wrong date presented bare is not.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -62,7 +63,8 @@ from xyz_agent_context.utils.timezone import (
     utc_now,
 )
 
-#: Accepted `unit` values, mapped to how an offset of 1 moves the reference.
+#: Accepted `unit` values; how an offset of 1 moves the reference is in the
+#: if/elif inside `resolve_relative_date`.
 _UNITS = ("day", "week", "month", "year")
 
 #: Weekday names the model may pass, lowercased. Chinese forms are accepted
@@ -111,17 +113,42 @@ def _today_in(tz: str) -> date:
     return (local or utc_now()).date()
 
 
+#: Trailing human-readable annotation on `format_now_for_agent` output —
+#: the ` (Tuesday, Asia/Shanghai)` tail. Stripped before parsing; see
+#: `_parse_date`.
+_TRAILING_ANNOTATION = re.compile(r"\s*\([^)]*\)\s*$")
+
+
 def _parse_date(value: str, tz: str) -> Optional[date]:
     """Parse an agent-supplied date.
 
-    Accepts `YYYY-MM-DD` and full ISO timestamps (with or without offset /
-    trailing Z) — the latter because the agent will often be holding a value
-    it read straight out of a record rather than a bare date. A timestamp
-    that carries a frame is converted into the user's before its date is
-    taken; a naive one is read as already being in the user's frame, since
-    that is what an agent writes down when it means "this day".
+    Accepts `YYYY-MM-DD`, full ISO timestamps (with or without offset /
+    trailing Z), and — critically — **the two formats this platform itself
+    renders for agents to read**:
+
+        2026-07-31 00:30 +08:00                              (timeline rows)
+        2026-08-08 09:00:00 +08:00 (Tuesday, Asia/Shanghai)  (ground-truth now)
+
+    That last one is why the annotation strip exists. The prompts tell the
+    agent to pass a date it saw — "pass that message's date as `reference`",
+    "confirm with compare_dates" — and the single most likely thing for a
+    model to pass is a token it can literally see. If the parser rejects the
+    platform's own rendering, the tool answers `bad_reference` / `bad_date`,
+    and by this file's own argument the model then goes back to doing the
+    arithmetic itself: the exact step these tools exist to remove. The
+    failure would also be invisible — a structured error in a tool result,
+    nothing in the audit trail, and a user who just sees a wrong date again.
+
+    (The space between time and offset parses natively: this project requires
+    Python >= 3.13, whose `fromisoformat` accepts it. Only the parenthesised
+    tail needs removing.)
+
+    A timestamp that carries a frame is converted into the user's before its
+    date is taken — dropping that would reintroduce the off-by-one this whole
+    change set is about, so the strip is deliberately narrow: it removes the
+    annotation and nothing else.
     """
-    raw = (value or "").strip()
+    raw = _TRAILING_ANNOTATION.sub("", (value or "").strip())
     if not raw:
         return None
     try:

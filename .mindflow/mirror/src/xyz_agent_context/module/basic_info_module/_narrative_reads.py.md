@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/_narrative_reads.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `view_narrative` / `view_event` 的 `time` 改成带 frame
+
+时间线导言明确写着「pass it to `view_event()` to fetch that turn's full detail」——这两个
+面是**一条连续的路径**。时间线开始按用户时区带偏移渲染之后，这里还留着 `[:19]` 裸 UTC，
+等于对同一个 event 给出两个日期，而且是平台自己把模型从一个 frame 引到另一个。
+
+两处 `time` 现在都走 `format_timestamp_for_agent`。
+
+**时区来源是 `agents.created_by`**：`narratives` 表没有 user 列，所以从 agent 的 owner 反查。
+查不到就降级 UTC——这两个函数对外承诺永不抛异常。
+
+**排序坑**：`narrative_chat_history` 原来按 `time` 字段字典序排。`time` 换成渲染值之后，
+无法解析的时间戳渲染成 `"??"`，会排到所有真实日期**前面**，把坏行顶到历史最前。现在多带
+一个私有 `_sort_ts`（原始存储值）排完即删，agent 可见的 payload 里不出现。
+
+这两个函数同时被 `data_access/store.py` 的 DirectStore 和 `backend/routes/agents/narrative.py`
+消费，改 `time` 形状等于改 agent 可见契约——前端没有读 `.time` 的地方，已确认。
 
 # _narrative_reads.py — 共享的方言安全 narrative/event 读
 

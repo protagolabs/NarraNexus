@@ -4,6 +4,34 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — `_parse_date` 吃不下本项目自己渲染的 "now"
+
+**新增一条坑，级别等同「改工具名要同时扫三处」**：这个解析器必须认**本平台自己渲染给
+agent 看的字节**，不只是 `fromisoformat` 的方言。
+
+提示词反复让模型「把你看到的那个日期传进来」（`reference` / `compare_dates`），而模型最
+可能传的就是它在 prompt 里能直接读到的 token。目前有两种：
+
+```
+2026-07-31 00:30 +08:00                              ← 时间线行
+2026-08-08 09:00:00 +08:00 (Tuesday, Asia/Shanghai)  ← ground truth now
+```
+
+第一种在 Python ≥3.13 下 `fromisoformat` 原生就接受（本项目 `requires-python = ">=3.13"`，
+时间与偏移之间的空格不是问题）。**第二种因为尾部 `(Weekday, Zone)` 解析失败**，返回
+`bad_reference` / `bad_date`。
+
+后果链条是全静默的：工具报错 → 按本文件自己的论证，模型退回自己算（正是要消灭的那步）
+→ temporal_guard 记不到（被拒的参数不是日期断言）→ `service_audit` 显示"没问题"。
+
+修法是 `_TRAILING_ANNOTATION` 剥掉尾部 ` (…)`，**刻意只剥这一样**。不能图省事改成"取前
+10 个字符"——那会让 `2026-07-30T16:30:00Z` 退回按 UTC 取日期，把跨午夜转换打回原形，等于
+换个位置复现本次要修的 bug。`tests/common_tools_module/test_date_tool_round_trip.py`
+锁了这条。
+
+真正缺的是**跨组件 round-trip 测试**：渲染器测试和工具测试各自绿，唯一会出问题的组合
+（渲染器输出 → 解析器输入）从来没跑过。现在两个渲染器的真实输出直接喂给解析器和两个工具。
+
 # date_tool.py
 
 ## 为什么存在

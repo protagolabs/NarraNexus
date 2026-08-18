@@ -124,6 +124,19 @@ def format_for_llm(dt: Optional[datetime], user_tz: str = DEFAULT_TIMEZONE) -> s
     """
     Format as LLM-friendly prompt format
 
+    NOT part of the agent-facing rendering layer below, despite the name.
+    It emits `2026/8/8 AM 9:00 (Asia/Shanghai)` — a zone NAME but no numeric
+    offset, no weekday, and a different date shape from
+    `format_now_for_agent`. A prompt carrying both formats gives the model
+    two differently-shaped "now"s, which by this module's own argument can
+    only add doubt.
+
+    Its remaining callers are the job execution prompt and job result
+    messages. New agent-facing code should use `format_now_for_agent` /
+    `format_timestamp_for_agent` instead; converting those callers is
+    deliberately out of scope of the 2026-08-18 change (see the SCOPE note
+    below) and tracked in the uncovered list there.
+
     Format: YYYY/M/D AM/PM H:MM (timezone)
 
     Args:
@@ -194,13 +207,32 @@ def resolve_timezone(user_tz: Optional[str]) -> str:
 
 # ===== Agent-facing Formatting =====
 #
-# Everything an agent reads about time must be rendered through this section.
 # The rule the codebase learned the hard way (see the docstrings below and
 # `.mindflow/mirror/.../timezone.py.md`): an agent cannot reason about two
 # timestamps unless it can see they are in the SAME frame. Emitting one value
 # as user-local and another as bare UTC does not read as "two frames" to a
 # language model — it reads as a contradiction it will rationalise away.
 # Hence every renderer here carries an explicit UTC offset.
+#
+# SCOPE, stated honestly (2026-08-18). These renderers cover the TURN PROMPT
+# and the narrative/event view tools reachable from it:
+#   - the ground-truth "now" (BasicInfoModule's Real World Information)
+#   - chat-history timeline rows and the recent-background-activity block
+#   - view_narrative / view_event (`basic_info_module/_narrative_reads.py`)
+#   - the date MCP tools, which parse and return in the same shapes
+#
+# NOT yet covered — these still render times their own way, and a prompt that
+# contains one of them contains two frames:
+#   - `format_for_llm` (job execution prompt: current time, created-at;
+#     job result messages) — see its docstring
+#   - `general_memory_module` recalled-memory stamps (bare UTC)
+#   - `social_network_module` "Last contact" (bare UTC date)
+#   - `awareness_module` rename records (bare UTC date)
+#
+# The list is here rather than in a ticket because the invariant is only
+# useful if its boundary is checkable: someone adding a time field should be
+# able to tell at a glance whether they are inside it. Extend the list, or
+# extend the coverage — but do not quietly let the two drift.
 
 WEEKDAY_NAMES = (
     "Monday", "Tuesday", "Wednesday", "Thursday",

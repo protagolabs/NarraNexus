@@ -700,9 +700,16 @@ class ContextRuntime:
             logger.warning(f"        Timezone lookup failed for {user_id}: {e}; using UTC")
             return DEFAULT_TIMEZONE
 
-    async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
+    async def _build_user_temporal_block(
+        self, user_id: Optional[str], user_tz: Optional[str] = None
+    ) -> str:
         """
         Build the User Temporal Context block (v2 timezone protocol).
+
+        `user_tz` lets a caller that has already resolved the turn's timezone
+        pass it in instead of paying for a second identical query — and, more
+        importantly, guarantees that every block in that turn names the SAME
+        zone even if the user's row changes mid-turn.
 
         Reads users.timezone (falls back to UTC for users who have never
         synced their browser timezone) and states the user's IANA timezone
@@ -721,7 +728,7 @@ class ContextRuntime:
         if not user_id:
             return ""
         return USER_TEMPORAL_CONTEXT.format(
-            user_tz=await self._resolve_user_timezone(user_id)
+            user_tz=user_tz or await self._resolve_user_timezone(user_id)
         )
 
     async def _build_turn_context_block(
@@ -748,9 +755,17 @@ class ContextRuntime:
         """
         parts: List[str] = [TURN_CONTEXT_HEADER]
 
+        # Resolved once for the whole block: the temporal section names this
+        # zone and the recent-activity section renders its timestamps in it.
+        # Two lookups could return different zones for one prompt, which is
+        # the failure this change set is about.
+        block_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # 1. Temporal block (relocated Part 0 — same wording, same heading)
         try:
-            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+            temporal_block = await self._build_user_temporal_block(
+                ctx_data.user_id, block_tz
+            )
             if temporal_block:
                 parts.append(temporal_block)
         except Exception as e:  # noqa: BLE001 — fail-open per part
@@ -798,7 +813,9 @@ class ContextRuntime:
         try:
             recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
             if recent_actions:
-                parts.append(self._build_recent_actions_section(recent_actions))
+                parts.append(
+                    self._build_recent_actions_section(recent_actions, block_tz)
+                )
                 logger.info(
                     f"[RecentActions] rendered {len(recent_actions)} actions into turn context"
                 )
@@ -971,13 +988,21 @@ class ContextRuntime:
 
         relocation_enabled = settings.prompt_turn_context_relocation_enabled
 
+        # One timezone for everything this method renders — the recent-activity
+        # timestamps below and every history-timeline row further down. Hoisted
+        # here rather than resolved next to the timeline loop so the two cannot
+        # drift apart; they describe overlapping events in the same prompt.
+        turn_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # P2: append the recent background-activity section (centered small-text
         # in the UI) — a compact list with event_ids, separate from the timeline.
         # R4: volatile (accumulates per turn) → relocated to the turn context
         # when relocation is enabled, so the system prompt tail stays stable.
         recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
         if recent_actions and not relocation_enabled:
-            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
+            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(
+                recent_actions, turn_tz
+            )
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
         # Reply language: the user's persisted preference reaches the model
@@ -1015,16 +1040,12 @@ class ContextRuntime:
         )
         cross_count = 0
         replayed_count = 0
-        # Resolved ONCE per turn: every row's timestamp is rendered in this
-        # frame, and a per-row lookup would be N identical queries. Fail-open
-        # to UTC — a history that renders is worth more than one that doesn't.
-        timeline_tz = await self._resolve_user_timezone(ctx_data.user_id)
         for msg in timeline:
             meta = msg.get("meta_data") or {}
             ws = meta.get("working_source", "chat")
             handler = MessageSourceRegistry.get(ws)
             src_prefix = handler.format_row_prefix(msg)
-            tag = self._format_timeline_tag(meta, timeline_tz)
+            tag = self._format_timeline_tag(meta, turn_tz)
             if meta.get("memory_type") == "short_term":
                 cross_count += 1
             if msg.get("role") == "assistant":
@@ -1422,7 +1443,7 @@ class ContextRuntime:
         return replays
 
     @staticmethod
-    def _format_timeline_tag(meta: Dict[str, Any], user_tz: str = "UTC") -> str:
+    def _format_timeline_tag(meta: Dict[str, Any], user_tz: str = DEFAULT_TIMEZONE) -> str:
         """Render the per-message timeline tag
         `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`.
 
@@ -1459,12 +1480,29 @@ class ContextRuntime:
         return f"[{t} · {topic} · nar={nid} · evt={eid}]"
 
     @staticmethod
-    def _build_recent_actions_section(actions: List[Dict[str, Any]]) -> str:
+    def _build_recent_actions_section(
+        actions: List[Dict[str, Any]], user_tz: str = DEFAULT_TIMEZONE
+    ) -> str:
         """Render the recent-background-activity list (Fix #2 P2): one compact
-        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`."""
+        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`.
+
+        Timestamps use the same renderer as the history timeline (2026-08-18).
+        This block sits in the SAME prompt as those rows, twelve lines away in
+        this file, and it used to share their raw `[:16]` UTC slice — so the
+        two were at least consistently wrong. Framing only the timeline would
+        have introduced a divergence that did not exist before: one block in
+        the user's local time with an offset, the next in bare UTC, describing
+        overlapping events. That is the exact mechanism this change set was
+        opened to remove, and it would have been worse than leaving both
+        alone, because the framed one looks more authoritative.
+
+        `user_tz` is passed in rather than looked up: the callers already hold
+        the turn's resolved timezone, and a second query here would make the
+        two blocks capable of disagreeing if the user's row changed mid-turn.
+        """
         lines = [RECENT_ACTIONS_HEADER]
         for a in actions:
-            t = (a.get("timestamp") or "")[:16].replace("T", " ")
+            t = format_timestamp_for_agent(a.get("timestamp"), user_tz)
             src = a.get("working_source") or "?"
             title = a.get("title") or a.get("summary") or f"({src} activity)"
             eid = a.get("event_id") or "?"

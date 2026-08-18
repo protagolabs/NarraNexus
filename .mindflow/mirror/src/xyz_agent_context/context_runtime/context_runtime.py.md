@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 同一份 prompt 里不能有两个 frame
+
+上一条只修了时间线行。但 `_build_recent_actions_section` 还在用同样的 `[:16]` 裸 UTC 切片，
+**和被修好的时间线相隔 45 行、注入同一份 prompt**。
+
+改之前两边都是裸 UTC，彼此一致；只修一边反而**制造了一处原本不存在的分歧**——recent-actions
+装的就是 job 执行记录，跟时间线反映的是重叠的事件，现在一个带偏移一个不带，而带偏移的那个
+看起来更权威。这正是本次要消灭的那个机制，只修一半比两边都不修更糟。
+
+现在两处共用 `format_timestamp_for_agent`，时区由调用方传入而不是各查一次：两次查询可能
+在用户中途改时区时给出不同的值，那就又是两个 frame。
+
+顺带把「一轮只查一次」这句注释变成事实：`turn_tz` 提到 `build_input_for_framework` 顶部，
+recent-actions 和时间线循环共用；`_build_turn_context_block` 里的 `block_tz` 同理，
+`_build_user_temporal_block` 新增可选 `user_tz` 参数接收它。原来那句注释只在时间线循环内
+成立，跨函数其实查了 3 次——注释不准的代价是下一个人会以为有个 per-turn 结果可以复用。
+
 ## 2026-08-18 — 时间线时间戳过去是 UTC，而且没标 frame
 
 `_format_timeline_tag` 用 `ts[:16]` 切字符串渲染每条历史消息的时间。`meta_data.timestamp`

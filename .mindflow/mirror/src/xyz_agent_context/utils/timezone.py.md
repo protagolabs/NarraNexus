@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 把不变量的**边界**写清楚
+
+原来的 section header 写的是「agent 读到的每一个时间都必须从这里渲染」，mirror 里也这么写。
+实际只做到了 turn prompt 和从它出发能到的 view 工具。**文档承诺大于代码交付**是比覆盖不全
+更糟的问题：下一个往 prompt 里加时间字段的人会以为已经统一了，于是不再想起要过渲染层。
+
+现在 header 里显式分两段列：**覆盖了什么**（ground truth / 时间线行 / recent-actions /
+view_narrative / view_event / date 工具）、**没覆盖什么**（`format_for_llm` 的 job 链路、
+general_memory、social_network、awareness）。
+
+清单放代码里不放 issue，是因为不变量只有边界可查时才有用——加时间字段的人要能一眼看出
+自己在不在圈内。**要么扩清单，要么扩覆盖，不许让两者悄悄漂开。**
+
+`format_for_llm` 的 docstring 也加了说明：**它不属于 agent-facing 渲染层**，尽管名字里有
+`_for_llm`。它输出 `2026/8/8 AM 9:00 (Asia/Shanghai)`——有时区名但没有数字偏移、没有星期、
+日期形状也不同。名字本身在误导下一个调用者，所以得在 docstring 里挡一道。
+
 ## 2026-08-18 — 新增 agent-facing 渲染层
 
 原来这个文件只管两件事：内部存 UTC、对外/对前端转用户时区。这次补上第三件 —— **agent

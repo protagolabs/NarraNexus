@@ -226,6 +226,12 @@ async def record_date_claim_mismatches(
     event_type / detail / created_at) is exactly right, and a diagnostic
     that has not yet earned its keep should not also cost a migration.
 
+    Writes go through `ServiceAuditRepository.record`, like every other
+    `service_audit` producer in the codebase — the table name, the JSON
+    serialisation and the best-effort semantics all live there, so a future
+    change to the audit row's shape does not have to remember this file.
+    `record()` never raises, which is also why there is no try/except here.
+
     Fail-open on every path. This function's whole value is that it can be
     switched on in production without anyone worrying about it — an audit
     write that raised into `step_4` would make a reporting probe capable of
@@ -240,8 +246,11 @@ async def record_date_claim_mismatches(
     if not mismatches:
         return []
 
-    import json
+    from xyz_agent_context.repository.service_audit_repository import (
+        ServiceAuditRepository,
+    )
 
+    repo = ServiceAuditRepository(db)
     for m in mismatches:
         # WARNING, not ERROR: nothing is broken from the runtime's point of
         # view — the turn succeeded and the user got their reply. This is a
@@ -251,18 +260,11 @@ async def record_date_claim_mismatches(
             f"[TemporalGuard] agent={agent_id} claimed {m.kind}={m.claimed} "
             f"but ground truth is {m.actual} ({m.timezone}) — excerpt: {m.excerpt!r}"
         )
-        try:
-            await db.insert("service_audit", {
-                "service": AUDIT_SERVICE,
-                "event_type": AUDIT_EVENT_DATE_MISMATCH,
-                "detail": json.dumps({
-                    **m.as_detail(),
-                    "agent_id": agent_id,
-                    "user_id": user_id,
-                    "event_id": event_id,
-                }, ensure_ascii=False),
-            })
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[TemporalGuard] audit write failed: {e}")
+        await repo.record(AUDIT_SERVICE, AUDIT_EVENT_DATE_MISMATCH, {
+            **m.as_detail(),
+            "agent_id": agent_id,
+            "user_id": user_id,
+            "event_id": event_id,
+        })
 
     return mismatches

@@ -4,6 +4,20 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 审计写入改走 ServiceAuditRepository
+
+原来手写 `db.insert("service_audit", …)` + `json.dumps` + `try/except` 三件套。全仓所有
+`service_audit` 写入方都走 `ServiceAuditRepository.record` 或 `services/service_audit`，
+只有这里是例外——分层规则（repository 负责 CRUD）在这没有例外理由。
+
+功能当时是对的，代价在演进：`service_audit` 写入形状变化时 repo 改一处，这里不会跟着动。
+两边序列化参数也不一致（repo 用 `default=str` 兜底，这里没有），同样的 detail 可能一个
+成功一个丢。
+
+`record()` 自己就是 best-effort 且永不抛，所以本文件那层 `try/except` 和 `import json`
+一并删掉，函数更短。`test_audit_write_failure_is_swallowed` 的语义因此变成了**端到端保证**
+而不是本文件的 try/except——已在 docstring 里写明，否则下一个人会误读这条测试在验什么。
+
 # temporal_guard.py
 
 ## 为什么存在
@@ -43,6 +57,15 @@ stub: false
 它在报表上看起来像是有覆盖。宁可窄而准。
 
 同理，不存在的日期（2 月 30 日）跳过不报：我们量的是**比较错误**，不是模型的日历常识。
+
+### ⚠️ 读这个指标前必须知道：事故原句本身不在覆盖范围内
+
+线上那句是「**今天是活动日**」——有 today marker，但后面既没有日期也没有星期，四条正则
+一条都不匹配。这是上面那个设计取舍的直接后果，不是遗漏。
+
+所以：`service_audit` 里 `temporal_guard` 的计数量的是「**显式日期/星期断言**」这个子集，
+**不是**「日期说错」这件事。连续 0 命中有两种可能——真的修好了，或者这类措辞根本不在射程内。
+把它当成时间准确性的覆盖率读就会读错。
 
 ## 上下游
 

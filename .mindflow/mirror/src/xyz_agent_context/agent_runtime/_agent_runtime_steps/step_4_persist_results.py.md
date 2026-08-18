@@ -4,6 +4,25 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 两个 helper 合并成一个遍历
+
+上一条新增的 `_owner_visible_reply_texts` 跟既有的 `_turn_delivered_user_message` 是同一段
+遍历的两份拷贝。当时给的理由是"布尔契约挂在 session anchor 上，改形状代价不对称"——**这个
+理由不成立**：`bool([])` 跟原来的 `return False` 逐值等价，包括
+`extract_owner_visible_text` 返回 `""` 那条和异常路径。
+
+现在 `_owner_visible_reply_texts` 是这个文件里"owner 看到了什么"的**唯一实现**，
+`_turn_delivered_user_message` 就是它的 `bool(...)`。
+
+代价不在今天——今天两份行为一致。在于下次改 `resp.details` 形状、registry 取法或 owner-visible
+判定口径时得记得改两处。改漏的后果不对称且难查：session anchor 认为投递了、temporal guard
+认为没有（或反之），后者会让探针在一部分流量上静默失效，**而探针失效的唯一症状就是数字
+看起来很好**。
+
+`tests/agent_runtime/test_owner_visible_delivery.py` 补了针对列表版的断言（多条回复保序、
+bus 回复不计入、空白回复不计入、畸形输入返回 `[]`），外加一条直接断言两种读法在所有 case 上
+一致——把合并依赖的等价性写成测试而不是留在注释里。
+
 ## 2026-08-18 — 新增 4.8：temporal guard（纯诊断）
 
 读本轮**已经投递给 owner** 的回复，把"今天是 X"这类对当下日期的断言跟时钟对一遍，不一致

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
 from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+    _owner_visible_reply_texts,
     _turn_delivered_user_message,
 )
 from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
@@ -92,3 +93,68 @@ def test_bus_only_delivery_does_not_count_as_user_message():
 def test_owner_relay_still_counts_as_user_message():
     responses = [_tool_progress("mcp__chat_module__send_message_to_user_directly")]
     assert _turn_delivered_user_message(responses, "message_bus") is True
+
+
+# ---- the shared traversal (2026-08-18) ------------------------------------
+#
+# `_turn_delivered_user_message` is now `bool(_owner_visible_reply_texts(...))`
+# — one traversal, two readings. Before, the boolean predicate and the text
+# extractor were separate copies of the same loop; a divergence between them
+# would have shown up as the session anchor and the temporal guard disagreeing
+# about whether the owner was messaged, and the guard's failure mode is to go
+# quiet while its numbers still look healthy.
+#
+# The tests above pin the boolean reading. These pin the list reading, so the
+# shared implementation is covered from both sides.
+
+
+def test_owner_visible_texts_returns_every_reply_in_order():
+    """Multi-reply turns are normal — the guard scans all of them, so none
+    may be dropped and the order must hold."""
+    responses = [
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "first"),
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "second"),
+    ]
+    assert _owner_visible_reply_texts(responses, "chat") == ["first", "second"]
+
+
+def test_owner_visible_texts_excludes_peer_only_replies():
+    """Same split the anchor relies on: a bus reply to a peer is a delivery,
+    but no human read it, so it must not be measured as owner-facing text."""
+    responses = [
+        _tool_progress("mcp__message_bus_module__bus_send_to_agent", "peer only"),
+        _tool_progress("mcp__chat_module__send_message_to_user_directly", "hi owner"),
+    ]
+    assert _owner_visible_reply_texts(responses, "message_bus") == ["hi owner"]
+
+
+def test_owner_visible_texts_skips_blank_replies():
+    """A reply that strips to blank is "nothing delivered" for the boolean
+    reading; the list reading must agree, or the guard would scan "" and the
+    anchor would still see a delivery."""
+    responses = [_tool_progress("mcp__chat_module__send_message_to_user_directly", "   ")]
+    assert _owner_visible_reply_texts(responses, "chat") == []
+    assert _turn_delivered_user_message(responses, "chat") is False
+
+
+def test_owner_visible_texts_tolerates_malformed_responses():
+    """Shape drift must degrade to "nothing delivered", never raise into
+    step_4 — the wiring is diagnostic, the turn's real work is already done."""
+    assert _owner_visible_reply_texts(None, "chat") == []
+    assert _owner_visible_reply_texts(["not a ProgressMessage"], "chat") == []
+    assert _owner_visible_reply_texts([], "unknown_source_xyz") == []
+
+
+def test_boolean_predicate_agrees_with_the_list_on_every_case():
+    """The equivalence the merge relies on, asserted directly rather than
+    argued in a comment."""
+    cases = [
+        ([], "chat"),
+        ([_tool_progress("mcp__chat_module__send_message_to_user_directly")], "chat"),
+        ([_tool_progress("mcp__message_bus_module__bus_send_to_agent")], "message_bus"),
+        ([_tool_progress("mcp__chat_module__send_message_to_user_directly", "")], "chat"),
+    ]
+    for responses, source in cases:
+        assert _turn_delivered_user_message(responses, source) == bool(
+            _owner_visible_reply_texts(responses, source)
+        ), (responses, source)

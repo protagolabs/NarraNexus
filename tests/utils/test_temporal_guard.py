@@ -198,7 +198,14 @@ async def test_clean_reply_writes_nothing(db_client):
 @pytest.mark.asyncio
 async def test_audit_write_failure_is_swallowed():
     """A reporting probe must not be able to break the thing it reports on —
-    this is the whole reason it is safe to leave switched on."""
+    this is the whole reason it is safe to leave switched on.
+
+    Note who swallows it: since 2026-08-18 the write goes through
+    `ServiceAuditRepository.record`, which is itself best-effort and never
+    raises. So this test now pins the END-TO-END guarantee rather than a
+    try/except inside `temporal_guard` — the fake only needs `insert`,
+    because that is all the repository calls.
+    """
     class _ExplodingDB:
         async def insert(self, *_a, **_kw):
             raise RuntimeError("db down")
