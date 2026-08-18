@@ -29,6 +29,11 @@ const componentFiles = [
   'NetmindTopUpControls.tsx',
   'PaymentMethodChoice.tsx',
   'NetmindRenewControls.tsx',
+  // Added 2026-08-19: both author settings.netmind.* copy and had never been
+  // listed, so the guard's own "every component" claim was false — the exact
+  // hole it exists to close, and the same one NetmindTopUpControls sat in.
+  'NetmindReturnNotice.tsx',
+  'NetmindRunwayView.tsx',
 ].map((f) => resolve(here, '..', f));
 
 const enJson = JSON.parse(

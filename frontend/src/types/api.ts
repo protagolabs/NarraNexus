@@ -1125,13 +1125,17 @@ export interface SubscriptionStatus {
   // Which product this subscription actually is. Load-bearing, not decorative:
   // a one-time (Alipay/WeChat) purchase never renews, so `auto_renew` is false
   // for its whole life — the exact tuple a CANCELLED card subscription sits in.
-  // This field is the only thing that separates them, and the two need opposite
-  // actions (resume auto-renew vs buy more months).
+  // Every other field reads identically in the two states, so this is what the
+  // panel branches on — and the two need opposite actions (resume auto-renew
+  // vs buy more months).
   //
   // Optional because every subscription created before the nexus account is a
   // card one and predates the field; absent therefore means "card", which is
-  // what the pre-existing reading already assumed.
-  // Verified present on dev 2026-08-19 for a live Alipay purchase.
+  // what the pre-existing reading already assumed — and what keeps the
+  // branching correct whether upstream spells the card case "stripe" or omits
+  // it entirely. Only the one-time shape was measured (dev 2026-08-19, a live
+  // Alipay purchase); the card case is inferred, which is why the fallback
+  // rather than an equality test is what the code relies on.
   payment_method?: SubscribePaymentMethod;
 }
 
