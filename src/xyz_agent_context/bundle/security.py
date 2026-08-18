@@ -164,13 +164,16 @@ def is_volume_path(rel_path: str) -> bool:
     return False
 
 
-# Skill-archive admission caps. Deliberately NOT `MAX_DECOMPRESSED_BYTES`:
-# that one bounds a whole `.nxbundle` (2 GB), which is a different order of
-# magnitude from one skill's archive. These mirror the caps
-# `skill_module._extract_zip_safely` enforces at install time, so an archive
-# that passes admission is one the installer can actually accept.
-MAX_SKILL_ARCHIVE_ENTRIES = 500
-MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES = 100 * 1024 * 1024  # 100 MB
+# Caps live in `utils.file_safety` — the module both this gate and the
+# installer (`skill_module._extract_zip_safely`) already depend on, so the two
+# cannot drift apart.
+#
+# Imported as a MODULE and read at call time, not `from … import MAX_…`. The
+# latter binds the value at import, which quietly re-creates the duplication
+# this move was meant to remove: patching or changing the source of truth would
+# leave this copy stale. (Caught by a test that patched the caps and watched
+# this gate ignore them.)
+from xyz_agent_context.utils import file_safety as _file_safety  # noqa: E402
 
 
 def _validate_skill_archive(zf: zipfile.ZipFile, *, require_skill_md: bool) -> None:
@@ -208,14 +211,14 @@ def _validate_skill_archive(zf: zipfile.ZipFile, *, require_skill_md: bool) -> N
         ValueError: With a message the end user can act on.
     """
     infos = zf.infolist()
-    if len(infos) > MAX_SKILL_ARCHIVE_ENTRIES:
+    if len(infos) > _file_safety.MAX_SKILL_ARCHIVE_ENTRIES:
         raise ValueError(
             f"Skill archive has too many entries ({len(infos)}, "
-            f"limit is {MAX_SKILL_ARCHIVE_ENTRIES})."
+            f"limit is {_file_safety.MAX_SKILL_ARCHIVE_ENTRIES})."
         )
     total = sum(i.file_size for i in infos)
-    if total > MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES:
-        limit_mb = MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES // (1024 * 1024)
+    if total > _file_safety.MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES:
+        limit_mb = _file_safety.MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES // (1024 * 1024)
         raise ValueError(
             f"Skill archive unpacks to {total // (1024 * 1024)} MB, "
             f"which exceeds the {limit_mb} MB limit."
@@ -250,7 +253,10 @@ def validate_skill_archive_path(path: Path, *, require_skill_md: bool = False) -
     try:
         with zipfile.ZipFile(path, "r") as zf:
             _validate_skill_archive(zf, require_skill_md=require_skill_md)
-    except zipfile.BadZipFile:
+    except (zipfile.BadZipFile, OSError):
+        # OSError covers unreadable / not-a-file paths. Pre-refactor this
+        # variant only caught BadZipFile and let those escape; same shape as
+        # the bytes variant now.
         raise ValueError("Not a valid zip file")
 
 

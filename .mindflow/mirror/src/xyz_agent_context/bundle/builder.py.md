@@ -4,6 +4,31 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 三审 — `skill_dir` 是 SEC-07 漏掉的那个字段
+
+`tgt_zip = skills_dir / f"{skill_dir}.zip"` —— `skill_dir` 来自导出请求体，
+`SkillExportSpec` 上没有任何 validator，一路原样进文件系统路径。SEC-07 堵了
+`archive_path`（任意读）和 `skill_name`（写入穿越），**同一个请求体里的
+`skill_dir` 漏了**；而本轮新加的 `unlink` 把这条路径从"只写"扩成了"还能删"。
+
+收进 `_safe_bundle_zip_name()`，它同时干两件事：
+
+1. `sanitize_filename` + `ensure_within_directory` —— 客户端字符串不得决定服
+   务端路径，和 SEC-07 对 `skill_name` 的处理同一套手法。抛 `ValueError`，调
+   用处降级成 per-skill warning，不 500。
+2. **真正唯一的文件名**。原来的 `{dir}.zip` → `{dir}__{agent_id}.zip` 只区分
+   "不同 agent"：同一个 agent 上两个不同 `skill_name` 声明同一个 `skill_dir`
+   时，两者算出的名字一样——成功则后者覆盖前者的字节（前者 manifest 里的
+   sha256 就指向了别人的内容），失败则新加的 `unlink` 把前者**删掉**、manifest
+   指向一个不存在的 `archive_ref`。改成计数器后缀，`exists()` 分支退化成断言。
+
+另外降级文案的条件收紧成 `isinstance(e, BadZipFile) and src_type != "zip"`：
+`copy2` 因磁盘/权限抛 `OSError` 时归档本身没毛病，再说"这是 github 源不是
+zip"就是把上一轮刚修掉的误导换个方向重来一遍。
+
+> `archive_ref` 与导入侧是一对（importer 按 `archive_ref` 原样取文件、不解析
+> 文件名），所以改命名规则是安全的。
+
 ## 2026-08-18 — 坏归档降级：try 覆盖到 copy/sha，文案不再冤枉 tarball
 
 （承接下方 2026-08-18 那条）三处收紧：

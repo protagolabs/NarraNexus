@@ -15,10 +15,18 @@ stub: false
 `archive_local_zip`）——它们对"什么算一份合法归档"的判断本来是各写各的、还不
 一致（后者要求含 SKILL.md，前者什么都不查）。现在两处都调同一个函数。
 
-**这两个上限故意不复用 `MAX_DECOMPRESSED_BYTES`（2GB）**：那个约束的是整份
-`.nxbundle`，和单个 skill 的归档不是一个量级。这两个数字对齐的是
-`skill_module._extract_zip_safely`（安装时真正解压的地方，500 条目 / 100MB）
-——**能通过准入的包，安装器必须真的收得下**。
+**上限本身住在 [[file_safety.py]]**（2026-08-18 三审移过去的）：这道准入闸和
+真正解压的安装器 `skill_module._extract_zip_safely` 必须一致，否则"门口收下、
+安装时才拒"——正是这对函数存在的目的所反对的形状。原先两处各写一份字面量、
+只靠注释宣称相等。`file_safety` 是两边**本来就都依赖**的模块，放那儿不引入
+新的依赖方向。
+
+⚠️ 读法是 `from ... import file_safety as _file_safety` + **调用时**取属性，
+不是 `from ... import MAX_...`。后者在 import 时把值绑死，等于又复制了一份、
+换个地方腐烂——这个坑是被"patch 了源头、闸口却当没看见"的测试抓出来的。
+
+**仍然故意不复用 `MAX_DECOMPRESSED_BYTES`（2GB）**：那个约束的是整份
+`.nxbundle`，和单个 skill 的归档不是一个量级，保持两个名字。
 
 **只读中央目录，绝不解压**（这条是硬约束，别"优化"掉）：
 

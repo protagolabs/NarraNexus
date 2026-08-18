@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 三审 — 闸口挪进线程
+
+`validate_skill_archive_bytes` 现在走 `await asyncio.to_thread(...)`。
+
+上一版只做到"不解压"就停了，但**解析本身也是 O(条目数)**：`ZipFile()` 构造
+时就把整个中央目录扫完、给每条建一个 `ZipInfo`，`infolist()` 只是返回这个已经
+建好的列表——也就是说 `MAX_SKILL_ARCHIVE_ENTRIES` 这道闸**在代价付完之后才
+判**。实测：33 MB 上传、声明 40 万个空成员 ⇒ `ZipFile()` 构造 **655 ms** 纯
+同步 CPU（`infolist()` 本身 0.00 ms）。50 MB 上限下约 1 秒，且可重复发。
+
+比上一版那个 50 GB 解压小 1~2 个数量级，但**是同一个失败模式**：一个用户的
+请求卡住所有人的帧。所以判据不是"这个检查便宜不便宜"，而是"它是不是同步 CPU
+调用跑在 async 路由上"——是，就该进线程。
+
+（原文里"这条 route 是 async 且没有 to_thread"那句作为不解压的理由，现在不成
+立了，已改：不解压和挪进线程是**两件独立的事**，两件都要做。）
+
 ## 2026-08-18 — 归档上传验 zip：坏输入不再跨接口炸成 500
 
 `upload_archive` 此前对 `source_type=zip` 只校验大小和 `skill_name`，**不看

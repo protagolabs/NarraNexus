@@ -295,3 +295,71 @@ async def test_failure_midway_through_copy_leaves_no_partial_archive(
     with zipfile.ZipFile(bundle) as z:
         leftovers = [n for n in z.namelist() if "flakyskill" in n and n.endswith(".zip")]
     assert leftovers == [], f"partial archive shipped: {leftovers}"
+
+
+# ─── the other write entry point gets the same gate ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    "make_archive,expected",
+    [
+        pytest.param("entries", "too many entries", id="too-many-entries"),
+        pytest.param("bomb", "unpacks to", id="declared-size-bomb"),
+        pytest.param("encrypted", "encrypted", id="encrypted"),
+        pytest.param("garbage", "not a valid zip", id="not-a-zip"),
+        pytest.param("no_skill_md", "skill.md", id="missing-SKILL.md"),
+    ],
+)
+async def test_archive_local_zip_enforces_the_shared_gate(
+    tmp_path, archives_root, monkeypatch, make_archive, expected
+):
+    """`archive_local_zip` is the SECOND writer into `skill_archives`, and it
+    now shares the upload route's validator. Before, it only looked for SKILL.md
+    — so entry-count, declared-size and encrypted archives all walked in here
+    while being rejected at the door two metres away. Only the route had test
+    coverage for the new gates; this closes that.
+    """
+    import io as _io
+
+    from xyz_agent_context.bundle import skill_backup
+    from xyz_agent_context.utils import file_safety
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+
+    aid, uid = "agent_localzip01", "test_user"
+    ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
+    ws.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+
+    src = ws / "candidate.zip"
+    if make_archive == "garbage":
+        src.write_bytes(b"not a zip at all")
+    elif make_archive == "entries":
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            for i in range(20):
+                z.writestr(f"f{i}.txt", "x")
+    elif make_archive == "bomb":
+        with zipfile.ZipFile(src, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))
+    elif make_archive == "encrypted":
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+        raw = bytearray(buf.getvalue())
+        raw[6] |= 0x01
+        raw[raw.find(b"PK\x01\x02") + 8] |= 0x01
+        src.write_bytes(bytes(raw))
+    else:  # no_skill_md
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("readme.txt", "no skill manifest here")
+
+    with pytest.raises(ValueError) as exc:
+        await skill_backup.archive_local_zip(
+            user_id=uid, agent_id=aid, skill_name="candidate", zip_file_path=str(src)
+        )
+    assert expected in str(exc.value).lower(), str(exc.value)
+    assert not (archives_root / uid).exists(), "a rejected archive was still stored"

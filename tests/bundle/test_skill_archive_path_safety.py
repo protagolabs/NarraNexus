@@ -20,6 +20,7 @@ the write path does not retroactively clean the DB.
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import zipfile
@@ -522,3 +523,153 @@ async def test_shared_skill_import_records_a_real_sha(
     assert re.fullmatch(r"[0-9a-f]{64}", row.sha256 or ""), (
         f"skill_archives.sha256 is not a digest: {row.sha256!r}"
     )
+
+
+# ─── export side: skill_dir is a client string too ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "skill_dir",
+    [
+        "../../../../tmp/qa-export-escape",
+        "../escape",
+        "sub/dir",
+        "sub\\dir",
+        "/abs/path",
+        "..",
+        # NOT "" — an absent skill_dir legitimately falls back to skill_name
+        # (builder.py), so it is covered by the fallback test below instead.
+    ],
+)
+async def test_export_rejects_a_traversing_skill_dir(
+    db_client, tmp_workspace_root, tmp_path, archives_root, skill_dir
+):
+    """SEC-07 sealed `skill_name` and `archive_path`; `skill_dir` travels in the
+    same request body and lands in a filesystem path too. It must not be able to
+    put (or, since the corrupt-archive fix added an `unlink`, remove) a file
+    outside the bundle staging dir."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_dirtrav01", "test_user"
+    await _seed_agent(db_client, aid, "TravAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    good = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nESCAPE_CANARY\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="arena", source_type="zip",
+        sha256="cafebabe", archive_path=str(good),
+    )
+
+    before = {p for p in tmp_path.rglob("*")}
+    bundle = tmp_path / "trav.nxbundle"
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena",
+                 "skill_dir": skill_dir, "install_method": "zip"}
+            ],
+        ),
+        bundle,
+    )
+
+    # Degraded, not crashed, and nothing written outside the staging dir.
+    warnings = " ".join(result.get("warnings", []))
+    assert "skill_dir" in warnings or "arena" in warnings, warnings
+    escaped = {
+        p for p in (tmp_path.rglob("*"))
+        if p not in before and p.suffix == ".zip" and "nxbundle" not in p.name
+        and "skill_archives" not in str(p)
+    }
+    assert not escaped, f"export wrote outside the bundle: {escaped}"
+    assert not Path("/tmp/qa-export-escape.zip").exists()
+
+
+async def test_same_skill_dir_on_one_agent_gets_distinct_bundle_filenames(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """Two different skills declaring the same `skill_dir` used to collide on
+    `{dir}__{agent_id}.zip`: the second overwrote the first (whose manifest
+    sha256 then described someone else's bytes), and a failure would delete it.
+    Names must be unique per bundle."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_dupdir01", "test_user"
+    await _seed_agent(db_client, aid, "DupDirAgent", uid)
+    repo = SkillArchiveRepository(db_client)
+    for name, canary in (("skill_a", "CANARY_A"), ("skill_b", "CANARY_B")):
+        _seed_skill_on_disk(tmp_workspace_root, aid, uid, name)
+        p = prepare_archive_target(uid, name)
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr(f"{name}/SKILL.md", f"---\nname: {name}\n---\n{canary}\n")
+        await repo.upsert(user_id=uid, skill_name=name, source_type="zip",
+                          sha256="c0ffee", archive_path=str(p))
+
+    bundle = tmp_path / "dupdir.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                # both claim the SAME skill_dir on the SAME agent
+                {"agent_id": aid, "skill_name": n, "skill_dir": "shared",
+                 "install_method": "zip"}
+                for n in ("skill_a", "skill_b")
+            ],
+        ),
+        bundle,
+    )
+
+    skills = {s["name"]: s for s in _manifest(bundle).get("skills", [])}
+    refs = {n: skills[n]["archive_ref"] for n in ("skill_a", "skill_b")}
+    assert refs["skill_a"] != refs["skill_b"], f"both skills share one file: {refs}"
+    with zipfile.ZipFile(bundle) as z:
+        for n, canary in (("skill_a", b"CANARY_A"), ("skill_b", b"CANARY_B")):
+            inner = z.read(refs[n])
+            with zipfile.ZipFile(io.BytesIO(inner)) as iz:
+                blob = b"".join(iz.read(m) for m in iz.namelist())
+            assert canary in blob, f"{n}'s archive_ref points at the wrong bytes"
+
+
+async def test_absent_skill_dir_falls_back_to_skill_name(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """`skill_dir=None`/"" is not an attack, it means "not specified" — the
+    builder falls back to `skill_name`, which goes through the same gate."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_nodir01", "test_user"
+    await _seed_agent(db_client, aid, "NoDirAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+    p = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nFALLBACK_CANARY\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="arena", source_type="zip",
+        sha256="c0ffee", archive_path=str(p),
+    )
+
+    bundle = tmp_path / "nodir.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "",
+                 "install_method": "zip"}
+            ],
+        ),
+        bundle,
+    )
+    entry = [s for s in _manifest(bundle).get("skills", []) if s["name"] == "arena"]
+    assert entry and entry[0]["archive_ref"] == "skills/arena.zip", entry
+

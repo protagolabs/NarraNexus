@@ -12,7 +12,7 @@ Subproject 2 endpoints (under /api/bundle):
 - GET  /skills/archives           List skill archives for current user
 """
 
-import io
+import asyncio
 import json
 import os
 import shutil
@@ -646,8 +646,16 @@ async def upload_archive(
         #
         # Metadata only — it must never decompress. See
         # `security._validate_skill_archive` for why (a 50 MB upload deflates to
-        # ~50 GB, and this route is async with no thread offload).
-        validate_skill_archive_bytes(contents)
+        # ~50 GB).
+        #
+        # Still off the event loop: parsing the central directory is itself
+        # O(entries), and `ZipFile()` materialises every `ZipInfo` BEFORE our
+        # entry cap can reject them. Measured: a 33 MB upload declaring 400k
+        # empty members costs 655 ms of pure sync CPU. That is 1-2 orders of
+        # magnitude below the decompression bomb it replaced, but it is the same
+        # failure mode — one user's request stalling everyone else's frames — so
+        # it belongs in a thread regardless of how cheap the check "should" be.
+        await asyncio.to_thread(validate_skill_archive_bytes, contents)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

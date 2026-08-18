@@ -197,15 +197,18 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
     regression at a test-sized payload, which is exactly when it would be
     reintroduced.
     """
-    from xyz_agent_context.bundle import security
+    # Patch the single source of truth. If the gate ever goes back to a
+    # `from … import MAX_…` copy, this stops taking effect and the test fails —
+    # which is how that copy got caught in the first place.
+    from xyz_agent_context.utils import file_safety
 
-    monkeypatch.setattr(security, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
 
     # Build the payload BEFORE arming the tripwire: `writestr` itself goes
     # through `ZipFile.open`, so patching first would trip on our own fixture.
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("bomb.bin", b"\0" * (64 * 1024 * 1024))  # 64 MB -> ~64 KB packed
+        z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))  # 4 MB, still 4x the patched cap
     bomb = buf.getvalue()
     assert len(bomb) < 1024 * 1024, "payload should be tiny compressed"
 
@@ -224,9 +227,9 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
 
 
 def test_upload_rejects_too_many_entries(client, archives_root, monkeypatch):
-    from xyz_agent_context.bundle import security
+    from xyz_agent_context.utils import file_safety
 
-    monkeypatch.setattr(security, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         for i in range(20):
@@ -278,6 +281,7 @@ def test_upload_size_limit_is_checked_before_zip_validity(client, archives_root,
     r = _upload(client, "legit-skill", content=b"x" * 64)
     assert r.status_code == 400
     assert "maximum size" in r.json()["detail"].lower()
+    assert not (archives_root / "victim_neighbour" / "legit-skill.zip").exists()
 
 
 def test_upload_happy_path_lands_inside_the_user_directory(client, archives_root):
@@ -305,16 +309,6 @@ def test_upload_github_mode_also_validates_skill_name(client, archives_root):
     )
     assert r.status_code == 400
     assert _FakeRepo.calls == []
-
-
-def test_upload_enforces_the_max_upload_size(client, archives_root, monkeypatch):
-    from backend.config import settings as backend_settings
-
-    monkeypatch.setattr(backend_settings, "max_upload_bytes", 16)
-    r = _upload(client, "legit-skill", content=b"x" * 64)
-    assert r.status_code == 400
-    assert "maximum size" in r.json()["detail"].lower()
-    assert not (archives_root / "victim_neighbour" / "legit-skill.zip").exists()
 
 
 # ─── 2. export: client-supplied archive paths must not be trusted ───────────

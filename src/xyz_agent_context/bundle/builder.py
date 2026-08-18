@@ -33,6 +33,7 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 )
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.file_safety import ensure_within_directory, sanitize_filename
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
     bytes_sha256,
@@ -720,6 +721,7 @@ async def build_bundle(
         # one archive_ref is enough; per-agent bundle entries still each
         # point to it. Full-copy is always per-agent (different .skill_meta).
         copied_zip_ref: Dict[str, str] = {}  # skill_name → archive_ref already copied
+        packed_zip_names: Set[str] = set()  # in-bundle zip filenames already used
 
         # SEC-07: server-side archive resolution. Load THIS user's archive rows
         # once, and key the zip-method lookup off them — the export request no
@@ -817,13 +819,27 @@ async def build_bundle(
                     entry["archive_ref"] = copied_zip_ref[cache_key]
                     entry["sha256"] = "shared"
                 else:
-                    # Use dir-based filename to disambiguate same-named-different-dir
-                    # zips packed in the same bundle.
-                    tgt_zip = skills_dir / f"{skill_dir}.zip"
-                    if tgt_zip.exists():
-                        # Defensive: another (different agent) entry already
-                        # wrote a zip with this dir name. Append agent suffix.
-                        tgt_zip = skills_dir / f"{skill_dir}__{agent_id}.zip"
+                    # SEC-07 again, on the field it missed: `skill_dir` is a
+                    # client string from the export request and lands straight
+                    # in a filesystem path. `../../../tmp/x` would write (and,
+                    # since this block gained an `unlink`, delete) outside the
+                    # bundle staging dir. `_safe_bundle_zip_name` is the single
+                    # gate; it raises ValueError, which the caller degrades to a
+                    # per-skill warning rather than a 500.
+                    try:
+                        tgt_zip = _safe_bundle_zip_name(
+                            skills_dir, skill_dir, skill_name, taken=packed_zip_names
+                        )
+                    except ValueError as e:
+                        warnings.append(
+                            f"skill {skill_name} on {agent_id}: unusable skill_dir ({e}), skipping"
+                        )
+                        logger.warning(
+                            f"rejected skill_dir for user={user_id} "
+                            f"skill={skill_name}: {skill_dir!r} ({e})"
+                        )
+                        continue
+                    packed_zip_names.add(tgt_zip.name)
                     # Everything that touches the source archive lives in this
                     # try. One unreadable or unreadable-mid-copy file must not
                     # fail the whole export — the caller loses this skill and is
@@ -838,12 +854,15 @@ async def build_bundle(
                         await asyncio.to_thread(shutil.copy2, src_zip, tgt_zip)
                         sha = await asyncio.to_thread(file_sha256, tgt_zip)
                     except (zipfile.BadZipFile, OSError) as e:
-                        # A half-written tgt_zip would otherwise be picked up by
-                        # the `tgt_zip.exists()` branch above for the next entry
-                        # with this dir name, silently pushing it to the
-                        # `__{agent_id}` filename.
+                        # Drop a half-written tgt_zip so the manifest can never
+                        # reference a truncated archive_ref.
                         tgt_zip.unlink(missing_ok=True)
-                        if src_type and src_type != "zip":
+                        # Only blame the source type when the file itself is the
+                        # thing that failed to parse. An OSError here means I/O
+                        # died mid-copy, and telling that user "your archive is a
+                        # github source" would be the same misdirection this
+                        # branch was added to remove, pointing the other way.
+                        if isinstance(e, zipfile.BadZipFile) and src_type and src_type != "zip":
                             detail = (
                                 f"archive is a {src_type} source, not a zip — "
                                 f"export it with install_method='url' instead"
@@ -1110,6 +1129,53 @@ async def build_bundle(
         "warnings": warnings,
         "output_path": str(output_path),
     }
+
+
+def _safe_bundle_zip_name(
+    skills_dir: Path,
+    skill_dir: Optional[str],
+    skill_name: str,
+    *,
+    taken: Set[str],
+) -> Path:
+    """Pick the in-bundle filename for a skill's zip, safely and uniquely.
+
+    Two jobs, both learned the hard way:
+
+    1. `skill_dir` (and its fallback `skill_name`) arrive in the export request
+       body and used to be interpolated straight into a path — the same class of
+       bug as SEC-07, on the one field that fix did not cover. `../` here writes,
+       and now also deletes, outside the staging dir. Validated as a single path
+       segment and re-anchored under `skills_dir`.
+    2. The old `{dir}.zip` → `{dir}__{agent_id}.zip` fallback only disambiguated
+       *different agents*. Two different `skill_name`s sharing one `skill_dir` on
+       the SAME agent both resolved to `{dir}__{agent}.zip`: the second copy
+       overwrote the first (whose manifest sha256 then described the wrong
+       bytes), and on failure the cleanup deleted it outright. A counter makes
+       the name genuinely unique.
+
+    Args:
+        skills_dir: Staging dir inside the bundle; the result stays under it.
+        skill_dir: Client-supplied dir name; falls back to `skill_name`.
+        skill_name: Client-supplied skill name (also untrusted).
+        taken: Names already used in this bundle. Mutated by the caller.
+
+    Returns:
+        A path inside `skills_dir` whose name is not in `taken`.
+
+    Raises:
+        ValueError: If the name is not a usable single path segment.
+    """
+    raw = skill_dir or skill_name
+    safe = sanitize_filename(raw or "", label="skill dir")
+    candidate = ensure_within_directory(skills_dir, f"{safe}.zip", label="skill dir")
+    n = 1
+    while candidate.name in taken or candidate.exists():
+        candidate = ensure_within_directory(
+            skills_dir, f"{safe}__{n}.zip", label="skill dir"
+        )
+        n += 1
+    return candidate
 
 
 def _entity_to_flat(e) -> dict:
