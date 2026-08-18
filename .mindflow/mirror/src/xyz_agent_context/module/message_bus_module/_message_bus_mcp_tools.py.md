@@ -190,3 +190,29 @@ MySQL twin：`tests/message_bus/test_team_posting_mysql.py` 覆盖这条三表 j
 同一条纪律 `inbox_recorder.record_turn` 早就对空 outbound 行用了，只是没被用到「现在每个团队
 轮次的回复」这个工具上。[[team_posting.py]] 侧另有一道 raise 作为内层保险，专门拦绕过工具的
 调用方（测试 helper `speak_in_room` 就是一个）。
+
+## 2026-08-18 (三) — `read_history` 三处：原语、上限、自我私聊
+
+**原语选错了。** 它调 `bus.get_messages`，那是 `ORDER BY created_at ASC LIMIT n` ——
+房间**最旧**的 n 条。于是在任何超过 limit 条的会话里，agent 问「我看到的这些之前发生了什么」，
+拿到的是开场消息，中间有一个无界的静默空洞，而它读起来像当前上下文。`get_recent_messages`
+的 docstring 自己就写着 `get_messages`「对 recent scrollback 是错的」—— 而那正是这个工具
+docstring 的承诺。改用最近 n 条：agent 拿到的窗口是尾部，最近 n 条严格包含它并向前延伸，
+没有空洞。（`get_messages_before` 是更精确的原语，但它要一个时间戳游标，而「时间戳」正是
+agent 世界里没有的词汇。）
+
+**`limit` 没有上限。** 调用方可控且无界，`limit=100000` 会把 10 万行塞进工具结果、撑爆上下文
+窗口、让这一轮在半途死掉。本模块其他每一个 agent 可见的读都有上限
+（MAX_UNREAD_IN_CONTEXT / MAX_KNOWN_AGENTS_IN_CONTEXT / TEAM_HISTORY_LIMIT）——
+这是唯一一个把上限交给模型的。新增 `READ_HISTORY_MAX`。
+
+**`with_agent == 自己` 匹配任意私聊。** 两个 join 都被同一个 id 满足，于是返回一条**任意**的
+无关会话 —— 静默地，且读起来像一份可信的记录。现在明确拒绝。
+
+**私聊查询与 [[local_bus.py]] 的那份重复。** 逐字节相同的三表 join，只差 `%s` 与 `{ph}`，
+而「什么算一条私聊」正是那种会只在一处被改的事实（archived 标记、去重、跨 owner 规则）。
+现在共享的是 **SQL 文本**（`direct_channel_sql(ph)`），各调用方带自己的占位符 —— 共享
+execute() 会强迫其中一方用错占位符，而那正是 `_room_labels` 在 SQLite 上静默返回空的成因。
+同时加了 `ORDER BY created_at ASC`：`send_to_agent` 在查不到时会建频道，两个并发首发可以
+都查不到、都建，此后无序的 `rows[0]` 依赖引擎，发送方与历史读取方会对「这段会话是哪个频道」
+产生分歧。

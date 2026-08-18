@@ -77,6 +77,39 @@ def _as_utc(value) -> Optional[datetime]:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def direct_channel_sql(ph: str) -> str:
+    """The one definition of "the DM channel between these two agents".
+
+    Two callers with two different placeholder dialects — `send_to_agent` holds
+    the RAW backend (`self._db.placeholder`), while the `read_history` resolver
+    holds an `AsyncDatabaseClient` (`%s`) — so what is shared is the SQL TEXT and
+    each caller supplies its own `ph`. Sharing an execute() instead would force
+    one of them onto the wrong placeholder, which is the bug that made
+    `_room_labels` silently return nothing on SQLite.
+
+    It is shared at all because it was copied: the same three-way join lived in
+    two files, and "what identifies a DM" is exactly the kind of fact that then
+    gets changed in one of them (archived flags, dedupe, cross-owner rules). Four
+    copies of the team-room lookup is how `team_rooms.py` came to exist.
+
+    `ORDER BY created_at ASC` is not cosmetic. `send_to_agent` creates a channel
+    when the lookup misses, so two concurrent first-sends to the same peer can
+    both miss and both create — after which an unordered `rows[0]` is
+    engine-dependent, and the sender and the history reader can disagree about
+    which channel the conversation is. Ordered, they at least agree on the older
+    one.
+    """
+    return (
+        f"SELECT c.channel_id FROM bus_channels c "
+        f"JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id "
+        f"AND m1.agent_id = {ph} "
+        f"JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id "
+        f"AND m2.agent_id = {ph} "
+        f"WHERE c.channel_type = 'direct' "
+        f"ORDER BY c.created_at ASC"
+    )
+
+
 class LocalMessageBus(MessageBusService):
     """
     SQLite-backed MessageBus implementation.
@@ -496,13 +529,10 @@ class LocalMessageBus(MessageBusService):
                 f"message {to_agent} (different owners)"
             )
 
-        # Find existing direct channel between these two agents
+        # Find existing direct channel between these two agents. Shared text with
+        # the `read_history` resolver — see `direct_channel_sql`.
         rows = await self._db.execute(
-            f"SELECT c.channel_id FROM bus_channels c "
-            f"JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id AND m1.agent_id = {ph} "
-            f"JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id AND m2.agent_id = {ph} "
-            f"WHERE c.channel_type = 'direct'",
-            (from_agent, to_agent),
+            direct_channel_sql(ph), (from_agent, to_agent)
         )
 
         if rows:

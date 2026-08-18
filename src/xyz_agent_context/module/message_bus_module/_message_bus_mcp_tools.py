@@ -131,6 +131,11 @@ async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
 #: send this turn — is the same either way.
 _UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
 
+#: Ceiling on `read_history`. Sibling of the other agent-facing caps in
+#: `message_bus_module`; the number matters less than the fact that the model
+#: does not choose it.
+READ_HISTORY_MAX = 200
+
 
 async def _resolve_conversation(
     agent_id: str, *, with_agent: str, team_id: str
@@ -163,13 +168,16 @@ async def _resolve_conversation(
             return None, f"team {team_id} has no room yet"
         return channel_id, None
 
+    if with_agent == agent_id:
+        # Both joins are satisfied by ANY direct channel the caller is in, so
+        # this would hand back an arbitrary unrelated conversation instead of an
+        # error — silently, and reading as a plausible transcript.
+        return None, "that is your own id — name the peer you want the history with"
+
+    from xyz_agent_context.message_bus.local_bus import direct_channel_sql
+
     rows = await db.execute(
-        "SELECT c.channel_id FROM bus_channels c "
-        "JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id AND m1.agent_id = %s "
-        "JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id AND m2.agent_id = %s "
-        "WHERE c.channel_type = 'direct'",
-        (agent_id, with_agent),
-        fetch=True,
+        direct_channel_sql("%s"), (agent_id, with_agent), fetch=True
     )
     if not rows:
         return None, f"you have no private conversation with {with_agent} yet"
@@ -680,7 +688,8 @@ def register_message_bus_mcp_tools(
             agent_id: Your agent ID
             with_agent: the agent id of the peer, for a private conversation
             team_id: the team, for a team conversation
-            limit: Maximum number of messages (default 50)
+            limit: Maximum number of messages (default 50, capped at
+                READ_HISTORY_MAX)
         """
         # Handles, not channel ids, and that is the point rather than a
         # convenience: an agent's world is a private conversation or a team,
@@ -693,6 +702,15 @@ def register_message_bus_mcp_tools(
 
         with_agent = (with_agent or "").strip()
         team_id = (team_id or "").strip()
+        # Caller-controlled and previously unbounded: `limit=100000` returned
+        # 100k rows into the tool result, blowing the context window and killing
+        # the turn mid-work. Every other agent-facing read in this module is
+        # capped (MAX_UNREAD_IN_CONTEXT, MAX_KNOWN_AGENTS_IN_CONTEXT,
+        # TEAM_HISTORY_LIMIT); this was the one that left the cap to the model.
+        try:
+            limit = max(1, min(int(limit or 50), READ_HISTORY_MAX))
+        except (TypeError, ValueError):
+            limit = 50
         if bool(with_agent) == bool(team_id):
             return {
                 "success": False,
@@ -706,7 +724,16 @@ def register_message_bus_mcp_tools(
             )
             if err:
                 return {"success": False, "error": err}
-            messages = await bus.get_messages(channel_id, limit=limit)
+            # `get_recent_messages`, NOT `get_messages`. The latter is
+            # `ORDER BY created_at ASC LIMIT n` — the room's OLDEST n — so in any
+            # conversation past `limit` messages this tool answered "what happened
+            # before what I can see" with the founding messages and an unbounded
+            # silent hole in between, reading as current context. That primitive's
+            # own docstring says it is "wrong for recent scrollback"; this is the
+            # promise the tool's docstring makes, so it takes the other one. The
+            # most-recent-n window strictly contains what the turn already
+            # rendered and extends backwards from it, so there is no hole.
+            messages = await bus.get_recent_messages(channel_id, limit=limit)
             return {"success": True, "messages": [
                 {"from": m.from_agent, "content": m.content, "time": str(m.created_at), "mentions": m.mentions}
                 for m in messages

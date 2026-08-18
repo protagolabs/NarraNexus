@@ -91,11 +91,77 @@ def _tool_descriptions() -> str:
     return "\n".join(collected)
 
 
+def _volatile_span() -> str:
+    """The per-turn span, with a populated ctx — an empty one renders nothing."""
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(extra_data={
+        "bus_known_agents": [
+            {"agent_id": "agent_peer", "agent_name": "Peer",
+             "agent_description": "helper"},
+        ],
+        "bus_unread_messages": [
+            {"from_agent": "usr_owner", "channel_id": "ch_1", "content": "hi"},
+            {"from_agent": "agent_peer", "channel_id": "ch_room", "content": "in room"},
+        ],
+        "bus_unread_total": 2,
+        "bus_room_labels": {"ch_room": "Ops"},
+    })
+    return "\n".join(_module()._volatile_context_parts(ctx))
+
+
+def _team_prompt() -> str:
+    """The trigger's team-room prompt — the largest agent-visible surface here.
+
+    Built from a minimal batch rather than skipped: this is the surface most
+    likely to leak `usr_`, a raw `team_<id>` marker or a retired tool name,
+    because it is assembled per turn from live rows rather than written once.
+    """
+    from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    msgs = [
+        BusMessage(
+            message_id="m1", channel_id="ch_room", from_agent="usr_owner",
+            content="@Ana who takes the index?", mentions=["agent_ana"],
+        )
+    ]
+    return trigger._build_team_prompt(
+        agent_id="agent_ana",
+        history=msgs,
+        roster=[{"agent_id": "agent_ana", "name": "Ana"},
+                {"agent_id": "agent_bo", "name": "Bo"}],
+        team_id="t_1",
+        trigger_messages=msgs,
+        lead_agent_id="agent_ana",
+        bulletin=None,
+    )
+
+
 def _agent_facing_texts() -> list[tuple[str, str]]:
-    return [
+    """Every surface the model actually reads.
+
+    The docstring above used to name four and this function returned two — the
+    per-turn span and the trigger prompt were absent, i.e. the biggest surface in
+    the system was outside the guard that exists to close this class, while the
+    test's green read as coverage.
+    """
+    out = [
         ("the byte-stable instruction block", _static_block()),
         ("the MCP tool descriptions", _tool_descriptions()),
+        ("the per-turn span", _volatile_span()),
     ]
+    try:
+        out.append(("the team-room trigger prompt", _team_prompt()))
+    except Exception as e:  # noqa: BLE001
+        # Loud, not skipped: a prompt builder this test cannot construct is a
+        # surface nobody is checking, which is the state that let the leaks in.
+        raise AssertionError(
+            f"could not build the team prompt, so it is unguarded: "
+            f"{type(e).__name__}: {e}"
+        ) from e
+    return out
 
 
 @pytest.mark.parametrize("fragment,why", BANNED)
@@ -146,3 +212,18 @@ def test_the_banned_list_would_actually_fail():
         "the tool-description collector came back without real docstrings"
     )
     assert len(static) > 500, f"the static block collapsed to {len(static)} chars"
+
+    # The two surfaces added on 2026-08-18 need the same protection: a collector
+    # that silently returns "" makes every banned-word assertion over it vacuous,
+    # and the whole point of adding them was that they were not being checked.
+    surfaces = dict(_agent_facing_texts())
+    assert "### Known Agents" in surfaces["the per-turn span"], (
+        "the per-turn span collector came back without its live lists"
+    )
+    team = surfaces["the team-room trigger prompt"]
+    assert len(team) > 500 and "Ops" not in team, (
+        f"the team prompt collector returned {len(team)} chars"
+    )
+    # And it must render the human sender as `User`, which is also WHY the
+    # `usr_` assertion over this surface passes rather than being unexercised.
+    assert "User" in team, "the team prompt did not render its human sender"

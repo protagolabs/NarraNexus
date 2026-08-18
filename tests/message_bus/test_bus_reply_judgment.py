@@ -49,9 +49,47 @@ def test_bus_sends_count_as_delivery_tools():
 
 
 def test_non_delivery_bus_tools_do_not_count():
-    assert not _handler().is_user_reply_tool(
-        "mcp__message_bus_module__bus_get_messages"
-    )
+    """Every REAL non-send tool, enumerated from the registration.
+
+    This used to name `bus_get_messages`, a tool retired in the same change that
+    renamed the send verbs — so it asserted nothing about the code that exists.
+    Matching is by SUBSTRING (`pattern in tool_name`), so what actually needs
+    guarding is that no real tool name CONTAINS `message_agent`, `message_team`
+    or `notify_owner`. Rename a send verb to something a `find_agent`-style tool
+    contains and every silent turn files as delivered, poisoning the no-reply
+    metric the delivery-fallback decision reads.
+
+    Enumerated rather than listed, so a tool added later is covered without
+    anyone remembering to add it here.
+    """
+    from xyz_agent_context.module.message_bus_module import _message_bus_mcp_tools
+
+    SENDS = {"message_agent", "message_team"}
+    names: list[str] = []
+
+    class _Stub:
+        def tool(self, *_a, **_k):
+            def _wrap(fn):
+                names.append(fn.__name__)
+                return fn
+            return _wrap
+
+    async def _no_bus():
+        return None
+
+    _message_bus_mcp_tools.register_message_bus_mcp_tools(_Stub(), _no_bus)
+    assert len(names) >= 5, f"only {len(names)} tools collected: {names}"
+
+    handler = _handler()
+    for name in names:
+        qualified = f"mcp__message_bus_module__{name}"
+        if name in SENDS:
+            assert handler.is_user_reply_tool(qualified), name
+        else:
+            assert not handler.is_user_reply_tool(qualified), (
+                f"{name} is not a send verb but counts as a reply — a silent "
+                f"turn calling it would file as delivered"
+            )
 
 
 # ---- the live consumer: delivered-to-origin split -------------------------
@@ -66,9 +104,15 @@ def test_bus_delivery_is_recognized_at_the_persistence_split():
 
 
 def test_silent_bus_turn_is_not_delivered():
+    """A turn whose only tool call was a READ delivered nothing.
+
+    `bus_get_messages` — the name this used to pass — no longer exists, so the
+    assertion was about a string rather than about the code. `read_history` is the
+    live read tool and the one an agent actually calls before answering.
+    """
     delivered = bool(ChatModule._origin_delivered_text(
         "message_bus",
-        [_tool_progress("mcp__message_bus_module__bus_get_messages", "")],
+        [_tool_progress("mcp__message_bus_module__read_history", "")],
     ))
     assert delivered is False
 

@@ -305,3 +305,15 @@ inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已�
 加在 `_unread_where` 而不是三个读方法里：`get_unread` / `has_unread_before` /
 `count_unread` 共用它正是为了不会互相矛盾 —— 「N unread (showing M)」对自己的列表说谎就是
 分歧的产物。
+
+
+## 2026-08-18 (二) — 私聊频道查询提为 `direct_channel_sql`
+
+同一个三表 join 曾存在于两个文件，只差占位符方言。共享的是 **SQL 文本**而不是 execute()：
+`send_to_agent` 持裸 backend（`self._db.placeholder`），`read_history` 的解析器持
+AsyncDatabaseClient（`%s`），共享调用会强迫一方用错占位符 —— 那正是
+[[message_bus_module.py]] 的 `_room_labels` 在 SQLite 上静默返回空的成因。
+
+新增 `ORDER BY created_at ASC`，不是装饰：`send_to_agent` 查不到时会建频道，两个并发首发
+可以都查不到、都建，此后无序的 `rows[0]` 依赖引擎，发送方和历史读取方会对「这段会话是哪个
+频道」产生分歧 —— agent 拿到的是一份可信但错误的记录，而不是一个报错。
