@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -454,3 +454,10 @@ The voice-input-unavailable `<Dialog>` (title, all three reason-branch bodies + 
 note, Cancel/Open Settings) and the "no longer available" notice were hardcoded English —
 they stayed English under a Chinese UI. Moved to `chat.audio.*` keys (en+zh). AudioRecorder
 was already i18n'd; only ChatPanel's dialog was missed.
+
+## 2026-08-18 — 字符串匹配降级为徽章锚点(取数寄生拆除)
+
+`refreshArtifactFromToolCall`/`_seenArtifactToolCallIds` 整体删除——渲染循环内
+不再发任何请求(静默吞、永久丢失、无限重渲染防护补丁一并消失)。工具名匹配
+保留但**仅服务徽章放置**:解析失败最多少一个 chip,tab 永不缺(发现走事件+
+全量拉)。徽章本就从 store 读并有占位符,零改动受益。

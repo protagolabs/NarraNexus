@@ -15,9 +15,11 @@ Two contract lines shape everything here:
 - Best-effort: the registry write OWNS success. A staging failure logs a
   warning and vanishes — the frontend full-pull on open/switch/reconnect is
   the self-healing floor, so a lost event is a delay, never corruption.
-- The payload is self-contained (full artifact metadata) but NEVER carries
-  file_path: paths are server-private, and the frontend needs none of them
-  (token minting takes ids, rendering takes bytes from the raw route).
+- The payload is the FULL artifact row, file_path included. The HTTP list
+  routes already return file_path to the authenticated owner, so excluding
+  it here would not hide anything — it would only split the frontend store
+  into two Artifact shapes (HtmlRenderer branches on file_path), which is
+  fragility without secrecy. One wire shape, same as the routes.
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ async def stage_artifact_event(
             "type": ARTIFACT_EVENT_TYPE,
             "action": action,
             "external": external,
-            "artifact": artifact.model_dump(mode="json", exclude={"file_path"}),
+            "artifact": artifact.model_dump(mode="json"),
         }
         if extra:
             payload["extra"] = extra

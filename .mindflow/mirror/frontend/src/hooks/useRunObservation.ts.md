@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/useRunObservation.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -72,3 +72,10 @@ process 组件渲染它。**只读**：观察绝不启动/停止/引导 run（�
 它由这个判定设置，而**任何 reducer 测试都碰不到它**——reducer 永远看不到 `onclose`。
 这正是熔断能无限重连而全部测试保持绿色的原因，而「观察 socket 不无限重连」是 PRD 明写的验收标准。
 抽出来之后，同一个变异立刻变红。
+
+## 2026-08-18 — artifact_changed 分流 + 重连自愈拉取
+
+onmessage 里 artifact_changed 不进 timeline reducer,分流给
+artifactStore.applyEvent(repointed 另推诚实 toast:旧→新路径+hash 是否
+验证);onopen(含重连)对当前 agent 触发一次全量拉——断线期间丢的事件因此
+无关紧要(自愈地板)。

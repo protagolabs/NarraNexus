@@ -74,7 +74,22 @@ export interface AgentChatState {
  */
 export type ToastItem =
   | { kind: 'agent'; agentId: string; agentName: string; timestamp: number }
-  | { kind: 'team'; teamId: string; teamName: string; timestamp: number };
+  | { kind: 'team'; teamId: string; teamName: string; timestamp: number }
+  /**
+   * A heal repointed an artifact at a different file (artifact_changed
+   * action="repointed"). The pointer moved without the user asking — honesty
+   * requires telling them where it went and whether the content hash
+   * verified the candidate (spec artifact-events §5.3).
+   */
+  | {
+      kind: 'artifact-repointed';
+      artifactId: string;
+      title: string;
+      oldPath: string;
+      newPath: string;
+      hashMatched: boolean;
+      timestamp: number;
+    };
 
 /**
  * The queue key for a toast — `agent:<id>` / `team:<id>`.
@@ -84,7 +99,9 @@ export type ToastItem =
  * the code, which is the reason to make it impossible rather than to rely on it.
  */
 export function toastKey(t: ToastItem): string {
-  return t.kind === 'agent' ? `agent:${t.agentId}` : `team:${t.teamId}`;
+  if (t.kind === 'agent') return `agent:${t.agentId}`;
+  if (t.kind === 'team') return `team:${t.teamId}`;
+  return `artifact:${t.artifactId}`;
 }
 
 /** Shared frozen default — avoids creating new objects on every access for non-existent sessions */
@@ -176,7 +193,14 @@ interface ChatState {
   requestWorkspaceRefresh: () => void;
 
   // Notification actions
-  /** Remove one toast by its `toastKey` (`agent:<id>` / `team:<id>`). */
+  /**
+   * Append one toast (deduped by toastKey — a second push for the same key
+   * replaces the first so its auto-dismiss timer restarts). Used by the
+   * artifact event dispatcher; agent/team completion toasts keep their
+   * dedicated enqueue paths.
+   */
+  pushToast: (item: ToastItem) => void;
+  /** Remove one toast by its `toastKey` (`agent:<id>` / `team:<id>` / `artifact:<id>`). */
   dismissToast: (key: string) => void;
   clearCompletedNotification: (agentId: string) => void;
 
@@ -948,6 +972,15 @@ export const useChatStore = create<ChatState>((_set, get) => {
     },
 
     // Notification actions
+    pushToast: (item: ToastItem) => {
+      set((state) => ({
+        toastQueue: [
+          ...state.toastQueue.filter((t) => toastKey(t) !== toastKey(item)),
+          item,
+        ],
+      }));
+    },
+
     dismissToast: (key: string) => {
       set((state) => ({
         toastQueue: state.toastQueue.filter((t) => toastKey(t) !== key),

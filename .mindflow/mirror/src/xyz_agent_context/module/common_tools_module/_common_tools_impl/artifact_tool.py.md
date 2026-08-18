@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -188,3 +188,8 @@ self-correct and retry. Don't change the shape.
 - `kind` is typed `str` in the MCP schema but the service expects the
   `ArtifactKind` Literal — `# type: ignore[arg-type]`; runtime validation is in
   the registration impl.
+
+## 2026-08-18(二)— 前端耦合注释降级为 display-only
+
+工具名匹配不再驱动发现(事件化后),只锚定聊天内徽章;改名的代价从「tab 静默
+消失」降为「旧转写少个 chip」。

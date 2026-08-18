@@ -31,3 +31,9 @@ outbox 行由 BackgroundRun 在每个 tool-output 事件后 drain 并经 `self.e
 ## 设计出处
 
 spec 2026-08-18-artifact-events-inventory-pointer §3;action 语义见 ACTIONS 注释。
+
+## 2026-08-18(二)— payload 改为全行(含 file_path)
+
+原「不带 file_path」在 PR-3 落地时被推翻:HTTP 列表路由本就把 file_path 返回
+给已认证属主(无秘密可藏),而排除它让 store 出现两种 Artifact 形状
+(HtmlRenderer 按 file_path 分支渲染模式)——一致性 > 无意义的排除。

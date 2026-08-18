@@ -27,19 +27,13 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 def register(mcp: FastMCP) -> None:
-    # ⚠️ FRONTEND COUPLING — the tool name is matched by the UI.
-    #
-    # `register_artifact` calls are recognised in the agent event stream by
-    # `frontend/src/components/chat/ChatPanel.tsx` (`isArtifactToolName` /
-    # `ARTIFACT_TOOL_BASE_NAMES`). The frontend matches the BARE name as a
-    # suffix — it tolerates the fully-qualified
-    # `mcp__common_tools_module__register_artifact` form the stream carries.
-    #
-    # That match drives the artifact panel's *live* discovery (the tab
-    # appearing during/right after a run). If you rename this tool, you MUST
-    # update `ARTIFACT_TOOL_BASE_NAMES` in ChatPanel.tsx in the same change —
-    # otherwise registered artifacts silently stop showing up until an
-    # unrelated reload (e.g. switching agents).
+    # FRONTEND COUPLING (display-only since 2026-08-18) — the tool name is
+    # still matched by ChatPanel.tsx (`ARTIFACT_TOOL_BASE_NAMES`), but only
+    # to anchor the inline badge chip to the tool call that produced an
+    # artifact. Live discovery moved to backend-pushed `artifact_changed`
+    # events (notify.py outbox → BackgroundRun drain → WS → store), so a
+    # rename here costs a missing chip in old transcripts, never a missing
+    # tab. Keep the names in sync anyway when renaming.
 
     @mcp.tool(
         name="register_artifact",

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-07-22
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -177,3 +177,8 @@ Returns 404 (not 403) for mismatches to avoid leaking existence information.
 ## 2026-07-13 — office-live kind 的扩展名映射
 
 `_KIND_EXTENSIONS` 新增 `application/vnd.officecli-live` → (.pptx,.docx,.xlsx),让 heal(按扩展名找回断掉的指针)对 office artifact 也生效。
+
+## 2026-08-18 — scope=context
+
+list_for_agent_context 的 HTTP 暴露:前端全量拉(打开/切 agent/WS 重连)用,
+与 agent 状态块同一可见面。session/pinned 语义不变。

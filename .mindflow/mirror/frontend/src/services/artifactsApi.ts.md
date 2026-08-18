@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-07-22
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -84,3 +84,8 @@ Primary consumer is `stores/artifactStore.ts`, which calls these methods inside 
 
 - `listSession` + `listPinned` are called in parallel by `artifactStore.loadForSession`. Neither call is debounced — if called rapidly (e.g., tab switching), they will fire multiple concurrent requests. The store's `set()` call is the last-write-wins reconciliation point.
 - `setPinned` sends a PATCH. If the backend changes to PUT for the full resource, update here too — the store's `upsert` call after the PATCH assumes the response shape matches `Artifact`.
+
+## 2026-08-18 — `listContext`
+
+scope=context 的取数封装:agent 完整感知面(自有 pinned ∪ team),面板全量
+拉的唯一来源——面板所见与 agent 所信永不分叉。

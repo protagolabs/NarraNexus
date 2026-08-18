@@ -2552,7 +2552,9 @@
     "completed": "已完成",
     "roomSpoke": "房间里有新动静",
     "agent": "智能体",
-    "room": "房间"
+    "room": "房间",
+    "artifactRepointedVerified": "已重新指向:{{oldPath}} → {{newPath}}(内容已校验)",
+    "artifactRepointedUnverified": "已重新指向:{{oldPath}} → {{newPath}}(未经校验的匹配——请检查)"
   },
   "webAnalyticsNotice": {
     "body": "这是 NarraNexus 的云端网页版，它使用第三方分析服务 Google Tag Manager 收集匿名的页面交互数据（页面浏览、点击、来源）。不会收集任何对话内容。你可以随时在 设置 → 隐私 中关闭。",

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -107,3 +107,15 @@ Consumed by (future) `ArtifactColumn.tsx` and `ArtifactViewer.tsx`. The `collaps
 **`disconnectWs` nulls out `onmessage` and `onclose` before calling `ws.close()`.** This prevents the `onclose` handler from writing `{ _ws: null }` to the store again after `disconnectWs` has already done so — avoiding a redundant state update and a potential double-close race.
 
 **No reconnect logic.** If the WS drops mid-session (network blip), the store ends up with `_ws: null` and stops receiving push events. The next `connectWs(agentId)` call (triggered by the consumer when it detects stale state, or by a component re-mount) re-establishes the connection cleanly.
+
+## 2026-08-18 — `applyEvent`:store 的唯一实时输入
+
+后端推的 artifact_changed 事件在此落地(registered/updated/repointed→upsert,
+deleted→remove+清理)。**updated_at 单调守卫**:迟到/重放事件(≥ 已知时间戳)
+直接丢弃——重连时 event_stream 回放和全量拉会赛跑,守卫让顺序不再重要。
+永不抛(坏事件 console.error 后丢弃,打开时全量拉兜底)。registered 走
+upsert 新条目自动聚焦;updated/repointed 原地刷新不抢焦点(内容重载由
+updated_at 经 useArtifactRawUrl refreshKey 驱动)。loadPinned 的刷新自
+2026-08-18 拉 scope=context(自有 pinned ∪ team,与 agent 状态块同一可见
+面)——方法名保留,因为"加载该 agent 的面板"语义未变。文件头那句「tool_output
+frames parsed in ChatPanel」已过时,发现机制=事件+全量拉。

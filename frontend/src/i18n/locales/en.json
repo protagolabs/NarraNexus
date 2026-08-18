@@ -2552,7 +2552,9 @@
     "completed": "Completed",
     "roomSpoke": "New activity in the room",
     "agent": "Agent",
-    "room": "Room"
+    "room": "Room",
+    "artifactRepointedVerified": "Re-linked: {{oldPath}} → {{newPath}} (content verified)",
+    "artifactRepointedUnverified": "Re-linked: {{oldPath}} → {{newPath}} (unverified match — check it)"
   },
   "webAnalyticsNotice": {
     "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",

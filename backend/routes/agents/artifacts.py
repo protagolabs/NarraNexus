@@ -132,7 +132,7 @@ class EmbedModeRequest(BaseModel):
 async def list_artifacts(
     request: Request,
     agent_id: str,
-    scope: Literal["session", "pinned"] = Query("session"),
+    scope: Literal["session", "pinned", "context"] = Query("session"),
     session_id: Optional[str] = Query(None),
 ):
     """
@@ -140,12 +140,20 @@ async def list_artifacts(
 
     Args:
         scope: 'session' (default) returns non-pinned artifacts for the given
-               session_id; 'pinned' returns all pinned artifacts for the agent.
+               session_id; 'pinned' returns all pinned artifacts for the agent;
+               'context' returns the agent's full awareness surface — own
+               pinned ∪ every team it belongs to (list_for_agent_context),
+               the same union the agent's state block draws from. This is the
+               frontend's full-pull on open/switch/reconnect (spec
+               artifact-events §3.3), so what the panel shows and what the
+               agent believes exists can never disagree.
         session_id: Required when scope='session'.
     """
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
+    if scope == "context":
+        return await repo.list_for_agent_context(agent_id)
     if scope == "pinned":
         return await repo.list_pinned(agent_id)
     if not session_id:

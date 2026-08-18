@@ -134,6 +134,18 @@ export const artifactsApi = {
     return r.json();
   },
 
+  /**
+   * The agent's full awareness surface — own pinned ∪ every team it belongs
+   * to (same union the agent's state block draws from). The panel's full
+   * pull on open/switch/reconnect uses this so what the user sees and what
+   * the agent believes exists can never disagree.
+   */
+  async listContext(agentId: string): Promise<Artifact[]> {
+    const r = await fetch(`${base(agentId)}?scope=context`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`listContext failed: ${r.status}`);
+    return r.json();
+  },
+
   async getDetail(agentId: string, artifactId: string): Promise<Artifact> {
     const r = await fetch(`${base(agentId)}/${artifactId}`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`getDetail failed: ${r.status}`);

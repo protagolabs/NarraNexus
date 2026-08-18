@@ -2108,7 +2108,9 @@
     "completed": "完了",
     "roomSpoke": "ルームに新しい動き",
     "agent": "エージェント",
-    "room": "ルーム"
+    "room": "ルーム",
+    "artifactRepointedVerified": "再リンク: {{oldPath}} → {{newPath}}(内容検証済み)",
+    "artifactRepointedUnverified": "再リンク: {{oldPath}} → {{newPath}}(未検証の一致 — 要確認)"
   },
   "webAnalyticsNotice": {
     "body": "これは NarraNexus のクラウドウェブ版です。第三者の分析サービスである Google Tag Manager を使用して、匿名のページ操作データ（ページビュー、クリック、リファラー）を収集します。会話内容は収集されません。設定 → プライバシー でいつでもオフにできます。",

@@ -5,7 +5,10 @@
 
 Contract under test (spec 2026-08-18-artifact-events-inventory-pointer §3):
 - stage_artifact_event writes ONE self-contained outbox row; the payload
-  carries full artifact metadata but NEVER file_path (server-private).
+  carries the FULL artifact row including file_path — the HTTP list routes
+  already return it to the authenticated owner, and excluding it here would
+  give the frontend store two Artifact shapes (HtmlRenderer branches on
+  file_path), which is fragility without secrecy.
 - Staging is best-effort: a broken DB must not raise into the caller.
 - Registry write paths stage exactly one row each: register → "registered",
   target re-register → "updated", service bulk delete → "deleted" per row.
@@ -63,7 +66,7 @@ async def _register(env, target_artifact_id=None):
 
 
 @pytest.mark.asyncio
-async def test_stage_writes_self_contained_payload_without_file_path(env):
+async def test_stage_writes_self_contained_full_row_payload(env):
     result = await _register(env)
     artifact = await env["repo"].get_by_id(result.artifact_id)
 
@@ -77,7 +80,7 @@ async def test_stage_writes_self_contained_payload_without_file_path(env):
     assert payload["external"] is False
     assert payload["artifact"]["artifact_id"] == result.artifact_id
     assert payload["artifact"]["title"] == "My report"
-    assert "file_path" not in payload["artifact"]
+    assert payload["artifact"]["file_path"] == artifact.file_path
     assert payload["extra"]["new"] == "report/b.html"
     assert rows[-1]["consumed_at"] is None
 
