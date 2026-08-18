@@ -44,7 +44,10 @@ from xyz_agent_context.utils.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
 )
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    normalize_agent_text,
+)
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .id_schema import build_all_id_regex, ID_KINDS
@@ -824,22 +827,48 @@ async def _confirm_inner(
         # that model, so an unclamped value would strand the agent as
         # "insertable but unreadable" — every later edit/delete deserializes the
         # row and fails Pydantic validation.
-        original_name = agent_record["agent_name"]
+        # Normalized FIRST — before dedupe and before the clamp. This insert
+        # bypasses AgentRepository, so nothing else will strip it, and a row
+        # holding " name " can never be renamed afterwards: the update path
+        # compares normalized values, so saving the stripped form is judged a
+        # no-op and never written (see agent_field_matches). Ahead of dedupe
+        # for a second reason — an unstripped name would not match the
+        # already-normalized rows it is supposed to be deduped against.
+        original_name = normalize_agent_text(agent_record["agent_name"])
         clamped_name, name_trimmed = _clamp_agent_text(original_name)
-        clamped_desc, desc_trimmed = _clamp_agent_text(agent_record.get("agent_description"))
+        clamped_desc, desc_trimmed = _clamp_agent_text(
+            normalize_agent_text(agent_record.get("agent_description"))
+        )
         agent_record["agent_description"] = clamped_desc
 
-        # Dedupe against existing (already-clamped) names, THEN clamp again:
-        # dedupe_name appends a " (n)" suffix with no length budget of its own,
-        # so on a clash a clamped 255-char name becomes "…255… (1)" = 259 and
-        # would land back over the ceiling. Re-clamping the FINAL name is what
-        # actually guarantees the raw insert never stores an unreadable value.
-        # agent_name has no UNIQUE constraint, so a rare post-clamp collision is
-        # harmless — two same-named agents, exactly as manual creation allows.
+        # Dedupe against existing (already-normalized, already-clamped) names,
+        # THEN normalize and clamp again. dedupe_name appends a " (n)" suffix
+        # that has neither a length budget nor a whitespace budget of its own:
+        # on a clash a clamped 255-char name becomes "…255… (1)" = 259 and lands
+        # back over the ceiling, and an EMPTY candidate becomes " (1)" with a
+        # leading space — an unnormalized value, i.e. a row that can never be
+        # renamed afterwards (see agent_field_matches). Re-running both on the
+        # FINAL name is what actually guarantees the raw insert stores a
+        # normalized, readable value. agent_name has no UNIQUE constraint, so a
+        # rare post-clamp collision is harmless — two same-named agents,
+        # exactly as manual creation allows.
         deduped_name = await dedupe_name(
             "agents", "agent_name", {"created_by": user_id}, clamped_name
         )
-        final_name, dedupe_overflow = _clamp_agent_text(deduped_name)
+        final_name, dedupe_overflow = _clamp_agent_text(
+            normalize_agent_text(deduped_name)
+        )
+        # Last of the five creation paths to get a non-empty-name fallback (the
+        # auth route uses "New Agent", the migration applier "Imported Agent",
+        # and both create_agent legs refuse outright). A bundle is user-supplied
+        # input, so an empty or whitespace-only agent_name in agent.json is
+        # ordinary; stored empty it renders as a bare agent_id everywhere.
+        #
+        # AFTER dedupe on purpose: before it, every empty-named bundle would be
+        # deduped against the existing "Imported Agent" rows and collect a
+        # " (n)" suffix. After it, a duplicate name is simply allowed —
+        # agent_name has no UNIQUE constraint, as the comment above says.
+        final_name = final_name or "Imported Agent"
         name_trimmed = name_trimmed or dedupe_overflow
 
         renamed = (final_name != clamped_name)

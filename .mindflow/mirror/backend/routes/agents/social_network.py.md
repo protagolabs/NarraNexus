@@ -1,8 +1,106 @@
 ---
 code_file: backend/routes/agents/social_network.py
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18(补)— 判断改调共享规则;65536 之上的 parity 缺口是有意留的
+
+`create-agent` 的三步从本文件搬走了:现在是「归一 → `create_agent_text_reject`
+→ 按自己的 `error` 键包 dict」。规则本体与理由见 [[social_network_module.py]]
+2026-08-18 条。本地的 `_clamp_created_by` 删掉,改用共享的
+`default_created_by_description`。
+
+`AGENT_TEXT_MAX_LENGTH` 的深引也折进了相邻那行门面 import —— 本文件在 `backend/`
+下,引门面从不成环(只有 [[api_schema]] 有那个理由)。
+
+**已知且有意保留的一小段 parity 缺口**(记在这里,免得下一轮被当成新发现):
+模型上 `max_length=65536` 之上,HTTP 腿仍是 422、DirectStore 腿回共享串。65536 是
+**DoS 兜底**,而共享串里写的上限是 255,模型不该走到那里 —— 实际命中面为零。
+若将来要收口,方向是「路由层不设上限、靠 ASGI/body-size 限制兜」,
+**不要把 cap 降回 255** ——那会重新把 422 抢到 handler 前面,正是本轮修掉的东西。
+
+## 2026-08-18(修正)— 上限不放在模型层,放在两条腿共用的一处
+
+下面那条(同日早些时候)把 `agent_name` / `agent_description` 的 `max_length`
+统一成了 `AGENT_TEXT_MAX_LENGTH`。**那一半是错的**,而且错在它自己上方 14 行的
+注释已经论证过的事情上:
+
+本路由的**唯一调用方**是 [[store.py]] `HttpStore.create_agent` —— 也就是
+`create_agent` 这个工具的云端那条腿。模型层的 `max_length` 会让 HTTP 侧在
+handler 之前就 **422**,于是同一次工具调用:云端模型读到
+`invalid arguments (an argument is out of the route's allowed range)`(不说哪个
+参数、不说上限),本地 DirectStore 那条腿读到 `Agent(...)` 抛的 pydantic 串
+(带 "at most 255 characters")。**改之前 256–2000 这一段两条腿是逐字一致的**
+(HTTP 侧放过 → add_agent 抛 → 路由 except 收成同一个串),收紧反而把一类
+「答案一致」变成了「两个答案」—— 正是空名那条当初要删 `min_length=1` 的同一个理由。
+
+现在的形状:
+
+- 模型上只留一个 **DoS 兜底**(65536,与 `awareness` 同级),正常长度输入永远
+  走不到 422。
+- 真正的上限由**两条腿各自**在同一位置、按同一顺序判:归一 → 空名
+  (`CREATE_AGENT_EMPTY_NAME_MSG`)→ 长度(`CREATE_AGENT_TEXT_TOO_LONG_MSG`,
+  **串里带数字**,模型可以据此截短重试)。顺序不能反 —— `" " * 300` 是空名,
+  不是超长名。
+- `agent_name` 从 128 抬到 255 这半**保留**(129–255 的名字此前 HTTP 422 /
+  本地成功,是真分歧);只是拒绝点从模型挪到了那处共用检查。
+
+另一处同族的收尾:描述为空时的兜底串 `f"Agent created by {name}"` 是这条路径上
+**唯一在所有检查之后才拼出来的值**(17 + 创建者名字,名字近 255 时会越界),
+所以它走**截断**而不是拒绝 —— 拒绝一个调用方从没输入过的串没法解释。两条腿
+逐字同形。
+
+测试:`tests/backend/test_create_agent_empty_name_parity.py` 现在覆盖
+空名 / 超长 / 一长串空格,每一类都断言**两条腿回同一个串**;
+`test_agent_request_length.py` 的 strip 参数化里**故意不含**这个模型,并注明
+它的上限不在模型层。用「把 `max_length` 放回模型再跑」验证过新用例会红。
+
+## 2026-08-18 — CreateAgentBody 是写 agents 行的第五个写边模型,补齐同一条不变量
+
+`agent_name` / `agent_description` 换成 `StrippedText`,上限统一到
+`AGENT_TEXT_MAX_LENGTH`(原来是 **128 / 2000**)。它经
+`provision_new_agent` → [[agent_repository]] `add_agent` 写同一行,与
+[[store.py]] 的 DirectStore 孪生是同一次工具调用的两条腿。
+
+原来的两个数字各造一个分歧:
+
+- `agent_name` 上限 **128**,而孪生那条经 `add_agent` 接到 255。名字长度落在
+  **129–255** 的输入:HTTP 侧 422(模型拿到 pydantic 的 transport 串)、
+  DirectStore 侧成功。同一输入两条腿两个答案 —— 正是本轮去掉 `min_length=1`
+  时给出的同一个理由,在上限这一头当时没做。
+- `agent_description` 上限 **2000** 宽于读模型的 255。**实测**(改前探过):
+  300 字符的描述在路由层能过,接着在 `add_agent` 里构造 `Agent(...)` 被拒,
+  走 except 返回 `success:false`,而错误串是**泄漏出来的原始 pydantic 报文**
+  (`"1 validation error for Agent…"`)。所以收紧到 255 **不会拒掉任何今天能成功的
+  请求**,只是把这个丑陋的内部错误换成干净的 422。
+
+`awareness`(65536)**没动** —— 它不是 `agents` 的列,不在这条不变量里。
+`new_agent_id` 的 `pattern` 也没动(路径穿越防护)。
+
+测试:`tests/backend/test_agent_request_length.py` 的 strip 边界参数化把这个模型
+一并纳入(它的 `agent_name` 必填,所以 extra 里要带)。那份枚举**不再写数字** ——
+上一版写着「All four write-edge models」而实际是五个,现在改成附一条 grep 命令
+让读者自己重新推导。用「把上限改回 128 再跑」验证过新用例确实会红。
+
+## 2026-08-17 — create-agent 归一名字/描述,并拒绝空名(与 DirectStore 同构)
+
+`POST /{agent_id}/social-network/create-agent`:`normalize_agent_text` 名字与描述,
+空名回 `CREATE_AGENT_EMPTY_NAME_MSG`(共享串)。补记(同日 review 第三轮):`CreateAgentBody.agent_name` 去掉了 `min_length=1`。
+带着它,`agent_name=""` 会在路由自己的空名检查**之前**先 422,于是模型在云端
+拿到的是 transport 降级串、在本地拿到共享常量 —— 同一次工具调用两句话,
+而这个常量存在的全部理由就是 byte-parity。`"   "` 没这个问题(过 min_length,
+再被归一成 `""` 命中检查),裂开的只有真空串这一支。
+`max_length=128` 保持不变(与 `AGENT_TEXT_MAX_LENGTH=255` 不一致是既有问题,
+不在本次范围)。**(superseded 2026-08-18 — 见顶部条目:上限已从模型层移到
+两条腿共用的一处检查。)**测试:`tests/backend/test_create_agent_empty_name_parity.py`
+—— 两条路径 × `""` / `"   "`,必须回同一个串。
+
+理由与陷阱见 [[store.py]]
+2026-08-17 条 —— 两边是 byte-parity 孪生,必须一起改。
+
+连带一处:成功回执与日志改用**归一后**的 `agent_name`,不再是 `body.agent_name`。
+否则回给 agent 的名字与 [[agent_repository]] 实际写进行里的不同形。
 
 ## 2026-08-11 — 三个 GET 读端点补 owner-only（安全审计 IDOR/P0-1）
 

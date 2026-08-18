@@ -17,8 +17,8 @@ Includes:
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from typing import Annotated, List, Dict, Any, Optional
+from pydantic import BaseModel, BeforeValidator, Field
 
 
 # ===== User Status Enum =====
@@ -187,6 +187,26 @@ class User(BaseModel):
 AGENT_TEXT_MAX_LENGTH = 255
 
 
+def _strip_if_text(value: Any) -> Any:
+    """Strip a supplied string; pass everything else through untouched.
+
+    ``None`` must survive as ``None``: on an update path it is the only thing
+    that distinguishes "field not supplied" from ``""`` ("clear this field").
+    Non-str values are left for pydantic to reject with its own message.
+    """
+    return value.strip() if isinstance(value, str) else value
+
+
+# A request-body string normalized before any other validation runs, so length
+# caps measure what will actually be STORED (every writer of the agents row
+# normalizes — see agent_field_matches). Without it, trailing whitespace pushes
+# an otherwise-legal value over the cap on one write path while another, which
+# measures after stripping, accepts the same input. Lives here rather than in
+# api_schema because the manyfold request models need it too and api_schema
+# cannot be imported from them without a cycle.
+StrippedText = Annotated[str, BeforeValidator(_strip_if_text)]
+
+
 class Agent(BaseModel):
     """Agent data model"""
     id: Optional[int] = None
@@ -215,6 +235,111 @@ class Agent(BaseModel):
 # injects the same field as the agent's own self-description, so the asked
 # agent read it about itself too.
 LEGACY_AGENT_DESCRIPTION_PLACEHOLDER = "A new agent ready for configuration"
+
+
+def normalize_agent_text(value: Optional[str]) -> str:
+    """The stored form of an agent's name / description.
+
+    Surrounding whitespace is not content: a description saved with a trailing
+    space is the same description, and ``build_discovery_description`` strips
+    it again before peers ever see it. Normalising on the way IN keeps the
+    stored row and every reader's view of it identical, instead of leaving the
+    difference to whichever reader remembers to strip.
+
+    ``None`` and ``""`` are both "no text" — the DB may hold either (rows
+    created before the empty-string default still carry NULL), and a caller
+    clearing a field sends ``""``.
+    """
+    return (value or "").strip()
+
+
+# The agents-row columns whose value is free text: the ones that get
+# normalized on write and compared as text. Deliberately a closed set — see the
+# dispatch in agent_field_matches — and exported, because every writer of the
+# row needs the same answer to "which columns is this rule about". Adding a
+# text column here is what makes both the normalizer and the predicate cover
+# it; two of them would drift the moment someone updated only one.
+AGENT_TEXT_FIELDS = frozenset({"agent_name", "agent_description"})
+
+
+def normalize_agent_row_text(values: dict) -> dict:
+    """Return ``values`` with every agents-row text column normalized.
+
+    A new dict; the input is left alone. Non-text keys pass through untouched,
+    so a caller can hand this a whole row or a partial patch. ``is_public`` is
+    deliberately NOT included: it is not text, and agent_field_matches
+    dispatches it separately (bool on MySQL TINYINT vs SQLite INTEGER).
+
+    Every writer of the agents row goes through this — `AgentRepository`, and
+    the handful of paths that raw-insert. See the invariant note above
+    :func:`agent_field_matches`.
+    """
+    return {
+        k: normalize_agent_text(v) if k in AGENT_TEXT_FIELDS else v
+        for k, v in values.items()
+    }
+
+
+def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
+    """Does ``agent`` already hold ``wanted`` for ``field``?
+
+    The single definition of "this write would change nothing", shared by
+    every writer of the ``agents`` row. It lives here, beside the entity whose
+    fields it compares, because the two existing writers reached opposite
+    answers for the same input: the awareness tool compared stripped values
+    while ``PUT /api/auth/agents`` compared raw ones, so one accepted a name
+    the other treated as unchanged.
+
+    The text fields are compared in their NORMALIZED form, so the predicate is
+    only sound while the row holds normalized text. That is what lets a
+    compare-then-verify writer trust "already equal": if a row could hold an
+    unnormalized value, saving the stripped version of the "same" name would
+    compare equal, issue no write, and then certify the untouched row.
+
+    Keeping that true is a property of every writer, not of one chokepoint.
+    :class:`AgentRepository` normalizes in ``add_agent`` / ``update_agent``,
+    which covers the routes, the MCP tool, arena provisioning and the
+    migration applier. The paths that raw-insert the table normalize at their
+    own edge instead — today the manyfold agent routes and the bundle
+    importer. Re-check the list before trusting it; it is one command:
+
+        git grep -nE '(insert|update)\(\s*"agents"|_ins\("agents"' -- backend src
+
+    Args:
+        agent: the entity as currently stored.
+        field: column name (``agent_name`` / ``agent_description`` /
+            ``is_public``).
+        wanted: the value the caller asked for.
+
+    Returns:
+        True when no write is needed for this field.
+    """
+    if field == "is_public":
+        # The column is TINYINT on MySQL and INTEGER on SQLite, and
+        # ``_row_to_entity`` may hand back either a bool or an int.
+        return bool(agent.is_public) == bool(wanted)
+    if field not in AGENT_TEXT_FIELDS:
+        # Explicitly dispatched, never "whatever getattr returns": an
+        # unlisted field would otherwise compare as text and — for the ones
+        # defaulting to None — answer "already equal", which suppresses the
+        # write and then certifies the unchanged row. Adding a field here is
+        # a deliberate act, with a comparison chosen for it.
+        raise ValueError(
+            f"agent_field_matches: no comparison defined for {field!r}"
+        )
+    if not isinstance(wanted, str):
+        # Same reasoning as the closed field set above, one level down: a
+        # non-str coerced to "" would answer "already equal" for an empty
+        # row — suppressing the write and then certifying it. The two
+        # mistakes (wrong field name, wrong value type) fail identically and
+        # are equally invisible, so they are refused identically.
+        raise TypeError(
+            f"agent_field_matches: {field!r} takes a str, got "
+            f"{type(wanted).__name__}"
+        )
+    return normalize_agent_text(getattr(agent, field)) == normalize_agent_text(
+        wanted
+    )
 
 
 def is_agent_description_unset(description: Optional[str]) -> bool:

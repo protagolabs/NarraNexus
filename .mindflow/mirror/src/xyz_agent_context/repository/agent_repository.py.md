@@ -1,8 +1,53 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17（更正）— 「唯一汇聚点」这句话是错的
+
+下面那条原文写着 `add_agent` 是「全部 5 条创建路径唯一都经过的点」、归一「因此
+不是调用方的自由,是表的性质」。**第一句是假的**,第二句因此当时也不成立 ——
+`agents` 行有 4 个绕过本 repository 的直写点（review 抓到,已核）：
+
+```
+git grep -nE '(insert|update)\(\s*"agents"|_ins\("agents"' -- backend src
+  backend/routes/manyfold/agents.py:187   POST /manyfold/agents 幂等分支
+  backend/routes/manyfold/agents.py:194   POST /manyfold/agents 新建分支
+  backend/routes/manyfold/agents.py:300   PATCH /manyfold/agents/{id} —— 改名端点
+  src/xyz_agent_context/bundle/importer.py:813  bundle / team marketplace 导入
+```
+
+讽刺的是仓库自己记着这件事：`tests/backend/test_agent_request_length.py` 的注释
+就写着「Manyfold write path（the 4th path）… These raw-write the agents row」。
+写下 only/always/never 之前先 grep 反例 —— 这次没做。
+
+**修法是收口,不是把话说窄**：4 处全部在自己的写边归一（manyfold 三处走
+`normalize_agent_row_text`，importer 在 dedupe 与 clamp **之前**跑
+`normalize_agent_text`，理由见那里的注释：不先归一的话带空白的名字既不会与库里
+已归一的同名行去重，dedupe 追加的 " (n)" 还会把 255 顶过上限）。
+
+不变量的正式陈述搬到了 [[entity_schema]] `agent_field_matches` 的 docstring 上，
+并附上那条 grep 命令 —— 下一个人可以自己重验，而不是相信一句陈述。
+测试：`tests/backend/test_agents_row_writers_normalize.py`。
+
+## 2026-08-17 — 入库前归一 agent_name / agent_description
+
+`add_agent` 与 `update_agent` 现在都对两个文本字段跑 [[entity_schema]] 的
+`normalize_agent_text`(首尾空白剥掉,`None`≡`""`)。
+
+**为什么落在 repository 而不是各调用方**:它是全部 5 条创建路径唯一都经过的点 ——
+`POST /api/auth/agents`、social-network 建 agent 路由、MCP `create_agent` 工具三条
+走 [[provision]] `provision_new_agent`,arena 供给与迁移 applier 则直接调 `add_agent`
+(applier 绕过了 provision,所以"放 provision 里"覆盖不到)。
+
+**不归一会怎样**:改名路径([[auth.py]])比较的是归一后的值。所以一行存着
+「小绿␣」的 agent,owner 在侧栏把它改成「小绿」时会被判"没变化"→ 一次写都不发 →
+**这行永远归一不了**。存进来的形态因此不是调用方的自由,是表的性质。
+
+调用方那一半仍有各自的责任:`or "New Agent"` 这类默认串必须在**归一之后**判
+(`"   "` 是 truthy,先 `or` 就漏过默认值,存下纯空格名 → 侧栏行标题空白)。
+见 [[auth.py]] / [[social_network.py]] / [[store.py]] 各自那一条。
 
 ## 2026-08-10 — resolve_owner 区分 ""(不存在) 与 None(查询失败)
 

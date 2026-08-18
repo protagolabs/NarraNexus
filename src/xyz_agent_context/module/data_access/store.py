@@ -539,19 +539,36 @@ class DirectStore:
         from xyz_agent_context.module.social_network_module import (
             format_create_agent_success,
             CREATE_AGENT_NO_OWNER_MSG,
+            create_agent_text_reject,
+            default_created_by_description,
         )
+        from xyz_agent_context.schema import normalize_agent_text
 
         try:
             db = await self._db()
             caller = await AgentRepository(db).get_agent(creator_agent_id)
             if not caller or not caller.created_by:
                 return {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
+            # Normalize BEFORE the checks below: the row is stored normalized
+            # (AgentRepository.add_agent), so an unnormalized name here would
+            # make the success echo disagree with what was written, and the
+            # `or` fallback would be skipped by a whitespace-only description.
+            agent_name = normalize_agent_text(agent_name)
+            agent_description = normalize_agent_text(agent_description)
+            # Same rule as the Http twin because it IS the same function — see
+            # create_agent_text_reject for why the order lives there.
+            refusal = create_agent_text_reject(agent_name, agent_description)
+            if refusal:
+                return {"success": False, "message": refusal}
             result = await provision_new_agent(
                 db,
                 agent_id=new_agent_id,
                 user_id=caller.created_by,
                 agent_name=agent_name,
-                agent_description=agent_description or f"Agent created by {caller.agent_name or creator_agent_id}",
+                agent_description=agent_description
+                or default_created_by_description(
+                    caller.agent_name or creator_agent_id
+                ),
                 awareness=awareness,
             )
             # Match the route's create log so local-mode 'who created which agent

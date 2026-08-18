@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 导出 `normalize_agent_text` / `agent_field_matches`
+
+[[entity_schema]] 新增的「这次写会不会改变什么」判断进公共导出面——`agents` 行的
+两个写入方([[auth.py]] 的 `PUT /api/auth/agents`、[[_awareness_writes]] 的
+`update_agent_profile`)都从 `xyz_agent_context.schema` 引,等价规则只有一份。
+它们此前各写一份且**答案相反**(一个比较 strip 过的值、一个比较原样值),所以
+这次上提不是整理,是修 bug。纯转发。
+
+注:`backend/` 引 `xyz_agent_context` 是合法方向,反向不行——所以共享的那份
+必须落在 package 里,这也是它没被放进 backend 的原因。
+
+同日追加:`AGENT_TEXT_MAX_LENGTH`、`normalize_agent_row_text`、
+`AGENT_TEXT_FIELDS` 进门面。
+
+> 更正:第一次给 `AGENT_TEXT_MAX_LENGTH` 写的理由是「api_schema 与写边校验都需要它,
+> 放进门面后不必再深引」——**当时它零消费者**,两个消费者都还在深引。而且
+> [[api_schema]] **结构上不可能**用门面:门面反过来再导出 api_schema 的模型,引它成环。
+> 现在 [[_awareness_writes]](在 schema/ 之外,可以用门面)已改为门面引用。
+
+第四轮再加 `StrippedText`。同时更正上面那句的后半:原写「api_schema 与 manyfold
+路由保留深引,成环」——**成环只是 api_schema 的原因**(它在包内,门面反过来导出
+它的模型);manyfold 在 `backend/` 下,引门面从来不会成环,它当时深引只是因为
+`StrippedText` 不在门面里。现在 manyfold 已全部改走门面,只有 [[api_schema]]
+保留深引,理由已就地注明。
 
 ## 2026-08-10 — 导出 `JobUpdateFields`
 

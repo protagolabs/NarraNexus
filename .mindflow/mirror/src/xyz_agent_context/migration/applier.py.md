@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/migration/applier.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 默认串在归一之后判
+
+`agent_name=plan.agent_name or "Imported Agent"` 改成
+`normalize_agent_text(plan.agent_name) or "Imported Agent"`。
+
+`"   "` 是 truthy,先 `or` 会跳过默认串;[[agent_repository]] 随后把它归一成 `""`,
+于是导入的 agent 在侧栏渲染裸 `agent_id` 而不是 "Imported Agent"。
+与 [[auth.py]] / [[social_network.py]] / [[store.py]] 三处同形 —— 本文件是第四个
+per-caller 默认串,当时漏了。
 
 ## Why it exists
 
