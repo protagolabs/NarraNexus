@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — 坏归档降级：try 覆盖到 copy/sha，文案不再冤枉 tarball
+
+（承接下方 2026-08-18 那条）三处收紧：
+
+1. **try 范围**从"只裹 `scan_zip_for_sensitive`"扩到 **scan + `copy2` +
+   `file_sha256`**。只裹 scan 的话，同一个源文件在 copy 阶段抛 `OSError` 仍会
+   冒成 500——"一份坏归档不该让整份导出失败"这个不变式就只覆盖了两个失败点里
+   的一个。
+2. **失败时清理半成品**：`copy2` 中途失败会在 `skills_dir` 留下不完整的
+   `{skill_dir}.zip`，而下一个同名条目的 `if tgt_zip.exists()` 分支会因此拐到
+   `__{agent_id}` 后缀——换来一个更难查的问题。降级路径里 `unlink(missing_ok)`。
+3. **`archive_rows_by_skill` 现在同时带 `source_type`**：github 装的 skill 归
+   档是真 `.tar.gz`，导出请求若对它声明 `install_method="zip"`，喂给
+   `scan_zip_for_sensitive` 的是一份**完全健康**的 tarball。原文案"你的归档不
+   是可读的 zip"会让用户去重传一个好包然后发现症状不变——真正的错配是 method
+   与 source_type。现在这种情况给专门的文案，指向 `install_method='url'`。
+
 ## 2026-08-18 — 坏归档降级成 warning，不再整份导出失败
 
 `scan_zip_for_sensitive(Path(src_zip))` 原先裸调用，`BadZipFile` 一路冒到路

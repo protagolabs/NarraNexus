@@ -15,7 +15,6 @@ Subproject 2 endpoints (under /api/bundle):
 import io
 import json
 import os
-import zipfile
 import shutil
 import tempfile
 from pathlib import Path
@@ -31,7 +30,11 @@ from pydantic import BaseModel
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
-from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
+from xyz_agent_context.bundle.security import (
+    MAX_BUNDLE_BYTES,
+    file_sha256,
+    validate_skill_archive_bytes,
+)
 from xyz_agent_context.bundle.skill_backup import archive_target, ensure_archive_dir
 from xyz_agent_context.repository import SkillArchiveRepository
 from xyz_agent_context.utils.file_safety import enforce_max_bytes
@@ -634,19 +637,17 @@ async def upload_archive(
             backend_settings.max_upload_bytes,
             label="Skill archive",
         )
-        # Then: are these bytes actually a zip? Accepting anything here used to
-        # push the failure one endpoint away — `/export` opened the archive in
-        # `scan_zip_for_sensitive`, raised `BadZipFile`, and returned a 500 that
-        # named neither the skill nor the file. `skills.py` has validated its
-        # uploads all along; this route never did.
-        try:
-            with zipfile.ZipFile(io.BytesIO(contents)) as zf:
-                zf.testzip()
-        except (zipfile.BadZipFile, OSError) as e:
-            raise ValueError(
-                f"Skill archive is not a readable zip file ({e}). "
-                "Upload the .zip you installed the skill from."
-            )
+        # Then: are these bytes a usable skill archive? Accepting anything here
+        # used to push the failure one endpoint away — `/export` opened the
+        # archive in `scan_zip_for_sensitive`, raised `BadZipFile`, and returned
+        # a 500 naming neither the skill nor the file. The installer
+        # (`skill_module._extract_zip_safely`) has enforced entry/size caps all
+        # along; this admission point had nothing.
+        #
+        # Metadata only — it must never decompress. See
+        # `security._validate_skill_archive` for why (a 50 MB upload deflates to
+        # ~50 GB, and this route is async with no thread offload).
+        validate_skill_archive_bytes(contents)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

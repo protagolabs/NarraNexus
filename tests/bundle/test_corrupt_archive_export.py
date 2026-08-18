@@ -203,3 +203,95 @@ async def test_one_corrupt_archive_does_not_sink_the_healthy_ones(
     with zipfile.ZipFile(bundle) as z:
         blob = b"".join(z.read(n) for n in z.namelist() if not n.endswith("/"))
     assert b"HEALTHY_CANARY" in blob
+
+
+async def test_tarball_archive_gets_a_message_that_points_at_the_real_mistake(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """A github-installed skill's archive is a real `.tar.gz`. Exporting it with
+    `install_method="zip"` must not tell the user their archive is broken — it
+    isn't; the method is wrong. `archive_rows_by_skill` keeps `source_type` so
+    the warning can say so."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_tarball01", "test_user"
+    await _seed_agent(db_client, aid, "TarballAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "githubskill")
+
+    tgz = prepare_archive_target(uid, "githubskill", suffix=".tar.gz")
+    tgz.write_bytes(b"\x1f\x8b\x08\x00fake but genuinely a tarball, not a zip")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="githubskill", source_type="github",
+        source_url="https://github.com/o/r", sha256="abc123", archive_path=str(tgz),
+    )
+
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "githubskill",
+                 "skill_dir": "githubskill", "install_method": "zip"}
+            ],
+        ),
+        tmp_path / "tarball.nxbundle",
+    )
+    warnings = " ".join(result.get("warnings", []))
+    assert "githubskill" in warnings
+    assert "github" in warnings and "url" in warnings, (
+        f"warning should point at the method/source mismatch, got: {warnings!r}"
+    )
+    assert "not a readable zip" not in warnings, "blames the file for a method error"
+
+
+async def test_failure_midway_through_copy_leaves_no_partial_archive(
+    db_client, tmp_workspace_root, tmp_path, archives_root, monkeypatch
+):
+    """The degrade path covers copy2/file_sha256, not just the scan — and it
+    cleans up. A half-written `{skill_dir}.zip` would otherwise be picked up by
+    the `tgt_zip.exists()` branch for the next entry with that dir name and
+    silently push it onto the `__{agent_id}` filename."""
+    from xyz_agent_context.bundle import builder as builder_mod
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_copyfail01", "test_user"
+    await _seed_agent(db_client, aid, "CopyFailAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "flakyskill")
+
+    good = prepare_archive_target(uid, "flakyskill")
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("flakyskill/SKILL.md", "---\nname: flakyskill\n---\nok\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="flakyskill", source_type="zip",
+        sha256="cafebabe", archive_path=str(good),
+    )
+
+    def _half_copy(src, dst, *a, **kw):
+        Path(dst).write_bytes(b"PARTIAL")      # leave a stub behind, then fail
+        raise OSError("disk went away mid-copy")
+
+    # builder_mod.shutil IS the stdlib module object, so this patches copy2
+    # process-wide for the duration; monkeypatch restores it at teardown.
+    monkeypatch.setattr(builder_mod.shutil, "copy2", _half_copy)
+
+    bundle = tmp_path / "copyfail.nxbundle"
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "flakyskill",
+                 "skill_dir": "flakyskill", "install_method": "zip"}
+            ],
+        ),
+        bundle,
+    )
+    assert bundle.exists(), "a copy failure must not fail the whole export"
+    assert "flakyskill" in " ".join(result.get("warnings", []))
+    with zipfile.ZipFile(bundle) as z:
+        leftovers = [n for n in z.namelist() if "flakyskill" in n and n.endswith(".zip")]
+    assert leftovers == [], f"partial archive shipped: {leftovers}"

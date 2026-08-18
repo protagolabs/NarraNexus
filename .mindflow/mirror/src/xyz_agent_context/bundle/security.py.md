@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/bundle/security.py
-last_verified: 2026-05-08
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — skill 归档准入校验收敛到这里
+
+新增 `validate_skill_archive_bytes()` / `validate_skill_archive_path()`（共用
+私有的 `_validate_skill_archive`），以及两个上限常量
+`MAX_SKILL_ARCHIVE_ENTRIES=500` / `MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES=100MB`。
+
+**为什么要收敛**：`skill_archives` 这张表有**两个写入口**——上传路由
+（[[bundle.py]]）和工作区本地 zip 注册（[[skill_backup.py]] 的
+`archive_local_zip`）——它们对"什么算一份合法归档"的判断本来是各写各的、还不
+一致（后者要求含 SKILL.md，前者什么都不查）。现在两处都调同一个函数。
+
+**这两个上限故意不复用 `MAX_DECOMPRESSED_BYTES`（2GB）**：那个约束的是整份
+`.nxbundle`，和单个 skill 的归档不是一个量级。这两个数字对齐的是
+`skill_module._extract_zip_safely`（安装时真正解压的地方，500 条目 / 100MB）
+——**能通过准入的包，安装器必须真的收得下**。
+
+**只读中央目录，绝不解压**（这条是硬约束，别"优化"掉）：
+
+- `testzip()` 会把每个成员完整解压一遍校验 CRC。deflate 压缩比可达 ~1030:1，
+  实测 199 KB 包解压出 200 MB；上传上限 50 MB ⇒ ~50 GB。路由是 `async def`
+  且没有 `to_thread`，**事件循环会被独占**，任何登录用户一次上传就能拖停全站
+  （铁律 #16：不要让我们自己的 bug 成为打断源）。
+- 判据够用的理由：下游那个原本 500 的消费者 `scan_zip_for_sensitive` 也只调
+  `infolist()`。
+
+**明写的取舍**：不验 CRC，所以"中央目录完好 + 数据段损坏"的包会被放行，那种
+失败在导入侧按 skill 单独兜住。`file_size` 是包自报的，恶意包可以谎报——这只
+是便宜的第一道闸，真正按实际写入量计数的是 `extract_zip_safely`。想加 CRC 校
+验，前提是**先过体积闸 + 挪进 `to_thread` + 接住 `testzip()` 的返回值**
+（它遇到 CRC 错误 `return zinfo.filename`，**不抛异常**）。
+
+加密包（general-purpose flag bit 0）也在这里挡掉：flag 从元数据就能读到，能
+立刻给"这个包加密了，请传未加密的"，而不是让它在导入侧才失败。
 
 # security.py — bundle zip safety helpers (PRD §8.7, §8.12.9)
 

@@ -32,3 +32,15 @@ stub: false
 - `archives_root` fixture monkeypatch `skill_backup.SKILL_ARCHIVES_ROOT`；坏
   归档要用 `prepare_archive_target` 落到用户目录里，否则会先被 SEC-07 的读侧
   守卫 `is_within_user_archive_dir` 拦掉，测到的就不是这个 bug 了。
+
+## 2026-08-18 二审 — 又加了两条
+
+- `test_tarball_archive_gets_a_message_that_points_at_the_real_mistake`：
+  github 装的 skill 归档是真 `.tar.gz`，用 `install_method="zip"` 导出时，文案
+  必须指向 method/source_type 错配，而不是说"你的归档坏了"——那个包好得很。
+- `test_failure_midway_through_copy_leaves_no_partial_archive`：把 `copy2` 换成
+  "先写半个文件再抛 OSError"的替身，断言导出仍然成功、且包里没有半成品。钉的
+  是 try 范围（scan 之外还要覆盖 copy/sha）和失败清理两件事。
+  注意 `builder_mod.shutil` 就是 stdlib 模块对象本身，patch 它等于进程内全局
+  patch，靠 monkeypatch 在 teardown 还原。
+

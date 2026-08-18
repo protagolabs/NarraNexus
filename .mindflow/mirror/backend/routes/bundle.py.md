@@ -15,14 +15,31 @@ stub: false
 文件上传成功，随后导出 500）。属**既有缺陷**，不是 SEC-07 引入；也是工单
 #113「BadZipFile 误回 500」在另一条路径上的重现。
 
-现在落盘前 `zipfile.ZipFile(io.BytesIO(contents)).testzip()` 验一次，坏包
-→ **400** 且文案告诉用户传什么（"Upload the .zip you installed the skill
-from."）。校验顺序是**先大小后 zip**：两者都会 fire 时，"太大了"是更可操作
-的那条消息。
+现在落盘前调 [[security.py]] 的 `validate_skill_archive_bytes()`，坏包
+→ **400** 且文案告诉用户传什么。校验顺序是**先大小后 zip**：两者都会 fire
+时，"太大了"是更可操作的那条消息。
 
-> 又是「正确做法已存在但这条 route 没套用」：`skills.py` 的安装路径一直在
-> 收到 zip 时就验。和 SEC-07 本身同一个模式，所以这次连测试的假数据一起改
-> 了——原来的用例用 `b"PK\x03\x04payload"` 当 zip，正是这个洞让它能绿。
+⚠️ **这道校验只读中央目录，绝不解压**。初版写的是
+`zipfile.ZipFile(io.BytesIO(contents)).testzip()`，那是个**比原 bug 更严重的
+洞**：`testzip()` 会把每个成员完整解压一遍校验 CRC，deflate 压缩比可达
+~1030:1，实测 199 KB 的包解压出 200 MB；`max_upload_bytes` 是 50 MB，也就是
+~50 GB。而且 `upload_archive` 是 `async def`，`testzip()` 是同步 CPU 密集
+调用、没有 `to_thread`，**整个事件循环被独占**——任何登录用户一次上传就能让
+全站请求和 WS 帧排队、正在跑的 agent 流式输出停住。这正是铁律 #16 说的"我们
+自己的 bug 成为打断源"。
+另外 `testzip()` 遇到 CRC 错误**不抛异常**，它 `return zinfo.filename`；初版
+把返回值丢掉了，所以那次最贵的调用实际什么都没挡住。
+
+判据够用的理由：下游那个原本 500 的消费者 `scan_zip_for_sensitive` 也只调
+`infolist()`。**不验 CRC** 是明写的取舍——中央目录完好、数据段损坏的包会被
+放行，那种失败在导入侧按 skill 单独兜住。
+
+> 又是「正确做法已存在但这条 route 没套用」：真正在收到 zip 时验字节的是
+> `skill_module._extract_zip_safely`（500 条目 / 100 MB 上限），**不是**
+> `backend/routes/skills.py`——后者只校验文件名后缀，全文没有一次 `zipfile`
+> 调用。新的共享校验器就是照它那两个上限对齐的。
+> 和 SEC-07 本身同一个模式，所以这次连测试的假数据一起改了——原来的用例用
+> `b"PK\x03\x04payload"` 当 zip，正是这个洞让它能绿。
 
 ## 2026-08-17 — SEC-07：两个"客户端字符串决定文件路径"的洞
 

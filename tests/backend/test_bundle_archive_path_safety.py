@@ -181,6 +181,94 @@ def test_upload_rejects_bytes_that_are_not_a_zip(client, archives_root, content)
     assert _FakeRepo.calls == [], "a rejected upload still wrote a DB row"
 
 
+def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
+    client, archives_root, monkeypatch
+):
+    """The declared-size gate, and the reason it is declared-size and not CRC.
+
+    `testzip()` (the first version of this check) decompresses everything to
+    verify CRCs: 199 KB of deflate expands to 200 MB, so a 50 MB upload — well
+    within `max_upload_bytes` — reaches ~50 GB, synchronously, on the event
+    loop, stalling every other user (binding rule #16).
+
+    So this asserts two things: the bomb is refused, AND the request never
+    decompressed a single entry. The second half is enforced directly by
+    exploding if anything opens an entry — a timing assertion would not catch a
+    regression at a test-sized payload, which is exactly when it would be
+    reintroduced.
+    """
+    from xyz_agent_context.bundle import security
+
+    monkeypatch.setattr(security, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+
+    # Build the payload BEFORE arming the tripwire: `writestr` itself goes
+    # through `ZipFile.open`, so patching first would trip on our own fixture.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("bomb.bin", b"\0" * (64 * 1024 * 1024))  # 64 MB -> ~64 KB packed
+    bomb = buf.getvalue()
+    assert len(bomb) < 1024 * 1024, "payload should be tiny compressed"
+
+    def _boom(self, *a, **kw):
+        raise AssertionError(
+            "the admission gate decompressed an entry — it must read the "
+            "central directory only"
+        )
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", _boom)
+
+    r = _upload(client, "legit-skill", content=bomb)
+    assert r.status_code == 400, r.text
+    assert "unpacks to" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_rejects_too_many_entries(client, archives_root, monkeypatch):
+    from xyz_agent_context.bundle import security
+
+    monkeypatch.setattr(security, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in range(20):
+            z.writestr(f"f{i}.txt", "x")
+    r = _upload(client, "legit-skill", content=buf.getvalue())
+    assert r.status_code == 400
+    assert "too many entries" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_rejects_an_encrypted_archive(client, archives_root):
+    """An encrypted zip can never be installed. Say so now — with the password
+    hint — instead of letting it fail on the far side of an import. Detected
+    from the general-purpose flag bit, i.e. still metadata only."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SKILL.md", "---\nname: x\n---\n")
+    raw = bytearray(buf.getvalue())
+    raw[6] |= 0x01                       # local header flag
+    idx = raw.find(b"PK\x01\x02")
+    raw[idx + 8] |= 0x01                 # central directory flag
+    r = _upload(client, "legit-skill", content=bytes(raw))
+    assert r.status_code == 400
+    assert "encrypted" in r.json()["detail"].lower()
+    assert not archives_root.exists()
+
+
+def test_upload_admits_a_crc_corrupt_archive_on_purpose(client, archives_root):
+    """Documents a deliberate gap: the gate reads the central directory only,
+    so an archive with intact metadata and a corrupt data section is stored.
+    Verifying CRC means decompressing — see the bomb test. That failure is
+    caught per-skill on the importer instead. If someone later adds a CRC pass,
+    this test should be updated *deliberately*, not silently."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("SKILL.md", "---\nname: x\n---\n" + "payload" * 50)
+    raw = bytearray(buf.getvalue())
+    raw[60] ^= 0xFF                      # corrupt the data section only
+    r = _upload(client, "legit-skill", content=bytes(raw))
+    assert r.status_code == 200, r.text
+
+
 def test_upload_size_limit_is_checked_before_zip_validity(client, archives_root, monkeypatch):
     """An oversized payload should say so, not complain about zip structure —
     the cheap check runs first and gives the actionable message."""
