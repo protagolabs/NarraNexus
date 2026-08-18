@@ -188,6 +188,20 @@ class LocalMessageBus(MessageBusService):
             "routed_by": routed_by,
             "created_at": _now_iso(),
         })
+        # Nudge the poll loop — the ONE place this can live.
+        #
+        # `MessageBusTrigger._wake` only reaches posts made by the trigger's own
+        # process, and a team reply is now a tool call made on the MCP server.
+        # Bumping here, right after the insert, makes "posted without waking"
+        # impossible instead of merely discouraged: there is no second insert
+        # site to forget (this is the only `bus_messages` insert in the repo).
+        #
+        # AFTER the insert, deliberately: the signal means work exists, so a
+        # send that raised must leave it untouched.
+        from xyz_agent_context.message_bus import wake_signal
+
+        await wake_signal.bump(self._db)
+
         # Index the message into the unified search layer (memory_bus), under the
         # sender, pointing back to the message. Append-only — bus is objective
         # message history (like chat); no update/dedup (design §10-C). Recipient-

@@ -57,7 +57,7 @@ async def _clear_stale_stall(repo: TeamWorkItemRepository, item: WorkItem) -> No
     long as the evidence for it.
 
     Always back to ``in_progress``. The only item that lands somewhere it did
-    not start is one a model pushed to ``open`` via ``work_update_status``
+    not start is one a model pushed to ``open`` via ``team_work_update_status``
     while keeping its assignee; ``create_item`` already opens an assigned item
     as ``in_progress``.
     """

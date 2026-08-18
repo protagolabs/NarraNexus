@@ -37,6 +37,11 @@ from xyz_agent_context.message_bus.attachments import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
+from xyz_agent_context.message_bus.team_rooms import (
+    get_or_create_team_room,
+    resolve_team_room,
+    team_room_marker,
+)
 from xyz_agent_context.message_bus.system_messages import (
     PLATFORM_MSG_TYPES,
     placeholders as _platform_placeholders,
@@ -250,36 +255,6 @@ async def _wipe_team_data(
     return result
 
 
-async def _get_or_create_team_room(
-    db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]
-) -> str:
-    """Find (or create) the team's group-chat channel and sync its members to
-    the team's current agents. Returns the channel_id."""
-    marker = f"{TEAM_ROOM_OWNER_PREFIX}{team_id}"
-    existing = await db.get_one("bus_channels", {"created_by": marker, "channel_type": "group"})
-    if existing:
-        channel_id = existing["channel_id"]
-    else:
-        # create_channel sets created_by = members[0]; immediately rewrite it to
-        # the non-agent marker so no member is the always-activated owner.
-        channel_id = await bus.create_channel(
-            name=team_name or "Team",
-            members=list(member_agent_ids),
-            channel_type="group",
-        )
-        await db.update("bus_channels", {"channel_id": channel_id}, {"created_by": marker})
-
-    # Sync membership to the team's current agents (add missing, drop extras).
-    current = {m.agent_id for m in await bus.get_channel_members(channel_id)}
-    target = set(member_agent_ids)
-    for aid in target - current:
-        await bus.join_channel(aid, channel_id)
-    for aid in current - target:
-        await bus.leave_channel(aid, channel_id)
-
-    return channel_id
-
-
 def _sanitized_attachment(user_id: str, att: object) -> dict | None:
     """Rebuild one echoed attachment dict from server-side state only.
 
@@ -340,7 +315,9 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
 
     members = await member_repo.list_members_by_team(team_id)
     bus = LocalMessageBus(backend=db._backend)
-    channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
+    channel_id = await get_or_create_team_room(
+        db, bus, team_id=team_id, team_name=team.name, member_agent_ids=members
+    )
 
     # Map the UI's "@all" to the bus-native "@everyone"; pass agent_ids through.
     resolved = ["@everyone" if m == "@all" else m for m in (payload.mentions or [])]
@@ -470,7 +447,9 @@ async def get_team_chat(
 
     members = await member_repo.list_members_by_team(team_id)
     bus = LocalMessageBus(backend=db._backend)
-    channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
+    channel_id = await get_or_create_team_room(
+        db, bus, team_id=team_id, team_name=team.name, member_agent_ids=members
+    )
 
     if before:
         messages = await bus.get_messages_before(channel_id, before=before, limit=PAGE_SIZE)
@@ -861,7 +840,7 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
             try:
                 await db.update(
                     "bus_channels",
-                    {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                    {"created_by": team_room_marker(team_id),
                      "channel_type": "group"},
                     {"name": updates["name"]},
                 )
@@ -1216,17 +1195,14 @@ async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None
     """
     from xyz_agent_context.message_bus.team_notices import post_roster_change
 
-    channel = await db.get_one(
-        "bus_channels",
-        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}", "channel_type": "group"},
-    )
-    if not channel:
+    channel_id = await resolve_team_room(db, team_id)
+    if not channel_id:
         return
     agent = await db.get_one("agents", {"agent_id": agent_id})
     await post_roster_change(
         db,
         team_id=team_id,
-        channel_id=channel["channel_id"],
+        channel_id=channel_id,
         action=action,
         agent_name=(agent or {}).get("agent_name") or agent_id,
     )

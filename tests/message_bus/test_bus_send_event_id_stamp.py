@@ -8,7 +8,7 @@ The team room's failure notice hangs on this. When the runtime declines to
 deliver a turn but does not call it fatal, the trigger asks the room "did
 anything from this agent land here during that turn?" — and answers it by
 matching ``bus_messages.event_id`` against the turn's id. The platform's own
-in-turn post stamps that id; so must the agent's own ``bus_send_message``, or
+in-turn post stamps that id; so must the agent's own ``message_agent``, or
 the question has an answer for one half of the deliveries and a guess for the
 other, and the guess puts a "delivery failed" line in a room that has already
 heard the agent speak.
@@ -52,6 +52,11 @@ class _RecordingBus:
         self.sends.append(kwargs)
         return "msg_2"
 
+    async def get_channel_members(self, _channel_id):
+        class _M:
+            def __init__(self, aid): self.agent_id = aid
+        return [_M(ME), _M(PEER)]
+
 
 def _tools() -> dict:
     """The registered tool functions, by name — the real entry points.
@@ -79,11 +84,11 @@ def _tools() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_bus_send_message_stamps_the_calling_turn():
+async def test_message_agent_stamps_the_calling_turn():
     tools = _tools()
     with injected(agent_id_headers(ME, turn_source="message_bus", event_id=TURN)):
-        result = await tools["bus_send_message"](
-            agent_id=ME, channel_id=ROOM, content="I did the thing"
+        result = await tools["message_agent"](
+            agent_id=ME, to=PEER, text="I did the thing"
         )
 
     assert result["success"] is True
@@ -91,15 +96,52 @@ async def test_bus_send_message_stamps_the_calling_turn():
 
 
 @pytest.mark.asyncio
-async def test_bus_send_to_agent_stamps_the_calling_turn():
-    """The column's meaning must not depend on which tool wrote the row."""
+async def test_message_team_stamps_the_calling_turn(monkeypatch):
+    """The column's meaning must not depend on which tool wrote the row.
+
+    2026-08-17 — this used to compare the two PEER send tools
+    (`bus_send_message` / `bus_send_to_agent`); they are one verb now, so the
+    pair that has to agree is the peer verb and the ROOM verb. The invariant is
+    unchanged: `has_message_from_turn` reads a missing id as "cannot tell", so a
+    writer that forgets the stamp makes the team room's failure notice fire at a
+    room that already heard the agent speak.
+    """
     tools = _tools()
+
+    class _DB:
+        async def get_one(self, table, filters):
+            if table == "agents":
+                return {"agent_id": ME, "created_by": "usr_1", "agent_name": "Me"}
+            if table == "teams":
+                return {"team_id": "t_1", "owner_user_id": "usr_1"}
+            if table == "team_members":
+                return {"team_id": "t_1", "agent_id": ME}
+            if table == "bus_channels":
+                return {"channel_id": ROOM}
+            return None
+
+        async def get_by_ids(self, _t, _f, ids):
+            return [{"agent_id": a, "agent_name": a} for a in ids]
+
+        async def execute(self, *_a, **_k):
+            return []
+
+        async def update(self, *_a, **_k):
+            return 1
+
+    async def _get_db():
+        return _DB()
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+    )
+
     with injected(agent_id_headers(ME, turn_source="message_bus", event_id=TURN)):
-        result = await tools["bus_send_to_agent"](
-            agent_id=ME, to_agent_id=PEER, content="over to you"
+        result = await tools["message_team"](
+            agent_id=ME, team_id="t_1", text="over to you"
         )
 
-    assert result["success"] is True
+    assert result["success"] is True, result
     assert tools["_bus"].sends[0]["event_id"] == TURN
 
 
@@ -110,8 +152,8 @@ async def test_a_codex_shaped_caller_still_carries_the_turn():
     full = agent_id_headers(ME, turn_source="message_bus", event_id=TURN)
     tools = _tools()
     with injected({"Authorization": full["Authorization"]}):
-        await tools["bus_send_message"](
-            agent_id=ME, channel_id=ROOM, content="hi"
+        await tools["message_agent"](
+            agent_id=ME, to=PEER, text="hi"
         )
 
     assert tools["_bus"].sends[0]["event_id"] == TURN
@@ -126,6 +168,6 @@ async def test_no_headers_stamps_no_event_id():
     answer "yes" for a room that heard nothing.
     """
     tools = _tools()
-    await tools["bus_send_message"](agent_id=ME, channel_id=ROOM, content="hi")
+    await tools["message_agent"](agent_id=ME, to=PEER, text="hi")
 
     assert tools["_bus"].sends[0]["event_id"] is None

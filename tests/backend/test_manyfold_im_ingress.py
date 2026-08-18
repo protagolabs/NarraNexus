@@ -731,7 +731,7 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
     async def fake_cred(agent_id):
         return object()
 
-    monkeypatch.setattr(trig._inbox_writer, "write", fake_inbox_write)
+    monkeypatch.setattr(trig._inbox_recorder, "record_turn", fake_inbox_write)
     monkeypatch.setattr(trig, "_audit", fake_audit)
     monkeypatch.setattr(trig, "_send_error_fallback", fake_fallback)
     monkeypatch.setattr(trig, "_credential_for_agent", fake_cred)
@@ -741,8 +741,8 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
         agent_id="a1", message=msg, db=object(), reply_text="", error_text="boom"
     )
     assert "text" in sent
-    assert calls["inbox"]["agent_response"] == CHANNEL_SILENT_SENTINEL
-    assert calls["inbox"]["original_message"] == "hi"
+    assert calls["inbox"]["outbound_text"] == CHANNEL_SILENT_SENTINEL
+    assert calls["inbox"]["inbound_text"] == "hi"
     assert calls["audit"][0] == "managed_ingress_processed"
 
     sent.clear()
@@ -750,7 +750,7 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
         agent_id="a1", message=msg, db=object(), reply_text="done", error_text="boom"
     )
     assert not sent  # agent replied - no fallback
-    assert calls["inbox"]["agent_response"] == "done"
+    assert calls["inbox"]["outbound_text"] == "done"
 
 
 async def test_wechat_managed_before_run_claims_owner(monkeypatch):
@@ -1573,7 +1573,7 @@ async def test_base_managed_after_run_merges_audit_details(monkeypatch):
     async def fake_audit(event_type, **kw):
         calls["audit"] = (event_type, kw)
 
-    monkeypatch.setattr(trig._inbox_writer, "write", fake_inbox_write)
+    monkeypatch.setattr(trig._inbox_recorder, "record_turn", fake_inbox_write)
     monkeypatch.setattr(trig, "_audit", fake_audit)
 
     msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")

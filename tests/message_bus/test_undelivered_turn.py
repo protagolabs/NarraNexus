@@ -442,7 +442,7 @@ def test_delivered_to_anyone_recognises_the_bus_send_tools():
 
 
 def test_delivered_to_anyone_rejects_tools_that_do_not_deliver():
-    assert MessageBusTrigger._delivered_to_anyone(["Read", "work_complete_item"]) is False
+    assert MessageBusTrigger._delivered_to_anyone(["Read", "team_work_complete"]) is False
     assert MessageBusTrigger._delivered_to_anyone([]) is False
 
 

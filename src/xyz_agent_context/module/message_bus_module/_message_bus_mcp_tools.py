@@ -32,6 +32,30 @@ from xyz_agent_context.module._mcp_identity import (
 )
 
 
+async def _describe_agent(agent_id: str) -> str:
+    """``"Name (agent_id)"`` for echoing a recipient back to the sender.
+
+    The echo exists so a wrong `to` shows up in the SAME turn instead of
+    surfacing later as a confused answer from somebody the agent never meant to
+    write to.
+
+    **Never raises, and that is load-bearing.** It runs after the send has
+    already succeeded, inside the tool's `try`; an exception here would report
+    `success: false` for a message that WAS delivered — the agent would then
+    reasonably send it again. A cosmetic label must not be able to invert the
+    outcome of the action it labels.
+    """
+    try:
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        row = await db.get_one("agents", {"agent_id": agent_id})
+        name = (row or {}).get("agent_name") or ""
+        return f"{name} ({agent_id})" if name else agent_id
+    except Exception:  # noqa: BLE001 — see docstring: never invert the outcome
+        return agent_id
+
+
 def _send_turn_source(*, to_agent: str = "", channel_id: str = "") -> Optional[str]:
     """The ``sender_turn_source`` stamp for ONE send.
 
@@ -116,103 +140,195 @@ def register_message_bus_mcp_tools(
     """
 
     @mcp.tool()
-    async def bus_send_message(
+    async def message_agent(
         agent_id: str,
-        channel_id: str,
-        content: str,
-        mention_list: str = "",
+        to: str,
+        text: str,
         attachment_refs: str = "",
     ) -> dict:
         """
-        Send a message (optionally with files) to a MessageBus channel.
+        Send a private message to another agent.
 
-        Use this to reply to messages or initiate conversations in channels you belong to.
-
-        Attaching files:
-        - Set attachment_refs to a comma-separated list of file handles. Each
-          handle is EITHER an attachment file_id (starts with "att_", e.g. a
-          file a user or another agent sent you) OR a path to a file in YOUR
-          workspace that you produced (e.g. "work/report.pdf"). Example:
-          attachment_refs="att_1a2b3c4d,work/chart.png".
-        - Files are shared by reference (recipients open them with the Read
-          tool). Large files are hard-linked, not copied — attach freely.
-        - Recipients are same-user agents only; you cannot send files across users.
-
-        IMPORTANT — Mention trigger semantics:
-        - In GROUP channels, only @-mentioned agents are activated (each mention triggers a
-          full agent turn). Mentions cause other agents to run, so use them deliberately.
-        - To address specific agents: pass their agent_ids in mention_list
-          (e.g. "agent_abc,agent_def"). Only those agents will be triggered.
-        - To broadcast to everyone in the channel: set mention_list="@everyone".
-          USE SPARINGLY — this triggers every channel member.
-        - Empty mention_list: the message is delivered but NO agent is triggered
-          (passive delivery). Prefer this for non-urgent updates.
-        - In DIRECT (DM) channels, mention_list is ignored — the recipient is always triggered.
-
-        Reply Discipline — do not spam the channel:
-        - Do NOT reply if the other party only sent an acknowledgment ("thanks", "got it", "好的")
-        - Do NOT repeat yourself with minor variations
-        - If you have nothing substantive to add, stay silent
+        The same action whether you are answering someone who just wrote to you
+        or starting a conversation of your own — messaging a peer is one act,
+        so it is one tool.
 
         Args:
-            agent_id: Your agent ID (the sender)
-            channel_id: Target channel ID (e.g. "ch_a1b2c3d4")
-            content: Message text to send
-            mention_list: Comma-separated agent IDs or "@everyone" (default empty = no trigger)
+            agent_id: your own agent id (the sender)
+            to: the agent id of the person you are writing to. REQUIRED — a
+                turn can involve several peers, so the platform does not guess.
+                Who is talking to you right now is stated at the top of this
+                turn; other agents you can reach are in your Known Agents list.
+            text: what to say
+            attachment_refs: comma-separated file handles to attach. Each is
+                either an attachment file_id ("att_...") you received, or a path
+                to a file in your own workspace ("work/report.pdf"). Files are
+                shared by reference — the recipient opens them with Read — so
+                attach freely. Same-user agents only.
+
+        Sending to someone triggers a full turn for them, so send with intent.
+        The reply arrives as a new turn, not inside this one.
 
         Returns:
-            Result dict with message_id on success, or error details
+            {"success": true, "message_id": ..., "sent_to": "<name> (<id>)"}
+            The recipient is echoed back so a mistake is visible in the same
+            turn instead of surfacing as a confused answer later.
         """
         bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
+        if not (to or "").strip():
+            return {
+                "success": False,
+                "error": "`to` is required — name the agent you are writing to.",
+            }
 
         try:
-            mentions: Optional[List[str]] = None
-            if mention_list.strip():
-                mentions = [m.strip() for m in mention_list.split(",") if m.strip()]
-
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
-            msg_id = await bus.send_message(
+            msg_id = await bus.send_to_agent(
                 from_agent=agent_id,
-                to_channel=channel_id,
-                content=content,
-                mentions=mentions,
+                to_agent=to.strip(),
+                content=text,
                 attachments=attachments or None,
-                sender_turn_source=_send_turn_source(channel_id=channel_id),
-                # Carry this turn's trigger tree onto the message. The run this
-                # message wakes up has no other way to learn which tree it
-                # continues, so this is the one hop where the lineage would
-                # break — and a broken lineage means a cascade stop silently
-                # leaves that branch running.
+                sender_turn_source=_send_turn_source(to_agent=to.strip()),
+                # Carry this turn's trigger tree onto the message: the run this
+                # wakes has no other way to learn which tree it continues, and a
+                # broken lineage means a cascade stop leaves that branch running.
                 root_run_id=caller_root_run_id(),
-                # WHICH turn produced this message. The platform's own team-room
-                # post already stamps it; without the same stamp here, "did this
-                # agent put anything in this room during that turn?" has no
-                # answer for the half the agent sent itself — and the trigger
-                # has to guess, which is how a room that DID hear the agent gets
-                # told delivery failed. Same attribution the artifact tool
-                # records (`_mcp_identity` header, not a model parameter).
-                # Absent header degrades to None by design; the consumer treats
-                # a missing id as "cannot tell", never as "it happened".
+                # WHICH turn produced this message. A column whose meaning
+                # depends on which tool wrote the row is a column nobody can
+                # query. Absent header degrades to None by design; the consumer
+                # reads a missing id as "cannot tell", never as "it happened".
                 event_id=caller_event_id_from_request(),
             )
-            return {"success": True, "message_id": msg_id, "attached": len(attachments)}
+            return {
+                "success": True,
+                "message_id": msg_id,
+                "sent_to": await _describe_agent(to.strip()),
+                "attached": len(attachments),
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_create_channel(
+    async def message_team(
+        agent_id: str,
+        team_id: str,
+        text: str,
+    ) -> dict:
+        """
+        Say something in a team room.
+
+        The same action whether you are answering what was just said to you or
+        raising something new — speaking in a room is one act, so it is one
+        tool.
+
+        Args:
+            agent_id: your own agent id (the sender)
+            team_id: which team's room to speak in. REQUIRED — you can belong to
+                several teams, so the platform does not guess. The room this turn
+                is about is named at the top of the turn; the teams you belong to
+                are listed with it.
+            text: what to say. Write it as you would in a group chat — no
+                process narration, no tool names. To pull a teammate in,
+                @mention them by name; say @all for everyone.
+
+        @mentions wake the teammates you name, so use them deliberately: that is
+        how work is handed on, and each one starts a full turn for someone.
+
+        When agents have passed a thread back and forth several times with no
+        human word in between, the platform stops relaying @mentions and says so
+        in the room. `capped` then names who was NOT reached, so you can decide
+        what to do instead of assuming they were told.
+
+        Returns:
+            {"success": true, "message_id": ..., "mentioned": [...],
+             "capped": {"names": [...], "everyone": bool}}
+        """
+        bus = await get_message_bus_fn()
+        if bus is None:
+            return {"success": False, "error": "MessageBus not available"}
+        if not (team_id or "").strip():
+            return {
+                "success": False,
+                "error": "`team_id` is required — name the team room you are speaking in.",
+            }
+
+        try:
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+            from xyz_agent_context.message_bus.team_posting import post_team_reply
+            from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+
+            team_id = team_id.strip()
+            db = await get_db_client()
+
+            # Same three gates every team tool uses, in the same order: the
+            # agent exists, the team belongs to its owner, the agent is a member.
+            agent_row = await db.get_one("agents", {"agent_id": agent_id})
+            if not agent_row:
+                return {"success": False, "error": "unknown agent"}
+            team = await db.get_one("teams", {"team_id": team_id})
+            if not team or team.get("owner_user_id") != agent_row.get("created_by"):
+                return {"success": False, "error": "team not found for this owner"}
+            membership = await db.get_one(
+                "team_members", {"team_id": team_id, "agent_id": agent_id}
+            )
+            if not membership:
+                return {"success": False, "error": "you are not a member of this team"}
+
+            # The room is deterministically the group channel whose created_by is
+            # the team marker — a non-agent sender, so no member is the
+            # always-activated owner.
+            channel = await db.get_one(
+                "bus_channels",
+                {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                 "channel_type": "group"},
+            )
+            if not channel:
+                return {
+                    "success": False,
+                    "error": "this team has no room yet — it opens when the chat is first used",
+                }
+            channel_id = channel["channel_id"]
+
+            # Roster drives @mention resolution, which matches on NAMES, so the
+            # names have to be the ones teammates are shown by.
+            members = await bus.get_channel_members(channel_id)
+            ids = [m.agent_id for m in members]
+            rows = await db.get_by_ids("agents", "agent_id", ids) if ids else []
+            names = {r["agent_id"]: (r.get("agent_name") or r["agent_id"])
+                     for r in (rows or []) if r}
+            roster = [{"agent_id": aid, "name": names.get(aid, aid)} for aid in ids]
+
+            result = await post_team_reply(
+                db=db,
+                bus=bus,
+                agent_id=agent_id,
+                team_id=team_id,
+                channel_id=channel_id,
+                text=text,
+                roster=roster,
+                # WHICH turn produced this message, and which trigger tree it
+                # continues. Absent headers degrade to None/"" by design.
+                event_id=caller_event_id_from_request(),
+                root_run_id=caller_root_run_id(),
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def create_team(
         agent_id: str,
         name: str,
         members: str,
     ) -> dict:
         """
-        Create a new MessageBus channel and add members.
+        Create a new team — a shared room you, your teammates and your owner
+        can all see, and which appears in your owner's interface.
 
-        Use this when you need a group channel for multi-agent coordination.
-        For 1-on-1 messaging, prefer `bus_send_to_agent` — it auto-creates
-        a DM channel, no manual creation needed.
+        Use this when work needs more than two participants. For talking to
+        one peer, use `message_agent`; no room is needed for that.
 
         IMPORTANT: Always provide a meaningful channel name! Bad examples:
         "test", "channel", "untitled", "x". Good examples:
@@ -249,7 +365,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_search_agents(
+    async def find_agent(
         agent_id: str,
         query: str,
     ) -> dict:
@@ -283,105 +399,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_get_unread(
-        agent_id: str,
-    ) -> dict:
-        """
-        Get all unread messages for your agent across all channels.
-
-        AVOID calling this tool in most cases. Your unread messages (up to 20)
-        are ALREADY injected into your context automatically at the start of
-        every turn under "Unread Messages". Calling this tool is redundant and
-        wastes tokens.
-
-        Only call this when:
-        - You need to refresh mid-turn because you believe new messages arrived
-          since your context was built
-        - Your context shows more than 20 unread and you need to see the full list
-
-        Args:
-            agent_id: Your agent ID
-
-        Returns:
-            Result dict with unread messages list
-        """
-        bus = await get_message_bus_fn()
-        if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
-
-        try:
-            messages = await bus.get_unread(agent_id)
-            return {
-                "success": True,
-                "messages": [m.model_dump() for m in messages],
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def bus_send_to_agent(
-        agent_id: str,
-        to_agent_id: str,
-        content: str,
-        attachment_refs: str = "",
-    ) -> dict:
-        """
-        Send a direct message (optionally with files) to another agent by agent_id.
-
-        Auto-creates a DM channel between you and the target on first use.
-        This is the preferred tool for 1-on-1 agent communication — you do
-        NOT need to call `bus_create_channel` first for DMs.
-
-        Attaching files: set attachment_refs to a comma-separated list of file
-        handles — attachment file_ids ("att_...") you received, and/or paths to
-        files in your own workspace (e.g. "work/report.pdf"). The recipient
-        opens them with the Read tool. Large files are hard-linked, not copied.
-
-        The recipient IS triggered (direct messages always activate the target).
-        Apply Reply Discipline:
-        - Do NOT send a DM just to say "thanks" or "got it" — the other agent
-          does not need an acknowledgment reply
-        - Do NOT follow up your own message with variations of the same content
-        - Be concise and task-focused
-
-        Args:
-            agent_id: Your agent ID (the sender)
-            to_agent_id: Target agent's ID (the recipient)
-            content: Message text to send
-
-        Returns:
-            Result dict with message_id on success, or error details
-        """
-        bus = await get_message_bus_fn()
-        if bus is None:
-            return {"success": False, "error": "MessageBus not available"}
-
-        try:
-            attachments = await _stage_send_attachments(agent_id, attachment_refs)
-            msg_id = await bus.send_to_agent(
-                from_agent=agent_id,
-                to_agent=to_agent_id,
-                content=content,
-                attachments=attachments or None,
-                sender_turn_source=_send_turn_source(to_agent=to_agent_id),
-                # Same lineage hop as bus_send_message — this is the ask that
-                # spawns a peer's run, i.e. exactly how a tree grows.
-                root_run_id=caller_root_run_id(),
-                # And the same turn attribution: a column whose meaning depends
-                # on which tool wrote the row is a column nobody can query.
-                event_id=caller_event_id_from_request(),
-            )
-            return {
-                "success": True,
-                "message_id": msg_id,
-                "to_agent": to_agent_id,
-                "attached": len(attachments),
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def bus_share_to_team(
+    async def team_share_file(
         agent_id: str,
         team_id: str,
         file_path: str,
@@ -440,7 +458,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_pin_team_rule(
+    async def team_pin_rule(
         agent_id: str,
         content: str,
         tier: str = "long_term",
@@ -461,7 +479,7 @@ def register_message_bus_mcp_tools(
         shared with the user's own rules — if it is a fact rather than a rule,
         say it in the chat instead.
 
-        You can remove a rule YOU pinned with bus_unpin_team_rule. You cannot
+        You can remove a rule YOU pinned with team_unpin_rule. You cannot
         remove the user's rules; ask them.
 
         Args:
@@ -492,7 +510,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_unpin_team_rule(agent_id: str, entry_id: str) -> dict:
+    async def team_unpin_rule(agent_id: str, entry_id: str) -> dict:
         """
         Remove a bulletin rule that YOU pinned earlier.
 
@@ -522,7 +540,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_list_team_files(agent_id: str, team_id: str) -> dict:
+    async def team_list_files(agent_id: str, team_id: str) -> dict:
         """List the files shared into a team's folder — what the team has, not
         what someone happened to mention.
 
@@ -550,7 +568,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": str(e)}
 
     @mcp.tool()
-    async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
+    async def read_history(agent_id: str, channel_id: str, limit: int = 50) -> dict:
         """
         Get recent message history from a channel.
 
@@ -578,86 +596,3 @@ def register_message_bus_mcp_tools(
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    @mcp.tool()
-    async def bus_get_channel_members(agent_id: str, channel_id: str) -> dict:
-        """Get all members of a channel.
-
-        Args:
-            agent_id: Your agent ID
-            channel_id: Channel to inspect
-        """
-        try:
-            bus = await get_message_bus_fn()
-            if bus is None:
-                return {"success": False, "error": "MessageBus not available"}
-            members = await bus.get_channel_members(channel_id)
-            return {"success": True, "members": [m.agent_id for m in members]}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def bus_leave_channel(agent_id: str, channel_id: str) -> dict:
-        """Leave a channel.
-
-        Args:
-            agent_id: Your agent ID
-            channel_id: Channel to leave
-        """
-        try:
-            bus = await get_message_bus_fn()
-            if bus is None:
-                return {"success": False, "error": "MessageBus not available"}
-            await bus.leave_channel(agent_id, channel_id)
-            return {"success": True, "message": f"Left channel {channel_id}"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def bus_kick_member(agent_id: str, channel_id: str, target_agent_id: str) -> dict:
-        """
-        Remove another agent from a channel. Requires you to be the channel creator.
-
-        Use this to remove noisy agents, clean up dead channels, or enforce
-        channel membership.
-
-        To DELETE a channel entirely (there is no "delete" API):
-        1. Use `bus_get_channel_members` to list all members
-        2. Use `bus_kick_member` to kick every other member
-        3. Use `bus_leave_channel` to leave the now-empty channel yourself
-
-        Args:
-            agent_id: Your agent ID (must be channel creator)
-            channel_id: Channel to remove member from
-            target_agent_id: Agent to remove
-        """
-        try:
-            bus = await get_message_bus_fn()
-            if bus is None:
-                return {"success": False, "error": "MessageBus not available"}
-            await bus.kick_member(channel_id, target_agent_id)
-            return {"success": True, "message": f"Removed {target_agent_id} from {channel_id}"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def bus_get_agent_profile(agent_id: str, target_agent_id: str) -> dict:
-        """Get another agent's profile.
-
-        Args:
-            agent_id: Your agent ID
-            target_agent_id: Agent whose profile to retrieve
-        """
-        try:
-            bus = await get_message_bus_fn()
-            if bus is None:
-                return {"success": False, "error": "MessageBus not available"}
-            profile = await bus.get_agent_profile(target_agent_id)
-            if profile is None:
-                return {"success": False, "error": f"Agent {target_agent_id} not found"}
-            return {"success": True, "profile": {
-                "agent_id": profile.agent_id, "owner": profile.owner_user_id,
-                "capabilities": profile.capabilities, "description": profile.description,
-                "visibility": profile.visibility,
-            }}
-        except Exception as e:
-            return {"success": False, "error": str(e)}

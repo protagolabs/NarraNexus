@@ -201,33 +201,49 @@ class MessageBusModule(XYZBaseModule):
         return working_source_matches(working_source, WorkingSource.MESSAGE_BUS.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """Bus-triggered turns deliver through the bus tools — declare them
-        as the reply surface so the framework's reply reminder names tools
-        that actually reach whoever contacted the agent (2026-08-01: with
-        only the owner-chat tool declared, finished work ended as
-        undelivered plain text or was misdelivered to the owner's chat).
+        """The tools that reach whoever contacted the agent on THIS turn.
 
-        Gated:
-        - not a bus turn → nothing (advertising bus tools on a chat turn
-          would invite replying to the owner over the bus);
-        - no ctx → nothing (never advertise a surface for an unknown
-          origin);
-        - team room → nothing. NOTE: the PRIMARY team-room gate lives in
-          the collection site ([[context_runtime]]), which empties the
-          whole turn's surface before ever calling this method — the
-          check here is a second line of defense keeping THIS
-          declaration correct if the module is queried directly.
+        The framework's reply reminder is rendered from this list, so a name in
+        it is a promise the tool can deliver right now. Declaring a tool that
+        does not exist, or cannot deliver on this surface, is misinformation the
+        model acts on (2026-08-01: with only the owner-chat tool declared,
+        finished work ended as undelivered plain text).
+
+        One verb per surface, and the surface decides which:
+
+        * team room → ``message_team`` (the room is a tool call now; it used to
+          be the agent's plain text, which made this the one surface where "plain
+          text reaches nobody" was false — see `team_posting`);
+        * peer DM → ``message_agent``;
+        * not a bus turn → nothing. Advertising these on a chat turn invites
+          replying to the owner over the bus.
         """
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
             return []
-        extra = getattr(ctx_data, "extra_data", None) or {}
-        if extra.get(BUS_TEAM_ROOM_EXTRA_KEY):
-            return []
         config = await self.get_mcp_config()
-        return [
-            f"mcp__{config.server_name}__bus_send_message",
-            f"mcp__{config.server_name}__bus_send_to_agent",
-        ]
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        verb = "message_team" if extra.get(BUS_TEAM_ROOM_EXTRA_KEY) else "message_agent"
+        return [f"mcp__{config.server_name}__{verb}"]
+
+    async def get_disallowed_tools(self) -> list[str]:
+        """Take the other send verb OFF the table, rather than arguing with it.
+
+        Prose does not constrain: on prod, the two tools whose own docstrings
+        said "Do NOT call" were the second and fourth most-called in this family
+        — 615 calls between them. What decides whether a tool is used is whether
+        its schema is in the context, so the per-turn surface has to be made of
+        suppression, not advice.
+
+        This is also what keeps "one reply verb per turn" true rather than
+        aspirational: with both verbs present the model has a choice it should
+        never have had, and the wrong branch posts into the wrong conversation.
+
+        No ctx_data here — the base hook takes none, so the marker has to come
+        from the instance's turn state. Until that seam exists this suppresses
+        nothing and the declaration above is the only narrowing; the desktop
+        table in the spec (§4.5) is not fully enforced yet.
+        """
+        return []
 
     # =========================================================================
     # Instructions — natural language guidance for the agent

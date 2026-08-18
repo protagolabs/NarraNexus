@@ -276,7 +276,7 @@ async def test_the_patrol_turn_carries_its_team_identity(db_client):
     """Without `team_id` the board tools cannot prove which room they are in.
 
     The patrol prompt tells the lead to close delivered items with
-    `work_complete_item`. That tool learns its team from the server-injected
+    `team_work_complete`. That tool learns its team from the server-injected
     MCP identity — a model parameter would let any turn claim any team. Drop
     the argument here and the platform is asking for a tool call it has made
     unanswerable.

@@ -4,6 +4,22 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-17 — `send_message` 顺手叫醒轮询循环（跨进程）
+
+插入成功之后调 [[wake_signal]] 的 `bump()`。**放在这里而不是各调用点**，理由和
+`_post_to_room` 当初存在的理由是同一个，但强一档：`send_message` 是全仓**唯一**的
+`bus_messages` 插入点，所以「发了帖没叫醒」从「一条要记住的纪律」变成**结构上不可能**
+——没有第二个插入点可漏。
+
+这也让 [[message_bus_trigger]] 那条结构性守卫测试（禁止本模块内出现
+`self._bus.send_message(`）失去存在意义：它守的是「调用方可能忘记唤醒」，而唤醒现在在
+写入里面。
+
+**在 insert 之后，不是之前**：信号的含义是「有新活儿」，插入失败了还 bump 会让轮询醒来
+发现什么都没有，信号从此不再有意义（测试 `test_a_send_that_fails_does_not_bump` 钉住）。
+
+`bump()` 自身 best-effort、不抛：一个延迟提示不该让发送失败。
+
 ## 2026-08-14 — `get_messages_before`：房间的另一个方向
 
 翻历史用的游标。和 `get_messages(since=…)` **刻意不对称**：

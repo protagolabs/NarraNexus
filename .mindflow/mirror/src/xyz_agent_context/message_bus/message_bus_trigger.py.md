@@ -82,6 +82,28 @@ trigger 发一条团队回复再把行读回来**的测试；把修复的任意�
 `{"stage": "worker_starvation", "starved_for_s": 27, "running": 1, "waiting": 1,
 "max_workers": 1, "longest_running_agent": ...}`。
 
+## 2026-08-17 — 唤醒终于跨进程了（`_wait_cross_process_wake`）
+
+2026-08-14 那条的末尾写着「要跨进程就得上 DB 信号 + 读取方，**等 peer DM 延迟真成为
+抱怨再说**」。现在必须做了，原因不是抱怨，是**契约变了**：team 回复改成 MCP 工具
+（`message_team`）之后，房间自己的接力**搬到了进程内 Event 从来覆盖不到的那条路上**。
+不做的话，把 team 投递改成工具会把 `c7739ad1` 量出来的延迟收益吐回去一部分——而且是以
+「房间安静了」的形式被用户感知到，正是铁律 #16 禁止的那类退步。
+
+`_sleep_until_due` 现在同时等三个：stop、进程内 `_wake_event`、以及
+`_wait_cross_process_wake()`。第三个每 `WAKE_SIGNAL_SLICE`（0.5s）读一次
+[[wake_signal]] 的单行信号，变了就返回。
+
+**为什么读信号而不是直接跑 pending 扫描**：那个扫描正是这套东西要调度的昂贵查询，每
+0.5s 跑一遍就把目的抵消了。单行读，每秒两次。
+
+**fail open 且安静**：信号读不到 = 没有新消息，退回调用方的 timeout。为一个延迟优化把
+poll 循环搞崩是本末倒置。但「安静」不等于「不可观测」——能发现信号失效的是
+`[bus-timing]` 里的 `queue_wait`（铁律教训 #4：只有 L1 存活检查是僵尸的后门）。
+
+**连带**：`_post_to_room` 与那条结构性守卫测试的立论消失了（见 [[local_bus]] 同日条）。
+唤醒现在在 `send_message` 里面，调用方无从遗漏。该测试待随 team 投递契约改动一并处理。
+
 ## 2026-08-14 — 投递即唤醒（`_wake`）+ 槽位饥饿告警 + `MAX_WORKERS` 配置化
 
 三件事，都在 `start()` 这条线上。
@@ -242,8 +264,8 @@ narranexus-review 抓到并逐条修掉：
 
 **在此之前 `lead_agent_id` 在 agent 侧零语义**:全部消费者只有「无 @ 时的兜底
 路由」和前端徽章。lead 不知道自己是 lead,所以「Leader 应该盯进度」根本无处
-挂载。现在 lead 会拿到职责段:派活必须落 `work_add_item`,收到交付要
-`work_complete_item`。
+挂载。现在 lead 会拿到职责段:派活必须落 `team_work_add`,收到交付要
+`team_work_complete`。
 
 **板子是注入的,不是让它自己去查**:如果看自己的板子还得先调工具,「我派出去
 什么」就取决于模型愿不愿意去看 —— 铁律 #15 要避开的正是这类依赖。普通成员也
@@ -877,7 +899,7 @@ inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢�
 **巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
 「少个 UI 指示」而是这条主线上工作板工具全废:`_work_board_mcp_tools` 当时只从
 `bus_agent_activity` 认房间,巡查不写这张表,于是 5 个工具在**平台自己叫 lead
-调 `work_complete_item` 的那一轮**统一返回 no room / not found。连带两处:
+调 `team_work_complete` 的那一轮**统一返回 no room / not found。连带两处:
 roster 整个 sweep 期间显示 lead 空闲。
 
 **开这行**不能**顺带解决自我 stall**——这点最初写错了,更正在此:活动行是
@@ -1005,7 +1027,7 @@ prompt 里；一个积压 80 条的团队，每个成员每一轮都要付 80 �
 
 **结论：不给工作板加渲染上限。** 截断会把唯一能触发清理的信号藏起来——积压 80 条不是渲染问题，
 是这个团队真的欠着 80 件事（铁律 #5）。而清理的机制 #259 已经建好了：`done` 由 agent 自己写，
-`cancelled` **明确保留给用户**（`work_update_status` 的报错原文：「'cancelled' is the user's
+`cancelled` **明确保留给用户**（`team_work_update_status` 的报错原文：「'cancelled' is the user's
 decision」）。所以「agent 自行清理」与「请示 owner 清理」本来就是两条被区分开的路径。
 
 真正缺的只是**没有任何东西会说「这块板子太大了」**——巡查只讲停滞条目，不讲尺寸。补这个信号是

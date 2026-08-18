@@ -75,12 +75,17 @@ def test_mark_room_read_happy_path_advances_cursor():
     # The UPDATE was called with the right WHERE clause + the only-advance guard
     assert db.execute.await_count == 1
     sql, params = db.execute.await_args.args
-    assert "UPDATE bus_channel_members SET last_read_at" in sql
+    # The cursor lives on the inbox's own thread row now. What this
+    # guards is unchanged: the endpoint advances a READ cursor, and it is
+    # the one the panel owns — not the trigger's bookmark, and not anything
+    # the agent's turn context is gated on.
+    assert "UPDATE inbox_threads SET last_read_at" in sql
     assert "last_read_at < %s" in sql, "guard clause must prevent backwards motion"
-    # params: (now_iso, channel_id, agent_id, now_iso_guard)
+    # params: (now_iso, thread_id, now_iso_guard). No agent_id — ownership is
+    # verified by the thread lookup ABOVE the update, so a silent zero-row
+    # UPDATE can no longer be mistaken for a successful click.
     assert params[1] == "ch_lark_room42"
-    assert params[2] == "agent_alice"
-    assert params[0] == params[3], "cursor target and guard threshold are the same NOW"
+    assert params[0] == params[2], "cursor target and guard threshold are the same NOW"
 
 
 # ── Agent not a member ──────────────────────────────────────────────────

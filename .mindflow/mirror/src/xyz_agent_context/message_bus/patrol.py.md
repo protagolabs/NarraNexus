@@ -98,7 +98,7 @@ team 只产出一个 `(team_id, lead, channel)`,根本不存在第二个 sweep �
 的条目一旦落到当前 lead 头上,再没有任何平台路径能清掉它 —— `ACTIVE` 含
 `STALLED`,`has_stalled` 把这个 team 永久钉在 180s 档(巡查成本 3.3×,而其实
 什么都没坏);用户面板上永久显示一个并没在发生的 stall;而且它被排除在返回的
-`stalled` 列表外,prompt 里不出现,lead 永远不会被告知去 `work_update_status`
+`stalled` 列表外,prompt 里不出现,lead 永远不会被告知去 `team_work_update_status`
 手动拨回来。
 
 可达路径不需要构造:条目 assign 给 B → B 掉线被上一轮标 `stalled` → owner 把

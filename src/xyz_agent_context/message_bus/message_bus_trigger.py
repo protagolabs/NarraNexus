@@ -104,6 +104,11 @@ POLL_MIN_INTERVAL = 3
 POLL_MAX_INTERVAL = 12
 POLL_STEP_UP = 3
 
+# How often the poll loop checks the cross-process wake signal while it sleeps.
+# Bounds the added latency of a send made outside this process; 0.5s keeps that
+# under a second while costing two single-row reads per second.
+WAKE_SIGNAL_SLICE = 0.5
+
 # Team group chat: cap how many consecutive agent-to-agent hops can keep the
 # @-mention cascade alive without a human message. Past this, an agent reply's
 # @mentions are dropped so two agents can't @ each other forever. A user
@@ -440,13 +445,15 @@ class MessageBusTrigger:
         """
         stop_task = asyncio.create_task(self._stop_event.wait())
         wake_task = asyncio.create_task(self._wake_event.wait())
+        cross_task = asyncio.create_task(self._wait_cross_process_wake())
         try:
             await asyncio.wait(
-                {stop_task, wake_task},
+                {stop_task, wake_task, cross_task},
                 timeout=self._current_interval,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
+            cross_task.cancel()
             # Both are cancelled every cycle, including the winner (already
             # done, so the cancel is a no-op). Leaving either pending would
             # leak one waiter per poll cycle onto the Events.
@@ -456,6 +463,43 @@ class MessageBusTrigger:
             # had its effect, and a flag left set would make the NEXT sleep
             # return instantly and spin the loop.
             self._wake_event.clear()
+
+    async def _wait_cross_process_wake(self) -> None:
+        """Return as soon as ANOTHER process reports new work.
+
+        The in-process `_wake_event` cannot be set from the MCP server, and a
+        team reply is now a tool call made there — so without this the room's own
+        relay would wait out the adaptive interval (3-12s per hop), handing back
+        part of the latency win `c7739ad1` measured, as dead air a person in the
+        room can see (iron rule #16).
+
+        Polls a single-row signal rather than the pending-work scan: the scan is
+        the expensive query this exists to schedule, so running it every slice
+        would defeat the point. One tiny read per slice, two reads a second.
+
+        Fails OPEN and quietly: an unreadable signal means "no news" and the
+        caller's timeout takes over. Raising would take the poll loop down over
+        a latency optimisation. The observable that catches a signal which
+        stopped working is `queue_wait` in the `[bus-timing]` line, not this
+        function's silence (iron-rule lesson #4).
+        """
+        from xyz_agent_context.message_bus import wake_signal
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        try:
+            db = await get_db_client()
+            baseline = await wake_signal.read(db)
+        except Exception:  # noqa: BLE001 — no signal, no early wake
+            await asyncio.sleep(self._current_interval)
+            return
+
+        while True:
+            await asyncio.sleep(WAKE_SIGNAL_SLICE)
+            try:
+                if await wake_signal.read(db) != baseline:
+                    return
+            except Exception:  # noqa: BLE001
+                return
 
     async def _check_worker_starvation(self) -> None:
         """Alert when the WORKER POOL, not the agents, is the bottleneck.
@@ -2185,7 +2229,7 @@ class MessageBusTrigger:
         """One line per member, in the same shape as the Known Agents list.
 
         The shape is not cosmetic. That list renders ``\`id\` — name: desc`` and
-        it is where an agent learns the identifiers `bus_send_to_agent` expects.
+        it is where an agent learns the identifiers `message_agent` expects.
         A roster that gave display names only forced the model to guess a
         mapping between two surfaces, so the two now read alike.
 
@@ -2333,9 +2377,9 @@ class MessageBusTrigger:
             shared = team_shared_dir(owner_user_id, team_id)
             lines.append(
                 f"Team shared folder: {shared} — files placed here (via "
-                f"bus_share_to_team) are visible to every teammate; open them "
+                f"team_share_file) are visible to every teammate; open them "
                 f"with the Read tool. To find out what is already in there, "
-                f"call bus_list_team_files(team_id=\"{team_id}\") rather than "
+                f"call team_list_files(team_id=\"{team_id}\") rather than "
                 f"guessing a path or asking someone to repeat one. "
                 f"WRITE ANYTHING THE TEAM SHOULD SEE HERE TOO — reports, "
                 f"pages, data files you intend to register as artifacts. Your "
@@ -2355,7 +2399,7 @@ class MessageBusTrigger:
             "",
             "If the team settles on a convention that should govern FUTURE "
             "replies (an output format, where files go), pin it with "
-            "bus_pin_team_rule so nobody has to repeat it — every teammate "
+            "team_pin_rule so nobody has to repeat it — every teammate "
             "loads it every turn. Findings, status and conversation belong in "
             "the chat, not the bulletin.",
         ]
@@ -2404,7 +2448,7 @@ class MessageBusTrigger:
                     "unfinished work' is not 'never coming back', and two "
                     "agents on one deliverable is worse than a late one.",
                     "If something has clearly been delivered but the board "
-                    "still says otherwise, close it with work_complete_item.",
+                    "still says otherwise, close it with team_work_complete.",
                 ]
             else:
                 lines.append(
@@ -2421,11 +2465,11 @@ class MessageBusTrigger:
                 "Nobody else is watching whether this team's work actually "
                 "finishes — that is your job, and it does not end when you "
                 "hand something out.",
-                "- When you assign work, record it: work_add_item(title, "
+                "- When you assign work, record it: team_work_add(title, "
                 "assignee_id). A task that exists only in your reply is a task "
                 "nobody can notice has stalled — including you, next time you "
                 "wake up, because this turn's memory is gone by then.",
-                "- When someone delivers, close it: work_complete_item(item_id).",
+                "- When someone delivers, close it: team_work_complete(item_id).",
                 "- The board above is the team's real state. If it disagrees "
                 "with what you just read in the room, the room is right and the "
                 "board needs updating.",
@@ -2557,7 +2601,7 @@ class MessageBusTrigger:
             "(markdown is fine). It is posted to the group as-is; everyone sees it.",
             # Distinguish REPLY-DELIVERY functions (forbidden — the reply
             # auto-posts, so re-sending double-delivers) from ACTION tools
-            # (allowed): Read views a file; bus_share_to_team publishes a file to
+            # (allowed): Read views a file; team_share_file publishes a file to
             # the team folder (it stages bytes, it does NOT post a message). A
             # blanket "no tools" ban made agents refuse to open a shared image and
             # even fake a "forwarded ✅" they couldn't actually do.
@@ -2566,7 +2610,7 @@ class MessageBusTrigger:
             "to post this reply — your text below is posted to the group "
             "automatically. You MAY use action tools that DO something: the "
             "built-in Read tool to open a file path shown above, and "
-            "bus_share_to_team to publish a file YOU produced to the team folder "
+            "team_share_file to publish a file YOU produced to the team folder "
             "(then mention the returned path in your reply). Do the action, then "
             "reply with plain text.",
             "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
@@ -2851,7 +2895,7 @@ class MessageBusTrigger:
         holes this pair of directives still has).
 
         Note the directive an OWNER-RELAY turn receives (item 3: "send a
-        clarifying question with bus_send_to_agent") produces a bus send from
+        clarifying question with message_agent") produces a peer send from
         a bus turn, which is why the same verdict also travels to the tools as
         this turn's errand scope — see ``_invoke_runtime``.
         """
@@ -2893,12 +2937,12 @@ class MessageBusTrigger:
             lines.append("**What to do this turn:**")
             lines.append(
                 "1. If you can answer → reply to the asker with "
-                "`bus_send_to_agent(to_agent_id=<the sender above>, "
+                "`message_agent(to=<the sender above>, "
                 "content=<your answer>)`. This is the point of the turn."
             )
             lines.append(
                 "2. If you need something clarified before you can answer → ask "
-                "the peer back via `bus_send_to_agent`."
+                "the peer back via `message_agent`."
             )
             lines.append(
                 "3. Only ALSO call `send_message_to_user_directly` when your "
@@ -2947,7 +2991,7 @@ class MessageBusTrigger:
             )
             lines.append(
                 "3. If the peer needs a clarifying follow-up from you → "
-                "send it via `bus_send_to_agent`, THEN also call "
+                "send it via `message_agent`, THEN also call "
                 "`send_message_to_user_directly` with a short status "
                 "update (\"asked peer for X, waiting for clarification\") "
                 "so the owner knows the thread is alive."

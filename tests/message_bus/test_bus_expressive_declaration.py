@@ -11,8 +11,17 @@ Why gating matters both ways:
   delivers — so finished work ends as undelivered plain text, or gets
   misdelivered to the owner's web chat (2026-08-01 briefing-squad incident).
 - A chat turn WITH this declaration would invite replying to the owner via
-  the bus. A team-room turn WITH it would invite double-posting (the room
-  auto-posts plain text; its prompt forbids delivery tools).
+  the bus.
+
+2026-08-17 — what a team turn declares FLIPPED, and the reason is worth keeping.
+It used to declare NOTHING, because the room auto-posted the agent's plain text
+and naming a delivery tool would have invited double-posting. That made the team
+room the one surface in the system where "plain text reaches nobody" was false,
+and the contradictions growing out of that exception cost six review rounds on
+PR #311. The room now takes a tool call like everywhere else, so the hazard the
+empty declaration guarded against no longer exists — and an empty surface would
+now be the misinformation, telling the model nothing can deliver on a turn where
+`message_team` is exactly what does.
 
 Drift guards mirror tests/chat_module/test_expressive_declaration.py: the
 declaration derives from get_mcp_config().server_name, and the short names
@@ -45,24 +54,57 @@ def _ctx(working_source, **extra) -> ContextData:
 
 
 @pytest.mark.asyncio
-async def test_bus_turn_declares_bus_delivery_tools():
+async def test_a_peer_dm_turn_declares_the_peer_send_verb():
     module = _module()
     mcp_config = await module.get_mcp_config()
+
+    declared = await module.get_expressive_tools(_ctx(WorkingSource.MESSAGE_BUS))
+
+    assert declared == [f"mcp__{mcp_config.server_name}__message_agent"]
+
+
+@pytest.mark.asyncio
+async def test_a_team_turn_declares_the_room_send_verb():
+    """FLIPPED 2026-08-17 — see the module docstring.
+
+    The old assertion was `declared == []`, guarding against advertising a
+    delivery tool on a surface whose plain text auto-posted. That surface is
+    gone; declaring nothing here would now tell the model no tool can deliver on
+    the one turn where `message_team` is what does.
+    """
+    module = _module()
+    mcp_config = await module.get_mcp_config()
+
     declared = await module.get_expressive_tools(
-        _ctx(WorkingSource.MESSAGE_BUS)
+        _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
     )
-    assert declared == [
-        f"mcp__{mcp_config.server_name}__bus_send_message",
-        f"mcp__{mcp_config.server_name}__bus_send_to_agent",
-    ]
+
+    assert declared == [f"mcp__{mcp_config.server_name}__message_team"]
+
+
+@pytest.mark.asyncio
+async def test_exactly_one_verb_per_surface():
+    """The invariant the whole redesign rests on.
+
+    Two send verbs on one turn is a choice the model should never have had, and
+    the wrong branch posts into the wrong conversation.
+    """
+    module = _module()
+
+    for extra in ({}, {"bus_team_room": True}):
+        declared = await module.get_expressive_tools(
+            _ctx(WorkingSource.MESSAGE_BUS, **extra)
+        )
+        assert len(declared) == 1, declared
 
 
 @pytest.mark.asyncio
 async def test_bus_turn_with_serialized_source_string_also_declares():
-    declared = await _module().get_expressive_tools(
+    module = _module()
+    declared = await module.get_expressive_tools(
         _ctx(WorkingSource.MESSAGE_BUS.value)
     )
-    assert any(t.endswith("__bus_send_message") for t in declared)
+    assert any(t.endswith("__message_agent") for t in declared)
 
 
 @pytest.mark.asyncio
@@ -78,19 +120,9 @@ async def test_no_ctx_declares_nothing():
 
 
 @pytest.mark.asyncio
-async def test_team_room_turn_declares_nothing():
-    """Team rooms deliver via plain-text auto-post; their prompt forbids
-    delivery tools. Declaring bus tools there would invite double-posting."""
-    declared = await _module().get_expressive_tools(
-        _ctx(WorkingSource.MESSAGE_BUS, bus_team_room="1")
-    )
-    assert declared == []
-
-
-@pytest.mark.asyncio
 async def test_declared_short_names_are_actually_registered():
     module = _module()
     mcp = module.create_mcp_server()
     assert mcp is not None
     registered = {t.name for t in await mcp.list_tools()}
-    assert {"bus_send_message", "bus_send_to_agent"} <= registered
+    assert {"message_agent", "message_team"} <= registered

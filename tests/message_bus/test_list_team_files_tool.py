@@ -127,11 +127,11 @@ async def test_mcp_tool_wrapper_resolves_its_own_db(db_client, monkeypatch):
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
     async def _get_bus():
-        raise AssertionError("bus_list_team_files must not need the bus service")
+        raise AssertionError("team_list_files must not need the bus service")
 
     mcp = _FakeMCP()
     mod.register_message_bus_mcp_tools(mcp, _get_bus)
-    res = await mcp.tools["bus_list_team_files"]("agent_a", TEAM)
+    res = await mcp.tools["team_list_files"]("agent_a", TEAM)
 
     assert res["success"] is True
     assert {f["name"] for f in res["files"]} == {"a.md", "b.md"}

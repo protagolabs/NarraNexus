@@ -744,6 +744,26 @@ _register(
     )
 )
 
+# 21b. bus_wake — the cross-process "there is new work" nudge
+#
+# ONE row (id=1) whose timestamp every send bumps and the poll loop reads while
+# it sleeps. Not a queue: the signal says "look now", never "look at X" — the
+# loop already knows how to find pending work, and a second answer to that
+# question is a second thing to keep true.
+#
+# Why a table at all: the in-process `asyncio.Event` in MessageBusTrigger cannot
+# reach the MCP server process, and a team reply is now a tool call made there.
+# See `message_bus/wake_signal.py` for the full argument.
+_register(
+    TableDef(
+        name="bus_wake",
+        columns=[
+            Column("id", "INTEGER", "INT", nullable=False, primary_key=True),
+            Column("bumped_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+    )
+)
+
 # 22. bus_messages (text primary key)
 _register(
     TableDef(

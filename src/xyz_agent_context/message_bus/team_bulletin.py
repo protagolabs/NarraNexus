@@ -28,7 +28,7 @@ user's one-click delete on any entry is the other half of the bargain: write
 access is safe to grant because it is trivially revocable.
 
 **Where team_id comes from.** The SERVER-SIDE identity of the turn, never a
-tool argument. `bus_share_to_team` takes it from the model and validates three
+tool argument. `team_share_file` takes it from the model and validates three
 ways; the stronger option exists here because the turn already knows its team.
 Naming a different team is therefore not an attack to catch — it is not
 expressible. A private turn has no team identity and so no bulletin to write

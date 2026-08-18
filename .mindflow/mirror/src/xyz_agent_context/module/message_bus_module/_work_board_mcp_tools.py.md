@@ -25,7 +25,7 @@ Module 要新端口、新 instance 生命周期,还得反过来去查 bus 的表
   这个功能要加的监督
 - `cancelled` —— 用户的决定,不是 agent 的
 
-`work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
+`team_work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
 不能写,而不是只说不行。
 
 ## `_resolve_team_room` 为什么查 activity 而不是读注入头
@@ -60,7 +60,7 @@ team 的 id 存在性回泄进同一个上下文,而那个上下文正是 id 的
 原来只认 `bus_agent_activity` 的 running 行,理由是「那行只由 trigger 的 team
 分支写,所以『在 team 房间有活跃行』恰好等价于『有板子』」。这个等价在**第二条
 lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发之外唤醒 lead、不写
-这张表,于是 5 个工具在平台自己叫 lead 调 `work_complete_item` 的那轮全部失败。
+这张表,于是 5 个工具在平台自己叫 lead 调 `team_work_complete` 的那轮全部失败。
 
 本文档原先就写下过这个风险 ——「代价:这依赖 activity 行的写入时机。若将来 team
 分支不再写它,这里会静默退化成『没有板子』」。巡查 lane 就是那个分支,隐患已经
