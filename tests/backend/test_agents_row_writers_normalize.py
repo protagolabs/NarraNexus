@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from xyz_agent_context.repository import AgentRepository
 from xyz_agent_context.schema import AGENT_TEXT_FIELDS, normalize_agent_row_text
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
@@ -99,3 +101,59 @@ class TestRepositoryEdge:
             "an unstripped stored name is unrenameable: the update path would "
             "compare the stripped form as equal and never write"
         )
+
+
+class TestManyfoldUpsertFallback:
+    """The one branch the wrapper around the upsert is solely responsible for.
+
+    `StrippedText` already normalizes whatever the CALLER supplies, so
+    `normalize_agent_row_text` there earns its keep only on the fallback: an
+    omitted field falls back to the value already in the row, and a row written
+    before normalization existed (or by a pre-fix import) can be unstripped.
+    Without the wrapper that stale value is written straight back.
+    """
+
+    @pytest.fixture
+    def client(self, db_client, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        import backend.routes.manyfold.agents as mf
+
+        async def _db():
+            return db_client
+
+        monkeypatch.setattr(mf, "get_db_client", _db)
+        monkeypatch.setattr(mf, "_require_manyfold_auth", lambda _request: None)
+        app = FastAPI()
+        app.include_router(mf.router)
+        return TestClient(app)
+
+    def test_an_omitted_name_rewrites_the_existing_value_normalized(
+        self, client, db_client
+    ):
+        _run(
+            db_client.insert(
+                "agents",
+                {
+                    "agent_id": "agent_mf_fb",
+                    "agent_name": " old ",
+                    "created_by": "mf_u1",
+                    "agent_description": " d ",
+                    "agent_type": "general",
+                    "is_public": 0,
+                },
+            )
+        )
+
+        res = client.post(
+            "/manyfold/agents",
+            json={"agent_id": "agent_mf_fb", "manyfold_user_id": "u1"},
+        )
+        assert res.status_code == 200, res.text
+
+        row = _run(db_client.get_one("agents", {"agent_id": "agent_mf_fb"}))
+        assert row["agent_name"] == "old", (
+            "the fallback wrote the stale unstripped value straight back — "
+            "that row can never be renamed afterwards"
+        )
+        assert row["agent_description"] == "d"

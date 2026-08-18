@@ -841,17 +841,23 @@ async def _confirm_inner(
         )
         agent_record["agent_description"] = clamped_desc
 
-        # Dedupe against existing (already-clamped) names, THEN clamp again:
-        # dedupe_name appends a " (n)" suffix with no length budget of its own,
-        # so on a clash a clamped 255-char name becomes "…255… (1)" = 259 and
-        # would land back over the ceiling. Re-clamping the FINAL name is what
-        # actually guarantees the raw insert never stores an unreadable value.
-        # agent_name has no UNIQUE constraint, so a rare post-clamp collision is
-        # harmless — two same-named agents, exactly as manual creation allows.
+        # Dedupe against existing (already-normalized, already-clamped) names,
+        # THEN normalize and clamp again. dedupe_name appends a " (n)" suffix
+        # that has neither a length budget nor a whitespace budget of its own:
+        # on a clash a clamped 255-char name becomes "…255… (1)" = 259 and lands
+        # back over the ceiling, and an EMPTY candidate becomes " (1)" with a
+        # leading space — an unnormalized value, i.e. a row that can never be
+        # renamed afterwards (see agent_field_matches). Re-running both on the
+        # FINAL name is what actually guarantees the raw insert stores a
+        # normalized, readable value. agent_name has no UNIQUE constraint, so a
+        # rare post-clamp collision is harmless — two same-named agents,
+        # exactly as manual creation allows.
         deduped_name = await dedupe_name(
             "agents", "agent_name", {"created_by": user_id}, clamped_name
         )
-        final_name, dedupe_overflow = _clamp_agent_text(deduped_name)
+        final_name, dedupe_overflow = _clamp_agent_text(
+            normalize_agent_text(deduped_name)
+        )
         name_trimmed = name_trimmed or dedupe_overflow
 
         renamed = (final_name != clamped_name)

@@ -28,7 +28,7 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.schema.entity_schema import (
+from xyz_agent_context.schema import (
     AGENT_TEXT_MAX_LENGTH,
     StrippedText,
     normalize_agent_row_text,
@@ -253,6 +253,15 @@ class ManyfoldUpdateAgentRequest(BaseModel):
     # `agents` row; a longer value would deserialize-fail on read). Previously
     # 200 / 2000 — the 2000 was the fourth uncapped write path that could
     # re-create the #71 unreadable-row bug.
+    # `min_length=1` is KEPT here, unlike CreateAgentBody in the
+    # social-network route where it was removed. Different reason, different
+    # answer: there, a 422 pre-empted a refusal whose exact wording an LLM
+    # reads, so the two twins had to reach the same shared string. This
+    # endpoint's consumer is the Manyfold service, for which a 422 IS the
+    # contract — and since StrippedText normalizes first, "   " arrives as ""
+    # and is rejected rather than stored as a whitespace name. Removing the
+    # constraint by analogy would also let "" through into `patch` (built with
+    # `is not None`) and silently blank the name.
     agent_name: Optional[StrippedText] = Field(
         default=None,
         description="New display name. Omit to leave unchanged.",

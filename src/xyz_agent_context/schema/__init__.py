@@ -133,6 +133,7 @@ from .entity_schema import (
     normalize_agent_row_text,
     agent_field_matches,
     AGENT_TEXT_FIELDS,
+    StrippedText,
     # Entities
     SocialNetworkEntity,
     User,
@@ -410,6 +411,7 @@ __all__ = [
     "normalize_agent_row_text",
     "agent_field_matches",
     "AGENT_TEXT_FIELDS",
+    "StrippedText",
     "SocialNetworkEntity",
     "User",
     "Agent",

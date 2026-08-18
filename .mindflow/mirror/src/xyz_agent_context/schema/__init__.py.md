@@ -21,8 +21,13 @@ stub: false
 > 更正:第一次给 `AGENT_TEXT_MAX_LENGTH` 写的理由是「api_schema 与写边校验都需要它,
 > 放进门面后不必再深引」——**当时它零消费者**,两个消费者都还在深引。而且
 > [[api_schema]] **结构上不可能**用门面:门面反过来再导出 api_schema 的模型,引它成环。
-> 现在 [[_awareness_writes]](在 schema/ 之外,可以用门面)已改为门面引用;
-> api_schema 与 manyfold 路由保留深引,并在 api_schema 里注明了成环这个原因。
+> 现在 [[_awareness_writes]](在 schema/ 之外,可以用门面)已改为门面引用。
+
+第四轮再加 `StrippedText`。同时更正上面那句的后半:原写「api_schema 与 manyfold
+路由保留深引,成环」——**成环只是 api_schema 的原因**(它在包内,门面反过来导出
+它的模型);manyfold 在 `backend/` 下,引门面从来不会成环,它当时深引只是因为
+`StrippedText` 不在门面里。现在 manyfold 已全部改走门面,只有 [[api_schema]]
+保留深引,理由已就地注明。
 
 ## 2026-08-10 — 导出 `JobUpdateFields`
 

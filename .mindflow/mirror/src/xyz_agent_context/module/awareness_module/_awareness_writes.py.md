@@ -32,9 +32,14 @@ stub: false
 东西能和它对上(踩着 CLAUDE.md 事故教训 #5 的反面)。**返回串一个字没动**。
 
 再补(第三轮):import 从 `xyz_agent_context.schema.entity_schema` 深引改为
-`xyz_agent_context.schema` 门面。本文件在 `schema/` 之外,用门面没有环;
-而 [[api_schema]] 与 manyfold 路由**必须**保留深引(门面反过来再导出
-api_schema 的模型,引门面成环),那两处已就地注明原因。
+`xyz_agent_context.schema` 门面。本文件在 `schema/` 之外,用门面没有环。
+
+> 更正(第四轮):上一句原来还写着「manyfold 路由**必须**保留深引,因为成环」——
+> **假的**。成环只对 [[api_schema]] 成立(它在 `schema/` 包内,门面反过来导出它的
+> 模型);manyfold 在 `backend/` 下,引门面不可能成环(门面不 import backend,
+> 这正是本仓的依赖方向)。它当时深引的真实原因只是 `StrippedText` 还没进门面。
+> 现在 `StrippedText` 已导出,manyfold 四个符号全走门面。这是同一类毛病的第三次:
+> **给一个观察到的现状编一个比事实更强的理由**。
 
 # _awareness_writes.py — update_agent_profile 的共享实现（AgentDataStore seam 单点）
 

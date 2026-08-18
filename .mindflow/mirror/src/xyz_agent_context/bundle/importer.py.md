@@ -95,6 +95,24 @@ full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉�
 > `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
 > 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
 
+## 2026-08-17(补)— dedupe 之后要**重新归一**,不只是重新 clamp
+
+原来的注释论证了「clamp 必须在 dedupe 之后再来一次,因为 ` (n)` 自己没有长度预算」
+—— 同一个论证对**归一**同样成立,当时只做了 clamp。`dedupe_name` 在候选名为空串时
+返回 `" (1)"`,**带前导空格**,而这个值不再经过任何归一就进了 `_ins`,于是成了本 PR
+之后唯一还能产出未归一 `agents` 行的路径(命中很窄:bundle 里名字为空/纯空格,且
+该 owner 名下已有一行空名 —— 现实中只能由上一次同样的导入产生)。
+
+现在是 `_clamp_agent_text(normalize_agent_text(deduped_name))`。顺序契约完整表述:
+**归一在 dedupe 前**(否则带空白的名字匹配不上库里已归一的同名行,该去重的没去重),
+**dedupe 后归一 + clamp 各再来一次**(` (n)` 既没有长度预算也没有空白预算)。
+
+测试:`tests/bundle/test_agent_field_normalization.py`(5 条)。其中区分「归一在
+dedupe 前」与「在后」的**只有一条输入**:库里已有归一的同名行 + bundle 带空白的同名,
+断言最终值是 `小绿 (1)`。注意 `agents_renamed == 1` **不是**判别式 —— 错误顺序下
+它也为真(post-dedupe 归一让 `final_name != clamped_name`),测试里就地注明了。
+两条都用「移动那行代码再跑」验证过确实会红。
+
 ## 2026-08-17 — 导入的 agent 名字/描述先归一,再 dedupe、再 clamp
 
 `_ins("agents", …)` 是绕过 [[agent_repository]] 的直写,所以归一必须在这里自己做:

@@ -11,10 +11,13 @@ unnormalized name, that row would be permanently stuck: saving the same name
 without the stray whitespace is judged a no-op and never written. So creation
 has to store the same form updates do.
 
-`AgentRepository.add_agent` is where this is enforced, because it is the only
-point all five creation paths pass through — the auth route, the
-social-network route and the MCP tool arrive via `provision_new_agent`, while
-arena provisioning and the migration applier call it directly.
+`AgentRepository.add_agent` enforces it for the paths that go THROUGH the
+repository — the auth route, the social-network route and the MCP tool arrive
+via `provision_new_agent`; arena provisioning and the migration applier call it
+directly. It is not the only writer of the table: the paths that raw-insert
+normalize at their own edge, and the enumeration (with the command that
+re-derives it) lives in test_agents_row_writers_normalize.py. Keeping the list
+in one place is deliberate — two copies is how it drifted the first time.
 """
 from __future__ import annotations
 

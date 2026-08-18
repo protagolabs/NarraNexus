@@ -77,7 +77,7 @@ def route_client(db_client, monkeypatch, seeded):
 
 
 @pytest.mark.parametrize("blank", BLANK_NAMES)
-def test_the_route_refuses_with_the_shared_message(route_client, blank):
+def test_the_route_refuses_with_the_shared_message(route_client, db_client, blank):
     res = route_client.post(
         f"/api/agents/{CALLER}/social-network/create-agent",
         json={"new_agent_id": NEW_ID, "agent_name": blank},
@@ -91,6 +91,11 @@ def test_the_route_refuses_with_the_shared_message(route_client, blank):
     body = res.json()
     assert body["success"] is False
     assert body["error"] == CREATE_AGENT_EMPTY_NAME_MSG
+    # Asserted HERE, in the test that actually triggered the refusal: the
+    # db_client fixture is function-scoped, so a standalone "no row exists"
+    # test would pass against a database nothing had touched. This one fails
+    # if the check ever moves after provision_new_agent.
+    assert _run(AgentRepository(db_client).get_agent(NEW_ID)) is None
 
 
 @pytest.mark.parametrize("blank", BLANK_NAMES)
@@ -112,11 +117,8 @@ def test_the_direct_store_refuses_with_the_same_message(db_client, seeded, blank
     )
     assert out["success"] is False
     assert out["message"] == CREATE_AGENT_EMPTY_NAME_MSG
+    assert _run(AgentRepository(db_client).get_agent(NEW_ID)) is None
 
 
 async def _async(value):
     return value
-
-
-def test_no_agent_row_was_created_by_the_refusals(db_client, seeded):
-    assert _run(AgentRepository(db_client).get_agent(NEW_ID)) is None
