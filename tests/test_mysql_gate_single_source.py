@@ -81,14 +81,27 @@ def _imports_the_helper(path: Path, text: str) -> bool:
             f"{path.relative_to(_REPO)} does not parse ({exc}), so whether it "
             f"gates on the canonical env var cannot be established"
         )
+    # Compare the last dotted SEGMENT, not a string suffix: `endswith` would
+    # also accept `tests.legacy_mysql_dialect`, which is the one dimension where
+    # this is looser than the regex it replaced — and a stray match here grants
+    # amnesty to a twin with no gate at all.
+    #
+    # The three branches are not interchangeable: `node.module` is None for
+    # `from . import mysql_dialect` (hence `or ""`), it is plain
+    # `"mysql_dialect"` for `from ..mysql_dialect import X` (the level lives in
+    # `node.level`), and the alias branch is already an exact name so it needs
+    # no splitting.
+    def _last_segment(dotted: str) -> str:
+        return dotted.split(".")[-1]
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if (node.module or "").endswith("mysql_dialect"):
+            if _last_segment(node.module or "") == "mysql_dialect":
                 return True
             if any(a.name == "mysql_dialect" for a in node.names):
                 return True
         elif isinstance(node, ast.Import):
-            if any(a.name.endswith("mysql_dialect") for a in node.names):
+            if any(_last_segment(a.name) == "mysql_dialect" for a in node.names):
                 return True
     return False
 
@@ -105,20 +118,14 @@ def test_the_helper_still_declares_the_env_var_name():
 
 def test_the_twins_have_not_quietly_left_the_check():
     """A glob that matches nothing passes every assertion about its members — and
-    a glob that matches SIX when there were nine passes them just as quietly.
+    a glob that matches SIX when there were nine passes them just as quietly:
+    the twins that escaped the shape stop being checked, and can then drift their
+    env name and skip in CI, green, forever.
 
-    `_TWIN_FLOOR` was briefly replaced by "the list is non-empty", on the stated
-    grounds that a number would go stale when a tenth twin arrives. That reason
-    is false and worth recording: `>=` is a floor, so a tenth twin keeps this
-    green; only the failure *message* would have needed rewording. What the
-    weaker assertion cost was the half that matters — rename three twins out of
-    the `*_mysql.py` shape and `test_every_twin_gates_on_the_canonical_env_var_name`
-    silently checks six files, while the three that escaped can drift their env
-    name and skip in CI, green, forever.
-
-    So: a floor. It fires only when twins LEAVE the shape (renamed, or deleted
-    with their feature), which is a deliberate act — lowering the number belongs
-    in the same commit as the removal, with the reason.
+    A FLOOR, not a count. A tenth twin keeps this green; it fires only when twins
+    LEAVE the `*_mysql.py` shape (renamed, or deleted with their feature), which
+    is a deliberate act — so lowering the number belongs in the same commit as
+    the removal, with the reason.
     """
     found = _twins()
     assert len(found) >= _TWIN_FLOOR, (
@@ -143,13 +150,13 @@ def test_every_twin_gates_on_the_canonical_env_var_name():
         # the end state we want; it inherits the canonical name by construction.
         #
         # Asked of the parsed imports, not of the text. Enumerating spellings
-        # got this wrong twice in a row: a bare `"mysql_dialect" in text` let a
-        # docstring mention grant amnesty, and the regex that replaced it used
-        # `[^\n]*`, which does not exclude `#` — so
+        # kept getting it wrong: a bare `"mysql_dialect" in text` let a docstring
+        # mention grant amnesty, and the regex that replaced it used `[^\n]*`,
+        # which does not exclude `#` — so
         # `from tests import conftest  # gate lives in mysql_dialect.py` also
-        # counted, for a twin with no gate at all. It also missed the
-        # parenthesised form. The AST knows all three and cannot be satisfied by
-        # a comment.
+        # counted, for a twin with no gate at all. It also could not cross a line
+        # break, missing `from tests import (` + `mysql_dialect,`. The AST knows
+        # every spelling and cannot be satisfied by a comment.
         imports_helper = _imports_the_helper(twin, text)
         if not names and imports_helper:
             continue
