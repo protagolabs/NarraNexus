@@ -28,7 +28,12 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    StrippedText,
+    normalize_agent_row_text,
+    normalize_agent_text,
+)
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
@@ -111,8 +116,12 @@ class ManyfoldCreateAgentRequest(BaseModel):
     # Capped at the shared agent-text ceiling — this body raw-writes the
     # `agents` row, so an over-long value would be unreadable through the
     # Agent model (see AGENT_TEXT_MAX_LENGTH).
-    agent_name: str = Field(default="", max_length=AGENT_TEXT_MAX_LENGTH)
-    description: Optional[str] = Field(default=None, max_length=AGENT_TEXT_MAX_LENGTH)
+    # StrippedText: the cap measures the value that will be STORED, so this
+    # path and PUT /api/auth/agents answer the same for the same input.
+    agent_name: StrippedText = Field(default="", max_length=AGENT_TEXT_MAX_LENGTH)
+    description: Optional[StrippedText] = Field(
+        default=None, max_length=AGENT_TEXT_MAX_LENGTH
+    )
     manyfold_user_id: str
     manyfold_user_email: Optional[str] = None
     display_name: Optional[str] = None
@@ -183,22 +192,28 @@ async def create_agent_for_manyfold(
 
     # Agent row — insert or update
     agent_row = await db.get_one("agents", {"agent_id": body.agent_id})
+    # Normalized BEFORE the `or` fallbacks, not after: "   " is truthy, so a
+    # fallback on the raw value is skipped and whitespace lands as the name.
+    # And the row must hold normalized text or it can never be renamed —
+    # the update path compares normalized values (see agent_field_matches).
+    wanted_name = normalize_agent_text(body.agent_name)
+    wanted_desc = normalize_agent_text(body.description)
     if agent_row:
-        await db.update("agents", {"agent_id": body.agent_id}, {
-            "agent_name": body.agent_name or agent_row.get("agent_name") or body.agent_id,
-            "agent_description": body.description or agent_row.get("agent_description"),
+        await db.update("agents", {"agent_id": body.agent_id}, normalize_agent_row_text({
+            "agent_name": wanted_name or agent_row.get("agent_name") or body.agent_id,
+            "agent_description": wanted_desc or agent_row.get("agent_description"),
             "created_by": nx_user_id,
-        })
+        }))
         agent_created = False
     else:
-        await db.insert("agents", {
+        await db.insert("agents", normalize_agent_row_text({
             "agent_id": body.agent_id,
-            "agent_name": body.agent_name or body.agent_id,
-            "agent_description": body.description or "",
+            "agent_name": wanted_name or body.agent_id,
+            "agent_description": wanted_desc,
             "agent_type": "general",
             "created_by": nx_user_id,
             "is_public": 0,
-        })
+        }))
         agent_created = True
 
     logger.info(
@@ -238,13 +253,13 @@ class ManyfoldUpdateAgentRequest(BaseModel):
     # `agents` row; a longer value would deserialize-fail on read). Previously
     # 200 / 2000 — the 2000 was the fourth uncapped write path that could
     # re-create the #71 unreadable-row bug.
-    agent_name: Optional[str] = Field(
+    agent_name: Optional[StrippedText] = Field(
         default=None,
         description="New display name. Omit to leave unchanged.",
         min_length=1,
         max_length=AGENT_TEXT_MAX_LENGTH,
     )
-    agent_description: Optional[str] = Field(
+    agent_description: Optional[StrippedText] = Field(
         default=None,
         description=(
             "New description. Empty string is honored (clears the field); "
@@ -297,7 +312,10 @@ async def update_agent_for_manyfold(
             "updated_fields": [],
         }
 
-    await db.update("agents", {"agent_id": agent_id}, patch)
+    # Same invariant as every other writer of this row: stored text is
+    # normalized, or a later rename to the stripped form compares equal,
+    # issues no write, and reports success (see agent_field_matches).
+    await db.update("agents", {"agent_id": agent_id}, normalize_agent_row_text(patch))
 
     logger.info(
         f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"

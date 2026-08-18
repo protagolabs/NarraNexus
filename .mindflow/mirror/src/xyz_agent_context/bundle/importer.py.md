@@ -95,6 +95,20 @@ full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉�
 > `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
 > 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
 
+## 2026-08-17 — 导入的 agent 名字/描述先归一,再 dedupe、再 clamp
+
+`_ins("agents", …)` 是绕过 [[agent_repository]] 的直写,所以归一必须在这里自己做:
+库里存着 `" 小绿 "` 的行**永远改不了名** —— 改名路径([[auth.py]])比较归一后的值,
+owner 存去掉空白的同名会被判「已相等」,一次写都不发而接口答成功。
+装一个名字带空白的 bundle 就会落下这样一行(team marketplace 安装走同一条路)。
+
+**顺序是三步,不能换**:`normalize_agent_text` → `dedupe_name` → `_clamp_agent_text`。
+
+- 归一在 dedupe **之前**:带空白的名字不会与库里已归一的同名行匹配上,
+  该去重的没去重。
+- clamp 仍在 dedupe **之后**再来一次(原有理由不变):`dedupe_name` 追加的
+  " (n)" 自己没有长度预算,255 + " (1)" = 259 会重新越过上限。
+
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 
 `mcp_urls` 写入路径（hint→`_ins`）此前**不做任何 URL 校验**，绕过了 create/update 路由的

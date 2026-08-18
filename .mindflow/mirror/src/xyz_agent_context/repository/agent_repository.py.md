@@ -4,6 +4,33 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-17（更正）— 「唯一汇聚点」这句话是错的
+
+下面那条原文写着 `add_agent` 是「全部 5 条创建路径唯一都经过的点」、归一「因此
+不是调用方的自由,是表的性质」。**第一句是假的**,第二句因此当时也不成立 ——
+`agents` 行有 4 个绕过本 repository 的直写点（review 抓到,已核）：
+
+```
+git grep -nE '(insert|update)\(\s*"agents"|_ins\("agents"' -- backend src
+  backend/routes/manyfold/agents.py:187   POST /manyfold/agents 幂等分支
+  backend/routes/manyfold/agents.py:194   POST /manyfold/agents 新建分支
+  backend/routes/manyfold/agents.py:300   PATCH /manyfold/agents/{id} —— 改名端点
+  src/xyz_agent_context/bundle/importer.py:813  bundle / team marketplace 导入
+```
+
+讽刺的是仓库自己记着这件事：`tests/backend/test_agent_request_length.py` 的注释
+就写着「Manyfold write path（the 4th path）… These raw-write the agents row」。
+写下 only/always/never 之前先 grep 反例 —— 这次没做。
+
+**修法是收口,不是把话说窄**：4 处全部在自己的写边归一（manyfold 三处走
+`normalize_agent_row_text`，importer 在 dedupe 与 clamp **之前**跑
+`normalize_agent_text`，理由见那里的注释：不先归一的话带空白的名字既不会与库里
+已归一的同名行去重，dedupe 追加的 " (n)" 还会把 255 顶过上限）。
+
+不变量的正式陈述搬到了 [[entity_schema]] `agent_field_matches` 的 docstring 上，
+并附上那条 grep 命令 —— 下一个人可以自己重验，而不是相信一句陈述。
+测试：`tests/backend/test_agents_row_writers_normalize.py`。
+
 ## 2026-08-17 — 入库前归一 agent_name / agent_description
 
 `add_agent` 与 `update_agent` 现在都对两个文本字段跑 [[entity_schema]] 的

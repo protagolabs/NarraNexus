@@ -47,7 +47,7 @@ from xyz_agent_context.repository import (
     InstanceAwarenessRepository,
     InstanceRepository,
 )
-from xyz_agent_context.schema.entity_schema import (
+from xyz_agent_context.schema import (
     AGENT_TEXT_MAX_LENGTH,
     agent_field_matches,
     normalize_agent_text,

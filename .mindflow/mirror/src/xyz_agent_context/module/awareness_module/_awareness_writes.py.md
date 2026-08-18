@@ -31,6 +31,11 @@ stub: false
 真发生时唯一的记录是递给模型的那句话,若是并发写造成的,日志与 DB 里没有任何
 东西能和它对上(踩着 CLAUDE.md 事故教训 #5 的反面)。**返回串一个字没动**。
 
+再补(第三轮):import 从 `xyz_agent_context.schema.entity_schema` 深引改为
+`xyz_agent_context.schema` 门面。本文件在 `schema/` 之外,用门面没有环;
+而 [[api_schema]] 与 manyfold 路由**必须**保留深引(门面反过来再导出
+api_schema 的模型,引门面成环),那两处已就地注明原因。
+
 # _awareness_writes.py — update_agent_profile 的共享实现（AgentDataStore seam 单点）
 
 ## 为什么存在（PR-9）

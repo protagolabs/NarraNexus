@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 from loguru import logger
 
 from .base import BaseRepository
-from xyz_agent_context.schema import Agent, normalize_agent_text
+from xyz_agent_context.schema import Agent, normalize_agent_row_text
 
 
 class AgentRepository(BaseRepository[Agent]):
@@ -84,22 +84,27 @@ class AgentRepository(BaseRepository[Agent]):
     ) -> int:
         """Add a new Agent.
 
-        Text fields are stored in their normalized form (see
-        :func:`normalize_agent_text`). Enforced HERE because this is the only
-        point every creation path passes through — the two routes and the MCP
-        tool arrive via ``provision_new_agent``, while arena provisioning and
-        the migration applier call this directly. A caller that stores an
-        unstripped name leaves a row that can never be normalized afterwards:
+        Text fields are stored normalized (:func:`normalize_agent_row_text`).
+        A row holding an unstripped name can never be cleaned up afterwards:
         the update path compares normalized values, so saving the "same" name
         without the stray space is judged a no-op and never written.
+
+        This repository is the main enforcement point but NOT the only writer
+        of the table — see the invariant note on
+        :func:`~xyz_agent_context.schema.entity_schema.agent_field_matches`
+        for the paths that raw-insert and normalize at their own edge.
         """
         logger.debug(f"    → AgentRepository.add_agent({agent_id})")
 
+        fields = normalize_agent_row_text({
+            "agent_name": agent_name,
+            "agent_description": agent_description,
+        })
         agent = Agent(
             agent_id=agent_id,
-            agent_name=normalize_agent_text(agent_name),
+            agent_name=fields["agent_name"],
             created_by=created_by,
-            agent_description=normalize_agent_text(agent_description),
+            agent_description=fields["agent_description"],
             agent_type=agent_type,
             agent_metadata=agent_metadata,
         )
@@ -117,10 +122,7 @@ class AgentRepository(BaseRepository[Agent]):
         """
         logger.debug(f"    → AgentRepository.update_agent({agent_id})")
 
-        updates = {
-            k: normalize_agent_text(v) if k in ("agent_name", "agent_description") else v
-            for k, v in updates.items()
-        }
+        updates = normalize_agent_row_text(updates)
 
         # Serialize JSON fields
         if "agent_metadata" in updates and not isinstance(updates["agent_metadata"], str):

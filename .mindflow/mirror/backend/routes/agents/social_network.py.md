@@ -7,7 +7,16 @@ stub: false
 ## 2026-08-17 — create-agent 归一名字/描述,并拒绝空名(与 DirectStore 同构)
 
 `POST /{agent_id}/social-network/create-agent`:`normalize_agent_text` 名字与描述,
-空名回 `CREATE_AGENT_EMPTY_NAME_MSG`(共享串)。理由与陷阱见 [[store.py]]
+空名回 `CREATE_AGENT_EMPTY_NAME_MSG`(共享串)。补记(同日 review 第三轮):`CreateAgentBody.agent_name` 去掉了 `min_length=1`。
+带着它,`agent_name=""` 会在路由自己的空名检查**之前**先 422,于是模型在云端
+拿到的是 transport 降级串、在本地拿到共享常量 —— 同一次工具调用两句话,
+而这个常量存在的全部理由就是 byte-parity。`"   "` 没这个问题(过 min_length,
+再被归一成 `""` 命中检查),裂开的只有真空串这一支。
+`max_length=128` 保持不变(与 `AGENT_TEXT_MAX_LENGTH=255` 不一致是既有问题,
+不在本次范围)。测试:`tests/backend/test_create_agent_empty_name_parity.py`
+—— 两条路径 × `""` / `"   "`,必须回同一个串。
+
+理由与陷阱见 [[store.py]]
 2026-08-17 条 —— 两边是 byte-parity 孪生,必须一起改。
 
 连带一处:成功回执与日志改用**归一后**的 `agent_name`,不再是 `body.agent_name`。

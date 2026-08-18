@@ -311,7 +311,12 @@ class CreateAgentBody(BaseModel):
     pattern makes that impossible, and provision_new_agent re-checks it as a
     defense-in-depth backstop for every call site."""
     new_agent_id: str = Field(min_length=1, max_length=64, pattern=r"^agent_[0-9a-f]{12}$")
-    agent_name: str = Field(min_length=1, max_length=128)
+    # No `min_length`: the route itself refuses an empty name with the
+    # SHARED message its DirectStore twin uses. A 422 here instead would
+    # hand the model a transport-level failure string on the HTTP path and
+    # the shared constant on the local one — for the same tool call. That
+    # split is exactly what the shared constant exists to prevent.
+    agent_name: str = Field(max_length=128)
     awareness: str = Field(default="", max_length=65536)
     agent_description: str = Field(default="", max_length=2000)
 

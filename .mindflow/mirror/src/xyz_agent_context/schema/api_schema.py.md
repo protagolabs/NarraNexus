@@ -4,6 +4,16 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-17(补)— `_StrippedText` 迁到 entity_schema
+
+本文件原来自己定义 `_strip_if_text` / `_StrippedText`。manyfold 的两个写边模型
+(`backend/routes/manyfold/agents.py`)也需要同一个行为,而它们**不能** import
+api_schema(成环),所以定义搬到 [[entity_schema]] 的 `StrippedText`,本文件深引
+并别名回 `_StrippedText`。
+
+深引不是疏忽:`xyz_agent_context.schema` 门面反过来再导出本文件的模型,本文件引
+门面就成环 —— 与本文件引 `AGENT_TEXT_MAX_LENGTH` 的方式一致,已在 import 处注明。
+
 ## 2026-08-17 — Create/UpdateAgentRequest 的长度上限改为量归一后的值
 
 两个模型的 `agent_name` / `agent_description` 类型换成 `_StrippedText`

@@ -17,8 +17,8 @@ Includes:
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from typing import Annotated, List, Dict, Any, Optional
+from pydantic import BaseModel, BeforeValidator, Field
 
 
 # ===== User Status Enum =====
@@ -187,6 +187,26 @@ class User(BaseModel):
 AGENT_TEXT_MAX_LENGTH = 255
 
 
+def _strip_if_text(value: Any) -> Any:
+    """Strip a supplied string; pass everything else through untouched.
+
+    ``None`` must survive as ``None``: on an update path it is the only thing
+    that distinguishes "field not supplied" from ``""`` ("clear this field").
+    Non-str values are left for pydantic to reject with its own message.
+    """
+    return value.strip() if isinstance(value, str) else value
+
+
+# A request-body string normalized before any other validation runs, so length
+# caps measure what will actually be STORED (every writer of the agents row
+# normalizes — see agent_field_matches). Without it, trailing whitespace pushes
+# an otherwise-legal value over the cap on one write path while another, which
+# measures after stripping, accepts the same input. Lives here rather than in
+# api_schema because the manyfold request models need it too and api_schema
+# cannot be imported from them without a cycle.
+StrippedText = Annotated[str, BeforeValidator(_strip_if_text)]
+
+
 class Agent(BaseModel):
     """Agent data model"""
     id: Optional[int] = None
@@ -233,9 +253,31 @@ def normalize_agent_text(value: Optional[str]) -> str:
     return (value or "").strip()
 
 
-# Fields whose "unchanged" test is text equivalence. Deliberately a closed
-# set — see the dispatch in agent_field_matches.
-_AGENT_TEXT_FIELDS = frozenset({"agent_name", "agent_description"})
+# The agents-row columns whose value is free text: the ones that get
+# normalized on write and compared as text. Deliberately a closed set — see the
+# dispatch in agent_field_matches — and exported, because every writer of the
+# row needs the same answer to "which columns is this rule about". Adding a
+# text column here is what makes both the normalizer and the predicate cover
+# it; two of them would drift the moment someone updated only one.
+AGENT_TEXT_FIELDS = frozenset({"agent_name", "agent_description"})
+
+
+def normalize_agent_row_text(values: dict) -> dict:
+    """Return ``values`` with every agents-row text column normalized.
+
+    A new dict; the input is left alone. Non-text keys pass through untouched,
+    so a caller can hand this a whole row or a partial patch. ``is_public`` is
+    deliberately NOT included: it is not text, and agent_field_matches
+    dispatches it separately (bool on MySQL TINYINT vs SQLite INTEGER).
+
+    Every writer of the agents row goes through this — `AgentRepository`, and
+    the handful of paths that raw-insert. See the invariant note above
+    :func:`agent_field_matches`.
+    """
+    return {
+        k: normalize_agent_text(v) if k in AGENT_TEXT_FIELDS else v
+        for k, v in values.items()
+    }
 
 
 def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
@@ -248,12 +290,20 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
     while ``PUT /api/auth/agents`` compared raw ones, so one accepted a name
     the other treated as unchanged.
 
-    The text fields are compared in their normalized form, which is also the
-    form :class:`AgentRepository` stores (both ``add_agent`` and
-    ``update_agent`` normalize on the way in). That is what lets a
-    compare-then-verify writer trust "already equal" — if the row could hold an
-    unnormalized value, "equal" and "what the row holds" would drift apart and
-    the writer would contradict itself.
+    The text fields are compared in their NORMALIZED form, so the predicate is
+    only sound while the row holds normalized text. That is what lets a
+    compare-then-verify writer trust "already equal": if a row could hold an
+    unnormalized value, saving the stripped version of the "same" name would
+    compare equal, issue no write, and then certify the untouched row.
+
+    Keeping that true is a property of every writer, not of one chokepoint.
+    :class:`AgentRepository` normalizes in ``add_agent`` / ``update_agent``,
+    which covers the routes, the MCP tool, arena provisioning and the
+    migration applier. The paths that raw-insert the table normalize at their
+    own edge instead — today the manyfold agent routes and the bundle
+    importer. Re-check the list before trusting it; it is one command:
+
+        git grep -nE '(insert|update)\(\s*"agents"|_ins\("agents"' -- backend src
 
     Args:
         agent: the entity as currently stored.
@@ -268,7 +318,7 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
         # The column is TINYINT on MySQL and INTEGER on SQLite, and
         # ``_row_to_entity`` may hand back either a bool or an int.
         return bool(agent.is_public) == bool(wanted)
-    if field not in _AGENT_TEXT_FIELDS:
+    if field not in AGENT_TEXT_FIELDS:
         # Explicitly dispatched, never "whatever getattr returns": an
         # unlisted field would otherwise compare as text and — for the ones
         # defaulting to None — answer "already equal", which suppresses the

@@ -15,9 +15,14 @@ stub: false
 注:`backend/` 引 `xyz_agent_context` 是合法方向,反向不行——所以共享的那份
 必须落在 package 里,这也是它没被放进 backend 的原因。
 
-同日追加:`AGENT_TEXT_MAX_LENGTH` 也进了门面。此前它只能从
-`xyz_agent_context.schema.entity_schema` 深引(`_awareness_writes` 就是那么引的),
-而 [[api_schema]] 与写边校验都需要它;放进门面后不必再绕过门面伸手进子模块。纯转发。
+同日追加:`AGENT_TEXT_MAX_LENGTH`、`normalize_agent_row_text`、
+`AGENT_TEXT_FIELDS` 进门面。
+
+> 更正:第一次给 `AGENT_TEXT_MAX_LENGTH` 写的理由是「api_schema 与写边校验都需要它,
+> 放进门面后不必再深引」——**当时它零消费者**,两个消费者都还在深引。而且
+> [[api_schema]] **结构上不可能**用门面:门面反过来再导出 api_schema 的模型,引它成环。
+> 现在 [[_awareness_writes]](在 schema/ 之外,可以用门面)已改为门面引用;
+> api_schema 与 manyfold 路由保留深引,并在 api_schema 里注明了成环这个原因。
 
 ## 2026-08-10 — 导出 `JobUpdateFields`
 

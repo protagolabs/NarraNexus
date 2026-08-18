@@ -83,18 +83,31 @@ def test_manyfold_update_at_limit_accepted(field):
 AT_LIMIT_PADDED = AT_LIMIT + "   "
 
 
-@pytest.mark.parametrize("model", [CreateAgentRequest, UpdateAgentRequest])
-@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
-def test_trailing_whitespace_does_not_push_a_legal_value_over_the_cap(model, field):
-    obj = model(**{field: AT_LIMIT_PADDED})
+# All four write-edge models, not just the auth pair: they write the same row,
+# so "same input, same answer" has to hold across every one of them. The
+# manyfold models name the description field differently.
+STRIP_CASES = [
+    (CreateAgentRequest, "agent_name", {}),
+    (CreateAgentRequest, "agent_description", {}),
+    (UpdateAgentRequest, "agent_name", {}),
+    (UpdateAgentRequest, "agent_description", {}),
+    (ManyfoldCreateAgentRequest, "agent_name", {"agent_id": "a", "manyfold_user_id": "u"}),
+    (ManyfoldCreateAgentRequest, "description", {"agent_id": "a", "manyfold_user_id": "u"}),
+    (ManyfoldUpdateAgentRequest, "agent_name", {}),
+    (ManyfoldUpdateAgentRequest, "agent_description", {}),
+]
+
+
+@pytest.mark.parametrize("model,field,extra", STRIP_CASES)
+def test_trailing_whitespace_does_not_push_a_legal_value_over_the_cap(model, field, extra):
+    obj = model(**{**extra, field: AT_LIMIT_PADDED})
     assert getattr(obj, field) == AT_LIMIT
 
 
-@pytest.mark.parametrize("model", [CreateAgentRequest, UpdateAgentRequest])
-@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
-def test_genuine_overflow_is_still_rejected_after_stripping(model, field):
+@pytest.mark.parametrize("model,field,extra", STRIP_CASES)
+def test_genuine_overflow_is_still_rejected_after_stripping(model, field, extra):
     with pytest.raises(ValidationError):
-        model(**{field: OVER + "   "})
+        model(**{**extra, field: OVER + "   "})
 
 
 @pytest.mark.parametrize("field", ["agent_name", "agent_description"])

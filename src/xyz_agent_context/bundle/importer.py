@@ -44,7 +44,10 @@ from xyz_agent_context.utils.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
 )
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    normalize_agent_text,
+)
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .id_schema import build_all_id_regex, ID_KINDS
@@ -824,9 +827,18 @@ async def _confirm_inner(
         # that model, so an unclamped value would strand the agent as
         # "insertable but unreadable" — every later edit/delete deserializes the
         # row and fails Pydantic validation.
-        original_name = agent_record["agent_name"]
+        # Normalized FIRST — before dedupe and before the clamp. This insert
+        # bypasses AgentRepository, so nothing else will strip it, and a row
+        # holding " name " can never be renamed afterwards: the update path
+        # compares normalized values, so saving the stripped form is judged a
+        # no-op and never written (see agent_field_matches). Ahead of dedupe
+        # for a second reason — an unstripped name would not match the
+        # already-normalized rows it is supposed to be deduped against.
+        original_name = normalize_agent_text(agent_record["agent_name"])
         clamped_name, name_trimmed = _clamp_agent_text(original_name)
-        clamped_desc, desc_trimmed = _clamp_agent_text(agent_record.get("agent_description"))
+        clamped_desc, desc_trimmed = _clamp_agent_text(
+            normalize_agent_text(agent_record.get("agent_description"))
+        )
         agent_record["agent_description"] = clamped_desc
 
         # Dedupe against existing (already-clamped) names, THEN clamp again:

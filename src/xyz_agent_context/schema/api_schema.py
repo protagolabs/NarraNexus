@@ -14,27 +14,14 @@ Includes:
 - Files related: FileInfo, FileListResponse, etc.
 """
 
-from typing import Annotated, Optional, List, Dict, Any
-from pydantic import BaseModel, BeforeValidator, Field
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
-
-
-def _strip_if_text(value: Any) -> Any:
-    """Strip a supplied string; pass everything else through untouched.
-
-    ``None`` must survive as ``None``: on the update path it is the only thing
-    that distinguishes "field not supplied" from ``""`` ("clear this field").
-    Non-str values are left for pydantic to reject with its own message.
-    """
-    return value.strip() if isinstance(value, str) else value
-
-
-# A request-body string that is normalized before any other validation runs, so
-# length caps measure what will actually be stored (AgentRepository strips on
-# the way in). Without this, trailing whitespace could push an otherwise-legal
-# value over the cap on the HTTP path while the agent-facing writer, which
-# measures after stripping, accepted it.
-_StrippedText = Annotated[str, BeforeValidator(_strip_if_text)]
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+# Deep import, not the `xyz_agent_context.schema` facade: the facade re-exports
+# THIS module's models, so going through it would close an import cycle.
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    StrippedText as _StrippedText,
+)
 
 
 # ===== Auth Schemas =====

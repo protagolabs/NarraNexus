@@ -130,7 +130,9 @@ from .entity_schema import (
     # One definition of "this write would change nothing", shared by every
     # writer of the agents row (HTTP route + awareness tool).
     normalize_agent_text,
+    normalize_agent_row_text,
     agent_field_matches,
+    AGENT_TEXT_FIELDS,
     # Entities
     SocialNetworkEntity,
     User,
@@ -405,7 +407,9 @@ __all__ = [
     "is_agent_description_unset",
     "AGENT_TEXT_MAX_LENGTH",
     "normalize_agent_text",
+    "normalize_agent_row_text",
     "agent_field_matches",
+    "AGENT_TEXT_FIELDS",
     "SocialNetworkEntity",
     "User",
     "Agent",
