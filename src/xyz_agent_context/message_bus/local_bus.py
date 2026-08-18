@@ -343,81 +343,91 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
-    def _unread_params(self) -> tuple:
-        """The prefixes bound by `_unread_where`, in the SAME order it emits them.
+    def _unread_predicate(self, ph: str) -> tuple[str, tuple]:
+        """The unread predicate AND its parameters, from ONE construction.
 
-        Returned separately rather than folded into each caller by hand: three
-        callers build their own parameter tuples, and a predicate whose parameter
-        count is invisible from the call site is how a fourth one gets it wrong.
-        """
-        return im_channel_prefixes()
+        Shared by the fetch, the probe and the count deliberately: `get_unread`,
+        `has_unread_before` and `count_unread` must agree, or "N unread (showing
+        M)" starts lying about its own list.
 
-    def _unread_where(self, ph: str) -> str:
-        """The unread predicate, shared by the fetch, the probe and the count.
-
-        Shared deliberately: `get_unread`, `has_unread_before` and `count_unread`
-        must agree, or "N unread (showing M)" starts lying about its own list.
-
-        ``from_agent != agent`` matches ``get_pending_messages``, which has
-        always had it. Its absence here meant an agent read its own posts back
-        as unanswered items — loudest exactly where it hurts, a room the agent
-        talks in a lot.
+        ``from_agent != agent`` matches ``get_pending_messages``, which has always
+        had it. Its absence here meant an agent read its own posts back as
+        unanswered items — loudest exactly where it hurts, a room the agent talks
+        in a lot.
 
         **Legacy IM channels are excluded.** Until 2026-08-17 `ChannelInboxWriter`
         mirrored every IM turn into `bus_messages` for the Inbox to display, under
         a channel nobody ever marked read — so 1,364 messages were permanently
         unread and rode into 90 agents' context every turn, attributed to
         pseudo-agents like `lark_user_<id>`. Moving the inbox to its own tables
-        stops NEW rows being written, but the deployed rows are still there and
-        this predicate is what feeds them to the model. Filtering the read is what
-        actually ends the injection, on the deploy rather than on the day someone
-        runs the purge.
+        stops NEW rows being written; the deployed rows are still there and this
+        predicate is what feeds them to the model. Filtering the read is what ends
+        the injection, on the deploy rather than on the day someone runs the purge.
 
-        Not "structural containment" — the honest description is a filter over
-        rows a retired writer left behind. It retires when those rows are purged;
+        Not "structural containment" — honestly a filter over rows a retired writer
+        left behind. It retires when those rows are purged;
         `reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md` owns
         that step.
+
+        SUBSTR, not LIKE. `_` is a single-character LIKE wildcard and every one of
+        these prefixes ENDS in `_`, so `NOT LIKE 'lark_%'` also excluded
+        `larkX_…` and `larky_…` — any channel whose id starts with "lark" plus any
+        one character. Verified on SQLite: with ids (lark_oc_1, larkX_oc_2,
+        larky_room, ch_team_1, lark), the unescaped pattern kept only (ch_team_1,
+        lark). Current id formats make the over-match unreachable, which is exactly
+        why it would have survived to bite whoever changes an id format later — and
+        this filter decides what reaches the model, so over-matching is silent
+        context loss, not an error. (A literal `%` would also have been fatal on
+        MySQL: pymysql mogrifies with `query % args`, so every unread query would
+        have raised `TypeError` and been swallowed by the caller's `except`.)
+
+        SUBSTR also lets the prefix be a BOUND parameter rather than interpolated
+        text; only its LENGTH goes into the SQL, and that is an int derived from a
+        registry key. Two verified properties, on SQLite: an id SHORTER than the
+        prefix yields the whole shorter string, which correctly compares unequal
+        and is kept; an exact-prefix id is excluded. One recorded dialect
+        difference: our MySQL DDL uses a `_ci` collation, so `<>` there is
+        case-INSENSITIVE while SQLite's is not — unreachable, since ids are built
+        from lowercase registry names, and both readings only ever exclude a
+        channel that does not exist. `test_unread_cursor_mysql.py` exercises this
+        predicate on real MySQL.
+
+        **Returns the SQL and the params together, and that is the point.** They
+        were two methods reading `im_channel_prefixes()` separately, with nothing
+        tying the number of emitted placeholders to the length of the returned
+        tuple — the exact shape `message_bus_module._room_labels`' own comment
+        condemns ("two independent constructions feeding a count and its tuple is
+        the shape that breaks when someone edits one line"), built two files away
+        from that comment. Add any condition to the generator — skip a prefix,
+        dedupe, `if len(pfx) > 1` — and `has_unread_before` shifts by one:
+        `m.channel_id = ?` receives a prefix string and `m.created_at < ?` receives
+        a channel id. The query returns nothing, `has_unread_before` says False,
+        and `ack_read` discards unread messages. No exception, and no test failure
+        unless the fixture happens to hold the right number of prefixes.
         """
-        prefixes = im_channel_prefixes()
-        # SUBSTR, not LIKE. `_` is a single-character LIKE wildcard and every one
-        # of these prefixes ENDS in `_`, so `NOT LIKE 'lark_%'` also excluded
-        # `larkX_…` and `larky_…` — any channel whose id starts with "lark" plus
-        # any one character. Verified on SQLite: with ids
-        # (lark_oc_1, larkX_oc_2, larky_room, ch_team_1, lark), the unescaped
-        # pattern kept only (ch_team_1, lark). Current id formats make the
-        # over-match unreachable, which is exactly why it would have survived to
-        # bite whoever changes an id format later — and this filter decides what
-        # reaches the model.
-        #
-        # SUBSTR also lets the prefix be a BOUND parameter instead of interpolated
-        # text; only its LENGTH goes into the SQL, and that is an int derived from
-        # a registry key. LIKE-with-ESCAPE would work too, but the escape
-        # character is one more thing that has to mean the same on both dialects.
-        #
-        # Two verified properties, both on SQLite: a channel id SHORTER than the
-        # prefix yields the whole (shorter) string, which correctly compares
-        # unequal and is kept; an exact-prefix id is excluded.
-        #
-        # One known dialect difference, recorded rather than engineered around:
-        # our MySQL DDL uses `utf8mb4_unicode_ci`, so `<>` there is
-        # case-INSENSITIVE, while SQLite's default TEXT comparison is not. A
-        # `LARK_oc_1` would therefore be excluded on MySQL and kept on SQLite. It
-        # cannot occur — the writer built ids as `{registry_name}_{chat_id}` and
-        # registry names are lowercase — and both readings only ever exclude a
-        # channel that does not exist. `test_unread_cursor_mysql.py` exercises
-        # this predicate on real MySQL, so a dialect error in the CLAUSE (as
-        # opposed to this collation nuance) fails in CI rather than in prod.
-        legacy = "".join(
-            f" AND SUBSTR(m.channel_id, 1, {len(pfx)}) <> {ph}" for pfx in prefixes
-        )
-        return (
+        # Clause and parameter appended TOGETHER, in one loop. Returning
+        # `tuple(prefixes)` alongside a generator over the same list is not enough:
+        # a condition added to the generator (skip a prefix, dedupe,
+        # `if len(pfx) > 1`) would leave the params unfiltered and shift every
+        # subsequent placeholder. Verified — that mutation passed the suite when
+        # the two were separate expressions. Paired, a `continue` here drops both
+        # and they cannot desynchronise.
+        clauses: list[str] = []
+        params: list[str] = []
+        for pfx in im_channel_prefixes():
+            clauses.append(f" AND SUBSTR(m.channel_id, 1, {len(pfx)}) <> {ph}")
+            params.append(pfx)
+
+        sql = (
             f"FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
             f"WHERE cm.agent_id = {ph} "
             f"AND m.from_agent != {ph} "
             f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
-            f"{legacy}"
+            f"{''.join(clauses)}"
         )
+        assert len(clauses) == len(params)  # structural, but cheap to state
+        return sql, tuple(params)
 
     async def get_unread(
         self, agent_id: str, limit: Optional[int] = None
@@ -437,16 +447,16 @@ class LocalMessageBus(MessageBusService):
         stays unread forever.
         """
         ph = self._db.placeholder
-        where = self._unread_where(ph)
+        where, pfx = self._unread_predicate(ph)
         if limit is None:
             rows = await self._db.execute(
                 f"SELECT m.* {where} ORDER BY m.created_at ASC",
-                (agent_id, agent_id, *self._unread_params()),
+                (agent_id, agent_id, *pfx),
             )
             return [self._row_to_message(row) for row in rows]
         rows = await self._db.execute(
             f"SELECT m.* {where} ORDER BY m.created_at DESC LIMIT {int(limit)}",
-            (agent_id, agent_id, *self._unread_params()),
+            (agent_id, agent_id, *pfx),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
@@ -469,13 +479,15 @@ class LocalMessageBus(MessageBusService):
         if not agent_id or not channel_id or not before:
             return False
         ph = self._db.placeholder
+        where, pfx = self._unread_predicate(ph)
         rows = await self._db.execute(
-            f"SELECT 1 AS hit {self._unread_where(ph)} "
+            f"SELECT 1 AS hit {where} "
             f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
             # Prefix params sit BETWEEN the predicate's own and this query's
-            # extras, because that is the order the placeholders appear in.
-            (agent_id, agent_id, *self._unread_params(),
-             channel_id, canonical_ts(before)),
+            # extras, because that is the order the placeholders appear in. This
+            # is the one caller that interleaves, so it is the one a shifted
+            # parameter count breaks first.
+            (agent_id, agent_id, *pfx, channel_id, canonical_ts(before)),
         )
         return bool(rows)
 
@@ -519,9 +531,10 @@ class LocalMessageBus(MessageBusService):
         the reader would never learn there was a backlog at all.
         """
         ph = self._db.placeholder
+        where, pfx = self._unread_predicate(ph)
         rows = await self._db.execute(
-            f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
-            (agent_id, agent_id, *self._unread_params()),
+            f"SELECT COUNT(*) AS n {where}",
+            (agent_id, agent_id, *pfx),
         )
         return int(rows[0].get("n") or 0) if rows else 0
 

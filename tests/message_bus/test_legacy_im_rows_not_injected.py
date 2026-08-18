@@ -143,3 +143,40 @@ async def test_the_prefix_match_is_not_a_like_wildcard(db_client):
         f"the prefix match is behaving as a wildcard: kept {got}"
     )
     assert await bus.count_unread(AGENT) == len(lookalikes)
+
+
+def test_the_predicate_and_its_params_cannot_desynchronise(db_client):
+    """Placeholder count == parameter count, structurally, not by convention.
+
+    These were two methods reading `im_channel_prefixes()` separately, with nothing
+    tying the number of emitted placeholders to the length of the returned tuple.
+    Merging them into one method was not sufficient either: the SQL came from a
+    generator and the params from `tuple(prefixes)`, so a condition added to the
+    generator left the params unfiltered. Mutation-verified at the time — adding
+    `if len(pfx) > 6` to the generator passed the whole suite.
+
+    The failure that shift produces is the bad kind. `has_unread_before` is the one
+    caller that INTERLEAVES its parameters, so one extra param means
+    `m.channel_id = ?` receives a prefix string and `m.created_at < ?` receives a
+    channel id. The query matches nothing, `has_unread_before` returns False, the
+    caller skips its early return, and `ack_read` advances the cursor — discarding
+    every unread message older than the rendered window. No exception, and no test
+    failure unless a fixture happens to hold the right number of prefixes.
+
+    Clause and param are appended together in one loop now, so a `continue` drops
+    both. This test states the invariant the loop provides.
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    for ph in ("?", "%s"):
+        sql, params = bus._unread_predicate(ph)
+        emitted = sql.count("SUBSTR(m.channel_id")
+        assert emitted == len(params), (
+            f"{emitted} prefix placeholders vs {len(params)} params with ph={ph!r} "
+            f"— every later parameter in `has_unread_before` is shifted"
+        )
+        # And the predicate's own two placeholders are still there, so the count
+        # above is not accidentally matching an empty prefix list.
+        assert params, "no prefixes at all — the registry is empty in this fixture"
+        assert sql.count(ph) == 2 + len(params)
