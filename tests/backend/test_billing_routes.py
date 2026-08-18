@@ -952,3 +952,32 @@ def test_fx_rate_rejects_negative_amount(make_client, monkeypatch):
     _stub_client(monkeypatch)
     client = make_client(cloud=True)
     assert client.get("/api/billing/fx-rate?amount=-1", headers=_headers()).status_code == 422
+
+
+@pytest.mark.parametrize("method", ["alipay", "wechat"])
+def test_one_time_subscribe_also_sends_return_urls(make_client, monkeypatch, method):
+    """The redirect fix (2026-07-30) must cover the one-time rails too.
+
+    Upstream really does consume them on this path — measured against dev
+    2026-08-19 with the same control the original fix used: a valid URL builds
+    a session (200), an illegal one answers 500 "Failed to create
+    prepaid-subscription checkout session". So a one-time payer who is dropped
+    on a stranger's result page is OUR bug, exactly as it was for a card one.
+    """
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    _set_origin(monkeypatch, "https://agent.narra.nexus")
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": method, "months": 2},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["subscribe"] == {
+        "success_url":
+            "https://agent.narra.nexus/app/settings?tab=account&status=success&flow=subscription",
+        "cancel_url":
+            "https://agent.narra.nexus/app/settings?tab=account&status=cancelled&flow=subscription",
+    }
+    # ...alongside the one-time fields, not instead of them.
+    assert seen["subscribe_body"]["months"] == 2

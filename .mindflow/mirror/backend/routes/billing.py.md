@@ -21,6 +21,11 @@ stub: false
   是三种结果里最坏的那个**。用 `model_fields_set` 而不是哨兵默认值来区分"显式要了
   1 个月"和"压根没提 months"。
 - `POST /subscribe` 的 body 是**可选**的：只想要卡订阅的调用方可以继续什么都不发。
+- **回跳 URL 覆盖到一次性订阅路径**（`_return_urls("subscription")` 对三种
+  payment_method 一视同仁）。上游确实消费它：2026-08-19 用 2026-07-30 那次同样的
+  控制组测过 —— 合法 URL 建 session（200），非法 URL 回
+  **500 `Failed to create prepaid-subscription checkout session`**。所以一次性
+  付款者被丢到陌生落地页同样是**我们的 bug**，和当年卡订阅那次性质一样。有测试钉住。
 - `GET /fx-rate` 的 `currency` **钉死 CNY**，不从 query 读 —— 这个账号只有 CNY
   一种非美元币种，开成参数只是多一个「问上游我们没有界面能展示的问题」的入口。
   读端点的错误映射与 `/plans` `/subscription` 一致：业务 4xx 也归 502。
