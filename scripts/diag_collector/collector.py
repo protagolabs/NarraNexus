@@ -245,7 +245,28 @@ def enforce_size_cap() -> int:
         files.sort()  # oldest first within each partition
     deleted = 0
     while total > target and sizes:
-        key = max(sizes, key=lambda k: sizes[k])
+        # Tie-break on file COUNT, then on the key, so the drain order is a
+        # property of the data and not of `rglob`'s traversal order.
+        #
+        # `max(sizes, key=sizes.get)` returns whichever equal-sized partition
+        # the dict happened to see first, which is the filesystem's business.
+        # At the last deletion of a flood that is exactly the decision that
+        # matters: with a 400-byte victim (one old file) tied against a
+        # 400-byte flood remnant (two newer files), draining the victim leaves
+        # 0 / 400 and draining the flood leaves 400 / 200. The second is what
+        # water-leveling means, and it was a coin toss.
+        #
+        # The load-bearing property is DETERMINISM. The direction is a
+        # heuristic and is stated as one: at equal size, a partition with more
+        # files tends to have a smaller oldest file, so draining it takes a
+        # smaller step and leaves the two partitions closer together — which is
+        # what leveling means. It is not an anti-abuse property: a flooder that
+        # consolidates into fewer, larger files wins every size tie against a
+        # victim holding many small ones. Tightening that needs authentication
+        # (see the DIAG_COLLECT_TOKEN note above), not a better tie-break.
+        # The key itself only settles the remaining tie, and only so the
+        # outcome stops depending on `rglob`.
+        key = max(sizes, key=lambda k: (sizes[k], len(partitions[k]), k))
         files = partitions[key]
         if not files:
             sizes.pop(key, None)

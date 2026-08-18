@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/services/service_audit.py
-last_verified: 2026-05-29
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `_last_heartbeat_at` 初值改为 `-inf`
+
+与 [[channel_trigger_base.py]] 同一个 bug 形状：门禁是
+`time.monotonic() - _last_heartbeat_at < heartbeat_interval`，而 monotonic 在
+Linux 上从开机计数，所以 `0.0` 读作"在开机那刻发过心跳"，宿主机比 interval
+（默认 60s）年轻时第一拍被静默跳过。改成 `float("-inf")`，让"从没发过"成为真正
+的哨兵。窗口只有 60 秒、且会自愈，所以影响比 channel trigger 那两处小得多，但
+写法不一致本身就是下一个人照抄时的坑。
+
+调用点 `module_poller` / `job_trigger` / `message_bus_trigger` 都不传 `force`，
+所以它们的首拍确实走这道门。守卫见
+`tests/channel/test_first_cycle_on_a_fresh_host.py`。
 
 # service_audit.py — 长跑后台循环的 L2 可观测性助手（ServiceAuditor）
 

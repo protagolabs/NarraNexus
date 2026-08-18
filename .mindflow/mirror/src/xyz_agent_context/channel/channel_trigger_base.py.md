@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — "从没执行过"不能写成 0.0（monotonic 从开机计数）
+
+`_last_heartbeat_monotonic` / `_last_cleanup_monotonic` 的初值从 `0.0` 改成
+`float("-inf")`。两道门都是 `time.monotonic() - mark >= interval`，而
+`time.monotonic()` 在 Linux 上**从开机计数**——所以 `0.0` 表达的不是"从没执行
+过"，而是"在开机那一刻执行过"。宿主机 uptime 小于间隔时，门**静默不开**：
+
+- **heartbeat（600s）**：刚开机的宿主机头十分钟没有任何 L2 存活行——而那正是
+  启动失败最可能发生的窗口，也正是事故教训 #4 要求这些心跳覆盖的东西。
+- **cleanup（24h）**：`_run_cleanup` 自己的 docstring 写着 "once at startup +
+  daily"，而新开的 EC2 实例两样都没拿到，第一次 retention sweep 要等宿主机
+  uptime 满一天。
+
+`-inf` 让"从没执行过"成为真正的哨兵，第一轮必然执行。**长 uptime 的机器上行为
+不变**（`now - 0.0` 本来就远大于间隔），这次只修好刚开机那一档。两个 mark 都只
+参与差值比较、从不进 payload，所以无穷不会泄进任何一行审计数据；heartbeat 里的
+`uptime_seconds` 用的是 `_startup_time_ms`（wall clock），不受影响。
+
+**别改成 seed 语义**（`_thinking_batcher.py` 那种 `if mark == 0.0: mark = now`）
+——那表达的是"第一次调用不执行、从此刻开始计时"，与这里想要的正好相反。
+
+线索来自反方向：`test_credential_breaker.py` 里同一个 `0.0` 写法让一条测试在所有
+开发机上绿、在全新 CI runner 上红（索引空列表）。测试那处是实例，这两处是同一个
+假设在生产侧。守卫见 `tests/channel/test_first_cycle_on_a_fresh_host.py`（把
+`time.monotonic` 垫成刚开机，是这个差别唯一可观测的条件）。
 
 ## 2026-08-10 — processed 行合并 audit_details(review 后:seam 撤销)
 
