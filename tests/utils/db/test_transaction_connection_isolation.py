@@ -386,7 +386,13 @@ async def test_two_tasks_can_hold_independent_transactions():
 
 
 class RecordingBackend:
-    """Only the transaction seam of `DatabaseBackend` is needed here."""
+    """Only the transaction seam of `DatabaseBackend` is needed here.
+
+    `AsyncDatabaseClient` now delegates unconditionally — the second, pool-based
+    implementation it used to carry was unreachable and has been deleted, so
+    these cases pin the delegation and the context manager's unwinding, not a
+    parallel copy of the transaction logic.
+    """
 
     def __init__(self) -> None:
         self.events: list[str] = []
@@ -694,10 +700,155 @@ async def test_the_shutdown_budget_stays_under_the_evict_sweep_budget():
     The relationship lives in two files, so it is asserted rather than left to a
     comment — the comment was already there when the two constants were equal.
     """
-    from xyz_agent_context.utils.db import db_backend_mysql, database, db_factory
+    from xyz_agent_context.utils.db import db_backend_mysql, db_factory
 
     assert db_backend_mysql._POOL_CLOSE_TIMEOUT_SEC < db_factory._EVICT_SWEEP_BUDGET
-    assert database._POOL_CLOSE_TIMEOUT_SEC < db_factory._EVICT_SWEEP_BUDGET
-    assert (
-        db_backend_mysql._POOL_CLOSE_TIMEOUT_SEC == database._POOL_CLOSE_TIMEOUT_SEC
-    ), "the two backends must agree, or shutdown behaviour depends on which path ran"
+
+
+@pytest.mark.asyncio
+async def test_a_child_task_outliving_the_transaction_can_write_again():
+    """The guard needs an expiry, not just a condition.
+
+    A ContextVar copies its VALUE into tasks created after it was set, so an
+    immutable `(owner, conn)` tuple gave the child a snapshot that never went
+    stale: the parent's clear-on-commit changed only the parent's context, and
+    the child stayed locked out forever — refused in the name of a transaction
+    that had ended seconds earlier. Sharing one mutable holder makes the end of
+    the transaction visible to everyone who inherited it.
+    """
+    backend, pool = make_backend()
+
+    released = asyncio.Event()
+    child_done = asyncio.Event()
+    result = {}
+
+    async def child():
+        # Created INSIDE the transaction, so it inherits the holder.
+        await released.wait()
+        try:
+            await backend.execute_write("DELETE FROM t WHERE id = 1")
+            result["ok"] = True
+        except RuntimeError as exc:
+            result["ok"] = False
+            result["err"] = str(exc)
+        child_done.set()
+
+    await backend.begin_transaction()
+    task = asyncio.create_task(child())
+    await asyncio.sleep(0)          # let the child start and inherit the context
+    await backend.commit()
+
+    released.set()
+    await child_done.wait()
+    await task
+
+    assert result.get("ok") is True, (
+        f"child locked out after the transaction ended: {result.get('err')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_second_transaction_does_not_resurrect_a_stale_childs_snapshot():
+    """`begin_transaction` must allocate a NEW holder. Reusing one would make
+    the parent's next transaction revive an old child's expired view — harder to
+    diagnose than the bug it replaced."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    stale_child_started = asyncio.Event()
+    verdict = {}
+
+    async def child():
+        stale_child_started.set()
+        await asyncio.sleep(0.02)   # outlive both transactions
+        try:
+            await backend.execute_write("DELETE FROM t WHERE id = 2")
+            verdict["ok"] = True
+        except RuntimeError as exc:
+            verdict["ok"] = False
+            verdict["err"] = str(exc)
+
+    task = asyncio.create_task(child())
+    await stale_child_started.wait()
+    await backend.commit()
+
+    # A second, unrelated transaction in the parent.
+    await backend.begin_transaction()
+    await backend.execute_write("DELETE FROM t WHERE id = 3")
+    await backend.commit()
+
+    await task
+    assert verdict.get("ok") is True, (
+        f"the stale child was revived by a later transaction: {verdict.get('err')}"
+    )
+
+
+# --------------------------------------------------------------------------
+# 7. The health probe must not poison the pool when it is cancelled
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_probe_closes_its_connection_instead_of_recycling_it():
+    """`/health` bounds the probe with a timeout, so cancellation arrives while
+    the driver may be halfway through reading a response. Going through
+    `execute` would return that connection to the free list — aiomysql only
+    discards ones already closed, and cancellation does not close them.
+
+    The timing is what makes it matter: the timeout fires precisely when the
+    database is slow, so the container healthcheck would reproduce this every
+    30 seconds for the length of a slowdown, poisoning one more connection each
+    time. A probe added to make failure visible must not manufacture it.
+    """
+    backend, pool = make_backend()
+
+    started = asyncio.Event()
+
+    class HangingCursor(FakeCursor):
+        async def execute(self, query, params=None):
+            started.set()
+            await asyncio.sleep(3600)
+
+    hung = FakeConnection(99)
+    hung.cursor = lambda cursor_class=None: HangingCursor(hung)
+    pool.created.append(hung)
+
+    async def checkout():
+        pool.used.append(hung)
+        return hung
+
+    pool._checkout = checkout  # type: ignore[method-assign]
+
+    task = asyncio.create_task(backend.probe())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert hung.closed is True, "a cancelled probe left its connection open"
+    assert hung not in pool.free, "the cancelled probe's connection went back on the free list"
+    assert hung in pool.discarded
+
+
+@pytest.mark.asyncio
+async def test_a_successful_probe_returns_its_connection_to_the_pool():
+    """The other half: a healthy probe must not leak a connection per call."""
+    backend, pool = make_backend()
+
+    await backend.probe()
+
+    assert pool.used == [], "the probe kept its connection checked out"
+    assert len(pool.free) == 1
+    assert pool.free[0].queries == ["SELECT 1"]
+
+
+@pytest.mark.asyncio
+async def test_the_probe_uses_the_ordinary_pool_rather_than_a_private_connection():
+    """A probe with its own connection proves nothing about what real requests
+    experience — which is how a hardcoded `"database": "connected"` let a total
+    outage look healthy for 19 minutes."""
+    backend, pool = make_backend()
+
+    await backend.probe()
+
+    assert len(pool.created) == 1, "the probe built a connection outside the pool"

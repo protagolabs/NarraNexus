@@ -147,6 +147,30 @@ def _serialize_value(value: Any) -> Any:
     return value
 
 
+class _Txn:
+    """The open transaction, shared by reference with any task that inherits it.
+
+    A ContextVar copies its VALUE into each task created after the value was
+    set. Storing an immutable `(owner, conn)` tuple therefore gave every such
+    child task a snapshot that never expired: the parent's `set(None)` after
+    commit changed only the parent's own context, so a child outliving the
+    transaction kept being told it was inside one — and, under the write guard,
+    was refused forever, naming a transaction that had ended long ago.
+
+    Sharing one mutable holder fixes the lifetime: clearing `conn` is visible to
+    parent and children alike, and `conn is None` means "no transaction" for
+    everyone. `begin_transaction` must allocate a NEW holder every time — reusing
+    one would resurrect a stale child's snapshot when the parent opens its next
+    transaction, which is strictly harder to diagnose than what it replaced.
+    """
+
+    __slots__ = ("owner", "conn")
+
+    def __init__(self, owner, conn) -> None:
+        self.owner = owner
+        self.conn = conn
+
+
 class MySQLBackend(DatabaseBackend):
     """
     MySQL implementation of DatabaseBackend.
@@ -206,9 +230,9 @@ class MySQLBackend(DatabaseBackend):
         # connection" (statements) or a loud error (commit/rollback).
         # Strong refs to in-flight pool wake-ups; see `_wake_pool_waiters`.
         self._wakeup_tasks: set["asyncio.Task"] = set()
-        self._txn_conn: ContextVar[
-            Optional[tuple["asyncio.Task", aiomysql.Connection]]
-        ] = ContextVar(f"mysql_txn_conn_{id(self):x}", default=None)
+        self._txn_conn: ContextVar[Optional[_Txn]] = ContextVar(
+            f"mysql_txn_conn_{id(self):x}", default=None
+        )
 
     # ===== Properties =====
 
@@ -251,7 +275,7 @@ class MySQLBackend(DatabaseBackend):
         conn = self._own_txn()
         if conn is not None:
             self._return_to_pool(conn, broken=True)
-            self._txn_conn.set(None)
+            self._clear_txn()
 
         self._pool.close()
         try:
@@ -279,11 +303,10 @@ class MySQLBackend(DatabaseBackend):
         child using it is the two-coroutines-one-socket bug. Such callers fall
         through to `pool.acquire()` and get their own connection.
         """
-        entry = self._txn_conn.get()
-        if entry is None:
+        txn = self._txn_conn.get()
+        if txn is None or txn.conn is None:
             return None
-        owner, conn = entry
-        return conn if owner is asyncio.current_task() else None
+        return txn.conn if txn.owner is asyncio.current_task() else None
 
     def _reject_inherited_write(self) -> None:
         """Refuse a WRITE issued from a task that inherited someone's transaction.
@@ -298,8 +321,11 @@ class MySQLBackend(DatabaseBackend):
         queries inside a transaction body is ordinary and harmless; they simply
         do not observe the uncommitted rows.
         """
-        entry = self._txn_conn.get()
-        if entry is not None and entry[0] is not asyncio.current_task():
+        txn = self._txn_conn.get()
+        # `txn.conn is None` means the transaction has ENDED. A child task that
+        # outlives it must go back to writing normally, not stay locked out by a
+        # snapshot of something that no longer exists.
+        if txn is not None and txn.conn is not None and txn.owner is not asyncio.current_task():
             raise RuntimeError(
                 "write issued from a task that inherited an enclosing transaction: "
                 "it cannot join that transaction and would autocommit outside it "
@@ -641,6 +667,36 @@ class MySQLBackend(DatabaseBackend):
                     await cursor.execute(query, params)
                     return cursor.rowcount
 
+    async def probe(self) -> None:
+        """`SELECT 1` on a pooled connection, closed rather than recycled if the
+        probe is cancelled.
+
+        The default implementation would go through `execute`, whose
+        `async with pool.acquire()` returns the connection unconditionally —
+        and aiomysql only discards it if it is already closed, which
+        `CancelledError` does not do. The result would be a possibly desynced
+        connection back on the free list.
+
+        That matters because of WHEN it happens: the caller's timeout fires
+        exactly when the database is slow, so the container healthcheck would
+        reproduce it every 30 seconds for the duration of a slowdown. Each
+        timeout could poison one more pooled connection, and the next real
+        request to borrow it would fail the same way the 2026-08-17 outage did.
+        A probe added to make failure visible must not manufacture it.
+        """
+        pool = self._ensure_pool()
+        conn = await pool.acquire()
+        try:
+            async with conn.cursor() as cursor:
+                await cursor.execute("SELECT 1")
+        except BaseException:
+            # BaseException, not Exception: CancelledError is the case this
+            # whole method exists for.
+            self._return_to_pool(conn, broken=True)
+            raise
+        else:
+            self._return_to_pool(conn, broken=False)
+
     # ===== Transaction Support =====
 
     def _return_to_pool(self, conn: aiomysql.Connection, *, broken: bool) -> None:
@@ -704,13 +760,25 @@ class MySQLBackend(DatabaseBackend):
         if not task.cancelled() and task.exception() is not None:
             logger.warning(f"[MySQLBackend] pool wake-up failed — {task.exception()}")
 
+    def _clear_txn(self) -> None:
+        """End the transaction for the owner AND for every task that inherited it.
+
+        Mutating the shared holder rather than `set(None)`: the latter would only
+        rewrite this task's own context, leaving children convinced a finished
+        transaction was still open.
+        """
+        txn = self._txn_conn.get()
+        if txn is not None:
+            txn.conn = None
+        self._txn_conn.set(None)
+
     def _owned_or_raise(self) -> aiomysql.Connection:
         """The connection this task may commit/roll back, or an explanation."""
-        entry = self._txn_conn.get()
-        if entry is None:
+        txn = self._txn_conn.get()
+        if txn is None or txn.conn is None:
             raise RuntimeError("No active transaction")
-        owner, conn = entry
-        if owner is not asyncio.current_task():
+        conn = txn.conn
+        if txn.owner is not asyncio.current_task():
             # Ending someone else's transaction would release a connection the
             # parent task is still writing to — the parent's next statement
             # would land on a connection already handed to an unrelated caller,
@@ -741,7 +809,8 @@ class MySQLBackend(DatabaseBackend):
             # commit/rollback, so release here or the connection leaks.
             self._return_to_pool(conn, broken=True)
             raise
-        self._txn_conn.set((asyncio.current_task(), conn))
+        # A fresh holder each time — see `_Txn`.
+        self._txn_conn.set(_Txn(asyncio.current_task(), conn))
 
     async def commit(self) -> None:
         """Commit the current transaction and release the connection.
@@ -760,7 +829,7 @@ class MySQLBackend(DatabaseBackend):
         else:
             self._return_to_pool(conn, broken=False)
         finally:
-            self._txn_conn.set(None)
+            self._clear_txn()
 
     async def rollback(self) -> None:
         """Roll back the current transaction and release the connection.
@@ -777,4 +846,4 @@ class MySQLBackend(DatabaseBackend):
         else:
             self._return_to_pool(conn, broken=False)
         finally:
-            self._txn_conn.set(None)
+            self._clear_txn()

@@ -34,7 +34,6 @@ import asyncio
 import json
 import re
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, TypeVar, TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
@@ -47,11 +46,6 @@ if TYPE_CHECKING:
     from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 T = TypeVar('T', bound=BaseModel)
-
-# Shutdown budget for draining borrowed connections before forcing them closed.
-# Mirrors MySQLBackend._POOL_CLOSE_TIMEOUT_SEC; a container that will not exit
-# is a redeploy that hangs until docker SIGKILLs it.
-_POOL_CLOSE_TIMEOUT_SEC = 2.0
 
 
 def parse_database_url(url: str) -> Dict[str, Any]:
@@ -368,7 +362,6 @@ class AsyncDatabaseClient:
         db_config: Optional[Dict[str, Any]] = None,
         pool_size: int = 10,
         pool_recycle: int = 3600,
-        _pool: Optional[aiomysql.Pool] = None,
         _backend: Optional["DatabaseBackend"] = None,
     ):
         """
@@ -386,40 +379,32 @@ class AsyncDatabaseClient:
             db_config: Database configuration, None to load from environment variables
             pool_size: Connection pool size (default 10)
             pool_recycle: Connection recycle time in seconds (default 3600)
-            _pool: Internal use, for passing a pre-created pool from create() method
             _backend: Optional DatabaseBackend instance for delegated mode
         """
         self._db_config = db_config
         self._pool_size = pool_size
         self._pool_recycle = pool_recycle
-        self._pool: Optional[aiomysql.Pool] = _pool
-        # Task-scoped, not instance-scoped — one client serves every concurrent
-        # request, so an instance attribute here made one caller's open
-        # transaction the implicit connection for all of them. Same defect and
-        # same reasoning as MySQLBackend._txn_conn; see that class docstring.
-        self._wakeup_tasks: set["asyncio.Task"] = set()
-        self._txn_conn: ContextVar[
-            Optional[tuple["asyncio.Task", aiomysql.Connection]]
-        ] = ContextVar(f"db_client_txn_conn_{id(self):x}", default=None)
-        self._initialized = _pool is not None or _backend is not None
+
+        self._initialized = _backend is not None
         self._backend: Optional["DatabaseBackend"] = _backend
         self._owns_backend: bool = _backend is not None  # Only close if we own it
 
-    async def _ensure_pool(self) -> aiomysql.Pool:
-        """
-        Ensure the connection pool is initialized (lazy loading)
+    async def _ensure_backend(self) -> "DatabaseBackend":
+        """Ensure the backend is initialized (lazy), and return it.
 
-        If the connection pool is not initialized, create it.
-        If DATABASE_URL is sqlite://, uses the shared SQLiteBackend from db_factory.
-        Supports calling methods after direct DatabaseClient() instantiation.
-
-        Returns:
-            aiomysql connection pool (or None if using SQLite backend)
+        Every path here ends in a `DatabaseBackend`. This client used to carry a
+        second, parallel implementation that talked to an `aiomysql` pool
+        directly — reachable only by passing `_pool=` to `__init__`, which
+        nothing ever did. It was dead on arrival and, being dead, drifted: the
+        transaction fix of 2026-08-17 had to be written twice, and the copy here
+        silently missed four of the guards its twin got. Deleted per 铁律 #2 —
+        the file header already declared single-backend delegation as the
+        design; now the code says so too.
         """
         if self._backend:
-            return None  # Using backend delegation, no pool needed
+            return self._backend
 
-        if self._pool is None:
+        if True:
             # Check if we should use SQLite instead of MySQL
             from xyz_agent_context.settings import settings
             url = getattr(settings, 'database_url', None) or ''
@@ -468,7 +453,7 @@ class AsyncDatabaseClient:
             self._initialized = True
             logger.debug(f"AsyncDatabaseClient lazily initialized with MySQL backend (pool_size={self._pool_size})")
 
-        return self._pool
+        return self._backend
 
     @classmethod
     async def create(
@@ -575,30 +560,12 @@ class AsyncDatabaseClient:
             else:
                 return await self._backend.execute_write(q, p)
 
-        await self._ensure_pool()
+        await self._ensure_backend()
         if self._backend:
-            # _ensure_pool auto-switched to SQLite — delegate with translation
+            # _ensure_backend resolved the dialect — delegate with translation
             q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
             p = tuple(params) if params else ()
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
-        pool = self._pool
-
-        txn = self._own_txn()
-        if txn:
-            # Use this task's transaction connection
-            async with txn.cursor(aiomysql.DictCursor) as cursor:
-                await cursor.execute(query, params or ())
-                if fetch:
-                    return await cursor.fetchall()
-                return cursor.rowcount  # Return affected row count
-        else:
-            # Acquire connection from pool
-            async with pool.acquire() as conn:
-                async with conn.cursor(aiomysql.DictCursor) as cursor:
-                    await cursor.execute(query, params or ())
-                    if fetch:
-                        return await cursor.fetchall()
-                    return cursor.rowcount  # Return affected row count
 
     async def get(
         self,
@@ -781,29 +748,12 @@ class AsyncDatabaseClient:
         query = f"INSERT INTO `{safe_table}` ({columns}) VALUES ({placeholders})"
         params = tuple(data.values())
 
-        await self._ensure_pool()
+        await self._ensure_backend()
         if self._backend:
-            # _ensure_pool auto-switched to SQLite — delegate with translation
+            # _ensure_backend resolved the dialect — delegate with translation
             q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
             p = tuple(params) if params else ()
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
-        pool = self._pool
-
-        txn = self._own_txn()
-        if not txn:
-            self._reject_inherited_write()
-        if txn:
-            async with txn.cursor() as cursor:
-                await cursor.execute(query, params)
-                lastrowid = cursor.lastrowid
-        else:
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    await cursor.execute(query, params)
-                    lastrowid = cursor.lastrowid
-
-        logger.debug(f"              ← DB.insert: lastrowid={lastrowid}")
-        return lastrowid
 
     async def update(
         self,
@@ -853,29 +803,12 @@ class AsyncDatabaseClient:
             f"WHERE {' AND '.join(where_clauses)}"
         )
 
-        await self._ensure_pool()
+        await self._ensure_backend()
         if self._backend:
-            # _ensure_pool auto-switched to SQLite — delegate with translation
+            # _ensure_backend resolved the dialect — delegate with translation
             q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
             p = tuple(params) if params else ()
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
-        pool = self._pool
-
-        txn = self._own_txn()
-        if not txn:
-            self._reject_inherited_write()
-        if txn:
-            async with txn.cursor() as cursor:
-                await cursor.execute(query, tuple(params))
-                rowcount = cursor.rowcount
-        else:
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    await cursor.execute(query, tuple(params))
-                    rowcount = cursor.rowcount
-
-        logger.debug(f"              ← DB.update: {rowcount} rows affected")
-        return rowcount
 
     async def delete(
         self,
@@ -909,28 +842,12 @@ class AsyncDatabaseClient:
 
         query = f"DELETE FROM `{safe_table}` WHERE {' AND '.join(where_clauses)}"
 
-        await self._ensure_pool()
+        await self._ensure_backend()
         if self._backend:
-            # _ensure_pool auto-switched to SQLite — delegate with translation
+            # _ensure_backend resolved the dialect — delegate with translation
             q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
             p = tuple(params) if params else ()
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
-        pool = self._pool
-
-        txn = self._own_txn()
-        if not txn:
-            self._reject_inherited_write()
-        if txn:
-            async with txn.cursor() as cursor:
-                await cursor.execute(query, tuple(params))
-                rowcount = cursor.rowcount
-        else:
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    await cursor.execute(query, tuple(params))
-                    rowcount = cursor.rowcount
-
-        return rowcount
 
     async def upsert(
         self,
@@ -989,31 +906,12 @@ class AsyncDatabaseClient:
 
         params = tuple(data.values())
 
-        await self._ensure_pool()
+        await self._ensure_backend()
         if self._backend:
-            # _ensure_pool auto-switched to SQLite — delegate with translation
+            # _ensure_backend resolved the dialect — delegate with translation
             q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
             p = tuple(params) if params else ()
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
-        pool = self._pool
-
-        txn = self._own_txn()
-        if not txn:
-            self._reject_inherited_write()
-        if txn:
-            async with txn.cursor() as cursor:
-                await cursor.execute(query, params)
-                rowcount = cursor.rowcount
-        else:
-            async with pool.acquire() as conn:
-                async with conn.cursor() as cursor:
-                    await cursor.execute(query, params)
-                    rowcount = cursor.rowcount
-
-        logger.debug(f"              ← DB.upsert: {rowcount} rows affected")
-        return rowcount
-
-    # ===== Pydantic Model Support =====
 
     async def insert_model(self, table: str, model: BaseModel) -> int:
         """Insert a Pydantic model"""
@@ -1082,117 +980,19 @@ class AsyncDatabaseClient:
     # ===== Transaction Support =====
 
     async def begin_transaction(self) -> None:
-        """Begin a transaction"""
-        if self._backend:
-            return await self._backend.begin_transaction()
-
-        if self._own_txn():
-            raise RuntimeError("Already in a transaction")
-
-        pool = await self._ensure_pool()
-        conn = await pool.acquire()
-        try:
-            await conn.begin()
-        except BaseException:
-            self._return_to_pool(conn, broken=True)
-            raise
-        self._txn_conn.set((asyncio.current_task(), conn))
-
-    def _own_txn(self) -> Optional[aiomysql.Connection]:
-        """This task's transaction connection, or None. See
-        `MySQLBackend._own_txn` for why ownership is checked."""
-        entry = self._txn_conn.get()
-        if entry is None:
-            return None
-        owner, conn = entry
-        return conn if owner is asyncio.current_task() else None
-
-    def _reject_inherited_write(self) -> None:
-        """See `MySQLBackend._reject_inherited_write`."""
-        entry = self._txn_conn.get()
-        if entry is not None and entry[0] is not asyncio.current_task():
-            raise RuntimeError(
-                "write issued from a task that inherited an enclosing transaction: "
-                "it cannot join that transaction and would autocommit outside it "
-                "(the enclosing rollback would not undo it). Do the write in the "
-                "task that opened the transaction, or open a transaction here."
-            )
-
-    def _owned_or_raise(self) -> aiomysql.Connection:
-        entry = self._txn_conn.get()
-        if entry is None:
-            raise RuntimeError("No active transaction")
-        owner, conn = entry
-        if owner is not asyncio.current_task():
-            raise RuntimeError(
-                "No active transaction in this task (the enclosing transaction "
-                "belongs to the task that opened it; do not commit/rollback it "
-                "from a child task)"
-            )
-        return conn
-
-    def _return_to_pool(self, conn: aiomysql.Connection, *, broken: bool) -> None:
-        """Hand a transaction connection back to the pool.
-
-        `broken=True` closes it first so a connection with a desynced protocol
-        stream cannot be handed to the next caller, and then wakes the pool's
-        waiters by hand — aiomysql 0.3.2 skips its own wake-up for connections
-        that are already closed. See `MySQLBackend._return_to_pool`.
-        """
-        if broken and not conn.closed:
-            conn.close()
-        if self._pool is None:
-            # No pool to return it to (closed already). Still close it, or the
-            # socket leaks for the life of the process.
-            if not conn.closed:
-                conn.close()
-            return
-        self._pool.release(conn)
-        if broken:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:  # pragma: no cover
-                return
-            task = loop.create_task(self._pool._wakeup())
-            self._wakeup_tasks.add(task)
-            task.add_done_callback(self._wakeup_tasks.discard)
+        """Begin a transaction."""
+        backend = await self._ensure_backend()
+        return await backend.begin_transaction()
 
     async def commit(self) -> None:
-        """Commit the transaction"""
-        if self._backend:
-            return await self._backend.commit()
-
-        conn = self._owned_or_raise()
-
-        try:
-            await conn.commit()
-        except BaseException:
-            self._return_to_pool(conn, broken=True)
-            raise
-        else:
-            self._return_to_pool(conn, broken=False)
-        finally:
-            # Cleared even when COMMIT raised: the connection is unusable, and
-            # leaving it installed would route this task's later statements
-            # onto a dead socket.
-            self._txn_conn.set(None)
+        """Commit the transaction."""
+        backend = await self._ensure_backend()
+        return await backend.commit()
 
     async def rollback(self) -> None:
-        """Rollback the transaction"""
-        if self._backend:
-            return await self._backend.rollback()
-
-        conn = self._owned_or_raise()
-
-        try:
-            await conn.rollback()
-        except BaseException:
-            self._return_to_pool(conn, broken=True)
-            raise
-        else:
-            self._return_to_pool(conn, broken=False)
-        finally:
-            self._txn_conn.set(None)
+        """Rollback the transaction."""
+        backend = await self._ensure_backend()
+        return await backend.rollback()
 
     @asynccontextmanager
     async def transaction(self):
@@ -1243,12 +1043,18 @@ class AsyncDatabaseClient:
 
     # ===== Semantic Search =====
 
+    async def probe(self) -> None:
+        """Round-trip the database, raising if it cannot be reached.
+
+        See `DatabaseBackend.probe` for the cancellation contract.
+        """
+        backend = await self._ensure_backend()
+        await backend.probe()
+
     async def ping(self) -> bool:
-        """Check if the connection is healthy"""
+        """Check if the connection is healthy."""
         try:
-            pool = await self._ensure_pool()
-            async with pool.acquire() as conn:
-                await conn.ping()
+            await self.probe()
             return True
         except Exception:
             return False
@@ -1262,38 +1068,10 @@ class AsyncDatabaseClient:
             else:
                 logger.debug("AsyncDatabaseClient detached from shared backend (not closing)")
             self._backend = None
-            return
-
-        if self._pool is None:
-            # Connection pool not initialized, no need to close
-            return
-
-        conn = self._own_txn()
-        if conn:
-            self._return_to_pool(conn, broken=True)
-            self._txn_conn.set(None)
-
-        self._pool.close()
-        try:
-            # `close()` only stops NEW checkouts. `wait_closed()` waits for every
-            # borrowed connection to come back and waits forever if one never
-            # does — the normal case at shutdown, where cancelled requests return
-            # connections already closed, which aiomysql releases without waking
-            # anyone. See MySQLBackend.close.
-            await asyncio.wait_for(self._pool.wait_closed(), timeout=_POOL_CLOSE_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
-            logger.warning(
-                f"pool did not drain in {_POOL_CLOSE_TIMEOUT_SEC}s — terminating "
-                "outstanding connections"
-            )
-            self._pool.terminate()
-            await self._pool.wait_closed()
-        self._pool = None
-        logger.info("AsyncDatabaseClient closed")
 
     async def __aenter__(self) -> 'AsyncDatabaseClient':
         # Ensure the connection pool is initialized before use
-        await self._ensure_pool()
+        await self._ensure_backend()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

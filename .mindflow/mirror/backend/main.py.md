@@ -33,11 +33,17 @@ user 'x'@'<内网IP>'`）。故障期恰恰是它最可能被扫到的时候。�
 
 **部署耦合（改 503 之前必读）。** healthcheck 用 `urllib.request.urlopen`，5xx 会抛
 异常，所以 503 会让容器转 unhealthy——这正是让容器状态监控**能看见**数据库故障的
-机制（2026-08-17 它看不见）。但 compose 里有若干服务声明
-`depends_on: backend: condition: service_healthy`，**前端也在其中**。后果：在数据库
-不可用期间执行 `docker compose up`，前端容器不会启动，ops 侧 Caddy 因此失去上游，
-公网入口返 **502**——而不是起来之后 API 报错。（前端自己没有 host 端口映射，Caddy
-反代到 `narranexus-frontend:80`。）冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
+机制（2026-08-17 它看不见）。但 compose 里有 **4 个**服务声明
+`depends_on: backend: condition: service_healthy`：`frontend`，以及经
+`x-python-common` 锚点继承的 `mcp` / `workers` / `model-sync`。
+
+后果要完整说，因为漏掉的那一半最容易踩：在数据库不可用期间执行 `docker compose up`
+**不是部分降级，而是整条命令失败**（`dependency failed to start: container
+narranexus-backend is unhealthy`）。什么都起不来——前端起不来（ops 侧 Caddy 失去上游，
+公网入口返 **502**；前端自己没有 host 端口映射，Caddy 反代到 `narranexus-frontend:80`），
+**workers 也起不来**，那是全部 channel trigger、ModulePoller、Job trigger 和 message bus。
+
+于是恢复顺序被硬性约束成「先修数据库，再部署」。冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
 非首次启动；已经在跑的栈会继续服务，直到探针在 `retries: 5 x interval: 30s` 后翻转。
 
 这是**有意接受**的代价：另一条路（healthcheck 改指浅探针 `/healthz`）会把本次要关掉

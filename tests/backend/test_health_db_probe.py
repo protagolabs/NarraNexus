@@ -25,14 +25,23 @@ from loguru import logger
 import backend.main as main
 
 
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """The probe result is cached for a few seconds, so without this one case's
+    outcome would answer the next case's request."""
+    main._health_cache = None
+    yield
+    main._health_cache = None
+
+
 class _StubClient:
     def __init__(self, behaviour):
         self._behaviour = behaviour
         self.queries: list[str] = []
 
-    async def execute(self, query, params=None, fetch=True):
-        self.queries.append(query)
-        return await self._behaviour()
+    async def probe(self) -> None:
+        self.queries.append("probe")
+        await self._behaviour()
 
 
 def _install(monkeypatch, behaviour) -> _StubClient:
@@ -56,7 +65,7 @@ async def test_reports_healthy_when_the_round_trip_succeeds(monkeypatch):
 
     assert body["status"] == "healthy"
     assert body["database"] == "connected"
-    assert client.queries == ["SELECT 1"], "the probe must actually query the database"
+    assert client.queries == ["probe"], "the probe must actually query the database"
 
 
 @pytest.mark.asyncio
@@ -199,11 +208,116 @@ async def test_the_driver_message_survives_in_the_log(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_timeout_is_also_logged():
+async def test_a_timeout_is_also_logged(monkeypatch):
     """`asyncio.TimeoutError` carries no message, so without its own log line a
-    timed-out probe leaves not one word behind."""
-    import inspect
+    timed-out probe leaves not one word behind.
 
-    src = inspect.getsource(main.health)
-    timeout_branch = src.split("except asyncio.TimeoutError:")[1].split("except Exception")[0]
-    assert "logger" in timeout_branch
+    Asserted on the log output rather than on the source text: reading the
+    function body with `inspect.getsource` broke on harmless refactors (writing
+    `except TimeoutError:` — the same class since 3.11 — or reordering the
+    handlers) and failed with an IndexError that said nothing useful.
+    """
+
+    async def hang():
+        await asyncio.sleep(10)
+
+    _install(monkeypatch, hang)
+    monkeypatch.setattr(main, "_HEALTH_DB_TIMEOUT_SEC", 0.01)
+
+    records: list[str] = []
+    sink_id = logger.add(records.append, level="ERROR")
+    try:
+        response = await main.health()
+    finally:
+        logger.remove(sink_id)
+
+    assert response.status_code == 503
+    assert "timed out after" in "".join(records)
+
+
+@pytest.mark.asyncio
+async def test_a_flood_collapses_onto_one_round_trip(monkeypatch):
+    """`/health` is public and unauthenticated, and each probe holds one of the
+    backend's ten pooled connections. Without a cache, a few hundred requests a
+    second would hold all of them while real traffic queued — an endpoint added
+    to make failure visible, turned into a way to cause it."""
+
+    async def ok():
+        return None
+
+    client = _install(monkeypatch, ok)
+
+    for _ in range(50):
+        await main.health()
+
+    assert len(client.queries) == 1, "every request hit the database"
+
+
+@pytest.mark.asyncio
+async def test_failures_are_cached_too(monkeypatch):
+    """Caching only successes would leave the amplification wide open in exactly
+    the case where it is dangerous: a database that is down or slow, with every
+    request paying the full timeout before answering."""
+
+    async def dead():
+        raise RuntimeError("(0, 'Not connected')")
+
+    client = _install(monkeypatch, dead)
+
+    first = await main.health()
+    for _ in range(20):
+        again = await main.health()
+        assert again.status_code == 503
+
+    assert first.status_code == 503
+    assert len(client.queries) == 1, "a failing database was re-probed on every request"
+
+
+@pytest.mark.asyncio
+async def test_the_cache_expires(monkeypatch):
+    async def ok():
+        return None
+
+    client = _install(monkeypatch, ok)
+
+    await main.health()
+    assert len(client.queries) == 1
+
+    # Expire it by rewinding the stored deadline rather than sleeping.
+    deadline, was_ok, detail = main._health_cache
+    main._health_cache = (deadline - main._HEALTH_CACHE_TTL_SEC - 1, was_ok, detail)
+
+    await main.health()
+    assert len(client.queries) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_cache_window_stays_under_the_healthcheck_interval():
+    """The container healthcheck runs every 30s and must never be answered from
+    cache — it is the signal the container's health is derived from."""
+    assert main._HEALTH_CACHE_TTL_SEC < 30.0
+
+
+@pytest.mark.asyncio
+async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
+    """The cache covers the DB round-trip, not the whole response. Worker
+    liveness must not be frozen for 5s alongside it."""
+
+    async def ok():
+        return None
+
+    _install(monkeypatch, ok)
+
+    class _W:
+        running = True
+        last_pass = {"rooms": 1, "summarised": 0, "failed": 0}
+
+    main.app.state.team_summary_worker = _W()
+    try:
+        await main.health()                      # populates the cache
+        _W.last_pass = {"rooms": 9, "summarised": 4, "failed": 1}
+        body = await main.health()               # served from cache
+    finally:
+        del main.app.state.team_summary_worker
+
+    assert body["team_summary"]["rooms"] == 9, "worker counters were frozen by the cache"

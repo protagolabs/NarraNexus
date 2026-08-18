@@ -12,6 +12,7 @@ Usage:
 """
 
 import asyncio
+import time
 import os
 import sys
 from fastapi import FastAPI, Request
@@ -32,6 +33,24 @@ from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
 # — if the probe outlives the healthcheck, docker records a timeout instead of
 # our "unhealthy + reason" body and the reason is lost.
 _HEALTH_DB_TIMEOUT_SEC = 3.0
+
+# How long a probe result is reused. `/health` is public and unauthenticated
+# (backend.auth's allowlist; nginx passes it straight through), so without this
+# anyone can make the backend spend a pooled connection per request — and the
+# pool is 10. A few hundred requests a second would hold every connection while
+# real traffic queued on `pool.acquire()`: an endpoint added to make failure
+# visible, turned into a way to cause it. Worse, that is most available exactly
+# during an incident, when the endpoint is most likely to be probed.
+#
+# 5s is well under the container healthcheck's `interval: 30s`, so the container
+# probe and Uptime Kuma still get a fresh round-trip every time; only a flood
+# collapses onto one query.
+_HEALTH_CACHE_TTL_SEC = 5.0
+
+# (monotonic_deadline, ok, detail). Plain module state on purpose: a lock or a
+# background refresh task would add a fire-and-forget hazard to buy nothing —
+# a few concurrent requests racing to run one extra `SELECT 1` is fine.
+_health_cache: "tuple[float, bool, str] | None" = None
 
 
 def _detect_bind_host() -> str:
@@ -592,16 +611,25 @@ async def health():
     fetches this endpoint with ``urllib.request.urlopen``, which raises on 5xx,
     so a 503 turns the container unhealthy. That is the point: it is what lets
     container-state monitoring see a database outage at all, which it could not
-    on 2026-08-17. But several services declare
-    ``depends_on: backend: condition: service_healthy`` — the **frontend** among
-    them. Consequence: running ``docker compose up`` *while the database is
-    unreachable* leaves the frontend container unstarted, so the ops Caddy loses
-    its upstream and the public entrypoint returns 502 — instead of serving a
-    page whose API calls fail. (The frontend has no host port binding of its
-    own; Caddy proxies to ``narranexus-frontend:80``.) Cold start already required the database
-    (lifespan builds the pool), so this changes redeploy-during-an-outage, not
-    first boot; a stack that is already running keeps serving until the probe
-    flips after ``retries: 5 x interval: 30s``.
+    on 2026-08-17.
+
+    What that costs, stated in full because half of it is easy to miss: **four**
+    services declare ``depends_on: backend: condition: service_healthy`` —
+    ``frontend``, plus ``mcp``, ``workers`` and ``model-sync`` through the
+    ``x-python-common`` anchor. So running ``docker compose up`` *while the
+    database is unreachable* does not degrade partially; compose **fails the
+    whole command** with "dependency failed to start: container
+    narranexus-backend is unhealthy". Nothing new starts: no frontend (the ops
+    Caddy loses its upstream and the public entrypoint returns 502 — the
+    frontend has no host port binding of its own), and no workers, which is
+    every channel trigger, the module poller, the job trigger and the message
+    bus.
+
+    Recovery order is therefore constrained to "fix the database first, then
+    deploy". Cold start already required the database (lifespan builds the
+    pool), so this changes redeploy-during-an-outage, not first boot; a stack
+    that is already running keeps serving until the probe flips after
+    ``retries: 5 x interval: 30s``.
 
     Accepted deliberately: the alternative — pointing the healthcheck at the
     shallow ``/healthz`` — restores the exact blind spot this endpoint was fixed
@@ -609,6 +637,14 @@ async def health():
     unhealthy body; a health field that cannot fail carries no information,
     which is how the original bug survived.
     """
+    global _health_cache
+
+    now = time.monotonic()
+    cached = _health_cache
+    if cached is not None and now < cached[0]:
+        db_ok, db_detail = cached[1], cached[2]
+        return _health_body(db_ok, db_detail)
+
     db_ok = False
     db_detail = "unknown"
     try:
@@ -619,7 +655,7 @@ async def health():
         # blind spot this probe closes.
         async def _probe():
             db = await get_db_client()
-            await db.execute("SELECT 1", fetch=True)
+            await db.probe()
 
         await asyncio.wait_for(_probe(), timeout=_HEALTH_DB_TIMEOUT_SEC)
         db_ok = True
@@ -649,6 +685,23 @@ async def health():
         # less than before this endpoint was made truthful.
         logger.opt(exception=exc).error(f"/health: database probe failed — {exc}")
 
+    # Cached whether it succeeded or FAILED, for the same duration. Caching
+    # only successes would leave the amplification wide open in exactly the
+    # situation it is dangerous — a database that is down or slow, with every
+    # request paying the full timeout. The cost is that recovery shows up up to
+    # 5s late, against a 30s probe interval.
+    _health_cache = (time.monotonic() + _HEALTH_CACHE_TTL_SEC, db_ok, db_detail)
+
+    return _health_body(db_ok, db_detail)
+
+
+def _health_body(db_ok: bool, db_detail: str):
+    """Render the response from a probe result, cached or fresh.
+
+    Split out so the cached path and the fresh path cannot drift — the worker
+    counters below are read at RESPONSE time, not probe time, so a cache hit
+    still reports the worker's current state.
+    """
     body = {
         "status": "healthy" if db_ok else "unhealthy",
         "database": db_detail,

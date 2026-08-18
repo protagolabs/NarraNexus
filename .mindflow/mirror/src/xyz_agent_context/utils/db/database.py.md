@@ -4,9 +4,33 @@ last_verified: 2026-08-17
 stub: false
 ---
 
-# database.py
+## 2026-08-18 — 删掉不可达的 legacy pool 路径（铁律 #2）
 
-`AsyncDatabaseClient` — the single database client every layer of the codebase talks through, plus the MySQL-to-SQLite dialect translator.
+`AsyncDatabaseClient` 此前有两套实现：委派给 `DatabaseBackend` 的一套，和直接操作
+`aiomysql` 连接池的另一套。后者**走不到** —— `_ensure_pool()` 的三条分支（sqlite /
+sqlite-proxy / mysql）都会设 `self._backend` 然后 `return None`，从不给 `self._pool`
+赋值；`self._pool` 只能由 `__init__(_pool=...)` 填入，而全仓没有任何调用方传它。
+
+它不只是死的，它已经开始漂：2026-08-17 的事务修复不得不写两遍，而这份拷贝**静默漏掉了
+主实现刻意加的四道守卫**（`getattr` 取 `_wakeup`、done callback 取 `exception()`、
+写入口的继承事务拒绝、坏连接归还）。「必须同时改两处、其中一处没有任何测试」不是一个能
+维持的结构。
+
+删除范围：`__init__` 的 `_pool` 参数、各 CRUD 方法里 `pool = self._pool` 之后的整段、
+`begin_transaction`/`commit`/`rollback`/`close` 的第二份实现，以及随之无用的
+`_own_txn` / `_reject_inherited_write` / `_owned_or_raise` / `_return_to_pool` /
+`_wakeup_tasks` / `_txn_conn` / `_POOL_CLOSE_TIMEOUT_SEC`。`_ensure_pool` 更名为
+`_ensure_backend` 并返回 backend——旧名字的返回类型标着 `aiomysql.Pool` 而实际恒为
+`None`，是另一处误导。共减 98 行。
+
+事务语义现在只有一份，在 [[db_backend_mysql.py]]。本文件头部早就写着单后端委派是设计
+意图，现在代码也这么说了。
+
+## 2026-08-18 — `probe()`：给 `/health` 一个有取消契约的探活
+
+新增 `AsyncDatabaseClient.probe()`，委派给后端。契约见
+[[db_backend.py]]：**必须走普通连接池路径**（有私有通道的探测器证明不了线上的事），
+且**取消时不得把连接还回池**。
 
 ## 2026-08-17 — legacy 路径的事务连接同样改为 task 级
 
