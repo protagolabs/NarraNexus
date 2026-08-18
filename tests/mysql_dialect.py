@@ -18,10 +18,11 @@ helper with one user is still better than one more copy, because the next person
 has somewhere obvious to put theirs.
 
 (Counts deliberately absent: this docstring used to say "nine"/"the other eight",
-which went stale as soon as a tenth twin was written on another branch.
-`_TWIN_FLOOR` in `tests/test_mysql_gate_single_source.py` is where that number
-belongs, because a test can enforce it — and it is enforced in both directions,
-so adding a twin without raising it fails there rather than rotting here.)
+which went stale as soon as a tenth twin was written on another branch. There is
+no number anywhere now — `tests/test_mysql_gate_single_source.py` asserts by
+CONTENT that nothing gates on this env var from outside `*_mysql.py`, which is
+the fact a count was standing in for, and it needs no maintenance when the set
+of twins changes.)
 """
 
 from __future__ import annotations

@@ -73,23 +73,22 @@ jobs:
     # MySQL: that was the unenforced half.
     #
     # Note WHERE that gate lives, because it is not what `tests/mysql_dialect.py`
-    # looks like it promises: one twin
-    # (tests/backend/test_team_room_activity_mysql.py) imports the shared helper
-    # and the rest
-    # each carry their own `MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"` copy,
-    # exactly as that helper's own docstring admits (migrating the copies is
-    # left to "whoever next touches them"). Renaming the env var in the helper
-    # alone would leave the copies silently skipping, and a skip is green, which
-    # is the regression class this job exists to stop. Held together by
+    # looks like it promises: one twin (tests/backend/test_team_room_activity_mysql.py)
+    # imports the shared helper and the rest each carry their own
+    # `MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"` copy, exactly as that helper's
+    # own docstring admits (migrating the copies is left to "whoever next touches
+    # them"). Renaming the env var in the helper alone would leave the copies
+    # silently skipping, and a skip is green, which is the regression class this
+    # job exists to stop. Held together by
     # tests/test_mysql_gate_single_source.py until the copies are migrated.
     #
     # No twin COUNT is written here on purpose (the one-vs-rest split above is a
     # different fact, and is true). It used to say NINE, in four places,
     # and went stale the moment a tenth twin was added on another branch — a
-    # fact with one enforced statement (`_TWIN_FLOOR` in that guard, which fails
-    # both when the glob shrinks and when a twin is added without raising it) and
-    # several prose restatements has one place to be right and several to be
-    # wrong. The guard counts; this comment should not.
+    # fact restated in prose has as many places to be wrong as it has
+    # restatements. That guard no longer writes a number either: it asserts by
+    # CONTENT that nothing gates on this env var from outside `*_mysql.py`, which
+    # is the fact a count was standing in for.
     #
     # NOT verified from the authoring machine (no docker socket access there),
     # so treat the first run of this job as the verification. If a twin has

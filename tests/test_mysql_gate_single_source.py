@@ -38,19 +38,11 @@ _TESTS = _REPO / "tests"
 _WORKFLOW = _REPO / ".github/workflows/ci.yml"
 _CI_JOB = "backend-tests"
 
-# Written down, not derived from the glob: deriving it from `_twins()` would make
-# the assertion self-satisfying.
-#
-# **A floor is only tight while it equals the actual count.** It is pressured
-# downward only — with 10 twins and a floor of 9, one twin can be renamed out of
-# the `*_mysql.py` shape and this stays green, which is precisely the silent
-# departure it exists to catch (measured: 10 twins, rename one, 4 passed).
-# So both directions are obligations of the commit that changes the set:
-#   * ADDING a twin must raise this number, or the guard goes slack by one;
-#   * REMOVING one must lower it, with the reason.
-# `test_the_twins_have_not_quietly_left_the_check` enforces the first half by
-# also failing when the count runs AHEAD of the floor.
-_TWIN_FLOOR = 9
+# Files that legitimately name the gate without being twins: the helper declares
+# it (that is its job), and this file quotes it throughout. Excluded by exact
+# path — a rule like "skip anything with 'dialect' in the name" would be one more
+# thing a filename could satisfy.
+_NOT_TWINS = {"tests/mysql_dialect.py", "tests/test_mysql_gate_single_source.py"}
 
 # The single source of truth, by definition: whatever the shared helper says.
 _HELPER = _TESTS / "mysql_dialect.py"
@@ -91,7 +83,40 @@ def _parse(path: Path, text: str) -> ast.AST:
         )
 
 
-def _imports_the_helper(path: Path, text: str) -> bool:
+def _assigned_names(node: ast.AST) -> list[str]:
+    """The plain names a statement assigns, for `x = …` and `x: T = …` alike.
+
+    Both forms exist in this repo's tests, and handling one but not the other is
+    how a correctly gated twin gets falsely reported — this file's own line about
+    false reds being how guards get relaxed away applies to itself.
+    """
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AnnAssign):
+        targets = [node.target]
+    else:
+        return []
+    return [t.id for t in targets if isinstance(t, ast.Name)]
+
+
+def _mentions_skipif(tree: ast.AST) -> bool:
+    """True iff this subtree structurally references `skipif`.
+
+    Structural, not `"skipif" in ast.dump(...)`: a dump includes string
+    CONSTANTS, so `@pytest.mark.parametrize("case", ["skipif removed"])` would
+    satisfy a substring scan. That is the same prose-satisfies-the-guard defect
+    this file removed from its env-var check in the commit before this one, and
+    it had been reintroduced here.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "skipif":
+            return True
+        if isinstance(node, ast.Name) and node.id == "skipif":
+            return True
+    return False
+
+
+def _imports_the_helper(tree: ast.AST) -> bool:
     """True iff this module really imports `mysql_dialect`, in any spelling."""
     # Compare the last dotted SEGMENT, not a string suffix: `endswith` would also
     # accept `tests.legacy_mysql_dialect`, and a stray match here grants amnesty
@@ -105,7 +130,7 @@ def _imports_the_helper(path: Path, text: str) -> bool:
     # lives in `node.level`. The `alias.name` comparison is exact because that
     # branch sees an already-single name; aliases cannot slip past it either way,
     # `alias.name` is the real name and `asname` holds the alias.
-    for node in ast.walk(_parse(path, text)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             if (node.module or "").split(".")[-1] == "mysql_dialect":
                 return True
@@ -117,7 +142,7 @@ def _imports_the_helper(path: Path, text: str) -> bool:
     return False
 
 
-def _declared_env_names(path: Path, text: str) -> set[str]:
+def _declared_env_names(tree: ast.AST) -> set[str]:
     """Every string assigned to `MYSQL_URL_ENV`, from the AST.
 
     Read from the syntax tree rather than by `re.findall` over the file, because
@@ -135,13 +160,8 @@ def _declared_env_names(path: Path, text: str) -> set[str]:
     verbatim as an `export` line.
     """
     found: set[str] = set()
-    for node in ast.walk(_parse(path, text)):
-        targets = (
-            node.targets if isinstance(node, ast.Assign)
-            else [node.target] if isinstance(node, ast.AnnAssign)
-            else []
-        )
-        if not any(isinstance(t, ast.Name) and t.id == "MYSQL_URL_ENV" for t in targets):
+    for node in ast.walk(tree):
+        if "MYSQL_URL_ENV" not in _assigned_names(node):
             continue
         value = node.value
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
@@ -149,23 +169,41 @@ def _declared_env_names(path: Path, text: str) -> set[str]:
     return found
 
 
-def _has_skip_gate(path: Path, text: str) -> bool:
-    """True iff the module actually installs a skip gate.
+def _has_skip_gate(tree: ast.AST, imports_helper: bool) -> bool:
+    """True iff the module installs a gate that can actually skip it.
 
     Matching the env var's NAME never established that anything acts on it: a
-    twin holding the right string with no `skipif` would run unconditionally and
-    error on every machine without MySQL. Every twin today gates with a
-    module-level `pytestmark`; a per-test `@pytest.mark.skipif` counts too.
+    twin holding the right string with no gate would run unconditionally and
+    error on every machine without MySQL.
+
+    Judged on the VALUE and at module scope, because the obvious cheap version
+    of this check is wrong in three directions at once — a bare "is something
+    called `pytestmark` assigned anywhere" accepts
+    `pytestmark = pytest.mark.asyncio` (four non-twin files in this repo use
+    exactly that idiom, so it is the line someone will copy), accepts a
+    function-local `pytestmark` that pytest ignores, and — via `ast.dump` —
+    accepts a string constant that merely spells "skipif".
+
+    A twin that imports the shared helper is exempt from the `skipif` shape, for
+    the same reason it is exempt from declaring the env var: the helper owns the
+    gate, and `tests/mysql_dialect.py`'s stated endgame is twins taking it from
+    there (a future `pytestmark = mysql_dialect.SKIP_WITHOUT_MYSQL` must not be
+    reported as ungated). It must still assign `pytestmark`.
     """
-    tree = _parse(path, text)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets
-        ):
+    for node in getattr(tree, "body", []):  # module level only; pytest ignores the rest
+        if "pytestmark" not in _assigned_names(node):
+            continue
+        value = node.value
+        if value is None:  # `pytestmark: list` with no value gates nothing
+            continue
+        if imports_helper or _mentions_skipif(value):
             return True
+    for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if any("skipif" in ast.dump(d) for d in node.decorator_list):
-                return True
+            for dec in node.decorator_list:
+                target = dec.func if isinstance(dec, ast.Call) else dec
+                if _mentions_skipif(target):
+                    return True
     return False
 
 
@@ -179,31 +217,48 @@ def test_the_helper_still_declares_the_env_var_name():
     assert _canonical_env_name()
 
 
-def test_the_twins_have_not_quietly_left_the_check():
-    """A glob that matches nothing passes every assertion about its members — and
-    a glob that matches fewer files than there are twins passes them just as
-    quietly: the twins that escaped the shape stop being checked, and can then
-    drift their env name and skip in CI, green, forever.
+def test_no_gated_file_sits_outside_the_twin_shape():
+    """Nothing may gate on the MySQL env var from outside `*_mysql.py`.
 
-    Checked in both directions, because a floor below the real count is slack
-    rather than a guard: fewer than the floor means a twin left the shape, more
-    than the floor means one was added without tightening it and the next
-    departure will be silent.
+    This replaces a hand-written twin count (`_TWIN_FLOOR = 9`). The count did
+    catch a twin renamed out of the shape, but only while it equalled the real
+    number: a floor is pressured downward only, so the first twin added without
+    raising it bought a free silent departure — and raising it meant every PR
+    that adds a twin had to edit THIS file, a cross-branch tax paid once per
+    twin. One such branch was already in flight when the count landed.
+
+    Scanning content instead asks the question the count was standing in for:
+    does any file gate on this env var while sitting outside the glob that the
+    check below iterates? It is not self-satisfying (content and filename are
+    independent signals), needs no maintenance, and additionally catches a twin
+    that was never named `*_mysql.py` in the first place — which the count never
+    could.
+
+    What it gives up, stated plainly: a twin DELETED outright leaves no trace
+    here, where the count would have gone red and demanded a reason. That is the
+    acceptable half — a deletion is visible in its own diff, whereas a rename
+    silently shrinks the checked set.
     """
-    found = _twins()
-    assert len(found) >= _TWIN_FLOOR, (
-        f"expected at least {_TWIN_FLOOR} `*_mysql.py` dialect twins, found "
-        f"{[str(p.relative_to(_REPO)) for p in found]} — either some were renamed "
-        f"out of that shape (silently leaving the canonical-env check below), or "
-        f"one was deleted. If the removal was intended, lower _TWIN_FLOOR here "
-        f"and say why."
-    )
-    assert len(found) == _TWIN_FLOOR, (
-        f"found {len(found)} dialect twins but _TWIN_FLOOR is {_TWIN_FLOOR} — a "
-        f"twin was added without raising it, which leaves the floor slack by "
-        f"{len(found) - _TWIN_FLOOR} and lets that many twins later leave the "
-        f"`*_mysql.py` shape without this test noticing. Raise _TWIN_FLOOR to "
-        f"{len(found)}."
+    strays: dict[str, list[str]] = {}
+    for path in sorted(_TESTS.rglob("*.py")):
+        rel = str(path.relative_to(_REPO))
+        if rel in _NOT_TWINS or path.name.endswith("_mysql.py"):
+            continue
+        tree = _parse(path, path.read_text())
+        reasons = []
+        if _declared_env_names(tree):
+            reasons.append("declares MYSQL_URL_ENV")
+        if _imports_the_helper(tree):
+            reasons.append("imports tests.mysql_dialect")
+        if reasons:
+            strays[rel] = reasons
+
+    assert not strays, (
+        "these files gate on the MySQL dialect env var but are not named "
+        f"`*_mysql.py`, so `_twins()` cannot see them and the check below never "
+        f"looks at them — they can drift their env var and skip in CI, green, "
+        f"forever: {strays}. Either rename them into the shape or, if one is a "
+        f"legitimate non-twin, add it to _NOT_TWINS with a reason."
     )
 
 
@@ -216,16 +271,16 @@ def test_every_twin_gates_on_the_canonical_env_var_name():
     offenders: dict[str, list[str]] = {}
 
     for twin in _twins():
-        text = twin.read_text()
-        names = _declared_env_names(twin, text)
+        tree = _parse(twin, twin.read_text())
+        names = _declared_env_names(tree)
         # A twin that IMPORTS the helper declares nothing of its own; it inherits
         # the canonical name by construction.
-        imports_helper = _imports_the_helper(twin, text)
+        imports_helper = _imports_the_helper(tree)
 
         problems = sorted(n for n in names if n != canonical)
         if not names and not imports_helper:
             problems = ["<no gate at all>"]
-        elif not _has_skip_gate(twin, text):
+        elif not _has_skip_gate(tree, imports_helper):
             problems = problems or ["<names the env var but installs no skipif>"]
         if problems:
             offenders[str(twin.relative_to(_REPO))] = problems
