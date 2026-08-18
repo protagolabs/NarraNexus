@@ -4,6 +4,24 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 五审 — manifest 的 `agents` 一并收口
+
+四审给 `archive_ref` 加了闸，但 `manifest["agents"]` 的每一项同样会变成
+`work_dir/agents/{aid}/agent.json` / `.../channel_credentials.json` 的路径段，
+仍然裸着——**同一份 manifest、同一类字符串，只收了一个字段**，正是四审刚写下
+的"逐字段补闸"教训的又一次现场。
+
+现在闸在 **manifest 入口**（preflight 读完 manifest、任何人用它拼路径之前），
+每一项过 `sanitize_filename`，不合格 **整份 bundle 拒掉**。
+
+拒整份而不是跳过该 agent 是有意的：`aid` 同时是 `id_map` 的键、也出现在 summary
+里，过滤一半会让 id_map 与 per-agent 写入对不上（`id_map[old_aid]` 直接
+KeyError）。legacy bundle 的 agent id 形状不保证是 `agent_*`，所以判据用
+`sanitize_filename`（单段 / 无分隔符 / 非 `..`），不是前缀断言。
+
+最现实的命中面不是宿主机随机路径，而是**另一个用户同时在做导入**时的
+`bundle_preflight/nx-import-*`（前缀固定，只有 mkdtemp 后缀要猜）。
+
 ## 2026-08-18 四审 — `archive_ref` 也是不受信字符串
 
 `zip_path = work_dir / archive_ref` 两处（zip / full_copy 分支）。`archive_ref`

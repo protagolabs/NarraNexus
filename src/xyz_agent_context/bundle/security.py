@@ -170,8 +170,6 @@ def is_volume_path(rel_path: str) -> bool:
     return False
 
 
-
-
 def _validate_skill_archive(zf: zipfile.ZipFile, *, require_skill_md: bool) -> None:
     """Admission check for a skill archive — METADATA ONLY, never decompresses.
 

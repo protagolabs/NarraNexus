@@ -66,3 +66,14 @@ stub: false
   `archive_ref` 是**多段**路径（`skills/{agent_id}/{name}-full.zip`），后者只接
   单段，直接套会把所有正常 bundle 打死。
 
+## 2026-08-18 五审 — manifest 的 `agents` 也过闸
+
+`test_import_rejects_a_traversing_agent_id_in_the_manifest`：`manifest["agents"]`
+的每一项会变成 `work_dir/agents/{aid}/agent.json` 和
+`.../channel_credentials.json` 的路径段。和 `archive_ref` 同类、同一份 manifest
+——**四审只收了 archive_ref 一个字段，这个还开着**，又一次演示了"逐字段补闸"。
+
+闸放在 manifest 入口（preflight 读完 manifest 之后、任何人用它拼路径之前），
+**整份 bundle 拒掉**而不是跳过该 agent：`aid` 同时是 `id_map` 的键，过滤一半会
+让 id_map 和 per-agent 写入对不上。
+

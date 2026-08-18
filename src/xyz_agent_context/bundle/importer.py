@@ -40,7 +40,10 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
-from xyz_agent_context.utils.file_safety import validate_zip_member_path
+from xyz_agent_context.utils.file_safety import (
+    sanitize_filename,
+    validate_zip_member_path,
+)
 from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
@@ -231,6 +234,26 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         raise ValueError("manifest.json missing in bundle")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    # Every manifest string that later becomes a path segment is validated
+    # HERE, once, before anything reads with it — the same lesson the export
+    # side learned the hard way (`skill_dir` was gated per-branch, so the branch
+    # nobody looked at stayed open). `agents` entries become
+    # `work_dir/agents/{aid}/agent.json` and `.../channel_credentials.json`; a
+    # traversing id reads those two filenames from outside the unpack dir, and
+    # a hit on `channel_credentials.json` is imported as the caller's own
+    # credentials. The most reachable target is a concurrent import's
+    # `bundle_preflight/nx-import-*` dir, not a random host path.
+    #
+    # Rejecting the WHOLE bundle rather than skipping the offending agent is
+    # deliberate: `aid` is also the id_map key and appears in the summary, so a
+    # partially-filtered list would desync id_map from the per-agent writes.
+    for aid in manifest.get("agents", []) or []:
+        try:
+            sanitize_filename(str(aid), label="agent id in manifest")
+        except ValueError as e:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise ValueError(f"manifest contains an unusable agent id ({e})")
 
     # Legacy bundle compatibility: pre-3d7e089 exports put every
     # `skipped_external_edge` line into manifest.warnings (one per row).
@@ -1341,7 +1364,7 @@ async def _confirm_inner(
     # subprocess.git invocations under the naive impl).
     # full_copy is excluded — each agent's archive zip carries that agent's
     # own .skill_meta.json / credentials, so they're distinct payloads.
-    from xyz_agent_context.utils.file_safety import sanitize_filename, ensure_within_directory
+    from xyz_agent_context.utils.file_safety import ensure_within_directory
     from xyz_agent_context.settings import settings as core_settings
 
     def install_cache_key(s_entry: dict) -> Optional[str]:

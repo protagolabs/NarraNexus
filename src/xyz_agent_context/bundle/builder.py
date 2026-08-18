@@ -756,10 +756,19 @@ async def build_bundle(
             #
             # Validated HERE, at the one place it is derived, and not in the
             # branches: a per-branch gate is what let full_copy stay open while
-            # zip was fixed. Everything downstream (`:762` built-in guard,
+            # zip was fixed. Everything downstream (built-in guard,
             # `_safe_bundle_zip_name`, `_find_skill_dir`, the manifest entry)
             # now sees the sanitized value, so export and import agree on what
             # this string means.
+            #
+            # Note this gate applies to ALL methods, including `url` / `builtin`
+            # which never touch the filesystem with it. That is intentional, not
+            # an oversight: `entry["skill_dir"]` goes into the manifest and the
+            # importer uses it as a directory name, so a value we would refuse
+            # to write must not be shipped either. The visible cost is narrow —
+            # a skill whose SKILL.md frontmatter `name` contains a separator,
+            # exported by url with no explicit skill_dir, is now skipped with a
+            # warning instead of silently exported.
             raw_skill_dir = cfg.get("skill_dir") or skill_name
             method = cfg.get("install_method")
             if not agent_id or agent_id not in closure_set:
@@ -901,7 +910,8 @@ async def build_bundle(
                 # Use per-agent + dir-name path inside bundle so duplicate-named
                 # skills under the same agent don't collide.
                 per_agent_dir = skills_dir / agent_id
-                per_agent_dir.mkdir(parents=True, exist_ok=True)
+                # Path computation only — needs no directory to exist, and must
+                # stay outside the try because the except below unlinks it.
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
                 # Same degrade contract as the zip branch above — this PR's whole
                 # claim is "one bad skill must not fail the whole export", and it
@@ -912,6 +922,7 @@ async def build_bundle(
                 # `except Exception` and became a 500 that named neither the
                 # skill nor the file — the exact shape this PR opened with.
                 try:
+                    per_agent_dir.mkdir(parents=True, exist_ok=True)
                     await asyncio.to_thread(
                         _zip_dir,
                         src_dir,

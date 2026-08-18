@@ -4,6 +4,21 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 五审 — 来源点闸口的适用范围写清楚
+
+补记一个**有意的副作用**：`skill_dir` 的闸装在来源点，因此对 `url` / `builtin`
+这两个**根本不用它碰文件系统**的分支同样生效。这是故意的——`entry["skill_dir"]`
+会进 manifest、导入侧拿它当目录名用，所以"我们不肯写的值也不该发出去"。
+
+可见代价很窄：某个 skill 的 SKILL.md frontmatter `name` 含分隔符、用 url 方式
+导出、且没传显式 `skill_dir` 时，它现在会被跳过并留一条 `unusable skill_dir`
+warning，而不是照常导出。选这个而不是"只对 zip/full_copy 拦"，是因为后者会让
+导出侧和导入侧对同一个字符串的理解分叉。
+
+另：`per_agent_dir.mkdir()` 挪进了 full_copy 的降级 try（`tgt_zip` 的路径计算
+留在外面，因为 except 里要 unlink 它）——四审只裹了 `_zip_dir` / `file_sha256`，
+mkdir 真在 ENOSPC 上失败仍会 500，降级契约比注释声称的窄一行。
+
 ## 2026-08-18 四审 — `skill_dir` 收到来源点；full_copy 补降级
 
 **上一轮我只修了 zip 分支，这是错的。** `skill_dir` 的闸装在

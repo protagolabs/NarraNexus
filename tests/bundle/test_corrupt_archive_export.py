@@ -444,3 +444,39 @@ async def test_import_rejects_an_archive_ref_that_escapes_the_bundle(
     for p in (archives_root).rglob("*"):
         if p.is_file():
             assert b"IMPORT_ESCAPE_CANARY" not in p.read_bytes(), f"escaped file landed at {p}"
+
+
+@pytest.mark.parametrize("bad_aid", ["../../../../etc", "../sneaky", "a/b", ".."])
+async def test_import_rejects_a_traversing_agent_id_in_the_manifest(
+    db_client, tmp_workspace_root, tmp_path, archives_root, bad_aid
+):
+    """`manifest["agents"]` entries become `work_dir/agents/{aid}/agent.json`
+    and `.../channel_credentials.json`. Same class as `archive_ref`, same
+    manifest, and it was still open after `archive_ref` was gated — which is
+    the per-field-gating mistake this PR keeps re-learning. Validated once at
+    manifest ingress, and the whole bundle is rejected rather than the offending
+    agent skipped: `aid` is also the id_map key, so a filtered list would
+    desync id_map from the per-agent writes.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight
+
+    aid, uid = "agent_manifestaid", "test_user"
+    await _seed_agent(db_client, aid, "ManifestAgent", uid)
+
+    bundle = tmp_path / "aid.nxbundle"
+    await build_bundle(uid, ExportSelection(agent_ids=[aid]), bundle)
+
+    tampered = tmp_path / f"aid-{abs(hash(bad_aid))}.nxbundle"
+    with zipfile.ZipFile(bundle) as src, zipfile.ZipFile(tampered, "w") as dst:
+        for item in src.namelist():
+            data = src.read(item)
+            if item == "manifest.json":
+                m = json.loads(data)
+                m["agents"] = [bad_aid]
+                data = json.dumps(m).encode()
+            dst.writestr(item, data)
+
+    with pytest.raises(ValueError) as exc:
+        await preflight(tampered, uid)
+    assert "agent id" in str(exc.value).lower(), str(exc.value)

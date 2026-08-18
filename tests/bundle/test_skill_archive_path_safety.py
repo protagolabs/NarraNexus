@@ -250,6 +250,36 @@ def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: s
     return d
 
 
+def _find_canary(bundle: Path, needle: bytes, name_fragment: str) -> list[str]:
+    """Every member of the bundle, one level of nesting deep, hunting for bytes
+    or member names that should not be there.
+
+    One level is enough for what we ship (`skills/**.zip` inside the outer
+    `.nxbundle`) and keeps the failure message readable.
+    """
+    found: list[str] = []
+    with zipfile.ZipFile(bundle) as z:
+        for n in z.namelist():
+            if n.endswith("/"):
+                continue
+            if name_fragment in n:
+                found.append(n)
+            data = z.read(n)
+            if needle in data:
+                found.append(n)
+            if n.endswith(".zip"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(data)) as inner:
+                        for m in inner.namelist():
+                            if m.endswith("/"):
+                                continue
+                            if name_fragment in m or needle in inner.read(m):
+                                found.append(f"{n}!{m}")
+                except zipfile.BadZipFile:
+                    pass
+    return found
+
+
 def _manifest(bundle: Path) -> dict:
     with zipfile.ZipFile(bundle) as z:
         return json.loads(z.read("manifest.json"))
@@ -538,6 +568,15 @@ async def test_shared_skill_import_records_a_real_sha(
         "sub\\dir",
         "/abs/path",
         "..",
+        # SEC-08's real shape. From {base}/{uid}/{aid}/skills/ this resolves to
+        # `base_working_path` itself — the parent of EVERY user's workspace —
+        # and full_copy zips whatever directory it lands on. The first version
+        # of this table omitted it, which is why the victim-canary assertion
+        # below could never fail: nothing in the table actually reached a
+        # victim. Keep both forms: the root, and a direct hop into a named
+        # victim.
+        "../../..",
+        "../../../victim_user/agent_victim",
         # NOT "" — an absent skill_dir legitimately falls back to skill_name
         # (builder.py), so it is covered by the fallback test below instead.
     ],
@@ -594,9 +633,15 @@ async def test_export_rejects_a_traversing_skill_dir(
     # 2. The skill is absent from the manifest (the established "skipped" shape).
     assert not [s for s in _manifest(bundle).get("skills", []) if s.get("name") == "arena"]
     # 3. The observable contract that actually matters: no other user's bytes.
-    with zipfile.ZipFile(bundle) as z:
-        blob = b"".join(z.read(n) for n in z.namelist() if not n.endswith("/"))
-    assert b"VICTIM_SECRET_CANARY" not in blob, "another user's workspace was packed"
+    #    Must recurse. A packed workspace arrives as a NESTED zip member
+    #    (`skills/{aid}/{dir}-full.zip`, deflated), so a single-level
+    #    `z.read(n)` returns compressed bytes and the plaintext canary never
+    #    appears — the first version of this assertion was blind for that
+    #    reason on top of having no payload that reached a victim.
+    #    Scans root-level members too: with the gate removed the escaping
+    #    archive lands as `..-full.zip` in the staging root, not under skills/.
+    leaks = _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")
+    assert not leaks, f"another user's workspace was packed: {leaks}"
     # 4. Nothing written outside the bundle staging dir.
     escaped = {
         p for p in (tmp_path.rglob("*"))
@@ -757,3 +802,50 @@ async def test_archive_local_zip_enforces_the_shared_gate(
         )
     assert expected in str(exc.value).lower(), str(exc.value)
     assert not (archives_root / uid).exists(), "a rejected archive was still stored"
+
+
+async def test_full_copy_cannot_pack_another_users_workspace(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """SEC-08's regression net, asserting ONE thing: another user's bytes are
+    not in the artifact.
+
+    Deliberately separate from `test_export_rejects_a_traversing_skill_dir`.
+    That test asserts the warning text first, so under mutation it fails on
+    line 1 and the leak assertion is never evaluated — it can report "12 red"
+    while the P0's actual contract goes unchecked. A regression net for a
+    cross-tenant read has to fail *because bytes leaked*, nothing else.
+
+    Payload is `../../..` specifically: from `{base}/{uid}/{aid}/skills/` it
+    resolves to `base_working_path` — the parent of every user's workspace —
+    and its OUTPUT path (`{staging}/skills/{aid}/../../..-full.zip`) still
+    lands inside the staging dir, so a regression really does ship the bytes.
+    Deeper payloads fail on the write instead and would prove nothing.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_sec08", "test_user"
+    await _seed_agent(db_client, aid, "Sec08Agent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    victim = tmp_workspace_root / "victim_user" / "agent_victim" / "skills" / "private"
+    victim.mkdir(parents=True, exist_ok=True)
+    (victim / "creds.json").write_text("VICTIM_SECRET_CANARY", encoding="utf-8")
+
+    bundle = tmp_path / "sec08.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena",
+                 "skill_dir": "../../..", "install_method": "full_copy"}
+            ],
+            include_skill_secrets=True,   # worst case: sensitive-file scrub off
+        ),
+        bundle,
+    )
+
+    leaks = _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")
+    assert not leaks, f"SEC-08 regression — another user's workspace shipped: {leaks}"
+

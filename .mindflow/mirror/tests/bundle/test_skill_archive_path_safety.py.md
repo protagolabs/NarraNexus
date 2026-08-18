@@ -13,7 +13,7 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
 [[skill_backup.py]] 的 `archive_target()` 单一构造点，所以测试也钉在这个
 构造点上，而不是逐个 caller 重复一遍参数化。
 
-## 覆盖的四件事
+## 覆盖的五件事
 
 1. **写侧构造点**：10 个穿越 payload（含 QA 用的
    `../qa-sec07-oneup-marker` 原件）、3 种 suffix 的正常路径、穿越型
@@ -63,16 +63,35 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
   什么"**：改名变量、跨行拼接它都看不见。它是防复发的窄网，不是不存在
   的证明——别因为它绿就跳过人工核。
 
-## 2026-08-18 四审 — 新增 `skill_dir` 这一整轴（第 4 件事）
+## 2026-08-18 四审 — 新增 `skill_dir` 这一整轴（第 5 件事）
 
 导出请求体里的**第三个**客户端字符串（前两个是 `archive_path`、`skill_name`），
 同样进文件系统路径，SEC-07 当时漏了它。这一轴有四条：
 
-- `test_export_rejects_a_traversing_skill_dir` —— 6 个 payload × **两种
-  install_method**。`full_copy` 那一半是重点：它用这个字符串决定**读**哪个目
-  录，`../../..` 落在 `base_working_path` 上、`_zip_dir` 把所有用户的 workspace
-  打进请求者的下载包。用例种了一个别的用户的 `VICTIM_SECRET_CANARY`，断言它不
-  在产物里。
+- `test_export_rejects_a_traversing_skill_dir` —— 8 个 payload × **两种
+  install_method**，断言的是**闸口本身**：warning 含精确文案
+  `unusable skill_dir`、该 skill 不在 manifest 里。
+- `test_full_copy_cannot_pack_another_users_workspace` —— **SEC-08（P0）的回归
+  网，单独一条**，只断言一件事：别人的字节不在产物里。
+
+  ⚠️ 为什么必须单独：上面那条先断言 warning 文案，mutation 时**第一行就失败、
+  泄漏断言根本不会被执行**——它可以报"12 条红"而 P0 的真实契约无人看守。跨租户
+  读的回归网必须**因为字节泄漏而红**，不能因为别的。
+
+  ⚠️ 五审前这条 canary 有**两条独立的断腿**（都记下来，因为都是"因为错误的理由
+  变绿"）：
+  1. **参数表里没有任何 payload 能解析到 victim**。victim 在
+     `{base}/victim_user/…`，而 `../escape` / `..` / `sub/dir` 等全落在自己的
+     agent 目录内或不存在的位置。真实形状 `../../..`（解析到
+     `base_working_path` 本身）恰恰是表里唯一缺的。
+  2. **单层 `z.read(n)` 看不见嵌套 zip 里的明文**：别人的 workspace 是以
+     `skills/{aid}/{dir}-full.zip`（deflate）进包的，外层只解一层拿到的是压缩
+     字节。`_find_canary` 现在递归一层，且**扫根层成员**——摘掉闸口时逃逸的包
+     叫 `..-full.zip`、落在 staging 根，不在 `skills/` 前缀下。
+
+  payload 选 `../../..` 而不是更深的：更深的路径其**输出**文件名的父目录不存在，
+  写盘先失败（ENOENT），证明不了任何事。mutation 实测摘掉闸口后报
+  `['..-full.zip!victim_user/agent_victim/skills/private/creds.json']`。
   断言写法有讲究：warning 必须含 **"unusable skill_dir"** 这个具体文案，早期版
   本写的是 `"arena" in warnings`——`zip not found` / `archive path escapes` 也含
   "arena"，闸口摘掉照样绿。
