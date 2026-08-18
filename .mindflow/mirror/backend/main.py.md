@@ -4,6 +4,34 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — `/health` 的结果缓存与单飞
+
+`/health` 现在**不是每请求一次 `SELECT 1`**。两层：
+
+**结果缓存（5s，成功与失败同 TTL）。** 这个端点公开无鉴权、nginx 直通，而每次探测
+占一条池连接、backend 的池是 10、没有任何限流中间件。只缓存成功会把放大面正好留在
+数据库已经挂了的时刻，所以失败也缓存。5s 远小于容器 healthcheck 的 `interval: 30s`，
+单个探测方按自己的节奏仍是真往返；两个探测方在 5s 内交叠时后到的吃缓存。
+
+**单飞（`_probe_lock()`）。** 缓存只答复结果**发布之后**到达的请求；miss 到 publish
+之间那段窗口在库慢时是满 `_HEALTH_DB_TIMEOUT_SEC`（3s），这段时间里每个到达者都各跑
+一次探测、各占一条连接。也就是说缓存在库健康时把放大面关到零，在库慢时基本不起作用
+——恰好是它被加进来要防的场景。锁不创建任何 task，等待者不持有数据库连接。
+
+**锁是 per-event-loop 的，不是模块级单例。** `asyncio.Lock` 在第一次被**竞争**时把
+自己钉死到当时的 loop（CPython `locks.py` 的 `_LoopBoundMixin`），此后在别的 loop 上
+竞争直接 `RuntimeError`。本仓确实会 in-process 换 loop（`db_factory` 有整套驱逐路径），
+而 `/health` 在那里抛异常 = 500 = 容器 unhealthy = 按下面那条部署耦合，
+`docker compose up` **整条命令失败**。按 loop 弱引用建锁。
+
+**`_HEALTH_CACHE_TTL_SEC` 必须大于 `_HEALTH_DB_TIMEOUT_SEC`。** 排队等锁的请求拿到锁
+时会重查缓存；TTL 更短的话它们等的那条记录已经过期，于是各自再探一次，单飞变成一列
+串行超时——正是它要消灭的放大面被重建。有测试钉住这个不等式。
+
+**on-call 需要知道的两条**：数据库恢复后 `/health` 最多晚 5s 才翻绿（叠在
+`retries: 5 × interval: 30s` 之上）；库慢时单个请求最多等一次探测超时（3s）。把探针
+滞后误判成「数据库还没好」，代价是多等一轮。
+
 ## 2026-08-17 — `/health` 的 `database` 字段改成真探测
 
 原来是硬编码字面量 `"database": "connected"` —— 一个**永远不可能为假的健康字段**，

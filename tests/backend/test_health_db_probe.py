@@ -315,46 +315,115 @@ async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_slow_failing_probe_cannot_overwrite_a_newer_success(monkeypatch):
-    """The cache is written by whichever probe FINISHES last, which is not the
-    same as whichever probe is most recent.
+async def test_a_slow_database_is_probed_once_no_matter_how_many_requests_arrive(monkeypatch):
+    """The half the cache alone could not close.
 
-    Concretely: request A starts while the database is down and takes the full
-    timeout; request B starts a moment later, after recovery, and returns at
-    once. If A's stale verdict lands on top of B's, `/health` keeps reporting
-    unhealthy for another 5s against a database that is already back.
-
-    Driven through two concurrent `health()` calls rather than by re-stating the
-    guard's condition — the latter would pass whatever the guard actually did.
+    A cache only stops requests arriving AFTER a result is published. Between a
+    miss and that publication, every arrival used to run its own probe and hold
+    its own pooled connection — and that window is the full timeout precisely
+    when the database is slow, which is the case the cache was added for. With
+    a 10-connection pool and an unauthenticated endpoint, that is `/health`
+    holding the pool while real traffic queues behind it.
     """
-    release_a = asyncio.Event()
-    state = {"fail": True}
+    release = asyncio.Event()
+    probes = {"n": 0}
 
     class _Client:
         async def probe(self) -> None:
-            if state["fail"]:
-                await release_a.wait()          # A: slow, and fails
-                raise RuntimeError("(0, 'Not connected')")
-            return None                          # B: fast, and succeeds
+            probes["n"] += 1
+            await release.wait()
 
     async def fake_get_db_client():
         return _Client()
 
     monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
 
-    a = asyncio.create_task(main.health())       # starts first, still in flight
+    callers = [asyncio.create_task(main.health()) for _ in range(20)]
+    await asyncio.sleep(0)
+    assert probes["n"] == 1, f"{probes['n']} concurrent probes against a slow database"
+
+    release.set()
+    await asyncio.gather(*callers)
+    assert probes["n"] == 1, "the queued callers each ran their own probe after all"
+
+
+@pytest.mark.asyncio
+async def test_a_probe_that_started_earlier_cannot_overwrite_a_newer_verdict(monkeypatch):
+    """The publish guard, kept as a belt to single-flight's braces.
+
+    With the lock in place two probes should not overlap, so this drives
+    `_run_health_probe` directly — the guard is what stops a stale verdict if
+    that lock is ever removed or bypassed, and it costs two lines to keep.
+    """
+    state = {"fail": True}
+    release_a = asyncio.Event()
+
+    class _Client:
+        async def probe(self) -> None:
+            if state["fail"]:
+                await release_a.wait()
+                raise RuntimeError("(0, 'Not connected')")
+            return None
+
+    async def fake_get_db_client():
+        return _Client()
+
+    monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
+
+    a = asyncio.create_task(main._run_health_probe())   # starts first, still in flight
     await asyncio.sleep(0)
 
-    state["fail"] = False                        # database recovers
-    b = await main.health()                      # starts later, finishes first
-    assert b["status"] == "healthy"
+    state["fail"] = False                               # database recovers
+    await main._run_health_probe()                      # starts later, finishes first
+    assert main._health_cache[2] is True
 
-    release_a.set()                              # now A returns its stale failure
+    release_a.set()                                     # A returns its stale failure
     await a
 
-    assert main._health_cache is not None
     assert main._health_cache[2] is True, (
         "a probe that started earlier overwrote a newer, healthier verdict"
     )
-    later = await main.health()
-    assert later["status"] == "healthy", "/health reported a recovered database as down"
+
+
+def test_the_probe_lock_survives_an_event_loop_change():
+    """`asyncio.Lock` pins itself to the loop that first CONTENDS it, and raises
+    on any later contention from a different one.
+
+    A module-level lock therefore leaks its binding: the first test (or the
+    first in-process loop) to run concurrent probes owns it forever. This repo
+    does swap loops in-process — `db_factory` carries an eviction path for
+    exactly that — and a `/health` that raises becomes a 500, an unhealthy
+    container, and a `docker compose up` that fails outright.
+
+    Synchronous on purpose: it drives two loops itself, which cannot be done
+    from inside one that is already running.
+    """
+    seen = []
+
+    async def contend():
+        lock = main._probe_lock()
+        seen.append(id(lock))
+
+        async def hold():
+            async with lock:          # two waiters, so it takes the contended path
+                await asyncio.sleep(0)
+
+        await asyncio.gather(hold(), hold())
+
+    for _ in range(2):
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(contend())
+        finally:
+            loop.close()
+
+    assert len(set(seen)) == 2, "the same lock object was reused across loops"
+
+
+def test_the_cache_outlives_a_probe_timeout():
+    """Callers queued on the lock re-check the cache when they get in. If the
+    TTL were shorter than the probe timeout, the entry they waited for would
+    already be stale and each would probe again — single-flight turning into a
+    serial train of timeouts, which is the amplification it was added to
+    remove."""
+    assert main._HEALTH_CACHE_TTL_SEC > main._HEALTH_DB_TIMEOUT_SEC

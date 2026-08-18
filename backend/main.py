@@ -13,6 +13,7 @@ Usage:
 
 import asyncio
 import time
+import weakref
 import os
 import sys
 from fastapi import FastAPI, Request
@@ -47,17 +48,61 @@ _HEALTH_DB_TIMEOUT_SEC = 3.0
 # probers landing within 5s of each other will have the later one served from
 # cache — acceptable, and the reason the window is far smaller than the poll
 # interval rather than merely smaller.
+#
+# Must stay GREATER than `_HEALTH_DB_TIMEOUT_SEC`. Callers queued on the probe
+# lock re-check the cache when they get in; if the entry they are waiting for
+# has already expired by then, each of them probes again and the single-flight
+# turns into a serial train of timeouts — the amplification it was added to
+# remove, rebuilt.
 _HEALTH_CACHE_TTL_SEC = 5.0
 
-# (probe_started_at, monotonic_deadline, ok, detail). Plain module state on
-# purpose: a lock or a background refresh task would add a fire-and-forget
-# hazard to buy nothing. Concurrent misses may each run one extra `SELECT 1`,
-# which is fine — but they must not publish a STALE verdict, so the write is
-# guarded by when the probe started rather than when it finished. Without that,
-# a slow failing probe that started before a fast succeeding one would overwrite
-# the good result on arrival and keep reporting unhealthy for a further 5s after
-# the database had already recovered (and the reverse, hiding a fresh failure).
+# (probe_started_at, monotonic_deadline, ok, detail).
+#
+# The cache only answers requests that arrive AFTER a result is published; the
+# window between a miss and that publication is covered by `_probe_lock()`
+# below. (An earlier version of this comment argued a lock "would buy nothing"
+# — that was written before anyone worked out how long the window is when the
+# database is slow, which is the whole timeout.)
+#
+# The write is guarded by when the probe STARTED, not when it finished. With the
+# lock in place two probes should not overlap, but the guard is two lines and it
+# is what stops a stale verdict if the lock is ever bypassed: a slow failing
+# probe that began before a fast succeeding one would otherwise overwrite the
+# good result on arrival and keep reporting unhealthy for a further TTL after
+# the database had recovered (and the reverse, hiding a fresh failure).
 _health_cache: "tuple[float, float, bool, str] | None" = None
+
+# Single-flight around the probe itself. The cache alone only stops requests
+# that arrive AFTER a result has been published; between a miss and that
+# publication every arrival ran its own probe and held its own pooled
+# connection. How long that window is depends on how slow the database is —
+# milliseconds when healthy, the full `_HEALTH_DB_TIMEOUT_SEC` when not. So the
+# cache closed the amplification exactly in the case that never mattered, and
+# left it open in the one it was added for.
+#
+# A plain Lock, not a background refresh task: the "fire-and-forget hazard"
+# argument applies to spawning tasks, not to an `asyncio.Lock`, which creates
+# none. Waiters here hold no database connection.
+#
+# One lock PER EVENT LOOP, not one module-level lock. `asyncio.Lock.acquire`
+# pins itself to the running loop the first time it is actually CONTENDED
+# (CPython `locks.py`, `_LoopBoundMixin._get_loop`), and raises
+# "is bound to a different event loop" for every later contention on a
+# different one. This repo does swap loops in-process — `db_factory` carries a
+# whole eviction path for it — and a `/health` that raises there becomes a 500,
+# which the container healthcheck turns into unhealthy, which (per the
+# deployment coupling documented on `health`) fails `docker compose up`
+# outright. Keyed weakly so a finished loop takes its lock with it.
+_health_probe_locks: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _probe_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _health_probe_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _health_probe_locks[loop] = lock
+    return lock
 
 
 def _detect_bind_host() -> str:
@@ -644,13 +689,27 @@ async def health():
     unhealthy body; a health field that cannot fail carries no information,
     which is how the original bug survived.
     """
-    global _health_cache
-
-    started = time.monotonic()
     cached = _health_cache
-    if cached is not None and started < cached[1]:
+    if cached is not None and time.monotonic() < cached[1]:
         return _health_body(cached[2], cached[3])
 
+    async with _probe_lock():
+        # Re-check against the CURRENT time: whoever held the lock may have just
+        # published, and comparing against a pre-queue timestamp would judge
+        # that fresh result stale and defeat the single-flight entirely.
+        cached = _health_cache
+        if cached is not None and time.monotonic() < cached[1]:
+            return _health_body(cached[2], cached[3])
+        return await _run_health_probe()
+
+
+async def _run_health_probe():
+    """Probe the database once and publish the result. Caller holds the lock."""
+    global _health_cache
+
+    # Taken inside the lock so the publish guard below orders by when this probe
+    # actually started, not by when its request arrived.
+    started = time.monotonic()
     db_ok = False
     db_detail = "unknown"
     try:

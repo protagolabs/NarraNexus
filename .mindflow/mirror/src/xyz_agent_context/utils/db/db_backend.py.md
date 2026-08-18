@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/db/db_backend.py
+last_verified: 2026-08-18
+stub: false
+---
+
 # db_backend.py
 
 Abstract base class that every concrete database backend must implement — the contract that lets `AsyncDatabaseClient` stay database-agnostic.

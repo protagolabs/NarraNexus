@@ -5,7 +5,7 @@
 @description: Platform service for migrating a legacy user id to a NetMind
 userSystemCode (Phase 1 user-system unification).
 
-Shared kernel behind two call sites (铁律 3/8 — one source of truth):
+Shared kernel behind two call sites (binding rules #3/#8 — one source of truth):
   * scripts/data_migrations/migrate_users_to_netmind.py — offline CLI, batch CSV mapping,
     run with the stack stopped (`make app-down`).
   * backend/routes/admin/migration.py — POST /api/admin/migrate-identity,

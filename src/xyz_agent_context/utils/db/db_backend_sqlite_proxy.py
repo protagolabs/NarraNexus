@@ -206,7 +206,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         self,
         table: str,
         id_field: str,
-        ids: List[str],
+        ids: List[Any],
         fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
         """Batch-fetch rows by IDs via the proxy.

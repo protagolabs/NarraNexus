@@ -13,7 +13,8 @@ It used to have a second mode that drove an aiomysql pool directly. That path
 was reachable only by passing `_pool=` to the constructor, which nothing ever
 did; being unreachable, it drifted, and the 2026-08-17 transaction fix had to be
 written twice with the copy silently missing four of its twin's guards. Removed
-2026-08-18 per 铁律 #2. There is one path now.
+2026-08-18 per binding rule #2 (no backwards-compat shims); the mirror md
+carries the full rationale. There is one path now.
 
 Usage examples:
     # Lazy, resolved from DATABASE_URL
@@ -397,7 +398,7 @@ class AsyncDatabaseClient:
         directly — reachable only by passing `_pool=` to `__init__`, which
         nothing ever did. It was dead on arrival and, being dead, drifted: the
         transaction fix of 2026-08-17 had to be written twice, and the copy here
-        silently missed four of the guards its twin got. Deleted per 铁律 #2 —
+        silently missed four of the guards its twin got. Deleted per binding rule #2 —
         the file header already declared single-backend delegation as the
         design; now the code says so too.
         """
@@ -547,24 +548,21 @@ class AsyncDatabaseClient:
         Returns:
             List of query results
         """
-        if self._backend:
-            # Auto-translate MySQL SQL dialect to backend dialect
-            q = query
-            p = params
-            if self._backend.dialect == "sqlite":
-                q = _mysql_to_sqlite_sql(q)
-                p = tuple(p) if p else ()
-            if fetch:
-                return await self._backend.execute(q, p)
-            else:
-                return await self._backend.execute_write(q, p)
+        backend = await self._ensure_backend()
 
-        await self._ensure_backend()
-        if self._backend:
-            # _ensure_backend resolved the dialect — delegate with translation
-            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
-            p = tuple(params) if params else ()
-            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        # Auto-translate MySQL SQL dialect to the backend's dialect. One copy:
+        # this used to be duplicated for the already-initialised and the
+        # lazily-initialised case, and the two had already drifted on how they
+        # normalised `params`.
+        q = query
+        p = params
+        if backend.dialect == "sqlite":
+            q = _mysql_to_sqlite_sql(q)
+            p = tuple(p) if p else ()
+
+        if fetch:
+            return await backend.execute(q, p)
+        return await backend.execute_write(q, p)
 
     async def get(
         self,
@@ -581,53 +579,18 @@ class AsyncDatabaseClient:
         Args:
             table: Table name
             filters: Filter conditions
-            limit: Result limit
-            offset: Result offset
-            order_by: Sort order
-            fields: Column projection (None = ``SELECT *``). Every backend
-                already accepted this; the facade dropped it, which forced
-                full-row reads on tables with MEDIUMTEXT columns.
+            limit: Maximum rows to return
+            offset: Rows to skip
+            order_by: Column to order by, optionally with ASC/DESC
+            fields: Column projection; None selects every column
 
         Returns:
             List of query results
         """
-        if self._backend:
-            return await self._backend.get(
-                table, filters, limit, offset, order_by, fields
-            )
-
-        safe_table = validate_identifier(table)
-        if fields:
-            columns = ", ".join(
-                f"`{validate_identifier(f)}`" for f in fields
-            )
-        else:
-            columns = "*"
-        query = f"SELECT {columns} FROM `{safe_table}`"
-        params = []
-
-        if filters:
-            where_clauses = []
-            for key, value in filters.items():
-                safe_key = validate_identifier(key)
-                where_clauses.append(f"`{safe_key}` = %s")
-                params.append(value)
-            query += " WHERE " + " AND ".join(where_clauses)
-
-        if order_by:
-            order_parts = order_by.split()
-            safe_order_field = validate_identifier(order_parts[0])
-            direction = ""
-            if len(order_parts) > 1 and order_parts[1].upper() in ("ASC", "DESC"):
-                direction = " " + order_parts[1].upper()
-            query += f" ORDER BY `{safe_order_field}`{direction}"
-
-        if limit is not None:
-            query += f" LIMIT {int(limit)}"
-        if offset is not None:
-            query += f" OFFSET {int(offset)}"
-
-        return await self.execute(query, tuple(params), fetch=True)
+        backend = await self._ensure_backend()
+        return await backend.get(
+            table, filters, limit, offset, order_by, fields
+        )
 
     async def get_one(
         self,
@@ -635,75 +598,30 @@ class AsyncDatabaseClient:
         filters: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Query a single record"""
-        if self._backend:
-            return await self._backend.get_one(table, filters)
-
-        logger.debug(f"              → DB.get_one('{table}', filters={filters})")
-        results = await self.get(table, filters, limit=1)
-        logger.debug(f"              ← DB.get_one: {'Found' if results else 'Not found'}")
-        return results[0] if results else None
+        backend = await self._ensure_backend()
+        return await backend.get_one(table, filters)
 
     async def get_by_ids(
         self,
         table: str,
         id_field: str,
-        ids: List[str],
+        ids: List[Any],
         fields: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Batch query (core method for solving the N+1 problem)
+    ) -> List[Optional[Dict[str, Any]]]:
+        """Batch-fetch rows by id, preserving the order of `ids`.
 
-        Uses a single IN query to replace multiple individual queries.
-
-        Args:
-            table: Table name
-            id_field: ID field name
-            ids: List of IDs
-            fields: Optional projection, same contract as `get`. Narrow it for
-                existence checks against tables with fat columns — `SELECT *`
-                there ships the payload only to discard it. `id_field` is always
-                included so the order-preserving map can be built.
-
-        Returns:
-            List of query results (in original ID order)
+        Missing ids come back as `None` placeholders, so the result lines up
+        positionally with the input — that contract lives in the backends (see
+        the mirror md), which is why this only delegates.
 
         Example:
             # Before (N+1):
-            for event_id in event_ids:
-                event = await db.get_one("events", {"event_id": event_id})
-
+            events = [await db.get_one("events", {"event_id": i}) for i in ids]
             # After (batch):
             events = await db.get_by_ids("events", "event_id", event_ids)
         """
-        if self._backend:
-            return await self._backend.get_by_ids(table, id_field, ids, fields=fields)
-
-        if not ids:
-            return []
-
-        # Deduplicate while preserving order
-        unique_ids = list(dict.fromkeys(ids))
-
-        safe_table = validate_identifier(table)
-        safe_id_field = validate_identifier(id_field)
-
-        if fields:
-            safe_fields = [validate_identifier(f) for f in dict.fromkeys([*fields, id_field])]
-            columns = ", ".join(f"`{f}`" for f in safe_fields)
-        else:
-            columns = "*"
-
-        # Build IN query
-        placeholders = ','.join(['%s'] * len(unique_ids))
-        query = f"SELECT {columns} FROM `{safe_table}` WHERE `{safe_id_field}` IN ({placeholders})"
-
-        results = await self.execute(query, tuple(unique_ids), fetch=True)
-
-        # Create lookup map
-        result_map = {row[id_field]: row for row in results}
-
-        # Return in original order
-        return [result_map.get(id) for id in ids]
+        backend = await self._ensure_backend()
+        return await backend.get_by_ids(table, id_field, ids, fields=fields)
 
     async def insert(
         self,
@@ -720,39 +638,21 @@ class AsyncDatabaseClient:
         Returns:
             Auto-increment ID of the inserted row
         """
-        if self._backend:
-            # Filter out None values (same as MySQL path below)
-            filtered = {k: v for k, v in data.items() if v is not None}
-            if not filtered:
-                raise ValueError("Insert data cannot be empty (no valid fields after filtering None values)")
-            return await self._backend.insert(table, filtered)
-
+        # Validated BEFORE resolving a backend: these are caller mistakes, and
+        # paying for a connection first would both waste it and, when the
+        # database is unreachable, bury the real cause under a connection error.
         if not data:
             raise ValueError("Insert data cannot be empty")
 
-        # Filter out None values to let MySQL DEFAULT take effect
-        # (Explicitly passing NULL would override column DEFAULT values, causing errors on NOT NULL columns)
-        data = {k: v for k, v in data.items() if v is not None}
-
-        if not data:
+        # Drop None values so column DEFAULTs apply. Passing NULL explicitly
+        # would override them and fail on NOT NULL columns. This is the one bit
+        # of business semantics the facade keeps — the backends do not filter.
+        filtered = {k: v for k, v in data.items() if v is not None}
+        if not filtered:
             raise ValueError("Insert data cannot be empty (no valid fields after filtering None values)")
 
-        logger.debug(f"              → DB.insert('{table}', {len(data)} fields)")
-
-        safe_table = validate_identifier(table)
-        safe_keys = [validate_identifier(key) for key in data.keys()]
-
-        columns = ", ".join(f"`{key}`" for key in safe_keys)
-        placeholders = ", ".join(["%s"] * len(data))
-        query = f"INSERT INTO `{safe_table}` ({columns}) VALUES ({placeholders})"
-        params = tuple(data.values())
-
-        await self._ensure_backend()
-        if self._backend:
-            # _ensure_backend resolved the dialect — delegate with translation
-            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
-            p = tuple(params) if params else ()
-            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        backend = await self._ensure_backend()
+        return await backend.insert(table, filtered)
 
     async def update(
         self,
@@ -769,45 +669,15 @@ class AsyncDatabaseClient:
             data: Data to update
 
         Returns:
-            Number of rows updated
+            Number of affected rows
         """
-        if self._backend:
-            return await self._backend.update(table, filters, data)
-
         if not data:
             raise ValueError("Update data cannot be empty")
         if not filters:
             raise ValueError("Update operation must specify filter conditions")
 
-        logger.debug(f"              → DB.update('{table}', filters={filters}, {len(data)} fields)")
-
-        safe_table = validate_identifier(table)
-
-        set_clauses = []
-        params = []
-        for key, value in data.items():
-            safe_key = validate_identifier(key)
-            set_clauses.append(f"`{safe_key}` = %s")
-            params.append(value)
-
-        where_clauses = []
-        for key, value in filters.items():
-            safe_key = validate_identifier(key)
-            where_clauses.append(f"`{safe_key}` = %s")
-            params.append(value)
-
-        query = (
-            f"UPDATE `{safe_table}` "
-            f"SET {', '.join(set_clauses)} "
-            f"WHERE {' AND '.join(where_clauses)}"
-        )
-
-        await self._ensure_backend()
-        if self._backend:
-            # _ensure_backend resolved the dialect — delegate with translation
-            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
-            p = tuple(params) if params else ()
-            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        backend = await self._ensure_backend()
+        return await backend.update(table, filters, data)
 
     async def delete(
         self,
@@ -822,31 +692,13 @@ class AsyncDatabaseClient:
             filters: Filter conditions
 
         Returns:
-            Number of rows deleted
+            Number of affected rows
         """
-        if self._backend:
-            return await self._backend.delete(table, filters)
-
         if not filters:
             raise ValueError("Delete operation must specify filter conditions")
 
-        safe_table = validate_identifier(table)
-
-        where_clauses = []
-        params = []
-        for key, value in filters.items():
-            safe_key = validate_identifier(key)
-            where_clauses.append(f"`{safe_key}` = %s")
-            params.append(value)
-
-        query = f"DELETE FROM `{safe_table}` WHERE {' AND '.join(where_clauses)}"
-
-        await self._ensure_backend()
-        if self._backend:
-            # _ensure_backend resolved the dialect — delegate with translation
-            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
-            p = tuple(params) if params else ()
-            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        backend = await self._ensure_backend()
+        return await backend.delete(table, filters)
 
     async def upsert(
         self,
@@ -855,62 +707,26 @@ class AsyncDatabaseClient:
         id_field: str
     ) -> int:
         """
-        Concurrency-safe insert or update (using INSERT ... ON DUPLICATE KEY UPDATE)
+        Insert or update on duplicate key.
 
-        Unlike the query-then-insert/update approach, this method uses database-level
-        atomic operations, ensuring no race conditions under high concurrency.
+        SQL generation belongs to the backend: MySQL emits
+        `INSERT ... AS new_row ON DUPLICATE KEY UPDATE` (8.0.20+) while SQLite
+        emits its own upsert form. Building the statement here would mean
+        handing MySQL syntax to whichever backend happened to be configured.
 
         Args:
             table: Table name
-            data: Data to insert/update
-            id_field: Primary key field name (used to determine insert or update)
+            data: Data to insert or update
+            id_field: Unique key column used for conflict detection
 
         Returns:
-            Number of affected rows (1=new insert, 2=updated existing record)
-
-        Example:
-            # Insert if narrative_id doesn't exist, update if it does
-            affected = await db.upsert(
-                "narratives",
-                {"narrative_id": "nar_123", "title": "New Title", ...},
-                "narrative_id"
-            )
+            Number of affected rows
         """
-        if self._backend:
-            return await self._backend.upsert(table, data, id_field)
-
         if not data:
             raise ValueError("Insert data cannot be empty")
 
-        logger.debug(f"              → DB.upsert('{table}', {len(data)} fields)")
-
-        safe_table = validate_identifier(table)
-        safe_keys = [validate_identifier(key) for key in data.keys()]
-        safe_id_field = validate_identifier(id_field)
-
-        # Build INSERT part
-        columns = ", ".join(f"`{key}`" for key in safe_keys)
-        placeholders = ", ".join(["%s"] * len(data))
-
-        # Build ON DUPLICATE KEY UPDATE part (excluding primary key)
-        # Uses MySQL 8.0.20+ recommended new syntax: INSERT INTO ... AS new_row ... ON DUPLICATE KEY UPDATE col = new_row.col
-        update_clauses = []
-        for key in safe_keys:
-            if key != safe_id_field:
-                update_clauses.append(f"`{key}` = new_row.`{key}`")
-
-        query = f"INSERT INTO `{safe_table}` ({columns}) VALUES ({placeholders}) AS new_row"
-        if update_clauses:
-            query += f" ON DUPLICATE KEY UPDATE {', '.join(update_clauses)}"
-
-        params = tuple(data.values())
-
-        await self._ensure_backend()
-        if self._backend:
-            # _ensure_backend resolved the dialect — delegate with translation
-            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
-            p = tuple(params) if params else ()
-            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        backend = await self._ensure_backend()
+        return await backend.upsert(table, data, id_field)
 
     async def insert_model(self, table: str, model: BaseModel) -> int:
         """Insert a Pydantic model"""

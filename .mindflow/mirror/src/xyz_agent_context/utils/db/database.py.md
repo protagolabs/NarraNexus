@@ -4,6 +4,39 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — 六个 CRUD 收敛为纯委派（**含公开契约变化**）
+
+`execute` / `get` / `get_one` / `get_by_ids` / `insert` / `update` / `delete` /
+`upsert` 此前都是「顶部 fast path 委派 + 尾部自己拼 SQL」两条路。尾部那份在
+`insert`/`update`/`delete`/`upsert` 里引用了未定义的 `fetch`——**lazy client 首次
+调用直接 `NameError`**，而 `pyproject.toml` 全局 ignore 了 F821 所以 lint 不报，
+线上又都经 `db_factory` 预置 backend 走 fast path，于是它一直活着。
+
+全部改为 `backend = await self._ensure_backend()` 后委派。`database.py` 1170 → 895 行。
+
+**这不是纯重构，facade 的公开契约有三处变化**（用旧实现与新实现对同一个 sqlite
+文件跑 37 个用例差分得出，三处都是修复方向）：
+
+1. `filters={"col": None}` 现在生成 `IS NULL` 并真的匹配到行；此前 lazy 路径生成
+   `= NULL`，在 SQL 里恒不为真，`get` 返回 `[]`、`get_one` 返回 `None`。**如果有
+   代码依赖「查 None 返回空」，那是依赖一个 bug。**
+2. 写入值统一经 backend 的 `_serialize_value`：dict/list → JSON 字符串、bool → 0/1、
+   datetime → ISO 8601。此前 lazy 路径直接把裸值交给驱动。
+3. `insert`/`update`/`delete`/`upsert` 从 `NameError` 变成可用。
+
+**没有丢的**：`order_by` 的方向解析（含大小写与非法方向的回退）、`limit`/`offset`、
+`fields` 投影、`get_by_ids` 的保序 + 缺失位 `None` 占位 + 去重、以及六条 ValueError
+的**文案**——差分逐字相同。
+
+**facade 唯一保留的业务语义是 `insert` 的 None 过滤**（backend 不做）：显式传 NULL
+会覆盖列的 DEFAULT，在 NOT NULL 列上直接报错。它和两条 ValueError 一起放在
+`_ensure_backend()` **之前**——这些是调用方的编程错误，先建一次连接既浪费，又会在
+数据库不可达时让连接错误盖住真正的原因。
+
+`upsert` 的 SQL 拼装交回 backend 才是对的：MySQL 发 `AS new_row ON DUPLICATE KEY
+UPDATE`（8.0.20+），SQLite 发 `ON CONFLICT DO UPDATE`。客户端拼一份 MySQL 语句再
+交给任意 backend 是错的分层。
+
 ## 2026-08-18 — 删掉不可达的 legacy pool 路径（铁律 #2）
 
 `AsyncDatabaseClient` 此前有两套实现：委派给 `DatabaseBackend` 的一套，和直接操作
@@ -34,7 +67,7 @@ sqlite-proxy / mysql）都会设 `self._backend` 然后 `return None`，从不�
 
 ## 2026-08-17 — legacy 路径的事务连接同样改为 task 级
 
-`AsyncDatabaseClient` 有两条路：`_backend` 非空时全部委派给 `DatabaseBackend`；
+`AsyncDatabaseClient` 当时有两条路：`_backend` 非空时全部委派给 `DatabaseBackend`；
 `_backend` 为空时走本文件自带的 pool + 游标实现（legacy）。**两条路各有一份完全相同
 的事务连接 bug**，所以一并修，否则只修一半等于没修。改动与
 [[db_backend_mysql.py]] 对称：`_transaction_connection` 实例属性 → `_txn_conn`
@@ -60,7 +93,7 @@ rollback 自身失败时只记日志不抛，避免掩盖原始异常（此时 `
 三个后端(sqlite/mysql/proxy)与抽象基类的 `get` 都早已支持列投影,
 唯独 facade 签名漏了它——所有调用方被迫 `SELECT *`,在含 MEDIUMTEXT
 的表(events 的 event_log 可达数十 MB/行)上是隐性的整表物化风险。
-补参数并在 legacy 内联路径同样实现(backtick + validate_identifier)。
+补参数并在当时的 legacy 内联路径同样实现(backtick + validate_identifier)——该内联路径已于 2026-08-18 删除，见顶部条目。
 首个受益方:manyfold 诊断端点的 events 摘要查询。
 
 ## Why it exists
@@ -75,7 +108,7 @@ rollback 自身失败时只记日志不抛，避免掩盖原始异常（此时 `
 
 ## Design decisions
 
-**Backend-delegation pattern.** `AsyncDatabaseClient` originally embedded aiomysql pool logic directly. As SQLite and proxy backends were added, all concrete driver code was pushed into `DatabaseBackend` subclasses; the client now delegates every operation to `self._backend`. The legacy aiomysql pool attributes still exist on the object but in practice every code path reaches a backend.
+**Backend-delegation pattern.** `AsyncDatabaseClient` originally embedded aiomysql pool logic directly. As SQLite and proxy backends were added, all concrete driver code was pushed into `DatabaseBackend` subclasses; the client now delegates every operation to `self._backend`. The legacy aiomysql pool attributes and the second inline SQL path were removed on 2026-08-18 — there is one path.
 
 **Lazy initialization.** `AsyncDatabaseClient()` can be constructed without awaiting anything. The backend is created on the first awaited call in `_ensure_backend()`. This lets module constructors accept a `database_client` parameter without the caller needing to have previously awaited anything.
 

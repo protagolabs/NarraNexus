@@ -948,3 +948,71 @@ async def test_the_owner_itself_is_released_by_clearing_the_holder():
     assert len(pool.free) == 1
     assert "DELETE FROM t WHERE id = 7" in pool.free[0].queries
     assert txn_conn.committed == 1
+
+
+@pytest.mark.asyncio
+async def test_every_crud_method_works_on_a_lazily_initialised_client(tmp_path, monkeypatch):
+    """The FIRST call on a client that has not resolved its backend yet.
+
+    `insert` / `update` / `delete` / `upsert` used to carry a tail left over
+    from the deleted pool path that referenced an undefined `fetch`, so the
+    first call on such a client raised `NameError: name 'fetch' is not defined`
+    — an error with no relationship to what the caller was doing. It survived
+    because every production caller goes through `db_factory`, which pre-seeds
+    the backend so the fast path short-circuits, and because `F821` (undefined
+    name) is in this repo's global ruff ignore list.
+
+    The previous round's lazy-path test stopped one method short of all four.
+    This one starts a NEW client per method so each really takes the cold path.
+    """
+    from xyz_agent_context.settings import settings
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+
+    db_file = tmp_path / "crud.db"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_file}", raising=False)
+
+    await AsyncDatabaseClient().execute(
+        "CREATE TABLE IF NOT EXISTS t (k VARCHAR(32) PRIMARY KEY, v VARCHAR(32))",
+        fetch=False,
+    )
+
+    # Each on a cold client — the branch that used to raise NameError.
+    await AsyncDatabaseClient().insert("t", {"k": "a", "v": "1"})
+    await AsyncDatabaseClient().update("t", {"k": "a"}, {"v": "2"})
+    await AsyncDatabaseClient().upsert("t", {"k": "b", "v": "3"}, "k")
+    rows = await AsyncDatabaseClient().get("t", {})
+    assert {r["k"]: r["v"] for r in rows} == {"a": "2", "b": "3"}
+
+    assert await AsyncDatabaseClient().get_one("t", {"k": "a"}) == {"k": "a", "v": "2"}
+    assert [r["k"] for r in await AsyncDatabaseClient().get_by_ids("t", "k", ["b", "a"])] == ["b", "a"]
+
+    await AsyncDatabaseClient().delete("t", {"k": "a"})
+    assert await AsyncDatabaseClient().get_one("t", {"k": "a"}) is None
+
+
+@pytest.mark.asyncio
+async def test_the_empty_input_guards_survived_the_collapse(tmp_path, monkeypatch):
+    """Collapsing the two paths into one must not drop the validation that only
+    lived on the deleted half."""
+    from xyz_agent_context.settings import settings
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+
+    monkeypatch.setattr(
+        settings, "database_url", f"sqlite:///{tmp_path / 'guards.db'}", raising=False
+    )
+    db = AsyncDatabaseClient()
+
+    # Anchored: "Insert data cannot be empty" is a prefix of the None-filtered
+    # message too, so a loose match would pass even if the two collapsed into one.
+    with pytest.raises(ValueError, match=r"^Insert data cannot be empty$"):
+        await db.insert("t", {})
+    with pytest.raises(ValueError, match="no valid fields after filtering"):
+        await db.insert("t", {"k": None})
+    with pytest.raises(ValueError, match="Update data cannot be empty"):
+        await db.update("t", {"k": "a"}, {})
+    with pytest.raises(ValueError, match="must specify filter conditions"):
+        await db.update("t", {}, {"v": "1"})
+    with pytest.raises(ValueError, match="must specify filter conditions"):
+        await db.delete("t", {})
+    with pytest.raises(ValueError, match="Insert data cannot be empty"):
+        await db.upsert("t", {}, "k")

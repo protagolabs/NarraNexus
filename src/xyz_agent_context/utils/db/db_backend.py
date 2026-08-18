@@ -157,7 +157,7 @@ class DatabaseBackend(ABC):
         self,
         table: str,
         id_field: str,
-        ids: List[str],
+        ids: List[Any],
         fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
         """

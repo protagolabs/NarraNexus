@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/identity_migration.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
