@@ -125,5 +125,5 @@ def test_the_retired_name_survives_only_as_prose_anywhere_in_the_tree():
 
     assert not offenders, (
         "the retired owner tool is named in a functional position — nothing "
-        f"answers to it:\n  " + "\n  ".join(offenders)
+        "answers to it:\n  " + "\n  ".join(offenders)
     )

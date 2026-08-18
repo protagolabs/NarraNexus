@@ -2,8 +2,14 @@
 @file_name: test_surface_matrix.py
 @author:
 @date: 2026-08-18
-@description: Every surface, both halves: what the desk holds and what the
-              turn's opening line says about it.
+@description: Owner / team / peer / patrol / one IM surface, both halves: what
+              the desk holds and what the turn's opening line says about it.
+
+Named rather than "every surface", because it is not every surface — `job` and five
+of the six IM sources are absent. One IM row is representative on purpose: the six
+channel modules all inherit `owns_working_source` from `ChannelModuleBase`, so
+origin-first ordering resolves identically for them, whereas ChatModule and
+MessageBusModule override it and are the pair the desk bug lived in.
 
 Spec §10 item 2. Two independent mechanisms decide what an agent is told to do
 this turn:
@@ -53,6 +59,10 @@ SURFACES = [
     ("team room", "message_bus", {BUS_TEAM_ROOM_EXTRA_KEY: True},
      "mcp__message_bus_module__message_team"),
     ("peer DM", "message_bus", None, "mcp__message_bus_module__message_agent"),
+    # One IM surface: the six channel modules share `ChannelModuleBase`'s
+    # `owns_working_source`, so this row covers the inherited path that neither
+    # ChatModule nor MessageBusModule exercises.
+    ("IM (lark)", "lark", None, "mcp__lark_module__lark_cli"),
     ("patrol", "message_bus",
      {BUS_TEAM_ROOM_EXTRA_KEY: True, BUS_PLAIN_TEXT_TURN_EXTRA_KEY: True}, None),
 ]
@@ -65,15 +75,22 @@ def _instances():
     about the PREVIOUS turn, which a loop reusing instances would hide.
     """
     from xyz_agent_context.module.chat_module.chat_module import ChatModule
+    from xyz_agent_context.module.lark_module.lark_module import LarkModule
     from xyz_agent_context.module.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
     chat = ChatModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
     bus = MessageBusModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
+    lark = LarkModule(agent_id=AGENT_ID, user_id=None, database_client=MagicMock())
+    # A bound channel: an unbound one suppresses every non-setup tool
+    # (`ChannelModuleBase.get_disallowed_tools`), which is a different property
+    # with its own test in `tests/channel/test_setup_residency.py`.
+    lark._bound_cache = True  # type: ignore[attr-defined]
     return [
         SimpleNamespace(module_class="ChatModule", module=chat, instance_id="i1"),
         SimpleNamespace(module_class="MessageBusModule", module=bus, instance_id="i2"),
+        SimpleNamespace(module_class="LarkModule", module=lark, instance_id="i3"),
     ]
 
 

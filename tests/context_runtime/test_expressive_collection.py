@@ -469,3 +469,61 @@ async def test_a_stale_disallow_signature_is_logged_loudly(monkeypatch, caplog):
         "a stale get_disallowed_tools signature failed open with no ERROR — "
         f"records: {[r.getMessage() for r in caplog.records]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_an_in_body_typeerror_is_not_reported_as_a_signature_mismatch(
+    monkeypatch, caplog
+):
+    """The arm above cannot tell "the call was rejected" from "the body raised".
+
+    Both fail open identically, so the only thing at stake is what the log says —
+    and that is not nothing: on-call reads "signature mismatch", checks the
+    override, finds it correct, and now has an ERROR line contradicting the code,
+    while the real fault (suppression dropped, both send verbs on a patrol desk
+    whose prompt forbids them) goes unlooked-at.
+
+    A signature TypeError is raised while binding arguments, so it never enters the
+    callee and its traceback has one frame. A body TypeError has more. That is the
+    distinction, and this pins it from the observable side.
+    """
+    import logging
+
+    class _RaisesInBody:
+        config = SimpleNamespace(name="BodyRaiser", priority=5)
+
+        async def get_mcp_config(self):
+            return None
+
+        async def get_disallowed_tools(self, ctx_data=None):
+            # Correct signature; the BODY is wrong.
+            return ["a"] * None  # type: ignore[operator]
+
+        async def get_expressive_tools(self, ctx_data=None):
+            return []
+
+        async def get_turn_context(self, ctx_data) -> str:
+            return ""
+
+    instances = [
+        SimpleNamespace(
+            module_class="BodyRaiser", module=_RaisesInBody(), instance_id="i1"
+        )
+    ]
+    from loguru import logger as _loguru
+
+    seen: list[str] = []
+    handler_id = _loguru.add(lambda msg: seen.append(str(msg)), level="ERROR")
+    try:
+        with caplog.at_level(logging.ERROR):
+            await _collect(instances, monkeypatch)
+    finally:
+        _loguru.remove(handler_id)
+
+    joined = " ".join(seen)
+    assert "BodyRaiser" in joined, f"the failure was not logged at all: {seen}"
+    assert "signature mismatch" not in joined, (
+        "a TypeError from inside a correctly-shaped body was reported as a "
+        f"signature mismatch: {joined}"
+    )
+    assert "raised" in joined, joined

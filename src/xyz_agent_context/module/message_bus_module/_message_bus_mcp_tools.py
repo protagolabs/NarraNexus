@@ -137,6 +137,42 @@ _UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
 READ_HISTORY_MAX = 200
 
 
+def _reject_empty_text(text: str) -> Optional[dict]:
+    """The refusal for a send with no content, or None when there is content.
+
+    One definition because there are two send verbs and the refusal is the same
+    fact. It was copy-pasted, comment and all, and two copies of an error string
+    drift the first time one is reworded — after which the agent gets two different
+    instructions for one refusal.
+
+    Why refuse at all: the routing argument was guarded from the start and the
+    CONTENT was not, which is the more consequential half. Blank text posts an empty
+    bubble into a surface a person reads, and then `has_message_from_turn` answers
+    True for the turn — so the "said nothing" notice is suppressed and the turn files
+    as delivered. A room that looks answered and says nothing is strictly worse than
+    the silence it replaced, which at least produced a notice. On the peer lane it is
+    worse still: an empty message starts a full LLM turn for the recipient with
+    nothing to answer.
+
+    An ERROR, not a silent no-op: a tool that returns success for a no-op teaches the
+    model it replied. Same discipline `inbox_recorder.record_turn` already applies to
+    an empty outbound row, applied to the tool that is now every team turn's reply.
+
+    Attachments do not exempt it. `message_agent` advertises "attach freely", so the
+    message names them explicitly — a caption-less file would otherwise get a refusal
+    it cannot connect to anything it did. Allowing blank text when an attachment is
+    present would re-open the `has_message_from_turn`-answers-True path.
+    """
+    if (text or "").strip():
+        return None
+    return {
+        "success": False,
+        "error": "`text` is empty — say something, or end the turn without "
+                 "calling this. An attachment does not replace it: name what "
+                 "you are sending.",
+    }
+
+
 async def _resolve_conversation(
     agent_id: str, *, with_agent: str, team_id: str
 ) -> tuple[Optional[str], Optional[str]]:
@@ -242,26 +278,9 @@ def register_message_bus_mcp_tools(
                 "error": "`to` is required — name the agent you are writing to.",
             }
 
-        if not (text or "").strip():
-            # The routing argument was guarded from the start and the CONTENT was
-            # not, which is the more consequential half. Blank text posts an empty
-            # bubble into a surface a person reads, and then
-            # `has_message_from_turn` answers True for the turn — so the
-            # "said nothing" notice is suppressed and the turn files as delivered.
-            # A room that looks answered and says nothing is strictly worse than
-            # the silence it replaced, which at least produced a notice. On the
-            # peer lane it is worse still: an empty message starts a full LLM turn
-            # for the recipient with nothing to answer.
-            #
-            # An ERROR, not a silent no-op: a tool that returns success for a
-            # no-op teaches the model it replied. Same discipline
-            # `inbox_recorder.record_turn` already applies to an empty outbound
-            # row, applied to the tool that is now every team turn's reply.
-            return {
-                "success": False,
-                "error": "`text` is empty — say something, or end the turn "
-                         "without calling this.",
-            }
+        empty = _reject_empty_text(text)
+        if empty is not None:
+            return empty
 
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
@@ -334,26 +353,9 @@ def register_message_bus_mcp_tools(
                 "error": "`team_id` is required — name the team room you are speaking in.",
             }
 
-        if not (text or "").strip():
-            # The routing argument was guarded from the start and the CONTENT was
-            # not, which is the more consequential half. Blank text posts an empty
-            # bubble into a surface a person reads, and then
-            # `has_message_from_turn` answers True for the turn — so the
-            # "said nothing" notice is suppressed and the turn files as delivered.
-            # A room that looks answered and says nothing is strictly worse than
-            # the silence it replaced, which at least produced a notice. On the
-            # peer lane it is worse still: an empty message starts a full LLM turn
-            # for the recipient with nothing to answer.
-            #
-            # An ERROR, not a silent no-op: a tool that returns success for a
-            # no-op teaches the model it replied. Same discipline
-            # `inbox_recorder.record_turn` already applies to an empty outbound
-            # row, applied to the tool that is now every team turn's reply.
-            return {
-                "success": False,
-                "error": "`text` is empty — say something, or end the turn "
-                         "without calling this.",
-            }
+        empty = _reject_empty_text(text)
+        if empty is not None:
+            return empty
 
         try:
             from xyz_agent_context.message_bus.team_posting import post_team_reply

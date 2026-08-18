@@ -70,6 +70,23 @@ def build_reply_language_section(language: str | None) -> str:
     return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
 
 
+def _is_signature_typeerror(exc: TypeError) -> bool:
+    """Did the CALL fail, or did the callee's body raise?
+
+    A signature TypeError is raised while binding arguments, so it never enters the
+    callee — its traceback has exactly one frame, ours. A TypeError from inside a
+    correctly-shaped implementation has at least one more.
+
+    Worth distinguishing because both arms fail open identically, so the only thing
+    at stake is what the log says — and a loud line with the wrong cause sends
+    on-call to check an override signature that is fine, while the actual fault goes
+    unlooked-at. Verified: a module with the correct `(self, ctx_data=None)` shape
+    whose body did `["a"] * None` was reported as "signature mismatch".
+    """
+    tb = exc.__traceback__
+    return tb is None or tb.tb_next is None
+
+
 class ContextRuntime:
     """
     ContextRuntime is responsible for building the Context required for the Agent Loop.
@@ -1243,10 +1260,21 @@ class ContextRuntime:
                     # suppress nothing, and on a patrol turn that leaves both
                     # send verbs on a desk whose prompt forbids them — the C1
                     # defect class, back, behind a warning nobody greps.
-                    logger.error(
-                        f"          get_disallowed_tools signature mismatch "
-                        f"for {inst.module_class} (suppression DROPPED): {e}"
-                    )
+                    #
+                    # But only when the SIGNATURE is what rejected the call: a
+                    # TypeError from inside a correctly-shaped body reported as a
+                    # signature mismatch sends the reader to check a signature
+                    # that is fine.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_disallowed_tools signature mismatch "
+                            f"for {inst.module_class} (suppression DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_disallowed_tools raised for "
+                            f"{inst.module_class} (suppression DROPPED)"
+                        )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_disallowed_tools failed for "
@@ -1289,10 +1317,20 @@ class ContextRuntime:
                     # failure once silently muted ChatModule's declaration
                     # (fail-open turned a signature drift into an empty
                     # reply surface for the whole turn).
-                    logger.error(
-                        f"          get_expressive_tools signature mismatch "
-                        f"for {inst.module_class} (declaration DROPPED): {e}"
-                    )
+                    #
+                    # Split the same way as the suppression arm above: fixing one
+                    # and not the other would make the untouched message actively
+                    # misleading by contrast.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_expressive_tools signature mismatch "
+                            f"for {inst.module_class} (declaration DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_expressive_tools raised for "
+                            f"{inst.module_class} (declaration DROPPED)"
+                        )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_expressive_tools failed for "

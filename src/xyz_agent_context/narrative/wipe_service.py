@@ -212,9 +212,15 @@ async def wipe_agent_data(
 
             # IM conversation history, in the inbox's own tables. Scoped by
             # `agent_id` — NOT `owner_user_id`, since one user may own several
-            # agents and each has its own threads. Messages first: a thread row
-            # deleted before its messages would orphan them under a thread_id
-            # nothing can name, and they would survive every later wipe.
+            # agents and each has its own threads.
+            #
+            # What prevents orphans is the TRANSACTION this whole block runs in,
+            # not the order of these two deletes: the thread_id set is read once,
+            # before either, so both see the same list either way. An earlier
+            # version of this comment claimed messages-first was load-bearing —
+            # mutation-checked and it is not, swapping them leaves the suite green.
+            # The order that WOULD matter is moving the read between the deletes,
+            # which is the one edit that comment's reasoning would have permitted.
             threads = await db_client.get(
                 "inbox_threads", filters={"agent_id": agent_id}
             )
