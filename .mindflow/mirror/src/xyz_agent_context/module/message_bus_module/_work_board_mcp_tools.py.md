@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_work_board_mcp_tools.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -45,7 +45,7 @@ Module 要新端口、新 instance 生命周期,还得反过来去查 bus 的表
   这个功能要加的监督
 - `cancelled` —— 用户的决定,不是 agent 的
 
-`team_team_work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
+`team_work_update_status` 用 `MODEL_SETTABLE` 白名单挡住,并在错误里说明**为什么**
 不能写,而不是只说不行。
 
 ## `_resolve_team_room` 为什么查 activity 而不是读注入头
@@ -80,7 +80,7 @@ team 的 id 存在性回泄进同一个上下文,而那个上下文正是 id 的
 原来只认 `bus_agent_activity` 的 running 行,理由是「那行只由 trigger 的 team
 分支写,所以『在 team 房间有活跃行』恰好等价于『有板子』」。这个等价在**第二条
 lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发之外唤醒 lead、不写
-这张表,于是 5 个工具在平台自己叫 lead 调 `team_work_complete` 的那轮全部失败。
+这张表,于是 5 个工具在平台自己叫 lead 调 `work_complete_item` 的那轮全部失败。
 
 本文档原先就写下过这个风险 ——「代价:这依赖 activity 行的写入时机。若将来 team
 分支不再写它,这里会静默退化成『没有板子』」。巡查 lane 就是那个分支,隐患已经
@@ -105,3 +105,24 @@ lane 开始在 team 房间跑 agent** 的那一刻失效:巡查在消息派发�
 
 同上：常量改为 import 后，那句「同 teams.py 和 trigger 的房间前缀约定」下面已无定义，
 且指向的两个模块都不再拥有它。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

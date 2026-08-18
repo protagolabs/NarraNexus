@@ -18,15 +18,30 @@ stub: false
   历史永久「未读」**，以伪 agent `lark_user_<id>` 的名义灌进 **90 个 agent** 每一轮的上下文
   ——而那个署名不符合任何一条 Source-Recognition 规则。
 
-## 关键设计：containment 是结构性的，不是过滤器
+## 关键设计：新行靠结构，旧行只能靠过滤
 
-agent 的未读注入读的是 `bus_messages JOIN bus_channel_members`。新行不在那两张表里，
-**所以它到不了**——不需要任何前缀判断。
+**新行（2026-08-17 起）**：agent 的未读注入读的是 `bus_messages JOIN bus_channel_members`，
+而记录层写的是自己的两张表 —— 新行不在那两张表里，**所以它到不了**，不需要任何前缀判断。
+这一半确实是结构性的。
 
-这一点是刻意的：**过滤器正是 `im_channel_prefixes()`，而它漂过**。2026-07-03 wechat 事故
-里那个手维护的前缀元组漏了 wechat / narramessenger / discord，每条消息触发第二个 agent
-run、穿着 Owner-Relay 的 peer prompt，伪造 context_token、发假的「我已经在微信上回复你啦」。
-**能靠结构解决的，不要靠列表。**
+**旧行（2026-08-17 之前）**：每一个已部署的库里都还留着旧写入器写进 `bus_messages` 的 IM
+历史，而未读谓词照样会把它们交给模型。搬表对它们无效。所以
+[[local_bus.py]] `_unread_where` **确实加了一道前缀过滤**，排除 dedicated-trigger 的频道前缀
+—— 否则这次改造会带着「containment 是结构性的」的说法上线，而 1,364 条永久未读照旧每轮进入
+90 个 agent 的上下文。
+
+这一节原先只写了前半句，还加了一句「**能靠结构解决的，不要靠列表**」，并引 2026-07-03 事故
+论证过滤器不可取。**那句话在这个文件里会读成「去把那道过滤删掉」** —— 而它是唯一挡住投毒的
+东西，删掉不会报错。（订正于 2026-08-18，第三轮预审。）
+
+2026-07-03 的教训本身没有作废：**手维护**的前缀元组漏了 wechat / narramessenger / discord，
+每条消息触发第二个 agent run、穿着 Owner-Relay 的 peer prompt、伪造 context_token、发假的
+「我已经在微信上回复你啦」。现在这道过滤能存活的两个理由是：由 registry 推导而非手维护，
+以及**它是临时的** —— 旧行被清理后即可退休（清理步骤在 inbox 回填 runbook 里）。注意
+`MessageBusTrigger` 侧那道**不能**退休，它防的是重复派发，与旧行是否还在无关。
+
+准确的说法是：能靠结构解决的用结构，**已经存在的历史数据只能靠过滤**，而过滤要么由数据源
+推导、要么带一个退休条件 —— 最好两者都有。
 
 ## 一个必须知道的例外：这个记录同时是 operational 的
 
@@ -52,9 +67,18 @@ spec 里「operational vs observational」那条划分因此是**不完全**的�
 
 ## thread id 的形状
 
-`im_<channel>_<chat_id>` / `nx_dm_<agent>_<peer>`：**家族前缀在前**，命名空间先说「这是
-什么」再说「是哪一个」。peer 线程用**两个 agent id** 而不是只用 peer——同一个 owner 可以
-有多个 agent 和同一个 peer 说话，面板是按 agent 列的。
+`im_<channel>_<agent>_<chat_id>` / `nx_dm_<agent>_<peer>`：**家族前缀在前**，命名空间先说
+「这是什么」再说「是哪一个」。
+
+**两者都带 agent id**，理由同一条：同一个 owner 可以有多个 agent 和同一个对话方说话，而面板
+是按 agent 列的（`inbox_threads.agent_id` + 路由 `{"agent_id": agent_id}`），且那一列只在建行
+时写一次。IM 那半原先写的是 `im_<channel>_<chat_id>`（少了 agent），后果是第二个 agent 的消息
+追加进第一个 agent 的会话、它自己的收件箱是空的 —— Telegram 私聊的 `chat_id` 就是**用户**的
+id、跨 bot 相同，所以这可达。已于 2026-08-18 修正，六个调用点（含两个读侧 context builder）
+同批更新，并有两 agent 撞行的回归测试。
+
+这一节此前的形态本身就是一个提示：规则（「用两个 id」）和违反它的公式（IM 那条）挨着写了
+一整天，没人看出来。
 
 ## 不要和它混淆
 

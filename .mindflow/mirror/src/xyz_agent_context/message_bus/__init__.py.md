@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/__init__.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -13,7 +13,7 @@ owner-visible 子集继续服务锚点与历史可见性。注释同步改口。
 
 ## 2026-08-04 (review 修正) — handler 增加 owner_visible 子集
 
-`owner_visible_reply_tool_names=("notify_owner",)`：
+`owner_visible_reply_tool_names=("send_message_to_user_directly",)`：
 bus 交付名单（含 bus 工具）只服务「是否回复了来源」；owner 会话锚点与
 chat 历史持久化只认 owner-notify 工具。见 [[message_source_handler]]。
 
@@ -46,7 +46,6 @@ run 也记 NO-REPLY（8/1 实锤，如 Maestro run_1994fd41）——既错标运
 
 ~~`_delivered_to_origin` 现在只是 `bool(_origin_delivered_text(...))`~~ —— 2026-08-14 它已被删除(生产零调用方),真正做抽取的是
 后者,注释随之改指。
-
 
 ## 2026-08-18 — owner/bus 工具改名（新增条目，不改写上面的历史）
 

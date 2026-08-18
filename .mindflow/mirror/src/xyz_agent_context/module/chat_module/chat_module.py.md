@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
@@ -234,11 +234,11 @@ ruled out this shortcut.
 
 The real no-reply recovery now lives one layer up in
 `step_3_agent_loop._generate_fallback_reply_stream`: when a chat-
-trigger turn ends without `reply_owner`, step 3
+trigger turn ends without `send_message_to_user_directly`, step 3
 calls helper_llm with the agent's reasoning as background, streams a
 user-facing reply through `AgentTextDelta` (frontend renders it like
 any other agent reply), and finally emits a synthetic
-`reply_owner` ProgressMessage carrying
+`send_message_to_user_directly` ProgressMessage carrying
 `details.reply_via="helper_llm_fallback"`.
 
 `hook_after_event_execution` is now a pure consumer:
@@ -380,7 +380,7 @@ lands. Don't uncomment without first reconciling the
 
 ## 2026-04-23 update — 持久化 Agent reasoning 以跨 turn
 
-`hook_after_event_execution` 现在除了保存 `reply_owner` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
+`hook_after_event_execution` 现在除了保存 `send_message_to_user_directly` 的 content（用户可见文字），还把 `params.io_data.final_output`（Agent 的 reasoning）**完整**存到 assistant 消息的 `meta_data.reasoning`。曾考虑过加长度 cap，决定**不截断**——reasoning 是 Agent 自己写的（自然自限长），而且截断会冒风险切掉正是 Agent 要跨轮保留的那个长串（device_code、file token）。
 
 `hook_data_gathering` 在所有 load + sort 完成后，遍历 `all_messages`：对每条 assistant 消息，如果 `meta_data.reasoning` 非空，把 content 包成：
 ```
@@ -446,13 +446,13 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 上一批改动让 team turn 的投递被正确判定为"已投递",然后**声称**行类型会随之变成真
 assistant 行。**那是错的。** 分支选择器读的是 `is_no_response`,而它来自
 **owner-visible** 抽取 —— `extract_owner_visible_text` 在读 `PLATFORM_REPLY_TEXT_KEY`
-**之前**就先过 `is_owner_visible_reply_tool`,对 `message_team` 返回 None。于是
+**之前**就先过 `is_owner_visible_reply_tool`,对 `bus_send_message` 返回 None。于是
 `assistant_content` 被兜底成 "(Agent decided no response needed)"、`is_no_response`
 为真、落 `activity` 行、两个加载器照旧丢掉。`delivered_to_origin` 当时的全部作用只是
 换了摘要文案加一个 meta 字段。
 
 **owner-visible 那道门必须继续说 None** —— 它正是拦住"每次团队回复重新锚定 owner
-会话"的东西(PR #230)。所以不能靠提升 `message_team` 来解决。
+会话"的东西(PR #230)。所以不能靠提升 `bus_send_message` 来解决。
 
 真正的问题是把"owner 没看见"读成了"什么都没说"。`_origin_delivered_text` 用
 **origin** 抽取(全量 `user_reply_tool_names`)取回真正说出去的文本,`is_no_response`

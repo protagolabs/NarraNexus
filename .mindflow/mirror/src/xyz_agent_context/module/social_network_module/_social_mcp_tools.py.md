@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-10 (PR-6) — create_agent 迁走 seam，社交模块全部迁完
@@ -45,7 +45,7 @@ search（读工具）使用。
 P1 现场模型把"问问 X 在干嘛"路由到了 `get_contact_info`——旧描述
 "Use this when you need to know how to contact a specific person" 读起来
 确实像。新描述明说:只给联系方式、**不联系任何人**、答不了"另一个 agent
-在干什么/做完没有",要真去问用 `message_agent`。工具描述是模型选工具
+在干什么/做完没有",要真去问用 `bus_send_to_agent`。工具描述是模型选工具
 时唯一看得到的东西,所以这属于行为契约,有测试。
 
 `agent_id` 参数描述也改成"你自己的 id"(此前"拥有此社交网络的 agent 的
@@ -92,3 +92,24 @@ contain those words"——Agent 看到这条提示后会自然把 query 重写�
 ## 新人易踩的坑
 
 - `get_contact_info` 工具返回的是结构化的 `contact_info` 字典（存储在 `identity_info.contact_info` 字段），不是 `entity_description` 里的自然语言描述。两者都可能包含联系方式，但格式和来源不同——前者是 Agent 主动通过 `extract_entity_info` 结构化写入的，后者是 hook 自动提炼的自然语言。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

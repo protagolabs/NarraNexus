@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
@@ -563,7 +563,7 @@ reached the room — logged "agent chose silent reply; nothing sent". Cause:
 `run_collector.collect_run` emits tool calls as **dicts**
 `{"item": {"type":"tool_call_item","tool_name","arguments"}}` (the shape Lark's
 extractor navigates). `getattr(dict, "details")` is always None → no match →
-"" → dropped. The original notify_owner version had the same
+"" → dropped. The original send_message_to_user_directly version had the same
 mismatch but was never exercised (prompt pointed at narra_send), so the bug
 rode along until the reply path actually went through narra_reply. Now mirrors
 Lark: `raw.get("item")` → check `type=="tool_call_item"` → `item.get("tool_name"/
@@ -574,7 +574,7 @@ shape, not a `.details` stand-in.
 
 Sibling to the outbound-send unification (see [[_matrix_send]]). `extract_output`
 now scrapes **`narra_reply`** (the agent's channel-reply marker, ``text`` arg),
-NOT the generic ``notify_owner`` — the shared channel prompt
+NOT the generic ``send_message_to_user_directly`` — the shared channel prompt
 (`channel_prompts.py`) reserves that generic tool for OWNER messages, so keying
 the room reply on it was the bug behind "reply went out via Gateway `/chat/send`
 while the room_send path idled and mislogged 'nothing sent'".
@@ -912,3 +912,24 @@ group thread.
 - [[narramessenger_trigger]] — polling transport, coexists with this.
 - [[_narramessenger_credential_manager]] — where matrix creds live
   (`connection_mode='matrix'` rows).
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

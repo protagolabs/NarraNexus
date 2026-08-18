@@ -272,7 +272,6 @@ query 在 SSE 上丢失的原因:工具调用 POST 到 `/messages/?session_id=�
   测试用 loguru sink 而不是 pytest caplog —— loguru 不走 stdlib logging,
   `not in caplog.text` 会因为永远是空串而假通过(第一版就踩了)。
 
-
 ## 2026-08-18 — owner 工具改名跟随
 
 `send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`

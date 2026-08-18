@@ -35,7 +35,7 @@ team。三道门与其它 team 工具同序：agent 存在、team 属于其 owne
 
 ## 2026-08-07 — 两个发送工具盖上 root_run_id
 
-`message_team` / `message_agent` 把 `caller_root_run_id()` 写进
+`bus_send_message` / `bus_send_to_agent` 把 `caller_root_run_id()` 写进
 `bus_messages.root_run_id`。这是血缘链**唯一的断点**:工具跑在共享的 MCP
 进程里,除了注入的身份之外对调用方一无所知,而它写出的这条消息正是下一个
 run 的触发源。与 `_send_turn_source` 同理——只有 send 现场知道自己的目标。
@@ -83,7 +83,7 @@ is never ping-pong」)。所以差事延续轮次里顺手回答别的同伴 C �
 
 ## 2026-08-04 — 两个发送工具都记录本轮种类
 
-`message_agent` 与 `message_team` 都调 `caller_turn_source()` 并传给
+`bus_send_to_agent` 与 `bus_send_message` 都调 `caller_turn_source()` 并传给
 bus,让消息自己带上"这是提问还是回复"。**两个都要**:它们写同一张表、
 同一个消费方(`_incoming_is_reply_to_my_errand`),漏一个就让那条路径落降级。
 turn source 同时走显式 header 与 bearer,所以 codex 上也读得到
@@ -91,7 +91,7 @@ turn source 同时走显式 header 与 bearer,所以 codex 上也读得到
 
 ## 2026-07-20 — file attachments + team share
 
-`message_team` / `message_agent` gained `attachment_refs` (comma-separated
+`bus_send_message` / `bus_send_to_agent` gained `attachment_refs` (comma-separated
 `att_` file_ids and/or workspace-relative paths); `_stage_send_attachments` resolves
 the sender's owner (`agents.created_by`, dialect-safe via `get_db_client`) and stages
 the files through [[_bus_attachment_impl]] before send. New `bus_share_to_team`

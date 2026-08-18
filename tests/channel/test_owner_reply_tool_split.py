@@ -18,6 +18,8 @@ writes a SECOND reply on top of it — every time.
 """
 from __future__ import annotations
 
+import pathlib
+
 from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
 
 
@@ -56,3 +58,72 @@ def test_the_retired_name_is_gone_from_every_registration():
         handler = MessageSourceRegistry.get(source)
         joined = " ".join(handler.user_reply_tool_names)
         assert "send_message_to_user_directly" not in joined, source
+
+
+def test_the_retired_name_survives_only_as_prose_anywhere_in_the_tree():
+    """Repo-wide, and it distinguishes prose from a functional identifier.
+
+    `send_message_to_user_directly` is legitimately named in HISTORY — a dozen
+    comments and docstrings explain what it was and why it split, and rewriting
+    those would destroy the record. What must not exist is the name in a
+    FUNCTIONAL position, because 铁律 #2 leaves no shim: nothing answers to it.
+
+    Round 3 of this PR's pre-review found four such sites, all in `scripts/`, and
+    the worst was `nexus_power_vs_claude_bench.py`'s `REPLY_TOOLS` — the harness
+    that validates the expressive-surface contract THIS change rewrites. It would
+    have recorded zero replies for every run and reported NexusPower as silent:
+    a measuring instrument lying in the direction that hides a regression in the
+    mechanism it measures.
+
+    The distinction is drawn with AST rather than by grepping for `#`: a comment
+    is invisible to the parser, and a docstring is the one string constant that is
+    prose by construction. Every OTHER string constant, and any identifier, is
+    functional. That is exactly where the four sites lived.
+    """
+    import ast
+    import subprocess
+
+    RETIRED = "send_message_to_user_directly"
+    root = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+    ).stdout.strip()
+    # `src/`, `backend/`, `scripts/` — deliberately NOT `tests/`. A test that
+    # asserts the name is ABSENT has to spell it out, and this file is one of
+    # them, so including tests would make the guard reject its own siblings. The
+    # four real sites round 3 found were all under `scripts/`.
+    files = subprocess.run(
+        ["git", "grep", "-l", RETIRED, "--", "src/*.py", "backend/*.py",
+         "scripts/*.py"],
+        capture_output=True, text=True, cwd=root,
+    ).stdout.split()
+
+    offenders: list[str] = []
+    for rel in files:
+        path = pathlib.Path(root) / rel
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:  # pragma: no cover - not our problem to police
+            continue
+
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                doc = ast.get_docstring(node, clean=False)
+                if doc is not None and RETIRED in doc:
+                    docstrings.add(doc)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if RETIRED in node.value and node.value not in docstrings:
+                    offenders.append(f"{rel}:{node.lineno} (string literal)")
+            elif isinstance(node, ast.Name) and RETIRED in node.id:
+                offenders.append(f"{rel}:{node.lineno} (identifier)")
+            elif isinstance(node, ast.Attribute) and RETIRED in node.attr:
+                offenders.append(f"{rel}:{node.lineno} (attribute)")
+
+    assert not offenders, (
+        "the retired owner tool is named in a functional position — nothing "
+        f"answers to it:\n  " + "\n  ".join(offenders)
+    )

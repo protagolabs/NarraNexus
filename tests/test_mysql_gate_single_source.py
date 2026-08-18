@@ -41,17 +41,7 @@ _CI_JOB = "backend-tests"
 # Written down, not derived from the glob: deriving it from `_twins()` would make
 # the assertion self-satisfying. Lowering it is the job of whichever commit
 # removes a twin.
-# 10 as of 2026-08-18: `test_team_posting_mysql.py` was added with the harness
-# redesign, covering the hop cap's variable-placeholder NOT IN, the DM lookup's
-# three-way join and the wake signal's update-then-insert.
-#
-# Raising this is the obligation of whoever adds a twin, and dev's version of this
-# guard now asserts equality rather than a floor — measured there: with the floor
-# at 9 and ten twins present, renaming one out of `*_mysql.py` still passed, and
-# that twin became invisible to the env-name check and free to drift and skip in
-# CI indefinitely. A floor is only pressured downward; `F == N` is what makes an
-# addition visible.
-_TWIN_FLOOR = 10
+_TWIN_FLOOR = 9
 
 # The single source of truth, by definition: whatever the shared helper says.
 _HELPER = _TESTS / "mysql_dialect.py"

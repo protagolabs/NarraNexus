@@ -83,7 +83,6 @@ agent_response / agent_thinking / tool_call / error / complete …），WS 层�
 这类失败（上下文太小/余额/模型 ID）确定性、可自助修复，后端不再让 helper
 兜底掩盖，前端据此给可操作引导。
 
-
 ## 2026-08-18 — 已退役工具名的跟随
 
 `bus_share_to_team` → `team_share_file`（用户可见的提示文案，此前指向一个不存在的工具名）、

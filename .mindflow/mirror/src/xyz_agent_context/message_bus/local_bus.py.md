@@ -259,7 +259,7 @@ SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于�
 在房间里贴一条假的投递失败 —— 而房间里同时还摆着 agent 自己发的那句话。
 
 判据用 **turn id**,不是时间窗:两条投递路径(平台在 turn 内代发、agent 自己调
-`message_team`)现在都往 `bus_messages.event_id` 上盖同一个 id,所以一次
+`bus_send_message`)现在都往 `bus_messages.event_id` 上盖同一个 id,所以一次
 `SELECT 1 ... LIMIT 1` 就同时覆盖两者。时间窗只能回答"差不多那会儿",而且要再写一遍
 本模块刚清理掉的那套时间戳比较 —— 这个仓库为它付过一次学费(见 08-12 那节的
 `canonical_ts`)。身份是精确的。
@@ -273,7 +273,7 @@ SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于�
 
 **上面 07-31 那节的「Only the trigger's team branch passes it … every other
 caller keeps the default None」已经失效。** 现在 agent 自己调
-`message_team` / `message_agent` 发的行也带 id(见
+`bus_send_message` / `bus_send_to_agent` 发的行也带 id(见
 [[_message_bus_mcp_tools]]),包括 **DM 频道的行** —— 而 DM 从来不是「平台代发」。
 所以 `event_id IS NOT NULL` **不能**当「这条是平台代发的」过滤条件用;它现在只表示
 「发的时候知道自己在哪一轮」。

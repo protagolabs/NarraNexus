@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -17,9 +17,18 @@ stub: false
   历史永久「未读」**，以伪 agent `lark_user_<id>` 的名义灌进 **90 个 agent** 每一轮的
   上下文。
 
-**分表之后这两件事都结束，而且是结构性的**：agent 的未读注入读的是
-`bus_messages JOIN bus_channel_members`，这些行不在那里。**不是过滤器**——过滤器正是
-2026-07-03 wechat 双触发事故的成因（`im_channel_prefixes` 漂了，三个渠道漏掉）。
+**分表让新写入的行结构性地到不了**：agent 的未读注入读的是
+`bus_messages JOIN bus_channel_members`，而记录层写的是这两张表，所以新行不在那里。
+
+**但旧行还在。** 每个已部署的库里都留着旧写入器写进 `bus_messages` 的 IM 历史，搬表对它们
+无效，未读谓词照样会把它们交给模型 —— 上面那 1,364 条说的就是这些行。所以
+[[local_bus.py]] `_unread_where` 加了一道按 dedicated-trigger 前缀的过滤，注入才在部署当天
+停下；清理是回填 runbook 里的手动步骤，清完这道过滤才能退休。
+
+本节原先写的是「**不是过滤器**——过滤器正是 2026-07-03 事故的成因」。（订正于 2026-08-18，
+第三轮预审。）那句话把读者引向删掉那道过滤，而它是唯一挡住投毒的东西、删掉不报错。
+2026-07-03 的教训没作废，但它针对的是**手维护**的列表：现在这张由 registry 推导，且带一个
+退休条件。
 
 **分界线是 operational vs observational**：bus 表承载投递机制（游标、待处理、路由），
 这两张承载「人要读的记录」。因此 `inbox_threads.last_read_at` 是**用户的**阅读状态，
@@ -32,9 +41,19 @@ Owner 决策（2026-08-17）：历史**回填**，且**由 Owner 在部署后手
 路径在脚本开始前就已经在写这张表了，重叠窗口会让其中每条消息**重复出现在用户看得见的
 界面上**。
 
-唯一索引让第二次插入变成 no-op ——**无论脚本跑几遍、时间窗猜得多离谱**。把这个保证放进
-脚本，就是把它放在一个会被忘记的地方。列可空：只有回填行有值，live 写入没有对应的 bus
-行，NOT NULL 会逼写入方编一个 id，而那个 id 迟早和真的撞上。
+这一列**是幂等键该待的地方** —— 放进脚本就是放在一个会被忘记的地方。列可空：只有回填行有值，
+live 写入没有对应的 bus 行，NOT NULL 会逼写入方编一个 id，而那个 id 迟早和真的撞上。
+
+**两件本节原先说错、必须写清的事**（订正于 2026-08-18，第三轮预审；源码注释已同步）：
+
+1. **唯一索引不会把重复插入变成 no-op —— 它会抛错。** 原文写的是「无论脚本跑几遍、时间窗
+   猜得多离谱都是 no-op」。没有 `INSERT IGNORE`、也没有 `ON CONFLICT`。脚本必须自己捕获重复键
+   后重读（与 `InboxRecorder._ensure_thread` 处理建会话竞态同形，且要**用重读判断而不是匹配
+   驱动异常类型** —— aiosqlite 与 aiomysql 的异常类不同）。照原文写脚本，会在第一个重叠处
+   中途抛错、把一个用户可见的界面回填到一半。
+2. **现在没有任何调用方写这一列。** `_insert_message` 的参数默认 `None`，所以唯一索引目前盖在
+   一个全 NULL 的列上（两个方言都允许多个 NULL，所以不报错，也就没人发现）。填它是回填脚本
+   的职责，而脚本按 owner 决定是部署后手动写的、尚不存在。
 
 → 完整回填步骤与验证清单：`reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
 → 设计全文：`reference/self_notebook/specs/2026-08-17-conversation-harness-redesign-design.md`
@@ -780,7 +799,7 @@ Important #1).
 ## 2026-08-14 — `bus_messages.event_id` 的口径扩了(更正 07-31)
 
 07-31 那节写的「stamped by the trigger's team branch at post time」现在只对一半:
-agent 自己调 `message_team` / `message_agent` 发的行也盖(身份头),DM 频道的行
+agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份头),DM 频道的行
 同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
 完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
 

@@ -102,7 +102,6 @@ fallback。但若把常量留在 `response_processor` 里定义，就会闭合�
 
 从 [[entity_schema.py]] 再导出 `NON_TRANSACTING_USER_STATUSES`（`{banned, blocked, deleted}` frozenset，账户停用闸门的单一真相源），供 backend 三处停用面（auth middleware / 登录闸门 / suspend 路由）与未来 agent 包侧共用同一常量，避免规则在多处漂移。
 
-
 ## 2026-08-18 — owner 工具改名跟随
 
 `send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`

@@ -1,13 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
 
 工具改为 `get_agent_data_store().get_chat_history(agent_id, instance_id, limit)`，实现下沉到
 [[_chat_reads]] `fetch_chat_history`（DirectStore/孪生路由同源）。**三处随迁变化**：
-1) 工具签名加 `agent_id`（LLM 传，同两个 owner 工具），闭掉旧的「任意 instance_id
+1) 工具签名加 `agent_id`（LLM 传，同 send_message_to_user_directly），闭掉旧的「任意 instance_id
    读别人会话」IDOR；prompts 示例同步加 agent_id。
 2) 旧的 `information_schema` MySQL 专用存在性检查 + 裸 SQL 删除（de-raw，双方言安全）——下方
    2026-04-10 Gotcha 里「SQLite 会报错」「直接查表是技术债」两条**已解决**，留作历史。
@@ -50,3 +50,24 @@ last_verified: 2026-08-17
 ## 新人易踩的坑
 
 - 以为调用 `reply_owner` 就完成了响应——工具本身不推送消息，推送是 `AgentRuntime` 在 agent loop 里监听工具调用并转发给前端 WebSocket 完成的。如果前端没收到消息，先检查 WebSocket 连接，而不是检查这个工具。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

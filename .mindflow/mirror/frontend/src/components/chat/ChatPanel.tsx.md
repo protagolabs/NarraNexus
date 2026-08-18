@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -158,7 +158,7 @@ routing — no backend change.
 > into Inner Thoughts, on the theory that cross-channel narrations
 > (`owner_notify_content`, "I replied to a Discord user / notified you") were
 > "the agent's own activity". That was wrong: those narrations are emitted via
-> `reply_owner` — the agent **deliberately addressed the
+> `send_message_to_user_directly` — the agent **deliberately addressed the
 > owner**, so they are owner-facing messages and must show in Conversation no
 > matter which channel triggered the turn. Routing now keys on `isActivity`
 > alone; `workingSource` does not move a message out of the direct
@@ -365,7 +365,7 @@ branches:
    spinner-decorated list of in-flight `toolSteps`. **Always visible,
    no click required.**
 
-The instant the agent called `reply_owner` for the
+The instant the agent called `send_message_to_user_directly` for the
 first time, `getUserVisibleResponse()` flipped from `null` to a
 string, branch 2 unmounted, and branch 1 took over. Any subsequent
 thinking deltas or tool calls kept accumulating into
@@ -382,7 +382,7 @@ live preview below provides the always-visible "still working" signal
 until `stopStreaming` flips `isStreaming` to false (at which point the
 bubble persists into history with its data already attached, line
 269-270 of `chatStore.ts`). The `toolSteps` filter (regex
-`/^3\.4\.\d+$/` minus `*.reply_owner`) intentionally
+`/^3\.4\.\d+$/` minus `*.send_message_to_user_directly`) intentionally
 drops the reply tool call so the same action doesn't appear twice
 (once as the bubble, once as a tool step).
 
@@ -454,3 +454,24 @@ The voice-input-unavailable `<Dialog>` (title, all three reason-branch bodies + 
 note, Cancel/Open Settings) and the "no longer available" notice were hardcoded English —
 they stayed English under a Chinese UI. Moved to `chat.audio.*` keys (en+zh). AudioRecorder
 was already i18n'd; only ChatPanel's dialog was missed.
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

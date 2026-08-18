@@ -85,11 +85,11 @@ docstring 里的实现名保留（agent 看不到）。
 2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
 **但漏掉了同一段里语气最重的一条**——而它恰恰是矛盾最尖锐的一条：
 
-> "Finished work is never ping-pong... send the result via `message_team`。
+> "Finished work is never ping-pong... send the result via `bus_send_message`。
 > **纯文本收尾 = 零交付，对方永远看不到**"
 
 在 team 房间里这句正好相反：纯文本**就是**回复（[[message_bus_trigger]] 的
-`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 message_team 投递
+`_deliver_reply` 替它上墙），而 turn prompt 明写「**禁止**用 bus_send_message 投递
 本条回复，否则双发」。两句话同一个上下文窗口，讲同一件事，结论相反；而静态段那句
 因为背着 8/1 briefing squad 的 P0，语气被反复加重，**是更容易赢的那一句**。
 
@@ -283,7 +283,7 @@ profile needs updating` 有两重问题：工具本身已删（见
 
 P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）
 的声明侧修复。新增 `get_expressive_tools(ctx_data)` 覆写：**只在**
-working_source=MESSAGE_BUS 的轮次声明 `message_team` + `message_agent`
+working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_agent`
 （fully-qualified，派生自 get_mcp_config().server_name）。三重门：
 ① 非 bus 轮不声明（chat 轮广告 bus 工具会诱导经 bus 回 owner）；
 ② team 房（extra_data `bus_team_room`，由 [[message_bus_trigger]] 盖章）不声明——
@@ -306,12 +306,12 @@ Reply Discipline 同批加一条「**Finished work is never ping-pong — delive
 ## 2026-08-01 — 指令新增「替 owner 去问另一个 agent」剧本
 
 P1 段 06:owner 说"问问教学专家在干嘛",agent 答做不了。能力一直都有
-(`message_agent` 会触发对方),缺的是**把这类请求认出来并给出路线**。
+(`bus_send_to_agent` 会触发对方),缺的是**把这类请求认出来并给出路线**。
 新增小节明确:① 这类请求你能做,**不得回答无法联系其他 agent**;
-② 从 Known Agents 取准确 id;③ 用 `message_agent` 发问,
+② 从 Known Agents 取准确 id;③ 用 `bus_send_to_agent` 发问,
 **别用社交网络/联系方式工具**(那返回联系方式,不是答案);
 ④ 告诉 owner 已问、回复会另开一轮;⑤ 对方回复到达时用
-`notify_owner` **回报给 owner**——并写明
+`send_message_to_user_directly` **回报给 owner**——并写明
 Reply Discipline 只管对**同伴**的回复,绝不压制对 owner 的回报
 (不写这句,那条"没实质就沉默"的规则会把用户要的答案吞掉)。
 找不到目标要问清楚,那是澄清问题、不是拒绝。

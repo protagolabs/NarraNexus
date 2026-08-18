@@ -58,7 +58,7 @@ class WorkItemOrigin:
     column is where that decision is enforced at runtime:
 
     * ``TOOL`` — a TASK the Leader maintains explicitly through
-      ``work_add_item`` / ``work_complete_item``. One task routinely spans
+      ``team_work_add`` / ``team_work_complete``. One task routinely spans
       several errands, so nothing may close it automatically.
     * ``AUTO`` — a message-level ERRAND recorded by the platform when one
       agent @mentions another (``message_bus/errand.py``). It closes itself

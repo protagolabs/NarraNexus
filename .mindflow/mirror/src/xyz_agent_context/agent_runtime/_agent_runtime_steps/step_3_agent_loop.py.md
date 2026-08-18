@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -115,7 +115,7 @@ framework 解析后允许 profile.framework_override 钉框架（voice 需要 Ne
    `channel_trigger_base` 自己的延迟 import 解决）。其中一处在生成器体内，**每轮
    执行一次**。
 4. 顺带：`_FALLBACK_NO_REPLY_INSTRUCTIONS` 正文里的
-   `didn't call notify_owner` 改成中性的「never called its reply
+   `didn't call send_message_to_user_directly` 改成中性的「never called its reply
    tool」——IM 轮次里那个工具本就不是表达工具，给模型的事实前提是错的。
 
 ## 2026-08-07 — 真机测试揪出的两处收口（信封接线 + 决策可观测性）
@@ -159,7 +159,7 @@ framework 解析后允许 profile.framework_override 钉框架（voice 需要 Ne
 （不许回复同伴 agent，防 agent 间循环）今天依然成立。
 
 - `_has_organic_reply(agent_loop_response, working_source="chat")` **改走
-  `MessageSourceRegistry`**，不再硬编码 `notify_owner`。
+  `MessageSourceRegistry`**，不再硬编码 `send_message_to_user_directly`。
   **这是防重复发送的那道闸**：不改的话，一个正确调用了 `wechat_send` 的轮次会被
   判成「没回复」，兜底就会在**每一次成功对话**后再发一条 helper 写的消息。默认参数
   保持 chat 语义，既有调用点行为不变。权威与 `chat_module._delivered_to_origin`
@@ -177,7 +177,7 @@ framework 解析后允许 profile.framework_override 钉框架（voice 需要 Ne
   synthetic 帧**——把「没发出去」记成「已回复」和我们正在修的丢弃明文属同一类谎报。
   永不抛异常。
 - IM 分支刻意**不 yield `AgentTextDelta`**、synthetic 帧刻意**不标
-  `notify_owner`**（改标渠道自己的发送工具，见
+  `send_message_to_user_directly`**（改标渠道自己的发送工具，见
   `_im_reply_tool_name`）。两者都会让这条回复出现在**主人**的聊天面板里，像是 agent
   对主人说了话；`chat_module._split_user_visible_response` 正是按这个工具名分流的。
 - 文案复用 `_FALLBACK_NO_REPLY_INSTRUCTIONS`（`_fallback_instructions_for_mode`
@@ -410,7 +410,7 @@ channel 要求剔除的工具）。本地 SDK 侧与 WebSearch 守卫**合并**�
 4. **severity 随"是否已回复"分级**（PR #133 review 连带修）：抽出
    `_has_organic_reply(agent_loop_response)`（复用到 `_should_run_helper_llm_fallback`）。
    infra/self-serviceable 的 raw_exception 分支：**若本轮已通过
-   `notify_owner` 回复过**（executor OOM/掉线可能发生在回复之后）→
+   `send_message_to_user_directly` 回复过**（executor OOM/掉线可能发生在回复之后）→
    `severity="recovered_after_reply"`（warning 徽章、保留回复），否则 `fatal`。避免对
    已经拿到答案的用户显示"请重试"、也避免把"已回复但收尾失败"整轮记失败。配合
    [[loop/circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
@@ -519,7 +519,7 @@ The former EverMemOS episode await (`ctx.evermemos_task` → `relevant_episodes`
 The post-agent-loop recovery slot is now a single async generator that:
 
 1. Drains the helper_llm stream as `AgentTextDelta` frames (when mode is `no_reply` or `after_error`).
-2. Emits a synthetic `notify_owner` `ProgressMessage` carrying `details.reply_via=helper_llm_{mode}` if any content streamed — downstream `chat_module._split_user_visible_response` picks this up like an organic reply, so persistence works without special-casing.
+2. Emits a synthetic `send_message_to_user_directly` `ProgressMessage` carrying `details.reply_via=helper_llm_{mode}` if any content streamed — downstream `chat_module._split_user_visible_response` picks this up like an organic reply, so persistence works without special-casing.
 3. Yields the captured `ErrorMessage` LAST with computed severity (`recovered` / `recovered_after_reply` / `fatal`). The frontend reduces synthetic tool calls into `responseParts` first; yielding the error first would briefly flip `displayContent` to the error string before the synthetic lands.
 
 The `except Exception` in the main agent-loop body **no longer yields** the ErrorMessage immediately — it stashes `{error_type, error_message}` into `captured_error` so the recovery generator can place it after the recovered reply. `_generate_fallback_reply_stream` now accepts the full context (system prompts + chat history + agent_loop_response + final_output + error_info) and uses one of two prompt templates (`_FALLBACK_NO_REPLY_INSTRUCTIONS` / `_FALLBACK_AFTER_ERROR_INSTRUCTIONS`); `_build_helper_user_input` assembles the user-input payload via tagged XML-ish sections so the LLM can navigate the context without re-instantiating the agent persona.
@@ -532,7 +532,7 @@ Contract is pinned by `tests/agent_runtime/test_fallback_streaming_order.py`.
 
 Return shape changed from `(bool, str)` to `(mode | None, str)`:
 
-- `"no_reply"` — chat turn ended cleanly without `notify_owner`; helper_llm runs to write the missing reply.
+- `"no_reply"` — chat turn ended cleanly without `send_message_to_user_directly`; helper_llm runs to write the missing reply.
 - `"after_error"` — chat turn hit a fatal mid-stream and no organic reply was sent yet; helper_llm runs with full context (system prompts + completed tool results + error info) to produce a recovery reply. (Wired in T4.)
 - `"partial_reply_then_error"` — fatal hit AFTER an organic reply; helper_llm does NOT run (we already spoke), but the caller surfaces a `recovered_after_reply` ErrorMessage. (Wired in T4.)
 - `None` with `skip_reason` — `non_chat_trigger` / `cancellation_requested` / `already_replied_via_tool`.
@@ -603,7 +603,7 @@ exercised by unit tests without spinning up the full async generator.
 ## 2026-05-12 — Chat no-reply helper_llm fallback (P0 #3)
 
 After the agent loop completes, step 3 now inspects
-`agent_loop_response` for a `notify_owner` tool call.
+`agent_loop_response` for a `send_message_to_user_directly` tool call.
 When the turn was chat-triggered (`ctx.working_source == "chat"`) and
 no such call exists, step 3 invokes the helper_llm slot via
 `OpenAIAgentsSDK.llm_stream` and streams the resulting reply through
@@ -612,7 +612,7 @@ to render organic LLM stream, so users see the recovered reply in
 real time without any frontend change.
 
 After the stream completes, step 3 appends a synthetic
-`notify_owner` ProgressMessage carrying
+`send_message_to_user_directly` ProgressMessage carrying
 `details.reply_via="helper_llm_fallback"`. Downstream:
 - `ChatModule._extract_user_visible_response` picks the synthetic call
   up like any organic reply, so the assistant row persists the
@@ -622,7 +622,7 @@ After the stream completes, step 3 appends a synthetic
 
 Why this design (per 5/11 product review):
 - `io_data.final_output` is internal reasoning, not speech (project
-  iron rule: only `notify_owner` counts as speaking).
+  iron rule: only `send_message_to_user_directly` counts as speaking).
   The previous "persist final_output directly" shortcut violated this.
 - Only chat turns get the fallback. `message_bus` deliberately avoids
   replying to prevent agent-to-agent loops; job/lark/etc. have their
@@ -704,7 +704,7 @@ team 房间是唯一"你的纯文本**就是**消息"的表面 —— 它的回�
 
 `deliver` 的语义归调用方(mention 解析、级联封顶、run id 盖章),这里只决定它**算不算**。
 
-帧骑的是 `message_team`:它在 message_bus handler 的 `user_reply_tool_names` 里,
+帧骑的是 `bus_send_message`:它在 message_bus handler 的 `user_reply_tool_names` 里,
 但**不在** `owner_visible_reply_tool_names` 里。这个不对称是承重的 —— 提升它会让每次
 团队回复重新锚定 owner 的会话(PR #230 修过一次的 bug),有专门测试钉住。
 
@@ -750,3 +750,24 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 **`_team_room_delivery_phase` 改成返回 `Optional[frame]`。** async generator 的问题是
 **没人迭代它就什么都不做,而且是静默的** —— 对"决定这一轮记不记得住"的唯一路径,这是
 最不能接受的失败形状。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

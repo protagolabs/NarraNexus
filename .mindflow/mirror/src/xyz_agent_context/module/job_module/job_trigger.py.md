@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
@@ -46,7 +46,7 @@ owner inbox 写的运维记录；房间不是 inbox，而且这次 run 用的提
 
 origin 那一对的另一半：[[_job_context_builder]] 按 `job.origin_source` 选提示词，
 这里按**同一个字段**选投递。空 origin 直接返回，保持历史路径（agent 在 run 内自
-己调 `notify_owner`）——PRD 验收 #8 要求私聊行为逐字不变。
+己调 `send_message_to_user_directly`）——PRD 验收 #8 要求私聊行为逐字不变。
 
 **由平台以 agent 名义投**，而不是交给模型调工具：房间的契约就是明文自动上墙，
 这次 run 用的提示词也正是这么说的。让模型来投等于把「它记不记得调工具」这个依
@@ -341,3 +341,24 @@ real failure reason on the job row.
 
 - 在 SQLite 环境下运行多个 JobTrigger 进程（不应该，但可能误操作）会因 SQLite 单写锁导致 `try_acquire_job()` 的 UPDATE 语句死锁。
 - `AgentRuntime` 是懒加载（`from xyz_agent_context.agent_runtime import AgentRuntime`），这是避免循环导入的必要措施——不要改成模块顶部导入。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

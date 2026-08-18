@@ -54,7 +54,7 @@ priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
 origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
 （NexusPower constitution 的 example + claude 适配器 reminder 首位），
 从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
-bus 轮默认 message_team、wechat 轮默认 wechat_send。钩子调用
+bus 轮默认 bus_send_message、wechat 轮默认 wechat_send。钩子调用
 fail-open（无此方法/抛错 → rank 1，纯 priority 序不变），假模块与
 旧路径零影响。
 
@@ -288,7 +288,7 @@ headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skil
 `[SYSPROMPT-BREAKDOWN] agent=… total=… | parts: security/temporal/narrative/modules/bootstrap=各字节 | narrative: nar_summary_chars/nar_dynamic_entries | top_modules: 最大 5 个模块指令`。
 纯诊断、不改行为。**动机**：观测到 system prompt 逐轮增长(app ~100k、dev ~115k 上限
 `MAX_SYSTEM_PROMPT_LENGTH`),逼近上限后历史被驱逐、agent(含原生 opus)停止调
-`notify_owner`。此前每 Part 字节只在 `logger.debug`(生产 INFO 级看不到)。
+`send_message_to_user_directly`。此前每 Part 字节只在 `logger.debug`(生产 INFO 级看不到)。
 新增纯静态 helper `_log_system_prompt_breakdown`(可单测,见
 `tests/context_runtime/test_system_prompt_breakdown.py`)。narrative 的 `current_summary`
 字节 + `dynamic_summary` 条数是增长头号嫌疑,单独打出来量化。
