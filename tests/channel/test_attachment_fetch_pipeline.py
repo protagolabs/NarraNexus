@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
 from xyz_agent_context.channel.channel_audit_events import (
@@ -272,7 +274,7 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "im_fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()
@@ -361,7 +363,7 @@ async def test_no_attachments_emits_no_attachments_key(
     trigger = _FakeAttachmentTrigger(scripted, cred, {})
     await trigger.start(db_client)
     try:
-        await _wait_for_messages(db_client, "im_fake_C1", count=2, timeout=4.0)
+        await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0)
     finally:
         await trigger.stop()
 
@@ -441,7 +443,7 @@ async def test_fetch_attachments_raise_degrades_gracefully(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "im_fake_C1", count=2, timeout=4.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0
         )
     finally:
         await trigger.stop()
@@ -536,7 +538,7 @@ async def test_caption_less_file_upload_still_processed(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "im_fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()

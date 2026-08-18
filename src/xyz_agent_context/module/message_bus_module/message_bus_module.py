@@ -623,7 +623,7 @@ class MessageBusModule(XYZBaseModule):
     # Hooks
     # =========================================================================
 
-    async def _room_labels(self, bus: Any, channel_ids: set) -> dict:
+    async def _room_labels(self, channel_ids: set) -> dict:
         """{channel_id: team name} for the team rooms among `channel_ids`.
 
         Bounded by the unread WINDOW, not by how many conversations the agent
@@ -634,14 +634,33 @@ class MessageBusModule(XYZBaseModule):
         absent, and the renderer falls back to the private-conversation form.
         Mislabelling a private message as a room would be worse than a missing
         label, because the reply disciplines for the two differ.
+
+        Goes through `AsyncDatabaseClient`, NOT `bus._db`. `LocalMessageBus`
+        stores the RAW backend verbatim, and the raw SQLite backend hands SQL to
+        aiosqlite unmodified — `%s` is not a placeholder there. So these two
+        queries raised, the fail-open below swallowed it, and on SQLite the map
+        was ALWAYS empty: every team-room message rendered in the
+        private-conversation form, which is the one mislabelling the paragraph
+        above says must not happen. It worked on MySQL, so it was a 铁律 #7 split
+        with the desktop on the broken side, and silent — no exception, nothing
+        above debug.
+
+        `team_posting.team_cascade_depth` carries a comment block about this exact
+        trap, written two commits before this function, and it did not stop it.
+        So, plainly: **a `%s` query belongs to the client, and `bus._db` is not
+        one.**
         """
         if not channel_ids:
             return {}
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
         try:
-            rows = await bus._db.execute(
+            db = await get_db_client()
+            rows = await db.execute(
                 "SELECT channel_id, created_by FROM bus_channels "
                 f"WHERE channel_id IN ({', '.join(['%s'] * len(channel_ids))})",
                 tuple(channel_ids),
+                fetch=True,
             )
             rooms = {}
             for r in rows or []:
@@ -650,10 +669,15 @@ class MessageBusModule(XYZBaseModule):
                     rooms[r["channel_id"]] = owner[len(TEAM_ROOM_OWNER_PREFIX):]
             if not rooms:
                 return {}
-            team_rows = await bus._db.execute(
+            # One set, used for both the placeholder count and the params: two
+            # independent constructions feeding a count and its tuple is the
+            # shape that breaks when someone edits one line.
+            team_ids = tuple(set(rooms.values()))
+            team_rows = await db.execute(
                 "SELECT team_id, name FROM teams "
-                f"WHERE team_id IN ({', '.join(['%s'] * len(set(rooms.values())))})",
-                tuple(set(rooms.values())),
+                f"WHERE team_id IN ({', '.join(['%s'] * len(team_ids))})",
+                team_ids,
+                fetch=True,
             )
             names = {r["team_id"]: r["name"] for r in (team_rows or []) if r.get("name")}
             return {cid: names[tid] for cid, tid in rooms.items() if tid in names}
@@ -789,7 +813,7 @@ class MessageBusModule(XYZBaseModule):
                         self.agent_id
                     )
                     ctx_data.extra_data["bus_room_labels"] = await self._room_labels(
-                        bus, {m.channel_id for m in unread if m.channel_id}
+                        {m.channel_id for m in unread if m.channel_id}
                     )
             except Exception as e:
                 logger.debug(f"Failed to fetch unread messages: {e}")

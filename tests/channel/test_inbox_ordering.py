@@ -32,7 +32,7 @@ async def _write(db, *, original, response, chat_id="C_room", channel="wechat",
                  sender_name="Alice"):
     await InboxRecorder(channel, brand).record_turn(
         db=db,
-        thread_id=im_thread_id(channel, chat_id),
+        thread_id=im_thread_id(channel, agent_id, chat_id),
         owner_user_id="usr_owner",
         agent_id=agent_id,
         counterpart_id=sender_id,
@@ -50,7 +50,7 @@ async def _rows_in_order(db, thread_id):
 @pytest.mark.asyncio
 async def test_inbound_row_sorts_before_its_reply(db_client):
     await _write(db_client, original="你好啊", response="大西瓜你好")
-    rows = await _rows_in_order(db_client, "im_wechat_C_room")
+    rows = await _rows_in_order(db_client, im_thread_id("wechat", "agent_a", "C_room"))
     assert len(rows) == 2
     inbound, outbound = rows[0], rows[1]
     assert inbound["content"] == "你好啊", "inbound must sort first"
@@ -64,7 +64,7 @@ async def test_inbound_row_sorts_before_its_reply(db_client):
 async def test_two_turns_interleave_correctly(db_client):
     await _write(db_client, original="Q1", response="A1")
     await _write(db_client, original="Q2", response="A2")
-    contents = [r["content"] for r in await _rows_in_order(db_client, "im_wechat_C_room")]
+    contents = [r["content"] for r in await _rows_in_order(db_client, im_thread_id("wechat", "agent_a", "C_room"))]
     assert contents == ["Q1", "A1", "Q2", "A2"], (
         "turns must read as Q1 A1 Q2 A2, not interleaved or reversed"
     )
@@ -74,7 +74,7 @@ async def test_two_turns_interleave_correctly(db_client):
 async def test_created_at_strictly_increases_across_all_rows(db_client):
     for i in range(3):
         await _write(db_client, original=f"Q{i}", response=f"A{i}")
-    rows = await _rows_in_order(db_client, "im_wechat_C_room")
+    rows = await _rows_in_order(db_client, im_thread_id("wechat", "agent_a", "C_room"))
     stamps = [str(r["created_at"]) for r in rows]
     assert stamps == sorted(stamps)
     assert len(set(stamps)) == len(stamps), "every row must have a distinct timestamp"

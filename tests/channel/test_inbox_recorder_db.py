@@ -33,7 +33,7 @@ async def _record(db, *, original="hello", response="hi back",
                   agent_id="agent_a", sender_id="U_alice", sender_name="Alice"):
     await InboxRecorder(channel, brand).record_turn(
         db=db,
-        thread_id=im_thread_id(channel, chat_id),
+        thread_id=im_thread_id(channel, agent_id, chat_id),
         owner_user_id="usr_owner",
         agent_id=agent_id,
         counterpart_id=sender_id,
@@ -54,7 +54,7 @@ async def test_recording_twice_reuses_the_thread_and_appends_messages(db_client)
     await _record(db_client)
     await _record(db_client)
 
-    thread_id = im_thread_id("slack", "C_room")
+    thread_id = im_thread_id("slack", "agent_a", "C_room")
     threads = await db_client.get("inbox_threads", {"thread_id": thread_id})
     assert len(threads) == 1, f"thread duplicated: {threads!r}"
 
@@ -67,7 +67,7 @@ async def test_the_thread_row_carries_the_owner_and_the_brand_title(db_client):
     await _record(db_client)
 
     thread = await db_client.get_one(
-        "inbox_threads", {"thread_id": im_thread_id("slack", "C_room")}
+        "inbox_threads", {"thread_id": im_thread_id("slack", "agent_a", "C_room")}
     )
     assert thread["owner_user_id"] == "usr_owner"
     assert thread["agent_id"] == "agent_a"
@@ -83,10 +83,10 @@ async def test_two_channels_with_the_same_chat_id_do_not_collide(db_client):
     await _record(db_client, channel="telegram", brand="Telegram", chat_id="123")
 
     slack = await db_client.get_one(
-        "inbox_threads", {"thread_id": im_thread_id("slack", "123")}
+        "inbox_threads", {"thread_id": im_thread_id("slack", "agent_a", "123")}
     )
     tg = await db_client.get_one(
-        "inbox_threads", {"thread_id": im_thread_id("telegram", "123")}
+        "inbox_threads", {"thread_id": im_thread_id("telegram", "agent_a", "123")}
     )
     assert slack["title"] == "Slack: Alice"
     assert tg["title"] == "Telegram: Alice"
@@ -132,7 +132,7 @@ async def test_two_turns_opening_the_same_new_thread_both_land(db_client):
     assert len(threads) == 1, "the race created a second thread"
 
     msgs = await db_client.get(
-        "inbox_thread_messages", {"thread_id": im_thread_id("slack", "C_room")}
+        "inbox_thread_messages", {"thread_id": im_thread_id("slack", "agent_a", "C_room")}
     )
     bodies = {m["content"] for m in msgs}
     assert {"first", "second", "r1", "r2"} <= bodies, (
@@ -199,3 +199,48 @@ def test_no_call_site_hands_the_silence_sentinel_to_the_recorder():
                 f"a call site sends the silence sentinel into the inbox, where "
                 f"the agent reads it back as its own words: {stripped}"
             )
+
+
+@pytest.mark.asyncio
+async def test_two_agents_on_the_same_chat_do_not_share_a_thread(db_client):
+    """The dimension `test_two_channels_with_the_same_chat_id_do_not_collide` missed.
+
+    That one varies the CHANNEL. This varies the AGENT, which is the case that
+    actually collided: `im_thread_id` was `im_<channel>_<chat_id>`, so one chat
+    produced one thread row, and `agent_id` was a column set once at creation and
+    never updated (`_ensure_thread` returns early on an existing row). The panel
+    filters on that column, so agent B's messages appended to agent A's thread and
+    **B's inbox was empty**.
+
+    Not theoretical: a Telegram private chat's `chat_id` is the USER's id,
+    identical across bots, so one person DMing two of an owner's agents hit it.
+    The writer this replaced created a `bus_channel_members` row per agent, so both
+    sides were visible — this was a regression.
+
+    It also has to hold before anything scopes BY agent: `wipe_service`'s "clear
+    this agent's conversations" would otherwise delete the other agent's record.
+    """
+    await _record(db_client, agent_id="agent_a", original="to A", response="from A")
+    await _record(db_client, agent_id="agent_b", original="to B", response="from B")
+
+    threads = await db_client.get("inbox_threads", {})
+    assert len(threads) == 2, (
+        f"two agents on one chat produced {len(threads)} thread(s) — the second "
+        f"agent's inbox is invisible"
+    )
+    assert {t["agent_id"] for t in threads} == {"agent_a", "agent_b"}
+
+    # Each agent's panel query returns only its own side.
+    for agent, mine, theirs in (
+        ("agent_a", "to A", "to B"),
+        ("agent_b", "to B", "to A"),
+    ):
+        rows = await db_client.get("inbox_threads", {"agent_id": agent})
+        assert len(rows) == 1, f"{agent} sees {len(rows)} threads"
+        msgs = await db_client.get(
+            "inbox_thread_messages", {"thread_id": rows[0]["thread_id"]}
+        )
+        bodies = {m["content"] for m in msgs}
+        assert mine in bodies and theirs not in bodies, (
+            f"{agent}'s thread contains the other agent's messages: {bodies}"
+        )

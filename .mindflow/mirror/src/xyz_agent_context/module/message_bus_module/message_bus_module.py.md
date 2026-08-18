@@ -518,3 +518,18 @@ owner 聊天轮和 job 轮。两处因此站不住：
 原守卫 `test_the_delivery_rule_names_no_surface_specific_tool` 的 docstring 声称「块里不得
 出现任何 per-surface 工具」，实际只检查一行 —— 声明已收窄到它真正守的东西（通用投递规则那
 一行不得绑定某个面的动词），并新增一条钉住「块必须承认只有一个动词在桌上」。
+
+## 2026-08-18 (二) — `_room_labels` 打的是裸 backend，SQLite 上一直静默返回空
+
+两条查询用 `%s` 打 `bus._db`。`LocalMessageBus` 原样保存传入的 **raw backend**，而 SQLite 裸
+backend 把 SQL 直接交给 aiosqlite —— `%s` 在那里不是占位符。于是两条都抛异常、fail-open 吞掉、
+SQLite 上这张映射**永远是空的**：每一条团队房间消息都渲染成私聊短形式，正是这个函数自己
+docstring 里写「比缺标签更糟」的那种误标。MySQL 上正常，所以这是一处铁律 #7 的裂口，且桌面端
+在坏的那一侧，日志里 debug 以上什么都没有。
+
+`team_posting.team_cascade_depth` 带着专门讲这个陷阱的注释块，写在本函数之前两个 commit，
+没能阻止它。所以现在写成直白一句：**`%s` 查询属于 client，而 `bus._db` 不是 client。**
+
+6433 个通过的测试没碰到它 —— `test_turn_context_split.py` 用手写的 `bus_room_labels` 覆盖
+渲染器，自带输入的渲染器测试证明渲染器，对输入从哪来一言不发。新增
+`tests/message_bus/test_room_labels_producer.py` 打真实数据库，已变异验证。

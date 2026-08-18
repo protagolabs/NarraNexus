@@ -90,3 +90,22 @@ Telegram/WeChat 把 `inbox_thread_messages` 当会话记忆读回，agent 就看
 这个占位符 —— [[channel_trigger_base.py]] 里 `_platform_reply_text` 的 docstring 亲自
 点名过这个失败模式。哨兵值只应活在发送路径的 `already_replied` 比较里。守卫是源码级的：
 从记录器内部看，哨兵和真实回复都只是非空文本，这正是行为测试一路全绿的原因。
+
+## 2026-08-18 (二) — `im_thread_id` 必须带 agent
+
+原形 `im_<channel>_<chat_id>` 不含 agent，而 `agent_id` 只是行上的一列、建行时写一次、
+之后 `_ensure_thread` 遇到已存在的行就早退、永不更新。面板按那一列筛选，所以第二个 agent 的
+消息会追加进第一个 agent 的会话里，**第二个 agent 的收件箱是空的**。
+
+可达而非假设：Telegram 私聊的 `chat_id` 就是**用户**的 id，跨 bot 相同，一个人同时私聊 owner
+的两个 agent 就会撞上。被取代的旧写入器给每个 agent 建一行 `bus_channel_members`，两边都看得
+见 —— 所以这是回归，不是继承来的缺口。
+
+它同时让 `agent_id` 这一列对任何**按 agent** 划范围的操作可信：否则
+[[wipe_service.py]] 的「清空这个 agent 的会话」会删掉另一个 agent 的记录。因此修复顺序是
+先这条、再 wipe、再回填（回填必须产出最终 id 形状）。key 与行上的 `agent_id` 列取同一个值，
+两者若不同源，面板筛选和会话身份又会脱节。
+
+六个调用点同批更新，含两个**读**侧的 context builder（Telegram / WeChat 按 thread_id 取历史，
+不同批改就会让每个 IM agent 丢掉会话上下文）。测试里的 id 一律改为由这个 helper 生成，不再
+硬编码字符串 —— 形状改动应该只碰一处定义。

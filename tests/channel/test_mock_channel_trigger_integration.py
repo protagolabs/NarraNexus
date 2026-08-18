@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_PROCESSED,
@@ -191,7 +193,7 @@ async def test_full_pipeline_dedup_inbox_and_audit(db_client, monkeypatch):
 
     try:
         # Two unique events → 4 inbox rows (2 inbound + 2 outbound).
-        rows = await _wait_for_messages(db_client, "im_fake_C1", count=4, timeout=5.0)
+        rows = await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=4, timeout=5.0)
     finally:
         await trigger.stop()
 
@@ -254,7 +256,7 @@ async def test_echo_messages_are_dropped(db_client, monkeypatch):
     await trigger.start(db_client)
     try:
         # Only one unique event → 2 inbox rows.
-        rows = await _wait_for_messages(db_client, "im_fake_C1", count=2, timeout=4.0)
+        rows = await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0)
     finally:
         await trigger.stop()
 

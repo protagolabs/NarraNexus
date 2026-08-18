@@ -51,7 +51,7 @@ def _record(db, **kw):
     rec = InboxRecorder("lark", "Feishu")
     defaults = dict(
         db=db,
-        thread_id=im_thread_id("lark", "oc_1"),
+        thread_id=im_thread_id("lark", "agent_a", "oc_1"),
         owner_user_id="usr_1",
         agent_id="agent_me",
         counterpart_id="ou_zhang",
@@ -113,7 +113,7 @@ def test_an_existing_thread_gets_its_placeholder_name_replaced():
     refresh the panel shows that id forever, for the whole first burst from
     every new contact."""
     db = FakeDB(existing={"inbox_threads": {
-        "thread_id": im_thread_id("lark", "oc_1"),
+        "thread_id": im_thread_id("lark", "agent_a", "oc_1"),
         "counterpart_name": "ou_zhang",
     }})
     _record(db)
@@ -138,8 +138,10 @@ def test_thread_ids_declare_their_family_first():
     """`im_` / `nx_dm_` — the namespace says WHAT before it says WHICH, so any
     residual filter is trivially correct instead of a channel-name list that
     goes stale (which is exactly what `im_channel_prefixes` did)."""
-    assert im_thread_id("lark", "oc_1").startswith(IM_THREAD_PREFIX)
-    assert im_thread_id("wechat", "wx_9") == "im_wechat_wx_9"
+    assert im_thread_id("lark", "agent_a", "oc_1").startswith(IM_THREAD_PREFIX)
+    # The agent id sits between the channel and the chat: the namespace still
+    # says WHAT first, and the KEY now says which agent, not only which chat.
+    assert im_thread_id("wechat", "agent_a", "wx_9") == "im_wechat_agent_a_wx_9"
     assert agent_dm_thread_id("agent_a", "agent_b").startswith(AGENT_DM_THREAD_PREFIX)
 
 

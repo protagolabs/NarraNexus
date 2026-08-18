@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.module.lark_module import lark_trigger as lark_trigger_mod
 from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential
 from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
@@ -52,7 +54,7 @@ async def test_outbound_row_stores_real_reply_not_placeholder(
         chat_id="oc_test_chat",
     )
 
-    thread_id = "im_lark_oc_test_chat"
+    thread_id = im_thread_id("lark", "agent_test", "oc_test_chat")
     rows = await db_client.get(
         "inbox_thread_messages",
         {"thread_id": thread_id},
@@ -90,7 +92,7 @@ async def test_inbound_row_still_stores_original_message(
 
     rows = await db_client.get(
         "inbox_thread_messages",
-        {"thread_id": "im_lark_oc_test_chat"},
+        {"thread_id": im_thread_id("lark", "agent_test", "oc_test_chat")},
     )
     inbound = [
         r for r in rows if r.get("direction") == "in"
@@ -123,7 +125,7 @@ async def test_empty_agent_response_writes_no_outbound_row(
 
     rows = await db_client.get(
         "inbox_thread_messages",
-        {"thread_id": "im_lark_oc_test_chat"},
+        {"thread_id": im_thread_id("lark", "agent_test", "oc_test_chat")},
     )
     # `direction` is the discriminator now — the old `lark_out_` id prefix was
     # incidental to the bus-table era. What this test guards is unchanged:

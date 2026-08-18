@@ -197,3 +197,44 @@ async def test_a_turn_that_says_nothing_to_the_room_is_announced(db_client):
     assert [m for m in rows if (m.msg_type or "") in PLATFORM_MSG_TYPES], (
         "the room was never told the turn said nothing to it"
     )
+
+
+@pytest.mark.asyncio
+async def test_the_tools_refuse_blank_text_and_the_room_stays_notified(db_client):
+    """Blank text through the REAL tools, both verbs, with the room's consequence.
+
+    The failure this closes is not the empty bubble on its own. `message_team`
+    validated `team_id` and never validated `text`, so a model calling its
+    declared reply tool with empty args — the routine failure mode NexusPower's
+    mute-turn nudge exists for — put a blank row in the room, after which
+    `has_message_from_turn` answers True, the "said nothing" notice is suppressed,
+    and the turn files as DELIVERED. The room looked answered and said nothing,
+    which is worse than the silence it replaced.
+
+    Asserted through the registered tools rather than `post_team_reply`, because
+    the tool is where the model arrives and where the error has to be legible:
+    a `success: true` no-op would teach it that it had replied.
+    """
+    await _seed(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+    tools = _registered_tools(bus)
+
+    with injected(agent_id_headers(
+        ANA, turn_source="message_bus", event_id=TURN, team_id=TEAM,
+    )):
+        for blank in ("", "   ", "\n"):
+            room = await tools["message_team"](
+                agent_id=ANA, team_id=TEAM, text=blank,
+            )
+            assert room["success"] is False, room
+            assert "text" in (room.get("error") or ""), room
+
+            peer = await tools["message_agent"](agent_id=ANA, to=BO, text=blank)
+            assert peer["success"] is False, peer
+            assert "text" in (peer.get("error") or ""), peer
+
+    assert await db_client.get("bus_messages", {"channel_id": ROOM}) == [], (
+        "a blank reply reached the room"
+    )
+    # And the peer was not woken for nothing — an empty DM starts a full turn.
+    assert await bus.count_unread(BO) == 0

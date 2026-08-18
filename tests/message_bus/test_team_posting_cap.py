@@ -153,3 +153,37 @@ async def test_platform_rows_are_excluded_in_the_query_not_after_it(db_client):
     assert depth < MAX_TEAM_AGENT_HOPS, (
         "a chain the user had just restarted would have its @mentions stripped"
     )
+
+
+@pytest.mark.asyncio
+async def test_blank_text_is_refused_rather_than_posted(db_client):
+    """An empty room post is worse than the silence it replaced.
+
+    `message_team` validated `team_id` from the start and never validated `text`,
+    which is the half that matters: blank text posts an empty bubble into a
+    surface the owner reads, and `has_message_from_turn` then answers True — so
+    the "said nothing" notice is suppressed and the turn files as DELIVERED. The
+    pre-redesign silence at least produced a notice.
+
+    Two layers, because they catch different callers: the tool refuses with an
+    error the model can act on (a `success: true` no-op would teach it that it
+    replied), and `post_team_reply` raises — production cannot reach that, since
+    the tool guards first, so anything arriving there skipped the tool. The test
+    helper `speak_in_room` is such a caller, which is the point: without this a
+    team test could post nothing and assert a delivery.
+    """
+    from xyz_agent_context.message_bus.team_posting import post_team_reply
+
+    await _room(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    for blank in ("", "   ", "\n\t "):
+        with pytest.raises(ValueError):
+            await post_team_reply(
+                db=db_client, bus=bus, agent_id=A, team_id=TEAM,
+                channel_id=CHANNEL, text=blank, roster=[{"agent_id": A, "name": "Ana"}],
+            )
+
+    assert await db_client.get("bus_messages", {"channel_id": CHANNEL}) == [], (
+        "a blank post reached the room"
+    )

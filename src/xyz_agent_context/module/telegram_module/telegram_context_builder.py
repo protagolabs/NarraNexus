@@ -11,7 +11,7 @@ context — observed 2026-05-13 where the agent treated "再试一下" as
 because no recent turns were in the prompt — we fall back to the local
 local inbox record, which ``InboxRecorder`` populates for both inbound user
 messages and outbound bot replies under
-``thread_id = im_thread_id("telegram", chat_id)``.
+``thread_id = im_thread_id("telegram", agent_id, chat_id)``.
 
 Note this is one of the two places the inbox record is also OPERATIONAL: for a
 channel with no history API it IS the agent's conversation memory, not just
@@ -96,7 +96,7 @@ class TelegramContextBuilder(ChannelContextBuilderBase):
 
         Telegram Bot API has no equivalent of conversations.history, so we keep
         our own log: ``InboxRecorder`` writes every inbound user message and
-        every outbound bot reply under ``im_thread_id("telegram", chat_id)``,
+        every outbound bot reply under ``im_thread_id("telegram", agent_id, chat_id)``,
         each row carrying a ``direction`` of "in" or "out". Query the most
         recent ``limit + 1`` rows and drop the current trigger message itself.
         """
@@ -108,7 +108,7 @@ class TelegramContextBuilder(ChannelContextBuilderBase):
             im_thread_id,
         )
 
-        thread_id = im_thread_id("telegram", self._message.chat_id)
+        thread_id = im_thread_id("telegram", self._agent_id, self._message.chat_id)
         # Pull a bit more than `limit` so we can drop the current message
         # without ending up short.
         fetch_n = max(limit + 5, 10)

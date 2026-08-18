@@ -1427,7 +1427,7 @@ class ChannelTriggerBase(ABC):
         try:
             await self._inbox_recorder.record_turn(
                 db=self._db,
-                thread_id=im_thread_id(self.channel_name, message.chat_id),
+                thread_id=im_thread_id(self.channel_name, agent_id, message.chat_id),
                 owner_user_id=await resolve_owner_for_agent(self._db, agent_id),
                 agent_id=agent_id,
                 counterpart_id=message.sender_id,
@@ -2097,7 +2097,7 @@ class ChannelTriggerBase(ABC):
         try:
             await self._inbox_recorder.record_turn(
                 db=db,
-                thread_id=im_thread_id(self.channel_name, message.chat_id),
+                thread_id=im_thread_id(self.channel_name, agent_id, message.chat_id),
                 owner_user_id=await resolve_owner_for_agent(db, agent_id),
                 agent_id=agent_id,
                 counterpart_id=message.sender_id,

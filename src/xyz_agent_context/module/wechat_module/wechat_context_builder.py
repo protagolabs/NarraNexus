@@ -7,7 +7,7 @@
 Mirrors ``telegram_module/telegram_context_builder.py``. iLink, like Telegram's
 Bot API, exposes no server-side history endpoint, so history falls back to the
 local inbox record that ``InboxRecorder`` populates under
-``thread_id = im_thread_id("wechat", to_user_id)``.
+``thread_id = im_thread_id("wechat", agent_id, to_user_id)``.
 
 Note this is the ONE place the inbox record is also OPERATIONAL: for channels
 with no history API it is the agent's conversation memory, not just something a
@@ -98,7 +98,7 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
             im_thread_id,
         )
 
-        thread_id = im_thread_id("wechat", self._message.chat_id)
+        thread_id = im_thread_id("wechat", self._agent_id, self._message.chat_id)
         fetch_n = max(limit + 5, 10)
         try:
             rows = await self._db.get(

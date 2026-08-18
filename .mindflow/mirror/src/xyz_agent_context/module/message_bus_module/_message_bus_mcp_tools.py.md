@@ -178,3 +178,15 @@ join 以调用者自己的 id 为连接条件之一，团队那条要求 `team_m
 `find_agent` 的 docstring（模型会读的工具描述）同改。
 
 MySQL twin：`tests/message_bus/test_team_posting_mysql.py` 覆盖这条三表 join 与团队分支。
+
+## 2026-08-18 (二) — 两个发送动词都补上内容校验
+
+路由参数（`to` / `team_id`）从一开始就校验，`text` 从来没有 —— 而后者是更要紧的一半。空白
+文本会把空气泡张贴进一个人在读的界面，随后 `has_message_from_turn` 对这一轮答 True，于是
+「什么都没说」的通知被抑制、整轮被记为**已投递**。一个看起来被回答了、实际什么都没说的房间，
+比它取代的沉默更糟 —— 沉默至少还会产出一条通知。私聊那边更糟：空消息会给收件人起一整轮 LLM。
+
+返回**错误**而不是静默 no-op：一个对 no-op 返回 success 的工具，会教模型它已经回复过了。
+同一条纪律 `inbox_recorder.record_turn` 早就对空 outbound 行用了，只是没被用到「现在每个团队
+轮次的回复」这个工具上。[[team_posting.py]] 侧另有一道 raise 作为内层保险，专门拦绕过工具的
+调用方（测试 helper `speak_in_room` 就是一个）。

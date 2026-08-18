@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/wipe_service.py
-last_verified: 2026-07-10
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -44,6 +44,10 @@ memory_consolidation_queue + instance_artifacts)。前端复选框可任选其�
 agent 继续能收新 IM;只删消息行。**平台侧不可及**:Lark/Telegram/WeChat 服务器上的原始
 消息删不掉,直连平台 API 的工具仍能读到——这是产品必须向用户说明的边界。
 
+> **已被取代（2026-08-18）**：以上描述的是 2026-08-17 之前的机制。`bus_get_messages` 与
+> `ChannelInboxWriter` 均已删除，IM 记录搬到 `inbox_threads` / `inbox_thread_messages`。
+> 本段保留为当时的事实记录 —— 不改写带日期的条目 —— 现行行为见本文件 2026-08-18 条目。
+
 **刻意不碰**:`inbox_table`(user 级跨 agent)、`cost_records`(计费)。以及永远保留:
 `agents`、凭证、`user_settings`、`instance_awareness`(人设)、系统/能力实例(只删
 `ChatModule` 行)。
@@ -59,3 +63,22 @@ agent 继续能收新 IM;只删消息行。**平台侧不可及**:Lark/Telegram/
   磁盘目录。路由层已拒 `?user_id=` 并强制 owner。
 - 并发:清理时若有活跃 run 正在写记忆,可能残留新行。用户在自己 agent 上手动触发,罕见,
   视为已知限制。
+
+## 2026-08-18 — 「清空会话」此前对 IM 记录报告成功却什么都没清
+
+本服务原本靠遍历 `bus_channel_members` 找出「只有本 agent 一个成员」的频道、删其
+`bus_messages` 来清 IM 私聊历史。inbox 拿到自己的两张表、`ChannelInboxWriter` 被删之后，
+IM 侧不再产生任何伪 agent / 频道 / 成员行 —— 循环什么也找不到，而
+`inbox_threads` / `inbox_thread_messages` 不在清理清单里。
+
+后果是一条**报告成功却不生效**的数据保留承诺，作用在系统里最大的内容类上，而且前端直接
+渲染它（`/api/agent-inbox`）：用户点完「清空」拿到成功响应，重新打开面板整段 Lark/Telegram/
+WeChat 对话还在。运维看不见，只会变成一张工单或一个合规问题。
+
+现按 `agent_id` 清两张表（**不是** `owner_user_id` —— 一个用户可能有多个 agent）。先删消息
+后删会话：反序会把消息留成没人能命名的孤儿，此后每次清理都到不了它们。依赖
+[[inbox_recorder.py]] 的 `im_thread_id` 带 agent，否则同一个 chat 上两个 agent 共用一行、
+按 agent 删会删掉别人的记录。
+
+docstring 原来的论证引用 `bus_get_messages(agent_id, channel_id)` —— 本次一并删掉的工具，
+即「文件的理由引用了不存在的机制，而它的代码指向不再被写入的表」。已重写。

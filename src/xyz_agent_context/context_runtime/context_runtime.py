@@ -1235,6 +1235,18 @@ class ContextRuntime:
                             f"          ⛔ {inst.module_class} suppresses "
                             f"{len(suppressed)} tools (setup-residency)"
                         )
+                except TypeError as e:
+                    # Same loud arm as the declaration below, for the same reason
+                    # and now with a precedent: this hook GREW `ctx_data` on
+                    # 2026-08-18, so a stale `(self)`-only override is a live
+                    # possibility rather than a hypothetical. Fail-open would
+                    # suppress nothing, and on a patrol turn that leaves both
+                    # send verbs on a desk whose prompt forbids them — the C1
+                    # defect class, back, behind a warning nobody greps.
+                    logger.error(
+                        f"          get_disallowed_tools signature mismatch "
+                        f"for {inst.module_class} (suppression DROPPED): {e}"
+                    )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_disallowed_tools failed for "

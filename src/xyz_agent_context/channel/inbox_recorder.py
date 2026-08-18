@@ -50,9 +50,26 @@ INBOUND = "in"
 OUTBOUND = "out"
 
 
-def im_thread_id(channel: str, chat_id: str) -> str:
-    """`im_lark_<chat_id>` — one thread per IM conversation."""
-    return f"{IM_THREAD_PREFIX}{channel}_{chat_id}"
+def im_thread_id(channel: str, agent_id: str, chat_id: str) -> str:
+    """`im_lark_<agent>_<chat_id>` — one thread per (agent, IM conversation).
+
+    The agent id is part of the KEY, not just the row's `agent_id` column, for the
+    same reason `agent_dm_thread_id` carries both: one owner can point several
+    agents at the same conversation, and the panel lists per agent.
+
+    Without it the column was set once at creation and never updated, so a second
+    agent's messages appended to the first agent's thread and the second agent's
+    inbox was empty. Reachable rather than theoretical: a Telegram private chat's
+    `chat_id` is the USER's id, identical across bots, so one person DMing two of
+    an owner's agents collided. The writer this replaced created a
+    `bus_channel_members` row per agent, so both sides were visible — this was a
+    regression, not an inherited gap.
+
+    It also makes the `agent_id` column trustworthy for anything that scopes BY
+    agent — `wipe_service`'s "clear this agent's conversations" would otherwise
+    delete another agent's record.
+    """
+    return f"{IM_THREAD_PREFIX}{channel}_{agent_id}_{chat_id}"
 
 
 def agent_dm_thread_id(agent_id: str, peer_agent_id: str) -> str:

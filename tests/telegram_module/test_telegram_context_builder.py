@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
@@ -153,7 +155,7 @@ async def test_get_conversation_history_reads_the_inbox_record():
     rows_newest_first = [
         {
             "message_id": "m_now",
-            "thread_id": f"im_telegram_{chat_id}",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
             "direction": "in",
             "sender_name": "Ada Lovelace",
             "content": "再试一下",  # current trigger — must be filtered out
@@ -161,14 +163,14 @@ async def test_get_conversation_history_reads_the_inbox_record():
         },
         {
             "message_id": "m_5",
-            "thread_id": f"im_telegram_{chat_id}",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
             "direction": "out",
             "content": "抱歉，搜索功能暂时不可用",
             "created_at": "2026-05-13 17:08:54",
         },
         {
             "message_id": "m_4",
-            "thread_id": f"im_telegram_{chat_id}",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
             "direction": "in",
             "sender_name": "Ada Lovelace",
             "content": "今天天气怎么样",
@@ -176,14 +178,14 @@ async def test_get_conversation_history_reads_the_inbox_record():
         },
         {
             "message_id": "m_3",
-            "thread_id": f"im_telegram_{chat_id}",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
             "direction": "out",
             "content": "在的，有什么需要帮忙的？",
             "created_at": "2026-05-13 17:06:57",
         },
         {
             "message_id": "m_2",
-            "thread_id": f"im_telegram_{chat_id}",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
             "direction": "in",
             "sender_name": "Ada Lovelace",
             "content": "在吗",
@@ -233,7 +235,9 @@ async def test_get_conversation_history_filters_to_chat_id():
     assert db.calls, "db.get was never called"
     table, filters, _, _ = db.calls[0]
     assert table == "inbox_thread_messages"
-    assert filters == {"thread_id": "im_telegram_8612707834"}
+    assert filters == {
+        "thread_id": im_thread_id("telegram", "agent_a", "8612707834")
+    }
 
 
 @pytest.mark.asyncio

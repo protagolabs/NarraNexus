@@ -1840,7 +1840,7 @@ class LarkTrigger(ChannelTriggerBase):
 
             await self._inbox_recorder.record_turn(
                 db=self._db,
-                thread_id=im_thread_id(self.channel_name, message.chat_id),
+                thread_id=im_thread_id(self.channel_name, cred.agent_id, message.chat_id),
                 owner_user_id=await resolve_owner_for_agent(self._db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=message.sender_id,
@@ -2119,7 +2119,7 @@ class LarkTrigger(ChannelTriggerBase):
             recorder = InboxRecorder(self.channel_name, brand_display)
             await recorder.record_turn(
                 db=db,
-                thread_id=im_thread_id(self.channel_name, chat_id),
+                thread_id=im_thread_id(self.channel_name, cred.agent_id, chat_id),
                 owner_user_id=await resolve_owner_for_agent(db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=sender_id,

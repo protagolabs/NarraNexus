@@ -412,3 +412,60 @@ def test_patrol_does_not_arm_the_mute_turn_nudge():
         "the patrol lane stopped declaring itself as one, so its turn looks "
         "like an ordinary team-room turn to every hook downstream"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_stale_disallow_signature_is_logged_loudly(monkeypatch, caplog):
+    """Fail-open is right; failing open QUIETLY on a signature drift is not.
+
+    `get_expressive_tools` grew this arm after a stale override silently muted
+    ChatModule's whole declaration. `get_disallowed_tools` grew its `ctx_data`
+    parameter on 2026-08-18, which puts it in exactly that position — and the
+    consequence is worse here: suppression that fails open leaves BOTH send verbs
+    on the desk, which on a patrol turn is a desk whose own prompt forbids them.
+
+    `test_every_module_disallow_signature_accepts_ctx_data` covers `MODULE_MAP`;
+    this covers the case that guard cannot see — a module class that never
+    reaches the map.
+    """
+    import logging
+
+    class _Stale:
+        config = SimpleNamespace(name="StaleModule", priority=5)
+
+        async def get_mcp_config(self):
+            return None
+
+        async def get_disallowed_tools(self):  # the OLD signature, on purpose
+            return ["mcp__stale__tool"]
+
+        async def get_expressive_tools(self, ctx_data=None):
+            return []
+
+        async def get_turn_context(self, ctx_data) -> str:
+            return ""
+
+    instances = [
+        SimpleNamespace(module_class="StaleModule", module=_Stale(), instance_id="i1")
+    ]
+    # loguru → stdlib, so caplog can see it. The point of the arm is that the
+    # message is emitted at ERROR; a test that could not observe the level would
+    # pass on a `warning` call and miss the whole distinction.
+    from loguru import logger as _loguru
+
+    handler_id = _loguru.add(
+        lambda msg: logging.getLogger("desk_seam").error(msg), level="ERROR"
+    )
+    try:
+        with caplog.at_level(logging.ERROR, logger="desk_seam"):
+            await _collect(instances, monkeypatch)
+    finally:
+        _loguru.remove(handler_id)
+
+    assert any(
+        "signature mismatch" in r.getMessage() and "StaleModule" in r.getMessage()
+        for r in caplog.records
+    ), (
+        "a stale get_disallowed_tools signature failed open with no ERROR — "
+        f"records: {[r.getMessage() for r in caplog.records]}"
+    )

@@ -200,6 +200,15 @@ async def post_team_reply(
     platform that silently declines to relay trains the room to read it as the
     teammate ignoring the request.
     """
+    if not (text or "").strip():
+        # Belt, behind the tool's own guard. Raising rather than returning a
+        # shape because production cannot reach it — `message_team` refuses blank
+        # text before calling — so anything that does get here is a caller that
+        # skipped the tool, i.e. a test. `_team_turn.speak_in_room` is exactly
+        # such a caller, so a guard placed only in the tool would leave every
+        # team test able to post nothing and call it a delivery.
+        raise ValueError("post_team_reply: refusing to post empty text")
+
     member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
     mentions = extract_team_mentions(text, member_map)
     capped: dict = {"names": [], "everyone": False}

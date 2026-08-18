@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -438,3 +438,12 @@ The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `
 同环内 **先压制、后声明**，此顺序此前是隐式契约。压制 hook 不带 ctx，需要按轮次决策的模块
 只能读声明 hook 遗留的实例状态 —— 在这个顺序下永远是空的（详见 [[base.py]] 2026-08-18）。
 现在两个 hook 同传 ctx_data，顺序不再有语义。fail-open 姿态不变。
+
+## 2026-08-18 (二) — 压制 hook 也要有 TypeError 响亮分支
+
+声明侧 `get_expressive_tools` 早有 `except TypeError → logger.error`，起因是一次签名漂移
+静默清空了 ChatModule 的整个声明面。压制 hook 的 `ctx_data` 参数是 2026-08-18 才长出来的，
+于是它正处在同样的位置上 —— 而后果更重：压制 fail-open 会让**两个**发送动词都留在桌上，
+在 patrol 轮上就是一张自己的提示明令禁止的桌子（即 C1 那一类缺陷复现，藏在没人 grep 的
+warning 后面）。`test_every_module_disallow_signature_accepts_ctx_data` 只覆盖 MODULE_MAP，
+这条分支覆盖它看不到的情况：从不进入 map 的模块类。

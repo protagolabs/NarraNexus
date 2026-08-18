@@ -24,6 +24,8 @@ from xyz_agent_context.narrative.session_service import SessionService
 from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
 
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id  # noqa: E402
+
 TARGET = "agent_target"
 OTHER = "agent_other"
 USER = "user_x"
@@ -40,6 +42,20 @@ async def _seed(db, *, md_base: str, traj_base: str, sessions: SessionService) -
     """
     # --- agents ---
     await db.insert("agents", {"agent_id": TARGET, "agent_name": "T", "created_by": USER})
+    # --- IM inbox (the record the panel renders; own tables since 2026-08-17) ---
+    from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
+    for aid in (TARGET, OTHER):
+        tid = im_thread_id("lark", aid, "oc_shared_chat")
+        await db.insert("inbox_threads", {
+            "thread_id": tid, "owner_user_id": USER, "agent_id": aid,
+            "source": "lark", "title": f"Lark: {aid}",
+        })
+        for i in range(2):
+            await db.insert("inbox_thread_messages", {
+                "message_id": f"ibx_{aid}_{i}", "thread_id": tid,
+                "direction": "in" if i == 0 else "out", "content": f"{aid} msg {i}",
+            })
     await db.insert("agents", {"agent_id": OTHER, "agent_name": "O", "created_by": USER})
 
     # --- narratives (target: N1, N2 for USER; other: Nb) ---
@@ -197,6 +213,26 @@ async def test_conversations_only(db_client, bases):
     for kind in MEMORY_KINDS:
         assert await _count(db_client, f"memory_{kind}", {"agent_id": TARGET}) == 1
     assert await _count(db_client, "instance_artifacts", {"agent_id": TARGET}) == 1
+    # IM conversation history gone — the largest content class, and the one the
+    # frontend renders directly. Before 2026-08-18 the wipe walked
+    # `bus_channel_members` for sole-member channels, so once the inbox moved to
+    # its own tables it reported success and cleared nothing.
+    assert await _count(db_client, "inbox_threads", {"agent_id": TARGET}) == 0
+    assert await _count(
+        db_client, "inbox_thread_messages",
+        {"thread_id": im_thread_id("lark", TARGET, "oc_shared_chat")},
+    ) == 0
+    # The OTHER agent's thread survives, even though it is the same chat: the
+    # thread id and the scope both carry the agent, so one wipe cannot reach it.
+    assert await _count(db_client, "inbox_threads", {"agent_id": OTHER}) == 1
+    assert await _count(
+        db_client, "inbox_thread_messages",
+        {"thread_id": im_thread_id("lark", OTHER, "oc_shared_chat")},
+    ) == 2
+    # And the counters report it, so the API response is not silently zero.
+    assert result.inbox_threads_count == 1
+    assert result.inbox_thread_messages_count == 2
+
     # MessageBus: sole-member (private) channel history wiped; shared kept
     assert await _count(db_client, "bus_messages", {"channel_id": "dm"}) == 0
     assert await _count(db_client, "bus_messages", {"channel_id": "shared"}) == 1

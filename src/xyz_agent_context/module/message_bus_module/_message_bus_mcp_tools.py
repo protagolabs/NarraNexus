@@ -234,6 +234,27 @@ def register_message_bus_mcp_tools(
                 "error": "`to` is required — name the agent you are writing to.",
             }
 
+        if not (text or "").strip():
+            # The routing argument was guarded from the start and the CONTENT was
+            # not, which is the more consequential half. Blank text posts an empty
+            # bubble into a surface a person reads, and then
+            # `has_message_from_turn` answers True for the turn — so the
+            # "said nothing" notice is suppressed and the turn files as delivered.
+            # A room that looks answered and says nothing is strictly worse than
+            # the silence it replaced, which at least produced a notice. On the
+            # peer lane it is worse still: an empty message starts a full LLM turn
+            # for the recipient with nothing to answer.
+            #
+            # An ERROR, not a silent no-op: a tool that returns success for a
+            # no-op teaches the model it replied. Same discipline
+            # `inbox_recorder.record_turn` already applies to an empty outbound
+            # row, applied to the tool that is now every team turn's reply.
+            return {
+                "success": False,
+                "error": "`text` is empty — say something, or end the turn "
+                         "without calling this.",
+            }
+
         try:
             attachments = await _stage_send_attachments(agent_id, attachment_refs)
             msg_id = await bus.send_to_agent(
@@ -303,6 +324,27 @@ def register_message_bus_mcp_tools(
             return {
                 "success": False,
                 "error": "`team_id` is required — name the team room you are speaking in.",
+            }
+
+        if not (text or "").strip():
+            # The routing argument was guarded from the start and the CONTENT was
+            # not, which is the more consequential half. Blank text posts an empty
+            # bubble into a surface a person reads, and then
+            # `has_message_from_turn` answers True for the turn — so the
+            # "said nothing" notice is suppressed and the turn files as delivered.
+            # A room that looks answered and says nothing is strictly worse than
+            # the silence it replaced, which at least produced a notice. On the
+            # peer lane it is worse still: an empty message starts a full LLM turn
+            # for the recipient with nothing to answer.
+            #
+            # An ERROR, not a silent no-op: a tool that returns success for a
+            # no-op teaches the model it replied. Same discipline
+            # `inbox_recorder.record_turn` already applies to an empty outbound
+            # row, applied to the tool that is now every team turn's reply.
+            return {
+                "success": False,
+                "error": "`text` is empty — say something, or end the turn "
+                         "without calling this.",
             }
 
         try:
