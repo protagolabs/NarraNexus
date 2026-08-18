@@ -8,7 +8,10 @@ Manyfold needs to:
   - Enumerate all agents in the container regardless of which NarraNexus
     user created them (GET /manyfold/agents).
   - Create a new NarraNexus user + agent when a Manyfold user creates an
-    agent via the Manyfold UI (POST /manyfold/agents).
+    agent via the Manyfold UI (POST /manyfold/agents). Create owns the
+    agent's on-disk workspace too: it returns only once the canonical
+    directory exists, because the platform's runner takes the path we
+    report and calls ``ensure(create=false)`` on it (Manyfold #832).
 
 Registered only when ENABLE_MANYFOLD_API=1 (see backend/main.py). The
 auth middleware requires a valid MANYFOLD_GATEWAY_TOKEN before the
@@ -21,6 +24,7 @@ expects "list everything" semantics — we honor it.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Optional
 
@@ -34,7 +38,12 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
     netmind_slots_only,
 )
+from xyz_agent_context.settings import settings as core_settings
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.workspace_paths import (
+    ensure_agent_workspace,
+    validate_workspace_segments,
+)
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
@@ -128,6 +137,93 @@ class ManyfoldCreateAgentRequest(BaseModel):
     )
 
 
+def _is_unique_constraint_error(exc: Exception) -> bool:
+    """Return whether a backend exception is a duplicate-key collision."""
+    message = str(exc).lower()
+    return (
+        "unique constraint failed" in message
+        or "duplicate entry" in message
+        or "1062" in message
+    )
+
+
+def _require_agent_owner(agent_row: dict, agent_id: str, user_id: str) -> None:
+    """Reject a create replay that tries to move an agent across users."""
+    if agent_row.get("created_by") == user_id:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=f"agent {agent_id!r} is already owned by another user",
+    )
+
+
+async def _ensure_manyfold_user(db, body: ManyfoldCreateAgentRequest, user_id: str) -> bool:
+    """Create the normalized user once, tolerating a concurrent winner."""
+    if await db.get_one("users", {"user_id": user_id}):
+        return False
+
+    try:
+        await db.insert("users", {
+            "user_id": user_id,
+            "user_type": "local",
+            "role": "user",
+            "display_name": body.display_name
+                or body.manyfold_user_email
+                or body.manyfold_user_id,
+        })
+    except Exception as exc:  # noqa: BLE001 - backend-specific integrity types
+        if not _is_unique_constraint_error(exc):
+            raise
+        # A duplicate is success only if the authoritative row is now visible.
+        # Otherwise the exception was misclassified or the winner rolled back.
+        if not await db.get_one("users", {"user_id": user_id}):
+            raise
+        return False
+
+    logger.info(
+        f"[manyfold-create] new NarraNexus user {user_id!r} "
+        f"(manyfold_id={body.manyfold_user_id!r})"
+    )
+    return True
+
+
+async def _claim_manyfold_agent(
+    db,
+    body: ManyfoldCreateAgentRequest,
+    user_id: str,
+    existing_row: Optional[dict],
+) -> tuple[dict, bool]:
+    """Claim a new agent id, or validate the owner of an idempotent replay."""
+    if existing_row:
+        _require_agent_owner(existing_row, body.agent_id, user_id)
+        return existing_row, False
+
+    new_row = {
+        "agent_id": body.agent_id,
+        "agent_name": body.agent_name or body.agent_id,
+        "agent_description": body.description or "",
+        "agent_type": "general",
+        "created_by": user_id,
+        "is_public": 0,
+    }
+    try:
+        await db.insert("agents", new_row)
+        return new_row, True
+    except Exception as exc:  # noqa: BLE001 - backend-specific integrity types
+        if not _is_unique_constraint_error(exc):
+            raise
+
+    # Another request won the unique agent_id claim. It is an idempotent
+    # replay only when that winner belongs to this same normalized user.
+    winner = await db.get_one("agents", {"agent_id": body.agent_id})
+    if not winner:
+        raise RuntimeError(
+            f"agent {body.agent_id!r} collided on insert but is not readable"
+        )
+    _require_agent_owner(winner, body.agent_id, user_id)
+    return winner, False
+
+
 @router.post("/manyfold/agents")
 async def create_agent_for_manyfold(
     request: Request,
@@ -141,35 +237,45 @@ async def create_agent_for_manyfold(
          provider configuration from ``inherit_provider_from`` (when
          supplied and present) so chat works on the first turn.
       2. Ensure an agent row exists with ``created_by`` set to the user
-         from step 1. If it already exists, just update the name /
-         description to keep them in sync with Manyfold's side.
+         from step 1. If it already exists under that same owner, update the
+         name / description to keep them in sync with Manyfold's side; an
+         ownership mismatch is a conflict, never a reassignment.
+      3. Ensure the agent's canonical workspace DIRECTORY exists, and only
+         answer once it does (see ``_ensure_workspace``).
 
     Returns the canonical NarraNexus agent_id + the (possibly newly
-    created) NarraNexus user_id so the caller can stash it.
+    created) NarraNexus user_id so the caller can stash it, plus the
+    workspace path this call guaranteed.
     """
     _require_manyfold_auth(request)
     db = await get_db_client()
 
-    nx_user_id = _normalize_user_id(body.manyfold_user_id)
-    user_row = await db.get_one("users", {"user_id": nx_user_id})
-    user_created = False
-    if not user_row:
-        await db.insert("users", {
-            "user_id": nx_user_id,
-            "user_type": "local",
-            "role": "user",
-            "display_name": body.display_name
-                or body.manyfold_user_email
-                or body.manyfold_user_id,
-        })
-        user_created = True
-        logger.info(
-            f"[manyfold-create] new NarraNexus user {nx_user_id!r} "
-            f"(manyfold_id={body.manyfold_user_id!r})"
-        )
+    try:
+        nx_user_id = _normalize_user_id(body.manyfold_user_id)
+        # Reject an id that cannot be a path segment BEFORE it becomes a row:
+        # step 3 turns both ids into directory names, and a rejected create must
+        # not leave a half-provisioned agent behind. `_normalize_user_id`
+        # sanitises its side; this covers `agent_id`, which arrives verbatim.
+        validate_workspace_segments(body.agent_id, nx_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # If asked, mirror provider rows + slot bindings from a template user.
-    # Skip on idempotent reruns where the user already had slots configured.
+    # An agent id is a global ownership claim. Check before creating the user
+    # so a sequential collision cannot leave an unused account behind; the
+    # insert-time check in `_claim_manyfold_agent` closes the concurrent race.
+    agent_row = await db.get_one("agents", {"agent_id": body.agent_id})
+    if agent_row:
+        _require_agent_owner(agent_row, body.agent_id, nx_user_id)
+
+    user_created = await _ensure_manyfold_user(db, body, nx_user_id)
+
+    agent_row, agent_created = await _claim_manyfold_agent(
+        db, body, nx_user_id, agent_row
+    )
+
+    # Clone only after this request owns (or validly replays) the agent claim.
+    # A concurrent request for the same id under another user must return 409
+    # without copying provider configuration into its now-unused user row.
     if user_created and body.inherit_provider_from:
         try:
             await _clone_provider_setup(
@@ -181,30 +287,37 @@ async def create_agent_for_manyfold(
                 f"→ {nx_user_id} failed: {exc}"
             )
 
-    # Agent row — insert or update
-    agent_row = await db.get_one("agents", {"agent_id": body.agent_id})
-    if agent_row:
-        await db.update("agents", {"agent_id": body.agent_id}, {
-            "agent_name": body.agent_name or agent_row.get("agent_name") or body.agent_id,
-            "agent_description": body.description or agent_row.get("agent_description"),
-            "created_by": nx_user_id,
-        })
-        agent_created = False
-    else:
-        await db.insert("agents", {
-            "agent_id": body.agent_id,
-            "agent_name": body.agent_name or body.agent_id,
-            "agent_description": body.description or "",
-            "agent_type": "general",
-            "created_by": nx_user_id,
-            "is_public": 0,
-        })
-        agent_created = True
+    # The rows alone do not satisfy this contract — run it on the update leg
+    # too, so a replay repairs a workspace that went missing.
+    workspace = await _ensure_workspace(body.agent_id, nx_user_id)
+
+    if not agent_created:
+        # Ownership is immutable here. Including it in the filter prevents an
+        # unrelated writer from turning this metadata sync into a reassignment.
+        await db.update(
+            "agents",
+            {"agent_id": body.agent_id, "created_by": nx_user_id},
+            {
+                "agent_name": body.agent_name
+                    or agent_row.get("agent_name")
+                    or body.agent_id,
+                "agent_description": body.description
+                    or agent_row.get("agent_description"),
+            },
+        )
+
+    authoritative_row = await db.get_one("agents", {"agent_id": body.agent_id})
+    if not authoritative_row:
+        raise HTTPException(
+            status_code=409,
+            detail=f"agent {body.agent_id!r} changed during create; retry",
+        )
+    _require_agent_owner(authoritative_row, body.agent_id, nx_user_id)
 
     logger.info(
         f"[manyfold-create] agent {body.agent_id!r} "
         f"{'created' if agent_created else 'updated'} "
-        f"created_by={nx_user_id!r}"
+        f"created_by={nx_user_id!r} workspace={workspace!r}"
     )
 
     return {
@@ -212,7 +325,47 @@ async def create_agent_for_manyfold(
         "user_id": nx_user_id,
         "user_created": user_created,
         "agent_created": agent_created,
+        "workspace": workspace,
     }
+
+
+async def _ensure_workspace(agent_id: str, user_id: str) -> str:
+    """Materialize the agent's canonical workspace dir, or fail the request.
+
+    Manyfold #832: this endpoint used to return 200 having written only the
+    `users` / `agents` rows. The directory did not exist, yet
+    ``GET .../files/roots`` happily resolved and returned its name, so the
+    platform stored a path to nothing and its runner — which calls
+    ``workspace.ensure(create=false)``, correctly refusing to invent
+    directories inside another system's layout — could not start the sandbox.
+    The path belongs to NarraNexus, so materializing it does too.
+
+    Never returns a path it has not just proven exists: a false success here
+    resurfaces on the Manyfold side much later, as a sandbox error that looks
+    unrelated to agent creation.
+    """
+    try:
+        workspace = await asyncio.to_thread(
+            ensure_agent_workspace,
+            agent_id,
+            user_id,
+            str(core_settings.base_working_path),
+        )
+    except ValueError as exc:
+        # Unsafe segment — already screened at the top of the handler, so
+        # reaching here means a caller bypassed it. Still a 4xx, never a mkdir.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.error(
+            f"[manyfold-create] workspace materialization failed for "
+            f"{agent_id!r} (owner={user_id!r}): {type(exc).__name__}: {exc}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="failed to materialize agent workspace",
+        ) from exc
+    logger.info(f"[manyfold-create] workspace ready for {agent_id!r}: {workspace}")
+    return str(workspace)
 
 
 # ---------------------------------------------------------------------------
