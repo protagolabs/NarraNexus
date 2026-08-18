@@ -1018,13 +1018,13 @@
       "renewMonthsLabel": "购买几个月",
       "renewTotalLabel": "{{count}} 个月合计",
       "renewNoAutoRenew": "一次性购买 —— 到期不会自动续费。想继续用 Pro，请在到期前再买一次。",
-      "renewCoveredUntil": "可用至 {{date}}。",
       "renewPay": "支付 ${{total}}",
       "renewBtn": "续订",
       "renewTitle": "继续使用 Pro",
       "renewProcessing": "等待付款完成…请在打开的窗口中完成支付，套餐会自动更新。",
       "renewSuccess": "Pro 已延长 —— 新的到期日见上方。",
-      "planExplOnetime": "有效至 {{date}} —— 一次性购买，到期不会自动续费"
+      "planExplOnetime": "有效至 {{date}} —— 一次性购买，到期不会自动续费",
+      "renewExtendsFrom": "在你当前的到期日 {{date}} 之上顺延。"
     },
     "modal": {
       "title": "设置",

@@ -1018,13 +1018,13 @@
       "renewMonthsLabel": "How many months",
       "renewTotalLabel": "{{count}}-month total",
       "renewNoAutoRenew": "One-time purchase — this does NOT auto-renew. Buy again before it ends to stay on Pro.",
-      "renewCoveredUntil": "Covered until {{date}}.",
       "renewPay": "Pay ${{total}}",
       "renewBtn": "Renew",
       "renewTitle": "Keep Pro going",
       "renewProcessing": "Waiting for payment… complete it in the opened window; your plan updates automatically.",
       "renewSuccess": "Pro extended — new end date shown above.",
-      "planExplOnetime": "Valid until {{date}} — one-time purchase, does not renew"
+      "planExplOnetime": "Valid until {{date}} — one-time purchase, does not renew",
+      "renewExtendsFrom": "Added on top of your current end date, {{date}}."
     },
     "modal": {
       "title": "Settings",

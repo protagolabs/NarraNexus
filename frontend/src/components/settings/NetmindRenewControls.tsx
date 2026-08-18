@@ -24,6 +24,7 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui';
 import { PaymentMethodChoice } from './PaymentMethodChoice';
+import { formatDate } from './netmindFormat';
 import type { SubscribePaymentMethod } from '@/types';
 
 // 1 and 12 are the upstream bounds; the middle values are the quarters people
@@ -68,13 +69,18 @@ export function NetmindRenewControls({
   const busy = state === 'processing';
   const total = monthlyPriceUsd != null ? monthlyPriceUsd * months : null;
 
-  // Extending starts from the END of the current period, not from today —
-  // upstream adds the months on top. Showing today + N would understate what
-  // they get by however long is left.
-  const coveredUntil =
-    currentPeriodEnd != null
-      ? new Date((currentPeriodEnd + months * 30 * 86400) * 1000).toLocaleDateString()
-      : null;
+  // The date the purchase EXTENDS FROM — never a locally computed "covered
+  // until". A month is not 30 days: upstream defines the period (dev bills a
+  // "month" as `2day`, and a real calendar month is 28-31), so any arithmetic
+  // here invents a date the server owns. It showed 2026-09-23 next to a plan
+  // row saying 2026-08-24, and on prod it would have been quietly wrong by a
+  // day or three every month instead — the worse failure, because nobody
+  // notices it. Same rule the CNY conversion follows: quote what the server
+  // said, never a number we made up.
+  //
+  // `formatDate` (not toLocaleDateString) so this reads identically to the
+  // plan row it sits under.
+  const extendsFrom = currentPeriodEnd != null ? formatDate(currentPeriodEnd) : null;
 
   return (
     <div className="space-y-3">
@@ -136,8 +142,9 @@ export function NetmindRenewControls({
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] text-[var(--text-tertiary)] flex-1">
-          {coveredUntil
-            ? t('settings.netmind.renewCoveredUntil', 'Covered until {{date}}.', { date: coveredUntil })
+          {extendsFrom
+            ? t('settings.netmind.renewExtendsFrom',
+                'Added on top of your current end date, {{date}}.', { date: extendsFrom })
             : ''}
         </p>
         <Button variant="accent" size="sm" onClick={onPay} disabled={busy || total == null}>

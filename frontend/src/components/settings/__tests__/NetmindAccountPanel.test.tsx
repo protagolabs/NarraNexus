@@ -1312,3 +1312,18 @@ test('one-time: the action zone does not restate the plan row', async () => {
   // ...and the fact itself is still on screen exactly once, in the plan row.
   expect(screen.getAllByText(/does not renew/i).length).toBe(1);
 });
+
+test('renew dialog never invents a future end date', async () => {
+  // It used to render currentPeriodEnd + months*30d, which disagreed with the
+  // plan row directly above (2026-09-23 vs 2026-08-24) because a month is not
+  // 30 days — dev bills one as `2day`, a calendar month is 28-31, and upstream
+  // owns the arithmetic either way. The dialog now anchors on the date the
+  // server actually reports, in the same format the plan row uses.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB()); // period_end 1790000000
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  expect(await screen.findByText(/current end date, 2026-09-21/)).toBeTruthy();
+  // 3 months of invented 30-day arithmetic would have landed here:
+  expect(document.body.textContent).not.toMatch(/2026-12-20|2026\/12\/20/);
+});
