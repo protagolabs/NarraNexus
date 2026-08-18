@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-08-07
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -113,3 +113,7 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
   legacy (pre-pointer-model) rows that never had these columns populated — such
   rows won't render but won't crash the list query either. They are hand-migrated
   per the cleanup TODO.
+
+## 2026-08-18 — `count_for_agent_context`
+
+状态块尾注的 COUNT 版可见面查询(同 union 语义),不为拿总数付整行代价。
