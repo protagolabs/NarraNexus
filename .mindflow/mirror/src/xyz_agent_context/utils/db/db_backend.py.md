@@ -1,3 +1,6 @@
+# db_backend.py
+
+Abstract base class that every concrete database backend must implement — the contract that lets `AsyncDatabaseClient` stay database-agnostic.
 
 ## 2026-08-18 — 新增非抽象的 `probe()`
 
@@ -13,10 +16,6 @@
 2. **取消不得留下被毒化的连接。** 调用方用超时包住它，所以数据库一慢，
    `CancelledError` 就会在驱动读响应包读到一半时到达。那种状态的连接必须关掉，绝不能
    还给连接池让下一个调用方继承。
-
-# db_backend.py
-
-Abstract base class that every concrete database backend must implement — the contract that lets `AsyncDatabaseClient` stay database-agnostic.
 
 ## Why it exists
 

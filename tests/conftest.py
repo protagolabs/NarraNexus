@@ -107,3 +107,26 @@ async def db_client():
     client = await AsyncDatabaseClient.create_with_backend(backend)
     yield client
     await client.close()
+
+
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """`/health` caches its probe result for a few seconds.
+
+    Autouse and repo-wide: without it one test's outcome answers the next test's
+    request. File-local was not enough — `tests/backend/test_health_db_probe.py`
+    and `tests/services/test_team_summary_worker.py` both call `main.health()`,
+    and whichever ran first left the cache populated for everything after it.
+
+    Imported lazily so collecting tests that never touch the backend does not
+    pull in `backend.main`.
+    """
+    try:
+        import backend.main as _main
+    except Exception:  # pragma: no cover - backend not importable in this env
+        yield
+        return
+
+    _main._health_cache = None
+    yield
+    _main._health_cache = None

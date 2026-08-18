@@ -25,15 +25,6 @@ from loguru import logger
 import backend.main as main
 
 
-@pytest.fixture(autouse=True)
-def _clear_health_cache():
-    """The probe result is cached for a few seconds, so without this one case's
-    outcome would answer the next case's request."""
-    main._health_cache = None
-    yield
-    main._health_cache = None
-
-
 class _StubClient:
     def __init__(self, behaviour):
         self._behaviour = behaviour
@@ -284,8 +275,8 @@ async def test_the_cache_expires(monkeypatch):
     assert len(client.queries) == 1
 
     # Expire it by rewinding the stored deadline rather than sleeping.
-    deadline, was_ok, detail = main._health_cache
-    main._health_cache = (deadline - main._HEALTH_CACHE_TTL_SEC - 1, was_ok, detail)
+    started, deadline, was_ok, detail = main._health_cache
+    main._health_cache = (started, deadline - main._HEALTH_CACHE_TTL_SEC - 1, was_ok, detail)
 
     await main.health()
     assert len(client.queries) == 2
@@ -321,3 +312,49 @@ async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
         del main.app.state.team_summary_worker
 
     assert body["team_summary"]["rooms"] == 9, "worker counters were frozen by the cache"
+
+
+@pytest.mark.asyncio
+async def test_a_slow_failing_probe_cannot_overwrite_a_newer_success(monkeypatch):
+    """The cache is written by whichever probe FINISHES last, which is not the
+    same as whichever probe is most recent.
+
+    Concretely: request A starts while the database is down and takes the full
+    timeout; request B starts a moment later, after recovery, and returns at
+    once. If A's stale verdict lands on top of B's, `/health` keeps reporting
+    unhealthy for another 5s against a database that is already back.
+
+    Driven through two concurrent `health()` calls rather than by re-stating the
+    guard's condition — the latter would pass whatever the guard actually did.
+    """
+    release_a = asyncio.Event()
+    state = {"fail": True}
+
+    class _Client:
+        async def probe(self) -> None:
+            if state["fail"]:
+                await release_a.wait()          # A: slow, and fails
+                raise RuntimeError("(0, 'Not connected')")
+            return None                          # B: fast, and succeeds
+
+    async def fake_get_db_client():
+        return _Client()
+
+    monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
+
+    a = asyncio.create_task(main.health())       # starts first, still in flight
+    await asyncio.sleep(0)
+
+    state["fail"] = False                        # database recovers
+    b = await main.health()                      # starts later, finishes first
+    assert b["status"] == "healthy"
+
+    release_a.set()                              # now A returns its stale failure
+    await a
+
+    assert main._health_cache is not None
+    assert main._health_cache[2] is True, (
+        "a probe that started earlier overwrote a newer, healthier verdict"
+    )
+    later = await main.health()
+    assert later["status"] == "healthy", "/health reported a recovered database as down"

@@ -1,13 +1,13 @@
 ---
 code_file: src/xyz_agent_context/utils/db/database.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
 ## 2026-08-18 — 删掉不可达的 legacy pool 路径（铁律 #2）
 
 `AsyncDatabaseClient` 此前有两套实现：委派给 `DatabaseBackend` 的一套，和直接操作
-`aiomysql` 连接池的另一套。后者**走不到** —— `_ensure_pool()` 的三条分支（sqlite /
+`aiomysql` 连接池的另一套。后者**走不到** —— `_ensure_backend()` 的三条分支（sqlite /
 sqlite-proxy / mysql）都会设 `self._backend` 然后 `return None`，从不给 `self._pool`
 赋值；`self._pool` 只能由 `__init__(_pool=...)` 填入，而全仓没有任何调用方传它。
 
@@ -77,11 +77,10 @@ rollback 自身失败时只记日志不抛，避免掩盖原始异常（此时 `
 
 **Backend-delegation pattern.** `AsyncDatabaseClient` originally embedded aiomysql pool logic directly. As SQLite and proxy backends were added, all concrete driver code was pushed into `DatabaseBackend` subclasses; the client now delegates every operation to `self._backend`. The legacy aiomysql pool attributes still exist on the object but in practice every code path reaches a backend.
 
-**Lazy initialization.** `AsyncDatabaseClient()` can be constructed without awaiting anything. The backend is created on the first awaited call in `_ensure_pool()`. This lets module constructors accept a `database_client` parameter without the caller needing to have previously awaited anything.
+**Lazy initialization.** `AsyncDatabaseClient()` can be constructed without awaiting anything. The backend is created on the first awaited call in `_ensure_backend()`. This lets module constructors accept a `database_client` parameter without the caller needing to have previously awaited anything.
 
-**`_owns_backend` flag.** When a client auto-switches to share the factory singleton's backend (the `url.startswith('sqlite')` branch in `_ensure_pool`), it sets `_owns_backend = False`. Calling `.close()` on such a client does nothing to the shared backend — only the factory's `close_db_client()` tears it down.
+**`_owns_backend` flag.** When a client auto-switches to share the factory singleton's backend (the `url.startswith('sqlite')` branch in `_ensure_backend`), it sets `_owns_backend = False`. Calling `.close()` on such a client does nothing to the shared backend — only the factory's `close_db_client()` tears it down.
 
-**`aiomysql` is always imported.** Even in a pure SQLite deployment, `aiomysql` must be installed because `aiomysql.Pool` appears in the class's type annotations and attribute defaults. This is a known rough edge: the package is conditionally unused at runtime but required at import time.
 
 **`_mysql_to_sqlite_sql` is a module-level function, not a method.** This keeps it importable by `sqlite_proxy_server.py` without creating any instance.
 
@@ -91,7 +90,7 @@ rollback 自身失败时只记日志不抛，避免掩盖原始异常（此时 `
 
 **`ON DUPLICATE KEY UPDATE` with unregistered tables.** `_get_unique_cols_for_table()` looks up the unique-index columns in `schema_registry.TABLES`. If the table is not registered there, it falls back to `[table_name]` as the conflict target — which is virtually always wrong. Upserts silently become plain inserts. Any table that needs upsert support must appear in the registry.
 
-**Event-loop change after in-process restart.** `_ensure_pool` delegates to the factory singleton for SQLite URLs. Any `AsyncDatabaseClient` instance that has already cached `self._backend` holds a reference to the old event loop's backend. After a loop change those instances raise `aiosqlite` "Event loop is closed" errors. Always obtain the client via `await get_db_client()` rather than storing it as a long-lived instance attribute.
+**Event-loop change after in-process restart.** `_ensure_backend` delegates to the factory singleton for SQLite URLs. Any `AsyncDatabaseClient` instance that has already cached `self._backend` holds a reference to the old event loop's backend. After a loop change those instances raise `aiosqlite` "Event loop is closed" errors. Always obtain the client via `await get_db_client()` rather than storing it as a long-lived instance attribute.
 
 **New-contributor trap.** Calling `AsyncDatabaseClient()` — no `await` — looks like it returns a ready client, and in many cases it works fine due to lazy init. But if the first call made on it fails (e.g., missing `DATABASE_URL`), the error surfaces as a cryptic connection failure at the first awaited operation, not at construction time.
 

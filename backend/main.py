@@ -42,15 +42,22 @@ _HEALTH_DB_TIMEOUT_SEC = 3.0
 # visible, turned into a way to cause it. Worse, that is most available exactly
 # during an incident, when the endpoint is most likely to be probed.
 #
-# 5s is well under the container healthcheck's `interval: 30s`, so the container
-# probe and Uptime Kuma still get a fresh round-trip every time; only a flood
-# collapses onto one query.
+# 5s is well under the container healthcheck's `interval: 30s`, so any single
+# prober still gets a fresh round-trip on every one of its own polls. Two
+# probers landing within 5s of each other will have the later one served from
+# cache — acceptable, and the reason the window is far smaller than the poll
+# interval rather than merely smaller.
 _HEALTH_CACHE_TTL_SEC = 5.0
 
-# (monotonic_deadline, ok, detail). Plain module state on purpose: a lock or a
-# background refresh task would add a fire-and-forget hazard to buy nothing —
-# a few concurrent requests racing to run one extra `SELECT 1` is fine.
-_health_cache: "tuple[float, bool, str] | None" = None
+# (probe_started_at, monotonic_deadline, ok, detail). Plain module state on
+# purpose: a lock or a background refresh task would add a fire-and-forget
+# hazard to buy nothing. Concurrent misses may each run one extra `SELECT 1`,
+# which is fine — but they must not publish a STALE verdict, so the write is
+# guarded by when the probe started rather than when it finished. Without that,
+# a slow failing probe that started before a fast succeeding one would overwrite
+# the good result on arrival and keep reporting unhealthy for a further 5s after
+# the database had already recovered (and the reverse, hiding a fresh failure).
+_health_cache: "tuple[float, float, bool, str] | None" = None
 
 
 def _detect_bind_host() -> str:
@@ -639,11 +646,10 @@ async def health():
     """
     global _health_cache
 
-    now = time.monotonic()
+    started = time.monotonic()
     cached = _health_cache
-    if cached is not None and now < cached[0]:
-        db_ok, db_detail = cached[1], cached[2]
-        return _health_body(db_ok, db_detail)
+    if cached is not None and started < cached[1]:
+        return _health_body(cached[2], cached[3])
 
     db_ok = False
     db_detail = "unknown"
@@ -690,7 +696,10 @@ async def health():
     # situation it is dangerous — a database that is down or slow, with every
     # request paying the full timeout. The cost is that recovery shows up up to
     # 5s late, against a 30s probe interval.
-    _health_cache = (time.monotonic() + _HEALTH_CACHE_TTL_SEC, db_ok, db_detail)
+    # Only if no newer probe has already published — see the note on the cache.
+    current = _health_cache
+    if current is None or started >= current[0]:
+        _health_cache = (started, time.monotonic() + _HEALTH_CACHE_TTL_SEC, db_ok, db_detail)
 
     return _health_body(db_ok, db_detail)
 

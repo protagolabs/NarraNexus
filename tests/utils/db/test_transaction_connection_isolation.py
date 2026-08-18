@@ -852,3 +852,99 @@ async def test_the_probe_uses_the_ordinary_pool_rather_than_a_private_connection
     await backend.probe()
 
     assert len(pool.created) == 1, "the probe built a connection outside the pool"
+
+
+# --------------------------------------------------------------------------
+# 8. Lazy initialisation must hand back a backend on EVERY path
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_lazily_initialised_sqlite_client_can_probe_before_anything_else(tmp_path, monkeypatch):
+    """`_ensure_backend` promises a `DatabaseBackend` on every path.
+
+    Three of its four branches (the SQLite ones) used to `return None` — a
+    leftover from when the method returned a pool. Nothing caught it because the
+    live paths all go through `db_factory`, which pre-seeds `_backend` so the
+    first early-return short-circuits. A client built the way the class
+    docstring recommends, on the desktop/local SQLite backend, got
+    `AttributeError` from `probe()` and a silent `False` from `ping()` against a
+    perfectly healthy database.
+    """
+    from xyz_agent_context.settings import settings
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+
+    db_file = tmp_path / "probe.db"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_file}", raising=False)
+
+    client = AsyncDatabaseClient()
+    await client.probe()            # must not raise
+    assert await client.ping() is True
+
+    fresh = AsyncDatabaseClient()
+    async with fresh.transaction():  # begin/commit also dereference the return
+        pass
+
+
+# --------------------------------------------------------------------------
+# 9. A finished transaction reads as finished, not as someone else's
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_child_committing_after_the_parent_is_told_there_is_no_transaction():
+    """Message quality, and the reason `_owned_or_raise` checks `conn is None`
+    before it checks ownership. Once the holder is cleared the transaction is
+    over for everyone, so "no active transaction" is the truth; reporting
+    "it belongs to the task that opened it" would send the reader looking for a
+    live transaction that no longer exists."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    ready = asyncio.Event()
+    seen = {}
+
+    async def child():
+        ready.set()
+        await asyncio.sleep(0.02)
+        try:
+            await backend.commit()
+        except RuntimeError as exc:
+            seen["msg"] = str(exc)
+
+    task = asyncio.create_task(child())
+    await ready.wait()
+    await backend.commit()
+    await task
+
+    assert seen.get("msg") == "No active transaction", (
+        f"a finished transaction reported as someone else's: {seen.get('msg')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_owner_itself_is_released_by_clearing_the_holder():
+    """`_own_txn` checks `txn.conn is None` before it checks ownership, and that
+    check has to be load-bearing for the OWNER too, not only for children.
+
+    `_clear_txn` blanks the shared holder and then clears this task's own
+    ContextVar. If it ever stops doing the second half, the owner would still be
+    routed by the first — so this pins that a committed owner goes back to the
+    pool like anyone else.
+    """
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    txn_conn = checked_out(pool)
+    await backend.commit()
+
+    await backend.execute_write("DELETE FROM t WHERE id = 7")
+
+    # It may well land on the very same connection — commit put it back on the
+    # free list and `pool.acquire()` hands it out again. What must be true is
+    # that it went through the POOL: acquired and released, not held as an open
+    # transaction.
+    assert pool.used == [], "the write was routed onto a still-open transaction"
+    assert len(pool.free) == 1
+    assert "DELETE FROM t WHERE id = 7" in pool.free[0].queries
+    assert txn_conn.committed == 1
