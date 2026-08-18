@@ -34,8 +34,8 @@ import type { Runway } from './netmindRunway';
 import type { SubscriptionPlan } from '@/types';
 
 // NarraNexus pricing page (plans + model pricing in product terms; replaced the
-// raw NetMind pricing page 2026-07-18, moved off the website. subdomain to the
-// apex 2026-08-19) — the "learn more" depth that doesn't belong in the panel.
+// raw NetMind pricing page 2026-07-18; moved off the `website.` subdomain to
+// the apex 2026-08-19) — the "learn more" depth that doesn't belong here.
 //
 // Build-time constant, NOT deploy config: changing it needs a frontend rebuild.
 // If this URL starts moving (a relaunch, per-language pricing pages), promote it

@@ -8,8 +8,10 @@
  * purchase is a different product from a card subscription, not a parameter of
  * it. It does not renew, so the thing that keeps someone Pro is THIS control
  * being used again before the period ends — which is why the copy leads with
- * "does not auto-renew" and shows the resulting date rather than a month count.
- * "3 months" is abstract; "covered until 18 Nov" is what a person can act on.
+ * "does not auto-renew" and anchors on a real date rather than a bare month
+ * count. That date is the one the purchase EXTENDS FROM — never a computed
+ * "covered until"; see the comment on `extendsFrom` for why we refuse to do
+ * that arithmetic ourselves.
  *
  * Card is deliberately absent from the rail choice here, and that is a
  * capability fact rather than the region-based hiding PaymentMethodChoice
