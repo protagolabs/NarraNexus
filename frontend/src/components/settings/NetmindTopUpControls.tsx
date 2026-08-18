@@ -16,6 +16,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui';
+import { money, moneyOrNull } from './netmindFormat';
 import { PaymentMethodChoice } from './PaymentMethodChoice';
 import type { FxQuote, RechargePaymentMethod } from '@/types';
 
@@ -28,7 +29,11 @@ export type RechargeState = 'idle' | 'processing' | 'success' | 'failed';
 interface NetmindTopUpControlsProps {
   tier: number;
   custom: string;
+  /** This top-up's own progress — drives the NARRATIVE only. */
   rechargeState: RechargeState;
+  /** Any money action is in flight, whichever control started it — see the twin
+   *  prop on NetmindRenewControls for why this is not `rechargeState`. */
+  busy: boolean;
   rechargeError: string | null;
   paymentMethod: RechargePaymentMethod;
   /** Quote for the CURRENT amount, or null while one is pending / not needed.
@@ -47,6 +52,7 @@ export function NetmindTopUpControls({
   tier,
   custom,
   rechargeState,
+  busy,
   rechargeError,
   paymentMethod,
   fx,
@@ -59,15 +65,15 @@ export function NetmindTopUpControls({
 }: NetmindTopUpControlsProps) {
   const { t } = useTranslation();
   // Upstream returns money as a high-precision decimal STRING ("67.531480",
-  // "5.0" — measured against dev 2026-08-19), not something display-ready. Every
-  // rendered amount goes through this; the earlier fixtures happened to be
-  // 2-decimal, so the tests were green while the panel showed "¥67.531480".
+  // "5.0" — measured against dev 2026-08-19), not something display-ready.
+  // `moneyOrNull` (shared, guarded) rather than a local Number().toFixed():
+  // every FxQuote field is optional, so an unguarded conversion renders "¥NaN"
+  // on the line someone reads last before paying.
   // `rate` is deliberately NOT rounded: an exchange rate's precision is
   // information, whereas a price with six decimals is just noise.
-  const cny = (v: string | undefined) =>
-    v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : null;
+  const cny = moneyOrNull;
 
-  const processing = rechargeState === 'processing';
+  const narrating = rechargeState === 'processing';
   const isWechat = paymentMethod === 'wechat';
   // The converted total goes ON the button as well as in the note: the last
   // thing someone reads before committing should be the number their bank will
@@ -87,7 +93,7 @@ export function NetmindTopUpControls({
         value={paymentMethod}
         cardValue="default"
         onChange={onChangePaymentMethod}
-        disabled={processing}
+        disabled={busy}
       />
       <div className="flex flex-wrap items-center gap-1.5">
         {RECHARGE_TIERS.map((v) => {
@@ -97,7 +103,7 @@ export function NetmindTopUpControls({
               key={v}
               type="button"
               onClick={() => onSelectTier(v)}
-              disabled={processing}
+              disabled={busy}
               className={`px-3 py-1 rounded-md text-sm border transition-colors disabled:opacity-50 ${
                 active
                   ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
@@ -117,12 +123,12 @@ export function NetmindTopUpControls({
             value={custom}
             onChange={(e) => onChangeCustom(e.target.value)}
             placeholder={t('settings.netmind.rechargeCustom', 'Custom')}
-            disabled={processing}
+            disabled={busy}
             className="w-24 px-2 py-1 rounded-md text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50"
           />
         </div>
-        <Button variant="accent" size="sm" onClick={onRecharge} disabled={processing}>
-          {processing
+        <Button variant="accent" size="sm" onClick={onRecharge} disabled={busy}>
+          {narrating
             ? t('settings.netmind.working', 'Working…')
             : chargeLabel
               ? `${t('settings.netmind.rechargeBtn', 'Recharge')} ${chargeLabel}`
@@ -135,7 +141,7 @@ export function NetmindTopUpControls({
             <p className="text-xs text-[var(--text-secondary)] tabular-nums">
               {t('settings.netmind.wechatConversion',
                 'WeChat is charged in CNY: {{usd}} ≈ {{cny}}',
-                { usd: `$${Number(fx.amount_usd).toFixed(2)}`, cny: `¥${cny(fx.charge_amount)}` })}
+                { usd: `$${money(fx.amount_usd)}`, cny: `¥${cny(fx.charge_amount)}` })}
               {fx.rate && (
                 <span className="ml-2 text-[var(--text-tertiary)]">1 USD = {fx.rate} CNY</span>
               )}
@@ -153,7 +159,7 @@ export function NetmindTopUpControls({
           </p>
         </div>
       )}
-      {processing && (
+      {narrating && (
         <div className="flex items-start justify-between gap-3">
           <p className="text-xs text-[var(--text-tertiary)] flex-1">
             {t('settings.netmind.rechargeProcessing',

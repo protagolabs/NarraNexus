@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_billing_client.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -30,6 +30,14 @@ stub: false
 **总是**发 body。那条笔记真正保护的不变量（**未解析出的跳转目标是省略、不是
 null**）没有变，测试也改成钉这一条了
 （`test_subscribe_omits_redirect_urls_when_unresolved`）。
+
+**微信两条轨的 checkout 主机已实测**（评审指出这是记录里唯一的空白，因为
+`_validate_checkout_url` 是硬拦 `*.stripe.com`，猜错就是微信付款 100% 失败）：
+一次性订阅与充值都返回 `checkout.stripe.com`，白名单放行，无需扩展。
+
+顺带一个只有实测才会发现的差异：**同一个 `charge_amount` 字段在两个端点精度不同**
+—— 一次性订阅回 `"128.31"`（2 位），充值回 `"67.531480"`（6 位）。所以前端的取整
+不是针对某一个接口的补丁，是这个字段本身没有稳定精度。
 
 `fx_rate()` 是新方法（`GET /v1/finance/recharge/fx-rate`）：给微信付款者在**掏钱
 之前**看到"$10 ≈ ¥73"。**刻意不做缓存** —— 上游明确说它和真正扣款是同一个汇率

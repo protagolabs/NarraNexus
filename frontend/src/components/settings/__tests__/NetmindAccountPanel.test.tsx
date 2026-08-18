@@ -1327,3 +1327,31 @@ test('renew dialog never invents a future end date', async () => {
   // 3 months of invented 30-day arithmetic would have landed here:
   expect(document.body.textContent).not.toMatch(/2026-12-20|2026\/12\/20/);
 });
+
+test('a payment in flight disables the OTHER money button, not just its own', async () => {
+  // The submit guard (rechargeRef) is shared between renew and top-up on
+  // purpose, but a ref cannot reach the render. Routing `disabled` through
+  // payFlow left the non-narrating button enabled: clicking it hit the guard's
+  // early return and produced no loading, no error, no DOM change at all —
+  // in a payment dialog, where "nothing happened" reads as "click it again".
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_x', checkout_url: 'https://checkout.stripe.com/c/pay/cs_x' },
+    });
+    mockRechargeStatus.mockReturnValue(new Promise(() => {})); // stays processing
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(100);
+    // The top-up button shares the dialog and the guard, so it must be disabled…
+    const recharge = screen.getByRole('button', { name: /Recharge/ });
+    expect(recharge).toHaveProperty('disabled', true);
+    // …while only the flow that started it narrates.
+    expect(screen.queryByText(/balance updates automatically/)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});

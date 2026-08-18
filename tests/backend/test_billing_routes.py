@@ -782,6 +782,23 @@ def test_recharge_ignores_client_supplied_channel(make_client, monkeypatch):
     assert seen["recharge_body"]["channel"] == "nexus"
 
 
+def test_subscribe_ignores_client_supplied_channel(make_client, monkeypatch):
+    """Twin of the recharge case, and the more important one: /subscribe is the
+    endpoint this change gave a body to. Pydantic ignores unknown fields today,
+    so `channel` cannot be reached from a request — but nothing said so, and a
+    later `extra="allow"` would hand a caller the choice of which merchant
+    collects, with no test going red."""
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "alipay", "months": 1, "channel": "power"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["subscribe_body"]["channel"] == "nexus"
+
+
 def test_subscribe_sends_configured_channel(make_client, monkeypatch):
     seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
     client = make_client(cloud=True)

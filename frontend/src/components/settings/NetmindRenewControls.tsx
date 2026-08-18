@@ -26,7 +26,7 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui';
 import { PaymentMethodChoice } from './PaymentMethodChoice';
-import { formatDate } from './netmindFormat';
+import { formatDate, money } from './netmindFormat';
 import type { SubscribePaymentMethod } from '@/types';
 
 // 1 and 12 are the upstream bounds; the middle values are the quarters people
@@ -38,21 +38,24 @@ interface NetmindRenewControlsProps {
   months: number;
   onChangeMonths: (n: number) => void;
   payMethod: Extract<SubscribePaymentMethod, 'alipay' | 'wechat'>;
-  onChangePayMethod: (m: SubscribePaymentMethod) => void;
+  onChangePayMethod: (m: Extract<SubscribePaymentMethod, 'alipay' | 'wechat'>) => void;
   /** Price of ONE month in USD, or null when the plan catalog hasn't loaded. */
   monthlyPriceUsd: number | null;
   /** CNY conversion of the current total — WeChat only, null while unknown. */
   chargeAmountCny: string | null;
   /** Unix seconds the current period ends; the purchase extends from there. */
   currentPeriodEnd?: number;
-  /** This purchase's own progress — never the top-up's. */
+  /** This purchase's own progress — never the top-up's. Drives the NARRATIVE
+   *  (waiting / done / failed) and nothing else. */
   state: 'idle' | 'processing' | 'success' | 'failed';
+  /** Any money action is in flight, whichever control started it. Separate from
+   *  `state` on purpose: the submit guard is shared with the top-up (two
+   *  checkouts at once is not a state we want), so a control that is NOT the
+   *  narrator must still be disabled — otherwise its button stays clickable,
+   *  hits the guard's early return, and nothing at all happens on screen. */
+  busy: boolean;
   error: string | null;
   onPay: () => void;
-}
-
-function money(n: number): string {
-  return n.toFixed(2);
 }
 
 export function NetmindRenewControls({
@@ -64,11 +67,11 @@ export function NetmindRenewControls({
   chargeAmountCny,
   currentPeriodEnd,
   state,
+  busy,
   error,
   onPay,
 }: NetmindRenewControlsProps) {
   const { t } = useTranslation();
-  const busy = state === 'processing';
   const total = monthlyPriceUsd != null ? monthlyPriceUsd * months : null;
 
   // The date the purchase EXTENDS FROM — never a locally computed "covered
@@ -88,7 +91,6 @@ export function NetmindRenewControls({
     <div className="space-y-3">
       <PaymentMethodChoice
         value={payMethod}
-        cardValue={'stripe' as SubscribePaymentMethod}
         hideCard
         onChange={onChangePayMethod}
         disabled={busy}
@@ -156,7 +158,7 @@ export function NetmindRenewControls({
         </Button>
       </div>
 
-      {busy && (
+      {state === 'processing' && (
         <p className="text-xs text-[var(--text-tertiary)]">
           {t('settings.netmind.renewProcessing',
             'Waiting for payment… complete it in the opened window; your plan updates automatically.')}

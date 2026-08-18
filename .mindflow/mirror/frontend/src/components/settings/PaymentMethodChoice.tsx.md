@@ -4,6 +4,12 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — `cardValue` 与 `hideCard` 互斥（类型层面）
+
+props 从 interface 改成判别联合：`hideCard: true` 时 `cardValue?: never`，反之必填。
+起因是唯一的隐藏调用点被迫写 `'stripe' as SubscribePaymentMethod` —— 一个**对调用方
+自己的联合类型断言了假话**的 cast。现在那个 cast 没了，非法组合也传不进来。
+
 ## 2026-08-19 — `hideCard`，以及「三档永远都在」这句话的限定
 
 新增 `hideCard`，**唯一正当用途**是一次性订阅生效期间的续订弹窗：那时上游对信用卡

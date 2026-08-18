@@ -31,16 +31,27 @@ import { useTranslation } from 'react-i18next';
 
 type Rail = 'card' | 'alipay' | 'wechat';
 
-interface PaymentMethodChoiceProps<T extends string> {
+// `cardValue` and `hideCard` are mutually exclusive by construction, not by
+// convention: a caller that hides the card rail has no card value to name, and
+// requiring one anyway forced a cast at the only such call site — a cast that
+// asserts something false about the caller's own union.
+type PaymentMethodChoiceProps<T extends string> = {
   /** Currently selected value, in the caller's own vocabulary. */
   value: T;
-  /** What the caller calls the card rail ('default' for top-up, 'stripe' for subscribe). */
-  cardValue: T;
   onChange: (next: T) => void;
   disabled?: boolean;
-  /** Drop the card rail — ONLY where upstream cannot accept it. See the header. */
-  hideCard?: boolean;
-}
+} & (
+  | {
+      /** Drop the card rail — ONLY where upstream cannot accept it. See the header. */
+      hideCard: true;
+      cardValue?: never;
+    }
+  | {
+      hideCard?: false;
+      /** What the caller calls the card rail ('default' for top-up, 'stripe' for subscribe). */
+      cardValue: T;
+    }
+);
 
 function CardGlyph() {
   return (
@@ -72,7 +83,13 @@ function WeChatGlyph() {
   );
 }
 
-const GLYPHS: Record<Rail, () => JSX.Element> = {
+// `React.JSX.Element`, not the bare global `JSX`: @types/react 19 dropped the
+// global namespace and keeps only the one under React (verified — nothing in
+// node_modules declares `JSX` globally any more). The bare form still passes
+// `tsc --noEmit -p .` but fails `tsc -b`, which is what `npm run build` runs,
+// so it would have broken the cloud image and the DMG while every local gate
+// stayed green. Same shape as `React.KeyboardEvent` below, and needs no import.
+const GLYPHS: Record<Rail, () => React.JSX.Element> = {
   card: CardGlyph,
   alipay: AlipayGlyph,
   wechat: WeChatGlyph,
@@ -89,7 +106,7 @@ export function PaymentMethodChoice<T extends string>({
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const options: { rail: Rail; value: T; label: string }[] = [
-    ...(hideCard
+    ...(hideCard || cardValue === undefined
       ? []
       : [{ rail: 'card' as Rail, value: cardValue, label: t('settings.netmind.payCard', 'Card') }]),
     { rail: 'alipay', value: 'alipay' as T, label: t('settings.netmind.payAlipay', 'Alipay') },

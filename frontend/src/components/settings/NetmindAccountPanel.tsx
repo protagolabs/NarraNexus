@@ -50,6 +50,7 @@ import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
 import {
   money,
+  moneyOrNull,
   creditMoney,
   freeTierPctLeft,
   freeTierCreditLeft,
@@ -160,7 +161,12 @@ export function NetmindAccountPanel() {
   // debounce, a poll generation or an error line.
   const [payFlow, setPayFlow] = useState<'topup' | 'renew'>('topup');
   const [renewMonths, setRenewMonths] = useState(1);
-  const [renewMethod, setRenewMethod] = useState<SubscribePaymentMethod>('alipay');
+  // Narrowed to the two rails a renewal can actually use. The wider type let a
+  // 'stripe' value exist that the render then MASKED as "Alipay selected" while
+  // handleRenew still sent it (a 422). Unreachable today — but masking an
+  // illegal state is not the same as making it impossible.
+  const [renewMethod, setRenewMethod] =
+    useState<Extract<SubscribePaymentMethod, 'alipay' | 'wechat'>>('alipay');
   const [renewFx, setRenewFx] = useState<{ quote: FxQuote; forAmount: number } | null>(null);
 
   const [fxLoading, setFxLoading] = useState(false);
@@ -761,16 +767,20 @@ export function NetmindAccountPanel() {
     <NetmindRenewControls
       months={renewMonths}
       onChangeMonths={setRenewMonths}
-      payMethod={renewMethod === 'wechat' ? 'wechat' : 'alipay'}
+      payMethod={renewMethod}
       onChangePayMethod={setRenewMethod}
       monthlyPriceUsd={monthlyPriceUsd}
       chargeAmountCny={
         renewFx && renewFx.forAmount === renewTotalUsd
-          ? Number(renewFx.quote.charge_amount).toFixed(2)
+          // moneyOrNull, not Number().toFixed(): charge_amount is optional on
+          // the quote, and an unguarded conversion puts "¥NaN" next to the
+          // total on the line read last before paying.
+          ? moneyOrNull(renewFx.quote.charge_amount)
           : null
       }
       currentPeriodEnd={me?.subscription?.current_period_end}
       state={payFlow === 'renew' ? rechargeState : 'idle'}
+      busy={rechargeState === 'processing'}
       error={payFlow === 'renew' && rechargeState === 'failed' ? rechargeError : null}
       onPay={handleRenew}
     />
@@ -784,6 +794,7 @@ export function NetmindAccountPanel() {
       tier={tier}
       custom={custom}
       rechargeState={payFlow === 'topup' ? rechargeState : 'idle'}
+      busy={rechargeState === 'processing'}
       rechargeError={payFlow === 'topup' ? rechargeError : null}
       paymentMethod={payMethod}
       fx={fx && fx.forAmount === selectedAmount ? fx.quote : null}

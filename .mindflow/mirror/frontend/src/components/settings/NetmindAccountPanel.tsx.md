@@ -28,6 +28,15 @@ stub: false
   「不会自动续费」放在紧邻的 `planExpl` 里。
 - `isPro` 原本只认 `pro_active | pro_cancelled`，一次性订阅用户会被当成非 Pro
   走进免费额度视图。
+- **「忙」和「叙事」是两个 prop，别只拆一个**（评审抓到）。共用提交锁是对的，但
+  `rechargeRef` 是 ref、进不了渲染；只按 `payFlow` 路由 `disabled` 的结果是**另一个
+  按钮仍可点**，点下去撞上守卫的早返回 —— 没有 loading、没有报错、DOM 毫无变化。
+  用户在支付弹窗里遇到「点了没反应」，只会重复点或刷新，而刷新会丢掉正在跑的轮询。
+  现在 `state`/`rechargeState` 按 flow 路由（只有发起方讲故事），另一个与 flow 无关的
+  `busy` 单独驱动两边的 `disabled`。有测试钉住。
+- **金额一律走 `netmindFormat.moneyOrNull`**，不要就地 `Number().toFixed(2)`：
+  `FxQuote` 每个字段都是可选的（类型注释自己写了后端不校验 200），无守卫转换会在
+  「付款前最后一眼」那行渲染出 `¥NaN`。
 - **`payFlow` 把两笔购买的反馈分开**。提交锁和轮询代次是**故意共用**的（同时开两个
   结账不是我们想要的状态），但反馈不能共用：两个控件同处一个弹窗，没有这个标记时
   一笔续订完成后会在旁边宣布「Top-up complete — balance updated」。有测试钉住。

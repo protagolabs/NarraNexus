@@ -446,7 +446,16 @@ def _body_capture(seen: dict, payload=None):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "method,currency",
-    [("default", "USD"), ("alipay", "USD"), ("wechat", "CNY")],
+    [
+        ("default", "USD"),
+        ("alipay", "USD"),
+        ("wechat", "CNY"),
+        # The route's Literal is the real gate, so this is unreachable from HTTP.
+        # Pinned anyway because the fallback is a JUDGEMENT — USD is the
+        # conservative answer, not an accident — and a future `.get(m)` returning
+        # None would silently send `"currency": null`.
+        ("something-upstream-added-later", "USD"),
+    ],
 )
 async def test_recharge_derives_currency_from_payment_method(method, currency):
     seen = {}
