@@ -114,29 +114,27 @@ async def test_mysql_reports_zero_rows_for_a_no_op_update(seeded):
     )
 
 
-def _client(db, monkeypatch):
-    """The real route, wired to the real MySQL client.
+async def _rename(db, monkeypatch, new_name: str):
+    """Call the route coroutine directly, in this test's event loop.
 
-    No monkeypatching of the repository: the zero rowcount this exercises is
-    the genuine one, which is the entire point of this file.
+    Deliberately NOT through TestClient: it drives the ASGI app on an event
+    loop of its own, while the aiomysql pool belongs to the pytest-asyncio
+    loop, and the route then dies with "attached to a different loop" — which
+    this file would report as a dialect failure. (It did, on this job's first
+    run.) Calling the coroutine exercises the same handler; the HTTP layer is
+    not what a dialect twin is here to check.
     """
-    from fastapi import FastAPI, Request
-    from fastapi.testclient import TestClient
     import backend.routes.auth as auth_mod
+    from types import SimpleNamespace
 
     async def _db():
         return db
 
     monkeypatch.setattr(auth_mod, "get_db_client", _db)
-    app = FastAPI()
-
-    @app.middleware("http")
-    async def fake_auth(request: Request, call_next):
-        request.state.user_id = request.headers.get("X-User-Id") or None
-        return await call_next(request)
-
-    app.include_router(auth_mod.router, prefix="/api/auth")
-    return TestClient(app)
+    request = SimpleNamespace(state=SimpleNamespace(user_id=OWNER))
+    return await auth_mod.update_agent(
+        AGENT, auth_mod.UpdateAgentRequest(agent_name=new_name), request
+    )
 
 
 @pytest.mark.asyncio
@@ -146,14 +144,9 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
     Before the fix this answered `success=False, error="No changes made"` here
     and success on SQLite — the entire Shenzhen P1 symptom.
     """
-    res = _client(seeded, monkeypatch).put(
-        f"/api/auth/agents/{AGENT}",
-        json={"agent_name": "小绿"},
-        headers={"X-User-Id": OWNER},
-    )
-    body = res.json()
-    assert body["success"] is True, body.get("error")
-    assert body["agent"]["name"] == "小绿"
+    res = await _rename(seeded, monkeypatch, "小绿")
+    assert res.success is True, res.error
+    assert res.agent.name == "小绿"
 
     stored = await AgentRepository(seeded).get_agent(AGENT)
     assert stored.agent_name == "小绿"
@@ -161,13 +154,8 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_real_rename_still_persists_on_mysql(seeded, monkeypatch):
-    res = _client(seeded, monkeypatch).put(
-        f"/api/auth/agents/{AGENT}",
-        json={"agent_name": "小蓝"},
-        headers={"X-User-Id": OWNER},
-    )
-    body = res.json()
-    assert body["success"] is True, body.get("error")
+    res = await _rename(seeded, monkeypatch, "小蓝")
+    assert res.success is True, res.error
 
     stored = await AgentRepository(seeded).get_agent(AGENT)
     assert stored.agent_name == "小蓝"
