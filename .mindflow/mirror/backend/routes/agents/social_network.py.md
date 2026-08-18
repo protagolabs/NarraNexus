@@ -4,6 +4,33 @@ last_verified: 2026-08-17
 stub: false
 ---
 
+## 2026-08-18 — CreateAgentBody 是写 agents 行的第五个写边模型,补齐同一条不变量
+
+`agent_name` / `agent_description` 换成 `StrippedText`,上限统一到
+`AGENT_TEXT_MAX_LENGTH`(原来是 **128 / 2000**)。它经
+`provision_new_agent` → [[agent_repository]] `add_agent` 写同一行,与
+[[store.py]] 的 DirectStore 孪生是同一次工具调用的两条腿。
+
+原来的两个数字各造一个分歧:
+
+- `agent_name` 上限 **128**,而孪生那条经 `add_agent` 接到 255。名字长度落在
+  **129–255** 的输入:HTTP 侧 422(模型拿到 pydantic 的 transport 串)、
+  DirectStore 侧成功。同一输入两条腿两个答案 —— 正是本轮去掉 `min_length=1`
+  时给出的同一个理由,在上限这一头当时没做。
+- `agent_description` 上限 **2000** 宽于读模型的 255。**实测**(改前探过):
+  300 字符的描述在路由层能过,接着在 `add_agent` 里构造 `Agent(...)` 被拒,
+  走 except 返回 `success:false`,而错误串是**泄漏出来的原始 pydantic 报文**
+  (`"1 validation error for Agent…"`)。所以收紧到 255 **不会拒掉任何今天能成功的
+  请求**,只是把这个丑陋的内部错误换成干净的 422。
+
+`awareness`(65536)**没动** —— 它不是 `agents` 的列,不在这条不变量里。
+`new_agent_id` 的 `pattern` 也没动(路径穿越防护)。
+
+测试:`tests/backend/test_agent_request_length.py` 的 strip 边界参数化把这个模型
+一并纳入(它的 `agent_name` 必填,所以 extra 里要带)。那份枚举**不再写数字** ——
+上一版写着「All four write-edge models」而实际是五个,现在改成附一条 grep 命令
+让读者自己重新推导。用「把上限改回 128 再跑」验证过新用例确实会红。
+
 ## 2026-08-17 — create-agent 归一名字/描述,并拒绝空名(与 DirectStore 同构)
 
 `POST /{agent_id}/social-network/create-agent`:`normalize_agent_text` 名字与描述,

@@ -47,6 +47,8 @@ from xyz_agent_context.module.social_network_module import (
     CREATE_AGENT_EMPTY_NAME_MSG,
 )
 from xyz_agent_context.schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    StrippedText,
     normalize_agent_text,
     SocialNetworkEntityInfo,
     SocialNetworkResponse,
@@ -316,9 +318,21 @@ class CreateAgentBody(BaseModel):
     # hand the model a transport-level failure string on the HTTP path and
     # the shared constant on the local one — for the same tool call. That
     # split is exactly what the shared constant exists to prevent.
-    agent_name: str = Field(max_length=128)
+    # StrippedText + the shared ceiling, like the other four models that write
+    # this row: the cap has to measure the string that will be STORED, and all
+    # of them have to answer the same for the same input. This one used to be
+    # the odd one out — 128 rejected names its DirectStore twin accepted (the
+    # twin goes through add_agent, whose ceiling is AGENT_TEXT_MAX_LENGTH), and
+    # 2000 let a description through the route only for `Agent(...)` to reject
+    # it inside add_agent, leaking a raw pydantic message as the error string.
+    # Verified before changing: nothing that succeeds today starts failing —
+    # 129..255 names were 422 and now work; >255 descriptions already failed.
+    agent_name: StrippedText = Field(max_length=AGENT_TEXT_MAX_LENGTH)
+    # NOT part of that rule — awareness is not an `agents` column.
     awareness: str = Field(default="", max_length=65536)
-    agent_description: str = Field(default="", max_length=2000)
+    agent_description: StrippedText = Field(
+        default="", max_length=AGENT_TEXT_MAX_LENGTH
+    )
 
 
 # ============================================================================= Read (seam-twin) endpoints

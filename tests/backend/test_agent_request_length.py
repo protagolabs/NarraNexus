@@ -51,6 +51,11 @@ from backend.routes.manyfold.agents import (  # noqa: E402
     ManyfoldUpdateAgentRequest,
 )
 
+# The agent-facing create route's body — the fifth model writing this row, via
+# provision_new_agent -> add_agent. Its caps were 128 / 2000, so the same input
+# could be a 422 here and a success on its DirectStore twin.
+from backend.routes.agents.social_network import CreateAgentBody  # noqa: E402
+
 
 @pytest.mark.parametrize("field", ["agent_name", "description"])
 def test_manyfold_create_overlong_rejected(field):
@@ -83,18 +88,34 @@ def test_manyfold_update_at_limit_accepted(field):
 AT_LIMIT_PADDED = AT_LIMIT + "   "
 
 
-# All four write-edge models, not just the auth pair: they write the same row,
-# so "same input, same answer" has to hold across every one of them. The
-# manyfold models name the description field differently.
+# Every request model that writes the `agents` row, not just the auth pair:
+# they write the same columns, so "same input, same answer" has to hold across
+# all of them. No count is written here — a number goes stale the moment
+# someone adds a model, and this file has already carried one ("All four") that
+# a grep disproved. Re-derive the list instead:
+#
+#     git grep -nE "agent_name\s*:.*Field\(|agent_description\s*:.*Field\(" \
+#         -- backend src | grep -v test
+#
+# then drop the hits that do not write `agents` (narrative.py, artifact_schema,
+# and entity_schema's own read model). Field names differ: the manyfold create
+# body calls the description `description`.
+_MF_CREATE = {"agent_id": "a", "manyfold_user_id": "u"}
+# agent_name is required on this one, so it has to be present even when the
+# case under test is the description (the case then overrides it).
+_SN_CREATE = {"new_agent_id": "agent_" + "0" * 12, "agent_name": "n"}
+
 STRIP_CASES = [
     (CreateAgentRequest, "agent_name", {}),
     (CreateAgentRequest, "agent_description", {}),
     (UpdateAgentRequest, "agent_name", {}),
     (UpdateAgentRequest, "agent_description", {}),
-    (ManyfoldCreateAgentRequest, "agent_name", {"agent_id": "a", "manyfold_user_id": "u"}),
-    (ManyfoldCreateAgentRequest, "description", {"agent_id": "a", "manyfold_user_id": "u"}),
+    (ManyfoldCreateAgentRequest, "agent_name", _MF_CREATE),
+    (ManyfoldCreateAgentRequest, "description", _MF_CREATE),
     (ManyfoldUpdateAgentRequest, "agent_name", {}),
     (ManyfoldUpdateAgentRequest, "agent_description", {}),
+    (CreateAgentBody, "agent_name", _SN_CREATE),
+    (CreateAgentBody, "agent_description", _SN_CREATE),
 ]
 
 

@@ -146,26 +146,41 @@ def _async_client(app: FastAPI) -> httpx.AsyncClient:
     """`httpx.AsyncClient` + `ASGITransport`, not `TestClient` — the pooled
     aiomysql connection must not be touched from a foreign event loop.
 
-    The mechanism is written out once, in
-    `tests/backend/test_agents_bus_failures_mysql.py::_async_client`; this is
-    the same problem with the same answer. (Reached for a worse one first here:
-    dropping the HTTP layer entirely, which bought a single loop at the cost of
-    the serialization this row's only real-world defect was reported through.)
+    An equivalent implementation, with the cross-loop mechanism spelled out in
+    full, lives in `tests/backend/test_agents_bus_failures_mysql.py`. Two copies
+    of a four-line idiom that ~14 test files already use is not worth an
+    abstraction, and hoisting it into `tests/mysql_dialect.py` would give a
+    helper every twin imports two new top-level dependencies. Read that one for
+    the why; this is the same problem with the same answer. (A worse answer came
+    first here: dropping the HTTP layer, which bought a single loop at the cost
+    of the serialization this row's only real-world defect was reported
+    through.)
     """
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
 
 
-async def _put(db, monkeypatch, payload: dict) -> dict:
-    async with _async_client(_build_app(db, monkeypatch)) as client:
-        res = await client.put(f"/api/auth/agents/{AGENT}", json=payload)
+@pytest_asyncio.fixture
+async def client(seeded, monkeypatch):
+    """One app and one client per test.
+
+    Function-scoped on purpose: `monkeypatch` is, so a longer-lived app would
+    outlive the `get_db_client` patch and start answering from the real
+    factory mid-test.
+    """
+    async with _async_client(_build_app(seeded, monkeypatch)) as c:
+        yield c
+
+
+async def _put(client, payload: dict) -> dict:
+    res = await client.put(f"/api/auth/agents/{AGENT}", json=payload)
     assert res.status_code == 200, res.text
     return res.json()
 
 
 @pytest.mark.asyncio
-async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
+async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, client):
     """The user-visible half, on the dialect where it used to fail.
 
     Before the fix this answered `success=False, error="No changes made"` here
@@ -173,7 +188,7 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
     the body parsing and `response_model` serialization the reporter actually
     saw are part of what is verified.
     """
-    body = await _put(seeded, monkeypatch, {"agent_name": "小绿"})
+    body = await _put(client, {"agent_name": "小绿"})
     assert body["success"] is True, body.get("error")
     assert body["agent"]["name"] == "小绿"
 
@@ -182,8 +197,8 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_real_rename_still_persists_on_mysql(seeded, monkeypatch):
-    body = await _put(seeded, monkeypatch, {"agent_name": "小蓝"})
+async def test_a_real_rename_still_persists_on_mysql(seeded, client):
+    body = await _put(client, {"agent_name": "小蓝"})
     assert body["success"] is True, body.get("error")
 
     stored = await AgentRepository(seeded).get_agent(AGENT)
@@ -192,7 +207,7 @@ async def test_a_real_rename_still_persists_on_mysql(seeded, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_visibility_flag_round_trips_through_the_real_boolean_column(
-    seeded, monkeypatch
+    seeded, client
 ):
     """`is_public` is the one field whose STORED representation differs by
     dialect — TINYINT on MySQL, INTEGER on SQLite, and `_row_to_entity` may
@@ -204,12 +219,12 @@ async def test_the_visibility_flag_round_trips_through_the_real_boolean_column(
     """
     assert (await AgentRepository(seeded).get_agent(AGENT)).is_public is False
 
-    body = await _put(seeded, monkeypatch, {"is_public": True})
+    body = await _put(client, {"is_public": True})
     assert body["success"] is True, body.get("error")
     stored = await AgentRepository(seeded).get_agent(AGENT)
     # `is True`, not `== 1`: the point is that the round trip lands on a bool.
     assert stored.is_public is True
 
-    again = await _put(seeded, monkeypatch, {"is_public": True})
+    again = await _put(client, {"is_public": True})
     assert again["success"] is True, again.get("error")
     assert (await AgentRepository(seeded).get_agent(AGENT)).is_public is True
