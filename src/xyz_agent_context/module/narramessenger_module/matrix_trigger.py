@@ -26,7 +26,7 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
      retry-after honoring and permanent-auth-failure short-circuit;
      transient failures logged to ``EVENT_TRANSPORT_SEND_FAILED`` audit
   ✓  (4b) ``extract_output()`` reads
-     ``send_message_to_user_directly`` tool call args — no more
+     ``notify_owner`` tool call args — no more
      accidental agent-thinking spill into the room
   ✓  (4b) Silent-not-reply fix: agent that skips the reply tool sends
      nothing
@@ -2103,7 +2103,7 @@ class MatrixTrigger(ChannelTriggerBase):
         scrape): owning delivery in the trigger is what makes progressive
         ``m.replace`` streaming possible later.
 
-        ``narra_reply`` (NOT the generic ``send_message_to_user_directly``,
+        ``narra_reply`` (NOT the generic ``notify_owner``,
         which the shared channel prompt reserves for OWNER messages). Returning
         "" means "the agent did not reply this turn" — silent-not-reply —
         which prevents the base from posting the agent's internal thinking

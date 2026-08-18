@@ -66,7 +66,7 @@ describe('timelineToEvents', () => {
       { type: 'thinking', content: '想一下' },
       { type: 'tool_call', tool_name: 'bash', tool_input: { command: 'ls' } },
       { type: 'tool_output', tool_name: 'bash', tool_output: 'a.txt' },
-      { type: 'reply', content: '好了', reply_via: 'send_message_to_user_directly' },
+      { type: 'reply', content: '好了', reply_via: 'reply_owner' },
     ];
     const events = timelineToEvents(tl);
     expect(events.map((e) => e.type)).toEqual(
@@ -116,17 +116,17 @@ describe('timelineToEvents', () => {
 
   it('send_message 的 tool_call 条目转成 reply——持久化 timeline 没有 reply 型别', () => {
     // 后端 /event-log 的 timeline 从不产 type='reply'：回复以
-    // send_message_to_user_directly 的 tool_call 形式存储（直播路径
+    // reply_owner 的 tool_call 形式存储（直播路径
     // chatStore 做同样的转换）。不转换的话，NexusPower 的历史轮次切不出
     // 任何 reply，刷新后整体回落单段——与直播不一致。
     const events = timelineToEvents([
       { type: 'thinking', content: '想一下' },
       { type: 'tool_call',
-        tool_name: 'mcp__chat_module__send_message_to_user_directly',
+        tool_name: 'mcp__chat_module__reply_owner',
         tool_input: { content: '这就是回复' },
         reply_via: 'helper_llm_no_reply' },
       { type: 'tool_output',
-        tool_name: 'mcp__chat_module__send_message_to_user_directly',
+        tool_name: 'mcp__chat_module__reply_owner',
         tool_output: 'Message sent' },
     ]);
     expect(events.map((e) => e.type)).toEqual(['thinking', 'reply', 'tool_output']);

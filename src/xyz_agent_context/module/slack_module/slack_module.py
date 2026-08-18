@@ -49,7 +49,7 @@ SLACK_MCP_PORT = 7831
 #
 # Slack agents reply via ``slack_cli(method="chat.postMessage",
 # args={"channel": "...", "text": "..."})``. The default
-# MessageSourceHandler only knows about ``send_message_to_user_directly``,
+# MessageSourceHandler only knows about ``notify_owner``,
 # so without this handler ChatModule.hook_after_event_execution treats every
 # Slack turn as "no response" and persists an activity row that the next
 # turn's hook_data_gathering then FILTERS OUT — agents see zero history
@@ -63,7 +63,7 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a Slack agent tool call.
 
     Recognises two patterns:
-      1. ``send_message_to_user_directly(content=...)`` — generic chat
+      1. ``notify_owner(content=...)`` — generic chat
          path, may still be used on Slack turns when the agent also
          echoes to the NarraNexus UI.
       2. ``slack_cli(method="chat.postMessage",
@@ -116,6 +116,7 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="slack",
+        display_label="Slack",
         user_reply_tool_names=("slack_cli", "notify_owner"),
         row_prefix_template="[Slack · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_slack_reply,

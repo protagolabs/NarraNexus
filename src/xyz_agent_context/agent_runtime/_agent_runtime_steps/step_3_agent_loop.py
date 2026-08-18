@@ -44,6 +44,7 @@ from xyz_agent_context.channel.channel_sender_registry import (
 from xyz_agent_context.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
     MessageSourceRegistry,
+    render_origin_declaration,
 )
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
@@ -340,7 +341,7 @@ def _has_organic_reply(
     """True if the agent already sent a real user reply this turn.
 
     "A reply" is per-channel: on chat that means
-    ``send_message_to_user_directly``, on an IM turn it also means the
+    ``reply_owner``, on an IM turn ``notify_owner`` plus the
     channel's own send tool (``wechat_send``, ``lark_cli +messages-send``,
     …). The authority is ``MessageSourceRegistry``, the same registry
     ``chat_module._origin_delivered_text`` consults — so "did this turn
@@ -388,7 +389,7 @@ def _should_run_helper_llm_fallback(
     Returns ``(mode, skip_reason)``:
 
     - ``("no_reply", "")``: chat turn finished cleanly without
-      ``send_message_to_user_directly`` — run helper_llm to write the
+      ``reply_owner`` — run helper_llm to write the
       reply the agent forgot to send. No error to surface.
     - ``("after_error", "")``: chat turn hit a fatal mid-stream AND no
       organic reply was sent yet — run helper_llm with full context
@@ -742,7 +743,7 @@ async def _generate_fallback_reply_stream(
 
     Modes:
       - ``"no_reply"``: agent finished cleanly but never called
-        send_message_to_user_directly; produce the reply it forgot to
+        ``reply_owner``; produce the reply it forgot to
         send.
       - ``"after_error"``: agent loop crashed mid-stream; produce a
         recovery reply telling the user what was achieved, what
@@ -798,7 +799,7 @@ async def _stream_fallback_recovery(
     Yields (when applicable, strictly in this order):
       1. ``AgentTextDelta`` frames from the helper_llm stream.
       2. A synthetic ``ProgressMessage`` (one) tagging the fallback as
-         a ``send_message_to_user_directly`` call so downstream
+         a ``notify_owner`` call so downstream
          persistence (chat_module) records it as a normal turn. Carries
          ``details.reply_via=helper_llm_{mode}``.
       3. An ``ErrorMessage`` (one) if ``captured_error`` was set,
@@ -832,7 +833,7 @@ async def _stream_fallback_recovery(
         #   it into the owner's conversation would fake a message the
         #   agent never sent them.
         # - **the synthetic frame is tagged with the CHANNEL's send tool**,
-        #   not send_message_to_user_directly, so
+        #   not notify_owner, so
         #   `_split_user_visible_response` files it as an IM reply and
         #   `_origin_delivered_text` recovers the turn's reply text.
         #
@@ -972,7 +973,7 @@ async def _stream_fallback_recovery(
         fallback_full = "".join(chunks).strip()
         if fallback_full:
             synth_details: dict = {
-                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "tool_name": "mcp__chat_module__notify_owner",
                 "arguments": {"content": fallback_full},
                 "reply_via": f"helper_llm_{fallback_mode}",
             }
@@ -1019,7 +1020,7 @@ async def _stream_fallback_recovery(
 def _im_reply_tool_name(working_source: str) -> str:
     """The channel's own send tool, for tagging a platform-delivered reply.
 
-    Deliberately NOT ``send_message_to_user_directly``: that tool means
+    Deliberately NOT ``notify_owner``: that tool means
     "tell the owner", and tagging an IM reply with it would surface the
     message in the owner's chat panel as if the agent had addressed them
     (``chat_module._split_user_visible_response`` routes on exactly this
@@ -1028,7 +1029,7 @@ def _im_reply_tool_name(working_source: str) -> str:
     """
     handler = MessageSourceRegistry.get(working_source)
     for name in handler.user_reply_tool_names:  # noqa: SIM110 — first non-owner wins
-        if "send_message_to_user_directly" not in name:
+        if "notify_owner" not in name:
             return name
     return f"{working_source}_send"
 
@@ -1551,6 +1552,14 @@ async def step_3_agent_loop(
             # (context 3.2). NexusPower's monologue contract routes every
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
+            # Composed HERE and nowhere else: this is the one layer that holds
+            # both halves at once — the turn's working_source and the tools the
+            # modules just declared. Rendering it downstream would mean passing
+            # working_source to every driver and trusting each to phrase it the
+            # same way, which is the drift this line replaced.
+            origin_declaration=render_origin_declaration(
+                ctx.working_source or "", context.expressive_tools
+            ),
             turn_profile=ctx.turn_profile,
             extra_accessible_roots=extra_accessible_roots,
         )
@@ -1795,7 +1804,7 @@ async def step_3_agent_loop(
             else self_serviceable_user_message(skip_reason_detail, raw_detail)
         )
         # If the agent ALREADY sent a real reply before this failure (an executor
-        # OOM/drop can hit AFTER send_message_to_user_directly), surface a warning
+        # OOM/drop can hit AFTER notify_owner), surface a warning
         # badge (recovered_after_reply), not a hard "retry" fatal — the user got
         # their answer, and telling them to resend would re-run a done turn. Only
         # a no-reply failure is fatal. (Self-serviceable errors fire before the

@@ -629,7 +629,7 @@ class ContextRuntime:
         Diagnostic for the system-prompt-growth incident (2026-07): the prompt
         drifts toward the 115K ceiling (MAX_SYSTEM_PROMPT_LENGTH) and, once the
         reply instruction is diluted / history is evicted, the agent stops
-        calling send_message_to_user_directly. Logging every round's
+        calling its reply tool at all. Logging every round's
         composition makes the growth source greppable in production without a
         debug build. Pure/static so it is unit-testable in isolation.
 

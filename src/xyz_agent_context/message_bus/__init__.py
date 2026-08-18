@@ -31,6 +31,10 @@ from xyz_agent_context.channel.message_source_handler import (
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="message_bus",
+        # Not "Message Bus" — the bus is infrastructure the agent never sees.
+        # What it sees is that it is inside NarraNexus talking to a peer agent
+        # or a team; WHICH of those is answered by the tool on its desk.
+        display_label="NarraNexus",
         user_reply_tool_names=(
             "notify_owner",
             "message_agent",

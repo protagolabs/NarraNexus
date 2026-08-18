@@ -468,7 +468,7 @@ class MessageBusModule(XYZBaseModule):
             "3. Tell your owner you have asked and will report back. Their reply "
             "is a NEW turn, not something you wait for inside this one.",
             "4. When it arrives, relay the substance to your owner with "
-            "`send_message_to_user_directly`. That relay is the point of the "
+            "`notify_owner`. That relay is the point of the "
             "errand — do not drop it. Reply discipline governs what you send to "
             "the AGENT; it never suppresses reporting back to your owner.",
             "",

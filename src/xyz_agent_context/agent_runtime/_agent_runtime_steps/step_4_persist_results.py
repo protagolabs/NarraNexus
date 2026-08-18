@@ -39,8 +39,9 @@ def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bo
     """Did this turn deliver a user-visible message?
 
     True iff the agent fired a reply tool that surfaces in the user's chat
-    (``send_message_to_user_directly`` for any source; plus the per-channel
-    reply tools like ``lark_cli`` for IM sources). Uses the same
+    (the owner-facing tool this source's desk carries — ``reply_owner`` on
+    owner chat, ``notify_owner`` everywhere else; plus the per-channel reply
+    tools like ``lark_cli`` for IM sources). Uses the same
     ``MessageSourceRegistry`` source-of-truth the ChatModule uses to split
     user-visible replies, so the two never disagree.
 
@@ -469,7 +470,7 @@ async def step_4_persist_results(
     #   - the user's own input on a human-triggered turn (is_user_chat), or
     #   - an agent message the agent DELIVERED to the user this turn — even
     #     from a background trigger (a scheduled job / heartbeat can call
-    #     send_message_to_user_directly; from the user's POV that is the
+    #     notify_owner; from the user's POV that is the
     #     latest interaction).
     # So we anchor when (is_user_chat OR this turn delivered a user message).
     # Pure machine traffic (a job/bus turn that did NOT message the user) still

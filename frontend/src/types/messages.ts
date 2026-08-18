@@ -309,7 +309,7 @@ export interface ConversationRound {
  * - thinking / tool_call / tool_output / reply / native_output are the
  *   only visible block types. Other progress frames (step markers like
  *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.
- * - reply (from send_message_to_user_directly) is the authoritative
+ * - reply (from reply_owner / notify_owner) is the authoritative
  *   user-facing speech; native_output (raw LLM text after the agent
  *   already used send_message in the same turn) is dropped at push
  *   time as a duplicate. Long-term the agent prompt should stop

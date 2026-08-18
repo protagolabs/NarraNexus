@@ -716,10 +716,13 @@ class ClaudeAgentSDK:
         # of the user message. NexusPower repeats this rule per step next to
         # the generation point; the CLI's closest equivalent seam is here.
         # Rides only the live prompt input — never the transcript/history, so
-        # it cannot accumulate across turns. Empty declaration (team rooms,
-        # unknown surface) leaves the message untouched.
+        # it cannot accumulate across turns. Empty declaration (unknown
+        # surface only, now that team replies are a tool call like any other)
+        # leaves the message untouched.
         this_turn_user_message = append_reply_reminder(
-            this_turn_user_message, kwargs.get("expressive_tools")
+            this_turn_user_message,
+            kwargs.get("expressive_tools"),
+            kwargs.get("origin_declaration") or "",
         )
 
         # Author the transcript ourselves rather than depending on the CLI still
@@ -833,7 +836,7 @@ class ClaudeAgentSDK:
         # (e.g. MiniMax served via NetMind's Anthropic-compatible proxy) do not
         # understand them, which surfaces as "the tool registry is not finding
         # the chat module send_message tool" in the model's thinking and the
-        # session ends with no ``send_message_to_user_directly`` invocation.
+        # session ends with no reply-tool invocation at all.
         # Forcing ENABLE_TOOL_SEARCH=false pins the CLI to the non-deferred
         # (always-expanded) tool list on those sessions. Claude models keep
         # the default (auto) behavior so they still benefit from deferred

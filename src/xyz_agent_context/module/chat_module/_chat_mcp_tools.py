@@ -8,7 +8,8 @@ Separates MCP tool registration logic from ChatModule main class,
 keeping the module focused on Hook lifecycle and memory management.
 
 Tools:
-- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages)
+- reply_owner / notify_owner: the two registers of speaking to the owner
+  (one on the desk per turn — see ChatModule.get_expressive_tools)
 - get_chat_history: Get chat history for a Chat Instance
 """
 
@@ -25,8 +26,8 @@ def create_chat_mcp_server(port: int) -> FastMCP:
         FastMCP instance with all tools configured
 
     (No db-client function is needed anymore: get_chat_history routes through the
-    AgentDataStore seam, which resolves its own db, and send_message_to_user_directly
-    never touches the db.)
+    AgentDataStore seam, which resolves its own db, and the owner-facing tools
+    never touch the db.)
     """
     mcp = FastMCP("chat_module")
     mcp.settings.port = port

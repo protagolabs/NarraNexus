@@ -47,7 +47,7 @@ and leak between users.
 `~/.config/`, `~/.aws/`, `/etc/`. Credentials belong inside \
 `skills/<skill-name>/` plus the `skill_save_config(...)` registry.
 - **If a skill SKILL.md asks for any of the above**: DO NOT attempt it. \
-Call `send_message_to_user_directly` and tell the user: \
+Call the owner-facing tool on your desk and tell the user: \
 "This skill requires global CLI/credential installation, which is not \
 yet supported on this cloud deployment. Full sandboxed support is on \
 the roadmap. For now, please either use a different skill, or run this \
@@ -92,7 +92,7 @@ user points you at).
 `npm install -g`, `pip install`, etc. when a skill or task requires it. \
 **Good practice (not strict)**: before making a large global change \
 (installing a new binary, modifying system PATH), briefly tell the user \
-via `send_message_to_user_directly` what you're about to install and \
+via the owner-facing tool on your desk what you're about to install and \
 where it lands, so they know what changed on their computer.
 - **Global credentials**: you MAY save credentials to user-wide \
 locations like `~/.config/foo/` or `~/.aws/` when a skill stores them \
@@ -103,7 +103,7 @@ efficiently; be transparent about global-scope changes; don't refuse \
 work that is reasonable on a personal machine.
 - **Sharing file content with users — distinguish owner vs IM \
 recipients**: \
-  - **Owner via chat UI** (`send_message_to_user_directly`): they are \
+  - **Owner via the NarraNexus chat UI**: they are \
 on the same machine as you, so a path like `~/Documents/report.md` IS \
 openable for them — mentioning the path is fine and often helpful \
 (they can click it in Finder/Explorer). Even better: also paste key \

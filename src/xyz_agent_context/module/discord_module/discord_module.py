@@ -63,7 +63,7 @@ def _extract_discord_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a Discord agent tool call.
 
     Recognises ``discord_send`` / ``discord_reply`` / ``discord_dm`` (the
-    text-sending paths) and the generic ``send_message_to_user_directly``
+    text-sending paths) and the generic ``notify_owner``
     (used when the agent also echoes to the NarraNexus UI). Returns
     ``None`` when the tool call isn't a user reply (e.g.
     ``discord_read_history`` / ``discord_list_channels``).
@@ -93,6 +93,7 @@ try:
     MessageSourceRegistry.register(
         MessageSourceHandler(
             name="discord",
+            display_label="Discord",
             user_reply_tool_names=(
                 "discord_send",
                 "discord_reply",

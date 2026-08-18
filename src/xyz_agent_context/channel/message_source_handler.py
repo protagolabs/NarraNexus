@@ -30,7 +30,8 @@ handler at module-load time:
 
 All sources that need nothing channel-specific (`chat`, `a2a`,
 `callback`, `skill_study`, …) fall back to the default handler, which
-recognises only `send_message_to_user_directly` and renders rows with a
+recognises both owner-facing names (`reply_owner` / `notify_owner`, since
+owner chat itself resolves here) and renders rows with a
 "[NarraNexus UI · user=<id>]" prefix.
 
 Why a registry instead of `if working_source == "lark": ...`
@@ -46,7 +47,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from loguru import logger
 
@@ -68,7 +69,7 @@ from loguru import logger
 # every channel) rather than in any per-framework translator,
 # because:
 #  * The tokens come from the model's text written into the
-#    ``content`` argument of ``send_message_to_user_directly``
+#    ``content`` argument of an owner-facing tool
 #    (or any other reply tool) — they're plain string content, not
 #    SDK-protocol metadata. Stripping at the SDK boundary would
 #    miss tokens that the model writes into ``lark_cli`` markdown,
@@ -160,7 +161,7 @@ class MessageSourceHandler:
     user_reply_tool_names: Tuple[str, ...]
     """Substrings of `tool_name` that count as the agent replying to
     the user via this source. Substring match (not equality) so MCP
-    prefixes like `mcp__chat_module__send_message_to_user_directly`
+    prefixes like `mcp__chat_module__notify_owner`
     match the short name registered here."""
 
     owner_visible_reply_tool_names: Optional[Tuple[str, ...]] = None
@@ -174,6 +175,18 @@ class MessageSourceHandler:
     chat-history persistence) stay two separate questions — conflating
     them let every agent-to-agent bus reply re-anchor the owner's
     session (PR #230 review)."""
+
+    display_label: str = ""
+    """Human-readable name for this source, for the one line of prompt that
+    tells the agent where the turn came from (`render_origin_declaration`).
+    Empty falls back to `name.title()`, which is right for every brand-named
+    channel and wrong only where the source name is a platform-internal word —
+    those set it explicitly.
+
+    Why the label lives HERE and not in each trigger's prose: the prose used to
+    say it, each copy in its own words, and the copies drifted. One field, one
+    renderer, and the same registry entry that decides which tools count as a
+    reply — so the sentence and the enforcement cannot disagree."""
 
     row_prefix_template: str = "[{name}]"
     """str.format-style template applied to a flattened
@@ -198,6 +211,11 @@ class MessageSourceHandler:
     replies — 2026-07-03 wechat double-dispatch incident). Every module
     that ships a ``run_*_trigger.py`` entrypoint must set this; enforced
     by tests/message_bus/test_bus_channel_inbox_skip.py."""
+
+    @property
+    def label(self) -> str:
+        """`display_label` with the derive-from-name fallback applied."""
+        return self.display_label or self.name.replace("_", " ").title()
 
     def is_user_reply_tool(self, tool_name: str) -> bool:
         """True when `tool_name` matches any registered reply tool.
@@ -322,6 +340,11 @@ _DEFAULT_HANDLER = MessageSourceHandler(
     # A source that wants the two questions separated declares
     # `owner_visible_reply_tool_names` itself, as message_bus does.
     user_reply_tool_names=("reply_owner", "notify_owner"),
+    # Not "Default" — the label is read by the agent, not by us. Every source
+    # that lands here (owner chat, a2a, callback, skill_study) is happening
+    # inside NarraNexus, which is exactly one of the two social situations the
+    # harness teaches.
+    display_label="NarraNexus",
     row_prefix_template="[NarraNexus UI]",
 )
 """Fallback for any WorkingSource that didn't register itself.
@@ -384,3 +407,50 @@ class MessageSourceRegistry:
             d["extract_reply_fn"] = "<custom>" if h.extract_reply_fn else None
             out[name] = d
         return out
+
+
+# ============================================================================
+# The origin declaration (design §6.1)
+# ============================================================================
+
+ORIGIN_DECLARATION_TEMPLATE = (
+    "[Origin] {label} · reply with {default_tool}{others_clause}"
+)
+
+
+def render_origin_declaration(
+    working_source: str,
+    expressive_tools: "Sequence[str]",
+) -> str:
+    """One line naming where this turn came from and what answers it.
+
+    This replaced a paragraph in every trigger prompt, each restating the
+    reply rule in its own words. Those restatements are what drifted: a
+    channel's copy would still describe a tool the desk no longer carried, and
+    the agent had two sentences to choose between with nothing to break the
+    tie.
+
+    Both halves of this line come from data the platform already computed:
+
+    * the label from `MessageSourceRegistry` — the same registry entry that
+      decides which tool calls count as a reply from this source;
+    * the tools from the turn's declared expressive surface — the SAME tuple
+      `get_expressive_tools` produced and `get_disallowed_tools` enforced.
+
+    So the sentence cannot contradict the desk: there is no second copy of
+    either fact to fall out of step.
+
+    Empty tools → empty string. A turn with no declared reply surface must not
+    be handed a sentence claiming one; inventing a tool name here would be the
+    exact failure the declaration exists to prevent.
+    """
+    tools = tuple(expressive_tools or ())
+    if not tools:
+        return ""
+    handler = MessageSourceRegistry.get(working_source)
+    others = ", ".join(f"`{t}`" for t in tools[1:])
+    return ORIGIN_DECLARATION_TEMPLATE.format(
+        label=handler.label,
+        default_tool=f"`{tools[0]}`",
+        others_clause=f" (also available: {others})" if others else "",
+    )

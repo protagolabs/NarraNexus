@@ -21,7 +21,7 @@ Two things change from the pre-seam tool, both deliberate:
 2. **Instance scoping (closes an IDOR).** The old tool took only ``instance_id``
    and returned that instance's chat to ANY caller — an agent could read another
    agent's conversation by guessing a ``chat_xxx`` id. It now takes the calling
-   ``agent_id`` (LLM-passed, exactly like the sibling send_message_to_user_directly)
+   ``agent_id`` (LLM-passed, exactly like the sibling owner-facing tools)
    and the instance must belong to that agent; a foreign/unknown instance reads as
    an EMPTY history (no existence oracle — indistinguishable from an own instance
    that simply has no messages). The seam route additionally owner-gates agent_id,

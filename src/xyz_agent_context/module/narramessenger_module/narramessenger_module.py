@@ -53,7 +53,7 @@ NARRAMESSENGER_MCP_PORT = 7833
 # replies into chat history. The agent replies via ``narra_reply`` (or sends
 # proactively via ``narra_send``); without this handler every turn would
 # persist as "Background activity (narramessenger)" and the agent would lose
-# multi-turn context. ``send_message_to_user_directly`` is intentionally NOT
+# multi-turn context. ``notify_owner`` is intentionally NOT
 # here — the shared channel prompt reserves it for OWNER messages, not this
 # channel. Mirrors telegram_module._extract_telegram_reply.
 # ───────────────────────────────────────────────────────────────────────────
@@ -86,6 +86,7 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="narramessenger",
+        display_label="NarraMessenger",
         user_reply_tool_names=("narra_reply", "narra_send"),
         row_prefix_template="[NarraMessenger · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_narramessenger_reply,

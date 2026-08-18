@@ -1168,7 +1168,7 @@ class MessageBusTrigger:
                 # agent its owner is waiting in chat) and the inbox writer.
                 owner_user_id = await self._get_agent_owner(agent_id)
                 # Resolve the owner's human name for the relay prose (the raw
-                # user_id stays as the send_message_to_user_directly routing key).
+                # user_id stays as the notify_owner routing key).
                 owner_name = ""
                 if owner_user_id:
                     from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -1321,7 +1321,7 @@ class MessageBusTrigger:
                     # `bus_messages.event_id` against this turn's id.
                     #
                     # Deliberately NOT `turn.delivered`: that counts
-                    # `send_message_to_user_directly` too, and an agent that only
+                    # `notify_owner` too, and an agent that only
                     # told its owner has left this room silent — precisely the
                     # case the notice below is for.
                     spoke = await self._bus.has_message_from_turn(
@@ -2181,7 +2181,7 @@ class MessageBusTrigger:
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
-        peer/owner-relay path — there is no send_message_to_user_directly step.
+        peer/owner-relay path — there is no notify_owner step.
 
         ``history`` is the recent room scrollback (oldest→newest) so the agent
         sees files/images posted by ANYONE, not only the message that @mentioned
@@ -2725,7 +2725,7 @@ class MessageBusTrigger:
         Includes all messages in the batch so the agent has full context.
 
         If `owner_user_id` is known, appends an owner-relay directive telling
-        the agent it MUST call send_message_to_user_directly(user_id=<owner>,
+        the agent it MUST call notify_owner(user_id=<owner>,
         ...) to surface the peer exchange back into the owner's chat. Without
         this directive, agents treat peer exchanges as self-contained (they
         reply to the peer or stay silent), and the original owner who asked
@@ -2803,7 +2803,7 @@ class MessageBusTrigger:
                 "the peer back via `message_agent`."
             )
             lines.append(
-                "3. Only ALSO call `send_message_to_user_directly` when your "
+                "3. Only ALSO call `notify_owner` when your "
                 "owner genuinely needs to know (a decision only they can make, "
                 "or something affecting their work). It is never a substitute "
                 "for replying to the peer."
@@ -2828,7 +2828,7 @@ class MessageBusTrigger:
             lines.append(
                 "The owner's chat view does NOT automatically receive the "
                 "peer's reply. The ONLY channel that surfaces this exchange "
-                "to the owner is `send_message_to_user_directly`. If you do "
+                "to the owner is `notify_owner`. If you do "
                 "not call it, the owner sees nothing — they only know "
                 "there's a new entry in some inbox they may not be looking "
                 "at. This is a silent-failure pattern we explicitly want to "
@@ -2842,7 +2842,7 @@ class MessageBusTrigger:
             lines.append(
                 "2. If the peer's reply answers / progresses the owner's "
                 "original request → call "
-                f"`send_message_to_user_directly(agent_id=<you>, "
+                f"`notify_owner(agent_id=<you>, "
                 f"user_id=\"{owner_user_id}\", content=<summary + peer "
                 "quote>)`. Make the summary actionable: what did the peer "
                 "say, what does it mean for the owner's task, what's next."
@@ -2850,7 +2850,7 @@ class MessageBusTrigger:
             lines.append(
                 "3. If the peer needs a clarifying follow-up from you → "
                 "send it via `message_agent`, THEN also call "
-                "`send_message_to_user_directly` with a short status "
+                "`notify_owner` with a short status "
                 "update (\"asked peer for X, waiting for clarification\") "
                 "so the owner knows the thread is alive."
             )

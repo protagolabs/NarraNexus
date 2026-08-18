@@ -40,7 +40,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a WeChat agent tool call.
 
     Recognises ``wechat_send(text=...)`` (the canonical reply path) and the
-    generic ``send_message_to_user_directly(content=...)``. Returns None when
+    generic ``notify_owner(content=...)``. Returns None when
     the call isn't a user reply (so it isn't logged as "Background activity").
     """
     args = arguments
@@ -62,6 +62,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="wechat",
+        display_label="WeChat",
         user_reply_tool_names=("wechat_send", "notify_owner"),
         row_prefix_template="[WeChat · {sender_name} · {sender_id}]",
         extract_reply_fn=_extract_wechat_reply,

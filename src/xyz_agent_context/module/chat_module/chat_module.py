@@ -8,11 +8,12 @@ ChatModule provides Agent messaging capabilities on the XYZ-Platform.
 
 Core concept - Thinking vs Speaking:
 - All output from Agent's LLM calls, Agent Loop, and tool calls are the Agent's internal thinking, invisible to users
-- Only by calling the send_message_to_user_directly tool does the Agent actually "speak", and only then can users receive a response
+- Only by calling an owner-facing tool does the Agent actually "speak"; plain text reaches nobody
 - Like two people talking face-to-face: thinking in your head (invisible) vs speaking out loud (visible)
 
 Included MCP Tools:
-- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages to the user)
+- reply_owner / notify_owner: the two registers of speaking to the owner. The
+  turn's desk carries exactly one; see get_expressive_tools / get_disallowed_tools
 - get_chat_history: Get chat history for a Chat Instance
 
 Note: ChatModule itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network/Memory modules
@@ -193,12 +194,13 @@ class ChatModule(XYZBaseModule):
 
     Core concept - Thinking vs Speaking:
     Agent's internal processing (LLM calls, Agent Loop, tool calls) is like thinking in your head, completely invisible to users.
-    Only through the send_message_to_user_directly tool can the Agent "speak", and only then can users receive the Agent's response.
+    Only through an owner-facing tool can the Agent "speak", and only then can users receive the Agent's response.
 
     Provided capabilities:
     1. **Instructions** - Guide Agent to understand the "thinking vs speaking" distinction
     2. **Tools** (via MCP):
-       - send_message_to_user_directly: The ONLY way to deliver messages to the user
+       - reply_owner / notify_owner: the only ways to deliver to the owner,
+         one on the desk per turn
        - get_chat_history: Retrieve past conversations for a specific Chat Instance
 
     Dual-track memory loading (2026-01-21 P1-2):
@@ -265,7 +267,7 @@ class ChatModule(XYZBaseModule):
         Return MCP Server configuration
 
         ChatModule provides MCP Server for:
-        - send_message_to_user_directly: Agent speaks to user
+        - reply_owner / notify_owner: Agent speaks to its owner
         - get_chat_history: Retrieve past conversations
 
         Returns:
@@ -379,7 +381,7 @@ class ChatModule(XYZBaseModule):
         Per-source dispatch via MessageSourceRegistry: each WorkingSource
         (chat / lark / message_bus / job / …) registers which tool names
         count as the agent replying to the user. Chat uses
-        send_message_to_user_directly; Lark also accepts lark_cli
+        notify_owner; Lark also accepts lark_cli
         +messages-send / +messages-reply; bus accepts its own bus_send;
         etc. Without this dispatch, Lark turns where the agent really
         did reply via lark_cli would be misclassified as "no response"
@@ -1092,7 +1094,7 @@ class ChatModule(XYZBaseModule):
         it is deferred to the background hook_after_event_execution below.
 
         Note: assistant messages store the content parameter from the
-        send_message_to_user_directly tool call, not final_output (the Agent's
+        notify_owner tool call, not final_output (the Agent's
         thinking result). This ensures chat history displays the Agent's actual
         reply to the user, not the internal thinking process.
 
@@ -1341,7 +1343,7 @@ class ChatModule(XYZBaseModule):
         # speaking design (final_output is the agent's internal reasoning,
         # not a user-facing reply). The real no-reply recovery now lives
         # one layer up: step_3_agent_loop detects a chat turn that ended
-        # without send_message_to_user_directly and asks the helper_llm
+        # without notify_owner and asks the helper_llm
         # to generate a real reply, streamed to the frontend and emitted
         # as a synthetic send_message ProgressMessage. By the time we get
         # here, _extract_user_visible_response will have already picked
@@ -1394,7 +1396,7 @@ class ChatModule(XYZBaseModule):
             asst_meta = {**assistant_meta}
             # If the upstream agent loop's helper_llm fallback fired
             # (see step_3_agent_loop._stream_fallback_recovery), it
-            # emits a synthetic send_message_to_user_directly
+            # emits a synthetic notify_owner
             # ProgressMessage tagged details.reply_via="helper_llm_*"
             # (either helper_llm_no_reply or helper_llm_after_error).
             # Surface that tag on the persisted row so observability
@@ -1411,7 +1413,7 @@ class ChatModule(XYZBaseModule):
                     break
             # Stash the owner-notify portion on meta_data when the turn
             # was IM-triggered AND the agent explicitly called
-            # send_message_to_user_directly. The chat-history endpoint
+            # notify_owner. The chat-history endpoint
             # shows this string verbatim, falling back to the
             # "Background activity (...)" placeholder when absent. We
             # only set it for non-chat triggers — on chat-triggered

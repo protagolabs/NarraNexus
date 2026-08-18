@@ -28,8 +28,7 @@ Inside ``SlackSDKClient`` at the SDK boundary — both ``send_message``
 (direct path) and ``api_call`` (the ``slack_cli`` MCP dispatcher) call
 this on outbound ``text`` for the message-posting methods. That way the
 fix applies regardless of which path the agent chose, including
-``send_message_to_user_directly`` → ``send_to_agent`` cross-channel
-delivery.
+``notify_owner`` and ``message_agent`` cross-channel delivery.
 
 Contract
 --------

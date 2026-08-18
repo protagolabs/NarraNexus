@@ -835,7 +835,7 @@ class JobTrigger:
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
             # 3. Call AgentRuntime
-            # Agent will send report to user via send_message_to_user_directly
+            # Agent will send report to user via notify_owner
             result = await self._run_agent(job, prompt)
 
             # 4. Update Job status
@@ -853,7 +853,7 @@ class JobTrigger:
 
         Creates an AgentRuntime instance and runs the prompt,
         collecting all output. The agent sends the final report
-        to the user via send_message_to_user_directly.
+        to the user via notify_owner.
 
         Args:
             job: JobModel instance

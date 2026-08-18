@@ -551,7 +551,7 @@ async def get_simple_chat_history(
                         # 'activity'`` branch.
                         #
                         # Carve-out: when the agent explicitly called
-                        # ``send_message_to_user_directly`` during the IM
+                        # ``notify_owner`` during the IM
                         # turn (the "tell owner about this important
                         # thing" path the iron rules carve out), the
                         # writer stashes that content on
