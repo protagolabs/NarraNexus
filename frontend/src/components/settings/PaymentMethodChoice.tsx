@@ -15,10 +15,15 @@
  * `stripe` — while Alipay and WeChat are spelled the same in both. Passing the
  * one differing value in beats duplicating the whole option list per call site.
  *
- * All three rails are always offered. We do not hide a rail by region: which
- * payment method someone can actually use is their business, and a US-issued
- * card in China (or an Alipay account abroad) is not an edge case worth
- * silently removing an option for.
+ * We never hide a rail by region: which payment method someone can actually
+ * use is their business, and a US-issued card in China (or an Alipay account
+ * abroad) is not an edge case worth silently removing an option for.
+ *
+ * `hideCard` is the one exception, and it is a CAPABILITY fact rather than a
+ * preference: while a one-time (Alipay/WeChat) subscription is live, upstream
+ * rejects a card subscribe with "Already subscribed to Pro." (measured on dev
+ * 2026-08-19), so the renewal dialog would otherwise be offering an option
+ * that cannot succeed. Do not reach for it for any softer reason.
  */
 
 import { useRef } from 'react';
@@ -33,6 +38,8 @@ interface PaymentMethodChoiceProps<T extends string> {
   cardValue: T;
   onChange: (next: T) => void;
   disabled?: boolean;
+  /** Drop the card rail — ONLY where upstream cannot accept it. See the header. */
+  hideCard?: boolean;
 }
 
 function CardGlyph() {
@@ -76,12 +83,15 @@ export function PaymentMethodChoice<T extends string>({
   cardValue,
   onChange,
   disabled = false,
+  hideCard = false,
 }: PaymentMethodChoiceProps<T>) {
   const { t } = useTranslation();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const options: { rail: Rail; value: T; label: string }[] = [
-    { rail: 'card', value: cardValue, label: t('settings.netmind.payCard', 'Card') },
+    ...(hideCard
+      ? []
+      : [{ rail: 'card' as Rail, value: cardValue, label: t('settings.netmind.payCard', 'Card') }]),
     { rail: 'alipay', value: 'alipay' as T, label: t('settings.netmind.payAlipay', 'Alipay') },
     { rail: 'wechat', value: 'wechat' as T, label: t('settings.netmind.payWechat', 'WeChat Pay') },
   ];

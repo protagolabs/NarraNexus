@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/settings/PaymentMethodChoice.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `hideCard`，以及「三档永远都在」这句话的限定
+
+新增 `hideCard`，**唯一正当用途**是一次性订阅生效期间的续订弹窗：那时上游对信用卡
+subscribe 回 `400 "Already subscribed to Pro."`（2026-08-19 dev 实测），所以那一档摆出来
+等于摆一个必然失败的选项。
+
+⚠ 这**限定**了原来「三档永远都在」的说法：不按地区/偏好隐藏的原则一个字没变，
+变的是承认存在一种**上游根本不接受**的情形。判据写在组件头注释里，就在 prop 旁边
+——软一点的理由都不算。
+
 
 # PaymentMethodChoice.tsx — 信用卡 / 支付宝 / 微信 三选一
 

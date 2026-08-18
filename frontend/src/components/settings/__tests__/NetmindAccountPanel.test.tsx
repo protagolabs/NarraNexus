@@ -1130,3 +1130,139 @@ test('top-up: card is the default method and asks for no quote', async () => {
   expect(card.getAttribute('aria-checked')).toBe('true');
   expect(mockFxRate).not.toHaveBeenCalled();
 });
+
+
+// ── one-time (Alipay / WeChat) subscriptions ────────────────────────────────
+// A one-time purchase never renews, so auto_renew is false for its ENTIRE life
+// — the same tuple a cancelled card sits in. `payment_method` (verified present
+// on dev 2026-08-19) is the only thing separating them, and getting it wrong is
+// not cosmetic: offering "Resume auto-renew" to a one-time holder calls an
+// endpoint that does not apply to them, and offering "Renew" to a card holder
+// is rejected upstream with "Already subscribed to Pro."
+
+const ONETIME_SUB = (method: 'alipay' | 'wechat' = 'alipay') => ({
+  success: true,
+  data: {
+    subscription: {
+      status: 'ACTIVE',
+      auto_renew: false,
+      current_period_end: 1790000000,
+      payment_method: method,
+    },
+  },
+});
+
+const CARD_CANCELLED_SUB = {
+  success: true,
+  data: {
+    subscription: {
+      status: 'ACTIVE',
+      auto_renew: false,
+      current_period_end: 1790000000,
+      payment_method: 'stripe',
+    },
+  },
+};
+
+test('one-time: never offers "Resume auto-renew" — it does not apply', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Pro/);
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: /Resume auto-renew/ })).toBeNull(),
+  );
+});
+
+test('one-time: offers Renew instead', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Renew/ })).toBeTruthy();
+});
+
+test('one-time: never offers Cancel — upstream no-ops it and reports success', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB('wechat'));
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.queryByRole('button', { name: /Cancel subscription/ })).toBeNull();
+});
+
+test('cancelled CARD keeps Resume auto-renew (payment_method = stripe)', async () => {
+  mockGetSubscription.mockResolvedValue(CARD_CANCELLED_SUB);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Resume auto-renew/ })).toBeTruthy();
+});
+
+test('subscription with NO payment_method is treated as a cancelled card', async () => {
+  // Every subscription that predates the nexus account is a card one, so the
+  // absent field must fall back to the old reading, not to the new state.
+  mockGetSubscription.mockResolvedValue(PRO_SUB(false));
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Resume auto-renew/ })).toBeTruthy();
+});
+
+test('one-time renew: months reach api.subscribe and the checkout opens', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_sub1', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub1' },
+  });
+  mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
+  await waitFor(() =>
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_sub1'),
+  );
+});
+
+test('one-time purchase polls the SESSION, not "am I Pro yet"', async () => {
+  // The subscription is already ACTIVE when someone extends it, so a poll that
+  // waits for ACTIVE would report success before the payment even happened.
+  // Upstream models a one-time purchase as a recharge, so its session is
+  // pollable by id — which is what actually settles.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_sub2', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub2' },
+    });
+    mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(4500); // one poll interval
+    expect(mockRechargeStatus).toHaveBeenCalledWith('cs_sub2');
+    // and never the "am I Pro yet" poll, which is already true here
+    expect(mockGetSubscription.mock.calls.length).toBeLessThan(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a finished renewal does not announce a top-up', async () => {
+  // Both controls sit in the same dialog and share the submit guard on purpose
+  // (two checkouts at once is not a state we want). Their FEEDBACK must not be
+  // shared: without the flow marker a settled renewal announced "Top-up
+  // complete — balance updated" right next to it.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_sub3', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub3' },
+    });
+    mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(4500);
+    // the settle path awaits a full reload before flipping to success
+    await waitFor(() => expect(screen.getByText(/Pro extended/i)).toBeTruthy());
+    expect(screen.queryByText(/Top-up complete/i)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});

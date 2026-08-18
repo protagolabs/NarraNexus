@@ -6,6 +6,8 @@
  * panel: at most ONE promoted spend action, everything else demoted.
  *
  *   pro_cancelled            → Resume auto-renew + "Add credits" modal
+ *   pro_onetime              → Renew (buy N more months) + "Add credits";
+ *                              NEVER cancel/resume — see the branch below
  *   free × low               → Upgrade-to-Nexus-Pro card inline; top-up behind a link
  *   pro_active × low         → top-up promoted directly (already Pro — no upsell)
  *   free × healthy           → "Upgrade or top up" opens a MODAL (Pro card +
@@ -38,7 +40,7 @@ import type { SubscriptionPlan } from '@/types';
 const PRICING_URL = 'https://website.narra.nexus/pricing';
 
 interface NetmindActionZoneProps {
-  state: 'free' | 'pro_active' | 'pro_cancelled';
+  state: 'free' | 'pro_active' | 'pro_cancelled' | 'pro_onetime';
   runway: Runway;
   /** True only when the free tier is KNOWN exhausted (pct === 0). */
   freeTierExhausted: boolean;
@@ -47,6 +49,8 @@ interface NetmindActionZoneProps {
   proPlan: SubscriptionPlan | null;
   /** Top-up controls element (state + guards owned by the panel). */
   topUp: ReactNode;
+  /** Buy-more-months controls; only rendered for a one-time subscription. */
+  renew?: ReactNode;
   onSubscribe: () => void;
   onCancel: () => void;
   onReactivate: () => void;
@@ -60,6 +64,7 @@ export function NetmindActionZone({
   polling,
   proPlan,
   topUp,
+  renew,
   onSubscribe,
   onCancel,
   onReactivate,
@@ -133,6 +138,46 @@ export function NetmindActionZone({
       {pricingLink}
     </div>
   );
+
+  // ── pro_onetime: a purchase that ENDS, so renewing is the whole job ────────
+  // Neither cancel nor resume appears here, and that is not tidiness:
+  //   - `reactivate` does not apply to a purchase that never renews;
+  //   - `cancel` returns 200 {"status":"auto_renew_off"} on one of these
+  //     (measured on dev 2026-08-19) — a silent no-op that would let the UI
+  //     announce a cancellation that did not happen and was never needed.
+  // The one action that keeps this user Pro is buying more months, so it is
+  // the promoted one regardless of runway: unlike a card subscriber, nothing
+  // will renew for them if they ignore it.
+  if (state === 'pro_onetime') {
+    return (
+      <>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              {t('settings.netmind.onetimeActive',
+                'Pro is active — one-time purchase, no auto-renewal')}
+            </p>
+            <Button variant="accent" size="sm" onClick={() => setManageOpen(true)}>
+              {t('settings.netmind.renewBtn', 'Renew')}
+            </Button>
+          </div>
+          {pricingLink}
+        </div>
+        <Dialog
+          isOpen={manageOpen}
+          onClose={closeManage}
+          title={t('settings.netmind.renewTitle', 'Keep Pro going')}
+          size="lg"
+        >
+          <DialogContent className="space-y-4">
+            {renew}
+            <hr className="border-[var(--nm-hairline)]" />
+            {topUp}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   // ── pro_cancelled: resume (runway-agnostic) + manage-balance modal ─────────
   if (state === 'pro_cancelled') {

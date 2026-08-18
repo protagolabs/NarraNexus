@@ -1014,7 +1014,17 @@
       "wechatConverting": "Converting…",
       "wechatNote": "You still receive the USD amount as credit. The rate is applied when payment starts.",
       "wechatMin": "Minimum {{min}} per payment.",
-      "rechargeBelowMinimum": "WeChat has a minimum of about ${{min}} per payment."
+      "rechargeBelowMinimum": "WeChat has a minimum of about ${{min}} per payment.",
+      "renewMonthsLabel": "How many months",
+      "renewTotalLabel": "{{count}}-month total",
+      "renewNoAutoRenew": "One-time purchase — this does NOT auto-renew. Buy again before it ends to stay on Pro.",
+      "renewCoveredUntil": "Covered until {{date}}.",
+      "renewPay": "Pay ${{total}}",
+      "onetimeActive": "Pro is active — one-time purchase, no auto-renewal",
+      "renewBtn": "Renew",
+      "renewTitle": "Keep Pro going",
+      "renewProcessing": "Waiting for payment… complete it in the opened window; your plan updates automatically.",
+      "renewSuccess": "Pro extended — new end date shown above."
     },
     "modal": {
       "title": "Settings",

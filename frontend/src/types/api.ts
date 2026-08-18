@@ -1108,6 +1108,11 @@ export interface SubscriptionPlan {
   quota_limits: { rpm?: number };
   features: { support?: boolean; member_price?: boolean };
   monthly_grant_usd: number;
+  // What a month COSTS, as opposed to monthly_grant_usd (what it gives you).
+  // They happen to be equal today; the one-time purchase total must be built
+  // from the price, because a change to either would otherwise silently
+  // mis-price a 12-month checkout. Nullable upstream on the free plan.
+  usd_monthly_price?: number | null;
   prices: SubscriptionPlanPrice[];
 }
 
@@ -1117,6 +1122,17 @@ export interface SubscriptionStatus {
   current_period_start: number; // Unix seconds
   current_period_end: number; // Unix seconds
   auto_renew: boolean;
+  // Which product this subscription actually is. Load-bearing, not decorative:
+  // a one-time (Alipay/WeChat) purchase never renews, so `auto_renew` is false
+  // for its whole life — the exact tuple a CANCELLED card subscription sits in.
+  // This field is the only thing that separates them, and the two need opposite
+  // actions (resume auto-renew vs buy more months).
+  //
+  // Optional because every subscription created before the nexus account is a
+  // card one and predates the field; absent therefore means "card", which is
+  // what the pre-existing reading already assumed.
+  // Verified present on dev 2026-08-19 for a live Alipay purchase.
+  payment_method?: SubscribePaymentMethod;
 }
 
 // GET /api/billing/subscription -> data. Plan fields are flat at top level;

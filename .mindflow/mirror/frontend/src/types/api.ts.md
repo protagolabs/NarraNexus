@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: true
 ---
+
+## 2026-08-19 — `SubscriptionStatus.payment_method` / `SubscriptionPlan.usd_monthly_price`
+
+`payment_method` 是**判别字段**，不是装饰：一次性订阅与已取消的卡订阅在其余每个字段
+上都一模一样。可选，因为早于 nexus 账号的订阅都没有它 —— **缺失即卡**。
+
+`usd_monthly_price`（一个月多少钱）和 `monthly_grant_usd`（一个月给多少额度）
+今天数值相同，也正因如此才分开：一次性总价必须按前者算，否则任一边变动都会静默
+算错 12 个月的结账金额。
+
 
 ## 2026-08-18 — 支付方式与汇率报价的类型
 

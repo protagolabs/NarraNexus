@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `resolveState` 认第四态，靠 `/me` 的 `payment_method`
+
+⚠ **作废下方「plan(free/pro_active/pro_cancelled)」的三状态枚举**，现在是四个。
+
+一次性（支付宝/微信）购买**终其一生** `auto_renew` 都是 false —— 和「卡订阅已取消」
+落在完全相同的元组里。分开它们的只有 `subscription.payment_method`
+（2026-08-19 dev 实测确认存在），而两者需要的动作**正好相反**（恢复自动续费 vs 再买几个月）。
+
+顺序是载荷：`pro_onetime` 必须在 `auto_renew` 分叉**之前**判，否则它会被读成
+「卡·已取消」。`payment_method` **缺失视为卡** —— 早于 nexus 账号的订阅全是卡，
+这也正是改动前那两行本来就假设的。
+
+两件顺带修掉的：
+
+- `isPro` 原本只认 `pro_active | pro_cancelled`，一次性订阅用户会被当成非 Pro
+  走进免费额度视图。
+- **`payFlow` 把两笔购买的反馈分开**。提交锁和轮询代次是**故意共用**的（同时开两个
+  结账不是我们想要的状态），但反馈不能共用：两个控件同处一个弹窗，没有这个标记时
+  一笔续订完成后会在旁边宣布「Top-up complete — balance updated」。有测试钉住。
+- 续订的轮询**复用充值那条 `pollRechargeStatus`**，因为上游把一次性购买建模成一笔
+  **recharge**（by-session 回 `method="subscription_onetime"`，2026-08-19 实测）。这才是
+  叠加续期**可被检测**的原因：延长时订阅本来就是 ACTIVE，等 ACTIVE 的轮询会在付款
+  发生之前就宣布成功。
+
 
 ## 2026-08-18 — 汇率报价：两个寿命不同的东西装在一个响应里
 

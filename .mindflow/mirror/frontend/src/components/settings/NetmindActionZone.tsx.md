@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/settings/NetmindActionZone.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 第四个状态 `pro_onetime`（支付宝/微信一次性订阅）
+
+⚠ **作废下方那张 state × runway 表**：它只列了 free / pro_active / pro_cancelled
+三行。现在有第四行：
+
+| pro_onetime（无视 runway） | Renew 主按钮 + 续订弹窗（月数 + 充值） |
+
+这一格**既不给取消也不给恢复**，两条都不是为了整洁：
+
+- `reactivate` 对一个永不续费的购买没有意义；
+- `cancel` 对它返回 **200 `{"status":"auto_renew_off"}`**（2026-08-19 dev 实测）——
+  一个**谎报成功的空操作**，会让界面宣布一次根本没发生、也从不需要的取消。
+
+「续订」无视 runway 恒为主按钮：和卡订阅用户不同，他们不动手就什么都不会续。
+
 
 ## 2026-07-31 — 付费入口从 12px 文字链接升级为 outline 按钮 + 文案改直白
 

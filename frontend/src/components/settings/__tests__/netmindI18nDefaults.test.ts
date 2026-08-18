@@ -28,6 +28,7 @@ const componentFiles = [
   'NetmindUpsellCard.tsx',
   'NetmindTopUpControls.tsx',
   'PaymentMethodChoice.tsx',
+  'NetmindRenewControls.tsx',
 ].map((f) => resolve(here, '..', f));
 
 const enJson = JSON.parse(
