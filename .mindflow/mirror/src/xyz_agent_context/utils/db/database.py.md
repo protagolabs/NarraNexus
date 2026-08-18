@@ -2,6 +2,25 @@
 
 `AsyncDatabaseClient` — the single database client every layer of the codebase talks through, plus the MySQL-to-SQLite dialect translator.
 
+## 2026-08-17 — legacy 路径的事务连接同样改为 task 级
+
+`AsyncDatabaseClient` 有两条路：`_backend` 非空时全部委派给 `DatabaseBackend`；
+`_backend` 为空时走本文件自带的 pool + 游标实现（legacy）。**两条路各有一份完全相同
+的事务连接 bug**，所以一并修，否则只修一半等于没修。改动与
+[[db_backend_mysql.py]] 对称：`_transaction_connection` 实例属性 → `_txn_conn`
+ContextVar；`commit`/`rollback` 加 `finally` 无条件清空；出错的连接先 `close()` 再
+`release()`。
+
+**另外修了 `transaction()` 的取消漏洞。** 原实现是 `except Exception`，而
+`asyncio.CancelledError` 在 Python 3.8+ **不继承 `Exception`**。客户端断连时
+Starlette 会取消请求任务，于是事务中途被取消 → rollback 被整个跳过 → 连接永远不
+归还连接池，服务端的事务也一直开着直到锁超时。现在捕获 `BaseException`，并且
+rollback 自身失败时只记日志不抛，避免掩盖原始异常（此时 `rollback()` 内部的
+`finally` 已经把连接归还了）。
+
+顺带把 `commit()` 移出 `try` 挪到 `else`：commit 失败后再调 `rollback()` 只会撞上
+"No active transaction" 从而掩盖真正的错误。
+
 ## 2026-08-10 — facade `get()` 补 `fields` 透传
 
 三个后端(sqlite/mysql/proxy)与抽象基类的 `get` 都早已支持列投影,

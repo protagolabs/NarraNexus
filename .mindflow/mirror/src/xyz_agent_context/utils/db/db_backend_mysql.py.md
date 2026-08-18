@@ -24,7 +24,11 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 
 **`INSERT ... ON DUPLICATE KEY UPDATE ... AS new_row` for upserts.** The `upsert` method generates MySQL 8.0.20+ syntax using an alias (`new_row`) rather than the deprecated `VALUES()` function. This is more explicit and future-proof, but means the code will fail on MySQL versions older than 8.0.20.
 
-**Transaction support via a dedicated connection.** Transactions use a single connection acquired from the pool and stored as `self._transaction_connection`. Concurrent calls to transaction methods on the same backend instance are not safe; callers are expected to use one backend instance per async task for transactional work, or to wrap operations in the higher-level `asynccontextmanager` provided by `AsyncDatabaseClient`.
+**Transaction support via a task-scoped dedicated connection.** Transactions use a single connection acquired from the pool and stored in `self._txn_conn`, a **`ContextVar`** — so the "am I inside a transaction?" answer is per asyncio task, not per backend instance. Every statement method reads it (`txn = self._txn_conn.get()`) and falls back to `pool.acquire()` when it is `None`.
+
+The ContextVar is not a stylistic choice; it is the correctness boundary. `db_factory` hands out **one backend per event loop**, shared by every request, so instance-level transaction state was process-global state — see the 2026-08-17 section below.
+
+`commit`/`rollback` clear the ContextVar in `finally` and close the connection before releasing it when the operation raised, so a connection with a desynced protocol stream is dropped rather than recycled.
 
 **Value serialization mirrors `SQLiteBackend`.** `_serialize_value` converts `bool` to `0/1`, `datetime` to ISO 8601 strings, and `dict/list` to JSON strings. This ensures the two backends produce compatible stored representations so data written by MySQL can be read back under SQLite (and vice versa for the proxy path).
 
@@ -39,6 +43,37 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 **`_validate_identifier` rejects legitimate names with hyphens.** Column or table names containing hyphens (e.g., from external systems) will raise `ValueError` from `_validate_identifier`. This is intentional for SQL-injection prevention but can be surprising if you expect the validator to be lenient.
 
 **New-contributor trap.** `aiomysql` cursors return tuples by default. `MySQLBackend` sets `cursorclass=aiomysql.DictCursor` to get dict rows. If you bypass the backend and use the raw pool directly, you will get tuples unless you explicitly pass the cursor class.
+
+## 2026-08-17 — 事务连接从实例级改为 task 级（prod 事故根因）
+
+**事故：** prod 09:37–09:56，登录与聊天历史全部 500，后端每次查询都是
+`pymysql.err.InterfaceError: (0, 'Not connected')`，RDS 本身健康，只能靠重启恢复。
+
+**根因链：**
+
+1. 事务连接原先存在 `self._transaction_connection`（实例属性）。`db_factory`
+   每个 event loop 只发一个 backend，于是这就是**进程级共享状态**。
+2. 任一请求进入 `transaction()` 期间，**所有并发请求**的语句都命中
+   `if self._transaction_connection is not None` 分支，被塞进同一条连接。触发者是
+   `wipe_service` 的清空会话事务 —— 它在事务里串行跑几百次 delete，独占窗口极大。
+3. 两个协程同时读同一 socket → aiomysql 抛
+   `readexactly() called while another coroutine is already waiting for incoming data`
+   → MySQL 协议流错位，连接死亡。
+4. `commit()` 是**先 commit 再清空**且无 `try/finally`：commit 抛异常后
+   `_transaction_connection` 永远指向那条死连接，此后进程内每条语句都改道到它。
+   **永不自愈**，这是必须重启才能恢复的原因。
+
+**修复：** ContextVar 隔离（爆炸半径回到单个 task）+ `commit`/`rollback` 用
+`finally` 无条件清空 + 出错时先 `close()` 再 `release()`（aiomysql 的 `release()`
+会丢弃已关闭连接，于是"毒化连接池"降级为"损失一条连接"）+ `begin()` 失败时立即
+归还，避免连接泄漏。
+
+**旧文档的教训：** 本文件此前那段写着"Concurrent calls ... are not safe; callers are
+expected to use one backend instance per async task"——但 `db_factory` 的设计
+恰恰保证了做不到。文档记下了危险，却把责任推给一个结构上不可能满足的前提，
+等于没记。约束要写成代码里能成立的东西，写在文档里的承诺不算交付。
+
+见 [[database.py]]（同一 bug 的第二份拷贝，一并修）与 [[db_factory.py]]（每 loop 单例）。
 
 ## 2026-08-07 — `get_by_ids` 支持 `fields`
 

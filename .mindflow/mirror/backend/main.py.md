@@ -1,8 +1,27 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `/health` 的 `database` 字段改成真探测
+
+原来是硬编码字面量 `"database": "connected"` —— 一个**永远不可能为假的健康字段**，
+承载的信息量为零。代价在 2026-08-17 兑现：后端每条查询都在报
+`InterfaceError: (0, 'Not connected')` 的那 19 分钟里，容器 healthcheck 全程 healthy，
+建立在它之上的 sentinel 容器状态探测因此一路绿灯，无人告警。
+
+现在走**普通客户端路径**跑一次 `SELECT 1`（同一个连接池、同一套 task 级事务查找），
+探的就是真实请求走的那条路——探测器不该有自己的特权通道，否则它证明的东西和线上无关。
+
+**它是 `status` 的唯一例外。** 上面 2026-08-11 定的"只报告不判定"仍然成立（`failed`
+不影响 `status`），但连不上数据库的后端无法服务任何鉴权请求，所以 DB 探测失败时
+`status=unhealthy` 且返回 **503**——healthcheck 用的 `urlopen` 遇 5xx 抛异常，容器
+因此转 unhealthy，这正是要的效果。
+
+`_HEALTH_DB_TIMEOUT_SEC = 3.0`，压在 compose 里 healthcheck 自己的 `timeout: 5s`
+之下：探测若比 healthcheck 活得久，docker 记录的是超时，我们那句「unhealthy + 原因」
+就丢了。改这个常量前先看 `stacks/narranexus-app/compose.yml`（deploy 仓）。
 
 ## 2026-08-13 — admin_suspend_router 注册
 

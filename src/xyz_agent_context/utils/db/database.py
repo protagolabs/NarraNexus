@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, TypeVar, TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
@@ -386,7 +387,13 @@ class AsyncDatabaseClient:
         self._pool_size = pool_size
         self._pool_recycle = pool_recycle
         self._pool: Optional[aiomysql.Pool] = _pool
-        self._transaction_connection: Optional[aiomysql.Connection] = None
+        # Task-scoped, not instance-scoped — one client serves every concurrent
+        # request, so an instance attribute here made one caller's open
+        # transaction the implicit connection for all of them. Same defect and
+        # same reasoning as MySQLBackend._txn_conn; see that class docstring.
+        self._txn_conn: ContextVar[Optional[aiomysql.Connection]] = ContextVar(
+            f"db_client_txn_conn_{id(self):x}", default=None
+        )
         self._initialized = _pool is not None or _backend is not None
         self._backend: Optional["DatabaseBackend"] = _backend
         self._owns_backend: bool = _backend is not None  # Only close if we own it
@@ -569,9 +576,10 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        if self._transaction_connection:
-            # Use transaction connection
-            async with self._transaction_connection.cursor(aiomysql.DictCursor) as cursor:
+        txn = self._txn_conn.get()
+        if txn:
+            # Use this task's transaction connection
+            async with txn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(query, params or ())
                 if fetch:
                     return await cursor.fetchall()
@@ -774,8 +782,9 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        if self._transaction_connection:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
                 lastrowid = cursor.lastrowid
         else:
@@ -843,8 +852,9 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        if self._transaction_connection:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
                 rowcount = cursor.rowcount
         else:
@@ -896,8 +906,9 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        if self._transaction_connection:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
                 rowcount = cursor.rowcount
         else:
@@ -973,8 +984,9 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        if self._transaction_connection:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
                 rowcount = cursor.rowcount
         else:
@@ -1059,49 +1071,95 @@ class AsyncDatabaseClient:
         if self._backend:
             return await self._backend.begin_transaction()
 
-        if self._transaction_connection:
+        if self._txn_conn.get():
             raise RuntimeError("Already in a transaction")
 
         pool = await self._ensure_pool()
-        self._transaction_connection = await pool.acquire()
-        await self._transaction_connection.begin()
+        conn = await pool.acquire()
+        try:
+            await conn.begin()
+        except BaseException:
+            self._return_to_pool(conn, broken=True)
+            raise
+        self._txn_conn.set(conn)
+
+    def _return_to_pool(self, conn: aiomysql.Connection, *, broken: bool) -> None:
+        """Hand a transaction connection back to the pool.
+
+        `broken=True` closes it first so a connection with a desynced protocol
+        stream cannot be handed to the next caller. See
+        `MySQLBackend._return_to_pool`.
+        """
+        if broken and not conn.closed:
+            conn.close()
+        if self._pool is not None:
+            self._pool.release(conn)
 
     async def commit(self) -> None:
         """Commit the transaction"""
         if self._backend:
             return await self._backend.commit()
 
-        if not self._transaction_connection:
+        conn = self._txn_conn.get()
+        if not conn:
             raise RuntimeError("No active transaction")
 
-        pool = await self._ensure_pool()
-        await self._transaction_connection.commit()
-        pool.release(self._transaction_connection)
-        self._transaction_connection = None
+        try:
+            await conn.commit()
+        except BaseException:
+            self._return_to_pool(conn, broken=True)
+            raise
+        else:
+            self._return_to_pool(conn, broken=False)
+        finally:
+            # Cleared even when COMMIT raised: the connection is unusable, and
+            # leaving it installed would route this task's later statements
+            # onto a dead socket.
+            self._txn_conn.set(None)
 
     async def rollback(self) -> None:
         """Rollback the transaction"""
         if self._backend:
             return await self._backend.rollback()
 
-        if not self._transaction_connection:
+        conn = self._txn_conn.get()
+        if not conn:
             raise RuntimeError("No active transaction")
 
-        pool = await self._ensure_pool()
-        await self._transaction_connection.rollback()
-        pool.release(self._transaction_connection)
-        self._transaction_connection = None
+        try:
+            await conn.rollback()
+        except BaseException:
+            self._return_to_pool(conn, broken=True)
+            raise
+        else:
+            self._return_to_pool(conn, broken=False)
+        finally:
+            self._txn_conn.set(None)
 
     @asynccontextmanager
     async def transaction(self):
-        """Transaction context manager"""
+        """Transaction context manager.
+
+        Catches BaseException, not Exception: a client disconnect makes Starlette
+        cancel the request task, and `CancelledError` does not inherit from
+        `Exception`. With the narrower catch, cancelling mid-transaction skipped
+        the rollback entirely, so the connection was never returned to the pool
+        and the transaction stayed open on the server until its lock timed out.
+
+        A failing rollback must not mask the original error, so it is suppressed
+        and logged — `rollback()` has already released the connection by then.
+        """
         await self.begin_transaction()
         try:
             yield
-            await self.commit()
-        except Exception:
-            await self.rollback()
+        except BaseException:
+            try:
+                await self.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Rollback failed while unwinding a transaction: {rollback_error}")
             raise
+        else:
+            await self.commit()
 
     # ===== Table Management =====
 
@@ -1152,9 +1210,10 @@ class AsyncDatabaseClient:
             # Connection pool not initialized, no need to close
             return
 
-        if self._transaction_connection:
-            self._pool.release(self._transaction_connection)
-            self._transaction_connection = None
+        conn = self._txn_conn.get()
+        if conn:
+            self._return_to_pool(conn, broken=True)
+            self._txn_conn.set(None)
 
         self._pool.close()
         await self._pool.wait_closed()

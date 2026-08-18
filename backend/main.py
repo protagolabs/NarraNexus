@@ -11,11 +11,12 @@ Usage:
     uvicorn backend.main:app --reload --port 8000
 """
 
+import asyncio
 import os
 import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
@@ -24,6 +25,13 @@ from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
+
+
+# Budget for /health's database round-trip. Must stay comfortably under the
+# container healthcheck's own `timeout: 5s` (stacks/narranexus-app/compose.yml)
+# — if the probe outlives the healthcheck, docker records a timeout instead of
+# our "unhealthy + reason" body and the reason is lost.
+_HEALTH_DB_TIMEOUT_SEC = 3.0
 
 
 def _detect_bind_host() -> str:
@@ -552,6 +560,19 @@ app.include_router(
 async def health():
     """Detailed health check.
 
+    ``database`` is a real round-trip, not an assertion. It used to be the
+    literal string "connected", which meant the probe reported a healthy
+    database while every request in the process was failing with
+    ``InterfaceError: (0, 'Not connected')`` — the container stayed green for
+    the whole 2026-08-17 outage and the monitoring built on top of it saw
+    nothing. A health field that cannot fail carries no information.
+
+    The probe deliberately goes through the ordinary client path (the same
+    pool and the same task-scoped transaction lookup real handlers use) so it
+    exercises what it claims to cover. It is bounded by a timeout well under
+    the container healthcheck's own 5s, so a hung database surfaces as
+    unhealthy rather than as a hung probe.
+
     Carries the team-summary worker's last pass so its liveness is observable
     from outside the process. Recording the counters and never exposing them
     would leave the same blind spot they were added for: "every room is quiet"
@@ -559,11 +580,28 @@ async def health():
 
     Reported, never judged — a non-zero ``failed`` is not an unhealthy service
     (a single team with a bad provider key must not fail the container's probe),
-    so ``status`` does not depend on it.
+    so ``status`` does not depend on it. The database check is the exception:
+    it *does* decide the status, because a backend that cannot reach its
+    database cannot serve any authenticated request.
     """
+    db_ok = False
+    db_detail = "unknown"
+    try:
+        db = await get_db_client()
+        await asyncio.wait_for(db.execute("SELECT 1", fetch=True), timeout=_HEALTH_DB_TIMEOUT_SEC)
+        db_ok = True
+        db_detail = "connected"
+    except asyncio.TimeoutError:
+        db_detail = f"timeout after {_HEALTH_DB_TIMEOUT_SEC}s"
+    except Exception as exc:
+        # Type + message: "(0, 'Not connected')" alone does not say whether the
+        # pool is dead or the server is gone, and this string is what the
+        # on-call reads first.
+        db_detail = f"{type(exc).__name__}: {exc}"
+
     body = {
-        "status": "healthy",
-        "database": "connected",
+        "status": "healthy" if db_ok else "unhealthy",
+        "database": db_detail,
     }
     summary_worker = getattr(app.state, "team_summary_worker", None)
     if summary_worker is not None:
@@ -571,6 +609,10 @@ async def health():
             "running": summary_worker.running,
             **summary_worker.last_pass,
         }
+
+    if not db_ok:
+        logger.error(f"/health: database probe failed — {db_detail}")
+        return JSONResponse(status_code=503, content=body)
     return body
 
 

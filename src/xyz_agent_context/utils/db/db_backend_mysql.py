@@ -10,7 +10,11 @@ Key design decisions:
 - Connection pool via aiomysql.create_pool (configurable size and recycle)
 - %s parameter placeholders, backtick-quoted identifiers
 - INSERT ... ON DUPLICATE KEY UPDATE with AS new_row syntax (MySQL 8.0.20+)
-- Transaction support using a dedicated connection from the pool
+- Transaction support using a dedicated connection from the pool, bound to the
+  calling asyncio task via a ContextVar (see `_txn_conn`) — NOT to the backend
+  instance. A backend instance is shared by every request on the event loop, so
+  an instance attribute made one caller's open transaction the implicit
+  connection for every concurrent caller. See the class docstring.
 - IS NULL handling for None filter values in get/update/delete
 - JSON/dict/list values serialized to JSON strings for storage
 - Boolean values stored as 0/1 integers
@@ -23,6 +27,7 @@ import asyncio
 import json
 import random
 import re
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -135,6 +140,27 @@ class MySQLBackend(DatabaseBackend):
     Uses an aiomysql connection pool for high-concurrency async access.
     Transaction operations use a dedicated connection acquired from the pool.
 
+    Transaction scope is the *asyncio task*, not the backend instance
+    ------------------------------------------------------------------
+    One backend instance serves every request on the event loop. Holding the
+    open transaction's connection in an instance attribute therefore made it
+    process-wide state: while any one caller sat inside `transaction()`, every
+    OTHER concurrent caller's statement was silently routed onto that same
+    connection instead of taking its own from the pool. Two coroutines then read
+    the same socket, aiomysql raised "readexactly() called while another
+    coroutine is already waiting for incoming data", the MySQL protocol stream
+    desynced, and the connection died. Because the attribute was only cleared
+    *after* a successful commit, the dead connection stayed installed and every
+    subsequent statement in the process failed with
+    `InterfaceError: (0, 'Not connected')` until the container was restarted.
+    (Prod outage 2026-08-17 09:37–09:56; the trigger was a wide agent-data wipe,
+    whose transaction holds the connection across hundreds of sequential
+    deletes.)
+
+    Binding the connection to a ContextVar fixes the blast radius: a value set
+    inside a task is invisible to every other task, so a transaction can no
+    longer capture unrelated callers' statements.
+
     Args:
         db_config: Dictionary with keys: host, port, user, password, database.
         pool_size: Maximum number of connections in the pool (default 10).
@@ -151,7 +177,15 @@ class MySQLBackend(DatabaseBackend):
         self._pool_size = pool_size
         self._pool_recycle = pool_recycle
         self._pool: Optional[aiomysql.Pool] = None
-        self._transaction_connection: Optional[aiomysql.Connection] = None
+        # Per-instance ContextVar: the value is scoped to the calling task, so
+        # concurrent requests never observe each other's transaction. Created in
+        # __init__ rather than at module level so two backends (e.g. two
+        # databases) cannot alias each other's transaction. Backends are
+        # long-lived singletons — a handful per process — so this stays within
+        # the "do not create ContextVars in hot paths" guidance.
+        self._txn_conn: ContextVar[Optional[aiomysql.Connection]] = ContextVar(
+            f"mysql_txn_conn_{id(self):x}", default=None
+        )
 
     # ===== Properties =====
 
@@ -189,9 +223,14 @@ class MySQLBackend(DatabaseBackend):
         if self._pool is None:
             return
 
-        if self._transaction_connection is not None:
-            self._pool.release(self._transaction_connection)
-            self._transaction_connection = None
+        # Only this task's transaction is reachable here — a ContextVar value
+        # set in another task is by design invisible. That is fine: closing the
+        # pool tears the remaining connections down anyway, and shutdown is the
+        # one moment where abandoning an in-flight transaction is correct.
+        conn = self._txn_conn.get()
+        if conn is not None:
+            self._return_to_pool(conn, broken=True)
+            self._txn_conn.set(None)
 
         self._pool.close()
         await self._pool.wait_closed()
@@ -220,8 +259,9 @@ class MySQLBackend(DatabaseBackend):
         """
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor(aiomysql.DictCursor) as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(query, params or ())
                 return await cursor.fetchall()
 
@@ -244,8 +284,9 @@ class MySQLBackend(DatabaseBackend):
         """
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, params or ())
                 return cursor.rowcount
 
@@ -369,8 +410,9 @@ class MySQLBackend(DatabaseBackend):
 
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
                 return cursor.lastrowid or 0
         else:
@@ -417,8 +459,9 @@ class MySQLBackend(DatabaseBackend):
 
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
                 return cursor.rowcount
         else:
@@ -452,8 +495,9 @@ class MySQLBackend(DatabaseBackend):
 
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
                 return cursor.rowcount
         else:
@@ -505,8 +549,9 @@ class MySQLBackend(DatabaseBackend):
 
         pool = self._ensure_pool()
 
-        if self._transaction_connection is not None:
-            async with self._transaction_connection.cursor() as cursor:
+        txn = self._txn_conn.get()
+        if txn is not None:
+            async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
                 return cursor.rowcount
         else:
@@ -517,31 +562,74 @@ class MySQLBackend(DatabaseBackend):
 
     # ===== Transaction Support =====
 
+    def _return_to_pool(self, conn: aiomysql.Connection, *, broken: bool) -> None:
+        """Hand a transaction connection back to the pool.
+
+        `broken=True` closes the socket first. A connection whose commit or
+        rollback raised may have a desynced protocol stream: releasing it as-is
+        would put it back on the free list, where the next unrelated caller
+        would inherit the corruption. aiomysql's `release()` drops a closed
+        connection instead of reusing it, so closing first is what turns
+        "poison the pool" into "lose one connection".
+        """
+        if broken and not conn.closed:
+            conn.close()
+        pool = self._pool
+        if pool is not None:
+            pool.release(conn)
+
     async def begin_transaction(self) -> None:
-        """Begin a transaction by acquiring a dedicated connection."""
-        if self._transaction_connection is not None:
+        """Begin a transaction on a connection dedicated to the calling task."""
+        if self._txn_conn.get() is not None:
             raise RuntimeError("Already in a transaction")
 
         pool = self._ensure_pool()
-        self._transaction_connection = await pool.acquire()
-        await self._transaction_connection.begin()
+        conn = await pool.acquire()
+        try:
+            await conn.begin()
+        except BaseException:
+            # BEGIN failed — the caller gets the exception and will never call
+            # commit/rollback, so release here or the connection leaks.
+            self._return_to_pool(conn, broken=True)
+            raise
+        self._txn_conn.set(conn)
 
     async def commit(self) -> None:
-        """Commit the current transaction and release the connection."""
-        if self._transaction_connection is None:
+        """Commit the current transaction and release the connection.
+
+        The ContextVar is cleared in `finally`: if COMMIT raises, the connection
+        is already unusable, and leaving it installed would route every later
+        statement in this task onto a dead socket.
+        """
+        conn = self._txn_conn.get()
+        if conn is None:
             raise RuntimeError("No active transaction")
 
-        pool = self._ensure_pool()
-        await self._transaction_connection.commit()
-        pool.release(self._transaction_connection)
-        self._transaction_connection = None
+        try:
+            await conn.commit()
+        except BaseException:
+            self._return_to_pool(conn, broken=True)
+            raise
+        else:
+            self._return_to_pool(conn, broken=False)
+        finally:
+            self._txn_conn.set(None)
 
     async def rollback(self) -> None:
-        """Rollback the current transaction and release the connection."""
-        if self._transaction_connection is None:
+        """Roll back the current transaction and release the connection.
+
+        See `commit` for why the ContextVar is cleared unconditionally.
+        """
+        conn = self._txn_conn.get()
+        if conn is None:
             raise RuntimeError("No active transaction")
 
-        pool = self._ensure_pool()
-        await self._transaction_connection.rollback()
-        pool.release(self._transaction_connection)
-        self._transaction_connection = None
+        try:
+            await conn.rollback()
+        except BaseException:
+            self._return_to_pool(conn, broken=True)
+            raise
+        else:
+            self._return_to_pool(conn, broken=False)
+        finally:
+            self._txn_conn.set(None)
