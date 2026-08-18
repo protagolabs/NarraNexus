@@ -119,3 +119,8 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 `_row_to_entity`/`_entity_to_row` 是显式枚举字段的(新列默认会被静默丢掉——本次
 就踩了:写入成功读回 None),加列必须同步补这两处。`update_pointer` 增
 `content_hash` 参数,语义为 as-given 直写(含 None)。
+
+## 2026-08-18(二)— `list_file_paths_for_heal_scope`
+
+heal 护栏的数据源:同 scope(私有=本 agent 无队行;团队=该队全行)活 artifact 的
+file_path 集合,候选凡命中即排除。scope 口径刻意镜像 heal 的 search_root。

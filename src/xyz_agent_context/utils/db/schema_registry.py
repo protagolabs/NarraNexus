@@ -2150,8 +2150,10 @@ _register(
             # after the artifact is later re-pointed somewhere else.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
-            # "created" | "updated" — lets a reader tell the first registration
-            # from the ones that overwrote it without diffing timestamps.
+            # "created" | "updated" | "healed" — lets a reader tell the first
+            # registration from later overwrites, and an intentional update
+            # from a heal repoint (a guess/verification is never disguised as
+            # an intentional update).
             Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

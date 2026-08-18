@@ -281,6 +281,8 @@ async def register_artifact(
     target_artifact_id: Optional[str],
     team_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    history_action: str = "updated",
+    suppress_notify: bool = False,
 ) -> CreateArtifactToolResult:
     """
     Register a pointer to an entry file the agent wrote in its workspace.
@@ -405,13 +407,17 @@ async def register_artifact(
             description=description,
             content_hash=content_hash,
         )
+        # history_action / suppress_notify only apply on this target branch:
+        # heal repoints through here and needs "healed" in the history plus a
+        # richer "repointed" event that it stages itself (with old/new path
+        # tails) — a plain "updated" on top of it would be a duplicate.
         await _record_history(
             repo, artifact_id=target_artifact_id, agent_id=agent_id,
-            file_path=rel_path, size_bytes=size_bytes, action="updated",
+            file_path=rel_path, size_bytes=size_bytes, action=history_action,
             event_id=event_id,
         )
         refreshed = await repo.get_by_id(target_artifact_id)
-        if refreshed is not None:
+        if refreshed is not None and not suppress_notify:
             await stage_artifact_event(repo.db, action="updated", artifact=refreshed)
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(

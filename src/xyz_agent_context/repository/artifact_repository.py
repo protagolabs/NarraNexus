@@ -333,6 +333,33 @@ class ArtifactRepository(BaseRepository[Artifact]):
         rows = await self._db.execute(sql, params=params, fetch=True)
         return [self._row_to_entity(row) for row in rows]
 
+    async def list_file_paths_for_heal_scope(
+        self, agent_id: str, team_id: Optional[str]
+    ) -> set:
+        """file_paths of LIVE artifacts in a heal scan scope.
+
+        Heal must never offer (or silently take) a file that some OTHER
+        artifact currently points at — repointing there would collapse two
+        artifacts onto one file (edits through either would show up in
+        both). Scope mirrors heal's search_root: an agent's private
+        workspace can only be pointed into by that agent's private rows;
+        a team's shared folder only by that team's rows.
+        """
+        if team_id is None:
+            rows = await self._db.execute(
+                "SELECT file_path FROM instance_artifacts "
+                "WHERE agent_id = %s AND team_id IS NULL",
+                params=(agent_id,),
+                fetch=True,
+            )
+        else:
+            rows = await self._db.execute(
+                "SELECT file_path FROM instance_artifacts WHERE team_id = %s",
+                params=(team_id,),
+                fetch=True,
+            )
+        return {r["file_path"] for r in rows if r.get("file_path")}
+
     async def list_by_user(self, user_id: str) -> List[Artifact]:
         """
         Return all artifacts owned by a user, across every agent the user owns.

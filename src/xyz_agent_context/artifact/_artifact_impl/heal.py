@@ -26,8 +26,9 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactError,
     ArtifactNotFound,
 )
+from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import HealCandidate, HealResult
+from xyz_agent_context.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
 
@@ -105,6 +106,62 @@ def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandida
     return found[:_HEAL_MAX_CANDIDATES]
 
 
+def _path_tail(rel_path: str, segments: int = 2) -> str:
+    """Last N path segments — enough for a user-facing toast to say where the
+    pointer went without echoing full workspace layout."""
+    parts = [p for p in rel_path.replace(os.sep, "/").split("/") if p]
+    return "/".join(parts[-segments:])
+
+
+async def _repoint(
+    *,
+    repo: ArtifactRepository,
+    art: Artifact,
+    agent_id: str,
+    user_id: str,
+    entry_abs: str,
+    hash_matched: bool,
+) -> Artifact:
+    """One honest exit for every repoint (auto or user-picked).
+
+    Three moves, always together: re-register with history action "healed"
+    (auditable — a guess/verification is never disguised as an intentional
+    update), then stage a "repointed" event whose extra carries the old/new
+    path tails and whether the content hash verified the candidate — the
+    frontend turns that into a toast and an immediate reload. The plain
+    "updated" event from the re-register branch is suppressed so consumers
+    see one event, with the richer shape.
+    """
+    old_rel = art.file_path or ""
+    result = await registration.register_artifact(
+        repo=repo,
+        agent_id=agent_id,
+        user_id=user_id,
+        session_id=None,
+        kind=art.kind,
+        entry_path=entry_abs,
+        title=art.title,
+        description=art.description,
+        target_artifact_id=art.artifact_id,
+        team_id=art.team_id,
+        history_action="healed",
+        suppress_notify=True,
+    )
+    healed = await repo.get_by_id(result.artifact_id)
+    if healed is not None:
+        await stage_artifact_event(
+            repo.db,
+            action="repointed",
+            artifact=healed,
+            extra={
+                "old": _path_tail(old_rel),
+                "new": _path_tail(healed.file_path),
+                "hash_matched": hash_matched,
+            },
+        )
+    return healed if healed is not None else art
+
+
 async def heal_artifact(
     *,
     repo: ArtifactRepository,
@@ -175,43 +232,75 @@ async def heal_artifact(
                 message="pointer is already valid — no action needed",
             )
 
-    # 2. User explicitly picked a candidate from the modal.
+    # 2. User explicitly picked a candidate from the modal. Same honesty
+    #    treatment as auto-repoints (history "healed" + "repointed" event) —
+    #    the pointer moved either way; only the chooser differs.
     if entry_path:
-        result = await registration.register_artifact(
-            repo=repo,
-            agent_id=agent_id,
-            user_id=user_id,
-            session_id=None,
-            kind=art.kind,
-            entry_path=_absolutise(entry_path, search_root),
-            title=art.title,
-            description=art.description,
-            target_artifact_id=artifact_id,
-            team_id=art.team_id,
+        healed = await _repoint(
+            repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+            entry_abs=_absolutise(entry_path, search_root),
+            hash_matched=False,
         )
-        healed = await repo.get_by_id(result.artifact_id)
         return HealResult(
             recovered=True,
             artifact=healed,
             message=f"re-registered onto {entry_path}",
         )
 
-    # 3. Scan the artifact's own root by kind.
+    # 3. Scan the scope root by kind, then filter and rank candidates.
     candidates = _scan_workspace_for_kind(search_root, art.kind)
+
+    # Guardrail: never offer (or auto-take) a file that some OTHER live
+    # artifact currently points at — repointing there would collapse two
+    # artifacts onto one file. Compared as absolute realpaths because
+    # candidates are scope-relative while DB file_paths are base-relative.
+    taken = await repo.list_file_paths_for_heal_scope(agent_id, art.team_id)
+    taken.discard(art.file_path)  # self: its pointer is the broken one
+    taken_abs = {os.path.realpath(os.path.join(base, fp)) for fp in taken}
+    candidates = [
+        c for c in candidates
+        if os.path.realpath(_absolutise(c.workspace_path, search_root)) not in taken_abs
+    ]
+
+    # Hash tier: a stored fingerprint lets us VERIFY a candidate is the same
+    # content (rename detection) instead of guessing by extension. Multiple
+    # hash hits mean copies exist — ambiguous intent, so the user picks.
+    if art.content_hash and candidates:
+        hash_hits = [
+            c for c in candidates
+            if registration.compute_entry_hash(
+                _absolutise(c.workspace_path, search_root)
+            ) == art.content_hash
+        ]
+        if len(hash_hits) == 1:
+            healed = await _repoint(
+                repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+                entry_abs=_absolutise(hash_hits[0].workspace_path, search_root),
+                hash_matched=True,
+            )
+            return HealResult(
+                recovered=True,
+                artifact=healed,
+                message=f"recovered by content hash from {hash_hits[0].workspace_path}",
+            )
+        if len(hash_hits) >= 2:
+            return HealResult(
+                recovered=False,
+                candidates=hash_hits,
+                message=(
+                    f"{len(hash_hits)} identical copies found — pick which one "
+                    "this artifact should follow"
+                ),
+            )
+        # 0 hits: renamed-and-edited or hash unknown → extension tier below.
+
     if len(candidates) == 1:
         only = candidates[0]
         try:
-            result = await registration.register_artifact(
-                repo=repo,
-                agent_id=agent_id,
-                user_id=user_id,
-                session_id=None,
-                kind=art.kind,
-                entry_path=_absolutise(only.workspace_path, search_root),
-                title=art.title,
-                description=art.description,
-                target_artifact_id=artifact_id,
-                team_id=art.team_id,
+            healed = await _repoint(
+                repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+                entry_abs=_absolutise(only.workspace_path, search_root),
+                hash_matched=False,
             )
         except ArtifactError as e:
             logger.warning(f"heal_artifact: single-candidate register failed for {artifact_id}: {e}")
@@ -220,7 +309,6 @@ async def heal_artifact(
                 candidates=candidates,
                 message=f"found one match but it could not be registered: {e}",
             )
-        healed = await repo.get_by_id(result.artifact_id)
         return HealResult(
             recovered=True,
             artifact=healed,

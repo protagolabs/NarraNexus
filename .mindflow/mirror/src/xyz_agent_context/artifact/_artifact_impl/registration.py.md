@@ -218,3 +218,8 @@ hash 认亲层(改名未改内容→确定性重指,不再按扩展名猜)。**b
 IO 失败返回 None、warning 一条、注册照常——指纹是增强不是门槛。新注册与
 target 重注册两条路径都盖;重注册直写新值(哈希失败时写 NULL 而非保留旧值,
 过期指纹比缺失更危险)。
+
+## 2026-08-18(二)— target 分支的 history_action / suppress_notify
+
+仅作用于 target 重注册分支,heal 专用:healed 入史 + 抑制 updated 事件(heal 自己
+stage repointed,避免双事件)。新建/去重分支不受影响。
