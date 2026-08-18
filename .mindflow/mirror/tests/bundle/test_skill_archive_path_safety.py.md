@@ -13,7 +13,7 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
 [[skill_backup.py]] 的 `archive_target()` 单一构造点，所以测试也钉在这个
 构造点上，而不是逐个 caller 重复一遍参数化。
 
-## 覆盖的三件事
+## 覆盖的四件事
 
 1. **写侧构造点**：10 个穿越 payload（含 QA 用的
    `../qa-sec07-oneup-marker` 原件）、3 种 suffix 的正常路径、穿越型
@@ -62,3 +62,28 @@ SEC-07 是一个被 QA 实证的路径穿越：`skill_archives/{user_id}/{skill_
 - 形状断言的覆盖面写在它自己的 docstring 里，**故意写成"能挡什么、挡不住
   什么"**：改名变量、跨行拼接它都看不见。它是防复发的窄网，不是不存在
   的证明——别因为它绿就跳过人工核。
+
+## 2026-08-18 四审 — 新增 `skill_dir` 这一整轴（第 4 件事）
+
+导出请求体里的**第三个**客户端字符串（前两个是 `archive_path`、`skill_name`），
+同样进文件系统路径，SEC-07 当时漏了它。这一轴有四条：
+
+- `test_export_rejects_a_traversing_skill_dir` —— 6 个 payload × **两种
+  install_method**。`full_copy` 那一半是重点：它用这个字符串决定**读**哪个目
+  录，`../../..` 落在 `base_working_path` 上、`_zip_dir` 把所有用户的 workspace
+  打进请求者的下载包。用例种了一个别的用户的 `VICTIM_SECRET_CANARY`，断言它不
+  在产物里。
+  断言写法有讲究：warning 必须含 **"unusable skill_dir"** 这个具体文案，早期版
+  本写的是 `"arena" in warnings`——`zip not found` / `archive path escapes` 也含
+  "arena"，闸口摘掉照样绿。
+- `test_absent_skill_dir_falls_back_to_skill_name` —— 空值**不是**攻击，是"未
+  指定"，回落 `skill_name` 才是正确行为。所以参数表里故意没有空串。
+- `test_same_skill_dir_on_one_agent_gets_distinct_bundle_filenames` —— 计数器
+  后缀，且断言两个 `archive_ref` **各自指向自己的字节**。
+- `test_archive_local_zip_enforces_the_shared_gate`（从
+  [[test_corrupt_archive_export.py]] 挪过来的）—— 那个文件的主题是"坏归档不该
+  拖垮导出"，这条钉的是**入口准入**，属于本文件这条线。
+
+验过牙口：把 `builder.py` 来源点的 `sanitize_filename` 换回原始字符串，**12 条
+红**（含 full_copy 的跨租户读）。
+

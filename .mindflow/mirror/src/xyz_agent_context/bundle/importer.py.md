@@ -4,6 +4,24 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 四审 — `archive_ref` 也是不受信字符串
+
+`zip_path = work_dir / archive_ref` 两处（zip / full_copy 分支）。`archive_ref`
+来自**被导入 bundle 的 manifest**，即由 bundle 作者完全控制，却被原样 join。
+`"../../../root/.nexusagent/.../x.zip"` 让导入流程读 work_dir 之外的文件，zip
+分支随后把它 `copy2` 进导入者自己的 `skill_archives` 并装成 skill——之后这个用
+户导出时，这份"战利品"会正常随包走出去。
+
+这是导出侧 `skill_dir` 的**镜像面**：同一个 bug 类，只是不受信字符串来自
+manifest 而不是请求体。收进 `_bundle_member_path(work_dir, archive_ref)`：
+`validate_zip_member_path` 校验段序列 → resolve 后判前缀 → 不安全返回 `None`。
+返回 `None` 而不是抛：调用方本来就把 `None` 当"包里没有这个归档"处理、记进
+`skill_install_failures`，形状不变。
+
+⚠️ 用 `validate_zip_member_path` 而**不是** `ensure_within_directory`：合法
+`archive_ref` 是多段路径（`skills/{agent_id}/{name}-full.zip`），后者只接单段，
+直接套会把所有正常 bundle 打死。
+
 ## 2026-08-17 — SEC-07：manifest 里的 `skill_name` 也是不可信输入
 
 skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和

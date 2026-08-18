@@ -528,6 +528,7 @@ async def test_shared_skill_import_records_a_real_sha(
 # ─── export side: skill_dir is a client string too ──────────────────────────
 
 
+@pytest.mark.parametrize("method", ["zip", "full_copy"])
 @pytest.mark.parametrize(
     "skill_dir",
     [
@@ -542,7 +543,7 @@ async def test_shared_skill_import_records_a_real_sha(
     ],
 )
 async def test_export_rejects_a_traversing_skill_dir(
-    db_client, tmp_workspace_root, tmp_path, archives_root, skill_dir
+    db_client, tmp_workspace_root, tmp_path, archives_root, skill_dir, method
 ):
     """SEC-07 sealed `skill_name` and `archive_path`; `skill_dir` travels in the
     same request body and lands in a filesystem path too. It must not be able to
@@ -552,9 +553,16 @@ async def test_export_rejects_a_traversing_skill_dir(
     from xyz_agent_context.bundle.skill_backup import prepare_archive_target
     from xyz_agent_context.repository import SkillArchiveRepository
 
-    aid, uid = "agent_dirtrav01", "test_user"
+    aid, uid = f"agent_dirtrav_{method}", "test_user"
     await _seed_agent(db_client, aid, "TravAgent", uid)
     _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    # A second user's workspace, one `..` hop away from ours. `full_copy` reads
+    # whatever directory `skill_dir` resolves to, so `../../..` used to land on
+    # `base_working_path` itself and zip every user's tree into the download.
+    victim = tmp_workspace_root / "victim_user" / "agent_victim" / "skills" / "private"
+    victim.mkdir(parents=True, exist_ok=True)
+    (victim / "creds.json").write_text("VICTIM_SECRET_CANARY", encoding="utf-8")
 
     good = prepare_archive_target(uid, "arena")
     with zipfile.ZipFile(good, "w") as z:
@@ -572,15 +580,24 @@ async def test_export_rejects_a_traversing_skill_dir(
             agent_ids=[aid],
             skill_methods=[
                 {"agent_id": aid, "skill_name": "arena",
-                 "skill_dir": skill_dir, "install_method": "zip"}
+                 "skill_dir": skill_dir, "install_method": method}
             ],
+            include_skill_secrets=True,   # worst case: no sensitive-file scrub
         ),
         bundle,
     )
 
-    # Degraded, not crashed, and nothing written outside the staging dir.
+    # 1. Degraded, and the warning names THIS gate — not just "something about
+    #    arena", which `zip not found` / `archive path escapes` also satisfy.
     warnings = " ".join(result.get("warnings", []))
-    assert "skill_dir" in warnings or "arena" in warnings, warnings
+    assert "unusable skill_dir" in warnings, warnings
+    # 2. The skill is absent from the manifest (the established "skipped" shape).
+    assert not [s for s in _manifest(bundle).get("skills", []) if s.get("name") == "arena"]
+    # 3. The observable contract that actually matters: no other user's bytes.
+    with zipfile.ZipFile(bundle) as z:
+        blob = b"".join(z.read(n) for n in z.namelist() if not n.endswith("/"))
+    assert b"VICTIM_SECRET_CANARY" not in blob, "another user's workspace was packed"
+    # 4. Nothing written outside the bundle staging dir.
     escaped = {
         p for p in (tmp_path.rglob("*"))
         if p not in before and p.suffix == ".zip" and "nxbundle" not in p.name
@@ -673,3 +690,70 @@ async def test_absent_skill_dir_falls_back_to_skill_name(
     entry = [s for s in _manifest(bundle).get("skills", []) if s["name"] == "arena"]
     assert entry and entry[0]["archive_ref"] == "skills/arena.zip", entry
 
+
+# ─── the other write entry point gets the same gate ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    "make_archive,expected",
+    [
+        pytest.param("entries", "too many entries", id="too-many-entries"),
+        pytest.param("bomb", "unpacks to", id="declared-size-bomb"),
+        pytest.param("encrypted", "encrypted", id="encrypted"),
+        pytest.param("garbage", "not a valid zip", id="not-a-zip"),
+        pytest.param("no_skill_md", "skill.md", id="missing-SKILL.md"),
+    ],
+)
+async def test_archive_local_zip_enforces_the_shared_gate(
+    tmp_path, archives_root, monkeypatch, make_archive, expected
+):
+    """`archive_local_zip` is the SECOND writer into `skill_archives`, and it
+    now shares the upload route's validator. Before, it only looked for SKILL.md
+    — so entry-count, declared-size and encrypted archives all walked in here
+    while being rejected at the door two metres away. Only the route had test
+    coverage for the new gates; this closes that.
+    """
+    import io as _io
+
+    from xyz_agent_context.bundle import skill_backup
+    from xyz_agent_context.utils import file_safety
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+
+    aid, uid = "agent_localzip01", "test_user"
+    ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
+    ws.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+
+    src = ws / "candidate.zip"
+    if make_archive == "garbage":
+        src.write_bytes(b"not a zip at all")
+    elif make_archive == "entries":
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            for i in range(20):
+                z.writestr(f"f{i}.txt", "x")
+    elif make_archive == "bomb":
+        with zipfile.ZipFile(src, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))
+    elif make_archive == "encrypted":
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+        raw = bytearray(buf.getvalue())
+        raw[6] |= 0x01
+        raw[raw.find(b"PK\x01\x02") + 8] |= 0x01
+        src.write_bytes(bytes(raw))
+    else:  # no_skill_md
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("readme.txt", "no skill manifest here")
+
+    with pytest.raises(ValueError) as exc:
+        await skill_backup.archive_local_zip(
+            user_id=uid, agent_id=aid, skill_name="candidate", zip_file_path=str(src)
+        )
+    assert expected in str(exc.value).lower(), str(exc.value)
+    assert not (archives_root / uid).exists(), "a rejected archive was still stored"

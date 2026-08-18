@@ -19,6 +19,7 @@ corrupted on disk — must not be able to take a whole export down with them.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -297,69 +298,149 @@ async def test_failure_midway_through_copy_leaves_no_partial_archive(
     assert leftovers == [], f"partial archive shipped: {leftovers}"
 
 
-# ─── the other write entry point gets the same gate ─────────────────────────
+async def test_full_copy_failure_degrades_like_the_zip_branch(
+    db_client, tmp_workspace_root, tmp_path, archives_root, monkeypatch
+):
+    """`full_copy` had no degrade path at all — this PR's "one bad skill must
+    not fail the whole export" only held for `zip`. `_zip_dir` walks the entire
+    skill directory, so one unreadable file, a full disk, or a non-UTF-8
+    `.skill_meta.json` reached the route as a 500 naming neither skill nor file.
+    """
+    from xyz_agent_context.bundle import builder as builder_mod
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_fullcopyfail", "test_user"
+    await _seed_agent(db_client, aid, "FullCopyAgent", uid)
+    for name in ("brokenskill", "goodskill"):
+        _seed_skill_on_disk(tmp_workspace_root, aid, uid, name)
+
+    real_zip_dir = builder_mod._zip_dir
+
+    def _flaky_zip_dir(src, dst, scrub_secrets=False):
+        if "brokenskill" in str(src):
+            Path(dst).write_bytes(b"PARTIAL")     # leave a stub, then fail
+            raise OSError("file vanished mid-walk")
+        return real_zip_dir(src, dst, scrub_secrets)
+
+    monkeypatch.setattr(builder_mod, "_zip_dir", _flaky_zip_dir)
+
+    bundle = tmp_path / "fullcopy.nxbundle"
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": n, "skill_dir": n,
+                 "install_method": "full_copy"}
+                for n in ("brokenskill", "goodskill")
+            ],
+        ),
+        bundle,
+    )
+
+    assert bundle.exists(), "a full_copy failure must not fail the whole export"
+    warnings = " ".join(result.get("warnings", []))
+    assert "brokenskill" in warnings and "full_copy failed" in warnings, warnings
+    skills = {s["name"]: s for s in _manifest(bundle).get("skills", [])}
+    assert "goodskill" in skills and skills["goodskill"].get("archive_ref")
+    assert "brokenskill" not in skills, "skipped skill must not appear in the manifest"
+    with zipfile.ZipFile(bundle) as z:
+        assert not [n for n in z.namelist() if "brokenskill" in n], "partial archive shipped"
 
 
 @pytest.mark.parametrize(
-    "make_archive,expected",
+    "archive_ref",
     [
-        pytest.param("entries", "too many entries", id="too-many-entries"),
-        pytest.param("bomb", "unpacks to", id="declared-size-bomb"),
-        pytest.param("encrypted", "encrypted", id="encrypted"),
-        pytest.param("garbage", "not a valid zip", id="not-a-zip"),
-        pytest.param("no_skill_md", "skill.md", id="missing-SKILL.md"),
+        "../../../../etc/hosts.zip",
+        "../outside.zip",
+        "/etc/passwd",
+        "skills/../../../outside.zip",
     ],
 )
-async def test_archive_local_zip_enforces_the_shared_gate(
-    tmp_path, archives_root, monkeypatch, make_archive, expected
+async def test_import_rejects_an_archive_ref_that_escapes_the_bundle(
+    db_client, tmp_workspace_root, tmp_path, archives_root, archive_ref
 ):
-    """`archive_local_zip` is the SECOND writer into `skill_archives`, and it
-    now shares the upload route's validator. Before, it only looked for SKILL.md
-    — so entry-count, declared-size and encrypted archives all walked in here
-    while being rejected at the door two metres away. Only the route had test
-    coverage for the new gates; this closes that.
+    """Mirror image of the export-side `skill_dir` hole: `archive_ref` comes from
+    the manifest of the bundle being imported — from whoever produced it — and
+    was joined onto `work_dir` verbatim. A traversing ref let the import read a
+    file outside the unpack dir and copy it into the importing user's own
+    `skill_archives`, from where a later export ships it back out.
+
+    Driven through the real preflight+confirm path, not by calling the helper:
+    a unit test of the helper stays green if a call site forgets to use it (it
+    did, on the first draft of this test).
     """
-    import io as _io
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
 
-    from xyz_agent_context.bundle import skill_backup
-    from xyz_agent_context.utils import file_safety
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    aid, uid = "agent_refescape", "test_user"
+    await _seed_agent(db_client, aid, "RefAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+    good = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nok\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="arena", source_type="zip",
+        sha256="c0ffee", archive_path=str(good),
+    )
 
-    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
-    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+    bundle = tmp_path / "ref.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[{"agent_id": aid, "skill_name": "arena",
+                            "skill_dir": "arena", "install_method": "zip"}],
+        ),
+        bundle,
+    )
 
-    aid, uid = "agent_localzip01", "test_user"
-    ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
-    ws.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+    # A file the importer must never reach, plus a manifest pointing at it.
+    secret = tmp_path / "outside.zip"
+    with zipfile.ZipFile(secret, "w") as z:
+        z.writestr("SKILL.md", "---\nname: stolen\n---\nIMPORT_ESCAPE_CANARY\n")
 
-    src = ws / "candidate.zip"
-    if make_archive == "garbage":
-        src.write_bytes(b"not a zip at all")
-    elif make_archive == "entries":
-        with zipfile.ZipFile(src, "w") as z:
-            z.writestr("SKILL.md", "---\nname: x\n---\n")
-            for i in range(20):
-                z.writestr(f"f{i}.txt", "x")
-    elif make_archive == "bomb":
-        with zipfile.ZipFile(src, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("SKILL.md", "---\nname: x\n---\n")
-            z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))
-    elif make_archive == "encrypted":
-        buf = _io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as z:
-            z.writestr("SKILL.md", "---\nname: x\n---\n")
-        raw = bytearray(buf.getvalue())
-        raw[6] |= 0x01
-        raw[raw.find(b"PK\x01\x02") + 8] |= 0x01
-        src.write_bytes(bytes(raw))
-    else:  # no_skill_md
-        with zipfile.ZipFile(src, "w") as z:
-            z.writestr("readme.txt", "no skill manifest here")
+    tampered = tmp_path / "tampered.nxbundle"
+    with zipfile.ZipFile(bundle) as src, zipfile.ZipFile(tampered, "w") as dst:
+        for item in src.namelist():
+            data = src.read(item)
+            if item == "manifest.json":
+                m = json.loads(data)
+                for s in m.get("skills", []):
+                    s["archive_ref"] = archive_ref
+                data = json.dumps(m).encode()
+            dst.writestr(item, data)
 
-    with pytest.raises(ValueError) as exc:
-        await skill_backup.archive_local_zip(
-            user_id=uid, agent_id=aid, skill_name="candidate", zip_file_path=str(src)
+    pre = await preflight(tampered, uid)
+
+    # Plant the canary where the traversing ref ACTUALLY resolves. Without this
+    # the ref points at nothing, the import fails with "archive missing", and
+    # the test passes whether or not the gate exists — the first draft did
+    # exactly that and stayed green under mutation.
+    work_dir = Path(
+        (await db_client.get_one("bundle_preflight_sessions",
+                                 {"token": pre["preflight_token"]}))["work_dir"]
+    )
+    target = (work_dir / archive_ref) if not archive_ref.startswith("/") else Path(archive_ref)
+    if not archive_ref.startswith("/"):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(secret, target)
+        assert target.exists() and not target.resolve().is_relative_to(work_dir.resolve()), (
+            "fixture bug: the canary must sit OUTSIDE work_dir"
         )
-    assert expected in str(exc.value).lower(), str(exc.value)
-    assert not (archives_root / uid).exists(), "a rejected archive was still stored"
+
+    summary = await confirm(pre["preflight_token"], uid)
+
+    # The skill must be recorded as failed, never installed from outside.
+    assert summary.get("skills_imported", 0) == 0, summary
+    failures = " ".join(
+        f"{f.get('skill')} {f.get('reason')}" for f in summary.get("skill_install_failures", [])
+    )
+    assert "arena" in failures, summary.get("warnings")
+
+    # And nothing outside the unpack dir ended up in the importer's archives.
+    for p in (archives_root).rglob("*"):
+        if p.is_file():
+            assert b"IMPORT_ESCAPE_CANARY" not in p.read_bytes(), f"escaped file landed at {p}"

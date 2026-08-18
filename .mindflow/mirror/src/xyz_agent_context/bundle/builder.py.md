@@ -4,6 +4,40 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 四审 — `skill_dir` 收到来源点；full_copy 补降级
+
+**上一轮我只修了 zip 分支，这是错的。** `skill_dir` 的闸装在
+`_safe_bundle_zip_name` 里，而 `full_copy` 分支根本不经过它——那一侧还是**读**
+侧：`_find_skill_dir` 用这个字符串决定读哪个目录，`skill_dir="../../.."` 在
+nested 布局下解析到 `base_working_path` 本身，`_zip_dir` 把**所有用户的 agent
+workspace** 打进请求者下载的包；配 `include_skill_secrets: true` 连
+`.skill_meta.json` 里的凭据一起。**比 SEC-07 原本那个单文件读更严重。**
+
+现在闸在**唯一来源点**（`skill_dir = sanitize_filename(cfg.get("skill_dir") or
+skill_name)`），一处覆盖 builtin 前置守卫、zip、full_copy、`_find_skill_dir`，
+以及写进 manifest 的 `entry["skill_dir"]`——导出侧存的就是净化值，和导入侧
+（`install_skill(target_dir_name=...)` 那边还会再 `sanitize_filename` 一次）对
+同一个字符串的理解一致。
+
+> **教训写在这里**：逐分支补闸 = 下一个分支必然漏。这一条我犯了两次
+> （SEC-07 漏 `skill_dir`，本轮又只修 zip 半边），所以判据是"这个不受信字符串
+> 是在哪一行被**造出来**的"，而不是"它在哪些地方被用到"。
+
+`_safe_bundle_zip_name` 相应退化成只管唯一文件名（`ensure_within_directory` 留
+作纵深），并且**自己往 `taken` 里登记**——原先要求调用方记得 `.add()`，等于把
+"名字唯一"这个不变式交出去一半。
+
+**full_copy 分支补上降级 try**：`_zip_dir` 走整棵目录树，一个不可读文件 / 磁盘
+满 / 非 UTF-8 的 `.skill_meta.json`（按文本读）都会冒成 500。捕
+`(OSError, UnicodeDecodeError, BadZipFile)` → 清半成品 + warning + `continue`，
+`continue` 落在 `skills_summary.append` 之前，保持"跳过的 skill 整条不出现"这
+个约定。**不用 `except Exception`**：`SensitiveZipDetected` 是控制流，必须继续
+冒。
+
+> 边界说明（别以为端到端解决了）：文件名唯一性**只到 bundle 为止**。导入侧按
+> `skill_dir` pin 安装目录，两个共用同一 `skill_dir` 的 skill 在接收端仍会落进
+> 同一个 `skills/{dir}/`、后者覆盖前者。
+
 ## 2026-08-18 三审 — `skill_dir` 是 SEC-07 漏掉的那个字段
 
 `tgt_zip = skills_dir / f"{skill_dir}.zip"` —— `skill_dir` 来自导出请求体，

@@ -17,6 +17,12 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Iterable, List
 
+# Caps live in `utils.file_safety` — the module both this gate and the
+# installer (`skill_module._extract_zip_safely`) already depend on, so the
+# two cannot drift apart. Imported as a MODULE, read at call time: see the
+# read sites for why `from … import MAX_…` would undo the whole point.
+from xyz_agent_context.utils import file_safety as _file_safety
+
 
 MAX_BUNDLE_BYTES = 500 * 1024 * 1024            # 500 MB on-disk
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB after extract
@@ -164,16 +170,6 @@ def is_volume_path(rel_path: str) -> bool:
     return False
 
 
-# Caps live in `utils.file_safety` — the module both this gate and the
-# installer (`skill_module._extract_zip_safely`) already depend on, so the two
-# cannot drift apart.
-#
-# Imported as a MODULE and read at call time, not `from … import MAX_…`. The
-# latter binds the value at import, which quietly re-creates the duplication
-# this move was meant to remove: patching or changing the source of truth would
-# leave this copy stale. (Caught by a test that patched the caps and watched
-# this gate ignore them.)
-from xyz_agent_context.utils import file_safety as _file_safety  # noqa: E402
 
 
 def _validate_skill_archive(zf: zipfile.ZipFile, *, require_skill_md: bool) -> None:

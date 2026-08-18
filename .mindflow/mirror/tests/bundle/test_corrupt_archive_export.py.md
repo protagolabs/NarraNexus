@@ -44,3 +44,25 @@ stub: false
   注意 `builder_mod.shutil` 就是 stdlib 模块对象本身，patch 它等于进程内全局
   patch，靠 monkeypatch 在 teardown 还原。
 
+## 2026-08-18 四审 — full_copy 降级 + 导入侧 archive_ref
+
+- `test_full_copy_failure_degrades_like_the_zip_branch` —— 本 PR 的立论（"一份
+  坏 skill 不该让整份导出失败"）此前**只在 zip 分支成立**。`_zip_dir` 走整棵目
+  录树，一个不可读的文件 / 磁盘满 / 非 UTF-8 的 `.skill_meta.json` 都会变成
+  500。用例让 `brokenskill` 的打包中途抛 `OSError` 且留下半成品，断言：导出仍
+  产出、warning 含 "full_copy failed"、`goodskill` 照常打包、半成品没进包。
+- `test_import_rejects_an_archive_ref_that_escapes_the_bundle` —— 导出侧
+  `skill_dir` 的**镜像面**：`archive_ref` 来自被导入 bundle 的 manifest。
+  ⚠️ **这条用例前两版都是"因为错误的理由变绿"**，值得记下来：
+  1. 第一版直接单测 `_bundle_member_path` —— 调用点忘了用它照样绿（mutation
+     验证时发现的）。改成走真实 preflight+confirm。
+  2. 第二版走了真实路径，但穿越目标**在解析到的位置并不存在**，于是失败原因是
+     "archive missing"而不是"被闸口拦下"，摘掉闸口仍然绿。现在从
+     `bundle_preflight_sessions` 取真实 `work_dir`，把 canary 种到 ref 真正解析
+     到的位置，并断言它确实落在 work_dir 之外（fixture 自检）。
+  摘掉闸口后 3 条红。
+
+  用 `validate_zip_member_path` 而不是 `ensure_within_directory`：合法的
+  `archive_ref` 是**多段**路径（`skills/{agent_id}/{name}-full.zip`），后者只接
+  单段，直接套会把所有正常 bundle 打死。
+

@@ -745,10 +745,36 @@ async def build_bundle(
             # skills/ folder. SKILL.md frontmatter `name` can duplicate across
             # multiple dirs under one agent (user installed the same skill twice
             # into different folders), so we need the dir name to disambiguate.
-            skill_dir = cfg.get("skill_dir") or skill_name
+            #
+            # SEC-07, third field: this arrives in the export request body and is
+            # used to decide which directory to READ (`_find_skill_dir`, the
+            # built-in guard below, the full_copy branch) and which file to
+            # WRITE. `skill_dir="../../.."` resolved to `base_working_path`
+            # itself — every user's every agent workspace — and full_copy zipped
+            # that whole tree into the requester's download. Cross-tenant read,
+            # strictly worse than the single-file read SEC-07 closed.
+            #
+            # Validated HERE, at the one place it is derived, and not in the
+            # branches: a per-branch gate is what let full_copy stay open while
+            # zip was fixed. Everything downstream (`:762` built-in guard,
+            # `_safe_bundle_zip_name`, `_find_skill_dir`, the manifest entry)
+            # now sees the sanitized value, so export and import agree on what
+            # this string means.
+            raw_skill_dir = cfg.get("skill_dir") or skill_name
             method = cfg.get("install_method")
             if not agent_id or agent_id not in closure_set:
                 warnings.append(f"skill {skill_name}: agent {agent_id} not in closure, skipping")
+                continue
+            try:
+                skill_dir = sanitize_filename(raw_skill_dir or "", label="skill dir")
+            except ValueError as e:
+                warnings.append(
+                    f"skill {skill_name} on {agent_id}: unusable skill_dir ({e}), skipping"
+                )
+                logger.warning(
+                    f"rejected skill_dir for user={user_id} skill={skill_name}: "
+                    f"{raw_skill_dir!r} ({e})"
+                )
                 continue
             # Server-side built-in guard. The workspace-tar path already strips
             # built-in skills via `_builtin_skill_relpaths`, but this explicit
@@ -819,27 +845,12 @@ async def build_bundle(
                     entry["archive_ref"] = copied_zip_ref[cache_key]
                     entry["sha256"] = "shared"
                 else:
-                    # SEC-07 again, on the field it missed: `skill_dir` is a
-                    # client string from the export request and lands straight
-                    # in a filesystem path. `../../../tmp/x` would write (and,
-                    # since this block gained an `unlink`, delete) outside the
-                    # bundle staging dir. `_safe_bundle_zip_name` is the single
-                    # gate; it raises ValueError, which the caller degrades to a
-                    # per-skill warning rather than a 500.
-                    try:
-                        tgt_zip = _safe_bundle_zip_name(
-                            skills_dir, skill_dir, skill_name, taken=packed_zip_names
-                        )
-                    except ValueError as e:
-                        warnings.append(
-                            f"skill {skill_name} on {agent_id}: unusable skill_dir ({e}), skipping"
-                        )
-                        logger.warning(
-                            f"rejected skill_dir for user={user_id} "
-                            f"skill={skill_name}: {skill_dir!r} ({e})"
-                        )
-                        continue
-                    packed_zip_names.add(tgt_zip.name)
+                    # `skill_dir` was sanitized where it was derived, so this is
+                    # only about picking a unique name (and re-anchoring, as
+                    # depth).
+                    tgt_zip = _safe_bundle_zip_name(
+                        skills_dir, skill_dir, taken=packed_zip_names
+                    )
                     # Everything that touches the source archive lives in this
                     # try. One unreadable or unreadable-mid-copy file must not
                     # fail the whole export — the caller loses this skill and is
@@ -892,14 +903,36 @@ async def build_bundle(
                 per_agent_dir = skills_dir / agent_id
                 per_agent_dir.mkdir(parents=True, exist_ok=True)
                 tgt_zip = per_agent_dir / f"{skill_dir}-full.zip"
-                await asyncio.to_thread(
-                    _zip_dir,
-                    src_dir,
-                    tgt_zip,
-                    not selection.include_skill_secrets,
-                )
+                # Same degrade contract as the zip branch above — this PR's whole
+                # claim is "one bad skill must not fail the whole export", and it
+                # was only true on that side. `_zip_dir` walks the entire skill
+                # directory: one unreadable file (permissions, deleted
+                # concurrently, dangling symlink), a full disk, or a non-UTF-8
+                # `.skill_meta.json` (it is read as text) all reached the route's
+                # `except Exception` and became a 500 that named neither the
+                # skill nor the file — the exact shape this PR opened with.
+                try:
+                    await asyncio.to_thread(
+                        _zip_dir,
+                        src_dir,
+                        tgt_zip,
+                        not selection.include_skill_secrets,
+                    )
+                    full_sha = await asyncio.to_thread(file_sha256, tgt_zip)
+                except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as e:
+                    # Deliberately not `except Exception`: SensitiveZipDetected
+                    # and friends are control flow and must keep propagating.
+                    tgt_zip.unlink(missing_ok=True)
+                    warnings.append(
+                        f"skill {skill_name} on {agent_id}: full_copy failed ({e}), skipping"
+                    )
+                    logger.warning(
+                        f"full_copy pack failed for user={user_id} "
+                        f"skill={skill_name} dir={src_dir}: {e}"
+                    )
+                    continue
                 entry["archive_ref"] = f"skills/{agent_id}/{skill_dir}-full.zip"
-                entry["sha256"] = await asyncio.to_thread(file_sha256, tgt_zip)
+                entry["sha256"] = full_sha
             elif method == "builtin":
                 pass
             elif method == "skip" or method is None:
@@ -1133,48 +1166,49 @@ async def build_bundle(
 
 def _safe_bundle_zip_name(
     skills_dir: Path,
-    skill_dir: Optional[str],
-    skill_name: str,
+    skill_dir: str,
     *,
     taken: Set[str],
 ) -> Path:
-    """Pick the in-bundle filename for a skill's zip, safely and uniquely.
+    """Pick a unique in-bundle filename for a skill's zip, and claim it.
 
-    Two jobs, both learned the hard way:
+    `skill_dir` is already sanitized at its single derivation point in
+    `build_bundle` — the `ensure_within_directory` call here is depth, not the
+    primary gate, so that a future caller that forgets cannot escape silently.
 
-    1. `skill_dir` (and its fallback `skill_name`) arrive in the export request
-       body and used to be interpolated straight into a path — the same class of
-       bug as SEC-07, on the one field that fix did not cover. `../` here writes,
-       and now also deletes, outside the staging dir. Validated as a single path
-       segment and re-anchored under `skills_dir`.
-    2. The old `{dir}.zip` → `{dir}__{agent_id}.zip` fallback only disambiguated
-       *different agents*. Two different `skill_name`s sharing one `skill_dir` on
-       the SAME agent both resolved to `{dir}__{agent}.zip`: the second copy
-       overwrote the first (whose manifest sha256 then described the wrong
-       bytes), and on failure the cleanup deleted it outright. A counter makes
-       the name genuinely unique.
+    Uniqueness matters because the old `{dir}.zip` → `{dir}__{agent_id}.zip`
+    fallback only disambiguated *different agents*. Two `skill_name`s sharing
+    one `skill_dir` on the SAME agent both landed on `{dir}__{agent}.zip`: the
+    second copy overwrote the first (whose manifest sha256 then described the
+    wrong bytes), and on failure the cleanup deleted it outright.
+
+    The name is added to `taken` here rather than by the caller: the whole point
+    of this function is "the name is unique", and half an invariant maintained
+    by whoever remembers to call `.add()` is not that.
+
+    Note the scope: uniqueness holds *inside the bundle*. The importer pins the
+    install directory by `skill_dir` (`importer.py`), so two skills sharing one
+    `skill_dir` still merge into one `skills/{dir}/` on the receiving side.
 
     Args:
         skills_dir: Staging dir inside the bundle; the result stays under it.
-        skill_dir: Client-supplied dir name; falls back to `skill_name`.
-        skill_name: Client-supplied skill name (also untrusted).
-        taken: Names already used in this bundle. Mutated by the caller.
+        skill_dir: Sanitized directory name.
+        taken: Names already used in this bundle; mutated here.
 
     Returns:
-        A path inside `skills_dir` whose name is not in `taken`.
+        A path inside `skills_dir` whose name was not in `taken`.
 
     Raises:
         ValueError: If the name is not a usable single path segment.
     """
-    raw = skill_dir or skill_name
-    safe = sanitize_filename(raw or "", label="skill dir")
-    candidate = ensure_within_directory(skills_dir, f"{safe}.zip", label="skill dir")
+    candidate = ensure_within_directory(skills_dir, f"{skill_dir}.zip", label="skill dir")
     n = 1
     while candidate.name in taken or candidate.exists():
         candidate = ensure_within_directory(
-            skills_dir, f"{safe}__{n}.zip", label="skill dir"
+            skills_dir, f"{skill_dir}__{n}.zip", label="skill dir"
         )
         n += 1
+    taken.add(candidate.name)
     return candidate
 
 
