@@ -99,3 +99,28 @@ def test_is_public_still_takes_bool_and_int():
     would break this one."""
     assert agent_field_matches(_agent(is_public=True), "is_public", True)
     assert agent_field_matches(_agent(is_public=True), "is_public", 1)
+
+
+class TestCreatedBy:
+    """Owner id — an exact match, never normalized.
+
+    Added when the Manyfold provisioning rerun started routing through the
+    shared profile transaction: it rewrites ``created_by`` alongside the name,
+    and the predicate refuses any field it has no comparison for.
+    """
+
+    def test_the_same_owner_needs_no_write(self):
+        assert agent_field_matches(_agent(created_by="alice"), "created_by", "alice")
+
+    def test_a_different_owner_needs_a_write(self):
+        assert not agent_field_matches(_agent(created_by="alice"), "created_by", "bob")
+
+    @pytest.mark.parametrize("wanted", [" alice", "alice ", "ALICE"])
+    def test_an_id_is_not_normalized_the_way_display_text_is(self, wanted):
+        """Stripping or case-folding an identifier used as a lookup key would
+        suppress the write and leave the row owned by an id nothing resolves.
+        The text fields normalize; this one must not."""
+        assert not agent_field_matches(_agent(created_by="alice"), "created_by", wanted)
+
+    def test_none_and_empty_are_the_same_absence(self):
+        assert agent_field_matches(_agent(created_by=""), "created_by", None)

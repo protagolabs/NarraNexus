@@ -357,3 +357,38 @@ def test_a_field_that_needed_no_write_is_still_verified_against_the_row(
     body = res.json()
     assert body["success"] is False
     assert "agent_name" in body["error"]
+
+
+def test_a_transaction_level_failure_names_the_fields_that_did_not_land(
+    client, db_client, seeded, monkeypatch
+):
+    """The `not_applied` branch names fields, and it names them from the right
+    list.
+
+    ``AgentProfileWrite`` carries two lists — what was written and what failed
+    to land — and they were briefly the same attribute. Nothing covered this
+    branch, so reading the wrong one would have produced the bare string
+    "The update did not persist: " with no fields, silently.
+    """
+    import backend.routes.auth as auth_mod
+    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+
+    async def _did_not_land(_db, _agent_id, **_kwargs):  # noqa: ANN001
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_applied",
+            error="Error: the update did not apply; nothing was changed",
+            unapplied_fields=("agent_name",),
+        )
+
+    monkeypatch.setattr(auth_mod, "apply_agent_profile_change", _did_not_land)
+
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小蓝"},
+        headers={"X-User-Id": OWNER},
+    )
+
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"] == "The update did not persist: agent_name"

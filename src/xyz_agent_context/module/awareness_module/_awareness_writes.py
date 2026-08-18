@@ -194,7 +194,14 @@ class AgentProfileWrite:
     #: ``"updated"`` | ``"unchanged"`` | ``"error"``
     status: str
     #: Which of ``agent_name`` / ``agent_description`` / extras were written.
-    updated_fields: tuple = ()
+    #: Non-empty only when ``status == "updated"``.
+    updated_fields: tuple[str, ...] = ()
+    #: Fields the write was supposed to land and the re-read did not confirm.
+    #: Kept separate from ``updated_fields`` rather than overloading it: a
+    #: caller adding write telemetry would otherwise read the failure list as
+    #: "what we wrote" without checking ``ok``, and count failures as writes —
+    #: an error that never raises and only makes a metric quietly optimistic.
+    unapplied_fields: tuple[str, ...] = ()
     #: The previous name, set only when this write renamed the agent.
     renamed_from: Optional[str] = None
     #: The name now stored, set only when this write renamed the agent.
@@ -374,7 +381,7 @@ async def apply_agent_profile_change(
             status="error",
             error_kind="not_applied",
             error="Error: the update did not apply; nothing was changed",
-            updated_fields=tuple(sorted(unapplied)),
+            unapplied_fields=tuple(sorted(unapplied)),
         )
 
     # A rename is not complete until the memory that asserts the old identity

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `agent_field_matches` 新增 `created_by` 分支
+
+Manyfold 的 provisioning 重跑现在走共享改名事务，并把 `created_by` 作为
+`extra_updates` 一起写（[[agents]] 二改），于是它要经过等值短路——而本谓词对
+未登记字段**故意抛 ValueError**，正确地拦下了这次新增。
+
+比较方式是**逐字节相等**，**不**走 `normalize_agent_text`。理由不是省事：那个
+助手为展示文本做 strip + 截长，而 `created_by` 是当查找键用的标识符；把它悄悄
+改形会让写入被判"已相等"从而跳过，留下一个谁也解析不出来的 owner。id 要么就是
+同一个 id，要么不是。`""` 与 `None` 视为同一种"没有"。
+测试：`tests/schema/test_agent_field_matches.py::TestCreatedBy`。
 
 ## 2026-08-17 — `normalize_agent_text` / `agent_field_matches`:「这次写会不会改变什么」的唯一定义
 

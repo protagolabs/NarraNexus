@@ -1132,7 +1132,7 @@ async def update_agent(
                     success=False,
                     error=(
                         "The update did not persist: "
-                        f"{', '.join(sorted(result.updated_fields))}"
+                        f"{', '.join(result.unapplied_fields)}"
                     ),
                 )
             return UpdateAgentResponse(success=False, error=result.error)

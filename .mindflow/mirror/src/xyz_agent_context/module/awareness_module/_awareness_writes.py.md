@@ -4,6 +4,35 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (二改) — 第四个写入方，以及两处审查修正
+
+同日第一版声称「三个写入方收敛成一个」，独立审查发现是**四个**：
+`POST /manyfold/agents` 的 upsert 分支同样覆盖 `agent_name`（见 [[agents]]
+二改条目）。断言写在验证之前，正是本仓栽过的同一类毛病。现在可以一条命令重推：
+
+```bash
+git grep -nE '(insert|update)\(\s*"agents"' -- backend src
+# → 只剩两处，都是 INSERT（建 agent），没有 update：
+#   backend/routes/manyfold/agents.py（新建分支）
+#   src/xyz_agent_context/bundle/importer.py（bundle 导入）
+```
+
+改名**没有**不经过 `apply_agent_profile_change` 的路径了。
+
+两处审查修正：
+
+1. **`updated_fields` 不再身兼二职**。原来错误分支往它塞「没落地的字段」，与它
+   自己的注释（"were written"）相反：同一个名字在 `ok` 两侧含义颠倒。今天两个
+   调用方都先判 `ok` 所以不出错——但下一个做写入埋点的人会直接读它、把失败计成
+   写入，而这种错**永不抛异常**，只让指标悄悄偏高。拆出
+   `unapplied_fields`。`auth.py` 的错误文案跟着改到新字段（那条分支当时零覆盖，
+   改漏了会变成空串 `"The update did not persist: "`，已补测钉住）。
+2. **`created_by` 进了 [[entity_schema]] 的谓词**，因为它现在会作为
+   `extra_updates` 流经等值短路，而该谓词对未登记字段**故意抛 ValueError**。
+   比较方式选的是**逐字节相等，不做 `normalize_agent_text`**：那个助手是给人读的
+   展示文本 strip + 截长的，把一个当查找键用的标识符悄悄改形，正是「行被改成一个
+   谁也解析不出来的 owner」的成因。
+
 ## 2026-08-18 — 改名事务下沉成 `apply_agent_profile_change`，三个写入方共用
 
 深圳线下第二轮 P1（prod `agent_4a0ae5f40af2`，8/14 复测）。取证：`agents.agent_name`

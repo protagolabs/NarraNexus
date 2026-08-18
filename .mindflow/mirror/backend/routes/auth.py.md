@@ -14,6 +14,14 @@ COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
+## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
+
+`not_applied` 分支原来读 `result.updated_fields`，而那个字段在成功分支的含义是
+「写了哪些」。共享结果已拆出 `unapplied_fields`（见 [[_awareness_writes]] 二改），
+这里跟着改。这条分支**当时零测试覆盖**——读错字段只会让文案退化成没有字段名的
+`"The update did not persist: "`，不会红。已补
+`test_a_transaction_level_failure_names_the_fields_that_did_not_land`。
+
 ## 2026-08-18 — `PUT /agents/{id}` 改走共享改名事务，不再自己拼
 
 深圳线下第二轮 P1 的**另一半**。#320（下一条）修的是"改成了却报失败"，本条修的是

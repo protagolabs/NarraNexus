@@ -200,11 +200,34 @@ async def create_agent_for_manyfold(
     wanted_name = normalize_agent_text(body.agent_name)
     wanted_desc = normalize_agent_text(body.description)
     if agent_row:
-        await db.update("agents", {"agent_id": body.agent_id}, normalize_agent_row_text({
-            "agent_name": wanted_name or agent_row.get("agent_name") or body.agent_id,
-            "agent_description": wanted_desc or agent_row.get("agent_description"),
-            "created_by": nx_user_id,
-        }))
+        # An idempotent rerun on an EXISTING agent overwrites agent_name, which
+        # is a rename however it is spelled — so it owes the same two things the
+        # PATCH below does (identity correction + peer directory), and used to
+        # do neither. Manyfold can push a new name through either verb; covering
+        # only one leaves Shenzhen round 2 reproducible through the other.
+        #
+        # The `or` fallbacks stay HERE on purpose: this body defaults agent_name
+        # to "", and the shared transaction REFUSES an empty name rather than
+        # falling back, so passing "" through would fail provisioning outright.
+        # It resolves to a non-empty value first, then delegates.
+        #
+        # created_by rides along as an extra to keep the row write single. Note
+        # it is written in the same call whose name-clash check read the PREVIOUS
+        # owner — that note is advisory and this path discards it, so the stale
+        # scope has no consequence here.
+        result = await apply_agent_profile_change(
+            db,
+            body.agent_id,
+            new_name=(
+                wanted_name or agent_row.get("agent_name") or body.agent_id
+            ),
+            new_description=(
+                wanted_desc or agent_row.get("agent_description")
+            ),
+            extra_updates={"created_by": nx_user_id},
+        )
+        if not result.ok:
+            raise HTTPException(status_code=400, detail=result.error)
         agent_created = False
     else:
         await db.insert("agents", normalize_agent_row_text({
@@ -341,7 +364,17 @@ async def update_agent_for_manyfold(
         # Manyfold commits its own DB update only after this call succeeds, so
         # a refusal here must surface as a failure rather than a 200 whose body
         # happens to hold the old values — otherwise the two sides drift.
-        raise HTTPException(status_code=400, detail=result.error)
+        #
+        # not_found keeps this endpoint's documented 404 (the row can be deleted
+        # between the check above and the write). Everything else is 400 —
+        # deliberately NOT 409 for `not_applied`, though a concurrent overwrite
+        # is what it means: 409 invites a retry, and this endpoint's contract is
+        # that a failure ABORTS the whole rename. Whether Manyfold retries a 409
+        # is that service's policy, not ours to assume from here.
+        raise HTTPException(
+            status_code=404 if result.error_kind == "not_found" else 400,
+            detail=result.error,
+        )
 
     logger.info(
         f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"

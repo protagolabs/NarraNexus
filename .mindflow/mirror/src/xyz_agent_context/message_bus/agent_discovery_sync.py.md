@@ -4,6 +4,12 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (二改) — manyfold 的 POST 也进来了
+
+同日第一条只补了 manyfold 的 `PATCH`。`POST /manyfold/agents` 在 agent 已存在时
+同样改名，同样从没刷过名录；它现在也经由 [[_awareness_writes]] 的
+`apply_agent_profile_change` 调本函数。改名侧的调用方仍然只有那一个事务。
+
 ## 2026-08-18 — 调用方清单补两处，且改名侧收敛到一个入口
 
 「所有变更点都调它」这句的清单原来漏了一个、且有一个是假的：

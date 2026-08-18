@@ -4,6 +4,30 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (二改) — `POST /manyfold/agents` 的 upsert 分支也是改名
+
+第一版只把 `PATCH` 收进事务，独立审查一条 `git grep` 就证伪了同日写下的
+「改名侧只剩一个入口」：**紧挨着的 `POST` 在 agent 已存在时用 `body.agent_name`
+覆盖 `agents.agent_name`**，它自己的 docstring 就写着「已存在就更新 name/
+description 与 Manyfold 保持同步」。那是改名，而它既不写身份更正也不刷名录——
+Manyfold 只要走重新 provision 而不是 PATCH，深圳第二轮 P1 原样复现。
+
+现已同样走 `apply_agent_profile_change`。两个落地细节：
+
+- **`or` 兜底留在调用点**。本 body 的 `agent_name` 默认 `""`，而共享事务对空名是
+  **拒绝**（`empty_name`）不是兜底。先在这里解析出非空值再传进去，否则 provision
+  会因为调用方没给名字而整体失败。
+- **`created_by` 走 `extra_updates`**，保持单次行写。注意它与同一次调用里的重名
+  检查有个时序细节：`_same_owner_name_holder` 用的是**事务开头读到的**
+  `agent.created_by`，即换主前的 owner。该 note 是 advisory，且本路径根本不消费
+  它（只有渲染成字符串的工具路径会读），所以这个陈旧范围在这里没有后果——换个
+  会消费 note 的调用方就不成立了，别照抄。
+
+失败映射：`not_found` 保留本端点 docstring 承诺的 **404**，其余 400。**故意不用
+409**——`not_applied` 语义上确实是并发覆盖，但 409 邀请重试，而本端点的契约是
+「失败必须让整个改名中止」；Manyfold 侧是否重试 409 是那边的策略，不该从这里替它
+假设。要改得先和 Manyfold 对齐。
+
 ## 2026-08-18 — `PATCH /manyfold/agents/{id}` 补上改名的另外两件事
 
 这条路径原来是三个 `agents.agent_name` 写入方里最"裸"的一个：`db.update` 写完就返回，

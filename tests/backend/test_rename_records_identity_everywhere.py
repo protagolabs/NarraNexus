@@ -209,3 +209,70 @@ async def test_manyfold_rename_refreshes_the_peer_directory(
     row = await db_client.get_one("bus_agent_registry", {"agent_id": AGENT_ID})
     assert row is not None, "Manyfold rename left the agent out of the directory"
     assert row["description"].startswith("小绿")
+
+
+@pytest.mark.asyncio
+async def test_manyfold_provisioning_rerun_that_renames_records_it_too(
+    db_client, manyfold_client
+):
+    """``POST /manyfold/agents`` is idempotent provisioning — and on an agent
+    that already exists it overwrites agent_name, which is a rename.
+
+    Its own docstring says so: "If it already exists, just update the name /
+    description to keep them in sync with Manyfold's side." So Manyfold can
+    push a new name through EITHER verb, and a fix that only covers PATCH
+    leaves the incident reproducible through the one next to it.
+    """
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    resp = manyfold_client.post(
+        "/manyfold/agents",
+        json={
+            "agent_id": AGENT_ID,
+            "agent_name": "小绿",
+            "manyfold_user_id": "shenzhen-tester",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    latest = _identity_entries(await _profile(db_client))[-1]
+    assert "You are 「小绿」" in latest
+
+    row = await db_client.get_one("bus_agent_registry", {"agent_id": AGENT_ID})
+    assert row is not None, "provisioning rerun left the agent out of the directory"
+    assert row["description"].startswith("小绿")
+
+
+@pytest.mark.asyncio
+async def test_manyfold_provisioning_rerun_without_a_name_keeps_the_stored_one(
+    db_client, manyfold_client
+):
+    """``agent_name`` defaults to "" on this body, and the route falls back to
+    the stored name rather than blanking it.
+
+    The shared transaction REFUSES an empty name instead of falling back, so
+    the fallback has to stay at the call site — passing "" straight through
+    would fail provisioning outright.
+    """
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    resp = manyfold_client.post(
+        "/manyfold/agents",
+        json={"agent_id": AGENT_ID, "manyfold_user_id": "shenzhen-tester"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    row = await db_client.get_one("agents", {"agent_id": AGENT_ID})
+    assert row["agent_name"] == "美食家"
+    # Nothing was renamed, so nothing new is recorded.
+    assert len(_identity_entries(await _profile(db_client))) == 1
+
+
+@pytest.mark.asyncio
+async def test_manyfold_patch_keeps_its_documented_404(db_client, manyfold_client):
+    """The endpoint documents 404 for an unknown agent, and the shared
+    transaction's refusal must not flatten that into a generic 400."""
+    resp = manyfold_client.patch(
+        "/manyfold/agents/agent_does_not_exist", json={"agent_name": "小绿"}
+    )
+    assert resp.status_code == 404
