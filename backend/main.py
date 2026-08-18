@@ -560,7 +560,10 @@ app.include_router(
 async def health():
     """Detailed health check.
 
-    ``database`` is a real round-trip, not an assertion. It used to be the
+    ``database`` is a real round-trip, not an assertion, and reports only a
+    coarse classification — this endpoint is public and unauthenticated, so the
+    driver's own message (which names the database host and user) stays in the
+    log. It used to be the
     literal string "connected", which meant the probe reported a healthy
     database while every request in the process was failing with
     ``InterfaceError: (0, 'Not connected')`` — the container stayed green for
@@ -587,17 +590,33 @@ async def health():
     db_ok = False
     db_detail = "unknown"
     try:
-        db = await get_db_client()
-        await asyncio.wait_for(db.execute("SELECT 1", fetch=True), timeout=_HEALTH_DB_TIMEOUT_SEC)
+        # `get_db_client()` is inside the budget too: it can build a pool, and
+        # aiomysql's connect_timeout defaults to None, so a black-holed database
+        # would hang here — past the container healthcheck's own timeout, which
+        # would replace our reason with docker's "timed out" and reopen the very
+        # blind spot this probe closes.
+        async def _probe():
+            db = await get_db_client()
+            await db.execute("SELECT 1", fetch=True)
+
+        await asyncio.wait_for(_probe(), timeout=_HEALTH_DB_TIMEOUT_SEC)
         db_ok = True
         db_detail = "connected"
     except asyncio.TimeoutError:
-        db_detail = f"timeout after {_HEALTH_DB_TIMEOUT_SEC}s"
+        db_detail = "timeout"
     except Exception as exc:
-        # Type + message: "(0, 'Not connected')" alone does not say whether the
-        # pool is dead or the server is gone, and this string is what the
-        # on-call reads first.
-        db_detail = f"{type(exc).__name__}: {exc}"
+        # Exception TYPE only. This endpoint is public and unauthenticated
+        # (`/health` is on backend.auth's allowlist, reachable at
+        # https://<app domain>/health), and driver messages carry
+        # infrastructure detail: pymysql renders connect failures as
+        # "Can't connect to MySQL server on '<rds endpoint>'" and auth failures
+        # as "Access denied for user '<user>'@'<internal ip>'". Handing that to
+        # anyone who curls during an incident — exactly when it is most likely
+        # to be probed — is free reconnaissance. The class name still separates
+        # "can't connect" from "auth failed" from "pool dead", which is the
+        # distinction the on-call actually needs; the full message goes to the
+        # log below.
+        db_detail = type(exc).__name__
 
     body = {
         "status": "healthy" if db_ok else "unhealthy",
@@ -611,7 +630,8 @@ async def health():
         }
 
     if not db_ok:
-        logger.error(f"/health: database probe failed — {db_detail}")
+        # Full detail here, never in the response.
+        logger.exception(f"/health: database probe failed — {db_detail}")
         return JSONResponse(status_code=503, content=body)
     return body
 

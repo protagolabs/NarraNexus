@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/db/db_backend_mysql.py
+last_verified: 2026-08-17
+stub: false
+---
+
 # db_backend_mysql.py
 
 `MySQLBackend` — the `DatabaseBackend` implementation for cloud/server deployments, using an `aiomysql` connection pool.
@@ -24,7 +30,11 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 
 **`INSERT ... ON DUPLICATE KEY UPDATE ... AS new_row` for upserts.** The `upsert` method generates MySQL 8.0.20+ syntax using an alias (`new_row`) rather than the deprecated `VALUES()` function. This is more explicit and future-proof, but means the code will fail on MySQL versions older than 8.0.20.
 
-**Transaction support via a task-scoped dedicated connection.** Transactions use a single connection acquired from the pool and stored in `self._txn_conn`, a **`ContextVar`** — so the "am I inside a transaction?" answer is per asyncio task, not per backend instance. Every statement method reads it (`txn = self._txn_conn.get()`) and falls back to `pool.acquire()` when it is `None`.
+**Transaction support via a task-scoped dedicated connection.** Transactions use a single connection acquired from the pool and stored in `self._txn_conn`, a **`ContextVar` holding `(owner_task, connection)`** — so the "am I inside a transaction?" answer is per asyncio task, not per backend instance. Every statement method goes through `_own_txn()` and falls back to `pool.acquire()` when the answer is `None`.
+
+**为什么存 owner 而不是裸连接。** ContextVar 的语义是「**task 创建时拷贝一份父 context**」，不是「只有开启者可见」。事务开启**之后**创建的子 task 会继承那条连接，于是 `async with db.transaction():` 里写一个 `asyncio.gather(...)` 就会让子协程重新挤回同一条连接 —— 正是本文件要修的 two-coroutines-one-socket 条件，只是范围从「全进程」缩到「该请求的子树」；更糟的是子 task 调 `commit()` 会把父 task 还在用的连接归还，父 task 随后 commit 撞上 aiomysql 的 `assert conn in self._used`。
+
+比较 task 身份把这层继承变成两种明确行为：**语句**（子 task 走连接池拿自己的连接）、**commit/rollback**（子 task 直接 `RuntimeError`）。子 task 仍可以 `begin_transaction()` 开自己的事务——继承来的值不算「已在事务中」。
 
 The ContextVar is not a stylistic choice; it is the correctness boundary. `db_factory` hands out **one backend per event loop**, shared by every request, so instance-level transaction state was process-global state — see the 2026-08-17 section below.
 

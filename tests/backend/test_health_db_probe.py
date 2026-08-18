@@ -73,7 +73,9 @@ async def test_reports_unhealthy_and_503_when_the_database_is_gone(monkeypatch):
     )
     body = response.body.decode()
     assert '"status":"unhealthy"' in body.replace(" ", "")
-    assert "Not connected" in body, "the reason must reach whoever reads the probe"
+    # The CLASS of failure reaches the reader; the driver's own message does
+    # not. See the leak test below.
+    assert "RuntimeError" in body
 
 
 @pytest.mark.asyncio
@@ -94,12 +96,39 @@ async def test_a_hung_database_becomes_unhealthy_rather_than_a_hung_probe(monkey
 
 
 @pytest.mark.asyncio
-async def test_probe_budget_stays_under_the_container_healthcheck_timeout():
+async def test_the_failure_reason_never_leaks_infrastructure_detail(monkeypatch):
+    """`/health` is public and unauthenticated. pymysql renders connect
+    failures as "Can't connect to MySQL server on '<rds endpoint>'" and auth
+    failures as "Access denied for user '<user>'@'<internal ip>'". Returning
+    that verbatim hands anyone who curls during an incident the database host,
+    the database user, and an internal IP."""
+
+    async def leaky():
+        raise RuntimeError(
+            "Can't connect to MySQL server on "
+            "'narranexus-cloud-version.cluster-czi0esc0atmh.eu-west-2.rds.amazonaws.com' "
+            "(Access denied for user 'nexus'@'172.31.0.4')"
+        )
+
+    _install(monkeypatch, leaky)
+
+    response = await main.health()
+
+    body = response.body.decode()
+    assert response.status_code == 503
+    for secret in ("rds.amazonaws.com", "Access denied", "172.31.", "nexus'@"):
+        assert secret not in body, f"{secret!r} leaked to an unauthenticated caller"
+    assert "RuntimeError" in body, "the failure class must still be reported"
+
+
+@pytest.mark.asyncio
+async def test_probe_budget_leaves_room_under_the_container_healthcheck_timeout():
     """`stacks/narranexus-app/compose.yml` gives the backend healthcheck
-    `timeout: 5s`. If this budget ever exceeds it, docker reports a timeout
-    instead of our body and the failure reason disappears — the precise blind
-    spot this endpoint was fixed to close."""
-    assert main._HEALTH_DB_TIMEOUT_SEC < 5.0
+    `timeout: 5s`, and that 5s must also cover the healthcheck's own `python -c`
+    interpreter start plus the urllib round-trip. A budget that merely fits
+    under 5s would still let docker time out first, replacing our reason with
+    its own — the precise blind spot this endpoint was fixed to close."""
+    assert main._HEALTH_DB_TIMEOUT_SEC <= 3.0
 
 
 @pytest.mark.asyncio

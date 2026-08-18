@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/db/database.py
+last_verified: 2026-08-17
+stub: false
+---
+
 # database.py
 
 `AsyncDatabaseClient` — the single database client every layer of the codebase talks through, plus the MySQL-to-SQLite dialect translator.
@@ -8,8 +14,12 @@
 `_backend` 为空时走本文件自带的 pool + 游标实现（legacy）。**两条路各有一份完全相同
 的事务连接 bug**，所以一并修，否则只修一半等于没修。改动与
 [[db_backend_mysql.py]] 对称：`_transaction_connection` 实例属性 → `_txn_conn`
-ContextVar；`commit`/`rollback` 加 `finally` 无条件清空；出错的连接先 `close()` 再
-`release()`。
+ContextVar（存 `(owner_task, conn)`，原因见对侧文档：ContextVar 会被子 task 继承，
+所以必须比较 task 身份）；`commit`/`rollback` 加 `finally` 无条件清空；出错的连接先
+`close()` 再 `release()`，并补一次 `pool._wakeup()`——aiomysql 0.3.2 只对未关闭的连接
+调度唤醒，归还一条已关闭连接会腾出槽位却不通知 `acquire()` 的等待者；`close()` 给
+`wait_closed()` 加超时后 `terminate()`，否则关停时会等一条永远不回来的连接直到被
+SIGKILL。
 
 **另外修了 `transaction()` 的取消漏洞。** 原实现是 `except Exception`，而
 `asyncio.CancelledError` 在 Python 3.8+ **不继承 `Exception`**。客户端断连时

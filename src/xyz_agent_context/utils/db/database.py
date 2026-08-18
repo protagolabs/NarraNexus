@@ -30,6 +30,7 @@ Usage examples:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from contextlib import asynccontextmanager
@@ -46,6 +47,11 @@ if TYPE_CHECKING:
     from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 T = TypeVar('T', bound=BaseModel)
+
+# Shutdown budget for draining borrowed connections before forcing them closed.
+# Mirrors MySQLBackend._POOL_CLOSE_TIMEOUT_SEC; a container that will not exit
+# is a redeploy that hangs until docker SIGKILLs it.
+_POOL_CLOSE_TIMEOUT_SEC = 5.0
 
 
 def parse_database_url(url: str) -> Dict[str, Any]:
@@ -391,9 +397,10 @@ class AsyncDatabaseClient:
         # request, so an instance attribute here made one caller's open
         # transaction the implicit connection for all of them. Same defect and
         # same reasoning as MySQLBackend._txn_conn; see that class docstring.
-        self._txn_conn: ContextVar[Optional[aiomysql.Connection]] = ContextVar(
-            f"db_client_txn_conn_{id(self):x}", default=None
-        )
+        self._wakeup_tasks: set["asyncio.Task"] = set()
+        self._txn_conn: ContextVar[
+            Optional[tuple["asyncio.Task", aiomysql.Connection]]
+        ] = ContextVar(f"db_client_txn_conn_{id(self):x}", default=None)
         self._initialized = _pool is not None or _backend is not None
         self._backend: Optional["DatabaseBackend"] = _backend
         self._owns_backend: bool = _backend is not None  # Only close if we own it
@@ -576,7 +583,7 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        txn = self._txn_conn.get()
+        txn = self._own_txn()
         if txn:
             # Use this task's transaction connection
             async with txn.cursor(aiomysql.DictCursor) as cursor:
@@ -782,7 +789,7 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        txn = self._txn_conn.get()
+        txn = self._own_txn()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -852,7 +859,7 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        txn = self._txn_conn.get()
+        txn = self._own_txn()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -906,7 +913,7 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        txn = self._txn_conn.get()
+        txn = self._own_txn()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, tuple(params))
@@ -984,7 +991,7 @@ class AsyncDatabaseClient:
             return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
         pool = self._pool
 
-        txn = self._txn_conn.get()
+        txn = self._own_txn()
         if txn:
             async with txn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -1071,7 +1078,7 @@ class AsyncDatabaseClient:
         if self._backend:
             return await self._backend.begin_transaction()
 
-        if self._txn_conn.get():
+        if self._own_txn():
             raise RuntimeError("Already in a transaction")
 
         pool = await self._ensure_pool()
@@ -1081,28 +1088,58 @@ class AsyncDatabaseClient:
         except BaseException:
             self._return_to_pool(conn, broken=True)
             raise
-        self._txn_conn.set(conn)
+        self._txn_conn.set((asyncio.current_task(), conn))
+
+    def _own_txn(self) -> Optional[aiomysql.Connection]:
+        """This task's transaction connection, or None. See
+        `MySQLBackend._own_txn` for why ownership is checked."""
+        entry = self._txn_conn.get()
+        if entry is None:
+            return None
+        owner, conn = entry
+        return conn if owner is asyncio.current_task() else None
+
+    def _owned_or_raise(self) -> aiomysql.Connection:
+        entry = self._txn_conn.get()
+        if entry is None:
+            raise RuntimeError("No active transaction")
+        owner, conn = entry
+        if owner is not asyncio.current_task():
+            raise RuntimeError(
+                "No active transaction in this task (the enclosing transaction "
+                "belongs to the task that opened it; do not commit/rollback it "
+                "from a child task)"
+            )
+        return conn
 
     def _return_to_pool(self, conn: aiomysql.Connection, *, broken: bool) -> None:
         """Hand a transaction connection back to the pool.
 
         `broken=True` closes it first so a connection with a desynced protocol
-        stream cannot be handed to the next caller. See
-        `MySQLBackend._return_to_pool`.
+        stream cannot be handed to the next caller, and then wakes the pool's
+        waiters by hand — aiomysql 0.3.2 skips its own wake-up for connections
+        that are already closed. See `MySQLBackend._return_to_pool`.
         """
         if broken and not conn.closed:
             conn.close()
-        if self._pool is not None:
-            self._pool.release(conn)
+        if self._pool is None:
+            return
+        self._pool.release(conn)
+        if broken:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:  # pragma: no cover
+                return
+            task = loop.create_task(self._pool._wakeup())
+            self._wakeup_tasks.add(task)
+            task.add_done_callback(self._wakeup_tasks.discard)
 
     async def commit(self) -> None:
         """Commit the transaction"""
         if self._backend:
             return await self._backend.commit()
 
-        conn = self._txn_conn.get()
-        if not conn:
-            raise RuntimeError("No active transaction")
+        conn = self._owned_or_raise()
 
         try:
             await conn.commit()
@@ -1122,9 +1159,7 @@ class AsyncDatabaseClient:
         if self._backend:
             return await self._backend.rollback()
 
-        conn = self._txn_conn.get()
-        if not conn:
-            raise RuntimeError("No active transaction")
+        conn = self._owned_or_raise()
 
         try:
             await conn.rollback()
@@ -1210,13 +1245,26 @@ class AsyncDatabaseClient:
             # Connection pool not initialized, no need to close
             return
 
-        conn = self._txn_conn.get()
+        conn = self._own_txn()
         if conn:
             self._return_to_pool(conn, broken=True)
             self._txn_conn.set(None)
 
         self._pool.close()
-        await self._pool.wait_closed()
+        try:
+            # `close()` only stops NEW checkouts. `wait_closed()` waits for every
+            # borrowed connection to come back and waits forever if one never
+            # does — the normal case at shutdown, where cancelled requests return
+            # connections already closed, which aiomysql releases without waking
+            # anyone. See MySQLBackend.close.
+            await asyncio.wait_for(self._pool.wait_closed(), timeout=_POOL_CLOSE_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"pool did not drain in {_POOL_CLOSE_TIMEOUT_SEC}s — terminating "
+                "outstanding connections"
+            )
+            self._pool.terminate()
+            await self._pool.wait_closed()
         self._pool = None
         logger.info("AsyncDatabaseClient closed")
 

@@ -1,8 +1,22 @@
 ---
 code_file: backend/integrations/netmind/identity_migration.py
-last_verified: 2026-06-12
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 手搓事务换成 `db.transaction()`（取消漏洞）
+
+原来是 `began` 标志 + `try/except Exception` 手搓 begin/commit/rollback。
+`asyncio.CancelledError` **不继承 `Exception`**，客户端断连时 Starlette 会取消请求
+task，于是迁移中途被取消 → rollback 整个被跳过 → 连接不归还、服务端事务一直开着直到
+锁超时，此后所有碰到相同行的写入都卡在 lock wait。这是 [[database.py]] 那条同型缺陷
+在全仓的最后一处手搓拷贝（`grep begin_transaction` 确认其余都走
+`db.transaction()`）。
+
+`async with db.transaction():` 内部捕获 `BaseException`。顺带删掉
+`hasattr(db, "begin_transaction")` 这层 duck-typing —— 三个后端都实现了该协议，这个
+判断唯一的实际效果是「悄悄不开事务」（铁律 #2：不要兼容垫片）。
+
 
 # identity_migration.py — 身份迁移内核（platform service 层）
 

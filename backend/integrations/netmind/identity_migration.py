@@ -215,11 +215,17 @@ async def execute_migration(
         )
         agent_ids = [a["agent_id"] for a in agents or []]
 
-        began = False
-        try:
-            if hasattr(db, "begin_transaction"):
-                await db.begin_transaction()
-                began = True
+        # `db.transaction()` rather than a hand-rolled begin/commit pair: the
+        # hand-rolled version unwound on `except Exception`, and
+        # `asyncio.CancelledError` does not inherit from `Exception`. A client
+        # disconnect makes Starlette cancel the request task, so cancelling
+        # mid-migration skipped the rollback entirely — the connection was never
+        # returned and the transaction stayed open on the server until its lock
+        # timed out, blocking every later write to the same rows. The context
+        # manager handles BaseException. (The `hasattr(db, "begin_transaction")`
+        # guard is gone with it: all three backends implement the protocol, so
+        # it only ever meant "silently run without a transaction".)
+        async with db.transaction():
             for table, column in cols.plain:
                 if merge and _is_unique_identity_column(table, column):
                     result = await db.execute(
@@ -250,12 +256,6 @@ async def execute_migration(
                 # Non-merge: the users row was just rewritten old→new; stamp it.
                 # Merge: the legacy users row was deleted; target stays as-is.
                 await _stamp_user(db, new_id, old_id)
-            if began:
-                await db.commit()
-        except Exception:
-            if began:
-                await db.rollback()
-            raise
 
         # Filesystem renames after the DB commit. A crash between commit
         # and rename leaves old-named dirs; the second pass below recovers

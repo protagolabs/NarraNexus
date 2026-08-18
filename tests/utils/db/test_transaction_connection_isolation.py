@@ -131,6 +131,9 @@ class FakePool:
         self.free: list[FakeConnection] = []
         self.used: list[FakeConnection] = []
         self.discarded: list[FakeConnection] = []
+        self.wakeups = 0
+        self.closing = False
+        self.terminated = False
 
     async def _checkout(self) -> FakeConnection:
         if self.free:
@@ -151,14 +154,33 @@ class FakePool:
         self.used.remove(conn)
         if conn.closed:
             self.discarded.append(conn)
+            # Modelled faithfully: aiomysql 0.3.2 schedules its own _wakeup()
+            # only for connections that are still open, so a closed one frees
+            # the slot WITHOUT notifying anyone waiting in acquire(). The
+            # backend compensates by calling _wakeup() itself; this counter is
+            # what proves it does.
         else:
             self.free.append(conn)
+            self.wakeups += 1
+
+    async def _wakeup(self):
+        self.wakeups += 1
 
     def close(self):
-        pass
+        self.closing = True
+
+    def terminate(self):
+        self.terminated = True
+        for conn in list(self.used):
+            conn.close()
+        self.used.clear()
 
     async def wait_closed(self):
-        pass
+        # aiomysql waits until every borrowed connection is returned — forever
+        # if one never is. The fake reproduces that so the shutdown timeout is
+        # exercised rather than assumed.
+        while self.used and not self.terminated:
+            await asyncio.sleep(0.01)
 
 
 def checked_out(pool: FakePool) -> FakeConnection:
@@ -457,3 +479,142 @@ async def test_failed_commit_propagates_without_a_second_rollback():
             pass
 
     assert fake.events == ["begin", "commit"], "rollback must not run after a failed commit"
+
+
+# --------------------------------------------------------------------------
+# 4. Child tasks — the half of ContextVar semantics that is NOT isolation
+# --------------------------------------------------------------------------
+#
+# A ContextVar value is COPIED into every task created after it was set. So
+# "task-scoped" buys isolation from unrelated tasks, but a task spawned INSIDE
+# the transaction body inherits the connection. Left unguarded that reproduces
+# the original bug at smaller scale — and worse, a child that commits releases
+# a connection the parent is still writing to, so the parent's own commit
+# double-releases and aiomysql raises AssertionError.
+
+
+@pytest.mark.asyncio
+async def test_child_tasks_do_not_borrow_the_parents_transaction_connection():
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    parent_conn = checked_out(pool)
+
+    async def child(n: int):
+        await backend.execute(f"SELECT child_{n}")
+
+    await asyncio.gather(child(1), child(2))
+
+    assert parent_conn.queries == [], (
+        "child tasks put their statements on the parent's transaction "
+        "connection — two coroutines, one socket, which is the original bug"
+    )
+    # They may well reuse the SAME pooled connection one after the other —
+    # `pool.acquire()` hands it out exclusively, so sequential reuse is correct.
+    # The property under test is only that neither touched the parent's.
+    ran = [q for c in pool.created for q in c.queries if q.startswith("SELECT child_")]
+    assert sorted(ran) == ["SELECT child_1", "SELECT child_2"]
+
+    await backend.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_child_task_cannot_end_the_parents_transaction():
+    """Ending it would release a connection the parent is still using, and the
+    parent's own commit would then double-release."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    parent_conn = checked_out(pool)
+
+    async def child():
+        with pytest.raises(RuntimeError, match="belongs to the task that opened it"):
+            await backend.commit()
+        with pytest.raises(RuntimeError, match="belongs to the task that opened it"):
+            await backend.rollback()
+
+    await asyncio.create_task(child())
+
+    # The parent's transaction is untouched and its own commit still works.
+    await backend.execute_write("DELETE FROM events WHERE id = 1")
+    await backend.commit()
+    assert parent_conn.committed == 1
+    assert parent_conn.queries == ["DELETE FROM events WHERE id = 1"]
+
+
+@pytest.mark.asyncio
+async def test_a_child_task_may_open_its_own_transaction():
+    """Inheriting the parent's value must not look like 'already in a
+    transaction' — the child is entitled to its own."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    parent_conn = checked_out(pool)
+
+    async def child():
+        await backend.begin_transaction()
+        child_conn = checked_out(pool)
+        assert child_conn is not parent_conn
+        await backend.execute_write("DELETE FROM child_rows")
+        await backend.commit()
+        return child_conn
+
+    child_conn = await asyncio.create_task(child())
+
+    assert child_conn.committed == 1
+    assert parent_conn.committed == 0
+    await backend.commit()
+    assert parent_conn.committed == 1
+
+
+# --------------------------------------------------------------------------
+# 5. Returning a broken connection must not strand queued requests
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_broken_connection_wakes_pool_waiters():
+    """aiomysql 0.3.2 schedules its wake-up only for connections that are still
+    open, so returning a closed one frees the slot without notifying anyone in
+    acquire(). With the pool saturated and every commit failing — precisely
+    this incident — queued requests would hang instead of failing fast."""
+    backend, pool = make_backend()
+
+    await backend.begin_transaction()
+    dead = checked_out(pool)
+    dead.fail_commit = True
+
+    before = pool.wakeups
+    with pytest.raises(RuntimeError):
+        await backend.commit()
+    await asyncio.sleep(0)  # let the scheduled wake-up run
+
+    assert pool.wakeups > before, "pool waiters were never notified"
+
+
+# --------------------------------------------------------------------------
+# 6. Shutdown must not hang
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_terminates_connections_that_never_come_back():
+    """`pool.close()` only stops new checkouts; `wait_closed()` waits for the
+    borrowed ones forever. A connection held by another task at shutdown would
+    otherwise keep the container alive until docker SIGKILLs it."""
+    import xyz_agent_context.utils.db.db_backend_mysql as mod
+
+    backend, pool = make_backend()
+
+    # A connection borrowed by someone else and never returned.
+    stranded = await pool._checkout()
+
+    original = mod._POOL_CLOSE_TIMEOUT_SEC
+    mod._POOL_CLOSE_TIMEOUT_SEC = 0.05
+    try:
+        await asyncio.wait_for(backend.close(), timeout=2.0)
+    finally:
+        mod._POOL_CLOSE_TIMEOUT_SEC = original
+
+    assert pool.terminated is True
+    assert stranded.closed is True

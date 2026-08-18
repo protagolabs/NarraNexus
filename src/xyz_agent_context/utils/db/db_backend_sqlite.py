@@ -19,6 +19,7 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import json
 import re
 from datetime import datetime
@@ -309,7 +310,37 @@ class SQLiteBackend(DatabaseBackend):
         self._db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
         self._write_lock = asyncio.Lock()
-        self._in_transaction = False
+        # Which TASK is inside a transaction — not a plain instance flag.
+        #
+        # `db_factory` hands out one backend per event loop, so an instance
+        # attribute here was process-global state with two consequences, both
+        # silent (this is the SQLite twin of the MySQL outage of 2026-08-17,
+        # which surfaced loudly as 500s only because MySQL has a connection to
+        # kill; here there is one connection and nothing to break):
+        #
+        #   1. While any task sat in a transaction, every OTHER task's write
+        #      took the `not in transaction` branch as false and skipped its
+        #      commit — swept into a transaction it knew nothing about. If that
+        #      transaction rolled back, the unrelated write vanished with it,
+        #      with the caller told it succeeded.
+        #   2. `commit()` cleared the flag only after a successful COMMIT and
+        #      had no `finally`, so one failed commit left it stuck True and
+        #      EVERY subsequent write in the process skipped committing, until
+        #      restart. Desktop/DMG builds run on SQLite, so the user-visible
+        #      form of that is "the app said saved, and the data is gone".
+        self._txn_owner: ContextVar[Optional["asyncio.Task"]] = ContextVar(
+            f"sqlite_txn_owner_{id(self):x}", default=None
+        )
+
+    def _owns_txn(self) -> bool:
+        """True when the CALLING task opened the transaction that is open.
+
+        A ContextVar value is copied into tasks created after it was set, so a
+        child task can inherit the owner. Comparing task identity keeps the
+        answer to "is this MY transaction", which is the question every caller
+        actually has.
+        """
+        return self._txn_owner.get() is asyncio.current_task()
 
     # ===== Properties =====
 
@@ -394,6 +425,15 @@ class SQLiteBackend(DatabaseBackend):
         Returns:
             Whatever *fn* returns (rowcount, lastrowid, etc.).
         """
+        if self._owns_txn():
+            # The transaction holder already owns `_write_lock` for the whole
+            # transaction, and `asyncio.Lock` is not reentrant — re-acquiring
+            # here would deadlock the task against itself. Retry is skipped for
+            # the same reason MySQLBackend skips it inside a transaction: the
+            # caller owns the boundary, and re-running one statement would leave
+            # the earlier ones un-rolled-back.
+            return await fn()
+
         import random
         for attempt in range(self._MAX_WRITE_RETRIES):
             try:
@@ -437,7 +477,7 @@ class SQLiteBackend(DatabaseBackend):
 
         async def _do_write():
             cursor = await conn.execute(query, params or ())
-            if not self._in_transaction:
+            if not self._owns_txn():
                 await conn.commit()
             return cursor.rowcount
 
@@ -557,7 +597,7 @@ class SQLiteBackend(DatabaseBackend):
 
         async def _do_insert():
             cursor = await conn.execute(query, params)
-            if not self._in_transaction:
+            if not self._owns_txn():
                 await conn.commit()
             return cursor.lastrowid or 0
 
@@ -604,7 +644,7 @@ class SQLiteBackend(DatabaseBackend):
 
         async def _do_update():
             cursor = await conn.execute(query, final_params)
-            if not self._in_transaction:
+            if not self._owns_txn():
                 await conn.commit()
             return cursor.rowcount
 
@@ -638,7 +678,7 @@ class SQLiteBackend(DatabaseBackend):
 
         async def _do_delete():
             cursor = await conn.execute(query, final_params)
-            if not self._in_transaction:
+            if not self._owns_txn():
                 await conn.commit()
             return cursor.rowcount
 
@@ -687,7 +727,7 @@ class SQLiteBackend(DatabaseBackend):
 
         async def _do_upsert():
             cursor = await conn.execute(query, params)
-            if not self._in_transaction:
+            if not self._owns_txn():
                 await conn.commit()
             return cursor.rowcount
 
@@ -696,25 +736,65 @@ class SQLiteBackend(DatabaseBackend):
     # ===== Transaction Support =====
 
     async def begin_transaction(self) -> None:
-        """Begin a transaction by executing BEGIN."""
-        if self._in_transaction:
+        """Begin a transaction, taking exclusive hold of the write lock.
+
+        Unlike MySQL, there is exactly ONE connection here, so concurrent
+        transactions cannot each take their own — SQLite would reject the second
+        BEGIN outright. Holding `_write_lock` for the transaction's whole
+        duration is what makes that safe: a second transaction, and any
+        unrelated write, waits rather than being folded into this one.
+
+        Consequence worth knowing: a transaction body must not await another
+        TASK that writes to this database. That task would block on the lock
+        this transaction holds, and the transaction would wait on the task.
+        (Awaiting ordinary coroutines is fine — they are the same task.)
+        """
+        if self._owns_txn():
             raise RuntimeError("Already in a transaction")
         conn = self._ensure_conn()
-        await conn.execute("BEGIN")
-        self._in_transaction = True
+        await self._write_lock.acquire()
+        try:
+            await conn.execute("BEGIN")
+        except BaseException:
+            self._write_lock.release()
+            raise
+        self._txn_owner.set(asyncio.current_task())
+
+    def _end_txn(self) -> None:
+        """Clear ownership and release the lock — always, however we got here.
+
+        Unconditional on purpose. The previous version cleared its flag only
+        after a successful COMMIT, so a single failure left the process
+        permanently believing it was inside a transaction and silently skipping
+        every later commit.
+        """
+        self._txn_owner.set(None)
+        if self._write_lock.locked():
+            self._write_lock.release()
+
+    def _owned_conn(self) -> "aiosqlite.Connection":
+        if self._txn_owner.get() is None:
+            raise RuntimeError("No active transaction")
+        if not self._owns_txn():
+            raise RuntimeError(
+                "No active transaction in this task (the enclosing transaction "
+                "belongs to the task that opened it; do not commit/rollback it "
+                "from a child task)"
+            )
+        return self._ensure_conn()
 
     async def commit(self) -> None:
         """Commit the current transaction."""
-        if not self._in_transaction:
-            raise RuntimeError("No active transaction")
-        conn = self._ensure_conn()
-        await conn.commit()
-        self._in_transaction = False
+        conn = self._owned_conn()
+        try:
+            await conn.commit()
+        finally:
+            self._end_txn()
 
     async def rollback(self) -> None:
         """Rollback the current transaction."""
-        if not self._in_transaction:
-            raise RuntimeError("No active transaction")
-        conn = self._ensure_conn()
-        await conn.rollback()
-        self._in_transaction = False
+        conn = self._owned_conn()
+        try:
+            await conn.rollback()
+        finally:
+            self._end_txn()
