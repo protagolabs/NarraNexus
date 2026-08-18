@@ -360,6 +360,18 @@ class ClearHistoryResponse(BaseModel):
     chat_instances_count: int = 0
     agent_messages_count: int = 0
     bus_messages_count: int = 0
+    # Every WipeResult counter has to appear here AND in the route's kwargs AND in
+    # the dataclass — three copies of one field list, which has already drifted
+    # twice (`bus_failures_count` on dev, the two inbox counters when the inbox
+    # moved to its own tables). `test_wipe_result_fields_reach_the_api` fails on
+    # the next omission rather than leaving it to be noticed in a ticket.
+    bus_failures_count: int = 0
+    inbox_threads_count: int = 0
+    inbox_thread_messages_count: int = 0
+    # Found by the coverage test above, not by anyone noticing: these two have
+    # been deleted-but-unreported since the wipe grew them.
+    report_memory_count: int = 0
+    instance_links_count: int = 0
     memory_rows_count: int = 0
     artifacts_count: int = 0
     disk_markdown_removed: bool = False

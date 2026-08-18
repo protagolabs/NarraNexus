@@ -92,6 +92,12 @@ def direct_channel_sql(ph: str) -> str:
     gets changed in one of them (archived flags, dedupe, cross-owner rules). Four
     copies of the team-room lookup is how `team_rooms.py` came to exist.
 
+    **Callers MUST reject `a == b` before calling.** Both joins are satisfied by
+    the same member row when the two parameters are equal, so every direct channel
+    the caller belongs to matches and `rows[0]` is arbitrary. The invariant lives
+    here rather than only in each caller because there are two callers now and the
+    third will otherwise get it wrong too — `send_to_agent` was the one that did.
+
     `ORDER BY created_at ASC` is not cosmetic. `send_to_agent` creates a channel
     when the lookup misses, so two concurrent first-sends to the same peer can
     both miss and both create — after which an unordered `rows[0]` is
@@ -106,7 +112,8 @@ def direct_channel_sql(ph: str) -> str:
         f"JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id "
         f"AND m2.agent_id = {ph} "
         f"WHERE c.channel_type = 'direct' "
-        f"ORDER BY c.created_at ASC"
+        # Both callers take `rows[0]`; fetching the rest to discard them is waste.
+        f"ORDER BY c.created_at ASC LIMIT 1"
     )
 
 
@@ -561,6 +568,26 @@ class LocalMessageBus(MessageBusService):
         # Same-user boundary: an agent may only DM agents owned by the same
         # user. Cross-user direct messaging is intentionally disabled — never
         # let an agent message another user's agent.
+        if from_agent == to_agent:
+            # `direct_channel_sql` joins the channel against two member rows; with
+            # the same id twice BOTH joins are satisfied by the SAME row, so any
+            # direct channel this agent belongs to matches and `rows[0]` is an
+            # arbitrary unrelated conversation. Proven: with a seeded `a↔b`
+            # channel, `send_to_agent(from="a", to="a")` landed the row in a↔b.
+            #
+            # So a note-to-self reached peer b AND — via the wake signal — started
+            # a full LLM turn for b. An agent naming itself is an ordinary model
+            # error (self-note, "reply to myself", a copied id), and `message_agent`
+            # now advertises "the same action whether you are answering someone or
+            # starting a conversation of your own", which invites it.
+            #
+            # The read path (`_resolve_conversation`) already rejected this. The
+            # write path shares the SQL and did not, which is what sharing SQL
+            # without sharing its invariant looks like.
+            raise ValueError(
+                f"cannot message yourself: {from_agent} — name the peer you mean"
+            )
+
         from_owner = await self._agent_owner(from_agent)
         to_owner = await self._agent_owner(to_agent)
         if from_owner and to_owner and from_owner != to_owner:

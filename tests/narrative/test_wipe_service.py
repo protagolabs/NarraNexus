@@ -229,7 +229,9 @@ async def test_conversations_only(db_client, bases):
         db_client, "inbox_thread_messages",
         {"thread_id": im_thread_id("lark", OTHER, "oc_shared_chat")},
     ) == 2
-    # And the counters report it, so the API response is not silently zero.
+    # The SERVICE counters. That the API actually forwards them is a separate
+    # fact with its own test below — this comment used to claim the API property
+    # while asserting only these two attributes.
     assert result.inbox_threads_count == 1
     assert result.inbox_thread_messages_count == 2
 
@@ -310,3 +312,48 @@ async def test_both_full_wipe_and_idempotent(db_client, bases):
     assert again.narratives_count == 0
     assert again.memory_rows_count == 0
     assert again.disk_errors == []
+
+
+def test_wipe_result_fields_reach_the_api():
+    """The field list exists in three places and has already drifted twice.
+
+    `WipeResult` (dataclass) → `ClearHistoryResponse` (pydantic) → the route's
+    hand-written kwargs. `bus_failures_count` was added to the first and never the
+    other two; the two inbox counters repeated that the moment the inbox got its
+    own tables. Nothing tied them together, so the drift is silent and the symptom
+    is a response body that cannot distinguish "cleared nothing" from "cleared
+    everything" — which is exactly how the missing inbox delete survived.
+
+    Asserted as a subset rather than equality: a few `WipeResult` fields are
+    deliberately internal (`narrative_ids` is exposed under a different name,
+    `scopes` is echoed), so the invariant is that every COUNTER reaches the
+    response.
+    """
+    import dataclasses
+
+    from xyz_agent_context.narrative.wipe_service import WipeResult
+    from xyz_agent_context.schema.api_schema import ClearHistoryResponse
+
+    counters = {
+        f.name for f in dataclasses.fields(WipeResult) if f.name.endswith("_count")
+    }
+    assert counters, "no counters found — the field naming convention changed"
+
+    exposed = set(ClearHistoryResponse.model_fields)
+    missing = counters - exposed
+    assert not missing, (
+        f"WipeResult counters that never reach the API response: {sorted(missing)}. "
+        f"The wipe deletes them and the caller cannot tell."
+    )
+
+    # And the route must actually pass them, not merely have somewhere to put them.
+    import inspect
+
+    from backend.routes.agents import chat_history
+
+    src = inspect.getsource(chat_history)
+    unpassed = [c for c in counters if f"{c}=result.{c}" not in src]
+    assert not unpassed, (
+        f"the response model accepts these but the route never fills them, so "
+        f"they silently default to 0: {sorted(unpassed)}"
+    )

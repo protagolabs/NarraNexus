@@ -300,3 +300,41 @@ async def test_the_limit_has_a_ceiling_the_model_does_not_choose(
         seen.clear()
         await tools["read_history"](agent_id=ME, with_agent=PEER, limit=bad)
         assert 1 <= seen["limit"] <= READ_HISTORY_MAX, (bad, seen)
+
+
+@pytest.mark.asyncio
+async def test_sending_to_myself_does_not_land_in_a_peers_channel(db_client):
+    """The WRITE path's half of the self-id trap, which the read path already had.
+
+    `direct_channel_sql` joins the channel against two member rows. With the same
+    id twice, both joins are satisfied by the SAME row, so any direct channel the
+    agent belongs to matches and `rows[0]` is arbitrary. Round 3 proved it:
+    `send_to_agent(from="a", to="a")` with a seeded `a↔b` channel landed the row
+    in `a↔b`.
+
+    Two consequences, both worse than an error: the note-to-self is delivered to
+    peer b, and the wake signal starts a full LLM turn for b with nothing to
+    answer. An agent naming itself is an ordinary model error, and `message_agent`
+    advertises "the same action whether you are answering someone who just wrote to
+    you or starting a conversation of your own", which invites it.
+
+    The read resolver rejected this from the start; the write path shared the SQL
+    and not the invariant.
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+
+    await _dm(db_client, ME, PEER, "ch_dm_self")
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    with pytest.raises(ValueError, match="yourself"):
+        await bus.send_to_agent(
+            from_agent=ME, to_agent=ME, content="note to self",
+        )
+
+    rows = await db_client.get("bus_messages", {"channel_id": "ch_dm_self"})
+    assert rows == [], (
+        f"a note-to-self landed in the agent's conversation with {PEER}: "
+        f"{[r['content'] for r in rows]}"
+    )
+    # And the peer was not woken for it.
+    assert await bus.count_unread(PEER) == 0
