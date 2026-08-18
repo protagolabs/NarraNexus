@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/manyfold/agents.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `PATCH /manyfold/agents/{id}` 补上改名的另外两件事
+
+这条路径原来是三个 `agents.agent_name` 写入方里最"裸"的一个：`db.update` 写完就返回，
+**既不追加身份更正，也从不刷同伴名录**——它是唯一一个完全没碰过 discovery 的写入方，
+所以一次 Manyfold 改名之后，同伴目录会停在旧名直到该 agent 恰好跑一轮
+（而"闲着的 agent 无法自愈"正是 [[agent_discovery_sync]] 存在的初衷）。
+
+改走 [[_awareness_writes]] 的 `apply_agent_profile_change`，与用户侧 [[auth]] 和
+agent 自己的工具同一套事务。归一化随之内含（事务按构造存归一化文本），故此处不再
+自行 `normalize_agent_row_text`——该助手在本文件的**创建/upsert** 分支仍在用。
+
+事务判失败时抛 **400**，而不是返回一个装着旧值的 200：Manyfold 侧是先调本接口、
+成功后才提交自己那边的 DB 更新，用 200 掩盖失败会让两边悄悄漂移——那正是本接口
+当初"失败必须让整个改名中止"这条约定要防的。
 
 ## 2026-08-17(补)— import 改走门面;`min_length=1` 是**故意**留着的
 

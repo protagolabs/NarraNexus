@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/__init__.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 门面新增 `apply_agent_profile_change` / `AgentProfileWrite`
+
+改名事务下沉后（见 [[_awareness_writes]] 同日条目），共享的是**结构化**入口而不再只是
+那个返回字符串的渲染器：两个 HTTP 写入方（[[auth]] 的 `PUT /agents/{id}`、
+manyfold 的 `PATCH`）欠客户端状态码，得拿到 `error_kind`。二者与既有符号一样从
+`_awareness_writes` 纯转发，调用方 import **包**而不是私有叶子。
 
 # awareness_module/__init__.py — package surface
 

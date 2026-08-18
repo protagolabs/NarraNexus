@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
-last_verified: 2026-08-05
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 调用方清单补两处，且改名侧收敛到一个入口
+
+「所有变更点都调它」这句的清单原来漏了一个、且有一个是假的：
+
+- **manyfold 的 `PATCH /manyfold/agents/{id}` 从来没调过**（改名后同伴目录停在旧名
+  直到该 agent 跑一轮）。现已补上——但不是直接调本函数，见下。
+- 名字/描述编辑这一支现在**统一经由** [[_awareness_writes]] 的
+  `apply_agent_profile_change`：用户侧路由、manyfold 路由、agent 自己的
+  `update_agent_profile` 三条路都走那一个事务，由它调本函数。所以本函数的改名侧
+  调用方**只剩一个**，不再是三处各自记得调。
+
+创建（[[auth]] / [[provision]]）、技能安装、技能对账、每轮 hook 这几支不变。
 
 # agent_discovery_sync.py — agent 对同伴那一面的唯一真相点
 

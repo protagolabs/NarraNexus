@@ -73,7 +73,7 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
+from xyz_agent_context.module.awareness_module import apply_agent_profile_change
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -1089,59 +1089,57 @@ async def update_agent(
                 error="Agent name cannot be empty",
             )
 
-        # Only genuine differences become a write. This is not an
-        # optimisation — it is what makes the answer dialect-independent.
-        # ``repo.update_agent`` returns ``cursor.rowcount``, which counts
-        # MATCHED rows on SQLite but CHANGED rows on MySQL, so re-saving the
-        # value already stored looks like "0 rows" on cloud ONLY. This route
-        # used to read that as failure and tell the user their rename had not
-        # applied while the row held exactly what they asked for — so they
-        # retried, and every retry answered the same way (Shenzhen round 2,
-        # P1: DB held the new name, the UI insisted the save had failed).
-        # ``_awareness_writes.update_agent_profile_from_args`` defused this
-        # same trap for the agent-facing tool on 2026-08-05; this is the
-        # user-facing HTTP twin of that fix.
-        update_data = {
-            field: wanted
-            for field, wanted in requested.items()
-            if not agent_field_matches(agent, field, wanted)
-        }
+        # One shared rename transaction, not a hand-rolled column write.
+        # Setting agents.agent_name is only a THIRD of a rename: the Awareness
+        # profile carries a platform-voiced record of the agent's identity, and
+        # the peer directory carries the name other agents see. This route used
+        # to do the first and the third and skip the second, so a UI rename left
+        # a correction behind that still named the PREVIOUS name — and the agent
+        # read it and kept introducing itself that way (Shenzhen round 2, P1,
+        # prod agent_4a0ae5f40af2: the row said 「小绿」, the profile said "You
+        # are 「美食家」", and it answered 美食家 twice). Everything the old inline
+        # block did — normalize, value-equality short-circuit, re-read instead
+        # of rowcount, unconditional directory refresh — now lives in
+        # apply_agent_profile_change, shared with the agent's own tool and the
+        # Manyfold route, so no writer can be one step out of date again.
+        #
+        # is_public rides along as an extra: it carries no identity meaning, but
+        # putting it in the same call keeps the row write single rather than
+        # opening a window where the row is half-updated.
+        extra = (
+            {"is_public": requested["is_public"]}
+            if "is_public" in requested
+            else None
+        )
+        result = await apply_agent_profile_change(
+            db_client,
+            agent_id,
+            new_name=requested.get("agent_name"),
+            new_description=requested.get("agent_description"),
+            extra_updates=extra,
+        )
 
-        if update_data:
-            affected_rows = await repo.update_agent(agent_id, update_data)
-            # Advisory only — never the verdict. The verdict is the re-read
-            # below, because a rowcount cannot distinguish "nothing to do"
-            # from "did not apply".
-            logger.debug(
-                f"Agent {agent_id} update touched {affected_rows} row(s) "
-                f"(dialect-dependent; outcome verified by re-read)"
-            )
-            # Peers must learn the new name / description / visibility now.
-            # Before this the discovery row was only rewritten when the agent
-            # next took a turn, so an agent edited and left idle stayed
-            # undiscoverable — and its row still carried the creation
-            # placeholder (P1 section 02). Best-effort: the edit itself has landed.
-            #
+        if not result.ok:
+            # The shared transaction speaks to models; this route speaks to a
+            # UI. Map on the structural reason, never on the sentence.
+            if result.error_kind == "not_found":
+                return UpdateAgentResponse(
+                    success=False,
+                    error=f"Agent {agent_id} not found",
+                )
+            if result.error_kind == "not_applied":
+                return UpdateAgentResponse(
+                    success=False,
+                    error=(
+                        "The update did not persist: "
+                        f"{', '.join(sorted(result.updated_fields))}"
+                    ),
+                )
+            return UpdateAgentResponse(success=False, error=result.error)
 
-        # Peers must learn the new name / description / visibility now. Run for
-        # EVERY accepted request, not only the ones that wrote: sync swallows
-        # its own failures and returns False, so a peer directory left on the
-        # old name has no other way back. The reason this call exists at all is
-        # that "the agent's next turn will refresh it" was not good enough — an
-        # agent edited and left idle stayed undiscoverable (P1 section 02) — and
-        # an idle agent is exactly the case that cannot self-heal. Re-saving the
-        # same values is the obvious way a user retries, so it must not be the
-        # one path that skips the repair.
-        if not await sync_agent_discovery(db_client, agent_id):
-            logger.warning(
-                f"Agent {agent_id}: peer-directory sync failed — the response "
-                f"says success and peers may still see the previous "
-                f"name/description"
-            )
-
-        # The outcome is whatever the row now holds. A request whose values
-        # were already stored lands here having issued no write at all, and is
-        # a success: the state the caller asked for is the state that exists.
+        # The row is the response. Whether it needed a write ("updated") or
+        # already held the values ("unchanged"), the state the caller asked for
+        # is the state that exists — both are success.
         updated_agent = await repo.get_agent(agent_id)
         if not updated_agent:
             return UpdateAgentResponse(
@@ -1149,18 +1147,21 @@ async def update_agent(
                 error=f"Agent {agent_id} disappeared while being updated",
             )
 
+        # The transaction verified that what it WROTE landed. That is not the
+        # same question this route owes its caller, which is whether the row is
+        # now in the state they asked for — a field that compared equal at read
+        # time issued no write and so was never on the transaction's list, yet a
+        # concurrent writer (a second tab, or the agent's own
+        # update_agent_profile) can have moved it inside the window. Benign
+        # last-write-wins, but the caller is still told no, because the row
+        # genuinely is not what they requested. WARNING, not ERROR: there is no
+        # CAS across read-write-reread, so this must not page anyone.
         unapplied = [
             field
             for field, wanted in requested.items()
             if not agent_field_matches(updated_agent, field, wanted)
         ]
         if unapplied:
-            # WARNING, not ERROR: there is no CAS between the read, the write
-            # and this re-read, so a concurrent writer (a second tab, or the
-            # agent's own update_agent_profile) landing in that window shows up
-            # here as "not what I asked for" — benign last-write-wins. The
-            # caller is still told no, because the row genuinely is not in the
-            # state they requested; but this must not page anyone.
             logger.warning(
                 f"Agent {agent_id} does not hold the requested values for "
                 f"{unapplied} after the write — concurrent overwrite, or the "
@@ -1196,7 +1197,7 @@ async def update_agent(
         )
         logger.info(
             f"Agent {agent_id} now holds the requested values "
-            f"({'written' if update_data else 'already stored'})"
+            f"({'written' if result.status == 'updated' else 'already stored'})"
         )
 
         return UpdateAgentResponse(

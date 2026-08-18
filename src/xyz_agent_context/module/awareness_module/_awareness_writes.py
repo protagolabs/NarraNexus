@@ -38,6 +38,7 @@ different.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 from loguru import logger
@@ -179,50 +180,120 @@ async def _record_identity_change(
         logger.warning(f"_record_identity_change failed for {agent_id}: {e}")
 
 
-async def update_agent_profile_from_args(
+@dataclass(frozen=True)
+class AgentProfileWrite:
+    """What a profile write actually did, for callers that are not the model.
+
+    ``update_agent_profile_from_args`` renders this into the sentence the MCP
+    tool has always returned. Every OTHER caller is an HTTP route that owes its
+    client a status code, and inferring one by matching on English prose is a
+    coupling that breaks the first time the wording is improved — so the facts
+    are carried structurally and the prose is derived from them, never parsed.
+    """
+
+    #: ``"updated"`` | ``"unchanged"`` | ``"error"``
+    status: str
+    #: Which of ``agent_name`` / ``agent_description`` / extras were written.
+    updated_fields: tuple = ()
+    #: The previous name, set only when this write renamed the agent.
+    renamed_from: Optional[str] = None
+    #: The name now stored, set only when this write renamed the agent.
+    renamed_to: Optional[str] = None
+    #: agent_id of another agent of the same owner now sharing the new name.
+    name_clash_with: Optional[str] = None
+    #: Machine-readable failure, so routes can map it to a status code:
+    #: ``nothing_to_update`` | ``not_found`` | ``empty_name`` | ``too_long``
+    #: | ``not_applied``.
+    error_kind: Optional[str] = None
+    #: The same failure as a sentence written for a model to read.
+    error: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status != "error"
+
+
+async def apply_agent_profile_change(
     db, agent_id: str, *, new_name: Optional[str] = None,
     new_description: Optional[str] = None,
-) -> str:
-    """Record the agent's display name and/or one-line peer description.
+    extra_updates: Optional[dict] = None,
+) -> AgentProfileWrite:
+    """Write an agent's name and/or description as ONE transaction.
 
-    Returns the SAME status string the update_agent_profile MCP tool has always
-    produced — DirectStore and the backend twin route both call this, so the
-    two paths are byte-identical. Every HANDLED outcome is a string the model
-    reads; the repository calls (get_agent / update_agent) can still raise on a
-    real db error (db down, a MySQL 1406) — DirectStore lets that propagate
-    (as the old tool did), while the Http path degrades it to an "Error: …(500)"
-    string, a real parity seam on unhandled db failures only.
+    This is the whole rename obligation in one place, and it is the reason the
+    function exists rather than each caller writing the column itself: a rename
+    is not "set a column", it is set-the-column-AND-correct-the-memory-AND-
+    refresh-the-directory. Shenzhen round 2 (prod agent_4a0ae5f40af2) is what a
+    caller doing only the first part looks like — the UI rename wrote the name
+    while the Awareness profile kept a platform-voiced record asserting the
+    PREVIOUS name, so the agent read it and introduced itself as 「美食家」 for a
+    row that said 「小绿」. Three writers each remembering three steps is a
+    standing invitation to that bug; there is now one writer and no steps to
+    remember.
+
+    ``extra_updates`` carries fields with no identity semantics (``is_public``)
+    so a caller that edits them alongside the name still issues a SINGLE row
+    write — splitting it would open a window where the row is half-updated.
     """
-    if new_name is None and new_description is None:
-        return (
-            "Error: nothing to update — pass new_name and/or "
-            "new_description."
+    if new_name is None and new_description is None and not extra_updates:
+        return AgentProfileWrite(
+            status="error",
+            error_kind="nothing_to_update",
+            error=(
+                "Error: nothing to update — pass new_name and/or "
+                "new_description."
+            ),
         )
 
     repo = AgentRepository(db)
 
     agent = await repo.get_agent(agent_id)
     if not agent:
-        return f"Error: Agent {agent_id} not found"
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_found",
+            error=f"Error: Agent {agent_id} not found",
+        )
 
-    updates: dict = {}
+    # Extras go through the SAME value-equality short-circuit as name and
+    # description. Skipping it would make "set the value it already holds"
+    # issue a write — harmless on its own, but it is what the dialect-
+    # independence of this function rests on: a write that changes nothing
+    # returns rowcount 0 on MySQL and 1 on SQLite, and everything downstream
+    # is built on never having to interpret that number.
+    updates: dict = {
+        field: wanted
+        for field, wanted in (extra_updates or {}).items()
+        if not agent_field_matches(agent, field, wanted)
+    }
     old_name = normalize_agent_text(agent.agent_name)
     renamed_from: Optional[str] = None
-    notes: List[str] = []
+    clash: Optional[str] = None
 
     if new_name is not None:
         wanted = normalize_agent_text(new_name)
         if not wanted:
-            return "Error: new_name cannot be empty"
+            return AgentProfileWrite(
+                status="error",
+                error_kind="empty_name",
+                error="Error: new_name cannot be empty",
+            )
         # Bind to the SAME cap the read model enforces (Agent.agent_name
         # Field(max_length=AGENT_TEXT_MAX_LENGTH)) and the MySQL column
         # (VARCHAR(255)). Without it a >255 write succeeds on sqlite (TEXT) but
         # makes the row UNREADABLE (get_agent → Agent(...) ValidationError, the
         # NetMindAI-Open#71 bug) and diverges on MySQL (1406 / silent truncate).
-        # Checked HERE — the one shared fn both stores call — so Direct and Http
-        # reject identically (rule #6 / the store parity invariant).
+        # Checked HERE — the one shared fn every caller reaches — so the MCP
+        # tool, both stores and both HTTP routes reject identically.
         if len(wanted) > AGENT_TEXT_MAX_LENGTH:
-            return f"Error: new_name is too long (max {AGENT_TEXT_MAX_LENGTH} characters)"
+            return AgentProfileWrite(
+                status="error",
+                error_kind="too_long",
+                error=(
+                    f"Error: new_name is too long "
+                    f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
+                ),
+            )
         if not agent_field_matches(agent, "agent_name", wanted):
             updates["agent_name"] = wanted
             renamed_from = old_name
@@ -235,13 +306,6 @@ async def update_agent_profile_from_args(
                 db, owner_user_id=agent.created_by,
                 name=wanted, exclude_agent_id=agent_id,
             )
-            if clash:
-                notes.append(
-                    f"Note: 「{wanted}」 is currently also the name of "
-                    f"{clash}, another agent of your owner. The rename "
-                    f"was applied as asked — if that was not intended, "
-                    f"ask your creator which agent should keep it."
-                )
 
     if new_description is not None:
         wanted_desc = normalize_agent_text(new_description)
@@ -249,9 +313,13 @@ async def update_agent_profile_from_args(
         # enforce — an over-long description would make the agent row unreadable
         # (see the name branch).
         if len(wanted_desc) > AGENT_TEXT_MAX_LENGTH:
-            return (
-                f"Error: new_description is too long "
-                f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
+            return AgentProfileWrite(
+                status="error",
+                error_kind="too_long",
+                error=(
+                    f"Error: new_description is too long "
+                    f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
+                ),
             )
         # Same equality short-circuit the name branch does, and for a sharper
         # reason: update_agent returns cursor.rowcount, which counts CHANGED
@@ -263,10 +331,13 @@ async def update_agent_profile_from_args(
             updates["agent_description"] = wanted_desc
 
     if not updates:
-        return (
-            "No changes needed — the values you passed already match "
-            "your current profile."
-        )
+        # Nothing to write, but the directory is still refreshed below: sync
+        # swallows its own failures, so a peer directory left on the old name
+        # has no other way back — and re-saving the same values is the most
+        # natural way a user retries after being told the save failed. That
+        # retry must not be the one path that skips the repair (#320).
+        await _refresh_peer_directory(db, agent_id)
+        return AgentProfileWrite(status="unchanged")
 
     await repo.update_agent(agent_id, updates)
 
@@ -288,34 +359,106 @@ async def update_agent_profile_from_args(
         ]
     )
     if unapplied:
-        # Leave a trace, exactly as the HTTP twin does on its identical branch
-        # (auth.py). Without one, the only record that this happened is the
+        # Leave a trace. Without one, the only record that this happened is the
         # sentence the model was handed — and if a concurrent writer caused it,
         # nothing in the logs or the DB can be lined up with it afterwards.
-        # The returned string is deliberately unchanged: DirectStore and the
-        # /profile/update route must stay byte-identical.
+        # WARNING, not ERROR: there is no CAS across read-write-reread, so a
+        # second tab or the agent's own tool landing inside that window shows
+        # up here as benign last-write-wins, which must not page anyone.
         logger.warning(
-            f"[update_agent_profile] {agent_id} does not hold the requested "
+            f"[agent-profile-write] {agent_id} does not hold the requested "
             f"values for {unapplied} after the write — concurrent overwrite, "
             f"or the write did not land"
         )
-        return "Error: the update did not apply; nothing was changed"
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_applied",
+            error="Error: the update did not apply; nothing was changed",
+            updated_fields=tuple(sorted(unapplied)),
+        )
 
     # A rename is not complete until the memory that asserts the old identity
-    # has been corrected (P1 section 02 ①).
+    # has been corrected (P1 section 02 ①). Unconditional here, for every
+    # caller: the note only ever pointed the right way because the agent's own
+    # tool happened to be the writer, and Shenzhen round 2 is what the other
+    # writers produced — a stale correction is worse than none, because it
+    # speaks in the platform's voice and the agent believes it.
     if renamed_from:
         await _record_identity_change(
             db, agent_id, renamed_from, updates["agent_name"]
         )
 
     # Peers must see this now, not after the next turn (P1 section 02 target 2).
+    await _refresh_peer_directory(db, agent_id)
+
+    return AgentProfileWrite(
+        status="updated",
+        updated_fields=tuple(sorted(updates)),
+        renamed_from=renamed_from,
+        renamed_to=updates.get("agent_name"),
+        name_clash_with=clash,
+    )
+
+
+async def _refresh_peer_directory(db, agent_id: str) -> None:
+    """Republish the agent's discovery row; never raise into the caller.
+
+    The profile write has already landed by the time this runs, so a failure
+    here may not turn into "the rename failed" — it is logged and swallowed,
+    exactly as ``sync_agent_discovery`` does internally.
+    """
     try:
         from xyz_agent_context.message_bus.agent_discovery_sync import (
             sync_agent_discovery,
         )
-        await sync_agent_discovery(db, agent_id)
+        if not await sync_agent_discovery(db, agent_id):
+            logger.warning(
+                f"[agent-profile-write] peer-directory sync failed for "
+                f"{agent_id}; peers may still see the previous name"
+            )
     except Exception as e:  # noqa: BLE001 — profile write already landed
-        logger.warning(f"update_agent_profile: discovery sync failed: {e}")
+        logger.warning(f"[agent-profile-write] discovery sync failed: {e}")
 
-    changed = ", ".join(sorted(updates))
+
+async def update_agent_profile_from_args(
+    db, agent_id: str, *, new_name: Optional[str] = None,
+    new_description: Optional[str] = None,
+) -> str:
+    """Record the agent's display name and/or one-line peer description.
+
+    Returns the SAME status string the update_agent_profile MCP tool has always
+    produced — DirectStore and the backend twin route both call this, so the
+    two paths are byte-identical. Every HANDLED outcome is a string the model
+    reads; the repository calls (get_agent / update_agent) can still raise on a
+    real db error (db down, a MySQL 1406) — DirectStore lets that propagate
+    (as the old tool did), while the Http path degrades it to an "Error: …(500)"
+    string, a real parity seam on unhandled db failures only.
+
+    This is now a renderer over ``apply_agent_profile_change``: the transaction
+    is shared with the HTTP rename routes so the identity correction cannot be
+    skipped by whichever caller happens to write the column.
+    """
+    result = await apply_agent_profile_change(
+        db, agent_id, new_name=new_name, new_description=new_description,
+    )
+
+    if result.error is not None:
+        return result.error
+
+    if result.status == "unchanged":
+        return (
+            "No changes needed — the values you passed already match "
+            "your current profile."
+        )
+
+    notes: List[str] = []
+    if result.name_clash_with:
+        notes.append(
+            f"Note: 「{result.renamed_to}」 is currently also the name of "
+            f"{result.name_clash_with}, another agent of your owner. The "
+            f"rename was applied as asked — if that was not intended, ask "
+            f"your creator which agent should keep it."
+        )
+
+    changed = ", ".join(result.updated_fields)
     return " ".join([f"Profile updated successfully ({changed})."] + notes)

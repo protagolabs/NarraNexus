@@ -34,6 +34,7 @@ from xyz_agent_context.schema import (
     normalize_agent_row_text,
     normalize_agent_text,
 )
+from xyz_agent_context.module.awareness_module import apply_agent_profile_change
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
@@ -321,10 +322,26 @@ async def update_agent_for_manyfold(
             "updated_fields": [],
         }
 
-    # Same invariant as every other writer of this row: stored text is
-    # normalized, or a later rename to the stripped form compares equal,
-    # issues no write, and reports success (see agent_field_matches).
-    await db.update("agents", {"agent_id": agent_id}, normalize_agent_row_text(patch))
+    # The shared rename transaction, not a raw column write. A rename owes the
+    # agent two more things than a row update: the identity correction inside
+    # its Awareness profile (which is injected into the system prompt verbatim,
+    # so a stale one makes the agent introduce itself by the old name — Shenzhen
+    # round 2, P1) and a refreshed peer-discovery row. This path had NEITHER: it
+    # was the only writer of agents.agent_name that never touched discovery at
+    # all, so a Manyfold rename left every peer looking at the previous name
+    # until the agent happened to take a turn. Normalization comes along with
+    # it — the transaction stores normalized text by construction.
+    result = await apply_agent_profile_change(
+        db,
+        agent_id,
+        new_name=patch.get("agent_name"),
+        new_description=patch.get("agent_description"),
+    )
+    if not result.ok:
+        # Manyfold commits its own DB update only after this call succeeds, so
+        # a refusal here must surface as a failure rather than a 200 whose body
+        # happens to hold the old values — otherwise the two sides drift.
+        raise HTTPException(status_code=400, detail=result.error)
 
     logger.info(
         f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"

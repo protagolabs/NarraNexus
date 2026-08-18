@@ -1,8 +1,48 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/_awareness_writes.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 改名事务下沉成 `apply_agent_profile_change`，三个写入方共用
+
+深圳线下第二轮 P1（prod `agent_4a0ae5f40af2`，8/14 复测）。取证：`agents.agent_name`
+= 「小绿」、`bus_agent_registry.description` = `'小绿: 精通各地美食推荐'`（都对），
+而 Awareness profile 里躺着 8/14 15:48 那条身份更正：
+
+> `- 2026-08-14: renamed ... to 「美食家」. You are 「美食家」. 「小绿」 is no longer your name`
+
+方向是反的。agent 先被自己的工具从 小绿 改成 美食家（写下这条笔记），随后被
+**界面**改回 小绿——而 `PUT /agents/{id}` 只写列 + 刷名录，**不追加笔记**。于是
+profile 每轮原文注入系统提示，用平台的口吻告诉 agent「小绿 不是你的名字」。问
+「你是谁」答「美食家」，两次，且它有明确依据。
+
+**这比缺笔记更糟**：笔记是平台声明，agent 会信。所以本次不是"再给 PUT 补一处调用"
+——补调用的做法正是 2026-08-04 已经用过的，它撑了 10 天就被第二个写入方绕过。
+改成：**改名事务不再由调用方拼装**。
+
+- 新增 `apply_agent_profile_change(db, agent_id, *, new_name, new_description,
+  extra_updates)` → `AgentProfileWrite`（frozen dataclass）。名/描述/额外字段的
+  归一 + 等值短路 + 单次行写 + 回读核对 + **身份更正** + **刷名录**，全在里面，
+  调用方无法只做其中一步。
+- `update_agent_profile_from_args` 降级成**渲染器**：把结构化结果格式化成工具历来
+  那串字节。DirectStore / [[profile]] 孪生路由的 byte-parity 不受影响（
+  `test_agent_profile_tool.py` + `test_profile_seam_route.py` 23 例原样绿）。
+- 返回**结构化**而非字符串，是因为另两个调用方是 HTTP 路由，欠客户端一个状态码。
+  靠匹配英文散文推状态码，第一次改措辞就断。`error_kind`
+  （`nothing_to_update` / `not_found` / `empty_name` / `too_long` / `not_applied`）
+  是给机器的，`error` 是给模型读的那一句，两者不混用。
+- `extra_updates` 收 `is_public`：它没有身份语义，但放进同一次调用才能保持**单次
+  行写**，否则会出现行被改了一半的窗口。它**同样走等值短路**——第一版漏了，
+  `test_re_toggling_to_the_current_visibility_writes_nothing_and_succeeds` 当场
+  抓到。这条短路不是优化，是本函数方言无关性的地基（no-op 写在 MySQL 返 0、
+  SQLite 返 1，下游全部建立在"永远不必解释这个数字"之上）。
+- **「无变化」那一支现在也刷名录**（原来提前 return）。理由沿用 [[auth]] #320：
+  sync 自己吞失败只返 False，原值重存是用户最自然的重试方式，它不该恰好是唯一
+  跳过修复的路。现在三条路径在这点上同语义。
+
+⚠ 给后来者：**别再新增 `agents.agent_name` 的写入方**。要写，调这个函数。理由不是
+洁癖——"三个写入方各自记得三件事"就是本条目和 2026-08-04 那条的共同成因。
 
 ## 2026-08-17 — 比较上提共享,判据也从 rowcount 换成回读
 

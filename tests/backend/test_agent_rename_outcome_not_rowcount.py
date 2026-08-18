@@ -296,15 +296,19 @@ def test_a_no_op_re_save_still_refreshes_the_peer_directory(
     `sync_agent_discovery` swallows its own failures, so a peer directory stuck
     on the old name has no other way back.
     """
-    import backend.routes.auth as auth_mod
-
     calls: list[str] = []
 
     async def _spy(_db, agent_id):  # noqa: ANN001
         calls.append(agent_id)
         return True
 
-    monkeypatch.setattr(auth_mod, "sync_agent_discovery", _spy)
+    # Patch the DEFINING module, not the route: the route no longer holds the
+    # symbol — it calls the shared rename transaction, which imports
+    # sync_agent_discovery inside the function. Patching a name the route does
+    # not import would silently spy on nothing and pass on any behaviour.
+    import xyz_agent_context.message_bus.agent_discovery_sync as discovery_mod
+
+    monkeypatch.setattr(discovery_mod, "sync_agent_discovery", _spy)
 
     res = client.put(
         f"/api/auth/agents/{AGENT_ID}",
@@ -316,3 +320,40 @@ def test_a_no_op_re_save_still_refreshes_the_peer_directory(
         "a no-op re-save skipped the peer-directory refresh, so a stale "
         "directory has no user-triggerable repair path"
     )
+
+
+def test_a_field_that_needed_no_write_is_still_verified_against_the_row(
+    client, db_client, seeded, monkeypatch
+):
+    """The route owes the caller "is the row what you asked for", not merely
+    "did my write land".
+
+    A field that compares equal at read time issues no write, so it is not on
+    the shared transaction's verify list — but a concurrent writer (a second
+    tab, or the agent's own ``update_agent_profile``) can still move it inside
+    the read-write-reread window. Benign last-write-wins; the caller is told no
+    regardless, because the row genuinely is not in the requested state.
+
+    This was unpinned when the route delegated its write to the shared
+    transaction, and the delegation silently narrowed it to the written fields
+    only.
+    """
+    import backend.routes.auth as auth_mod
+    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+
+    async def _concurrent_writer(db, agent_id, **_kwargs):  # noqa: ANN001
+        """No-op write, then someone else renames the row underneath us."""
+        await db.update("agents", {"agent_id": agent_id}, {"agent_name": "小蓝"})
+        return AgentProfileWrite(status="unchanged")
+
+    monkeypatch.setattr(auth_mod, "apply_agent_profile_change", _concurrent_writer)
+
+    res = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},  # already the stored value → no write
+        headers={"X-User-Id": OWNER},
+    )
+
+    body = res.json()
+    assert body["success"] is False
+    assert "agent_name" in body["error"]
