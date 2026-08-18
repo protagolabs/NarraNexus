@@ -67,7 +67,8 @@ from xyz_agent_context.channel.message_source_handler import (
 # DB-persist + IM-forward paths; doing both is necessary because
 # they're separate downstream consumers of the same raw tool call.
 _USER_REPLY_TOOL_PATTERNS: tuple[str, ...] = (
-    "send_message_to_user_directly",
+    "reply_owner",
+    "notify_owner",
     "lark_cli",
     "slack_cli",
     "tg_cli",

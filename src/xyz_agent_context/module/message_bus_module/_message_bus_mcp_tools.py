@@ -255,9 +255,12 @@ def register_message_bus_mcp_tools(
             }
 
         try:
-            from xyz_agent_context.utils.db.db_factory import get_db_client
             from xyz_agent_context.message_bus.team_posting import post_team_reply
-            from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+            from xyz_agent_context.message_bus.team_rooms import (
+                resolve_team_room,
+                room_roster,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             team_id = team_id.strip()
             db = await get_db_client()
@@ -276,29 +279,26 @@ def register_message_bus_mcp_tools(
             if not membership:
                 return {"success": False, "error": "you are not a member of this team"}
 
-            # The room is deterministically the group channel whose created_by is
-            # the team marker — a non-agent sender, so no member is the
-            # always-activated owner.
-            channel = await db.get_one(
-                "bus_channels",
-                {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
-                 "channel_type": "group"},
+            # Membership is checked against `team_members` — the source of
+            # truth for who belongs to a team. NOT against the channel, which is
+            # the delivery mirror and lags a roster edit until the next chat
+            # send or open.
+            member = await db.get_one(
+                "team_members", {"team_id": team_id, "agent_id": agent_id}
             )
-            if not channel:
+            if not member:
+                return {"success": False, "error": "you are not a member of this team"}
+
+            channel_id = await resolve_team_room(db, team_id)
+            if not channel_id:
                 return {
                     "success": False,
                     "error": "this team has no room yet — it opens when the chat is first used",
                 }
-            channel_id = channel["channel_id"]
 
             # Roster drives @mention resolution, which matches on NAMES, so the
             # names have to be the ones teammates are shown by.
-            members = await bus.get_channel_members(channel_id)
-            ids = [m.agent_id for m in members]
-            rows = await db.get_by_ids("agents", "agent_id", ids) if ids else []
-            names = {r["agent_id"]: (r.get("agent_name") or r["agent_id"])
-                     for r in (rows or []) if r}
-            roster = [{"agent_id": aid, "name": names.get(aid, aid)} for aid in ids]
+            roster = await room_roster(db, bus, channel_id)
 
             result = await post_team_reply(
                 db=db,

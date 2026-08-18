@@ -40,7 +40,7 @@ from xyz_agent_context.channel.message_source_handler import (
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="job",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
         row_prefix_template="[Background Job]",
     ))
 except ValueError:

@@ -86,4 +86,29 @@ async def resolve_team_room(db: Any, team_id: str) -> str:
     return (row or {}).get("channel_id", "") or ""
 
 
-__all__ = ["team_room_marker", "get_or_create_team_room", "resolve_team_room"]
+async def room_roster(db: Any, bus: Any, channel_id: str) -> list[dict]:
+    """``[{"agent_id", "name"}]`` for everyone in the room.
+
+    Names come from the `agents` table in one batched read, not a lookup per
+    member: a roster is a few dozen rows at most and N+1 here would sit on the
+    delivery path.
+
+    Used for @mention resolution — a mention is written as a NAME and has to
+    become an id — so a member whose row is missing still appears, keyed by id.
+    Dropping them would silently make that teammate unmentionable.
+    """
+    members = await bus.get_channel_members(channel_id)
+    ids = [m.agent_id for m in members]
+    if not ids:
+        return []
+    rows = await db.get_by_ids("agents", "agent_id", ids) or []
+    names = {r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in rows if r}
+    return [{"agent_id": aid, "name": names.get(aid, aid)} for aid in ids]
+
+
+__all__ = [
+    "team_room_marker",
+    "get_or_create_team_room",
+    "resolve_team_room",
+    "room_roster",
+]

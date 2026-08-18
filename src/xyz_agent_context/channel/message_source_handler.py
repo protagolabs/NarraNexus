@@ -21,7 +21,7 @@ handler at module-load time:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="lark",
         user_reply_tool_names=(
-            "send_message_to_user_directly",
+            "notify_owner",
             "lark_cli +messages-send",
             "lark_cli +messages-reply",
         ),
@@ -310,7 +310,18 @@ class MessageSourceHandler:
 
 _DEFAULT_HANDLER = MessageSourceHandler(
     name="default",
-    user_reply_tool_names=("send_message_to_user_directly",),
+    # BOTH owner-facing names, and that is not belt-and-braces.
+    #
+    # The owner's own chat turn resolves to this handler (there is no explicit
+    # "chat" registration), and its desk carries `reply_owner` — while every
+    # other turn carries `notify_owner`. Listing only one of them would make
+    # `_has_organic_reply` blind on the surface that uses the other: a chat turn
+    # that answered perfectly would read as "never spoke", and the helper-LLM
+    # fallback would write a SECOND reply on top of every successful turn.
+    #
+    # A source that wants the two questions separated declares
+    # `owner_visible_reply_tool_names` itself, as message_bus does.
+    user_reply_tool_names=("reply_owner", "notify_owner"),
     row_prefix_template="[NarraNexus UI]",
 )
 """Fallback for any WorkingSource that didn't register itself.

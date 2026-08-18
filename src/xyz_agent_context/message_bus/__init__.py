@@ -16,8 +16,8 @@ from .schemas import BusAgentInfo, BusChannel, BusChannelMember, BusMessage
 
 # Register the MessageBus channel handler so chat_module can recognise
 # bus-triggered reply tools and render bus rows with a distinct prefix.
-# The reply list carries every tool that DELIVERS on a bus turn: the bus
-# sends (answer-the-peer / group replies) and send_message_to_user_directly
+# The reply list carries every tool that DELIVERS on a bus turn: the peer
+# and room sends (answer-the-peer / team replies) and `notify_owner`
 # (Owner Relay). Its live consumer is ChatModule._origin_delivered_text —
 # the [DELIVERED-BG]/[NO-REPLY-BG] persistence split whose counts are the
 # no-reply metric behind the delivery-fallback decision. Listing only the
@@ -32,15 +32,15 @@ try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="message_bus",
         user_reply_tool_names=(
-            "send_message_to_user_directly",
-            "bus_send_message",
-            "bus_send_to_agent",
+            "notify_owner",
+            "message_agent",
+            "message_team",
         ),
         # Bus sends deliver to peer AGENTS — nothing appears in the
         # owner's web chat. Only the owner-notify tool is owner-visible,
         # so session anchoring and chat-history persistence ignore
         # agent-to-agent traffic (see MessageSourceHandler docstring).
-        owner_visible_reply_tool_names=("send_message_to_user_directly",),
+        owner_visible_reply_tool_names=("notify_owner",),
         row_prefix_template="[Bus · from agent={from_agent}]",
     ))
 except ValueError:

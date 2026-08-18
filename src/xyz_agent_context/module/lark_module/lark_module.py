@@ -69,7 +69,7 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
     # Default chat path: agents may still call send_message_to_user_directly
     # on Lark turns (e.g. when also writing to the NarraNexus UI). Honour
     # the chat-style content arg first.
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if "notify_owner" in (tool_name or ""):
         content = args.get("content", "")
         return content or None
 
@@ -106,7 +106,7 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="lark",
-        user_reply_tool_names=("lark_cli", "send_message_to_user_directly"),
+        user_reply_tool_names=("lark_cli", "notify_owner"),
         row_prefix_template="[Lark · {sender_name} in {room_name}]",
         extract_reply_fn=_extract_lark_reply,
         dedicated_trigger=True,

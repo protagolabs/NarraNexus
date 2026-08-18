@@ -77,7 +77,7 @@ def _extract_discord_reply(tool_name: str, arguments: dict) -> Optional[str]:
     if not isinstance(args, dict):
         return None
 
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if "notify_owner" in (tool_name or ""):
         content = args.get("content", "")
         return content or None
 
@@ -97,7 +97,7 @@ try:
                 "discord_send",
                 "discord_reply",
                 "discord_dm",
-                "send_message_to_user_directly",
+                "notify_owner",
             ),
             row_prefix_template="[Discord · {sender_name} · {sender_id} · {chat_id}]",
             extract_reply_fn=_extract_discord_reply,

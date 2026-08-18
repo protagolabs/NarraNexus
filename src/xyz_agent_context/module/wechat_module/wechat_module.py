@@ -51,7 +51,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
             args = {}
     if not isinstance(args, dict):
         return None
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if "notify_owner" in (tool_name or ""):
         return args.get("content", "") or None
     if "wechat_send" in (tool_name or ""):
         return args.get("text", "") or "(sent via wechat_send)"
@@ -62,7 +62,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="wechat",
-        user_reply_tool_names=("wechat_send", "send_message_to_user_directly"),
+        user_reply_tool_names=("wechat_send", "notify_owner"),
         row_prefix_template="[WeChat · {sender_name} · {sender_id}]",
         extract_reply_fn=_extract_wechat_reply,
         dedicated_trigger=True,

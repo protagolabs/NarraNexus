@@ -99,7 +99,7 @@ TOOL_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
     # Chat tools
     "send_message_to_user_directly": {
         "icon": "💬",
-        "name": "send_message_to_user_directly",
+        "name": "reply_owner",
         "desc_template": "",
     },
 

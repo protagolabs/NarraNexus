@@ -84,7 +84,7 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return None
 
     # Generic chat-style content arg
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if "notify_owner" in (tool_name or ""):
         content = args.get("content", "")
         return content or None
 
@@ -116,7 +116,7 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="slack",
-        user_reply_tool_names=("slack_cli", "send_message_to_user_directly"),
+        user_reply_tool_names=("slack_cli", "notify_owner"),
         row_prefix_template="[Slack · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_slack_reply,
         dedicated_trigger=True,
