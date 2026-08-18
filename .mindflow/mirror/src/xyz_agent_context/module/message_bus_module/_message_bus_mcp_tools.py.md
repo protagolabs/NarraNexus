@@ -3,6 +3,32 @@ code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tool
 last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-17 — 工具按 agent 的社交处境重命名，新增 `message_team`
+
+`bus_*` 这个前缀命名的是一个 agent 不该知道存在的子系统。改名后名字说的是**处境**：
+`message_agent` / `message_team` / `create_team` / `find_agent` / `read_history` /
+`team_share_file` / `team_list_files` / `team_pin_rule` / `team_unpin_rule` /
+`team_work_*`。
+
+**删除**：`bus_get_unread`（未读已注入，且说明书写着"别调"——而 prod 上 165 次调用证明
+散文劝阻不起作用，所以解法是拿走工具而不是继续劝）、`bus_get_channel_members`（team 花名册
+已注入 prompt，DM 只有两人）、`bus_get_agent_profile`（Known Agents 已注入）、
+`bus_leave_channel` / `bus_kick_member`（成员关系归用户管；后者在 team 房间里
+**结构上永远失败**——creator-only，而 creator 是合成标记）。
+
+**`message_agent` 合并了旧的两个 peer 发送工具。** 回话与主动找人是同一个动作，所以是同一个
+工具；`to` 必填，因为一轮里可能有多个 peer，平台不猜（决策 ⑥）。
+
+**`message_team` 是补上的动词**，落点 [[team_posting]]。`team_id` 必填：agent 可同时在多个
+team。三道门与其它 team 工具同序：agent 存在、team 属于其 owner、agent 是成员。
+
+**`_describe_agent` 永不抛。** 它跑在发送成功之后、在工具的 `try` 里；抛了会把**已投递**的
+消息报成 `{"success": false}`，agent 会重发。一个装饰性的回显不该能反转它所描述的动作的结果。
+（它此前根本不存在——`message_agent` 一被调用就 `NameError`，被 except 吞成失败。pyright 抓到。）
+
+**`create_team` 的 docstring 原来写着「Create a new MessageBus channel」并推荐
+`bus_send_to_agent`。** 按词表，`MessageBus` 不得出现在任何 agent 可见文本里。
 ## 2026-08-14 — bus_list_team_files 补上漏掉的 get_db_client 导入
 
 该工具自 2026-08-07 落地起就引用了未导入的 `get_db_client`（本文件的 db 导入全是**函数内局部**——82/396/463/498 各在别的函数作用域，闭包解析不到），每次调用必炸 `NameError`，而 [[test_list_team_files_tool]] 原有测试只测 impl 不过 wrapper，全绿假象。修复=补函数内导入（与兄弟工具同款，保持模块加载期不引 db_factory 的循环导入规避）+ 按兄弟工具惯例整体包 try/except（review Minor-4：此前它是这批 bus_* 里唯一裸抛的——连接池懒构建失败会把原始异常甩给模型；except 只回 `{"success": False, "error": ...}`，**不补 `files: []`**，拒绝≠空文件夹）。新增走 `register_message_bus_mcp_tools` 注册面的 wrapper 回归测试。教训：MCP 工具的测试必须打到注册的 wrapper，不能只打 impl。

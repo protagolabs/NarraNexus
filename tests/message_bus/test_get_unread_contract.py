@@ -160,9 +160,15 @@ async def test_the_mark_read_path_must_see_beyond_the_injection_window(
     module = mod.MessageBusModule.__new__(mod.MessageBusModule)
     module.agent_id = ME
 
+    # The frame has to look like what the trace ACTUALLY carries. It named
+    # `bus_send_message` until 2026-08-17; the hook still matched that string
+    # after the tool was replaced, so nothing counted as a reply and this cursor
+    # stopped advancing altogether — the deadlock this test was written to
+    # prevent, re-introduced by a rename and invisible because the test carried
+    # the old name too.
     frame = SimpleNamespace(
-        tool_name="mcp__message_bus_module__bus_send_message",
-        tool_input={"channel_id": CHANNEL, "content": "on it"},
+        tool_name="mcp__message_bus_module__message_agent",
+        tool_input={"to": PEER, "text": "on it"},
     )
     params = SimpleNamespace(
         trace=SimpleNamespace(agent_loop_response=[frame]),

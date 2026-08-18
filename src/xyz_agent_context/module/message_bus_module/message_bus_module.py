@@ -106,7 +106,13 @@ def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
 
 
 def _bus_tag(from_agent: Any, channel_id: Any, msg_type: Any = None) -> str:
-    """The `[MessageBus · sender · channel]` marker, built in exactly one place.
+    """The `[from · sender · where]` marker, built in exactly one place.
+
+    Renamed off "MessageBus" on 2026-08-17. The word named a subsystem the agent
+    is no longer supposed to know exists — it thinks in "a private message" and
+    "a team room", and a tag announcing the transport underneath is a third
+    concept doing no work. The acceptance criterion for the redesign is that
+    `MessageBus` appears in NO agent-visible text.
 
     The format had three copies — the worked example in the instructions and
     two render sites — and the example disagreed with both, showing a display
@@ -120,7 +126,7 @@ def _bus_tag(from_agent: Any, channel_id: Any, msg_type: Any = None) -> str:
     longer drift apart. ``msg_type`` is optional precisely so the example stays
     constructible from two literals.
     """
-    return f"[MessageBus · {_render_sender(from_agent, msg_type)} · {channel_id}]"
+    return f"[from {_render_sender(from_agent, msg_type)} · {channel_id}]"
 
 
 class MessageBusModule(XYZBaseModule):
@@ -250,250 +256,214 @@ class MessageBusModule(XYZBaseModule):
     # =========================================================================
 
     def _static_instruction_parts(self) -> list:
-        """The usage-rules half of the instruction — constant for a given
-        agent (only self.agent_id is baked in), so it can live in the
-        byte-stable system prompt (R4 turn-context relocation)."""
+        """The usage-rules half of the instruction — constant for a given agent,
+        so it can live in the byte-stable system prompt (R4 relocation).
+
+        BYTE-STABLE AND SURFACE-BLIND: this block is emitted on every
+        bus-enabled turn — owner chat, job, each IM channel, peer DM, team room —
+        one character identical. Two rules follow and neither is optional:
+
+        1. **Every sentence here must be true on every one of those surfaces.**
+           A claim that holds in only one kind of room creates a contradiction
+           inside one context window, because that room's own turn prompt is a
+           few dozen lines away saying the opposite. Six review rounds on PR
+           #311 went to exactly this.
+        2. **Never branch on room type.** Branching destroys the byte-stability
+           this block exists for. Say what holds everywhere and leave the
+           room-specific fact to the room's own prompt — the only place that
+           knows it.
+
+        Corollaries, each one paid for: do not infer where a turn came from
+        from the ABSENCE of a marker (wrong twice); do not describe a mechanism
+        without checking it exists (a whole section once pointed at a branch
+        that had never run); when you change wording here, sweep the other
+        copies — the file header, the method docstrings, the MCP tool
+        docstrings, and the mirror md.
+        """
         return [
-            "## MessageBus — Agent-to-Agent Communication",
+            "## Talking to people and to other agents",
             "",
-            "MessageBus is your **inter-agent messaging channel**. Use it to collaborate with other Agents, "
-            "exchange information, coordinate tasks, or reach out to contacts you cannot talk to directly.",
+            "You are not alone. Two kinds of conversation reach you, and the top "
+            "of each turn tells you which one you are in and how to answer it.",
             "",
             f"Your agent ID: `{self.agent_id}`",
             "",
-            "### When to Use MessageBus",
-            "- You need to **contact another Agent** (ask a question, share information, coordinate work)",
-            "- Your owner asks you to **send a message** to another agent",
-            "- You want to **proactively reach out** based on your current task (e.g., gather intel, request help)",
-            "- Use `bus_search_agents` to discover agents you haven't talked to yet",
+            "### Private messages with another agent",
             "",
-            "### Available Tools",
-            "- **bus_send_to_agent**: Direct-message another agent by `agent_id` (auto-creates a DM channel)",
-            "- **bus_send_message**: Send a message to an existing channel (supports @mentions)",
-            "- **bus_create_channel**: Create a new channel and invite members",
-            "- **bus_get_messages**: Read recent history of a channel",
-            "- **bus_search_agents**: Discover agents by capability or description",
-            "- **bus_get_channel_members**: List channel members",
-            "- **bus_get_agent_profile**: View another agent's profile",
-            "- **bus_leave_channel**: Leave a channel you no longer need",
-            "- **bus_kick_member**: Remove another agent from a channel (creator only)",
+            "- `message_agent(to=<agent id>, text=...)` — write to one peer. The "
+            "same call whether you are answering someone who just wrote to you "
+            "or starting something yourself; messaging a peer is one act.",
+            "- `to` is required. A turn can involve several peers, so the "
+            "platform does not guess which one you mean. Who wrote to you is "
+            "named at the top of the turn; everyone else you can reach is in "
+            "your Known Agents list.",
+            "- `find_agent(query)` finds peers by what they can do, for when the "
+            "one you need is not in that list yet.",
+            "- Writing to an agent starts a full turn for them, and their answer "
+            "arrives as a NEW turn — not inside this one. So write when you have "
+            "something for them, and do not wait around for a reply.",
             "",
-            "### DM (1-on-1) Workflow",
-            "1. Call `bus_send_to_agent(to_agent_id='agent_xxx', content='...')`",
-            "2. A direct channel is auto-created on first use; subsequent messages reuse it",
+            "### Team rooms",
             "",
-            "### Group Chat Workflow",
-            "1. Call `bus_create_channel(name='Project Alpha Coordination', members='agent_a,agent_b')`",
-            "2. Use `bus_send_message(channel_id=..., content=..., mention_list=...)` to talk",
-            "3. **Always provide a meaningful channel `name`** — e.g., 'Sales Sync' not 'Untitled'",
+            "A team is a shared room: you, your teammates, and your owner all see "
+            "everything in it.",
             "",
-            "### @Mention Rules (Group Channels)",
-            "In group channels, **only @-mentioned agents are activated** by your message. "
-            "Mentioning another agent **triggers it to run a full agent turn** — use mentions deliberately:",
-            "- **Mention specific agents**: `mention_list='agent_a,agent_b'` — only they are triggered",
-            "- **Mention everyone**: `mention_list='@everyone'` — **all** channel members are triggered (use sparingly)",
-            "- **No mention_list**: nobody is triggered; the message is delivered passively",
-            "- In **DM channels**, `mention_list` is ignored — the recipient is always triggered",
+            "- `message_team(team_id=..., text=...)` — say something in a room.",
+            "- `team_id` is required: you can belong to several teams, so the "
+            "platform does not pick one for you. The room a turn is about is "
+            "named at the top of it.",
+            "- `create_team(name, members)` — start a new team when work needs "
+            "more than two people. It becomes a real room your owner can see, "
+            "not a private side-channel.",
+            "- `team_share_file` puts one of your files in the team's shared "
+            "folder; `team_list_files` says what is already there. Both beat "
+            "describing a file nobody can open.",
+            "- `team_pin_rule` fixes a convention that should govern FUTURE "
+            "replies (an output format, where files go) so nobody has to repeat "
+            "it. Findings and status belong in the conversation, not in the rules.",
+            "- The board — `team_work_add`, `team_work_list`, `team_work_claim`, "
+            "`team_work_complete`, `team_work_update_status` — is how work "
+            "outlives a turn. A task that exists only in a message is a task "
+            "nobody can notice has stalled, including you, because this turn's "
+            "memory is gone by the next one.",
             "",
-            "### Message Source Recognition",
-            # This section described an INPUT PREFIX that has never existed.
-            #
-            # The code that would have produced it (`hook_data_gathering` step
-            # 5) was dead twice over: it gated on `extra_data["working_source"]`
-            # — a key nothing writes, because `working_source` is a ContextData
-            # FIELD (`context_runtime.py:147`) while `extra_data` only carries
-            # `trigger_extra_data` — and it wrote its result to
-            # `extra_data["input_content"]`, which had no reader anywhere; the
-            # consumed input is the FIELD `ctx_data.input_content`. So every
-            # rule here pointed at a marker no turn has ever carried, and the
-            # errand playbook below waited for a cue that could not fire.
-            #
-            # The branch is gone (iron rule #2 — delete, don't shim). These
-            # rules now describe the tags that DO reach the model: the ones on
-            # the Unread Messages list in this module's per-turn context.
-            #
-            # The example is generated by the same helper the list uses, so the
-            # two cannot drift — the previous version taught a four-field tag
-            # against a three-field renderer, which mattered the moment the
-            # rules started telling the agent to READ the sender out of it.
-            # No parenthetical naming WHERE the list lives. It rides
-            # `get_turn_context` only while the R4 relocation flag is on; with
-            # the flag off (a fail-open ops gate) the same lists are appended to
-            # this very block instead, and the heading is absent entirely when
-            # there are no unreads. Naming a section that a config switch can
-            # move is the same class of claim this whole change is removing.
-            "When you have unread bus messages, each entry in your **Unread Messages** list is "
-            f"tagged with its sender and channel, e.g.: `{_bus_tag('agent_xxx', 'ch_yyy')}` — "
-            "sender first, then the channel",
-            # The tag marks the ROUTE, not the species of whoever sent it. A
-            # team room carries its owner's own messages over the bus (sender
-            # `usr_<id>`), so the old flat "another agent, NOT from your owner"
-            # was false exactly where a person is waiting, and it arrived bolted
-            # to a rule that says to drop the pleasantries. The room's own
-            # prompt renders that same sender as "User"; two readings of one row.
-            "- A `[MessageBus · ...]` entry arrived over the bus rather than through your owner's "
-            "main chat window. It is usually another agent — but **a person can speak on the bus "
-            "too** (a team room carries its owner's own messages, shown as `User`), so read the "
-            "sender instead of assuming a machine",
-            # Generated from the same constant the renderer uses. Retyping the
-            # literal is the exact duplicated-knowledge class this branch fixed
-            # for the tag example — change the constant and the list would emit
-            # one label while the rules explained another.
-            f"- An entry whose sender is `{SYSTEM_SENDER_LABEL}` is the PLATFORM narrating something "
-            "it did — not a teammate, and not someone to answer or @mention",
-            "- Talking to an **agent** is peer-to-peer — be concise, professional, task-focused. When "
-            "the sender is a person, talk to them like one",
-            # Deliberately NOT a claim about what an untagged turn is.
-            #
-            # The line that stood here said "no tag ⇒ from your owner via the
-            # main chat interface", which an IM turn contradicts in the same
-            # context window (`channel/channel_prompts.py`) and a job turn has
-            # no human for at all. The first rewrite made it "no tag ⇒ did not
-            # arrive over the bus" — which was false on 100% of bus turns,
-            # because no turn's INPUT has ever carried a tag. Both were the same
-            # mistake: inferring the turn's origin from the absence of a marker
-            # this module controls. Where a turn came from is stated by the
-            # turn's own prompt, and that is all this block may say about it.
-            "- These tags describe your unread QUEUE, not the message that started this turn. What "
-            "triggered this turn is stated by this turn's own prompt — do not infer it from the "
-            "presence or absence of a tag here",
+            "### @mentions decide who WAKES UP, not who can see",
             "",
-            "### Autonomy — Be Proactive",
-            "You are expected to handle bus messages **autonomously**, not as a passive intermediary.",
-            "- When another agent asks you a question within your capabilities, **answer it directly** — do NOT ask your owner for permission first",
-            "- When another agent requests your help with a task you can perform, **perform it and reply with the result**",
-            "- Treat bus messages as real work, just like requests from your owner",
-            "- Only escalate to your owner if the request is outside your capabilities, requires owner-specific approval, or involves sensitive decisions",
+            "In a room, only @-mentioned agents are activated: @mentioning a "
+            "teammate starts a full turn for them, and a message that names "
+            "nobody wakes nobody. That is how work is handed on, so do it "
+            "deliberately and not as a reflex. Say @all only when you genuinely "
+            "need everyone.",
+            "",
+            "What you can READ in a given room is a property of that room, and "
+            "its own prompt states it. This block only speaks to activation, "
+            "which works the same way everywhere.",
+            "",
+            "When agents have passed something back and forth several times with "
+            "no human word in between, the platform stops relaying @mentions and "
+            "says so in the room. That is a fact about the room, not a rule for "
+            "you to enforce: you will be told who was not reached.",
+            "",
+            "### Reading what you were given",
+            "",
+            "Each entry in your unread list is tagged with who sent it and where, "
+            f"e.g.: `{_bus_tag('agent_xxx', 'ch_yyy')}` — sender first, then the "
+            "conversation.",
+            "- A sender shown as `User` is a **PERSON**, not an agent. A person "
+            "can be in these conversations: a team room carries its owner's own "
+            "messages. So read the sender rather than assuming a machine.",
+            f"- A sender shown as `{SYSTEM_SENDER_LABEL}` is the PLATFORM "
+            "narrating something it did — not a teammate, and not someone to "
+            "answer or @mention.",
+            "- These tags describe your unread QUEUE. They say nothing about what "
+            "started THIS turn — that is stated at the top of the turn, so do not "
+            "infer it from the presence or absence of a tag here.",
+            "",
+            "### Looking things up",
+            "",
+            "- Your unread messages and the current conversation are already in "
+            "this turn's context. You do not need to fetch them.",
+            "- `read_history` is for going back FURTHER than what you were given "
+            "— when the answer depends on something older than this turn shows.",
+            "- There is no registration tool. What peers see of you is rebuilt "
+            "from your profile and your installed skills every turn; change it "
+            "with `update_agent_profile` (Awareness). Capabilities are derived, "
+            "never self-declared.",
+            "",
+            "### Autonomy — be proactive",
+            "",
+            "You are expected to handle what reaches you **autonomously**, not as "
+            "a passive intermediary.",
+            "- Another agent asks something you can answer → answer it. Do NOT "
+            "ask your owner for permission first.",
+            "- Another agent asks for help you can give → do it and say what "
+            "came of it.",
+            "- Treat these as real work, exactly like a request from your owner.",
+            "- Escalate to your owner only when the request is outside what you "
+            "can do, needs their approval, or involves a sensitive decision.",
             "",
             "### Reply Discipline — CRITICAL (prevents infinite loops)",
-            "Autonomy does NOT mean replying to everything. A reply triggers the other agent to run another turn, which can cascade into loops. Apply these rules:",
-            # The species claim, in imperative form. Deleting it from the
-            # Source Recognition rule above and leaving it here would have kept
-            # the harm intact and only removed its justification: this is the
-            # half with the BEHAVIOUR attached, and it re-asserts "the
-            # counterparty is a machine" on its own authority. A team room's
-            # owner posts over the bus, so a flat antecedent aims the
-            # skip-pleasantries rule straight at a person.
-            #
-            # The brevity half carries the ping-pong P0 and is true toward any
-            # peer, so it is scoped rather than dropped.
-            "- **When the other party is another agent, it is not a human.** Skip pleasantries, skip warm-up phrases. Brevity beats politeness — a one-sentence answer is better than three; a single number, list, or status word is better than a sentence wrapping it. Agents do not need to feel acknowledged. When the sender is a PERSON (see Message Source Recognition), talk to them like one.",
-            "- **Silence when the thread is done** — if the other party only acknowledges ('thanks', 'got it', '好的', '谢谢'), do NOT reply again. The conversation has reached a natural end.",
-            "- **Do NOT ping-pong** — once you've answered a question and the other party has acknowledged, stop. Another reply adds zero value and triggers another round.",
-            # Observed 2026-08-03 on a live turn: 小雀 relayed its owner's
-            # question, 羽书 classified it as "纯转发" and stayed silent per
-            # Reply Discipline — so the human who asked never got an answer.
-            # Silence is for ACKNOWLEDGEMENTS, never for questions.
-            "- **A question is never ping-pong — answer it.** If another agent asks you something you can answer, "
-            "answering IS the substance. This includes a question they are relaying **on their owner's behalf** "
-            "('X wants to know what you are working on'): that a message is 'just forwarded' is NOT a reason for "
-            "silence — a human is waiting at the other end of it. Reporting the same status to your own owner does "
-            "not discharge the request; the agent who asked cannot see what you told your owner. Reply to the asker.",
-            # 2026-08-01 briefing squad: five analysts did real research and
-            # ended their turns with the results as plain text — nothing was
-            # delivered. Silence rules are for empty substance; a produced
-            # result is the opposite of empty.
-            #
-            # The DUTY is stated here; the MECHANISM is not, because this block
-            # does not know which surface the turn is on and the two surfaces
-            # want opposite things. Naming only the tool made this the loudest
-            # sentence a team room contradicts: there the plain text IS the
-            # reply (the trigger posts it) and calling a delivery tool
-            # double-posts, so "plain text delivers NOTHING" was word-for-word
-            # backwards against the team prompt in the same context window.
-            # Same resolution as the visibility rewrite two rules down — say
-            # what holds everywhere, point at the turn for the rest.
-            #
-            # EXCEPTION-FORM, team case first and phrased as a PROHIBITION. The
-            # first draft was a two-branch "when X do A; when Y do B", and X
-            # ("a bus delivery tool is offered") is TRUE on a team turn: the
-            # team gate empties the expressive DECLARATION only
-            # (`context_runtime`), while the tool schemas stay in context
-            # because this module has no `get_disallowed_tools` override. Both
-            # branches therefore matched, the sentence stated no precedence,
-            # and the reachable branch was the one that double-posts. A flat
-            # tool list beating a per-turn instruction is a measured failure
-            # here, not a hypothetical (see nexus_power prompts/library.py).
-            "- **Finished work is never ping-pong — deliver it.** When you complete something another "
-            "agent asked for (research, an answer, a document), the result has to REACH them; a turn "
-            "that ends with the work sitting only in your own reasoning delivered nothing. If this "
-            "turn's prompt tells you your reply is posted for you **without a tool call**, then "
-            "writing it IS delivering it — do NOT also call a delivery tool, that sends it twice. "
-            "Otherwise send the result with `bus_send_message` / `bus_send_to_agent`.",
-            "- **Do NOT repeat yourself** — if you've already said X, do not rephrase X just to fill space.",
-            "- **Substance only** — reply only when you have new information, a concrete answer, a clarifying question, or a task result. Do not reply with filler like 'I'm thinking about it', 'got your message', 'will get back to you'.",
-            # "Just stop the turn" is a rule about TOOL CALLS, and it only adds
-            # up to silence on a surface where nothing else delivers. Where the
-            # reply auto-posts, leftover text is still a message the room
-            # receives — so not calling a tool is not the same act as saying
-            # nothing, and the rule has to name the one that is.
-            #
-            # The old tail ("the unread cursor advances appropriately") is gone
-            # rather than rewritten: it was a third vague claim about the same
-            # cursor the resurfacing rule below states precisely and scopes.
-            # "to the bus conversation" is load-bearing, not padding. The old
-            # text named two bus tools and so could only ever be read as a rule
-            # about the bus; "end the turn with no reply text at all" is
-            # absolute, and this same block obliges an owner relay 40 lines
-            # down ("never suppresses reporting back to your owner"). Silence
-            # toward a peer must not read as silence toward the person waiting.
-            "- **If the substance is empty, choose silence explicitly.** If after reading the bus message you have nothing new to add, no concrete answer, no clarifying question worth asking — do not call `bus_send_message` or `bus_send_to_agent`, and end the turn with no reply text to the bus conversation at all. Silence is producing NOTHING, not producing something short: where a surface posts your reply for you, whatever text you leave behind is still a message somebody receives.",
-            # Scoped to direct messages on purpose. In a DM the unread list IS
-            # the queue, so declining to answer really does defer the item. A
-            # team room delivers by rendering its scrollback into the turn, so
-            # once a turn has run there the messages are read whether or not
-            # the agent spoke — promising otherwise would be a rule the
-            # platform stops keeping the moment the agent joins a team.
-            "- **Ignored direct messages resurface** — a DM you choose not to "
-            "reply to stays unread and appears again next turn. This is "
-            "intentional: you can defer without forgetting.",
-            # Says only what holds in EVERY room this block reaches. The old
-            # wording ("in group channels you only see messages that @mention
-            # you") is true of an ordinary bus group and false of a team room,
-            # whose turn prompt carries the room's whole recent scrollback and
-            # says so — two contradictory claims about the same room, in the
-            # same context window. Visibility is a property of the room, so the
-            # room's own prompt states it; this block may only speak to
-            # activation, which is uniform.
-            "- **An @mention decides who WAKES UP, not who can see.** What you "
-            "can read in a given room is stated by that room's own prompt. "
-            "Reply to what is addressed to you with intent (or decline via "
-            "silence if a reply would just be filler).",
             "",
-            "### When your owner asks about your inbox",
-            "If the owner asks 'what messages do you have' or 'check your inbox', **report the contents directly**. Do not use this as an excuse to reply to peer agents — the owner is asking for a status report, not delegating.",
+            "Autonomy does not mean answering everything. Every message you send "
+            "starts a turn for someone, which can cascade. So:",
+            # The species claim is CONDITIONAL. A team room carries its owner's
+            # own messages, so a flat "the other party is a machine" aims the
+            # skip-the-pleasantries rule at a person.
+            "- **When the other party is another agent, it is not a human.** Skip "
+            "pleasantries and warm-up phrases. Brevity beats politeness — one "
+            "sentence beats three, and a single number or status word beats a "
+            "sentence wrapped around it. Agents do not need to feel acknowledged. "
+            "When the sender is a PERSON, talk to them like one.",
+            "- **Silence when the thread is done.** If the other party only "
+            "acknowledged ('thanks', 'got it', '好的'), do not answer again. The "
+            "conversation reached its end.",
+            "- **Do NOT ping-pong.** Once you have answered and they have "
+            "acknowledged, stop. Another message adds nothing and starts another "
+            "turn.",
+            # 2026-08-03: 小雀 relayed its owner's question, 羽书 classified it as
+            # "just forwarding" and stayed silent — so the human who asked never
+            # got an answer. Silence is for ACKNOWLEDGEMENTS, never for questions.
+            "- **A question is never ping-pong — answer it.** Including one "
+            "somebody is relaying on their owner's behalf ('X wants to know what "
+            "you are working on'): that a message is 'just forwarded' is NOT a "
+            "reason for silence, because a human is waiting at the other end of "
+            "it. And "
+            "reporting the same thing to YOUR owner does not discharge the request "
+            "— the agent who asked cannot see what you told your owner.",
+            # 2026-08-01 briefing squad: five analysts did real research and ended
+            # their turns with the results as plain text. Nothing was delivered.
+            "- **Finished work is never ping-pong — deliver it.** When you "
+            "complete something someone asked for (research, an answer, a "
+            "document), it has to REACH them — and it only does so through the "
+            "send call this turn offers you, which the top of the turn names. A "
+            "turn that ends with the work sitting in your own reasoning "
+            "delivered nothing. (No tool name is given here on purpose: which "
+            "one delivers depends on where you are, and only the turn knows.)",
+            "- **Do NOT repeat yourself.** If you have already said X, do not "
+            "rephrase X to fill space.",
+            "- **Substance only.** Write when you have new information, a "
+            "concrete answer, a real question, or a result. Not 'I'm thinking "
+            "about it', 'got your message', 'will get back to you'.",
+            "- **If there is no substance, choose silence explicitly** — make no "
+            "send call to that conversation at all. Silence is producing NOTHING, "
+            "not producing something short. It is silence toward the PEER OR ROOM "
+            "only: reporting to your owner is a separate act and this never "
+            "suppresses it.",
+            "- **An unanswered private message comes back.** A peer's message you "
+            "choose not to answer stays unread and appears again next turn, so "
+            "you can defer without forgetting. (A room works differently, and its "
+            "own prompt says how.)",
+            "",
+            "### When your owner asks about your messages",
+            "",
+            "If they ask 'what messages do you have' or 'check your inbox', "
+            "report what is there. That is a status question, not permission to "
+            "start answering peers.",
             "",
             # P1 2026-08-02: agents answered "I can't do that" to "ask X what
-            # they're working on". The capability was always here — the model
-            # reached for a contact-lookup tool, hit an error, and gave up. So
-            # name the request shape and give it an explicit route.
+            # they're working on". The capability was always there — the model
+            # reached for a contact-lookup tool, hit an error, and gave up.
             "### When your owner asks you to find something out FROM another agent",
-            "Requests like 'ask the teaching expert what they're working on', 'check whether X finished', "
-            "'find out if Y needs help' are **things you can do** — you have a message bus. "
-            "**Never answer that you are unable to reach another agent.**",
-            "1. Identify the target in your **Known Agents** list above (or `bus_search_agents` if it is not there). "
-            "Use that exact `agent_id`.",
-            "2. Ask them: `bus_send_to_agent(to_agent_id='agent_xxx', content='<the owner's question>')`. "
-            "Do NOT use social-network / contact-lookup tools for this — those return contact details, not answers.",
-            "3. Tell your owner you have asked, and that you will report back when the reply arrives. "
-            "A reply is a **new turn**, not something you wait for inside this one.",
-            # The recognition cue used to be "input tagged `[MessageBus · ...]`"
-            # — the input prefix that never existed, so the one step of this
-            # playbook that closes the loop back to the owner was keyed on a
-            # signal that could not arrive. The reply shows up as a bus turn,
-            # with the peer's answer in the unread list.
-            "4. When their reply arrives (a new bus turn; their answer is in your Unread Messages), "
-            "**relay the substance to your owner** "
-            "with `send_message_to_user_directly`. That relay is the point of the errand — do not silently drop it. "
-            "(Reply Discipline governs replies to the AGENT; it never suppresses reporting back to your owner.)",
-            "If the target genuinely cannot be found, say who you looked for and ask your owner which agent they meant — "
-            "that is a clarifying question, not a refusal.",
             "",
-            "### When NOT to Call Tools",
-            "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",
-            "- **There is no bus registration tool** — your discovery entry is rebuilt from your profile and your installed skills on every turn. "
-            "To change what peers see, set your name/description with `update_agent_profile` (Awareness); capabilities are derived, never declared.",
-            "- **Do NOT call `bus_get_messages`** for channels whose history you already have in context.",
+            "'Ask the teaching expert what they're working on', 'check whether X "
+            "finished', 'find out if Y needs help' — these are things you CAN do. "
+            "**Never answer that you are unable to reach another agent.**",
+            "",
+            "1. Find them in your Known Agents list (or with `find_agent` if they "
+            "are not there yet) and use that exact id.",
+            "2. Ask: `message_agent(to=<their id>, text=<your owner's question>)`. "
+            "Do NOT use social-network or contact-lookup tools for this — those "
+            "return contact details, not answers.",
+            "3. Tell your owner you have asked and will report back. Their reply "
+            "is a NEW turn, not something you wait for inside this one.",
+            "4. When it arrives, relay the substance to your owner with "
+            "`send_message_to_user_directly`. That relay is the point of the "
+            "errand — do not drop it. Reply discipline governs what you send to "
+            "the AGENT; it never suppresses reporting back to your owner.",
+            "",
+            "If you genuinely cannot find them, say who you looked for and ask "
+            "your owner which agent they meant — that is a clarifying question, "
+            "not a refusal.",
         ]
 
     def _volatile_context_parts(self, ctx_data: ContextData) -> list:
@@ -594,7 +564,7 @@ class MessageBusModule(XYZBaseModule):
         volatile = self._volatile_context_parts(ctx_data)
         if not volatile:
             return ""
-        return "\n".join(["### MessageBus — Current State", *volatile])
+        return "\n".join(["### Who is around, and what is waiting", *volatile])
 
     # =========================================================================
     # Hooks
@@ -784,8 +754,10 @@ class MessageBusModule(XYZBaseModule):
         resurface on the next turn — this is the "silence is acceptable"
         mechanism.
 
-        We detect replies by inspecting trace for bus_send_message and
-        bus_send_to_agent tool calls.
+        We detect replies by inspecting the trace for `message_agent` and
+        `message_team` calls. Those names have to track the tools: while they
+        still named the pre-2026-08-17 tools, nothing counted as a reply and this
+        cursor stopped advancing altogether.
         """
         # Only process if this was a bus-triggered execution OR if the agent
         # actually sent bus messages this turn (could be user-initiated outreach)
@@ -796,28 +768,58 @@ class MessageBusModule(XYZBaseModule):
 
             # Extract channel IDs that were replied to
             replied_channels: set[str] = set()
-            replied_agents: set[str] = set()  # For bus_send_to_agent
+            replied_agents: set[str] = set()   # peers written to via message_agent
+            replied_teams: set[str] = set()    # rooms spoken in via message_team
 
             if params.trace and params.trace.agent_loop_response:
                 for response in params.trace.agent_loop_response:
                     tool_name = getattr(response, "tool_name", None)
                     tool_input = getattr(response, "tool_input", None)
 
-                    # Tool names come through as mcp__message_bus_module__bus_send_message
-                    # or just bus_send_message depending on how the SDK reports them
+                    # Names arrive either fully qualified
+                    # (mcp__message_bus_module__message_agent) or bare, depending
+                    # on how the SDK reports them, so match on the substring.
+                    #
+                    # 2026-08-17 — these MUST track the tool renames. They were
+                    # still matching `bus_send_message` / `bus_send_to_agent`
+                    # after both tools were replaced, which meant nothing ever
+                    # counted as a reply and this cursor never advanced again:
+                    # the same permanently-unread deadlock just fixed on the IM
+                    # side, re-introduced on the peer side by a rename.
                     if not tool_name:
                         continue
                     if not isinstance(tool_input, dict):
                         continue
 
-                    if "bus_send_message" in tool_name:
-                        cid = tool_input.get("channel_id")
-                        if cid:
-                            replied_channels.add(cid)
-                    elif "bus_send_to_agent" in tool_name:
-                        target = tool_input.get("to_agent_id")
+                    if "message_team" in tool_name:
+                        # The room's channel follows from the team, and the hook
+                        # does not have it — but every unread row in that room is
+                        # in the same channel as the reply, so record the team and
+                        # resolve it below.
+                        tid = tool_input.get("team_id")
+                        if tid:
+                            replied_teams.add(tid)
+                    elif "message_agent" in tool_name:
+                        target = tool_input.get("to")
                         if target:
                             replied_agents.add(target)
+
+            # A team we spoke in resolves to its room, deterministically: the
+            # group channel whose created_by is the team marker.
+            if replied_teams:
+                from xyz_agent_context.schema.team_schema import (
+                    TEAM_ROOM_OWNER_PREFIX,
+                )
+
+                db = await _get_shared_db()
+                for tid in replied_teams:
+                    row = await db.get_one(
+                        "bus_channels",
+                        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{tid}",
+                         "channel_type": "group"},
+                    ) if db else None
+                    if row and row.get("channel_id"):
+                        replied_channels.add(row["channel_id"])
 
             # Only mark read for channels where we actually replied
             if not replied_channels and not replied_agents:

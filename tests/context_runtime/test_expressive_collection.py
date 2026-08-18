@@ -189,7 +189,7 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     ]
 
     collected = await _collect(instances, monkeypatch, working_source="message_bus")
-    assert collected[0] == "mcp__message_bus_module__bus_send_message"
+    assert collected[0] == "mcp__message_bus_module__message_agent"
     assert collected[1] == "mcp__message_bus_module__bus_send_to_agent"
     assert "mcp__chat_module__send_message_to_user_directly" in collected
 

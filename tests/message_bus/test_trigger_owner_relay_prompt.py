@@ -80,7 +80,7 @@ def test_relay_directive_covers_followup_case():
     Both paths must be in the directive so the agent doesn't get stuck in
     case (b) without telling the owner the thread is alive."""
     prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc", i_started_this_exchange=True)
-    assert "bus_send_to_agent" in prompt  # follow-up path
+    assert "message_agent" in prompt  # follow-up path
     assert "send_message_to_user_directly" in prompt  # both paths
     # Status-update framing for case (b)
     assert "waiting" in prompt or "status" in prompt

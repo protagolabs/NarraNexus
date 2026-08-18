@@ -32,6 +32,8 @@ from xyz_agent_context.message_bus.message_bus_trigger import (
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
+from ._team_turn import speak_in_room
+
 ROOM = "ch_timing_room"
 
 _TIMING_RE = re.compile(
@@ -82,11 +84,15 @@ async def _trigger_with_fake_runtime(
             raise RuntimeError("turn blew up")
     else:
         async def _fake_invoke(*_a, **_k):
-            # A team room's reply is posted from INSIDE the turn, so a stub that
-            # skips the deliverer is measuring a path production never takes.
-            post = _k.get("on_plain_text_delivery")
-            if deliver and post is not None:
-                await post("the reply")
+            # The agent speaks by CALLING A TOOL (2026-08-17), so a stub that
+            # skips that call is measuring a path production never takes — and a
+            # hop only counts as complete when something reached the room.
+            if deliver and _k.get("team_room"):
+                await speak_in_room(
+                    db=db_client, bus=trigger._bus, agent_id=_k.get("agent_id") or "",
+                    team_id="team_1", channel_id=ROOM, text="the reply",
+                    event_id="evt_t1",
+                )
             return TurnResult(text="the reply", event_id="evt_t1")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)

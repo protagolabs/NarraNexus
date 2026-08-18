@@ -73,12 +73,21 @@ async def team_cascade_depth(db: Any, channel_id: str) -> int:
     countable hops fit, ``depth`` could never reach the cap, and the runaway-@
     guard silently stopped applying in exactly the rooms patrol frequents.
     """
-    ph = db.placeholder
+    # `%s` and the CLIENT, not the raw backend's own placeholder.
+    #
+    # This query came out of `MessageBusTrigger`, where `self._bus._db` IS the raw
+    # backend and takes SQL verbatim. Every caller here holds an
+    # `AsyncDatabaseClient` instead — which has no `.placeholder` at all, so
+    # reading one raised `AttributeError` inside the cap check and took the whole
+    # send down with it: the hop cap turned every `message_team` call into
+    # `{"success": false}`. The client translates `%s` per dialect, which is what
+    # the dual-dialect contract wants anyway.
     rows = await db.execute(
-        f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-        f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders(ph)})) "
+        f"SELECT from_agent FROM bus_messages WHERE channel_id = %s "
+        f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders()})) "
         f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
         (channel_id, *PLATFORM_MSG_TYPES),
+        fetch=True,
     )
     depth = 0
     for r in rows or []:

@@ -152,10 +152,17 @@ def test_team_prompt_shows_history_from_others_and_points_at_trigger():
     assert "just @mentioned by Alice" in prompt
 
 
-def test_team_prompt_allows_action_tools_forbids_reply_delivery():
-    # Action tools (Read + bus_share_to_team) are allowed; REPLY-DELIVERY
-    # functions are forbidden (the reply auto-posts). The old blanket "no tools"
-    # / "no send/bus" ban made agents refuse to open a file and fake a forward.
+def test_team_prompt_allows_action_tools_and_names_the_send_verb():
+    """RENAMED 2026-08-17: the "forbids reply delivery" half is retired.
+
+    That prohibition existed because the reply auto-posted, so calling a delivery
+    tool as well double-posted. Nothing auto-posts now — the room IS a tool call —
+    so naming a forbidden tool would be describing a hazard that no longer exists.
+
+    The half that must survive is the one with its own scar: a blanket "no tools"
+    ban made agents refuse to open a shared image and even fake a "forwarded ✅"
+    they could not do. Read and team_share_file have to stay explicitly allowed.
+    """
     trig = MessageBusTrigger(bus=None)
     for atts, mtype in [(ATTS, "multimodal"), (None, "text")]:
         prompt = trig._build_team_prompt(
@@ -167,7 +174,7 @@ def test_team_prompt_allows_action_tools_forbids_reply_delivery():
             ],
             bulletin=None,
         )
-        assert "Do NOT use any tools" not in prompt          # no blanket ban
-        assert "built-in Read tool" in prompt                # Read allowed
-        assert "bus_share_to_team" in prompt                 # publishing a file allowed
-        assert "send_message_to_user_directly" in prompt     # reply-delivery forbidden
+        assert "Do NOT use any tools" not in prompt      # no blanket ban
+        assert "built-in Read tool" in prompt            # Read allowed
+        assert "team_share_file" in prompt               # publishing a file allowed
+        assert "message_team(" in prompt                 # and the room's send verb

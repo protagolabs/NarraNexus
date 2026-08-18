@@ -82,6 +82,51 @@ trigger 发一条团队回复再把行读回来**的测试；把修复的任意�
 `{"stage": "worker_starvation", "starved_for_s": 27, "running": 1, "waiting": 1,
 "max_workers": 1, "longest_running_agent": ...}`。
 
+## 2026-08-17 — team 回复改成工具调用，投递不再是 trigger 的事
+
+`_deliver_reply` / `include_monologue=is_team` / `on_plain_text_delivery` /
+`live_segments` / `POST_OK|FAILED|NOT_ATTEMPTED` 全部删除。房间收
+`message_team`，落点在 [[team_posting]]。
+
+**事后记账从「平台投递成功了吗」变成「agent 这一轮在房间里说过话吗」**，而这个问题
+`has_message_from_turn` 本来就能答（它此前只在 `POST_NOT_ATTEMPTED` 那一支被用到）。
+于是整块三态状态机塌成一个布尔。**刻意不用 `turn.delivered`**：那会把
+`send_message_to_user_directly` 也算进去，而只通知了 owner 的 agent 把房间留在沉默里
+——正是通知存在的理由。
+
+**级联上限的叙述从这里移走**（搬到 team_posting，因为施加上限的是它）；两处都留会说两次。
+
+**fatal 通知保持不变**，仍以房间自己的标记发、且不问 agent 有没有说过话：这条通知声称的是
+**这一轮失败了**，不论如何都为真。
+
+### `include_monologue` 只剩 patrol，而它必须剩下
+
+patrol 是**另一件事**：平台请 lead 撰写房间的状态行，然后以**房间自己的标记** +
+`msg_type=patrol` 发出去。工具做不到这件事（工具以 agent 身份发，那条线会被算成 agent
+一跳、并读作 lead 在闲聊）。而 NexusPower 把 agent 的纯文本走 AGENT_THINKING，**去掉这个
+开关会让 patrol 在 nexus_power 上静默失效、在 claude_code 上看起来正常**——本仓吃过两次的
+那个形状。守卫从「team 批次必须开」翻转成「team 批次不许开 + patrol 必须开」
+（`test_team_monologue_wiring`）。
+
+patrol 的 prompt 现在**自己说明**这条例外（P1：surface 特有的事实由该 surface 自己讲）：
+「这一轮你在撰写房间的状态行，不是以自己的身份说话：写成纯文本、不要调 message_team」。
+
+### 安全网（与投递变更同批，不可拆）
+
+briefing-squad 那个 P0 重新进入射程——纯文本自动上墙时它结构上不可能发生。三层网：
+
+1. **`message_team` 是本轮声明的默认回复工具** → 两个框架的 reply reminder 都会渲染它。
+   **这是主网**，且两个框架都覆盖。
+2. **哑轮通知**：turn 产出了文本但房间里什么都没有 → `_announce_failed_room_post`
+   （措辞改为「产出了回复但从未发给房间」）。平台**不**替它写（铁律 #15），但损失不再静默。
+3. **`expression_nudge`**：team 轮次传一个最小 `TurnProfile`（只开这一项，其余全默认；
+   `narrative_persistence` 只在 `bm25_top1` 快路上被读，本 profile 不走那条）。仅
+   NexusPower 有。
+
+**刻意没用 IM DM 那条 helper-LLM 兜底。** 那条路让 helper 写回复、平台投递——在 1:1 里
+可以接受，在 team 房间里是**平台冒充一个 agent 在它的队友和 owner 面前发言**。spec §5.2
+建议把 team 从兜底排除名单里摘出来，这里没有照做，理由就是这一句。
+
 ## 2026-08-17 — 唤醒终于跨进程了（`_wait_cross_process_wake`）
 
 2026-08-14 那条的末尾写着「要跨进程就得上 DB 信号 + 读取方，**等 peer DM 延迟真成为

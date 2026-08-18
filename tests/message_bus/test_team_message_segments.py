@@ -165,26 +165,38 @@ def test_the_bus_signature_appends_rather_than_inserts():
 # log, tests green.
 
 
-def test_the_team_reply_hands_its_segments_to_the_bus():
-    """The trigger passes the boundary to the post, from a real value.
+def test_a_team_reply_carries_no_segments_and_that_is_correct():
+    """RETIRED-AND-REPLACED 2026-08-17, and something is genuinely lost here.
 
-    Reads the source because the post moved inside the turn and the deliverer is
-    a closure — but the BEHAVIOUR is covered end to end by
-    `test_a_real_team_turn_stores_its_segments` below, which is the test that
-    actually goes red. What is pinned here is the shape that has bitten twice:
-    a `getattr` fallback, which turns "the name is wrong" into a permanent None
-    with no error and no log.
+    These two tests pinned the monologue/reply boundary travelling from the run to
+    the wall: `_deliver_reply` passed `joined_segments(live_segments)` so the room
+    could lay deliberation out differently from the answer.
+
+    That boundary no longer EXISTS for a team reply. The reply is now the argument
+    of a tool call, and the agent's deliberation stays private — so there is no
+    "monologue half" of a room message to render. The room showing an agent
+    thinking out loud is a feature this change removes, deliberately: it existed
+    only because the reply and the thinking were the same text.
+
+    The storage half of this file is untouched and still passes — `segments` is
+    still a real column with real semantics (absent = one block), and the bulletin
+    and IM paths can still use it. What is pinned here is that the ROOM path
+    writes none, so nobody re-adds a half-wired boundary later and wonders why the
+    panel shows nothing.
     """
     import inspect
 
-    from xyz_agent_context.message_bus import message_bus_trigger as mod
+    from xyz_agent_context.message_bus import team_posting
 
-    src = inspect.getsource(mod.MessageBusTrigger._handle_channel_batch)
-    assert "segments=joined_segments(live_segments)" in src
-    assert "getattr(collection" not in src
+    src = inspect.getsource(team_posting.post_team_reply)
+
+    assert "segments" not in src, (
+        "post_team_reply grew a segments argument — if the room is meant to "
+        "render deliberation again, the boundary has to come from somewhere real, "
+        "not from re-splitting the tool argument"
+    )
 
 
-@pytest.mark.asyncio
 async def test_the_route_passes_segments_to_the_panel(db_client):
     """A column the API does not return is a column the UI cannot render."""
     import inspect
@@ -229,95 +241,42 @@ def test_bus_messages_are_never_updated_in_place():
 
 
 @pytest.mark.asyncio
-async def test_a_real_team_turn_stores_its_segments(db_client, monkeypatch):
-    """A team reply posted by the TRIGGER carries its segments into the row.
+async def test_a_real_team_turn_stores_a_row_without_segments(db_client, monkeypatch):
+    """End-to-end on the new path: the agent calls the tool, the row lands, no
+    segments — and `content` is exactly what the agent passed.
 
-    Every other test here either calls `send_message` directly or reads the
-    trigger's source. Both stayed green through a merge in which the reply path
-    raised `TypeError` on every single team turn: a new `_post_to_room` funnel
-    landed on one branch, segments on another, and the funnel did not accept
-    them. The caller's own "the room will never show this reply" handler caught
-    it and announced a delivery failure instead — so the room lost every reply,
-    loudly, while the source assertions still matched.
-
-    This is the only test that would have gone red on its own.
+    Rewritten from `test_a_real_team_turn_stores_its_segments`, which drove the
+    retired deliverer. The property worth keeping end-to-end is not the boundary
+    (gone, see above) but that `content` is untouched by the room path, because
+    it is what every text consumer reads: the memory index and other agents'
+    scrollback.
     """
-    from xyz_agent_context.message_bus.message_bus_trigger import (
-        MessageBusTrigger,
-        TurnResult,
-    )
+    from ._team_turn import speak_in_room
     from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
-    room = "ch_seam"
     await db_client.insert("bus_channels", {
-        "channel_id": room, "channel_type": "group",
-        "created_by": f"{TEAM_ROOM_OWNER_PREFIX}t_seam", "name": "Desk",
+        "channel_id": "ch_seg_room", "name": "R", "channel_type": "group",
+        "created_by": f"{TEAM_ROOM_OWNER_PREFIX}team_seg",
     })
-    await db_client.insert("teams", {
-        "team_id": "t_seam", "owner_user_id": "usr_1", "name": "Desk",
-        "lead_agent_id": "agent_me",
-    })
-    await db_client.insert("bus_channel_members", {"channel_id": room, "agent_id": "agent_me"})
-    await db_client.insert("agents", {
-        "agent_id": "agent_me", "agent_name": "Mia", "created_by": "usr_1",
-    })
-
-    async def _get_db():
-        return db_client
-
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", _get_db)
-
-    trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
-
-    async def _invoke(**kwargs):
-        # Stands in for `collect_run`: it fills the caller's sink as the run
-        # streams and hands the reply to the deliverer, which is what makes the
-        # boundary available at post time. The post is inside the turn now, so a
-        # stub that only returns a TurnResult posts nothing.
-        sink = kwargs.get("segments_sink")
-        if sink is not None:
-            sink.extend([
-                {"kind": "monologue", "parts": ["thinking"]},
-                {"kind": "reply", "parts": ["answering"]},
-            ])
-        cb = kwargs.get("on_plain_text_delivery")
-        if cb is not None:
-            await cb("thinkinganswering")
-        # No `segments=` here: the boundary reaches the post through the SINK,
-        # not through the result. The field on TurnResult was deleted once its
-        # last reader went away, and this stub kept passing it — a TypeError
-        # that `_handle_channel_batch`'s wide `except` swallowed, so the test
-        # below stayed green while the coverage it claims to provide was dead.
-        return TurnResult(text="thinkinganswering", event_id="evt_seam")
-
-    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
-
-    await trigger._bus.send_message(
-        from_agent="usr_1", to_channel=room, content="anyone?", mentions=["agent_me"]
+    await db_client.insert(
+        "bus_channel_members", {"channel_id": "ch_seg_room", "agent_id": "agent_a"}
     )
-    await trigger._process_agent("agent_me")
-
-    rows = await db_client.execute(
-        "SELECT content, segments FROM bus_messages "
-        "WHERE channel_id = %s AND from_agent = %s",
-        (room, "agent_me"),
-        fetch=True,
+    await db_client.insert(
+        "agents", {"agent_id": "agent_a", "agent_name": "Ana", "created_by": "u1"}
     )
-    assert len(rows) == 1, "the reply did not reach the room at all"
-    assert json.loads(rows[0]["segments"]) == [
-        {"kind": "monologue", "text": "thinking"},
-        {"kind": "reply", "text": "answering"},
-    ]
+    bus = LocalMessageBus(backend=db_client._backend)
 
-    # And the turn has to have SURVIVED. The delivery happens before the stub
-    # returns, so a turn that blows up afterwards still leaves a correct row —
-    # which is exactly what happened when this stub kept passing a `segments=`
-    # kwarg that no longer existed: TypeError, swallowed by the batch handler's
-    # wide `except`, every assertion above still true, coverage dead.
-    failures = await db_client.execute(
-        "SELECT * FROM bus_message_failures", (), fetch=True
+    await speak_in_room(
+        db=db_client, bus=bus, agent_id="agent_a", team_id="team_seg",
+        channel_id="ch_seg_room", text="the answer itself", event_id="evt_x",
     )
-    assert not failures, f"the turn raised after delivering: {failures}"
+
+    rows = await db_client.get("bus_messages", {"channel_id": "ch_seg_room"})
+    mine = [r for r in rows if r["from_agent"] == "agent_a"]
+    assert len(mine) == 1
+    assert mine[0]["content"] == "the answer itself"
+    assert mine[0].get("segments") in (None, "")
+    assert mine[0]["event_id"] == "evt_x"
 
 
 def test_the_room_funnel_carries_everything_a_room_caller_can_send():

@@ -1,0 +1,47 @@
+---
+code_file: src/xyz_agent_context/message_bus/team_posting.py
+last_verified: 2026-08-17
+stub: false
+---
+
+# team_posting.py — 把 agent 的话放进 team 房间的那**一条**路
+
+## 为什么存在
+
+2026-08-17 之前，team 回复是 agent 的**纯文本**，由
+`MessageBusTrigger._deliver_reply` 自动上墙。那让 team 房间成为全系统**唯一**一个
+「纯文本没人收到」为假的 surface，而这条例外会传染：框架宪法、ChatModule 的指令、bus
+模块的规则**三层同时**陈述那条通则，其中只有一层有「本轮不适用」的开关。PR #311 的六轮
+评审全部花在由此长出的矛盾上。
+
+所以房间改成像别的 surface 一样收工具调用，本模块就是那个工具调用的落点。
+`_deliver_reply` 做过的每件事都搬到了这里——@mention 解析、agent 间跳数上限、turn 盖章
+——因为那些是**「往房间里发帖」这件事的属性**，不是恰好拥有旧投递路径的那个 trigger 的
+属性。
+
+## 上限搬家修掉的那个洞
+
+`MAX_TEAM_AGENT_HOPS` 此前**只**实现在 `_deliver_reply` 里，而 `bus_send_message` 可以
+直写 team 房间、完全不受计数约束。**防死循环的保险丝装在被告知不要走的那扇门上。** 搬到
+这里之后它在唯一入口上。
+
+## Gotcha
+
+**`db` 收的是 `AsyncDatabaseClient`，不是原始 backend。** `team_cascade_depth` 是从
+trigger 里搬出来的，那里 `self._bus._db` 是原始 backend、SQL 原样下发；而这里每个调用方
+持有的都是 client。第一版沿用了 `db.placeholder`，而 client **没有这个属性**——于是上限
+检查抛 `AttributeError` 并把整个发送带走：每次 `message_team` 都返回
+`{"success": false}`，房间保持沉默。现在用 `%s` 交给 client 做方言翻译（那也正是双方言
+契约想要的）。守卫见 `tests/message_bus/test_team_posting_cap.py`——**一个会抛的
+loop-breaker 比没有更糟，因为发送也一起失败了。**
+
+**`capped` 由本模块自己叙述。** `post_cascade_capped` 在这里调用，因为施加上限的是这里。
+trigger 那侧原来也叙述一遍，两处都留会说两次。
+
+## 少了什么（有意的）
+
+`segments`（独白/回复边界）不再存在于 team 回复上。回复是工具参数，agent 的思考保持私密
+——所以没有「独白那一半」可渲染。**房间里看不到 agent 出声思考了，这是本次有意移除的
+特性**：它此前之所以存在，只是因为回复和思考是同一段文本。存储层的 `segments` 列语义
+不变（缺失 = 一整块），公告栏与 IM 路径仍可使用。见
+`tests/message_bus/test_team_message_segments.py` 同日条。

@@ -4,6 +4,19 @@ last_verified: 2026-08-11
 stub: false
 ---
 
+## 2026-08-17 — 工作板并入 team 家族命名
+
+`work_add_item` / `work_list_items` / `work_claim_item` / `work_complete_item` /
+`work_update_status` → `team_work_add` / `_list` / `_claim` / `_complete` /
+`_update_status`（决策 ⑦）。
+
+理由是它们的作用域**就是** team 房间，而此前同一台 MCP server 上有两套命名家族
+（`bus_*_team_*` 与 `work_*`）指着同一个作用域——agent 得学会「team 的事有两种拼法」。
+现在只有一种。
+
+trigger 的 team prompt 与 [[patrol]] 里点名这些工具的地方同批更新；漏一处就是 prompt 指着
+一个不存在的工具名。
+
 # _work_board_mcp_tools.py — 工作板工具,以及模型能写什么的边界
 
 ## 为什么与 _message_bus_mcp_tools 分文件、又挂同一个 MCP server

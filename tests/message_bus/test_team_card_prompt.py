@@ -106,7 +106,7 @@ def test_no_team_row_still_produces_a_working_prompt():
     text = _prompt(team=None)
 
     assert "[Team Group Chat]" in text
-    assert "Write your chat reply now" in text
+    assert "Speak in this room by calling message_team" in text
 
 
 def test_the_card_comes_before_the_working_instructions():

@@ -94,7 +94,7 @@ def test_fresh_inbound_question_tells_the_agent_to_answer_the_peer():
     assert "## Answer the peer — REQUIRED" in prompt
     assert "Owner Relay" not in prompt
     # It must name the actual reply channel...
-    assert "bus_send_to_agent" in prompt
+    assert "message_agent" in prompt
     # ...and kill the two rationalisations seen live.
     assert "your owner is NOT waiting" in prompt
     assert "never a substitute for replying to the peer" in prompt
@@ -209,7 +209,7 @@ async def test_mixed_batch_with_any_owner_facing_send_is_a_question():
 @pytest.mark.asyncio
 async def test_errand_continuation_follow_up_reads_as_being_asked():
     """Path A of the review: the Owner-Relay directive itself tells the asker
-    to send clarifying follow-ups via bus_send_to_agent. That send happens in
+    to send clarifying follow-ups via message_agent. That send happens in
     a MESSAGE_BUS turn, so with the plain stamp it looked like an ANSWER and
     the recipient relayed it to its owner — P1 recurring on the recommended
     path. The asker's errand-continuation turn now stamps

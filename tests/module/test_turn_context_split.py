@@ -391,13 +391,24 @@ async def test_bus_instructions_byte_stable_when_flag_on(flag_on):
 async def test_bus_turn_context_carries_lists(flag_on):
     mod = _bus_module()
     block = await mod.get_turn_context(_bus_ctx(n_unread=2))
-    assert block.startswith("### MessageBus — Current State")
+    # Renamed 2026-08-17: "MessageBus" is a subsystem the agent is no longer
+    # told exists (the redesign's acceptance criterion is that the word appears
+    # in no agent-visible text). What the assertion protects is unchanged — the
+    # turn-context span carries a STABLE heading, so the lists below it are not
+    # mistaken for part of whatever preceded them.
+    assert block.startswith("### Who is around, and what is waiting")
     assert "### Known Agents (top 1)" in block
     assert "- `agent_peer` — Peer: helper" in block
     assert "### Your Channels (top 1)" in block
     assert "- `ch_1` — Sync (group)" in block
     assert "### Unread Messages: 2 (showing 2)" in block
-    assert "- `[MessageBus · agent_peer · ch_1]` ping 0" in block
+    # Tag renamed with the heading above, same reason. Built from the helper so
+    # this assertion cannot drift from what the renderer emits.
+    from xyz_agent_context.module.message_bus_module.message_bus_module import (
+        _bus_tag,
+    )
+
+    assert f"- `{_bus_tag('agent_peer', 'ch_1')}` ping 0" in block
     # Nothing live → no block.
     assert await mod.get_turn_context(_ctx()) == ""
 

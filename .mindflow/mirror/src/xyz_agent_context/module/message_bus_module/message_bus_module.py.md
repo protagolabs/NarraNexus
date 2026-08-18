@@ -30,6 +30,56 @@ stub: false
 - **删一条断言就要问它守的是什么**；`tests/message_bus/test_visibility_wording.py`
   存在的唯一目的就是让上面这些句子不能被悄悄改回去。
 
+## 2026-08-17 — 指令块整体重写成「两种社交处境」，以及我重写时丢掉的那些保证
+
+工具面从 19 个收到 13 个并全部改名（`bus_send_message`→`message_agent`、
+`bus_send_to_agent` 合并进它、新增 `message_team`、`bus_*_team_*`→`team_*`、
+`work_*`→`team_work_*`），指令块随之整体重写：不再教一个叫 MessageBus 的子系统，只教
+**两种处境**——和某个同伴私聊、在某个 team 房间里。
+
+**声明面此前声明的是两个已经不存在的工具**（`bus_send_message` / `bus_send_to_agent`）。
+这是「声明死工具就是对模型的错误信息」最严重的形式。现按 surface 给**唯一动词**：
+team → `message_team`，peer → `message_agent`。新增
+`test_exactly_one_verb_per_surface`——那条不变量是整个改造的立论，此前无人守。
+
+`get_disallowed_tools` 已覆写但**目前返回空**：基类钩子不收 `ctx_data`，拿不到本轮的
+team 标记。docstring 明写了这一点，所以 spec §4.5 的桌面表**尚未完全强制**——声明是目前
+唯一的收窄手段。别读成已经做完。
+
+### 一次自己犯的 P11
+
+整块重写时我**丢掉了六轮评审建起来的好几条保证**，它们守的危害一条都没消失：
+
+- **「不 @ 就没人醒」** —— 我只写了「@ 会叫醒谁」，丢了那条承重的逆命题
+- **「读懂给你的东西」整节** —— 标签形状（由 `_bus_tag` 生成）、`User` = 人、
+  `[system]` = 平台、以及**不许从标签有无反推本轮来源**（P6 栽过两次的那条）
+- **沉默的作用域** —— 「make no call at all」会被过度解读成连 owner 都不许告知
+- **交付规则指向何处** —— 只说「through the call」太含混
+
+都已补回。**教训与 PR #311 那次同源**：这个文件的守卫是为了让某些句子不能被悄悄改回去，
+而「整块重写」正是最容易连守卫一起抹掉的动作。
+
+### 断言改成锁保证，不锁旧字面量
+
+`test_visibility_wording.py` 里 12 条因措辞变更而红。**一条没删**，全部改成锁住**保证**：
+"resurface" 变 "comes back" 但作用域检查保留；交付规则**不再要求点名工具**（点名就违反
+P1——现在一个 surface 一个动词），改为断言它指向本轮；「双发禁令」那条随「纯文本自动上墙」
+一起退役，替换为「本块不得点名任何 surface 专有工具」。跨文件契约测试跟着新承诺走
+（从「替你上墙」变成「房间必须点名 `message_team(`」）。
+
+### 一个功能 bug：改名让读游标死锁
+
+`hook_after_event_execution` 靠在 trace 里匹配 `bus_send_message` / `bus_send_to_agent`
+判断「这一轮回复了吗」，据此推进 `last_read_at`。两个工具改名后它**仍在匹配旧名**，于是
+**什么都不算回复、游标永不推进**——正是刚在 IM inbox 侧修掉的那种永久未读死锁，被一次改名
+在 peer 侧重新引入。现在匹配 `message_agent` / `message_team`，后者还要把 team 解析成房间
+频道。守卫是 `test_get_unread_contract` 那条（它自己也带着旧工具名，所以此前看不见）。
+
+### 词表：`MessageBus` 从 agent 可见文本清零
+
+未读列表标签 `[MessageBus · …]` → `[from …]`；turn context 标题
+`### MessageBus — Current State` → `### Who is around, and what is waiting`。日志与
+docstring 里的实现名保留（agent 看不到）。
 ## 2026-08-16 — 静态段里最响的那句，正是 team 房间逐字反驳的那句
 
 2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
