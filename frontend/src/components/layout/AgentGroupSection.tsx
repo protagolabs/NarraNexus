@@ -335,7 +335,7 @@ function AgentRow({
       }}
       onMouseEnter={(e) => {
         if (allowHover) {
-          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-paper-warm)';
+          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-row-hover)';
         }
       }}
       onMouseLeave={(e) => {

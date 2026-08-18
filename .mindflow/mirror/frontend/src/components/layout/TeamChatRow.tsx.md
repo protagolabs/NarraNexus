@@ -5,6 +5,10 @@ last_verified: 2026-08-14
 stub: false
 ---
 
+## 2026-08-18 — 行悬停改 --nm-row-hover
+
+与 AgentGroupSection 同步:行悬停 = 选中色减淡档;展开成员子行同改。
+
 ## 2026-08-18 — merge ruling: v4 row layout kept, dev's unread dot/preview NOT wired
 
 Owner ruled the v4 trailing structure (count → ⋮ at the row edge) wins over

@@ -272,6 +272,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         <div
           className={cn(
             'relative inline-block max-w-[85%] text-left',
+            // Bubbles shrink to their content on BOTH sides — a w-full
+            // reading-column variant was tried 2026-08-18 and reverted the
+            // same day: short replies stranded a field of empty paper on
+            // the right. Keep shrink-to-fit.
             'px-3.5 py-2.5',
             'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',

@@ -90,7 +90,7 @@ export function TeamChatRow({
         title={t('layout.teamChatRow.groupChatTitle', { name: teamName })}
         className={cn(
           'group/gc w-full text-left pl-1.5 pr-3 py-1.5 cursor-pointer rounded-[var(--radius-lg)] transition-colors duration-150',
-          !active && 'hover:bg-[var(--nm-paper-warm)]',
+          !active && 'hover:bg-[var(--nm-row-hover)]',
         )}
         style={active ? { background: 'var(--nm-row-active)' } : undefined}
       >
@@ -190,7 +190,7 @@ export function TeamChatRow({
                     'w-full flex items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1 text-left text-[12px] transition-colors',
                     isActive
                       ? 'bg-[var(--nm-row-active)] text-[var(--nm-ink)] font-medium'
-                      : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]',
+                      : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-row-hover)] hover:text-[var(--nm-ink)]',
                   )}
                 >
                   <span

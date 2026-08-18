@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 试过恒定列宽(w-full),当天撤回
+
+短回复右侧留白一大片,Owner 对照实屏否了;保持双方气泡贴内容宽度。
+代码里留了注释防止再试一遍。
 
 ## 2026-08-06 (2) — meta 行 claude.ai 化
 
