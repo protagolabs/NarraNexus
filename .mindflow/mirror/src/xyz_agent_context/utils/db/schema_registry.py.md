@@ -22,7 +22,7 @@ stub: false
 
 **但旧行还在。** 每个已部署的库里都留着旧写入器写进 `bus_messages` 的 IM 历史，搬表对它们
 无效，未读谓词照样会把它们交给模型 —— 上面那 1,364 条说的就是这些行。所以
-[[local_bus.py]] `_unread_where` 加了一道按 dedicated-trigger 前缀的过滤，注入才在部署当天
+[[local_bus.py]] `_unread_predicate` 加了一道按 dedicated-trigger 前缀的过滤，注入才在部署当天
 停下；清理是回填 runbook 里的手动步骤，清完这道过滤才能退休。
 
 本节原先写的是「**不是过滤器**——过滤器正是 2026-07-03 事故的成因」。（订正于 2026-08-18，

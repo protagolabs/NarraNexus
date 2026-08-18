@@ -426,7 +426,12 @@ class LocalMessageBus(MessageBusService):
             f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
             f"{''.join(clauses)}"
         )
-        assert len(clauses) == len(params)  # structural, but cheap to state
+        # Documentation, not the guard: the paired loop above already makes this
+        # unfalsifiable, and `assert` is stripped under `-O`. The real guard is
+        # `test_legacy_im_rows_not_injected.py`'s placeholder-vs-param count, which
+        # runs with assertions on and fails on a mutation. Left in because it states
+        # the invariant where someone editing the loop will read it.
+        assert len(clauses) == len(params)
         return sql, tuple(params)
 
     async def get_unread(

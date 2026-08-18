@@ -74,10 +74,20 @@ async def test_a_send_bumps_the_wake_signal(db_client):
 
 @pytest.mark.asyncio
 async def test_the_signal_survives_a_missing_row(db_client):
-    """First read on a fresh database must not raise — it just has no news."""
+    """First read on a fresh database must not raise — it just has no news.
+
+    Asserts the SENTINEL, not `is not None`. `read` returns `""` from both its
+    no-row branch and its `except`, so `is not None` cannot fail — including when
+    the database is unreachable, which is the opposite of what this test's name
+    promises. The same inert assertion shipped in the MySQL twin and made a dead
+    wake lane look covered; found in round 4.
+    """
     from xyz_agent_context.message_bus import wake_signal
 
-    assert await wake_signal.read(db_client) is not None
+    # `""` is the documented "no news" value, and the poll loop compares against
+    # it — a different falsy value would still pass `is not None` and would break
+    # the baseline comparison.
+    assert await wake_signal.read(db_client) == ""
 
 
 # ── the reader ──────────────────────────────────────────────────────────────

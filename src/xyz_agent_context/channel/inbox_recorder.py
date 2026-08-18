@@ -25,8 +25,8 @@ agent's unread injection does not read at all — so for everything written from
 
 For rows written BEFORE that, it is a filter, and saying otherwise was the
 comment's mistake. Every deployed database still holds the IM history the old
-writer put in ``bus_messages``, and `_unread_where` would still hand it to the
-model — so `LocalMessageBus._unread_where` excludes the dedicated-trigger channel
+writer put in ``bus_messages``, and `_unread_predicate` would still hand it to the
+model — so `LocalMessageBus._unread_predicate` excludes the dedicated-trigger channel
 prefixes. That is honestly a prefix filter, of the same kind that drifted in
 2026-07-03; what makes it survivable is that it is derived from the registry
 rather than hand-maintained, and that it is temporary: it retires when the legacy

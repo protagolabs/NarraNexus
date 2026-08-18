@@ -293,7 +293,7 @@ caller keeps the default None」已经失效。** 现在 agent 自己调
 而那个频道从没人标记已读。prod 实测后果：1,364 条永久未读，每一轮都随上下文进入 90 个
 agent，署名 `lark_user_<id>` 这类伪 agent。
 
-inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已部署的库里，而 `_unread_where`
+inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已部署的库里，而 `_unread_predicate`
 正是把它们交给模型的地方 —— 所以不加这道过滤，这次改造会带着「containment 是结构性的」
 的注释上线，而 90 个 agent 之后照旧被投毒。清理是部署后的手动步骤（owner 的决定），
 但**注入必须在部署当天就停**，这就是过滤加在读侧的理由。
@@ -302,7 +302,7 @@ inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已�
 由 registry 推导而非手工维护（手工那版漂移过，代价是 2026-07-03 事故），以及它是临时的 ——
 旧行清理完即可退休。注意 `MessageBusTrigger` 侧那道**不能**退休，它防的是重复派发。
 
-加在 `_unread_where` 而不是三个读方法里：`get_unread` / `has_unread_before` /
+加在 `_unread_predicate` 而不是三个读方法里：`get_unread` / `has_unread_before` /
 `count_unread` 共用它正是为了不会互相矛盾 —— 「N unread (showing M)」对自己的列表说谎就是
 分歧的产物。
 
@@ -333,7 +333,7 @@ AsyncDatabaseClient（`%s`），共享调用会强迫一方用错占位符 —�
 进入 SQL(一个由 registry key 推出的整数)。LIKE 加 ESCAPE 也能работать,但转义字符是又一件
 必须在两个方言上含义一致的东西。
 
-因此谓词现在带参数:`_unread_params()` 与 `_unread_where()` 按同一顺序产出,三个调用方各自
+因此谓词当时带参数:`_unread_params()` 与 `_unread_where()` 按同一顺序产出,三个调用方各自
 拼自己的参数元组 —— 一个参数个数在调用点看不出来的谓词,正是第四个调用方会拼错的那种。
 
 ## 2026-08-18 (四) — 给自己发私聊会落进别人的频道

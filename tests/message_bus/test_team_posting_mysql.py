@@ -218,20 +218,40 @@ async def test_the_dm_lookup_join_runs_on_mysql_and_gates_on_membership(env):
 async def test_the_wake_signal_bumps_and_reads_on_mysql(env):
     """One row, updated on every send, from every process.
 
-    `bump` is update-then-insert rather than a dialect-specific upsert, and it
-    fails open — so on MySQL a broken statement here would show up only as
-    messages arriving a poll interval late, with nothing in the logs above
-    debug. That is the failure this twin exists to make loud.
+    `bump` is update-then-insert rather than a dialect-specific upsert, and it fails
+    open — so on MySQL a broken statement here would show up only as messages
+    arriving a poll interval late, with nothing in the logs above debug. That is the
+    failure this twin exists to make loud.
+
+    **Which is why the assertions must be falsifiable, and the first version was
+    not.** It asserted `first is not None` and `second >= first`. `wake_signal.read`
+    returns `""` on any exception AND `""` when the row is missing, so both held
+    with a completely broken backend — replayed against a backend whose every
+    method raised: all four assertions passed. A twin that certifies a dead lane is
+    worse than no twin, because the greenness is read as coverage.
+
+    `!=` is the assertion that cannot be satisfied by `""`; the second bump is
+    strictly greater, because `>=` is satisfied by "the bump did nothing" whenever
+    two reads land in the same microsecond. Same shape as the SQLite twin
+    (`test_cross_process_wake.py`), which was correct from the start.
     """
     from xyz_agent_context.message_bus import wake_signal
 
     db, _bus, _ = env
 
+    before = await wake_signal.read(db)
     await wake_signal.bump(db)
     first = await wake_signal.read(db)
-    assert first is not None
+    assert first != before, (
+        f"the signal did not change across a bump ({before!r} -> {first!r}) — on "
+        f"MySQL a failing bump is swallowed at debug, so this is the only place it "
+        f"becomes visible"
+    )
+    assert first, "the signal read back empty, i.e. unreadable or absent"
 
     await wake_signal.bump(db)
     second = await wake_signal.read(db)
-    assert second is not None
-    assert second >= first, "the signal went backwards"
+    assert second > first, (
+        f"the second bump did not advance the signal ({first!r} -> {second!r}); "
+        f">= would have accepted a bump that did nothing"
+    )

@@ -114,14 +114,36 @@ def test_the_retired_name_survives_only_as_prose_anywhere_in_the_tree():
                 if doc is not None and RETIRED in doc:
                     docstrings.add(doc)
 
+        # Every AST field that can CARRY the name, not just the three the first
+        # version checked (Constant / Name / Attribute). Round 4 mutation-tested
+        # that version and it missed five classes — including
+        # `@mcp.tool() async def send_message_to_user_directly(...)`, i.e. the
+        # 铁律 #2 back-compat shim this guard exists to stop, which is also the
+        # single most likely way the name comes back. A guard that reads as
+        # exhaustive and is not is worse than no guard.
         for node in ast.walk(tree):
+            hit = None
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if RETIRED in node.value and node.value not in docstrings:
-                    offenders.append(f"{rel}:{node.lineno} (string literal)")
+                    hit = "string literal"
             elif isinstance(node, ast.Name) and RETIRED in node.id:
-                offenders.append(f"{rel}:{node.lineno} (identifier)")
+                hit = "identifier"
             elif isinstance(node, ast.Attribute) and RETIRED in node.attr:
-                offenders.append(f"{rel}:{node.lineno} (attribute)")
+                hit = "attribute"
+            elif isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ) and RETIRED in node.name:
+                hit = "definition — a back-compat shim"
+            elif isinstance(node, ast.arg) and RETIRED in node.arg:
+                hit = "function parameter"
+            elif isinstance(node, ast.keyword) and RETIRED in (node.arg or ""):
+                hit = "call keyword"
+            elif isinstance(node, ast.alias) and RETIRED in (
+                node.name + " " + (node.asname or "")
+            ):
+                hit = "import alias"
+            if hit:
+                offenders.append(f"{rel}:{getattr(node, 'lineno', '?')} ({hit})")
 
     assert not offenders, (
         "the retired owner tool is named in a functional position — nothing "

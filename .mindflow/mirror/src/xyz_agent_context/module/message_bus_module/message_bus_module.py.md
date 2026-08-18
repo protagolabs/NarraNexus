@@ -192,7 +192,7 @@ agent"剧本第 4 步的识别信号，也就是唯一把答案回报给 owner �
 同批清掉三处 Minor：`unread_models` 是删掉第 5 步后的残留别名（唯一真实消费者就是被删的
 那一步），已折掉；`_render_sender` 的 docstring「one row, two surfaces, one name」**说过头
 了**——只有 `usr_*` 和平台行两边一致，普通 agent 在 trigger 侧走 `member_map` 渲染成显示名、
-在这里保留原始 `agent_id`（那是 `message_agent` 的入参），已如实收窄；静态段那句
+在这里保留原始 `agent_id`（那是 `bus_send_to_agent` 的入参），已如实收窄；静态段那句
 「你的 Unread Messages 列表…」改成条件式，因为零未读时该小节根本不存在——这条正是本 PR
 自己立的「写『XX 会出现在某处』之前先确认它真的会出现」。
 
@@ -218,7 +218,7 @@ team 房间出现后就不是了。义务本身仍然被钉住，P0 没有松（
 **未修、留作独立改动的**（都不是文案层）：① team 轮次没有屏蔽 bus 投递工具
 （`get_disallowed_tools` 这个钩子存在但本模块没实现），文案劝阻 ≠ 工具消失；
 ② 级联上限 `MAX_TEAM_AGENT_HOPS` 只实现在 `_deliver_reply` 一条路上，
-`message_team` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
+`bus_send_message` 直接写 team 房间不受任何计数约束；③ `get_unread` 不排除当前
 team 房间，房间消息在 scrollback 之外被二次渲染。
 
 ### ⚠️ 这一轮**没有**让 team 房间的矛盾归零 —— [[chat_module/prompts]] 里还有更大的一份

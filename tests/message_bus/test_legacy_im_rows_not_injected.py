@@ -11,14 +11,14 @@ agents' context every single turn, attributed to pseudo-agents like
 `lark_user_<id>`.
 
 Moving the inbox to its own tables stops NEW rows. It does nothing about the rows
-already on every deployed database — and `_unread_where` is what hands them to
+already on every deployed database — and `_unread_predicate` is what hands them to
 the model. So without this filter the rework would ship, the schema comment would
 say the containment is "structural", and 90 agents would keep getting the same
 poisoned context afterwards. The purge is a manual post-deploy step (the owner's
 call, see the backfill runbook); the injection had to stop on the deploy.
 
 Asserted through the three real readers, not through the predicate string: they
-share `_unread_where` precisely so they cannot disagree, and "N unread (showing
+share `_unread_predicate` precisely so they cannot disagree, and "N unread (showing
 M)" lying about its own list is the failure a divergence produces.
 """
 from __future__ import annotations

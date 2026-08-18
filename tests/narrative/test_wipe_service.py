@@ -347,12 +347,34 @@ def test_wipe_result_fields_reach_the_api():
     )
 
     # And the route must actually pass them, not merely have somewhere to put them.
+    #
+    # Parsed, not grepped. The first version did `f"{c}=result.{c}" not in source`
+    # over the whole module, so a COMMENTED-OUT line
+    # `# inbox_threads_count=result.inbox_threads_count` satisfied it permanently —
+    # the same prose-satisfies-the-guard defect the MySQL gate removed from itself.
+    # Reading the `ClearHistoryResponse(...)` call's keywords also ties the check to
+    # THIS construction rather than to anywhere in the file.
+    import ast
     import inspect
 
     from backend.routes.agents import chat_history
 
-    src = inspect.getsource(chat_history)
-    unpassed = [c for c in counters if f"{c}=result.{c}" not in src]
+    tree = ast.parse(inspect.getsource(chat_history))
+    passed: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+        if name != "ClearHistoryResponse":
+            continue
+        for kw in node.keywords:
+            if kw.arg and isinstance(kw.value, ast.Attribute):
+                if kw.arg == kw.value.attr:
+                    passed.add(kw.arg)
+    assert passed, "no ClearHistoryResponse(...) construction found in the route"
+
+    unpassed = counters - passed
     assert not unpassed, (
         f"the response model accepts these but the route never fills them, so "
         f"they silently default to 0: {sorted(unpassed)}"

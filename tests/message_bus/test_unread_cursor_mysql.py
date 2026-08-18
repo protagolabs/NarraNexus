@@ -158,7 +158,7 @@ async def test_has_message_from_turn_runs_on_mysql(bus):
 
 @pytest.mark.asyncio
 async def test_has_unread_before_runs_on_mysql_and_respects_the_legacy_filter(bus):
-    """The third reader of `_unread_where`, and the only one doing timestamp work.
+    """The third reader of `_unread_predicate`, and the only one doing timestamp work.
 
     `has_unread_before` adds `AND m.created_at < %s` with `canonical_ts(before)`.
     On SQLite `created_at` is TEXT and that is a lexicographic string compare; on

@@ -26,7 +26,7 @@ stub: false
 
 **旧行（2026-08-17 之前）**：每一个已部署的库里都还留着旧写入器写进 `bus_messages` 的 IM
 历史，而未读谓词照样会把它们交给模型。搬表对它们无效。所以
-[[local_bus.py]] `_unread_where` **确实加了一道前缀过滤**，排除 dedicated-trigger 的频道前缀
+[[local_bus.py]] `_unread_predicate` **确实加了一道前缀过滤**，排除 dedicated-trigger 的频道前缀
 —— 否则这次改造会带着「containment 是结构性的」的说法上线，而 1,364 条永久未读照旧每轮进入
 90 个 agent 的上下文。
 

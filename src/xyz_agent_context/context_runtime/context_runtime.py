@@ -77,6 +77,14 @@ def _is_signature_typeerror(exc: TypeError) -> bool:
     callee — its traceback has exactly one frame, ours. A TypeError from inside a
     correctly-shaped implementation has at least one more.
 
+    **True only for an UNDECORATED callable.** A `functools.wraps` wrapper taking
+    `*args, **kwargs` absorbs the arity check, so the inner binding failure carries
+    two frames and lands in the other arm — reported as "raised" rather than as a
+    signature mismatch. No hook in-tree is decorated (six definitions of these two
+    hooks, all plain `async def`), and both arms fail open identically, so the cost
+    is log text. Stated because the alternative is a docstring that is confidently
+    wrong for a shape somebody may well introduce.
+
     Worth distinguishing because both arms fail open identically, so the only thing
     at stake is what the log says — and a loud line with the wrong cause sends
     on-call to check an override signature that is fine, while the actual fault goes

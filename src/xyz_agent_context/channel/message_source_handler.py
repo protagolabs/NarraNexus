@@ -210,7 +210,7 @@ class MessageSourceHandler:
     rows survive on deployed databases. `im_channel_prefixes()` derives the
     channel-id prefixes from this flag for two consumers: MessageBusTrigger must
     NOT re-dispatch them (a second run sends duplicate replies — 2026-07-03
-    wechat double-dispatch incident) and `LocalMessageBus._unread_where` must not
+    wechat double-dispatch incident) and `LocalMessageBus._unread_predicate` must not
     inject them into agent context. Every module
     that ships a ``run_*_trigger.py`` entrypoint must set this; enforced
     by tests/message_bus/test_bus_channel_inbox_skip.py."""
@@ -447,7 +447,7 @@ def im_channel_prefixes() -> tuple[str, ...]:
 
     * `MessageBusTrigger` must not RE-DISPATCH these channels — their own trigger
       already ran AgentRuntime for the message.
-    * `LocalMessageBus._unread_where` must not INJECT them into agent context.
+    * `LocalMessageBus._unread_predicate` must not INJECT them into agent context.
 
     Both are about the same rows: pre-2026-08-17 IM history that the retired
     `ChannelInboxWriter` wrote into `bus_messages` under `{channel}_{chat_id}`.
