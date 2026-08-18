@@ -29,9 +29,12 @@ box unchecked. Run it the same way locally:
 
 from __future__ import annotations
 
+import httpx
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
 
+import backend.routes.auth as auth_mod
 from xyz_agent_context.repository import AgentRepository
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
@@ -114,27 +117,51 @@ async def test_mysql_reports_zero_rows_for_a_no_op_update(seeded):
     )
 
 
-async def _rename(db, monkeypatch, new_name: str):
-    """Call the route coroutine directly, in this test's event loop.
+def _build_app(db, monkeypatch) -> FastAPI:
+    """The route, wired to the real MySQL client.
 
-    Deliberately NOT through TestClient: it drives the ASGI app on an event
-    loop of its own, while the aiomysql pool belongs to the pytest-asyncio
-    loop, and the route then dies with "attached to a different loop" — which
-    this file would report as a dialect failure. (It did, on this job's first
-    run.) Calling the coroutine exercises the same handler; the HTTP layer is
-    not what a dialect twin is here to check.
+    `get_db_client` is patched rather than overridden as a dependency because
+    the handler awaits it in its body, not through `Depends` — and through
+    `monkeypatch`, so the MySQL client cannot leak into a later test that
+    expects the SQLite fixture.
     """
-    import backend.routes.auth as auth_mod
-    from types import SimpleNamespace
+    app = FastAPI()
+    app.include_router(auth_mod.router, prefix="/api/auth")
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        # The ownership check reads `http_request.state.user_id`, which only a
+        # middleware can put there on a real request.
+        request.state.user_id = OWNER
+        return await call_next(request)
 
     async def _db():
         return db
 
     monkeypatch.setattr(auth_mod, "get_db_client", _db)
-    request = SimpleNamespace(state=SimpleNamespace(user_id=OWNER))
-    return await auth_mod.update_agent(
-        AGENT, auth_mod.UpdateAgentRequest(agent_name=new_name), request
+    return app
+
+
+def _async_client(app: FastAPI) -> httpx.AsyncClient:
+    """`httpx.AsyncClient` + `ASGITransport`, not `TestClient` — the pooled
+    aiomysql connection must not be touched from a foreign event loop.
+
+    The mechanism is written out once, in
+    `tests/backend/test_agents_bus_failures_mysql.py::_async_client`; this is
+    the same problem with the same answer. (Reached for a worse one first here:
+    dropping the HTTP layer entirely, which bought a single loop at the cost of
+    the serialization this row's only real-world defect was reported through.)
+    """
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
     )
+
+
+async def _put(db, monkeypatch, payload: dict) -> dict:
+    async with _async_client(_build_app(db, monkeypatch)) as client:
+        res = await client.put(f"/api/auth/agents/{AGENT}", json=payload)
+    assert res.status_code == 200, res.text
+    return res.json()
 
 
 @pytest.mark.asyncio
@@ -142,11 +169,13 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
     """The user-visible half, on the dialect where it used to fail.
 
     Before the fix this answered `success=False, error="No changes made"` here
-    and success on SQLite — the entire Shenzhen P1 symptom.
+    and success on SQLite — the entire Shenzhen P1 symptom. Driven over HTTP so
+    the body parsing and `response_model` serialization the reporter actually
+    saw are part of what is verified.
     """
-    res = await _rename(seeded, monkeypatch, "小绿")
-    assert res.success is True, res.error
-    assert res.agent.name == "小绿"
+    body = await _put(seeded, monkeypatch, {"agent_name": "小绿"})
+    assert body["success"] is True, body.get("error")
+    assert body["agent"]["name"] == "小绿"
 
     stored = await AgentRepository(seeded).get_agent(AGENT)
     assert stored.agent_name == "小绿"
@@ -154,8 +183,33 @@ async def test_re_saving_the_stored_name_succeeds_on_mysql(seeded, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_real_rename_still_persists_on_mysql(seeded, monkeypatch):
-    res = await _rename(seeded, monkeypatch, "小蓝")
-    assert res.success is True, res.error
+    body = await _put(seeded, monkeypatch, {"agent_name": "小蓝"})
+    assert body["success"] is True, body.get("error")
 
     stored = await AgentRepository(seeded).get_agent(AGENT)
     assert stored.agent_name == "小蓝"
+
+
+@pytest.mark.asyncio
+async def test_the_visibility_flag_round_trips_through_the_real_boolean_column(
+    seeded, monkeypatch
+):
+    """`is_public` is the one field whose STORED representation differs by
+    dialect — TINYINT on MySQL, INTEGER on SQLite, and `_row_to_entity` may
+    hand back either a bool or an int. That is why `agent_field_matches`
+    dispatches it separately, and until now the reasoning was only on paper.
+
+    The second PUT is this PR's subject in boolean form: an unchanged value,
+    zero changed rows on MySQL, and still a success.
+    """
+    assert (await AgentRepository(seeded).get_agent(AGENT)).is_public is False
+
+    body = await _put(seeded, monkeypatch, {"is_public": True})
+    assert body["success"] is True, body.get("error")
+    stored = await AgentRepository(seeded).get_agent(AGENT)
+    # `is True`, not `== 1`: the point is that the round trip lands on a bool.
+    assert stored.is_public is True
+
+    again = await _put(seeded, monkeypatch, {"is_public": True})
+    assert again["success"] is True, again.get("error")
+    assert (await AgentRepository(seeded).get_agent(AGENT)).is_public is True
