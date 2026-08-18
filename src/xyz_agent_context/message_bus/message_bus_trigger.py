@@ -2932,13 +2932,11 @@ class MessageBusTrigger:
 
         Returns a ``TurnResult``.
 
-        ``segments_sink`` — the caller's list, filled by the collector AS THE RUN
-        STREAMS. The monologue/reply boundary used to ride back on the result,
-        which stopped working the moment the room post moved inside the turn:
-        the deliverer needs the boundary for the text it is posting, and the
-        result does not exist yet. The field on ``TurnResult`` outlived its last
-        reader by one merge and has been removed rather than left as a channel
-        that writes to nobody.
+        ``segments_sink`` is NOT a parameter here any more, and the paragraph
+        that used to describe it is gone with it: the team lane stopped
+        harvesting an agent's plain text when the room became a tool call, so
+        there is nothing to accumulate mid-run. `run_collector` still accepts the
+        argument for its own callers.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE

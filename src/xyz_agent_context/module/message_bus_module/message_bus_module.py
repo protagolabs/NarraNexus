@@ -17,7 +17,7 @@ Behavior design:
   (a backlog reaching below that window holds the cursor — see `_ack_room_seen`)
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
 - Source recognition: entries in the unread list are tagged
-  [MessageBus · sender · channel] (see `_bus_tag`). This is the ONLY place the
+  [from sender] / [Team X · from sender] (see `_bus_tag`). This is the ONLY place the
   tag appears — a branch that prefixed the turn's INPUT with it was deleted on
   2026-08-17 after it turned out never to have executed; do not describe an
   input prefix here again without checking that one exists
@@ -65,7 +65,7 @@ MAX_KNOWN_AGENTS_IN_CONTEXT = 50
 
 
 def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
-    """How a bus sender is named inside a `[MessageBus · … ]` tag.
+    """How a sender is named inside a `[from … ]` tag.
 
     THREE kinds of sender reach this list, and only one of them is an agent.
     `schema/team_schema` defines both synthetic prefixes side by side, each

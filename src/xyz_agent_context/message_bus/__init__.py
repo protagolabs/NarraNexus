@@ -45,7 +45,11 @@ try:
         # so session anchoring and chat-history persistence ignore
         # agent-to-agent traffic (see MessageSourceHandler docstring).
         owner_visible_reply_tool_names=("notify_owner",),
-        row_prefix_template="[Bus · from agent={from_agent}]",
+        # Not "[Bus · …]": the word names the transport, which is the third
+        # concept spec §8 removes from the agent's vocabulary — it has private
+        # conversations and teams, and every other handler's prefix names the
+        # PLACE the message came from rather than the pipe it arrived through.
+        row_prefix_template="[private message from {from_agent}]",
     ))
 except ValueError:
     pass
