@@ -17,39 +17,12 @@ import { BracketEmptyState } from '@/components/nm';
 import { BusAttachmentList } from '@/components/chat/BusAttachmentList';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { senderIdentity } from '@/lib/senderIdentity';
 import { api } from '@/lib/api';
 import { compareInboxMessages } from '@/lib/inboxOrder';
 import { BusFailuresSection } from './BusFailuresSection';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
-
-/** Stable color assignment from a sender id — same hashing approach as
- *  dashboard/SessionSection's colorForSeed, extended with a matching
- *  left-accent class so the whole card carries the sender identity. */
-function senderColor(seed: string): { dot: string; accent: string } {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
-  }
-  const palette = [
-    { dot: 'bg-[var(--color-success)]', accent: 'border-l-[var(--color-success)]' },
-    { dot: 'bg-sky-500', accent: 'border-l-sky-500' },
-    { dot: 'bg-[var(--color-warning)]', accent: 'border-l-[var(--color-warning)]' },
-    { dot: 'bg-rose-500', accent: 'border-l-rose-500' },
-    { dot: 'bg-violet-500', accent: 'border-l-violet-500' },
-    { dot: 'bg-teal-500', accent: 'border-l-teal-500' },
-    { dot: 'bg-indigo-500', accent: 'border-l-indigo-500' },
-    { dot: 'bg-fuchsia-500', accent: 'border-l-fuchsia-500' },
-  ];
-  return palette[Math.abs(hash) % palette.length];
-}
-
-function senderInitials(display: string): string {
-  const parts = display.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 // Above this many characters a bus message is almost certainly a full
 // agent-to-agent report; clamp it so an expanded room reads as a scannable
@@ -315,7 +288,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                         grouped by calendar day so history reads in context. */}
                     <div className="space-y-2">
                       {room.messages.map((msg, idx) => {
-                        const color = senderColor(msg.sender_id || msg.sender_name);
+                        const color = senderIdentity(msg.sender_id || msg.sender_name);
                         const day = dayKey(msg.created_at);
                         const prevDay = idx > 0 ? dayKey(room.messages[idx - 1].created_at) : null;
                         const showSeparator = !!day && day !== prevDay;
@@ -348,7 +321,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                                     color.dot
                                   )}
                                 >
-                                  {senderInitials(msg.sender_name)}
+                                  {senderIdentity(msg.sender_id || msg.sender_name, msg.sender_name).initials}
                                 </span>
                                 <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
                                   {msg.sender_name}

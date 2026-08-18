@@ -161,6 +161,21 @@ def _detect_voice_turn(body: str, source: Any) -> Optional[tuple[str, dict]]:
     }
 
 
+def _is_voice_reply_tool(tool_name: str) -> bool:
+    """Reply tools whose delivery THIS trigger owns (marker tools).
+
+    Only these may claim the voice bridge: their text never reaches the
+    room unless the trigger sends it, so bridging is delivery — not a
+    duplicate. ``narra_send`` is excluded on purpose (it performs its own
+    ``room_send``). Exact bare-name or exact ``__``-suffix match,
+    mirroring the managed-ingress filter: a future ``narra_reply_*``
+    sibling is never collaterally claimed.
+    """
+    return tool_name in ("speak", "narra_reply") or tool_name.endswith(
+        ("__speak", "__narra_reply")
+    )
+
+
 def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
     """Map RTC voice detection to the one-shot fast profile.
 
@@ -281,6 +296,11 @@ class _StreamReplyState:
     # every legacy branch below checks nothing and behaves exactly as
     # before (the guard is "bridge is None", not a mode flag).
     voice_bridge: Optional["VoiceDeliveryBridge"] = None
+    # Leaf name of the reply tool that claimed the live voice DELTA
+    # stream (first speak/narra_reply deltas win; completed texts are not
+    # gated). Keeps two tools' delta streams from interleaving into one
+    # segment view.
+    voice_stream_tool: str = ""
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -1815,6 +1835,15 @@ class MatrixTrigger(ChannelTriggerBase):
                     await self._send_matrix_reply(
                         credential, message.chat_id, spoken
                     )
+                # Deliberately NOTHING else once the bridge delivered: on
+                # a live call the plain sender is a DELIVERY channel (the
+                # smoke report's plain-fallback turns were heard by the
+                # caller), so any supplement here would be a second
+                # playback that reads URLs/code aloud — bypassing the
+                # sanitizer's structural guarantee. Known cost: a link the
+                # model put in narra_reply does not reach the chat record;
+                # tracked in reference/self_notebook/todo/ pending a
+                # written worker-consumption contract from Hybrid.
                 return spoken
             # Nothing spoken: fall through to the legacy finalize so a
             # narra_reply answer, an error marker, or a silent turn all
@@ -1884,19 +1913,30 @@ class MatrixTrigger(ChannelTriggerBase):
                 f"the error marker"
             )
             return
-        # F28 voice turn: speak's streamed text argument rides
-        # AGENT_REPLY_DELTA (the expressive reply stream). Only speak
-        # deltas feed TTS — narra_reply/narra_send keep their legacy
-        # trigger-captured, deliver-at-finalize semantics even mid-call.
-        if (
-            state.voice_bridge is not None
-            and mt == MessageType.AGENT_REPLY_DELTA
-            and (getattr(event, "tool_name", "") or "").endswith("__speak")
-        ):
-            await state.voice_bridge.on_reply_delta(
-                call_id=getattr(event, "call_id", "") or "",
-                delta=getattr(event, "delta", "") or "",
-            )
+        # F28 voice turn: a reply tool's streamed text argument rides
+        # AGENT_REPLY_DELTA (the expressive reply stream). The first
+        # trigger-owned reply tool (speak OR narra_reply) to produce
+        # output claims the live stream and feeds TTS — models routinely
+        # answer voice turns via narra_reply despite the spoken-register
+        # instructions (2026-08-13 call: 12/14 turns), and gating on
+        # speak alone left those turns waiting for finalize. narra_send
+        # stays out: it delivers itself via room_send, so bridging its
+        # deltas would double-deliver.
+        if state.voice_bridge is not None and mt == MessageType.AGENT_REPLY_DELTA:
+            tool = getattr(event, "tool_name", "") or ""
+            # The claim key is the LEAF name: deltas carry the qualified
+            # spelling while PROGRESS may carry either, and a spelling
+            # mismatch would let a completed PROGRESS block that same
+            # tool's later deltas (pipeline review Minor #6).
+            leaf = tool.rsplit("__", 1)[-1]
+            if _is_voice_reply_tool(tool) and (
+                not state.voice_stream_tool or state.voice_stream_tool == leaf
+            ):
+                state.voice_stream_tool = leaf
+                await state.voice_bridge.on_reply_delta(
+                    call_id=getattr(event, "call_id", "") or "",
+                    delta=getattr(event, "delta", "") or "",
+                )
             return
         if mt != MessageType.PROGRESS:
             return
@@ -1938,15 +1978,42 @@ class MatrixTrigger(ChannelTriggerBase):
         if not (isinstance(text, str) and text.strip()):
             return
 
-        if tool_name.endswith("__speak"):
-            if state.voice_bridge is not None:
-                # The completed speak call carries the authoritative full
-                # text — corrects the delta view (or substitutes when arg
-                # deltas were unavailable on this provider).
-                state.voice_bridge.on_segment_text(
-                    call_id=str(details.get("call_id") or ""), text=text
-                )
-                return
+        is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+        is_narra_reply = (
+            tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+        )
+
+        if state.voice_bridge is not None and _is_voice_reply_tool(tool_name):
+            # Every completed reply text enters the bridge — the claim
+            # gates DELTA streams only. The VOICE prompt teaches a
+            # preannounce-then-answer two-call pattern; when the model
+            # splits it across tools the answer must be spoken, not
+            # dropped. The identical-text dual-call shape is neutralized
+            # by the bridge's exact-equality segment dedup, and same-call
+            # correction rides the raw-prefix judge as before.
+            if not state.voice_stream_tool:
+                # Leaf name — same normalization as the delta claim.
+                state.voice_stream_tool = tool_name.rsplit("__", 1)[-1]
+            state.voice_bridge.on_segment_text(
+                call_id=str(details.get("call_id") or ""), text=text
+            )
+            # ALSO keep the legacy capture: finalize returns early on any
+            # non-empty spoken text, so this cannot double-deliver — but
+            # it is the only delivery path left when the spoken form
+            # sanitizes to nothing (emoji-only ack, URL-only reply).
+            state.narra_reply_text = (
+                f"{state.narra_reply_text} {text}".strip()
+                if is_speak and state.narra_reply_text
+                else text
+            )
+            logger.info(
+                f"[matrix:{credential.agent_id}] reply text via "
+                f"{tool_name.rsplit('__', 1)[-1]} bridged for voice "
+                f"(len={len(text)}, room={room_id})"
+            )
+            return
+
+        if is_speak:
             # Text turn: no bridge consumes speak, so without this capture
             # the call would be a dead tool — ok:true returned, nothing
             # delivered, a fully silent round. Deliver via the legacy
@@ -1963,7 +2030,7 @@ class MatrixTrigger(ChannelTriggerBase):
             )
             return
 
-        if "narra_reply" in tool_name:
+        if is_narra_reply:
             # LAST-writer wins if the agent calls it twice (rare). The
             # captured text is fresh-sent to the room at finalize.
             state.narra_reply_text = text
@@ -2064,8 +2131,10 @@ class MatrixTrigger(ChannelTriggerBase):
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
             tool_name = str(item.get("tool_name") or "")
-            is_reply = "narra_reply" in tool_name
-            is_speak = tool_name.endswith("__speak")
+            is_reply = (
+                tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
+            )
+            is_speak = tool_name == "speak" or tool_name.endswith("__speak")
             if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}

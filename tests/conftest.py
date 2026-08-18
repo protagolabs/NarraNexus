@@ -15,11 +15,15 @@ Also owns two suite-wide safety nets:
    `XYZBaseModule.get_mcp_db_client()` inside channel/module code under
    test) can never read or write the developer's real database.
 
-2. `pytest_sessionfinish` closes every factory client. The SQLite
-   backend's aiosqlite connection runs a NON-daemon worker thread; a
-   client leaked by a lazy acquisition (whose per-test event loop is long
-   gone by session end) otherwise blocks interpreter shutdown forever —
-   the "pytest prints the summary but the process never exits" hang.
+2. `pytest_sessionfinish` closes every factory client. This used to be
+   justified by the aiosqlite worker being a NON-daemon thread, which made
+   a leaked client an interpreter-shutdown hang — the "pytest prints the
+   summary but the process never exits" symptom. That worker is a DAEMON
+   thread since 2026-08-17 (see `db_backend_sqlite`), so the hang is gone
+   and this hook is no longer what keeps the suite exitable. It stays for
+   the reason that outlived the hang: a daemon thread is killed wherever
+   it stands, so this is the only point at which a leaked client's writes
+   are drained and its SQLite locks released deliberately.
 """
 import asyncio
 import os as _os
@@ -69,6 +73,19 @@ def _isolate_shared_db(tmp_path_factory):
     settings.database_url = original_url
     if original_proxy is not None:
         os.environ["SQLITE_PROXY_URL"] = original_proxy
+
+
+@pytest.fixture(autouse=True)
+def _clear_cwd_owner_cache():
+    """The channel-CLI owner cache (data_access.workspace_cwd) is one
+    process-wide dict shared by lark and narra — clear it around every
+    test or a cached owner leaks ACROSS test modules, which surfaces as
+    order-dependent "green alone, red in the full run" failures."""
+    from xyz_agent_context.module.data_access.workspace_cwd import _cwd_owner_cache
+
+    _cwd_owner_cache.clear()
+    yield
+    _cwd_owner_cache.clear()
 
 
 def pytest_sessionfinish(session, exitstatus):

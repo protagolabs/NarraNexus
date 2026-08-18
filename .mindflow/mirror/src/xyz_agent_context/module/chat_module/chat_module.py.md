@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-05
+last_verified: 2026-08-14
 ---
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
@@ -420,3 +420,50 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 - 误以为 `instance_id` 就是用户 ID——`chat_xxxxxxxx` 是 Module 实例的 ID，不是用户 ID。一个用户在不同 Narrative 里有不同的 Chat 实例。`get_chat_history` 工具需要的是 `instance_id`，不是 `user_id`。
 - 调试时看到 `chat_history` 为空但数据库里有记录——通常是 `instance_id` 不对导致的：ModuleLoader 注入的 `instance_ids` 不包含要查的实例。
+
+## 2026-08-13 — `_origin_delivered_text`:投递过的轮次要记下**说了什么**
+
+上一批改动让 team turn 的投递被正确判定为"已投递",然后**声称**行类型会随之变成真
+assistant 行。**那是错的。** 分支选择器读的是 `is_no_response`,而它来自
+**owner-visible** 抽取 —— `extract_owner_visible_text` 在读 `PLATFORM_REPLY_TEXT_KEY`
+**之前**就先过 `is_owner_visible_reply_tool`,对 `bus_send_message` 返回 None。于是
+`assistant_content` 被兜底成 "(Agent decided no response needed)"、`is_no_response`
+为真、落 `activity` 行、两个加载器照旧丢掉。`delivered_to_origin` 当时的全部作用只是
+换了摘要文案加一个 meta 字段。
+
+**owner-visible 那道门必须继续说 None** —— 它正是拦住"每次团队回复重新锚定 owner
+会话"的东西(PR #230)。所以不能靠提升 `bus_send_message` 来解决。
+
+真正的问题是把"owner 没看见"读成了"什么都没说"。`_origin_delivered_text` 用
+**origin** 抽取(全量 `user_reply_tool_names`)取回真正说出去的文本,`is_no_response`
+为真但取到文本时就用它当 content 并翻转结论。「owner 看见了吗」和「这是 agent 真说过
+的话吗」是两个问题,只有后者决定它下一轮记不记得。
+
+真沉默的轮次一字未动:仍写 activity 行、仍被过滤器丢掉,
+`test_filtered_activity_row_invisible_to_long_term` 仍绿。这是治误分类,不是放宽过滤器。
+
+## 2026-08-13 (review 后) — 一个判定一份实现,一条死分支清掉
+
+`_delivered_to_origin` 与 `_origin_delivered_text` 是同一段抽取的两份逐行拷贝。现在
+前者实现为 `bool(后者)` —— 它们**一致**这件事正是行类型逻辑成立的前提,而两份实现里
+任何一边改了抽取规则(比如将来跳过某类 tool_name),另一边不会跟着变,后果是行被静默
+归错档。
+
+**activity 分支里的 `delivered_to_origin` 恒为 False,分支已清掉。** 能让它为真的输入
+必然让 `_origin_delivered_text` 非空,于是上面那段恢复会把 `is_no_response` 翻成 False、
+走 assistant 分支 —— 根本到不了这里。`[DELIVERED-BG]` 那条日志因此永远不会打印,而
+**一条永远不打印的日志比没有更糟**:按它做看板的人会得出"bus turn 从不投递"的结论。
+
+`not turn_interrupted` 那个守卫也是冗余的:被打断的一轮兜底文案是
+"(Interrupted by user)",不是 no-response 标记,两个条件互斥。留着会让下一个人去找
+一个不存在的情形。
+
+## 2026-08-14 — 删掉零调用方的 `_delivered_to_origin` 与不可达的摘要分支
+
+文本恢复那块落地之后,`_delivered_to_origin` 在生产**没有任何调用方**,
+`_build_activity_summary` 的 `delivered_to_origin` 形参与它的 `"Replied to X"` 分支也
+永远走不到(能让它为真的输入必然让 `_origin_delivered_text` 非空,于是那一轮走的是
+assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_delivered_text`。
+
+留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
+做投递分类。

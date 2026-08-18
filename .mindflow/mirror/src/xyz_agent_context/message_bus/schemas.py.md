@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — BusMessage.segments
+
+`Optional[List[dict]]`，每项是 `{kind: "monologue"|"reply", text}`：agent 自己的思考和
+它的回答之间的分界，`content` 因为拼接而丢掉、下游谁也恢复不了的那个信息。
+
+**`content` 一个字节都没变**，这是刻意的：它是所有**文本**消费者读的东西——记忆索引、
+其他 agent 的 scrollback。一个渲染特性不能改写系统其余部分读的那份内容。
+
+`None` 表示"没有记录过分界"，包括这个字段存在之前写的每一条消息（铁律 #2：不回填、不做
+兼容垫片），读者把它们渲染成一整块——也就是此前的行为。空列表也存成 NULL：它不携带任何
+读者能用的信息，而一个看起来像数据的值会引诱读者去相信"这一轮确实没有分界"。
+
 ## 2026-08-07 — BusMessage.root_run_id
 
 发送方那一轮所属的触发树。被唤起的 run 从这里继承,级联停止才能越过
@@ -19,6 +31,8 @@ header 的适配器上为 None,消费方必须按未知降级 —— 见
 `BusMessage` gained `event_id: Optional[str]` — the `events` row of the turn
 that produced this message (set by the trigger on agent replies posted into
 team rooms). None for user messages and legacy rows.
+
+> ⚠️ 括号里那句已于 2026-08-14 失效 —— 见本文件 08-14 节。
 
 ## 2026-07-20 — BusMessage.attachments
 
@@ -62,3 +76,18 @@ Files travel by reference; see [[_bus_attachment_impl]] for the dict contract.
 为什么必须在**产生这个决定的地方**记下来:下游无法反推。「只有一个 mention,而且
 正好是 lead」和「用户就是故意 @ 了 lead」在数据上完全一致,而后者是最常见的用法之一。
 靠猜做判定正是铁律 #15 反对的形状。
+
+## 2026-08-14 — `event_id` 的语义扩了:它不再是「平台代发」的标记(更正 07-31)
+
+上面 07-31 那节写的「set by the trigger on agent replies posted into team
+rooms」现在只说对了一半。agent 自己调 `bus_send_message` / `bus_send_to_agent`
+发的行**也**盖这个 id(取自身份头,见 [[_message_bus_mcp_tools]])。
+
+扩它是因为团队房要回答「平台没代发的这一轮,房间到底听没听见这个 agent 说话」——
+两条投递路径只有一条盖章的话,这个问题就只有一半有答案,而另一半只能靠猜;猜错就是
+在一个**已经听见回复**的房间里再贴一条「投递失败」。
+
+由此**不要**再把 `event_id IS NOT NULL` 读成「这条是平台代发的」。它现在的含义只是
+「发的时候知道自己在哪一轮」。为 None 的三种情形:用户消息、列存在之前的旧行、以及
+发送方确实说不出轮次(头缺失时按设计静默降级,消费方一律按「说不准」处理,绝不按
+「发生过」)。

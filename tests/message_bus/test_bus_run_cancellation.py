@@ -22,6 +22,8 @@ Pins the four facts the owner's stop depends on at this layer:
 from __future__ import annotations
 
 from types import SimpleNamespace
+
+from xyz_agent_context.agent_runtime.run_collector import RunCollection
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,6 +34,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -79,7 +82,7 @@ async def test_a_live_token_reaches_the_runtime(db_client, monkeypatch):
 
     async def _record(*args, **kwargs):
         seen.update(kwargs)
-        return "", None
+        return TurnResult(text="", event_id=None, delivered=True)
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -105,7 +108,7 @@ async def test_token_is_registered_under_the_run_id_then_released(db_client, mon
 
         watcher = get_cancel_watcher(db_client)
         watched_during_run["ids"] = list(watcher._tokens.keys())
-        return "", "evt_run_1"
+        return TurnResult(text="", event_id="evt_run_1", delivered=True)
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _record)
 
@@ -194,7 +197,9 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(is_error=False, output_text="ok", event_id="evt_1", error=None)
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
+        )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
     monkeypatch.setattr(
@@ -215,3 +220,67 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
     )
 
     assert captured["cancellation"] is token
+
+
+@pytest.mark.asyncio
+async def test_invoke_runtime_forwards_the_team_deliverer(monkeypatch):
+    """The deliverer must ride the same seam, and this must be checked HERE.
+
+    Every other test in this area replaces `_invoke_runtime` wholesale, so the
+    real signature is never executed by them — which is how a rebase once
+    dropped this parameter while the call site kept passing it, leaving a
+    `TypeError` on every bus message that no test could see. Stubbing
+    `run_and_collect` instead keeps the actual function in the path.
+    """
+    captured: dict = {}
+
+    async def _run_and_collect(**kwargs):
+        captured.update(kwargs)
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
+        )
+
+    client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        lambda: client,
+    )
+
+    async def _deliver(text: str) -> bool:
+        return True
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    await trigger._invoke_runtime(
+        agent_id="agent_a",
+        sender_agent_id="usr_user_x",
+        prompt="hello",
+        channel_id="ch_1",
+        on_plain_text_delivery=_deliver,
+    )
+
+    assert captured.get("on_plain_text_delivery") is _deliver
+
+
+@pytest.mark.asyncio
+async def test_invoke_runtime_works_without_a_deliverer(monkeypatch):
+    """Every non-team lane passes None for it, so the default has to hold."""
+    captured: dict = {}
+
+    async def _run_and_collect(**kwargs):
+        captured.update(kwargs)
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
+        )
+
+    client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        lambda: client,
+    )
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    await trigger._invoke_runtime(
+        agent_id="agent_a", sender_agent_id="agent_b", prompt="hi", channel_id="ch_1",
+    )
+
+    assert captured.get("on_plain_text_delivery") is None

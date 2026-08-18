@@ -22,9 +22,10 @@ import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
+import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
-import { useAgentWebSocket } from '@/hooks';
+import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
@@ -315,6 +316,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       ? localizedBootstrapGreeting
       : content;
   const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
+
+  const [fastMode, setFastMode] = useFastMode(agentId);
 
   const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
@@ -817,7 +820,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const agentName = currentAgent?.name || agentId;
-      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined);
+      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }
@@ -1314,9 +1317,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
         {/* Tools row — attach (+) and voice on the left, followed by the
             always-visible privacy reminder (v4: the old banner folded into
-            this row — same message, still permanent and non-dismissible;
-            the full text stays reachable via the title tooltip); model
-            badge on the right. */}
+            this row — permanent, non-dismissible, full text via the title
+            tooltip); fast-mode toggle (ComposerFastToggle) and model badge
+            (ComposerModelBadge) on the right. */}
         <div className="mt-1 flex items-center justify-between gap-2">
           <div className="flex items-center gap-0.5 min-w-0">
           <Button
@@ -1368,7 +1371,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             {t('chat.composerPrivacyHint')}
           </span>
           </div>
-          <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          <div className="flex items-center gap-1.5">
+            <ComposerFastToggle
+              enabled={fastMode}
+              onToggle={setFastMode}
+              disabled={!agentId}
+            />
+            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          </div>
         </div>
       </div>
       </div>

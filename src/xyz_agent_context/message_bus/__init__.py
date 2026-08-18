@@ -18,7 +18,7 @@ from .schemas import BusAgentInfo, BusChannel, BusChannelMember, BusMessage
 # bus-triggered reply tools and render bus rows with a distinct prefix.
 # The reply list carries every tool that DELIVERS on a bus turn: the bus
 # sends (answer-the-peer / group replies) and send_message_to_user_directly
-# (Owner Relay). Its live consumer is ChatModule._delivered_to_origin —
+# (Owner Relay). Its live consumer is ChatModule._origin_delivered_text —
 # the [DELIVERED-BG]/[NO-REPLY-BG] persistence split whose counts are the
 # no-reply metric behind the delivery-fallback decision. Listing only the
 # owner-chat tool recorded genuine bus deliveries as NO-REPLY (2026-08-01)

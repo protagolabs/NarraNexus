@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/system_messages.py
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
 
@@ -39,3 +39,22 @@ stub: false
 今天成立（停止通知与公告栏通知都是 `mentions=None`），但这条前提只写在注释里，
 没有任何东西守住它——哪天另一种类型开始带 mentions，它就静默错了。
 未知类型落到中性兜底，而不是把 `team_<id>` 当成队友名字印出来。
+
+## 2026-08-13 — 第二、三种类型落地，分派表第一次被真的用上
+
+两种无投递通知（[[delivery_notice]]）注册进 `PLATFORM_MSG_TYPES`，从三变五。
+
+`trigger_label` 的预言应验了：`system_undelivered` 是**第一个带 mentions 的平台类型**
+（A2A 沉默要叫醒提问方），也就是第一个能真正成为触发消息的类型。分派表为它加了
+条目——这条注释当初写「the day another type starts carrying mentions」时等的那天，
+就是今天。
+
+顺带钉死了 [[team_summary_worker]] 的回归：它的 `_SYSTEM_MSG_TYPES` 与
+`PLATFORM_MSG_TYPES` 对齐后，测试不再逐个重列类型成员，改比整个元组——
+逐条列名正是这个测试本要消灭的那种手维护清单，只是上移了一层；它在 08-13 如期过期，
+worker 早已正确、只有测试在说谎。
+
+## 2026-08-12 — 再加两种：`system_cascade` / `system_roster`
+
+见 [[team_notices]]。加进这个元组同时意味着它们被排除在总结触发、transcript 发言者渲染、
+**和 agent 跳数**之外——最后一条对封顶通知是必须的：一条计入跳数的封顶通知会让上限越收越紧。

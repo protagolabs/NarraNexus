@@ -56,6 +56,9 @@ def test_voice_fast_profile_applies_knobs(anthropic_slot):
     assert options["prompt_mode"] == "full"
     assert options["llm_extra"]["reasoning_effort"] == "low"
     assert options["include_arg_deltas"] is True
+    # Voice turns opt in to the mute-turn repair: an unanswered voice
+    # turn is never the right outcome.
+    assert options["expression_nudge"] is True
 
 
 def test_wire_dict_form_behaves_like_model(anthropic_slot):

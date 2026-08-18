@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-04
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
+
+message bus trigger 的并发 turn 上限。这是**我们自己的**资源决策，不是对 agent 运行时长
+的限制（铁律 #14）：池子决定同时能服务几个房间，池子太小在用户那儿的表现就是「群聊死了」
+——恰恰是平台有责任避免的那个失效模式。
+
+写死成 3 让槽位短缺既**看不见**、又**必须改代码**才能修。8 是新的舒适下限：bus turn 几乎
+全是 await（LLM + DB），槽位很便宜，而一个团队房内部接力就能同时占掉好几个。
+
+槽位等待就在 `[bus-timing]` 行的 `queue_wait_s` 里面，所以调这个值再重跑
+`make latency-report` 是**可测量**的改动，不是拍脑袋。
+
+**跨仓依赖（再调之前必读）**：生产跑 `run_worker_supervisor`，poller + jobs + bus +
+所有 channel trigger 共享一个 asyncio loop、因而共享**一个 MySQL 池**。那个池的大小定
+在 deploy 仓 `stacks/narranexus-app/compose.yml` 的 `workers` 服务（`MYSQL_POOL_SIZE`），
+其注释的算式是「poller(3) + jobs(5) + bus + 每个 channel worker/subscriber」——本项就是
+算式里的 `bus` 项。在这边改而不回头看那个数，就是「bus 的改动变成 poller / jobs / 每个
+IM channel 一起说『数据库变慢了』」的由来。
+
+**为什么调高仍然便宜**：连接是**按查询**借还的，不是按 turn 占住。一个 bus turn 约 24
+秒里有 20 秒在等 LLM，那期间不占连接——这也是池子一直按「典型并发查询数」而非「理论
+任务数」来定的原因（光 channel trigger 每个就允许 50 个 worker）。
+
+**再往上调需要证据**：`service_audit` 里出现 `worker_starvation` 行才说明池子真的是瓶颈
+（见 `_check_worker_starvation`）；没有，就不是。
 
 ## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
 
@@ -319,3 +345,17 @@ Before this file, configuration was loaded through scattered `load_dotenv()` + `
 **`extra="ignore"` silently drops unknown variables.** Any environment variable that does not match a `Settings` field is silently ignored. If you mistype a variable name in `.env` (e.g., `ANTHROPIC_API_KEYS` instead of `ANTHROPIC_API_KEY`), pydantic-settings will not warn you.
 
 **New-contributor trap.** The sync to `os.environ` at the bottom of the file only covers the four API key variables. Other settings (e.g., `DATABASE_URL`) are not written to `os.environ`. Code that tries to read `os.environ["DATABASE_URL"]` directly rather than `settings.database_url` will get nothing.
+
+## 2026-08-14 — 「槽位很便宜」要加一个限定:便宜的是等待,不是持有
+
+上面那句成立的前提是槽位周转快。2026-08-14 起团队房的回复**在 turn 内**代发,而槽位
+到 **turn 结束**才归还 —— 按铁律 #14,agent 在回复之后继续干几十分钟是一等场景。于是
+下一跳在上一个 turn 还在跑时就被派发,同一房间一次 D 跳接力峰值占用最多 D 个槽位
+(旧顺序是 1 个)。
+
+实践后果只有一条要记住:`service_audit` 里的 `worker_starvation` 在团队接力期是
+**预期信号**,不是「有人的 agent 卡住了」,要连着当时有几个房间在接力一起读。
+详见 [[message_bus_trigger]] 的 08-14 节。
+
+(第 26-27 行讲的是 MySQL **连接**按查询借还 —— 那是另一件事,仍然成立。)
+

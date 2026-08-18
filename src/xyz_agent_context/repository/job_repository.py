@@ -182,6 +182,8 @@ class JobRepository(BaseRepository[JobModel]):
         payload: str,
         instance_id: Optional[str] = None,
         notification_method: str = "inbox",
+        origin_source: Optional[str] = None,
+        origin_channel_id: Optional[str] = None,
         next_run_time: Optional[datetime] = None,
         next_run_at_local: Optional[str] = None,
         next_run_tz: Optional[str] = None,
@@ -242,6 +244,8 @@ class JobRepository(BaseRepository[JobModel]):
             next_run_at_local=next_run_at_local,
             next_run_tz=next_run_tz,
             notification_method=notification_method,
+            origin_source=origin_source or None,
+            origin_channel_id=origin_channel_id or None,
             related_entity_id=related_entity_id,  # Feature 2.2.1
             narrative_id=narrative_id,  # Feature 3.1
             monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitor Job pattern
@@ -1393,6 +1397,8 @@ class JobRepository(BaseRepository[JobModel]):
             last_run_tz=row.get("last_run_tz"),
             started_at=row.get("started_at"),
             notification_method=row.get("notification_method", "inbox"),
+            origin_source=row.get("origin_source"),
+            origin_channel_id=row.get("origin_channel_id"),
             last_error=row.get("last_error"),
             related_entity_id=row.get("related_entity_id"),  # Feature 2.2.1 (single value)
             narrative_id=row.get("narrative_id"),  # Feature 3.1
@@ -1450,6 +1456,8 @@ class JobRepository(BaseRepository[JobModel]):
             "last_run_tz": entity.last_run_tz,
             "started_at": entity.started_at,
             "notification_method": entity.notification_method,
+            "origin_source": entity.origin_source,
+            "origin_channel_id": entity.origin_channel_id,
             "last_error": entity.last_error,
             "related_entity_id": entity.related_entity_id,  # Feature 2.2.1 (single value)
             "narrative_id": entity.narrative_id,  # Feature 3.1

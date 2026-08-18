@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
 
@@ -18,6 +18,21 @@ Chats 标签 + 计数 + 搜索(打开 ⌘K palette,uiStore.paletteOpen)+ 刷新�
 activitySignature 性能契约、TEAMS/AGENTS 两段式去重结构、unread 逻辑不变。
 TeamManagementModal / ImportAgentModal 挂载移交 [[Sidebar.tsx]];
 AgentsHeaderMenu 组件删除。
+## 2026-08-14 — team 行的未读标记
+
+每个 team 行（展开态和折叠态的头像轨道**都有**：窄窗口下轨道就是整个 sidebar，
+只在展开态显示的标记等于用户看不见的标记）现在会在房间说过话之后打一个圆点，并在
+第二行显示「谁说了什么」，和它下面的 agent 行一致。
+
+判定是 `teamHasUnread(t.last_message_at, teamId)`（[[unread.ts]]），**当前打开的
+那个房间永远不打标记**——正在读的那一行上的标记是噪音。
+
+打开房间会把水位线写进 localStorage，所以**离开之后标记依然是清的**：只在行处于
+active 时清掉，正是 agent 徽标在拿到自己的 marker 之前的那个 bug。
+
+另一半在 [[useAutoRefresh]]：team 列表此前只在 sidebar 发现它未加载时取过一次，
+没有任何定时刷新。标记只会在整页重新加载后才出现——从用户角度和「这功能没做」
+无法区分。
 
 ## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
 

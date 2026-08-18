@@ -351,10 +351,16 @@ class LarkTrigger(ChannelTriggerBase):
         # _build_and_run_agent.
         self._cli = LarkCLIClient()
 
-        # Lark-specific lifecycle bookkeeping surfaced via the aggregated
-        # channel health server (channel/channel_health_server.py) through
-        # getattr; other channels simply report 0 for this field.
-        self._last_ws_connected_monotonic: float = 0.0
+        # Lark-specific lifecycle bookkeeping. The WALLCLOCK value is the one
+        # with consumers: `ChannelTriggerBase.health_snapshot()` reads it by
+        # getattr for the aggregated health server's `last_ws_connected_ms`
+        # (other channels report 0), and the H-5 historic-replay filter seeds
+        # its dedup baseline from it on every reconnect.
+        #
+        # A write-only `_last_ws_connected_monotonic` sibling was removed on
+        # 2026-08-17; why it existed, why nothing read it, and why `-inf` was the
+        # wrong repair for THIS field are in the mirror md. Build WS-liveness
+        # observability on the wallclock value above.
         self._last_ws_connected_wallclock_ms: int = 0
 
         # Per-(agent_id, app_id) bot open_id cache for the 2-layer echo
@@ -1105,7 +1111,6 @@ class LarkTrigger(ChannelTriggerBase):
                 # replay filter (H-5) uses this so a long disconnect followed
                 # by reconnect won't silently let Lark's backlog of old
                 # events through.
-                self._last_ws_connected_monotonic = ws_start_monotonic
                 self._last_ws_connected_wallclock_ms = int(time.time() * 1000)
                 if self._dedup_store is not None:
                     self._dedup_store.update_baseline(

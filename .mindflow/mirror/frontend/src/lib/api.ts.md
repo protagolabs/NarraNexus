@@ -1,23 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
 
-## 2026-08-12 — reply_language
+## 2026-08-14 — `getTeamChat` 有三种模式
 
-新增 `getReplyLanguage`/`setReplyLanguage`(GET/PUT settings/reply-language;'' 清除)。读半边供 [[replyLanguageSync.ts]] boot 对账回填。
+无游标 = 最新一页（房间打开时），`since` = 往后追（3 秒轮询），`before` = 往上翻历史。
+两个游标**互斥**，在这里就地判掉：同时带上去，服务端只会看其中一个，而调用方会以为自己
+拿到了两者的交集。
 
-## 2026-08-12 — `AuthFunnelStage` 编译期契约（复审三轮 Important）
-
-`reportAuthFunnel(stage: AuthFunnelStage, …)` 的 stage 从自由 `string` 收成**闭合联合类型**,镜像后端 `_FUNNEL_STAGES`([[auth]])白名单。端点对白名单外 stage 返 400、而 `reportAuthFunnel` fire-and-forget `.catch` 吞掉——自由字符串等于「加了上报点但报进黑洞」。联合类型让加新 stage 不先改这里就 `tsc` 不过,逼作者同时去后端白名单。与后端硬编码列表测试互补(前端加/后端删各兜一头)。
-
-## 2026-08-11 — telemetry consent 客户端方法
-
-`getTelemetryConsent` / `setTelemetryOptOut`(+ 导出
-`TelemetryConsentState` 类型)。与 analytics 对相邻;极性约定沿用:
-线上契约说 `opted_out`(否定),UI 持 `enabled`(肯定),翻转发生在
-组件边界。
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
@@ -97,6 +89,7 @@ PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
+
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
@@ -169,6 +162,7 @@ per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
 user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
 
  
+
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 
 `recharge(amount, currency?)` POSTs the top-up and returns

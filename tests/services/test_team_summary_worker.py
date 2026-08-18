@@ -608,17 +608,18 @@ async def test_patrol_lines_are_not_shown_to_the_summariser(db_client):
 def test_the_filter_is_built_from_constants_not_retyped_strings():
     """The first version hard-coded two literals and #259's third type slipped
     past it. Importing the constants is what makes the next one impossible to
-    miss silently."""
-    from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
-    from xyz_agent_context.message_bus.team_bulletin import (
-        BULLETIN_NOTICE_MSG_TYPE,
-        STOP_NOTICE_MSG_TYPE,
-    )
+    miss silently.
+
+    Compared against the registry TUPLE rather than a re-listing of its
+    members: an expectation that names each type is the very hand-maintained
+    list this test exists to abolish, one layer up. It duly went stale the day
+    the undelivered notices were added (2026-08-13) — the worker had picked
+    them up correctly and only the test disagreed.
+    """
+    from xyz_agent_context.message_bus.system_messages import PLATFORM_MSG_TYPES
     from xyz_agent_context.services.team_summary_worker import _SYSTEM_MSG_TYPES
 
-    assert set(_SYSTEM_MSG_TYPES) == {
-        PATROL_MSG_TYPE, BULLETIN_NOTICE_MSG_TYPE, STOP_NOTICE_MSG_TYPE,
-    }
+    assert set(_SYSTEM_MSG_TYPES) == set(PLATFORM_MSG_TYPES)
 
 
 @pytest.mark.asyncio

@@ -47,6 +47,10 @@
       "dropFile": "파일을 드롭하여 첨부…",
       "placeholder": "메시지를 입력하거나 / 로 스킬 사용…"
     },
+    "fastMode": {
+      "label": "고속",
+      "tooltip": "고속 모드: 이번 턴을 고속 에이전트 프레임워크로 전환하고 가벼운 메모리 검색과 낮은 추론 수준으로 실행합니다 — 더 빠르지만 더 단순한 답변"
+    },
     "audio": {
       "stopRecording": "녹음 중지",
       "recordVoice": "음성 메시지 녹음",
@@ -160,6 +164,8 @@
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
       "stoppedNotice": "{{name}}의 작업이 소유자에 의해 중지되었습니다",
       "patrolNotice": "리더 점검",
+      "undeliveredNotice": "{{name}}이(가) 이번 턴에 답하지 않았습니다",
+      "deliveryFailedNotice": "{{name}}의 답변을 게시하지 못했습니다",
       "board": {
         "title": "작업 보드",
         "unclaimed": "미할당",
@@ -176,7 +182,16 @@
         },
         "turnOff": "끄기",
         "turnOn": "켜기"
-      }
+      },
+      "sendFailed": "보내지 못했습니다. 입력한 내용은 그대로 있습니다 — 다시 시도하세요.",
+      "uploadFailed": "'{{name}}'을(를) 업로드하지 못했습니다.",
+      "uploadFailedGeneric": "파일을 업로드하지 못했습니다.",
+      "loadingOlder": "이전 메시지를 불러오는 중…",
+      "leadBadge": "리드",
+      "expand": "더 보기",
+      "collapse": "접기",
+      "today": "오늘",
+      "agentPaused": "이 에이전트는 일시 중지 상태입니다({{reason}}). 원인을 해결한 뒤 위 배너의 '재개'를 사용하세요."
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -732,7 +747,8 @@
       "groupChatTitle": "{{name}} — 그룹 채팅",
       "agentCount_other": "에이전트 {{count}}명",
       "toggleMembers": "멤버 표시",
-      "noMembers": "아직 멤버가 없습니다"
+      "noMembers": "아직 멤버가 없습니다",
+      "unread": "읽지 않은 메시지"
     },
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
@@ -823,7 +839,7 @@
       "privacyHeading": "개인정보",
       "privacyIntro": "제품 개선을 위해 NarraNexus가 수집하는 데이터를 제어하세요.",
       "analyticsTitle": "제품 분석",
-      "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 제3자 분석 서비스로 전송되지 않으며 대화 내용도 수집되지 않습니다.",
+      "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 클라우드 웹 버전에서는 익명의 페이지 상호작용 데이터가 제3자 분석 서비스인 Google Tag Manager로도 전송됩니다. 이 옵션을 끄면 전송이 중지됩니다. 대화 내용은 수집되지 않습니다.",
       "desktopHeading": "데스크톱",
       "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
       "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",
@@ -1315,7 +1331,7 @@
         "label": "개인정보 보호",
         "hint": "이 기기에서 외부로 전송되는 데이터와 이를 제어하는 스위치입니다.",
         "analyticsTitle": "제품 분석",
-        "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 제3자 분석 서비스로 전송되지 않으며 대화 내용도 수집되지 않습니다.",
+        "analyticsDesc": "분석을 위해 NarraNexus가 제품 사용 메타데이터를 저장하도록 허용합니다. 클라우드 모드에서는 NarraNexus가 관리하는 데이터베이스에 저장되고, 로컬 또는 데스크톱 모드에서는 이 기기에 보관됩니다. 클라우드 웹 버전에서는 익명의 페이지 상호작용 데이터가 제3자 분석 서비스인 Google Tag Manager로도 전송됩니다. 이 옵션을 끄면 전송이 중지됩니다. 대화 내용은 수집되지 않습니다.",
         "telemetryTitle": "진단 원격 측정",
         "telemetryDesc": "이 설치본의 서비스 로그를 NarraNexus 자체 수집 서버로 전송하여 충돌과 장애를 디버깅할 수 있게 합니다. 기본 수준에서는 구조화된 이벤트, 경고, 오류만 전송되며 메시지 내용은 포함되지 않습니다. \"full\" 수준으로 실행되는 배포(관리형 샌드박스, 디버그 환경)는 로그 줄 전체를 전송하므로, 서비스가 기록한 메시지 내용이 포함될 수 있습니다. 제3자에게는 아무것도 전송되지 않습니다.",
         "telemetryTiming": "끄면 몇 초 안에 적용됩니다. 앱이 시작될 때 원격 측정이 이미 꺼져 있었다면, 켜는 것은 다음 실행 시부터 적용됩니다.",
@@ -2141,6 +2157,7 @@
     "desktopHint": "브라우저에서 NarraNexus를 열면 실시간 문서 미리보기를 볼 수 있습니다.",
     "loading": "실시간 미리보기를 여는 중…",
     "loadError": "실시간 미리보기를 열 수 없습니다.",
+    "retry": "다시 시도",
     "livePreview": "실시간 미리보기"
   },
   "common": {
@@ -2152,6 +2169,18 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료"
+  },
+  "toast": {
+    "view": "보기",
+    "completed": "완료",
+    "roomSpoke": "룸에 새 활동",
+    "agent": "에이전트",
+    "room": "룸"
+  },
+  "webAnalyticsNotice": {
+    "body": "이것은 NarraNexus의 클라우드 웹 버전입니다. 제3자 분석 서비스인 Google Tag Manager를 사용하여 익명의 페이지 상호작용 데이터(페이지뷰, 클릭, 리퍼러)를 수집합니다. 대화 내용은 수집되지 않습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",
+    "settings": "설정 열기",
+    "dismiss": "확인"
   },
   "telemetryNotice": {
     "body": "NarraNexus는 이제 충돌과 연동 장애를 디버깅하기 위해 이 설치본의 진단 서비스 로그를 자체 수집 서버로 전송합니다. \"full\" 수준으로 실행되는 설치본에서는 로그 줄에 메시지 내용이 포함될 수 있습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",

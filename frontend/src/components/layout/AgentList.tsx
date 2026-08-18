@@ -23,7 +23,7 @@ import { useConfigStore, useChatStore, useTeamsStore, useUIStore } from '@/store
 import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
-import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
+import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRead } from '@/lib/unread';
 import { AgentGroupSection } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
@@ -505,6 +505,20 @@ export function AgentList() {
   // active highlight on the Group chat row and suppresses agent-row selection.
   const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
   const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
+
+  // Opening a room clears its mark DURABLY: the watermark goes to localStorage,
+  // so it stays cleared after navigating away (dev's team-unread logic, merged
+  // 2026-08-18). The v4 team row currently shows no unread dot — Owner ruling
+  // kept the v4 row layout — but the watermark is maintained so wiring a dot
+  // back is a one-prop change, and the panel's own advancing stays monotonic
+  // with this one.
+  const activeTeamLastMessageAt =
+    teams.find((t) => t.team.team_id === activeTeamChatId)?.last_message_at ?? null;
+  useEffect(() => {
+    if (!activeTeamChatId || !activeTeamLastMessageAt) return;
+    // An unparseable timestamp is NaN, which markTeamRead already refuses.
+    markTeamRead(activeTeamChatId, Date.parse(activeTeamLastMessageAt));
+  }, [activeTeamChatId, activeTeamLastMessageAt]);
 
   return (
     <div>

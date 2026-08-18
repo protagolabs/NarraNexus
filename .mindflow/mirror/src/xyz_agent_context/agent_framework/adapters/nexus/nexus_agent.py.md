@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-10
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — 平台来源绑定：nexus 腿发 identity 头
+
+`_build_request_payload` 在自家网关（`_is_own_gateway_url(base_url)`）且解析到的 slot 配置带
+`identity_token` 时，把 `X-NarraNexus-Identity-Token` 并入 `llm_extra["extra_headers"]`
+（与既有 `Authorization: Bearer` 共存）。token 取解析到的 slot 配置（anthropic→`claude_config`，
+openai→`codex_config`）。off-platform / BYOK 不发。
+
+## 2026-08-13 — profile.expression_nudge 映射
+
+与 include_arg_deltas 同款三态映射：profile 非 None 且字段非 None 才写 options。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

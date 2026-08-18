@@ -30,6 +30,177 @@ from loguru import logger
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
+# =============================================================================
+# aiosqlite worker-thread hardening
+# =============================================================================
+#
+# aiosqlite runs every connection on its own worker thread and hands results
+# back with `future.get_loop().call_soon_threadsafe(...)`. If the loop that
+# issued the statement has been closed in the meantime, that call raises
+# RuntimeError — and upstream's handler answers by making the SAME call again
+# from its `except` block, which raises again, uncaught. The worker thread
+# then DIES, silently, still owning an open sqlite3 connection.
+#
+# Nothing reclaims that connection. It keeps its file handle and whatever lock
+# the abandoned statement held, so every later writer waits out
+# `busy_timeout` (30s) on each of `_MAX_WRITE_RETRIES` (10) attempts —
+# ~5 minutes of blocking per collision, then "database is locked".
+#
+# A closed loop is not exotic here. The trigger is a SHORT-LIVED loop, and this
+# codebase mints them on purpose:
+#   * `get_db_client_sync()` builds its client inside `asyncio.run(...)`, whose
+#     loop is dead the instant it returns (`db_factory.py`). `ContextRuntime`
+#     takes that path whenever no client is injected, and `module_runner.py`
+#     already carries two comments about the fallout.
+#   * `lark_trigger.py` makes a fresh loop per WS reconnect.
+#   * The test harness, and any one-shot script or migration.
+# A fire-and-forget DB task caught by its loop's shutdown is the other half
+# (`schedule_user_no_quota_rearm` is one) — though that one rides the uvicorn
+# main loop, so it only bites at server shutdown.
+#
+# NOT the MCP container: `module_runner.py` gives each module its own PROCESS
+# with one process-lifetime `asyncio.run`, no threaded loops. An earlier draft
+# of this comment claimed otherwise and would have sent the next reader into
+# MCP code to look for something that is not there.
+#
+# So: keep the thread alive. If the awaiting coroutine's loop is gone, the
+# result has no one to go to and dropping it is correct — dying is not, because
+# this thread is the only one that can ever close the connection. This is the
+# project's incident lesson #2 (third-party fire-and-forget is a mine too)
+# applied to aiosqlite, and it is narrow on purpose: only the delivery step is
+# replaced, the queue protocol and the STOP sentinel are upstream's.
+def _deliver_to_origin_loop(future, setter, value) -> None:
+    """Hand a result/exception back to the loop that asked for it, if it is
+    still there. A closed loop means the awaiting coroutine died with it."""
+    if future is None:
+        return
+    loop = future.get_loop()
+    try:
+        loop.call_soon_threadsafe(setter, future, value)
+    except RuntimeError:
+        # A CLOSED loop is the expected case and stays quiet: the coroutine that
+        # was awaiting this died with its loop, so there is nobody to tell.
+        #
+        # A LIVE loop refusing the callback is a different animal, and silence
+        # there would be the alarm-disabling this codebase has been bitten by
+        # (incident lesson #3: a filter must be precise to a class AND a
+        # context). The awaiting `await future` in aiosqlite has no timeout of
+        # its own, so an undelivered result is a permanent, silent stall on a DB
+        # call — the same invisible-symptom shape this whole patch exists to
+        # remove. Upstream at least died loudly.
+        if not loop.is_closed():
+            logger.warning(
+                f"aiosqlite result dropped on a LIVE loop {loop!r} — the "
+                f"awaiting DB call will never resolve"
+            )
+
+
+def _resilient_connection_worker_thread(tx) -> None:
+    """Drop-in for `aiosqlite.core._connection_worker_thread` whose result
+    delivery cannot kill the thread. Same protocol, same stop sentinel, and the
+    same three debug lines — anyone who turns the `aiosqlite` logger up to DEBUG
+    to chase a connection-layer problem should still get their trace, for every
+    connection in the process."""
+    while True:
+        future, function = tx.get()
+        try:
+            aiosqlite.core.LOG.debug("executing %s", function)
+            result = function()
+            _deliver_to_origin_loop(future, aiosqlite.core.set_result, result)
+            aiosqlite.core.LOG.debug("operation %s completed", function)
+            if result is aiosqlite.core._STOP_RUNNING_SENTINEL:
+                break
+        except BaseException as e:  # noqa: B036 — mirrors upstream's contract
+            aiosqlite.core.LOG.debug("returning exception %s", e)
+            _deliver_to_origin_loop(future, aiosqlite.core.set_exception, e)
+
+
+# The worker must also be a DAEMON thread, and the two halves are one fix.
+#
+# Upstream creates it with a bare `Thread(target=...)`, i.e. daemon=False, and
+# relied — by accident — on the delivery crash above to reap orphans: a worker
+# that dies lets the process exit. Keeping it alive without this half converts
+# "5 minutes of blocked writes" into "the process never exits at all",
+# because `Py_FinalizeEx` runs `threading._shutdown()` (which JOINS non-daemon
+# threads) BEFORE module teardown, so `Connection.__del__ -> stop()` never gets
+# its chance. Measured on 2026-08-17 with a connection orphaned behind a
+# `BEGIN IMMEDIATE`: upstream exits in 1.4s, delivery-patch-only hangs forever.
+#
+# That regression would have landed on the desktop build (SQLite IS the desktop
+# backend, binding rule #7) as "quit leaves a zombie holding the DB file", and
+# in containers as a SIGKILL on every `docker stop`. Strictly harder to diagnose
+# than the slowness it replaced.
+#
+# Daemon status can only be set before `start()`, and aiosqlite starts the
+# thread in `Connection.__await__` — so it has to happen in the constructor.
+# Setting it in `SQLiteBackend.initialize()` after `await aiosqlite.connect()`
+# raises "cannot set daemon status of active thread".
+#
+# This does NOT license a weaker shutdown path: a daemon worker can be killed
+# mid-write at exit (safe — WAL is crash-safe, same as SIGKILL), but the
+# ORDINARY close must stay explicit. `close_db_client()` and the suite's
+# `pytest_sessionfinish` are still load-bearing.
+# Assigning to an attribute upstream has renamed away succeeds SILENTLY, which
+# would turn both halves of this hardening into a no-op and bring the 5-minute
+# lock class back with a green suite. Fail at import instead — the version floor
+# in pyproject.toml rules out OLDER releases that never had these names; only
+# this check can catch a NEWER one that renames them, which is why it exists.
+# Two tests additionally assert both patches are installed.
+# The complete internal surface this module touches, in three kinds — say it this
+# way and the next person adding an `aiosqlite.core.X` reference knows which
+# bucket theirs falls in:
+#   * resolved at call time by `_resilient_connection_worker_thread`: `LOG`,
+#     `set_result`, `_STOP_RUNNING_SENTINEL`, `set_exception`;
+#   * the ASSIGNMENT target it replaces: `_connection_worker_thread`, never read
+#     here, and guarded for the reason the paragraph above gives;
+#   * the class whose constructor gets wrapped: `Connection`.
+#
+# `Connection.__init__` is deliberately NOT in this tuple: `hasattr(cls,
+# "__init__")` is true for every class in Python, so such a check is a tautology
+# (one was here and was deleted). Its real guard is the `hasattr(self, "_thread")`
+# check inside `_daemon_worker_connection_init`.
+#
+# `set_result` / `set_exception` are the ones that must not be missed: they are
+# READS, so a rename does not degrade quietly — it raises AttributeError inside
+# the worker's `try`, lands in `except BaseException`, and the handler's own
+# `aiosqlite.core.set_exception` raises again with nobody left to catch it. The
+# worker thread dies holding an open connection, which is the exact failure this
+# whole module exists to remove, now as a daemon thread and therefore quieter.
+for _required in (
+    "_connection_worker_thread",
+    "_STOP_RUNNING_SENTINEL",
+    "LOG",
+    "set_result",
+    "set_exception",
+    # The class this module reaches into to wrap its constructor. Losing it is a
+    # bare AttributeError at the patch site rather than the actionable ImportError
+    # promised above. Unlike `Connection.__init__`, whose presence is guaranteed
+    # by inheritance, `Connection` itself can genuinely disappear.
+    "Connection",
+):
+    if not hasattr(aiosqlite.core, _required):
+        raise ImportError(
+            f"aiosqlite.core.{_required} is gone — the worker-thread hardening in "
+            f"{__name__} targets aiosqlite internals and must be re-checked "
+            f"against the installed version before this module can be trusted"
+        )
+_upstream_connection_init = aiosqlite.core.Connection.__init__
+
+
+def _daemon_worker_connection_init(self, *args, **kwargs) -> None:
+    _upstream_connection_init(self, *args, **kwargs)
+    if not hasattr(self, "_thread"):  # pragma: no cover — upstream rename
+        raise RuntimeError(
+            "aiosqlite Connection has no ._thread — the daemon half of the "
+            "worker hardening cannot be applied; see db_backend_sqlite"
+        )
+    self._thread.daemon = True
+
+
+aiosqlite.core._connection_worker_thread = _resilient_connection_worker_thread
+aiosqlite.core.Connection.__init__ = _daemon_worker_connection_init
+
+
 # Regex for ISO 8601 timestamp detection (covers common SQLite datetime formats)
 _ISO_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"

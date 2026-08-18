@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_bulletin.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 团队房定位改用共享 helper
+
+`db.get_one("bus_channels", {"created_by": team_<id>, ...})` 换成
+[[team_rooms]] 的 `primary_room_of`。这条约定此前有四份实现，而最新的一份（job
+的 origin 解析）落地时就已经和兄弟实现漂移了。本文件行为不变。
 
 # team_bulletin — 公告栏的业务规则（预算 + agent 能写什么）
 

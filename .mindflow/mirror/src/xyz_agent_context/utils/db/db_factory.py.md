@@ -1,8 +1,53 @@
 ---
 code_file: src/xyz_agent_context/utils/db/db_factory.py
-last_verified: 2026-07-22
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 驱逐必须真的关掉连接，否则锁被永久孤儿化
+
+`_evict_closed_loops()` 以前只把 client 从三张表里 `pop` 掉。**忘掉一个 client
+不等于释放它**：被驱逐的 client 仍持有活的 backend 连接——SQLite 情况下是一条
+aiosqlite worker 线程 + 一个打开的文件句柄，如果那个 loop 是在写到一半时消失
+的，还有一笔**永远不会 commit 也不会 rollback 的写事务**。注册表是最后一个引用，
+所以它丢掉而不关掉的东西，按定义就是孤儿。
+
+代价不是"慢"，是一把没人会松开的锁：之后每个 writer 都要在
+`_MAX_WRITE_RETRIES`(10) x `busy_timeout`(30s) 上耗掉 ~321 秒才抛
+"database is locked"。2026-08-17 profile 测试套件时，六次这样的碰撞占了 38 分钟
+里的 92%，而且**六个测试全是绿的**——症状是"慢"，没有任何红色指向它。修完
+38 分钟 → 3 分钟。
+
+因此本函数改为 `async`，驱逐时在**当前** loop 上 `await client.close()`
+（aiosqlite 关闭只需要"某个"在跑的 loop，不必是当初那个——与 `close_db_client`
+同一条推理）。
+
+扫描用**一个总预算**（`_EVICT_SWEEP_BUDGET`，5 秒）而不是每条一个超时：
+`stale_ids` 的长度由调用方的 loop churn 决定，没有上限，而这个扫描就压在
+`get_db_client()` 命中缓存的返回路径**前面**——按条计时等于让制造 loop 的人
+决定下一个取 client 的人付多少延迟（调用方可控基数无上限，正是本仓反复中招的
+那个模式）。预算耗尽时条目照样丢弃（id() 冲撞是绝不能留的那一半），连接不回收，
+并且**明说**而不是装作成功。三个 `pop` 都在 `await` 之前，这是同一个 loop 上两
+个协程不会重复 close 同一个 client 的原因，**不要**"顺手整理"到 await 之后。
+
+两条必须写明的边界，否则上面那句标题是在超卖：
+
+- **回收实际只对 SQLite 有效。** `MySQLBackend.close()` 走
+  `pool.wait_closed()`，它会在已死的 loop 上 `call_soon(...)` 并等一个绑在该
+  loop 上的 `Condition`。MySQL 上这会稳定失败而不是回收，你只会拿到一条
+  warning。**尚未对着真 MySQL 验证过，所以这里不声称修好了 MySQL**——对 MySQL
+  而言本函数仍然只解决 id() 冲撞。
+- **`SYNC_KEY` 够不着。** `get_db_client_sync()` 只登记
+  `_clients_by_loop[SYNC_KEY]`，从不写 `_loops_by_id`，而 `stale_ids` 正是从
+  后者推导的——于是**最必然拥有一个死 loop 的那个 client 被结构性排除在外**，
+  只有 `close_db_client()` 会回收它。而 `ContextRuntime.__init__` 在没有注入
+  client 时就走这条路，也就是说真有代码路径在铸造这种孤儿。要让它可驱逐，得先
+  审计 `get_db_client_sync` 的所有调用方——否则进程里第一次
+  `await get_db_client()` 就会把 bootstrap client 从还握着它的人手里关掉。
+
+这条修复只有配合 [[db_backend_sqlite.py]] 的 aiosqlite worker 加固才完整——
+worker 死了的话这里的 close 也没人执行，而那份加固本身也有两半（投递 + daemon
+线程）。守卫见 `tests/utils/db/test_sqlite_orphaned_connections.py`。
 
 ## 2026-07-22 — MySQL pool size env-tunable (MYSQL_POOL_SIZE)
 
@@ -84,10 +129,17 @@ reintroduce the exact cross-loop bug we're fixing. When
 `asyncio.run_coroutine_threadsafe(client.close(), loop).result(timeout=5)`.
 If the origin loop is already closed, the client is closed on the
 CURRENT loop instead (2026-07-13). The earlier "drop the entry, process
-exit reclaims it" assumption was wrong for the SQLite backend: aiosqlite
-runs a NON-daemon worker thread per connection, so an unclosed client
-blocks interpreter shutdown forever — this was the "pytest prints its
-summary then hangs" bug. Cross-loop close is safe precisely because the
+exit reclaims it" assumption was wrong for the SQLite backend. It was
+originally wrong because aiosqlite ran a NON-daemon worker thread per
+connection, so an unclosed client blocked interpreter shutdown forever —
+the "pytest prints its summary then hangs" bug. **That is no longer the
+reason (2026-08-17):** [[db_backend_sqlite.py]] now makes that worker a
+daemon thread, so it cannot hold the process open. The assumption is
+still wrong, for the reason that outlived the hang — a daemon thread is
+KILLED wherever it stands at interpreter exit, so this close is the only
+point at which the connection's writes are drained and its SQLite locks
+released on purpose rather than by process death. Do not drop the close
+because the hang stopped happening. Cross-loop close is safe precisely because the
 origin loop is gone: aiosqlite's close() only needs *a* running loop.
 
 **`SYNC_KEY = -1` pseudo-loop-id for the sync bootstrap path.**

@@ -1,8 +1,63 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：manifest 里的 `skill_name` 也是不可信输入
+
+skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和
+`_full.zip` 两处。这个 `skill_name` 来自**导入的 bundle manifest**，也就是
+谁做的 `.nxbundle` 谁写的——和一个表单字段同级的不可信度。同一个文件里
+1328 行给 skills 目录做了 `sanitize_filename`，唯独归档这两处漏了。
+
+两处改走 [[skill_backup.py]] 的 `prepare_archive_target()`，`skill_archives_dir`
+局部变量随之删除。恶意 manifest 名现在抛 `ValueError`，被 skills 循环既
+有的 `except Exception` 记成**单个 skill 的 install failure**（进
+`skill_install_failures` / warnings），不会中断整份 import——和其他
+per-skill 失败一致。
+
+### 同批修掉的既有缺陷：zip 分支的归档行从来没写进去过
+
+zip 分支把已经就位的 `tgt` 交给 `backup_after_api_install`，而那个 helper
+是为"把外面的 zip 拷进登记处"设计的——它自己又算一次
+`archive_target`，得到同一个路径，`shutil.copy2(tgt, tgt)` 必抛
+`SameFileError`，被它那个宽 `except Exception` 吞成一条 warning，于是
+`register_archive` 永远不执行。**导入含 zip 方式 skill 的 bundle 后，该
+用户的 `skill_archives` 里没有对应行。**
+
+后果不是"导出少一个 skill"（前端在没有归档行时默认走 full_copy，改动前后
+都一样），而是**导入来的 skill 永远无法以 zip 方式再导出，只能 full_copy
+——包更大，且 full 模式会把 secrets 一起带走**。
+
+现在 zip 分支直接 `register_archive(archive_path=str(tgt))`，形状照抄
+full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉住这
+条，改回旧写法会红。
+
+**sha256 一律由落盘文件现算，不取 manifest 的值**（2026-08-17 二审修正）。
+初版写的是"优先用 manifest 的，因为包内 zip 与落盘文件逐字节相同"——这句
+有两个反例：
+
+1. **de-dup 哨兵**：[[builder.py]] 对同一个 skill 的第 2..N 条 entry 写的是
+   `sha256: "shared"`（它们共用一个 `archive_ref`）。importer 对每条 entry
+   都 upsert 一次、后写覆盖先写，于是"两个 agent 共用一个 zip skill"的
+   bundle 导入后，`skill_archives.sha256` 就是字面量 `"shared"`。`or` 只兜
+   `None` / 空串，兜不住哨兵。
+2. **`tgt` 已存在时不拷贝**：上面那句 `if not tgt.exists()` 意味着用户此前
+   自己传过同名归档时保留旧字节，而 manifest 的 digest 描述的是新 zip。
+
+这一列的唯一用途就是完整性，写进一个已知有时为假的值比多算一次 hash 差得
+多。`test_shared_skill_import_records_a_real_sha` 用**两个 agent**的 bundle
+钉住它（单 agent 复现不出来），断言 `re.fullmatch(r"[0-9a-f]{64}", ...)`，
+并先断言 manifest 里确实带了 `"shared"` 哨兵——否则用例会因为错误的理由变
+绿。
+
+> `full_copy` 分支的 `s.get("sha256", "imported")` 是同一类哨兵，但不在本次
+> 改动面上，要改单独一条 commit + 自己的用例。
+
+> 这个缺陷藏了这么久的直接原因是 `skill_backup.py` 那个宽
+> `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
+> 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
 
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 

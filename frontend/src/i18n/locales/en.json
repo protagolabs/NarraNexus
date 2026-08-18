@@ -56,6 +56,10 @@
       "dropFile": "Drop file to attach…",
       "placeholder": "Type a message or / for skills…"
     },
+    "fastMode": {
+      "label": "Fast",
+      "tooltip": "Fast mode: switches this turn to the fast agent framework with lighter memory retrieval and low reasoning effort — quicker but simpler replies"
+    },
     "audio": {
       "stopRecording": "Stop recording",
       "recordVoice": "Record voice message",
@@ -193,6 +197,8 @@
       "leadTitle": "{{name}} · answers when no one is @mentioned",
       "stoppedNotice": "{{name}}'s task was stopped by the owner",
       "patrolNotice": "Leader patrol",
+      "undeliveredNotice": "{{name}} ended this turn without replying",
+      "deliveryFailedNotice": "{{name}}'s reply could not be posted",
       "board": {
         "title": "Work board",
         "unclaimed": "unclaimed",
@@ -231,7 +237,16 @@
         "usage": "{{entries}}/{{maxEntries}} rules · {{chars}}/{{maxChars}} chars",
         "updatedNotice": "Bulletin updated",
         "clearedNotice": "Bulletin cleared"
-      }
+      },
+      "leadBadge": "lead",
+      "expand": "Show more",
+      "collapse": "Show less",
+      "today": "Today",
+      "agentPaused": "This agent is paused ({{reason}}). Use Resume in the banner above once the cause is cleared.",
+      "sendFailed": "Could not send. Your text is still here — try again.",
+      "uploadFailed": "Could not upload “{{name}}”.",
+      "uploadFailedGeneric": "Could not upload the file.",
+      "loadingOlder": "Loading older messages…"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -824,7 +839,8 @@
       "agentCount_one": "{{count}} agent",
       "agentCount_other": "{{count}} agents",
       "toggleMembers": "Show members",
-      "noMembers": "No members yet"
+      "noMembers": "No members yet",
+      "unread": "Unread messages"
     },
     "teamRowMenu": {
       "options": "Group chat options",
@@ -1028,7 +1044,7 @@
       "privacyHeading": "Privacy",
       "privacyIntro": "Control what data NarraNexus collects to improve the product.",
       "analyticsTitle": "Product analytics",
-      "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. It is never sent to a third-party analytics service. Conversation content is never collected.",
+      "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. On the cloud web version, anonymous page-interaction data is also sent to Google Tag Manager, a third-party analytics service; turning this off stops it. Conversation content is never collected.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
       "lockedUseTitle": "Locked Use — keep the computer awake",
@@ -1687,7 +1703,7 @@
         "label": "Privacy",
         "hint": "What leaves this machine, and your switches for it.",
         "analyticsTitle": "Product analytics",
-        "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. It is never sent to a third-party analytics service. Conversation content is never collected.",
+        "analyticsDesc": "Allow NarraNexus to store product usage metadata for analysis. In cloud mode it is stored in a NarraNexus-managed database; in local or desktop mode it stays on this device. On the cloud web version, anonymous page-interaction data is also sent to Google Tag Manager, a third-party analytics service; turning this off stops it. Conversation content is never collected.",
         "telemetryTitle": "Diagnostic telemetry",
         "telemetryDesc": "Send this install's service logs to NarraNexus's own collector so crashes and failures can be debugged. At the default level this means structured events, warnings and errors — no message content. Deployments that run the \"full\" level (managed sandboxes, debug setups) ship whole log lines, which can include message content that services log. Nothing goes to any third party.",
         "telemetryTiming": "Turning it off takes effect within seconds. If telemetry was already off when the app started, turning it on takes effect at the next launch.",
@@ -2565,6 +2581,7 @@
     "desktopHint": "Open NarraNexus in a browser to see the live document preview.",
     "loading": "Opening live preview…",
     "loadError": "Could not open the live preview.",
+    "retry": "Retry",
     "livePreview": "Live preview"
   },
   "marketplace": {
@@ -2593,6 +2610,18 @@
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done"
+  },
+  "toast": {
+    "view": "View",
+    "completed": "Completed",
+    "roomSpoke": "New activity in the room",
+    "agent": "Agent",
+    "room": "Room"
+  },
+  "webAnalyticsNotice": {
+    "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",
+    "settings": "Open settings",
+    "dismiss": "Got it"
   },
   "telemetryNotice": {
     "body": "NarraNexus now sends diagnostic service logs from this install to its own collector, to help debug crashes and integration failures. On installs running the \"full\" level, log lines can include message content. You can turn this off anytime in Settings → Privacy.",

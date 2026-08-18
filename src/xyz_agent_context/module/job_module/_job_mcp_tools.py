@@ -22,7 +22,66 @@ from typing import Annotated, Optional, List, Any, NotRequired, TypedDict
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, TypeAdapter, WithJsonSchema
 
+from loguru import logger
+
 from xyz_agent_context.module.data_access import get_agent_data_store
+from xyz_agent_context.schema.job_schema import JobOrigin
+
+
+async def _caller_job_origin() -> tuple[Optional[str], Optional[str]]:
+    """``(origin_source, origin_channel_id)`` for the turn calling job_create.
+
+    Answers one question: is this turn happening in a TEAM ROOM, and which one.
+    A room-origin job reports back into that room; everything else keeps the
+    owner's chat, which is the surface that always exists.
+
+    Derived from the injected team id rather than a new bearer field. The
+    bearer's field list is positional and frozen — appending is legal but costs
+    a protocol change and every reader — while a team room is deterministically
+    the group channel whose ``created_by`` is the ``team_<id>`` marker, so the
+    fact is already on the wire.
+
+    Peer DMs are deliberately NOT an origin: an agent-to-agent channel has no
+    human reader, so a report delivered there is a report nobody sees.
+
+    Fails to ``(None, None)`` — a job that reports to the owner is the old
+    behaviour, and the old behaviour is never the wrong answer to "we could not
+    work out where this came from".
+    """
+    try:
+        from xyz_agent_context.module._mcp_identity import caller_team_id_from_request
+        from xyz_agent_context.message_bus.team_rooms import primary_room_of
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        team_id = caller_team_id_from_request()
+        if not team_id:
+            # A private-chat or peer-DM turn. The overwhelmingly common case
+            # and entirely normal, so it must stay silent — a warning here
+            # would fire on every owner-chat job and train everyone to ignore
+            # the log line that matters below.
+            return (None, None)
+        # One implementation of "where is this team's room" (see team_rooms):
+        # this resolver used to carry its own copy, which had already drifted
+        # from its sibling in the work-board tools.
+        channel_id = await primary_room_of(await get_db_client(), team_id)
+        # A team whose room does not exist yet resolves to nothing rather than
+        # to a source with no channel: recording half of the pair would send
+        # execution down the room branch with nowhere to post.
+        if not channel_id:
+            logger.warning(
+                f"[job.create] turn carries team={team_id} but its room could "
+                f"not be resolved; this job will report to the owner instead"
+            )
+            return (None, None)
+        return (JobOrigin.MESSAGE_BUS, channel_id)
+    except Exception as e:  # noqa: BLE001 — see docstring
+        # WARNING, not DEBUG. This except is what a future "the mcp container
+        # holds no DB credentials" migration would start hitting, and the
+        # symptom is silent: room origin disappears and jobs quietly fall back
+        # to the owner's private chat — i.e. the exact bug this feature fixed,
+        # returning with no trace. Whoever flips that switch needs to see it.
+        logger.warning(f"[job.create] could not resolve origin: {e}")
+        return (None, None)
 
 
 class TriggerConfigArg(TypedDict):
@@ -147,10 +206,18 @@ def create_job_mcp_server(port: int) -> FastMCP:
         # cloud). create_job_from_args owns the LLM-context setup + similar-title
         # embedding check + W1 structured-error handling, so it runs in whichever
         # process holds the DB (mcp locally, backend in cloud).
+        # WHERE this turn is running, taken from the server-injected identity
+        # and never from a tool parameter: a model asked "which room are you
+        # in" can only guess, and a guessed channel id routes someone else's
+        # reminder into someone else's room. Same rule the work-board tools
+        # follow for team_id (see _work_board_mcp_tools._resolve_team_room).
+        origin_source, origin_channel_id = await _caller_job_origin()
         return await get_agent_data_store().job_create(
             agent_id,
             {
                 "user_id": user_id,
+                "origin_source": origin_source,
+                "origin_channel_id": origin_channel_id,
                 "title": title,
                 "description": description,
                 "job_type": job_type,

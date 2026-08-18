@@ -147,6 +147,25 @@ async def test_max_results_respected(monkeypatch):
     assert captured_params["count"] == 3
 
 
+# -------- the ladder itself ---------------------------------------------
+
+
+def test_the_brave_timeout_ladder_keeps_its_order_and_floors():
+    """The shipped numbers need somewhere to be checked.
+
+    The two timeout tests below scale these constants down to 0.2s / 0.3s to run
+    fast — correct, and the same trick `test_web_search_timeouts.py` uses — but
+    it means nothing in the suite had ever asserted the values that actually
+    ship. Order matters (a per-query cap above the overall cap is dead code, and
+    the incident behind this three-layer defense was every layer delegating its
+    timeout to the next one down); floors matter too, because a ladder scaled to
+    milliseconds in production would turn a slow network into a fast failure.
+    """
+    assert 0 < brave._PER_QUERY_TIMEOUT_S < brave._OVERALL_TIMEOUT_S
+    assert brave._PER_QUERY_TIMEOUT_S >= 5
+    assert brave._OVERALL_TIMEOUT_S >= 15
+
+
 # -------- per-query timeout ---------------------------------------------
 
 

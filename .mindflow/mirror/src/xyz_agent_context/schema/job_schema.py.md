@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `JobOrigin` + 两个 origin 字段
+
+job 记住它是在哪儿被要求的。此前 job 只记得**做什么**，忘了**在哪被问**——于是
+在团队房里当着四个人要的「明早提醒我们」，投进了 owner 的私聊，问的那个房间再
+没收到过回音。
+
+`JobOrigin` 刻意是**小的闭集**而不是「任意 WorkingSource」：每个值都需要真实存在
+的投递代码，一个能记录却投不出去的来源比不记录更糟——执行时会把答案路由进一个
+静默什么都不做的分支。
+
+`MESSAGE_BUS` 目前特指**团队房**。peer DM 不在内：agent 对 agent 的频道没有人类
+读者，往那儿投的报告等于没人看见，owner 私聊才是它诚实的归宿。
 
 ## 2026-08-10 (PR-8b r2) — `JobUpdateFields`：job_update 可变字段的单一来源
 

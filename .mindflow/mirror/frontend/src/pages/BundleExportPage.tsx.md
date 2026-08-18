@@ -62,6 +62,20 @@ agents;ScopeHeader = chevron+icon+label)。**内容组件零改动** — 只是�
 ?team=&agents= 深链全部原样。v4 mock 里的 Agent/Team bundle 单选卡未做:
 AgentsTab 内部现成的 team 下拉 + quick-add chips 已承担同一职责,再加一层
 单选卡是重复控件 — 记入 self_notebook/todo 待 Owner 裁决。
+last_verified: 2026-08-17
+stub: false
+---
+
+## 2026-08-17 — SEC-07：不再回传归档路径
+
+zip 方式的 `SkillExportSpec` 原先带 `archive_path`（从
+`GET /skills/archives` 读到再原样回传）和 `manual_zip_path`。后端已把这两
+个字段删掉——客户端提供的路径是任意文件读的入口（见 [[bundle.py]]），现在
+由 builder 自己按 user 查 `skill_archives`。
+
+前端只剩**展示**用途：`hasZip` 判断有没有归档、`archivePrefix` 显示
+basename。`manual_zip_path` 全前端从来没有任何地方赋值过，一并删除；
+`manualPrefix` 这个 i18n key 仍被 url 方式那张卡用着，保留。
 
 ## 2026-07-13 — full-mode checkbox also carries skill secrets
 

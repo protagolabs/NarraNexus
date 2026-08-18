@@ -1,8 +1,31 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-12
+last_verified: 2026-08-13
 stub: false
 ---
+
+## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
+
+`netmind_login` 在 `create_token` 之前，多一道账户状态判定：状态从 `user`
+实体（`upsert_netmind_user` 返回值，本身就是经 `UserRepository.get_user` 的
+`WHERE BINARY user_id` 读到的行，故大小写敏感、与停用**写**侧同 collation）取
+`user.status.value`，若落在共享的 `NON_TRANSACTING_USER_STATUSES`（从
+`xyz_agent_context.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
+内联的 `{banned, blocked, deleted}` 字面量），记一行 WARNING 后
+`raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
+（见 [[auth_errors]]），**不签 token**。
+
+**大小写敏感 + fail-open**：不再用 `db_client.get_one`（MySQL 默认大小写不敏感
+collation，会让 look-alike user_id 绕过闸门）。`role` 不在 `User` 实体上，故单独
+用一条 `WHERE BINARY user_id` 的 raw SELECT 读，同样大小写敏感。两处读都裹
+try/except **fail-open**（分别退回 `"active"` / `"user"`）：登录绝不能因为状态读
+抖动就挂——闸门是拦某个被停用账户，不是变成登录可用性依赖。
+
+同等重要的是：early return **短路掉后续所有 fire-and-forget 登录副作用**
+（session 重整、provider/quota 供给等）——这些正是一个被停用账户应当停止消耗的
+后台工作。状态值是一个不透明集合，本路由不持有「账户如何走到停用」的任何策略。
+这与 [[auth]] middleware 的账户状态闸门是两道互补的关卡：middleware 拦住已有
+token 的后续请求，这里拦住停用账户**重新拿 token**。
 
 ## 2026-08-12 — reply_language 路由
 

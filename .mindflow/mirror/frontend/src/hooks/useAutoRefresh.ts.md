@@ -1,10 +1,47 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-05-14
+last_verified: 2026-08-14
 stub: false
 ---
 
 # useAutoRefresh.ts — Tiered background polling with Visibility API pause
+
+## 2026-08-14 — Teams join the mid tier, and the scheduler stops requiring an agent
+
+The team rows in the sidebar carry a room-activity mark: a comparison between a
+client watermark and a server timestamp that arrives with the TEAM LIST (see
+[[unread.ts]]). Nothing refreshed that list on a timer — it was fetched once,
+when the sidebar found it unloaded. A room could talk for an hour and the mark
+would appear only on the next full page reload, which from the user's side is
+indistinguishable from a feature that does not work.
+
+`tickMid` now calls `useTeamsStore.getState().refresh()`, deliberately BEFORE
+the agent guard: a team room needs no agent selected, and the sidebar's team
+rows exist whether one is or not. For the same reason the scheduler's own guard
+relaxed from `!agentId || !userId` to `!userId` — every poll that needs an agent
+already checks for one itself, and gating the whole scheduler on a selected
+agent left a user sitting in a team room with no background refresh at all.
+
+Behind the visibility guard like everything else, so a hidden tab still issues
+zero requests; and on re-focus `tickMid` fires immediately, which is exactly
+when the user wants to know what happened while they were away.
+
+After each teams refresh, `notifyWokenRooms` raises a toast for any room that
+went from caught-up to talking. Three decisions are load-bearing:
+
+- **Edge, not level.** A toast per new message in a room where six agents answer
+  at once is a notification people turn off — and a feature users turn off is
+  worse than one that was never built. A room that is already unread stays
+  unread until they open it and says nothing more in the meantime.
+- **"Never observed" is distinct from "was caught up".** A team created, joined,
+  or seen for the first time this session has no prior observation; treating
+  that as caught-up would announce a whole backlog the user just gained access
+  to, and would make every unread room shout on app start.
+- **No route knowledge.** "Is the user reading it right now" is answered by the
+  watermark: the open room advances its own every 3s (see [[TeamChatPanel.tsx]]),
+  so by the time this 30s tick sees the message it is already read. Same
+  question the sidebar dot asks, answered from the same place — one rule, not
+  two that can disagree.
 
 ## 2026-05-14 — Artifacts join refreshAll (but NOT the timers)
 
@@ -36,7 +73,7 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
 
 ## Design decisions
 
-**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): polls `getSimpleChatHistory` across ALL agents looking for new turns from server-initiated jobs or Matrix messages.
+**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): teams, jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): polls `getSimpleChatHistory` across ALL agents looking for new turns from server-initiated jobs or Matrix messages.
 
 **Visibility API.** All tick functions return early if `document.hidden`. On tab re-focus, `handleVisibilityChange` fires both `tickHigh` and `tickMid` immediately so the user sees fresh data without waiting for the next interval.
 

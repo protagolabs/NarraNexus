@@ -109,6 +109,12 @@ dev-poller:
 db-doctor: ## Verify schema integrity + print row counts (no side-effects unless repair needed)
 	uv run python scripts/data_migrations/db_doctor.py
 
+latency-report: ## Bus-hop + turn-phase percentiles, parsed from ~/.narranexus/logs (PRD acceptance #1 evidence). Args: HOURS=24 CHANNEL=ch_xxx
+	uv run python scripts/diag_collector/latency_report.py --hours $(or $(HOURS),24) $(if $(CHANNEL),--channel $(CHANNEL),)
+
+work-item-report: ## Hand-off closure + stall rates, parsed from ~/.narranexus/logs (evidence for "is a stronger fallback needed"). Args: HOURS=168 TEAM=t_xxx
+	uv run python scripts/diag_collector/work_item_report.py --hours $(or $(HOURS),168) $(if $(TEAM),--team $(TEAM),)
+
 # ── Release ─────────────────────────────────────────────────────────────────
 
 verify-release: ## Pre-push gate for upstream sync — catches squash-merge dup artifacts (run before release step 6 push)

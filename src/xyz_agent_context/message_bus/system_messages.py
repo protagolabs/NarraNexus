@@ -27,7 +27,15 @@ module only assembles them, so adding a type does not mean moving it.
 
 from __future__ import annotations
 
+from xyz_agent_context.message_bus.delivery_notice import (
+    DELIVERY_FAILED_MSG_TYPE,
+    UNDELIVERED_MSG_TYPE,
+)
 from xyz_agent_context.message_bus.patrol import PATROL_MSG_TYPE
+from xyz_agent_context.message_bus.team_notices import (
+    CASCADE_MSG_TYPE,
+    ROSTER_MSG_TYPE,
+)
 from xyz_agent_context.message_bus.team_bulletin import (
     BULLETIN_NOTICE_MSG_TYPE,
     STOP_NOTICE_MSG_TYPE,
@@ -37,19 +45,43 @@ from xyz_agent_context.message_bus.team_bulletin import (
 # them is an agent taking a turn or a person speaking.
 PLATFORM_MSG_TYPES = (
     BULLETIN_NOTICE_MSG_TYPE,
+    CASCADE_MSG_TYPE,
+    DELIVERY_FAILED_MSG_TYPE,
     PATROL_MSG_TYPE,
+    ROSTER_MSG_TYPE,
     STOP_NOTICE_MSG_TYPE,
+    UNDELIVERED_MSG_TYPE,
 )
+
+
+#: What a platform line is CALLED where an agent reads one.
+#:
+#: Two surfaces render these rows and both must name them the same way: the
+#: team prompt's scrollback (`message_bus_trigger._build_team_prompt`, as a
+#: line prefix) and the module's unread list (`message_bus_module._bus_tag`, as
+#: the sender field). They were independent literals until 2026-08-17, with the
+#: agreement asserted only in a comment — so a rename on one side would have
+#: left the SAME notice carrying two different names in one context window, and
+#: the rule that teaches an agent what the label means ("not a teammate, not
+#: someone to answer or @mention") reads only one of them.
+#:
+#: Lives here for the reason this whole module exists, stated in the header
+#: above: the compiler-free language of string literals stops being the place
+#: where the knowledge is kept. The two call sites keep their own FORMATS —
+#: prefix vs field — and share only the name.
+SYSTEM_SENDER_LABEL = "[system]"
 
 
 # How each platform line should be introduced when an agent is told to respond
 # to one. Keyed by type rather than hard-coded at the call site, which had
 # assumed patrol is the only platform message that can become a trigger — true
-# today (stop and bulletin notices send `mentions=None`, so they never trigger
-# anyone) but written nowhere except a comment, and silently wrong the day
-# another type starts carrying mentions.
+# until 2026-08-13, when the undelivered notice became the second: an A2A one
+# mentions the peer that asked, precisely so a blocked errand wakes up instead
+# of waiting forever. The dispatch table was written for exactly this day.
 _TRIGGER_LABELS = {
     PATROL_MSG_TYPE: "the team's Leader check",
+    UNDELIVERED_MSG_TYPE: "a platform notice that the agent you contacted "
+                          "ended its turn without replying",
 }
 # Neutral fallback: a new platform type gets a truthful vague label rather than
 # a synthetic `team_<id>` marker printed as if it were a teammate.
@@ -79,4 +111,9 @@ def placeholders(ph: str = "%s") -> str:
     return ", ".join([ph] * len(PLATFORM_MSG_TYPES))
 
 
-__all__ = ["PLATFORM_MSG_TYPES", "placeholders", "trigger_label"]
+__all__ = [
+    "PLATFORM_MSG_TYPES",
+    "SYSTEM_SENDER_LABEL",
+    "placeholders",
+    "trigger_label",
+]

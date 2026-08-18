@@ -433,10 +433,12 @@ async def _drain_and_close(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[supervisor] audit.stopped failed: {e}")
 
-    # Close the shared DB client — we opened it, so we close it. The aiosqlite
-    # backend runs its connection on a background thread that otherwise keeps
-    # the process alive after run() returns, turning a clean signal into a hang
-    # (same reason as run_channel_triggers.main()).
+    # Close the shared DB client — we opened it, so we close it. Not because
+    # the aiosqlite worker would otherwise hold the process open (it is a daemon
+    # thread since 2026-08-17), but because a daemon thread is KILLED at
+    # interpreter exit: this is the only place pending writes are drained and
+    # SQLite locks released on purpose (same reason as
+    # run_channel_triggers.main()).
     try:
         from xyz_agent_context.utils.db.db_factory import close_db_client
 

@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `_create_narrative` 公开更名 `create_from_query`
+
+行为零变化，纯改名+两处内部调用同步。动机：NarrativeService.create_fast
+（chat fast mode durable miss 路径）需要同一套查询式创建（BM25 路由面
+一致），跨 facade 调私有方法不如给它正名。
+
+
+## 2026-08-14 — 两个独立读并发 + `keyword_ms` / `judge_ms` 落审计
+
+**先说结论，免得误导后来人**：这个并行**不是**叙事选择的延迟修复。实测（本地真机
+`[TIMED]`，改造前的 span 名）：`ensure_defaults` 4.3ms、participant 查询 3.1ms、
+`keyword_search` 4.5ms——三者合计 12ms，而 setup 段 p50 是 **8.5 秒**。
+
+**span 名已变**：两个独立读并发之后，原 `narrative.retrieve.participant_query` 改名
+`narrative.retrieve.independent_reads`，量的是 max(participant, pool)。拿旧名去 grep
+历史日志做前后对照会得零命中——而"扒日志做前后对照"正是本项目自己示范并写在下面的
+方法。
+
+真正的成本是两侧的 helper LLM：continuity ~3.9s、unified judge ~4.7s。谁来这里想让
+选择变快，应该去看那两个。
+
+**`ensure_defaults` 不能进 gather**，这是**正确性**约束不是偏好：它在默认 narrative
+缺失时会**创建**它们，pool 读若与创建竞争，BM25 候选集会静默漏掉它们——那是错答案不是
+慢答案。`tests/narrative/test_retrieval_concurrency.py` 第一条就锁这个顺序。
+
+participant 查询（`_get_participant_narratives`）与 `load_pool` 互不喂给对方，所以并发。**裸协程直接进 gather，不包
+`create_task`**：gather 本身就并发调度，自己持 Task 句柄只会白多两个对象。变异检验证实：
+包不包 create_task 行为一致，退回**纯串行**才会让「重叠」那条测试挂。
+
+（更正一处早先写反的说法：`gather(return_exceptions=False)` **不会**取消未完成的兄弟协程
+——官方文档明示。所以"少一条『一个失败后另一个还活着』的路径"是错的；实际代价只是一次
+已无人接收的 DB 读继续跑完，不会产生教训 #2 那种 GC warning。）
+
+`return_exceptions` 保持默认 False：任一读失败意味着候选集**不完整**，拿剩下的自信地路由
+是"把错答案打扮成对答案"。
+
+`keyword_ms` 严格等于 **pool 读 + rank**，不含它现在并排跑的 participant 查询：
+`load_pool` 在 gather 内用 `_load_pool_timed` 单独计时，与 `_rank_ms` 相加。第一版把
+时钟起点放在 gather 之前，于是这一列把 participant 的耗时记到了 BM25 头上——而它要回答
+的问题恰恰是「BM25 会不会成为瓶颈」。`tests/narrative/test_retrieval_concurrency.py::
+test_keyword_ms_excludes_the_participant_read` 用一个慢 250ms 的 participant 查询锁住这
+条。`judge_ms` 在被判决路径的唯一出口处设置，同文件有测试断言判决路径非 NULL。
 ## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
 
 `_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。

@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — SEC-07：zip 归档路径由服务端解析，且读前复查 containment
+
+`install_method="zip"` 分支原先是 `cfg.get("archive_path") or
+cfg.get("manual_zip_path")` —— 这两个值一路来自 **HTTP 请求体**
+（见 [[bundle.py]] 的 `SkillExportSpec`），然后被 `shutil.copy2` 拷进
+导出包并流回调用者。任何登录用户传 `archive_path: "/etc/passwd"` 就能
+读走后端进程能读的任意文件。
+
+改成两道：
+
+1. **服务端解析**：进 skills 循环前一次性把该 `user_id` 的
+   `skill_archives` 行读成 `archive_paths_by_skill`，zip 分支只查这张表。
+   请求里已经没有路径字段可传了。立场和上面那道"内置技能强制走 builtin"
+   的 server-side guard 一致：**客户端选 method，服务端定 bytes**。
+2. **读侧 containment**：DB 里可能还留着修复前写坏的行（dev 库 id=20 就
+   是），所以打开前过一遍 [[skill_backup.py]] 的
+   `is_within_user_archive_dir`；越界就 skip + warning + `logger.warning`
+   带 user/skill/path，而不是信任这一列。锚点必须是**该用户的目录**而不
+   是 archives root：id=20 存的字符串 resolve 之后落在 root 里面
+   （`{root}/marker.zip`），root 锚点会放行；`{root}/{受害者}/x.zip` 也一
+   样。三条中毒用例分别覆盖 root 外、root 散装层、跨用户目录，后两条在
+   root 锚点下会红。
+
+`cache_key` 从 `f"{skill_name}|{src_zip}"` 改成 `skill_name`：`src_zip`
+现在是 `skill_name` 的纯函数（`skill_archives` 在 `(user_id, skill_name)`
+上唯一），复合 key 恒等于单 key。原注释说的"同名不同目录的 skill 各拿
+自己的 archive_ref"在服务端解析之后**结构上已不可能**——同名必然解析到
+同一行、共享同一份 bytes。注意 `skill_dir` 那层文件名去重是**另一件事**
+（包内文件名撞车），别一起删。
 ## 2026-08-10 — 工作板随 team 一起导出
 
 `_export_work_items`。板子**就是**这个团队欠着的东西,只还原房间不还原欠账,

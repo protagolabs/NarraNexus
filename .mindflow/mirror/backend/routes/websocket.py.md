@@ -1,8 +1,40 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: 首包可带 fast_mode
+
+`AgentRunRequest` 新增 `fast_mode: bool = False`（首包可选字段；缺省=
+今日路径）。fresh-run 的 drive kwargs 构造抽成纯函数
+`_fresh_run_drive_kwargs(request, *, session_id, working_source,
+mcp_servers)`（沿 `_circuit_open_frame` 的纯函数可测 idiom），字段逐项
+锁在 tests/backend/test_websocket_fast_mode.py——WS payload → drive 契约
+不能静默丢字段。fast_mode 纯透传：策略在 AgentRuntime 的
+`_resolve_turn_profile`，本文件零判断；reconnect 路径不涉及（profile
+不持久化，重连只回放）。
+
+## 2026-08-13 — WebSocket 账户状态闸门（停用用户不能起 run）
+
+`/ws/agent/run` 在 cloud 分支验完 token、`token_user_id` 与 payload `user_id`
+一致性校验通过、`websocket.accept()` 之后、进入 reconnect / fresh-run（"Starting
+agent runtime"）**之前**，补一道**账户状态闸门**：
+`if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:` →
+发一帧 `{type:"error", error_code: ACCOUNT_SUSPENDED}` 后
+`websocket.close(code=WS_CLOSE_POLICY_VIOLATION)` 并 `return`。
+
+**为什么必须在这里再来一遍**：账户闸门原本只在 HTTP auth middleware，而 middleware
+**豁免 `/ws/*`**（WebSocket 在首帧自带 auth），于是一个被停用用户拿自己有效的 JWT
+仍能经 WS **发起新 run**——而 WS 是产品**主**路径。复用 [[auth]] 的**同一个**
+`_account_state` 读取器（TTL 缓存、fail-open、BINARY 大小写敏感）与**同一个**
+共享集 `NON_TRANSACTING_USER_STATUSES`（[[entity_schema.py]]），两面绝不漂移。
+`_account_state` 是 async，需 `await`。
+
+**陷阱**：WS **不能**用 `auth_error_response()`——它返回 `JSONResponse`，无法经
+WebSocket 发送；必须用本文件里其它 auth 失败already在用的「error-frame + close」
+形式。`/ws/ping`（纯 liveness，另一个 route）**不 gate**。闸门在 cloud 分支内，
+local 模式（单可信用户，无停用概念）天然不过它。
 
 ## 2026-08-11 — cloud 错误脱敏 + MCP egress SSRF 过滤（安全审计 P1-1/P0-3）
 

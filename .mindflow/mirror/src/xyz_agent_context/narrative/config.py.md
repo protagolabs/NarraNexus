@@ -1,8 +1,48 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-07-29
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 撤回单位门：持锚点不创建是实测终案（supersede 下一条）
+
+单位门（8 units）上线前实测被否：中文正常延续句 BM25 top-1 落在 1.0-3.2
+（骑在 RAW_FLOOR=3.0 上），≥8 单位的纯确认句（「嗯嗯我明白了那就这样吧」）
+probe 出来就是沉默——一段连贯 7 轮中文对话被打成 5 条 narrative（40 字符
+门下同对话=1 条）。BM25 在 CJK 上无法区分「新话题」与「省略式延续」，
+错误不对称定案：错归档可恢复（下一个 full turn continuity 重路由、
+switch_narrative 在），碎片化不可恢复（永久分裂+agent 半途拿空历史）。
+故 `FAST_NEW_THREAD_MIN_QUERY_UNITS` 删除，持 live 锚点时 fast 路径一律
+不创建；完整数据与新线三来源写在 FAST_ANCHOR_OVERRIDE_FLOOR 的 NOTE。
+
+## 2026-08-14 — 新线门改按语言单位计数（R2 复核 I3）
+
+`FAST_NEW_THREAD_MIN_QUERY_CHARS`(40 字符) → `FAST_NEW_THREAD_MIN_QUERY_UNITS`
+（默认 8，env `NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_UNITS`）。字符计数对
+CJK 全盲：中文完整句 11-15 字符，40 字符门对 zh 用户几乎永不打开——锚点
+仍吞掉一切换题（正是要修的症状）。单位=CJK 每字 1（汉字/假名/谚文约各
+承一词）+ 其余按空白分词每词 1（`narrative_service.query_units`），中英
+同尺。残余偏置对所有语言一致声明：低于 N 单位的新话题句先留旧线程（如
+6 词英文短命令），等更完整消息再开新线。默认值是临时校准，待
+gate_top1_raw 数据落地后重调。
+
+## 2026-08-14 — FAST_NEW_THREAD_MIN_QUERY_CHARS（#307 增量 🟡1）
+
+fast 路径开新线的长度门（默认 40，env
+`NARRATIVE_FAST_NEW_THREAD_MIN_QUERY_CHARS`）：锚点在手时只有「BM25 全面
+沉默 + query 长到沉默可信」才 create。依据即本文件 RAW_FLOOR 注释里的实
+测（<40 字符中位 top1 ~5.3）：短省略句零重叠属常态、不可当新话题证据；
+完整句子零重叠=真新话题。已声明的残余偏置：短的新话题句会先留在旧线程，
+等更完整的消息再开新线——一次错归档好过每个"ok"开一条线。不是时间窗。
+
+## 2026-08-14 — FAST_ANCHOR_OVERRIDE_FLOOR（#307 🟡1/🟡2）
+
+新阈值：fast 路径持有 live 锚点时 BM25 抢线所需的强分下限（默认 12.0，
+env `NARRATIVE_FAST_ANCHOR_OVERRIDE_FLOOR`）。刻意高——raw BM25 随 query
+长度伸缩（<40 字符中位 ~5.3），短跟进句永远抢不了线、留在原线程；长而
+主题明确的消息可以切。与 RAW_FLOOR（噪声滤网）职责不同。同时在
+2026-05-20 session 永不超时 NOTE 旁补注：fast 路径同守此规（曾短暂引入
+30 分钟窗，同日删除）。
 
 ## 2026-07-29 — 高置信判据换成 RAW_FLOOR + MARGIN_RATIO
 

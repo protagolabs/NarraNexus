@@ -113,6 +113,10 @@ async def detect_stalled_items(
     stalled set, so patrol stops chasing someone already working again.
     """
     repo = TeamWorkItemRepository(db)
+    # The recycle that used to happen here now runs in `teams_due_for_patrol`,
+    # ahead of the gates that would skip a lead-less team entirely — see the
+    # comment there. By the time this function is reached, expired rows are
+    # already out of `ACTIVE`.
     items = await repo.list_active(team_id)
     stalled: List[WorkItem] = []
     for item in items:
@@ -152,6 +156,15 @@ async def detect_stalled_items(
             continue
         if item.status != WorkItemStatus.STALLED:
             await repo.set_status(item.item_id, WorkItemStatus.STALLED)
+            # Logged on the TRANSITION only, so the closure report counts
+            # stalls rather than sweeps — a stalled item is re-derived on
+            # every cycle and a line per cycle would make one dead hand-off
+            # look like hundreds. Read by scripts/diag_collector.
+            logger.info(
+                f"[work-item] action=stall item={item.item_id} "
+                f"team={team_id} channel={item.channel_id} "
+                f"assignee={item.assignee_id} origin={item.origin}"
+            )
         item.status = WorkItemStatus.STALLED
         stalled.append(item)
     return stalled
@@ -183,6 +196,13 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
     ``_agents_with_pending``: one pass for the whole fleet rather than asking
     each team in turn whether it has anything to do.
 
+    **Not a pure query.** It also recycles each candidate team's expired AUTO
+    errands, and does so BEFORE the gates below — so the write happens for
+    teams that never appear in the return value (a team with no lead is
+    recycled and not patrolled). That placement is the point, not an accident:
+    see the comment at the call site for why the recycle must sit upstream of
+    ``patrol_is_on``.
+
     Three gates, in cost order:
 
     1. the team has unfinished work — an empty board produces NO patrol runs at
@@ -199,6 +219,36 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
     due: List[Tuple[str, str, str]] = []
     for team_id in team_ids:
         try:
+            # Recycle expired errands BEFORE any of the patrol gates.
+            #
+            # This used to live inside `detect_stalled_items`, i.e. downstream
+            # of every gate that decides whether this team is worth an LLM turn
+            # — and two of those gates are permanent, not throttles:
+            # `patrol_is_on` requires a lead, and `lead_agent_id` defaults to
+            # None. So a team nobody has named a lead for (the state every team
+            # is created in) opened errands from every @mention and never
+            # recycled one.
+            #
+            # The opening side has no gate at all, so the two must not be
+            # asymmetric. `teams_with_active_work()` above is the right scope:
+            # it looks at neither the lead nor `patrol_enabled`, so one call
+            # here covers patrolled and unpatrolled teams alike — without
+            # adding a second scheduler for one sweep.
+            #
+            # `expire_stale_errands` swallows its own failures, which matters
+            # more here than it did before: the per-team `except` below would
+            # otherwise let one failed recycle skip this team's whole patrol,
+            # trading a stall detection for a bookkeeping error.
+            from xyz_agent_context.message_bus.errand import expire_stale_errands
+
+            # The board is read ONCE and handed to the recycle, rather than
+            # read inside it and again here. This loop runs every poll cycle
+            # (3-12s), not once per patrol (180-600s), so a duplicated read is
+            # per-team standing overhead on the serial prefix of every message
+            # dispatch.
+            board = await repo.list_active(team_id)
+            expired = await expire_stale_errands(db, team_id, candidates=board)
+
             team = await db.get_one("teams", {"team_id": team_id})
             if not team:
                 continue
@@ -207,7 +257,12 @@ async def teams_due_for_patrol(db: Any) -> List[Tuple[str, str, str]]:
             # patrol", so this single call replaces both checks.
             if not patrol_is_on(team):
                 continue
-            items = await repo.list_active(team_id)
+            # What the recycle left, never what preceded it. `has_stalled`
+            # picks the 600s or 180s cadence and `items[0].channel_id` aims the
+            # patrol at a room, so a row cancelled a moment ago must drive
+            # neither. Filtered in memory rather than re-read: `expire_stale_
+            # errands` already told us exactly which ids it retired.
+            items = [i for i in board if i.item_id not in set(expired)]
             if not items:
                 continue
             has_stalled = any(i.status == WorkItemStatus.STALLED for i in items)

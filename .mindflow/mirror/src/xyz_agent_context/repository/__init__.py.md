@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 stub: false
 ---
+## 2026-08-13 — 导出 `BanAuditRepository`
+
+账户状态变更审计（`ban_audit` 表）的数据访问进公共导出面（import + `__all__`）。
+纯转发改动，无行为变化。见 [[ban_audit_repository]]。
+
 ## 2026-08-05 — 导出 `AgentRegistryRepository`
 
 `bus_agent_registry`（同伴发现名录）的数据访问进公共导出面。该表原先由三处

@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-06
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: run() 增 fast_mode 布尔（策略收敛在 runtime）
+
+run() 新增 `fast_mode: bool = False`。trigger 只表达意图（一个布尔），
+「fast 意味着哪些 knobs」由模块级纯函数 `_resolve_turn_profile(fast_mode,
+turn_profile, working_source)` 统一解析：显式 turn_profile 永远赢（voice
+路径零变化，双传时记 debug 日志）；`fast_mode=True` 且无显式 profile 时用
+`TurnProfile.fast_for(working_source)`（chat → name="chat_fast"）；缺省
+一律 None=今日行为。解析发生在 RunContext 构造前，下游链路零改动。
+锁在 tests/agent_runtime/test_resolve_turn_profile.py。
+
+## 2026-08-14 — `[turn-timing]` 保持只进日志
+
+一度加过「同时写 `turn_timing` 表」，已撤回；理由见
+`mirror/scripts/diag_collector/latency_report.py.md`。四段的划分与行格式未变。
+
+## 2026-08-14 — Step 5-6 后台任务改走 `spawn`，不再裸 `create_task`
+
+`asyncio.create_task(_run_hooks_background())` 的返回值此前无人持有——教训 #2 的
+两半同时中招：循环只持弱引用，逃逸的异常也只在 GC 时冒个 warning。改用
+`utils.background_tasks.spawn`，task 名为 `post_turn_hooks:{agent}:{event}`。
+
+职责边界没变：协程内部的 try/except 仍然拥有**领域**失败（凭据告警、owner inbox、
+按模块隔离、`clear_cost_context`），`spawn` 只保证任务丢不了、死了有声。
+
+副作用是它顺手给测试开了口子——此前这个 task 没有任何句柄，
+`tests/agent_runtime/test_post_turn_hooks_background.py` 靠 `drain()` 才写得出来。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 
@@ -217,3 +244,9 @@ R1 的 total_s 从 Step 0 才起算,漏掉 run() 前段（懒加载 DB client、
 并有格式测试钉住（tests/agent_runtime/test_turn_timing_line.py）——纯观测
 代码的 format 坏掉时会在持久化后、后台 hook 前炸主链路,所以必须可测。
 同函数两个 time 别名合并为一个 `_time`。
+
+## 2026-08-12 — `run()` 透传 `on_plain_text_delivery`
+
+与 `cancellation` 同一条显式参数路径(不塞 `trigger_extra_data` —— 那是个会被序列化的
+dict,放 callable 是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,所以中间没有
+任何签名要改。

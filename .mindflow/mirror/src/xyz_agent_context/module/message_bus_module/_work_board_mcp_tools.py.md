@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_work_board_mcp_tools.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 第 1 分支改用共享 helper
+
+`_resolve_team_room` 的注入身份分支换成 [[team_rooms]] 的 `primary_room_of`。
+
+第 2 分支（`bus_agent_activity` 兜底）**留在本文件**：它回答的是「没有注入身份时
+怎么办」，和「团队房在哪」是两个问题。helper 只承载后者。
 
 # _work_board_mcp_tools.py — 工作板工具,以及模型能写什么的边界
 

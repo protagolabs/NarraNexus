@@ -1,10 +1,64 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-11
-
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 差事层与 job 来源面：三列两索引
+
+`team_work_items.origin`（tool|auto）：owner 2026-08-07 的分层决定第一次可执行，
+语义见 [[team_work_schema]]。默认 `tool`，让历史行保持它本来的含义。同批两条索
+引服务 [[errand]] 仅有的两个热读。
+
+`instance_jobs.origin_source` / `origin_channel_id`：job 记住**它是在哪儿被要求
+的**，好让结果回到那儿——PR #230「回复面跟随来源」在 job 面的延伸。空 = owner 私
+聊，既是历史行为、也是**唯一永远存在**的投递面，所以兜底不需要特例。
+
+拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
+合成一个字段会让每个读者各自再解析一遍。
+
+## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
+
+`continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：
+NULL = 这一层没跑。短路的决策跳过 judge，那里存 0 会把"仲裁有多贵"答得远低于真实值，
+而这几列存在的意义就是支持这个对比。纯新增可空列，`auto_migrate()` 幂等加列。
+
+## 2026-08-14 — 曾加过两张延迟观测表（`bus_hop_timing` / `turn_timing`），已撤回
+
+记下来免得有人再走一遍。
+
+**加表时的论据是错的**：当时引「教训 #5：日志会轮转，用 DB」，但那条针对的是
+`docker logs`。本项目早已按服务把日志写文件，`rotation="00:00"` +
+`retention="30 days"`（`utils/logging/_setup.py`）。
+
+**日志实测够用**：一行 `grep + awk` 从日志算出的分位数与表版本报表**逐位一致**。
+`scripts/diag_collector/latency_report.py` 现在直接解析日志，产出相同。
+
+**取舍**：表买到 JOIN 和自解释 SQL，代价是两表 + 两 repository + 两处热路径写入 +
+迁移。为一次延迟排查不划算。真要长期盯，该建的是 `turn_timing`（秒数在 setup 段），
+不是这一整层。
+
+**保留的例外**：`narrative_routing_audit` 的四个 `*_ms` 列留着——那张表本来每次决策
+就写一行，加可空列边际成本为零，而「成本 ↔ 决策」的关联是日志给不了的。
+
+## 2026-08-13 — ban_audit 新表（账户状态变更审计）
+
+注册 `ban_audit`：账户状态变更的追加式审计表，一次 suspend / reinstate 一行。
+列：`id`(BIGINT UNSIGNED 自增主键)、`user_id`(VARCHAR(64) NOT NULL)、
+`action`(VARCHAR(32) NOT NULL)、`reason`(MEDIUMTEXT)、`evidence_ref`(MEDIUMTEXT)、
+`actor`(VARCHAR(128))、`prev_status`(VARCHAR(32))、`created_at`(DATETIME(6)
+NOT NULL，sqlite 侧 `(datetime('now'))`)。索引 `idx_ban_audit_user_id(user_id)`，
+按 user_id 查询。
+
+**`prev_status`（2026-08-13 追加列）**：记录该行动作发生**前**账户的状态（不透明，
+就是一个 `users.status` 值）。additive 列——`auto_migrate` 在既有部署上增量补列，
+无破坏性迁移、不触铁律 #6。suspend 写它替换掉的状态、reinstate（含被 409 拒绝的
+那次）写它试图恢复前的状态，让「reinstate 从什么状态翻回来 / suspend 覆盖了什么」
+可追溯，而审计表仍不携带任何策略词汇。
+
+`reason` / `evidence_ref` 是调用方提供的**不透明自由文本**（绝非 enum），本表因此
+不携带自己的策略词汇；`actor` 记录是谁做的变更。追加式、只增不改。写入方是
+[[ban_audit_repository]]（best-effort，advisory），真相源是 `users.status`。
 
 ## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
 
@@ -139,6 +193,9 @@ narrative 路由的决策轨迹。`candidates_json` 存**整个** BM25 候选池
 
 The `events` row id of the turn that produced an agent reply, stamped by the
 trigger's team branch at post time. NULL for user messages and legacy rows.
+
+> ⚠️ 「stamped by the trigger's team branch」已于 2026-08-14 失效 —— 见本文件
+> 末尾的 08-14 节。
 Powers the transcript's per-message "view reasoning & tools" disclosure —
 unlike `bus_agent_activity.event_id` (one row per member, latest turn only),
 this one gives every historical message its own handle.
@@ -261,6 +318,7 @@ agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审�
 provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
 错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
 `scripts/data_migrations/backfill_cost_records_user_id.py`。
+
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -682,3 +740,15 @@ Important #1).
 `"multimodal"`,而"无人被 @"是**正交**的另一个事实,两者塞进同一列会互相覆盖。
 `multimodal` 目前没有消费方,但重载一个字段表达两件事迟早出事。加一个可空列是本项目
 的常规机制,`auto_migrate` 幂等处理,不触发铁律 #6(它禁的是收窄类型和破坏性迁移)。
+
+## 2026-08-14 — `bus_messages.event_id` 的口径扩了(更正 07-31)
+
+07-31 那节写的「stamped by the trigger's team branch at post time」现在只对一半:
+agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份头),DM 频道的行
+同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
+完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
+
+## 2026-08-12 — `bus_messages.segments`
+
+纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
+后者是所有文本消费者读的东西，一个渲染需求不该改写它。

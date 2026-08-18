@@ -431,6 +431,19 @@ _register(
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("related_entity_id", "TEXT", "VARCHAR(64)"),
             Column("narrative_id", "TEXT", "VARCHAR(64)"),
+            # WHERE this job was asked for, so its answer can go back there.
+            #
+            # Empty = the owner's chat, which is both the historical behaviour
+            # and the only surface that always exists — so the fallback needs
+            # no special case. Populated (currently `message_bus` + a team room
+            # channel) makes the result land in the room that asked, which is
+            # PR #230's "the reply follows its origin" applied to jobs.
+            #
+            # Two columns rather than one opaque string: the source picks the
+            # delivery code path, the channel is its argument, and a single
+            # "message_bus:ch_x" field would have every reader re-parsing it.
+            Column("origin_source", "TEXT", "VARCHAR(32)"),
+            Column("origin_channel_id", "TEXT", "VARCHAR(64)"),
             Column("monitored_job_ids", "TEXT", "JSON"),
             Column("iteration_count", "INTEGER", "INT", default="0"),
             # 2026-06-01: resilience / backoff state (job-scheduler redesign).
@@ -767,6 +780,14 @@ _register(
             # and points into the per-user shared area; markers are built from it
             # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
             Column("attachments", "TEXT", "TEXT", nullable=True),
+            # JSON list of {kind: "monologue"|"reply", text} preserving the
+            # boundary between an agent's own thinking and its answer, which
+            # `content` loses by concatenation. NULL for every message written
+            # before this existed and for every path that has no monologue —
+            # the reader renders those as one block, which is what it did
+            # before (iron rule #2: no backfill, no shim). `content` is
+            # unchanged and remains what text consumers read.
+            Column("segments", "TEXT", "MEDIUMTEXT", nullable=True),
             # Which KIND of turn produced this message: an owner-facing turn
             # ("chat", "job", …) means the sender was running an errand for
             # its owner, so this message is a QUESTION; "message_bus" means
@@ -778,10 +799,16 @@ _register(
             # (P1 2026-08-03 review). NULL on legacy rows / senders that
             # predate this column; the trigger falls back then.
             Column("sender_turn_source", "TEXT", "VARCHAR(32)", nullable=True),
-            # events row id of the turn that produced this message (agent
-            # replies posted by the trigger). NULL for user messages and for
-            # rows written before the column existed. Powers the per-message
-            # "view reasoning & tools" disclosure in the team transcript.
+            # events row id of the turn that produced this message. Stamped by
+            # BOTH paths an agent reply can take: the trigger's own in-turn
+            # room post, and the agent's `bus_send_message` /
+            # `bus_send_to_agent` (from the identity header, 2026-08-14) —
+            # so this is NOT a marker of "the platform posted it". NULL for
+            # user messages, for rows written before the column existed, and
+            # whenever the sender could not tell which turn it was in. Powers
+            # the per-message "view reasoning & tools" disclosure in the team
+            # transcript, and the team room's "did this agent say anything
+            # here during that turn?" check.
             Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
             # The trigger TREE the sending run belonged to (events.root_run_id).
             # Carries the lineage across the one hop where it would otherwise
@@ -1569,6 +1596,37 @@ _register(
 )
 
 
+# ban_audit — append-only trail for administrative account-state changes.
+# One row per suspend / reinstate action. `reason` and `evidence_ref` are
+# OPAQUE free-text supplied by the caller (never an enum) so this table
+# carries no policy vocabulary of its own; `actor` records who made the
+# change. Append-only, queried by user_id.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="ban_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("action", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("reason", "TEXT", "MEDIUMTEXT"),
+            Column("evidence_ref", "TEXT", "MEDIUMTEXT"),
+            Column("actor", "TEXT", "VARCHAR(128)"),
+            # The account state the row was in immediately BEFORE this action.
+            # Additive column (auto_migrate backfills it incrementally on
+            # existing deployments — no destructive migration). Lets a reinstate
+            # record what it reverted from, and lets suspend record what it
+            # replaced, without the audit trail carrying any policy vocabulary.
+            Column("prev_status", "TEXT", "VARCHAR(32)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_ban_audit_user_id", ["user_id"]),
+        ],
+    )
+)
+
+
 # Subproject 1: Team Membership (from main)
 _register(
     TableDef(
@@ -1661,6 +1719,16 @@ _register(
             Column("status", "TEXT", "VARCHAR(16)", nullable=False, default="'open'"),
             Column("created_by", "TEXT", "VARCHAR(64)", nullable=False),
             Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            # tool | auto — which layer put this row here (see WorkItemOrigin).
+            #
+            # Load-bearing, not descriptive: `auto` rows are the message-level
+            # errands the platform opens from an @mention, and they are the
+            # only ones the platform may close by itself. A `tool` row is a
+            # TASK that spans several errands (owner decision 2026-08-07), so
+            # auto-closing it would collapse the two layers that decision
+            # separated. Defaults to `tool` so pre-existing rows keep their
+            # meaning.
+            Column("origin", "TEXT", "VARCHAR(16)", nullable=False, default="'tool'"),
             # The trigger tree that was running when this item was created, so a
             # cascade stop can pause the items it silenced. Shipped by #252.
             Column("root_run_id", "TEXT", "VARCHAR(128)"),
@@ -1673,6 +1741,11 @@ _register(
             Index("idx_work_items_team_status", ["team_id", "status"]),
             # Stop → pause, by tree.
             Index("idx_work_items_root", ["root_run_id"]),
+            # The errand layer's two hot reads, both per-ROOM rather than per-
+            # team: an agent belongs to several teams, and speaking in one room
+            # must not settle what it owes in another.
+            Index("idx_work_items_channel_assignee", ["channel_id", "assignee_id"]),
+            Index("idx_work_items_source_msg", ["source_message_id"]),
         ],
     )
 )
@@ -2478,6 +2551,15 @@ _register(
             Column("retrieval_method", "TEXT", "VARCHAR(32)"),
             Column("chosen_narrative_id", "TEXT", "VARCHAR(128)"),
             Column("is_new", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # cost, per tier — joined to the decision that paid for it.
+            # NULLABLE ON PURPOSE: NULL = this tier did not run. A
+            # short-circuited decision skips the judge, and a 0 there would
+            # make "how expensive is arbitration" answer far too low, which is
+            # precisely the comparison these columns exist to support.
+            Column("continuity_ms", "INTEGER", "INT"),
+            Column("retrieve_ms", "INTEGER", "INT"),
+            Column("keyword_ms", "INTEGER", "INT"),
+            Column("judge_ms", "INTEGER", "INT"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[

@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_writes.py
-last_verified: 2026-08-11
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `_resolve_job_owner`：job 的归属有 ground truth
+
+创始缺陷：bus 轮次的 `user_id` 是**发送方**（[[message_bus_trigger]] 传
+`sender_agent_id`），于是团队房里要的 job 被登记在 `usr_<uid>` 或对端 agent_id
+名下——一个不存在的 owner。owner 的 Jobs 列表永远空着，执行时加载的是没有主人的
+上下文，而 agent 报告成功。
+
+**不在 [[_mcp_identity]] 的 `resolve_caller_user_id` 里修**：那条路只覆盖占位
+符，并且注释写明多用户流里「看似真实但不匹配」的值可能是合法的。那是关于通用身
+份策略的判断，保持不动。「这个 job 是谁的」是个**更窄且库里有答案**的问题
+（`agents.created_by`），所以在写入点回答——一个点同时覆盖本地 MCP 进程和云端
+seam 路由。
+
+**fail open**：`resolve_owner` 用 ""(不存在)/None(查询失败) 区分两种情况，两者都
+不构成「调用方错了」的证据，而把字段清空会直接丢掉这个 job。差异只**记日志不静
+默纠正**——那行日志正是通用路径注释要的那份测量。
+
+`related_entity_id` 不动：它回答「关于谁」，是另一个问题，也是受支持的形状。
 
 # _job_writes.py — 共享的 job 写实现
 

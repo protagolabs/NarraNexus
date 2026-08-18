@@ -36,7 +36,11 @@ from typing import Any, AsyncGenerator
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.api_config import claude_config, codex_config
+from xyz_agent_context.agent_framework.api_config import (
+    _is_own_gateway_url,
+    claude_config,
+    codex_config,
+)
 from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
 from xyz_agent_context.schema.turn_profile import TurnProfile
 from xyz_agent_context.agent_framework.loop.events import (
@@ -237,6 +241,18 @@ class NexusAgent:
             # Anthropic-protocol gateways expecting Authorization: Bearer
             # (litellm's anthropic route sends x-api-key; add the header).
             llm_extra["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
+        # Platform-origin binding: forward the broker identity token so our
+        # gateway can prove the call originates on-platform. ONLY to our own
+        # gateway (never a BYOK third party). The token lives on the config the
+        # resolver picked (claude for anthropic, codex for openai).
+        _identity_token = (
+            claude_config.identity_token if protocol == "anthropic"
+            else codex_config.identity_token
+        )
+        if _identity_token and _is_own_gateway_url(base_url):
+            _headers = dict(llm_extra.get("extra_headers") or {})
+            _headers["X-NarraNexus-Identity-Token"] = _identity_token
+            llm_extra["extra_headers"] = _headers
         # Per-turn fast-mode profile. Arrives as the in-process model or as
         # its model_dump() dict off the executor wire — normalize once here.
         # Absent profile MUST leave the payload semantically identical to
@@ -276,6 +292,8 @@ class NexusAgent:
         }
         if profile is not None and profile.include_arg_deltas is not None:
             options["include_arg_deltas"] = profile.include_arg_deltas
+        if profile is not None and profile.expression_nudge is not None:
+            options["expression_nudge"] = profile.expression_nudge
         return {
             "thread_id": f"turn_{uuid.uuid4().hex[:12]}",
             "messages": messages,

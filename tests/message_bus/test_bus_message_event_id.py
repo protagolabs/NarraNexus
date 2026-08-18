@@ -21,6 +21,7 @@ from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
@@ -73,7 +74,12 @@ async def test_team_reply_is_stamped_with_the_turn_event_id(db_client, monkeypat
     trigger = MessageBusTrigger(bus=bus)
 
     async def _fake_invoke(*_a, **_k):
-        return "the reply", "evt_from_turn"
+        # The room post happens INSIDE the turn now, so a stub has to do what
+        # the runtime does: report the run id (which is what stamps the reply),
+        # then hand the plain text to the deliverer.
+        await _k["on_event_id"]("evt_from_turn")
+        await _k["on_plain_text_delivery"]("the reply")
+        return TurnResult(text="the reply", event_id="evt_from_turn")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
 

@@ -83,6 +83,11 @@ async def test_voice_register_swaps_reply_tool_and_instruction():
     assert "private notes" in inst.lower()  # prose is never delivered
     assert "before" in inst.lower()  # preannounce before other tools
     assert "markdown" in inst.lower()
+    # On a call, EVERY utterance gets a spoken response — the DM
+    # protocol's acknowledgment carve-out does not apply to voice
+    # (2026-08-13: a goodbye turn went silent; the caller hears a
+    # broken line, not polite restraint).
+    assert "goodbye" in inst.lower()
     # Per-turn instructions ride along verbatim.
     assert "Reply for a real-time voice call." in inst
 

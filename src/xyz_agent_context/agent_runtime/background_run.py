@@ -271,6 +271,7 @@ class BackgroundRun:
         working_source: Any,
         pass_mcp_servers: Optional[dict] = None,
         trigger_extra_data: Optional[dict] = None,
+        fast_mode: bool = False,
     ) -> None:
         """Own AgentRuntime lifecycle + consume run() to completion +
         persist everything + broadcast.
@@ -318,6 +319,9 @@ class BackgroundRun:
                         pass_mcp_servers=pass_mcp_servers or {},
                         cancellation=self.cancellation,
                         trigger_extra_data=trigger_extra_data or {},
+                        # Pure passthrough — AgentRuntime maps the flag to a
+                        # TurnProfile (see _resolve_turn_profile).
+                        fast_mode=fast_mode,
                     ):
                         # Uniform dict for routing; original fidelity is
                         # preserved by normalise_event's passthrough.

@@ -10,6 +10,7 @@ Messages are streamed as JSON objects following the RuntimeMessage schema.
 Protocol:
 1. Client connects to /ws/agent/run
 2. Client sends JSON: {"agent_id": "...", "user_id": "...", "input_content": "..."}
+   (optional: "fast_mode": true — per-turn fast profile, see AgentRunRequest)
 3. Server streams RuntimeMessage objects as JSON
 4. Client may send {"action": "stop"} at any time to cancel the run
 5. Connection closes when execution completes or is cancelled
@@ -34,15 +35,18 @@ from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
-from backend.auth import _is_cloud_mode, decode_token
+from backend.auth import _account_state, _is_cloud_mode, decode_token
 from backend.routes._mcp_egress import filter_public_mcp_servers
 from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
     IDENTITY_MISSING,
     IDENTITY_UNRESOLVED,
     TOKEN_EXPIRED,
     TOKEN_INVALID,
     TOKEN_MISSING,
 )
+
+from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
@@ -129,6 +133,47 @@ class AgentRunRequest(BaseModel):
     # fresh-run path and instead replays history + subscribes to an
     # existing BackgroundRun.
     run_id: Optional[str] = None
+    # Fast-mode intent for this turn. Pure passthrough — AgentRuntime maps
+    # the flag to a TurnProfile (policy lives there, not in triggers);
+    # nothing is persisted, the profile rides this turn only.
+    fast_mode: bool = False
+
+
+def _fresh_run_drive_kwargs(
+    request: "AgentRunRequest",
+    *,
+    session_id: str,
+    working_source: Any,
+    mcp_servers: Optional[dict],
+) -> dict:
+    """Build the kwargs for ``BackgroundRun.drive`` on the fresh-run path.
+
+    Pure — unit-tested (test_websocket_fast_mode.py) so the WS payload →
+    drive contract can't silently drop a field."""
+    return {
+        "agent_id": request.agent_id,
+        "user_id": request.user_id,
+        "input_content": request.input_content or "",
+        "working_source": working_source,
+        "pass_mcp_servers": mcp_servers,
+        "fast_mode": request.fast_mode,
+        "trigger_extra_data": {
+            "trigger_id": f"ws_{session_id[:8]}",
+            # The logged-in sender's NarraNexus user_id. agent_runtime
+            # overrides ctx_data.user_id to the agent owner, so this is
+            # the only carrier of "who actually sent this turn" — the
+            # context builder resolves their display name + is-owner.
+            "sender_user_id": request.user_id,
+            # Front-end chat input is already a clean user message —
+            # use it directly as the narrative retrieval anchor.
+            "retrieval_anchor": request.input_content or "",
+            **(
+                {"attachments": request.attachments}
+                if request.attachments
+                else {}
+            ),
+        },
+    }
 
 
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
@@ -753,6 +798,29 @@ async def websocket_agent_run(websocket: WebSocket):
 
             logger.info(f"WS auth OK: user_id={token_user_id}, role={payload.get('role')}")
 
+            # ---- Account-state gate (cloud) ----
+            # The JWT is valid, but a suspended account must not be able to
+            # start (or reconnect to) a run on its still-valid token. The HTTP
+            # auth middleware enforces this for /api/* and exempts /ws/*, so the
+            # gate has to be repeated here — WS is the product's MAIN run path.
+            # Uses the SAME shared non-transacting set and the SAME _account_state
+            # reader (TTL-cached, fail-OPEN) as the HTTP gate, so the two never
+            # drift. A JSONResponse (auth_error_response) is unsendable over a
+            # WebSocket, so we use the error-frame + close form already used for
+            # every other WS auth failure above.
+            if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:
+                logger.warning(
+                    f"WS auth failed: account suspended user_id={token_user_id}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Account is not available",
+                    "error_type": "AuthError",
+                    "error_code": ACCOUNT_SUSPENDED,
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to
         # an existing BackgroundRun (or, if the run has already ended,
@@ -915,27 +983,12 @@ async def websocket_agent_run(websocket: WebSocket):
             # Kick off the agent run task. It self-registers in
             # active_runs once Step 0 yields the event_id.
             bg.task = asyncio.create_task(bg.drive(
-                agent_id=request.agent_id,
-                user_id=request.user_id,
-                input_content=request.input_content or "",
-                working_source=working_source,
-                pass_mcp_servers=mcp_servers,
-                trigger_extra_data={
-                    "trigger_id": f"ws_{_session_id[:8]}",
-                    # The logged-in sender's NarraNexus user_id. agent_runtime
-                    # overrides ctx_data.user_id to the agent owner, so this is
-                    # the only carrier of "who actually sent this turn" — the
-                    # context builder resolves their display name + is-owner.
-                    "sender_user_id": request.user_id,
-                    # Front-end chat input is already a clean user message —
-                    # use it directly as the narrative retrieval anchor.
-                    "retrieval_anchor": request.input_content or "",
-                    **(
-                        {"attachments": request.attachments}
-                        if request.attachments
-                        else {}
-                    ),
-                },
+                **_fresh_run_drive_kwargs(
+                    request,
+                    session_id=_session_id,
+                    working_source=working_source,
+                    mcp_servers=mcp_servers,
+                )
             ))
 
             # Wait for run_id assignment (Step 0 completion). After this,

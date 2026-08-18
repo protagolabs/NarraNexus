@@ -47,6 +47,10 @@
       "dropFile": "Déposez le fichier pour le joindre…",
       "placeholder": "Saisissez un message ou / pour les compétences…"
     },
+    "fastMode": {
+      "label": "Rapide",
+      "tooltip": "Mode rapide : bascule ce tour sur le framework d'agent rapide avec une récupération de mémoire allégée et un faible effort de raisonnement — réponses plus rapides mais plus simples"
+    },
     "audio": {
       "stopRecording": "Arrêter l'enregistrement",
       "recordVoice": "Enregistrer un message vocal",
@@ -160,6 +164,8 @@
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
       "stoppedNotice": "La tâche de {{name}} a été arrêtée par le propriétaire",
       "patrolNotice": "Contrôle du responsable",
+      "undeliveredNotice": "{{name}} a terminé ce tour sans répondre",
+      "deliveryFailedNotice": "La réponse de {{name}} n'a pas pu être publiée",
       "board": {
         "title": "Tableau de travail",
         "unclaimed": "non attribué",
@@ -176,7 +182,16 @@
         },
         "turnOff": "Désactiver",
         "turnOn": "Activer"
-      }
+      },
+      "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
+      "uploadFailed": "Impossible d’envoyer « {{name}} ».",
+      "uploadFailedGeneric": "Impossible d’envoyer le fichier.",
+      "loadingOlder": "Chargement des messages plus anciens…",
+      "leadBadge": "référent",
+      "expand": "Afficher plus",
+      "collapse": "Afficher moins",
+      "today": "Aujourd’hui",
+      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée."
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -733,7 +748,8 @@
       "agentCount_one": "{{count}} agent",
       "agentCount_other": "{{count}} agents",
       "toggleMembers": "Afficher les membres",
-      "noMembers": "Pas encore de membres"
+      "noMembers": "Pas encore de membres",
+      "unread": "Messages non lus"
     },
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
@@ -824,7 +840,7 @@
       "privacyHeading": "Confidentialité",
       "privacyIntro": "Contrôlez les données que NarraNexus collecte pour améliorer le produit.",
       "analyticsTitle": "Analyses du produit",
-      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
+      "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Dans la version web cloud, des données anonymes d'interaction avec les pages sont également envoyées à Google Tag Manager, un service d'analyse tiers ; désactiver cette option l'arrête. Aucun contenu de conversation n'est collecté.",
       "desktopHeading": "Bureau",
       "desktopIntro": "Paramètres contrôlant la manière dont NarraNexus interagit avec cet ordinateur. Disponible uniquement dans l'application de bureau.",
       "lockedUseTitle": "Locked Use — garder l'ordinateur éveillé",
@@ -1316,7 +1332,7 @@
         "label": "Confidentialité",
         "hint": "Ce qui quitte cette machine, et les interrupteurs pour le contrôler.",
         "analyticsTitle": "Analyses du produit",
-        "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Elles ne sont jamais envoyées à un service d'analyse tiers. Aucun contenu de conversation n'est collecté.",
+        "analyticsDesc": "Autoriser NarraNexus à enregistrer des métadonnées d'utilisation à des fins d'analyse. En mode cloud, elles sont stockées dans une base de données gérée par NarraNexus ; en mode local ou bureau, elles restent sur cet appareil. Dans la version web cloud, des données anonymes d'interaction avec les pages sont également envoyées à Google Tag Manager, un service d'analyse tiers ; désactiver cette option l'arrête. Aucun contenu de conversation n'est collecté.",
         "telemetryTitle": "Télémétrie de diagnostic",
         "telemetryDesc": "Envoyer les journaux de service de cette installation au collecteur propre à NarraNexus afin de pouvoir déboguer les plantages et les pannes. Au niveau par défaut, cela se limite aux événements structurés, aux avertissements et aux erreurs — sans aucun contenu de messages. Les déploiements qui utilisent le niveau \"full\" (sandbox gérées, environnements de débogage) envoient les lignes de journal complètes, qui peuvent inclure du contenu de messages consigné par les services. Rien n'est envoyé à un tiers.",
         "telemetryTiming": "La désactivation prend effet en quelques secondes. Si la télémétrie était déjà désactivée au démarrage de l'application, l'activation prend effet au prochain démarrage.",
@@ -2142,6 +2158,7 @@
     "desktopHint": "Ouvrez NarraNexus dans un navigateur pour voir l'aperçu en direct du document.",
     "loading": "Ouverture de l'aperçu en direct…",
     "loadError": "Impossible d'ouvrir l'aperçu en direct.",
+    "retry": "Réessayer",
     "livePreview": "Aperçu en direct"
   },
   "common": {
@@ -2153,6 +2170,18 @@
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
     "doneTitle": "Terminé"
+  },
+  "toast": {
+    "view": "Voir",
+    "completed": "Terminé",
+    "roomSpoke": "Nouvelle activité dans le salon",
+    "agent": "Agent",
+    "room": "Salon"
+  },
+  "webAnalyticsNotice": {
+    "body": "Ceci est la version web cloud de NarraNexus. Elle utilise Google Tag Manager, un service d'analyse tiers, pour collecter des données anonymes d'interaction avec les pages (pages vues, clics, référent). Aucun contenu de conversation n'est collecté. Vous pouvez désactiver cette option à tout moment dans Paramètres → Confidentialité.",
+    "settings": "Ouvrir les paramètres",
+    "dismiss": "J'ai compris"
   },
   "telemetryNotice": {
     "body": "NarraNexus envoie désormais les journaux de service de diagnostic de cette installation à son propre collecteur, afin d'aider à déboguer les plantages et les pannes d'intégration. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages. Vous pouvez le désactiver à tout moment dans Paramètres → Confidentialité.",

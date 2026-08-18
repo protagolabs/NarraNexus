@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — 签名跟随契约：`segments` + `get_messages_before`
+
+两处都只是 `NotImplementedError` 的桩，但**必须跟着抽象基类走**：这个文件存在的意义就是
+"云端实现还没写"这件事是显式的、有类型的。签名漂移会让它在真正实现的那天，从一个明确的
+待办变成一个隐蔽的不兼容。
+
 ## 2026-08-07 — 签名跟随抽象契约增加 root_run_id
 
 仍然 NotImplementedError;签名一致是为了 cloud 落地时不必再改一遍协议层。
@@ -61,3 +67,12 @@ TypeError), defeating its placeholder purpose.
 ## 2026-08-12 — `has_unread_before` 占位
 
 随协议加入,仍是 NotImplementedError。
+
+## 2026-08-14 — 跟进 `has_message_from_turn`
+
+随协议新增一个 `NotImplementedError` 占位,与本文件其余方法同形。这份实现始终是
+"协议长什么样"的镜子,不是可用后端。
+
+## 2026-08-14 (补) — `send_to_agent` 跟进签名
+
+同上,占位实现随协议同步。

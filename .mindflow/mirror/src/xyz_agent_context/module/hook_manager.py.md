@@ -1,7 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/hook_manager.py
-last_verified: 2026-05-20
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — `_parallel_data_gathering` 的死导入修复
+
+`from .ctx_data_merger import ContextDataMerger` 指向一个不存在的模块（真身在
+`_module_impl.ctx_merger`，早年搬家漏扫）——并行采集是默认关闭的旁路，全仓无人传
+`parallel_data_gathering=True`，所以这个 ImportError 潜伏至今，被 PR#308 接进 CI 的
+pyright（reportMissingImports warning）照出来。修复=改从 `._module_impl` 导入；新增
+test_hook_manager_parallel_import.py 真正驱动该分支，防止「文档写着能开、一开就炸」。
+
+## 2026-08-14 — 依赖链回调实例改走 `spawn`
+
+`hook_callback_results` 里触发新激活实例的 `asyncio.create_task` 改为
+`utils.background_tasks.spawn`，名为 `callback_instance:{instance_id}`。这个 task
+启动的是**一整个新的 AgentRuntime run**，丢一个就是一条依赖链无声停在半路；而下面
+「fire-and-forget 风险」那条记的兜底（`ModulePoller`）恰恰看不见这个进程内捷径失败了
+——所以至少得让它死有声息。
+
+注意范围：`spawn` 不改变进程退出时任务被取消这一事实，链路的**持久**保证仍然属于
+`ModulePoller`，不属于这里。
 
 ## 2026-05-20 — `hook_persist_turn` runner (synchronous phase)
 

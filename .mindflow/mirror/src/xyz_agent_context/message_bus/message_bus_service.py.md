@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-12
+last_verified: 2026-08-14
 stub: false
 ---
+## 2026-08-14 — `segments` 参数 + `get_messages_before`
+
+`send_message` 增加 `segments`（独白/回复的分界，见 [[schemas.py]]），**追加在最后**并
+且必须留在最后：这个方法有位置传参的调用方，插在中间会静默重绑每一个。这条规则由
+`test_team_message_segments` 断言。同一次合并里 dev 也追加了 `routed_by`，两个都在，
+`segments` 仍在末位。
+
+`get_messages_before` 进抽象契约（实现见 [[local_bus.py]]，cloud 侧是 stub）。它和
+`get_messages(since=…)` **刻意不对称**：`since` 返回游标之后**最旧的** n 条（补进度不能
+跳过任何一条），`before` 返回游标之前**最新的** n 条（往上翻要的是屏幕正上方那一页）。
+写反了不会报错，只会产出中间静静少一段的 transcript。
+
 ## 2026-08-07 — send_message / send_to_agent 增加 root_run_id
 
 抽象契约跟着 local 实现走,否则协议层无法透传。语义见 [[local_bus]]。
@@ -89,3 +101,21 @@ raises NotImplementedError. Files are references, not bytes — see
 ## 2026-08-12 — 协议新增 `has_unread_before`
 
 存在性判断,实现方不得为此把积压物化。语义见 [[local_bus]]。
+
+## 2026-08-14 — 新增 `has_message_from_turn`
+
+一个存在性问题:某 agent 在某轮里有没有往某频道发过东西。键是 turn id,因为平台代发与
+agent 自己调工具发**都**盖这个 id,一个方法覆盖两条投递路径。实现方不得为此把消息全量
+拉回内存 —— 调用点在一轮已经降级的 turn 收尾处,那里最不该再加一次全表搬运。
+
+## 2026-08-14 (补) — `send_to_agent` 签名加 `event_id`,并订正 `send_message` 的说法
+
+与 `send_message` 对齐:两条 agent 主动发消息的路径都必须能记下「这是哪一轮」。
+None 表示说不准,不是猜一个。
+
+同批订正 `send_message` 那个形参的 docstring —— 它原来写「agent replies posted by
+the trigger」,而 `send_to_agent` 新写的是正确版本,同一个 protocol 里同一个参数两个
+兄弟方法两种说法。这不是措辞洁癖:**新 bus 实现的作者第一眼看的就是这份 protocol**,
+照旧说法实现的云端 `send_message` 会不透传 agent 自发消息的 `event_id`,于是
+`has_message_from_turn` 对那一半永远返 False,房间里出现「投递失败 ⚠️」而它上方就摆着
+agent 刚说的那句话 —— 正是本 PR 存在的理由,换一个实现复现一遍。

@@ -29,6 +29,28 @@ class UserStatus(str, Enum):
     INACTIVE = "inactive"
     BLOCKED = "blocked"
     DELETED = "deleted"
+    # A distinct, administratively-set account state. Kept separate from
+    # BLOCKED/DELETED so the account-suspension mechanism has its own value
+    # (a reinstate returns the row to ACTIVE, and an existing "banned" row in
+    # the DB stays loadable rather than raising on enum coercion).
+    BANNED = "banned"
+
+
+# The account states that must not transact. A single shared source of truth
+# for every surface that gates on account state (the HTTP auth middleware, the
+# WebSocket run gate, and the netmind-login gate) so the set can never drift
+# between them. Purely a set of ``users.status`` values — this constant holds no
+# policy about how an account reaches one of them. INACTIVE is deliberately NOT
+# here: it is a benign lifecycle state (never logged in / dormant), not a
+# suspension. ``banned`` is what the suspension mechanism sets; ``blocked`` /
+# ``deleted`` are pre-existing terminal states that equally must not transact.
+NON_TRANSACTING_USER_STATUSES: frozenset[str] = frozenset(
+    {
+        UserStatus.BANNED.value,
+        UserStatus.BLOCKED.value,
+        UserStatus.DELETED.value,
+    }
+)
 
 
 # ===== Social Network Entity =====

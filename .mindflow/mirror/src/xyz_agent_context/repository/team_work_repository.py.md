@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/repository/team_work_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 差事层的两个读 + `origin` 写入
+
+`create_item` 增 `origin`（默认 `tool`，见 [[team_work_schema]]）。
+
+`has_errand_for(source_message_id, assignee_id)`：去重键是**消息**而不是
+(负责人, 标题)——轮询会重投、重试的帖子保持同一个 id，而同一件事真的第二次交接
+是第二个差事，必须允许。**任何状态都算**，含终态：重开一个刚交付完的项会让负责
+人永久迟到。
+
+`list_open_errands(channel_id, assignee_id)`：两个收敛范围都是刻意的。按
+**房间**是因为一个 agent 属于多个团队，在这屋说话不能结清那屋欠的账；按
+**origin** 是因为 `tool` 行是任务，归 Leader 关。
+
+索引同批加两条（`(channel_id, assignee_id)` 与 `source_message_id`），它们是差事
+层仅有的两个热读。
 
 # team_work_repository.py — 工作板的数据访问
 

@@ -47,6 +47,10 @@
       "dropFile": "Datei zum Anhängen ablegen…",
       "placeholder": "Nachricht eingeben oder / für Skills…"
     },
+    "fastMode": {
+      "label": "Schnell",
+      "tooltip": "Schnellmodus: schaltet diesen Zug auf das schnelle Agenten-Framework mit leichterem Speicherabruf und niedrigem Reasoning-Aufwand um — schnellere, aber einfachere Antworten"
+    },
     "audio": {
       "stopRecording": "Aufnahme stoppen",
       "recordVoice": "Sprachnachricht aufnehmen",
@@ -160,6 +164,8 @@
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
       "stoppedNotice": "Die Aufgabe von {{name}} wurde vom Eigentümer gestoppt",
       "patrolNotice": "Leader-Kontrolle",
+      "undeliveredNotice": "{{name}} hat diese Runde ohne Antwort beendet",
+      "deliveryFailedNotice": "Die Antwort von {{name}} konnte nicht gesendet werden",
       "board": {
         "title": "Arbeitsboard",
         "unclaimed": "nicht zugewiesen",
@@ -176,7 +182,16 @@
         },
         "turnOff": "Aus",
         "turnOn": "An"
-      }
+      },
+      "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
+      "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",
+      "uploadFailedGeneric": "Upload fehlgeschlagen.",
+      "loadingOlder": "Ältere Nachrichten werden geladen…",
+      "leadBadge": "Lead",
+      "expand": "Mehr anzeigen",
+      "collapse": "Weniger anzeigen",
+      "today": "Heute",
+      "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist."
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -733,7 +748,8 @@
       "agentCount_one": "{{count}} Agent",
       "agentCount_other": "{{count}} Agents",
       "toggleMembers": "Mitglieder anzeigen",
-      "noMembers": "Noch keine Mitglieder"
+      "noMembers": "Noch keine Mitglieder",
+      "unread": "Ungelesene Nachrichten"
     },
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
@@ -824,7 +840,7 @@
       "privacyHeading": "Datenschutz",
       "privacyIntro": "Steuere, welche Daten NarraNexus erfasst, um das Produkt zu verbessern.",
       "analyticsTitle": "Produkt-Analyse",
-      "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. Sie werden nie an einen Analysedienst eines Drittanbieters gesendet. Gesprächsinhalte werden niemals erfasst.",
+      "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. In der Cloud-Webversion werden zudem anonyme Seiteninteraktionsdaten an Google Tag Manager, einen Analysedienst eines Drittanbieters, gesendet; das Deaktivieren stoppt dies. Gesprächsinhalte werden niemals erfasst.",
       "desktopHeading": "Desktop",
       "desktopIntro": "Einstellungen, die steuern, wie NarraNexus mit diesem Computer interagiert. Nur in der Desktop-App verfügbar.",
       "lockedUseTitle": "Locked Use — Computer wach halten",
@@ -1316,7 +1332,7 @@
         "label": "Datenschutz",
         "hint": "Was dieses Gerät verlässt – und die Schalter dafür.",
         "analyticsTitle": "Produkt-Analyse",
-        "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. Sie werden nie an einen Analysedienst eines Drittanbieters gesendet. Gesprächsinhalte werden niemals erfasst.",
+        "analyticsDesc": "Erlaube NarraNexus, Nutzungsmetadaten zur Analyse zu speichern. Im Cloud-Modus werden sie in einer von NarraNexus verwalteten Datenbank gespeichert; im lokalen oder Desktop-Modus bleiben sie auf diesem Gerät. In der Cloud-Webversion werden zudem anonyme Seiteninteraktionsdaten an Google Tag Manager, einen Analysedienst eines Drittanbieters, gesendet; das Deaktivieren stoppt dies. Gesprächsinhalte werden niemals erfasst.",
         "telemetryTitle": "Diagnose-Telemetrie",
         "telemetryDesc": "Sende die Service-Logs dieser Installation an den eigenen Collector von NarraNexus, damit Abstürze und Ausfälle untersucht werden können. Auf der Standardstufe heißt das: strukturierte Events, Warnungen und Fehler — keine Nachrichteninhalte. Deployments mit der Stufe \"full\" (verwaltete Sandboxes, Debug-Umgebungen) senden ganze Logzeilen, die von den Diensten protokollierte Nachrichteninhalte enthalten können. An Dritte wird nichts gesendet.",
         "telemetryTiming": "Das Ausschalten wirkt innerhalb von Sekunden. War die Telemetrie beim Start der App bereits aus, gilt das Einschalten ab dem nächsten Start.",
@@ -2142,6 +2158,7 @@
     "desktopHint": "Öffnen Sie NarraNexus im Browser, um die Live-Dokumentvorschau zu sehen.",
     "loading": "Live-Vorschau wird geöffnet…",
     "loadError": "Live-Vorschau konnte nicht geöffnet werden.",
+    "retry": "Erneut versuchen",
     "livePreview": "Live-Vorschau"
   },
   "common": {
@@ -2153,6 +2170,18 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig"
+  },
+  "toast": {
+    "view": "Ansehen",
+    "completed": "Fertig",
+    "roomSpoke": "Neue Aktivität im Raum",
+    "agent": "Agent",
+    "room": "Raum"
+  },
+  "webAnalyticsNotice": {
+    "body": "Dies ist die Cloud-Webversion von NarraNexus. Sie verwendet Google Tag Manager, einen Analysedienst eines Drittanbieters, um anonyme Seiteninteraktionsdaten (Seitenaufrufe, Klicks, Referrer) zu erfassen. Es werden keine Gesprächsinhalte erfasst. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",
+    "settings": "Einstellungen öffnen",
+    "dismiss": "Verstanden"
   },
   "telemetryNotice": {
     "body": "NarraNexus sendet jetzt diagnostische Service-Logs dieser Installation an seinen eigenen Collector, um Abstürze und Integrationsfehler zu debuggen. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",

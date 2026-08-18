@@ -1,13 +1,13 @@
 ---
 code_file: src/xyz_agent_context/message_bus/__init__.py
-last_verified: 2026-08-04
+last_verified: 2026-08-13
 stub: false
 ---
 
 ## 2026-08-04 (review 三) — 名单的活消费方补齐
 
 round 2 抓到扩容名单一度没有任何活消费方（度量仍失真）。现在
-`user_reply_tool_names` 的消费方 = ChatModule._delivered_to_origin
+`user_reply_tool_names` 的消费方 = ChatModule._origin_delivered_text
 （[DELIVERED-BG]/[NO-REPLY-BG] 持久化二分，即兜底决策的度量口径）；
 owner-visible 子集继续服务锚点与历史可见性。注释同步改口。
 
@@ -37,3 +37,8 @@ run 也记 NO-REPLY（8/1 实锤，如 Maestro run_1994fd41）——既错标运
 
 - 判定是子串匹配（`pattern in tool_name`），mcp__ 前缀形态自然命中；
   bus_get_messages 等非投递工具不含 send 名单子串，不会误判。
+
+## 2026-08-13 — 注释指向更新
+
+~~`_delivered_to_origin` 现在只是 `bool(_origin_delivered_text(...))`~~ —— 2026-08-14 它已被删除(生产零调用方),真正做抽取的是
+后者,注释随之改指。
