@@ -1020,7 +1020,6 @@
       "renewNoAutoRenew": "一次性购买 —— 到期不会自动续费。想继续用 Pro，请在到期前再买一次。",
       "renewCoveredUntil": "可用至 {{date}}。",
       "renewPay": "支付 ${{total}}",
-      "onetimeActive": "Pro 生效中 —— 一次性购买，不会自动续费",
       "renewBtn": "续订",
       "renewTitle": "继续使用 Pro",
       "renewProcessing": "等待付款完成…请在打开的窗口中完成支付，套餐会自动更新。",

@@ -1298,3 +1298,17 @@ test('one-time: the plan ROW says Pro, not Free', async () => {
   expect(screen.queryByText(/Free — usage billed from your balance/)).toBeNull();
   expect(screen.getByText(/one-time purchase, does not renew/i)).toBeTruthy();
 });
+
+test('one-time: the action zone does not restate the plan row', async () => {
+  // The plan row already carries "Nexus Pro" + the end date + "does not
+  // renew". The action zone's most prominent line went to repeating it, so it
+  // now states the benefit instead — the same thing pro_active says in that
+  // exact position.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.getByText(/Member pricing active/)).toBeTruthy();
+  expect(screen.queryByText(/Pro is active/)).toBeNull();
+  // ...and the fact itself is still on screen exactly once, in the plan row.
+  expect(screen.getAllByText(/does not renew/i).length).toBe(1);
+});

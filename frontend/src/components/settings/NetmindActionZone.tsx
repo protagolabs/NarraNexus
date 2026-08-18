@@ -157,10 +157,18 @@ export function NetmindActionZone({
       <>
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-[var(--text-secondary)]">
-              {t('settings.netmind.onetimeActive',
-                'Pro is active — one-time purchase, no auto-renewal')}
-            </p>
+            {/* Member pricing, NOT "Pro is active — one-time purchase": the
+                plan row directly above already states the plan, the end date
+                and that it does not renew. Repeating it here spent the most
+                prominent line in the zone on something the eye had just read.
+                This says what being Pro BUYS them, which is the same benefit
+                pro_active states in this exact position. */}
+            <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
+              <span aria-hidden>✦</span>
+              <span>
+                {t('settings.netmind.proMemberActive', 'Member pricing active — up to 50% off')}
+              </span>
+            </div>
             <Button variant="accent" size="sm" onClick={() => setManageOpen(true)}>
               {t('settings.netmind.renewBtn', 'Renew')}
             </Button>
