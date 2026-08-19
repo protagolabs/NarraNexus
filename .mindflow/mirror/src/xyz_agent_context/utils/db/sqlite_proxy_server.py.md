@@ -1,3 +1,8 @@
+---
+code_file: src/xyz_agent_context/utils/db/sqlite_proxy_server.py
+stub: false
+---
+
 # sqlite_proxy_server.py
 
 Standalone FastAPI HTTP service that exclusively owns the SQLite file — the server side of the multi-process SQLite access architecture.

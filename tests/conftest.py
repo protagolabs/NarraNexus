@@ -27,6 +27,7 @@ Also owns two suite-wide safety nets:
 """
 import asyncio
 import os as _os
+import sys
 
 import pytest
 import pytest_asyncio
@@ -107,3 +108,29 @@ async def db_client():
     client = await AsyncDatabaseClient.create_with_backend(backend)
     yield client
     await client.close()
+
+
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """`/health` caches its probe result for a few seconds.
+
+    Autouse and repo-wide: without it one test's outcome answers the next test's
+    request. File-local was not enough — `tests/backend/test_health_db_probe.py`
+    and `tests/services/test_team_summary_worker.py` both call `main.health()`,
+    and whichever ran first left the cache populated for everything after it.
+
+    Only resets a module that is ALREADY imported. The previous version imported
+    `backend.main` in every test's setup — cheap after the first one, but it
+    made a fixture that most of the suite does not need drag the whole FastAPI
+    app into processes that were never going to touch it (`-k` runs, single-file
+    runs). `sys.modules` costs a dict lookup and is exact: if nothing imported
+    it, nothing cached anything.
+    """
+    def _reset() -> None:
+        module = sys.modules.get("backend.main")
+        if module is not None:
+            module._health_cache = None
+
+    _reset()
+    yield
+    _reset()
