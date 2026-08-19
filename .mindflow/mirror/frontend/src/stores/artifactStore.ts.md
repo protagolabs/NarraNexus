@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — collapsed 状态退役
+
+`collapsed`/`setCollapsed`/`COLLAPSED_KEY`(localStorage
+`artifact_column_collapsed`)删除——唯一写入者(列头折叠钮)v4 已删,唯一
+读者(sliver 分支)同轮删除,见 [[ArtifactColumn]]。残留的 localStorage 旧值
+无人再读,无迁移必要。
 
 ## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
 

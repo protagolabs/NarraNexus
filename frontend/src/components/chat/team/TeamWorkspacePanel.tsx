@@ -20,6 +20,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Maximize2, X } from 'lucide-react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
@@ -75,6 +76,7 @@ export function TeamWorkspacePanel({
   onSelect,
   onClose,
 }: TeamWorkspacePanelProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('artifacts');
   // Download failures are the panel's own, not the parent's fetch error.
   const [localError, setLocalError] = useState<string | null>(null);
@@ -147,8 +149,8 @@ export function TeamWorkspacePanel({
         <button
           type="button"
           onClick={onClose}
-          title="Close"
-          aria-label="Close workspace panel"
+          title={t('chat.team.workspace.close')}
+          aria-label={t('chat.team.workspace.close')}
           className="ml-auto shrink-0 p-1 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
         >
           <X className="h-3.5 w-3.5" />
@@ -226,8 +228,8 @@ export function TeamWorkspacePanel({
               <button
                 type="button"
                 onClick={() => setZoomed(true)}
-                title="Zoom"
-                aria-label="Zoom artifact"
+                title={t('chat.team.workspace.zoom')}
+                aria-label={t('chat.team.workspace.zoom')}
                 className="shrink-0 p-0.5 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
@@ -240,8 +242,8 @@ export function TeamWorkspacePanel({
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-[var(--text-tertiary)]">
             {tab === 'artifacts'
-              ? 'Select an artifact to view it here.'
-              : 'Files download directly — click one on the left.'}
+              ? t('chat.team.workspace.emptyArtifacts')
+              : t('chat.team.workspace.emptyFiles')}
           </div>
         )}
       </div>

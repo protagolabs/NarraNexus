@@ -20,7 +20,6 @@
     "logout": "退出登录",
     "poweredBy": "NetMind AI Research",
     "online": "在线",
-    "you": "你",
     "cloud": "云端",
     "localMode": "本地模式",
     "cloudMode": "云端模式",
@@ -47,7 +46,6 @@
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
     "innerThoughts": "内心活动",
-    "interaction": "交互",
     "composerPlaceholder": "输入消息，或输入 / 调用技能…",
     "selectAgent": "选择一个智能体",
     "selectAgentHint": "从侧边栏选择一个智能体，开始交互。",
@@ -246,7 +244,13 @@
       "sendFailed": "没发出去。你写的还在——再试一次。",
       "uploadFailed": "“{{name}}”没能上传。",
       "uploadFailedGeneric": "文件没能上传。",
-      "loadingOlder": "正在加载更早的消息…"
+      "loadingOlder": "正在加载更早的消息…",
+      "workspace": {
+        "close": "关闭工作区面板",
+        "zoom": "放大制品",
+        "emptyArtifacts": "选择一个制品在此查看。",
+        "emptyFiles": "文件为直接下载——点击左侧任意文件。"
+      }
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -742,7 +746,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "对话",
       "tabArtifacts": "制品",
       "tabArtifactsCount": "制品（{{count}}）"
     },
@@ -751,7 +754,6 @@
       "closeAriaLabel": "关闭并返回对话"
     },
     "sidebar": {
-      "openWorkspace": "打开你的工作区",
       "logoutConfirmTitle": "退出登录",
       "logoutConfirmMessage": "确定要退出登录吗？",
       "logoutConfirmAction": "退出登录",
@@ -773,10 +775,6 @@
       "createAgentOrTeam": "创建智能体或团队",
       "createAgent": "创建智能体",
       "createTeam": "创建团队",
-      "manageAgents": "管理智能体",
-      "manageAgentsTitle": "管理智能体（批量·添加／编辑／删除）",
-      "teamGroupChatTitle": "{{name}} — 群聊",
-      "teamGroupChatAria": "{{name}} 群聊",
       "refreshAgents": "刷新智能体",
       "emptyLabel": "暂无智能体",
       "emptyHint": "创建你的第一个智能体来开始对话。",
@@ -825,7 +823,6 @@
       "manageTeams": "管理团队"
     },
     "createMenu": {
-      "create": "创建",
       "createAgentOrTeam": "创建智能体或团队",
       "createAgent": "创建智能体",
       "createTeam": "创建团队",
@@ -1608,18 +1605,11 @@
     },
     "settings": {
       "title": "设置",
-      "headerSections": "服务商 · 捆绑包 · 制品 · 智能体",
-      "manageAgents": {
-        "label": "管理智能体 · 批量",
-        "hint": "批量选择智能体进行删除，或批量从团队中添加/移除。导入了不想保留的捆绑包后很有用——按“来自捆绑包”筛选即可找到它们。",
-        "openButton": "打开批量管理器…"
-      },
       "nav": {
         "account": "账户与订阅",
         "providers": "LLM 服务商",
         "modelDefaults": "模型配置",
         "artifacts": "制品",
-        "manageAgents": "管理 Agent",
         "updates": "应用更新",
         "privacy": "隐私"
       },
@@ -1782,7 +1772,11 @@
       "bulkDeleteResult": "已删除 {{success}} 个。",
       "bulkDeleteResultWithFailures": "已删除 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。",
       "addedToTeamTitle": "已添加到团队",
-      "addedToTeamMessage": "{{count}} 个智能体已添加到所选团队。"
+      "addedToTeamMessage": "{{count}} 个智能体已添加到所选团队。",
+      "addedToTeamResultWithFailures": "已加入 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。",
+      "removedFromTeamTitle": "已移出团队",
+      "removedFromTeamMessage": "已从团队移出 {{count}} 个 agent。",
+      "removedFromTeamResultWithFailures": "已移出 {{success}} 个，{{failedCount}} 个失败（{{failedIds}}）。"
     },
     "bundleImport": {
       "installTemplate": "安装模板",
@@ -2354,24 +2348,12 @@
     "refresh": "刷新制品",
     "zoom": "放大制品",
     "zoomFullscreen": "放大制品（全屏打开）",
-    "collapse": "折叠面板",
-    "collapseAria": "折叠制品面板",
     "selectArtifact": "选择一个制品",
     "minimized": "已最小化：",
     "restore": "恢复“{{title}}”",
     "openBadge": "打开 {{title}}（{{kind}}）",
     "unsupportedKind": "不支持的制品类型：{{kind}}",
     "loadingRenderer": "正在加载渲染器…",
-    "sliver": {
-      "expandTitle": "点击展开 · {{count}} 个制品",
-      "expandTitle_other": "点击展开 · {{count}} 个制品",
-      "emptyTitle": "智能体创建制品后将在此处显示",
-      "expandAria": "展开制品面板（{{count}} 项）",
-      "expandAria_other": "展开制品面板（{{count}} 项）",
-      "emptyAria": "制品面板（空）",
-      "label": "制品（{{count}}）",
-      "labelEmpty": "制品"
-    },
     "emptyState": {
       "title": "暂无制品",
       "hint": "智能体创建制品后将在此处显示。"

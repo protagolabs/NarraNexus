@@ -20,7 +20,6 @@
     "logout": "Logout",
     "poweredBy": "NetMind AI Research",
     "online": "Online",
-    "you": "You",
     "cloud": "Cloud",
     "localMode": "Local Mode",
     "cloudMode": "Cloud Mode",
@@ -47,7 +46,6 @@
     "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
     "innerThoughts": "Inner Thoughts",
-    "interaction": "Interaction",
     "composerPlaceholder": "Type a message or / for skills...",
     "selectAgent": "Select an agent",
     "selectAgentHint": "Choose an agent from the sidebar to begin your interaction.",
@@ -246,7 +244,13 @@
       "sendFailed": "Could not send. Your text is still here — try again.",
       "uploadFailed": "Could not upload “{{name}}”.",
       "uploadFailedGeneric": "Could not upload the file.",
-      "loadingOlder": "Loading older messages…"
+      "loadingOlder": "Loading older messages…",
+      "workspace": {
+        "close": "Close workspace panel",
+        "zoom": "Zoom artifact",
+        "emptyArtifacts": "Select an artifact to view it here.",
+        "emptyFiles": "Files download directly — click one on the left."
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -742,7 +746,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artifacts",
       "tabArtifactsCount": "Artifacts ({{count}})"
     },
@@ -751,7 +754,6 @@
       "closeAriaLabel": "Close and return to chat"
     },
     "sidebar": {
-      "openWorkspace": "Open your workspace",
       "logoutConfirmTitle": "Log out",
       "logoutConfirmMessage": "Are you sure you want to logout?",
       "logoutConfirmAction": "Log out",
@@ -773,10 +775,6 @@
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
       "createTeam": "Create Team",
-      "manageAgents": "Manage agents",
-      "manageAgentsTitle": "Manage agents (batch · add / edit / delete)",
-      "teamGroupChatTitle": "{{name}} — group chat",
-      "teamGroupChatAria": "{{name}} group chat",
       "refreshAgents": "Refresh Agents",
       "emptyLabel": "No agents yet",
       "emptyHint": "Create your first agent to start a conversation.",
@@ -825,7 +823,6 @@
       "manageTeams": "Manage Teams"
     },
     "createMenu": {
-      "create": "Create",
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
       "createTeam": "Create Team",
@@ -1608,18 +1605,11 @@
     },
     "settings": {
       "title": "Settings",
-      "headerSections": "Providers · Bundle · Artifacts · Agents",
-      "manageAgents": {
-        "label": "Manage agents · batch",
-        "hint": "Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them.",
-        "openButton": "Open batch manager…"
-      },
       "nav": {
         "account": "Account & Subscription",
         "providers": "LLM Providers",
         "modelDefaults": "Model Defaults",
         "artifacts": "Artifacts",
-        "manageAgents": "Manage agents",
         "updates": "App updates",
         "privacy": "Privacy"
       },
@@ -1782,7 +1772,11 @@
       "bulkDeleteResult": "{{success}} deleted.",
       "bulkDeleteResultWithFailures": "{{success}} deleted, {{failedCount}} failed ({{failedIds}}).",
       "addedToTeamTitle": "Added to team",
-      "addedToTeamMessage": "{{count}} agents added to selected team."
+      "addedToTeamMessage": "{{count}} agents added to selected team.",
+      "addedToTeamResultWithFailures": "{{success}} added, {{failedCount}} failed ({{failedIds}}).",
+      "removedFromTeamTitle": "Removed from team",
+      "removedFromTeamMessage": "Removed {{count}} agents from the team.",
+      "removedFromTeamResultWithFailures": "{{success}} removed, {{failedCount}} failed ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Install template",
@@ -2354,24 +2348,12 @@
     "refresh": "Refresh artifacts",
     "zoom": "Zoom artifact",
     "zoomFullscreen": "Zoom artifact (open fullscreen)",
-    "collapse": "Collapse panel",
-    "collapseAria": "Collapse artifacts panel",
     "selectArtifact": "Select an artifact",
     "minimized": "Minimized:",
     "restore": "Restore \"{{title}}\"",
     "openBadge": "Open {{title}} ({{kind}})",
     "unsupportedKind": "Unsupported artifact kind: {{kind}}",
     "loadingRenderer": "Loading renderer…",
-    "sliver": {
-      "expandTitle": "Click to expand · {{count}} artifact",
-      "expandTitle_other": "Click to expand · {{count}} artifacts",
-      "emptyTitle": "Artifacts will appear here once the agent creates one",
-      "expandAria": "Expand artifacts panel ({{count}} item)",
-      "expandAria_other": "Expand artifacts panel ({{count}} items)",
-      "emptyAria": "Artifacts panel (empty)",
-      "label": "Artifacts ({{count}})",
-      "labelEmpty": "Artifacts"
-    },
     "emptyState": {
       "title": "No artifacts yet",
       "hint": "They'll appear here as the agent creates them."

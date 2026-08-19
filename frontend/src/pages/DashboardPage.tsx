@@ -17,7 +17,7 @@
  * Paired with setTrayBadge for Tauri; web mode no-op. Handles 429 with
  * exponential backoff (store.onRateLimited).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
@@ -75,9 +75,17 @@ export function DashboardPage() {
   const [filterText, setFilterText] = useState('');
   const [busy, setBusy] = useState(false);
   const [bulkTeamPicker, setBulkTeamPicker] = useState<string>('');
-  const [teamsMgmtOpen, setTeamsMgmtOpen] = useState(false);
+  const [teamsMgmt, setTeamsMgmt] = useState<{ open: boolean; teamId: string | null }>({
+    open: false,
+    teamId: null,
+  });
 
-  useEffect(() => { refreshTeams(); refreshAgents(); }, [refreshTeams, refreshAgents]);
+  useEffect(() => {
+    // Failures here have no UI surface of their own (`error` only carries the
+    // dashboard poll); swallow instead of leaking unhandled rejections.
+    refreshTeams().catch(() => {});
+    refreshAgents().catch(() => {});
+  }, [refreshTeams, refreshAgents]);
 
   // --- Visibility API ---
   useEffect(() => {
@@ -147,14 +155,32 @@ export function DashboardPage() {
     return m;
   }, [statusAgents]);
 
+  // Single definition of the text filter — both the roster table and the
+  // public rows must answer it, or search results read wrong.
+  const matchesFilterText = useCallback(
+    (name: string | null | undefined, agentId: string) => {
+      if (!filterText) return true;
+      const q = filterText.toLowerCase();
+      return (name || '').toLowerCase().includes(q) || agentId.toLowerCase().includes(q);
+    },
+    [filterText],
+  );
+
   // Public agents (visible in status feed but not in the user's roster) are
   // shown as read-only rows so the old PublicCard capability isn't lost.
+  // They obey the same text filter as the roster rows, and disappear under any
+  // team filter — a public agent has no roster team to match.
   const publicAgents = useMemo(
     () =>
-      statusAgents.filter(
-        (a) => !a.owned_by_viewer && !rosterAgents.some((r) => r.agent_id === a.agent_id),
-      ),
-    [statusAgents, rosterAgents],
+      filterTeam
+        ? []
+        : statusAgents.filter(
+            (a) =>
+              !a.owned_by_viewer &&
+              !rosterAgents.some((r) => r.agent_id === a.agent_id) &&
+              matchesFilterText(a.name, a.agent_id),
+          ),
+    [statusAgents, rosterAgents, filterTeam, matchesFilterText],
   );
 
   // --- Stat tiles (owned agents only — public rows carry no metrics) -------
@@ -187,13 +213,7 @@ export function DashboardPage() {
   }, [teams]);
 
   const filteredAgents = useMemo(() => {
-    let list = [...rosterAgents];
-    if (filterText) {
-      const q = filterText.toLowerCase();
-      list = list.filter((a) =>
-        (a.name || '').toLowerCase().includes(q) || a.agent_id.toLowerCase().includes(q)
-      );
-    }
+    let list = rosterAgents.filter((a) => matchesFilterText(a.name, a.agent_id));
     if (filterTeam === 'untagged') {
       const taggedIds = new Set<string>();
       teams.forEach((tm) => tm.member_agent_ids.forEach((id) => taggedIds.add(id)));
@@ -206,7 +226,13 @@ export function DashboardPage() {
       list = list.filter((a) => memberIds.has(a.agent_id));
     }
     return list;
-  }, [rosterAgents, filterText, filterTeam, teams, importedAgentIds]);
+  }, [rosterAgents, matchesFilterText, filterTeam, teams, importedAgentIds]);
+
+  // Filter changes reshuffle filteredAgents' indices; a stale shift-range
+  // anchor must not survive them (the range loop dereferences by index).
+  useEffect(() => {
+    setLastClickedIdx(null);
+  }, [filterText, filterTeam]);
 
   const allSelected = filteredAgents.length > 0
     && filteredAgents.every((a) => selected.has(a.agent_id));
@@ -220,6 +246,15 @@ export function DashboardPage() {
     });
   };
 
+  const toggleOne = (agentId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+  };
+
   const toggleSelect = (agentId: string, idx: number, ev: React.MouseEvent) => {
     if (ev.shiftKey && lastClickedIdx !== null) {
       const [a, b] = [Math.min(idx, lastClickedIdx), Math.max(idx, lastClickedIdx)];
@@ -227,18 +262,16 @@ export function DashboardPage() {
       setSelected((prev) => {
         const next = new Set(prev);
         for (let i = a; i <= b; i++) {
-          const id = filteredAgents[i].agent_id;
-          if (target) next.add(id); else next.delete(id);
+          // Defensive alongside the anchor reset above: the anchor's index
+          // source may change again, and an out-of-range slot must not throw.
+          const row = filteredAgents[i];
+          if (!row) continue;
+          if (target) next.add(row.agent_id); else next.delete(row.agent_id);
         }
         return next;
       });
     } else {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (next.has(agentId)) next.delete(agentId);
-        else next.add(agentId);
-        return next;
-      });
+      toggleOne(agentId);
     }
     setLastClickedIdx(idx);
   };
@@ -290,28 +323,64 @@ export function DashboardPage() {
     });
   };
 
+  // Same shape as handleBulkDelete: per-row best effort, but the outcome the
+  // user is told matches what actually happened — a partial failure must not
+  // read as "all done".
   const handleBulkAddToTeam = async () => {
     if (selected.size === 0 || !bulkTeamPicker) return;
     setBusy(true);
+    let success = 0;
+    const failed: string[] = [];
     for (const aid of Array.from(selected)) {
-      try { await addMember(bulkTeamPicker, aid); } catch { /* per-row best effort */ }
+      try {
+        await addMember(bulkTeamPicker, aid);
+        success += 1;
+      } catch {
+        failed.push(aid);
+      }
     }
     await refreshTeams();
     setBusy(false);
     await alert({
       title: t('pages.manageAgents.addedToTeamTitle'),
-      message: t('pages.manageAgents.addedToTeamMessage', { count: selected.size }),
+      message: failed.length
+        ? t('pages.manageAgents.addedToTeamResultWithFailures', {
+            success,
+            failedCount: failed.length,
+            failedIds: `${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`,
+          })
+        : t('pages.manageAgents.addedToTeamMessage', { count: success }),
+      danger: failed.length > 0,
     });
   };
 
   const handleBulkRemoveFromTeam = async () => {
     if (selected.size === 0 || !bulkTeamPicker) return;
     setBusy(true);
+    let success = 0;
+    const failed: string[] = [];
     for (const aid of Array.from(selected)) {
-      try { await removeMember(bulkTeamPicker, aid); } catch { /* per-row best effort */ }
+      try {
+        await removeMember(bulkTeamPicker, aid);
+        success += 1;
+      } catch {
+        failed.push(aid);
+      }
     }
     await refreshTeams();
+    setSelected(new Set());
     setBusy(false);
+    await alert({
+      title: t('pages.manageAgents.removedFromTeamTitle'),
+      message: failed.length
+        ? t('pages.manageAgents.removedFromTeamResultWithFailures', {
+            success,
+            failedCount: failed.length,
+            failedIds: `${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`,
+          })
+        : t('pages.manageAgents.removedFromTeamMessage', { count: success }),
+      danger: failed.length > 0,
+    });
   };
 
   const teamLookupForAgent = (aid: string) =>
@@ -344,7 +413,11 @@ export function DashboardPage() {
     <ScrollArea className="h-full" viewportClassName="px-6 py-6">
       <div className="max-w-[960px] mx-auto space-y-4">
         {dialog}
-        <TeamManagementModal open={teamsMgmtOpen} onClose={() => setTeamsMgmtOpen(false)} />
+        <TeamManagementModal
+          open={teamsMgmt.open}
+          initialTeamId={teamsMgmt.teamId}
+          onClose={() => setTeamsMgmt({ open: false, teamId: null })}
+        />
 
         {/* Header — title + Agents/Teams toggle + meta. pr-10 reserves the
             top-right corner for MainLayout's close (X). */}
@@ -443,7 +516,11 @@ export function DashboardPage() {
                 : 'border-[var(--nm-hairline)] bg-[var(--nm-paper)]',
             )}>
               <label className="flex items-center gap-2 text-[12px] text-[var(--nm-ink70)] cursor-pointer select-none" onClick={toggleAll}>
-                <TableCheckbox checked={allSelected} />
+                <TableCheckbox
+                  checked={allSelected}
+                  onToggle={toggleAll}
+                  ariaLabel={allSelected ? t('pages.manageAgents.unselectAll') : t('pages.manageAgents.selectAllShown')}
+                />
                 {allSelected ? t('pages.manageAgents.unselectAll') : t('pages.manageAgents.selectAllShown')}
               </label>
               <span className="flex-1" />
@@ -533,7 +610,11 @@ export function DashboardPage() {
                             onClick={(e) => { e.stopPropagation(); toggleSelect(a.agent_id, idx, e); }}
                             className="cursor-pointer"
                           >
-                            <TableCheckbox checked={isSel} />
+                            <TableCheckbox
+                              checked={isSel}
+                              onToggle={() => toggleOne(a.agent_id)}
+                              ariaLabel={a.name || a.agent_id}
+                            />
                           </span>
                           <span className="flex items-center gap-2.5 min-w-0">
                             <ChevronRight
@@ -713,7 +794,7 @@ export function DashboardPage() {
                         size="sm"
                         variant="outline"
                         className="gap-1.5"
-                        onClick={() => setTeamsMgmtOpen(true)}
+                        onClick={() => setTeamsMgmt({ open: true, teamId: tm.team.team_id })}
                       >
                         <Users2 className="w-3.5 h-3.5" />
                         {t('pages.dashboard.manageTeam')}
@@ -733,7 +814,17 @@ export function DashboardPage() {
   );
 }
 
-function TableCheckbox({ checked }: { checked: boolean }) {
+function TableCheckbox({
+  checked,
+  onToggle,
+  ariaLabel,
+}: {
+  checked: boolean;
+  onToggle?: () => void;
+  ariaLabel?: string;
+}) {
+  // Click handling stays on the parent (label / row cell) so its hit area is
+  // preserved; the keyboard path lives here because this is the focusable.
   return (
     <span
       className={cn(
@@ -743,7 +834,20 @@ function TableCheckbox({ checked }: { checked: boolean }) {
           : 'border-[var(--border-default)] bg-[var(--nm-card)] text-transparent',
       )}
       aria-checked={checked}
+      aria-label={ariaLabel}
       role="checkbox"
+      tabIndex={onToggle ? 0 : undefined}
+      onKeyDown={
+        onToggle
+          ? (e) => {
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle();
+              }
+            }
+          : undefined
+      }
     >
       ✓
     </span>

@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — sliver 分支删除(更正 08-13 条的「sliver 机制保留未动」)
+
+v4 后唯一挂载点是 BookmarkPanelHost 且带 `forceExpanded`,
+`effectiveCollapsed` 恒 false,且全仓再无 `setCollapsed(true)` 调用——sliver
+分支(~50 行)与 auto-expand effect 是不可达死代码,已删。store 侧
+`collapsed`/`setCollapsed`/`COLLAPSED_KEY` 与 `artifacts.collapse*`、
+`artifacts.sliver.*` i18n key(×10)一并清除,见 [[artifactStore]]。
+抽屉空态(`artifacts.length === 0`)是另一条**活**分支,保留。`forceExpanded`
+prop 一并删除——sliver 没了之后它只剩恒 true 的一个调用点(BookmarkPanelHost),
+是退化参数(铁律 #2);空态条件简化为长度判断。下方旧条目里 sliver/
+forceExpanded 的描述以本条为准。
 
 ## 2026-08-18 — 摘除死掉的 '▶' 折叠钮
 

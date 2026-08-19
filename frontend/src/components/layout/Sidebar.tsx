@@ -36,7 +36,7 @@ import {
   Check,
   ChevronsUpDown,
 } from 'lucide-react';
-import { BetaBadge, useConfirm } from '@/components/ui';
+import { BetaBadge, ScrollArea, useConfirm } from '@/components/ui';
 import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
@@ -51,7 +51,6 @@ import {
   useUIStore,
 } from '@/stores';
 import { cn } from '@/lib/utils';
-import { ScrollArea } from '@/components/ui';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';

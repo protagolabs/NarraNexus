@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -62,9 +62,6 @@ agents;ScopeHeader = chevron+icon+label)。**内容组件零改动** — 只是�
 ?team=&agents= 深链全部原样。v4 mock 里的 Agent/Team bundle 单选卡未做:
 AgentsTab 内部现成的 team 下拉 + quick-add chips 已承担同一职责,再加一层
 单选卡是重复控件 — 记入 self_notebook/todo 待 Owner 裁决。
-last_verified: 2026-08-17
-stub: false
----
 
 ## 2026-08-17 — SEC-07：不再回传归档路径
 

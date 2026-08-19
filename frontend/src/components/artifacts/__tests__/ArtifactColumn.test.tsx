@@ -40,13 +40,12 @@ beforeEach(() => {
     activeArtifactId: 'c1', // broken invariant: c1 is minimized (below)
     minimizedTabIds: new Set(['c1']),
     chartLruOrder: ['c1', 'c2'],
-    collapsed: false,
   });
 });
 
 describe('ArtifactColumn chart pool visibility', () => {
   test('with active pointing at a minimized chart, exactly one pane is visible and it is the first visible chart', () => {
-    const { container } = render(<ArtifactColumn agentId="agent_x" forceExpanded />);
+    const { container } = render(<ArtifactColumn agentId="agent_x" />);
     const panes = Array.from(
       container.querySelectorAll<HTMLDivElement>('.absolute.inset-0'),
     );

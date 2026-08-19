@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/help/helpContent.ts
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — bookmarks.* 锚点殉葬修复
+
+BookmarkStrip 退役后 `bookmarks.{awareness,workspace,channels,skills,mcp,social}`
+六个锚点再无 DOM 宿主,对应标注被 overlay 静默跳过——setup 页 7 条只剩 2 条,
+「?」引导页大面积空白。六条合并成两条,挂在常驻的 `chat.detail-menu` 触发器上
+(菜单**内部**的项在菜单关闭时不存在,挂上去等于没挂)。教训:「overlay 对缺失
+锚点静默跳过」是防崩机制,不是「文案可以不管」;删渲染方时要 grep 它产的
+`data-help-id`。
 
 ## 2026-08-06 — Chat UI v4 锚点跟随
 

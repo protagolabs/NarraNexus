@@ -14,7 +14,6 @@
     "logout": "تسجيل الخروج",
     "poweredBy": "NetMind AI Research",
     "online": "متصل",
-    "you": "أنت",
     "cloud": "سحابي",
     "localMode": "الوضع المحلي",
     "cloudMode": "الوضع السحابي",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "محادثة",
     "innerThoughts": "أفكار داخلية",
-    "interaction": "التفاعل",
     "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
     "selectAgent": "اختر وكيلاً",
     "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل.",
@@ -195,7 +193,13 @@
       "expand": "عرض المزيد",
       "collapse": "عرض أقل",
       "today": "اليوم",
-      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب."
+      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب.",
+      "workspace": {
+        "close": "إغلاق لوحة مساحة العمل",
+        "zoom": "تكبير العنصر",
+        "emptyArtifacts": "اختر عنصرًا لعرضه هنا.",
+        "emptyFiles": "يتم تنزيل الملفات مباشرة — انقر على ملف على اليسار."
+      }
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",
@@ -679,7 +683,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "محادثة",
       "tabArtifacts": "المخرجات",
       "tabArtifactsCount": "المخرجات ({{count}})"
     },
@@ -688,7 +691,6 @@
       "closeAriaLabel": "إغلاق والعودة إلى المحادثة"
     },
     "sidebar": {
-      "openWorkspace": "افتح مساحة عملك",
       "logoutConfirmTitle": "تسجيل الخروج",
       "logoutConfirmMessage": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
       "logoutConfirmAction": "تسجيل الخروج",
@@ -710,10 +712,6 @@
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
       "createTeam": "إنشاء فريق",
-      "manageAgents": "إدارة الوكلاء",
-      "manageAgentsTitle": "إدارة الوكلاء (دفعة · إضافة / تعديل / حذف)",
-      "teamGroupChatTitle": "{{name}} — محادثة جماعية",
-      "teamGroupChatAria": "محادثة جماعية {{name}}",
       "refreshAgents": "تحديث الوكلاء",
       "emptyLabel": "لا يوجد وكلاء بعد",
       "emptyHint": "أنشئ أول وكيل لك لبدء محادثة.",
@@ -738,7 +736,6 @@
       "manageTeams": "إدارة الفرق"
     },
     "createMenu": {
-      "create": "إنشاء",
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
       "createTeam": "إنشاء فريق",
@@ -1298,7 +1295,6 @@
     },
     "settings": {
       "title": "الإعدادات",
-      "headerSections": "المزوّدون · الحزمة · المُخرجات · الوكلاء",
       "nav": {
         "privacy": "الخصوصية"
       },
@@ -1330,11 +1326,6 @@
         "frameworkFilteredNote": "لا تُعرض سوى أُطر العمل التي يمكن لمزوّديك المتصلين تشغيلها فعليًا.",
         "cloudFrameworkLockedTitle": "للموظفين فقط في السحابة",
         "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية."
-      },
-      "manageAgents": {
-        "label": "إدارة الوكلاء · دفعة",
-        "hint": "حدّد وكلاء بالجملة للحذف، أو أضِفهم/أزِلهم من الفِرق بالدفعة. مفيد بعد استيراد حزمة لا تريد الاحتفاظ بها — رشّح حسب «من الحزم» للعثور عليهم.",
-        "openButton": "فتح مدير الدفعات…"
       },
       "privacy": {
         "label": "الخصوصية",
@@ -1419,7 +1410,11 @@
       "bulkDeleteResult": "تم حذف {{success}}.",
       "bulkDeleteResultWithFailures": "تم حذف {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "تمت الإضافة إلى الفريق",
-      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد."
+      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد.",
+      "addedToTeamResultWithFailures": "تمت إضافة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
+      "removedFromTeamTitle": "تمت الإزالة من الفريق",
+      "removedFromTeamMessage": "تمت إزالة {{count}} من الوكلاء من الفريق.",
+      "removedFromTeamResultWithFailures": "تمت إزالة {{success}}، وفشل {{failedCount}} ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "تثبيت قالب",
@@ -1981,24 +1976,12 @@
     "refresh": "تحديث العناصر",
     "zoom": "تكبير العنصر",
     "zoomFullscreen": "تكبير العنصر (فتح بملء الشاشة)",
-    "collapse": "طي اللوحة",
-    "collapseAria": "طي لوحة العناصر",
     "selectArtifact": "اختر عنصرًا",
     "minimized": "مُصغّر:",
     "restore": "استعادة \"{{title}}\"",
     "openBadge": "فتح {{title}} ({{kind}})",
     "unsupportedKind": "نوع عنصر غير مدعوم: {{kind}}",
     "loadingRenderer": "جارٍ تحميل العارض…",
-    "sliver": {
-      "expandTitle": "انقر للتوسيع · {{count}} عنصر",
-      "expandTitle_other": "انقر للتوسيع · {{count}} عناصر",
-      "emptyTitle": "ستظهر العناصر هنا بمجرد أن ينشئها الوكيل",
-      "expandAria": "توسيع لوحة العناصر ({{count}} عنصر)",
-      "expandAria_other": "توسيع لوحة العناصر ({{count}} عناصر)",
-      "emptyAria": "لوحة العناصر (فارغة)",
-      "label": "العناصر ({{count}})",
-      "labelEmpty": "العناصر"
-    },
     "emptyState": {
       "title": "لا توجد عناصر بعد",
       "hint": "ستظهر هنا عندما ينشئها الوكيل."

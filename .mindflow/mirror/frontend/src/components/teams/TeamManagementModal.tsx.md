@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — initialTeamId prop + COLOR_PRESETS 出走
+
+- 新可选 prop `initialTeamId`:open 上升沿 `setSelectedTeamId(initialTeamId)`。
+  兜底 effect 加 `!initialTeamId` guard——两个 effect 同一 commit 冲刷时兜底
+  跑在后面,不加 guard 会把 caller 指定的团队覆盖成 `teams[0]`;用户在 modal
+  内手动切换仍不会被拽回(guard 只看 selectedTeamId 为空)。
+- 调用点两处齐改:Dashboard Teams 行级 Manage 传行的 team_id;
+  [[TeamDetailPage]] 的 Edit team 传 `useParams` 的 teamId(否则团队 #5 的
+  详情页编辑的是团队 #1——与 Dashboard 行同一缺陷)。
+- `COLOR_PRESETS` 移到 [[teamColors]] 单一来源([[CreateTeamPage]] 同吃),
+  §6.2 DATA 豁免注释随迁;数组顺序是契约(`[0]` 是新团队默认色,抽取时未动)。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 

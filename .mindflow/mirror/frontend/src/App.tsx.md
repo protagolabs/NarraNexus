@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -19,9 +19,6 @@ stub: false
 Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与
 路由删除。其余路由结构(element={null} 的 chat/team-chat 技巧、懒加载、
 ProtectedRoute)不变。
-last_verified: 2026-08-12
-stub: false
----
 
 ## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
 

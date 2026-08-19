@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/CreateTeamPage.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 色板去重、命名修正、键盘可达
+
+`COLOR_PRESETS` 改 import 自 [[teamColors]](与 TeamManagementModal 同源,
+两入口色板从此不会漂移);`sortedAgents` 改名 `matchedAgents`(它只 filter
+不排序,旧名让人去找不存在的排序规则);成员勾选的假 checkbox 加
+`role="checkbox"`/`aria-checked`/`tabIndex`/Space+Enter,键盘用户可勾选。
 
 ## 2026-08-06 (2) — 成员搜索 + 固定底部操作条(UI/UX 设计文档采纳项)
 

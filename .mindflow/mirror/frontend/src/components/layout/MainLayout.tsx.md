@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -41,10 +41,6 @@ TopBar 仅 < md 渲染(自带 md:hidden);桌面端侧栏占满全高。CommandPa
 一个实例。新增:sidebarCollapsed(uiStore)时,子页面/团队聊天渲染左上角
 浮动展开 chip(聊天视图的展开按钮在 ChatPanel 头部内联,不在这里)。
 BookmarkDrawer 单实例约束、resize 两段拖拽、RAIL_GUTTER_PX 同步规则不变。
-last_verified: 2026-08-12
-last_verified: 2026-08-13
-stub: false
----
 
 ## 2026-08-13 — shared stacking slot for the two privacy disclosures
 

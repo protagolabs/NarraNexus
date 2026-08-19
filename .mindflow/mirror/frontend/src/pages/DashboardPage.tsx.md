@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — review 轮:筛选统一、shift 区间防崩、批量结果如实上报、Manage 带行上下文
+
+- 文本筛选抽成 `matchesFilterText`,public 行同样过它;任何团队筛选下 public 行
+  直接不渲染(public agent 没有 roster 团队归属)。空态判断因此自然变成
+  「过滤后两段皆空」。
+- `filterText`/`filterTeam` 变化即重置 `lastClickedIdx`;shift 区间循环内再加
+  一道 `if (!row) continue`——修「筛选变短后 shift-点越界 TypeError 白屏」。
+  前者修根因,后者防御索引来源以后再变,两道都要。
+- `handleBulkAddToTeam`/`RemoveFromTeam` 改成 `handleBulkDelete` 的形状:
+  success/failed 统计 + 失败分支文案(`danger`),remove 路径补结果提示并清空
+  选择。新 i18n key `addedToTeamResultWithFailures` / `removedFromTeam*`(×10)。
+- Teams 视图行级 Manage 传 `tm.team.team_id`,经 [[TeamManagementModal]] 新的
+  `initialTeamId` prop 在 open 上升沿选中——修「每一行都打开第一个团队」的
+  误操作入口。
+- `TableCheckbox` 加 `onToggle`+`tabIndex`+Space/Enter+`ariaLabel`(点击仍归
+  父级 label/cell 保留大热区,焦点/键盘/无障碍名归 checkbox 本体;行级用
+  agent 名,表头用全选/反选文案);首个 effect 的两个悬空 promise 显式 `.catch`。
+  键盘 toggle 不设 shift 锚点(区间选择是鼠标语义,有意为之)。
 
 ## 2026-08-06 — Chat UI v4:吸收 ManageAgentsPage,监控 + 管理合一
 

@@ -14,7 +14,6 @@
     "logout": "Déconnexion",
     "poweredBy": "NetMind AI Research",
     "online": "En ligne",
-    "you": "Vous",
     "cloud": "Cloud",
     "localMode": "Mode local",
     "cloudMode": "Mode cloud",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "Conversation",
     "innerThoughts": "Pensées internes",
-    "interaction": "Interaction",
     "composerPlaceholder": "Tapez un message ou / pour les compétences…",
     "selectAgent": "Sélectionner un agent",
     "selectAgentHint": "Choisissez un agent dans la barre latérale pour commencer.",
@@ -191,7 +189,13 @@
       "expand": "Afficher plus",
       "collapse": "Afficher moins",
       "today": "Aujourd’hui",
-      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée."
+      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée.",
+      "workspace": {
+        "close": "Fermer le panneau d'espace de travail",
+        "zoom": "Agrandir l'artefact",
+        "emptyArtifacts": "Sélectionnez un artefact pour l'afficher ici.",
+        "emptyFiles": "Les fichiers se téléchargent directement — cliquez sur l'un à gauche."
+      }
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -675,7 +679,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefacts",
       "tabArtifactsCount": "Artefacts ({{count}})"
     },
@@ -684,7 +687,6 @@
       "closeAriaLabel": "Fermer et revenir au chat"
     },
     "sidebar": {
-      "openWorkspace": "Ouvrir votre espace de travail",
       "logoutConfirmTitle": "Se déconnecter",
       "logoutConfirmMessage": "Voulez-vous vraiment vous déconnecter ?",
       "logoutConfirmAction": "Se déconnecter",
@@ -706,10 +708,6 @@
       "createAgentOrTeam": "Créer un agent ou une équipe",
       "createAgent": "Créer un agent",
       "createTeam": "Créer une équipe",
-      "manageAgents": "Gérer les agents",
-      "manageAgentsTitle": "Gérer les agents (par lot · ajouter / modifier / supprimer)",
-      "teamGroupChatTitle": "{{name}} — discussion de groupe",
-      "teamGroupChatAria": "Discussion de groupe {{name}}",
       "refreshAgents": "Actualiser les agents",
       "emptyLabel": "Aucun agent pour l'instant",
       "emptyHint": "Créez votre premier agent pour démarrer une conversation.",
@@ -734,7 +732,6 @@
       "manageTeams": "Gérer les équipes"
     },
     "createMenu": {
-      "create": "Créer",
       "createAgentOrTeam": "Créer un agent ou une équipe",
       "createAgent": "Créer un agent",
       "createTeam": "Créer une équipe",
@@ -1290,7 +1287,6 @@
     },
     "settings": {
       "title": "Paramètres",
-      "headerSections": "Fournisseurs · Bundle · Artefacts · Agents",
       "nav": {
         "privacy": "Confidentialité"
       },
@@ -1322,11 +1318,6 @@
         "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
-      },
-      "manageAgents": {
-        "label": "Gérer les agents · par lot",
-        "hint": "Sélectionnez des agents en masse pour les supprimer, ou les ajouter/retirer d'équipes par lot. Utile après l'import d'un bundle que vous ne souhaitez pas conserver — filtrez par « Issus de bundles » pour les trouver.",
-        "openButton": "Ouvrir le gestionnaire par lot…"
       },
       "privacy": {
         "label": "Confidentialité",
@@ -1411,7 +1402,11 @@
       "bulkDeleteResult": "{{success}} supprimés.",
       "bulkDeleteResultWithFailures": "{{success}} supprimés, {{failedCount}} échoués ({{failedIds}}).",
       "addedToTeamTitle": "Ajoutés à l'équipe",
-      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée."
+      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée.",
+      "addedToTeamResultWithFailures": "{{success}} ajoutés, {{failedCount}} en échec ({{failedIds}}).",
+      "removedFromTeamTitle": "Retirés de l'équipe",
+      "removedFromTeamMessage": "{{count}} agents retirés de l'équipe.",
+      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Installer le modèle",
@@ -1973,24 +1968,12 @@
     "refresh": "Actualiser les artefacts",
     "zoom": "Agrandir l'artefact",
     "zoomFullscreen": "Agrandir l'artefact (plein écran)",
-    "collapse": "Réduire le panneau",
-    "collapseAria": "Réduire le panneau des artefacts",
     "selectArtifact": "Sélectionnez un artefact",
     "minimized": "Réduit :",
     "restore": "Restaurer « {{title}} »",
     "openBadge": "Ouvrir {{title}} ({{kind}})",
     "unsupportedKind": "Type d'artefact non pris en charge : {{kind}}",
     "loadingRenderer": "Chargement du moteur de rendu…",
-    "sliver": {
-      "expandTitle": "Cliquer pour développer · {{count}} artefact",
-      "expandTitle_other": "Cliquer pour développer · {{count}} artefacts",
-      "emptyTitle": "Les artefacts apparaîtront ici dès que l'agent en créera un",
-      "expandAria": "Développer le panneau des artefacts ({{count}} élément)",
-      "expandAria_other": "Développer le panneau des artefacts ({{count}} éléments)",
-      "emptyAria": "Panneau des artefacts (vide)",
-      "label": "Artefacts ({{count}})",
-      "labelEmpty": "Artefacts"
-    },
     "emptyState": {
       "title": "Aucun artefact pour le moment",
       "hint": "Ils apparaîtront ici à mesure que l'agent les crée."

@@ -13,25 +13,18 @@ import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
+import { COLOR_PRESETS } from './teamColors';
+
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Team to select when the modal opens (e.g. the row whose Manage was
+   *  clicked). Only applied on the open transition — switching teams inside
+   *  the modal is never overridden. */
+  initialTeamId?: string | null;
 }
 
-// design_system.md §6.2 exemption: user-picked team accent presets are DATA
-// (stored per team), not UI styling — a fixed series palette, not tokens.
-const COLOR_PRESETS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#a855f7', // purple
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#64748b', // slate
-];
-
-export function TeamManagementModal({ open, onClose }: Props) {
+export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
@@ -54,9 +47,20 @@ export function TeamManagementModal({ open, onClose }: Props) {
     if (open) refresh();
   }, [open, refresh]);
 
+  // Apply the caller's team on the open transition only; the fallback effect
+  // below must not drag the selection back after the user switches manually.
   useEffect(() => {
-    if (!selectedTeamId && teams.length) setSelectedTeamId(teams[0].team.team_id);
-  }, [teams, selectedTeamId]);
+    if (open && initialTeamId) setSelectedTeamId(initialTeamId);
+  }, [open, initialTeamId]);
+
+  useEffect(() => {
+    // Fallback only when no caller-directed team exists: if both effects
+    // flush in the same commit (selectedTeamId still null), this one runs
+    // last and must not overwrite initialTeamId with teams[0].
+    if (!selectedTeamId && !initialTeamId && teams.length) {
+      setSelectedTeamId(teams[0].team.team_id);
+    }
+  }, [teams, selectedTeamId, initialTeamId]);
 
   const selected = useMemo(
     () => teams.find((t) => t.team.team_id === selectedTeamId) || null,

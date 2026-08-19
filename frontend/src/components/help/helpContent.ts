@@ -59,39 +59,14 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         priority: 2,
       },
       {
-        helpId: 'bookmarks.awareness',
-        note: 'Awareness — who your agent is',
-        detail: 'Edit it by hand here, or just tell the agent in chat; it keeps its own awareness updated.',
+        // v4 folded the old bookmark-strip panels into the header ⋯ menu, so
+        // the five per-panel annotations merged into one on its (always
+        // rendered) trigger — menu items have no anchor while closed.
+        helpId: 'chat.detail-menu',
+        note: 'Agent panels',
+        detail: 'Awareness (who your agent is), workspace files, channels, skills and MCP servers — every agent panel lives in this menu.',
         rail: 'right',
         priority: 3,
-      },
-      {
-        helpId: 'bookmarks.workspace',
-        note: 'Workspace',
-        detail: 'Upload files your agent can read and use.',
-        rail: 'right',
-        priority: 4,
-      },
-      {
-        helpId: 'bookmarks.channels',
-        note: 'Channels',
-        detail: 'Wire the agent into Lark, Slack or Telegram.',
-        rail: 'right',
-        priority: 5,
-      },
-      {
-        helpId: 'bookmarks.skills',
-        note: 'Skills',
-        detail: 'Install abilities from GitHub or a zip; the agent studies them.',
-        rail: 'right',
-        priority: 6,
-      },
-      {
-        helpId: 'bookmarks.mcp',
-        note: 'MCP servers',
-        detail: 'Plug in external tool servers your agent can call.',
-        rail: 'right',
-        priority: 7,
       },
     ],
   },
@@ -169,9 +144,10 @@ export const CHAT_VIEW_PAGES: HelpPage[] = [
         priority: 3,
       },
       {
-        helpId: 'bookmarks.social',
+        // Anchored on the ⋯ menu trigger: the Social panel now opens from it.
+        helpId: 'chat.detail-menu',
         note: 'Social network',
-        detail: 'Who your agent knows — contacts accumulate as it works with people and other agents.',
+        detail: 'Who your agent knows — open Social from this menu; contacts accumulate as it works with people and other agents.',
         rail: 'right',
         priority: 4,
       },

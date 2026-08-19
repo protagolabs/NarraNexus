@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 

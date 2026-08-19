@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — squash 残留清理
+
+两条指向 `@/components/ui` 的 import 合并为一条(squash 自动合并残留,无行为
+变化)。
 
 ## 2026-08-06 (3) — 账户弹层三项指向 /app/account
 
@@ -33,9 +38,6 @@ window.location.href;SHOW_MODE_SWITCHER 逻辑保留在弹层里未删。
 TeamManagementModal / ImportAgentModal 的挂载点从 AgentList 移到这里。
 宽度 288→272px。ThemeToggle / LanguageToggle 组件不再被本文件引用
 (账户弹层内联实现),组件本身保留给其他调用方。
-last_verified: 2026-08-12
-stub: false
----
 
 ## 2026-08-12 — 悬停预取 DashboardPage 补 `.catch`（复审二轮 🟢）
 

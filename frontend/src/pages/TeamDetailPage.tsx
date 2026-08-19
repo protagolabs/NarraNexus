@@ -162,7 +162,7 @@ export default function TeamDetailPage() {
           )}
         </section>
       </div>
-      <TeamManagementModal open={editing} onClose={() => setEditing(false)} />
+      <TeamManagementModal open={editing} initialTeamId={teamId} onClose={() => setEditing(false)} />
     </ScrollArea>
   );
 }

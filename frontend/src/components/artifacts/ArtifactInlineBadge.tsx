@@ -31,10 +31,8 @@ function ArtifactInlineBadgeImpl({ artifact }: Props) {
   // restoreTab, not setActive: the target may be minimized, and an active
   // pointer on a hidden tab blanks the column (0802 ①⑤ family).
   const restoreTab = useArtifactStore((s) => s.restoreTab);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
 
   const open = () => {
-    setCollapsed(false);
     restoreTab(artifact.artifact_id);
   };
 

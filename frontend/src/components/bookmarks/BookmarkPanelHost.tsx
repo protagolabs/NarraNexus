@@ -75,10 +75,10 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
         {tab === 'social' && <AwarenessPanel embedded section="social" />}
         {tab === 'jobs' && <JobsPanel embedded onJobResolved={handleJobResolved} />}
         {tab === 'inbox' && <AgentInboxPanel embedded />}
-        {/* Artifacts — the retired side column rendered as a drawer panel
-            (forceExpanded skips its own sliver/collapse logic; the drawer
-            shell owns visibility now). */}
-        {tab === 'artifacts' && <ArtifactColumn agentId={agentId} forceExpanded />}
+        {/* Artifacts — the retired side column rendered as a drawer panel;
+            the drawer shell owns visibility (the column's sliver/collapse
+            logic is gone). */}
+        {tab === 'artifacts' && <ArtifactColumn agentId={agentId} />}
         {tab === 'skills' && <SkillsPanel embedded section="skills" />}
         {tab === 'mcp' && <SkillsPanel embedded section="mcp" />}
         {tab === 'memory' && (

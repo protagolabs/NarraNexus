@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 6 处硬编码英文接入 i18n
+
+close/zoom 的 title+aria、两句空态文案全部改走 `chat.team.workspace.*`
+(10 locale 同步);zoom 文案复用各语言 `artifacts.zoom` 的既有译法,不另造。
+组件顶层加 `useTranslation`(它被 TeamChatPanel 条件渲染,hook 在顶层即可)。
 
 ## 2026-08-18 (二次) — 常驻窄列 → 顶栏开合的大抽屉
 

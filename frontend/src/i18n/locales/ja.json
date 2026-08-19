@@ -14,7 +14,6 @@
     "logout": "ログアウト",
     "poweredBy": "NetMind AI Research",
     "online": "オンライン",
-    "you": "あなた",
     "cloud": "クラウド",
     "localMode": "ローカルモード",
     "cloudMode": "クラウドモード",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "会話",
     "innerThoughts": "内なる思考",
-    "interaction": "インタラクション",
     "composerPlaceholder": "メッセージを入力、または / でスキル…",
     "selectAgent": "エージェントを選択",
     "selectAgentHint": "サイドバーからエージェントを選んで対話を始めましょう。",
@@ -191,7 +189,13 @@
       "expand": "もっと見る",
       "collapse": "折りたたむ",
       "today": "今日",
-      "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。"
+      "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。",
+      "workspace": {
+        "close": "ワークスペースパネルを閉じる",
+        "zoom": "アーティファクトを拡大",
+        "emptyArtifacts": "表示するアーティファクトを選択してください。",
+        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。"
+      }
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -675,7 +679,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "チャット",
       "tabArtifacts": "成果物",
       "tabArtifactsCount": "成果物（{{count}}）"
     },
@@ -684,7 +687,6 @@
       "closeAriaLabel": "閉じてチャットに戻る"
     },
     "sidebar": {
-      "openWorkspace": "あなたのワークスペースを開く",
       "logoutConfirmTitle": "ログアウト",
       "logoutConfirmMessage": "ログアウトしてもよろしいですか？",
       "logoutConfirmAction": "ログアウト",
@@ -706,10 +708,6 @@
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
       "createTeam": "チームを作成",
-      "manageAgents": "エージェントを管理",
-      "manageAgentsTitle": "エージェントを管理（一括 · 追加 / 編集 / 削除）",
-      "teamGroupChatTitle": "{{name}} — グループチャット",
-      "teamGroupChatAria": "{{name}} グループチャット",
       "refreshAgents": "エージェントを更新",
       "emptyLabel": "エージェントはまだありません",
       "emptyHint": "最初のエージェントを作成して会話を始めましょう。",
@@ -734,7 +732,6 @@
       "manageTeams": "チームを管理"
     },
     "createMenu": {
-      "create": "作成",
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
       "createTeam": "チームを作成",
@@ -1289,7 +1286,6 @@
     },
     "settings": {
       "title": "設定",
-      "headerSections": "プロバイダー · バンドル · アーティファクト · エージェント",
       "nav": {
         "privacy": "プライバシー"
       },
@@ -1321,11 +1317,6 @@
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
-      },
-      "manageAgents": {
-        "label": "エージェント管理 · 一括",
-        "hint": "エージェントを一括選択して削除したり、チームへの追加／削除をまとめて行えます。保持したくないバンドルをインポートした後に便利です。「バンドル由来」で絞り込むと見つけられます。",
-        "openButton": "一括管理を開く…"
       },
       "privacy": {
         "label": "プライバシー",
@@ -1410,7 +1401,11 @@
       "bulkDeleteResult": "{{success}} 件を削除しました。",
       "bulkDeleteResultWithFailures": "{{success}} 件を削除、{{failedCount}} 件が失敗（{{failedIds}}）。",
       "addedToTeamTitle": "チームに追加しました",
-      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。"
+      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。",
+      "addedToTeamResultWithFailures": "{{success}} 件追加、{{failedCount}} 件失敗（{{failedIds}}）。",
+      "removedFromTeamTitle": "チームから削除しました",
+      "removedFromTeamMessage": "{{count}} 件のエージェントをチームから削除しました。",
+      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。"
     },
     "bundleImport": {
       "installTemplate": "テンプレートをインストール",
@@ -1972,24 +1967,12 @@
     "refresh": "アーティファクトを更新",
     "zoom": "アーティファクトを拡大",
     "zoomFullscreen": "アーティファクトを拡大（全画面で開く）",
-    "collapse": "パネルを折りたたむ",
-    "collapseAria": "アーティファクトパネルを折りたたむ",
     "selectArtifact": "アーティファクトを選択",
     "minimized": "最小化中:",
     "restore": "「{{title}}」を復元",
     "openBadge": "{{title}}（{{kind}}）を開く",
     "unsupportedKind": "サポートされていないアーティファクト種類: {{kind}}",
     "loadingRenderer": "レンダラーを読み込み中…",
-    "sliver": {
-      "expandTitle": "クリックして展開 · アーティファクト {{count}} 件",
-      "expandTitle_other": "クリックして展開 · アーティファクト {{count}} 件",
-      "emptyTitle": "エージェントが作成するとアーティファクトがここに表示されます",
-      "expandAria": "アーティファクトパネルを展開（{{count}} 項目）",
-      "expandAria_other": "アーティファクトパネルを展開（{{count}} 項目）",
-      "emptyAria": "アーティファクトパネル（空）",
-      "label": "アーティファクト（{{count}}）",
-      "labelEmpty": "アーティファクト"
-    },
     "emptyState": {
       "title": "まだアーティファクトがありません",
       "hint": "エージェントが作成するとここに表示されます。"

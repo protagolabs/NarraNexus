@@ -22,17 +22,7 @@ import { RingAvatar } from '@/components/nm';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
-/** Same palette the team management modal offers — one visual vocabulary. */
-const COLOR_PRESETS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#a855f7', // purple
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#64748b', // slate
-];
+import { COLOR_PRESETS } from '@/components/teams/teamColors';
 
 export default function CreateTeamPage() {
   const { t } = useTranslation();
@@ -54,7 +44,7 @@ export default function CreateTeamPage() {
 
   // Search narrows the checklist by name / id; selections OUTSIDE the
   // current filter are kept (the Set is independent of the view).
-  const sortedAgents = useMemo(() => {
+  const matchedAgents = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
     if (!q) return [...agents];
     return agents.filter(
@@ -199,12 +189,12 @@ export default function CreateTeamPage() {
             <div className="text-[12px] text-[var(--nm-ink50)]">
               {t('pages.createTeam.noAgents')}
             </div>
-          ) : sortedAgents.length === 0 ? (
+          ) : matchedAgents.length === 0 ? (
             <div className="text-[12px] text-[var(--nm-ink50)]">
               {t('pages.createTeam.noMatch')}
             </div>
           ) : (
-            sortedAgents.map((a) => {
+            matchedAgents.map((a) => {
               const checked = members.has(a.agent_id);
               return (
                 <label
@@ -222,6 +212,16 @@ export default function CreateTeamPage() {
                         ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)] text-[var(--nm-paper)]'
                         : 'border-[var(--border-default)] bg-[var(--nm-card)] text-transparent',
                     )}
+                    role="checkbox"
+                    aria-checked={checked}
+                    aria-label={a.name || a.agent_id}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        toggleMember(a.agent_id);
+                      }
+                    }}
                   >
                     ✓
                   </span>

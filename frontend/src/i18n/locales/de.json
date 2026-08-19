@@ -14,7 +14,6 @@
     "logout": "Abmelden",
     "poweredBy": "NetMind AI Research",
     "online": "Online",
-    "you": "Du",
     "cloud": "Cloud",
     "localMode": "Lokaler Modus",
     "cloudMode": "Cloud-Modus",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "Unterhaltung",
     "innerThoughts": "Innere Gedanken",
-    "interaction": "Interaktion",
     "composerPlaceholder": "Nachricht eingeben oder / für Skills…",
     "selectAgent": "Agent auswählen",
     "selectAgentHint": "Wähle in der Seitenleiste einen Agenten, um zu beginnen.",
@@ -191,7 +189,13 @@
       "expand": "Mehr anzeigen",
       "collapse": "Weniger anzeigen",
       "today": "Heute",
-      "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist."
+      "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist.",
+      "workspace": {
+        "close": "Workspace-Panel schließen",
+        "zoom": "Artefakt zoomen",
+        "emptyArtifacts": "Wähle ein Artefakt aus, um es hier anzuzeigen.",
+        "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine."
+      }
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -675,7 +679,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefakte",
       "tabArtifactsCount": "Artefakte ({{count}})"
     },
@@ -684,7 +687,6 @@
       "closeAriaLabel": "Schließen und zum Chat zurückkehren"
     },
     "sidebar": {
-      "openWorkspace": "Deinen Arbeitsbereich öffnen",
       "logoutConfirmTitle": "Abmelden",
       "logoutConfirmMessage": "Möchtest du dich wirklich abmelden?",
       "logoutConfirmAction": "Abmelden",
@@ -706,10 +708,6 @@
       "createAgentOrTeam": "Agent oder Team erstellen",
       "createAgent": "Agent erstellen",
       "createTeam": "Team erstellen",
-      "manageAgents": "Agents verwalten",
-      "manageAgentsTitle": "Agents verwalten (Stapel · hinzufügen / bearbeiten / löschen)",
-      "teamGroupChatTitle": "{{name}} — Gruppenchat",
-      "teamGroupChatAria": "{{name}} Gruppenchat",
       "refreshAgents": "Agents aktualisieren",
       "emptyLabel": "Noch keine Agents",
       "emptyHint": "Erstelle deinen ersten Agent, um ein Gespräch zu beginnen.",
@@ -734,7 +732,6 @@
       "manageTeams": "Teams verwalten"
     },
     "createMenu": {
-      "create": "Erstellen",
       "createAgentOrTeam": "Agent oder Team erstellen",
       "createAgent": "Agent erstellen",
       "createTeam": "Team erstellen",
@@ -1290,7 +1287,6 @@
     },
     "settings": {
       "title": "Einstellungen",
-      "headerSections": "Anbieter · Bundle · Artefakte · Agenten",
       "nav": {
         "privacy": "Datenschutz"
       },
@@ -1322,11 +1318,6 @@
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
-      },
-      "manageAgents": {
-        "label": "Agenten verwalten · Stapel",
-        "hint": "Wähle mehrere Agenten zum Löschen aus oder füge sie stapelweise zu Teams hinzu bzw. entferne sie. Nützlich nach dem Import eines Bundles, das du nicht behalten möchtest – filtere nach „Aus Bundles“, um sie zu finden.",
-        "openButton": "Stapelverwaltung öffnen…"
       },
       "privacy": {
         "label": "Datenschutz",
@@ -1411,7 +1402,11 @@
       "bulkDeleteResult": "{{success}} gelöscht.",
       "bulkDeleteResultWithFailures": "{{success}} gelöscht, {{failedCount}} fehlgeschlagen ({{failedIds}}).",
       "addedToTeamTitle": "Zum Team hinzugefügt",
-      "addedToTeamMessage": "{{count}} Agenten zum ausgewählten Team hinzugefügt."
+      "addedToTeamMessage": "{{count}} Agenten zum ausgewählten Team hinzugefügt.",
+      "addedToTeamResultWithFailures": "{{success}} hinzugefügt, {{failedCount}} fehlgeschlagen ({{failedIds}}).",
+      "removedFromTeamTitle": "Aus dem Team entfernt",
+      "removedFromTeamMessage": "{{count}} Agenten aus dem Team entfernt.",
+      "removedFromTeamResultWithFailures": "{{success}} entfernt, {{failedCount}} fehlgeschlagen ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Vorlage installieren",
@@ -1973,24 +1968,12 @@
     "refresh": "Artefakte aktualisieren",
     "zoom": "Artefakt zoomen",
     "zoomFullscreen": "Artefakt zoomen (Vollbild öffnen)",
-    "collapse": "Panel einklappen",
-    "collapseAria": "Artefakte-Panel einklappen",
     "selectArtifact": "Ein Artefakt auswählen",
     "minimized": "Minimiert:",
     "restore": "\"{{title}}\" wiederherstellen",
     "openBadge": "{{title}} öffnen ({{kind}})",
     "unsupportedKind": "Nicht unterstützte Artefaktart: {{kind}}",
     "loadingRenderer": "Renderer wird geladen…",
-    "sliver": {
-      "expandTitle": "Zum Erweitern klicken · {{count}} Artefakt",
-      "expandTitle_other": "Zum Erweitern klicken · {{count}} Artefakte",
-      "emptyTitle": "Artefakte erscheinen hier, sobald der Agent eines erstellt",
-      "expandAria": "Artefakte-Panel erweitern ({{count}} Element)",
-      "expandAria_other": "Artefakte-Panel erweitern ({{count}} Elemente)",
-      "emptyAria": "Artefakte-Panel (leer)",
-      "label": "Artefakte ({{count}})",
-      "labelEmpty": "Artefakte"
-    },
     "emptyState": {
       "title": "Noch keine Artefakte",
       "hint": "Sie erscheinen hier, sobald der Agent sie erstellt."

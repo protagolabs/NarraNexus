@@ -945,6 +945,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         {showEmptyState && (
           agentId ? (
             <OnboardingJourney
+              // dismissed is read from localStorage once per mount; without
+              // the key, switching agents reuses the instance and agent A's
+              // dismissal leaks onto agent B (and vice versa).
+              key={agentId}
               agentId={agentId}
               agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
@@ -1364,8 +1368,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
+          {/* Security notice (2026-06-17 hardening): demoted from the banner
+              to the tools row, but it must stay readable — no truncation, and
+              at least the mid ink step. The title carries the long-form text
+              (and zh-localization.test.ts asserts on it). */}
           <span
-            className="ml-2 truncate text-[11px] text-[var(--nm-ink30)]"
+            className="ml-2 text-[11px] leading-tight text-[var(--nm-ink50)]"
             title={t('chat.securityReminder')}
           >
             {t('chat.composerPrivacyHint')}

@@ -14,7 +14,6 @@
     "logout": "Sair",
     "poweredBy": "NetMind AI Research",
     "online": "Online",
-    "you": "Você",
     "cloud": "Nuvem",
     "localMode": "Modo local",
     "cloudMode": "Modo nuvem",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "Conversa",
     "innerThoughts": "Pensamentos internos",
-    "interaction": "Interação",
     "composerPlaceholder": "Digite uma mensagem ou / para habilidades…",
     "selectAgent": "Selecione um agente",
     "selectAgentHint": "Escolha um agente na barra lateral para começar.",
@@ -191,7 +189,13 @@
       "expand": "Ver mais",
       "collapse": "Ver menos",
       "today": "Hoje",
-      "agentPaused": "Este agente está pausado ({{reason}}). Use «Retomar» no aviso acima assim que a causa for resolvida."
+      "agentPaused": "Este agente está pausado ({{reason}}). Use «Retomar» no aviso acima assim que a causa for resolvida.",
+      "workspace": {
+        "close": "Fechar o painel do espaço de trabalho",
+        "zoom": "Ampliar artefato",
+        "emptyArtifacts": "Selecione um artefato para vê-lo aqui.",
+        "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda."
+      }
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -675,7 +679,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefatos",
       "tabArtifactsCount": "Artefatos ({{count}})"
     },
@@ -684,7 +687,6 @@
       "closeAriaLabel": "Fechar e voltar ao chat"
     },
     "sidebar": {
-      "openWorkspace": "Abrir seu espaço de trabalho",
       "logoutConfirmTitle": "Sair",
       "logoutConfirmMessage": "Tem certeza de que deseja sair?",
       "logoutConfirmAction": "Sair",
@@ -706,10 +708,6 @@
       "createAgentOrTeam": "Criar agente ou equipe",
       "createAgent": "Criar agente",
       "createTeam": "Criar equipe",
-      "manageAgents": "Gerenciar agentes",
-      "manageAgentsTitle": "Gerenciar agentes (em lote · adicionar / editar / excluir)",
-      "teamGroupChatTitle": "{{name}} — chat em grupo",
-      "teamGroupChatAria": "Chat em grupo de {{name}}",
       "refreshAgents": "Atualizar agentes",
       "emptyLabel": "Nenhum agente ainda",
       "emptyHint": "Crie seu primeiro agente para iniciar uma conversa.",
@@ -734,7 +732,6 @@
       "manageTeams": "Gerenciar equipes"
     },
     "createMenu": {
-      "create": "Criar",
       "createAgentOrTeam": "Criar agente ou equipe",
       "createAgent": "Criar agente",
       "createTeam": "Criar equipe",
@@ -1290,7 +1287,6 @@
     },
     "settings": {
       "title": "Configurações",
-      "headerSections": "Provedores · Pacote · Artefatos · Agentes",
       "nav": {
         "privacy": "Privacidade"
       },
@@ -1322,11 +1318,6 @@
         "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
-      },
-      "manageAgents": {
-        "label": "Gerenciar agentes · lote",
-        "hint": "Selecione agentes em massa para excluir, ou adicione/remova-os de equipes em lote. Útil após importar um pacote que você não quer manter — filtre por 'De pacotes' para encontrá-los.",
-        "openButton": "Abrir gerenciador em lote…"
       },
       "privacy": {
         "label": "Privacidade",
@@ -1411,7 +1402,11 @@
       "bulkDeleteResult": "{{success}} excluídos.",
       "bulkDeleteResultWithFailures": "{{success}} excluídos, {{failedCount}} com falha ({{failedIds}}).",
       "addedToTeamTitle": "Adicionados à equipe",
-      "addedToTeamMessage": "{{count}} agentes adicionados à equipe selecionada."
+      "addedToTeamMessage": "{{count}} agentes adicionados à equipe selecionada.",
+      "addedToTeamResultWithFailures": "{{success}} adicionados, {{failedCount}} falharam ({{failedIds}}).",
+      "removedFromTeamTitle": "Removidos da equipe",
+      "removedFromTeamMessage": "{{count}} agentes removidos da equipe.",
+      "removedFromTeamResultWithFailures": "{{success}} removidos, {{failedCount}} falharam ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Instalar modelo",
@@ -1973,24 +1968,12 @@
     "refresh": "Atualizar artefatos",
     "zoom": "Ampliar artefato",
     "zoomFullscreen": "Ampliar artefato (abrir em tela cheia)",
-    "collapse": "Recolher painel",
-    "collapseAria": "Recolher painel de artefatos",
     "selectArtifact": "Selecione um artefato",
     "minimized": "Minimizado:",
     "restore": "Restaurar \"{{title}}\"",
     "openBadge": "Abrir {{title}} ({{kind}})",
     "unsupportedKind": "Tipo de artefato não suportado: {{kind}}",
     "loadingRenderer": "Carregando renderizador…",
-    "sliver": {
-      "expandTitle": "Clique para expandir · {{count}} artefato",
-      "expandTitle_other": "Clique para expandir · {{count}} artefatos",
-      "emptyTitle": "Os artefatos aparecerão aqui assim que o agente criar um",
-      "expandAria": "Expandir painel de artefatos ({{count}} item)",
-      "expandAria_other": "Expandir painel de artefatos ({{count}} itens)",
-      "emptyAria": "Painel de artefatos (vazio)",
-      "label": "Artefatos ({{count}})",
-      "labelEmpty": "Artefatos"
-    },
     "emptyState": {
       "title": "Ainda não há artefatos",
       "hint": "Eles aparecerão aqui à medida que o agente os criar."

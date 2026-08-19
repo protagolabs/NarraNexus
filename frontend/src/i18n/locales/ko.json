@@ -14,7 +14,6 @@
     "logout": "로그아웃",
     "poweredBy": "NetMind AI Research",
     "online": "온라인",
-    "you": "나",
     "cloud": "클라우드",
     "localMode": "로컬 모드",
     "cloudMode": "클라우드 모드",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "대화",
     "innerThoughts": "내면의 생각",
-    "interaction": "상호작용",
     "composerPlaceholder": "메시지를 입력하거나 /로 스킬 호출…",
     "selectAgent": "에이전트 선택",
     "selectAgentHint": "사이드바에서 에이전트를 선택해 대화를 시작하세요.",
@@ -191,7 +189,13 @@
       "expand": "더 보기",
       "collapse": "접기",
       "today": "오늘",
-      "agentPaused": "이 에이전트는 일시 중지 상태입니다({{reason}}). 원인을 해결한 뒤 위 배너의 '재개'를 사용하세요."
+      "agentPaused": "이 에이전트는 일시 중지 상태입니다({{reason}}). 원인을 해결한 뒤 위 배너의 '재개'를 사용하세요.",
+      "workspace": {
+        "close": "워크스페이스 패널 닫기",
+        "zoom": "아티팩트 확대",
+        "emptyArtifacts": "여기에서 볼 아티팩트를 선택하세요.",
+        "emptyFiles": "파일은 바로 다운로드됩니다 — 왼쪽에서 파일을 클릭하세요."
+      }
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -675,7 +679,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "채팅",
       "tabArtifacts": "아티팩트",
       "tabArtifactsCount": "아티팩트 ({{count}})"
     },
@@ -684,7 +687,6 @@
       "closeAriaLabel": "닫고 채팅으로 돌아가기"
     },
     "sidebar": {
-      "openWorkspace": "내 워크스페이스 열기",
       "logoutConfirmTitle": "로그아웃",
       "logoutConfirmMessage": "정말 로그아웃하시겠습니까?",
       "logoutConfirmAction": "로그아웃",
@@ -706,10 +708,6 @@
       "createAgentOrTeam": "에이전트 또는 팀 생성",
       "createAgent": "에이전트 생성",
       "createTeam": "팀 생성",
-      "manageAgents": "에이전트 관리",
-      "manageAgentsTitle": "에이전트 관리 (일괄 · 추가 / 편집 / 삭제)",
-      "teamGroupChatTitle": "{{name}} — 그룹 채팅",
-      "teamGroupChatAria": "{{name}} 그룹 채팅",
       "refreshAgents": "에이전트 새로고침",
       "emptyLabel": "아직 에이전트가 없습니다",
       "emptyHint": "첫 에이전트를 만들어 대화를 시작하세요.",
@@ -734,7 +732,6 @@
       "manageTeams": "팀 관리"
     },
     "createMenu": {
-      "create": "생성",
       "createAgentOrTeam": "에이전트 또는 팀 생성",
       "createAgent": "에이전트 생성",
       "createTeam": "팀 생성",
@@ -1289,7 +1286,6 @@
     },
     "settings": {
       "title": "설정",
-      "headerSections": "제공자 · 번들 · 아티팩트 · 에이전트",
       "nav": {
         "privacy": "개인정보 보호"
       },
@@ -1321,11 +1317,6 @@
         "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
         "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
-      },
-      "manageAgents": {
-        "label": "에이전트 관리 · 일괄",
-        "hint": "에이전트를 일괄 선택해 삭제하거나, 팀에 일괄 추가/제거합니다. 보관하지 않을 번들을 가져온 뒤에 유용합니다 — '번들에서'로 필터링해 찾으세요.",
-        "openButton": "일괄 관리자 열기…"
       },
       "privacy": {
         "label": "개인정보 보호",
@@ -1410,7 +1401,11 @@
       "bulkDeleteResult": "{{success}}개 삭제됨.",
       "bulkDeleteResultWithFailures": "{{success}}개 삭제됨, {{failedCount}}개 실패 ({{failedIds}}).",
       "addedToTeamTitle": "팀에 추가됨",
-      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다."
+      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다.",
+      "addedToTeamResultWithFailures": "{{success}}개 추가됨, {{failedCount}}개 실패 ({{failedIds}}).",
+      "removedFromTeamTitle": "팀에서 제거됨",
+      "removedFromTeamMessage": "팀에서 에이전트 {{count}}개를 제거했습니다.",
+      "removedFromTeamResultWithFailures": "{{success}}개 제거됨, {{failedCount}}개 실패 ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "템플릿 설치",
@@ -1972,24 +1967,12 @@
     "refresh": "아티팩트 새로고침",
     "zoom": "아티팩트 확대",
     "zoomFullscreen": "아티팩트 확대 (전체화면 열기)",
-    "collapse": "패널 접기",
-    "collapseAria": "아티팩트 패널 접기",
     "selectArtifact": "아티팩트 선택",
     "minimized": "최소화됨:",
     "restore": "\"{{title}}\" 복원",
     "openBadge": "{{title}} 열기 ({{kind}})",
     "unsupportedKind": "지원되지 않는 아티팩트 종류: {{kind}}",
     "loadingRenderer": "렌더러 로딩 중…",
-    "sliver": {
-      "expandTitle": "클릭하여 펼치기 · 아티팩트 {{count}}개",
-      "expandTitle_other": "클릭하여 펼치기 · 아티팩트 {{count}}개",
-      "emptyTitle": "에이전트가 아티팩트를 생성하면 여기에 표시됩니다",
-      "expandAria": "아티팩트 패널 펼치기 (항목 {{count}}개)",
-      "expandAria_other": "아티팩트 패널 펼치기 (항목 {{count}}개)",
-      "emptyAria": "아티팩트 패널 (비어 있음)",
-      "label": "아티팩트 ({{count}})",
-      "labelEmpty": "아티팩트"
-    },
     "emptyState": {
       "title": "아직 아티팩트 없음",
       "hint": "에이전트가 생성하면 여기에 표시됩니다."

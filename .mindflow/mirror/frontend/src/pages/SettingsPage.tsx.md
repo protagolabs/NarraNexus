@@ -30,9 +30,6 @@ SettingsPage.nav.test.tsx 已按新行为重写(重定向断言取代 powerOnly 
 Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
 `agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
 desktopOnly/powerOnly 过滤规则不变。
-last_verified: 2026-08-11
-stub: false
----
 
 ## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
 

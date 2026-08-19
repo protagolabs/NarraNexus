@@ -14,7 +14,6 @@
     "logout": "Выйти",
     "poweredBy": "NetMind AI Research",
     "online": "В сети",
-    "you": "Вы",
     "cloud": "Облако",
     "localMode": "Локальный режим",
     "cloudMode": "Облачный режим",
@@ -38,7 +37,6 @@
   "chat": {
     "conversation": "Беседа",
     "innerThoughts": "Внутренние мысли",
-    "interaction": "Взаимодействие",
     "composerPlaceholder": "Введите сообщение или / для навыков…",
     "selectAgent": "Выберите агента",
     "selectAgentHint": "Выберите агента на боковой панели, чтобы начать.",
@@ -193,7 +191,13 @@
       "expand": "Показать ещё",
       "collapse": "Свернуть",
       "today": "Сегодня",
-      "agentPaused": "Этот агент приостановлен ({{reason}}). Нажмите «Возобновить» в баннере выше, когда причина устранена."
+      "agentPaused": "Этот агент приостановлен ({{reason}}). Нажмите «Возобновить» в баннере выше, когда причина устранена.",
+      "workspace": {
+        "close": "Закрыть панель рабочего пространства",
+        "zoom": "Увеличить артефакт",
+        "emptyArtifacts": "Выберите артефакт, чтобы посмотреть его здесь.",
+        "emptyFiles": "Файлы скачиваются напрямую — нажмите на файл слева."
+      }
     },
     "execution": {
       "showSteps": "Показать шаги выполнения",
@@ -677,7 +681,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Чат",
       "tabArtifacts": "Артефакты",
       "tabArtifactsCount": "Артефакты ({{count}})"
     },
@@ -686,7 +689,6 @@
       "closeAriaLabel": "Закрыть и вернуться к чату"
     },
     "sidebar": {
-      "openWorkspace": "Открыть ваше рабочее пространство",
       "logoutConfirmTitle": "Выйти",
       "logoutConfirmMessage": "Вы уверены, что хотите выйти?",
       "logoutConfirmAction": "Выйти",
@@ -708,10 +710,6 @@
       "createAgentOrTeam": "Создать агента или команду",
       "createAgent": "Создать агента",
       "createTeam": "Создать команду",
-      "manageAgents": "Управление агентами",
-      "manageAgentsTitle": "Управление агентами (пакетно · добавить / изменить / удалить)",
-      "teamGroupChatTitle": "{{name}} — групповой чат",
-      "teamGroupChatAria": "Групповой чат {{name}}",
       "refreshAgents": "Обновить агентов",
       "emptyLabel": "Агентов пока нет",
       "emptyHint": "Создайте своего первого агента, чтобы начать разговор.",
@@ -736,7 +734,6 @@
       "manageTeams": "Управление командами"
     },
     "createMenu": {
-      "create": "Создать",
       "createAgentOrTeam": "Создать агента или команду",
       "createAgent": "Создать агента",
       "createTeam": "Создать команду",
@@ -1294,7 +1291,6 @@
     },
     "settings": {
       "title": "Настройки",
-      "headerSections": "Провайдеры · Бандл · Артефакты · Агенты",
       "nav": {
         "privacy": "Конфиденциальность"
       },
@@ -1326,11 +1322,6 @@
         "frameworkFilteredNote": "Показаны только фреймворки, которые действительно могут запустить подключённые провайдеры.",
         "cloudFrameworkLockedTitle": "В облаке только для сотрудников",
         "cloudFrameworkLocked": "Этот фреймворк аутентифицируется через общий вход CLI, поэтому в облаке доступен только сотрудникам. Claude Code и NexusPower-beta работают здесь — остальные доступны в локальной десктоп-версии."
-      },
-      "manageAgents": {
-        "label": "Управление агентами · пакетно",
-        "hint": "Массово выбирайте агентов для удаления или пакетного добавления/удаления из команд. Удобно после импорта ненужного бандла — отфильтруйте по «Из бандлов», чтобы их найти.",
-        "openButton": "Открыть пакетный менеджер…"
       },
       "privacy": {
         "label": "Конфиденциальность",
@@ -1415,7 +1406,11 @@
       "bulkDeleteResult": "Удалено: {{success}}.",
       "bulkDeleteResultWithFailures": "Удалено: {{success}}, с ошибкой: {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "Добавлено в команду",
-      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}."
+      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}.",
+      "addedToTeamResultWithFailures": "Добавлено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
+      "removedFromTeamTitle": "Удалены из команды",
+      "removedFromTeamMessage": "Из команды удалено агентов: {{count}}.",
+      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Установить шаблон",
@@ -1977,24 +1972,12 @@
     "refresh": "Обновить артефакты",
     "zoom": "Увеличить артефакт",
     "zoomFullscreen": "Увеличить артефакт (открыть на весь экран)",
-    "collapse": "Свернуть панель",
-    "collapseAria": "Свернуть панель артефактов",
     "selectArtifact": "Выберите артефакт",
     "minimized": "Свёрнуто:",
     "restore": "Восстановить «{{title}}»",
     "openBadge": "Открыть {{title}} ({{kind}})",
     "unsupportedKind": "Неподдерживаемый тип артефакта: {{kind}}",
     "loadingRenderer": "Загрузка отрисовщика…",
-    "sliver": {
-      "expandTitle": "Нажмите, чтобы развернуть · {{count}} артефакт",
-      "expandTitle_other": "Нажмите, чтобы развернуть · {{count}} артефактов",
-      "emptyTitle": "Артефакты появятся здесь, как только агент их создаст",
-      "expandAria": "Развернуть панель артефактов ({{count}} элемент)",
-      "expandAria_other": "Развернуть панель артефактов ({{count}} элементов)",
-      "emptyAria": "Панель артефактов (пусто)",
-      "label": "Артефакты ({{count}})",
-      "labelEmpty": "Артефакты"
-    },
     "emptyState": {
       "title": "Пока нет артефактов",
       "hint": "Они появятся здесь по мере создания агентом."
