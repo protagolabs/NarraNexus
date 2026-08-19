@@ -20,7 +20,6 @@ Note: ChatModule itself does not include "multi-turn conversation" capability; m
 """
 
 
-import re
 from datetime import timedelta
 from typing import Optional, Any, List, Dict
 from loguru import logger
@@ -31,6 +30,7 @@ from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
+from xyz_agent_context.schema.hook_schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
 
 # Schema
 from xyz_agent_context.schema import (
@@ -296,6 +296,17 @@ class ChatModule(XYZBaseModule):
         model can still see. 615 calls to two tools documented "Do NOT call"
         (prod, 2026-08-17) is what that argument is worth.
         """
+        # A plain-text (patrol) turn delivers by SPEAKING — the platform posts
+        # the composed line under the room marker. Declaring a reply tool here is
+        # what made both frameworks' reply reminders name `notify_owner` on a turn
+        # whose prompt says "write plain text, do NOT call a tool", pushing the
+        # lead to DM the owner instead of writing the room's status line (or to
+        # fall silent on the contradiction). Withdraw the DECLARATION only; the
+        # schema stays on the desk (escalating to the owner mid-sweep is
+        # legitimate — get_disallowed_tools is unchanged).
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        if extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY):
+            return []
         config = await self.get_mcp_config()
         name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"
         return [f"mcp__{config.server_name}__{name}"]

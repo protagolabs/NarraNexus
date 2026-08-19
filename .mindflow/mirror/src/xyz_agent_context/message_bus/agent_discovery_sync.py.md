@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
-last_verified: 2026-08-05
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 文档指针刷新（退役工具名）
+
+docstring 里描述该模块存在理由的旧工具名更新：`bus_search_agents` → `find_agent`；`bus_get_agent_profile` 已整个删除，改述为「agent-profile 查询（已移除）」。纯注释、零行为变化。
 
 # agent_discovery_sync.py — agent 对同伴那一面的唯一真相点
 

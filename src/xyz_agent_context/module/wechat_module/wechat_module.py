@@ -21,6 +21,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -51,7 +52,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
             args = {}
     if not isinstance(args, dict):
         return None
-    if "notify_owner" in (tool_name or ""):
+    if is_owner_tool(tool_name):
         return args.get("content", "") or None
     if "wechat_send" in (tool_name or ""):
         return args.get("text", "") or "(sent via wechat_send)"

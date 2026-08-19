@@ -92,6 +92,13 @@ async def get_agent_inbox(
         if not threads:
             return {"success": True, "rooms": [], "total_unread": 0}
 
+        # Resolve the agent's display name ONCE — every thread here belongs to
+        # this one agent_id, so members[0] is always the same agent. Without this
+        # the panel shows the raw `agent_<hex>` id in that slot (the counterpart
+        # slot uses the stored counterpart_name and was already fine).
+        _agent_row = await db.get_one("agents", {"agent_id": agent_id})
+        agent_display = (_agent_row or {}).get("agent_name") or agent_id
+
         per_thread = MESSAGES_PER_THREAD
         if limit is not None:
             per_thread = 9999 if limit < 0 else limit
@@ -135,7 +142,6 @@ async def get_agent_inbox(
                         and _to_iso(m.get("created_at")) > cursor
                     ]
 
-            agent_name = thread.get("agent_id", "")
             messages = []
             for m in msg_rows:
                 outbound = m.get("direction") == OUTBOUND
@@ -158,7 +164,7 @@ async def get_agent_inbox(
                 "room_id": thread_id,
                 "room_name": thread.get("title") or thread_id,
                 "members": [
-                    {"agent_id": agent_name, "agent_name": agent_name},
+                    {"agent_id": agent_id, "agent_name": agent_display},
                     {
                         "agent_id": thread.get("counterpart_id", ""),
                         "agent_name": thread.get("counterpart_name")

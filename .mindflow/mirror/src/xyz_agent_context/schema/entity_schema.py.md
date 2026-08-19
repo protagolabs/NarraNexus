@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 文档指针刷新（退役工具名）
+
+注释里指向已删除的 `bus_get_agent_profile` 改述为「agent-profile 查询（已移除）」。纯注释、零行为变化。
 
 ## 2026-08-17 — `normalize_agent_text` / `agent_field_matches`:「这次写会不会改变什么」的唯一定义
 

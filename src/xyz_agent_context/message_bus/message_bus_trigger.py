@@ -1395,10 +1395,25 @@ class MessageBusTrigger:
                     # `notify_owner` too, and an agent that only
                     # told its owner has left this room silent — precisely the
                     # case the notice below is for.
-                    spoke = await self._bus.has_message_from_turn(
-                        channel_id, agent_id, turn.event_id or ""
+                    # Can we even JUDGE "did it reach the room"? The judge is an
+                    # event_id identity join, and event_id rides an MCP request
+                    # header that is legitimately absent sometimes
+                    # (`caller_event_id_from_request`: "None is normal ... must
+                    # never fail a registration"; identity is never flow control).
+                    can_judge = bool(turn.event_id)
+                    spoke = (
+                        await self._bus.has_message_from_turn(
+                            channel_id, agent_id, turn.event_id
+                        )
+                        if can_judge
+                        else False
                     )
-                    posted = spoke
+                    # When we cannot judge, assume the reply landed. A false
+                    # "never sent it" notice posted UNDER a message that IS in the
+                    # room is the worse harm — and treating the miss as real also
+                    # made _hop_done undercount delivery. A CONFIRMED miss needs
+                    # event_id present AND the join empty (the elif below).
+                    posted = spoke or not can_judge
 
                     if turn.fatal:
                         # `turn.text` is a failure notice, not the agent's words.
@@ -1429,7 +1444,7 @@ class MessageBusTrigger:
                                 f"[team-room] could not post failure notice in "
                                 f"{channel_id}: {e}"
                             )
-                    elif not spoke:
+                    elif not spoke and can_judge:
                         # The turn produced text and none of it reached the room.
                         # Under the old contract this was the platform's post
                         # failing; now it is the agent not having called
@@ -1445,6 +1460,15 @@ class MessageBusTrigger:
                             agent_id, channel_id, trigger_message, turn,
                             "the turn produced a reply but never sent it to "
                             "the room",
+                        )
+                    elif not spoke:
+                        # Undecidable, not a confirmed miss: no event_id header
+                        # this turn, so the identity join cannot run. Announcing
+                        # here is exactly the false ⚠️ this branch must not emit.
+                        logger.debug(
+                            f"[team-room] cannot confirm delivery for {agent_id} "
+                            f"in {channel_id} (no event_id this turn) — assuming "
+                            f"posted, not announcing"
                         )
                     # The cap's narration is NOT here any more: `team_posting`
                     # posts it, because it is the thing that applied the cap.

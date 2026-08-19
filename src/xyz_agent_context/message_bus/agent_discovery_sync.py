@@ -17,8 +17,8 @@ data layer, not the prompts, was at fault:
   * ``bus_agent_registry`` was written from ONE inline block in
     ``MessageBusModule.hook_data_gathering``, snapshotting that placeholder and
     hardcoding ``capabilities=[]``. All 488 rows in prod looked like that;
-  * so ``bus_search_agents`` (matching ``capabilities LIKE ? OR description
-    LIKE ?``) answered nothing for every query, ``bus_get_agent_profile``
+  * so ``find_agent`` (matching ``capabilities LIKE ? OR description
+    LIKE ?``) answered nothing for every query, the agent-profile lookup (since removed)
     reported "ready for configuration" for a configured agent, and the asking
     agent reasonably concluded the peer was not ready and refused to send
     (evt_feb1f6ae). A2A discovery was systemically dead, not flaky.

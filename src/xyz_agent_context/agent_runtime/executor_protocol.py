@@ -128,6 +128,7 @@ def build_agent_loop_request(
     expressive_tools: Optional[list[str]] = None,
     turn_profile: Optional[dict[str, Any]] = None,
     extra_accessible_roots: Optional[list[str]] = None,
+    origin_declaration: str = "",
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -163,6 +164,13 @@ def build_agent_loop_request(
         # per-user Executor bind-mounts that same user subtree, so both sides
         # name it identically.
         "extra_accessible_roots": extra_accessible_roots or [],
+        # Per-turn origin declaration (§6): the `[Origin] <label> · reply with
+        # <tool>` line. Per-run state like the messages, and subject to the same
+        # silent-drop hazard as the keys above, so the key is ALWAYS present
+        # (empty string when the turn has no expressive surface). Without it the
+        # whole §6 line never reaches the model on the cloud (RemoteAgentLoop)
+        # path, which is every dev/prod turn.
+        "origin_declaration": origin_declaration or "",
         "provider_configs": serialize_provider_configs(),
     }
     return body

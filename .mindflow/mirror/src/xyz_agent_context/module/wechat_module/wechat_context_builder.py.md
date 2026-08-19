@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_context_builder.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 部署窗口回落读（存量记忆不丢）
+
+同 telegram：`get_conversation_history` 新表查空时回落读旧 `bus_messages`（`channel_id=wechat_{chat_id}`），按 agent 隔离（本 bot 回复 + `wechat_user_*`，排除他 bot），与 wipe 对齐，回填后删除。
 
 ## 2026-08-17 — 历史改读 inbox 记录
 

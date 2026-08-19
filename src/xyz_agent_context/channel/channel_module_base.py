@@ -337,6 +337,16 @@ class ChannelModuleBase(XYZBaseModule):
         deliver on this turn's origin."""
         if not await self.is_bound():
             return []
+        # A plain-text (patrol) turn delivers by SPEAKING — no reply tool applies,
+        # and declaring one makes both frameworks' reply reminders name it against
+        # the "write plain text, do NOT call a tool" patrol prompt (I1). Withdraw
+        # the DECLARATION only; the schema stays on the desk.
+        from xyz_agent_context.schema.hook_schema import (
+            BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
+        )
+        extra = getattr(ctx_data, "extra_data", None) or {}
+        if extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY):
+            return []
         return [
             f"mcp__{self.mcp_server_name}__{name}"
             for name in self.reply_tool_names

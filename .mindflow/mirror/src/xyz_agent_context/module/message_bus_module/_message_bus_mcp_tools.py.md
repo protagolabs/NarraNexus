@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — create_team 做实（不再是 bus_create_channel 改名）
+
+`create_team` 现在建**真 team**：经 `TeamRepository.create_team(owner=agents.created_by)` 写 `teams` 行 + `TeamMemberRepository.add_member` 写 `team_members`，再调 `team_rooms.get_or_create_team_room`（写非-agent `team_<id>` marker、同步成员），**返回 `team_id`**（不再是 `channel_id`）。跨用户成员在任何写入前先被拒（镜像 `LocalMessageBus.create_channel` 的同用户边界），避免留下孤儿 team 行。此前只调 `bus.create_channel`：不写 teams/team_members、`created_by`=创建者、返回值 agent 无动词可用（`message_team` 查 `teams` 得 None）。端到端由 `tests/message_bus/test_create_team_tool.py` 钉住（create_team → message_team 必成功）。
 
 ## 2026-08-17 — 工具按 agent 的社交处境重命名，新增 `message_team`
 

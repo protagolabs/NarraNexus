@@ -9,7 +9,7 @@ P1 section 02 (prod, 2026-08-03): every agent ever created carried
 it, nothing ever replaced it, and three surfaces then repeated it as if it were
 a fact:
 
-  * ``bus_agent_registry`` snapshots it → ``bus_get_agent_profile`` answers
+  * ``bus_agent_registry`` snapshots it → the agent-profile lookup (since removed) answers
     "a new agent ready for configuration" for a fully configured agent, so the
     ASKING agent concluded the peer was unconfigured and refused to send
     (evt_feb1f6ae). 488 registry rows, all placeholder.

@@ -440,29 +440,94 @@ def register_message_bus_mcp_tools(
         agents do NOT need to accept — they are added immediately and this
         call returns right away.
 
+        Every member must be owned by the same user as you; inviting another
+        user's agent is rejected.
+
         Args:
-            agent_id: Your agent ID (will be added as first member)
-            name: Human-readable channel name describing purpose/topic
+            agent_id: Your agent ID (added as a member)
+            name: Human-readable team name describing purpose/topic
             members: Comma-separated agent IDs to invite (e.g. "agent_abc,agent_def")
 
         Returns:
-            Result dict with channel_id on success
+            Result dict with `team_id` on success — pass it to `message_team`
+            to talk in the room.
         """
         bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": _UNAVAILABLE}
 
+        if not name or not name.strip():
+            return {"success": False, "error": "team name is required"}
+
         try:
+            from xyz_agent_context.repository import (
+                TeamMemberRepository,
+                TeamRepository,
+            )
+            from xyz_agent_context.message_bus.team_rooms import (
+                get_or_create_team_room,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
             member_list = [m.strip() for m in members.split(",") if m.strip()]
             # Ensure the creator is included
             if agent_id not in member_list:
                 member_list.insert(0, agent_id)
 
-            channel_id = await bus.create_channel(
-                name=name,
-                members=member_list,
+            owner = await _resolve_owner_user_id(agent_id)
+            if not owner:
+                return {"success": False, "error": "could not resolve your owner"}
+
+            db = await get_db_client()
+
+            # Same-user boundary (mirrors LocalMessageBus.create_channel): a team
+            # may only hold agents owned by the creator's user. Checked BEFORE any
+            # write so a rejected invite leaves no orphan `teams` row behind.
+            for member in member_list:
+                if member == agent_id:
+                    continue
+                member_owner = await _resolve_owner_user_id(member)
+                if member_owner and member_owner != owner:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"cross-user team is not allowed: {member} has a "
+                            "different owner than you"
+                        ),
+                    }
+
+            # A REAL team: `teams` row (so it shows in the owner's UI and passes
+            # message_team's owner check) + `team_members` rows (the membership
+            # message_team/read_history gate on). Then the room via the one place
+            # that writes the non-agent `team_<id>` marker — so the creator is not
+            # left as the always-activated channel owner.
+            team = await TeamRepository(db).create_team(
+                owner_user_id=owner,
+                name=name.strip(),
             )
-            return {"success": True, "channel_id": channel_id}
+            try:
+                member_repo = TeamMemberRepository(db)
+                for aid in member_list:
+                    await member_repo.add_member(team.team_id, aid)
+
+                await get_or_create_team_room(
+                    db,
+                    bus,
+                    team_id=team.team_id,
+                    team_name=name.strip(),
+                    member_agent_ids=member_list,
+                )
+            except Exception:
+                # A crash BETWEEN the teams row and its room would leave a team
+                # with no room and no members — message_team would then find the
+                # team but no room. Roll the row back so a retry starts clean.
+                try:
+                    await db.delete("team_members", {"team_id": team.team_id})
+                    await TeamRepository(db).delete_team(team.team_id)
+                except Exception:  # noqa: BLE001 — cleanup is best-effort
+                    pass
+                raise
+            return {"success": True, "team_id": team.team_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

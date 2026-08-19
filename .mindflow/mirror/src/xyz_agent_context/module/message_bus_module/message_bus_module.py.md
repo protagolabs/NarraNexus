@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — hook_after_event_execution 复用 primary_room_of
+
+`replied_teams → 房间 channel` 的解析从手写第五份 `created_by==team_<id> marker` 查询改为调 `team_rooms.primary_room_of(db, tid)`（marker 组合的唯一来源）。行为等价（`primary_room_of(None,...)` 内部 try/except 返回 None，保留旧「拿不到 db 就跳过」语义），去掉了会随 `primary_room_of` 演进而漂移的副本。
 
 ## ⚠️ 改这个文件的文案之前，先读这条（常青，不随条目滚动）
 

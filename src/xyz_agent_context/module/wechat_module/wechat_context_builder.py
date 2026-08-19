@@ -114,6 +114,14 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
             )
             return []
 
+        if not rows:
+            # DEPLOY-WINDOW FALLBACK — remove after the inbox backfill runs
+            # (reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md).
+            # iLink has no history API, so the record IS the agent's memory, and
+            # pre-decouple turns still live in `bus_messages`. Without this every
+            # existing WeChat bot forgets its whole history on cutover.
+            return await self._legacy_bus_history(limit)
+
         current_id = self._message.message_id
         normalized: List[Dict[str, Any]] = []
         for row in reversed(rows):
@@ -137,6 +145,62 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
         if len(normalized) > limit:
             normalized = normalized[-limit:]
         return normalized
+
+    async def _legacy_bus_history(self, limit: int) -> List[Dict[str, Any]]:
+        """Deploy-window fallback: read pre-decouple turns from ``bus_messages``.
+
+        Remove once the inbox backfill has run (see
+        reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md). The
+        old writer stored turns under ``channel_id = f"wechat_{chat_id}"`` with
+        ``from_agent`` = ``wechat_user_<sender_id>`` (inbound) or this agent's id
+        (outbound). AGENT-ISOLATED: only this bot's own replies and user messages
+        are read; another bot's reply in the same shared ``wechat_{chat_id}``
+        channel (``from_agent`` = a different agent id) is excluded — feeding it
+        to this agent would be worse than forgetting. ``wipe_service`` deletes
+        these rows for sole-member channels (a WeChat DM is one — only the agent
+        is a member), so a cleared agent reads empty here too.
+        """
+        channel_id = f"wechat_{self._message.chat_id}"
+        fetch_n = max(limit + 5, 10)
+        try:
+            rows = await self._db.get(
+                "bus_messages",
+                {"channel_id": channel_id},
+                limit=fetch_n,
+                order_by="created_at DESC",
+            )
+        except Exception as e:  # noqa: BLE001 — history is best-effort
+            logger.warning(
+                f"[wechat:{self._agent_id}] legacy history fetch failed "
+                f"(channel={channel_id}): {type(e).__name__}: {e}"
+            )
+            return []
+
+        current_id = self._message.message_id
+        out: List[Dict[str, Any]] = []
+        for row in reversed(rows):
+            from_agent = row.get("from_agent", "") or ""
+            if from_agent == self._agent_id:
+                is_bot = True
+            elif from_agent.startswith("wechat_user_"):
+                is_bot = False
+            else:
+                continue  # another agent's reply in a shared chat — not ours
+            row_msg_id = row.get("message_id", "") or ""
+            if current_id and row_msg_id == current_id:
+                continue
+            content = row.get("content", "") or ""
+            sender = "Me (bot)" if is_bot else (
+                self._message.sender_name or ""
+            )
+            out.append({
+                "timestamp": str(row.get("created_at", "")),
+                "sender": sender,
+                "body": content,
+            })
+        if len(out) > limit:
+            out = out[-limit:]
+        return out
 
     async def get_room_members(self) -> List[Dict[str, Any]]:
         # v1 is 1:1 DM — no member enumeration.

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — owner 工具判定改用 is_owner_tool
+
+`_extract_telegram_reply` 的「是不是回 owner」从硬写 `"notify_owner" in tool_name` 改为 `is_owner_tool(tool_name)`（认 `reply_owner`/`notify_owner`，裸名或 MCP 前缀）。与 step_3 同一反模式的修复：硬写单名在 register 规则再动时必然半更新。narramessenger 故意不认 owner 工具，不动。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

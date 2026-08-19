@@ -229,8 +229,8 @@ class Agent(BaseModel):
 # recognise it as "not set" rather than prose.
 #
 # It was never harmless filler: the bus registry snapshotted it, so
-# ``bus_get_agent_profile`` reported a fully configured agent as "a new agent
-# ready for configuration", and the ASKING agent concluded the peer was not
+# the agent-profile lookup (since removed) reported a fully configured agent as
+# "a new agent ready for configuration", and the ASKING agent concluded the peer was not
 # ready and refused to send anything (P1 section 02, prod evt_feb1f6ae). BasicInfo
 # injects the same field as the agent's own self-description, so the asked
 # agent read it about itself too.

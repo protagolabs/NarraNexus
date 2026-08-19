@@ -200,6 +200,54 @@ async def test_a_turn_that_says_nothing_to_the_room_is_announced(db_client):
 
 
 @pytest.mark.asyncio
+async def test_a_delivered_reply_is_not_announced_failed_without_an_event_id(db_client):
+    """The 'did I speak' judge is an event_id identity join, and event_id rides an
+    MCP header that is legitimately absent sometimes (I2). When it is, the reply
+    is STILL in the room — the platform must not post a 'never sent it' notice
+    under it. Revert to `turn.event_id or ""` + `elif not spoke:` and a false ⚠️
+    returns.
+    """
+    await _seed(db_client)
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+    tools = _registered_tools(bus)
+
+    await bus.send_message(
+        from_agent=f"{USER_SENDER_PREFIX}owner", to_channel=ROOM,
+        content="@Ana status?", mentions=[ANA],
+    )
+
+    async def _invoke(**kwargs):
+        await kwargs["on_event_id"](TURN)
+        # The agent DID post to the room, with headers like production.
+        with injected(agent_id_headers(
+            ANA, turn_source="message_bus", event_id=TURN, team_id=TEAM,
+        )):
+            result = await tools["message_team"](
+                agent_id=ANA, team_id=TEAM, text="@Bo done",
+            )
+        assert result["success"] is True, result
+        # ...but the turn returns to the trigger WITHOUT an event_id — the header
+        # was absent on this hop, so the trigger cannot run the identity join.
+        return TurnResult(text="@Bo done", event_id="")
+
+    trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
+
+    await trigger._process_agent(ANA)
+
+    rows = await bus.get_recent_messages(ROOM, limit=20)
+    # The reply is in the room.
+    assert any(m.from_agent == ANA and m.content == "@Bo done" for m in rows), (
+        "the agent's reply is missing from the room"
+    )
+    # And NO platform failure notice was posted on top of it.
+    notices = [m for m in rows if (m.msg_type or "") in PLATFORM_MSG_TYPES]
+    assert notices == [], (
+        f"a false 'never sent it' notice was posted under a delivered reply: {notices}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_the_tools_refuse_blank_text_and_the_room_stays_notified(db_client):
     """Blank text through the REAL tools, both verbs, with the room's consequence.
 

@@ -248,8 +248,8 @@ async def test_get_conversation_history_caps_to_limit():
     rows = [
         {
             "message_id": f"m_{i}",
-            "thread_id": "telegram_42",
-            "from_agent": "telegram_user_42",
+            "thread_id": im_thread_id("telegram", "agent_a", "42"),
+            "direction": "in",
             "content": f"msg #{i}",
             "created_at": f"2026-05-13 17:00:{i:02d}",
         }
@@ -265,6 +265,104 @@ async def test_get_conversation_history_caps_to_limit():
     history = await builder.get_conversation_history(limit=3)
     assert len(history) == 3
     assert history[-1]["body"] == "msg #20"
+
+
+class _TableAwareDB:
+    """Returns different canned rows per table, so the deploy-window fallback
+    (new inbox table empty → read legacy ``bus_messages``) can be exercised."""
+
+    def __init__(self, by_table):
+        self._by_table = by_table
+        self.calls = []
+
+    async def get(self, table, filters=None, limit=None, offset=None, order_by=None):
+        self.calls.append((table, filters, limit, order_by))
+        return list(self._by_table.get(table, []))
+
+
+@pytest.mark.asyncio
+async def test_history_falls_back_to_legacy_bus_when_inbox_empty():
+    """Deploy-window fallback (C3): with the new inbox table empty, read
+    pre-decouple turns from ``bus_messages`` — AGENT-ISOLATED.
+
+    Remove the ``if not rows: return await self._legacy_bus_history(...)`` and
+    this goes red (empty history = every deployed bot forgets its past). Drop
+    the ``from_agent`` isolation and ``agent_b``'s line leaks into ``agent_a``'s
+    memory (worse than forgetting).
+    """
+    chat_id = "8612707834"
+    legacy_newest_first = [
+        {  # current trigger — must be dropped
+            "message_id": "b_now", "channel_id": f"telegram_{chat_id}",
+            "from_agent": "telegram_user_42", "content": "再试一下",
+            "created_at": "2026-05-13 17:31:26",
+        },
+        {  # ANOTHER bot in the same shared telegram_<chat_id> channel — excluded
+            "message_id": "b_other", "channel_id": f"telegram_{chat_id}",
+            "from_agent": "agent_b", "content": "not my reply",
+            "created_at": "2026-05-13 17:20:00",
+        },
+        {  # this bot's own reply
+            "message_id": "b_2", "channel_id": f"telegram_{chat_id}",
+            "from_agent": "agent_a", "content": "在的，有什么需要帮忙的？",
+            "created_at": "2026-05-13 17:06:57",
+        },
+        {  # the user
+            "message_id": "b_1", "channel_id": f"telegram_{chat_id}",
+            "from_agent": "telegram_user_42", "content": "在吗",
+            "created_at": "2026-05-13 17:06:55",
+        },
+    ]
+    db = _TableAwareDB({
+        "inbox_thread_messages": [],       # new table empty → fallback
+        "bus_messages": legacy_newest_first,
+    })
+    builder = TelegramContextBuilder(
+        message=_msg(chat_id=chat_id, message_id="b_now"),
+        credential=_cred(),
+        agent_id="agent_a",
+        db_client=db,
+    )
+
+    history = await builder.get_conversation_history(limit=10)
+
+    bodies = [h["body"] for h in history]
+    # Chronological; current trigger dropped; another agent's line excluded.
+    assert bodies == ["在吗", "在的，有什么需要帮忙的？"]
+    assert "not my reply" not in bodies
+    # The bot's own line is labelled as the bot.
+    senders = {h["body"]: h["sender"] for h in history}
+    assert senders["在的，有什么需要帮忙的？"] == "Me (bot)"
+    # Fallback only runs after the new table came back empty: both were queried.
+    tables = [c[0] for c in db.calls]
+    assert tables == ["inbox_thread_messages", "bus_messages"]
+
+
+@pytest.mark.asyncio
+async def test_history_does_not_fall_back_when_inbox_has_rows():
+    """The fallback must NOT fire when the new table already has history —
+    otherwise a live agent double-reads and the legacy rows never retire."""
+    chat_id = "999"
+    db = _TableAwareDB({
+        "inbox_thread_messages": [{
+            "message_id": "n1",
+            "thread_id": im_thread_id("telegram", "agent_a", chat_id),
+            "direction": "in", "sender_name": "U", "content": "new-world",
+            "created_at": "2026-05-13 17:00:00",
+        }],
+        "bus_messages": [{
+            "message_id": "old", "channel_id": f"telegram_{chat_id}",
+            "from_agent": "agent_a", "content": "legacy",
+            "created_at": "2026-05-13 16:00:00",
+        }],
+    })
+    builder = TelegramContextBuilder(
+        message=_msg(chat_id=chat_id, message_id="cur"),
+        credential=_cred(), agent_id="agent_a", db_client=db,
+    )
+    history = await builder.get_conversation_history(limit=10)
+    assert [h["body"] for h in history] == ["new-world"]
+    assert [c[0] for c in db.calls] == ["inbox_thread_messages"]  # no bus read
 
 
 @pytest.mark.asyncio

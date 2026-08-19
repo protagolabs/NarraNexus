@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具
+
+`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合靠说话投递，声明 `notify_owner` 会让回复提醒渲染成「reply with notify_owner」，与巡查 prompt「写纯文本、别调工具」互斥。只撤**声明**，schema 仍在桌上（`get_disallowed_tools` 不变，中途升级给 owner 合法）。同类修复见 [[channel_module_base]]。
 
 ## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
 

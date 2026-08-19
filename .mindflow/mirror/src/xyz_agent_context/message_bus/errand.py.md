@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/errand.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 文档指针刷新
+
+注释里 `work_add_item` → `team_work_add`（退役名）。纯注释。
 
 ## 2026-08-17（三）— 批量上限、复合缓存键、板子可由调用方传入
 

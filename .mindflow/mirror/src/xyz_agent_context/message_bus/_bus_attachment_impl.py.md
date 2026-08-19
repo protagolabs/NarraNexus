@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_attachment_impl.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 文档指针刷新
+
+注释里 `bus_list_team_files` → `team_list_files`（退役名）。纯注释。
 
 ## 2026-08-10 (review 修正) — 仓储 import 移到 `schema` 与 `utils` 之间
 

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — plain-text（巡查）回合不声明任何回复工具
+
+`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合无任何回复工具适用,声明会让回复提醒命名它、与「写纯文本别调工具」互斥。覆盖全部 6 个渠道模块。只撤声明,schema 不动。同类见 [[chat_module]]。
 
 ## 2026-08-04 — owns_working_source：channel_name 即来源名
 

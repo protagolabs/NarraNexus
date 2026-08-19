@@ -44,8 +44,29 @@ BANNED = [
     ("bus_send_message", "retired tool — the agent would call a name that is gone"),
     ("bus_send_to_agent", "retired tool"),
     ("bus_create_channel", "retired tool"),
-    ("bus_share_to_team", "retired tool"),
+    ("bus_share_to_team", "retired tool → team_share_file"),
     ("send_message_to_user_directly", "retired tool, split into reply/notify_owner"),
+    # The rest of the same rename batch — a guard that lists only some of the
+    # retired names reads green while the omitted ones can be written back
+    # unnoticed (verified retired: no live def in src/).
+    ("bus_get_messages", "retired tool"),
+    ("bus_search_agents", "retired tool → find_agent"),
+    ("bus_get_unread", "retired tool"),
+    ("bus_pin_team_rule", "retired tool"),
+    ("bus_unpin_team_rule", "retired tool"),
+    ("bus_list_team_files", "retired tool → team_list_files"),
+    ("bus_get_channel_members", "retired tool"),
+    ("bus_leave_channel", "retired tool"),
+    ("bus_kick_member", "retired tool"),
+    ("bus_get_agent_profile", "retired tool — deleted outright"),
+    ("work_add_item", "retired tool → team_work_add"),
+    ("work_complete_item", "retired tool"),
+    ("work_claim_item", "retired tool"),
+    ("work_list_items", "retired tool"),
+    # NOTE: the old `work_update_status` is deliberately NOT here — its live
+    # replacement `team_work_update_status` CONTAINS it as a substring, and the
+    # match below is substring-based, so banning it would flag the current tool.
+    # The other four retired work_* names have no live superstring.
     ("### your channels", "prints raw channel ids; the agent has no channels"),
     ("usr_", "an internal sender prefix; the agent is shown `User`"),
 ]
@@ -161,7 +182,34 @@ def _agent_facing_texts() -> list[tuple[str, str]]:
             f"could not build the team prompt, so it is unguarded: "
             f"{type(e).__name__}: {e}"
         ) from e
+
+    # More surfaces the model reads that the first version of this guard did NOT
+    # collect — currently clean, so this is future-proofing: the guard's green
+    # was read as "covered" while these were outside it. Prompt modules are
+    # collected as their raw UPPER_CASE string constants (the reviewer's note:
+    # `.format()` on a template with placeholders would raise, and the concept
+    # leaking is a property of the literal, not the rendered form).
+    for label, dotted in (
+        ("channel_prompts", "xyz_agent_context.channel.channel_prompts"),
+        ("job_module prompts", "xyz_agent_context.module.job_module.prompts"),
+        ("basic_info_module prompts", "xyz_agent_context.module.basic_info_module.prompts"),
+    ):
+        out.append((f"{label} constants", _module_prompt_constants(dotted)))
     return out
+
+
+def _module_prompt_constants(dotted: str) -> str:
+    """Every UPPER_CASE string constant of a prompt module — the templates the
+    model is shown. Constants only (not source), so module comments — which MAY
+    carry a retired name in a historical note — are not what is checked."""
+    import importlib
+
+    mod = importlib.import_module(dotted)
+    parts = [
+        v for name, v in vars(mod).items()
+        if name.isupper() and isinstance(v, str)
+    ]
+    return "\n".join(parts)
 
 
 @pytest.mark.parametrize("fragment,why", BANNED)

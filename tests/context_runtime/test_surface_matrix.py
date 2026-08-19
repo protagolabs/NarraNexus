@@ -42,6 +42,9 @@ from unittest.mock import MagicMock
 import pytest
 
 import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
+from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+    append_reply_reminder,
+)
 from xyz_agent_context.channel.message_source_handler import (
     render_origin_declaration,
 )
@@ -114,12 +117,14 @@ async def test_the_desk_and_the_opening_line_agree_on_this_surface(
         # * no SEND verb for this source may be declared or on the desk — the
         #   patrol prompt forbids `message_team` in so many words, and a schema
         #   left on the desk is how a prose prohibition loses;
-        # * no opening line at all. Other modules may still declare their own
-        #   tools (ChatModule offers `notify_owner`, and escalating to the owner
-        #   mid-sweep is a legitimate act, so it stays) — but origin-first
-        #   ordering then puts a tool belonging to NOBODY'S source at position 0,
-        #   and a line reading "reply with `notify_owner`" would tell the lead to
-        #   message its owner instead of writing the room's status line.
+        # * NOTHING declared at all. A reply reminder is rendered from the
+        #   declared set, so `notify_owner` in it reads "reply with `notify_owner`"
+        #   on a turn whose prompt says "write plain text, do NOT call a tool" —
+        #   pushing the lead to DM the owner instead of writing the room's status
+        #   line (I1). ChatModule withdraws that DECLARATION on a plain-text turn;
+        #   notify_owner's SCHEMA still stays (escalating mid-sweep is legitimate,
+        #   asserted below).
+        # * no opening line at all.
         bus_verbs = {
             "mcp__message_bus_module__message_team",
             "mcp__message_bus_module__message_agent",
@@ -129,6 +134,20 @@ async def test_the_desk_and_the_opening_line_agree_on_this_surface(
         )
         assert bus_verbs <= set(suppressed), (
             f"{label}: a send verb's schema is still on the desk: {suppressed}"
+        )
+        assert declared == [], (
+            f"{label}: declared {declared} on a plain-text turn — the reply "
+            f"reminder would then name a tool the patrol prompt forbids"
+        )
+        # The reminder is rendered from `declared`; empty declared → no reminder.
+        assert append_reply_reminder("body", tuple(declared), line) == "body", (
+            f"{label}: a reply reminder rendered on a plain-text turn"
+        )
+        # But the escalation capability stays: notify_owner's schema is NOT
+        # suppressed — only its declaration is withheld.
+        assert "mcp__chat_module__notify_owner" not in suppressed, (
+            f"{label}: notify_owner's schema was taken off the desk; escalating "
+            f"to the owner mid-sweep is a legitimate act"
         )
         assert line == "", (
             f"{label}: an opening line claimed a reply route: {line!r}"

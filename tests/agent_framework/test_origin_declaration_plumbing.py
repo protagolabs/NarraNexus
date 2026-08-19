@@ -133,3 +133,54 @@ def test_step_3_reads_the_plain_text_marker_from_the_turns_own_extras():
         f"the marker is not read from the turn's own extras: {call!r}"
     )
     assert BUS_PLAIN_TEXT_TURN_EXTRA_KEY == "bus_plain_text_turn"
+
+
+# ── The remote hop (C1) — the ONLY path that runs in production ──────────────
+# dev/prod run every turn through RemoteAgentLoop, where the executor body is a
+# WHITELIST: a key not listed is a silent cloud-side drop. The tests above stop
+# at driver_kwargs() and the two in-process adapters, so origin_declaration
+# vanished on this hop while every unit test stayed green.
+
+from xyz_agent_context.agent_runtime.executor_protocol import (  # noqa: E402
+    build_agent_loop_request,
+)
+
+
+def _body(**kw):
+    return build_agent_loop_request(
+        framework="claude_code",
+        working_path="/w",
+        messages=[],
+        mcp_servers={},
+        extra_env=None,
+        **kw,
+    )
+
+
+def test_origin_declaration_survives_the_executor_body():
+    """The rendered line must be in the whitelist body, or §6 never reaches the
+    model on the cloud path. Remove the body key and this goes red."""
+    line = "[Origin] NarraNexus · reply with `x`"
+    assert _body(origin_declaration=line)["origin_declaration"] == line
+
+
+def test_origin_declaration_key_is_always_present_even_when_empty():
+    """A missing key is a silent drop, so the key ships even for an empty line —
+    same discipline as turn_profile / expressive_tools."""
+    body = _body()
+    assert "origin_declaration" in body and body["origin_declaration"] == ""
+
+
+def test_executor_service_reads_the_same_body_key():
+    """Producer (build_agent_loop_request) and consumer (executor_service) must
+    name the key identically — the two-independent-constructions hazard this PR
+    keeps flagging. Rename it on either side and this goes red."""
+    import inspect
+
+    from xyz_agent_context.agent_runtime import executor_service
+
+    src = inspect.getsource(executor_service)
+    assert 'origin_declaration=body.get("origin_declaration")' in src, (
+        "executor_service no longer forwards body['origin_declaration'] — the "
+        "line is being dropped on the remote hop again"
+    )

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_context_builder.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 部署窗口回落读（存量记忆不丢）
+
+`get_conversation_history` 在新表 `inbox_thread_messages` 查空时，回落读一次旧 `bus_messages`（`channel_id=telegram_{chat_id}`）。**按 agent 隔离**：只认本 bot 的回复（`from_agent==agent_id`）与用户消息（`telegram_user_*`），另一个 bot 在同一共享 chat 的回复被排除。与 `wipe_service` 对齐（telegram DM 是单成员 channel，wipe 会删这些行）。回填 runbook 跑完后删除。没有它，部署当天每个存量 telegram bot 会失忆。
 
 ## 2026-08-17 — 历史改读 inbox 记录
 

@@ -170,7 +170,7 @@ async def test_a_racing_duplicate_share_still_returns_the_existing_row(env, monk
     insert hits the constraint.
 
     Swallowing that leaves the file on disk with NO row — invisible in the
-    panel and to bus_list_team_files, which is the one outcome the index
+    panel and to team_list_files, which is the one outcome the index
     exists to prevent. On collision the write path must re-read the winner and
     return it as the "same content re-shared" case, which is the semantics
     this feature already claims.

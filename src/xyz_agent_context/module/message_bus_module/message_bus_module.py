@@ -914,22 +914,19 @@ class MessageBusModule(XYZBaseModule):
                         if target:
                             replied_agents.add(target)
 
-            # A team we spoke in resolves to its room, deterministically: the
-            # group channel whose created_by is the team marker.
+            # A team we spoke in resolves to its room through the ONE place that
+            # composes the marker (`team_rooms.primary_room_of`) — not a hand-
+            # rolled fifth copy of the `created_by == marker` query. `primary_room_of`
+            # is try/except internally and returns None on a missing db, so the
+            # old `if db else None` guard is preserved by its own contract.
             if replied_teams:
-                from xyz_agent_context.schema.team_schema import (
-                    TEAM_ROOM_OWNER_PREFIX,
-                )
+                from xyz_agent_context.message_bus.team_rooms import primary_room_of
 
                 db = await _get_shared_db()
                 for tid in replied_teams:
-                    row = await db.get_one(
-                        "bus_channels",
-                        {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{tid}",
-                         "channel_type": "group"},
-                    ) if db else None
-                    if row and row.get("channel_id"):
-                        replied_channels.add(row["channel_id"])
+                    cid = await primary_room_of(db, tid)
+                    if cid:
+                        replied_channels.add(cid)
 
             # Only mark read for channels where we actually replied
             if not replied_channels and not replied_agents:

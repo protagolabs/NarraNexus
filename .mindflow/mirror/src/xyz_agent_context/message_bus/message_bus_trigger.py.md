@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
+
+`has_message_from_turn` 的判据是 `event_id` 身份 join，而 event_id 来自 MCP 请求头、合法地会缺失（identity 从不是 flow control）。改为：`can_judge = bool(turn.event_id)`；判不了时**假定已投递**（`posted = spoke or not can_judge`），只有 event_id 在场且 join 为空才 `_announce_failed_room_post`。此前缺 header → `spoke=False` → 在一条已在房间里的回复下贴假「never sent it」通告 + `_hop_done` 低估投递率。由 `test_team_delivery_e2e.py::...without_an_event_id` 钉住。
 
 ## 2026-08-17 — 板子进 prompt 加上限（review 🔴3 的第三项）
 

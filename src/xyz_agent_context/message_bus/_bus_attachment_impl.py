@@ -401,7 +401,7 @@ async def stage_path_into_team(
         # probe above is check-then-act with no lock, so two concurrent shares
         # of identical bytes both miss it and the second one hits the UNIQUE
         # index. Swallowing that would leave the file on disk with NO row —
-        # invisible in the panel and to bus_list_team_files, exactly what the
+        # invisible in the panel and to team_list_files, exactly what the
         # index exists to prevent. Adopt the winner's row instead; the caller
         # gets the same answer a sequential duplicate share would have given.
         winner = None

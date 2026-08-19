@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 执行器侧读取并转发 origin_declaration
+
+`_stream` 调 `driver.agent_loop(...)` 时新增 `origin_declaration=body.get("origin_declaration") or ""`。键名与 `build_agent_loop_request` 写死一致（两处独立构造的隐患由测试断言防住）。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

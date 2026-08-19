@@ -23,6 +23,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -84,7 +85,7 @@ def _extract_slack_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return None
 
     # Generic chat-style content arg
-    if "notify_owner" in (tool_name or ""):
+    if is_owner_tool(tool_name):
         content = args.get("content", "")
         return content or None
 
