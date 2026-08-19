@@ -8,3 +8,7 @@ exposes the provisioning entry point the login hooks call.
 """
 
 from xyz_agent_context.bootstrap.onboarding import profile as _profile  # noqa: F401 — registry side effect
+from xyz_agent_context.bootstrap.onboarding.provisioning import (  # noqa: F401
+    ensure_guide_agent,
+    is_guide_agent_enabled,
+)
