@@ -32,20 +32,16 @@ narrative; a record the agent reads every turn can.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from loguru import logger
 
 from xyz_agent_context.repository import (
-    AgentRepository,
     InstanceAwarenessRepository,
     InstanceRepository,
 )
 from xyz_agent_context.schema import (
-    AGENT_TEXT_MAX_LENGTH,
-    agent_field_matches,
     normalize_agent_text,
 )
 
@@ -237,6 +233,17 @@ _SELF_NAME_LINE = re.compile(
 )
 
 
+# What may follow the name on a declaration line: nothing, or a separator that
+# starts a description. A SPACE does not qualify — `- name: 美食家 是 owner 最近
+# 常去的那家店` is an owner observation that merely opens with the marker, and
+# rewriting it would be the content loss this whole area promises never to cause.
+_NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", ".", "|", "/", "-", "—", "(", "（")
+
+
+def _ends_the_name(rest: str) -> bool:
+    return rest == "" or rest[0] in _NAME_ENDERS
+
+
 def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     """Rewrite the agent's own "my name is X" line to the name it now has.
 
@@ -247,14 +254,22 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     thing: machine-knowable, owned by the ``agents`` row, and 铁律 #15 says a
     machine-knowable fact is derived, never left to the model to remember.
 
-    Measured 2026-08-19: with the row, BasicInfo, the identity record and the
+    Measured 2026-08-19 UTC: with the row, BasicInfo, the identity record and the
     peer directory all corrected, a real two-turn run still answered with the
     old name — the profile said ``- 名称：美食家`` above the correction, and the
     model followed the line that came first.
 
-    Only the VALUE of a name-declaration line is touched, and only where it
-    starts with the old name. An owner observation that happens to mention the
-    old name is not a declaration and is left exactly as written.
+    Only the VALUE of a name-declaration line is touched, and only where the old
+    name IS that value (optionally followed by a separator that opens a
+    description). An owner observation that merely starts with the marker — and
+    then keeps talking — is left exactly as written.
+
+    Known limit, stated rather than papered over: the label set is the spellings
+    this prompt's structure produces in Chinese and English. A profile the model
+    wrote in another language keeps its stale self-name line, and the identity
+    record below it is then the only correction. Widening the set is easy; making
+    it exhaustive is not, which is why the record is the backstop and this is the
+    optimisation.
     """
     old, new = (old_name or "").strip(), (new_name or "").strip()
     if not old or old == new:
@@ -263,8 +278,8 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     out = []
     for line in (profile or "").splitlines():
         m = _SELF_NAME_LINE.match(line)
-        if m and m.group("value").strip().startswith(old):
-            value = m.group("value").strip()
+        value = m.group("value").strip() if m else ""
+        if m and value.startswith(old) and _ends_the_name(value[len(old):]):
             out.append(m.group("head") + new + value[len(old):])
         else:
             out.append(line)
@@ -373,6 +388,12 @@ async def reconcile_identity_record(db, agent_id: str, current_name: str) -> boo
         note = build_identity_reconciliation_note(current_name, asserted)
         if not _note_is_readable(note, current_name):
             return False
+        # The same retirement the rename path does. This branch exists FOR the
+        # already-diverged population — the ticket's own agent — so leaving its
+        # self-name line stale would miss exactly the agents it was written for.
+        # ``asserted`` is what the stale record claimed, which is the name that
+        # line will be carrying.
+        profile = retire_self_name(profile, asserted, current_name)
         await repo.upsert(instance_id, merge_identity_change_note(profile, note))
         return True
     except Exception as e:  # noqa: BLE001 — the profile write already landed

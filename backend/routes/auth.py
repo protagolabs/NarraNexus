@@ -1217,6 +1217,10 @@ async def update_agent(
             # to drop it — leaving the UI as the one rename path where handing
             # a name to a second agent happens silently.
             name_clash_with=result.name_clash_with,
+            identity_record_updated=(
+                result.identity_note_recorded if result.renamed_from is not None
+                else None
+            ),
         )
 
     except Exception as e:

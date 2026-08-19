@@ -414,6 +414,10 @@ async def update_agent_for_manyfold(
         # Same collision report the UI and the agent's own tool get: applied,
         # never blocked, never silent.
         "name_clash_with": result.name_clash_with,
+        "identity_record_updated": (
+            result.identity_note_recorded if result.renamed_from is not None
+            else None
+        ),
         "agent_id": updated.get("agent_id") if updated else agent_id,
         "name": updated.get("agent_name") if updated else patch.get("agent_name"),
         "description": (
@@ -421,7 +425,11 @@ async def update_agent_for_manyfold(
             if updated
             else patch.get("agent_description")
         ),
-        "updated_fields": list(patch.keys()),
+        # What was WRITTEN, not what was requested: re-sending an identical
+        # name issued no write, and the no-op branch above already answers [].
+        # (Response-shape change on a cross-service contract — flagged to the
+        # Manyfold side rather than shipped silently.)
+        "updated_fields": list(result.updated_fields),
     }
 
 

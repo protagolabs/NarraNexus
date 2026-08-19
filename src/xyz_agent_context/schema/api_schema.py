@@ -190,6 +190,14 @@ class UpdateAgentResponse(BaseModel):
     #: rename is applied and the collision is reported. Additive field: older
     #: clients ignore it.
     name_clash_with: Optional[str] = None
+    #: False when this call renamed the agent but its Awareness identity record
+    #: could not be updated (no Awareness instance, or the write failed). The
+    #: rename itself DID land — reporting failure for a stored name would be the
+    #: worse lie — but "the column moved and the memory did not" is the exact
+    #: state the Shenzhen incident was, and it must not be visible only in a
+    #: container log that `docker restart` wipes (incident lesson #5). None when
+    #: this call did not rename.
+    identity_record_updated: Optional[bool] = None
 
 
 class DeleteAgentResponse(BaseModel):

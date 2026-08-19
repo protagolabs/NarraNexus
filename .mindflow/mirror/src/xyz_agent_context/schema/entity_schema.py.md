@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-19
+last_verified: 2026-08-18
 stub: false
 ---
 

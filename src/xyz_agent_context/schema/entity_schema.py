@@ -308,7 +308,8 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
     Args:
         agent: the entity as currently stored.
         field: column name (``agent_name`` / ``agent_description`` /
-            ``is_public``).
+            ``is_public`` / ``created_by``). Closed set — anything else raises,
+            so adding one is a deliberate act with a comparison chosen for it.
         wanted: the value the caller asked for.
 
     Returns:

@@ -732,3 +732,88 @@ async def test_a_same_owner_name_collision_is_reported_to_the_ui(
 
     assert resp["success"] is True, "a collision must not block the rename"
     assert resp["name_clash_with"] == "agent_holds_the_name"
+
+
+@pytest.mark.asyncio
+async def test_repairing_a_diverged_agent_also_retires_its_self_name_line(
+    db_client, ui_client
+):
+    """The repair path exists FOR the already-diverged population, so it owes
+    the same retirement the rename path does.
+
+    Wired into the rename path only, it missed exactly the agents it was
+    written for: prod's row says 小绿, its record said 美食家, and its Role and
+    Identity line said 美食家 too. Correcting the record and leaving the line is
+    the same self-contradicting prompt, one source shorter.
+    """
+    diverged = (
+        "# Agent Awareness Profile\n\n"
+        "## 4. Role and Identity\n"
+        "- 名称：美食家；精通各地美食推荐\n\n"
+        f"{IDENTITY_CHANGE_SECTION}\n"
+        "- 2026-08-14: renamed by your creator from 「小绿」 to 「美食家」. "
+        "You are 「美食家」. 「小绿」 is no longer your name — ...\n"
+    )
+    # Row already holds the new name: this is a repair, not a rename.
+    await _seed(db_client, name="小绿", profile=diverged)
+
+    resp = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    )
+    assert resp.json()["success"] is True
+
+    profile = await _profile(db_client)
+    assert "- 名称：小绿；精通各地美食推荐" in profile
+    entries = _identity_entries(profile)
+    outside = [
+        ln for ln in profile.splitlines()
+        if "美食家" in ln and ln.strip() not in entries
+    ]
+    assert not outside, f"the old name still stands unretired on: {outside}"
+
+
+@pytest.mark.asyncio
+async def test_a_rename_whose_record_could_not_be_written_says_so_in_the_response(
+    db_client, ui_client
+):
+    """"The column moved and the memory did not" must not live only in a log.
+
+    That state IS the Shenzhen incident, and a container log is wiped by
+    `docker restart` (incident lesson #5). The rename still succeeds — telling
+    a user their save failed for a name that IS stored is the worse lie — but
+    the response says the record did not follow.
+    """
+    # No AwarenessModule instance: nowhere to file the correction.
+    await db_client.insert("agents", {
+        "agent_id": "agent_no_memory", "agent_name": "美食家",
+        "created_by": OWNER, "agent_description": "x", "is_public": 0,
+    })
+
+    body = ui_client.put(
+        "/api/auth/agents/agent_no_memory",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True
+    assert body["identity_record_updated"] is False
+
+
+@pytest.mark.asyncio
+async def test_an_edit_that_renames_nothing_reports_no_verdict_on_the_record(
+    db_client, ui_client
+):
+    """None, not False: a description edit makes no claim about identity, and
+    False would read as "the record failed"."""
+    await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
+
+    body = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_description": "只推荐深圳本地菜"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True
+    assert body["identity_record_updated"] is None

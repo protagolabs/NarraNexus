@@ -489,3 +489,34 @@ class TestSelfNameLine:
 
         profile = "## 4. Role and Identity\n- 我擅长推荐美食\n"
         assert retire_self_name(profile, "美食家", "小绿") == profile
+
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "- name: 美食家 是 owner 最近常去的那家店",
+            "- 名称：美食家上个月换了老板",
+            "- Name: 美食家的推荐一向很准",
+        ],
+    )
+    def test_a_line_that_only_starts_with_the_marker_is_not_a_declaration(
+        self, line
+    ):
+        """The narrow match is the whole safety property.
+
+        A value that keeps talking after the name is prose about something
+        else, and rewriting it is the content loss this area promises never to
+        cause. Only "the name IS the value" — optionally followed by a
+        separator that opens a description — counts.
+        """
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = f"## 5. Owner observations\n{line}\n"
+        assert retire_self_name(profile, "美食家", "小绿") == profile
+
+    @pytest.mark.parametrize("sep", ["；", ";", "，", ",", "、", "(", "（", "/", "-"])
+    def test_a_separator_still_opens_a_description(self, sep):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name(f"- 名称：美食家{sep}精通各地美食\n", "美食家", "小绿")
+        assert out == f"- 名称：小绿{sep}精通各地美食\n"

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-08-19
+last_verified: 2026-08-18
 stub: false
 ---
 
