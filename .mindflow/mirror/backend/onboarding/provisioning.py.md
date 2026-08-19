@@ -77,7 +77,11 @@ marker. Zero raw SQL.
   pause/cancel in the Jobs panel (greeting says how) and the payload's
   3-ignored-check-ins goodbye + self-pause; the payload's end-date sentence
   is the polite goodbye script for the horizon, stamped from the SAME
-  instant so script and brake can never disagree.
+  instant so script and brake can never disagree — and worded
+  "{end_date} or later", NOT "after {end_date}": the horizon day gets the
+  LAST fire (the next one would land past end_at and the platform completes
+  the job right after), so an "after"-worded script would never run and the
+  guide would vanish mid-smalltalk with no goodbye.
 - **has-agents users get the marker, not an agent**: someone already using
   the product doesn't need a stranger pinging them; the marker makes later
   logins skip before the agents query (`find_one`, not a full find).

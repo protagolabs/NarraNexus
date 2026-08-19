@@ -49,3 +49,11 @@ is collapsed and re-expanded.
   Fields like `cron_expression`, `interval_seconds`, etc. are cast with `as`
   inside the component. If the backend changes field names, these casts will
   silently produce `undefined` without a type error.
+
+## 2026-08-19 — 显示 end_at 调度地平线
+
+configuration 区在 interval 之后渲染 `jobs.expanded.endAt`（"Runs until:"，
+取日期部分）：没有它，有界例程（"每天一次跑两周"）与无限期 job 在 UI 上
+无法区分，用户看不出它会自己停。类型来自 `types/api.ts` 的
+`TriggerConfig.end_at?`（与后端 schema 对齐）。编辑对话框有意不加该字段
+（reschedule_job 的 _TIME_FIELDS 不含它，传了会被静默忽略）。

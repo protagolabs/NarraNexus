@@ -2306,6 +2306,7 @@
       "trigger": "触发器：",
       "cron": "Cron：",
       "interval": "间隔：",
+      "endAt": "运行至：",
       "runAt": "运行于：",
       "endCondition": "结束条件：",
       "maxIter": "最大迭代：",

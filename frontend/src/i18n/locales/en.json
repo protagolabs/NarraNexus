@@ -2306,6 +2306,7 @@
       "trigger": "Trigger:",
       "cron": "Cron:",
       "interval": "Interval:",
+      "endAt": "Runs until:",
       "runAt": "Run at:",
       "endCondition": "End condition:",
       "maxIter": "Max iter:",

@@ -107,5 +107,11 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 `_job_scheduling.past_schedule_horizon`）：下次 fire 落在地平线之后 →
 COMPLETED 而非重排。默认 None = 老 job 逐字不变（铁律 #6）。首个消费方是
 onboarding 引导 Agent 的每日 check-in；试用期提醒/倒计时/N 天课程是同一
-原语的后续候选。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
+原语的后续候选。**暴露面已同批接线**（否则原语只有 Python 直调可达）：
+MCP 工具 schema（`_job_mcp_tools.TriggerConfigArg.end_at: NotRequired[str]`
++ job_create/job_update docstring）、`JOB_MODULE_INSTRUCTIONS`（SCHEDULED
+行 + 第 4 节可选字段，教模型"用户给了有界时长就用 end_at，别指望自己记得
+暂停"）、agent 侧 job 摘要（`until {end_at}`）、前端 `TriggerConfig` 类型
+与 Jobs 详情（`jobs.expanded.endAt`）。JobScheduleEditDialog 有意不加——
+`reschedule_job` 的 `_TIME_FIELDS` 不含 end_at，传了会被静默忽略。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
 不触碰铁律 #14——ONGOING 的 max_iterations 是既有先例。

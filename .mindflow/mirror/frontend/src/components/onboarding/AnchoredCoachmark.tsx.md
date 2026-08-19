@@ -39,4 +39,17 @@ asserts the literal `t('onboarding.guideCoachmark.text')` in the guide file).
 ## Gotchas
 
 - The claim map keys on the SELECTOR string — two coachmarks pointing at
-  different anchors never queue on each other.
+  different anchors never queue on each other (and two selectors that
+  RESOLVE to the same element but are spelled differently will NOT exclude
+  each other — new coachmarks must reuse the existing selector literal).
+- `anchorHolders` is module-level state: tests import the component fresh
+  per case (vi.resetModules) so a leaked claim can't decide the next test.
+
+## Tests
+
+`__tests__/AnchoredCoachmark.test.tsx` pins the invariant three ways: same
+anchor → ONE bubble (deleting the claim map goes red — verified by
+experiment), holder unmount → the queued bubble takes over on the next tick
+(deleting the cleanup release goes red as "second never appears"), different
+anchors → both render. jsdom's zero-size getBoundingClientRect is stubbed
+because the component deliberately ignores zero-size anchors.

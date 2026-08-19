@@ -26,6 +26,8 @@ export interface TriggerConfig {
   cron?: string;               // cron expression, e.g. "0 8 * * *"
   interval_seconds?: number;
   timezone?: string;           // IANA name, e.g. "Asia/Shanghai"
+  end_at?: string;             // scheduled jobs: naive local ISO horizon —
+                               // the platform completes the job past this
   end_condition?: string;      // ongoing jobs
   max_iterations?: number;     // ongoing jobs
   [key: string]: unknown;

@@ -363,13 +363,34 @@ real failure reason on the job row.
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
 
-## 2026-08-19 — SCHEDULED finalize 增加 end_at 地平线完结
+## 2026-08-19 — SCHEDULED finalize：end_at 地平线完结 + in-run 状态重读
 
-`_finalize_job_execution` 的 SCHEDULED 分支在 compute_next_run 之后先问
-`past_schedule_horizon(trigger_config, next_run.utc)`：越线 → clear
-next_run + 置 COMPLETED + 更新 instance，然后 return——平台强制"这个日程
-排到 X 日为止"，不依赖模型自觉。**只有地平线路径会完结**：next_run 为
-None 的历史语义（ACTIVE + NULL next_run）原样保留，别把它也改成完结。
-恢复面核对过：job_recovery 只复活 PAUSED_NO_QUOTA，不会把 COMPLETED 拉
-回来。测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线
-照常重排 / 无地平线逐字不变）。
+`_finalize_job_execution` 的 SCHEDULED 分支在 update_last_run 之后、任何
+调度写之前做两件事（顺序承重）：
+
+1. **重读当前 status（对齐 ONGOING 分支的既有做法）**：`job` 是执行前快照；
+   agent 可能在本次运行中 `job_update(status='paused')` 自暂停（onboarding
+   引导的"别再找我"就靠这条），用户也可能在运行期间从 Jobs 面板暂停/取消。
+   命中显式终止集（PAUSED / PAUSED_NO_QUOTA / CANCELLED / COMPLETED /
+   FAILED）→ 只补 instance completed（run 完成是每次运行的事实，与调度
+   无关）+ return，不写 ACTIVE、不写 next_run；**其余状态（RUNNING，以及
+   测试 harness 直调时的 pending/active）照旧重排**——用"!= RUNNING"当
+   判据会把 harness 直调的 pending 行也 respect 掉（S2b 时区测试实证）。
+   这也保证地平线分支不会拿 COMPLETED 盖掉运行中的 CANCELLED。last_run 在
+   重读之前写——它是事实记录，任何状态下都该落。
+2. **end_at 地平线**：`past_schedule_horizon(trigger_config, next_run.utc)`
+   越线 → clear next_run + COMPLETED + instance completed + return——平台
+   强制"这个日程排到 X 日为止"，不依赖模型自觉。**只有地平线路径会完结**：
+   next_run 为 None 的历史语义（ACTIVE + NULL next_run）原样保留。
+
+重武装侧门同样接了地平线（否则"排到 X 日"会从失败重试/僵尸自愈漏一次
+fire）：`_rearm_cooled_jobs` 对退火完成但重试时刻已越线的 COOLING job 直接
+完结；`_heal_unscheduled_active_jobs` 对重算 next_run 已越线的僵尸完结而非
+复活。**已知有界缺口（有意保留）**：`job_recovery.reschedule_job`（用户改
+执行时间的路径）不查地平线——最坏多跑一次，随后 finalize 越线完结；改它
+要动用户可见的 reschedule 契约，留待真实需求。恢复面核对过：job_recovery
+只复活 PAUSED_NO_QUOTA，不会把 COMPLETED 拉回来。
+
+测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线照常 /
+无地平线逐字不变 / 自暂停不被复活 / CANCELLED 不被 COMPLETED 覆盖 /
+COOLING 与僵尸两条侧门的越线+无地平线对照）。

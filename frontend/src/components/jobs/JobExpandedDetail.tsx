@@ -163,6 +163,15 @@ export function JobExpandedDetail({
               <span className="text-[var(--text-secondary)]">{triggerConfig.interval_seconds}s</span>
             </div>
           )}
+          {/* Scheduling horizon — without it a bounded routine ("daily for
+              two weeks") looks identical to an unbounded one and the user
+              can't tell it will stop on its own. */}
+          {typeof triggerConfig?.end_at === 'string' && (
+            <div>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.endAt')} </span>
+              <span className="text-[var(--text-secondary)]">{triggerConfig.end_at.slice(0, 10)}</span>
+            </div>
+          )}
           {runAt && (
             <div className="col-span-2">
               <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.runAt')} </span>

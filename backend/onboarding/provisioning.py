@@ -89,7 +89,11 @@ CHECKIN_JOB_TITLE = "Daily check-in"
 # PLATFORM-ENFORCED trigger_config.end_at horizon — once the next fire would
 # land past provision-time + CHECKIN_END_AFTER_DAYS, JobTrigger completes the
 # job with no model cooperation. The payload's end-date sentence is the
-# polite goodbye script for (3), not the brake itself.
+# polite goodbye script for (3), not the brake itself — and it reads
+# "{end_date} or later", NOT "after {end_date}": the horizon day gets the
+# LAST fire (the next one would land past end_at and the platform completes
+# the job right after), so "after" would mean the goodbye never runs and the
+# guide silently vanishes mid-smalltalk.
 CHECKIN_END_AFTER_DAYS = 14
 _CHECKIN_JOB_DESCRIPTION = (
     "Once a day, drop by with a fresh topic. Pause or cancel this job "
@@ -97,7 +101,7 @@ _CHECKIN_JOB_DESCRIPTION = (
 )
 _CHECKIN_JOB_PAYLOAD = (
     "Daily check-in time. FIRST read the recent chat history with your "
-    "creator. RULES: (1) If today's date is after {end_date}, OR your creator "
+    "creator. RULES: (1) If today's date is {end_date} or later, OR your creator "
     "has NEVER replied to your last three consecutive proactive check-ins: "
     "send one graceful goodbye message saying you'll stop reaching out (they "
     "can still message you anytime; skip the goodbye if you already said it), "

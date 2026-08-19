@@ -14,8 +14,9 @@ randomly-named, randomly-personified companion agent that greets the user
 immediately (static bilingual bootstrap greeting — zero LLM cost), teaches
 them NarraNexus (via the `narranexus-guide` marketplace skill), and checks in
 once a day through a SCHEDULED job the user can pause/cancel in the Jobs
-panel (model-judged exits: 3-ignored-check-ins goodbye + a provision-stamped
-hard end date in the payload).
+panel — hard-stopped by the platform-enforced `trigger_config.end_at` horizon
+(14 days, no model cooperation needed), with a model-judged
+3-ignored-check-ins goodbye + self-pause on top.
 
 Files:
 - `personas.py` — content pools (personas, topic openers) + greeting /

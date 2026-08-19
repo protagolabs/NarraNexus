@@ -104,6 +104,29 @@ describe('background refresh keeps the team rows current', () => {
     }
   });
 
+  test('the fast-poll cap is wall-clock — a hidden tab exhausts it silently', () => {
+    // attempts count BEFORE the hidden skip on purpose: a backgrounded tab
+    // makes zero requests AND burns the ~20s budget, so the interval is gone
+    // by the time the tab returns (the 30s tick covers late returns). Moving
+    // the count after the hidden check turns the cap into "foreground time"
+    // and leaves the interval armed for the whole session.
+    window.localStorage.setItem('nx-guide-coachmark', 'pending');
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_new' }));
+
+      vi.advanceTimersByTime(22_000); // 11 ticks, all hidden → budget spent
+      expect(refreshAgents).not.toHaveBeenCalled();
+
+      hidden.mockReturnValue(false);
+      vi.advanceTimersByTime(6_000); // still under the 30s mid tick
+      expect(refreshAgents).not.toHaveBeenCalled(); // interval already cleared
+    } finally {
+      hidden.mockRestore();
+      window.localStorage.removeItem('nx-guide-coachmark');
+    }
+  });
+
   test('no fast poll without the coachmark armed', () => {
     renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_1' }));
 

@@ -629,6 +629,23 @@ class JobTrigger:
                         cu = cu.replace(tzinfo=timezone.utc)
                     if cu > now:
                         continue  # still cooling
+                # A retry that would fire past the job's end_at horizon is a
+                # fire the schedule no longer owes — complete instead of
+                # re-arming (otherwise "runs until date X" leaks one extra
+                # run through the failure-backoff door).
+                if past_schedule_horizon(job.trigger_config, cu or now):
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.COMPLETED.value,
+                        "cooldown_until": None,
+                    })
+                    await repo.clear_next_run(job.job_id)
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id} completed instead of re-armed "
+                        f"(COOLING retry past end_at horizon)"
+                    )
+                    continue
                 await repo.update_job(job.job_id, {
                     "status": JobStatus.ACTIVE.value,
                     "cooldown_until": None,
@@ -665,6 +682,17 @@ class JobTrigger:
                     last_run_utc=utc_now(),
                 )
                 if next_run:
+                    # Don't heal a zombie back to life past its end_at horizon
+                    # — the schedule it would resume no longer owes any fires.
+                    if past_schedule_horizon(job.trigger_config, next_run.utc):
+                        await repo.update_job_status(job.job_id, JobStatus.COMPLETED)
+                        if job.instance_id:
+                            await self._update_instance_completed(job.instance_id)
+                        logger.warning(
+                            f"Job {job.job_id} completed instead of healed "
+                            f"(ACTIVE zombie past end_at horizon)"
+                        )
+                        continue
                     await repo.update_next_run(job.job_id, next_run)
                     healed += 1
                     logger.warning(
@@ -1247,6 +1275,42 @@ The task was executed but produced no text output.
                 tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
                 last_run_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
                 await repo.update_last_run(job.job_id, now, last_run_local, tz_name)
+
+                # Respect an in-run STOP (same re-read the ONGOING branch
+                # has always done): the agent may have paused THIS job mid-run
+                # via job_update (e.g. the onboarding guide's "stop reaching
+                # out" self-pause), or the user paused/cancelled it from the
+                # Jobs panel while it ran. `job` is a pre-execution snapshot;
+                # blindly writing ACTIVE + next_run here used to resurrect the
+                # schedule right after the agent promised to stop. Only the
+                # explicit stop states are respected — anything else (RUNNING,
+                # and the pending/active a test harness or an odd caller may
+                # hold) reschedules exactly as before. last_run above is a
+                # fact record and stays; everything from here down is
+                # scheduling, which an in-run stop owns. This also keeps the
+                # horizon path below from stamping COMPLETED over a mid-run
+                # CANCELLED.
+                _IN_RUN_STOPS = (
+                    JobStatus.PAUSED,
+                    JobStatus.PAUSED_NO_QUOTA,
+                    JobStatus.CANCELLED,
+                    JobStatus.COMPLETED,
+                    JobStatus.FAILED,
+                )
+                current_job = await repo.get_job(job.job_id)
+                current_status = current_job.status if current_job else job.status
+                if current_status in _IN_RUN_STOPS:
+                    # The RUN still finished — instance completion (which
+                    # feeds ModulePoller's post-run processing) is a per-run
+                    # fact for scheduled jobs and is not the schedule's
+                    # business, so it happens on every path.
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id}: status={current_status.value} changed "
+                        f"in-run, respecting it (no reschedule)"
+                    )
+                    return
 
                 next_run = compute_next_run(
                     job_type=job.job_type,

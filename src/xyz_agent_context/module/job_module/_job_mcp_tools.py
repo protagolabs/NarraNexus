@@ -93,6 +93,10 @@ class TriggerConfigArg(TypedDict):
     interval_seconds: NotRequired[int]
     end_condition: NotRequired[str]
     max_iterations: NotRequired[int]
+    # Scheduling horizon for "scheduled" jobs: naive local ISO 8601 (no
+    # "Z"/offset — same convention as run_at, interpreted in `timezone`).
+    # The platform completes the job once its next fire would land past it.
+    end_at: NotRequired[str]
 
 
 # FastMCP asks pydantic for the containing function's schema. A named
@@ -174,7 +178,12 @@ def create_job_mcp_server(port: int) -> FastMCP:
                 - one_off: {"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"}
                   run_at MUST be naive ISO 8601 — no "Z"/offset suffix.
                 - scheduled: {"cron": "0 8 * * *", "timezone": ...} OR
-                  {"interval_seconds": 3600, "timezone": ...}
+                  {"interval_seconds": 3600, "timezone": ...}; optional
+                  "end_at" (naive local ISO 8601, like run_at) = run until
+                  that date, then the PLATFORM completes the job — use it
+                  whenever the user gives a bounded duration ("for two
+                  weeks", "until Friday") instead of asking yourself to
+                  remember to stop.
                 - ongoing: {"interval_seconds": 86400, "end_condition": "...",
                   "timezone": ...}
             payload: Instruction executed when the job runs
@@ -394,7 +403,8 @@ def create_job_mcp_server(port: int) -> FastMCP:
             trigger_config: Same shapes/rules as job_create. EVERY shape
                 REQUIRES "timezone" (IANA name); run_at naive ISO 8601 (no
                 "Z"/offset). Shapes: one_off {"run_at","timezone"}; scheduled
-                {"cron" OR "interval_seconds","timezone"}; ongoing
+                {"cron" OR "interval_seconds","timezone", optional "end_at"
+                naive local = run until then, platform-completed}; ongoing
                 {"interval_seconds","end_condition","timezone", optional
                 "max_iterations"}
             job_type: "one_off" | "scheduled" | "ongoing". WARNING: also

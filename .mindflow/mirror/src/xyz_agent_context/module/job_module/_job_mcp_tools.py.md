@@ -131,3 +131,12 @@ next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。�
 刻意删除的：重复的销售场景长示例（原 job_create 3 个、job_update 6 个）、"WHEN TO USE" 叙事段、两个工具间重复的背景说明（job_update 的 trigger_config 完整 JSON 示例改为引用 job_create 的 shape 并压成单段速记）、"Feature 2.2.2 / Type-B" 内部黑话。原 docstring 中 `notification_method: default "inbox"` 与签名默认值 `"direct"` 矛盾，压缩版不再陈述默认值（schema 自带），顺手消除了这个误导。
 
 其余 5 个工具本次未动（`job_retrieval_semantic` 1,572 / `job_retrieval_by_id` 516 / `job_retrieval_by_keywords` 822 / `job_pause` 589 / `job_cancel` 716 字符，raw 计）。
+
+## 2026-08-19 — TriggerConfigArg 增 end_at
+
+发布给模型的 trigger_config schema 增 `end_at: NotRequired[str]`（naive 本地
+ISO，run_at 同款约定），job_create/job_update docstring 的 scheduled shape
+同步教了它——没有这一步，模型在协议层就无法表达"这个日程排到哪天为止"，
+"接下来两周每天提醒我"只能建无限期 job + 让模型记得自己暂停（已被证明会被
+finalize 回滚的机制）。沿用 NotRequired 而非 Optional（见上方 $ref/anyOf-
+null 说明）；真校验仍在 TriggerConfig（naive validator 的报错足够模型自纠）。

@@ -129,3 +129,147 @@ async def test_finalize_without_horizon_is_unchanged(db_client):
     row = await db_client.get_one("instance_jobs", {"job_id": "job_h3"})
     assert row["status"] == JobStatus.ACTIVE.value
     assert row["next_run_time"] is not None
+
+
+# ── in-run status changes are respected (the self-pause exit path) ──────────
+
+
+async def _mark_status_mid_run(db, job_id: str, status: str):
+    """Simulate an in-run job_update (agent self-pause / user cancel): the
+    trigger holds a pre-execution snapshot while the DB row moves on."""
+    await db.execute(
+        "UPDATE instance_jobs SET status = %s WHERE job_id = %s",
+        params=(status, job_id),
+        fetch=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalize_respects_agent_self_pause(db_client):
+    # The onboarding guide's payload tells the model to pause THIS job after
+    # a goodbye. finalize used to overwrite that with ACTIVE + tomorrow's
+    # next_run — "I'll stop reaching out" followed by a ping the next day.
+    await _insert_scheduled_job(
+        db_client, "job_p1", '{"interval_seconds":86400,"timezone":"UTC"}'
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_p1")  # snapshot: running
+    await _mark_status_mid_run(db_client, "job_p1", "paused")
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "goodbye"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_p1"})
+    assert row["status"] == JobStatus.PAUSED.value  # NOT resurrected to active
+    assert row["next_run_time"] is None  # nothing scheduled for tomorrow
+    assert row["last_run_time"] is not None  # the run itself is still on record
+
+
+@pytest.mark.asyncio
+async def test_horizon_does_not_stamp_completed_over_inrun_cancel(db_client):
+    # Past-horizon job whose user cancelled it DURING the run: the respect
+    # branch must win — COMPLETED must not overwrite CANCELLED.
+    await _insert_scheduled_job(
+        db_client, "job_p2",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_p2")
+    await _mark_status_mid_run(db_client, "job_p2", "cancelled")
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_p2"})
+    assert row["status"] == "cancelled"
+
+
+# ── re-arm paths also honor the horizon (no extra fire through side doors) ──
+
+
+@pytest.mark.asyncio
+async def test_rearm_cooling_completes_past_horizon(db_client):
+    # A failed run's retry would fire past end_at: the failure-backoff door
+    # must not leak an extra run — complete instead of re-arming.
+    now = datetime(2026, 8, 19, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
+    await db_client.insert("instance_jobs", {
+        "job_id": "job_r1", "instance_id": "ins_job_r1",
+        "agent_id": "agent_1", "user_id": "user_1",
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": "scheduled",
+        "trigger_config": '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00"}',
+        "status": "cooling", "consecutive_failure_count": 1,
+        "cooldown_until": "2026-01-02T00:00:00Z",  # elapsed AND past horizon
+        "created_at": now, "updated_at": now,
+    })
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._rearm_cooled_jobs()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_r1"})
+    assert row["status"] == JobStatus.COMPLETED.value
+    assert row["next_run_time"] is None
+
+
+@pytest.mark.asyncio
+async def test_rearm_cooling_without_horizon_still_rearms(db_client):
+    now = datetime(2026, 8, 19, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
+    await db_client.insert("instance_jobs", {
+        "job_id": "job_r2", "instance_id": "ins_job_r2",
+        "agent_id": "agent_1", "user_id": "user_1",
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": "scheduled",
+        "trigger_config": '{"interval_seconds":86400,"timezone":"UTC"}',
+        "status": "cooling", "consecutive_failure_count": 1,
+        "cooldown_until": "2026-01-02T00:00:00Z",  # elapsed
+        "created_at": now, "updated_at": now,
+    })
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._rearm_cooled_jobs()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_r2"})
+    assert row["status"] == JobStatus.ACTIVE.value  # existing behavior intact
+
+
+@pytest.mark.asyncio
+async def test_heal_zombie_completes_past_horizon(db_client):
+    # ACTIVE + NULL next_run zombie whose recomputed fire lands past end_at:
+    # completing it beats resurrecting a schedule that owes no more fires.
+    now = datetime(2026, 8, 19, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
+    await db_client.insert("instance_jobs", {
+        "job_id": "job_z1", "instance_id": "ins_job_z1",
+        "agent_id": "agent_1", "user_id": "user_1",
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": "scheduled",
+        "trigger_config": '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00"}',
+        "status": "active", "created_at": now, "updated_at": now,
+    })
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._heal_unscheduled_active_jobs()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_z1"})
+    assert row["status"] == JobStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_heal_zombie_without_horizon_still_heals(db_client):
+    now = datetime(2026, 8, 19, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
+    await db_client.insert("instance_jobs", {
+        "job_id": "job_z2", "instance_id": "ins_job_z2",
+        "agent_id": "agent_1", "user_id": "user_1",
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": "scheduled",
+        "trigger_config": '{"interval_seconds":86400,"timezone":"UTC"}',
+        "status": "active", "created_at": now, "updated_at": now,
+    })
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._heal_unscheduled_active_jobs()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_z2"})
+    assert row["status"] == JobStatus.ACTIVE.value
+    assert row["next_run_time"] is not None  # existing behavior intact

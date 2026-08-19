@@ -245,12 +245,15 @@ def test_happy_path_full_sequence_and_claim_first(monkeypatch):
     tc = job_kw["trigger_config"]
     assert tc["interval_seconds"] == 86400 and tc["timezone"] == "Asia/Shanghai"
     # The PLATFORM brake: a naive-local end_at the trigger enforces; its date
-    # must be the same day the payload's goodbye script quotes.
+    # must be the same day the payload's goodbye script quotes — and the
+    # script's judgment reads "{end_date} or later" because the horizon day
+    # gets the LAST fire (an "after"-worded script would never run: the
+    # platform completes the job right after that fire).
     from datetime import datetime as _dt
 
     end_at = _dt.fromisoformat(tc["end_at"])
     assert end_at.tzinfo is None
-    assert f"after {end_at.date().isoformat()}" in job_kw["payload"]
+    assert f"If today's date is {end_at.date().isoformat()} or later" in job_kw["payload"]
     assert job_kw["title"] == ob.CHECKIN_JOB_TITLE
     # The payload carries the model-judged exits: 3-strikes plus the goodbye
     # script for the platform-enforced end_at horizon (date equality with
