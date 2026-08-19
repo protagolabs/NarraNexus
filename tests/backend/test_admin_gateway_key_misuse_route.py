@@ -221,6 +221,39 @@ async def test_unparseable_hit_at_still_records_event(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_coarse_date_only_hit_at_is_dropped_not_stored_as_midnight(db_client, monkeypatch):
+    """A bare-date hit_at (no time-of-day) parses to a VALID but COARSE literal —
+    midnight of that day. Keeping it would collapse distinct events that merely
+    share a day onto one (key_hash, hit_at) anchor. So a value with no
+    time-of-day is dropped like an unparseable one: the event lands on the
+    column-default (insert-time) stamp, NOT on the past midnight literal.
+
+    Uses a date years in the past so the assertion is deterministic: if the guard
+    is removed, the stored value is that 2020 midnight (far from now); with the
+    guard it is the insert-time default (close to now)."""
+    from datetime import timedelta
+    from xyz_agent_context.utils.timezone import coerce_utc, utc_now
+
+    app = _make_app(db_client, monkeypatch)
+
+    resp = await _post(
+        app, PATH,
+        json={"user_id": UID, "key_hash": "coarse_kh", "hit_at": "2020-01-15"},
+        headers={"X-Admin-Secret": SECRET},
+    )
+
+    assert resp.status_code == 200
+    rows = await db_client.get("gateway_key_misuse", {"key_hash": "coarse_kh"})
+    assert len(rows) == 1
+    stored = coerce_utc(rows[0]["hit_at"])
+    assert stored is not None
+    # The coarse date was DROPPED (not normalised-and-stored as 2020 midnight):
+    # the insert-time default landed instead, so the stamp is close to now.
+    assert abs(utc_now() - stored) < timedelta(minutes=5)
+    assert rows[0]["disposition_status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_distinct_hit_at_same_key_are_separate_events(db_client, monkeypatch):
     """Two genuine misuse events on the same key at different times are distinct
     rows — dedup keys on (key_hash, hit_at), not key_hash alone."""

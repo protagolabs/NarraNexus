@@ -40,6 +40,7 @@ from pydantic import BaseModel, Field
 # same ``settings`` singleton object.
 from xyz_agent_context.settings import settings  # noqa: F401
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.schema_registry import varchar_width
 from xyz_agent_context.utils.timezone import coerce_utc, utc_now
 from xyz_agent_context.repository.user_repository import UserRepository
 from xyz_agent_context.repository.ban_audit_repository import ACTION_WARN, BanAuditRepository
@@ -63,17 +64,25 @@ SENSITIVE_OP_WARNING = (
 # idempotent against retries.
 _DEDUP_WINDOW_SEC = 6 * 3600
 
+# Derived from the schema registry (single source of truth) rather than a
+# hardcoded width that could drift from the DDL. ``reason`` (which carries
+# ``category``) is MEDIUMTEXT, not a VARCHAR, so it has no column width to derive
+# — its bound is a runaway-payload guard set below.
+_ACTOR_MAX_LEN = varchar_width("ban_audit", "actor")
+
 
 class WarnRequest(BaseModel):
     user_id: str
-    # OPAQUE, audit-only. Never reaches the user notification. Bounded to keep a
-    # stray payload out of the audit row.
+    # OPAQUE, audit-only. Never reaches the user notification. The 4096 bound is a
+    # runaway-payload guard (keep a stray blob out of the audit row), NOT a column
+    # width: ``ban_audit.reason`` is MEDIUMTEXT, so varchar_width would raise on it.
     category: Optional[str] = Field(default=None, max_length=4096)
-    # Audit-only actor label. Bounded to ban_audit.actor's column width
-    # (VARCHAR(128)); an over-long actor would 1406 the audit insert and lose the
-    # trail. This is an audit breadcrumb, not the load-bearing enforcement row,
-    # so a 422 on a malformed actor is acceptable (unlike the misuse endpoint).
-    actor: Optional[str] = Field(default=None, max_length=128)
+    # Audit-only actor label. Bounded to ban_audit.actor's column width (derived
+    # from the schema registry via _ACTOR_MAX_LEN); an over-long actor would 1406
+    # the audit insert and lose the trail. This is an audit breadcrumb, not the
+    # load-bearing enforcement row, so a 422 on a malformed actor is acceptable
+    # (unlike the misuse endpoint).
+    actor: Optional[str] = Field(default=None, max_length=_ACTOR_MAX_LEN)
 
 
 class WarnResponse(BaseModel):

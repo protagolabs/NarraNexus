@@ -48,7 +48,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # field to its column width so an over-long value never drops the event; the
 # over-width ``user_id`` threshold uses the SAME width, so a value too long to be
 # a real id can never be mistaken for an authoritative attribution.
-_MISUSE_TABLE = "gateway_key_misuse"
+_MISUSE_TABLE = GatewayKeyMisuseRepository.TABLE
 USER_ID_MAX_LEN = varchar_width(_MISUSE_TABLE, "user_id")
 RUN_ID_MAX_LEN = varchar_width(_MISUSE_TABLE, "run_id")
 KEY_HASH_MAX_LEN = varchar_width(_MISUSE_TABLE, "key_hash")
@@ -77,10 +77,12 @@ class GatewayKeyMisuseRequest(BaseModel):
     # Authoritative time the misuse occurred (caller-supplied). When present and
     # parseable it is the idempotency anchor: a retry of the same event carries
     # the same (key_hash, hit_at) and collapses to one row (the UNIQUE index).
-    # Accepted as an ISO-8601 instant (a trailing ``Z`` is honoured); it is
-    # normalised server-side to the DATETIME(6) contract ``YYYY-MM-DD
-    # HH:MM:SS.ffffff`` (UTC) before it is written. Omitted or unparseable → the
-    # column default (insert time) applies and no dedup is possible.
+    # Accepted as an ISO-8601 instant WITH a time-of-day (a trailing ``Z`` is
+    # honoured); it is normalised server-side to the DATETIME(6) contract
+    # ``YYYY-MM-DD HH:MM:SS.ffffff`` (UTC) before it is written. Omitted,
+    # unparseable, or too coarse (a bare date / hour-only value that would
+    # collapse distinct events) → the column default (insert time) applies and no
+    # dedup is possible.
     hit_at: Optional[str] = None
 
 
@@ -90,6 +92,19 @@ class GatewayKeyMisuseResponse(BaseModel):
     # (key_hash, hit_at)) collapsed onto an existing row. Lets the caller / the
     # deploy side observe the retry rate instead of a field that is always True.
     already: bool
+
+
+def _has_time_of_day(raw: str) -> bool:
+    """True if an ISO-8601 string carries a real time-of-day (>= ``HH:MM``).
+
+    ``datetime.fromisoformat`` happily accepts a bare date (``"2026-08-19"``) or
+    an hour-only value; both normalise to a VALID but COARSE ``DATETIME(6)``
+    literal (midnight / the top of the hour). A coarse hit_at defeats the
+    idempotency anchor — it would collapse distinct misuse events that merely
+    share a day/hour onto ONE ``(key_hash, hit_at)`` row. A genuine instant has a
+    date/time separator and a minute field, i.e. a ``':'`` — so require one.
+    """
+    return ":" in raw
 
 
 def _clip(value: Optional[str], limit: int) -> Optional[str]:
@@ -145,9 +160,15 @@ async def record_gateway_key_misuse(
     hit_at = request.hit_at
     if hit_at is not None:
         normalized = to_datetime6_literal(hit_at)
+        # A parseable-but-coarse value (bare date / hour-only) is treated as
+        # unusable: it would collapse distinct events onto one idempotency anchor.
+        # Drop it just like an unparseable value — the event still lands on the
+        # column-default timestamp, only its (key_hash, hit_at) dedup is lost.
+        if normalized is not None and not _has_time_of_day(hit_at):
+            normalized = None
         if normalized is None:
             logger.error(
-                f"[gateway-key-misuse] unparseable hit_at {hit_at!r} — dropping "
+                f"[gateway-key-misuse] unusable hit_at {hit_at!r} — dropping "
                 "it; event lands with the column-default timestamp"
             )
         hit_at = normalized

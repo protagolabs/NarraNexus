@@ -6,6 +6,13 @@ stub: false
 
 # admin/warn.py — 敏感操作即时警告端点
 
+## 2026-08-19（PR#327 第 3 轮审后）— M1：actor 上界从 schema 派生
+
+`WarnRequest.actor` 的 `max_length` 不再硬编码 128，改为 `_ACTOR_MAX_LEN =
+varchar_width("ban_audit", "actor")`（schema 单一真相，与 misuse 端点列宽纪律一致）。
+`category` 的 4096 **保留字面量**并注明：它是**防失控 payload** 的护栏，非列宽——
+`ban_audit.reason` 是 MEDIUMTEXT，`varchar_width` 对它会抛。
+
 ## 2026-08-19（PR#327 第 3 轮审后）— C1：注释/mirror/测试去检测策略（public 仓）
 
 本仓是 public 开源仓。此前 warn.py 注释、本 mirror、测试字面量里残留了调用方一侧的

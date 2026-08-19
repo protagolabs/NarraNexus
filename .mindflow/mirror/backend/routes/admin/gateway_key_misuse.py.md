@@ -6,6 +6,17 @@ stub: false
 
 # admin/gateway_key_misuse.py — 网关 key 异常使用事件落库内部端点
 
+## 2026-08-19（PR#327 第 3 轮审后）— M2 表名单一真相 / M3 拒绝粗粒度 hit_at
+
+- **M2**：`_MISUSE_TABLE` 不再硬编码字符串，改引用 `GatewayKeyMisuseRepository.TABLE`，
+  少一份表名副本。
+- **M3 hit_at 偏宽收紧**：`fromisoformat` 会接受纯日期（`"2026-08-19"`）或只到小时的值，
+  它们归一成**合法但粗粒度**的 `DATETIME(6)` 字面量（午夜/整点），会把只共享同一天/同一
+  小时的不同事件塌成一个 `(key_hash, hit_at)` 幂等锚。解析成功后再校验原串确实带时间部分
+  （`_has_time_of_day`：含 `':'`）：不带则**丢弃 hit_at**（与不可解析同路径，事件仍落库、
+  走列默认落库时间），只是失去去重。测试 `test_coarse_date_only_hit_at_is_dropped_not_collapsed`
+  守：纯日期不被存成午夜字面量。
+
 ## 2026-08-19（PR#327 审后）— 列宽单一真相 / hit_at 归一化 / `recorded`→`already`
 
 - **I2 列宽收敛到 schema 单一真相**：截断宽度与 `user_id` 阈值不再在 route 硬编码，改从
