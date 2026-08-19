@@ -41,9 +41,6 @@ from xyz_agent_context.repository import (
     InstanceAwarenessRepository,
     InstanceRepository,
 )
-from xyz_agent_context.schema import (
-    normalize_agent_text,
-)
 
 # Where a rename records itself inside the Awareness profile. The profile is
 # injected verbatim into the system prompt every turn, so this is the one place
@@ -239,19 +236,28 @@ _SELF_NAME_LINE = re.compile(
 # rewriting it would be the content loss this whole area promises never to cause.
 _NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", ".", "|", "/", "-", "—", "(", "（")
 
-# The prescribed profile has FOUR numbered sections and only the fourth is about
-# the agent: 1-3 record the owner's preferences and observations. An owner
-# recorded as `- 姓名：张三` under Communication Style, for an agent that also
-# happened to be called 张三, would otherwise have their name replaced by the
-# agent's new one — silently, and unrecoverably, since instance_awareness is
-# overwritten by upsert.
+# Only the agent's OWN section may be edited. Everything else in this profile
+# belongs to the owner: the prescribed template puts their preferences and
+# observations in sections 1-3, and the model routinely writes further sections
+# of its own. An owner recorded as `- 姓名：张三` anywhere outside the identity
+# section, for an agent that also happened to be called 张三, would otherwise
+# have THEIR name replaced by the agent's new one — silently and unrecoverably,
+# since instance_awareness is overwritten by upsert and a log line is not a
+# record.
 #
-# Excluded by NEGATION rather than by matching section 4's title: the model
-# writes these headings and they drift, and a positive match would make
-# retirement stop working the moment one did — silently, which is the failure
-# mode this whole change exists to remove. Skipping 1/2/3 keeps the owner's
-# sections protected while a renamed or renumbered identity section still works.
-_OWNER_SECTION = re.compile(r"^\s*##\s*[123]\s*[.、]")
+# Matched POSITIVELY, and the reason is that the two failures are not
+# symmetric. Miss the identity section (the model renamed its heading) and a
+# stale self-name line survives: visible, recoverable, and the identity record
+# below it still corrects the agent. Edit an owner's line and the value is gone
+# for good. So the default is "do not touch", and a skipped candidate is logged
+# rather than silently dropped.
+#
+# An earlier cut excluded sections 1/2/3 instead, which left every section the
+# model invented — including the `## 5. Owner observations` this change's own
+# fixtures use — inside the editable region.
+_IDENTITY_SECTION = re.compile(
+    r"^\s*##\s.*(?:role|identity|身份|角色|自我认知)", re.IGNORECASE
+)
 _ANY_H2 = re.compile(r"^\s*##\s+")
 
 
@@ -279,9 +285,13 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     description). An owner observation that merely starts with the marker — and
     then keeps talking — is left exactly as written.
 
-    Scoped to the agent's own section: the prescribed profile puts the owner's
-    preferences and observations in sections 1-3 and the agent's identity in 4,
-    and a name in an owner section is the OWNER's.
+    Scoped to the agent's own section, matched positively (a heading naming
+    role / identity / 身份 / 角色, or the preamble before any section). Anything
+    else is the owner's: their preferences live in the template's sections 1-3
+    and the model writes further sections of its own, so a name declared there
+    is the OWNER's name. Missing the identity section leaves a stale line —
+    visible, recoverable, and still contradicted by the record below it —
+    whereas editing an owner's line cannot be undone.
 
     Known limit, stated rather than papered over: the label set is the spellings
     this prompt's structure produces in Chinese and English. A profile the model
@@ -292,15 +302,31 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     """
     old, new = (old_name or "").strip(), (new_name or "").strip()
     if not old or old == new:
-        return profile
+        return profile or ""
 
-    out, in_owner_section = [], False
+    # Before the first `##`, there is no section to be wrong about: that is the
+    # preamble, the default profile, and every bare fragment. Editable.
+    profile = profile or ""
+    out, editable = [], True
     for line in (profile or "").splitlines():
         if _ANY_H2.match(line):
-            in_owner_section = bool(_OWNER_SECTION.match(line))
-        m = None if in_owner_section else _SELF_NAME_LINE.match(line)
+            editable = bool(_IDENTITY_SECTION.match(line))
+        m = _SELF_NAME_LINE.match(line)
         value = m.group("value").strip() if m else ""
-        if m and value.startswith(old) and _ends_the_name(value[len(old):]):
+        if (
+            m
+            and not editable
+            and value.startswith(old)
+            and _ends_the_name(value[len(old):])
+        ):
+            # A declaration of the old name outside the agent's own section. Not
+            # touched — but said out loud, so "the heading drifted and retirement
+            # quietly stopped" is diagnosable instead of invisible.
+            logger.info(
+                f"[identity] leaving a name line outside the identity section "
+                f"alone: {line.strip()!r}"
+            )
+        if m and editable and value.startswith(old) and _ends_the_name(value[len(old):]):
             rewritten = m.group("head") + new + value[len(old):]
             # The one place the platform edits an agent's own long-term memory.
             # An edit nobody can see afterwards is an edit nobody can undo:
@@ -318,7 +344,7 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
 
 async def record_identity_change(
     db, agent_id: str, old_name: str, new_name: str
-) -> bool:
+) -> Optional[bool]:
     """File the rename into the agent's Awareness profile.
 
     Best-effort by design: the name change itself has already been written,
@@ -331,11 +357,13 @@ async def record_identity_change(
             agent_id=agent_id, module_class="AwarenessModule"
         )
         if not instances:
-            logger.warning(
+            # Nothing to correct: no Awareness instance means no identity
+            # memory that could be asserting the old name.
+            logger.debug(
                 f"record_identity_change: no AwarenessModule instance for "
-                f"{agent_id}; identity memory not corrected"
+                f"{agent_id}; nothing to correct"
             )
-            return False
+            return None
         instance_id = instances[0].instance_id
         awareness_repo = InstanceAwarenessRepository(db)
         current = await awareness_repo.get_by_instance(instance_id)

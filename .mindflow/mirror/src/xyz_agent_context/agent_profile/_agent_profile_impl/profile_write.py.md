@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 (八改) — 签名即白名单；两个信号都成三态
+
+**`extra_updates` 换成具名参数** `is_public` / `created_by`。今天不可利用（两处
+调用点都在代码里手工拼 dict），但下一个人写
+`extra_updates=body.model_dump(exclude_none=True)` 是很自然的一步，那一刻「改个
+名字」就顺带能改 agent 的**归属人**——而这个函数叫 profile change，审查的人不会
+想到去查鉴权。[[entity_schema]] 的闭集判据是第二道闸，不是第一道。
+`is_public=None` 表示"没传"，`False` 是值。
+
+**`identity_note_recorded` 也成了三态**（上一轮只改了 `identity_reconciled`，
+留下的不对称被第八轮抓到）：`None` = 没有可写入的地方（agent 没有 AwarenessModule
+实例，也就没有会变旧的身份记忆），`True` = 写了，`False` = 该写没写成。
+
+为什么这条不是洁癖：`POST /manyfold/agents` 建号**从不调 `InstanceFactory`**
+（对比 [[provision]] 会调 `create_agent_level_instances`），所以每个 Manyfold
+provision 出来、还没跑过第一轮的 agent 改名时都会落到"无实例"这支。报成
+`False` 的后果是：UI 弹「它可能仍然自述旧名」、Manyfold 收到 false、日志打
+WARNING——**三句全是假的**，那个 agent 根本没有身份记录。会误报的告警等于没有
+告警，而这个字段存在的唯一理由就是事故状态不能只活在会被轮转掉的日志里。
+
+**auth 路由的兜底分支**不再把 `result.error` 直接丢给 UI：那串是给**模型**写的
+（"Error: new_name is too long (max 255 characters)" 在弹窗里像泄漏的内部字符串），
+两个受众任何一边改措辞就会漂。按 `error_kind` 映射到本路由自己的句子。
 
 ## 2026-08-19 (五改) — 三处修正
 

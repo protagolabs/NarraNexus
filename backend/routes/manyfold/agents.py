@@ -225,7 +225,7 @@ async def create_agent_for_manyfold(
             new_description=(
                 wanted_desc or agent_row.get("agent_description")
             ),
-            extra_updates={"created_by": nx_user_id},
+            created_by=nx_user_id,
         )
         if not result.ok:
             # Same error_kind → same status code as the PATCH below, so the

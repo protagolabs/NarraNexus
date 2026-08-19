@@ -422,7 +422,7 @@ async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
 
     assert result.updated_fields == ("agent_name",), "the repair did write"
     assert result.renamed_from is None and result.renamed_to is None
-    assert result.identity_note_recorded is False
+    assert result.identity_note_recorded is None
 
 
 @pytest.mark.asyncio
@@ -442,12 +442,18 @@ async def test_a_real_rename_reports_that_its_note_landed(db_client):
 
 
 @pytest.mark.asyncio
-async def test_a_rename_with_no_awareness_instance_says_the_note_did_not_land(
+async def test_a_rename_with_no_awareness_instance_has_nothing_to_correct(
     db_client,
 ):
-    """An agent with no AwarenessModule instance has nowhere to file the
-    correction. The rename still succeeds — reporting failure for a name that
-    IS stored would be the worse lie — but the degradation must be visible."""
+    """No Awareness instance is "nothing to record", not "recording failed".
+
+    An agent with no identity memory has none that could be asserting the old
+    name, so there is nothing to warn about. Reported as a failure it became a
+    false alarm on the most ordinary rename there is: POST /manyfold/agents
+    provisions an agent row without creating instances, so every Manyfold agent
+    that has not taken a turn yet lands here — and the user was shown "it may
+    still introduce itself by the old name" about an agent with no memory at all.
+    """
     from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await db_client.insert("agents", {
@@ -460,9 +466,8 @@ async def test_a_rename_with_no_awareness_instance_says_the_note_did_not_land(
     )
 
     assert result.ok and result.renamed_from == "美食家"
-    assert result.identity_note_recorded is False, (
-        "a rename whose identity correction went nowhere looks identical to a "
-        "complete one — that state IS the incident"
+    assert result.identity_note_recorded is None, (
+        "nothing to correct must not read as a correction that failed"
     )
 
 
@@ -519,7 +524,7 @@ async def test_a_stale_record_is_corrected_without_being_called_a_rename(
 
     assert result.status == "unchanged"
     assert result.renamed_from is None and result.renamed_to is None
-    assert result.identity_note_recorded is False
+    assert result.identity_note_recorded is None
     assert result.identity_reconciled is True
 
 
@@ -776,7 +781,7 @@ async def test_repairing_a_diverged_agent_also_retires_its_self_name_line(
 
 @pytest.mark.asyncio
 async def test_a_rename_whose_record_could_not_be_written_says_so_in_the_response(
-    db_client, ui_client
+    db_client, ui_client, monkeypatch
 ):
     """"The column moved and the memory did not" must not live only in a log.
 
@@ -785,14 +790,19 @@ async def test_a_rename_whose_record_could_not_be_written_says_so_in_the_respons
     a user their save failed for a name that IS stored is the worse lie — but
     the response says the record did not follow.
     """
-    # No AwarenessModule instance: nowhere to file the correction.
-    await db_client.insert("agents", {
-        "agent_id": "agent_no_memory", "agent_name": "美食家",
-        "created_by": OWNER, "agent_description": "x", "is_public": 0,
-    })
+    # A real failure: the instance exists, so there IS a record to correct, and
+    # the write is made to fail. Distinct from having no instance at all, which
+    # is "nothing to correct" and must not warn.
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+    import xyz_agent_context.module.awareness_module as aw
+
+    async def _boom(_db, _agent_id, _old, _new):  # noqa: ANN001
+        return False
+
+    monkeypatch.setattr(aw, "record_identity_change", _boom)
 
     body = ui_client.put(
-        "/api/auth/agents/agent_no_memory",
+        f"/api/auth/agents/{AGENT_ID}",
         json={"agent_name": "小绿"},
         headers={"X-User-Id": OWNER},
     ).json()
@@ -862,3 +872,32 @@ async def test_repairing_a_diverged_agent_reports_it_to_the_caller(
 
     assert body["success"] is True
     assert body["identity_record_updated"] is True
+
+
+@pytest.mark.asyncio
+async def test_renaming_an_agent_with_no_memory_raises_no_warning_in_the_ui(
+    db_client, ui_client
+):
+    """The false-alarm case, pinned at the layer that shows the alarm.
+
+    `identity_record_updated === false` is what makes the UI warn. An agent with
+    no Awareness instance has no identity memory to have gone stale, and every
+    Manyfold-provisioned agent that has not taken a turn is in that state — so
+    reporting False here put a warning in front of users on ordinary renames,
+    and an alarm that cries wolf is not an alarm.
+    """
+    await db_client.insert("agents", {
+        "agent_id": "agent_memoryless", "agent_name": "美食家",
+        "created_by": OWNER, "agent_description": "x", "is_public": 0,
+    })
+
+    body = ui_client.put(
+        "/api/auth/agents/agent_memoryless",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True
+    assert body["identity_record_updated"] is None, (
+        "nothing to correct must not reach the UI as a warning"
+    )

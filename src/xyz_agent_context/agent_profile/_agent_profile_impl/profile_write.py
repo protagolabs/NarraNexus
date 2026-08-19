@@ -70,10 +70,12 @@ def _awareness_identity_writers():
     return awareness_module
 
 
-async def _record_identity(db, agent_id: str, old_name: str, new_name: str) -> bool:
+async def _record_identity(
+    db, agent_id: str, old_name: str, new_name: str
+) -> Optional[bool]:
     aw = _awareness_identity_writers()
     if aw is None:
-        return False
+        return None
     return await aw.record_identity_change(db, agent_id, old_name, new_name)
 
 
@@ -131,7 +133,10 @@ class AgentProfileWrite:
     #: already stored; failing the caller afterwards would report a rename that
     #: happened as one that did not) — but that silent degradation IS the
     #: incident this transaction exists for, so it must at least be visible.
-    identity_note_recorded: bool = False
+    #: ``None`` = nothing to record it into (the agent has no Awareness
+    #: instance, so no identity memory exists to have gone stale); ``True`` =
+    #: filed; ``False`` = it should have been and was not.
+    identity_note_recorded: Optional[bool] = None
     #: Machine-readable failure, so routes can map it to a status code. Same
     #: reason as ``status`` for pinning the spellings in the type.
     error_kind: Optional[
@@ -192,7 +197,8 @@ async def _same_owner_name_holder(
 async def apply_agent_profile_change(
     db, agent_id: str, *, new_name: Optional[str] = None,
     new_description: Optional[str] = None,
-    extra_updates: Optional[dict] = None,
+    is_public: Optional[bool] = None,
+    created_by: Optional[str] = None,
 ) -> AgentProfileWrite:
     """Write an agent's name and/or description as ONE transaction.
 
@@ -207,10 +213,23 @@ async def apply_agent_profile_change(
     standing invitation to that bug; there is now one writer and no steps to
     remember.
 
-    ``extra_updates`` carries fields with no identity semantics (``is_public``)
-    so a caller that edits them alongside the name still issues a SINGLE row
-    write — splitting it would open a window where the row is half-updated.
+    ``is_public`` and ``created_by`` are named rather than carried in an open
+    dict, and the signature IS the whitelist. They ride along so a caller
+    editing them alongside the name still issues a SINGLE row write — splitting
+    it would open a window where the row is half-updated — but an open
+    ``extra_updates`` on the platform's only writer of this row invites the next
+    caller to forward a request body straight into it, at which point "rename an
+    agent" also reassigns its owner. Nothing in the name of this function would
+    prompt a reviewer to check for that. ``agent_field_matches``'s closed set is
+    the second line, not the first.
+
+    ``is_public=None`` means "not passed"; ``False`` is a value.
     """
+    extra_updates = {
+        field: value
+        for field, value in (("is_public", is_public), ("created_by", created_by))
+        if value is not None
+    }
     if new_name is None and new_description is None and not extra_updates:
         return AgentProfileWrite(
             status="error",
@@ -386,7 +405,7 @@ async def apply_agent_profile_change(
     # tool happened to be the writer, and Shenzhen round 2 is what the other
     # writers produced — a stale correction is worse than none, because it
     # speaks in the platform's voice and the agent believes it.
-    note_recorded = False
+    note_recorded = None
     reconciled = None
     # ``is not None``, not truthiness: renamed_from carries the PREVIOUS name,
     # and a legacy row can hold "". Folding that into "did not rename" sent a
@@ -398,7 +417,7 @@ async def apply_agent_profile_change(
         note_recorded = await _record_identity(
             db, agent_id, renamed_from, updates["agent_name"]
         )
-        if not note_recorded:
+        if note_recorded is False:
             # One greppable line for the state that IS the incident: the column
             # moved, the memory did not. Without it the two halves live in
             # separate log records inside record_identity_change and nothing

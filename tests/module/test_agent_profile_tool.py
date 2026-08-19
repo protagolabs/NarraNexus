@@ -573,3 +573,29 @@ class TestSelfNameLine:
         out = retire_self_name(drifted, "美食家", "小绿")
         assert "## 5. 身份与角色\n- 名称：小绿" in out
         assert "## 1. Narrative Management Preferences\n- 姓名：美食家" in out
+
+
+    def test_an_owner_name_line_in_an_unnumbered_section_is_still_safe(self):
+        """The scope must fail toward NOT editing.
+
+        This PR's own integration fixtures put owner content in `## 5. Owner
+        observations` while a unit fixture treated `## 5. 身份与角色` as the
+        agent's — two opposite answers for the same section number, with the
+        code implementing the dangerous one. The harms are not symmetric:
+        skipping a stale self-name line leaves a visible, recoverable symptom
+        that the identity record still corrects, while rewriting an owner's
+        name is unrecoverable (upsert overwrites, and a log line is not a
+        record). So the identity section is matched POSITIVELY and everything
+        else is owner territory.
+        """
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = (
+            "## 4. Role and Identity\n- 名称：美食家\n\n"
+            "## 5. Owner observations\n- 姓名：美食家\n"
+        )
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "## 4. Role and Identity\n- 名称：小绿" in out
+        assert "## 5. Owner observations\n- 姓名：美食家" in out, (
+            "an owner name line outside the identity section was rewritten"
+        )

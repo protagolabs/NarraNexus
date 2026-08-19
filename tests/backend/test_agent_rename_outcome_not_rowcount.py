@@ -392,3 +392,35 @@ def test_a_transaction_level_failure_names_the_fields_that_did_not_land(
     body = res.json()
     assert body["success"] is False
     assert body["error"] == "The update did not persist: agent_name"
+
+
+def test_a_refusal_is_worded_for_the_ui_not_for_a_model(
+    client, db_client, seeded, monkeypatch
+):
+    """The shared transaction's `error` is composed for a MODEL to read.
+
+    "Error: new_name is too long (max 255 characters)" in a dialog reads as a
+    leaked internal string, and the two audiences drift the moment either is
+    reworded. The route maps on error_kind and writes its own sentence.
+    """
+    import backend.routes.auth as auth_mod
+    from xyz_agent_context.agent_profile import AgentProfileWrite
+
+    async def _too_long(_db, _agent_id, **_kwargs):  # noqa: ANN001
+        return AgentProfileWrite(
+            status="error",
+            error_kind="too_long",
+            error="Error: new_name is too long (max 255 characters)",
+        )
+
+    monkeypatch.setattr(auth_mod, "apply_agent_profile_change", _too_long)
+
+    body = client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "x"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is False
+    assert not body["error"].startswith("Error:"), body["error"]
+    assert "255" in body["error"]

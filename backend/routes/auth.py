@@ -37,6 +37,7 @@ from xyz_agent_context.repository import (
     UserRepository,
 )
 from xyz_agent_context.schema import (
+    AGENT_TEXT_MAX_LENGTH,
     NON_TRANSACTING_USER_STATUSES,
     agent_field_matches,
     normalize_agent_text,
@@ -1121,17 +1122,16 @@ async def update_agent(
         # is_public rides along as an extra: it carries no identity meaning, but
         # putting it in the same call keeps the row write single rather than
         # opening a window where the row is half-updated.
-        extra = (
-            {"is_public": requested["is_public"]}
-            if "is_public" in requested
-            else None
-        )
         result = await apply_agent_profile_change(
             db_client,
             agent_id,
             new_name=requested.get("agent_name"),
             new_description=requested.get("agent_description"),
-            extra_updates=extra,
+            # None means "not passed"; False is a value, so read the presence of
+            # the key rather than its truthiness.
+            is_public=(
+                bool(requested["is_public"]) if "is_public" in requested else None
+            ),
         )
 
         if not result.ok:
@@ -1147,7 +1147,25 @@ async def update_agent(
                     success=False,
                     error=_not_persisted(result.unapplied_fields),
                 )
-            return UpdateAgentResponse(success=False, error=result.error)
+            # Every remaining kind gets a sentence written for this route's
+            # reader. `result.error` is composed for a MODEL — "Error: new_name
+            # is too long (max 255 characters)" reads as a leaked internal
+            # string in a dialog — and the two audiences drift the moment either
+            # is reworded. `empty_name` and `too_long` are unreachable through
+            # this route's own validation above and the schema's max_length, but
+            # a mapping that depends on a caller's other guards is a mapping
+            # that breaks when one is relaxed.
+            return UpdateAgentResponse(
+                success=False,
+                error={
+                    "empty_name": "Agent name cannot be empty",
+                    "too_long": (
+                        f"Name and description are limited to "
+                        f"{AGENT_TEXT_MAX_LENGTH} characters"
+                    ),
+                    "nothing_to_update": "No fields to update",
+                }.get(result.error_kind or "", "The update could not be applied"),
+            )
 
         # The row is the response. Whether it needed a write ("updated") or
         # already held the values ("unchanged"), the state the caller asked for
