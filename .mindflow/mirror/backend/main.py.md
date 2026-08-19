@@ -1,8 +1,24 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — admin_warn_router 注册
+
+新增 `from backend.routes.admin.warn import router as admin_warn_router` 和
+`app.include_router(admin_warn_router, tags=["AdminWarn"])`。router 自带 prefix
+`/api/admin`，挂载敏感操作即时警告端点（`POST /api/admin/warn-user`，写一行
+`user_notifications` + 一行 `ban_audit(action="warn")`）。与 `admin_suspend_router` /
+`admin_gateway_key_misuse_router` 同 pattern；路径同步进 [[auth]] 的 `AUTH_EXEMPT_PATHS`。见
+[[warn.py]]。
+
+## 2026-08-19 — admin_gateway_key_misuse_router 注册
+
+新增 `from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router`
+和 `app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])`。router
+自带 prefix `/api/admin`，挂载网关 key 异常使用事件落库端点（`POST /api/admin/gateway-key-misuse`，
+`gateway_key_misuse` 唯一写方）。与 `admin_suspend_router` 同 pattern。见 [[gateway_key_misuse]]。
 
 ## 2026-08-18 — `/health` 的结果缓存
 

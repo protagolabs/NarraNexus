@@ -34,6 +34,7 @@ from .inbox_repository import InboxRepository
 from .mcp_repository import MCPRepository
 from .user_repository import UserRepository
 from .ban_audit_repository import BanAuditRepository
+from .gateway_key_misuse_repository import GatewayKeyMisuseRepository
 from .agent_repository import AgentRepository
 from .agent_registry_repository import AgentRegistryRepository
 from .agent_message_repository import AgentMessageRepository
@@ -91,6 +92,7 @@ __all__ = [
     # User
     "UserRepository",
     "BanAuditRepository",
+    "GatewayKeyMisuseRepository",
     "User",
     "UserStatus",
     # Agent

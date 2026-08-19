@@ -1438,6 +1438,50 @@ _register(
 )
 
 
+# 28d. gateway_key_misuse — records of abnormal / unauthorized use of a gateway
+# key, for security monitoring.
+#
+# Single writer: the backend admin gateway-key-misuse endpoint, which persists
+# what the caller AUTHORITATIVELY reverse-resolved for the offending key (the
+# gateway is the authority on which identity the key is bound to) — never
+# anything an attacker controls. This endpoint records ONLY the fields it is
+# handed; it parses no free-form text. The security monitor reads this table
+# read-only and drives its response ladder off it. executor/agent have no
+# credential to write here (admin-secret gated, same lock as suspend).
+#
+# user_id is nullable on purpose: an unresolved event (upstream hiccup / key
+# gone) is recorded as an ALERT-ONLY row with user_id=NULL — a human triages it;
+# the ladder never acts on a NULL id, so we never fabricate an attributable id.
+#
+# (key_hash, hit_at) is UNIQUE for idempotency: when the caller supplies the
+# authoritative event time, a write-succeeded-but-response-timed-out retry of the
+# same event collapses to the same row instead of a duplicate the response ladder
+# would act on twice. A NULL key_hash (unresolved event) does not participate —
+# SQL uniqueness treats NULLs as distinct, so alert-only rows never false-dedup.
+_register(
+    TableDef(
+        name="gateway_key_misuse",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)"),  # nullable: unresolved event → alert-only row, never actioned
+            Column("run_id", "TEXT", "VARCHAR(128)"),
+            Column("key_hash", "TEXT", "VARCHAR(256)"),
+            Column("caller_ip", "TEXT", "VARCHAR(64)"),
+            Column("caller_ua", "TEXT", "VARCHAR(256)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("hit_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("disposition_status", "TEXT", "VARCHAR(32)", nullable=False, default="'pending'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_gateway_key_misuse_user", ["user_id"]),
+            Index("idx_gateway_key_misuse_status", ["disposition_status", "created_at"]),
+            Index("idx_gateway_key_misuse_dedup", ["key_hash", "hit_at"], unique=True),
+        ],
+    )
+)
+
+
 # ----------------------------------------------------------------------------
 # 29. user_notifications — out-of-band messages to surface in UI
 #

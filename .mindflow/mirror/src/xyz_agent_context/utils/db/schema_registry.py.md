@@ -1,8 +1,41 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — gateway_key_misuse 新表（网关 key 异常使用事件的权威落库）
+
+注册 `gateway_key_misuse`：网关 key 的异常/越权使用事件的结构化记录表，供安全监控消费。
+归因 100% 走权威结构化信号，绝不 grep 日志文本。
+
+**单一写方 = backend 内部 admin gateway-key-misuse 端点**（[[gateway_key_misuse]]，与
+[[suspend.py]] 同一把 `X-Admin-Secret` 锁）。写入的 `user_id` 是调用方（网关是「这把 key
+绑定了哪个身份」的权威）**权威反解**出来的结果，端点本身**不解析任何文本**、只记录被交给
+它的字段。executor/agent 无 admin-secret 凭据 → 无法写这张表。**读方是安全监控（只读）**，
+据此驱动响应梯子。
+
+列：`id`(BIGINT UNSIGNED 自增主键，兼作监控的 watermark PK)、
+`user_id`(VARCHAR(128)，**可空**)、`run_id`(VARCHAR(128))、`key_hash`
+(VARCHAR(256))、`caller_ip`(VARCHAR(64))、`caller_ua`(VARCHAR(256))、
+`model`(VARCHAR(128))、`hit_at`(DATETIME(6) NOT NULL，sqlite 侧
+`(datetime('now'))` → MySQL `CURRENT_TIMESTAMP(6)`)、`disposition_status`
+(VARCHAR(32) NOT NULL DEFAULT `'pending'`)、`created_at`(同 hit_at 形制)。
+索引 `idx_gateway_key_misuse_user(user_id)`、
+`idx_gateway_key_misuse_status(disposition_status, created_at)`，以及**唯一**索引
+`idx_gateway_key_misuse_dedup(key_hash, hit_at)`——幂等键：调用方传权威事件时间时，
+「写成功但响应超时」的重试携带同一 `(key_hash, hit_at)`，落回同一行而非重复行（硬信号
+一次即处置，重复行会重复处置）。`key_hash` 为 NULL 的未解析事件不参与去重（SQL 唯一性
+视 NULL 互不相等，alert-only 行永不误去重）。
+
+**`user_id` 可空是刻意的**：上游反解失败（网关抖动 / key 已被删）时，端点仍落一行
+**alert-only** 记录、`user_id=NULL`，由人工分诊；响应梯子**绝不**在 NULL id 上触发，因此
+永不伪造一个可处置的归因 id。设成 NOT NULL 会逼写入方编造哨兵值，把「未解析」和「解析为
+某人」两件正交的事混为一列。
+
+纯新增表（铁律 #6），`auto_migrate` 幂等建它。双方言由同一份 TableDef 生成，
+`tests/utils/db/test_gateway_key_misuse_schema.py` 直接对 `generate_sqlite_ddl` /
+`generate_mysql_ddl` 断言两方言 DDL 均成立（含 DATETIME 默认值的 MySQL 翻译）。
 
 ## 2026-08-18 — TYPE_CHECKING 导入 `DatabaseBackend`（F821 配套，零行为变化）
 

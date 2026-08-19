@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/ban_audit_repository.py
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -10,7 +10,9 @@ stub: false
 
 账户停用机制（见 [[suspend.py]]）每次切换账户状态都需要留痕：谁（`actor`）在何时、对哪个用户、做了什么动作（suspend / reinstate），以及一段外部提供的不透明说明。本文件就是这条审计的单点写入器——`ban_audit` 表之上一层薄薄的 best-effort writer，按 `user_id` 组织，从 `service_audit` 记录器泛化而来。
 
-暴露两个 action 常量 `ACTION_SUSPEND = "suspend"` / `ACTION_REINSTATE = "reinstate"` 供调用方使用，避免字面量散落。
+暴露 action 常量 `ACTION_SUSPEND = "suspend"` / `ACTION_REINSTATE = "reinstate"` / `ACTION_WARN = "warn"` 供调用方使用，避免字面量散落。
+
+**2026-08-19 起该审计轨迹同时承载 sensitive-operation warning**（`action="warn"`，见 [[warn.py]]）：敏感操作即时警告端点每次实发写一行 `ACTION_WARN` 审计，与 suspend / reinstate 共表——审计层对动作类别保持中性，`reason` 承载调用方传入的不透明 opaque category（永不进用户消息）。
 
 ## 这个文件不做什么
 
