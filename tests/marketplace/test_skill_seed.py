@@ -98,3 +98,15 @@ def test_real_repo_skills_root_exists_and_has_defaults():
     for name in ("netmind-vision", "netmind-transcribe"):
         manifest = json.loads((root / name / "manifest.json").read_text())
         assert manifest.get("default") is True, f"{name} must be a default skill"
+
+
+def test_real_repo_guide_skill_is_vendored_and_not_default():
+    """narranexus-guide ships with the repo but must NOT auto-install on every
+    new agent — onboarding provisioning installs it on the guide agent only."""
+    root = _skills_root()
+    assert root is not None
+    guide = root / "narranexus-guide"
+    assert (guide / "SKILL.md").exists() and (guide / "manifest.json").exists()
+    manifest = json.loads((guide / "manifest.json").read_text())
+    assert manifest["id"] == "narranexus-guide"
+    assert manifest.get("default") is False
