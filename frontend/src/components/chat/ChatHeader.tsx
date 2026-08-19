@@ -28,6 +28,7 @@ import {
   Inbox,
   PanelLeft,
   SlidersHorizontal,
+  Check,
 } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
@@ -40,7 +41,7 @@ import {
   tabDescKey,
   type AtomicTabId,
 } from '@/components/bookmarks';
-import { useUIStore, useArtifactStore } from '@/stores';
+import { useUIStore, useArtifactStore, useConfigStore, useChatStore } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { cn } from '@/lib/utils';
@@ -90,6 +91,21 @@ export function ChatHeader({
   const { t } = useTranslation();
   const [detailOpen, setDetailOpen] = useState(false);
   const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
+  // Agent switcher under the name. Clicking the agent's NAME must answer
+  // "talk to someone else", not open settings — settings keep their own
+  // door (the ⋯ menu on the right).
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
+  const agents = useConfigStore((s) => s.agents);
+  const setAgentId = useConfigStore((s) => s.setAgentId);
+  const setActiveAgent = useChatStore((s) => s.setActiveAgent);
+  const handleSwitchAgent = (id: string) => {
+    setSwitcherOpen(false);
+    if (id !== agentId) {
+      setAgentId(id);
+      setActiveAgent(id);
+    }
+  };
 
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
@@ -135,20 +151,60 @@ export function ChatHeader({
           size="sm"
           className="shrink-0"
         />
-        <button
-          type="button"
-          onClick={() => setDetailOpen((v) => !v)}
-          title={t('chat.header.agentDetailTitle')}
-          className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)] shrink-0"
-        >
-          {/* Same family as the sidebar row that shows this same name — the
-              header keeps its lead role via size + weight, not a second
-              typeface (design_system.md §4.1: display is for large titles). */}
-          <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
-            {agentName}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 text-[var(--nm-ink30)]" />
-        </button>
+        <div ref={switcherRef} className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen((v) => !v)}
+            aria-expanded={switcherOpen}
+            title={t('chat.header.switchAgent')}
+            aria-label={t('chat.header.switchAgent')}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+          >
+            {/* Same family as the sidebar row that shows this same name — the
+                header keeps its lead role via size + weight, not a second
+                typeface (design_system.md §4.1: display is for large titles). */}
+            <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
+              {agentName}
+            </span>
+            <ChevronDown
+              className={cn('h-3.5 w-3.5 text-[var(--nm-ink30)] transition-transform', switcherOpen && 'rotate-180')}
+            />
+          </button>
+          {switcherOpen && (
+            <div
+              className={cn(
+                'absolute left-0 top-full z-50 mt-1.5 w-60 max-h-[50vh] overflow-y-auto py-1',
+                'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
+                'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
+              )}
+            >
+              {agents.map((a) => {
+                const active = a.agent_id === agentId;
+                return (
+                  <button
+                    key={a.agent_id}
+                    type="button"
+                    onClick={() => handleSwitchAgent(a.agent_id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors',
+                      'hover:bg-[var(--nm-paper-warm)]',
+                      active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
+                    )}
+                  >
+                    <RingAvatar
+                      species="silicon"
+                      label={(a.name || a.agent_id).slice(0, 2)}
+                      size="sm"
+                      className="shrink-0"
+                    />
+                    <span className="flex-1 min-w-0 truncate">{a.name || a.agent_id}</span>
+                    {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         {sessionLabel && (
           <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
             {sessionLabel}

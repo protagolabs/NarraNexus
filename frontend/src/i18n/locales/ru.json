@@ -278,9 +278,9 @@
     },
     "header": {
       "sessionLabel": "сессия · {{time}}",
-      "agentDetailTitle": "Детали агента",
       "detailMenuTitle": "Детали агента — панели",
-      "modelFramework": "Модель и фреймворк"
+      "modelFramework": "Модель и фреймворк",
+      "switchAgent": "Сменить агента"
     },
     "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией."
   },

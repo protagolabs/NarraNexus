@@ -4,6 +4,14 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 点名字=切换 agent,设置只走 ⋯
+
+头部 agent 名不再打开 detail 菜单(弹窗还错位地锚在最右的 ⋯ 下面):
+名字现在是 **Agent 切换器**——左锚下拉列出全部 agent(头像+名字,当前项
+打勾),选中走 setAgentId+setActiveAgent(与侧栏行同一条路)。设置/面板
+只保留 ⋯ 一个入口。key `chat.header.switchAgent` 替换 `agentDetailTitle`
+(×10,旧键删除)。测试:chatHeaderAgentSwitcher.test.tsx。
+
 ## 2026-08-19 — ⋯ 菜单换 useDismissOnOutside
 
 手写全屏 backdrop 换 [[../../hooks/useDismissOnOutside]],与侧栏各弹层同一

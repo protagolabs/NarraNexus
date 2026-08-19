@@ -342,9 +342,9 @@
     },
     "header": {
       "sessionLabel": "会话 · {{time}}",
-      "agentDetailTitle": "Agent 详情",
       "detailMenuTitle": "Agent 详情 — 面板入口",
-      "modelFramework": "模型与框架"
+      "modelFramework": "模型与框架",
+      "switchAgent": "切换 agent"
     },
     "composerPrivacyHint": "请勿分享敏感个人信息。"
   },

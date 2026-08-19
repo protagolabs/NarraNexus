@@ -280,9 +280,9 @@
     },
     "header": {
       "sessionLabel": "الجلسة · {{time}}",
-      "agentDetailTitle": "تفاصيل الوكيل",
       "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
-      "modelFramework": "النموذج وإطار العمل"
+      "modelFramework": "النموذج وإطار العمل",
+      "switchAgent": "تبديل الوكيل"
     },
     "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
   },

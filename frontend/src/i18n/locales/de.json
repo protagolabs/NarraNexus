@@ -276,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "Sitzung · {{time}}",
-      "agentDetailTitle": "Agent-Details",
       "detailMenuTitle": "Agent-Details — Panels",
-      "modelFramework": "Modell & Framework"
+      "modelFramework": "Modell & Framework",
+      "switchAgent": "Agent wechseln"
     },
     "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten."
   },

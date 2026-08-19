@@ -342,9 +342,9 @@
     },
     "header": {
       "sessionLabel": "session · {{time}}",
-      "agentDetailTitle": "Agent detail",
       "detailMenuTitle": "Agent detail — panels",
-      "modelFramework": "Model & framework"
+      "modelFramework": "Model & framework",
+      "switchAgent": "Switch agent"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information."
   },

@@ -276,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "sesión · {{time}}",
-      "agentDetailTitle": "Detalle del agente",
       "detailMenuTitle": "Detalle del agente — paneles",
-      "modelFramework": "Modelo y framework"
+      "modelFramework": "Modelo y framework",
+      "switchAgent": "Cambiar de agente"
     },
     "composerPrivacyHint": "Evita compartir información personal sensible."
   },

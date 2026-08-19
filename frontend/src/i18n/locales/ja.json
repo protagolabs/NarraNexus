@@ -276,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "セッション · {{time}}",
-      "agentDetailTitle": "エージェント詳細",
       "detailMenuTitle": "エージェント詳細 — パネル",
-      "modelFramework": "モデルとフレームワーク"
+      "modelFramework": "モデルとフレームワーク",
+      "switchAgent": "エージェントを切り替え"
     },
     "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
   },

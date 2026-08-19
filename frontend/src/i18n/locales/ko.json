@@ -276,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "세션 · {{time}}",
-      "agentDetailTitle": "에이전트 상세",
       "detailMenuTitle": "에이전트 상세 — 패널",
-      "modelFramework": "모델 및 프레임워크"
+      "modelFramework": "모델 및 프레임워크",
+      "switchAgent": "에이전트 전환"
     },
     "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요."
   },
