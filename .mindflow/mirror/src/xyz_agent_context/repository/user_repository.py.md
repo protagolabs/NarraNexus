@@ -4,6 +4,29 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 新契约要有测试守着，否则只是换了个地方的同一个 bug
+
+上一条把兜底收进了 `get_user_timezone`,但**没有任何测试锁住新契约**——把实现改回
+`if user: return user.timezone`,全量 6468 条依旧全绿。
+
+这跟这次修的 bug 是**同一个形状**：当时的问题就是"docstring 承诺了实现没做的事"。只改实现
+不加测试，等于把下一次复发的条件原封不动留着——有人做 repository 层清理、或觉得多包一层
+`resolve_timezone` 是多余开销，改回一行，CI 放行，然后 `instance_sync_service` 重新开始把
+非法时区串**持久化**进 job 的 `trigger_config`,几个月后表现为"某几个 job 不再触发"。
+
+`tests/repository/test_user_repository_timezone.py` 打三个分支：用户不存在、存的是空串、
+存的是非 IANA 串。已用改回旧实现的方式验证过 3 条会红。
+
+两个写法上的坑（都踩过一次才写对）：
+
+- 断言必须是**精确的 `"UTC"` 字面量**,不能写 `is_valid_timezone(...)`——旧实现在合法值那
+  几个 case 上同样满足，等于没测。跟本 PR 前面"断言带偏移 vs 断言精确 +08:00"是同一个坑。
+- `add_user(timezone="")` 之后要**回读确认空串真的落库了**。Pydantic 的
+  `Field(default="UTC")` 只在字段缺失时生效，显式传 `""` 会落库——但这条一旦哪天变了，测试
+  会静默退化成"测了个 UTC 直通"而不是失败。所以那句回读断言是测试的一部分，不是调试残留。
+
+**没有**给 `users.timezone` 加 DB 约束或迁移来"根治"：那是铁律 #6 的范围，本次定位是应用层收口。
+
 ## 2026-08-18 — `get_user_timezone` 的实现追上它的 docstring
 
 原来 docstring 写着「returns 'UTC' if user does not exist」，实现却是用户存在就

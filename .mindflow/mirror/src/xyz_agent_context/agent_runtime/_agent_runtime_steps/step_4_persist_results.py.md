@@ -8,8 +8,25 @@ stub: false
 
 上一条新增的 `_owner_visible_reply_texts` 跟既有的 `_turn_delivered_user_message` 是同一段
 遍历的两份拷贝。当时给的理由是"布尔契约挂在 session anchor 上，改形状代价不对称"——**这个
-理由不成立**：`bool([])` 跟原来的 `return False` 逐值等价，包括
-`extract_owner_visible_text` 返回 `""` 那条和异常路径。
+理由不成立**：`bool([])` 跟原来的 `return False` 在几乎所有输入上逐值等价，包括
+`extract_owner_visible_text` 返回 `""` 那条。
+
+> **2026-08-18 review 修正**：上面那句原本还写着"和异常路径"，**这是错的**，而且错在最
+> 要命的一格。等价性有**一个例外**：旧版首个命中就 `return True`、永远看不到后面的元素；
+> 新版走完全程，所以**命中之后**再有元素让 handler 抛异常时，会走进 `except` 返回 `[]`,
+> 布尔读数从 `True` 翻成 `False`。
+>
+> 这是**有意选择**：读不干净的响应统一取保守的"未投递"——session anchor 不动、guard 跳过
+> 这一轮，对两个消费者都是安全侧。
+>
+> **所以：不要**为了"保留已经收集到的部分"把 `except` 改成 `return texts`。那才会让两种
+> 读法在部分损坏的响应上真正分叉，而分叉的症状是探针在一部分流量上静默失效、数字却依然
+> 好看。源码 docstring 里也写了这句，但按铁律 #10 先读 mirror 的人只会看到这里——所以这条
+> 必须两边都在。
+>
+> 由 `test_a_raise_after_a_real_reply_reads_as_not_delivered` 锁住（要走到 `except` 得替换
+> 整个 handler：handler 是 frozen dataclass，而塞畸形输入会被 `isinstance` 过滤掉，那样的
+> 测试等于什么都没断言）。
 
 现在 `_owner_visible_reply_texts` 是这个文件里"owner 看到了什么"的**唯一实现**，
 `_turn_delivered_user_message` 就是它的 `bool(...)`。
