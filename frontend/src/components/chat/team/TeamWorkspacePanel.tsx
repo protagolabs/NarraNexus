@@ -116,11 +116,15 @@ export function TeamWorkspacePanel({
   ];
 
   return (
-    // An IN-FLOW column sized like the single-chat artifacts drawer
-    // (~50vw): the conversation shifts left instead of being covered —
-    // reading the room WHILE reading its output is the panel's whole
-    // point. Mobile keeps the overlay (there is no room to share).
-    <div className="flex w-[min(50vw,760px)] shrink-0 flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full max-md:shadow-xl">
+    // xl+: an IN-FLOW column sized like the single-chat artifacts drawer —
+    // the conversation shifts left instead of being covered; reading the
+    // room WHILE reading its output is the panel's whole point. The width
+    // reserves 928px for the siblings (sidebar 272 + chat minimum 400 +
+    // roster at rest 256), same policy family as drawerLayout.ts — without
+    // it the shrink-0 column crushes the chat to zero on laptop widths.
+    // Below xl there is no floor to share, so the panel stays an overlay
+    // (full-width on phones).
+    <div className="absolute inset-y-0 right-0 z-30 flex w-full flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] shadow-xl md:w-[min(50vw,760px)] xl:static xl:z-auto xl:w-[min(calc(100vw-928px),50vw,760px)] xl:shrink-0 xl:shadow-none">
       <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
         {tabs.map((item) => (
           <button

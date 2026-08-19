@@ -12,8 +12,11 @@ stub: false
 - 本地 `formatWhen`(英文写死)删除,改用 [[utils]] 的 `formatMessageAge`
   (Intl.RelativeTimeFormat,全语种免费)。[[ArtifactsSection]] 的同款
   本地副本同批清除。
-- 桌面端从 absolute 悬浮改 **in-flow 列**(聊天让位不被盖;移动端仍
-  overlay);tab 与列表行挂上 row-hover/row-active 选择台阶
+- **xl+ 从 absolute 悬浮改 in-flow 列**(聊天让位不被盖),宽度
+  `min(50vw, 760px, 100vw−928px)`——928 = 侧栏 272 + 聊天最小 400 +
+  roster 静息 256,与 [[../../layout/drawerLayout]] 同一 reserve 思路,
+  否则 shrink-0 列在笔记本宽度把聊天挤到 0。xl 以下没有可分的空间,
+  保持 overlay(手机全宽)。tab 与列表行挂 row-hover/row-active 选择台阶
   (design_system.md §2.5——hairline 是线色,不再当填充用)。
 
 ## 2026-08-19 — 6 处硬编码英文接入 i18n

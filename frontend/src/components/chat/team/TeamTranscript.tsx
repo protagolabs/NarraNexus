@@ -58,10 +58,10 @@ export interface TeamTranscriptProps {
   memberNames: Record<string, string>;
   /** Render a platform line. Returning null drops it. */
   renderSystem?: (m: TeamChatMessage) => React.ReactNode;
-  /** Rendered under an ordinary bubble (process disclosure, artifact chips). */
-    /** Rendered at the top of an agent bubble (process disclosure). */
+  /** Rendered at the top of an agent bubble (the process disclosure). */
   renderHeader?: (m: TeamChatMessage) => React.ReactNode;
-renderFooter?: (m: TeamChatMessage) => React.ReactNode;
+  /** Rendered under a bubble's content (artifact chips, timestamp). */
+  renderFooter?: (m: TeamChatMessage) => React.ReactNode;
 }
 
 /**

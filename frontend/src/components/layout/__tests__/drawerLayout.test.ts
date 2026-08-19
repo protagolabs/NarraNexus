@@ -8,10 +8,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   MIN_DRAWER_PX,
-  claimFirstRunAutoOpen,
   clampDrawerWidth,
+  markFirstRunSeen,
   maxDrawerPx,
   readInitialDrawerPinned,
+  shouldAutoOpenFirstRun,
+  DRAWER_OPENED_ONCE_KEY,
   DRAWER_PINNED_KEY,
 } from '../drawerLayout';
 
@@ -51,7 +53,7 @@ describe('drawer width bounds', () => {
   });
 });
 
-describe('claimFirstRunAutoOpen', () => {
+describe('first-run auto-open', () => {
   const mem = () => {
     const m = new Map<string, string>();
     return {
@@ -60,15 +62,22 @@ describe('claimFirstRunAutoOpen', () => {
     };
   };
 
-  it('claims exactly once on desktop', () => {
+  it('fires on a fresh desktop profile, never after being marked seen', () => {
     const storage = mem();
-    expect(claimFirstRunAutoOpen(storage, false)).toBe(true);
-    expect(claimFirstRunAutoOpen(storage, false)).toBe(false);
+    expect(shouldAutoOpenFirstRun(storage, false)).toBe(true);
+    markFirstRunSeen(storage);
+    expect(shouldAutoOpenFirstRun(storage, false)).toBe(false);
   });
 
   it('a phone visit neither opens nor burns the desktop first run', () => {
     const storage = mem();
-    expect(claimFirstRunAutoOpen(storage, true)).toBe(false);
-    expect(claimFirstRunAutoOpen(storage, false)).toBe(true);
+    expect(shouldAutoOpenFirstRun(storage, true)).toBe(false);
+    expect(shouldAutoOpenFirstRun(storage, false)).toBe(true);
+  });
+
+  it('opening a panel by hand does not spend the coach mark (separate keys)', () => {
+    const storage = mem();
+    storage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
+    expect(shouldAutoOpenFirstRun(storage, false)).toBe(true);
   });
 });

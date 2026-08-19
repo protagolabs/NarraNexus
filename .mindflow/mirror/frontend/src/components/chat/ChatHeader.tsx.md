@@ -42,7 +42,7 @@ Chat UI v4 把三层头部(品牌行 / tab 行 / 安全横幅)压成一行,并�
 ## 结构
 
 左:侧栏展开钮(仅 sidebarCollapsed 时)→ RingAvatar(silicon)→
-agent 名按钮(开 ⋯ 菜单同款面板)→ mono "会话 · 时间"。
+agent 名按钮(Agent 切换下拉,见 08-19 条)→ mono "会话 · 时间"。
 右:ExecutionPopover(流式时)→ Chat/Inner Thoughts segmented(状态在
 ChatPanel)→ Jobs / Inbox / Artifacts 图标(徽标来自
 deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
@@ -54,5 +54,5 @@ deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
   确认:设计稿未提到的界面细节保持不变)。
 - ⋯ 菜单顺序 = 旧 strip 类目摊平:config 六项 | Network(rail.socialShort)
   + Memory | Model & framework(AgentLlmConfigPanel 的新入口)。
-- Artifacts 图标切 artifactStore.collapsed(列自身有 sliver 逻辑)。
+- Artifacts 图标 `openPanel('artifacts')` 开抽屉面板(collapsed 机制已退役)。
 - 徽标/markTabOpened 语义沿用 tabs.ts 注册表,不另造信号源。

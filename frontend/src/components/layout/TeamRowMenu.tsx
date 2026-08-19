@@ -63,12 +63,12 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
 
       {open && (
         <div
-            className={cn(
-              'absolute right-0 top-full mt-0.5 z-50',
-              'min-w-[120px] py-0.5',
-              'rounded-[var(--radius-sm)] border shadow-md',
-              'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
-            )}
+          className={cn(
+            'absolute right-0 top-full mt-0.5 z-50',
+            'min-w-[120px] py-0.5',
+            'rounded-[var(--radius-sm)] border shadow-md',
+            'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
+          )}
         >
           <MenuItem
             icon={<UserPlus className="w-3 h-3" />}

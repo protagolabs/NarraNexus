@@ -18,11 +18,16 @@ import { useEffect, useRef } from 'react';
  * extra elements' refs via `extraRefs` — a target inside ANY of them is
  * treated as inside.
  *
- * Escape is consumed (stopPropagation): the topmost popover eats the key so
- * a surrounding Dialog doesn't close in the same stroke. Clicks that land
- * inside a cross-origin iframe never reach the document, so a window `blur`
- * with focus moving to an IFRAME dismisses too (switching tabs/apps blurs
- * without focusing an iframe and correctly keeps the popover).
+ * Escape dismisses. Scope honestly stated: the listener is document-level
+ * bubble phase and stopPropagation only shields WINDOW-level Escape
+ * handlers (nm/modal) — other document-level handlers (Dialog,
+ * SettingsModal, ArtifactZoomModal, BookmarkDrawer) still fire, so a
+ * popover stacked inside one of those closes together with it. Making
+ * "topmost wins" true across the app needs a shared popover stack, not a
+ * per-hook flag. Clicks that land inside a cross-origin iframe never reach
+ * the document, so a window `blur` with focus moving to an IFRAME
+ * dismisses too (switching tabs/apps blurs without focusing an iframe and
+ * correctly keeps the popover).
  */
 export function useDismissOnOutside<T extends HTMLElement>(
   active: boolean,

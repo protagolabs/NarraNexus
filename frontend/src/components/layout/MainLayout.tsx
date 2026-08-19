@@ -62,9 +62,10 @@ import {
   DRAWER_OPENED_ONCE_KEY,
   DRAWER_PINNED_KEY,
   DRAWER_WIDTH_KEY,
-  claimFirstRunAutoOpen,
   clampDrawerWidth,
+  markFirstRunSeen,
   readInitialDrawerPinned,
+  shouldAutoOpenFirstRun,
 } from './drawerLayout';
 
 // Pinned bookmark drawer: user-resizable like the chat ↔ artifacts split, so
@@ -88,13 +89,18 @@ export function ChatView() {
   // deliberate workspace choice). One tab = one panel (Owner IA).
   const { t: tr } = useTranslation();
   // First run (desktop): the artifacts panel opens pinned with a coach mark
-  // teaching unpin/close. Decided at mount via lazy initializers — no
-  // effect, no cascading render, and the once-marker is claimed exactly
-  // once (drawerLayout.claimFirstRunAutoOpen).
+  // teaching unpin/close. The decision is a read-only lazy initializer (no
+  // cascading render); the seen-marker is written from the mount effect
+  // below, so a discarded render pass cannot burn it.
   const [showDrawerCoach, setShowDrawerCoach] = useState<boolean>(() =>
     typeof window !== 'undefined' &&
-    claimFirstRunAutoOpen(window.localStorage, window.matchMedia('(max-width: 767.98px)').matches),
+    shouldAutoOpenFirstRun(window.localStorage, window.matchMedia('(max-width: 767.98px)').matches),
   );
+  useEffect(() => {
+    if (showDrawerCoach) markFirstRunSeen(window.localStorage);
+    // First-run decision is mount-time only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
     () => (showDrawerCoach ? 'artifacts' : null),
   );
@@ -139,7 +145,6 @@ export function ChatView() {
       window.localStorage.setItem(DRAWER_PINNED_KEY, pinned ? '1' : '0');
     } catch { /* non-fatal */ }
   };
-
 
 
   const loadPinned = useArtifactStore((s) => s.loadPinned);

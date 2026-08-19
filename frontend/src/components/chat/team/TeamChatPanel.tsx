@@ -1281,10 +1281,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           />
         )}
 
-        {/* Workspace drawer — an in-flow column below the top bar, like the
-            single-chat artifacts drawer (the chat shifts left, nothing is
-            covered). Toggled from the top bar; a message's artifact chip
-            also opens it with that artifact selected. */}
+        {/* Workspace drawer — on xl+ an in-flow column like the single-chat
+            artifacts drawer (the chat shifts left, nothing is covered);
+            below xl it overlays, because the row cannot also fit the
+            roster and a readable chat column. Toggled from the top bar; a
+            message's artifact chip also opens it with that artifact
+            selected. */}
         {wsPanelOpen && (
           <TeamWorkspacePanel
             artifacts={wsArtifacts}

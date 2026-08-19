@@ -12,6 +12,7 @@
 export const DRAWER_PINNED_KEY = 'bookmark_drawer_pinned_v1';
 export const DRAWER_OPENED_ONCE_KEY = 'bookmark_drawer_opened_v1';
 export const DRAWER_WIDTH_KEY = 'bookmark_drawer_width_v1';
+export const DRAWER_FIRST_RUN_KEY = 'bookmark_drawer_first_run_v1';
 
 export const DEFAULT_DRAWER_PX = 400;
 export const MIN_DRAWER_PX = 300;
@@ -41,22 +42,29 @@ export function readInitialDrawerPinned(storage: Pick<Storage, 'getItem'>): bool
 }
 
 /**
- * First run only (desktop): claim the auto-open. A brand-new user has to SEE
- * where artifacts land, so the panel opens (pinned, per the default above)
- * with a coach mark; the once-marker is written here so it can never fire
- * twice. Small viewports skip AND keep the marker unset — a phone visit must
- * not burn the desktop first-run.
+ * First run only (desktop): should the artifacts panel auto-open with the
+ * coach mark? A brand-new user has to SEE where artifacts land before the
+ * panel is worth closing. Read-only — render-safe; the caller marks the
+ * first run as seen from an effect (markFirstRunSeen), so a discarded
+ * render pass cannot burn the marker. The marker is its OWN key: opening a
+ * panel by hand (any viewport) writes DRAWER_OPENED_ONCE_KEY, and a phone
+ * visit must not spend the desktop coach mark.
  */
-export function claimFirstRunAutoOpen(
-  storage: Pick<Storage, 'getItem' | 'setItem'>,
+export function shouldAutoOpenFirstRun(
+  storage: Pick<Storage, 'getItem'>,
   isSmallViewport: boolean,
 ): boolean {
   try {
-    if (isSmallViewport) return false;
-    if (storage.getItem(DRAWER_OPENED_ONCE_KEY)) return false;
-    storage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
-    return true;
+    return !isSmallViewport && !storage.getItem(DRAWER_FIRST_RUN_KEY);
   } catch {
     return false;
+  }
+}
+
+export function markFirstRunSeen(storage: Pick<Storage, 'setItem'>): void {
+  try {
+    storage.setItem(DRAWER_FIRST_RUN_KEY, '1');
+  } catch {
+    /* storage unavailable — the coach may show again; harmless */
   }
 }

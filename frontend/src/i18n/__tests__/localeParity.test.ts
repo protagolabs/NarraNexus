@@ -48,6 +48,8 @@ const COMPLETE_NAMESPACES = [
   'pages.settings.nav',
   'pages.settings.personalization',
   'pages.manageAgents',
+  'chat.header',
+  'bookmarks.drawer',
 ];
 
 function leaves(obj: unknown, prefix = ''): string[] {

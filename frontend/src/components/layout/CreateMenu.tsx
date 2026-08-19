@@ -69,11 +69,11 @@ export function CreateMenu({
 
       {open && (
         <div
-            className={cn(
-              'absolute left-0 right-0 top-full mt-1 z-50 p-1.5',
-              'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
-              'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
-            )}
+          className={cn(
+            'absolute left-0 right-0 top-full mt-1 z-50 p-1.5',
+            'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
+            'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
+          )}
         >
           <MenuItem
             icon={<Bot className="w-3.5 h-3.5" />}

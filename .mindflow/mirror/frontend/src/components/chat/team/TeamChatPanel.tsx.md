@@ -8,8 +8,8 @@ stub: false
 
 - renderHeader 新增:agent 消息的 [[TeamMessageProcess]] 走气泡顶部插槽
   (单聊位置对齐),footer 只剩 chips+时间。
-- [[TeamWorkspacePanel]] 桌面端从 absolute 悬浮改 in-flow 列——聊天左移
-  让位而不是被盖住;移动端保留 overlay(没有可分的空间)。
+- [[TeamWorkspacePanel]] xl+ 从 absolute 悬浮改 in-flow 列——聊天左移
+  让位而不是被盖住;xl 以下保留 overlay(reserve 算不开,详见彼处)。
 
 ## 2026-08-19 — 悬停提示补全
 

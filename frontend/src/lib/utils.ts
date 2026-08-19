@@ -97,6 +97,18 @@ export function formatMessageAge(
  * Call it; do not memoise it. See the note about the runtime language switcher
  * above.
  */
+export function activeLocale(): string | undefined {
+  try {
+    const tag = i18n.resolvedLanguage || i18n.language || '';
+    if (!tag) return undefined;
+    // Throws on a malformed tag; `undefined` then means "browser default".
+    new Intl.DateTimeFormat(tag);
+    return tag;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Absolute date+time label in the viewer's locale, parsed as UTC (backend
  * timestamps carry no zone marker; a bare `new Date` would read them as
@@ -109,18 +121,6 @@ export function formatAbsolute(timestamp: number | string, locale?: string): str
     dateStyle: 'medium',
     timeStyle: 'short',
   });
-}
-
-export function activeLocale(): string | undefined {
-  try {
-    const tag = i18n.resolvedLanguage || i18n.language || '';
-    if (!tag) return undefined;
-    // Throws on a malformed tag; `undefined` then means "browser default".
-    new Intl.DateTimeFormat(tag);
-    return tag;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

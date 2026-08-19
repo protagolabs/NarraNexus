@@ -394,20 +394,23 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsLoadingMore(true);
     shouldAutoScrollRef.current = false;
     const container = scrollContainerRef.current;
-    // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for why
-    // scrollHeight arithmetic alone lands the user on the new chunk).
-    const captured = container
-      ? capturePrependAnchor(
-          container,
-          container.querySelector<HTMLElement>('[data-timeline-item]'),
-        )
-      : null;
 
     try {
       const response = await api.getSimpleChatHistory(
         agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
       );
       if (response.success && response.messages.length > 0) {
+        // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for
+        // why scrollHeight arithmetic alone lands the user on the new
+        // chunk). Captured HERE — after the await, so the loading row has
+        // already committed and its height is out of the correction — and
+        // immediately before flushSync commits the prepended rows.
+        const captured = container
+          ? capturePrependAnchor(
+              container,
+              container.querySelector<HTMLElement>('[data-timeline-item]'),
+            )
+          : null;
         // flushSync so the DOM holds the prepended rows before measuring.
         flushSync(() => {
           setHistoryMessages((prev) => [...response.messages, ...prev]);
