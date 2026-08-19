@@ -150,6 +150,11 @@
      dark: a hint of lifted gray). Distinct from --nm-paper-warm (the
      hover bg, opaque) so hover ≠ selected can read at a glance. */
   --nm-row-active:    rgba(42,38,32,0.07);
+  /* List-row hover — the same ink family as row-active at roughly half
+     strength (Owner 2026-08-18: hover and selected must be two steps of
+     ONE hue, not warm-vs-gray). Rows only; control/menu hover stays
+     --nm-paper-warm per design_system.md §2.5. */
+  --nm-row-hover:     rgba(42,38,32,0.04);
 
   /* Surfaces — paper-raised (used for own-bubble paper variant,
      inputs, dropdowns, banners, OAuth chips). The shadow tokens
@@ -255,7 +260,8 @@
 
   /* Row-active overlay — light ink at low alpha so dark warm paper
      lifts to a slightly grayer feel without losing the temperature. */
-  --nm-row-active:   rgba(242,239,232,0.09);
+  --nm-row-active:   rgba(242,239,232,0.12);
+  --nm-row-hover:    rgba(242,239,232,0.07);
 
   /* Species lifted for AA contrast on dark warm paper */
   --color-carbon:       #FF7A5C;
@@ -911,16 +917,6 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
-
-/* JourneyBand: a carbon pulse travels the memory→network→team baseline,
-   visualising "the more you work together, the more it carries forward"
-   (onboarding empty state). Honors prefers-reduced-motion via the global
-   reduce block below. */
-@keyframes nm-travel {
-  0%   { left: 2%; }
-  100% { left: 98%; }
-}
-.animate-travel { animation: nm-travel 5s ease-in-out infinite alternate; }
 
 /* Header activity glyph — the agent's heartbeat, drawn as an ECG (silicon =
    the AI side). Two stacked paths: a faint static baseline, and a bright pulse

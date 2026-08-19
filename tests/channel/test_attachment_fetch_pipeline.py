@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
 from xyz_agent_context.channel.channel_audit_events import (
@@ -169,14 +171,14 @@ class _FakeAttachmentTrigger(ChannelTriggerBase):
 # ────────────────────────────────────────────────────────────────────
 
 
-async def _wait_for_messages(db_client, channel_id, count, timeout=5.0):
+async def _wait_for_messages(db_client, thread_id, count, timeout=5.0):
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
-        rows = await db_client.get("bus_messages", {"channel_id": channel_id})
+        rows = await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
         if len(rows) >= count:
             return rows
         await asyncio.sleep(0.05)
-    return await db_client.get("bus_messages", {"channel_id": channel_id})
+    return await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
 
 
 @pytest.fixture
@@ -272,12 +274,12 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()
 
-    # 2 bus_messages rows: 1 inbound (user message) + 1 outbound (agent reply).
+    # 2 inbox rows: 1 inbound (user message) + 1 outbound (agent reply).
     assert len(rows) == 2
 
     # Attachments injected into trigger_extra_data exactly as WS route does.
@@ -361,7 +363,7 @@ async def test_no_attachments_emits_no_attachments_key(
     trigger = _FakeAttachmentTrigger(scripted, cred, {})
     await trigger.start(db_client)
     try:
-        await _wait_for_messages(db_client, "fake_C1", count=2, timeout=4.0)
+        await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0)
     finally:
         await trigger.stop()
 
@@ -441,7 +443,7 @@ async def test_fetch_attachments_raise_degrades_gracefully(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=4.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0
         )
     finally:
         await trigger.stop()
@@ -536,7 +538,7 @@ async def test_caption_less_file_upload_still_processed(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()

@@ -9,12 +9,12 @@ import { useTranslation } from 'react-i18next';
 import type { QueueCounts } from '@/types';
 
 const SEGMENT_CLS: Record<keyof Omit<QueueCounts, 'total'>, string> = {
-  running: 'bg-[var(--color-green-500)]',
+  running: 'bg-[var(--color-success)]',
   active: 'bg-sky-500',
   pending: 'bg-gray-400',
-  blocked: 'bg-[var(--color-yellow-500)]',
-  paused: 'bg-[var(--color-yellow-500)]',
-  failed: 'bg-[var(--color-red-500)]',
+  blocked: 'bg-[var(--color-warning)]',
+  paused: 'bg-[var(--color-warning)]',
+  failed: 'bg-[var(--color-error)]',
 };
 
 const ORDER: Array<keyof Omit<QueueCounts, 'total'>> = [
@@ -60,7 +60,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
         </span>
         {queue.failed > 0 && (
           <span
-            className="text-[var(--color-red-500)] font-medium"
+            className="text-[var(--color-error)] font-medium"
             title={`${queue.failed} ${t('dashboard.jobState.failed')}`}
           >
             {queue.failed} {t('dashboard.jobState.failed')}
@@ -68,7 +68,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
         )}
         {queue.blocked > 0 && (
           <span
-            className="text-[var(--color-yellow-500)] font-medium"
+            className="text-[var(--color-warning)] font-medium"
             title={`${queue.blocked} ${t('dashboard.jobState.blocked')}`}
           >
             {queue.blocked} {t('dashboard.jobState.blocked')}

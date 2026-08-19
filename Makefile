@@ -26,7 +26,7 @@ help:
 	@echo "    make lint-frontend      ESLint on frontend"
 	@echo "    make typecheck          Run all type checkers"
 	@echo "    make typecheck-backend  Pyright on Python code"
-	@echo "    make typecheck-frontend tsc --noEmit on frontend"
+	@echo "    make typecheck-frontend tsc -b on frontend (same as the build)"
 	@echo ""
 	@echo "  Test:"
 	@echo "    make test               Run all tests"
@@ -71,7 +71,13 @@ typecheck-backend:
 	uv run pyright
 
 typecheck-frontend:
-	cd frontend && npx tsc --noEmit
+	# `tsc -b`, NOT `tsc --noEmit`: the two do not check the same thing, and the
+	# build uses -b (package.json "build" = `tsc -b && vite build`). A bare
+	# global `JSX.Element` passed --noEmit and failed -b under @types/react 19,
+	# so this gate reported green while the cloud image and the DMG would both
+	# have failed to build. A typecheck that a build can disagree with is not a
+	# gate. (2026-08-19)
+	cd frontend && npx tsc -b
 
 # ── Test ────────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,63 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 账户入口指向设置内 pane
+
+弹层 Account 项改 navigate('/app/settings?tab=account')——同一目的地,
+少一跳别名重定向。
+
+## 2026-08-19 — 账户弹层只剩身份;工作台升一级导航
+
+- 弹层瘦身为:用户名+在线/模式/版本头、Account(NetMind 用户,去
+  /app/account)、移动端反馈入口、Logout。主题/语言迁去 Settings →
+  Personalization([[PersonalizationSettings]]),工作台入口迁出。
+  langOpen 状态、语言列表、主题切换项及其 import 一并删除。
+- 全局导航在 Marketplace 与 Settings 之间新增「你的工作台」行(/app/you,
+  BookOpen 图标)——它是常用目的地,不该藏在身份弹层里。
+
+## 2026-08-19 — 账户弹层点击页面任意处可关闭
+
+账户弹层的全屏 backdrop 换 [[useDismissOnOutside]](挂 Zone-3 容器,dismiss
+同时收起语言子菜单)。与行菜单/CreateMenu 同批统一:侧栏内所有自绘弹层的
+关闭语义现在都是「点页面任意处/Escape」。
+
+## 2026-08-19 — squash 残留清理
+
+两条指向 `@/components/ui` 的 import 合并为一条(squash 自动合并残留,无行为
+变化)。
+
+## 2026-08-06 (3) — 账户弹层三项指向 /app/account
+
+Account / Billing / Subscription 从 navigate('/app/settings?tab=account')
+改为 navigate('/app/account')(Settings 的 account 面板已迁出,见
+[[../../pages/AccountPage.tsx]])。仍以 netmindToken 存在为显示条件。
+
+## 2026-08-06 (2) — Create team 入口改跳页
+
+New 菜单的 Create team 从打开 TeamManagementModal 改为 navigate
+('/app/teams/new')(新 [[../../pages/CreateTeamPage.tsx]]);modal 挂载
+从 Sidebar 移除(Dashboard Teams 视图仍在用它管理既有团队)。
+
+## 2026-08-06 — Chat UI v4:三层结构重写
+
+按 v4 设计稿(specs/2026-08-06-chat-ui-v4-design.dc.html)整体重排:
+① logo + 收起按钮(panel 图标);② 全局导航列 — New(下拉:Create agent /
+Create team / Import .nxbundle / Import from other source,见 [[CreateMenu.tsx]])
+/ Export / Dashboard / Marketplace / Settings / System(gated),之后才是
+Chats 列表;③ 底部用户行 → **账户弹层**(工作台 / Account / Billing /
+Subscription(netmindToken 才显示)/ Theme / Language(内联展开列表)/
+Logout)+ Find Us 外链(从 TopBar 迁入,保持 target=_blank + noopener)。
+
+关键不变量(沿袭):logout / 切模式仍是 wipeAllSessionData() + **硬跳转**
+window.location.href;SHOW_MODE_SWITCHER 逻辑保留在弹层里未删。
+收起态改为 **整个 aside 隐藏**(uiStore.sidebarCollapsed,md:hidden),
+72px 图标栏退役;展开按钮在聊天头部 / MainLayout 浮动 chip 上,不在本组件。
+TeamManagementModal / ImportAgentModal 的挂载点从 AgentList 移到这里。
+宽度 288→272px。ThemeToggle / LanguageToggle 组件不再被本文件引用
+(账户弹层内联实现),组件本身保留给其他调用方。
 
 ## 2026-08-12 — 悬停预取 DashboardPage 补 `.catch`（复审二轮 🟢）
 

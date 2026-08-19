@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 从站立列退为抽屉面板(下方旧条目的布局表述以本条为准)
+
+唯一挂载点是共享 [[../../bookmarks/BookmarkDrawer]] 的 **members 面板**
+([[TeamChatPanel]]);宽度/边框/可见性全部归抽屉壳
+([[../../../hooks/usePinnedDrawer]] 共享偏好),组件**不再自定宽度**——
+`w-64`/`w-[min(430px,92vw)]`/`transition-[width]`/`border-l` 已从源码删除,
+"列会呼吸"不复存在:展开成员的 terminal 在抽屉宽度内工作,要更宽拖抽屉。
+`className` 的用途从「窄屏 shell 差异」变为调用方布局注入。历史失效表述:
+「常驻右边缘站立列」「桌面列+窄屏 drawer 两个渲染点」「展开呼吸到 430px」。
+
 ## 2026-08-10 — 列底部挂工作板
 
 新增 `teamId` prop,列表下方渲染 [[TeamWorkBoard]]。放在成员行**之下**而不是

@@ -428,7 +428,7 @@ class OpenAIAgentsSDK:
         """Stream a helper_llm response delta-by-delta as plain text.
 
         Used by the chat fallback path (agent finished without calling
-        send_message_to_user_directly): we ask the helper_llm to produce
+        ``reply_owner``): we ask the helper_llm to produce
         a real reply for the user based on the agent's reasoning, and
         yield each token-delta so the websocket can push it to the
         frontend exactly like a normal agent reply.

@@ -332,8 +332,14 @@ async def run_turn_events(
         # list, so delivery tools granted by mid-turn expansion are named
         # too — and a message-borne reply instruction outranks the list.
         def _tail() -> str:
+            # The origin line leads the reminder: "where am I / who am I
+            # talking to" before "and here is how you answer them". Both are
+            # dynamic-tail because both are per-turn facts; the origin line is
+            # constant within a turn but travels with the rule it qualifies,
+            # so the two can never be read apart.
             reminder = NexusPowerPrompts.reply_reminder(expression.names())
-            return "\n\n".join(p for p in (plan.render(), reminder) if p)
+            parts = (plan.render(), opts.origin_declaration, reminder)
+            return "\n\n".join(p for p in parts if p)
 
         assembly = LoopAssembly(
             model=LiteLLMModelClient(profile, LitellmClient()),

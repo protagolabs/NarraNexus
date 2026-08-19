@@ -21,7 +21,7 @@ handler at module-load time:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="lark",
         user_reply_tool_names=(
-            "send_message_to_user_directly",
+            "notify_owner",
             "lark_cli +messages-send",
             "lark_cli +messages-reply",
         ),
@@ -30,7 +30,8 @@ handler at module-load time:
 
 All sources that need nothing channel-specific (`chat`, `a2a`,
 `callback`, `skill_study`, …) fall back to the default handler, which
-recognises only `send_message_to_user_directly` and renders rows with a
+recognises both owner-facing names (`reply_owner` / `notify_owner`, since
+owner chat itself resolves here) and renders rows with a
 "[NarraNexus UI · user=<id>]" prefix.
 
 Why a registry instead of `if working_source == "lark": ...`
@@ -46,7 +47,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from loguru import logger
 
@@ -68,7 +69,7 @@ from loguru import logger
 # every channel) rather than in any per-framework translator,
 # because:
 #  * The tokens come from the model's text written into the
-#    ``content`` argument of ``send_message_to_user_directly``
+#    ``content`` argument of an owner-facing tool
 #    (or any other reply tool) — they're plain string content, not
 #    SDK-protocol metadata. Stripping at the SDK boundary would
 #    miss tokens that the model writes into ``lark_cli`` markdown,
@@ -160,7 +161,7 @@ class MessageSourceHandler:
     user_reply_tool_names: Tuple[str, ...]
     """Substrings of `tool_name` that count as the agent replying to
     the user via this source. Substring match (not equality) so MCP
-    prefixes like `mcp__chat_module__send_message_to_user_directly`
+    prefixes like `mcp__chat_module__notify_owner`
     match the short name registered here."""
 
     owner_visible_reply_tool_names: Optional[Tuple[str, ...]] = None
@@ -174,6 +175,18 @@ class MessageSourceHandler:
     chat-history persistence) stay two separate questions — conflating
     them let every agent-to-agent bus reply re-anchor the owner's
     session (PR #230 review)."""
+
+    display_label: str = ""
+    """Human-readable name for this source, for the one line of prompt that
+    tells the agent where the turn came from (`render_origin_declaration`).
+    Empty falls back to `name.title()`, which is right for every brand-named
+    channel and wrong only where the source name is a platform-internal word —
+    those set it explicitly.
+
+    Why the label lives HERE and not in each trigger's prose: the prose used to
+    say it, each copy in its own words, and the copies drifted. One field, one
+    renderer, and the same registry entry that decides which tools count as a
+    reply — so the sentence and the enforcement cannot disagree."""
 
     row_prefix_template: str = "[{name}]"
     """str.format-style template applied to a flattened
@@ -191,13 +204,21 @@ class MessageSourceHandler:
     dedicated_trigger: bool = False
     """True when this source has its own long-running trigger process
     (LarkTrigger, WeChatTrigger, ...) that already runs AgentRuntime for
-    every inbound message. ChannelInboxWriter persists those turns to
-    ``bus_messages`` under ``{name}_{chat_id}`` purely for history/Inbox
-    display; MessageBusTrigger uses this flag to derive the channel-id
-    prefixes it must NOT re-dispatch (a second run would send duplicate
-    replies — 2026-07-03 wechat double-dispatch incident). Every module
+    every inbound message. Until 2026-08-17 `ChannelInboxWriter` mirrored those
+    turns into ``bus_messages`` under ``{name}_{chat_id}`` for history/Inbox
+    display; the inbox has its own tables now and nothing writes them, but the
+    rows survive on deployed databases. `im_channel_prefixes()` derives the
+    channel-id prefixes from this flag for two consumers: MessageBusTrigger must
+    NOT re-dispatch them (a second run sends duplicate replies — 2026-07-03
+    wechat double-dispatch incident) and `LocalMessageBus._unread_predicate` must not
+    inject them into agent context. Every module
     that ships a ``run_*_trigger.py`` entrypoint must set this; enforced
     by tests/message_bus/test_bus_channel_inbox_skip.py."""
+
+    @property
+    def label(self) -> str:
+        """`display_label` with the derive-from-name fallback applied."""
+        return self.display_label or self.name.replace("_", " ").title()
 
     def is_user_reply_tool(self, tool_name: str) -> bool:
         """True when `tool_name` matches any registered reply tool.
@@ -308,9 +329,44 @@ class MessageSourceHandler:
         return self.row_prefix_template.format_map(_SafeFormatDict(flat))
 
 
+#: The owner-facing delivery tools — one destination, two registers
+#: (`reply_owner` on the owner's own chat turn, `notify_owner` everywhere else;
+#: see ChatModule.get_expressive_tools). Lives HERE because this module already
+#: has to reason about both — the default handler lists both — and because every
+#: consumer of the distinction is downstream of the registry.
+#:
+#: Anything asking "did this reach the owner" must accept BOTH. Anything asking
+#: "is this the CHANNEL's own tool" must reject both — a filter that named only
+#: one silently let the other through, which is how an IM fallback frame got
+#: tagged `reply_owner` and would have surfaced in the owner's chat panel as if
+#: the agent had addressed them.
+_OWNER_TOOL_RE = re.compile(r"(?:reply|notify)_owner$")
+
+
+def is_owner_tool(tool_name: str | None) -> bool:
+    """True for `reply_owner` / `notify_owner`, bare or MCP-prefixed."""
+    return bool(tool_name) and _OWNER_TOOL_RE.search(tool_name or "") is not None
+
+
 _DEFAULT_HANDLER = MessageSourceHandler(
     name="default",
-    user_reply_tool_names=("send_message_to_user_directly",),
+    # BOTH owner-facing names, and that is not belt-and-braces.
+    #
+    # The owner's own chat turn resolves to this handler (there is no explicit
+    # "chat" registration), and its desk carries `reply_owner` — while every
+    # other turn carries `notify_owner`. Listing only one of them would make
+    # `_has_organic_reply` blind on the surface that uses the other: a chat turn
+    # that answered perfectly would read as "never spoke", and the helper-LLM
+    # fallback would write a SECOND reply on top of every successful turn.
+    #
+    # A source that wants the two questions separated declares
+    # `owner_visible_reply_tool_names` itself, as message_bus does.
+    user_reply_tool_names=("reply_owner", "notify_owner"),
+    # Not "Default" — the label is read by the agent, not by us. Every source
+    # that lands here (owner chat, a2a, callback, skill_study) is happening
+    # inside NarraNexus, which is exactly one of the two social situations the
+    # harness teaches.
+    display_label="NarraNexus",
     row_prefix_template="[NarraNexus UI]",
 )
 """Fallback for any WorkingSource that didn't register itself.
@@ -373,3 +429,105 @@ class MessageSourceRegistry:
             d["extract_reply_fn"] = "<custom>" if h.extract_reply_fn else None
             out[name] = d
         return out
+
+
+# ============================================================================
+# The origin declaration (design §6.1)
+# ============================================================================
+
+ORIGIN_DECLARATION_TEMPLATE = (
+    "[Origin] {label} · reply with {default_tool}{others_clause}"
+)
+
+
+def im_channel_prefixes() -> tuple[str, ...]:
+    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
+
+    Two consumers, and they guard different things:
+
+    * `MessageBusTrigger` must not RE-DISPATCH these channels — their own trigger
+      already ran AgentRuntime for the message.
+    * `LocalMessageBus._unread_predicate` must not INJECT them into agent context.
+
+    Both are about the same rows: pre-2026-08-17 IM history that the retired
+    `ChannelInboxWriter` wrote into `bus_messages` under `{channel}_{chat_id}`.
+    Nothing writes them any more — the inbox has its own tables — but they
+    survive on every deployed database, so this is not dead code and must not be
+    deleted as such under 铁律 #2. It can retire once those rows are purged; the
+    runbook that purges them says so.
+
+    The set used to be a hand-maintained tuple ("lark_", "telegram_", "slack_")
+    and it silently drifted — wechat, narramessenger and discord were missing, so
+    every message on those channels fired a SECOND agent run wearing the
+    Owner-Relay peer-agent prompt (2026-07-03 wechat incident: fabricated
+    context_token sends + bogus "我已经在微信上回复你啦" platform DMs). Deriving
+    from `dedicated_trigger` keeps a future channel covered the moment it
+    registers; computed per call because channel modules register at import time
+    and import order is not guaranteed.
+
+    Lives here rather than in `message_bus_trigger` because this is where the
+    registry it reads lives, and because `local_bus` — a lower layer than the
+    trigger — now needs it too.
+    """
+    return tuple(sorted(
+        f"{name}_"
+        for name, handler in MessageSourceRegistry.handlers().items()
+        if handler.dedicated_trigger
+    ))
+
+
+def render_origin_declaration(
+    working_source: str,
+    expressive_tools: "Sequence[str]",
+    reply_is_plain_text: bool = False,
+) -> str:
+    """One line naming where this turn came from and what answers it.
+
+    This replaced a paragraph in every trigger prompt, each restating the
+    reply rule in its own words. Those restatements are what drifted: a
+    channel's copy would still describe a tool the desk no longer carried, and
+    the agent had two sentences to choose between with nothing to break the
+    tie.
+
+    Both halves of this line come from data the platform already computed:
+
+    * the label from `MessageSourceRegistry` — the same registry entry that
+      decides which tool calls count as a reply from this source;
+    * the tools from the turn's declared expressive surface — the SAME tuple
+      `get_expressive_tools` produced and `get_disallowed_tools` enforced.
+
+    So the sentence cannot contradict the desk: there is no second copy of
+    either fact to fall out of step.
+
+    Empty tools → empty string. A turn with no declared reply surface must not
+    be handed a sentence claiming one; inventing a tool name here would be the
+    exact failure the declaration exists to prevent.
+
+    ``reply_is_plain_text`` is the other empty case, and it is not derivable
+    from the tools. The line's premise is that origin-first ordering puts the
+    origin module's tool at position 0 — true only while the origin module
+    declares something. A patrol turn declares nothing (its reply IS the agent's
+    plain text, posted by the platform), so position 0 becomes whatever ranked
+    next — `notify_owner`, which the registry legitimately lists as a way to
+    answer a bus turn. "reply with `notify_owner`" would then tell the lead to
+    message its owner instead of writing the room's status line: the wrong act,
+    and the one the patrol prompt spends a paragraph forbidding.
+
+    The registry cannot tell these apart — `notify_owner` really is one of this
+    source's reply tools — so the caller passes the fact, which the platform
+    already stamps as `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`. Other modules keep their
+    own tools on such a turn (escalating to the owner mid-sweep is legitimate);
+    what must not happen is a sentence presenting one of them as how to answer.
+    """
+    if reply_is_plain_text:
+        return ""
+    tools = tuple(expressive_tools or ())
+    if not tools:
+        return ""
+    handler = MessageSourceRegistry.get(working_source)
+    others = ", ".join(f"`{t}`" for t in tools[1:])
+    return ORIGIN_DECLARATION_TEMPLATE.format(
+        label=handler.label,
+        default_tool=f"`{tools[0]}`",
+        others_clause=f" (also available: {others})" if others else "",
+    )

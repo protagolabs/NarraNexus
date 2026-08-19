@@ -20,18 +20,32 @@
     "logout": "Logout",
     "poweredBy": "NetMind AI Research",
     "online": "Online",
-    "you": "You",
     "cloud": "Cloud",
     "localMode": "Local Mode",
     "cloudMode": "Cloud Mode",
-    "marketplace": "Marketplace"
+    "marketplace": "Marketplace",
+    "collapseTitle": "Collapse sidebar",
+    "expandTitle": "Expand sidebar",
+    "export": "Export",
+    "exportTitle": "Export bundle — agent or team",
+    "settingsTitle": "Settings — models & providers",
+    "searchChatsTitle": "Search agents & teams",
+    "account": "Account",
+    "billing": "Billing",
+    "subscription": "Subscription",
+    "theme": "Theme",
+    "language": "Language",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
+    "workspace": "Your workspace",
+    "accountTitle": "Account"
   },
   "chat": {
     "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
     "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
     "innerThoughts": "Inner Thoughts",
-    "interaction": "Interaction",
     "composerPlaceholder": "Type a message or / for skills...",
     "selectAgent": "Select an agent",
     "selectAgentHint": "Choose an agent from the sidebar to begin your interaction.",
@@ -99,20 +113,13 @@
       "recoveredAfterErrorTip": "A step in this turn failed; the reply was written from the completed work plus what we know about the error."
     },
     "onboarding": {
-      "eyebrow": "New conversation",
-      "heading": "A fresh page.",
-      "framing": "Nothing here yet — and that's the point. The more you and {{name}} work together, the more it remembers, connects, and carries forward.",
       "defaultAgentName": "your agent",
-      "narraBrand": "Narra · Memory",
-      "narraCaption": "it remembers",
-      "nexusBrand": "Nexus · Network",
-      "nexusCaption": "it connects",
-      "teamBrand": "Your Team",
-      "teamCaption": "it delivers",
-      "tryAsking": "Try asking",
       "prompt1": "Summarise this week's most important updates for me",
       "prompt2": "Connect a channel and watch it for anything urgent",
-      "prompt3": "Set up a Monday-morning digest of what matters"
+      "prompt3": "Set up a Monday-morning digest of what matters",
+      "readyTitle": "{{name}} is ready",
+      "readyBody": "Try one of these to get started, or just say what you need.",
+      "dismiss": "Dismiss"
     },
     "team": {
       "notFound": "Team not found.",
@@ -237,7 +244,19 @@
       "sendFailed": "Could not send. Your text is still here — try again.",
       "uploadFailed": "Could not upload “{{name}}”.",
       "uploadFailedGeneric": "Could not upload the file.",
-      "loadingOlder": "Loading older messages…"
+      "loadingOlder": "Loading older messages…",
+      "workspace": {
+        "zoom": "Zoom artifact",
+        "emptyArtifacts": "Select an artifact to view it here.",
+        "emptyFiles": "Files download directly — click one on the left.",
+        "tabArtifacts": "Artifacts",
+        "tabFiles": "Files",
+        "artifactsHint": "Artifacts your team's agents register in this room appear here.",
+        "filesHint": "Files shared with team_share_file appear here.",
+        "download": "Download {{name}}",
+        "loading": "Loading…"
+      },
+      "drawerCategory": "Team room"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -320,7 +339,14 @@
       "plan": "Plan",
       "title": "agent · process",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "session · {{time}}",
+      "detailMenuTitle": "Agent detail — panels",
+      "modelFramework": "Model & framework",
+      "switchAgent": "Switch agent"
+    },
+    "composerPrivacyHint": "Avoid sharing sensitive personal information."
   },
   "awareness": {
     "common": {
@@ -726,7 +752,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artifacts",
       "tabArtifactsCount": "Artifacts ({{count}})"
     },
@@ -735,7 +760,6 @@
       "closeAriaLabel": "Close and return to chat"
     },
     "sidebar": {
-      "openWorkspace": "Open your workspace",
       "logoutConfirmTitle": "Log out",
       "logoutConfirmMessage": "Are you sure you want to logout?",
       "logoutConfirmAction": "Log out",
@@ -757,10 +781,6 @@
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
       "createTeam": "Create Team",
-      "manageAgents": "Manage agents",
-      "manageAgentsTitle": "Manage agents (batch · add / edit / delete)",
-      "teamGroupChatTitle": "{{name}} — group chat",
-      "teamGroupChatAria": "{{name}} group chat",
       "refreshAgents": "Refresh Agents",
       "emptyLabel": "No agents yet",
       "emptyHint": "Create your first agent to start a conversation.",
@@ -809,29 +829,34 @@
       "manageTeams": "Manage Teams"
     },
     "createMenu": {
-      "create": "Create",
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
       "createTeam": "Create Team",
-      "importAgent": "Create Agent (from other source)"
+      "importAgent": "Import from other source",
+      "new": "New",
+      "newTitle": "New — agent, team, import…",
+      "importBundle": "Import .nxbundle"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
       "agentCount_one": "{{count}} agent",
       "agentCount_other": "{{count}} agents",
+      "toggleMembers": "Show members",
+      "noMembers": "No members yet",
       "unread": "Unread messages"
     },
     "teamRowMenu": {
       "options": "Group chat options",
       "rename": "Rename",
       "clearData": "Clear data",
-      "delete": "Delete"
+      "delete": "Delete",
+      "addAgent": "Add agent",
+      "addingAgent": "Adding…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",
       "crumbSettings": "Settings",
       "crumbSystem": "System",
-      "crumbManageAgents": "Manage agents",
       "crumbTeam": "Team",
       "crumbBundle": "Bundle",
       "crumbChat": "Chat",
@@ -929,7 +954,7 @@
       "planPro": "Nexus Pro",
       "badgeFree": "Free",
       "badgeCancelled": "Nexus Pro · ending",
-      "subtitle": "Power plan & credits · used for your LLM API usage",
+      "subtitle": "Your NetMind.AI account · plan & credits shared by every NetMind product, not only NarraNexus",
       "loading": "Loading…",
       "error": "Could not load your NetMind.AI Power account. If your login expired, sign in again and refresh.",
       "expiresDowngrade": "Valid until {{date}}, then downgrades to Free",
@@ -941,11 +966,15 @@
       "awaitingPayment": "Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.",
       "pollTimeout": "Still not active. If you completed payment, refresh in a moment.",
       "currentBalance": "Current balance",
+      "balanceScope": "NetMind account balance — anything you run on this NetMind account draws it down, including outside NarraNexus.",
       "monthlyGrant": "Monthly grant",
       "notEligible": "Cannot incur paid usage right now (no balance / not eligible).",
       "hasArrears": "You have outstanding arrears.",
-      "activityTitle": "Recent activity",
-      "scopeNote": "These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.",
+      "narraUsageTitle": "Used by NarraNexus · last {{days}} days",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimated from public list prices, so it will not match your NetMind statement exactly.",
+      "activityTitle": "NetMind account activity (all products)",
+      "scopeNote": "These NetMind.AI Power credits cover LLM API usage across every NetMind product and API key on this account — the balance and activity above are account-wide, not NarraNexus-only. Compute (GPU) and other pricing are billed separately.",
       "sandboxNotice": "The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice.",
       "rechargeTitle": "Add credits",
       "rechargeDesc": "One-time top-up, no subscription. Credits are kept regardless of plan.",
@@ -1005,7 +1034,33 @@
       "cancelConfirmKeep": "Keep subscription",
       "reactivateConfirmTitle": "Resume auto-renew?",
       "reactivateConfirmAction": "Resume",
-      "reactivateConfirmDismiss": "Not now"
+      "reactivateConfirmDismiss": "Not now",
+      "payMethodLabel": "Payment method",
+      "payCard": "Card",
+      "payAlipay": "Alipay",
+      "payWechat": "WeChat Pay",
+      "wechatConversion": "WeChat is charged in CNY: {{usd}} ≈ {{cny}}",
+      "wechatConverting": "Converting…",
+      "wechatNote": "You still receive the USD amount as credit. The rate is applied when payment starts.",
+      "wechatMin": "Minimum {{min}} per payment.",
+      "rechargeBelowMinimum": "WeChat has a minimum of about ${{min}} per payment.",
+      "renewMonthsLabel": "How many months",
+      "renewTotalLabel": "{{count}}-month total",
+      "renewNoAutoRenew": "One-time purchase — this does NOT auto-renew. Buy again before it ends to stay on Pro.",
+      "renewPay": "Pay ${{total}}",
+      "renewBtn": "Renew",
+      "renewTitle": "Keep Pro going",
+      "renewProcessing": "Waiting for payment… complete it in the opened window; your plan updates automatically.",
+      "renewSuccess": "Pro extended — new end date shown above.",
+      "planExplOnetime": "Valid until {{date}} — one-time purchase, does not renew",
+      "renewExtendsFrom": "Added on top of your current end date, {{date}}.",
+      "payMethodLabelPro": "How to pay for Pro",
+      "perMonthLabel": "Per month",
+      "cardRenews": "Renews automatically",
+      "cardAutoRenew": "Renews monthly until you cancel. Cancel any time — you keep Pro to the end of the period.",
+      "subscribeBtn": "Subscribe",
+      "buyProTitle": "Upgrade to Nexus Pro",
+      "payMethodLabelTopUp": "How to pay for these credits"
     },
     "modal": {
       "title": "Settings",
@@ -1314,7 +1369,14 @@
     "drawer": {
       "unpin": "Unpin panel",
       "pin": "Pin panel",
-      "close": "Close panel"
+      "close": "Close panel",
+      "switchPanel": "Switch panel"
+    },
+    "coach": {
+      "title": "Your artifacts live here",
+      "unpinHint": "Unpin to turn this into a pop-over that closes on its own.",
+      "closeHint": "Close the panel — reopen any panel from the chat header.",
+      "gotIt": "Got it"
     }
   },
   "inbox": {
@@ -1544,7 +1606,22 @@
       "title": "Agent Dashboard",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "No agents yet",
-      "emptyHint": "Create an agent from the sidebar to populate this dashboard."
+      "emptyHint": "Create an agent from the sidebar to populate this dashboard.",
+      "statRunning": "Running",
+      "statQueued": "Queued",
+      "statErrors": "Errors",
+      "statCostToday": "Cost today",
+      "colStatus": "Status",
+      "colTeam": "Team",
+      "colMembers": "Members",
+      "teamsCount": "{{count}} teams",
+      "membersCount": "{{count}} agents",
+      "noStatusYet": "No live status yet — the next poll will fill this in.",
+      "publicAgent": "public",
+      "noTeamsLabel": "No teams yet",
+      "noTeamsHint": "Create one from the New menu in the sidebar.",
+      "manageTeam": "Manage",
+      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here."
     },
     "createUser": {
       "title": "Create New User",
@@ -1573,34 +1650,21 @@
     },
     "settings": {
       "title": "Settings",
-      "headerSections": "Providers · Bundle · Artifacts · Agents",
       "nav": {
-        "account": "Account & Subscription",
+        "account": "Account & billing",
         "providers": "LLM Providers",
         "modelDefaults": "Model Defaults",
-        "bundle": "Bundle",
         "artifacts": "Artifacts",
-        "manageAgents": "Manage agents",
         "updates": "App updates",
-        "privacy": "Privacy"
+        "privacy": "Privacy",
+        "personalization": "Personalization"
       },
       "providers": {
         "label": "LLM Providers"
       },
-      "bundle": {
-        "label": "Bundle · Export / Import",
-        "hint": "Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you.",
-        "exportButton": "Export bundle…",
-        "importButton": "Import bundle…"
-      },
       "artifacts": {
         "label": "Artifacts",
         "hint": "Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
-      },
-      "manageAgents": {
-        "label": "Manage agents · batch",
-        "hint": "Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them.",
-        "openButton": "Open batch manager…"
       },
       "modelDefaults": {
         "frameworkFilteredNote": "Only the frameworks your connected providers can actually run are listed.",
@@ -1683,6 +1747,10 @@
         "telemetryManagedCloud": "Your administrator controls diagnostic telemetry for this install.",
         "telemetryUnavailable": "Telemetry state could not be loaded — the switch is hidden rather than guessed. Reload to retry.",
         "telemetryError": "The change could not be saved. The switch shows the actual current state."
+      },
+      "personalization": {
+        "label": "Personalization",
+        "hint": "Theme and language. More to come."
       }
     },
     "system": {
@@ -1754,7 +1822,11 @@
       "bulkDeleteResult": "{{success}} deleted.",
       "bulkDeleteResultWithFailures": "{{success}} deleted, {{failedCount}} failed ({{failedIds}}).",
       "addedToTeamTitle": "Added to team",
-      "addedToTeamMessage": "{{count}} agents added to selected team."
+      "addedToTeamMessage": "{{count}} agents added to selected team.",
+      "addedToTeamResultWithFailures": "{{success}} added, {{failedCount}} failed ({{failedIds}}).",
+      "removedFromTeamTitle": "Removed from team",
+      "removedFromTeamMessage": "Removed {{count}} agents from the team.",
+      "removedFromTeamResultWithFailures": "{{success}} removed, {{failedCount}} failed ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Install template",
@@ -1770,7 +1842,7 @@
       "orSeparator": "— or —",
       "chooseFile": "Choose file",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Preview",
+      "preview": "Run preflight →",
       "preflightFailed": "Preflight failed",
       "waitingForBackend": "Waiting for backend (try {{attempt}}/{{total}})…",
       "fetchFailed": "Failed to fetch template",
@@ -1821,7 +1893,8 @@
         "skillsTip": "Tip: skills marked as \"full copy\" already have credentials. URL/Zip skills need re-study or new credentials — talk to the imported agents to complete setup.",
         "viewTeamIntro": "View team intro",
         "doneButton": "Done"
-      }
+      },
+      "uploadInfoNote": "A bundle can contain a single agent or a whole team (agents, memory, skills, channels). Next you’ll review name clashes and warnings before anything is written."
     },
     "bundleExport": {
       "title": "Export bundle",
@@ -1832,7 +1905,8 @@
       "bundleNotesPlaceholderTeam": "My team",
       "bundleNotesPlaceholderDesc": "Describe what this team does…",
       "includeChatLabel": "Include chat history (events + messages). Disable for templates with privacy concerns.",
-      "includeChannelCredentialsLabel": "Full mode — include credentials (IM channels + skill secrets)",
+      "includeChannelCredentialsLabel": "Include credentials (IM channels + skill secrets)",
+      "pickFirstHint": "Pick the agent or team above first — the narrative, skill and channel sections appear once there is something to scope.",
       "channelCredentialsWarning": "The bundle will contain near-plaintext (base64) secrets: IM bot credentials AND skill auth (env_config + skill credential files). Anyone with the file can take over these bots/skills — do not share it. Imported channel credentials arrive disabled and must be manually activated; skill secrets are restored in place.",
       "cancel": "Cancel",
       "reviewExport": "Review & Export",
@@ -1870,19 +1944,11 @@
         "freeText": "Free text (awareness / events / messages) is NOT auto-scanned for inline secrets — verify yourself."
       },
       "agents": {
-        "whatYouPick": "What you pick here:",
-        "intro1": "the set of agents this bundle will contain. Everything else in the wizard (narratives, skills, MCPs, files…) is filtered to this closure.",
-        "intro2": "Picking a team adds all of its existing members in one click; you can still uncheck individuals afterwards. External references (e.g. a social entity pointing at an agent outside this closure) get dropped automatically on export.",
         "bundleTeamLabel": "Bundle this team (optional)",
         "noTeamOption": "— No team / individual agents —",
-        "quickAddByTeam": "Quick add by team",
-        "deselectTeamTitle": "Deselect all members of \"{{name}}\"",
-        "addTeamTitle": "Add all members of \"{{name}}\"",
-        "replaceTeamTitle": "Replace selection with \"{{name}}\" members",
-        "only": "only",
-        "allAgents": "all agents ({{count}})",
-        "clear": "clear",
-        "agentsToInclude": "Agents to include · {{selected}}/{{total}}"
+        "agentsToInclude": "Agents to include · {{selected}}/{{total}}",
+        "pickTeamFirst": "Pick a team above — its members are included automatically.",
+        "pickOne": "Pick the agent to export"
       },
       "skills": {
         "emptySelectAgents": "Select agents in the previous tab — their skills will appear here.",
@@ -2068,6 +2134,13 @@
         "noArtifacts": "This agent has no artifacts.",
         "pinned": "pinned",
         "fullModeNote": "Full snapshot mode auto-includes every artifact. Switch to Custom to pick."
+      },
+      "kind": {
+        "label": "Bundle",
+        "agentTitle": "Agent bundle",
+        "agentDesc": "Export one agent — its narratives, skills and workspace files travel with it.",
+        "teamTitle": "Team bundle",
+        "teamDesc": "Export a whole team — its agents, intro, and shared channels travel together."
       }
     },
     "signup": {
@@ -2095,6 +2168,27 @@
         "special": "A special character"
       },
       "codePlaceholder": "6-character code"
+    },
+    "createTeam": {
+      "title": "Create team",
+      "back": "Back",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Research",
+      "descLabel": "Description",
+      "descPlaceholder": "What is this team for?",
+      "colorLabel": "Color",
+      "membersLabel": "Add agents",
+      "selectedCount": "{{count}} selected",
+      "noAgents": "No agents yet — create one first from the New menu.",
+      "createButton": "Create team",
+      "manageHint": "Manage existing teams in the Dashboard.",
+      "membersFailed": "Team created, but {{count}} member(s) could not be added: {{ids}}",
+      "searchPlaceholder": "Search agents by name / id…",
+      "noMatch": "No agents match",
+      "cancel": "Cancel"
+    },
+    "account": {
+      "powerOnlyHint": "Account, billing and subscription are NetMind account features — sign in with a NetMind account to see them here."
     }
   },
   "rail": {
@@ -2120,7 +2214,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Artifacts",
+    "desc": {
+      "awareness": "Who your agent is — identity, personality and standing instructions. Edit here, or just tell the agent in chat and it keeps this updated itself.",
+      "workspace": "The agent's file space: upload documents for it to read; files it produces land here too.",
+      "channels": "Connect this agent to IM platforms (Lark, Slack, Telegram…) so people can reach it outside this app.",
+      "smarthome": "Link smart-home devices (Home Assistant) so the agent can see and control them.",
+      "jobs": "Scheduled and background work. Just ask in chat — “every morning send me a brief” — and the agent creates one.",
+      "inbox": "Messages arriving for this agent from channels and other agents; items needing your attention show a badge.",
+      "artifacts": "Reports, pages and files the agent has produced — open and review any of them here.",
+      "skills": "Installed abilities the agent can use. Add more from the Marketplace, or install from GitHub / zip.",
+      "mcp": "External MCP tool servers the agent can call — plug in third-party capabilities.",
+      "memory": "The agent's long-term memory, organized as narratives — what it carries across conversations.",
+      "social": "Who the agent knows — contacts accumulate as it works with people and other agents."
+    }
   },
   "jobs": {
     "title": "Jobs",
@@ -2290,24 +2398,12 @@
     "refresh": "Refresh artifacts",
     "zoom": "Zoom artifact",
     "zoomFullscreen": "Zoom artifact (open fullscreen)",
-    "collapse": "Collapse panel",
-    "collapseAria": "Collapse artifacts panel",
     "selectArtifact": "Select an artifact",
     "minimized": "Minimized:",
     "restore": "Restore \"{{title}}\"",
     "openBadge": "Open {{title}} ({{kind}})",
     "unsupportedKind": "Unsupported artifact kind: {{kind}}",
     "loadingRenderer": "Loading renderer…",
-    "sliver": {
-      "expandTitle": "Click to expand · {{count}} artifact",
-      "expandTitle_other": "Click to expand · {{count}} artifacts",
-      "emptyTitle": "Artifacts will appear here once the agent creates one",
-      "expandAria": "Expand artifacts panel ({{count}} item)",
-      "expandAria_other": "Expand artifacts panel ({{count}} items)",
-      "emptyAria": "Artifacts panel (empty)",
-      "label": "Artifacts ({{count}})",
-      "labelEmpty": "Artifacts"
-    },
     "emptyState": {
       "title": "No artifacts yet",
       "hint": "They'll appear here as the agent creates them."

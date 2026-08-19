@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/lib/utils.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 新增 formatAbsolute
+
+绝对日期时间标签(locale 感知,dateStyle medium + timeStyle short),
+经 `parseUTCTimestamp` 解析——后端时间戳不带时区标记,裸 `new Date` 会当
+本地时间读,悬停绝对时间会和旁边的相对标签对不上。坏输入回空串。
+首个消费方:[[../components/settings/ArtifactsSection]] 的时间列 title。
+
+## 2026-08-19 — formatMessageAge 对坏时间戳降级为空串
+
+`Intl.RelativeTimeFormat.format(NaN)` 会抛 RangeError——渲染期一个坏时间戳
+等于整块面板进 error boundary。现在不可解析的输入直接返回 `''`(空标签,
+不是崩溃)。这个守卫护住全部调用点(MessageBubble / TeamWorkspacePanel /
+ArtifactsSection),各处不必再自带 NaN 分支。
+
+## 2026-08-06 — formatMessageAge
+
+新增聊天气泡专用的本地化相对时长(Intl.RelativeTimeFormat,numeric:auto,
+秒/分/时/天/月/年阶梯,传 i18n.language)。与既有英文缩写版
+formatRelativeTime(jobs/system 面,7 天后落日期)并存,勿混用。
 
 ## 2026-08-14 — `activeLocale` 导出
 

@@ -4,6 +4,15 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — 指令里新增「Dates and Time Arithmetic」段
+
+配合新注册的 `resolve_relative_date` / `compare_dates`（见
+[[date_tool.py]]）。两条规则：相对表达一律过工具；断言某事"已经发生 / 就是今天 / 还没到"
+之前先用 `compare_dates` 核一遍并引用返回值。
+
+第二条是独立的一条，不是第一条的推论 —— 从记录里读对的日期，仍然可能跟"现在"比错，而
+那才是用户真正会注意到的错误。
+
 ## 2026-08-10 (review 修正) — 跨 workspace 的条目渲染绝对路径
 
 状态块此前只剥离**本 agent 自己**的 workspace 前缀，不匹配就原样输出 base 相对路径。

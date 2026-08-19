@@ -15,9 +15,14 @@ On next app startup, the column is automatically added via ALTER TABLE ADD COLUM
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    # Type-only: the name is referenced only in annotations, so keep the
+    # runtime import graph unchanged.
+    from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # ============================================================================
@@ -757,6 +762,26 @@ _register(
     )
 )
 
+# 21b. bus_wake — the cross-process "there is new work" nudge
+#
+# ONE row (id=1) whose timestamp every send bumps and the poll loop reads while
+# it sleeps. Not a queue: the signal says "look now", never "look at X" — the
+# loop already knows how to find pending work, and a second answer to that
+# question is a second thing to keep true.
+#
+# Why a table at all: the in-process `asyncio.Event` in MessageBusTrigger cannot
+# reach the MCP server process, and a team reply is now a tool call made there.
+# See `message_bus/wake_signal.py` for the full argument.
+_register(
+    TableDef(
+        name="bus_wake",
+        columns=[
+            Column("id", "INTEGER", "INT", nullable=False, primary_key=True),
+            Column("bumped_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+    )
+)
+
 # 22. bus_messages (text primary key)
 _register(
     TableDef(
@@ -801,8 +826,8 @@ _register(
             Column("sender_turn_source", "TEXT", "VARCHAR(32)", nullable=True),
             # events row id of the turn that produced this message. Stamped by
             # BOTH paths an agent reply can take: the trigger's own in-turn
-            # room post, and the agent's `bus_send_message` /
-            # `bus_send_to_agent` (from the identity header, 2026-08-14) —
+            # room post, and the agent's `message_team` /
+            # `message_agent` (from the identity header, 2026-08-14) —
             # so this is NOT a marker of "the platform posted it". NULL for
             # user messages, for rows written before the column existed, and
             # whenever the sender could not tell which turn it was in. Powers
@@ -1493,6 +1518,131 @@ _register(
             # Replay-on-reconnect: SELECT ... WHERE event_id=? ORDER BY seq ASC
             Index("idx_event_stream_event_seq", ["event_id", "seq"], unique=True),
             Index("idx_event_stream_event_id", ["event_id"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# 31 / 32. inbox_threads + inbox_thread_messages — the RECORD layer.
+#
+# NAMED AROUND AN EXISTING COLLISION: `inbox_table` / `InboxRepository` /
+# `InboxMessage` already exist and are a NOTIFICATION store (system alerts the
+# platform pushes to an owner). Different feature, same word. `inbox_messages`
+# would have read as that feature's table, so the conversation record carries
+# `inbox_thread_messages` — the pairing with `inbox_threads` is then obvious and
+# neither name reaches for `InboxMessage`'s. The deeper fix (the notification
+# store is the one misusing the word) needs a rename of a live table, so it is
+# recorded in todo/ rather than done here.
+#
+# The inbox is what the user reads about conversations they were not in: IM
+# channel traffic and agent-to-agent DMs. It used to live in `bus_messages` /
+# `bus_channel_members`, which cost two things measured on prod 2026-08-17:
+#
+#   * 86% of `bus_messages` (28,605 of 33,164 rows) was IM inbox content. The
+#     table's name described its minority.
+#   * The writer created a `bus_channel_members` row per agent so the panel
+#     could find the thread — and NOTHING ever advanced its `last_read_at`
+#     (159 of 172 IM memberships, 92%, had a NULL cursor). The bus unread
+#     predicate is `created_at > COALESCE(last_read_at, epoch)`, so 1,364 IM
+#     messages were permanently "unread" and rode into 90 agents' turn context
+#     attributed to pseudo-agents like `lark_user_<id>`.
+#
+# Separate tables end both: the agent's unread injection reads `bus_messages`
+# JOIN `bus_channel_members`, and these rows are simply not there. The
+# containment is structural, not a filter that a future channel can be
+# forgotten from — which is exactly how the 2026-07-03 wechat double-dispatch
+# happened (`im_channel_prefixes` drifted).
+#
+# OPERATIONAL vs OBSERVATIONAL is the line: the bus tables carry delivery
+# mechanics (cursors, pending work, routing); these carry the record a person
+# reads. `inbox_threads.last_read_at` is therefore the USER's read state and
+# has no effect on what any agent is handed — the two were one column before,
+# so clicking "mark read" in the panel changed the agent's next turn.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="inbox_threads",
+        columns=[
+            # `im_<channel>_<chat_id>` / `nx_dm_<peer_agent_id>` — the family
+            # prefix comes first so the namespace says what it is before it
+            # says which one.
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False, primary_key=True),
+            Column("owner_user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # The agent whose conversation this is. A user may own several.
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # "lark" / "wechat" / … / "agent_dm". Matches MessageSourceHandler.name
+            # for IM sources so the record layer and the registry agree.
+            Column("source", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("title", "TEXT", "VARCHAR(255)"),
+            # Who the agent is talking to: the IM sender id, or the peer agent_id.
+            Column("counterpart_id", "TEXT", "VARCHAR(128)"),
+            Column("counterpart_name", "TEXT", "VARCHAR(255)"),
+            Column("last_message_at", "TEXT", "DATETIME(6)"),
+            Column("last_message_preview", "TEXT", "TEXT"),
+            # The USER's read state. Deliberately NOT the agent's context gate —
+            # see the header note.
+            Column("last_read_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # The panel's query: this user's threads, newest first, every poll.
+            Index("idx_inbox_threads_owner", ["owner_user_id", "last_message_at"]),
+            Index("idx_inbox_threads_agent", ["agent_id"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="inbox_thread_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("message_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("thread_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # "in" = from the counterpart, "out" = from the agent. The pair is
+            # one conversational turn but two rows, and they must sort
+            # inbound-then-reply — see the writer's microsecond stagger.
+            Column("direction", "TEXT", "VARCHAR(8)", nullable=False),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_name", "TEXT", "VARCHAR(255)"),
+            Column("content", "TEXT", "MEDIUMTEXT"),
+            # JSON list of attachment dicts, carried verbatim from the source so
+            # a backfilled row renders the same as a live one.
+            Column("attachments", "TEXT", "TEXT"),
+            # The `bus_messages.message_id` this row was backfilled from. NULL
+            # for anything written live.
+            #
+            # This column is where the backfill's idempotency key BELONGS.
+            # Decision ③ (2026-08-17): history is backfilled by hand after
+            # deploy, so the live write path is already filling this table when
+            # the script starts and the overlapping window would otherwise double
+            # every message — in a surface the user looks at. Keeping the key in
+            # the schema rather than in the script keeps it somewhere it cannot be
+            # forgotten.
+            #
+            # Two things this does NOT yet do, stated plainly because an
+            # optimistic comment here is worse than none:
+            #
+            #   * Nothing populates it. `_insert_message`'s parameter defaults to
+            #     None and no caller passes it, so today the unique index below
+            #     sits over an all-NULL column (legal in both dialects: multiple
+            #     NULLs do not collide). The backfill script is what fills it —
+            #     and the script does not exist yet, by the Owner's decision that
+            #     the migration is manual and post-deploy.
+            #   * A unique index does not make a repeat insert a no-op. It makes
+            #     it RAISE. An earlier version of this comment claimed otherwise;
+            #     the script has to catch the duplicate and re-read, the same
+            #     shape `InboxRecorder._ensure_thread` uses for its create race.
+            #     The runbook carries that requirement.
+            Column("source_message_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_inbox_thread_msgs_thread", ["thread_id", "created_at"]),
+            Index("idx_inbox_thread_msgs_msgid", ["message_id"], unique=True),
+            Index("idx_inbox_thread_msgs_source", ["source_message_id"], unique=True),
         ],
     )
 )
@@ -2797,8 +2947,6 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
     Args:
         backend: An initialized DatabaseBackend instance.
     """
-    from xyz_agent_context.utils.db.db_backend import DatabaseBackend  # noqa: F811
-
     dialect = backend.dialect
     tables_created = 0
     columns_added = 0

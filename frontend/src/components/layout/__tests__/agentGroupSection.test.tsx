@@ -1,7 +1,6 @@
 /**
  * Tests for AgentGroupSection (collapse toggle, unread aggregation, nav arrow)
  * and AgentRowMenu (kebab menu entries: rename, delete, public toggle).
- * Also tests the AGENTS header ⋯ menu entries.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -11,7 +10,6 @@ import { MemoryRouter } from 'react-router-dom';
 // We import the file under test (will fail until the file is created).
 import { AgentGroupSection } from '../AgentGroupSection';
 import { AgentRowMenu } from '../AgentRowMenu';
-import { AgentsHeaderMenu } from '../AgentsHeaderMenu';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -225,54 +223,6 @@ describe('AgentRowMenu', () => {
     expect(screen.queryByText(/delete/i)).not.toBeInTheDocument();
   });
 });
-
-// ---------------------------------------------------------------------------
-// AgentsHeaderMenu (⋯ menu on AGENTS header)
-// ---------------------------------------------------------------------------
-
-describe('AgentsHeaderMenu', () => {
-  const defaultProps = {
-    onImport: vi.fn(),
-    onExport: vi.fn(),
-    onManageTeams: vi.fn(),
-  };
-
-  it('exposes an Import entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    const trigger = screen.getByRole('button', { name: /agents menu/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/import/i)).toBeInTheDocument();
-  });
-
-  it('exposes an Export entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    expect(screen.getByText(/export/i)).toBeInTheDocument();
-  });
-
-  it('exposes a Manage Teams entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    expect(screen.getByText(/manage teams/i)).toBeInTheDocument();
-  });
-
-  it('calls onImport when Import is clicked', () => {
-    const onImport = vi.fn();
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} onImport={onImport} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    fireEvent.click(screen.getByText(/import/i));
-    expect(onImport).toHaveBeenCalled();
-  });
-
-  it('calls onManageTeams when Manage Teams is clicked', () => {
-    const onManageTeams = vi.fn();
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} onManageTeams={onManageTeams} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    fireEvent.click(screen.getByText(/manage teams/i));
-    expect(onManageTeams).toHaveBeenCalled();
-  });
-});
-
 
 describe('kebab menu stacking (2026-06-11 fix)', () => {
   const props = {

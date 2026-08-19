@@ -27,6 +27,7 @@ import { isBlankText } from '@/lib/isBlankText';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { isOwnerReplyTool } from '@/lib/ownerTools';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -374,9 +375,9 @@ export const useChatStore = create<ChatState>((_set, get) => {
         // Prevent duplicate calls
         if (!session.isStreaming) return {};
 
-        // Extract user-visible response (concatenate ALL send_message_to_user_directly calls)
+        // Extract user-visible response (concatenate ALL owner-facing calls)
         const responseParts = session.currentToolCalls
-          .filter((tool) => tool.tool_name.endsWith('send_message_to_user_directly'))
+          .filter((tool) => isOwnerReplyTool(tool.tool_name))
           .map((tool) => tool.tool_input?.content as string)
           // Blank content is no reply — same line the backend persist
           // guard draws: a "\n" part falls through to the placeholder
@@ -545,7 +546,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
               // A name-first pending entry must be replaced IN PLACE by the
               // completed call — never kept as a second row. currentToolCalls
               // is the reply-extraction source (stopStreaming picks
-              // send_message_to_user_directly content out of it), so a
+              // the owner-facing content out of it), so a
               // duplicate with empty arguments would inject an empty reply
               // segment.
               const callId = (progress.details?.tool_call_id as string | undefined);
@@ -564,11 +565,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
               if (!exists) {
                 if (sameCallIdx < 0) newToolCalls = [...session.currentToolCalls, toolCall];
 
-                // Inline timeline: a send_message_to_user_directly tool
+                // Inline timeline: an owner-facing tool
                 // call carries the agent's actual reply in its content
                 // arg — surface it as a `reply` event so <TurnTimeline>
                 // can render it as the primary user-facing block.
-                if (toolName.includes('send_message_to_user_directly')) {
+                if (isOwnerReplyTool(toolName)) {
                   // NexusPower streams this reply live (agent_reply_delta)
                   // and the completed call repeats the same final text —
                   // fold it into the open streaming bubble instead of
@@ -692,7 +693,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
             // Dedup against the agent's own duplication habit (see
             // 2026-05-12 review): thinking models often emit a
             // condensed paraphrase via native LLM output *after*
-            // they've already called send_message_to_user_directly.
+            // they've already spoken to the owner.
             // The reply is the authoritative version; the native
             // paraphrase repeats the same information in a degraded
             // form. Drop the post-reply native_output here.
@@ -919,7 +920,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
           const session = getSession(get().agentSessions, agentId);
           const hasReply = session.currentToolCalls.some(
             (tool) =>
-              tool.tool_name.endsWith('send_message_to_user_directly') &&
+              isOwnerReplyTool(tool.tool_name) &&
               !isBlankText(tool.tool_input?.content as string),
           );
           get().stopStreaming(agentId);

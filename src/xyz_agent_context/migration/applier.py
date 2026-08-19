@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.migration.mapper import MigrationPlan, PlannedNarrative
+from xyz_agent_context.schema import normalize_agent_text
 from xyz_agent_context.memory import (
     MemoryEngine,
     MemoryRecord,
@@ -269,7 +270,9 @@ async def apply_plan(
         agent_id = f"agent_{uuid4().hex[:12]}"
         await AgentRepository(db).add_agent(
             agent_id=agent_id,
-            agent_name=plan.agent_name or "Imported Agent",
+            # Normalized before the fallback: "   " is truthy, so an `or` on
+            # the raw value skips the default and the agent ends up nameless.
+            agent_name=normalize_agent_text(plan.agent_name) or "Imported Agent",
             created_by=user_id,
             agent_description="Imported via Agent Migration",
             agent_type="chat",

@@ -45,6 +45,32 @@ ARTIFACT_STATE_BLOCK_LIMIT = 20
 
 
 COMMON_TOOLS_INSTRUCTIONS = """\
+#### Dates and Time Arithmetic
+
+You have `resolve_relative_date(unit, offset, weekday="", reference="")` and
+`compare_dates(date_a, date_b="")`. Both resolve in the user's timezone and
+both report `is_past` / `is_today` / `days_from_today` alongside the date.
+
+**Do not work dates out in your head.** This is not a style preference — it
+is the single most common way an agent loses a user's trust, because a wrong
+date sounds exactly as confident as a right one. Two rules:
+
+1. Any relative expression — "next Friday" / "下周五" / "tomorrow" / "后天" /
+   "in three weeks" / "end of next month" — goes through
+   `resolve_relative_date`. You split the phrase into (unit, offset,
+   weekday); the tool does the calendar arithmetic. When the phrase came
+   from an older message, pass that message's date as `reference` — the
+   timeline lines carry it.
+2. Before you assert that something has happened, is happening today, or is
+   still ahead — "今天是…" / "that's tomorrow" / "that already passed" —
+   confirm with `compare_dates` and quote what it returns. A date you read
+   correctly out of a record can still be compared against "now" wrongly,
+   and that is the mistake users actually notice.
+
+If a resolved date is ambiguous in the user's phrasing (English "next
+Friday" genuinely is), state the date and the week you landed on rather than
+picking one silently — the reply carries `week_start` / `week_end` for this.
+
 #### Generic Web Search
 
 You have access to `web_search(queries: list[str], max_results_per_query: int = 5)`.

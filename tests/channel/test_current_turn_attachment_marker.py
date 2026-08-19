@@ -213,6 +213,11 @@ async def test_build_input_for_framework_augments_current_turn_only(
     # the reply-language preference and this went red on 2026-07-31 with an
     # AttributeError, nothing to do with attachments.
     #
+    # Reverted to `__new__` once during the 2026-08-17 harness redesign — and
+    # the identical AttributeError came straight back. The constructor is not
+    # optional here; if a future change makes it expensive, inject a fake, do
+    # not skip it.
+    #
     # `db_client` is injected rather than left to default: with
     # `database_client=None` the constructor falls through to
     # `get_db_client_sync()`, whose `asyncio.run` refuses to run inside this

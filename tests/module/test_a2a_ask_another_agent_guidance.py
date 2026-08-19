@@ -11,7 +11,7 @@ Two things went wrong in the incident and only one was the agent_id bug
 1. the model reached for ``get_contact_info`` — a contact-details lookup
    that can never answer "what are they doing" — and
 2. when it errored, the agent told the user the task was impossible, even
-   though ``bus_send_to_agent`` exists and triggers the target.
+   though ``message_agent`` exists and triggers the target.
 
 Tool descriptions and module instructions are the only levers that steer
 tool CHOICE, so they are asserted here like any other contract. These are
@@ -43,7 +43,7 @@ def test_instructions_cover_asking_another_agent_on_the_owners_behalf():
     text = _bus_instructions()
     assert "find something out FROM another agent" in text
     # The route must name the actual capability...
-    assert "bus_send_to_agent" in text
+    assert "message_agent" in text
     # ...and forbid the observed failure mode.
     assert "Never answer that you are unable to reach another agent." in text
 
@@ -59,7 +59,7 @@ def test_instructions_require_relaying_the_reply_to_the_owner():
     """Sending the question is only half the errand — the acceptance
     criterion is 「能实际发起查询并回报」."""
     text = _bus_instructions()
-    assert "send_message_to_user_directly" in text
+    assert "notify_owner" in text
     assert "relay" in text.lower()
 
 
@@ -122,7 +122,7 @@ async def test_get_contact_info_description_disclaims_and_redirects():
     doc = (tool.description or "")
 
     assert "does NOT contact anyone" in doc
-    assert "bus_send_to_agent" in doc
+    assert "message_agent" in doc
     # And it must still describe its own real purpose.
     assert "contact details" in doc
 

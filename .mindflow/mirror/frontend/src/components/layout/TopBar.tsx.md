@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/layout/TopBar.tsx
-last_verified: 2026-07-22
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:移动端专属化
+
+根节点加 `md:hidden`,桌面不再渲染 — 桌面的 Find Us 移到 Sidebar 底部,
+⌘K palette 宿主移到 MainLayout(触发经 uiStore.setPaletteOpen)。
+FIND_US_URL 改为具名导出供 Sidebar 复用,外链约束(纯 <a>、noopener)不变。
+topBarFindUs 测试仍然有效(移动端形态未变)。
 
 # layout/TopBar.tsx — narrow global status strip + ⌘K trigger
 

@@ -1,8 +1,50 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-06-24
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — review 轮:筛选统一、shift 区间防崩、批量结果如实上报、Manage 带行上下文
+
+- 文本筛选抽成 `matchesFilterText`,public 行同样过它;任何团队筛选下 public 行
+  直接不渲染(public agent 没有 roster 团队归属)。空态判断因此自然变成
+  「过滤后两段皆空」。
+- `filterText`/`filterTeam` 变化即重置 `lastClickedIdx`;shift 区间循环内再加
+  一道 `if (!row) continue`——修「筛选变短后 shift-点越界 TypeError 白屏」。
+  前者修根因,后者防御索引来源以后再变,两道都要。
+- `handleBulkAddToTeam`/`RemoveFromTeam` 改成 `handleBulkDelete` 的形状:
+  success/failed 统计 + 失败分支文案(`danger`),remove 路径补结果提示并清空
+  选择。新 i18n key `addedToTeamResultWithFailures` / `removedFromTeam*`(×10)。
+- Teams 视图行级 Manage 传 `tm.team.team_id`,经 [[TeamManagementModal]] 新的
+  `initialTeamId` prop 在 open 上升沿选中——修「每一行都打开第一个团队」的
+  误操作入口。
+- `TableCheckbox` 加 `onToggle`+`tabIndex`+Space/Enter+`ariaLabel`(点击仍归
+  父级 label/cell 保留大热区,焦点/键盘/无障碍名归 checkbox 本体;行级用
+  agent 名,表头用全选/反选文案);首个 effect 的两个悬空 promise 显式 `.catch`。
+  键盘 toggle 不设 shift 锚点(区间选择是鼠标语义,有意为之)。
+
+## 2026-08-06 — Chat UI v4:吸收 ManageAgentsPage,监控 + 管理合一
+
+页面重写为 v4 形态:标题 + Agents/Teams segmented 切换 + 4 个 KPITile
+(Running / Queued / Errors / Cost today,仅统计 owned agents — public 无
+metrics,规避 NaN)+ 搜索/团队过滤条 + 批量操作条(全选 / 选团队 /
+加入 / 移出 / 删除,shift-click 范围选择保留)+ **状态×管理合一表**:
+checkbox | chevron+头像+name/id | 状态点 | 团队 chips | 来源。行可展开
+(**Set 多展开**,替代旧单 expandedId),展开内容复用 AttentionBanners /
+QueueBar / MetricsRow / SessionSection / JobsSection / Sparkline /
+RecentFeed。数据 = configStore.agents(roster)⨝ dashboardStore.agents
+(status)按 agent_id;status 缺席显示 "—" 行。public agents(状态流里
+非 roster)渲染只读行,保住旧 PublicCard 的可见性。
+
+不变量全部沿袭:轮询 FSM 节奏归 dashboardStore.computeInterval;清理
+必须 active=false + clearTimeout;429 → onRateLimited;tray badge 仅在
+计数变化时 setTrayBadge;listenTauri 空返回用 ?.() 解绑。
+
+Teams 视图:团队表(色点/名称/成员数/来源)+ Manage 按钮开既有
+TeamManagementModal(内部不动)。AgentCard / DashboardSummary /
+DurationDisplay / ConcurrencyBadge / dashboard 版 StatusBadge 删除;
+ManageAgentsPage 删除(路由 / TopBar crumb / Settings nav 项一并清理)。
+批量删除仍是逐行循环、部分成功弹窗 — 无事务语义,故意的。
 
 > 2026-06-24: Renamed from the mis-named `DashboardPage.md` to the canonical
 > `DashboardPage.tsx.md` and rewritten in English to house format. Behavior is

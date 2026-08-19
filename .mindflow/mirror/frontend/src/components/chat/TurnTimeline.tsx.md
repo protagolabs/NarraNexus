@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 空名不渲染([输出] 与 [TOOL] 两行同规则)
+
+工具名缺失时只显示标签本身——名字位置的占位词/空洞读起来像 bug。
+真名恢复在上游(见 [[MessageBubble]]/[[../../lib/segmentTurn]])。
 
 ## 2026-07-30 — 降级为只渲染过程（答案层迁出）
 

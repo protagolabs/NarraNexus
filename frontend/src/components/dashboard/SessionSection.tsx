@@ -104,7 +104,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--bg-tertiary)] rounded"
+        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--nm-paper-warm)] rounded"
         aria-expanded={expanded}
       >
         <AvatarDot seed={session.user_display} display={session.user_display} />
@@ -120,7 +120,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       {expanded && (
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1">
           {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
-          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
+          {err && <div className="text-[var(--color-error)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && (
             <>
               <div className="text-[var(--text-secondary)]">

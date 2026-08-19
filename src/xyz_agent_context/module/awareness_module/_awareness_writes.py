@@ -24,9 +24,17 @@ back by the shared writer).
 Dialect-safe (rule #6): AgentRepository / InstanceRepository /
 InstanceAwarenessRepository and db.get only — no raw SQL. The MATCHED-vs-CHANGED
 rowcount trap (update_agent returns cursor.rowcount = matched on SQLite, changed
-on MySQL) is defused BEFORE the write by the value-equality short-circuits on
-both name and description, so an unchanged re-save returns "No changes needed"
-identically on both dialects instead of a false "did not apply" on cloud.
+on MySQL) is defused twice: BEFORE the write by the value-equality
+short-circuits on both name and description, so an unchanged re-save returns
+"No changes needed" identically on both dialects; and AFTER it by verifying
+against the re-read row instead of the rowcount, so a write that DID land is
+never reported as "did not apply" (2026-08-17 — until then only the first half
+existed here, and the user-facing HTTP twin had neither).
+
+Both halves compare with `agent_field_matches` from schema.entity_schema, which
+is also what backend/routes/auth.py uses: the two writers of the agents row
+previously disagreed about whether surrounding whitespace made a value
+different.
 """
 from __future__ import annotations
 
@@ -39,7 +47,11 @@ from xyz_agent_context.repository import (
     InstanceAwarenessRepository,
     InstanceRepository,
 )
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from xyz_agent_context.schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    agent_field_matches,
+    normalize_agent_text,
+)
 
 # Where a rename records itself inside the Awareness profile. The profile is
 # injected verbatim into the system prompt every turn, so this is the one place
@@ -194,12 +206,12 @@ async def update_agent_profile_from_args(
         return f"Error: Agent {agent_id} not found"
 
     updates: dict = {}
-    old_name = (agent.agent_name or "").strip()
+    old_name = normalize_agent_text(agent.agent_name)
     renamed_from: Optional[str] = None
     notes: List[str] = []
 
     if new_name is not None:
-        wanted = new_name.strip()
+        wanted = normalize_agent_text(new_name)
         if not wanted:
             return "Error: new_name cannot be empty"
         # Bind to the SAME cap the read model enforces (Agent.agent_name
@@ -211,7 +223,7 @@ async def update_agent_profile_from_args(
         # reject identically (rule #6 / the store parity invariant).
         if len(wanted) > AGENT_TEXT_MAX_LENGTH:
             return f"Error: new_name is too long (max {AGENT_TEXT_MAX_LENGTH} characters)"
-        if wanted != old_name:
+        if not agent_field_matches(agent, "agent_name", wanted):
             updates["agent_name"] = wanted
             renamed_from = old_name
             # Duplicate names are ALLOWED — the owner may deliberately hand a
@@ -232,7 +244,7 @@ async def update_agent_profile_from_args(
                 )
 
     if new_description is not None:
-        wanted_desc = new_description.strip()
+        wanted_desc = normalize_agent_text(new_description)
         # Same AGENT_TEXT_MAX_LENGTH cap the name branch and the read model
         # enforce — an over-long description would make the agent row unreadable
         # (see the name branch).
@@ -247,7 +259,7 @@ async def update_agent_profile_from_args(
         # identical description would therefore report "Error: the update did
         # not apply" on cloud only — for a write that was simply a no-op — and
         # the §5 prompt invites exactly those repeat calls (review 2026-08-05).
-        if wanted_desc != (agent.agent_description or "").strip():
+        if not agent_field_matches(agent, "agent_description", wanted_desc):
             updates["agent_description"] = wanted_desc
 
     if not updates:
@@ -256,8 +268,37 @@ async def update_agent_profile_from_args(
             "your current profile."
         )
 
-    affected = await repo.update_agent(agent_id, updates)
-    if affected <= 0:
+    await repo.update_agent(agent_id, updates)
+
+    # The row decides, not the rowcount. The value-equality short-circuit above
+    # already removes the no-op case, but `cursor.rowcount` can still report 0
+    # for a write that DID land (it counts CHANGED rows on MySQL), and reading
+    # that as failure is precisely the bug the HTTP twin was fixed for — an
+    # agent told "the update did not apply" would re-issue a rename that had
+    # already happened. Same predicate as the comparison above, so "needed a
+    # write" and "the write landed" cannot mean different things.
+    stored = await repo.get_agent(agent_id)
+    unapplied = (
+        list(updates)
+        if stored is None
+        else [
+            field
+            for field, wanted in updates.items()
+            if not agent_field_matches(stored, field, wanted)
+        ]
+    )
+    if unapplied:
+        # Leave a trace, exactly as the HTTP twin does on its identical branch
+        # (auth.py). Without one, the only record that this happened is the
+        # sentence the model was handed — and if a concurrent writer caused it,
+        # nothing in the logs or the DB can be lined up with it afterwards.
+        # The returned string is deliberately unchanged: DirectStore and the
+        # /profile/update route must stay byte-identical.
+        logger.warning(
+            f"[update_agent_profile] {agent_id} does not hold the requested "
+            f"values for {unapplied} after the write — concurrent overwrite, "
+            f"or the write did not land"
+        )
         return "Error: the update did not apply; nothing was changed"
 
     # A rename is not complete until the memory that asserts the old identity

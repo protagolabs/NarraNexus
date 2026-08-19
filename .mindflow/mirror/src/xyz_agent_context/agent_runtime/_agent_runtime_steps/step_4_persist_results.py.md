@@ -1,8 +1,65 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-05
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 (review 修正) — 两个 helper 合并成一个遍历
+
+上一条新增的 `_owner_visible_reply_texts` 跟既有的 `_turn_delivered_user_message` 是同一段
+遍历的两份拷贝。当时给的理由是"布尔契约挂在 session anchor 上，改形状代价不对称"——**这个
+理由不成立**：`bool([])` 跟原来的 `return False` 在几乎所有输入上逐值等价，包括
+`extract_owner_visible_text` 返回 `""` 那条。
+
+> **2026-08-18 review 修正**：上面那句原本还写着"和异常路径"，**这是错的**，而且错在最
+> 要命的一格。等价性有**一个例外**：旧版首个命中就 `return True`、永远看不到后面的元素；
+> 新版走完全程，所以**命中之后**再有元素让 handler 抛异常时，会走进 `except` 返回 `[]`,
+> 布尔读数从 `True` 翻成 `False`。
+>
+> 这是**有意选择**：读不干净的响应统一取保守的"未投递"——session anchor 不动、guard 跳过
+> 这一轮，对两个消费者都是安全侧。
+>
+> **所以：不要**为了"保留已经收集到的部分"把 `except` 改成 `return texts`。那才会让两种
+> 读法在部分损坏的响应上真正分叉，而分叉的症状是探针在一部分流量上静默失效、数字却依然
+> 好看。源码 docstring 里也写了这句，但按铁律 #10 先读 mirror 的人只会看到这里——所以这条
+> 必须两边都在。
+>
+> 由 `test_a_raise_after_a_real_reply_reads_as_not_delivered` 锁住（要走到 `except` 得替换
+> 整个 handler：handler 是 frozen dataclass，而塞畸形输入会被 `isinstance` 过滤掉，那样的
+> 测试等于什么都没断言）。
+
+现在 `_owner_visible_reply_texts` 是这个文件里"owner 看到了什么"的**唯一实现**，
+`_turn_delivered_user_message` 就是它的 `bool(...)`。
+
+代价不在今天——今天两份行为一致。在于下次改 `resp.details` 形状、registry 取法或 owner-visible
+判定口径时得记得改两处。改漏的后果不对称且难查：session anchor 认为投递了、temporal guard
+认为没有（或反之），后者会让探针在一部分流量上静默失效，**而探针失效的唯一症状就是数字
+看起来很好**。
+
+`tests/agent_runtime/test_owner_visible_delivery.py` 补了针对列表版的断言（多条回复保序、
+bus 回复不计入、空白回复不计入、畸形输入返回 `[]`），外加一条直接断言两种读法在所有 case 上
+一致——把合并依赖的等价性写成测试而不是留在注释里。
+
+## 2026-08-18 — 新增 4.8：temporal guard（纯诊断）
+
+读本轮**已经投递给 owner** 的回复，把"今天是 X"这类对当下日期的断言跟时钟对一遍，不一致
+就往 `service_audit` 记一行。实现见 [[temporal_guard.py]]。
+
+**不改回复、不重新提示、不打断任何东西。** 铁律 #15/#16 把"平台修正模型输出"划在界外；
+而且从时序上也来不及 —— 走到这里时消息早就发出去了。
+
+放在整个 step 的**最后**，在所有持久化之后：即使它内部出现病态失败，也不会让这一轮已经
+做完的真实工作付出代价。全程 try/except + fail-open。
+
+取文本用的是 `_owner_visible_reply_texts`，跟 `_turn_delivered_user_message` 走同一个
+`MessageSourceRegistry` 真值来源，所以"用户看到了什么"这个判断不会在两处分叉。没有合并成
+一个函数：那个的 boolean 契约挂在 session anchor 这条路径上，改形状的代价不对称。
+
+## 2026-08-17 — 「在用户聊天里可见」按该轮桌上的那个 owner 工具判定
+
+owner 面的工具有两个名字，判据从写死一个改成「这个来源的桌上carry 的那个」：owner 聊天
+是 `reply_owner`，其余全是 `notify_owner`。写死任一个，都会在用另一个的表面上把成功的
+回复读成「没回复」。
 
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 
@@ -237,3 +294,24 @@ Step 4 does not mutate `RunContext` fields — it reads and writes to the databa
 - Adding new DB writes after Step 4 in the main pipeline: anything that needs to be durable before the WebSocket closes must go here. Steps 5–6 run as background tasks after the socket closes.
 - Writing a per-Narrative COPY of the turn's `events` row to associate it with more than one thread. `narratives.event_ids` is a list — that is where the many-to-many lives. See the 2026-08-05 entry above for what copying cost us.
 - Forgetting to handle the case where `ctx.execution_result` is `None` (cancelled turn) — all sub-steps must guard for this.
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

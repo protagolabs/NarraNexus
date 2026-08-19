@@ -1,8 +1,63 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19(三)— neverDefault 取代内联 id 比较
+
+「account 不做默认落地页」从 `it.id !== 'account'` 字符串比较改为
+NavItem 的声明式 `neverDefault` 标记——规则住在数据上,读 NAV_ITEMS 即见。
+
+## 2026-08-19(二)— Account pane 全会话可见 + powerOnly 机制退役
+
+- 非 NetMind 会话点 Account 看到登录提示(pages.account.powerOnlyHint 复活),
+  而不是被过滤后静默落到 Providers——?tab=account 的深链对任何会话都有着陆点。
+- nav 的 `powerOnly` 字段随之无消费者,整个机制删除(铁律 #2)。
+
+## 2026-08-19 — Account 变**页内 pane**,左侧标签栏永不消失
+
+href 导航项撤销:点 Account 曾整页跳去 /app/account,左侧标签栏消失、
+无法切换其他页——现在它是普通 pane(内嵌 [[NetmindAccountPanel]]),
+nav 常驻。?tab=account 直接落本 pane(Stripe 回跳带查询参数原样工作),
+原 Navigate 重定向删除。[[AccountPage]] 退化为旧链接别名(反向 302 进来)。
+
+## 2026-08-19 — 设置成为唯一配置前门:个性化栏目 + 账户入口 + 内容居中
+
+- 新「Personalization」pane([[PersonalizationSettings]]):主题三档 + 语言
+  列表,从侧栏账户弹层整体迁入——两个「设置」并存让用户分不清差别,现在
+  可配置的东西只此一处。排序放 privacy 之后,默认落点仍是 Providers。
+- NavItem 支持 `href`:「Account & billing」对 NetMind 用户显示,点击
+  `navigate('/app/account')` 而非切 pane(账户页仍是 user-scoped 独立页,
+  设置只做入口)。`?tab=` 初始化忽略 href 项。
+- 内容列 `max-w-3xl` 加 `mx-auto` 居中([[AccountPage]] 同改)。
+
+## 2026-08-18 — "管理 Agent" 入口移除(与智能体管理页重合)
+
+merge 时从 dev 移植的 ManageAgentsContent(一个跳转按钮)被 Owner 裁掉:
+v4 的 Dashboard 已吸收批量管理,侧栏一级入口(中文现名"智能体管理")直达,
+设置里再放个跳转门是冗余。NAV_ITEMS 'agents' 项、组件、Users/useNavigate
+引入一并删除。locale 里 settings.manageAgents / nav.manageAgents 两处
+key 刻意**留存未删**——同名 key 在别的命名空间(agentList 菜单、旧
+pages.manageAgents)有活引用,机械清理误伤过一次;死 key 无害,留待
+下次 i18n 大扫除时人工核对。
+
+## 2026-08-06 (2) — 纯 app 设置:account/bundle 项移除
+
+Owner 指示:Settings 只留 app 级配置(providers / modeldefaults /
+artifacts / updates)。`bundle` 项删除(入口在侧栏 New 菜单 + Export 行);
+`account` 项(连同 powerOnly 机制)移到用户级 [[AccountPage.tsx]]
+(/app/account,侧栏账户弹层进入)。**Stripe 回跳契约保住了**:
+?tab=account 深链在首渲染即 <Navigate replace> 到 /app/account 并整串
+保留 query(status=…),后端 billing.py::_return_urls 无需改。
+其余 ?tab= 规则(首渲染独占、未知回退第一项、懒挂载)不变;
+SettingsPage.nav.test.tsx 已按新行为重写(重定向断言取代 powerOnly 断言)。
+
+## 2026-08-06 — manage-agents nav 项移除
+
+Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
+`agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
+desktopOnly/powerOnly 过滤规则不变。
 
 ## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
 

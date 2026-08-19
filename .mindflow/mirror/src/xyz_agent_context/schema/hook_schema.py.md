@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-08-04
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -103,3 +103,16 @@ Every module in the system has a `hook_after_event_execution()` callback that fi
 
 - `WorkingSource.is_automated()` includes `MATRIX` and `MESSAGE_BUS`. This means Matrix messages are not treated as "user-initiated" even though a human sent them. The distinction matters for Narrative summary strategies — automated executions generate briefer summaries by default.
 - Do not confuse `HookAfterExecutionParams.instance` (the `ModuleInstance` that is currently executing) with `ctx_data.extra_data.get("job_id")` or similar module-specific context. The `instance` field is the generic module instance; module-specific state must be retrieved from `ctx_data.extra_data`.
+
+## 2026-08-18 — 两个 extra_data 标记的语义
+
+`BUS_TEAM_ROOM_EXTRA_KEY` 的含义**反过来了**。它此前表示「本轮表达面为空」——房间自动张贴
+纯文本、提示禁止投递工具，`context_runtime` 在这个 key 上清空整个表达面。房间改成收工具调用
+之后，它表示的是「本轮的回复动词是 `message_team` 而不是 `message_agent`」，消费者是
+[[message_bus_module.py]] 的桌面 hook。原注释比机制多活了一个 commit，已更正。
+
+新增 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`：本轮的回复**就是**它的纯文本。patrol 是唯一这样的面。
+它存在的理由正是本改造的主题 —— 只带房间标记时，`message_team` 会被宣告为默认回复工具并被
+两个框架的回复提醒点名，与 patrol 提示三行之上的禁令直接冲突。两个消费者：模块（声明为空、
+两个动词都撤下桌）与 [[message_source_handler.py]]（不渲染顶部那行，否则会把别的模块的工具
+说成本轮的应答方式）。

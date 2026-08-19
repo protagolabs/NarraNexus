@@ -284,6 +284,10 @@ class NexusAgent:
             "mcp_servers": mcp_servers,
             "disallowed_tools": tuple(kwargs.get("disallowed_tools") or ()),
             "expressive_tools": expressive,
+            # The step layer's rendered origin line — passed through, never
+            # re-phrased here. Both frameworks emit the SAME sentence because
+            # neither one composes it.
+            "origin_declaration": str(kwargs.get("origin_declaration") or ""),  # noqa: E501
             "marker_tools": tuple(kwargs.get("marker_tools") or ()),
             "expandables": tuple(kwargs.get("expandables") or ()),
             "initial_expansions": sorted(kwargs.get("initial_expansions") or ()),

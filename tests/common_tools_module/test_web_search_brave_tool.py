@@ -91,12 +91,36 @@ async def test_happy_path_single_query_returns_formatted_results(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_multiple_queries_run_in_parallel(monkeypatch):
-    """N queries dispatched concurrently — wall time ≈ single-query time."""
-    call_times: list[float] = []
+    """N queries are in flight AT THE SAME TIME, not one after another.
+
+    Asserted via peak concurrent occupancy, NOT wall-clock elapsed time.
+
+    The wall-clock version of this test ("3 x 200ms sequential = 600ms, so
+    assert elapsed < 0.5") could not tell "the code became sequential" from
+    "the runner is slow", and on 2026-08-19 CI it started reporting 0.79s for
+    a dispatch that is provably parallel (same test, same commit, 0.30s
+    locally; it failed on dev at 568eb5fd with none of the PR's changes).
+    A test that fails when the machine is busy trains people to re-run it,
+    which is how a real regression gets waved through.
+
+    Peak occupancy is a structural property of the dispatch: with
+    asyncio.gather every handler is entered before any of them resumes from
+    its await, so peak == N. If the implementation ever awaits each request in
+    turn, peak == 1 on the fastest machine in the world and on the slowest.
+    Timing is still present (the sleep keeps handlers overlapping) but nothing
+    is asserted about it.
+    """
+    in_flight = 0
+    peak = 0
 
     async def handler(url, params, headers):
-        call_times.append(time.monotonic())
-        await asyncio.sleep(0.2)  # each "request" takes 200ms
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        # Long enough that every sibling is dispatched before the first one
+        # resumes; the event loop drains ready callbacks before timer ones.
+        await asyncio.sleep(0.2)
+        in_flight -= 1
         return _make_response(200, {
             "web": {"results": [
                 {"title": f"t-{params['q']}", "url": "https://x/", "description": "s"}
@@ -104,12 +128,9 @@ async def test_multiple_queries_run_in_parallel(monkeypatch):
         })
 
     _patch_async_client(monkeypatch, handler)
-    start = time.monotonic()
     bundles = await brave._search_with_retry(["q1", "q2", "q3"], 5, "test-key")
-    elapsed = time.monotonic() - start
 
-    # 3 queries × 200ms sequential = 600ms; parallel = ~200ms + overhead
-    assert elapsed < 0.5, f"queries ran sequentially ({elapsed:.2f}s)"
+    assert peak == 3, f"queries ran sequentially (peak concurrency {peak}, want 3)"
     assert len(bundles) == 3
     assert {b["query"] for b in bundles} == {"q1", "q2", "q3"}
 

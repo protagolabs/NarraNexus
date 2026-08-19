@@ -264,6 +264,18 @@ class MessageBusService(ABC):
 
         Returns:
             The generated message_id.
+
+        Raises:
+            ValueError: when ``from_agent == to_agent``. Not a nicety: the DM
+                channel lookup joins the channel against two member rows, so the
+                same id twice is satisfied by the SAME row and every direct
+                channel the agent belongs to matches — the send lands in an
+                arbitrary peer's conversation and wakes them. Declared HERE
+                because `CloudMessageBus.send_to_agent` will be written against
+                this protocol, and `LocalMessageBus` is where the guard currently
+                lives; an implementation that skips it reproduces the bug rather
+                than inheriting the fix. See `local_bus.direct_channel_sql`.
+            PermissionError: cross-user messaging (different owners).
         """
         ...
 

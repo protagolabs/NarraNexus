@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-08-07
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — 来源声明从这里渲染；owner 工具判定收归一处
+
+新增三样：
+
+1. `display_label` + `label` 属性——面向 **agent** 的来源名。用 agent 的世界模型措辞：
+   平台内部一律 `NarraNexus`（bus 是它看不见的基础设施，冒出「Message Bus」等于凭空
+   多一个概念），各渠道用自己的品牌大小写。
+2. `render_origin_declaration(working_source, expressive_tools)`——设计 §6.1 的那一行。
+   两半都来自平台已经算好的数据：label 来自本 registry（决定哪些调用算回复的同一条
+   记录），工具来自该轮 `get_expressive_tools` 的**同一个 tuple**。所以这句话不可能和
+   桌子矛盾——没有第二份副本可以漂。工具为空时返回空串：没有回复面的轮次不能被塞一句
+   声称有回复面的话。
+3. `is_owner_tool()`——`reply_owner` / `notify_owner` 的统一判定。放这里是因为本模块
+   已经必须同时推理这两个名字（默认 handler 两个都列）。**问「到没到 owner」的必须两个
+   都认；问「是不是渠道自己的工具」的必须两个都拒**——只写死一个的过滤器让另一个溜了
+   过去，IM 兜底帧因此被标成 `reply_owner`，会在 owner 聊天面板里显示成 agent 在跟他
+   说话。
+
+默认 handler 的 `user_reply_tool_names` 现在两个 owner 名字都列。owner 自己的聊天轮
+落到这个 handler（没有显式的 "chat" 注册），它桌上是 `reply_owner`；只列一个会让
+`_has_organic_reply` 在用另一个的表面上瞎掉——回答得完美的聊天轮读成「从没说话」，
+helper-LLM 兜底会在每一轮成功的对话上再写一条回复。
+
+各 trigger prompt 里对「怎么回复」的重述随之删除，见 [[channel_prompts]]。
+
 
 ## 2026-08-07 — `PLATFORM_REPLY_TEXT_KEY`：平台自己写的回复优先于渠道抽取器
 
@@ -122,3 +148,30 @@ Markdown 链接，但 `openai-codex` Python SDK 0.1.0b3 不暴露那张表
   （主要是 `response_processor` 给 live UI 流式构建 ProgressMessage 时）复用同一套剥离。
 - `extract_reply_text` 被重写成：先从 `extract_reply_fn` 或默认 `content` 取出
   `text`，统一过一遍剥离再返回——无论哪个 extractor 产出，剥离都一致生效。
+
+## 2026-08-18 — `render_origin_declaration` 新增 `reply_is_plain_text`
+
+这行的前提是「origin-first 排序把来源模块的工具放在位置 0」—— 只在来源模块**确实声明了
+东西**时成立。patrol 轮声明为空（回复就是纯文本、由平台以房间 marker 张贴），位置 0 于是
+落到排在后面的 `notify_owner`，而那行会写成「回复请用 notify_owner」：把 lead 推去给 owner
+发消息，而不是写房间状态行 —— 既是错的动作，也正是 patrol 提示花一整段禁止的动作。
+
+registry 分不出这件事，因为 `notify_owner` **确实**是 message_bus 的合法回复工具之一（用
+「告诉 owner」来应答一个 bus 轮次是允许的）。我一度想用 `is_user_reply_tool(tools[0])` 判，
+那条不变量是错的，且会在未注册来源上把覆盖缺口变成静音轮次。所以改由调用方传入这个事实 ——
+平台本来就把它标成了 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`（见 [[hook_schema.py]]）。
+
+其他模块在这种轮次上保留自己的工具（巡检中向 owner 升级是合理动作）；不该发生的只是「用一句
+话把其中之一说成本轮的应答方式」。
+
+## 2026-08-18 (二) — `im_channel_prefixes` 搬到数据所在处
+
+它原本住在 [[message_bus_trigger.py]]，但读的是本文件的 registry；而
+[[local_bus.py]]（比 trigger 更低的层）现在也需要它，让 bus import trigger 是错的依赖方向。
+搬过来后两个消费者读同一份定义。
+
+两个消费者防的是不同的东西：trigger 防**重复派发**（旧 IM 频道的消息它们自己的 trigger 已经
+跑过 AgentRuntime），`_unread_predicate` 防**注入**。同一批行，两种伤害。
+
+它不是死代码，不能按铁律 #2 删：写入器没了，但行还在每个已部署的库里。可退休的条件写在
+回填 runbook 里 —— 而且只有 `_unread_predicate` 那道能退，trigger 那道与行是否还在无关。

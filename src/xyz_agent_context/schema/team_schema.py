@@ -10,6 +10,7 @@ Subproject 1: Team Membership
 
 Source values for Team.source:
 - "user": created by the user via UI
+- "agent": created by an agent via the `create_team` MCP tool
 - "bundle:<bundle_id>": auto-created from a bundle import (subproject 2)
 """
 

@@ -16,8 +16,12 @@ Includes:
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+# Deep import, not the `xyz_agent_context.schema` facade: the facade re-exports
+# THIS module's models, so going through it would close an import cycle.
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    StrippedText as _StrippedText,
+)
 
 
 # ===== Auth Schemas =====
@@ -126,8 +130,12 @@ class CreateAgentRequest(BaseModel):
     # Length-capped at the write edge so an over-long name/description is
     # rejected as 422 here, never reaching the DB — the same ceiling the
     # Agent entity model enforces on read (see AGENT_TEXT_MAX_LENGTH).
-    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
-    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    # Stripped first, so the cap measures the string that will be stored —
+    # see UpdateAgentRequest for why that distinction is load-bearing.
+    agent_name: Optional[_StrippedText] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[_StrippedText] = Field(
+        None, max_length=AGENT_TEXT_MAX_LENGTH
+    )
     # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
     # behavior). Scenario creators (e.g. Arena) use their own profile instead.
     bootstrap: Optional[str] = None
@@ -147,8 +155,19 @@ class CreateAgentResponse(BaseModel):
 class UpdateAgentRequest(BaseModel):
     """Request model for updating agent"""
     # See CreateAgentRequest — same write-edge length cap (422 on overflow).
-    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
-    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    #
+    # The cap is measured AFTER stripping (`_StrippedText`), because the value
+    # that gets stored is the stripped one: `AgentRepository` normalizes on the
+    # way in. Measuring the raw string made ``"x"*255 + " "`` a 422 here while
+    # the agent-facing `update_agent_profile` — which measures after stripping
+    # — accepted it, one more "same input, two answers" split between the two
+    # writers of this row. `None` still means "field not supplied" and is
+    # passed through untouched; only that distinguishes it from `""`, which
+    # means "clear this field".
+    agent_name: Optional[_StrippedText] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[_StrippedText] = Field(
+        None, max_length=AGENT_TEXT_MAX_LENGTH
+    )
     is_public: Optional[bool] = None
 
 
@@ -360,6 +379,18 @@ class ClearHistoryResponse(BaseModel):
     chat_instances_count: int = 0
     agent_messages_count: int = 0
     bus_messages_count: int = 0
+    # Every WipeResult counter has to appear here AND in the route's kwargs AND in
+    # the dataclass — three copies of one field list, which has already drifted
+    # twice (`bus_failures_count` on dev, the two inbox counters when the inbox
+    # moved to its own tables). `test_wipe_result_fields_reach_the_api` fails on
+    # the next omission rather than leaving it to be noticed in a ticket.
+    bus_failures_count: int = 0
+    inbox_threads_count: int = 0
+    inbox_thread_messages_count: int = 0
+    # Found by the coverage test above, not by anyone noticing: these two have
+    # been deleted-but-unreported since the wipe grew them.
+    report_memory_count: int = 0
+    instance_links_count: int = 0
     memory_rows_count: int = 0
     artifacts_count: int = 0
     disk_markdown_removed: bool = False

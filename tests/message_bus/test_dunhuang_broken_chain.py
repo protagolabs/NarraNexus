@@ -248,7 +248,7 @@ def test_a_promise_counts_as_a_delivery_so_the_notice_path_is_blind_to_it():
         "re-check whether the work board is still the only Dunhuang guard"
     )
     # And the tool-side half of the same question agrees.
-    assert MessageBusTrigger._delivered_to_anyone(["bus_send_message"]) is True
+    assert MessageBusTrigger._delivered_to_anyone(["message_team"]) is True
 
 
 def test_lineage_answers_which_tree_but_not_which_parent():

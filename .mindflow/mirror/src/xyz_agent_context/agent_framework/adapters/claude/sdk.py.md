@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-08-04
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -695,3 +695,10 @@ ToolSearch 后，非 Claude 模型的 system prompt 常态化到 60-80K chars（
 
 界限没变:仍然**最多重试一次**,且仅在尚未产出任何内容时。产出之后的失败照旧抛出
 (重跑会重复已发出的内容)。
+
+## 2026-08-18 — 逐字转发 origin_declaration
+
+`origin_declaration` 由 step 层渲染（[[message_source_handler.py]]
+`render_origin_declaration`），适配层只做拼接、不改措辞 —— 两个框架发出的是**同一句话**，
+因为两边都不负责组词。空声明的注释同时更正：现在只剩「未知来源」一种情况会为空，团队回复
+已经和其他面一样是工具调用。

@@ -14,15 +14,29 @@
     "logout": "Déconnexion",
     "poweredBy": "NetMind AI Research",
     "online": "En ligne",
-    "you": "Vous",
     "cloud": "Cloud",
     "localMode": "Mode local",
-    "cloudMode": "Mode cloud"
+    "cloudMode": "Mode cloud",
+    "collapseTitle": "Replier la barre latérale",
+    "expandTitle": "Déplier la barre latérale",
+    "export": "Exporter",
+    "exportTitle": "Exporter un bundle — agent ou équipe",
+    "settingsTitle": "Paramètres — modèles & fournisseurs",
+    "searchChatsTitle": "Rechercher agents & équipes",
+    "account": "Compte",
+    "billing": "Facturation",
+    "subscription": "Abonnement",
+    "theme": "Thème",
+    "language": "Langue",
+    "themeLight": "Clair",
+    "themeDark": "Sombre",
+    "themeSystem": "Système",
+    "workspace": "Votre espace de travail",
+    "accountTitle": "Compte"
   },
   "chat": {
     "conversation": "Conversation",
     "innerThoughts": "Pensées internes",
-    "interaction": "Interaction",
     "composerPlaceholder": "Tapez un message ou / pour les compétences…",
     "selectAgent": "Sélectionner un agent",
     "selectAgentHint": "Choisissez un agent dans la barre latérale pour commencer.",
@@ -75,20 +89,13 @@
       "recoveredAfterErrorTip": "Une étape de ce tour a échoué ; la réponse a été rédigée à partir du travail accompli et de ce que nous savons de l'erreur."
     },
     "onboarding": {
-      "eyebrow": "Nouvelle conversation",
-      "heading": "Une page vierge.",
-      "framing": "Rien ici pour l'instant — et c'est tout l'intérêt. Plus vous travaillez avec {{name}}, plus il mémorise, connecte et fait avancer les choses.",
       "defaultAgentName": "votre agent",
-      "narraBrand": "Narra · Mémoire",
-      "narraCaption": "il se souvient",
-      "nexusBrand": "Nexus · Réseau",
-      "nexusCaption": "il connecte",
-      "teamBrand": "Votre équipe",
-      "teamCaption": "il livre",
-      "tryAsking": "Essayez de demander",
       "prompt1": "Résume-moi les actualités les plus importantes de cette semaine",
       "prompt2": "Connecte un canal et surveille-le pour toute urgence",
-      "prompt3": "Configure un récapitulatif du lundi matin sur l'essentiel"
+      "prompt3": "Configure un récapitulatif du lundi matin sur l'essentiel",
+      "readyTitle": "{{name}} est prêt",
+      "readyBody": "Essayez l'une de ces suggestions, ou dites simplement ce dont vous avez besoin.",
+      "dismiss": "Fermer"
     },
     "team": {
       "notFound": "Équipe introuvable.",
@@ -182,7 +189,19 @@
       "expand": "Afficher plus",
       "collapse": "Afficher moins",
       "today": "Aujourd’hui",
-      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée."
+      "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée.",
+      "workspace": {
+        "zoom": "Agrandir l'artefact",
+        "emptyArtifacts": "Sélectionnez un artefact pour l'afficher ici.",
+        "emptyFiles": "Les fichiers se téléchargent directement — cliquez sur l'un à gauche.",
+        "tabArtifacts": "Artefacts",
+        "tabFiles": "Fichiers",
+        "artifactsHint": "Les artefacts que les agents de votre équipe enregistrent dans ce salon apparaissent ici.",
+        "filesHint": "Les fichiers partagés avec team_share_file apparaissent ici.",
+        "download": "Télécharger {{name}}",
+        "loading": "Chargement…"
+      },
+      "drawerCategory": "Salle d'équipe"
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -254,7 +273,14 @@
       "plan": "Plan",
       "title": "agent · processus",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "session · {{time}}",
+      "detailMenuTitle": "Détail de l'agent — panneaux",
+      "modelFramework": "Modèle & framework",
+      "switchAgent": "Changer d'agent"
+    },
+    "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
   },
   "awareness": {
     "common": {
@@ -659,7 +685,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefacts",
       "tabArtifactsCount": "Artefacts ({{count}})"
     },
@@ -668,7 +693,6 @@
       "closeAriaLabel": "Fermer et revenir au chat"
     },
     "sidebar": {
-      "openWorkspace": "Ouvrir votre espace de travail",
       "logoutConfirmTitle": "Se déconnecter",
       "logoutConfirmMessage": "Voulez-vous vraiment vous déconnecter ?",
       "logoutConfirmAction": "Se déconnecter",
@@ -690,10 +714,6 @@
       "createAgentOrTeam": "Créer un agent ou une équipe",
       "createAgent": "Créer un agent",
       "createTeam": "Créer une équipe",
-      "manageAgents": "Gérer les agents",
-      "manageAgentsTitle": "Gérer les agents (par lot · ajouter / modifier / supprimer)",
-      "teamGroupChatTitle": "{{name}} — discussion de groupe",
-      "teamGroupChatAria": "Discussion de groupe {{name}}",
       "refreshAgents": "Actualiser les agents",
       "emptyLabel": "Aucun agent pour l'instant",
       "emptyHint": "Créez votre premier agent pour démarrer une conversation.",
@@ -707,8 +727,10 @@
     "agentRowMenu": {
       "options": "Options de l'agent",
       "rename": "Renommer",
+      "edit": "Modifier…",
       "setPrivate": "Rendre privé",
       "setPublic": "Rendre public",
+      "clearData": "Effacer les données",
       "delete": "Supprimer"
     },
     "agentsHeaderMenu": {
@@ -718,27 +740,34 @@
       "manageTeams": "Gérer les équipes"
     },
     "createMenu": {
-      "create": "Créer",
       "createAgentOrTeam": "Créer un agent ou une équipe",
       "createAgent": "Créer un agent",
-      "createTeam": "Créer une équipe"
+      "createTeam": "Créer une équipe",
+      "new": "Nouveau",
+      "newTitle": "Nouveau — agent, équipe, import…",
+      "importBundle": "Importer un .nxbundle",
+      "importAgent": "Importer depuis une autre source"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — discussion de groupe",
       "agentCount_one": "{{count}} agent",
       "agentCount_other": "{{count}} agents",
+      "toggleMembers": "Afficher les membres",
+      "noMembers": "Pas encore de membres",
       "unread": "Messages non lus"
     },
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
-      "delete": "Supprimer"
+      "clearData": "Effacer les données",
+      "delete": "Supprimer",
+      "addAgent": "Ajouter un agent",
+      "addingAgent": "Ajout…"
     },
     "topBar": {
       "crumbDashboard": "Tableau de bord",
       "crumbSettings": "Paramètres",
       "crumbSystem": "Système",
-      "crumbManageAgents": "Gérer les agents",
       "crumbTeam": "Équipe",
       "crumbBundle": "Lot",
       "crumbChat": "Chat",
@@ -963,7 +992,11 @@
       "cancelConfirmKeep": "Conserver l’abonnement",
       "reactivateConfirmTitle": "Reprendre le renouvellement automatique ?",
       "reactivateConfirmAction": "Reprendre",
-      "reactivateConfirmDismiss": "Pas maintenant"
+      "reactivateConfirmDismiss": "Pas maintenant",
+      "balanceScope": "Solde du compte NetMind — tout ce que vous exécutez avec ce compte NetMind le consomme, y compris hors de NarraNexus.",
+      "narraUsageTitle": "Utilisé par NarraNexus · {{days}} derniers jours",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimation d’après les tarifs publics ; ne correspondra pas exactement à votre relevé NetMind."
     }
   },
   "system": {
@@ -1039,7 +1072,14 @@
     "drawer": {
       "unpin": "Désépingler le panneau",
       "pin": "Épingler le panneau",
-      "close": "Fermer le panneau"
+      "close": "Fermer le panneau",
+      "switchPanel": "Changer de panneau"
+    },
+    "coach": {
+      "title": "Vos artefacts apparaissent ici",
+      "unpinHint": "Détachez pour en faire une fenêtre volante qui se ferme toute seule.",
+      "closeHint": "Fermez le panneau — rouvrez n’importe quel panneau depuis l’en-tête du chat.",
+      "gotIt": "Compris"
     }
   },
   "inbox": {
@@ -1228,7 +1268,22 @@
       "title": "Tableau de bord des agents",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "Aucun agent pour l'instant",
-      "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord."
+      "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord.",
+      "statRunning": "En cours",
+      "statQueued": "En attente",
+      "statErrors": "Erreurs",
+      "statCostToday": "Coût du jour",
+      "colStatus": "Statut",
+      "colTeam": "Équipe",
+      "colMembers": "Membres",
+      "teamsCount": "{{count}} équipes",
+      "membersCount": "{{count}} agents",
+      "noStatusYet": "Pas encore de statut en direct — le prochain sondage le remplira.",
+      "publicAgent": "public",
+      "noTeamsLabel": "Pas encore d'équipes",
+      "noTeamsHint": "Créez-en une depuis le menu Nouveau de la barre latérale.",
+      "manageTeam": "Gérer",
+      "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici."
     },
     "createUser": {
       "title": "Créer un utilisateur",
@@ -1254,27 +1309,21 @@
     },
     "settings": {
       "title": "Paramètres",
-      "headerSections": "Fournisseurs · Bundle · Artefacts · Agents",
       "nav": {
-        "privacy": "Confidentialité"
+        "privacy": "Confidentialité",
+        "personalization": "Personnalisation",
+        "account": "Compte et facturation",
+        "providers": "Fournisseurs LLM",
+        "modelDefaults": "Modèles par défaut",
+        "artifacts": "Artefacts",
+        "updates": "Mises à jour"
       },
       "providers": {
         "label": "Fournisseurs LLM"
       },
-      "bundle": {
-        "label": "Bundle · Exporter / Importer",
-        "hint": "Regroupez vos agents (et éventuellement une équipe) dans un fichier .nxbundle portable à partager, ou importez un fichier .nxbundle qui vous a été partagé.",
-        "exportButton": "Exporter le bundle…",
-        "importButton": "Importer un bundle…"
-      },
       "artifacts": {
         "label": "Artefacts",
         "hint": "Gérez tous les graphiques, rapports et fichiers produits pour vous par vos agents. Sélectionnez en masse pour libérer votre quota lorsqu'un agent signale avoir atteint la limite."
-      },
-      "manageAgents": {
-        "label": "Gérer les agents · par lot",
-        "hint": "Sélectionnez des agents en masse pour les supprimer, ou les ajouter/retirer d'équipes par lot. Utile après l'import d'un bundle que vous ne souhaitez pas conserver — filtrez par « Issus de bundles » pour les trouver.",
-        "openButton": "Ouvrir le gestionnaire par lot…"
       },
       "updates": {
         "label": "Mises à jour de l'application",
@@ -1310,6 +1359,10 @@
         "telemetryManagedCloud": "Votre administrateur contrôle la télémétrie de diagnostic de cette installation.",
         "telemetryUnavailable": "L'état de la télémétrie n'a pas pu être chargé — l'interrupteur est masqué plutôt que deviné. Rechargez pour réessayer.",
         "telemetryError": "La modification n'a pas pu être enregistrée. L'interrupteur affiche l'état actuel réel."
+      },
+      "personalization": {
+        "label": "Personnalisation",
+        "hint": "Thème et langue. D’autres suivront."
       }
     },
     "system": {
@@ -1381,7 +1434,11 @@
       "bulkDeleteResult": "{{success}} supprimés.",
       "bulkDeleteResultWithFailures": "{{success}} supprimés, {{failedCount}} échoués ({{failedIds}}).",
       "addedToTeamTitle": "Ajoutés à l'équipe",
-      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée."
+      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée.",
+      "addedToTeamResultWithFailures": "{{success}} ajoutés, {{failedCount}} en échec ({{failedIds}}).",
+      "removedFromTeamTitle": "Retirés de l'équipe",
+      "removedFromTeamMessage": "{{count}} agents retirés de l'équipe.",
+      "removedFromTeamResultWithFailures": "{{success}} retirés, {{failedCount}} en échec ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Installer le modèle",
@@ -1397,7 +1454,7 @@
       "orSeparator": "— ou —",
       "chooseFile": "Choisir un fichier",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Aperçu",
+      "preview": "Lancer le précontrôle →",
       "preflightFailed": "Échec de la vérification préalable",
       "waitingForBackend": "En attente du backend (essai {{attempt}}/{{total}})…",
       "fetchFailed": "Échec de la récupération du modèle",
@@ -1439,9 +1496,12 @@
         "skillsTip": "Astuce : les compétences marquées « copie complète » disposent déjà d'identifiants. Les compétences URL/Zip nécessitent une nouvelle étude ou de nouveaux identifiants — discutez avec les agents importés pour finaliser la configuration.",
         "viewTeamIntro": "Voir la présentation de l'équipe",
         "doneButton": "Terminé"
-      }
+      },
+      "uploadInfoNote": "Un bundle peut contenir un seul agent ou une équipe entière (agents, mémoire, compétences, canaux). Vous examinerez ensuite les conflits de noms et les avertissements avant toute écriture."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Inclure les identifiants (canaux IM + secrets des compétences)",
+      "pickFirstHint": "Choisissez d'abord l'agent ou l'équipe ci-dessus — les sections narratifs, compétences et canaux apparaîtront ensuite.",
       "title": "Exporter le bundle",
       "backToSettings": "Retour aux paramètres",
       "summaryLine": "{{agents}} agents · {{skills}} compétences · {{entities}} entités · {{channels}} canaux",
@@ -1486,19 +1546,11 @@
         "freeText": "Le texte libre (perception / événements / messages) n'est PAS analysé automatiquement à la recherche de secrets en ligne — vérifiez vous-même."
       },
       "agents": {
-        "whatYouPick": "Ce que vous choisissez ici :",
-        "intro1": "l'ensemble des agents que contiendra ce bundle. Tout le reste de l'assistant (récits, compétences, MCP, fichiers…) est filtré selon cette closure.",
-        "intro2": "Choisir une équipe ajoute tous ses membres existants en un clic ; vous pouvez ensuite décocher des individus. Les références externes (par ex. une entité sociale pointant vers un agent hors de cette closure) sont supprimées automatiquement à l'export.",
         "bundleTeamLabel": "Inclure cette équipe (facultatif)",
         "noTeamOption": "— Aucune équipe / agents individuels —",
-        "quickAddByTeam": "Ajout rapide par équipe",
-        "deselectTeamTitle": "Désélectionner tous les membres de « {{name}} »",
-        "addTeamTitle": "Ajouter tous les membres de « {{name}} »",
-        "replaceTeamTitle": "Remplacer la sélection par les membres de « {{name}} »",
-        "only": "uniquement",
-        "allAgents": "tous les agents ({{count}})",
-        "clear": "effacer",
-        "agentsToInclude": "Agents à inclure · {{selected}}/{{total}}"
+        "agentsToInclude": "Agents à inclure · {{selected}}/{{total}}",
+        "pickTeamFirst": "Choisissez une équipe ci-dessus — ses membres sont inclus automatiquement.",
+        "pickOne": "Choisissez l'agent à exporter"
       },
       "skills": {
         "emptySelectAgents": "Sélectionnez des agents dans l'onglet précédent — leurs compétences apparaîtront ici.",
@@ -1684,6 +1736,13 @@
         "noArtifacts": "Cet agent n'a aucun artefact.",
         "pinned": "épinglé",
         "fullModeNote": "Le mode instantané complet inclut automatiquement chaque artefact. Passez en Personnalisé pour choisir."
+      },
+      "kind": {
+        "label": "Type",
+        "agentTitle": "Bundle d'agents",
+        "agentDesc": "Exportez un agent — ses narratifs, compétences et fichiers de workspace l'accompagnent.",
+        "teamTitle": "Bundle d'équipe",
+        "teamDesc": "Exportez une équipe entière — ses agents, son intro et ses canaux partagés voyagent ensemble."
       }
     },
     "signup": {
@@ -1711,6 +1770,27 @@
         "special": "Un caractère spécial"
       },
       "codePlaceholder": "Code à 6 caractères"
+    },
+    "createTeam": {
+      "title": "Créer une équipe",
+      "back": "Retour",
+      "nameLabel": "Nom",
+      "namePlaceholder": "ex. Research",
+      "descLabel": "Description",
+      "descPlaceholder": "À quoi sert cette équipe ?",
+      "colorLabel": "Couleur",
+      "membersLabel": "Ajouter des agents",
+      "selectedCount": "{{count}} sélectionné(s)",
+      "noAgents": "Pas encore d'agents — créez-en un depuis le menu Nouveau.",
+      "createButton": "Créer l'équipe",
+      "manageHint": "Gérez les équipes existantes dans le Dashboard.",
+      "membersFailed": "Équipe créée, mais {{count}} membre(s) n'ont pas pu être ajoutés : {{ids}}",
+      "searchPlaceholder": "Rechercher des agents par nom / id…",
+      "noMatch": "Aucun agent ne correspond",
+      "cancel": "Annuler"
+    },
+    "account": {
+      "powerOnlyHint": "Compte, facturation et abonnement sont des fonctionnalités du compte NetMind — connectez-vous avec un compte NetMind pour les voir ici."
     }
   },
   "rail": {
@@ -1736,7 +1816,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Artefacts",
+    "desc": {
+      "awareness": "Qui est votre agent — identité, personnalité et instructions permanentes. Modifiez ici, ou dites-le simplement en chat : il se met à jour lui-même.",
+      "workspace": "L'espace fichiers de l'agent : déposez des documents à lire ; ses productions y atterrissent aussi.",
+      "channels": "Connectez cet agent aux plateformes IM (Lark, Slack, Telegram…) pour le joindre hors de l'application.",
+      "smarthome": "Reliez vos appareils domotiques (Home Assistant) pour que l'agent puisse les voir et les piloter.",
+      "jobs": "Travaux planifiés et d'arrière-plan. Demandez en chat — « envoie-moi un brief chaque matin » — et l'agent en crée un.",
+      "inbox": "Messages arrivant des canaux et d'autres agents ; les éléments à traiter portent un badge.",
+      "artifacts": "Rapports, pages et fichiers produits par l'agent — ouvrez-les ici.",
+      "skills": "Compétences installées de l'agent. Ajoutez-en depuis le Marketplace, ou installez depuis GitHub / zip.",
+      "mcp": "Serveurs d'outils MCP externes que l'agent peut appeler — branchez des capacités tierces.",
+      "memory": "La mémoire longue de l'agent, organisée en narratifs — ce qu'il retient d'une conversation à l'autre.",
+      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations."
+    }
   },
   "jobs": {
     "title": "Tâches",
@@ -1906,24 +2000,12 @@
     "refresh": "Actualiser les artefacts",
     "zoom": "Agrandir l'artefact",
     "zoomFullscreen": "Agrandir l'artefact (plein écran)",
-    "collapse": "Réduire le panneau",
-    "collapseAria": "Réduire le panneau des artefacts",
     "selectArtifact": "Sélectionnez un artefact",
     "minimized": "Réduit :",
     "restore": "Restaurer « {{title}} »",
     "openBadge": "Ouvrir {{title}} ({{kind}})",
     "unsupportedKind": "Type d'artefact non pris en charge : {{kind}}",
     "loadingRenderer": "Chargement du moteur de rendu…",
-    "sliver": {
-      "expandTitle": "Cliquer pour développer · {{count}} artefact",
-      "expandTitle_other": "Cliquer pour développer · {{count}} artefacts",
-      "emptyTitle": "Les artefacts apparaîtront ici dès que l'agent en créera un",
-      "expandAria": "Développer le panneau des artefacts ({{count}} élément)",
-      "expandAria_other": "Développer le panneau des artefacts ({{count}} éléments)",
-      "emptyAria": "Panneau des artefacts (vide)",
-      "label": "Artefacts ({{count}})",
-      "labelEmpty": "Artefacts"
-    },
     "emptyState": {
       "title": "Aucun artefact pour le moment",
       "hint": "Ils apparaîtront ici à mesure que l'agent les crée."

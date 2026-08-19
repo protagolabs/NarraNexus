@@ -13,6 +13,7 @@
  * status (spinner / attention pulse / info dot / badge count).
  */
 
+import { createElement, forwardRef } from 'react';
 import {
   Sparkles,
   FolderOpen,
@@ -25,9 +26,40 @@ import {
   Server,
   BookOpen,
   type LucideIcon,
+  type LucideProps,
 } from 'lucide-react';
 import type { AgentBookmarkState } from '@/stores/bookmarkStore';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+
+/**
+ * Artifacts glyph — node-circle joined to a frame (Owner-provided reference,
+ * 2026-08-06 screenshot). Not in lucide, so drawn locally with the same
+ * stroke conventions; typed as LucideIcon so the registry / palette / header
+ * can use it interchangeably.
+ */
+export const ArtifactsGlyph = forwardRef<SVGSVGElement, LucideProps>(
+  function ArtifactsGlyph({ size = 24, strokeWidth = 2, ...props }, ref) {
+    return createElement(
+      'svg',
+      {
+        ref,
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: size,
+        height: size,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        ...props,
+      },
+      createElement('circle', { cx: 6, cy: 17, r: 3, key: 'c' }),
+      createElement('path', { d: 'M8.2 14.8 12 11', key: 'l' }),
+      createElement('rect', { x: 12, y: 3.5, width: 8.5, height: 8.5, rx: 1.5, key: 'r' }),
+    );
+  },
+) as unknown as LucideIcon;
 
 export type AtomicTabId =
   | 'awareness'
@@ -37,6 +69,7 @@ export type AtomicTabId =
   | 'social'
   | 'jobs'
   | 'inbox'
+  | 'artifacts'
   | 'skills'
   | 'mcp'
   | 'memory';
@@ -88,6 +121,7 @@ export const STRIP_CATEGORIES: StripCategory[] = [
     tabs: [
       { id: 'jobs', label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo },
       { id: 'inbox', label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox },
+      { id: 'artifacts', label: 'Artifacts', labelKey: 'rail.artifacts', icon: ArtifactsGlyph },
     ],
   },
   {
@@ -141,6 +175,16 @@ export function tabLabel(id: AtomicTabId): string {
 /** i18n key (namespace `rail`) for a tab's label, for consumers with a `t`. */
 export function tabLabelKey(id: AtomicTabId): string {
   return ALL_TABS.find((t) => t.id === id)?.labelKey ?? `rail.${id}`;
+}
+
+/**
+ * i18n key for a tab's one-sentence explainer — what the panel is for and
+ * how a user works with it. Shown behind the ? icon in the drawer header
+ * and as hover text on the detail-menu items, so users who never read the
+ * docs still get oriented (Owner 2026-08-06).
+ */
+export function tabDescKey(id: AtomicTabId): string {
+  return `rail.desc.${id}`;
 }
 
 // ---------------------------------------------------------------------------

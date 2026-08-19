@@ -32,6 +32,8 @@ from xyz_agent_context.message_bus.message_bus_trigger import (
 )
 from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
 
+from ._team_turn import speak_in_room
+
 CHANNEL = "ch_cascade"
 TEAM = "t_cascade"
 ME = "agent_me"
@@ -75,14 +77,16 @@ def _trigger(db, reply: str):
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
 
     async def _invoke(**kwargs):
-        # The room post happens INSIDE the turn (2026-08-14): the runtime hands
-        # the plain text to `on_plain_text_delivery`, and that callback is where
-        # mentions are parsed and the hop cap fires. A stub that only returns a
-        # TurnResult never posts at all, so the cap never runs and there is
-        # nothing for this file to assert.
-        cb = kwargs.get("on_plain_text_delivery")
-        if cb is not None and reply.strip():
-            await cb(reply)
+        # The agent speaks by calling `message_team` (2026-08-17), and
+        # `team_posting.post_team_reply` is where mentions are parsed, the hop cap
+        # fires AND the cap is narrated. A stub that only returns a TurnResult
+        # never posts, so the cap never runs and there is nothing to assert.
+        if kwargs.get("team_room") and reply.strip():
+            await speak_in_room(
+                db=db, bus=t._bus, agent_id=kwargs.get("agent_id") or A,
+                team_id=TEAM, channel_id=CHANNEL, text=reply,
+                event_id="evt_turn",
+            )
         return TurnResult(text=reply, event_id="evt_turn")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/turn_input.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `origin_declaration`：已渲染好的一行，两个框架逐字照发
+
+新增字段 `origin_declaration`，装的是 **已经渲染完成** 的来源声明字符串，在 step 层
+（唯一同时握有 working_source 和刚声明的工具的地方）合成。driver 只负责摆位置，不负责
+措辞——否则就要把 working_source 传给每个 driver，再指望各自措辞一致，那正是这行字要
+消灭的漂移。
+
+空值**不发 kwarg**（和 `expressive_tools` / `extra_accessible_roots` 同一条规矩）：没听说过
+这个字段的 driver 保持自己的默认，听说过的也不会把 `""` 误认成一份真声明。
+
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

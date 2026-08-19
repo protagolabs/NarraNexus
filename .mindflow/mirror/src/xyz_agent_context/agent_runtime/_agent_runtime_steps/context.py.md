@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -56,3 +56,10 @@ team 房间把纯文本贴进房间的回调,只有 MessageBusTrigger 的 team �
 为 None。挂在 turn 上而不是放在 `run()` 之后,理由见
 [[step_3_agent_loop]]:会话行在 run 内部就写完了,事后发生的投递没法被记成回复,
 而乐观记账正是要消除的那个谎。
+
+## 2026-08-18 — 移除 team-room 平台投递字段
+
+`on_plain_text_delivery` 一族从 RunContext 上删除。它承载的是「团队房间的纯文本回复由平台
+张贴」这个机制，而房间现在收 `message_team` 工具调用，所以字段没有生产写入方了。原注释解释
+它为何必须在 `run()` 之内发生（chat 行在 run 内写，之后的张贴无法被记成回复）—— 那条约束
+现在由 `post_team_reply` 在工具调用里满足。

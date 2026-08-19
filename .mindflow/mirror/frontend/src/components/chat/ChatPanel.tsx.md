@@ -1,8 +1,54 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 历史翻页改元素锚定
+
+往上翻页后视图跳到新加载段顶部的根因:`scrollTop = newScrollHeight −
+prevScrollHeight` 把 prepend 前后**其他**高度变化(loading 行的出现/消失、
+图片落尺寸)也一并算进了差值,且丢掉了原 scrollTop。改用 [[scrollAnchor]]:
+prepend 前记住最顶部已渲染条目(`[data-timeline-item]`,React key 稳定所以
+DOM 节点跨 prepend 存活)的 rect.top,flushSync 后按该元素实际位移修正
+scrollTop——无论位移由什么造成。无旧条目时回退高度差值法。
+测试:lib/__tests__/scrollAnchor.test.ts。
+
+## 2026-08-19 — 安全提示可读性修正(更正 08-14 条的「只是位置变了」)
+
+06-17 安全横幅在 v4 里其实同时被降了三件事:warning 底色→全套 ink 最淡的
+`--nm-ink30`、`truncate` 截断、完整文案只活在 `title` 悬停里(触屏永远看不到)。
+本条修正:去掉 `truncate`、颜色升到 `--nm-ink50`,`title` 保留完整
+`chat.securityReminder`(zh-localization.test.ts:62 唯一挂靠点,别删)。
+宽度侧改用 `min-w-0` + `line-clamp-2`——两行封顶,窄视口/长译文下不再把
+tools row 撑成三行;超出两行仍是省略号,完整文案由 title 承载。
+「demote 到 tools row」保留为 Owner 已接受的版式;若要恢复独占横幅需另行拍板。
+
+另:`OnboardingJourney` 挂载点加 `key={agentId}`——它的 `dismissed` 只在挂载时
+读一次 localStorage,不带 key 时 React 复用实例,agent A 的关闭状态会漏给
+agent B(反向同理,只能刷新页面恢复)。
+
+## 2026-08-06 (2) — lastMessageId
+
+visibleTimeline 里最后一条非 activity 消息的 id,传给 MessageBubble 的
+isLatest(meta 行常显);bootstrap greeting 气泡固定 isLatest。
+
+## 2026-08-06 — Chat UI v4:头部重构 + 满铺纸面
+
+- 旧头部(BindingDot + [INTERACTION] + agentId + Sliders + Cost)与
+  Conversation/Inner Thoughts 下划线 tab 行、安全提醒横幅,合并为
+  [[ChatHeader.tsx]](agent 名主角 + segmented 切换 + Jobs/Inbox/Artifacts/
+  Cost 图标 + ⋯ detail 菜单)。移动端保留 md:hidden 的旧式 tab 行
+  (桌面头部不在 < md 渲染)。chatTab 状态与 isActivity 路由规则不变。
+- 安全提醒文案降为 composer 工具行内的常驻短句(chat.composerPrivacyHint,
+  title 悬停给全文)— 仍然永久、不可关闭,只是位置变了。
+- 根 Card 去掉 chat-frosted(玻璃层退役,平面 --nm-card);消息流与
+  composer 都包在 max-w-[820px] mx-auto 里。
+- 气泡改 v4 纸面填色(见 [[MessageBubble.tsx]]);流式 live 气泡的内联
+  样式同步改为 paper + hairline + silicon 左描边,nm-bubble-ai 不再用于
+  单聊(团队聊天仍在用)。
+- sessionLabel:头部 mono 侧标 "会话 · <最近消息时间>"。
+- AgentLlmConfigPanel 的入口从头部 Sliders 图标移到 ⋯ 菜单底部。
 
 ## 2026-08-14 — chat fast mode: tools row 接入开关
 
@@ -423,7 +469,7 @@ custom greeting is rendered verbatim. The same normalization is applied to
 persisted assistant history so the greeting does not switch back to English
 after the first turn.
 
-**`send_message_to_user_directly` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
+**`reply_owner` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
 
 ## Gotcha / 边界情况
 
@@ -461,3 +507,24 @@ was already i18n'd; only ChatPanel's dialog was missed.
 不再发任何请求(静默吞、永久丢失、无限重渲染防护补丁一并消失)。工具名匹配
 保留但**仅服务徽章放置**:解析失败最多少一个 chip,tab 永不缺(发现走事件+
 全量拉)。徽章本就从 store 读并有占位符,零改动受益。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

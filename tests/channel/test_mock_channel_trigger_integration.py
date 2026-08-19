@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import pytest
 
+from xyz_agent_context.channel.inbox_recorder import im_thread_id
+
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_PROCESSED,
@@ -124,15 +126,15 @@ class _FakeTrigger(ChannelTriggerBase):
 # ────────────────────────────────────────────────────────────────────
 
 
-async def _wait_for_messages(db_client, channel_id, count, timeout=5.0):
-    """Poll bus_messages until ``count`` rows appear or timeout."""
+async def _wait_for_messages(db_client, thread_id, count, timeout=5.0):
+    """Poll the inbox record until ``count`` rows appear or timeout."""
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
-        rows = await db_client.get("bus_messages", {"channel_id": channel_id})
+        rows = await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
         if len(rows) >= count:
             return rows
         await asyncio.sleep(0.05)
-    return await db_client.get("bus_messages", {"channel_id": channel_id})
+    return await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
 
 
 @pytest.mark.asyncio
@@ -191,14 +193,16 @@ async def test_full_pipeline_dedup_inbox_and_audit(db_client, monkeypatch):
 
     try:
         # Two unique events → 4 inbox rows (2 inbound + 2 outbound).
-        rows = await _wait_for_messages(db_client, "fake_C1", count=4, timeout=5.0)
+        rows = await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=4, timeout=5.0)
     finally:
         await trigger.stop()
 
-    contents = sorted(r["content"] for r in rows if r["from_agent"].startswith("fake_user_"))
+    # `direction` replaces the old pseudo-agent-id sniffing: the record layer
+    # states whose line a row is instead of encoding it in a synthetic sender.
+    contents = sorted(r["content"] for r in rows if r["direction"] == "in")
     assert contents == ["hello", "second"]
     # Outbound rows are the agent's reply
-    out_contents = [r["content"] for r in rows if r["from_agent"] == "agent_a"]
+    out_contents = [r["content"] for r in rows if r["direction"] == "out"]
     assert all(c == "agent reply" for c in out_contents)
     assert len(out_contents) == 2
 
@@ -252,7 +256,7 @@ async def test_echo_messages_are_dropped(db_client, monkeypatch):
     await trigger.start(db_client)
     try:
         # Only one unique event → 2 inbox rows.
-        rows = await _wait_for_messages(db_client, "fake_C1", count=2, timeout=4.0)
+        rows = await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0)
     finally:
         await trigger.stop()
 

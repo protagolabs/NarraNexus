@@ -20,12 +20,18 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Maximize2 } from 'lucide-react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
+import ArtifactZoomModal from '@/components/artifacts/ArtifactZoomModal';
 import { api } from '@/lib/api';
+import { activeLocale, formatMessageAge } from '@/lib/utils';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
+  /** Which panel the drawer has open — the drawer's switcher owns this. */
+  tab: 'artifacts' | 'files';
   artifacts: Artifact[];
   files: TeamFile[];
   loading: boolean;
@@ -40,8 +46,6 @@ interface TeamWorkspacePanelProps {
   onSelect: (artifactId: string | null) => void;
 }
 
-type Tab = 'artifacts' | 'files';
-
 function formatSize(bytes: number): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -49,19 +53,8 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** "2h ago" style — absolute timestamps read as noise in a list this dense. */
-function formatWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const mins = Math.floor((Date.now() - t) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
 export function TeamWorkspacePanel({
+  tab,
   artifacts,
   files,
   loading,
@@ -69,9 +62,11 @@ export function TeamWorkspacePanel({
   selectedId,
   onSelect,
 }: TeamWorkspacePanelProps) {
-  const [tab, setTab] = useState<Tab>('artifacts');
+  const { t } = useTranslation();
   // Download failures are the panel's own, not the parent's fetch error.
   const [localError, setLocalError] = useState<string | null>(null);
+  // Fullscreen zoom for the selected artifact (same modal as ArtifactColumn).
+  const [zoomed, setZoomed] = useState(false);
 
   // Rendered in place rather than opened in a new tab: the panel exists so a
   // team's output can be read WHILE reading the conversation that produced it,
@@ -111,31 +106,15 @@ export function TeamWorkspacePanel({
     }
   };
 
-  const tabs: Array<{ id: Tab; label: string; count: number }> = [
-    { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
-    { id: 'files', label: 'Files', count: files.length },
-  ];
-
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-l border-[var(--nm-hairline)]">
-      <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-2 py-1 text-[11px] font-mono uppercase tracking-wider rounded ${
-              tab === t.id
-                ? 'text-[var(--nm-ink)] bg-[var(--nm-hairline)]'
-                : 'text-[var(--text-tertiary)]'
-            }`}
-          >
-            {t.label} {t.count > 0 && <span className="opacity-60">{t.count}</span>}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 overflow-y-auto min-h-0">
+    // Pure drawer content: the shared BookmarkDrawer owns the shell (title
+    // switcher, pin, close, width); this fills it.
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-1 min-h-0">
+      {/* Master list: a picker, not the main event — it yields so the
+          viewer keeps a readable share of the (user-resizable, shared-
+          preference) drawer width even at the 400px default. */}
+      <div className="w-40 min-w-[7rem] shrink border-r border-[var(--nm-hairline)] overflow-y-auto min-h-0">
         {(error || localError) && (
           <div className="px-3 py-2 text-[11px] text-[var(--nm-danger,#c0392b)]">
             {error || localError}
@@ -148,7 +127,7 @@ export function TeamWorkspacePanel({
               loading={loading}
               // Names the mechanism rather than just saying "empty": the user's
               // next question is always "how does something get in here".
-              hint="Artifacts your team's agents register in this room appear here."
+              hint={t('chat.team.workspace.artifactsHint')}
             />
           ) : (
             artifacts.map((a) => (
@@ -156,13 +135,13 @@ export function TeamWorkspacePanel({
                 key={a.artifact_id}
                 type="button"
                 onClick={() => onSelect(a.artifact_id)}
-                className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)] ${
-                  selectedId === a.artifact_id ? 'bg-[var(--nm-hairline)]' : ''
+                className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] transition-colors hover:bg-[var(--nm-row-hover)] ${
+                  selectedId === a.artifact_id ? 'bg-[var(--nm-row-active)]' : ''
                 }`}
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{a.title}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-                  {a.agent_id} · {formatWhen(a.updated_at)}
+                  {a.agent_id} · {formatMessageAge(a.updated_at, activeLocale())}
                 </div>
               </button>
             ))
@@ -172,7 +151,7 @@ export function TeamWorkspacePanel({
           (files.length === 0 ? (
             <EmptyState
               loading={loading}
-              hint="Files shared with bus_share_to_team appear here."
+              hint={t('chat.team.workspace.filesHint')}
             />
           ) : (
             files.map((f) => (
@@ -180,12 +159,12 @@ export function TeamWorkspacePanel({
                 key={f.file_id}
                 type="button"
                 onClick={() => void download(f)}
-                title={`Download ${f.original_name}`}
-                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)]"
+                title={t('chat.team.workspace.download', { name: f.original_name })}
+                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] transition-colors hover:bg-[var(--nm-row-hover)]"
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{f.original_name}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-                  {f.shared_by_agent_id} · {formatWhen(f.created_at)}
+                  {f.shared_by_agent_id} · {formatMessageAge(f.created_at, activeLocale())}
                   {f.size_bytes ? ` · ${formatSize(f.size_bytes)}` : ''}
                 </div>
               </button>
@@ -193,33 +172,51 @@ export function TeamWorkspacePanel({
           ))}
       </div>
 
-      {selected && (
-        <div className="shrink-0 h-64 border-t border-[var(--nm-hairline)] flex flex-col min-h-0">
-          <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-[var(--nm-hairline)]">
-            <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-              {selected.title}
-            </span>
-            <button
-              type="button"
-              onClick={() => onSelect(null)}
-              className="text-[10px] font-mono text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
-            >
-              close
-            </button>
+      {/* Viewer — the drawer's main region, full height like the single-chat
+          artifact column. The list on the left picks; this side shows. */}
+      <div className="flex min-w-0 flex-1 flex-col min-h-0">
+        {selected ? (
+          <>
+            <div className="shrink-0 flex items-center justify-between gap-1 px-3 py-1.5 border-b border-[var(--nm-hairline)]">
+              <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
+                {selected.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                title={t('chat.team.workspace.zoom')}
+                aria-label={t('chat.team.workspace.zoom')}
+                className="shrink-0 p-0.5 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ArtifactRenderer artifact={selected} />
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-[var(--text-tertiary)]">
+            {tab === 'artifacts'
+              ? t('chat.team.workspace.emptyArtifacts')
+              : t('chat.team.workspace.emptyFiles')}
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <ArtifactRenderer artifact={selected} />
-          </div>
-        </div>
+        )}
+      </div>
+      </div>
+
+      {zoomed && (
+        <ArtifactZoomModal artifact={selected} onClose={() => setZoomed(false)} />
       )}
     </div>
   );
 }
 
 function EmptyState({ loading, hint }: { loading: boolean; hint: string }) {
+  const { t } = useTranslation();
   return (
     <div className="px-3 py-6 text-[11px] text-[var(--text-tertiary)]">
-      {loading ? 'Loading…' : hint}
+      {loading ? t('chat.team.workspace.loading') : hint}
     </div>
   );
 }

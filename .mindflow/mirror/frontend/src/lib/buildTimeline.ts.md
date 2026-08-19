@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-08-04
+last_verified: 2026-08-17
 stub: false
 ---
 
@@ -49,7 +49,7 @@ from two independently-produced sources:
   report got misdiagnosed (see [[agent_message_repository]] 2026-08-05).
 - **session** — live messages in `[[chatStore.ts]]` (the user prompt added
   on send; the assistant reply assembled at `stopStreaming` from the
-  `send_message_to_user_directly` tool args)
+  `reply_owner` tool args)
 
 Once a turn finishes it exists in **both** — history has the persisted
 copy, session still holds the live copy. Something has to drop the
@@ -72,7 +72,7 @@ identity.
 This replaced a `${role}:${content}` exact-string key. That key silently
 missed whenever the session-assembled content and the DB-persisted
 content drifted by even one character — and they ARE produced by
-different code paths (session joins `send_message_to_user_directly` args
+different code paths (session joins `reply_owner` args
 with `\n\n`; the backend persists independently and sometimes *rewrites*
 content, e.g. owner-notify substitution in `agents/chat_history.py`).
 That drift made the latest reply occasionally render twice — the bug

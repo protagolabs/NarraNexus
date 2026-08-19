@@ -50,6 +50,13 @@ class TurnInput:
     # by the platform (modules' get_expressive_tools, priority order —
     # the first entry is the default reply tool). Empty = mute turn.
     expressive_tools: tuple[str, ...] = ()
+    # The turn's origin declaration — ONE already-rendered line
+    # (channel.message_source_handler.render_origin_declaration) naming where
+    # the turn came from and which tool answers it. Rendered at the step layer,
+    # where working_source is known, so drivers stay ignorant of the registry
+    # and there is exactly one place the sentence is composed. Empty = no
+    # declared surface; drivers must then say nothing about replying.
+    origin_declaration: str = ""
     # Reserved reference layer (design §8.2): serializable IDs/results
     # for drivers that project their own context. Always None today.
     refs: dict[str, Any] | None = None
@@ -85,6 +92,8 @@ class TurnInput:
             kwargs["expressive_tools"] = list(self.expressive_tools)
         if self.turn_profile is not None:
             kwargs["turn_profile"] = self.turn_profile
+        if self.origin_declaration:
+            kwargs["origin_declaration"] = self.origin_declaration
         if self.extra_accessible_roots:
             # Emitted only when non-empty, like expressive_tools above: a
             # turn that grants nothing must produce the exact legacy kwargs.

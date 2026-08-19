@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 ## 2026-08-14 — `segments` 参数 + `get_messages_before`
@@ -119,3 +119,14 @@ the trigger」,而 `send_to_agent` 新写的是正确版本,同一个 protocol �
 照旧说法实现的云端 `send_message` 会不透传 agent 自发消息的 `event_id`,于是
 `has_message_from_turn` 对那一半永远返 False,房间里出现「投递失败 ⚠️」而它上方就摆着
 agent 刚说的那句话 —— 正是本 PR 存在的理由,换一个实现复现一遍。
+
+
+## 2026-08-18 — 协议里声明 `send_to_agent` 的 `ValueError`
+
+`from_agent == to_agent` 现在抛 `ValueError`，而这条契约必须写在**协议**上而不是只写在
+[[local_bus.py]] 里：`CloudMessageBus.send_to_agent` 会照着协议实现，跳过这道守卫就等于**重现**
+缺陷而不是继承修复。
+
+缺陷本身：私聊频道的查找把频道对着两条成员行 join，同一个 id 传两次会被**同一条成员行**满足，
+于是该 agent 所属的任意 direct 频道都匹配 —— 发送落进任意一个 peer 的会话并把对方唤醒。
+`direct_channel_sql` 的 docstring 里也写了同一条不变量，因为它已经有两个调用方，第三个否则也会踩。

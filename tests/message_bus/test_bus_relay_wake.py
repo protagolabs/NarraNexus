@@ -33,6 +33,9 @@ import asyncio
 import pytest
 
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.message_bus import wake_signal
+
+from ._team_turn import speak_in_room
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
@@ -76,13 +79,15 @@ def _trigger(db, replies: dict[str, str]) -> MessageBusTrigger:
     async def _invoke(**kwargs):
         aid = kwargs.get("agent_id")
         text = replies.get(aid, "ok")
-        # The team-room post happens INSIDE the turn (the chat rows are written
-        # before `run()` returns, so a post made afterwards cannot be recorded
-        # as a reply). The wake rides that same post, so a stub that skips the
-        # deliverer would be asserting about a path production does not take.
-        deliver = kwargs.get("on_plain_text_delivery")
-        if deliver is not None and text:
-            await deliver(text)
+        # The agent speaks by CALLING A TOOL now (2026-08-17), so the stub goes
+        # through the same path the tool does — `team_posting.post_team_reply`,
+        # via the shared helper. A stub that inserted a row directly would pass
+        # while @mention resolution, the hop cap and the wake all sat unrun.
+        if kwargs.get("team_room") and text:
+            await speak_in_room(
+                db=db, bus=t._bus, agent_id=aid, team_id=TEAM,
+                channel_id=CHANNEL, text=text, event_id=f"evt_{aid}",
+            )
         return TurnResult(text=text, event_id=f"evt_{aid}")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
@@ -93,16 +98,24 @@ def _trigger(db, replies: dict[str, str]) -> MessageBusTrigger:
 
 @pytest.mark.asyncio
 async def test_a_team_reply_wakes_the_poll_loop(db_client):
+    """The wake moved from an in-process Event to a DB signal, and had to.
+
+    A team reply is a tool call, made on the MCP server — a process where an
+    `asyncio.Event` cannot be reached. So what has to advance is the signal the
+    poll loop reads while it sleeps; asserting on `_wake_event` here would now be
+    asserting about the trigger's own posts (patrol, notices), not the relay this
+    test is named for.
+    """
     trig = _trigger(db_client, {A: "@Bo your turn"})
     await _seed_room(db_client)
     await trig._bus.send_message(
         from_agent=USER, to_channel=CHANNEL, content="@Ana start", mentions=[A]
     )
-    assert not trig._wake_event.is_set()
+    before = await wake_signal.read(db_client)
 
     await trig._process_agent(A)
 
-    assert trig._wake_event.is_set(), (
+    assert await wake_signal.read(db_client) != before, (
         "A posted into the room and nothing asked the loop to look again — "
         "B waits out a full poll interval for a message already delivered"
     )

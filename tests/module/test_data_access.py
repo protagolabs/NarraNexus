@@ -997,7 +997,13 @@ def test_view_event_parity_and_agent_scoped(monkeypatch):
 
     db = _FakeNarrDb(events={"evt_1": {"agent_id": AGENT, "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "env_context": {"input": "go"}, "final_output": "done", "event_log": "log", "created_at": "2026-01-01T00:00:00"}})
     expected = asyncio.run(fetch_event_view(db, AGENT, "evt_1"))
-    assert expected == {"success": True, "event_id": "evt_1", "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "time": "2026-01-01T00:00:00", "input": "go", "final_output": "done", "event_log": "log"}
+    # `time` is rendered in the agent owner's timezone with an explicit UTC
+    # offset (2026-08-18) — same frame as the chat-history timeline, which
+    # tells the agent to call view_event for this very event. This fake has no
+    # `agents` table, so the owner lookup falls back to UTC and the offset
+    # reads +00:00; the SHAPE is the contract, not the zone.
+    # See tests/basic_info_module/test_narrative_reads_time_frame.py.
+    assert expected == {"success": True, "event_id": "evt_1", "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "time": "2026-01-01 00:00 +00:00", "input": "go", "final_output": "done", "event_log": "log"}
     d = _basic_direct(monkeypatch, db)
     assert asyncio.run(d.view_event(AGENT, "evt_1")) == expected
     h = _social_http(monkeypatch, route_body=expected)

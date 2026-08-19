@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/materializer.py
-last_verified: 2026-07-29
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 时间线导言写明时间戳的 frame
+
+`CHAT_HISTORY_TIMELINE_PREAMBLE` 里 `<time>` 的说明补上了：它是**用户本地时区**、带显式
+UTC 偏移，跟「Real World Information」同一个 frame，可以直接比较、可以直接把日期当成用户
+自己日历上的日期读。
+
+这条说明和历史行由 `_history_block` 绑成一个不可分割的单元 —— 这个既有设计在这里正好
+是要的：不可能出现"行还在、frame 说明被裁掉了"的组合。
 # adapters/materializer.py — 共享的「结构化消息 → CLI 提示文本」物化步骤
 
 ## 2026-07-29 — argv 截断逻辑降级为「回落路径的保险」,不要删

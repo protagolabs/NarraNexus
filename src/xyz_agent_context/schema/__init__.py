@@ -88,7 +88,9 @@ from .inbox_schema import (
 from .hook_schema import (
     WorkingSource,  # Execution source enum
     BUS_ERRAND_TURN_SOURCE,  # Bus turn-source stamp: errand continuation
-    BUS_TEAM_ROOM_EXTRA_KEY,  # extra_data marker: team-room turn (empty reply surface)
+    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,  # extra_data marker: reply IS the plain text (patrol)
+    is_plain_text_turn,  # shared predicate for the marker above
+    BUS_TEAM_ROOM_EXTRA_KEY,  # extra_data marker: team-room turn (reply verb = message_team)
     HookExecutionContext,
     HookIOData,
     HookExecutionTrace,
@@ -125,6 +127,15 @@ from .entity_schema import (
     # Agent description "unset" judgement (legacy placeholder recognition)
     LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
     is_agent_description_unset,
+    # Shared write-edge cap for agent name/description.
+    AGENT_TEXT_MAX_LENGTH,
+    # One definition of "this write would change nothing", shared by every
+    # writer of the agents row (HTTP route + awareness tool).
+    normalize_agent_text,
+    normalize_agent_row_text,
+    agent_field_matches,
+    AGENT_TEXT_FIELDS,
+    StrippedText,
     # Entities
     SocialNetworkEntity,
     User,
@@ -369,6 +380,8 @@ __all__ = [
     # Hook Schema
     "WorkingSource",
     "BUS_ERRAND_TURN_SOURCE",
+    "BUS_PLAIN_TEXT_TURN_EXTRA_KEY",
+    "is_plain_text_turn",
     "BUS_TEAM_ROOM_EXTRA_KEY",
     "HookExecutionContext",
     "HookIOData",
@@ -397,6 +410,12 @@ __all__ = [
     "NON_TRANSACTING_USER_STATUSES",
     "LEGACY_AGENT_DESCRIPTION_PLACEHOLDER",
     "is_agent_description_unset",
+    "AGENT_TEXT_MAX_LENGTH",
+    "normalize_agent_text",
+    "normalize_agent_row_text",
+    "agent_field_matches",
+    "AGENT_TEXT_FIELDS",
+    "StrippedText",
     "SocialNetworkEntity",
     "User",
     "Agent",

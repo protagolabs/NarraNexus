@@ -6,7 +6,8 @@
 
 This file is the thin entry point for CommonToolsModule's MCP server.
 It defines the shared ``with_mcp_timeout`` decorator and, at server
-creation time, picks exactly one web_search backend based on
+creation time, registers the module's tool families (web_search,
+artifact, date) — picking exactly one web_search backend based on
 environment:
 
   - BRAVE_API_KEY set → web_search_brave_tool.register(mcp, api_key)
@@ -88,5 +89,10 @@ def create_common_tools_mcp_server(port: int) -> FastMCP:
     artifact_tool.register(mcp)
     artifact_tool.register_list_artifacts(mcp)
     logger.info("CommonTools MCP: artifact tools registered")
+
+    from ._common_tools_impl import date_tool
+
+    date_tool.register(mcp)
+    logger.info("CommonTools MCP: date tools registered")
 
     return mcp

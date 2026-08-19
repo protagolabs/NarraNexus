@@ -1,6 +1,27 @@
+---
+code_file: src/xyz_agent_context/utils/db/db_backend.py
+last_verified: 2026-08-18
+stub: false
+---
+
 # db_backend.py
 
 Abstract base class that every concrete database backend must implement — the contract that lets `AsyncDatabaseClient` stay database-agnostic.
+
+## 2026-08-18 — 新增非抽象的 `probe()`
+
+给 `/health` 一个有**取消契约**的探活方法。非抽象：默认 `await self.execute("SELECT 1")`
+对任何语句路径本就自清理的后端都是对的，只有 MySQL 需要覆盖（连接池会把被取消的连接
+还回 free list）。
+
+契约有两条，任何覆盖都必须保住：
+
+1. **走普通路径。** 有私有连接的探测器证明不了真实请求会遇到什么——那正是硬编码的
+   `"database": "connected"` 能让一次全量故障看起来健康 19 分钟的原因
+   （2026-08-17，见 [[db_backend_mysql.py]]）。
+2. **取消不得留下被毒化的连接。** 调用方用超时包住它，所以数据库一慢，
+   `CancelledError` 就会在驱动读响应包读到一半时到达。那种状态的连接必须关掉，绝不能
+   还给连接池让下一个调用方继承。
 
 ## Why it exists
 

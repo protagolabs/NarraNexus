@@ -14,15 +14,29 @@
     "logout": "تسجيل الخروج",
     "poweredBy": "NetMind AI Research",
     "online": "متصل",
-    "you": "أنت",
     "cloud": "سحابي",
     "localMode": "الوضع المحلي",
-    "cloudMode": "الوضع السحابي"
+    "cloudMode": "الوضع السحابي",
+    "collapseTitle": "طيّ الشريط الجانبي",
+    "expandTitle": "فتح الشريط الجانبي",
+    "export": "تصدير",
+    "exportTitle": "تصدير حزمة — وكيل أو فريق",
+    "settingsTitle": "الإعدادات — النماذج والمزوّدون",
+    "searchChatsTitle": "البحث عن الوكلاء والفرق",
+    "account": "الحساب",
+    "billing": "الفواتير",
+    "subscription": "الاشتراك",
+    "theme": "السمة",
+    "language": "اللغة",
+    "themeLight": "فاتح",
+    "themeDark": "داكن",
+    "themeSystem": "النظام",
+    "workspace": "مساحة عملك",
+    "accountTitle": "الحساب"
   },
   "chat": {
     "conversation": "محادثة",
     "innerThoughts": "أفكار داخلية",
-    "interaction": "التفاعل",
     "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
     "selectAgent": "اختر وكيلاً",
     "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل.",
@@ -75,20 +89,13 @@
       "recoveredAfterErrorTip": "فشلت إحدى خطوات هذه الجولة؛ كُتب الرد اعتمادًا على العمل المنجز وما نعرفه عن الخطأ."
     },
     "onboarding": {
-      "eyebrow": "محادثة جديدة",
-      "heading": "صفحة جديدة.",
-      "framing": "لا شيء هنا بعد — وهذا هو المقصود. كلما عملت أنت و{{name}} معًا أكثر، تذكّر وربط ومضى قُدُمًا أكثر.",
       "defaultAgentName": "وكيلك",
-      "narraBrand": "Narra · الذاكرة",
-      "narraCaption": "يتذكّر",
-      "nexusBrand": "Nexus · الشبكة",
-      "nexusCaption": "يربط",
-      "teamBrand": "فريقك",
-      "teamCaption": "يُنجز",
-      "tryAsking": "جرّب أن تسأل",
       "prompt1": "لخّص لي أهم تحديثات هذا الأسبوع",
       "prompt2": "اربط قناة وراقبها بحثًا عن أي أمر عاجل",
-      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم"
+      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم",
+      "readyTitle": "{{name}} جاهز",
+      "readyBody": "جرّب أحد هذه الاقتراحات، أو قل ما تحتاجه مباشرة.",
+      "dismiss": "إغلاق"
     },
     "team": {
       "notFound": "لم يتم العثور على الفريق.",
@@ -186,7 +193,19 @@
       "expand": "عرض المزيد",
       "collapse": "عرض أقل",
       "today": "اليوم",
-      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب."
+      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب.",
+      "workspace": {
+        "zoom": "تكبير العنصر",
+        "emptyArtifacts": "اختر عنصرًا لعرضه هنا.",
+        "emptyFiles": "يتم تنزيل الملفات مباشرة — انقر على ملف على اليسار.",
+        "tabArtifacts": "العناصر",
+        "tabFiles": "الملفات",
+        "artifactsHint": "العناصر التي يسجّلها وكلاء فريقك في هذه الغرفة تظهر هنا.",
+        "filesHint": "الملفات المشاركة عبر team_share_file تظهر هنا.",
+        "download": "تنزيل {{name}}",
+        "loading": "جارٍ التحميل…"
+      },
+      "drawerCategory": "غرفة الفريق"
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",
@@ -258,7 +277,14 @@
       "plan": "الخطة",
       "title": "الوكيل · العملية",
       "ops": "عمليات"
-    }
+    },
+    "header": {
+      "sessionLabel": "الجلسة · {{time}}",
+      "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
+      "modelFramework": "النموذج وإطار العمل",
+      "switchAgent": "تبديل الوكيل"
+    },
+    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
   },
   "awareness": {
     "common": {
@@ -663,7 +689,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "محادثة",
       "tabArtifacts": "المخرجات",
       "tabArtifactsCount": "المخرجات ({{count}})"
     },
@@ -672,7 +697,6 @@
       "closeAriaLabel": "إغلاق والعودة إلى المحادثة"
     },
     "sidebar": {
-      "openWorkspace": "افتح مساحة عملك",
       "logoutConfirmTitle": "تسجيل الخروج",
       "logoutConfirmMessage": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
       "logoutConfirmAction": "تسجيل الخروج",
@@ -694,10 +718,6 @@
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
       "createTeam": "إنشاء فريق",
-      "manageAgents": "إدارة الوكلاء",
-      "manageAgentsTitle": "إدارة الوكلاء (دفعة · إضافة / تعديل / حذف)",
-      "teamGroupChatTitle": "{{name}} — محادثة جماعية",
-      "teamGroupChatAria": "محادثة جماعية {{name}}",
       "refreshAgents": "تحديث الوكلاء",
       "emptyLabel": "لا يوجد وكلاء بعد",
       "emptyHint": "أنشئ أول وكيل لك لبدء محادثة.",
@@ -711,8 +731,10 @@
     "agentRowMenu": {
       "options": "خيارات الوكيل",
       "rename": "إعادة تسمية",
+      "edit": "تعديل…",
       "setPrivate": "تعيين كخاص",
       "setPublic": "تعيين كعام",
+      "clearData": "مسح البيانات",
       "delete": "حذف"
     },
     "agentsHeaderMenu": {
@@ -722,10 +744,13 @@
       "manageTeams": "إدارة الفرق"
     },
     "createMenu": {
-      "create": "إنشاء",
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
-      "createTeam": "إنشاء فريق"
+      "createTeam": "إنشاء فريق",
+      "new": "جديد",
+      "newTitle": "جديد — وكيل، فريق، استيراد…",
+      "importBundle": "استيراد ‎.nxbundle",
+      "importAgent": "استيراد من مصدر آخر"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — محادثة جماعية",
@@ -735,18 +760,22 @@
       "agentCount_few": "{{count}} وكلاء",
       "agentCount_many": "{{count}} وكيلًا",
       "agentCount_other": "{{count}} وكيل",
+      "toggleMembers": "عرض الأعضاء",
+      "noMembers": "لا يوجد أعضاء بعد",
       "unread": "رسائل غير مقروءة"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
       "rename": "إعادة تسمية",
-      "delete": "حذف"
+      "clearData": "مسح البيانات",
+      "delete": "حذف",
+      "addAgent": "إضافة وكيل",
+      "addingAgent": "جارٍ الإضافة…"
     },
     "topBar": {
       "crumbDashboard": "لوحة التحكم",
       "crumbSettings": "الإعدادات",
       "crumbSystem": "النظام",
-      "crumbManageAgents": "إدارة الوكلاء",
       "crumbTeam": "الفريق",
       "crumbBundle": "الحزمة",
       "crumbChat": "محادثة",
@@ -971,7 +1000,11 @@
       "cancelConfirmKeep": "الإبقاء على الاشتراك",
       "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
       "reactivateConfirmAction": "استئناف",
-      "reactivateConfirmDismiss": "ليس الآن"
+      "reactivateConfirmDismiss": "ليس الآن",
+      "balanceScope": "رصيد حساب NetMind — كل ما تشغّله بهذا الحساب يستهلك الرصيد، بما في ذلك خارج NarraNexus.",
+      "narraUsageTitle": "استخدام NarraNexus · آخر {{days}} يومًا",
+      "narraUsageTokens": "رموز",
+      "narraUsageEstimate": "≈ {{cost}} — تقدير وفق الأسعار المعلنة، لذا لن يطابق كشف NetMind تمامًا."
     }
   },
   "system": {
@@ -1047,7 +1080,14 @@
     "drawer": {
       "unpin": "إلغاء تثبيت اللوحة",
       "pin": "تثبيت اللوحة",
-      "close": "إغلاق اللوحة"
+      "close": "إغلاق اللوحة",
+      "switchPanel": "تبديل اللوحة"
+    },
+    "coach": {
+      "title": "تظهر عناصرك هنا",
+      "unpinHint": "ألغِ التثبيت لتصبح نافذة عائمة تُغلق تلقائيًا.",
+      "closeHint": "أغلق اللوحة — يمكنك إعادة فتح أي لوحة من رأس الدردشة.",
+      "gotIt": "فهمت"
     }
   },
   "inbox": {
@@ -1236,7 +1276,22 @@
       "title": "لوحة الوكلاء",
       "agentsCount": "{{count}} وكيل",
       "emptyLabel": "لا يوجد وكلاء بعد",
-      "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة."
+      "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة.",
+      "statRunning": "قيد التشغيل",
+      "statQueued": "في الانتظار",
+      "statErrors": "أخطاء",
+      "statCostToday": "تكلفة اليوم",
+      "colStatus": "الحالة",
+      "colTeam": "الفريق",
+      "colMembers": "الأعضاء",
+      "teamsCount": "{{count}} فرق",
+      "membersCount": "{{count}} وكلاء",
+      "noStatusYet": "لا توجد حالة مباشرة بعد — سيملؤها الاستطلاع التالي.",
+      "publicAgent": "عام",
+      "noTeamsLabel": "لا توجد فرق بعد",
+      "noTeamsHint": "أنشئ فريقًا من قائمة جديد في الشريط الجانبي.",
+      "manageTeam": "إدارة",
+      "teamsTip": "أنشئ الفرق من قائمة جديد؛ هنا يمكنك إعادة التسمية وتغيير اللون وتحرير الأعضاء."
     },
     "createUser": {
       "title": "إنشاء مستخدم جديد",
@@ -1262,27 +1317,21 @@
     },
     "settings": {
       "title": "الإعدادات",
-      "headerSections": "المزوّدون · الحزمة · المُخرجات · الوكلاء",
       "nav": {
-        "privacy": "الخصوصية"
+        "privacy": "الخصوصية",
+        "personalization": "التخصيص",
+        "account": "الحساب والفوترة",
+        "providers": "مزوّدو LLM",
+        "modelDefaults": "النماذج الافتراضية",
+        "artifacts": "العناصر",
+        "updates": "تحديثات التطبيق"
       },
       "providers": {
         "label": "مزوّدو نماذج اللغة"
       },
-      "bundle": {
-        "label": "الحزمة · تصدير / استيراد",
-        "hint": "احزم وكلاءك (واختياريًا فريقًا) في ملف .nxbundle قابل للنقل للمشاركة، أو استورد ملف .nxbundle شاركه أحدهم معك.",
-        "exportButton": "تصدير الحزمة…",
-        "importButton": "استيراد الحزمة…"
-      },
       "artifacts": {
         "label": "المُخرجات",
         "hint": "أدِر كل مخطط وتقرير وملف أنتجه وكلاؤك من أجلك. حدّد دفعة لتحرير حصتك عندما يبلّغ وكيل بأنه بلغ الحد."
-      },
-      "manageAgents": {
-        "label": "إدارة الوكلاء · دفعة",
-        "hint": "حدّد وكلاء بالجملة للحذف، أو أضِفهم/أزِلهم من الفِرق بالدفعة. مفيد بعد استيراد حزمة لا تريد الاحتفاظ بها — رشّح حسب «من الحزم» للعثور عليهم.",
-        "openButton": "فتح مدير الدفعات…"
       },
       "updates": {
         "label": "تحديثات التطبيق",
@@ -1318,6 +1367,10 @@
         "telemetryManagedCloud": "يتحكم المسؤول لديك في القياس عن بُعد التشخيصي لهذا التثبيت.",
         "telemetryUnavailable": "تعذّر تحميل حالة القياس عن بُعد — يُخفى المفتاح بدلًا من التخمين. أعد التحميل للمحاولة مرة أخرى.",
         "telemetryError": "تعذّر حفظ التغيير. يعرض المفتاح الحالة الفعلية الحالية."
+      },
+      "personalization": {
+        "label": "التخصيص",
+        "hint": "السمة واللغة. المزيد قادم."
       }
     },
     "system": {
@@ -1389,7 +1442,11 @@
       "bulkDeleteResult": "تم حذف {{success}}.",
       "bulkDeleteResultWithFailures": "تم حذف {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "تمت الإضافة إلى الفريق",
-      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد."
+      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد.",
+      "addedToTeamResultWithFailures": "تمت إضافة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
+      "removedFromTeamTitle": "تمت الإزالة من الفريق",
+      "removedFromTeamMessage": "تمت إزالة {{count}} من الوكلاء من الفريق.",
+      "removedFromTeamResultWithFailures": "تمت إزالة {{success}}، وفشل {{failedCount}} ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "تثبيت قالب",
@@ -1405,7 +1462,7 @@
       "orSeparator": "— أو —",
       "chooseFile": "اختيار ملف",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "معاينة",
+      "preview": "تشغيل الفحص المسبق ←",
       "preflightFailed": "فشل الفحص المبدئي",
       "waitingForBackend": "بانتظار الخادم (المحاولة {{attempt}}/{{total}})…",
       "fetchFailed": "فشل جلب القالب",
@@ -1447,9 +1504,12 @@
         "skillsTip": "تلميح: المهارات الموسومة بـ «نسخة كاملة» تحتوي بالفعل على بيانات اعتماد. تحتاج مهارات الرابط/Zip إلى إعادة دراسة أو بيانات اعتماد جديدة — تحدّث إلى الوكلاء المستوردين لإكمال الإعداد.",
         "viewTeamIntro": "عرض تعريف الفريق",
         "doneButton": "تم"
-      }
+      },
+      "uploadInfoNote": "يمكن أن تحتوي الحزمة على وكيل واحد أو فريق كامل (وكلاء، ذاكرة، مهارات، قنوات). في الخطوة التالية ستراجع تعارضات الأسماء والتحذيرات قبل كتابة أي شيء."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "تضمين بيانات الاعتماد (قنوات المراسلة + أسرار المهارات)",
+      "pickFirstHint": "اختر أولاً الوكيل أو الفريق أعلاه — ستظهر أقسام السرديات والمهارات والقنوات بعد الاختيار.",
       "title": "تصدير حزمة",
       "backToSettings": "العودة إلى الإعدادات",
       "summaryLine": "{{agents}} وكيل · {{skills}} مهارة · {{entities}} كيان · {{channels}} قناة",
@@ -1494,19 +1554,11 @@
         "freeText": "النص الحر (الوعي / الأحداث / الرسائل) لا يُفحَص تلقائيًا بحثًا عن أسرار مضمّنة — تحقّق بنفسك."
       },
       "agents": {
-        "whatYouPick": "ما تختاره هنا:",
-        "intro1": "مجموعة الوكلاء التي ستحتويها هذه الحزمة. كل شيء آخر في المعالج (السرديات، المهارات، MCPs، الملفات…) يُرشَّح بناءً على هذا الإغلاق.",
-        "intro2": "اختيار فريق يضيف كل أعضائه الحاليين بنقرة واحدة؛ ولا يزال بإمكانك إلغاء تحديد أفراد بعد ذلك. المراجع الخارجية (مثل كيان اجتماعي يشير إلى وكيل خارج هذا الإغلاق) تُسقَط تلقائيًا عند التصدير.",
         "bundleTeamLabel": "احزم هذا الفريق (اختياري)",
         "noTeamOption": "— بلا فريق / وكلاء أفراد —",
-        "quickAddByTeam": "إضافة سريعة حسب الفريق",
-        "deselectTeamTitle": "إلغاء تحديد كل أعضاء \"{{name}}\"",
-        "addTeamTitle": "إضافة كل أعضاء \"{{name}}\"",
-        "replaceTeamTitle": "استبدال التحديد بأعضاء \"{{name}}\"",
-        "only": "فقط",
-        "allAgents": "كل الوكلاء ({{count}})",
-        "clear": "مسح",
-        "agentsToInclude": "الوكلاء المراد تضمينهم · {{selected}}/{{total}}"
+        "agentsToInclude": "الوكلاء المراد تضمينهم · {{selected}}/{{total}}",
+        "pickTeamFirst": "اختر فريقًا في الأعلى — يُضمّن أعضاؤه تلقائيًا.",
+        "pickOne": "اختر الوكيل المراد تصديره"
       },
       "skills": {
         "emptySelectAgents": "اختر وكلاء في التبويب السابق — ستظهر مهاراتهم هنا.",
@@ -1692,6 +1744,13 @@
         "noArtifacts": "لا يملك هذا الوكيل أي مُخرجات.",
         "pinned": "مثبّت",
         "fullModeNote": "وضع اللقطة الكاملة يُضمّن تلقائيًا كل مُخرَج. بدّل إلى مخصّص للاختيار."
+      },
+      "kind": {
+        "label": "النوع",
+        "agentTitle": "حزمة وكلاء",
+        "agentDesc": "صدّر وكيلًا واحدًا — سردياته ومهاراته وملفات مساحة عمله تُحزم معه.",
+        "teamTitle": "حزمة فريق",
+        "teamDesc": "صدّر فريقًا كاملًا — وكلاؤه ومقدمته وقنواته المشتركة تُحزم معًا."
       }
     },
     "signup": {
@@ -1719,6 +1778,27 @@
         "special": "رمز خاص"
       },
       "codePlaceholder": "رمز من 6 خانات"
+    },
+    "createTeam": {
+      "title": "إنشاء فريق",
+      "back": "رجوع",
+      "nameLabel": "الاسم",
+      "namePlaceholder": "مثل Research",
+      "descLabel": "الوصف",
+      "descPlaceholder": "ما الغرض من هذا الفريق؟",
+      "colorLabel": "اللون",
+      "membersLabel": "إضافة وكلاء",
+      "selectedCount": "{{count}} محدد",
+      "noAgents": "لا يوجد وكلاء بعد — أنشئ واحدًا أولًا من قائمة جديد.",
+      "createButton": "إنشاء الفريق",
+      "manageHint": "أدر الفرق الحالية من لوحة التحكم.",
+      "membersFailed": "تم إنشاء الفريق، لكن تعذّرت إضافة {{count}} عضوًا: {{ids}}",
+      "searchPlaceholder": "ابحث عن الوكلاء بالاسم / المعرف…",
+      "noMatch": "لا يوجد وكلاء مطابقون",
+      "cancel": "إلغاء"
+    },
+    "account": {
+      "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."
     }
   },
   "rail": {
@@ -1744,7 +1824,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "المخرجات",
+    "desc": {
+      "awareness": "هوية وكيلك — شخصيته وتعليماته الدائمة. حرّرها هنا أو أخبره في الدردشة وسيحدّثها بنفسه.",
+      "workspace": "مساحة ملفات الوكيل: ارفع مستندات ليقرأها، وما ينتجه يوضع هنا أيضًا.",
+      "channels": "اربط هذا الوكيل بمنصات المراسلة (Lark، Slack، Telegram…) ليتواصل معه الآخرون خارج التطبيق.",
+      "smarthome": "اربط أجهزة المنزل الذكي (Home Assistant) ليتمكن الوكيل من رؤيتها والتحكم بها.",
+      "jobs": "الأعمال المجدولة والخلفية. اطلب في الدردشة — «أرسل لي موجزًا كل صباح» — وسينشئ الوكيل مهمة.",
+      "inbox": "الرسائل الواردة من القنوات ومن وكلاء آخرين؛ ما يحتاج انتباهك يظهر بشارة.",
+      "artifacts": "التقارير والصفحات والملفات التي أنتجها الوكيل — افتحها وراجعها هنا.",
+      "skills": "مهارات الوكيل المثبتة. أضف المزيد من المتجر أو ثبّت من GitHub / zip.",
+      "mcp": "خوادم أدوات MCP خارجية يمكن للوكيل استدعاؤها — أوصل قدرات من جهات خارجية.",
+      "memory": "ذاكرة الوكيل طويلة الأمد منظمة كسرديات — ما يحمله عبر المحادثات.",
+      "social": "من يعرفهم الوكيل — تتراكم جهات الاتصال مع عمله مع الأشخاص والوكلاء الآخرين."
+    }
   },
   "jobs": {
     "title": "المهام",
@@ -1914,24 +2008,12 @@
     "refresh": "تحديث العناصر",
     "zoom": "تكبير العنصر",
     "zoomFullscreen": "تكبير العنصر (فتح بملء الشاشة)",
-    "collapse": "طي اللوحة",
-    "collapseAria": "طي لوحة العناصر",
     "selectArtifact": "اختر عنصرًا",
     "minimized": "مُصغّر:",
     "restore": "استعادة \"{{title}}\"",
     "openBadge": "فتح {{title}} ({{kind}})",
     "unsupportedKind": "نوع عنصر غير مدعوم: {{kind}}",
     "loadingRenderer": "جارٍ تحميل العارض…",
-    "sliver": {
-      "expandTitle": "انقر للتوسيع · {{count}} عنصر",
-      "expandTitle_other": "انقر للتوسيع · {{count}} عناصر",
-      "emptyTitle": "ستظهر العناصر هنا بمجرد أن ينشئها الوكيل",
-      "expandAria": "توسيع لوحة العناصر ({{count}} عنصر)",
-      "expandAria_other": "توسيع لوحة العناصر ({{count}} عناصر)",
-      "emptyAria": "لوحة العناصر (فارغة)",
-      "label": "العناصر ({{count}})",
-      "labelEmpty": "العناصر"
-    },
     "emptyState": {
       "title": "لا توجد عناصر بعد",
       "hint": "ستظهر هنا عندما ينشئها الوكيل."

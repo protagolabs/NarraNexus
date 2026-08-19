@@ -44,8 +44,12 @@ from xyz_agent_context.module.social_network_module import (
     format_stats_result,
     format_create_agent_success,
     CREATE_AGENT_NO_OWNER_MSG,
+    create_agent_text_reject,
+    default_created_by_description,
 )
 from xyz_agent_context.schema import (
+    StrippedText,
+    normalize_agent_text,
     SocialNetworkEntityInfo,
     SocialNetworkResponse,
     SocialNetworkListResponse,
@@ -309,9 +313,24 @@ class CreateAgentBody(BaseModel):
     pattern makes that impossible, and provision_new_agent re-checks it as a
     defense-in-depth backstop for every call site."""
     new_agent_id: str = Field(min_length=1, max_length=64, pattern=r"^agent_[0-9a-f]{12}$")
-    agent_name: str = Field(min_length=1, max_length=128)
+    # No `min_length`: the route itself refuses an empty name with the
+    # SHARED message its DirectStore twin uses. A 422 here instead would
+    # hand the model a transport-level failure string on the HTTP path and
+    # the shared constant on the local one — for the same tool call. That
+    # split is exactly what the shared constant exists to prevent.
+    # `StrippedText` so the stored form is what any later check measures, but
+    # NO `AGENT_TEXT_MAX_LENGTH` here: a model-level cap answers 422 before the
+    # handler runs, and this route's only caller is the HttpStore leg of the
+    # `create_agent` tool — so a 422 hands the model "invalid arguments…" while
+    # the DirectStore leg answers with a message naming the limit. Same tool
+    # call, two answers, and only one of them tells the model how to fix it.
+    # The real ceiling is enforced below by both legs through
+    # CREATE_AGENT_TEXT_TOO_LONG_MSG. What is left here is a DoS backstop only,
+    # deliberately far above any legitimate value (same order as `awareness`).
+    agent_name: StrippedText = Field(max_length=65536)
+    # NOT part of that rule — awareness is not an `agents` column.
     awareness: str = Field(default="", max_length=65536)
-    agent_description: str = Field(default="", max_length=2000)
+    agent_description: StrippedText = Field(default="", max_length=65536)
 
 
 # ============================================================================= Read (seam-twin) endpoints
@@ -552,6 +571,20 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
         owner_user_id = caller.created_by
         new_agent_id = body.new_agent_id  # minted by the caller (parity — see body doc)
 
+        # Normalized before the checks below, exactly as the DirectStore twin
+        # does it: the row is stored normalized (AgentRepository.add_agent), so
+        # an unnormalized name here would make the success echo disagree with
+        # what was written, and the `or` fallback would be skipped by a
+        # whitespace-only description.
+        agent_name = normalize_agent_text(body.agent_name)
+        agent_description = normalize_agent_text(body.agent_description)
+        # The rule (which checks, in which order, answering with which sentence)
+        # lives in the shared seam, so this leg and DirectStore cannot drift —
+        # sharing only the message constants is what let them drift before.
+        refusal = create_agent_text_reject(agent_name, agent_description)
+        if refusal:
+            return {"success": False, "error": refusal}
+
         # Canonical provisioning seam (pre-open review #3): agent row +
         # default module instances + peer-discovery registration + bootstrap
         # profile + default-skill install + awareness seed, all in one call.
@@ -562,12 +595,13 @@ async def create_agent(agent_id: str, body: CreateAgentBody, request: Request) -
             db_client,
             agent_id=new_agent_id,
             user_id=owner_user_id,
-            agent_name=body.agent_name,
-            agent_description=body.agent_description or f"Agent created by {caller.agent_name or agent_id}",
+            agent_name=agent_name,
+            agent_description=agent_description
+            or default_created_by_description(caller.agent_name or agent_id),
             awareness=body.awareness,
         )
-        logger.info(f"Created agent {new_agent_id} ('{body.agent_name}') for owner {owner_user_id}")
-        return format_create_agent_success(body.agent_name, new_agent_id, result.warnings)
+        logger.info(f"Created agent {new_agent_id} ('{agent_name}') for owner {owner_user_id}")
+        return format_create_agent_success(agent_name, new_agent_id, result.warnings)
 
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")

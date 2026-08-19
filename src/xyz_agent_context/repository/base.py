@@ -17,8 +17,13 @@ Design notes:
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Generic, TypeVar, List, Optional, Dict, Any
+from typing import TYPE_CHECKING, Generic, TypeVar, List, Optional, Dict, Any
 from loguru import logger
+
+if TYPE_CHECKING:
+    # Type-only: the class is referenced only in annotations, so keep the
+    # runtime import graph unchanged.
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 # Generic type variable
 T = TypeVar('T')

@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-05
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — tool_output 配名走 tool_call_id;"unknown" 两个源头都治
+
+- **配对按 id**:并行调用下所有 call 先于任何 output 落盘、output 按完成序
+  返回,「最近前驱」会自信地贴错名字(与 response_processor 的重建同规则
+  同理由)。timeline 与分组 tool_calls 两个视图都 id 优先;无 id 的存量行
+  回退位置法(timeline=最近前驱;分组=紧邻 output,带 id 的 output 只有在
+  call 自己无 id 时才允许被位置法吃掉)。**两个视图共用一份索引**:
+  `outputs_by_id`/`call_names` 在两视图之前一次遍历建好,unwrap 只做一次,
+  位置兜底条件收敛为 `_pairs_positionally` helper(指针推进留在调用方——
+  分组消费该行,timeline 从不消费)。此前两视图各维护一套、逐轮各打补丁,
+  漂移=接口自相矛盾(timeline 说 read_file、工具卡说 web_search)。
+  `call_names` 记录**已知为空**的名字并用成员判定取值(不是 or 链)——
+  空名调用的 output 保持空;**带未见 id 的 output 给诚实空白**而不是
+  兄弟的名字(`last_tool_name` 只服务无 id 存量行)。专项夹具:空名
+  (双视图断言)、幽灵 id、并行交叉。
+- **占位符零发明**:读侧(本文件)与写侧
+  (response_processor.state_update 持久化空串而非 "unknown")都不再制造
+  它;前端 realName() 归一化只是**历史数据**兜底,不是长期契约。
+测试:test_event_log_meta.py 的 inherits_call_name(无名承接、零 unknown)
+与 parallel_outputs_pair_by_call_id(交叉输出各得其名,两视图一致)。
 
 ## 2026-08-10 (PR-10) — 新增 seam 孪生端点 POST /{agent_id}/chat-history/by-instance
 
@@ -137,3 +158,23 @@ Event 的 `event_log` 字段里存的是流式 delta，每个 thinking_delta 是
 `events`——两个结论都错。`/simple-chat-history`（聊天面板）读的是
 `instance_json_format_memory_chat`；`/chat-history`（Narrative / Runtime 面板）
 读的才是 `events`。见 [[agent_message_repository]] 2026-08-05。
+
+## 2026-08-18 — `/clear` 的响应补上五个一直没上报的计数器
+
+`WipeResult`（dataclass）→ `ClearHistoryResponse`（pydantic）→ 本路由手写的 kwargs：同一个字段表
+存在**三处**，且已经漂过两次。补上 `inbox_threads_count` / `inbox_thread_messages_count`
+（inbox 搬到自己的表时加的），以及三个更早就漏了的 `bus_failures_count` /
+`report_memory_count` / `instance_links_count`。
+
+**为什么这不是「数字不好看」的问题。** 同一批修掉的缺陷是「清空 agent 会话报告成功却什么都没
+清」（IM 记录搬表后，[[wipe_service.py]] 的清理循环再也找不到任何该删的行）。而**报告**这一半
+原本仍然瞎：本路由返回的 inbox 计数恒为 0，所以将来某次回归让 inbox 删除静默失效时，响应体与
+一次成功的清理**逐字节相同** —— 那正是原缺陷当初能活下来的机制。下一张「我清空了但 Lark 历史
+还在」的工单，拿到的响应体分不出这两种情况。
+
+`test_wipe_result_fields_reach_the_api` 现在断言每个 `*_count` 都出现在响应模型里**并且**被本
+路由真的填上 —— 有位置放却没人填会静默默认 0，与根本没有那个字段一样瞎。它当场就抓出了上面
+那两处更早的遗漏，不是有人注意到的。
+
+**加字段时的陷阱**：`WipeResult.narrative_ids` 在响应里叫 `narrative_ids_deleted`，所以不能用
+`**asdict(result)` 一把展开；覆盖测试因此只断言 `*_count` 这一类，而不是全字段相等。

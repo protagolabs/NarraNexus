@@ -1,7 +1,49 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 ---
+
+## 2026-08-18 — create_agent 的拒绝**规则**也上提了,不只是那两句话
+
+新增 `create_agent_text_reject(agent_name, agent_description) -> Optional[str]`
+与 `default_created_by_description(author)`,两条腿([[social_network.py]] 路由 +
+[[store.py]] DirectStore)都调它们。
+
+**为什么不能只共享常量**:上一版把 `CREATE_AGENT_EMPTY_NAME_MSG` /
+`CREATE_AGENT_TEXT_TOO_LONG_MSG` 提成了共享串,但**做判断的那段代码是两份** ——
+归一、空名判、长度判、以及「长度必须在空名之后」这条顺序不变量,靠两边各写一句
+注释说「和另一边保持一致」。给 `agent_name` 再加一条规则(比如拒换行/控制字符 ——
+它是行标题,这需求很现实)只改一条腿,就会重新裂开成「同一次工具调用两句话」,
+而这正是本轮要消灭的形态。成功那一半(`format_create_agent_success`)早就是共享
+函数了,失败这一半当时没跟上。
+
+**顺序落在函数体里**,不拆成两个可分别调用的 predicate —— 拆了等于没上提。
+`" " * 300` 归一后是空名,不是超长名;反了就会给出另一句。
+
+**返回字符串而不是响应 dict**:路由用 `error` 键、DirectStore 用 `message` 键
+(由 [[store.py]] 的 `_write_message_key` 折回),形状属于各条腿,只有措辞是共享的。
+把 dict 塞进共享函数会破坏那层折叠。
+
+**归一留在调用方**:归一后的值两条腿还要继续用(写库 + 回执 + 日志),只有「判」
+搬进来了。
+
+`default_created_by_description` 走**截断**而非拒绝:它是这条路上唯一在所有检查
+之后才拼出来的值(17 + 创建者名字),而拒绝一个调用方从没输入过的串没法解释。
+
+测试:`tests/backend/test_create_agent_empty_name_parity.py` —— 逐条腿的用例证明
+两条腿一致,表驱动用例证明它们一致在**什么规则**上,含那条只在一种输入上体现的
+顺序不变量(空名 + 超长描述 → 必须回空名那句)。
+
+## 2026-08-17 — 新增 CREATE_AGENT_EMPTY_NAME_MSG
+
+与 `CREATE_AGENT_NO_OWNER_MSG` 并排的第二个共享串:两条建 agent 路径
+(DirectStore [[store.py]] 与 [[social_network.py]] 路由)拒绝空名时必须逐字节
+同串 —— 与那条注释里写的 byte-parity 理由完全一样。
+
+为什么建 agent 也要拒空名:没有名字的 agent 在所有界面退回显示裸 `agent_id`,
+纯空格的更糟(名字 truthy,连 `agent_id` 兜底都不触发,行标题直接空白)。
+改名两条路径([[_awareness_writes]] 与 [[auth.py]])本来就拒,而创建侧一直收 ——
+同一个值**可以创建、不可以改成**,这是本轮修掉的不对称之一。
 
 ## 2026-08-10 (PR-6) — 新增 `format_create_agent_success` + `CREATE_AGENT_NO_OWNER_MSG`
 

@@ -1,8 +1,78 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19(二)— 手机永不钉 + 透明宽度地板
+
+- `pinned={drawerPinned && !isMobile}`:钉选默认 true 在手机上会变成
+  ≥300px 的常驻列把对话挤到 ~90px,无背板无 Esc。手机一律走 transient
+  overlay;偏好本身不动,回桌面照旧。团队房间同一改法。
+- 透明 inset 宽度加 `max(320px,…)` 地板(768px 视口下原表达式给 96px)。
+
+## 2026-08-19 — 抽屉接线抽到 usePinnedDrawer
+
+钉选/宽度/视口 clamp/拖拽两相 的 React 接线整体迁入
+[[../../hooks/usePinnedDrawer]](团队房间挂**同一个** hook、同一份偏好)。
+本文件只剩消费:首跑教学卡、面板 tab 状态与 BookmarkDrawer 装配。
+
+## 2026-08-19 — 钉选默认开 + 宽度上限跟视口 + 首跑教学
+
+- 抽屉默认**钉选**(只有显式 unpin 存 '0' 才关)——面板应该待在原地,
+  除非用户说不。策略/键值抽到 [[drawerLayout]](纯函数可测)。
+- 拖拽上限从写死 720px 改为 `min(60vw, vw−672)`:大屏上 artifacts 能拉过
+  半屏;672 = 侧栏 272 + 聊天列最小 400,永远吃不进去。上限是视口函数,
+  所以**渲染处**用 resize 监听维护的 viewportW 再 clamp 一次
+  (`effectiveDrawerWidth`)——窗口缩小/拔显示器时抽屉即刻回到合法宽度;
+  **持久化保留用户原值**,回大屏自动恢复(环境噪音不吃掉用户意图)。
+- 首跑:懒初始化按 `shouldAutoOpenFirstRun` 的**只读**判定直接以 artifacts
+  面板 + [[../bookmarks/DrawerCoachMark]] 教学卡开局(判据细节的唯一出处是
+  [[drawerLayout]],此处不复述);标记由 `markFirstRunSeen` 在 **mount
+  effect** 里写——被丢弃的渲染烧不掉它。宽度持久化只发生在拖拽释放
+  (handleDrawerResizeEnd),所以 WIDTH key 是「用户选过宽度」的真信号,
+  不会因为挂载过页面就把新用户误判成老用户。unpin/close/知道了 任一操作
+  即收起教学卡。抽屉列仅在有 agent 时渲染,setup 期间不闪面板。
+- 抽屉接上 `activeTab`/`onSelectTab`(标题下拉切换,见 [[../bookmarks/BookmarkDrawer]])。
+测试:drawerLayout.test.ts。
+
+## 2026-08-06 (5) — 抽屉 inset + artifacts 50vw
+
+BookmarkDrawer 传 inset={!isMobile} 与 per-tab insetWidth
+(artifacts → min(max(440px, 50vw), calc(100vw - 672px)),其他 440)。
+
+## 2026-08-06 (4) — 折叠展开钮从浮动 chip 改为保留左轨
+
+浮动 absolute chip 会盖住子页面标题(Marketplace/Dashboard 截图实证)。
+改为 flex 内的 44px 左轨(border-r + nm-paper 底,顶端放展开钮),
+子页面/团队聊天内容整体右移,零遮挡。聊天视图仍由 ChatHeader 内联展开钮
+负责,不出轨。
+
+## 2026-08-06 (3) — 侧边 Artifact 栏退役
+
+Owner 指定 artifacts 一律从聊天头部入口访问:ChatView 里的 ArtifactColumn
+侧栏、chat↔artifact 分栏拖拽全套(chatSplit / contentFrozen 冻结 / 
+chat_artifact_split_v1 持久化)以及移动端 Chat/Artifacts tab 切换全部删除。
+移动端保留一条工具行(artifacts 按钮 → requestPanel('artifacts') + cost
+chip)。loadPinned 保留在 ChatView(头部徽标数与 drawer 面板都靠它水合)。
+artifactStore.collapsed 从此无人写(组件内部未动,留待后续清理)。
+
+## 2026-08-06 (2) — Chat UI v4:满铺 + BookmarkStrip 退役
+
+- ChatView / TeamChatView 去掉 p-2/p-3 与圆角描边卡片 — 聊天面到边,
+  分隔靠 hairline 与拖拽柄。RAIL_GUTTER_PX 常量随 strip 一起删除。
+- 右缘 BookmarkStrip 删除;所有面板入口在 ChatHeader(icons + ⋯ 菜单),
+  统一走 uiStore.requestPanel → pendingPanel effect(现在带 toggle 语义:
+  重复请求当前打开的 tab = 关闭,对齐旧 strip 行为)。BookmarkDrawer
+  单实例约束不变,edgeReservePx=0。
+
+## 2026-08-06 — Chat UI v4:TopBar 降级为移动端专属
+
+TopBar 仅 < md 渲染(自带 md:hidden);桌面端侧栏占满全高。CommandPalette
+与全局 ⌘K 监听从 TopBar 迁入本组件(uiStore.paletteOpen),移动/桌面共用
+一个实例。新增:sidebarCollapsed(uiStore)时,子页面/团队聊天渲染左上角
+浮动展开 chip(聊天视图的展开按钮在 ChatPanel 头部内联,不在这里)。
+BookmarkDrawer 单实例约束、resize 两段拖拽、RAIL_GUTTER_PX 同步规则不变。
 
 ## 2026-08-13 — shared stacking slot for the two privacy disclosures
 

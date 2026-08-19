@@ -216,7 +216,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         <button
           onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -224,7 +224,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -236,7 +236,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <p className="text-xs text-[var(--text-secondary)]">
               {t('awareness.wechat.intro')}
             </p>
-            <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+            <div className="text-xs text-[var(--color-warning)]" role="note">
               {t('awareness.wechat.warning')}
             </div>
             <Button
@@ -302,7 +302,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   {credential.owner_name || credential.bot_wx_id || t('awareness.wechat.accountFallback')}
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
@@ -311,7 +311,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {t('awareness.common.owner')}: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_wx_id}</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 {t('awareness.wechat.ownerPending')}
                 <div className="mt-1 text-[var(--text-secondary)]">
                   {t('awareness.wechat.ownerPendingNote')}

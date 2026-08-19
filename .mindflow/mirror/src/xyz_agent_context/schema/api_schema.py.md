@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-30
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17(补)— `_StrippedText` 迁到 entity_schema
+
+本文件原来自己定义 `_strip_if_text` / `_StrippedText`。manyfold 的两个写边模型
+(`backend/routes/manyfold/agents.py`)也需要同一个行为,而它们**不能** import
+api_schema(成环),所以定义搬到 [[entity_schema]] 的 `StrippedText`,本文件深引
+并别名回 `_StrippedText`。
+
+深引不是疏忽:`xyz_agent_context.schema` 门面反过来再导出本文件的模型,本文件引
+门面就成环 —— 与本文件引 `AGENT_TEXT_MAX_LENGTH` 的方式一致,已在 import 处注明。
+
+## 2026-08-17 — Create/UpdateAgentRequest 的长度上限改为量归一后的值
+
+两个模型的 `agent_name` / `agent_description` 类型换成 `_StrippedText`
+(`Annotated[str, BeforeValidator(_strip_if_text)]`),`max_length` 不变。
+
+原来 cap 量的是**原始串**,于是 `"x"*255 + " "` 在 HTTP 侧 422、在 agent 侧
+([[_awareness_writes]] 对 strip 后判长度)通过 —— 同一个输入两条路径两个答案,
+正是这一轮在消灭的形态。归一后再量,两边验收集合一致。
+
+`None` **必须原样穿过**:更新路径上 `None`="没传这个字段"、`""`="清空这个字段",
+只有这一点区分二者,collapse 掉就没法清空描述了。`_strip_if_text` 因此只对
+`str` 动手,其余交给 pydantic 自己报错。
+
+422 的契约没动(`tests/backend/test_agent_request_length.py` 钉着四个写边模型
+统一 422,是 2026-07-23 补 #71 时立的)。本次给它补了三条:尾随空白不该把合法值
+顶过上限、真超长 strip 完仍拒、`None` 不被变成 `""`。
+
+> 走过一次弯路:先把 `UpdateAgentRequest` 的 `max_length` 摘了、改在路由里判,
+> 结果打破了那条四模型统一的契约(Update 变成 200+success=false 而 Create 仍 422),
+> 被上面那个测试当场抓住。BeforeValidator 才是既保 422 又对齐两条写路径的解。
 
 ## 2026-07-30 — Cost*/EventLogMeta 加缓存两桶字段
 
@@ -125,3 +156,18 @@ The route handlers in `backend/routes/` (agents, users, chat, jobs, mcp, files, 
 - `AgentInfo.bootstrap_active` is a runtime flag, not a stored field. It is computed at request time by checking whether the agent's awareness module has a bootstrap mode active. Do not look for it in the database.
 - `MCPInfo` here and `MCPUrl` in `entity_schema.py` represent the same underlying database record. `MCPUrl` is the domain entity; `MCPInfo` is the API projection with some fields stringified and some omitted.
 - `EventLogResponse` is loaded on-demand (lazy loading) — the chat history endpoint returns `event_id` in each `SimpleChatMessage` so the frontend can fetch the full tool call trace separately, avoiding large payloads on the initial load.
+
+## 2026-08-18 — `ClearHistoryResponse` 补上五个一直没上报的计数器
+
+`WipeResult`（dataclass）→ `ClearHistoryResponse`（pydantic）→ 路由手写的 kwargs：同一个字段表
+存在**三处**，且已经漂过两次。新增 `inbox_threads_count` / `inbox_thread_messages_count`
+（inbox 搬到自己的表时加的），以及三个更早就漏了的 `bus_failures_count` /
+`report_memory_count` / `instance_links_count` —— 后三个是新加的覆盖测试发现的，不是有人注意到。
+
+**为什么这不是"数字不好看"的问题**：这次改造修掉的缺陷是「清空会话报告成功却什么都没清」，
+而**报告**那一半原本仍然瞎 —— `/clear` 返回的 inbox 计数恒为 0，所以将来某次回归让 inbox 删除
+静默失效时，响应体与一次成功的清理**逐字节相同**。那正是原缺陷当初能活下来的机制：下一张
+「我清空了但 Lark 历史还在」的工单，拿到的响应体分不出这两种情况。
+
+`test_wipe_result_fields_reach_the_api` 现在断言每个 `*_count` 都出现在本模型里**并且**被路由
+真的填上 —— 有位置放却没人填会静默默认 0，与根本没有那个字段一样瞎。

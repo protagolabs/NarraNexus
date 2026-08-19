@@ -15,7 +15,7 @@ broke" UX even when we recovered cleanly. So the recovery generator
 must always yield in this order:
 
 1. ``AgentTextDelta`` frames from the helper_llm stream (zero or more).
-2. ``ProgressMessage`` synthesising a ``send_message_to_user_directly``
+2. ``ProgressMessage`` synthesising a ``reply_owner``
    tool call carrying ``details.reply_via`` (only if any content
    actually streamed).
 3. ``ErrorMessage`` with the right severity (only if we captured a

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -495,3 +495,15 @@ API 不返回的列，UI 就渲染不了。
 
 lead 只在**被设置**时宣告；清空 lead 是把责任按规则交回最早加入的成员，
 那不是一个有名字可报的事件。
+
+## 2026-08-18 — 私有的 `_get_or_create_team_room` 退役，改调 `team_rooms`
+
+本文件里那个 30 行的私有 `_get_or_create_team_room` 已删除，四个调用点改调
+[[team_rooms.py]] 的 `get_or_create_team_room` / `primary_room_of` / `team_room_marker`。
+
+**理由不是「抽公共函数好看」，而是这个查询当时有四份副本。** `team_rooms.py` 的模块 docstring
+把那段历史写清了：同一个「团队 → group channel」的映射分散在多处各自演化，而
+「两个名字一个查询」正是四份副本的起点。本文件这一份是其中之一，是最后被收回的。
+
+上面 2026-06-23 那条条目描述的是**当时**的私有实现，故意保持原样 —— 那是它当时确实的样子。
+需要知道「团队房间的查找现在在哪」的读者应看本条与 [[team_rooms.py]]，而不是那一条。

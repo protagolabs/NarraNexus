@@ -1831,16 +1831,22 @@ class LarkTrigger(ChannelTriggerBase):
             cred, message, sender_name, attachments=attachments,
         )
 
-        # Write to inbox via the channel writer
+        # Record the turn in the inbox's own tables (not the bus's)
         try:
-            await self._inbox_writer.write(
+            from xyz_agent_context.channel.inbox_recorder import (
+                im_thread_id,
+                resolve_owner_for_agent,
+            )
+
+            await self._inbox_recorder.record_turn(
                 db=self._db,
+                thread_id=im_thread_id(self.channel_name, cred.agent_id, message.chat_id),
+                owner_user_id=await resolve_owner_for_agent(self._db, cred.agent_id),
                 agent_id=cred.agent_id,
-                sender_id=message.sender_id,
-                sender_name=sender_name,
-                original_message=message.content,
-                agent_response=output_text,
-                chat_id=message.chat_id,
+                counterpart_id=message.sender_id,
+                counterpart_name=sender_name,
+                inbound_text=message.content,
+                outbound_text=output_text,
             )
         except Exception as e:  # noqa: BLE001
             await self._audit(
@@ -2080,7 +2086,7 @@ class LarkTrigger(ChannelTriggerBase):
 
     # ────────────────────────────────────────────────────────────────────
     # Inbox writer shim — for tests that call _write_to_inbox directly.
-    # Production path uses self._inbox_writer.write(...) from _process_message.
+    # Production path uses self._inbox_recorder.record_turn(...) from _process_message.
     # ────────────────────────────────────────────────────────────────────
 
     async def _write_to_inbox(
@@ -2092,31 +2098,34 @@ class LarkTrigger(ChannelTriggerBase):
         agent_response: str,
         chat_id: str,
     ) -> None:
-        """Write Lark messages to MessageBus tables for Inbox display.
+        """Record a Lark turn in the inbox.
 
-        Backward-compat shim: existing tests call this directly. Resolves
-        ``db`` via ``get_db_client()`` so tests can monkey-patch the
-        factory. Production path uses the inherited
-        ``ChannelInboxWriter`` directly.
+        A seam existing tests call directly. Resolves ``db`` via
+        ``get_db_client()`` so tests can monkey-patch the factory; the
+        production path uses the inherited ``_inbox_recorder``.
+
+        The brand split is real and not cosmetic: the same channel serves
+        Lark and Feishu tenants, and the thread title is what the panel shows.
         """
         try:
             db = await get_db_client()
-            # Use the channel-specific brand for the channel name in inbox.
             brand_display = "Lark" if cred.brand == "lark" else "Feishu"
-            # Build a temporary writer with brand-specific display so
-            # bus_channels.name reads "Feishu: Alice" or "Lark: Alice".
-            from xyz_agent_context.channel.channel_inbox_writer import (
-                ChannelInboxWriter,
+            from xyz_agent_context.channel.inbox_recorder import (
+                InboxRecorder,
+                im_thread_id,
+                resolve_owner_for_agent,
             )
-            writer = ChannelInboxWriter(self.channel_name, brand_display)
-            await writer.write(
+
+            recorder = InboxRecorder(self.channel_name, brand_display)
+            await recorder.record_turn(
                 db=db,
+                thread_id=im_thread_id(self.channel_name, cred.agent_id, chat_id),
+                owner_user_id=await resolve_owner_for_agent(db, cred.agent_id),
                 agent_id=cred.agent_id,
-                sender_id=sender_id,
-                sender_name=sender_name,
-                original_message=original_message,
-                agent_response=agent_response,
-                chat_id=chat_id,
+                counterpart_id=sender_id,
+                counterpart_name=sender_name,
+                inbound_text=original_message,
+                outbound_text=agent_response,
             )
         except Exception as e:
             logger.warning(f"Failed to write to inbox: {e}")

@@ -292,8 +292,10 @@ class ErrorMessage(BaseRuntimeMessage):
             after-error fallback produced a user-facing reply that masks the
             failure operationally. Frontend renders the reply as normal and
             surfaces this error as a warning badge.
-          - "recovered_after_reply": the agent already called
-            send_message_to_user_directly before a fatal hit. No fallback
+          - "recovered_after_reply": the agent had already delivered a
+            reply through one of its delivery tools before a fatal hit —
+            named generically because this schema is shared by every
+            surface and each one has a different tool. No fallback
             runs (we already spoke), but the badge tells the user the turn
             didn't finish all planned work.
           Default is "fatal" to preserve historical behaviour; new error

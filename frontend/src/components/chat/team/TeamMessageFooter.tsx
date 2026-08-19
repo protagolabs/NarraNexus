@@ -2,8 +2,8 @@
  * @file_name: TeamMessageFooter.tsx
  * @author: NarraNexus
  * @date: 2026-08-12
- * @description: What hangs under one team message: its process, what it made,
- * and when it was said.
+ * @description: What hangs under one team message: what it made and when it
+ * was said. Its process opens from the top of the bubble (single-chat parity).
  *
  * Lifted out of TeamChatPanel unchanged — the joins and their reasoning are the
  * ones that were already there. It moved so the bubble can own how a message
@@ -11,7 +11,6 @@
  */
 
 import { formatTime } from '@/lib/utils';
-import { TeamMessageProcess } from './TeamMessageProcess';
 import type { Artifact } from '@/types/artifact';
 import type { TeamChatMessage } from '@/types/teams';
 
@@ -34,12 +33,9 @@ export function TeamMessageFooter({
 
   return (
     <>
-      {/* This turn's full process — single-chat parity. Only agent replies whose
-          turn was recorded carry an event_id (legacy rows degrade to no button). */}
-      {!m.is_user && m.event_id && (
-        <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
-      )}
-
+      {/* The process disclosure sits at the TOP of the bubble (single-chat
+          parity) — see TeamChatPanel's renderHeader. This footer keeps what
+          hangs under the content: artifacts and the timestamp. */}
       {/* What THIS turn produced. Joined on event_id, which both the transcript
           and the artifact history carry — not on timestamps, which would
           mis-attribute the ordinary cases (two artifacts in one turn, two agents

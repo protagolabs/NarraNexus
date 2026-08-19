@@ -30,6 +30,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -52,7 +53,7 @@ TELEGRAM_MCP_PORT = 7832
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — see slack_module._extract_slack_reply for
 # the full rationale. TL;DR: ChatModule's default extractor only knows
-# about ``send_message_to_user_directly``; Telegram agents reply via
+# about ``notify_owner``; Telegram agents reply via
 # ``tg_cli(method="sendMessage", args={"text": "..."})``, so without
 # this handler every Telegram turn is persisted as
 # "Background activity (telegram)" and the agent loses all multi-turn
@@ -65,7 +66,7 @@ def _extract_telegram_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a Telegram agent tool call.
 
     Recognises:
-      1. ``send_message_to_user_directly(content=...)`` — generic chat path.
+      1. ``notify_owner(content=...)`` — generic chat path.
       2. ``tg_cli(method="sendMessage", args={"chat_id": ..., "text": ...})``
          — the canonical Telegram reply path.
 
@@ -83,7 +84,7 @@ def _extract_telegram_reply(tool_name: str, arguments: dict) -> Optional[str]:
         return None
 
     # Generic chat-style content arg
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if is_owner_tool(tool_name):
         content = args.get("content", "")
         return content or None
 
@@ -112,7 +113,8 @@ def _extract_telegram_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="telegram",
-        user_reply_tool_names=("tg_cli", "send_message_to_user_directly"),
+        display_label="Telegram",
+        user_reply_tool_names=("tg_cli", "notify_owner"),
         row_prefix_template="[Telegram · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_telegram_reply,
         dedicated_trigger=True,

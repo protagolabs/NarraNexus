@@ -8,7 +8,8 @@ Separates MCP tool registration logic from ChatModule main class,
 keeping the module focused on Hook lifecycle and memory management.
 
 Tools:
-- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages)
+- reply_owner / notify_owner: the two registers of speaking to the owner
+  (one on the desk per turn — see ChatModule.get_expressive_tools)
 - get_chat_history: Get chat history for a Chat Instance
 """
 
@@ -25,8 +26,8 @@ def create_chat_mcp_server(port: int) -> FastMCP:
         FastMCP instance with all tools configured
 
     (No db-client function is needed anymore: get_chat_history routes through the
-    AgentDataStore seam, which resolves its own db, and send_message_to_user_directly
-    never touches the db.)
+    AgentDataStore seam, which resolves its own db, and the owner-facing tools
+    never touch the db.)
     """
     mcp = FastMCP("chat_module")
     mcp.settings.port = port
@@ -80,46 +81,88 @@ def create_chat_mcp_server(port: int) -> FastMCP:
         from xyz_agent_context.module.data_access import get_agent_data_store
         return await get_agent_data_store().get_chat_history(agent_id, instance_id, limit)
 
+    # TWO tools, one destination — and that is the point.
+    #
+    # `send_message_to_user_directly` carried two OPPOSITE disciplines on one
+    # name: ChatModule says answering your owner is expected on almost every
+    # chat turn, while channel_prompts says notifying your owner from an IM turn
+    # is something you do only for (a) an explicit mention, (b) a decision that
+    # needs them, (c) information they track. One "you should", one "you should
+    # not", distinguished by prose the model had to apply correctly.
+    #
+    # Split, each name carries its own discipline — and they never appear
+    # together: the owner-chat turn is given `reply_owner` only, every other
+    # turn `notify_owner` only (see ChatModule.get_expressive_tools /
+    # get_disallowed_tools). So there is no choice to get wrong, and the rule
+    # that applies is the one attached to the tool that is actually on the desk.
+    #
+    # Both are no-ops that return a confirmation. Delivery is not what they DO —
+    # the platform detects the call in the turn's trace
+    # (`MessageSourceHandler.extract_reply_text`) and routes the content. What
+    # they carry is intent.
+
     @mcp.tool()
-    async def send_message_to_user_directly(agent_id: str, user_id: str, content: str) -> dict:
+    async def reply_owner(agent_id: str, user_id: str, content: str) -> dict:
         """
-        Speak to the user - This is the ONLY way to deliver your response to the user.
+        Answer your owner. They asked you something and are waiting.
 
-        **CRITICAL**: Think of this as "opening your mouth to speak". All your internal reasoning,
-        tool calls, and agent loop outputs are like thoughts in your mind - completely invisible
-        to the user. The user ONLY sees what you say through this tool.
+        Your plain text is private reasoning — the owner never receives it. This
+        call is what reaches them.
 
-        Analogy: Imagine you and the user are face-to-face:
-        - Your LLM reasoning = thinking in your head (user cannot hear)
-        - Your tool calls = actions you take silently (user cannot see)
-        - Calling this tool = opening your mouth to speak (user CAN hear)
-
-        Without calling this tool, your response stays in your head - the user receives NOTHING!
+        This is the expected way an owner-chat turn ends: a final answer, a
+        summary of what you did, a clarifying question, or an explanation of why
+        you cannot do what was asked. Silence is a deliberate exception (they
+        said "ok" and clearly want nothing back), not a default.
 
         Args:
-            agent_id: Your agent ID (the speaker).
-            user_id: The user ID you are speaking to (the listener).
-            content: What you want to say to the user. This is the actual message
-                     the user will see. Make it clear, helpful, and appropriate.
-                     Which is in markdown format.
+            agent_id: your own agent id
+            user_id: the owner you are answering
+            content: what to say, in markdown
 
         Returns:
-            A confirmation dict indicating the response was delivered successfully.
-
-        Example:
-            # After thinking and gathering information, speak to the user:
-            send_message_to_user_directly(
-                agent_id="agent_123",
-                user_id="user_456",
-                content="Based on my analysis, here are the results you requested..."
-            )
+            A confirmation that the answer was delivered.
         """
         return {
             "success": True,
-            "message": "Response delivered to user successfully",
+            "message": "Reply delivered to owner",
             "user_id": user_id,
             "agent_id": agent_id,
-            "content": content
+            "content": content,
+        }
+
+    @mcp.tool()
+    async def notify_owner(agent_id: str, user_id: str, content: str) -> dict:
+        """
+        Put something in your owner's chat window that they did not ask for.
+
+        This turn is with somebody else — a person on an IM channel, a teammate,
+        a peer agent. This tool does NOT reply to them; it speaks to your owner,
+        who is not part of this conversation and will see it out of context.
+
+        **Default is not to use it.** Routine conversation stays where it
+        happened. Notify only when one of these is true:
+          (a) your owner was explicitly mentioned or asked for;
+          (b) a decision or action is needed from them;
+          (c) something they specifically track was said.
+
+        Replying to whoever contacted you is a different act, done with a
+        different tool. Notifying your owner does not discharge that — the
+        person waiting on the other channel cannot see what you told your owner.
+
+        Args:
+            agent_id: your own agent id
+            user_id: your owner
+            content: what they need to know, in markdown
+
+        Returns:
+            A confirmation that the notice reached the owner's window.
+        """
+        return {
+            "success": True,
+            "message": "Notice delivered to owner",
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "content": content,
         }
 
     return mcp

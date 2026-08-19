@@ -42,6 +42,42 @@ function parseUTCTimestamp(timestamp: number | string): Date {
 }
 
 /**
+ * Relative "x minutes/days/months ago" label for chat message meta rows
+ * (claude.ai convention). Locale-aware via Intl.RelativeTimeFormat, so all
+ * shipped UI languages come for free — pass i18n.language. `numeric: 'auto'`
+ * yields natural forms ("yesterday" / "昨天") at the unit boundaries. The
+ * exact date+time stays in the caller's tooltip. Distinct from the older
+ * English-only `formatRelativeTime` (jobs/system surfaces, capped at 7d).
+ */
+export function formatMessageAge(
+  timestamp: number | string,
+  locale?: string,
+): string {
+  const date = parseUTCTimestamp(timestamp);
+  // An unparseable timestamp must degrade to an empty label, not a render
+  // crash: Intl.RelativeTimeFormat.format(NaN) throws a RangeError.
+  if (!Number.isFinite(date.getTime())) return '';
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  let rtf: Intl.RelativeTimeFormat;
+  try {
+    rtf = new Intl.RelativeTimeFormat(locale || undefined, { numeric: 'auto' });
+  } catch {
+    // Unknown/partial locale tag — fall back to the runtime default.
+    rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  }
+  if (diffSec < 45) return rtf.format(0, 'second'); // "now"
+  const min = Math.round(diffSec / 60);
+  if (min < 60) return rtf.format(-min, 'minute');
+  const hr = Math.round(min / 60);
+  if (hr < 24) return rtf.format(-hr, 'hour');
+  const day = Math.round(hr / 24);
+  if (day < 30) return rtf.format(-day, 'day');
+  const month = Math.round(day / 30);
+  if (month < 12) return rtf.format(-month, 'month');
+  return rtf.format(-Math.round(day / 365), 'year');
+}
+
+/**
  * The locale to format dates and times in: whatever language the user is
  * actually running.
  *
@@ -71,6 +107,20 @@ export function activeLocale(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Absolute date+time label in the viewer's locale, parsed as UTC (backend
+ * timestamps carry no zone marker; a bare `new Date` would read them as
+ * local time and disagree with every relative label next to them).
+ */
+export function formatAbsolute(timestamp: number | string, locale?: string): string {
+  const date = parseUTCTimestamp(timestamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleString(locale || undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
 }
 
 /**

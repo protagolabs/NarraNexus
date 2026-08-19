@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-17
 ---
 
+## 2026-08-17 — inbox 写入换成 InboxRecorder
+
+`self._inbox_writer`（`ChannelInboxWriter`，写 MessageBus 的表）换成
+`self._inbox_recorder`（`InboxRecorder`，写 inbox 自己的表）。两个调用点都改了。
+
+动机不是整洁：旧写入器为了让面板找得到会话，**给 agent 建 `bus_channel_members` 成员行**，
+而没有任何人推进它的 `last_read_at` ——于是每条 IM 消息都永久挂在 agent 的 bus 未读游标上
+（prod 实测 1,364 条 / 90 个 agent）。见 [[inbox_recorder]]。
+
+`owner_user_id` 是新增的必要信息（线程按用户列），由 `resolve_owner_for_agent` 走
+`AgentRepository.resolve_owner` 这条共享缝解析，不在这里另开查询。
+
 ## 2026-08-17 — "从没执行过"不能写成 0.0（monotonic 从开机计数）
 
 `_last_heartbeat_monotonic` / `_last_cleanup_monotonic` 的初值从 `0.0` 改成

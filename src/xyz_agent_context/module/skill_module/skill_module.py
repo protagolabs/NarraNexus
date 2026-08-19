@@ -42,6 +42,7 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.schema.skill_schema import SkillInfo
 from xyz_agent_context.utils import DatabaseClient
+from xyz_agent_context.utils import file_safety as _file_safety
 from xyz_agent_context.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
@@ -73,7 +74,8 @@ WORKSPACE_RULES_CLOUD = (
     "inside the skill directory.\n"
     "- **If a SKILL.md demands a global CLI / system package you can't "
     "install** (e.g. needs `brew install ...`), do NOT keep trying. Call "
-    '`send_message_to_user_directly` and tell the user: *"This skill '
+    "the owner-facing tool on your desk this turn and tell the user: "
+    '*"This skill '
     "needs a global CLI install, which this cloud deployment does not "
     "yet support. Please either pick a different skill, or run this on "
     'a local NarraNexus install."*\n'
@@ -99,14 +101,14 @@ WORKSPACE_RULES_LOCAL = (
     "`npm install -g`, `pip install`, etc. when a skill needs it. "
     "**Good practice (not strict)**: before a large global change "
     "(new binary, modifying system PATH), briefly mention to the user "
-    "via `send_message_to_user_directly` what you're about to install "
+    "tell your owner what you're about to install "
     "and where, so they know what changed on their computer.\n"
     "- **Credentials and API keys** — do BOTH of the following:\n"
     "  1. If the SKILL.md specifies where credentials live (e.g., "
     "`~/.config/foo/` or `credentials.json` inside the skill dir), save "
     "them there. If the skill is happy with a workspace-local file, "
     "prefer `skills/<skill-name>/`. **Good practice**: tell the user "
-    "via `send_message_to_user_directly` where the credential was "
+    "tell your owner where the credential was "
     "saved so they can rotate / revoke it later.\n"
     "  2. **Also** call `skill_save_config` for each key — this registers "
     "it in the system so it appears in the frontend config panel and is "
@@ -192,7 +194,7 @@ If a user sends a skill URL and asks you to learn/study it:
 ##### 6. Human Assistance
 Some skills require human intervention to activate (e.g., Twitter/X verification, \
 email confirmation, OAuth browser login). When the SKILL.md describes a step that \
-**only a human can complete**, you MUST use `send_message_to_user_directly` to:
+**only a human can complete**, you MUST use the owner-facing tool on your desk to:
 1. Clearly explain what the human needs to do (with exact URLs, steps, codes)
 2. Provide any claim tokens, verification codes, or links the human will need
 3. Wait for the human to confirm completion before proceeding
@@ -1218,8 +1220,14 @@ class SkillModule(XYZBaseModule):
 
     def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
         """Extract a skill archive while rejecting zip-slip style paths."""
-        max_entries = 500
-        max_uncompressed_bytes = 100 * 1024 * 1024
+        # Shared with the admission gate that lets archives in
+        # (`bundle/security.validate_skill_archive_*`). If these two disagree,
+        # an archive can be stored and exported and then fail here at install
+        # time — see the constants' definition for why they live in one place.
+        # Module attribute, not a from-import: same value the admission gate
+        # reads, resolved at call time so the two can never diverge.
+        max_entries = _file_safety.MAX_SKILL_ARCHIVE_ENTRIES
+        max_uncompressed_bytes = _file_safety.MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES
         max_uncompressed_mb = max_uncompressed_bytes // (1024 * 1024)
 
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:

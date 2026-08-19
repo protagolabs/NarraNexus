@@ -13,7 +13,6 @@ from loguru import logger
 
 # Schema
 from xyz_agent_context.schema import (
-    BUS_TEAM_ROOM_EXTRA_KEY,
     ContextData,
     ModuleInstructions,
     ContextRuntimeOutput,
@@ -28,6 +27,11 @@ from xyz_agent_context.narrative import Narrative, Event, EventService, Narrativ
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
+from xyz_agent_context.utils.timezone import (
+    DEFAULT_TIMEZONE,
+    format_timestamp_for_agent,
+    resolve_timezone,
+)
 
 # Settings (leaf module, safe to import at module level)
 from xyz_agent_context.settings import settings
@@ -69,6 +73,31 @@ def build_reply_language_section(language: str | None) -> str:
         return ""
     name = _REPLY_LANGUAGE_NAMES.get(code.lower().split("-")[0], code)
     return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
+
+
+def _is_signature_typeerror(exc: TypeError) -> bool:
+    """Did the CALL fail, or did the callee's body raise?
+
+    A signature TypeError is raised while binding arguments, so it never enters the
+    callee — its traceback has exactly one frame, ours. A TypeError from inside a
+    correctly-shaped implementation has at least one more.
+
+    **True only for an UNDECORATED callable.** A `functools.wraps` wrapper taking
+    `*args, **kwargs` absorbs the arity check, so the inner binding failure carries
+    two frames and lands in the other arm — reported as "raised" rather than as a
+    signature mismatch. No hook in-tree is decorated (six definitions of these two
+    hooks, all plain `async def`), and both arms fail open identically, so the cost
+    is log text. Stated because the alternative is a docstring that is confidently
+    wrong for a shape somebody may well introduce.
+
+    Worth distinguishing because both arms fail open identically, so the only thing
+    at stake is what the log says — and a loud line with the wrong cause sends
+    on-call to check an override signature that is fine, while the actual fault goes
+    unlooked-at. Verified: a module with the correct `(self, ctx_data=None)` shape
+    whose body did `["a"] * None` was reported as "signature mismatch".
+    """
+    tb = exc.__traceback__
+    return tb is None or tb.tb_next is None
 
 
 class ContextRuntime:
@@ -630,7 +659,7 @@ class ContextRuntime:
         Diagnostic for the system-prompt-growth incident (2026-07): the prompt
         drifts toward the 115K ceiling (MAX_SYSTEM_PROMPT_LENGTH) and, once the
         reply instruction is diluted / history is evicted, the agent stops
-        calling send_message_to_user_directly. Logging every round's
+        calling its reply tool at all. Logging every round's
         composition makes the growth source greppable in production without a
         debug build. Pure/static so it is unit-testable in isolation.
 
@@ -676,24 +705,55 @@ class ContextRuntime:
             f"ctx_sha256={ctx_sha256}" + (f" {pfx_str}" if pfx_str else "")
         )
 
-    async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
+    async def _resolve_user_timezone(self, user_id: Optional[str]) -> str:
+        """Read `users.timezone`, degrading to UTC rather than failing.
+
+        Single entry point for "what timezone should this turn render in",
+        used by both the temporal block and the history timeline so the two
+        can never end up in different frames — which is the exact defect
+        `_format_timeline_tag` documents.
+        """
+        if not user_id:
+            return DEFAULT_TIMEZONE
+        try:
+            from xyz_agent_context.repository import UserRepository
+            return resolve_timezone(
+                await UserRepository(self.db).get_user_timezone(user_id)
+            )
+        except Exception as e:  # noqa: BLE001 — a tz lookup must not kill a turn
+            logger.warning(f"        Timezone lookup failed for {user_id}: {e}; using UTC")
+            return DEFAULT_TIMEZONE
+
+    async def _build_user_temporal_block(
+        self, user_id: Optional[str], user_tz: Optional[str] = None
+    ) -> str:
         """
         Build the User Temporal Context block (v2 timezone protocol).
 
+        `user_tz` lets a caller that has already resolved the turn's timezone
+        pass it in instead of paying for a second identical query — and, more
+        importantly, guarantees that every block in that turn names the SAME
+        zone even if the user's row changes mid-turn.
+
         Reads users.timezone (falls back to UTC for users who have never
-        synced their browser timezone) and produces a prompt section telling
-        the LLM the user's IANA timezone and current local time.
+        synced their browser timezone) and states the user's IANA timezone
+        plus the protocol for expressing times back to them.
+
+        It deliberately does NOT restate the current time (2026-08-18). It
+        used to, as `now_local_dt.replace(tzinfo=None).isoformat()` — naive,
+        no offset, no weekday — which is the exact shape
+        `utils/timezone.format_now_for_agent` exists to replace, and it sat
+        in the same turn-context block as the correctly-framed "Real World
+        Information" value. Two "now"s, one of them in the format a prior
+        incident was traced to, is worse than one: there is no reading of the
+        prompt where the second one is the authority, so it can only add
+        doubt. The ground truth now has exactly one renderer and one site.
         """
         if not user_id:
             return ""
-        from xyz_agent_context.repository import UserRepository
-        from xyz_agent_context.utils.timezone import utc_now, to_user_timezone
-        user_tz = await UserRepository(self.db).get_user_timezone(user_id)
-        now_local_dt = to_user_timezone(utc_now(), user_tz)
-        if now_local_dt is None:
-            return ""
-        now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
-        return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
+        return USER_TEMPORAL_CONTEXT.format(
+            user_tz=user_tz or await self._resolve_user_timezone(user_id)
+        )
 
     async def _build_turn_context_block(
         self,
@@ -719,9 +779,27 @@ class ContextRuntime:
         """
         parts: List[str] = [TURN_CONTEXT_HEADER]
 
+        # Resolved once for this block: the temporal section names this zone
+        # and the recent-activity section renders its timestamps in it.
+        #
+        # Scope of that guarantee, stated exactly (2026-08-18): it covers the
+        # blocks assembled HERE, and — with relocation enabled, the default —
+        # that is every dated block in the turn. With the relocation gate OFF,
+        # `build_complete_system_prompt` emits its own User Temporal Context
+        # from a separate lookup, so the prompt carries two resolutions rather
+        # than one. Not unified because the two live in different methods
+        # called in sequence, and the only way to span them is a per-turn
+        # cache — which would hold a stale zone if the user changed theirs,
+        # a worse failure than one redundant primary-key read. The window for
+        # them to disagree is a user editing their timezone between two
+        # awaits of the same turn.
+        block_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # 1. Temporal block (relocated Part 0 — same wording, same heading)
         try:
-            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+            temporal_block = await self._build_user_temporal_block(
+                ctx_data.user_id, block_tz
+            )
             if temporal_block:
                 parts.append(temporal_block)
         except Exception as e:  # noqa: BLE001 — fail-open per part
@@ -769,7 +847,9 @@ class ContextRuntime:
         try:
             recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
             if recent_actions:
-                parts.append(self._build_recent_actions_section(recent_actions))
+                parts.append(
+                    self._build_recent_actions_section(recent_actions, block_tz)
+                )
                 logger.info(
                     f"[RecentActions] rendered {len(recent_actions)} actions into turn context"
                 )
@@ -942,13 +1022,21 @@ class ContextRuntime:
 
         relocation_enabled = settings.prompt_turn_context_relocation_enabled
 
+        # One timezone for everything this method renders — the recent-activity
+        # timestamps below and every history-timeline row further down. Hoisted
+        # here rather than resolved next to the timeline loop so the two cannot
+        # drift apart; they describe overlapping events in the same prompt.
+        turn_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # P2: append the recent background-activity section (centered small-text
         # in the UI) — a compact list with event_ids, separate from the timeline.
         # R4: volatile (accumulates per turn) → relocated to the turn context
         # when relocation is enabled, so the system prompt tail stays stable.
         recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
         if recent_actions and not relocation_enabled:
-            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
+            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(
+                recent_actions, turn_tz
+            )
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
         # Reply language: the user's persisted preference reaches the model
@@ -991,7 +1079,7 @@ class ContextRuntime:
             ws = meta.get("working_source", "chat")
             handler = MessageSourceRegistry.get(ws)
             src_prefix = handler.format_row_prefix(msg)
-            tag = self._format_timeline_tag(meta)
+            tag = self._format_timeline_tag(meta, turn_tz)
             if meta.get("memory_type") == "short_term":
                 cross_count += 1
             if msg.get("role") == "assistant":
@@ -1175,14 +1263,17 @@ class ContextRuntime:
         # falling back to priority order (chat=1 first) when no module
         # owns the source. Deterministic across turns either way.
         #
-        # Team rooms are the one surface with NO delivery surface at all:
-        # the agent's plain text auto-posts to the room and the prompt
-        # forbids delivery tools. An empty declaration keeps both
-        # frameworks' reply reminders silent there — listing ANY tool
-        # (chat's unconditional owner-notify included) would put a
-        # "plain text is never delivered" reminder right next to the
-        # team prompt saying the opposite.
-        team_room_turn = bool(turn_extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
+        # Team rooms USED to be the one surface with no delivery surface at
+        # all: the agent's plain text auto-posted and the prompt forbade
+        # delivery tools, so an empty declaration was the only way to keep both
+        # frameworks' reminders from contradicting the team prompt.
+        #
+        # That exception is gone (2026-08-17). A team reply is a `message_team`
+        # call like every other surface's reply, so the general rule — "whoever
+        # contacted you receives only what you send through a reply tool" — is
+        # true everywhere again and the reminder can simply be rendered. The
+        # modules decide WHICH verb belongs on this turn; the collection no
+        # longer needs to know that team rooms exist.
         expressive_declarations: list[tuple[int, int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0
@@ -1226,12 +1317,35 @@ class ContextRuntime:
                 # Failures fail-open — suppression is an optimization, never
                 # worth breaking the turn over.
                 try:
-                    suppressed = await inst.module.get_disallowed_tools()
+                    suppressed = await inst.module.get_disallowed_tools(ctx_data)
                     if suppressed:
                         disallowed_tools.extend(suppressed)
                         logger.debug(
                             f"          ⛔ {inst.module_class} suppresses "
                             f"{len(suppressed)} tools (setup-residency)"
+                        )
+                except TypeError as e:
+                    # Same loud arm as the declaration below, for the same reason
+                    # and now with a precedent: this hook GREW `ctx_data` on
+                    # 2026-08-18, so a stale `(self)`-only override is a live
+                    # possibility rather than a hypothetical. Fail-open would
+                    # suppress nothing, and on a patrol turn that leaves both
+                    # send verbs on a desk whose prompt forbids them — the C1
+                    # defect class, back, behind a warning nobody greps.
+                    #
+                    # But only when the SIGNATURE is what rejected the call: a
+                    # TypeError from inside a correctly-shaped body reported as a
+                    # signature mismatch sends the reader to check a signature
+                    # that is fine.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_disallowed_tools signature mismatch "
+                            f"for {inst.module_class} (suppression DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_disallowed_tools raised for "
+                            f"{inst.module_class} (suppression DROPPED)"
                         )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
@@ -1240,14 +1354,8 @@ class ContextRuntime:
                     )
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
-                # Team rooms skip collection entirely (empty surface — see
-                # the declaration comment above).
                 try:
-                    declared = (
-                        []
-                        if team_room_turn
-                        else await inst.module.get_expressive_tools(ctx_data)
-                    )
+                    declared = await inst.module.get_expressive_tools(ctx_data)
                     if declared:
                         # Origin-first: the module that OWNS this turn's
                         # working_source sorts ahead of everyone, so the
@@ -1281,10 +1389,20 @@ class ContextRuntime:
                     # failure once silently muted ChatModule's declaration
                     # (fail-open turned a signature drift into an empty
                     # reply surface for the whole turn).
-                    logger.error(
-                        f"          get_expressive_tools signature mismatch "
-                        f"for {inst.module_class} (declaration DROPPED): {e}"
-                    )
+                    #
+                    # Split the same way as the suppression arm above: fixing one
+                    # and not the other would make the untouched message actively
+                    # misleading by contrast.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_expressive_tools signature mismatch "
+                            f"for {inst.module_class} (declaration DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_expressive_tools raised for "
+                            f"{inst.module_class} (declaration DROPPED)"
+                        )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_expressive_tools failed for "
@@ -1389,32 +1507,66 @@ class ContextRuntime:
         return replays
 
     @staticmethod
-    def _format_timeline_tag(meta: Dict[str, Any]) -> str:
+    def _format_timeline_tag(meta: Dict[str, Any], user_tz: str = DEFAULT_TIMEZONE) -> str:
         """Render the per-message timeline tag
         `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`.
 
-        - time: the message's stored timestamp (compact YYYY-MM-DD HH:MM).
+        - time: the message's stored timestamp, converted to the USER's
+          timezone and stamped with an explicit UTC offset
+          (`2026-07-30 23:00 +08:00`).
         - topic: the resolved narrative alias (name); falls back to the id.
         - nar=<narrative_id>: full id — the agent needs it for switch/view tools.
         - evt=<event_id>: the event that produced this message — the agent can
           pass it to view_event() to fetch that turn's full agent-loop +
           reasoning detail (only the sent message is in the timeline).
+
+        The timezone conversion is NOT cosmetic (2026-08-18). `meta.timestamp`
+        is written as `utc_now().isoformat()` by every producer, and this tag
+        used to render it with `ts[:16]` — a raw string slice, so the frame
+        was silently discarded. The same prompt then carried "Real World
+        Information" in the user's local time WITH an offset, and the model
+        had no way to know the two disagreed by the user's UTC offset. For a
+        +08:00 user every message sent between local 00:00 and 08:00 was
+        tagged with the PREVIOUS day, which is enough to make "下周五" /
+        "next Friday" resolve to the wrong date and enough to make an
+        already-past date read as still upcoming.
+
+        The offset rides on every row rather than being declared once in the
+        preamble: it costs ~7 chars a line and it makes each row comparable
+        to the ground-truth "now" without the model holding a frame
+        declaration in mind across thirty lines.
         """
         meta = meta or {}
-        ts = (meta.get("timestamp") or "")
-        t = ts[:16].replace("T", " ") if ts else "??"
+        t = format_timestamp_for_agent(meta.get("timestamp"), user_tz)
         nid = meta.get("narrative_id") or "unknown"
         topic = meta.get("narrative_alias") or nid
         eid = meta.get("event_id") or "?"
         return f"[{t} · {topic} · nar={nid} · evt={eid}]"
 
     @staticmethod
-    def _build_recent_actions_section(actions: List[Dict[str, Any]]) -> str:
+    def _build_recent_actions_section(
+        actions: List[Dict[str, Any]], user_tz: str = DEFAULT_TIMEZONE
+    ) -> str:
         """Render the recent-background-activity list (Fix #2 P2): one compact
-        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`."""
+        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`.
+
+        Timestamps use the same renderer as the history timeline (2026-08-18).
+        This block sits in the SAME prompt as those rows, twelve lines away in
+        this file, and it used to share their raw `[:16]` UTC slice — so the
+        two were at least consistently wrong. Framing only the timeline would
+        have introduced a divergence that did not exist before: one block in
+        the user's local time with an offset, the next in bare UTC, describing
+        overlapping events. That is the exact mechanism this change set was
+        opened to remove, and it would have been worse than leaving both
+        alone, because the framed one looks more authoritative.
+
+        `user_tz` is passed in rather than looked up: the callers already hold
+        the turn's resolved timezone, and a second query here would make the
+        two blocks capable of disagreeing if the user's row changed mid-turn.
+        """
         lines = [RECENT_ACTIONS_HEADER]
         for a in actions:
-            t = (a.get("timestamp") or "")[:16].replace("T", " ")
+            t = format_timestamp_for_agent(a.get("timestamp"), user_tz)
             src = a.get("working_source") or "?"
             title = a.get("title") or a.get("summary") or f"({src} activity)"
             eid = a.get("event_id") or "?"
