@@ -59,7 +59,9 @@ export interface TeamTranscriptProps {
   /** Render a platform line. Returning null drops it. */
   renderSystem?: (m: TeamChatMessage) => React.ReactNode;
   /** Rendered under an ordinary bubble (process disclosure, artifact chips). */
-  renderFooter?: (m: TeamChatMessage) => React.ReactNode;
+    /** Rendered at the top of an agent bubble (process disclosure). */
+  renderHeader?: (m: TeamChatMessage) => React.ReactNode;
+renderFooter?: (m: TeamChatMessage) => React.ReactNode;
 }
 
 /**
@@ -97,6 +99,7 @@ export function TeamTranscript({
   leadAgentId = '',
   memberNames,
   renderSystem,
+  renderHeader,
   renderFooter,
 }: TeamTranscriptProps) {
   const { t } = useTranslation();
@@ -131,6 +134,7 @@ export function TeamTranscript({
                 userLabel={userLabel}
                 leadAgentId={leadAgentId}
                 memberNames={memberNames}
+                header={renderHeader?.(m)}
                 footer={renderFooter?.(m)}
               />
             )}

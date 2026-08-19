@@ -4,6 +4,13 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 推理披露上移 + workspace 改 in-flow
+
+- renderHeader 新增:agent 消息的 [[TeamMessageProcess]] 走气泡顶部插槽
+  (单聊位置对齐),footer 只剩 chips+时间。
+- [[TeamWorkspacePanel]] 桌面端从 absolute 悬浮改 in-flow 列——聊天左移
+  让位而不是被盖住;移动端保留 overlay(没有可分的空间)。
+
 ## 2026-08-19 — 悬停提示补全
 
 带 aria-label 但无 title 的四处控件(guide「?」开关、composer 错误条与

@@ -60,7 +60,10 @@ export interface TeamMessageBubbleProps {
   leadAgentId?: string;
   /** agent_id → display name; the set a mention may resolve against. */
   memberNames: Record<string, string>;
-  /** Rendered under the bubble (process disclosure, chips). */
+  /** Rendered at the top of the bubble, above the content (the process
+   *  disclosure — same position as the single-chat bubble's). */
+  header?: React.ReactNode;
+  /** Rendered under the bubble content (artifact chips, timestamp). */
   footer?: React.ReactNode;
 }
 
@@ -122,6 +125,7 @@ export function TeamMessageBubble({
   userLabel,
   leadAgentId = '',
   memberNames,
+  header,
   footer,
 }: TeamMessageBubbleProps) {
   const { t } = useTranslation();
@@ -222,6 +226,7 @@ export function TeamMessageBubble({
               : identity.accent,
           )}
         >
+          {header}
           <div className="text-sm break-words leading-relaxed">
             {mine ? (
               <span className="whitespace-pre-wrap">

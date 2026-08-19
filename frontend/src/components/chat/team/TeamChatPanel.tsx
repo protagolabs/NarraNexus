@@ -34,6 +34,7 @@ import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
 import { matchMembers, mentionTokens } from './mentionPattern';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
+import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import { ArtifactsGlyph } from '@/components/bookmarks';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
@@ -966,6 +967,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   leadAgentId={leadAgentId ?? ''}
                   memberNames={memberNameMap}
                   renderSystem={(m) => <TeamSystemLine key={m.message_id} message={m} />}
+                  renderHeader={(m) =>
+                    !m.is_user && m.event_id ? (
+                      <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                    ) : null
+                  }
                   renderFooter={(m) => (
                     <TeamMessageFooter
                       message={m}
@@ -1275,10 +1281,10 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           />
         )}
 
-        {/* Workspace drawer — overlays the content area below the top bar,
-            like the single-chat artifacts drawer. Toggled from the top bar;
-            a message's artifact chip also opens it with that artifact
-            selected. */}
+        {/* Workspace drawer — an in-flow column below the top bar, like the
+            single-chat artifacts drawer (the chat shifts left, nothing is
+            covered). Toggled from the top bar; a message's artifact chip
+            also opens it with that artifact selected. */}
         {wsPanelOpen && (
           <TeamWorkspacePanel
             artifacts={wsArtifacts}

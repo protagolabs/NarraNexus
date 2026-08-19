@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/team/TeamTranscript.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — renderHeader 透传
+
+新可选 prop,把每条 agent 消息的顶部披露交给 [[TeamMessageBubble]] 的
+header 插槽;renderFooter 不变。
 
 ## 2026-08-14 — 平台行由服务端判定；日期分隔线走 activeLocale
 

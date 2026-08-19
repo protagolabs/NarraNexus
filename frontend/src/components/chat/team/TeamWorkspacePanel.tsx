@@ -116,20 +116,21 @@ export function TeamWorkspacePanel({
   ];
 
   return (
-    // A drawer sized like the single-chat artifacts panel (~50vw), not a
-    // skinny standing column: a narrow corner box can list artifacts but
-    // never SHOW one.
-    <div className="absolute inset-y-0 right-0 z-30 flex w-[min(50vw,760px)] max-md:w-full flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] shadow-xl">
+    // An IN-FLOW column sized like the single-chat artifacts drawer
+    // (~50vw): the conversation shifts left instead of being covered —
+    // reading the room WHILE reading its output is the panel's whole
+    // point. Mobile keeps the overlay (there is no room to share).
+    <div className="flex w-[min(50vw,760px)] shrink-0 flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full max-md:shadow-xl">
       <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
         {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
-            className={`px-2 py-1 text-[11px] font-mono uppercase tracking-wider rounded ${
+            className={`px-2 py-1 text-[11px] font-mono uppercase tracking-wider rounded-[var(--radius-xs)] transition-colors ${
               tab === item.id
-                ? 'text-[var(--nm-ink)] bg-[var(--nm-hairline)]'
-                : 'text-[var(--text-tertiary)]'
+                ? 'text-[var(--nm-ink)] bg-[var(--nm-row-active)]'
+                : 'text-[var(--text-tertiary)] hover:bg-[var(--nm-row-hover)]'
             }`}
           >
             {item.label} {item.count > 0 && <span className="opacity-60">{item.count}</span>}
@@ -168,8 +169,8 @@ export function TeamWorkspacePanel({
                 key={a.artifact_id}
                 type="button"
                 onClick={() => onSelect(a.artifact_id)}
-                className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)] ${
-                  selectedId === a.artifact_id ? 'bg-[var(--nm-hairline)]' : ''
+                className={`w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] transition-colors hover:bg-[var(--nm-row-hover)] ${
+                  selectedId === a.artifact_id ? 'bg-[var(--nm-row-active)]' : ''
                 }`}
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{a.title}</div>
@@ -193,7 +194,7 @@ export function TeamWorkspacePanel({
                 type="button"
                 onClick={() => void download(f)}
                 title={t('chat.team.workspace.download', { name: f.original_name })}
-                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)]"
+                className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] transition-colors hover:bg-[var(--nm-row-hover)]"
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{f.original_name}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">

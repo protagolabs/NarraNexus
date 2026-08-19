@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMessageBubble.tsx
-last_verified: 2026-08-15
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — header 插槽:推理披露上移到气泡顶部
+
+新 `header` prop 渲染在内容之前——与单聊 MessageBubble 的披露位置对齐
+(那边是 mb-3 border-b 在正文上方)。footer 仍托 artifact chips 与时间戳。
 
 ## 2026-08-15 — 没有 segments 时用共享的空数组
 

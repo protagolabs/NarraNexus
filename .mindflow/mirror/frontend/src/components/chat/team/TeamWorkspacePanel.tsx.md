@@ -12,6 +12,9 @@ stub: false
 - 本地 `formatWhen`(英文写死)删除,改用 [[utils]] 的 `formatMessageAge`
   (Intl.RelativeTimeFormat,全语种免费)。[[ArtifactsSection]] 的同款
   本地副本同批清除。
+- 桌面端从 absolute 悬浮改 **in-flow 列**(聊天让位不被盖;移动端仍
+  overlay);tab 与列表行挂上 row-hover/row-active 选择台阶
+  (design_system.md §2.5——hairline 是线色,不再当填充用)。
 
 ## 2026-08-19 — 6 处硬编码英文接入 i18n
 
