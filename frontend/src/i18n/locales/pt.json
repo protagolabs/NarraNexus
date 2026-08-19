@@ -1920,6 +1920,7 @@
       "trigger": "Gatilho:",
       "cron": "Cron:",
       "interval": "Intervalo:",
+      "endAt": "Executa até:",
       "runAt": "Executar em:",
       "endCondition": "Condição de término:",
       "maxIter": "Máx. iter.:",

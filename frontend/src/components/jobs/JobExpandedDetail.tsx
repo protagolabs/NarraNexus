@@ -165,7 +165,11 @@ export function JobExpandedDetail({
           )}
           {/* Scheduling horizon — without it a bounded routine ("daily for
               two weeks") looks identical to an unbounded one and the user
-              can't tell it will stop on its own. */}
+              can't tell it will stop on its own. Rendered whenever present:
+              the platform enforces end_at for both recurring types
+              (scheduled AND ongoing — see job_trigger.py), and one_off jobs
+              never carry it (the MCP schema/instructions don't teach it
+              there and the trigger ignores it). */}
           {typeof triggerConfig?.end_at === 'string' && (
             <div>
               <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.endAt')} </span>

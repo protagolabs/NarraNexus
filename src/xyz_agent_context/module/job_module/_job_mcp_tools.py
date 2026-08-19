@@ -93,9 +93,10 @@ class TriggerConfigArg(TypedDict):
     interval_seconds: NotRequired[int]
     end_condition: NotRequired[str]
     max_iterations: NotRequired[int]
-    # Scheduling horizon for "scheduled" jobs: naive local ISO 8601 (no
-    # "Z"/offset — same convention as run_at, interpreted in `timezone`).
-    # The platform completes the job once its next fire would land past it.
+    # Scheduling horizon for recurring ("scheduled"/"ongoing") jobs: naive
+    # local ISO 8601 (no "Z"/offset — same convention as run_at, interpreted
+    # in `timezone`). The platform completes the job once its next fire would
+    # land past it. Ignored for one_off.
     end_at: NotRequired[str]
 
 
@@ -185,7 +186,8 @@ def create_job_mcp_server(port: int) -> FastMCP:
                   weeks", "until Friday") instead of asking yourself to
                   remember to stop.
                 - ongoing: {"interval_seconds": 86400, "end_condition": "...",
-                  "timezone": ...}
+                  "timezone": ...}; also accepts optional "end_at" (same
+                  platform-enforced horizon as scheduled).
             payload: Instruction executed when the job runs
             notification_method: delivery method (use default)
             task_key: Optional dependency identifier
@@ -406,7 +408,7 @@ def create_job_mcp_server(port: int) -> FastMCP:
                 {"cron" OR "interval_seconds","timezone", optional "end_at"
                 naive local = run until then, platform-completed}; ongoing
                 {"interval_seconds","end_condition","timezone", optional
-                "max_iterations"}
+                "max_iterations" and "end_at" (same horizon as scheduled)}
             job_type: "one_off" | "scheduled" | "ongoing". WARNING: also
                 update trigger_config to match the new type.
             next_run_time: Override next run, ISO8601 UTC ("...Z" or offset).

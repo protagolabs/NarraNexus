@@ -135,8 +135,10 @@ next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。�
 ## 2026-08-19 — TriggerConfigArg 增 end_at
 
 发布给模型的 trigger_config schema 增 `end_at: NotRequired[str]`（naive 本地
-ISO，run_at 同款约定），job_create/job_update docstring 的 scheduled shape
-同步教了它——没有这一步，模型在协议层就无法表达"这个日程排到哪天为止"，
+ISO，run_at 同款约定），job_create/job_update docstring 的 scheduled **与
+ongoing** shape 都教了它（三轮 review：TriggerConfigArg 是全类型共享的一份
+schema，模型看到的是"键存在"而非"只对 scheduled 有效"，所以平台侧把
+ongoing 也接上了地平线、one_off 显式忽略——语义必须一句话说得清）——没有这一步，模型在协议层就无法表达"这个日程排到哪天为止"，
 "接下来两周每天提醒我"只能建无限期 job + 让模型记得自己暂停（已被证明会被
 finalize 回滚的机制）。沿用 NotRequired 而非 Optional（见上方 $ref/anyOf-
 null 说明）；真校验仍在 TriggerConfig（naive validator 的报错足够模型自纠）。

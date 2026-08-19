@@ -137,11 +137,7 @@ async def test_finalize_without_horizon_is_unchanged(db_client):
 async def _mark_status_mid_run(db, job_id: str, status: str):
     """Simulate an in-run job_update (agent self-pause / user cancel): the
     trigger holds a pre-execution snapshot while the DB row moves on."""
-    await db.execute(
-        "UPDATE instance_jobs SET status = %s WHERE job_id = %s",
-        params=(status, job_id),
-        fetch=False,
-    )
+    await db.update("instance_jobs", {"job_id": job_id}, {"status": status})
 
 
 @pytest.mark.asyncio
@@ -151,6 +147,13 @@ async def test_finalize_respects_agent_self_pause(db_client):
     # next_run — "I'll stop reaching out" followed by a ping the next day.
     await _insert_scheduled_job(
         db_client, "job_p1", '{"interval_seconds":86400,"timezone":"UTC"}'
+    )
+    # A stale next_run from before the run started (try_acquire_job doesn't
+    # clear it) — without seeding this, the clear-next_run assertion below
+    # would pass vacuously against the fixture's NULL.
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_p1"},
+        {"next_run_time": "2026-08-19T00:00:00Z"},
     )
     trigger = JobTrigger(database_client=db_client)
     job = await JobRepository(db_client).get_job("job_p1")  # snapshot: running
@@ -162,7 +165,7 @@ async def test_finalize_respects_agent_self_pause(db_client):
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_p1"})
     assert row["status"] == JobStatus.PAUSED.value  # NOT resurrected to active
-    assert row["next_run_time"] is None  # nothing scheduled for tomorrow
+    assert row["next_run_time"] is None  # stale pre-run next_run cleared too
     assert row["last_run_time"] is not None  # the run itself is still on record
 
 
@@ -273,3 +276,80 @@ async def test_heal_zombie_without_horizon_still_heals(db_client):
     row = await db_client.get_one("instance_jobs", {"job_id": "job_z2"})
     assert row["status"] == JobStatus.ACTIVE.value
     assert row["next_run_time"] is not None  # existing behavior intact
+
+
+# ── the horizon is generic to recurring types, and ONLY recurring types ──────
+
+
+async def _insert_job_of_type(db, job_id, job_type, trigger_config, status="running", **extra):
+    now = datetime(2026, 8, 19, 0, 0, 0, tzinfo=dt_tz.utc).isoformat().replace("+00:00", "Z")
+    row = {
+        "job_id": job_id, "instance_id": f"ins_{job_id}",
+        "agent_id": "agent_1", "user_id": "user_1",
+        "title": "t", "description": "d", "payload": "p",
+        "job_type": job_type, "trigger_config": trigger_config,
+        "status": status, "notification_method": "inbox",
+        "created_at": now, "updated_at": now,
+    }
+    row.update(extra)
+    await db.insert("instance_jobs", row)
+
+
+@pytest.mark.asyncio
+async def test_ongoing_mechanical_fallback_completes_past_horizon(db_client):
+    # end_at is model-writable on any type via the shared MCP schema; an
+    # ONGOING job (the type whose end_condition is model-judged and thus most
+    # needs a platform brake) must honor it on the mechanical-fallback path,
+    # not silently ignore it while the Jobs panel shows "Runs until: ...".
+    await _insert_job_of_type(
+        db_client, "job_o1", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00","end_condition":"user says stop"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o1")
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o1"})
+    assert row["status"] == JobStatus.COMPLETED.value
+    assert row["next_run_time"] is None
+    assert row["iteration_count"] == 1  # the iteration still counted
+
+
+@pytest.mark.asyncio
+async def test_ongoing_without_horizon_falls_back_unchanged(db_client):
+    await _insert_job_of_type(
+        db_client, "job_o2", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_condition":"user says stop"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o2")
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o2"})
+    assert row["status"] == JobStatus.ACTIVE.value  # existing behavior intact
+    assert row["next_run_time"] is not None
+
+
+@pytest.mark.asyncio
+async def test_rearm_cooling_one_off_ignores_horizon(db_client):
+    # A ONE_OFF has no "next fire" for a horizon to bound: its single run has
+    # not succeeded yet, and completing it here would mark a never-delivered
+    # reminder as done. It must re-arm normally even with a stale end_at.
+    await _insert_job_of_type(
+        db_client, "job_oo1", "one_off",
+        '{"run_at":"2026-08-18T00:00:00","timezone":"UTC","end_at":"2026-01-01T00:00:00"}',
+        status="cooling", consecutive_failure_count=1,
+        cooldown_until="2026-01-02T00:00:00Z",
+    )
+    trigger = JobTrigger(database_client=db_client)
+
+    await trigger._rearm_cooled_jobs()
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_oo1"})
+    assert row["status"] == JobStatus.ACTIVE.value  # retried, NOT completed

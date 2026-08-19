@@ -1920,6 +1920,7 @@
       "trigger": "Auslöser:",
       "cron": "Cron:",
       "interval": "Intervall:",
+      "endAt": "Läuft bis:",
       "runAt": "Ausführen um:",
       "endCondition": "Endbedingung:",
       "maxIter": "Max. Iter.:",

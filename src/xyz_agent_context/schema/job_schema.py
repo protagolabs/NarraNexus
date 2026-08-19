@@ -169,12 +169,14 @@ class TriggerConfig(BaseModel):
     end_at: Optional[datetime] = Field(
         default=None,
         description=(
-            "Scheduling horizon for recurring (scheduled) jobs: once the NEXT "
-            "fire time would land past this local time, the trigger completes "
-            "the job instead of rescheduling — a platform-enforced 'this "
-            "schedule runs until date X', needing no model cooperation. Naive "
-            "local time interpreted in `timezone` (same convention as run_at). "
-            "None = no horizon (unchanged behavior)."
+            "Scheduling horizon for recurring (scheduled / ongoing) jobs: "
+            "once the NEXT fire time would land past this local time, the "
+            "trigger completes the job instead of rescheduling — a "
+            "platform-enforced 'this schedule runs until date X', needing no "
+            "model cooperation. Ignored for one_off (a single run has no "
+            "next fire to bound). Naive local time interpreted in `timezone` "
+            "(same convention as run_at). None = no horizon (unchanged "
+            "behavior)."
         ),
     )
 

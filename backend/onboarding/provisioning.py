@@ -89,11 +89,17 @@ CHECKIN_JOB_TITLE = "Daily check-in"
 # PLATFORM-ENFORCED trigger_config.end_at horizon — once the next fire would
 # land past provision-time + CHECKIN_END_AFTER_DAYS, JobTrigger completes the
 # job with no model cooperation. The payload's end-date sentence is the
-# polite goodbye script for (3), not the brake itself — and it reads
-# "{end_date} or later", NOT "after {end_date}": the horizon day gets the
-# LAST fire (the next one would land past end_at and the platform completes
-# the job right after), so "after" would mean the goodbye never runs and the
-# guide silently vanishes mid-smalltalk.
+# polite goodbye script for (3), not the brake itself — and the date it
+# quotes is the day BEFORE end_at, worded "{end_date} or later". Why the
+# day before: compute_next_run schedules each fire from the previous run's
+# ACTUAL completion time, so every round drifts a little later; by fire #13
+# the computed next fire (#14) has drifted past end_at = T0+14d, so the
+# LAST fire the horizon allows lands on day 13 — end_at's own day never
+# fires. Quoting end_at's date meant the goodbye could never run and the
+# guide silently vanished mid-smalltalk (review round-3 finding A; the
+# drift-simulation test in test_onboarding_provisioning.py pins this).
+# "or later" keeps the goodbye firing even if drift pushes the last fire
+# past a midnight into day 14.
 CHECKIN_END_AFTER_DAYS = 14
 _CHECKIN_JOB_DESCRIPTION = (
     "Once a day, drop by with a fresh topic. Pause or cancel this job "
@@ -324,12 +330,15 @@ async def _create_checkin_job(
 
     user = await UserRepository(db).get_user(user_id)
     tz = _safe_timezone(getattr(user, "timezone", None) if user else None)
-    # One instant, two encodings: end_local is the naive-local end_at the
-    # trigger enforces; end_date is the same day quoted in the payload so the
-    # goodbye script and the platform brake can never disagree.
+    # end_local is the naive-local end_at the trigger enforces. The payload
+    # quotes the day BEFORE it: per-run drift (compute_next_run schedules
+    # from actual completion time) means the last fire the horizon allows
+    # lands on day CHECKIN_END_AFTER_DAYS - 1 — quoting end_at's own day
+    # would put the goodbye on a day that never fires (see the constant's
+    # comment; pinned by the drift-simulation test).
     end_utc = utc_now() + timedelta(days=CHECKIN_END_AFTER_DAYS)
     end_local = end_utc.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
-    end_date = end_local.date().isoformat()
+    end_date = (end_local - timedelta(days=1)).date().isoformat()
 
     result = await JobInstanceService(db).create_job_with_instance(
         agent_id=agent_id,

@@ -394,3 +394,23 @@ fire）：`_rearm_cooled_jobs` 对退火完成但重试时刻已越线的 COOLIN
 测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线照常 /
 无地平线逐字不变 / 自暂停不被复活 / CANCELLED 不被 COMPLETED 覆盖 /
 COOLING 与僵尸两条侧门的越线+无地平线对照）。
+
+## 2026-08-19（三轮）— 地平线推广到 ONGOING；in-run stop 清 next_run
+
+- **ONGOING 机械回退分支接地平线**：end_at 随 MCP schema 开放给模型后，
+  三种 job_type 必须一句话说清语义——现在是"recurring（scheduled/ongoing）
+  认地平线，one_off 忽略"。判断只加在 hook 没接管（status 仍 RUNNING）的
+  机械回退支内：hook 接管时 hook 拥有调度决策（entry-point 注释防的正是
+  这个打架面）；iteration_count 照写。
+- **`_rearm_cooled_jobs` 两处收口**：加 `job_type != ONE_OFF` 守卫（one_off
+  没有"下一次 fire"可bound，越线完结会把一个从未送达的一次性提醒标成
+  completed）；重试时刻用 `max(cu, now)`——停机数天后 cu 早于地平线而 now
+  已越线时，用 cu 判会把本要堵的"多一次 fire"从停机恢复路径漏回去。
+- **in-run stop 分支补 `clear_next_run`**：本文件其余四条终态路径都清
+  next_run，try_acquire_job 不清——不补的话运行中被 cancel/pause 的 job
+  行上留着过期 next_run_time（poller 按 status 过滤不受影响，纯脏数据）。
+  测试 fixture 先种一个非空 next_run 再断言清空，避免对 NULL 空断言。
+- `_IN_RUN_STOPS` 提到模块级（_MAX_CONSECUTIVE_FAILURES 先例），供后续
+  分支复用同一份判据。
+- 测试：test_schedule_horizon.py 增 ONGOING 越线完结 / ONGOING 无地平线
+  照旧 / ONE_OFF 在 COOLING 忽略地平线三条对照。

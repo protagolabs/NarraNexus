@@ -85,8 +85,9 @@ JobModule 是 AgentRuntime 侧的 Job 管理入口。它做三件事：在数据
 
 ## 2026-08-19 — instructions/摘要接 end_at
 
-`JOB_MODULE_INSTRUCTIONS` 的 SCHEDULED 行与"How to Create a Job"第 4 节新增
-可选 `trigger_config.end_at` 教学（用户给有界时长就用它，别依赖自我暂停）；
+`JOB_MODULE_INSTRUCTIONS` 的 SCHEDULED 行、ONGOING 详情 bullet 与"How to
+Create a Job"第 4 节新增可选 `trigger_config.end_at` 教学（对 scheduled 与
+ongoing 都有效、one_off 无效；用户给有界时长就用它，别依赖自我暂停）；
 `_format_job_row` 的 trigger 列带 `until {end_at}`——没有它，agent（比如
 onboarding 引导判断告别日）只能从 payload 文本里抠自己的到期日。注意新增
 行都不含 `job_type` 反引号字样，test_instructions_match_schema 的 token

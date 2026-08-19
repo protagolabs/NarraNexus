@@ -227,6 +227,19 @@ _BACKOFF_BASE_SECONDS = 60
 _BACKOFF_CAP_SECONDS = 3600
 _MAX_CONSECUTIVE_FAILURES = 8
 
+# Statuses an in-flight run (agent job_update / user Jobs-panel action) may
+# have moved a job to while it executed. The SCHEDULED finalize branch
+# respects these instead of overwriting them with ACTIVE + a fresh next_run
+# (the guide agent's "stop reaching out" self-pause rides this). Module-level
+# so future branches (ONGOING, recovery paths) reuse ONE definition.
+_IN_RUN_STOPS = (
+    JobStatus.PAUSED,
+    JobStatus.PAUSED_NO_QUOTA,
+    JobStatus.CANCELLED,
+    JobStatus.COMPLETED,
+    JobStatus.FAILED,
+)
+
 # PAUSED_NO_QUOTA recovery is edge-triggered (login / quota grant / preference
 # toggle / provider save call rearm_user_no_quota_jobs). The poll scan is only a
 # backstop for missed edges, so it runs at this low interval instead of every
@@ -632,8 +645,18 @@ class JobTrigger:
                 # A retry that would fire past the job's end_at horizon is a
                 # fire the schedule no longer owes — complete instead of
                 # re-arming (otherwise "runs until date X" leaks one extra
-                # run through the failure-backoff door).
-                if past_schedule_horizon(job.trigger_config, cu or now):
+                # run through the failure-backoff door). Recurring types only:
+                # a ONE_OFF has no "next fire" for a horizon to bound — its
+                # single run hasn't succeeded yet, and completing it here
+                # would mark a never-delivered reminder as done. The actual
+                # retry instant is max(cu, now): cu is already <= now here,
+                # and after long downtime the re-armed job fires immediately
+                # (now), not at the stale cooldown time — using cu alone
+                # would leak the very extra fire this branch exists to stop.
+                retry_at = max(cu, now) if cu else now
+                if job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+                    job.trigger_config, retry_at
+                ):
                     await repo.update_job(job.job_id, {
                         "status": JobStatus.COMPLETED.value,
                         "cooldown_until": None,
@@ -1290,16 +1313,18 @@ The task was executed but produced no text output.
                 # scheduling, which an in-run stop owns. This also keeps the
                 # horizon path below from stamping COMPLETED over a mid-run
                 # CANCELLED.
-                _IN_RUN_STOPS = (
-                    JobStatus.PAUSED,
-                    JobStatus.PAUSED_NO_QUOTA,
-                    JobStatus.CANCELLED,
-                    JobStatus.COMPLETED,
-                    JobStatus.FAILED,
-                )
                 current_job = await repo.get_job(job.job_id)
                 current_status = current_job.status if current_job else job.status
                 if current_status in _IN_RUN_STOPS:
+                    # Terminal/paused ⇒ no next fire: every other terminal
+                    # path in this file clears next_run, and try_acquire_job
+                    # doesn't — without this, a job cancelled mid-run keeps a
+                    # stale past next_run_time on its row (harmless to the
+                    # poller, which filters on status, but dirty for the Jobs
+                    # panel and any next_run-based queries). A user resume
+                    # recomputes it (job_service re-derives next_run on
+                    # status→active without an explicit one).
+                    await repo.clear_next_run(job.job_id)
                     # The RUN still finished — instance completion (which
                     # feeds ModulePoller's post-run processing) is a per-run
                     # fact for scheduled jobs and is not the schedule's
@@ -1409,6 +1434,26 @@ The task was executed but produced no text output.
                             trigger_config=job.trigger_config,
                             last_run_utc=now,
                         )
+                        # end_at horizon, same semantics as the SCHEDULED
+                        # branch — the primitive is generic to recurring jobs,
+                        # and ONGOING is the type that most needs a platform
+                        # brake (its end_condition is model-judged). Only in
+                        # THIS mechanical-fallback arm on purpose: when the
+                        # hook took over (status != RUNNING) the hook owns the
+                        # schedule decision — see the entry-point comments
+                        # above.
+                        if next_run and past_schedule_horizon(job.trigger_config, next_run.utc):
+                            await repo.update_job(job.job_id, {
+                                "status": JobStatus.COMPLETED.value,
+                            })
+                            await repo.clear_next_run(job.job_id)
+                            if job.instance_id:
+                                await self._update_instance_completed(job.instance_id)
+                            logger.info(
+                                f"Job {job.job_id} completed (ongoing, end_at "
+                                f"horizon reached)"
+                            )
+                            return
                         if next_run:
                             await repo.update_next_run(job.job_id, next_run)
                             next_run_str = f"{next_run.local} ({next_run.tz})"

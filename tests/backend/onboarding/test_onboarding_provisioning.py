@@ -244,16 +244,19 @@ def test_happy_path_full_sequence_and_claim_first(monkeypatch):
     assert job_kw["job_type"] == "scheduled"
     tc = job_kw["trigger_config"]
     assert tc["interval_seconds"] == 86400 and tc["timezone"] == "Asia/Shanghai"
-    # The PLATFORM brake: a naive-local end_at the trigger enforces; its date
-    # must be the same day the payload's goodbye script quotes — and the
-    # script's judgment reads "{end_date} or later" because the horizon day
-    # gets the LAST fire (an "after"-worded script would never run: the
-    # platform completes the job right after that fire).
-    from datetime import datetime as _dt
+    # The PLATFORM brake: a naive-local end_at the trigger enforces. The
+    # payload quotes end_at's date MINUS ONE DAY — not end_at's own day:
+    # compute_next_run schedules from actual completion time, so per-run
+    # drift makes fire #13 the last one the horizon allows; end_at's own day
+    # never fires (round-3 review finding A — do NOT "fix" this back to
+    # end_at.date()). "or later" covers drift pushing that last fire past a
+    # midnight. The drift-simulation test below is the behavioral guard.
+    from datetime import datetime as _dt, timedelta as _td
 
     end_at = _dt.fromisoformat(tc["end_at"])
     assert end_at.tzinfo is None
-    assert f"If today's date is {end_at.date().isoformat()} or later" in job_kw["payload"]
+    goodbye_day = (end_at - _td(days=1)).date().isoformat()
+    assert f"If today's date is {goodbye_day} or later" in job_kw["payload"]
     assert job_kw["title"] == ob.CHECKIN_JOB_TITLE
     # The payload carries the model-judged exits: 3-strikes plus the goodbye
     # script for the platform-enforced end_at horizon (date equality with
@@ -326,3 +329,42 @@ def test_safe_timezone_falls_back_on_garbage():
     assert ob._safe_timezone("Not/AZone") == "UTC"
     assert ob._safe_timezone(None) == "UTC"
     assert ob._safe_timezone("") == "UTC"
+
+
+def test_goodbye_day_is_reachable_by_the_drifting_fire_sequence():
+    """Simulate the real fire sequence: compute_next_run schedules each fire
+    from the previous run's ACTUAL completion time, so every round drifts a
+    little later and end_at's own day never fires. The payload must quote a
+    day the sequence actually reaches — the last un-crossed fire's local date
+    must be >= the quoted goodbye day. Protects anyone who later changes
+    CHECKIN_END_AFTER_DAYS, the interval, or the end_date arithmetic."""
+    from datetime import datetime, timedelta, timezone as dt_tz
+
+    from xyz_agent_context.module.job_module._job_scheduling import (
+        compute_next_run,
+        past_schedule_horizon,
+    )
+    from xyz_agent_context.schema.job_schema import JobType, TriggerConfig
+
+    provision_utc = datetime(2026, 8, 19, 10, 0, 0, tzinfo=dt_tz.utc)
+    end_local = (provision_utc + timedelta(days=ob.CHECKIN_END_AFTER_DAYS)).replace(tzinfo=None)
+    goodbye_day = (end_local - timedelta(days=1)).date()  # what provisioning quotes
+    tc = TriggerConfig(interval_seconds=86400, timezone="UTC", end_at=end_local)
+
+    drift = timedelta(seconds=90)  # poller delay + agent_loop runtime, per round
+    next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=provision_utc).utc
+    last_fire_date = None
+    for _ in range(ob.CHECKIN_END_AFTER_DAYS + 2):  # bounded, no while-true
+        if past_schedule_horizon(tc, next_fire):
+            break
+        completion = next_fire + drift
+        last_fire_date = completion.date()
+        next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=completion).utc
+    else:
+        raise AssertionError("fire sequence never crossed the horizon")
+
+    assert last_fire_date is not None
+    # The goodbye day must actually get a fire (equality is the normal case;
+    # a later date would mean drift crossed a midnight — still covered by the
+    # payload's "or later" wording).
+    assert last_fire_date >= goodbye_day

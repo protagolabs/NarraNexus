@@ -76,12 +76,21 @@ marker. Zero raw SQL.
   same change — no model cooperation needed). Softer exits remain: user
   pause/cancel in the Jobs panel (greeting says how) and the payload's
   3-ignored-check-ins goodbye + self-pause; the payload's end-date sentence
-  is the polite goodbye script for the horizon, stamped from the SAME
-  instant so script and brake can never disagree — and worded
-  "{end_date} or later", NOT "after {end_date}": the horizon day gets the
-  LAST fire (the next one would land past end_at and the platform completes
-  the job right after), so an "after"-worded script would never run and the
-  guide would vanish mid-smalltalk with no goodbye.
+  is the polite goodbye script for the horizon — and it quotes **the day
+  BEFORE end_at**, worded "{end_date} or later". Why the day before:
+  compute_next_run schedules each fire from the previous run's ACTUAL
+  completion time, so per-run drift (poller delay + agent_loop runtime)
+  accumulates and fire #13's computed next fire has already drifted past
+  end_at = T0+14d — the last fire the horizon allows lands on day 13, and
+  end_at's own day NEVER fires. Quoting end_at's date (both the original
+  "after" wording and the round-2 "or later" fix) put the goodbye on a day
+  with no fire — the guide vanished mid-smalltalk (round-3 review finding
+  A, second round on the same defect). "or later" stays so a drift that
+  crosses a midnight still triggers the goodbye. Behavioral guard:
+  test_goodbye_day_is_reachable_by_the_drifting_fire_sequence simulates the
+  drifting fire sequence and asserts the quoted day actually gets a fire —
+  it protects any future change to CHECKIN_END_AFTER_DAYS, the interval, or
+  the end_date arithmetic.
 - **has-agents users get the marker, not an agent**: someone already using
   the product doesn't need a stranger pinging them; the marker makes later
   logins skip before the agents query (`find_one`, not a full find).

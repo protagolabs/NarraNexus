@@ -126,6 +126,7 @@ ONGOING type is designed for continuous tasks (e.g., sales follow-up), features:
 - **Continuous execution**: Does not complete after one run, but keeps checking until condition is met
 - **End condition**: Describes the task completion criteria via `end_condition`
 - **Max iterations**: Optional `max_iterations` to limit maximum execution count
+- **Scheduling horizon**: Optional `end_at` works here too (same platform-enforced "runs until date X" as SCHEDULED)
 - **CHAT interaction update**: When target user chats with Agent, system automatically analyzes whether end condition is met
 
 ---
@@ -175,12 +176,13 @@ Required fields:
 - `trigger_config`: Trigger configuration
 - `payload`: Execution parameters
 
-SCHEDULED type optional fields:
+SCHEDULED / ONGOING optional field:
 - `trigger_config.end_at`: Scheduling horizon — naive local ISO 8601 (same
   convention as run_at, interpreted in `trigger_config.timezone`). The
   platform completes the job once its next fire would land past this time.
   Use it whenever the user gives a bounded duration ("every day for two
-  weeks", "until Friday") — do NOT rely on remembering to pause yourself.
+  weeks", "follow up daily for at most two weeks") — do NOT rely on
+  remembering to pause yourself. Not valid for one_off.
 
 ONGOING type required fields:
 - `trigger_config.interval_seconds`: Check interval (seconds)
