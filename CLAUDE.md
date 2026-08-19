@@ -737,6 +737,9 @@ NarraNexus/
 ├── src/xyz_agent_context/          # Core package
 │   ├── agent_runtime/              # Orchestration layer
 │   ├── agent_framework/            # LLM SDK adapter layer
+│   ├── bootstrap/                  # New-agent provisioning + first-run flow
+│   │   ├── naming.py               # Shared random-name generator
+│   │   └── onboarding/             # Auto-provisioned guide agent (login hook)
 │   ├── context_runtime/            # Context build engine
 │   ├── narrative/                  # Narrative orchestration system
 │   ├── module/                     # Functional module system
