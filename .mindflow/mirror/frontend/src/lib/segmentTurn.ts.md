@@ -6,9 +6,10 @@ stub: false
 
 ## 2026-08-19（二)— 字面 'unknown' 视同缺失
 
-旧后端在 API 层把缺名填成 "unknown"(truthy,穿透顺承)。`realName()`
-归一化:'unknown' 与空同待遇,一样继承前一调用名。配套后端已治根
-(chat_history.py 不再发明占位符),此处是对旧数据面/旧后端的兼容层。
+历史上占位符有两个源头:API 读侧(chat_history 曾默认 "unknown")与
+写侧(response_processor 曾把它持久化进 event_log)。两侧均已治根;
+`realName()` 归一化('unknown' 与空同待遇,继承前一调用名)保留为
+**存量数据**兜底——数据库里已写入的 "unknown" 行无法回改。
 
 ## 2026-08-19 — tool_output 承接调用名 + 转换唯一化
 

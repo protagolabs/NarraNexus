@@ -24,12 +24,24 @@ describe('usePinnedDrawer', () => {
     expect(window.localStorage.getItem(DRAWER_PINNED_KEY)).toBeNull();
   });
 
-  it('an in-flight drag writes nothing; the release persists', () => {
+  it('an in-flight drag moves the DOM but writes nothing; the release persists the dragged value', () => {
     const { result } = renderHook(() => usePinnedDrawer());
-    act(() => result.current.handleResize(500));
+    // A real column element with stubbed geometry — without it both
+    // handlers take the colRef-null early-return and the test would pass
+    // no matter where the persistence call lived.
+    const el = document.createElement('div');
+    el.getBoundingClientRect = () => ({ right: 900 } as DOMRect);
+    result.current.colRef.current = el;
+
+    // jsdom innerWidth is 1024 → clamp bounds [300, 352]. clientX 560
+    // gives 900-560=340: inside the bounds, and distinct from the 400
+    // default — so the assertion can tell "computed" from "fell back".
+    act(() => result.current.handleResize(560));
+    expect(el.style.width).toBe('340px');
     expect(window.localStorage.getItem(DRAWER_WIDTH_KEY)).toBeNull();
-    act(() => result.current.handleResizeEnd(500));
-    expect(window.localStorage.getItem(DRAWER_WIDTH_KEY)).not.toBeNull();
+
+    act(() => result.current.handleResizeEnd(560));
+    expect(window.localStorage.getItem(DRAWER_WIDTH_KEY)).toBe('340');
   });
 
   it('pin choices persist and read back', () => {

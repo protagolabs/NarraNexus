@@ -13,7 +13,10 @@
  *
  * Width is persisted ONLY on the explicit drag release: the stored key
  * doubles as an "existing user" signal for the first-run coach, so it must
- * mean "the user chose a width", never "a view mounted".
+ * mean "the user chose a width", never "a view mounted". Corollary of the
+ * shared keys: pinning or dragging in the TEAM room also spends that
+ * first-run signal — deliberate, the user has demonstrably found the
+ * drawer, wherever they found it.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';

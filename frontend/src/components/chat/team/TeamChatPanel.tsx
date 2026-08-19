@@ -26,7 +26,7 @@ import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { TEAM_DRAWER_CATEGORIES, teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
 import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
 import { ResizableDivider } from '@/components/layout/ResizableDivider';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
@@ -336,9 +336,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // here; desktop starts on the roster (the standing column it replaces),
   // phones start closed (the drawer overlays the transcript there).
   const isMobile = useIsMobile();
-  const [drawerTab, setDrawerTab] = useState<TeamTabId | null>(() =>
-    isMobile ? null : 'members',
-  );
   const {
     pinned: drawerPinned,
     setPinned: setDrawerPinned,
@@ -347,6 +344,15 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     handleResize: handleDrawerResize,
     handleResizeEnd: handleDrawerResizeEnd,
   } = usePinnedDrawer();
+  // One-shot initializer, deliberately: the members panel opens by default
+  // only where it is a pinned column (desktop + the user's shared pin
+  // preference ON). Auto-opening a TRANSIENT drawer would greet an
+  // unpinned user with a full-viewport dismiss backdrop that eats their
+  // first click. Do not derive from `pinned` or sync in an effect — an
+  // unpin inside the room must not close/reopen the panel.
+  const [drawerTab, setDrawerTab] = useState<TeamTabId | null>(() =>
+    !isMobile && drawerPinned ? 'members' : null,
+  );
   const toggleDrawerTab = (id: TeamTabId) =>
     setDrawerTab((prev) => (prev === id ? null : id));
   const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
@@ -1296,7 +1302,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
           activeTab={drawerTab}
           onSelectTab={(id) => setDrawerTab(id)}
-          switcherCategories={TEAM_DRAWER_CATEGORIES}
+          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
           inset={!isMobile}

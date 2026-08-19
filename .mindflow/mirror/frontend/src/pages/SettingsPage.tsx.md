@@ -4,6 +4,11 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(三)— neverDefault 取代内联 id 比较
+
+「account 不做默认落地页」从 `it.id !== 'account'` 字符串比较改为
+NavItem 的声明式 `neverDefault` 标记——规则住在数据上,读 NAV_ITEMS 即见。
+
 ## 2026-08-19(二)— Account pane 全会话可见 + powerOnly 机制退役
 
 - 非 NetMind 会话点 Account 看到登录提示(pages.account.powerOnlyHint 复活),

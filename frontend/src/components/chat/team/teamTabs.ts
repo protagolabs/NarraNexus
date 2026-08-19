@@ -16,19 +16,36 @@ import type { DrawerSwitcherCategory } from '@/components/bookmarks/BookmarkDraw
 
 export type TeamTabId = 'members' | 'artifacts' | 'files';
 
-export const TEAM_DRAWER_CATEGORIES: ReadonlyArray<DrawerSwitcherCategory<TeamTabId>> = [
-  {
-    label: 'Team',
-    labelKey: 'chat.team.drawerCategory',
-    tabs: [
-      { id: 'members', labelKey: 'chat.team.roster.title', icon: Users2 },
-      { id: 'artifacts', labelKey: 'chat.team.workspace.tabArtifacts', icon: ArtifactsGlyph },
-      { id: 'files', labelKey: 'chat.team.workspace.tabFiles', icon: FolderOpen },
-    ],
-  },
-];
+export interface TeamTabCounts {
+  members: number;
+  artifacts: number;
+  files: number;
+}
+
+/** Live counts ride on the switcher entries — shared files in particular
+ *  have no other surface advertising their existence. */
+export function teamDrawerCategories(
+  counts: TeamTabCounts,
+): ReadonlyArray<DrawerSwitcherCategory<TeamTabId>> {
+  return [
+    {
+      label: 'Team',
+      labelKey: 'chat.team.drawerCategory',
+      tabs: [
+        { id: 'members', labelKey: 'chat.team.roster.title', icon: Users2, count: counts.members },
+        { id: 'artifacts', labelKey: 'chat.team.workspace.tabArtifacts', icon: ArtifactsGlyph, count: counts.artifacts },
+        { id: 'files', labelKey: 'chat.team.workspace.tabFiles', icon: FolderOpen, count: counts.files },
+      ],
+    },
+  ];
+}
+
+const TAB_LABEL_KEYS: Record<TeamTabId, string> = {
+  members: 'chat.team.roster.title',
+  artifacts: 'chat.team.workspace.tabArtifacts',
+  files: 'chat.team.workspace.tabFiles',
+};
 
 export function teamTabLabelKey(id: TeamTabId): string {
-  const tab = TEAM_DRAWER_CATEGORIES[0].tabs.find((t) => t.id === id);
-  return tab?.labelKey ?? 'chat.team.roster.title';
+  return TAB_LABEL_KEYS[id] ?? 'chat.team.roster.title';
 }

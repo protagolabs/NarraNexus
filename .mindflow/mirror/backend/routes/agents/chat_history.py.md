@@ -4,14 +4,17 @@ last_verified: 2026-08-19
 stub: false
 ---
 
-## 2026-08-19 — timeline 不再发明 "unknown"
+## 2026-08-19 — tool_output 配名走 tool_call_id;"unknown" 两个源头都治
 
-`/event-log` 的 timeline 构建曾把缺失的 tool_name 填成字面 "unknown"——
-UI 会把它原样打在每一行 [输出] 旁(Owner 实测全是 unknown 的根因;前端的
-顺承修复被这个 truthy 占位符穿透)。现在:tool_call 记 `last_tool_name`,
-tool_output 缺名时顺承它;两处默认改空串。分组 tool_calls 提取同口径。
-测试:test_event_log_meta.py::test_timeline_tool_output_inherits_call_name
-(夹具本就是「output 无名」场景,断言响应里 0 个 unknown)。
+- **配对按 id**:并行调用下所有 call 先于任何 output 落盘、output 按完成序
+  返回,「最近前驱」会自信地贴错名字(与 response_processor 的重建同规则
+  同理由)。timeline 与分组 tool_calls 两个视图都 id 优先;无 id 的存量行
+  回退位置法(timeline=最近前驱,分组=紧邻无 id output)。
+- **占位符零发明**:读侧(本文件)与写侧
+  (response_processor.state_update 持久化空串而非 "unknown")都不再制造
+  它;前端 realName() 归一化只是**历史数据**兜底,不是长期契约。
+测试:test_event_log_meta.py 的 inherits_call_name(无名承接、零 unknown)
+与 parallel_outputs_pair_by_call_id(交叉输出各得其名,两视图一致)。
 
 ## 2026-08-10 (PR-10) — 新增 seam 孪生端点 POST /{agent_id}/chat-history/by-instance
 

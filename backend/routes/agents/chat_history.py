@@ -709,12 +709,25 @@ async def get_event_log_detail(agent_id: str, event_id: str):
 
         thinking = "\n\n".join(thinking_blocks) if thinking_blocks else None
 
-        # Extract tool calls: pair each tool_call with the next tool_output
+        # Extract tool calls, pairing each with its output. Pair by
+        # tool_call_id when the stored entries carry it — with PARALLEL
+        # calls every call lands before any output and the outputs return
+        # in completion order, so the positional "next entry" rule crosses
+        # the wires (same rule, same reason, as response_processor's
+        # tool-call reconstruction). Positional look-ahead survives only as
+        # the fallback for legacy rows without ids.
         tool_calls: List[EventLogToolCall] = []
         entries_content = [
             entry.get("content", {}) if isinstance(entry.get("content"), dict) else entry
             for entry in event_log
         ]
+
+        outputs_by_id: Dict[str, Any] = {}
+        for entry in entries_content:
+            if isinstance(entry, dict) and entry.get("type") == "tool_output":
+                out_id = entry.get("tool_call_id")
+                if out_id and out_id not in outputs_by_id:
+                    outputs_by_id[out_id] = entry.get("output")
 
         i = 0
         while i < len(entries_content):
@@ -722,12 +735,18 @@ async def get_event_log_detail(agent_id: str, event_id: str):
             if isinstance(entry, dict) and entry.get("type") == "tool_call":
                 tool_name = entry.get("tool_name") or ""
                 tool_input = entry.get("arguments", {})
+                call_id = entry.get("tool_call_id")
 
-                # Look ahead for matching tool_output
                 tool_output = None
-                if i + 1 < len(entries_content):
+                if call_id and call_id in outputs_by_id:
+                    tool_output = outputs_by_id[call_id]
+                elif i + 1 < len(entries_content):
                     next_entry = entries_content[i + 1]
-                    if isinstance(next_entry, dict) and next_entry.get("type") == "tool_output":
+                    if (
+                        isinstance(next_entry, dict)
+                        and next_entry.get("type") == "tool_output"
+                        and not next_entry.get("tool_call_id")
+                    ):
                         tool_output = next_entry.get("output")
                         i += 1  # Skip the tool_output entry
 
@@ -747,10 +766,15 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         timeline: List[EventLogTimelineEntry] = []
         pending_thinking: List[str] = []
         # Stored tool_output entries usually carry no tool_name of their
-        # own; in a time-ordered log an output belongs to the nearest
-        # preceding call, so carry that name forward. Never invent a
-        # placeholder ("unknown") — the UI renders whatever arrives here
-        # next to every [output] row, and a literal word reads as a bug.
+        # own. Resolve it by tool_call_id when present (parallel calls
+        # interleave: every call lands before any output, so "nearest
+        # preceding call" would confidently attach the WRONG name);
+        # nearest-preceding survives only as the fallback for legacy rows
+        # without ids. Never invent a placeholder ("unknown") — and the
+        # write side (response_processor's record_tool_call persistence)
+        # honours the same rule, so new rows never carry one either; the
+        # frontend's normalization is a shim for rows persisted before.
+        call_names: Dict[str, str] = {}
         last_tool_name = ""
 
         def _flush_thinking():
@@ -776,6 +800,9 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 # send_message tool — preserve it so the historical Reply
                 # block can render the "helper_llm fallback" badge.
                 last_tool_name = content.get("tool_name") or ""
+                call_id = content.get("tool_call_id")
+                if call_id and last_tool_name:
+                    call_names[call_id] = last_tool_name
                 timeline.append(EventLogTimelineEntry(
                     type="tool_call",
                     tool_name=last_tool_name,
@@ -784,9 +811,14 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
             elif ctype == "tool_output":
                 _flush_thinking()
+                out_name = (
+                    content.get("tool_name")
+                    or call_names.get(content.get("tool_call_id") or "")
+                    or last_tool_name
+                )
                 timeline.append(EventLogTimelineEntry(
                     type="tool_output",
-                    tool_name=content.get("tool_name") or last_tool_name,
+                    tool_name=out_name,
                     tool_output=content.get("output"),
                 ))
             elif ctype in ("native_output", "agent_response"):

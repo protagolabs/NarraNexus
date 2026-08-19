@@ -4,6 +4,14 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(三)— 默认开抽屉看钉选偏好
+
+drawerTab 的一次性初始化改为 `!isMobile && pinned` 才开 members:钉选是
+与单聊共享的偏好,unpin 过的用户此前会被自动弹出的 transient 抽屉+全屏
+背板吃掉进房间的第一次点击。刻意保持 initializer(非派生/非 effect)——
+房间内 unpin 不得触发面板重开。切换器注册表改传
+`teamDrawerCategories(counts)`(成员/制品/文件计数进下拉)。
+
 ## 2026-08-19(二)— 与单聊同批的三处对齐
 
 `pinned && !isMobile`(手机不钉)、inset 宽度 320px 地板、Users2 按钮

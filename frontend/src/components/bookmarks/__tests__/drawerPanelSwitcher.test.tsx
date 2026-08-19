@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { BookmarkDrawer } from '../BookmarkDrawer';
-import { ALL_TABS } from '../tabs';
+import { ALL_TABS, STRIP_CATEGORIES } from '../tabs';
 
 function renderDrawer(onSelectTab = vi.fn()) {
   render(
@@ -21,6 +21,7 @@ function renderDrawer(onSelectTab = vi.fn()) {
       title="ARTIFACTS"
       activeTab="artifacts"
       onSelectTab={onSelectTab}
+      switcherCategories={STRIP_CATEGORIES}
     >
       <div>panel body</div>
     </BookmarkDrawer>,

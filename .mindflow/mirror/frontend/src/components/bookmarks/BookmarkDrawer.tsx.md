@@ -4,6 +4,16 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(三)— 切换器 props 成判别对;条目可带计数
+
+- `activeTab/onSelectTab/switcherCategories` 三者 all-or-nothing(判别联合):
+  之前"默认 STRIP_CATEGORIES + as unknown as"让「传了 team 的 tab 却忘传
+  注册表」能编译——下拉列出单聊面板、点了全空白。现在漏传=编译错;
+  内部再无断言,调用方(单聊传 STRIP_CATEGORIES、团队传
+  teamDrawerCategories(counts))显式给表。
+- `DrawerSwitcherTab.count?`:下拉项尾部渲染活计数——不宣传自己的入口
+  等于关键时刻是关着的(共享文件此前无处可见数量)。
+
 ## 2026-08-19(二)— 切换器泛型化 `<T extends string>`
 
 activeTab/onSelectTab/switcherCategories 以 T 贯通,两个调用方

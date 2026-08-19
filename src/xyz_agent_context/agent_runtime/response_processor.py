@@ -674,7 +674,14 @@ class ResponseProcessor:
                 state_update=None if pending else {
                     "method": "record_tool_call",
                     "args": {
-                        "tool_name": tool_name,
+                        # Persist the REAL name or nothing: a stored
+                        # "unknown" is an irreversible loss ("name never
+                        # arrived" becomes indistinguishable from a tool
+                        # actually called unknown), and every reader
+                        # downstream — /event-log, the UI's disclosure —
+                        # would echo the placeholder forever. Display
+                        # strings keep their own fallback above.
+                        "tool_name": item.get("tool_name") or "",
                         "tool_call_id": tool_call_id,
                         "arguments": arguments
                     }

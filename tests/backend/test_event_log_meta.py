@@ -191,3 +191,37 @@ async def test_timeline_tool_output_inherits_call_name(db_client):
     assert outputs and outputs[0]["tool_name"] == "web_search"
     assert "unknown" not in json.dumps(timeline)
 
+
+@pytest.mark.asyncio
+async def test_timeline_parallel_outputs_pair_by_call_id(db_client):
+    """Parallel tool calls: every call lands before any output and the
+    outputs return in completion order. "Nearest preceding call" would
+    confidently attach the WRONG name — pairing must go by tool_call_id,
+    in both the timeline and the grouped tool_calls view."""
+    await _seed_event(
+        db_client,
+        event_id="evt_parallel",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "read_file", "arguments": {"path": "a"}}},
+            {"content": {"type": "tool_call", "tool_call_id": "id2",
+                         "tool_name": "web_search", "arguments": {"q": "spx"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "id2",
+                         "output": "search results"}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "file body"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_parallel").json()
+    assert body["success"] is True
+
+    outputs = [e for e in body["timeline"] if e["type"] == "tool_output"]
+    assert [(o["tool_name"], o["tool_output"]) for o in outputs] == [
+        ("web_search", "search results"),
+        ("read_file", "file body"),
+    ]
+
+    calls = {c["tool_name"]: c["tool_output"] for c in body["tool_calls"]}
+    assert calls == {"read_file": "file body", "web_search": "search results"}
+

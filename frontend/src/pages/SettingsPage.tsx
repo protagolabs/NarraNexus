@@ -228,15 +228,18 @@ function ProvidersSection() {
 // left nav stays visible whichever pane is open, Account included: losing
 // the tab list on one entry made Settings feel like it navigated away.
 // ``desktopOnly`` items (App updates) only appear in the Tauri build.
+// ``neverDefault`` items are reachable but are not a landing pane — the
+// page must not open on them unless the URL asked for them by name.
 interface NavItem {
   id: string;
   labelKey: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
+  neverDefault?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User },
+  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, neverDefault: true },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
@@ -261,7 +264,7 @@ export default function SettingsPage() {
   const [active, setActive] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && items.some((it) => it.id === requested)) return requested;
-    return items.find((it) => it.id !== 'account')?.id ?? 'providers';
+    return items.find((it) => !it.neverDefault)?.id ?? 'providers';
   });
 
   return (
