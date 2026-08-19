@@ -38,6 +38,7 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 )
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
 from xyz_agent_context.utils.file_safety import (
@@ -1116,8 +1117,7 @@ async def _confirm_inner(
                     # type differs by backend (pymysql.IntegrityError on MySQL,
                     # sqlite3.IntegrityError via aiosqlite on SQLite). Re-raise
                     # anything that doesn't smell like a unique-constraint hit.
-                    msg = str(ex).lower()
-                    if "duplicate" in msg or "unique" in msg or "1062" in msg:
+                    if is_unique_violation(ex):
                         nl_dups += 1
                     else:
                         raise

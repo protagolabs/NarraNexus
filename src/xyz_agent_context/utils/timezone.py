@@ -42,6 +42,45 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def coerce_utc(value) -> Optional[datetime]:
+    """Coerce a datetime or ISO-8601 string to a tz-aware UTC datetime.
+
+    Accepts what the DB layer hands back (a ``datetime`` on some backends, the
+    ISO string SQLite stores on others) or a caller-supplied ISO-8601 instant. A
+    trailing ``Z`` is honoured as the UTC designator; a naive value is assumed
+    to be UTC (the storage convention). Returns None for anything unusable, so a
+    caller can treat an unparseable value as "absent" rather than crash.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def to_datetime6_literal(value) -> Optional[str]:
+    """Normalise an instant to a MySQL ``DATETIME(6)`` UTC literal.
+
+    Returns ``YYYY-MM-DD HH:MM:SS.ffffff`` in UTC (microsecond precision), or
+    None if ``value`` cannot be parsed as a datetime. A caller that must both
+    WRITE a timestamp and later REVERSE-LOOK-IT-UP (e.g. the gateway-key-misuse
+    idempotency anchor) routes both through this one function so the two paths
+    compare identical bytes — a ``Z`` form and its offset form collapse to the
+    same literal.
+    """
+    dt = coerce_utc(value)
+    if dt is None:
+        return None
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 def to_user_timezone(dt, user_tz: str = DEFAULT_TIMEZONE) -> Optional[datetime]:
     """
     Convert UTC time to user timezone

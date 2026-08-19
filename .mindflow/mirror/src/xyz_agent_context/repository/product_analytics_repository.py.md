@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/product_analytics_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -17,3 +17,8 @@ chooses the first writer, and duplicate-key errors are treated as successful
 replays without a SELECT race or warning noise. Other database errors
 propagate to `track()`, which logs and swallows them so observation cannot
 break the observed product flow.
+
+Unique-violation detection routes through the shared [[dialect_errors.py]]
+`is_unique_violation` (dual-dialect; case-**insensitive** after predicate-ising,
+one of six sites converged in PR#327). A conflict → silent `return` (the first
+fact wins); every other error still propagates up to `track()`.

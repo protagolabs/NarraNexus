@@ -25,6 +25,7 @@ from loguru import logger
 
 ACTION_SUSPEND = "suspend"
 ACTION_REINSTATE = "reinstate"
+ACTION_WARN = "warn"
 
 
 class BanAuditRepository:

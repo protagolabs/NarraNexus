@@ -377,6 +377,18 @@ AUTH_EXEMPT_PATHS = {
     # prefix list below rather than here.
     "/api/admin/suspend",
     "/api/admin/reinstate",
+    # Internal gateway-key-misuse writer: self-credentialed on X-Admin-Secret
+    # inside the handler (same lock as suspend). The caller is the internal
+    # server-to-server path forwarding an authoritative gateway-key misuse event
+    # — a machine with no user JWT — so gating it on the user auth path would be
+    # wrong. Sole writer of gateway_key_misuse.
+    "/api/admin/gateway-key-misuse",
+    # Sensitive-operation warning: self-credentialed on X-Admin-Secret inside the
+    # handler (same lock as suspend). The caller is the private monitor
+    # forwarding a soft-signal detection — a machine with no user JWT — so gating
+    # it on the user auth path would be wrong. Writes one generic abuse_warning
+    # notification + a ban_audit(action="warn") row.
+    "/api/admin/warn-user",
     # Runtime observability: polled by the deploy-side alert watcher (a
     # headless container with no user JWT), gated on the same X-Admin-Secret
     # inside the handler. Read-only.
