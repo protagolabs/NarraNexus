@@ -55,7 +55,7 @@ generator re-rolls, then appends a `_NN` suffix. `register(name=None)` uses the
 register call itself as the uniqueness oracle — the 201 that proves a name is
 free is the same call that claims it, so there is no check-then-act race.
 Since 2026-08-19 the word lists + generators live in the shared
-`xyz_agent_context/bootstrap/naming.py` (also used by the onboarding
+`backend/onboarding/naming.py` (also used by the onboarding
 guide-agent provisioning); this module re-exports them on the historical
 import path and `ArenaOnboarder.generate_name/generate_unique_name` delegate,
 passing `self._rng`. `ArenaNameExhausted` subclasses the shared

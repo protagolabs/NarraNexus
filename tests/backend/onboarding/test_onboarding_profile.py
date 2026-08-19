@@ -9,8 +9,8 @@
 
 import random
 
-import xyz_agent_context.bootstrap.onboarding  # noqa: F401 — profile registry side effect
-from xyz_agent_context.bootstrap.onboarding.personas import (
+import backend.onboarding  # noqa: F401 — profile registry side effect
+from backend.onboarding.personas import (
     PERSONAS,
     TOPIC_OPENERS,
     persona_by_key,

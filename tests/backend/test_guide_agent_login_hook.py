@@ -32,13 +32,13 @@ class _FakeNetmind:
 def guide_spy(monkeypatch):
     """Enable the feature (conftest force-disables it suite-wide) and replace
     ensure_guide_agent with a recorder."""
-    import xyz_agent_context.bootstrap.onboarding as ob_pkg
+    import backend.onboarding as ob_pkg
 
     monkeypatch.setenv("NARRANEXUS_ONBOARDING_GUIDE_AGENT", "1")
-    calls: list[str] = []
+    calls: list[tuple[str, bool]] = []
 
-    async def _fake_ensure(db, user_id):
-        calls.append(user_id)
+    async def _fake_ensure(db, user_id, *, is_new_user=False):
+        calls.append((user_id, is_new_user))
         return {"provisioned": True}
 
     monkeypatch.setattr(ob_pkg, "ensure_guide_agent", _fake_ensure)
@@ -82,8 +82,9 @@ def test_netmind_login_schedules_guide_agent_every_login(db_client, monkeypatch,
         second = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
     assert first.status_code == 200 and second.status_code == 200
     # EVERY login schedules it (not just is_new): that is what lets an
-    # existing zero-agent user pick up their guide on a later login.
-    assert guide_spy == [_CODE, _CODE]
+    # existing zero-agent user pick up their guide on a later login. The
+    # is_new flag rides along so the backfill brake can tell them apart.
+    assert guide_spy == [(_CODE, True), (_CODE, False)]
 
 
 def test_kill_switch_schedules_nothing(db_client, monkeypatch, guide_spy):
@@ -127,7 +128,7 @@ def test_local_login_schedules_guide_agent(db_client, monkeypatch, guide_spy):
     with client:
         resp = client.post("/api/auth/login", json={"user_id": "local_u"})
     assert resp.status_code == 200 and resp.json()["success"] is True
-    assert guide_spy == ["local_u"]
+    assert guide_spy == [("local_u", False)]
 
 
 def test_local_create_user_schedules_guide_agent(db_client, monkeypatch, guide_spy):
@@ -137,15 +138,15 @@ def test_local_create_user_schedules_guide_agent(db_client, monkeypatch, guide_s
             "/api/auth/create-user", json={"user_id": "fresh_u", "display_name": "F"}
         )
     assert resp.status_code == 200 and resp.json()["success"] is True
-    assert guide_spy == ["fresh_u"]
+    assert guide_spy == [("fresh_u", True)]
 
 
 def test_crashing_provisioning_cannot_fail_the_login(db_client, monkeypatch):
-    import xyz_agent_context.bootstrap.onboarding as ob_pkg
+    import backend.onboarding as ob_pkg
 
     monkeypatch.setenv("NARRANEXUS_ONBOARDING_GUIDE_AGENT", "1")
 
-    async def _boom(db, user_id):
+    async def _boom(db, user_id, *, is_new_user=False):
         raise RuntimeError("provisioning exploded")
 
     monkeypatch.setattr(ob_pkg, "ensure_guide_agent", _boom)

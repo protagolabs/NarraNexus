@@ -603,7 +603,7 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
 
 `_schedule_guide_agent_provisioning(user_id)`：三个登录入口（`netmind_login`、
 本地 `login`、本地 `create_user`）在成功路径尾部 fire-and-forget 调
-`xyz_agent_context.bootstrap.onboarding.ensure_guide_agent`（create_task +
+`backend.onboarding.ensure_guide_agent`（create_task +
 done_callback，incident lesson #2 模式）。要点：
 
 - **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
@@ -619,3 +619,10 @@ done_callback，incident lesson #2 模式）。要点：
   永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
 - 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度、
   kill-switch 零调度、provisioning 崩溃不影响登录响应）。
+
+补记（同日）：调度函数签名为 `_schedule_guide_agent_provisioning(user_id, *,
+is_new)`——is_new 让 `backend/onboarding` 的 BACKFILL 刹车能区分"全新注册"
+与"存量零 Agent 用户回访"（后者可用 NARRANEXUS_ONBOARDING_GUIDE_BACKFILL=0
+单独关掉）；netmind_login 传 upsert 的 is_new，本地 login 恒 False，
+create_user 恒 True。import 路径是 `backend.onboarding`（铁律 #21：消费方
+只有登录路由，子包住 backend 侧）。

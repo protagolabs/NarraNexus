@@ -10,7 +10,7 @@ import random
 
 import pytest
 
-from xyz_agent_context.bootstrap.naming import (
+from backend.onboarding.naming import (
     BASE_NAME_COMBINATIONS,
     GROUP_CREATURE,
     GROUP_FORCE,

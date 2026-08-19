@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/bootstrap/onboarding/profile.py
+code_file: backend/onboarding/profile.py
 last_verified: 2026-08-19
 stub: false
 ---
@@ -17,8 +17,8 @@ random picks through `BootstrapContext.extra` (`persona_key`, `topic_index`,
 ## Upstream / Downstream
 
 **Registered by:** importing this module (the subpackage `__init__` does it;
-`provisioning.ensure_guide_agent` imports the subpackage before applying the
-profile). Same import-side-effect pattern as the arena profile.
+the login hooks import the subpackage, so registration precedes any
+`apply_bootstrap`). Same import-side-effect pattern as the arena profile.
 **Reads:** `personas.py` renderers; `welcome_templates.default_welcome_html`
 for the standard welcome card (the guide agent's job IS explaining NarraNexus,
 so the generic capability card is the right artifact — no bespoke HTML).
@@ -33,9 +33,9 @@ so the generic capability card is the right artifact — no bespoke HTML).
 
 ## Gotchas
 
-- `provision_new_agent` is called with `bootstrap_profile="none"` by
-  provisioning.py, which then applies THIS profile itself with the extra-laden
-  ctx — because the provision seam's own apply_bootstrap call can't carry
-  extra. Mirrors `arena_provisioning_service.py`. Don't "simplify" by passing
-  `bootstrap_profile="onboarding"` there: you'd get the fallback rendering
-  (persona[0]/topic[0]) stored, then a second apply overwriting it.
+- provisioning.py provisions with `bootstrap_profile="onboarding"` and passes
+  the render picks through `provision_new_agent(bootstrap_ctx_extra=...)` —
+  ONE apply_bootstrap, no none-then-reapply window. (The seam gained that
+  parameter on 2026-08-19 precisely because the two-apply shape briefly
+  persisted a blank greeting and turned a failed re-apply into a permanently
+  mute agent.)

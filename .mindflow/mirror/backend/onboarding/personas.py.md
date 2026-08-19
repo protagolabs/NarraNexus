@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/bootstrap/onboarding/personas.py
+code_file: backend/onboarding/personas.py
 last_verified: 2026-08-19
 stub: false
 ---
@@ -34,9 +34,11 @@ provision time).
   NOTE) explain that — the one thing the agent itself can never explain while
   it has no working provider.
 - **Proactive discipline lives in awareness AND in the job payload** (see
-  provisioning.py): the 3-ignored-check-ins goodbye is agent-judged, so it is
-  stated in both places the model reads; the hard ceiling is the job's
-  max_iterations, which needs no model cooperation.
+  provisioning.py): the 3-ignored-check-ins goodbye and the self-pause are
+  agent-judged, so they are stated in both places the model reads — and both
+  spell out the real tool contract (find the job's id with a retrieval tool,
+  then job_update with agent_id + job_id + status='paused'; the bare
+  job_update(status=...) shorthand would fail on required params).
 
 ## Gotchas
 

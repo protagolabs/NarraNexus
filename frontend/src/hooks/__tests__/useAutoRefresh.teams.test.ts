@@ -67,15 +67,19 @@ describe('background refresh keeps the team rows current', () => {
     expect(teamsRefresh).toHaveBeenCalled();
   });
 
-  test('teams refresh even with no agent selected', () => {
-    // A user whose window is on a team room. Every agent-scoped poll below still
-    // guards on an agent id of its own.
+  test('teams and the agent list refresh even with no agent selected', () => {
+    // A user whose window is on a team room — or a brand-new user whose guide
+    // agent is being provisioned server-side. Teams AND the agent list sit
+    // ahead of the agent guard (2026-08-19: before that, a zero-agent user's
+    // sidebar never refreshed and the auto-provisioned guide agent only
+    // appeared on a manual reload); the agent-scoped polls below still guard
+    // on an agent id of their own.
     renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_1' }));
 
     vi.advanceTimersByTime(MID_WINDOW_MS);
 
     expect(teamsRefresh).toHaveBeenCalled();
-    expect(refreshAgents).not.toHaveBeenCalled();
+    expect(refreshAgents).toHaveBeenCalled();
   });
 
   test('nothing polls without a user', () => {

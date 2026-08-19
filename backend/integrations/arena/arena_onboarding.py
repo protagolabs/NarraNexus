@@ -45,10 +45,10 @@ from typing import Callable, Dict, List, Optional
 import httpx
 
 # ── Nintendo-style three-group gamertag word lists ──────────────────────────
-# The lists + generators live in the shared bootstrap seam (also used by the
+# The lists + generators live in backend/onboarding/naming.py (shared with the
 # onboarding guide-agent provisioning); re-exported here so existing Arena
 # consumers (tests, spikes) keep their historical import path.
-from xyz_agent_context.bootstrap.naming import (  # noqa: F401 — re-exports
+from backend.onboarding.naming import (  # noqa: F401 — re-exports
     BASE_NAME_COMBINATIONS,
     GROUP_CREATURE,
     GROUP_FORCE,

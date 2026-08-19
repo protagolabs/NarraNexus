@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from xyz_agent_context.bootstrap.onboarding.personas import (
+from backend.onboarding.personas import (
     GUIDE_BOOTSTRAP_MD,
     TOPIC_OPENERS,
     Persona,

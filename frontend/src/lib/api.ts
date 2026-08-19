@@ -682,7 +682,9 @@ class ApiClient {
    *  guide-agent marker shares the same metadata blob. */
   async markOnboardingStep(
     userId: string,
-    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+    // 'dismissed' left the union with the checklist card (its only setter);
+    // the backend still accepts it, so re-adding is a one-line change.
+    step: 'first_agent_created' | 'template_applied',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',

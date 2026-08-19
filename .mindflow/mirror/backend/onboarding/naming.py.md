@@ -1,5 +1,5 @@
 ---
-code_file: src/xyz_agent_context/bootstrap/naming.py
+code_file: backend/onboarding/naming.py
 last_verified: 2026-08-19
 stub: false
 ---
@@ -11,16 +11,18 @@ stub: false
 The Nintendo-style gamertag generator (three 24-word groups → 13,824 base
 combinations, `_NN` suffix on collision) was born inside
 `backend/integrations/arena/arena_onboarding.py`. The onboarding guide-agent
-provisioning (`bootstrap/onboarding/`) needs the same generator, and `src/`
-must never import from `backend/` (dependency direction), so the word lists
-and generation logic moved here; Arena re-exports and delegates.
+provisioning needs the same generator, so the word lists and generation
+logic moved to this neutral backend-side module; Arena re-exports and
+delegates. Backend-side per 铁律 #21: its only consumers are backend
+provisioning flows (Arena + the guide agent) — nothing agent-side imports
+it.
 
 ## Upstream / Downstream
 
 **Consumers:** `backend/integrations/arena/arena_onboarding.py` (re-exports the
 lists on its historical import path; `ArenaOnboarder.generate_name` /
 `generate_unique_name` delegate with `self._rng`), and
-`bootstrap/onboarding/provisioning.py` (guide-agent naming — no uniqueness
+`backend/onboarding/provisioning.py` (guide-agent naming — no uniqueness
 oracle needed there, agent names are not unique keys locally).
 **Imports:** stdlib only. This module must stay a pure leaf (no DB, no
 settings) so both backend integrations and src provisioning can use it.

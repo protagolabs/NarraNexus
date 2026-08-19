@@ -140,7 +140,9 @@ async def login(request: LoginRequest):
         await user_repo.update_last_login(request.user_id)
         logger.info(f"User {request.user_id} logged in (local)")
         _schedule_login_rearm(request.user_id)
-        _schedule_guide_agent_provisioning(request.user_id)
+        # A local login is never a signup (create-user is); is_new=False routes
+        # it through the backfill brake.
+        _schedule_guide_agent_provisioning(request.user_id, is_new=False)
         return LoginResponse(
             success=True,
             user_id=request.user_id,
@@ -472,7 +474,7 @@ def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
     )
 
 
-def _schedule_guide_agent_provisioning(user_id: str) -> None:
+def _schedule_guide_agent_provisioning(user_id: str, *, is_new: bool) -> None:
     """Run the onboarding guide-agent provisioning off the login path.
 
     Fire-and-forget like :func:`_schedule_provider_provisioning`: a login must
@@ -480,10 +482,15 @@ def _schedule_guide_agent_provisioning(user_id: str) -> None:
     (user-level write-once marker) and cheap on the warm path, so calling it
     on every login is fine — that is what lets existing zero-agent users pick
     up their guide on their next login, not just brand-new signups.
+
+    ``is_new`` distinguishes a brand-new signup from a returning login: the
+    backfill population (existing zero-agent users) has its own env brake
+    (NARRANEXUS_ONBOARDING_GUIDE_BACKFILL) so a prod rollout can start with
+    new signups only.
     """
     import asyncio
 
-    from xyz_agent_context.bootstrap.onboarding import (
+    from backend.onboarding import (
         ensure_guide_agent,
         is_guide_agent_enabled,
     )
@@ -493,7 +500,7 @@ def _schedule_guide_agent_provisioning(user_id: str) -> None:
 
     async def _run() -> None:
         db_client = await get_db_client()
-        await ensure_guide_agent(db_client, user_id)
+        await ensure_guide_agent(db_client, user_id, is_new_user=is_new)
 
     try:
         task = asyncio.get_running_loop().create_task(_run())
@@ -637,7 +644,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     # Onboarding guide agent — new users and existing zero-agent users get
     # their first companion. Behind the suspended-account gate above, so a
     # suspended login never provisions anything.
-    _schedule_guide_agent_provisioning(user.user_id)
+    _schedule_guide_agent_provisioning(user.user_id, is_new=is_new)
 
     return NetmindLoginResponse(
         success=True,
@@ -1686,7 +1693,7 @@ async def create_user(request: CreateUserRequest):
             event=EVENT_SIGNED_UP,
             properties={PROP_METHOD: "create_user"},
         )
-        _schedule_guide_agent_provisioning(request.user_id)
+        _schedule_guide_agent_provisioning(request.user_id, is_new=True)
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
@@ -1835,9 +1842,12 @@ async def get_session(http_request: Request):
 async def get_onboarding(http_request: Request):
     """Return the authenticated user's onboarding checklist state.
 
-    The frontend calls this on chat-page mount to decide whether to show
-    the checklist card and which rows are already checked. Identity comes
-    from auth_middleware (was a client-supplied query param).
+    2026-08-19: the checklist card that read this on chat-page mount is
+    retired (the auto-provisioned guide agent carries onboarding now), so
+    this GET currently has no frontend caller. Kept deliberately: the POST
+    below still writes this state (useCreateAgent / bundle import), and this
+    is its only read API — for ops queries and any future progress surface.
+    Identity comes from auth_middleware (was a client-supplied query param).
     """
     user_id = await resolve_current_user_id(http_request)
     try:

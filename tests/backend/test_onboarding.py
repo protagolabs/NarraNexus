@@ -153,3 +153,25 @@ async def test_merge_preserves_sibling_metadata_keys(db_client, client):
     user = await repo.get_user("u_sibling")
     assert user.metadata["keep_me"] == "value"
     assert user.metadata["onboarding_progress"]["first_agent_created"] is True
+
+
+@pytest.mark.asyncio
+async def test_post_never_clobbers_the_guide_agent_marker(db_client, client):
+    """The guide-agent idempotency marker is a TOP-LEVEL metadata key
+    precisely because this endpoint wholesale-replaces the
+    onboarding_progress sub-dict. If someone nests the marker back inside
+    onboarding_progress, this test goes red (the POST would wipe it and
+    every later login would re-provision — including after the user deleted
+    their guide agent)."""
+    from backend.onboarding.provisioning import GUIDE_METADATA_FLAG
+
+    await _seed_user(db_client, "u_guide", metadata={GUIDE_METADATA_FLAG: True})
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_guide"},
+        json={"first_agent_created": True},
+    )
+    assert r.status_code == 200 and r.json()["success"] is True
+    user = await UserRepository(db_client).get_user("u_guide")
+    assert user.metadata[GUIDE_METADATA_FLAG] is True
+    assert user.metadata["onboarding_progress"]["first_agent_created"] is True
