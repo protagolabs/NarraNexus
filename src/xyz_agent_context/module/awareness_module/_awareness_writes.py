@@ -2,39 +2,33 @@
 @file_name: _awareness_writes.py
 @author:
 @date: 2026-08-10
-@description: The shared, dialect-safe implementation of the update_agent_profile
-tool — the single source of truth behind the AgentDataStore seam.
+@description: The Awareness half of a rename — the identity record the agent
+reads about itself — plus the MCP tool's renderer.
 
-update_agent_profile is a rename TRANSACTION (P1 section 02 ①, prod
-evt_1f9c6680): writing agents.agent_name alone left the agent's free-text
-long-term memory still asserting the old identity, and the old name may now
-belong to a different agent of the same owner. So the write does four things —
-name and/or description, a dated identity-correction appended into the Awareness
-profile, an honest (never blocking) same-owner name-clash note, and an immediate
-peer-directory refresh — and any one missing reinstates the original bug.
+The rename TRANSACTION itself lives in ``xyz_agent_context.agent_profile``
+(moved 2026-08-18; it writes the `agents` row and the peer directory, neither of
+which is an Awareness concern). What stays here is what genuinely belongs to
+Awareness, because it is written into ``instance_awareness``:
 
-Hoisted here (out of awareness_module.py) so DirectStore (local) and the backend
-twin route (cloud) both call THIS one function: they stay byte-identical, and the
-rename-transaction logic cannot drift between the in-process and Http paths. The
-identity-note string helpers and the two DB helpers live here too because they
-are used only by this writer; keeping them together also breaks the import cycle
-(awareness_module.py delegates the tool to the seam, so it must not be imported
-back by the shared writer).
+* the ``## Identity Changes (platform record)`` section — its constants, the two
+  note builders, the reader that lets a new record supersede a stale one, and
+  the merge that keeps the rest of the profile intact;
+* ``record_identity_change`` / ``reconcile_identity_record``, the two writers
+  the transaction calls (public, not underscore-private: they are called across
+  a package boundary now);
+* ``retire_self_name``, which rewrites the agent's own name line — the one place
+  the platform edits agent-authored text, and only ever the name (rule #15: a
+  machine-knowable fact is derived, not left to the model to remember);
+* ``update_agent_profile_from_args``, the MCP tool's renderer, which calls the
+  transaction and formats its result into the sentence the tool has always
+  returned. DirectStore (local) and the backend twin route (cloud) both call it,
+  so the two stay byte-identical.
 
-Dialect-safe (rule #6): AgentRepository / InstanceRepository /
-InstanceAwarenessRepository and db.get only — no raw SQL. The MATCHED-vs-CHANGED
-rowcount trap (update_agent returns cursor.rowcount = matched on SQLite, changed
-on MySQL) is defused twice: BEFORE the write by the value-equality
-short-circuits on both name and description, so an unchanged re-save returns
-"No changes needed" identically on both dialects; and AFTER it by verifying
-against the re-read row instead of the rowcount, so a write that DID land is
-never reported as "did not apply" (2026-08-17 — until then only the first half
-existed here, and the user-facing HTTP twin had neither).
-
-Both halves compare with `agent_field_matches` from schema.entity_schema, which
-is also what backend/routes/auth.py uses: the two writers of the agents row
-previously disagreed about whether surrounding whitespace made a value
-different.
+Why any of this exists: P1 section 02 ①, prod evt_1f9c6680 — writing
+`agents.agent_name` alone left the agent's free-text long-term memory still
+asserting the old identity, and the old name may by then belong to a different
+agent of the same owner. A column change cannot move a few thousand words of
+narrative; a record the agent reads every turn can.
 """
 from __future__ import annotations
 
@@ -233,6 +227,50 @@ def _note_is_readable(note: str, expected_name: str) -> bool:
     return False
 
 
+# A self-name declaration: an optional bullet, a "name" label in either
+# language, a separator, then the value. Deliberately narrow — it must not match
+# prose. The agent writes this line itself (``update_awareness`` has the model
+# rewrite the whole profile in the prescribed structure), so the label wording
+# is the model's, and this covers the spellings the prompt's structure produces.
+_SELF_NAME_LINE = re.compile(
+    r"^(?P<head>[-*\s]*(?:名称|名字|姓名|Name|name|NAME)\s*[：:]\s*)(?P<value>.*)$"
+)
+
+
+def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
+    """Rewrite the agent's own "my name is X" line to the name it now has.
+
+    Why the platform touches agent-authored text at all, when 2026-08-04
+    established that it must not: that principle protects the agent's
+    OBSERVATIONS — what it has learned about its owner — and losing those to a
+    rename would be worse than the bug being fixed. Its own name is a different
+    thing: machine-knowable, owned by the ``agents`` row, and 铁律 #15 says a
+    machine-knowable fact is derived, never left to the model to remember.
+
+    Measured 2026-08-19: with the row, BasicInfo, the identity record and the
+    peer directory all corrected, a real two-turn run still answered with the
+    old name — the profile said ``- 名称：美食家`` above the correction, and the
+    model followed the line that came first.
+
+    Only the VALUE of a name-declaration line is touched, and only where it
+    starts with the old name. An owner observation that happens to mention the
+    old name is not a declaration and is left exactly as written.
+    """
+    old, new = (old_name or "").strip(), (new_name or "").strip()
+    if not old or old == new:
+        return profile
+
+    out = []
+    for line in (profile or "").splitlines():
+        m = _SELF_NAME_LINE.match(line)
+        if m and m.group("value").strip().startswith(old):
+            value = m.group("value").strip()
+            out.append(m.group("head") + new + value[len(old):])
+        else:
+            out.append(line)
+    return "\n".join(out) + ("\n" if profile.endswith("\n") else "")
+
+
 async def record_identity_change(
     db, agent_id: str, old_name: str, new_name: str
 ) -> bool:
@@ -257,11 +295,16 @@ async def record_identity_change(
         awareness_repo = InstanceAwarenessRepository(db)
         current = await awareness_repo.get_by_instance(instance_id)
         profile = (current.awareness if current else "") or ""
+        note = build_identity_change_note(old_name, new_name)
+        if not _note_is_readable(note, new_name):
+            return False
+        # Retire the agent's own "my name is X" line BEFORE appending the
+        # record, so the profile is never left with one section naming the old
+        # name and another the new one — which is precisely the state a real
+        # two-turn run answered the old name from (2026-08-19).
+        profile = retire_self_name(profile, old_name, new_name)
         await awareness_repo.upsert(
-            instance_id,
-            merge_identity_change_note(
-                profile, build_identity_change_note(old_name, new_name)
-            ),
+            instance_id, merge_identity_change_note(profile, note)
         )
         return True
     except Exception as e:  # noqa: BLE001 — see docstring

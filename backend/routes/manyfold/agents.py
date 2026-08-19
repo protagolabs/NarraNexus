@@ -411,6 +411,9 @@ async def update_agent_for_manyfold(
 
     updated = await db.get_one("agents", {"agent_id": agent_id})
     return {
+        # Same collision report the UI and the agent's own tool get: applied,
+        # never blocked, never silent.
+        "name_clash_with": result.name_clash_with,
         "agent_id": updated.get("agent_id") if updated else agent_id,
         "name": updated.get("agent_name") if updated else patch.get("agent_name"),
         "description": (

@@ -1212,6 +1212,11 @@ async def update_agent(
         return UpdateAgentResponse(
             success=True,
             agent=agent_info,
+            # Surfaced, not swallowed: the shared transaction computes it and
+            # the agent-facing tool has always reported it, but this route used
+            # to drop it — leaving the UI as the one rename path where handing
+            # a name to a second agent happens silently.
+            name_clash_with=result.name_clash_with,
         )
 
     except Exception as e:

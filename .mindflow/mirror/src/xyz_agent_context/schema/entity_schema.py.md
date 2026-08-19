@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 更正一处措辞
+
+上一条把 `normalize_agent_text` 说成「strip + 截长」。它**不截长**，只有
+`(value or "").strip()`；长度上限是 pydantic 在写入边缘卡的。结论（标识符不该走
+归一化）不变，理由少一条。
 
 ## 2026-08-18 — `agent_field_matches` 新增 `created_by` 分支
 

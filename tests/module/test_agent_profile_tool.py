@@ -423,3 +423,69 @@ def test_every_identity_note_states_the_current_name_readably():
     assert (
         identity_note_asserts(build_identity_reconciliation_note("B", "A")) == "B"
     )
+
+
+class TestSelfNameLine:
+    """A rename must also retire the agent's own "my name is X" line.
+
+    Measured, 2026-08-19: with every platform-owned source corrected — the row,
+    BasicInfo's `Agent Name`, the identity record, the peer directory — a real
+    two-turn run still answered with the OLD name, because the profile's Role
+    and Identity section still read `- 名称：美食家` and sits ABOVE the
+    correction. Iron rule #15 decides this: the name is machine-knowable, so
+    the platform derives it rather than hoping the model prefers one line over
+    another. The 2026-08-04 "not ours to edit" principle protects the agent's
+    observations about its OWNER; its own name is not one of those.
+    """
+
+    def test_the_self_name_line_is_rewritten(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = (
+            "# Agent Awareness Profile\n\n"
+            "## 4. Role and Identity\n"
+            "- 名称：美食家；精通各地美食推荐\n"
+        )
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "- 名称：小绿；精通各地美食推荐" in out
+        assert "美食家" not in out
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "- 名称：美食家",
+            "- 名字：美食家",
+            "- Name: 美食家",
+            "* name: 美食家",
+            "名称: 美食家",
+        ],
+    )
+    def test_the_common_spellings_are_covered(self, line):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name(f"## Role\n{line}\n", "美食家", "小绿")
+        assert "小绿" in out and "美食家" not in out
+
+    def test_prose_about_the_owner_is_untouched(self):
+        """The line match is narrow on purpose. An owner observation that
+        happens to contain the old name is not a self-name declaration, and
+        losing it to a rename would be a worse bug than the one being fixed."""
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = (
+            "## 4. Role and Identity\n- 名称：美食家\n\n"
+            "## 5. Owner observations\n"
+            "- owner 说他上次在美食家那家店吃过饭\n"
+            "- owner 更喜欢简短回答\n"
+        )
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "- 名称：小绿" in out
+        assert "owner 说他上次在美食家那家店吃过饭" in out, (
+            "an owner observation was rewritten"
+        )
+
+    def test_a_name_that_is_not_declared_anywhere_changes_nothing(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = "## 4. Role and Identity\n- 我擅长推荐美食\n"
+        assert retire_self_name(profile, "美食家", "小绿") == profile

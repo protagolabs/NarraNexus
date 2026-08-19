@@ -662,3 +662,73 @@ async def test_a_name_that_could_break_the_record_format_still_round_trips(
     assert second.identity_reconciled is False, (
         "reconciliation did not converge — every call would rewrite the profile"
     )
+
+
+@pytest.mark.asyncio
+async def test_after_a_rename_nothing_in_the_profile_still_claims_the_old_name(
+    db_client, ui_client
+):
+    """The end-to-end property, measured against a real run that failed it.
+
+    Every platform-owned source was already correct — row, BasicInfo, identity
+    record, peer directory — and a real two-turn run still answered 「美食家」,
+    because the profile's own Role and Identity line said so and sat above the
+    correction. The old name may appear only inside the correction that retires
+    it.
+    """
+    profile_with_self_name = (
+        "# Agent Awareness Profile\n\n"
+        "## 4. Role and Identity\n"
+        "- 名称：美食家；精通各地美食推荐\n\n"
+        "## 5. Owner observations\n"
+        "- owner 偏好简短回答\n"
+    )
+    await _seed(db_client, name="美食家", profile=profile_with_self_name)
+
+    resp = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    )
+    assert resp.json()["success"] is True
+
+    profile = await _profile(db_client)
+    entries = _identity_entries(profile)
+    assert "- 名称：小绿；精通各地美食推荐" in profile
+    assert "owner 偏好简短回答" in profile, "an owner observation was rewritten"
+
+    # Every remaining mention of the old name must be inside the record that
+    # retires it — nowhere is the agent still told it IS 美食家.
+    outside = [
+        ln for ln in profile.splitlines()
+        if "美食家" in ln and ln.strip() not in entries
+    ]
+    assert not outside, f"the old name still stands unretired on: {outside}"
+
+
+@pytest.mark.asyncio
+async def test_a_same_owner_name_collision_is_reported_to_the_ui(
+    db_client, ui_client
+):
+    """Applied, never blocked, never silent.
+
+    Handing one agent's name to another is deliberate often enough that
+    refusing it would be wrong; doing it silently is how two agents ended up
+    answering to one name (P1 section 02 ①). The shared transaction computes
+    the collision and the agent's own tool has always reported it — this route
+    used to drop it on the floor.
+    """
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+    await db_client.insert("agents", {
+        "agent_id": "agent_holds_the_name", "agent_name": "小绿",
+        "created_by": OWNER, "agent_description": "x", "is_public": 0,
+    })
+
+    resp = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert resp["success"] is True, "a collision must not block the rename"
+    assert resp["name_clash_with"] == "agent_holds_the_name"

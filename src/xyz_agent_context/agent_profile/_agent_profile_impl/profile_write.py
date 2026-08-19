@@ -40,17 +40,24 @@ from xyz_agent_context.schema import (
 def _awareness_identity_writers():
     """Awareness's two identity-record writers, or None when it is not loaded.
 
-    Deferred so this package never imports a Module at import time (see the
-    package docstring). Returns the module rather than dispatching by name: a
-    typo in a dispatch key is a runtime KeyError on a path with no try/except
-    around it, and callers keep their real signatures and types.
+    Returns the module rather than dispatching by name: a typo in a dispatch key
+    is a runtime KeyError on a path with no try/except around it, and callers
+    keep their real signatures and types.
 
-    Note what the ImportError branch does and does not cover. Unregistering
-    AwarenessModule from MODULE_MAP does not remove the package from disk, so
-    the import still succeeds — the degradation that actually happens is that
-    the agent has no AwarenessModule instance, and both writers return False on
-    their own. This guard is for a deployment that ships without the package
-    at all.
+    Be precise about what deferring buys, because the first version of this
+    docstring claimed more than it delivers. Python imports parent packages, so
+    this import runs ``xyz_agent_context.module.__init__`` and with it the whole
+    MODULE_MAP — measured: 22 sibling module packages. What deferring achieves
+    is that *this package* and the routes above it hold no module-scope
+    dependency on the Module layer, so the import graph says who owns the
+    transaction. It is not import-time isolation, and claiming it was would be
+    the third overstated claim in this change.
+
+    Nor does the ImportError branch carry the hot-plug story. Unregistering
+    AwarenessModule from MODULE_MAP leaves the package on disk and the import
+    still succeeds; the degradation that actually happens is that the agent has
+    no AwarenessModule instance, which both writers already answer with False.
+    This guard is only for a deployment shipping without the package at all.
     """
     try:
         from xyz_agent_context.module import awareness_module
@@ -358,6 +365,11 @@ async def apply_agent_profile_change(
             f"values for {unapplied} after the write — concurrent overwrite, "
             f"or the write did not land"
         )
+        # Refresh anyway. dev's promise is "every accepted request republishes",
+        # and it republished BEFORE verifying the write — a concurrent overwrite
+        # is exactly a case where the directory may be stale, and this is the
+        # one path that would otherwise skip the repair (#320's argument).
+        await _refresh_peer_directory(db, agent_id)
         return AgentProfileWrite(
             status="error",
             error_kind="not_applied",
@@ -386,7 +398,7 @@ async def apply_agent_profile_change(
         if not note_recorded:
             # One greppable line for the state that IS the incident: the column
             # moved, the memory did not. Without it the two halves live in
-            # separate log records inside _record_identity_change and nothing
+            # separate log records inside record_identity_change and nothing
             # says the rename they belong to completed anyway.
             logger.warning(
                 f"[agent-profile-write] {agent_id} renamed "

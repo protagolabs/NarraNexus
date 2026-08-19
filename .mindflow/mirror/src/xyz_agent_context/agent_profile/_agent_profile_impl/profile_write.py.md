@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 (五改) — 三处修正
+
+1. **延迟导入的隔离效果被我说大了**。实测 `from xyz_agent_context.module import
+   awareness_module` 会连带拉进 **22 个兄弟模块包**（Python 必然先导入父包，
+   父包 `__init__` 建 MODULE_MAP）。延迟买到的是**归属**——本包与其上的路由不再
+   持有对 Module 层的模块作用域依赖——**不是** import 期隔离。docstring 已改准。
+   这是本次第三次把断言写得比事实强。
+2. **`not_applied` 那一支现在也刷名录**。dev 上的承诺是「每个被接受的请求都刷」，
+   而且刷在回读校验**之前**；并发覆盖恰恰是名录可能过期的场景，原来是唯一会跳过
+   修复的路径（#320 的论证）。
+3. **`name_clash_with` 不再被两条 HTTP 路径丢掉**。事务一直在算它，agent 自己的
+   工具一直在报它，而界面改名把它扔了——于是「把一个名字转给第二个 agent」在
+   UI 上是**静默**发生的，那正是 P1 段02 ① 的起点。`UpdateAgentResponse` 加了
+   `name_clash_with`（附加字段，老客户端忽略），manyfold 的响应体同样带上。
+   **不拦**，只是不再静默。
+
+已知未修（记在 `reference/self_notebook/todo/2026-08-19-awareness-profile-read-modify-write-race.md`）：
+profile 的读—改—写现在跨进程可达，`merge_identity_change_note` 那句「绝不丢内容」
+的承诺覆盖不到整段并发覆盖。
 
 # profile_write.py — 改名事务
 

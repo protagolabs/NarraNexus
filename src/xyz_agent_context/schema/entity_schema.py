@@ -330,9 +330,9 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
             )
         # Owner id, compared byte-for-byte. Deliberately NOT run through
         # normalize_agent_text like the display-text fields: that helper strips
-        # and length-caps prose written for humans, and quietly reshaping an
-        # identifier used as a lookup key is how a row ends up owned by a user
-        # id nothing else resolves. An id either is the same id or it is not.
+        # prose written for humans, and quietly reshaping an identifier used as
+        # a lookup key is how a row ends up owned by a user id nothing else
+        # resolves. An id either is the same id or it is not.
         return (agent.created_by or "") == (wanted or "")
     if field not in AGENT_TEXT_FIELDS:
         # Explicitly dispatched, never "whatever getattr returns": an

@@ -182,6 +182,14 @@ class UpdateAgentResponse(BaseModel):
     success: bool
     agent: Optional[AgentInfo] = None
     error: Optional[str] = None
+    #: agent_id of another agent of the same owner that already answers to the
+    #: name just applied. NOT an error — handing a name from one agent to
+    #: another is a thing owners do deliberately, and refusing it would be
+    #: wrong. Doing it SILENTLY is what started the incident this whole area
+    #: exists for (two agents answering to one name, P1 section 02 ①), so the
+    #: rename is applied and the collision is reported. Additive field: older
+    #: clients ignore it.
+    name_clash_with: Optional[str] = None
 
 
 class DeleteAgentResponse(BaseModel):
