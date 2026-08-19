@@ -9,7 +9,6 @@ import { create } from 'zustand';
 import type { Artifact } from '@/types/artifact';
 import { artifactsApi } from '@/services/artifactsApi';
 
-const COLLAPSED_KEY = 'artifact_column_collapsed';
 const MINIMIZED_IDS_KEY = 'artifact_minimized_ids';
 
 /**
@@ -38,7 +37,6 @@ interface ArtifactState {
   /** Convenience selector: artifacts for the active agent. */
   artifacts: Artifact[];
   activeArtifactId: string | null;
-  collapsed: boolean;
 
   /**
    * Live registry of mounted chart renderers, keyed by artifact_id. The
@@ -82,7 +80,6 @@ interface ArtifactState {
    */
   upsert: (artifact: Artifact, opts?: { focus?: boolean }) => void;
   remove: (artifactId: string) => void;
-  setCollapsed: (collapsed: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   /** Identity-checked clear: only the mount that registered may remove. */
   unregisterChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
@@ -94,14 +91,6 @@ interface ArtifactState {
   /** Open a web page as a URL-tab artifact and focus it. */
   openUrl: (agentId: string, url: string, title?: string) => Promise<Artifact>;
 }
-
-const initialCollapsed = (() => {
-  try {
-    return window.localStorage.getItem(COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-})();
 
 const initialMinimizedTabIds = (() => {
   try {
@@ -169,7 +158,6 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   activeAgentId: null,
   artifacts: [],
   activeArtifactId: null,
-  collapsed: initialCollapsed,
   chartInstances: {},
   minimizedTabIds: initialMinimizedTabIds,
   chartLruOrder: [],
@@ -318,15 +306,6 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
         ),
       };
     });
-  },
-
-  setCollapsed(collapsed) {
-    set({ collapsed });
-    try {
-      window.localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
   },
 
   registerChartInstance(artifactId, instance) {

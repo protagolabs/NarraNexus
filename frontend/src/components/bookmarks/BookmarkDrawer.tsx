@@ -3,16 +3,18 @@
  * @date: 2026-06-10
  * @description: Slide-over shell for bookmark panel content.
  *
- * Two modes:
- *   Slide-over (pinned=false): overlay 440px wide, anchored `edgeReservePx`
- *     from the right edge so it stops SHORT of the bookmark strip.
- *     - bg: var(--nm-paper)
- *     - left-edge shadow: -2px 0 var(--nm-elev-edge)
- *     - transparent backdrop (also stops short of the strip); click backdrop
- *       or Esc → onClose
- *     - role="dialog", NOT aria-modal — the strip stays operable
+ * Three renderings (Owner 2026-08-06):
+ *   Mobile slide-over (pinned=false, inset=false): fixed overlay 440px,
+ *     anchored `edgeReservePx` from the right edge.
+ *     - transparent backdrop; click backdrop or Esc → onClose
+ *     - role="dialog", NOT aria-modal — surrounding chrome stays operable
+ *   Desktop transient (pinned=false, inset=true): IN-FLOW column of
+ *     `insetWidth` (per-tab: artifacts wants ~50vw for readability, the
+ *     rest 440px) — the chat shifts left instead of being covered. Still
+ *     transient: backdrop click + Esc close it.
  *   Pinned (pinned=true): static column, laid out in the flex row by the
- *     parent. Owns its own frame + width; no portal, no backdrop.
+ *     parent. Owns its own frame + user-resizable persisted width; no
+ *     backdrop, survives outside clicks.
  *
  * Header: mono uppercase title + Pin/PinOff toggle + X close.
  *
@@ -47,7 +49,7 @@
 
 import { type ReactNode, type Ref, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Pin, PinOff } from 'lucide-react';
+import { X, Pin, PinOff, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +73,27 @@ interface BookmarkDrawerProps {
   /** Column width in px, pinned mode only. Ignored by the slide-over. */
   pinnedWidth?: number;
   /**
+   * Desktop (Owner 2026-08-06): the transient (unpinned) drawer renders as
+   * an IN-FLOW column too — content shifts left instead of being covered
+   * (the fixed overlay was hiding the chat's own-message avatars). It keeps
+   * transient semantics: backdrop click + Esc close it. Overlay mode
+   * remains for mobile (inset=false), where there is no room to share.
+   */
+  inset?: boolean;
+  /**
+   * Column width for the transient inset mode — any CSS width (px number
+   * or e.g. 'min(50vw, …)' for the artifacts panel, which wants half the
+   * screen for readability). Pinned mode keeps using pinnedWidth (the
+   * user-resizable, persisted one). Default 440.
+   */
+  insetWidth?: number | string;
+  /**
+   * One-sentence explainer for the open panel (what it's for + how to use
+   * it), shown behind a ? icon beside the title. Empty string hides the
+   * icon. Localized by the caller (tabDescKey).
+   */
+  description?: string;
+  /**
    * Handle on the pinned column, so the parent's ResizableDivider can write
    * `width` straight to the DOM during a drag. Null in slide-over mode.
    */
@@ -90,6 +113,9 @@ export function BookmarkDrawer({
   title,
   edgeReservePx = 0,
   pinnedWidth = 400,
+  inset = false,
+  insetWidth = 440,
+  description = '',
   columnRef,
   children,
 }: BookmarkDrawerProps) {
@@ -114,15 +140,20 @@ export function BookmarkDrawer({
 
   if (!open) return null;
 
-  const overlay = !pinned;
+  // Transient (unpinned) still closes on backdrop/Esc; but on desktop
+  // (inset) it lays out IN FLOW like the pinned column, so it never covers
+  // chat content. True fixed overlay remains mobile-only.
+  const transient = !pinned;
+  const overlay = transient && !inset;
 
   return (
     <>
-      {/* Transparent backdrop — slide-over only. It captures outside clicks
-          but leaves the reserved edge alone, so strip clicks reach the strip.
-          When pinned this renders as `false`, which is fine: the panel below
-          keeps a stable slot in this fragment either way. */}
-      {overlay && (
+      {/* Transparent backdrop — transient mode only. It captures outside
+          clicks; the in-flow panel below sits above it (z-[201]) so its own
+          clicks are never eaten. When pinned this renders as `false`, which
+          is fine: the panel below keeps a stable slot in this fragment
+          either way. */}
+      {transient && (
         <div
           className="fixed inset-y-0 left-0 z-[200]"
           style={{ right: edgeReservePx }}
@@ -131,20 +162,22 @@ export function BookmarkDrawer({
         />
       )}
 
-      {/* The panel. ONE element for both modes — only its positioning changes.
-          Slide-over is `position: fixed` (out of flow, so it consumes no layout
-          space) rather than a portal; pinned is an in-flow flex column.
-          NOT aria-modal in overlay mode: the bookmark strip beside it is a live
-          switcher and aria-modal would hide it from screen readers. */}
+      {/* The panel. ONE element for all modes — only its positioning changes
+          (mode switches must never remount the children; see file header).
+          Mobile slide-over is `position: fixed`; desktop transient + pinned
+          are in-flow flex columns. NOT aria-modal in overlay mode: the
+          surrounding chrome stays operable. */}
       <div
         ref={columnRef}
-        role={overlay ? 'dialog' : undefined}
-        aria-label={overlay ? title : undefined}
+        role={transient ? 'dialog' : undefined}
+        aria-label={transient ? title : undefined}
         className={cn(
           'flex flex-col overflow-hidden',
           overlay
             ? 'fixed inset-y-0 z-[200] animate-slide-in-right'
-            : 'shrink-0 rounded-[var(--radius-md)]',
+            : transient
+              ? 'shrink-0 relative z-[201] animate-slide-in-right'
+              : 'shrink-0 rounded-[var(--radius-md)]',
         )}
         style={
           overlay
@@ -154,16 +187,23 @@ export function BookmarkDrawer({
                 background: 'var(--nm-paper)',
                 boxShadow: '-2px 0 var(--nm-elev-edge)',
               }
-            : {
-                width: pinnedWidth,
-                background: 'var(--nm-paper)',
-                border: '1px solid var(--nm-hairline)',
-              }
+            : transient
+              ? {
+                  width: insetWidth,
+                  background: 'var(--nm-paper)',
+                  borderLeft: '1px solid var(--nm-hairline)',
+                }
+              : {
+                  width: pinnedWidth,
+                  background: 'var(--nm-paper)',
+                  border: '1px solid var(--nm-hairline)',
+                }
         }
-        onClick={overlay ? (e) => e.stopPropagation() : undefined}
+        onClick={transient ? (e) => e.stopPropagation() : undefined}
       >
         <DrawerHeader
           title={title}
+          description={description}
           pinned={pinned}
           onPinnedChange={onPinnedChange}
           onClose={onClose}
@@ -180,25 +220,52 @@ export function BookmarkDrawer({
 
 interface DrawerHeaderProps {
   title: string;
+  description?: string;
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
 }
 
-function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderProps) {
+function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: DrawerHeaderProps) {
   const { t } = useTranslation();
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
       style={{ borderBottom: '1px solid var(--nm-hairline)' }}
     >
-      {/* Mono uppercase title */}
-      <span
-        className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none"
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {title}
-      </span>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {/* Mono uppercase title */}
+        <span
+          className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none truncate"
+          style={{ color: 'var(--text-primary)' }}
+        >
+          {title}
+        </span>
+        {/* ? explainer — one sentence on what this panel is for, for users
+            who never open the docs (Owner 2026-08-06). Hover/focus reveals
+            a styled tooltip; localized upstream. */}
+        {description && (
+          <span className="group/help relative inline-flex shrink-0">
+            <button
+              type="button"
+              aria-label={description}
+              className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--nm-ink30)] transition-colors hover:text-[var(--nm-ink70)] focus:outline-none focus-visible:text-[var(--nm-ink70)]"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 w-max max-w-[280px] rounded-[var(--radius-sm)] px-2.5 py-2 text-[11px] leading-relaxed opacity-0 transition-opacity duration-100 group-hover/help:opacity-100 group-focus-within/help:opacity-100"
+              style={{
+                background: 'var(--nm-ink)',
+                color: 'var(--nm-paper)',
+              }}
+            >
+              {description}
+            </span>
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center gap-1">
         {/* Pin / PinOff toggle */}
@@ -210,7 +277,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.unpin')}
             className={cn(
-              'flex items-center justify-center w-6 h-6 rounded-sm',
+              'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
               'transition-colors duration-100 cursor-pointer',
               'hover:bg-[var(--nm-paper-warm)]',
             )}
@@ -230,7 +297,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.pin')}
             className={cn(
-              'flex items-center justify-center w-6 h-6 rounded-sm',
+              'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
               'transition-colors duration-100 cursor-pointer',
               'hover:bg-[var(--nm-paper-warm)]',
             )}
@@ -252,7 +319,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
             // reachable by a mouse. Hovering explained nothing.
             title={t('bookmarks.drawer.close')}
           className={cn(
-            'flex items-center justify-center w-6 h-6 rounded-sm',
+            'flex items-center justify-center w-6 h-6 rounded-[var(--radius-sm)]',
             'transition-colors duration-100 cursor-pointer',
             'hover:bg-[var(--nm-paper-warm)]',
           )}

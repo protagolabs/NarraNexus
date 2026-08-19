@@ -24,7 +24,6 @@ import { BusFailuresSection } from './BusFailuresSection';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
 
-
 // Above this many characters a bus message is almost certainly a full
 // agent-to-agent report; clamp it so an expanded room reads as a scannable
 // list instead of a wall of text.
@@ -150,7 +149,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
           <Inbox />
           {t('inbox.title')}
           {unreadCount > 0 && (
-            <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
+            <span className="ml-1 text-[var(--color-warning)] tabular-nums normal-case tracking-normal">
               · {unreadCount}
             </span>
           )}
@@ -278,7 +277,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                         <div
                           key={member.agent_id}
                           title={member.agent_id}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--bg-tertiary)] text-[10px]"
+                          className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md)] bg-[var(--bg-tertiary)] text-[10px]"
                         >
                           <span className="font-medium text-[var(--text-secondary)]">{member.agent_name}</span>
                         </div>
@@ -318,7 +317,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                               <div className="flex items-center gap-2 min-w-0">
                                 <span
                                   className={cn(
-                                    'inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0',
+                                    'inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white shrink-0',
                                     color.dot
                                   )}
                                 >

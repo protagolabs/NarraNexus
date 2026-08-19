@@ -1,8 +1,35 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — "管理 Agent" 入口移除(与智能体管理页重合)
+
+merge 时从 dev 移植的 ManageAgentsContent(一个跳转按钮)被 Owner 裁掉:
+v4 的 Dashboard 已吸收批量管理,侧栏一级入口(中文现名"智能体管理")直达,
+设置里再放个跳转门是冗余。NAV_ITEMS 'agents' 项、组件、Users/useNavigate
+引入一并删除。locale 里 settings.manageAgents / nav.manageAgents 两处
+key 刻意**留存未删**——同名 key 在别的命名空间(agentList 菜单、旧
+pages.manageAgents)有活引用,机械清理误伤过一次;死 key 无害,留待
+下次 i18n 大扫除时人工核对。
+
+## 2026-08-06 (2) — 纯 app 设置:account/bundle 项移除
+
+Owner 指示:Settings 只留 app 级配置(providers / modeldefaults /
+artifacts / updates)。`bundle` 项删除(入口在侧栏 New 菜单 + Export 行);
+`account` 项(连同 powerOnly 机制)移到用户级 [[AccountPage.tsx]]
+(/app/account,侧栏账户弹层进入)。**Stripe 回跳契约保住了**:
+?tab=account 深链在首渲染即 <Navigate replace> 到 /app/account 并整串
+保留 query(status=…),后端 billing.py::_return_urls 无需改。
+其余 ?tab= 规则(首渲染独占、未知回退第一项、懒挂载)不变;
+SettingsPage.nav.test.tsx 已按新行为重写(重定向断言取代 powerOnly 断言)。
+
+## 2026-08-06 — manage-agents nav 项移除
+
+Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
+`agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
+desktopOnly/powerOnly 过滤规则不变。
 
 ## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
 

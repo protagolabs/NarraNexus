@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -138,6 +138,15 @@ keydown，所以还需要 100ms 的宽限窗口。两者都是私聊 [[Composer.
 
 根布局从纵向 flex 改为「横向 flex：transcript 列 + [[TeamWorkspacePanel.tsx]]」。此前该组件
 注释里的「artifacts 暂不提供」不再成立。
+
+## 2026-08-11 — composer 底色对齐单聊(card 白 + hairline)
+
+团队 composer 此前落在 ui/Textarea 默认的 paper-warm 填充上,与单聊
+Composer.tsx 的 card 白底不一致——Owner 双截图对照抓出,并由此在
+design_system.md 补了 §2.5 表面层级("同一功能件跨页面同层"/"输入面与
+容器差一层")。现补上与单聊相同的 `bg-[--nm-card]` 覆盖;发送键 rest 态
+warm 填充在白底输入框上可见,与单聊完全一致,零改动。
+
 
 ## 2026-07-31 — roster v2 接线：accent 下传 + drawer 不再定宽
 

@@ -28,7 +28,6 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   // restoreTab, not setActive: the target may be minimized, and an active
   // pointer on a hidden tab blanks the column (0802 ①⑤ family).
   const restoreTab = useArtifactStore((s) => s.restoreTab);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
@@ -80,14 +79,13 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   }, [artifact.kind, url]);
 
   const open = () => {
-    setCollapsed(false);
     restoreTab(artifact.artifact_id);
   };
 
   return (
     <button
       onClick={open}
-      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] text-left"
+      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--nm-paper-warm)] text-left"
     >
       <div className="text-xs uppercase opacity-60">{artifact.kind}</div>
       <div className="text-sm font-semibold">{artifact.title}</div>

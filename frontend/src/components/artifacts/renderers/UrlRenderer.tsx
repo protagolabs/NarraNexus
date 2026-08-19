@@ -174,7 +174,7 @@ function ModeBar({
         <button
           onClick={onReset}
           disabled={busy}
-          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)]"
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--nm-paper-warm)]"
           title={t('artifacts.url.reset', 'Reset to auto')}
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -183,7 +183,7 @@ function ModeBar({
       <button
         onClick={onToggle}
         disabled={busy}
-        className="flex items-center gap-1 px-2 py-1 rounded opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)]"
+        className="flex items-center gap-1 px-2 py-1 rounded opacity-70 hover:opacity-100 hover:bg-[var(--nm-paper-warm)]"
         title={
           mode === 'iframe'
             ? t('artifacts.url.switchToExternal', "Page not loading? Switch to the open-in-browser card")
@@ -195,7 +195,7 @@ function ModeBar({
       </button>
       <button
         onClick={onOpenExternal}
-        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)]"
+        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--nm-paper-warm)]"
         title={t('artifacts.url.openExternal', 'Open in new window')}
       >
         <ExternalLink className="w-3.5 h-3.5" />

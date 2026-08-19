@@ -1,0 +1,22 @@
+---
+code_file: frontend/src/pages/AccountPage.tsx
+last_verified: 2026-08-06
+stub: false
+---
+
+# AccountPage — 用户级设置(account / billing / subscription)
+
+## 为什么存在
+
+Chat UI v4 迭代:Owner 要求把「用户的钱与身份」从 app Settings 里拆出来,
+挂在侧栏底部账户弹层下(用户级 ≠ 应用级)。内容 = 既有
+NetmindAccountPanel 原样(免费额度 / Power 余额 / 订阅 / 充值一张卡),
+面板内部零改动。
+
+## 关键点
+
+- **Stripe 回跳**:后端仍返回 /app/settings?tab=account&status=…;
+  SettingsPage 首渲染检测到 tab=account 即整串 query 转发到本页,
+  面板内的 payment-return 处理(useNetmindPaymentReturn)照常读参。
+- 非 Power 会话(无 netmindToken)直达 URL 时显示提示文案,不留白页
+  (面板自身 self-gate 为 null)。

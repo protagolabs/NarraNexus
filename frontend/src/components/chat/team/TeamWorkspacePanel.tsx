@@ -20,8 +20,11 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Maximize2, X } from 'lucide-react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
+import ArtifactZoomModal from '@/components/artifacts/ArtifactZoomModal';
 import { api } from '@/lib/api';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
@@ -38,6 +41,9 @@ interface TeamWorkspacePanelProps {
    */
   selectedId: string | null;
   onSelect: (artifactId: string | null) => void;
+  /** Dismiss the drawer (v4: the panel is a top-bar-opened overlay, not a
+   *  standing column — same interaction as the single-chat artifacts drawer). */
+  onClose: () => void;
 }
 
 type Tab = 'artifacts' | 'files';
@@ -68,10 +74,14 @@ export function TeamWorkspacePanel({
   error,
   selectedId,
   onSelect,
+  onClose,
 }: TeamWorkspacePanelProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('artifacts');
   // Download failures are the panel's own, not the parent's fetch error.
   const [localError, setLocalError] = useState<string | null>(null);
+  // Fullscreen zoom for the selected artifact (same modal as ArtifactColumn).
+  const [zoomed, setZoomed] = useState(false);
 
   // Rendered in place rather than opened in a new tab: the panel exists so a
   // team's output can be read WHILE reading the conversation that produced it,
@@ -117,7 +127,10 @@ export function TeamWorkspacePanel({
   ];
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-l border-[var(--nm-hairline)]">
+    // A drawer sized like the single-chat artifacts panel (~50vw), not a
+    // skinny standing column: the 288px version could list artifacts but a
+    // 288×256 corner box could never SHOW one (Owner 2026-08-18).
+    <div className="absolute inset-y-0 right-0 z-30 flex w-[min(50vw,760px)] max-md:w-full flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] shadow-xl">
       <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
         {tabs.map((t) => (
           <button
@@ -133,9 +146,19 @@ export function TeamWorkspacePanel({
             {t.label} {t.count > 0 && <span className="opacity-60">{t.count}</span>}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={onClose}
+          title={t('chat.team.workspace.close')}
+          aria-label={t('chat.team.workspace.close')}
+          className="ml-auto shrink-0 p-1 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="flex flex-1 min-h-0">
+      <div className="w-64 shrink-0 border-r border-[var(--nm-hairline)] overflow-y-auto min-h-0">
         {(error || localError) && (
           <div className="px-3 py-2 text-[11px] text-[var(--nm-danger,#c0392b)]">
             {error || localError}
@@ -193,24 +216,41 @@ export function TeamWorkspacePanel({
           ))}
       </div>
 
-      {selected && (
-        <div className="shrink-0 h-64 border-t border-[var(--nm-hairline)] flex flex-col min-h-0">
-          <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-[var(--nm-hairline)]">
-            <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-              {selected.title}
-            </span>
-            <button
-              type="button"
-              onClick={() => onSelect(null)}
-              className="text-[10px] font-mono text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
-            >
-              close
-            </button>
+      {/* Viewer — the drawer's main region, full height like the single-chat
+          artifact column. The list on the left picks; this side shows. */}
+      <div className="flex min-w-0 flex-1 flex-col min-h-0">
+        {selected ? (
+          <>
+            <div className="shrink-0 flex items-center justify-between gap-1 px-3 py-1.5 border-b border-[var(--nm-hairline)]">
+              <span className="text-[10px] font-mono text-[var(--text-tertiary)] truncate">
+                {selected.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                title={t('chat.team.workspace.zoom')}
+                aria-label={t('chat.team.workspace.zoom')}
+                className="shrink-0 p-0.5 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ArtifactRenderer artifact={selected} />
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-[11px] text-[var(--text-tertiary)]">
+            {tab === 'artifacts'
+              ? t('chat.team.workspace.emptyArtifacts')
+              : t('chat.team.workspace.emptyFiles')}
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <ArtifactRenderer artifact={selected} />
-          </div>
-        </div>
+        )}
+      </div>
+      </div>
+
+      {zoomed && (
+        <ArtifactZoomModal artifact={selected} onClose={() => setZoomed(false)} />
       )}
     </div>
   );

@@ -191,6 +191,12 @@ you must:
   layout
   **When to read**: changing frontend state, routing, or the API call
   layer
+- `.mindflow/project/references/design_system.md` — the Nordic-archive
+  design language: surface ladder (§2.5), motion, icon language (§5),
+  color-token rules and their DATA exemptions (§6.2)
+  **When to read**: changing any frontend color / radius / icon /
+  surface level, adding a UI component, or reviewing UI changes —
+  code comments cite its § numbers
 - `.mindflow/project/references/desktop_tauri_integration.md` — Tauri
   sidecar
   **When to read**: changing `run.sh` or the Tauri sidecar — triggers

@@ -228,12 +228,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   };
 
   const selectCls =
-    'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
+    'w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
   const labelCls = 'block text-xs text-[var(--text-tertiary)] mb-1';
   const btnPrimary =
-    'px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
+    'px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
   const btnGhost =
-    'px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors';
+    'px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors';
   const resetLink =
     'text-xs text-[var(--text-tertiary)] underline decoration-dotted hover:text-[var(--color-error)] transition-colors disabled:opacity-40';
 
@@ -269,7 +269,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         ) : (
           <div className="space-y-6">
             {freeTier.active && (
-              <div className="rounded-xl border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
+              <div className="rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
                 {t('chat.model.freeTierBanner', {
                   model: freeTier.model ? prettifyModel(freeTier.model) : '',
                 })}
@@ -280,7 +280,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             </p>
 
             {/* ---- Agent slot ---- */}
-            <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {t('pages.settings.modelDefaults.agentMain')}
@@ -423,7 +423,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             </div>
 
             {/* ---- Helper slot ---- */}
-            <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {t('pages.settings.modelDefaults.helperTitle')}

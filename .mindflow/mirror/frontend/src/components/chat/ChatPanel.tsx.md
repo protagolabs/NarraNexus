@@ -1,8 +1,42 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 安全提示可读性修正(更正 08-14 条的「只是位置变了」)
+
+06-17 安全横幅在 v4 里其实同时被降了三件事:warning 底色→全套 ink 最淡的
+`--nm-ink30`、`truncate` 截断、完整文案只活在 `title` 悬停里(触屏永远看不到)。
+本条修正:去掉 `truncate`、颜色升到 `--nm-ink50`,`title` 保留完整
+`chat.securityReminder`(zh-localization.test.ts:62 唯一挂靠点,别删)。
+「demote 到 tools row」保留为 Owner 已接受的版式;若要恢复独占横幅需另行拍板。
+
+另:`OnboardingJourney` 挂载点加 `key={agentId}`——它的 `dismissed` 只在挂载时
+读一次 localStorage,不带 key 时 React 复用实例,agent A 的关闭状态会漏给
+agent B(反向同理,只能刷新页面恢复)。
+
+## 2026-08-06 (2) — lastMessageId
+
+visibleTimeline 里最后一条非 activity 消息的 id,传给 MessageBubble 的
+isLatest(meta 行常显);bootstrap greeting 气泡固定 isLatest。
+
+## 2026-08-06 — Chat UI v4:头部重构 + 满铺纸面
+
+- 旧头部(BindingDot + [INTERACTION] + agentId + Sliders + Cost)与
+  Conversation/Inner Thoughts 下划线 tab 行、安全提醒横幅,合并为
+  [[ChatHeader.tsx]](agent 名主角 + segmented 切换 + Jobs/Inbox/Artifacts/
+  Cost 图标 + ⋯ detail 菜单)。移动端保留 md:hidden 的旧式 tab 行
+  (桌面头部不在 < md 渲染)。chatTab 状态与 isActivity 路由规则不变。
+- 安全提醒文案降为 composer 工具行内的常驻短句(chat.composerPrivacyHint,
+  title 悬停给全文)— 仍然永久、不可关闭,只是位置变了。
+- 根 Card 去掉 chat-frosted(玻璃层退役,平面 --nm-card);消息流与
+  composer 都包在 max-w-[820px] mx-auto 里。
+- 气泡改 v4 纸面填色(见 [[MessageBubble.tsx]]);流式 live 气泡的内联
+  样式同步改为 paper + hairline + silicon 左描边,nm-bubble-ai 不再用于
+  单聊(团队聊天仍在用)。
+- sessionLabel:头部 mono 侧标 "会话 · <最近消息时间>"。
+- AgentLlmConfigPanel 的入口从头部 Sliders 图标移到 ⋯ 菜单底部。
 
 ## 2026-08-14 — chat fast mode: tools row 接入开关
 

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — setCollapsed 死调用移除(下方 08-12 条的调用顺序不变量随之失效)
+
+`open()` 里的 `setCollapsed(false)` 删除——v4 后 artifactStore 的 `collapsed`
+无人再读,该写入是空操作(见 [[ArtifactColumn]]/[[artifactStore]] 08-19 条)。
+点击行为不变:`restoreTab(artifact_id)` 独自完成打开。下方 08-12 条里
+「setCollapsed(false) 必须先于 setActive()」的顺序契约与「Reads from
+setCollapsed」「经 setCollapsed 间接唤醒 ArtifactColumn」的描述**已随删除
+失效**,以本条为准。[[ArtifactInlineBadge]] 的同名调用同轮删除。
 
 ## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
 
