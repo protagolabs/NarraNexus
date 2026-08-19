@@ -4,6 +4,13 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-19（当天第二条）— cancel / reactivate 经 `_write_action` 带上 channel
+
+理由见 [[netmind_billing_client]]。要点是 `extra` 这个形参的价值在这里第二次兑现：
+两个端点**只**收到 `channel`，**绝不**收到 `_return_urls` —— 它们不开 Stripe
+checkout，没有可跳转的地方。有测试同时钉住这两件事（带 channel、不带 URL）。
+
+
 ## 2026-08-18 — 支付宝 / 微信：payment_method + months + `GET /fx-rate`
 
 路由这一层只做三件事，币种映射不在这里（在 [[netmind_billing_client]]，那是上游

@@ -4,6 +4,30 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19（当天第二条）— cancel / reactivate 也发 channel；reactivate 会**真的**改坏一次性订阅
+
+**先说被抓到的矛盾**：本文件 `_channel_field` 的注释说「不传 = 上游按 power 账号
+处理」，而 [[settings]] 那边说「取消/恢复由上游按订阅归属路由」。**这两句不可能同时
+为真** —— 是评审读出来的，不是我发现的。
+
+处置不是二选一地猜，而是取那个**在两种假设下都不会更糟**的做法：两个端点现在也带
+`channel`。
+- 若上游按 channel 定位：不传 = **nexus 上新建的卡订阅根本取消不掉**，用户点取消
+  收到「No active Pro subscription.」，下个月照扣。
+- 若上游按订阅归属路由：多一个字段是惰性的。
+
+两个端点都接受该字段（2026-08-19 实测各回 200）。settings.py 里那句无实测背书的路由断言已删。
+
+**同日实测的第二件事，比预想的严重**：`reactivate` 对一次性订阅**不是空操作** ——
+返回 200 并**真的把 `auto_renew` 翻成 true**，在一个不可能自动续费的商品上。
+（`cancel` 则是谎报成功的空操作，早先已记。）测完账号已还原。
+
+推论：[[NetmindAccountPanel]] 的 `resolveState` 把 `payment_method` 放在 `auto_renew`
+**之前**判，这个顺序因此不只是风格 —— 状态被这样弄脏之后，顺序反过来会把一次性订阅
+显示成「Pro 生效中 · 取消订阅」。UI 本就不对一次性调 reactivate，顺序是那道保险之外
+的第二道。
+
+
 ## 2026-08-18 — nexus 账号：payment_method / channel / months / fx_rate
 
 接入独立的 nexus Stripe 账号（支持支付宝 + 微信）。四点判断，都不是照抄文档：
