@@ -20,7 +20,7 @@ record was not persisted.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -51,8 +51,13 @@ class GatewayKeyMisuseRepository:
         caller_ua: Optional[str] = None,
         model: Optional[str] = None,
         hit_at: Optional[str] = None,
-    ) -> int:
-        """Persist one authoritative event and return its row id.
+    ) -> Tuple[int, bool]:
+        """Persist one authoritative event; return ``(row_id, deduped)``.
+
+        ``deduped`` is False on a fresh insert and True when an at-least-once
+        retry collapsed onto an existing row — so the caller can tell an
+        idempotent retry apart from a first write (and observe the retry rate)
+        instead of a status flag that is always True.
 
         ``user_id`` is the caller's already-reverse-resolved attribution, or
         None for an unresolved event (stored as an alert-only row; the response
@@ -60,15 +65,19 @@ class GatewayKeyMisuseRepository:
         column defaults at the DB facade, so an alert-only row still gets its
         ``disposition_status='pending'`` and timestamps.
 
-        ``hit_at`` is the authoritative time the misuse occurred, supplied by the
-        caller. When given it is the idempotency anchor: the table has a UNIQUE
-        (key_hash, hit_at) index, so a write-succeeded-but-response-timed-out
-        retry of the same event collapses to the SAME row instead of a duplicate
-        (a hard signal is acted on once; a duplicate row would be double-acted).
-        On that collision we return the existing row's id — an idempotent success,
-        NOT a swallowed failure. Any OTHER write error still surfaces (a dropped
-        row is a missed enforcement). When ``hit_at`` is omitted the column
-        default (insert time) applies and no dedup is possible.
+        ``hit_at`` is the authoritative time the misuse occurred, already
+        normalised by the endpoint to the DATETIME(6) contract
+        ``YYYY-MM-DD HH:MM:SS.ffffff`` (UTC). When given it is the idempotency
+        anchor: the table has a UNIQUE (key_hash, hit_at) index, so a
+        write-succeeded-but-response-timed-out retry of the same event collapses
+        to the SAME row instead of a duplicate (a hard signal is acted on once; a
+        duplicate row would be double-acted). On that collision we return the
+        existing row's id with ``deduped=True`` — an idempotent success, NOT a
+        swallowed failure. Any OTHER write error still surfaces (a dropped row is
+        a missed enforcement). When ``hit_at`` is omitted the column default
+        (insert time) applies and no dedup is possible. The reverse-lookup keys
+        on the SAME normalised ``hit_at`` that was written, so it always finds the
+        row it just collided with.
         """
         row = {
             "user_id": user_id,
@@ -83,7 +92,7 @@ class GatewayKeyMisuseRepository:
             row["hit_at"] = hit_at
 
         try:
-            return await self._db.insert(self.TABLE, row)
+            return await self._db.insert(self.TABLE, row), False
         except Exception as e:  # noqa: BLE001 — re-raised unless it is THE dedup race
             msg = str(e).lower()
             is_dupe = (
@@ -106,5 +115,5 @@ class GatewayKeyMisuseRepository:
                         "[gateway-key-misuse] idempotent retry collapsed to "
                         f"existing row id={existing.get('id')}"
                     )
-                    return int(existing["id"])
+                    return int(existing["id"]), True
             raise

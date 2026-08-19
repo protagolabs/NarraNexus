@@ -14,6 +14,7 @@ On next app startup, the column is automatically added via ALTER TABLE ADD COLUM
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -79,6 +80,31 @@ def _register(table: TableDef) -> None:
 def get_registered_tables() -> List[TableDef]:
     """Return all registered table definitions."""
     return list(TABLES.values())
+
+
+_VARCHAR_RE = re.compile(r"VARCHAR\((\d+)\)", re.IGNORECASE)
+
+
+def varchar_width(table: str, column: str) -> int:
+    """Return the declared ``VARCHAR(N)`` width of a column.
+
+    The schema registry is the single source of truth for column widths, so a
+    caller that must clip an attacker-influenced field to its column width — the
+    gateway-key-misuse endpoint clips every field it stores, and treats an
+    over-width ``user_id`` as unresolvable — derives its limit from here instead
+    of hardcoding a number that could silently drift from the DDL. Raises if the
+    column is not a plain ``VARCHAR(N)`` so a wrong lookup fails loudly at import
+    rather than clipping to a bogus width.
+    """
+    col = next((c for c in TABLES[table].columns if c.name == column), None)
+    if col is None:
+        raise KeyError(f"{table} has no column {column!r}")
+    m = _VARCHAR_RE.fullmatch(col.mysql_type.strip())
+    if m is None:
+        raise ValueError(
+            f"{table}.{column} is {col.mysql_type!r}, not a VARCHAR(N) column"
+        )
+    return int(m.group(1))
 
 
 # ============================================================================
@@ -1463,7 +1489,7 @@ _register(
         name="gateway_key_misuse",
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
-            Column("user_id", "TEXT", "VARCHAR(128)"),  # nullable: unresolved event → alert-only row, never actioned
+            Column("user_id", "TEXT", "VARCHAR(64)"),  # matches users.user_id VARCHAR(64); nullable: unresolved event → alert-only row, never actioned
             Column("run_id", "TEXT", "VARCHAR(128)"),
             Column("key_hash", "TEXT", "VARCHAR(256)"),
             Column("caller_ip", "TEXT", "VARCHAR(64)"),

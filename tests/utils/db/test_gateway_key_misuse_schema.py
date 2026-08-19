@@ -26,7 +26,10 @@ def test_gateway_key_misuse_registered_dual_dialect():
     cols = {c.name: c for c in t.columns}
     # authoritative attribution column + monitor watermark PK
     assert cols["id"].primary_key and cols["id"].auto_increment
-    assert cols["user_id"].sqlite_type == "TEXT" and cols["user_id"].mysql_type == "VARCHAR(128)"
+    # user_id is VARCHAR(64) — the codebase-wide id width (users.user_id is
+    # VARCHAR(64) UNIQUE); a wider column would let a 65..128-char value be
+    # stored as an authoritative attribution the ladder could not resolve back.
+    assert cols["user_id"].sqlite_type == "TEXT" and cols["user_id"].mysql_type == "VARCHAR(64)"
     assert cols["disposition_status"].default == "'pending'"
     for c in t.columns:  # dual-dialect contract: both types always filled
         assert c.sqlite_type, f"{c.name} missing sqlite_type"

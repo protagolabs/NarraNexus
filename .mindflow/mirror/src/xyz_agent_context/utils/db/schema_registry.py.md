@@ -4,19 +4,31 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
+
+- **列宽 128→64（I2，武装前必改）**：`user_id` 原为 `VARCHAR(128)`，与全仓 id 规范不符
+  （`users.user_id` = `VARCHAR(64) UNIQUE`，`ban_audit` / `user_notifications` 也都是 64）。
+  128 会让端点「超宽→反解失败落 NULL alert-only」的兜底阈值也变 128，于是 65~128 字符的
+  值被当**权威归因**落库、伪造出下游查不到的可处置 id。收窄到 64 让「太长以致不可能是真
+  id」的判定与列宽一致。**趁表尚未在 dev auto_migrate 建过收窄**（铁律 #6：建过就不能再窄）。
+- **`key_hash` 保持 256**：那是 hash 不是 id，不收窄。
+- **新增 `varchar_width(table, column)`**：解析列的 `VARCHAR(N)` 宽度，作为**单一真相源**。
+  gateway-key-misuse 端点的逐字段截断宽度与 `user_id` 阈值都从它取，不再各写一份硬编码
+  数字（会与 DDL 漂移）；非 `VARCHAR(N)` 列会在 import 期就抛错而不是静默截断到错误宽度。
+
 ## 2026-08-19 — gateway_key_misuse 新表（网关 key 异常使用事件的权威落库）
 
 注册 `gateway_key_misuse`：网关 key 的异常/越权使用事件的结构化记录表，供安全监控消费。
 归因 100% 走权威结构化信号，绝不 grep 日志文本。
 
-**单一写方 = backend 内部 admin gateway-key-misuse 端点**（[[gateway_key_misuse]]，与
+**单一写方 = backend 内部 admin gateway-key-misuse 端点**（[[gateway_key_misuse.py]]，与
 [[suspend.py]] 同一把 `X-Admin-Secret` 锁）。写入的 `user_id` 是调用方（网关是「这把 key
 绑定了哪个身份」的权威）**权威反解**出来的结果，端点本身**不解析任何文本**、只记录被交给
 它的字段。executor/agent 无 admin-secret 凭据 → 无法写这张表。**读方是安全监控（只读）**，
 据此驱动响应梯子。
 
 列：`id`(BIGINT UNSIGNED 自增主键，兼作监控的 watermark PK)、
-`user_id`(VARCHAR(128)，**可空**)、`run_id`(VARCHAR(128))、`key_hash`
+`user_id`(VARCHAR(64)，**可空**，对齐 `users.user_id`)、`run_id`(VARCHAR(128))、`key_hash`
 (VARCHAR(256))、`caller_ip`(VARCHAR(64))、`caller_ua`(VARCHAR(256))、
 `model`(VARCHAR(128))、`hit_at`(DATETIME(6) NOT NULL，sqlite 侧
 `(datetime('now'))` → MySQL `CURRENT_TIMESTAMP(6)`)、`disposition_status`

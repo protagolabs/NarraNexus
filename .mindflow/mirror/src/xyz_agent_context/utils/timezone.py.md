@@ -4,6 +4,21 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-19（PR#327 审后）— 抽出共享的 `coerce_utc` / `to_datetime6_literal`
+
+反滥用 canary 的两个 admin 端点各自需要把「一个 datetime 或 ISO 字符串」归一化成 UTC：
+`warn.py` 的 dedup 读（原 `_as_utc`）与 gateway-key-misuse 的 `hit_at` 幂等锚。两处是同一
+套惯例，收敛到这里避免漂移：
+
+- `coerce_utc(value)` —— `None`/`datetime`/ISO 字符串 → tz-aware UTC `datetime`；尾随 `Z`
+  按 UTC 处理（`.replace("Z","+00:00")`），naive 当 UTC，不可解析回 `None`（调用方可把
+  「解析不了」当「没有」而不 crash）。`warn.py` 用它做 dedup 时间比较。
+- `to_datetime6_literal(value)` —— 经 `coerce_utc` 后 `strftime` 成 MySQL `DATETIME(6)`
+  字面量 `YYYY-MM-DD HH:MM:SS.ffffff`（UTC），不可解析回 `None`。gateway-key-misuse 端点
+  用它把 caller 传的 `hit_at` 在**写入**与**幂等反查**两条路径上归一成同一份字节——一个
+  `Z` 形与其偏移形塌到同一字面量，故去重成一行。非法 `hit_at` 返回 `None` → 端点丢弃它、
+  事件仍落库（走列默认时间），绝不因非法字面量 500/丢行。
+
 ## 2026-08-18 (review 修正) — 把不变量的**边界**写清楚
 
 原来的 section header 写的是「agent 读到的每一个时间都必须从这里渲染」，mirror 里也这么写。

@@ -6,26 +6,45 @@ stub: false
 
 # admin/gateway_key_misuse.py — 网关 key 异常使用事件落库内部端点
 
+## 2026-08-19（PR#327 审后）— 列宽单一真相 / hit_at 归一化 / `recorded`→`already`
+
+- **I2 列宽收敛到 schema 单一真相**：截断宽度与 `user_id` 阈值不再在 route 硬编码，改从
+  [[schema_registry.py]] 的 `varchar_width("gateway_key_misuse", col)` 取（具名常量
+  `USER_ID_MAX_LEN` / `RUN_ID_MAX_LEN` / `KEY_HASH_MAX_LEN` / `CALLER_IP_MAX_LEN` /
+  `CALLER_UA_MAX_LEN` / `MODEL_MAX_LEN`），route 与 schema 共享一处真相、避免漂移。
+  **`user_id` 阈值随列宽变 64**（原 128）：65~128 字符不再被当权威 id 落库，超宽一律落 NULL
+  alert-only（详见下 C1）。
+- **I1 hit_at 校验 + 归一化（宁可降级不丢行）**：`hit_at` 原样透传，SQLite(TEXT) 存得下但
+  MySQL(DATETIME(6)) 非法字面量 1292→500→**丢行**。改为 route 用 [[timezone.py]] 的
+  `to_datetime6_literal`（内部 `coerce_utc`，`Z` 按 UTC）解析：成功→归一成
+  `YYYY-MM-DD HH:MM:SS.ffffff`(UTC) 再落库；失败→`logger.error` + **丢掉 hit_at**（走列默认
+  =落库时间），事件照落。**写路径与幂等反查用同一归一化结果**，故一个 `Z` 形与其偏移形塌到
+  同一行（否则查不到刚撞的行会把幂等成功变 500）。
+- **M3 `recorded`→`already`**：`recorded` 恒真是死字段。repository 现返回 `(id, deduped)`，
+  route 用 `deduped` 填响应 `already`（fresh insert=False / 幂等命中=True），让 deploy 侧能
+  观测重试率。
+
 ## 2026-08-19 — C1：攻击者可控字段服务端截断，命中必落库（绝不 422/500 丢行）
 
 请求体的字段值是攻击者可影响的（调用方转发它观测到的 caller_ua 等）。此前 `caller_ua`
 带 `max_length=256`，超长会 422——即**丢一行**（漏一次处置）。改为：所有字段**去掉长度
-校验**，在 handler 里用 `_clip(v, n)` 按列宽逐字段截断（None 透传、超长切到 n）：
-run_id 128 / key_hash 256 / caller_ip 64 / caller_ua 256 / model 128。目标：任何事件哪怕
-字段超长也必须落库。
+校验**，在 handler 里用 `_clip(v, n)` 按列宽逐字段截断（None 透传、超长切到 n），宽度取自
+schema 单一真相（见上 I2）：run_id 128 / key_hash 256 / caller_ip 64 / caller_ua 256 /
+model 128。目标：任何事件哪怕字段超长也必须落库。
 
 **user_id 特殊**：它驱动处置，截断可能撞上**另一个真实用户**（错误处置），故**绝不截断**；
-超过 128 视作「反解失败」，落 `user_id=NULL` 的 **alert-only** 行（`disposition_status` 仍
-`pending`）+ log error，事件照落、只是拒绝猜是谁。真库往返由 I5 的
+超过 `USER_ID_MAX_LEN`(=列宽 64) 视作「反解失败」，落 `user_id=NULL` 的 **alert-only** 行
+（`disposition_status` 仍 `pending`）+ log error，事件照落、只是拒绝猜是谁。真库往返由 I5 的
 [[test_gateway_key_misuse_repository_mysql]] 兜（SQLite TEXT 无宽度，遮不住 MySQL 的
 1406「Data too long」）。
 
 ## 2026-08-19 — M3：端点幂等（caller-supplied `hit_at` + 唯一去重）
 
-请求新增可选 `hit_at`（权威事件时间），原样透传给 [[gateway_key_misuse_repository]]。它是
+请求新增可选 `hit_at`（权威事件时间），归一化后透传给 [[gateway_key_misuse_repository]]。它是
 幂等锚：表上 `(key_hash, hit_at)` 唯一索引让「写成功但响应超时」的重试落回同一行、回同一
-id（`recorded=True`），不产生重复命中行。省略 `hit_at` 时用列默认（落库时间），退化为无去重
-（与旧调用方兼容）。deploy 侧若要幂等，需在转发时带上权威 `hit_at`（见存疑点/deploy 同步）。
+id（`already=True`），不产生重复命中行。省略或不可解析 `hit_at` 时用列默认（落库时间），退化
+为无去重（与旧调用方兼容）。deploy 侧若要幂等，需在转发时带上权威 `hit_at`（见存疑点/deploy
+同步）。
 
 ## 为什么存在
 
@@ -66,6 +85,8 @@ pydantic 会丢弃请求里的未知字段，所以攻击者无法夹带一个�
   本模块保留 `from xyz_agent_context.settings import settings` 的再导出，只为测试能用
   `mod.settings` 覆盖 secret。
 - `xyz_agent_context.utils.db.db_factory.get_db_client`：取全局 async DB client。
+- [[schema_registry.py]] 的 `varchar_width(...)`：列宽单一真相，导出为具名截断/阈值常量。
+- [[timezone.py]] 的 `to_datetime6_literal`：hit_at 归一化到 DATETIME(6) UTC 字面量。
 
 ## 设计决策
 

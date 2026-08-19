@@ -10,7 +10,7 @@ stub: false
 
 安全监控需要把「网关 key 的异常/越权使用事件」结构化落库，供监控侧只读驱动响应。本文件
 是 `gateway_key_misuse` 表之上的数据访问写方——一次事件一行，把权威归因与观测字段落库。
-分层：端点（[[gateway_key_misuse]]）不直接拼 SQL，写走本 repository，与 [[suspend.py]]
+分层：端点（[[gateway_key_misuse.py]]）不直接拼 SQL，写走本 repository，与 [[suspend.py]]
 经 [[ban_audit_repository]] 落 `ban_audit` 同构。
 
 ## 这个文件不做什么
@@ -22,7 +22,7 @@ stub: false
 ## 上下游关系
 
 **被谁用**：
-- [[gateway_key_misuse]]：`POST /api/admin/gateway-key-misuse` 里
+- [[gateway_key_misuse.py]]：`POST /api/admin/gateway-key-misuse` 里
   `GatewayKeyMisuseRepository(db).record(...)`。
 - `xyz_agent_context/repository/__init__.py`：re-export `GatewayKeyMisuseRepository` 进包
   门面（与 `BanAuditRepository` 并列）。
@@ -38,17 +38,21 @@ stub: false
   故其 `record` 吞掉写异常。`gateway_key_misuse` 相反——**这一行就是载荷**：监控读它驱动
   响应梯子，丢一行 = 漏一次处置。所以本 `record` 不包 try/except，写失败向上抛，让端点回
   5xx、调用方能感知「权威记录没落库」。
-- **返回新行 id**：便于端点回执与监控 watermark 对齐（`id` 兼作 watermark PK）。
+- **返回 `(id, deduped)`（M3，PR#327 审后）**：`id` 便于端点回执与监控 watermark 对齐
+  （`id` 兼作 watermark PK）；`deduped` 为 `False`=fresh insert / `True`=幂等命中塌回既有行，
+  让端点把死字段 `recorded=True` 换成可观测的 `already`（重试率）。原先只回 `int`。
 - **`user_id` 可空 = alert-only**：反解失败时传 None，仍落一行供人工分诊；响应梯子绝不在
   NULL id 上触发。None 值在 DB facade（`AsyncDatabaseClient.insert` 过滤 None）落到列默认，
   故 alert-only 行也会拿到 `disposition_status='pending'` 与时间戳。
 - **只写初始状态**：`STATUS_PENDING = "pending"`，推进状态是监控/dispositioner 的事。
-- **追加式（append-only）+ 幂等重试（M3）**：一次事件一行。当调用方传 `hit_at`（权威
-  事件时间）时，表上 `(key_hash, hit_at)` 唯一索引让「写成功但响应超时」的重试落回同一行：
+- **追加式（append-only）+ 幂等重试（M3）**：一次事件一行。`hit_at` 由**端点**先归一化成
+  DATETIME(6) 契约 `YYYY-MM-DD HH:MM:SS.ffffff`(UTC) 再传进来（本层不再解析文本）。当带
+  `hit_at` 时，表上 `(key_hash, hit_at)` 唯一索引让「写成功但响应超时」的重试落回同一行：
   `record` 捕获**唯一冲突**（精确匹配 sqlite `UNIQUE constraint failed` / mysql
-  `Duplicate entry` / `1062`），据 `(key_hash, hit_at)` 反查既有行、返回其 id——**幂等成功，
-  不是吞掉失败**。其余任何写错误照旧上抛（丢一行 = 漏一次处置）。冲突时 key_hash 与 hit_at
-  必为非空（唯一索引不在 NULL key_hash 上触发），故反查可靠。`hit_at` 省略时用列默认（落库
+  `Duplicate entry` / `1062`），据 `(key_hash, hit_at)` 反查既有行、返回 `(其 id, True)`——
+  **幂等成功，不是吞掉失败**。反查键用的正是端点写入时的同一归一化 `hit_at`，故必能命中
+  刚撞的那行。其余任何写错误照旧上抛（丢一行 = 漏一次处置）。冲突时 key_hash 与 hit_at
+  必为非空（唯一索引不在 NULL key_hash 上触发），故反查可靠。`hit_at` 省略（或端点判为不可解析而丢弃）时用列默认（落库
   时间），无去重。此精确异常过滤沿用 [[instance_link_repository]] / [[channel_seen_message_repository]]
   的既有惯例（铁律教训 #3：过滤须精确到具体异常类 + 上下文）。
 

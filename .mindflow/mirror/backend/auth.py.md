@@ -8,13 +8,13 @@ stub: false
 
 敏感操作即时警告端点（[[warn.py]]，写 `user_notifications` + `ban_audit(action="warn")`）
 进精确路径豁免。它在 handler 内用 `X-Admin-Secret` 自凭证（与 [[suspend.py]] /
-[[gateway_key_misuse]] 同一把锁），调用方是私有 monitor 转发软信号检测的机器请求、没有
+[[gateway_key_misuse.py]] 同一把锁），调用方是私有 monitor 转发软信号检测的机器请求、没有
 用户 JWT，用用户认证 gate 反而不对（否则 middleware 先 401、端点不可达）。与
 `/api/admin/gateway-key-misuse` 同模式。
 
 ## 2026-08-19 — AUTH_EXEMPT_PATHS 新增 `/api/admin/gateway-key-misuse`
 
-网关 key 异常使用事件落库端点（[[gateway_key_misuse]]，`gateway_key_misuse` 唯一写方）进
+网关 key 异常使用事件落库端点（[[gateway_key_misuse.py]]，`gateway_key_misuse` 唯一写方）进
 精确路径豁免。它在 handler 内用 `X-Admin-Secret` 自凭证（与 [[suspend.py]] 同一把锁），
 调用方是内部 server-to-server 路径转发权威事件的机器请求、没有用户 JWT，用用户认证 gate
 反而不对。与 `/api/admin/suspend` / `/api/admin/runtime/status` 同模式：豁免同时跳过 quota

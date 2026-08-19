@@ -33,6 +33,8 @@ from pydantic import BaseModel
 # same ``settings`` singleton object.
 from xyz_agent_context.settings import settings  # noqa: F401
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.schema_registry import varchar_width
+from xyz_agent_context.utils.timezone import to_datetime6_literal
 from xyz_agent_context.repository.gateway_key_misuse_repository import (
     GatewayKeyMisuseRepository,
 )
@@ -40,6 +42,19 @@ from xyz_agent_context.repository.gateway_key_misuse_repository import (
 from ._admin_secret import require_admin_secret
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+# Field widths are the schema registry's single source of truth (avoid a second
+# copy that could drift from the DDL). The route clips every attacker-influenced
+# field to its column width so an over-long value never drops the event; the
+# over-width ``user_id`` threshold uses the SAME width, so a value too long to be
+# a real id can never be mistaken for an authoritative attribution.
+_MISUSE_TABLE = "gateway_key_misuse"
+USER_ID_MAX_LEN = varchar_width(_MISUSE_TABLE, "user_id")
+RUN_ID_MAX_LEN = varchar_width(_MISUSE_TABLE, "run_id")
+KEY_HASH_MAX_LEN = varchar_width(_MISUSE_TABLE, "key_hash")
+CALLER_IP_MAX_LEN = varchar_width(_MISUSE_TABLE, "caller_ip")
+CALLER_UA_MAX_LEN = varchar_width(_MISUSE_TABLE, "caller_ua")
+MODEL_MAX_LEN = varchar_width(_MISUSE_TABLE, "model")
 
 
 class GatewayKeyMisuseRequest(BaseModel):
@@ -59,16 +74,22 @@ class GatewayKeyMisuseRequest(BaseModel):
     caller_ip: Optional[str] = None
     caller_ua: Optional[str] = None
     model: Optional[str] = None
-    # Authoritative time the misuse occurred (caller-supplied). When present it
-    # is the idempotency anchor: a retry of the same event carries the same
-    # (key_hash, hit_at) and collapses to one row (the UNIQUE index). Omitted →
-    # the column default (insert time) applies and no dedup is possible.
+    # Authoritative time the misuse occurred (caller-supplied). When present and
+    # parseable it is the idempotency anchor: a retry of the same event carries
+    # the same (key_hash, hit_at) and collapses to one row (the UNIQUE index).
+    # Accepted as an ISO-8601 instant (a trailing ``Z`` is honoured); it is
+    # normalised server-side to the DATETIME(6) contract ``YYYY-MM-DD
+    # HH:MM:SS.ffffff`` (UTC) before it is written. Omitted or unparseable → the
+    # column default (insert time) applies and no dedup is possible.
     hit_at: Optional[str] = None
 
 
 class GatewayKeyMisuseResponse(BaseModel):
     id: int
-    recorded: bool
+    # False on a fresh insert; True when an at-least-once retry (same
+    # (key_hash, hit_at)) collapsed onto an existing row. Lets the caller / the
+    # deploy side observe the retry rate instead of a field that is always True.
+    already: bool
 
 
 def _clip(value: Optional[str], limit: int) -> Optional[str]:
@@ -95,11 +116,11 @@ async def record_gateway_key_misuse(
     # Clip every attacker-influenced field to its column width. An event must
     # ALWAYS land: never 422/500 a real misuse event away just because a field
     # is over-long (dropping one row = missing one enforcement).
-    run_id = _clip(request.run_id, 128)
-    key_hash = _clip(request.key_hash, 256)
-    caller_ip = _clip(request.caller_ip, 64)
-    caller_ua = _clip(request.caller_ua, 256)
-    model = _clip(request.model, 128)
+    run_id = _clip(request.run_id, RUN_ID_MAX_LEN)
+    key_hash = _clip(request.key_hash, KEY_HASH_MAX_LEN)
+    caller_ip = _clip(request.caller_ip, CALLER_IP_MAX_LEN)
+    caller_ua = _clip(request.caller_ua, CALLER_UA_MAX_LEN)
+    model = _clip(request.model, MODEL_MAX_LEN)
 
     # user_id is special: it drives enforcement, so we NEVER truncate it — a
     # clipped id could collide with a DIFFERENT real user (a mis-attributed
@@ -107,21 +128,38 @@ async def record_gateway_key_misuse(
     # recorded as an alert-only row (user_id=NULL, disposition stays 'pending')
     # for a human to triage; the event still lands, we just refuse to guess who.
     user_id = request.user_id
-    if user_id is not None and len(user_id) > 128:
+    if user_id is not None and len(user_id) > USER_ID_MAX_LEN:
         logger.error(
-            "[gateway-key-misuse] user_id over 128 chars "
+            f"[gateway-key-misuse] user_id over {USER_ID_MAX_LEN} chars "
             f"(len={len(user_id)}) — recording alert-only row with NULL id"
         )
         user_id = None
 
+    # Normalise hit_at to the DATETIME(6) contract before it is written. A
+    # DATETIME(6) column rejects an illegal literal on MySQL (error 1292), which
+    # would 500 the endpoint and DROP the event — but every event MUST land. So
+    # an unparseable hit_at is DROPPED (the column default = insert time applies)
+    # and the event still records; only its idempotency anchor is lost. The
+    # normalised value is what the repository both writes AND reverse-looks-up on
+    # a dedup collision, so the two paths compare identical bytes.
+    hit_at = request.hit_at
+    if hit_at is not None:
+        normalized = to_datetime6_literal(hit_at)
+        if normalized is None:
+            logger.error(
+                f"[gateway-key-misuse] unparseable hit_at {hit_at!r} — dropping "
+                "it; event lands with the column-default timestamp"
+            )
+        hit_at = normalized
+
     db = await get_db_client()
-    row_id = await GatewayKeyMisuseRepository(db).record(
+    row_id, already = await GatewayKeyMisuseRepository(db).record(
         user_id=user_id,
         run_id=run_id,
         key_hash=key_hash,
         caller_ip=caller_ip,
         caller_ua=caller_ua,
         model=model,
-        hit_at=request.hit_at,
+        hit_at=hit_at,
     )
-    return GatewayKeyMisuseResponse(id=row_id, recorded=True)
+    return GatewayKeyMisuseResponse(id=row_id, already=already)

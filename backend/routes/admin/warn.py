@@ -28,7 +28,7 @@ Security shape (do not weaken):
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 # same ``settings`` singleton object.
 from xyz_agent_context.settings import settings  # noqa: F401
 from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.timezone import utc_now
+from xyz_agent_context.utils.timezone import coerce_utc, utc_now
 from xyz_agent_context.repository.user_repository import UserRepository
 from xyz_agent_context.repository.ban_audit_repository import ACTION_WARN, BanAuditRepository
 
@@ -48,8 +48,8 @@ from ._admin_secret import require_admin_secret
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-# Fixed, generic, rule-agnostic wording. English per 铁律 #1 (no non-English
-# strings in code); the frontend bell may localise on ``code``.
+# Fixed, generic, rule-agnostic wording. English only per binding rule #1 (no
+# non-English strings in code); the frontend bell may localise on ``code``.
 SENSITIVE_OP_WARNING = (
     "We detected activity on your account that may violate our Terms of Use "
     "(for example, attempting to transmit credentials externally or accessing "
@@ -63,35 +63,16 @@ SENSITIVE_OP_WARNING = (
 _DEDUP_WINDOW_SEC = 6 * 3600
 
 
-def _as_utc(value) -> Optional[datetime]:
-    """Coerce a stored ``created_at`` to a tz-aware UTC datetime.
-
-    The DB layer hands back a ``datetime`` on some backends and the ISO string
-    SQLite stores on others; a naive value is assumed UTC (the storage
-    convention, see ``utils/timezone``). Returns None for anything unusable so
-    an unparseable row is simply ignored by the dedup scan (fail-safe: at worst
-    a duplicate notification, never a crash).
-    """
-    if value is None:
-        return None
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.rstrip("Z"))
-        except ValueError:
-            return None
-    if not isinstance(value, datetime):
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 class WarnRequest(BaseModel):
     user_id: str
     # OPAQUE, audit-only. Never reaches the user notification. Bounded to keep a
     # stray payload out of the audit row.
     category: Optional[str] = Field(default=None, max_length=4096)
-    actor: Optional[str] = None
+    # Audit-only actor label. Bounded to ban_audit.actor's column width
+    # (VARCHAR(128)); an over-long actor would 1406 the audit insert and lose the
+    # trail. This is an audit breadcrumb, not the load-bearing enforcement row,
+    # so a 422 on a malformed actor is acceptable (unlike the misuse endpoint).
+    actor: Optional[str] = Field(default=None, max_length=128)
 
 
 class WarnResponse(BaseModel):
@@ -128,7 +109,7 @@ async def warn_user(
     recent = [
         r
         for r in (existing or [])
-        if (ts := _as_utc(r.get("created_at"))) is not None and ts >= cutoff
+        if (ts := coerce_utc(r.get("created_at"))) is not None and ts >= cutoff
     ]
     if recent:
         logger.info(

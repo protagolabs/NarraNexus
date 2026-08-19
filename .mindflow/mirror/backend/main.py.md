@@ -18,7 +18,7 @@ stub: false
 新增 `from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router`
 和 `app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])`。router
 自带 prefix `/api/admin`，挂载网关 key 异常使用事件落库端点（`POST /api/admin/gateway-key-misuse`，
-`gateway_key_misuse` 唯一写方）。与 `admin_suspend_router` 同 pattern。见 [[gateway_key_misuse]]。
+`gateway_key_misuse` 唯一写方）。与 `admin_suspend_router` 同 pattern。见 [[gateway_key_misuse.py]]。
 
 ## 2026-08-18 — `/health` 的结果缓存
 

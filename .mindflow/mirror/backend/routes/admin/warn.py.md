@@ -6,6 +6,18 @@ stub: false
 
 # admin/warn.py — 敏感操作即时警告端点
 
+## 2026-08-19（PR#327 审后）— actor 上界 + `_as_utc` 抽成共享 helper + 注释去中文
+
+- **M2（本轮）**：`WarnRequest.actor` 原无上界，而 `ban_audit.actor` 是 `VARCHAR(128)`；
+  超长 actor 会 1406 让**审计静默丢**。改为 `Field(default=None, max_length=128)` 对齐列宽。
+  审计是旁路面包屑（非承重处置行），故这里 422 可接受（与 misuse 端点「必落库、绝不 422」
+  的取舍不同）。
+- **`_as_utc` → 共享 `coerce_utc`**：原模块内 `_as_utc` 与 misuse 端点归一化 `hit_at` 是同
+  一套惯例，抽进 [[timezone.py]] 的 `coerce_utc`（str/datetime → aware UTC，naive 当 UTC，
+  不可解析回 None），warn 与 misuse 端点共用一份。行为不变（`.rstrip("Z")` → `.replace(
+  "Z","+00:00")` 对尾随 Z 等价）。
+- **I3**：`SENSITIVE_OP_WARNING` 上方注释里的中文「铁律」改英文（铁律 #1：代码内无非英文串）。
+
 ## 2026-08-19 — M1/M2：dedup 读收窄 + 幂等措辞如实
 
 - **M1**：幂等 dedup 读只需最新一行的时间戳，改为 `db.get(..., limit=1,
@@ -65,7 +77,8 @@ stub: false
   `db.insert` 一行 `kind="abuse_warning"`、`severity="warning"`、`payload` 为固定
   `{"code","message"}` JSON。
 - `xyz_agent_context.utils.db.db_factory.get_db_client`：取全局 async DB client。
-- `xyz_agent_context.utils.timezone.utc_now`：dedup 窗口计算基准。
+- `xyz_agent_context.utils.timezone.utc_now` / `coerce_utc`：dedup 窗口计算基准 +
+  `created_at` 归一化（`coerce_utc` 与 misuse 端点共用，见 [[timezone.py]]）。
 
 ## 设计决策
 
@@ -79,9 +92,10 @@ stub: false
   若 `created_at` 在窗内则短路返回 `already=True` 且不重复写行/审计。这一层独立于
   sentinel 侧的 durable 台账，专防网络重试导致的重复投递（两层去重）。6h 与 sentinel
   滑窗对齐。
-- **`created_at` 归一化 `_as_utc`**：DB facade 有的后端回 `datetime`、有的回 SQLite
-  的 ISO 字符串；`_as_utc` 两者都收，naive 当 UTC，无法解析的行**忽略**（fail-safe：
-  最坏多发一条，绝不 crash 或误判为「已发」而漏发）。
+- **`created_at` 归一化 `coerce_utc`（共享）**：DB facade 有的后端回 `datetime`、有的回
+  SQLite 的 ISO 字符串；[[timezone.py]] 的 `coerce_utc` 两者都收，naive 当 UTC，无法解析
+  的行**忽略**（fail-safe：最坏多发一条，绝不 crash 或误判为「已发」而漏发）。同一 helper
+  被 misuse 端点复用于 `hit_at` 归一化，避免两处各写一份漂移。
 - **写 notification 直接 `db.insert`、写审计走 repository**：通知行是普通投递（与
   self-heal 同模式，非权威处置输入），审计走既有 `BanAuditRepository`。分层上 route 不
   拼 SQL 的承重写（审计）走 repository，通知复用现成表的既定写入形态。
@@ -96,7 +110,9 @@ stub: false
 - **触发**：窗内二次 warn → **症状**：`already=True`、不重复写通知/审计 → **根因**：
   端点侧幂等短路。
 - **触发**：请求夹带额外字段 → **症状**：被 pydantic 丢弃 → **根因**：`WarnRequest` 只
-  声明 `user_id` / `category` / `actor`。
+  声明 `user_id` / `category`（≤4096）/ `actor`（≤128，对齐 `ban_audit.actor` 列宽）。
+- **触发**：`actor` 超 128 字符 → **症状**：422（而非静默丢审计）→ **根因**：`actor` 有
+  `max_length=128`；审计是旁路面包屑，422 可接受。
 
 ## 命名 / 中性纪律
 
