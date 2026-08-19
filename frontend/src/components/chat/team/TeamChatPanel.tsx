@@ -15,7 +15,7 @@
  * GET /api/teams/{id}/chat/messages for the live transcript.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
@@ -26,6 +26,11 @@ import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
+import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
+import { ResizableDivider } from '@/components/layout/ResizableDivider';
+import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { TeamTranscript } from './TeamTranscript';
 import { beforeCursor, mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
 import { isNearBottom, isNearTop } from '@/lib/scrollStickiness';
@@ -259,8 +264,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // Read by the poll without making `refresh` depend on the transcript: a
   // changing dependency would tear down and recreate the interval on every
   // message, which is how a 3s poll becomes a much faster one.
+  // useLayoutEffect, NOT useEffect: passive effects flush asynchronously —
+  // possibly after paint AND after user events — so a scroll landing in
+  // that window read a stale (empty) ref, loadOlder's !cursor guard bailed
+  // silently, and the top-of-history fetch simply didn't happen (no retry;
+  // the user has to scroll again). Layout effects commit synchronously,
+  // before any event can observe the DOM of this render.
   const messagesRef = useRef<TeamChatMessage[]>([]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
@@ -325,9 +336,30 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [wsLoading, setWsLoading] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsSelected, setWsSelected] = useState<string | null>(null);
-  // The workspace (artifacts/files) drawer — opened from the top bar or by a
-  // message's artifact chip, like the single-chat artifacts panel.
-  const [wsPanelOpen, setWsPanelOpen] = useState(false);
+  // The room's right side IS the single-chat right side: one shared drawer
+  // (same pin/width preferences, same title switcher) hosting the team's
+  // panels — members, artifacts, shared files. Which panel is open lives
+  // in drawerTab below; its default is decided there.
+  const isMobile = useIsMobile();
+  const {
+    pinned: drawerPinned,
+    setPinned: setDrawerPinned,
+    effectiveWidth: drawerWidth,
+    colRef: drawerColRef,
+    handleResize: handleDrawerResize,
+    handleResizeEnd: handleDrawerResizeEnd,
+  } = usePinnedDrawer();
+  // One-shot initializer, deliberately: the members panel opens by default
+  // only where it is a pinned column (desktop + the user's shared pin
+  // preference ON). Auto-opening a TRANSIENT drawer would greet an
+  // unpinned user with a full-viewport dismiss backdrop that eats their
+  // first click. Do not derive from `pinned` or sync in an effect — an
+  // unpin inside the room must not close/reopen the panel.
+  const [drawerTab, setDrawerTab] = useState<TeamTabId | null>(() =>
+    !isMobile && drawerPinned ? 'members' : null,
+  );
+  const toggleDrawerTab = (id: TeamTabId) =>
+    setDrawerTab((prev) => (prev === id ? null : id));
   const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
   // The bulletin lives here, like the workspace: a change posts a system line
   // into the transcript, so the transcript and the panel must agree on when
@@ -344,9 +376,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // transcript's typing bubble highlights the same selection — two owners of
   // one selection is how the two surfaces drift apart.
   const [rosterExpandedId, setRosterExpandedId] = useState<string | null>(null);
-  // Narrow screens have no room for a standing column, so the roster becomes a
-  // drawer over the transcript.
-  const [mobileRosterOpen, setMobileRosterOpen] = useState(false);
   // The addressing rules on demand. They fill the empty room's hero; once the
   // transcript owns the space this popover is the only way back to them.
   const [guideOpen, setGuideOpen] = useState(false);
@@ -834,13 +863,19 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </div>
 
-        {/* Roster drawer toggle — narrow screens have no standing column. */}
+        {/* Members panel toggle — the roster is a drawer panel now, on
+            every viewport (the standing column it replaces opened by
+            default; the drawer starts on 'members' on desktop). */}
         <button
           type="button"
-          onClick={() => setMobileRosterOpen((v) => !v)}
+          onClick={() => toggleDrawerTab('members')}
+          aria-pressed={drawerTab === 'members'}
           title={t('chat.team.roster.title')}
           aria-label={t('chat.team.roster.title')}
-          className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)] md:hidden"
+          className={cn(
+            'shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            drawerTab === 'members' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
         >
           <Users2 className="w-3.5 h-3.5" />
         </button>
@@ -870,13 +905,13 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             it replaces couldn't actually display an artifact. */}
         <button
           type="button"
-          onClick={() => setWsPanelOpen((v) => !v)}
-          aria-pressed={wsPanelOpen}
+          onClick={() => toggleDrawerTab('artifacts')}
+          aria-pressed={drawerTab === 'artifacts'}
           title={t('rail.artifacts')}
           aria-label={t('rail.artifacts')}
           className={cn(
             'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
-            wsPanelOpen && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+            drawerTab === 'artifacts' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
           )}
         >
           <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -977,7 +1012,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       message={m}
                       turnArtifacts={m.event_id ? (wsTurns[m.event_id] ?? []) : []}
                       artifacts={wsArtifacts}
-                      onOpenArtifact={(id) => { setWsSelected(id); setWsPanelOpen(true); }}
+                      onOpenArtifact={(id) => { setWsSelected(id); setDrawerTab('artifacts'); }}
                     />
                   )}
                 />
@@ -1004,7 +1039,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       highlighted={rosterExpandedId === a.agent_id}
                       onClick={() => {
                         toggleRoster(a.agent_id);
-                        setMobileRosterOpen(true);
+                        setDrawerTab('members');
                       }}
                     />
                   ))}
@@ -1250,54 +1285,65 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           </div>
         </div>
 
-        <TeamRosterPanel
-          teamId={teamId}
-          members={members}
-          activity={activity}
-          leadAgentId={leadAgentId}
-          now={now}
-          expandedId={rosterExpandedId}
-          onToggle={toggleRoster}
-          accent={accent}
-          onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-          className="hidden md:flex"
-        />
-
-        {/* Narrow screens: the same rows, over the transcript. The drawer
-            keeps the roster's own breathing width (256px ↔ 430px capped
-            at 92vw) — a fixed width here would undo the expansion. */}
-        {mobileRosterOpen && (
-          <TeamRosterPanel
-            teamId={teamId}
-            members={members}
-            activity={activity}
-            leadAgentId={leadAgentId}
-            now={now}
-            expandedId={rosterExpandedId}
-            onToggle={toggleRoster}
-            accent={accent}
-            onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-            className="absolute inset-y-0 right-0 z-20 flex border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
+        {/* The room's right side — the SAME drawer as single chat (shared
+            pin/width preferences, title-dropdown switching), hosting the
+            team's panels: members / artifacts / shared files. Pinned it is
+            a static resizable column; unpinned an in-flow transient on
+            desktop and an overlay on phones — identical semantics to the
+            single-chat panels. */}
+        {drawerPinned && drawerTab && !isMobile && (
+          <ResizableDivider
+            onResize={handleDrawerResize}
+            onResizeEnd={handleDrawerResizeEnd}
+            label={t('layout.resizableDivider.drawerAriaLabel')}
+            title={t('layout.resizableDivider.drawerTitle')}
           />
         )}
-
-        {/* Workspace drawer — on xl+ an in-flow column like the single-chat
-            artifacts drawer (the chat shifts left, nothing is covered);
-            below xl it overlays, because the row cannot also fit the
-            roster and a readable chat column. Toggled from the top bar; a
-            message's artifact chip also opens it with that artifact
-            selected. */}
-        {wsPanelOpen && (
-          <TeamWorkspacePanel
-            artifacts={wsArtifacts}
-            files={wsFiles}
-            loading={wsLoading}
-            error={wsError}
-            selectedId={wsSelected}
-            onSelect={setWsSelected}
-            onClose={() => setWsPanelOpen(false)}
-          />
-        )}
+        <BookmarkDrawer
+          open={drawerTab !== null}
+          pinned={drawerPinned && !isMobile}
+          onPinnedChange={setDrawerPinned}
+          onClose={() => setDrawerTab(null)}
+          title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
+          edgeReservePx={0}
+          pinnedWidth={drawerWidth}
+          inset={!isMobile}
+          insetWidth={
+            drawerTab === 'artifacts'
+              ? 'min(max(440px, 50vw), max(320px, calc(100vw - 672px)))'
+              : 'min(440px, max(320px, calc(100vw - 672px)))'
+          }
+          columnRef={drawerColRef}
+        >
+          {drawerTab === 'members' && (
+            <TeamRosterPanel
+              teamId={teamId}
+              members={members}
+              activity={activity}
+              leadAgentId={leadAgentId}
+              now={now}
+              expandedId={rosterExpandedId}
+              onToggle={toggleRoster}
+              accent={accent}
+              onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+              className="flex h-full w-full"
+            />
+          )}
+          {(drawerTab === 'artifacts' || drawerTab === 'files') && (
+            <TeamWorkspacePanel
+              tab={drawerTab}
+              artifacts={wsArtifacts}
+              files={wsFiles}
+              loading={wsLoading}
+              error={wsError}
+              selectedId={wsSelected}
+              onSelect={setWsSelected}
+            />
+          )}
+        </BookmarkDrawer>
       </div>
 
       {/* Voice-input unavailable dialog — mirrors the single-agent ChatPanel. */}

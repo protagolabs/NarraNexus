@@ -246,7 +246,6 @@
       "uploadFailedGeneric": "文件没能上传。",
       "loadingOlder": "正在加载更早的消息…",
       "workspace": {
-        "close": "关闭工作区面板",
         "zoom": "放大制品",
         "emptyArtifacts": "选择一个制品在此查看。",
         "emptyFiles": "文件为直接下载——点击左侧任意文件。",
@@ -256,7 +255,8 @@
         "filesHint": "通过 team_share_file 共享的文件会出现在这里。",
         "download": "下载 {{name}}",
         "loading": "加载中…"
-      }
+      },
+      "drawerCategory": "团队房间"
     },
     "execution": {
       "showSteps": "显示执行步骤",

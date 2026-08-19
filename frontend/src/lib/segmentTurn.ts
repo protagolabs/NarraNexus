@@ -89,6 +89,10 @@ export function timelineToEvents(
   // Stored tool_output entries often carry no tool_name; in a time-ordered
   // log an output belongs to the nearest preceding call, so carry that name
   // forward — a literal placeholder next to every output row reads as a bug.
+  // Older backends stamped the placeholder "unknown" at the API layer;
+  // treat it as missing so it, too, inherits the real name.
+  const realName = (name: string | undefined): string =>
+    name && name !== 'unknown' ? name : '';
   let lastToolName = '';
   timeline.forEach((entry, idx) => {
     const id = `tl-${idx}`;
@@ -98,7 +102,7 @@ export function timelineToEvents(
         if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
         break;
       case 'tool_call': {
-        const toolName = entry.tool_name || '';
+        const toolName = realName(entry.tool_name);
         lastToolName = toolName;
         // The persisted timeline has no type='reply': a reply is stored
         // as the send_message tool call itself (tool_input.content is the
@@ -129,7 +133,7 @@ export function timelineToEvents(
       case 'tool_output':
         events.push({
           id, ts, type: 'tool_output',
-          tool_name: entry.tool_name || lastToolName,
+          tool_name: realName(entry.tool_name) || lastToolName,
           output: entry.tool_output || '',
         });
         break;

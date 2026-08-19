@@ -4,6 +4,40 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(三)— 默认开抽屉看钉选偏好
+
+drawerTab 的一次性初始化改为 `!isMobile && pinned` 才开 members:钉选是
+与单聊共享的偏好,unpin 过的用户此前会被自动弹出的 transient 抽屉+全屏
+背板吃掉进房间的第一次点击。刻意保持 initializer(非派生/非 effect)——
+房间内 unpin 不得触发面板重开。切换器注册表改传
+`teamDrawerCategories(counts)`(成员/制品/文件计数进下拉)。「未钉选不
+自动开」与「计数渲染/零隐藏」均有用例钉住(roster.test 独立 describe
+「drawer defaults and switching」+ drawerPanelSwitcher 的 counts 用例);
+`messagesRef` 同步改 **useLayoutEffect**——passive effect 可晚于 paint 与
+事件冲刷,scroll 落进窗口读到空 ref,loadOlder 的 !cursor 静默早退无重试
+(CI 满载时 dev 实测 2/20 复现,本地打补丁后 0/40);layout effect 在任何
+事件可观察本次渲染前同步提交,窗口关闭。refresh/loadOlder 依赖未动
+(3s 轮询不因 messages 重建)。roster 的 className 注入不再带
+空转的 border-l-0(组件已无自带边框)。
+
+## 2026-08-19(二)— 与单聊同批的三处对齐
+
+`pinned && !isMobile`(手机不钉)、inset 宽度 320px 地板、Users2 按钮
+去掉 ml-auto 归入右组;断点单一来源(useIsMobile,初始化直接用它,
+删掉平行的 matchMedia 查询)。抽屉面板切换测试:roster.test 新用例
+(标题下拉 members→artifacts→顶栏切回)。
+
+## 2026-08-19 — 右侧统一为共享抽屉(成员/制品/文件)
+
+站立 roster 列、移动端 roster overlay、workspace 面板三套挂载合并为
+**一个 [[../../bookmarks/BookmarkDrawer]]**:[[teamTabs]] 三面板、
+[[../../../hooks/usePinnedDrawer]] 共享钉选/宽度偏好、标题下拉切换、
+ResizableDivider 拖宽——与单聊右栏同一实现与语义(钉=常驻列,
+非钉=桌面 in-flow 透明/手机 overlay)。桌面初始开 members(对齐旧站立
+roster),手机初始关。顶栏按钮:Users2 toggle members(全视口)、
+Artifacts toggle artifacts;chip 点击开 artifacts 并选中。
+之前 xl 断点的自定宽度方案随之删除(抽屉自带 reserve 策略)。
+
 ## 2026-08-19 — 推理披露上移 + workspace 改 in-flow
 
 - renderHeader 新增:agent 消息的 [[TeamMessageProcess]] 走气泡顶部插槽

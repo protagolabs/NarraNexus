@@ -21,7 +21,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Maximize2, X } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
 import ArtifactZoomModal from '@/components/artifacts/ArtifactZoomModal';
@@ -30,6 +30,8 @@ import { activeLocale, formatMessageAge } from '@/lib/utils';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
+  /** Which panel the drawer has open — the drawer's switcher owns this. */
+  tab: 'artifacts' | 'files';
   artifacts: Artifact[];
   files: TeamFile[];
   loading: boolean;
@@ -42,12 +44,7 @@ interface TeamWorkspacePanelProps {
    */
   selectedId: string | null;
   onSelect: (artifactId: string | null) => void;
-  /** Dismiss the drawer — same interaction as the single-chat artifacts
-   *  drawer (the panel is a top-bar-opened overlay, not a standing column). */
-  onClose: () => void;
 }
-
-type Tab = 'artifacts' | 'files';
 
 function formatSize(bytes: number): string {
   if (!bytes) return '';
@@ -57,16 +54,15 @@ function formatSize(bytes: number): string {
 }
 
 export function TeamWorkspacePanel({
+  tab,
   artifacts,
   files,
   loading,
   error,
   selectedId,
   onSelect,
-  onClose,
 }: TeamWorkspacePanelProps) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>('artifacts');
   // Download failures are the panel's own, not the parent's fetch error.
   const [localError, setLocalError] = useState<string | null>(null);
   // Fullscreen zoom for the selected artifact (same modal as ArtifactColumn).
@@ -110,49 +106,15 @@ export function TeamWorkspacePanel({
     }
   };
 
-  const tabs: Array<{ id: Tab; label: string; count: number }> = [
-    { id: 'artifacts', label: t('chat.team.workspace.tabArtifacts'), count: artifacts.length },
-    { id: 'files', label: t('chat.team.workspace.tabFiles'), count: files.length },
-  ];
-
   return (
-    // xl+: an IN-FLOW column sized like the single-chat artifacts drawer —
-    // the conversation shifts left instead of being covered; reading the
-    // room WHILE reading its output is the panel's whole point. The width
-    // reserves 928px for the siblings (sidebar 272 + chat minimum 400 +
-    // roster at rest 256), same policy family as drawerLayout.ts — without
-    // it the shrink-0 column crushes the chat to zero on laptop widths.
-    // Below xl there is no floor to share, so the panel stays an overlay
-    // (full-width on phones).
-    <div className="absolute inset-y-0 right-0 z-30 flex w-full flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] shadow-xl md:w-[min(50vw,760px)] xl:static xl:z-auto xl:w-[min(calc(100vw-928px),50vw,760px)] xl:shrink-0 xl:shadow-none">
-      <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
-            className={`px-2 py-1 text-[11px] font-mono uppercase tracking-wider rounded-[var(--radius-xs)] transition-colors ${
-              tab === item.id
-                ? 'text-[var(--nm-ink)] bg-[var(--nm-row-active)]'
-                : 'text-[var(--text-tertiary)] hover:bg-[var(--nm-row-hover)]'
-            }`}
-          >
-            {item.label} {item.count > 0 && <span className="opacity-60">{item.count}</span>}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={onClose}
-          title={t('chat.team.workspace.close')}
-          aria-label={t('chat.team.workspace.close')}
-          className="ml-auto shrink-0 p-1 text-[var(--text-tertiary)] hover:text-[var(--nm-ink)]"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
+    // Pure drawer content: the shared BookmarkDrawer owns the shell (title
+    // switcher, pin, close, width); this fills it.
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-1 min-h-0">
-      <div className="w-64 shrink-0 border-r border-[var(--nm-hairline)] overflow-y-auto min-h-0">
+      {/* Master list: a picker, not the main event — it yields so the
+          viewer keeps a readable share of the (user-resizable, shared-
+          preference) drawer width even at the 400px default. */}
+      <div className="w-40 min-w-[7rem] shrink border-r border-[var(--nm-hairline)] overflow-y-auto min-h-0">
         {(error || localError) && (
           <div className="px-3 py-2 text-[11px] text-[var(--nm-danger,#c0392b)]">
             {error || localError}

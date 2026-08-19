@@ -4,6 +4,16 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(二)— 别名测试钉住
+
+AccountPage.alias.test:查询参数保留、`tab` 覆盖不重复。
+
+## 2026-08-19 — 退化为路由别名
+
+账户面板搬进 Settings 的 account pane(左侧标签栏保留,见
+[[SettingsPage]])。本路由只为旧链接/书签存活:带全量查询参数
+Navigate 到 /app/settings?tab=account。页面自己的 header/hint 删除。
+
 ## 2026-08-19 — 内容列居中
 
 `max-w-3xl` 容器加 `mx-auto`,与 [[SettingsPage]] 同批(Owner:设置类

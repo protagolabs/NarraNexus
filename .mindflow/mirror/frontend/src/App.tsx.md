@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — /app/account 路由降级为别名
+
+路由本体保留,但语义变了:账户面板住进 Settings 的 ?tab=account pane
+(左侧 nav 常驻),本路由只把旧链接带查询参数转发过去
+(见 [[pages/AccountPage]]/[[pages/SettingsPage]] 08-19 条)。本文件仅
+注释同步,无行为改动。
 
 ## 2026-08-06 (3) — /app/account 路由
 

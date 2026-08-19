@@ -191,7 +191,6 @@
       "today": "Hoje",
       "agentPaused": "Este agente está pausado ({{reason}}). Use «Retomar» no aviso acima assim que a causa for resolvida.",
       "workspace": {
-        "close": "Fechar o painel do espaço de trabalho",
         "zoom": "Ampliar artefato",
         "emptyArtifacts": "Selecione um artefato para vê-lo aqui.",
         "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda.",
@@ -201,7 +200,8 @@
         "filesHint": "Arquivos compartilhados com team_share_file aparecem aqui.",
         "download": "Baixar {{name}}",
         "loading": "Carregando…"
-      }
+      },
+      "drawerCategory": "Sala da equipe"
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",

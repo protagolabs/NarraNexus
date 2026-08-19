@@ -4,6 +4,19 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(二)— 手机永不钉 + 透明宽度地板
+
+- `pinned={drawerPinned && !isMobile}`:钉选默认 true 在手机上会变成
+  ≥300px 的常驻列把对话挤到 ~90px,无背板无 Esc。手机一律走 transient
+  overlay;偏好本身不动,回桌面照旧。团队房间同一改法。
+- 透明 inset 宽度加 `max(320px,…)` 地板(768px 视口下原表达式给 96px)。
+
+## 2026-08-19 — 抽屉接线抽到 usePinnedDrawer
+
+钉选/宽度/视口 clamp/拖拽两相 的 React 接线整体迁入
+[[../../hooks/usePinnedDrawer]](团队房间挂**同一个** hook、同一份偏好)。
+本文件只剩消费:首跑教学卡、面板 tab 状态与 BookmarkDrawer 装配。
+
 ## 2026-08-19 — 钉选默认开 + 宽度上限跟视口 + 首跑教学
 
 - 抽屉默认**钉选**(只有显式 unpin 存 '0' 才关)——面板应该待在原地,

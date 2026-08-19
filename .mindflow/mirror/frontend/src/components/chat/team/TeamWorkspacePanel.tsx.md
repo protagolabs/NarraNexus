@@ -4,6 +4,19 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(二)— 列表让位查看器
+
+master 列表 w-64 shrink-0 → w-40 min-w-[7rem] shrink:抽屉默认 400px
+(与单聊共享的偏好)时查看器只剩 ~143px。列表是选择器不是主角,让位后
+默认宽度下查看器 ~239px 起步,拖宽随用户。**不许**为 artifacts 单独放大
+pinnedWidth——宽度偏好与单聊共享,写回会拽动单聊。
+
+## 2026-08-19 — 纯内容化:壳归抽屉
+
+外层定位/宽度、内部 tab 条、关闭钮全部移除——壳(标题切换/钉选/关闭/
+宽度)归共享 BookmarkDrawer,本组件收 `tab: 'artifacts'|'files'` 受控 prop
+只渲染列表+查看器。onClose prop 删除。
+
 ## 2026-08-19 — 残余英文清零 + 相对时间共享化
 
 - Artifacts/Files 两个 tab 标签、两句空态 hint、Download title、Loading

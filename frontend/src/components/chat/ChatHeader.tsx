@@ -132,8 +132,12 @@ export function ChatHeader({
       className="hidden md:flex items-center justify-between gap-3 px-4 min-h-[52px] shrink-0 border-b"
       style={{ borderColor: 'var(--nm-hairline)' }}
     >
-      {/* Left — expand + agent identity + session label */}
-      <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
+      {/* Left — expand + agent identity + session label. Shrinking is
+          min-w-0 down the chain (group → switcher wrapper → button) with
+          truncate on the name and session label; overflow-hidden here would
+          CLIP the agent-switcher dropdown (absolute, inside this subtree)
+          to the header strip — an open menu that renders nothing. */}
+      <div className="flex items-center gap-2.5 min-w-0">
         {sidebarCollapsed && (
           <button
             type="button"
@@ -151,14 +155,14 @@ export function ChatHeader({
           size="sm"
           className="shrink-0"
         />
-        <div ref={switcherRef} className="relative shrink-0">
+        <div ref={switcherRef} className="relative min-w-0">
           <button
             type="button"
             onClick={() => setSwitcherOpen((v) => !v)}
             aria-expanded={switcherOpen}
             title={t('chat.header.switchAgent')}
             aria-label={t('chat.header.switchAgent')}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+            className="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
           >
             {/* Same family as the sidebar row that shows this same name — the
                 header keeps its lead role via size + weight, not a second
@@ -206,7 +210,7 @@ export function ChatHeader({
           )}
         </div>
         {sessionLabel && (
-          <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
+          <span className="min-w-0 font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
             {sessionLabel}
           </span>
         )}

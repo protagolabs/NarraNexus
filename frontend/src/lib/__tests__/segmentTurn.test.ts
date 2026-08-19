@@ -152,4 +152,13 @@ describe('timelineToEvents', () => {
     ] as EventLogTimelineEntry[]);
     expect((orphan[0] as Extract<TurnEvent, { type: 'tool_output' }>).tool_name).toBe('');
   });
+
+  it("the legacy API placeholder 'unknown' counts as missing and inherits too", () => {
+    const events = timelineToEvents([
+      { type: 'tool_call', tool_name: 'mcp__fs__read_file', tool_input: {} },
+      { type: 'tool_output', tool_name: 'unknown', tool_output: 'body' },
+    ] as EventLogTimelineEntry[]);
+    const output = events[1] as Extract<TurnEvent, { type: 'tool_output' }>;
+    expect(output.tool_name).toBe('mcp__fs__read_file');
+  });
 });
