@@ -17,7 +17,6 @@ container probe to notice.**
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -228,11 +227,17 @@ async def test_a_timeout_is_also_logged(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_flood_collapses_onto_one_round_trip(monkeypatch):
+async def test_a_burst_of_sequential_requests_collapses_onto_one_round_trip(monkeypatch):
     """`/health` is public and unauthenticated, and each probe holds one of the
     backend's ten pooled connections. Without a cache, a few hundred requests a
     second would hold all of them while real traffic queued — an endpoint added
-    to make failure visible, turned into a way to cause it."""
+    to make failure visible, turned into a way to cause it.
+
+    This covers requests arriving after a result is published. Concurrent
+    arrivals before the in-flight probe publishes each run their own probe —
+    that is the KNOWN LIMIT documented on `_HEALTH_CACHE_TTL_SEC` in
+    `backend/main.py`, accepted on purpose, and deliberately not asserted here.
+    """
 
     async def ok():
         return None
@@ -314,58 +319,18 @@ async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
 
     assert body["team_summary"]["rooms"] == 9, "worker counters were frozen by the cache"
 
-@pytest.mark.asyncio
-async def test_a_probe_that_started_earlier_cannot_overwrite_a_newer_verdict(monkeypatch):
-    """The publish guard, kept as a belt to single-flight's braces.
-
-    With the lock in place two probes should not overlap, so this drives
-    `_run_health_probe` directly — the guard is what stops a stale verdict if
-    that lock is ever removed or bypassed, and it costs two lines to keep.
-    """
-    state = {"fail": True}
-    release_a = asyncio.Event()
-
-    class _Client:
-        async def probe(self) -> None:
-            if state["fail"]:
-                await release_a.wait()
-                raise RuntimeError("(0, 'Not connected')")
-            return None
-
-    async def fake_get_db_client():
-        return _Client()
-
-    monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
-
-    a = asyncio.create_task(main._run_health_probe())   # starts first, still in flight
-    await asyncio.sleep(0)
-
-    state["fail"] = False                               # database recovers
-    await main._run_health_probe()                      # starts later, finishes first
-    assert main._health_cache[2] is True
-
-    release_a.set()                                     # A returns its stale failure
-    await a
-
-    assert main._health_cache[2] is True, (
-        "a probe that started earlier overwrote a newer, healthier verdict"
-    )
-
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
-
-@pytest.mark.asyncio
 
 @pytest.mark.asyncio
 async def test_concurrent_probes_publish_the_newest_verdict(monkeypatch):
-    """Without single-flight, probes CAN overlap. The publish guard is what
-    keeps the result sane: a slow failing probe that started before a fast
-    succeeding one must not overwrite the good verdict on arrival.
+    """Single-flight is gone, so probes CAN overlap, and the start-time publish
+    guard in `_run_health_probe` is the ONLY thing that stops a slow failing
+    probe which started before a fast succeeding one from overwriting the good
+    verdict on arrival — there is no lock behind it any more.
 
-    This is the property that survives the removal of the lock, so it is worth
-    a test that drives real overlapping calls rather than the guard's condition.
+    That is why this drives real overlapping `health()` calls end to end rather
+    than restating the guard's condition: remove the guard and this test goes
+    red with the exact symptom of 2026-08-17's blind spot inverted (unhealthy
+    reported for a further TTL after the database recovered).
     """
     release_a = asyncio.Event()
     state = {"fail": True}

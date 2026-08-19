@@ -44,7 +44,8 @@ _HEALTH_DB_TIMEOUT_SEC = 3.0
 #
 # The value is chosen against the container healthcheck's `interval: 30s`: at
 # 5s, any single prober still gets a fresh round-trip on every one of its own
-# polls, while a flood collapses onto one query. Two probers landing within 5s
+# polls, while a flood arriving after a result is published collapses onto one
+# query. Two probers landing within 5s
 # of each other will have the later one served from cache — acceptable, and the
 # reason the window is far smaller than the poll interval rather than merely
 # smaller. Its relationship to `_HEALTH_DB_TIMEOUT_SEC` is NOT load-bearing:
@@ -69,6 +70,7 @@ _HEALTH_CACHE_TTL_SEC = 5.0
 # on arrival and keep reporting unhealthy for a further TTL after the database
 # had recovered — and the reverse, hiding a fresh failure.
 _health_cache: "tuple[float, float, bool, str] | None" = None
+
 
 def _detect_bind_host() -> str:
     """Detect actual uvicorn bind host.
@@ -665,8 +667,7 @@ async def _run_health_probe():
     """Probe the database once and publish the result."""
     global _health_cache
 
-    # Taken inside the lock so the publish guard below orders by when this probe
-    # actually started, not by when its request arrived.
+    # Ordered by start time — see the note on `_health_cache`.
     started = time.monotonic()
     db_ok = False
     db_detail = "unknown"
