@@ -14,19 +14,19 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic, SlidersHorizontal } from 'lucide-react';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
-import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
+import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn } from '@/lib/utils';
+import { cn, formatChatTimestamp } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { chatDayInfo } from '@/lib/chatDays';
@@ -38,7 +38,6 @@ import { InnerThoughtCard } from './InnerThoughtCard';
 import { ProcessPanel } from './ProcessPanel';
 import { SegmentedReply } from './SegmentedReply';
 import { segmentTurn } from '@/lib/segmentTurn';
-import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -505,6 +504,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [timeline, chatTab],
   );
 
+  // The newest visible full message keeps its meta row (time) always
+  // visible; older rows reveal it on hover (claude.ai convention).
+  const lastMessageId = useMemo(() => {
+    for (let i = visibleTimeline.length - 1; i >= 0; i--) {
+      if (visibleTimeline[i].messageType !== 'activity') return visibleTimeline[i].id;
+    }
+    return null;
+  }, [visibleTimeline]);
+
+  // v4 header side label: "session · <last activity time>" — the most recent
+  // visible message anchors the label; empty until history lands.
+  const sessionLabel = useMemo(() => {
+    const last = visibleTimeline.length
+      ? visibleTimeline[visibleTimeline.length - 1]
+      : null;
+    if (!last?.timestamp) return '';
+    return t('chat.header.sessionLabel', { time: formatChatTimestamp(last.timestamp) });
+  }, [visibleTimeline, t]);
+
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
   // After fresh history loads, wait one animation frame for MessageBubble
@@ -836,58 +854,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       // itself (see onDragOver/onDrop there) because <textarea> processes
       // drop synchronously into its value before bubbling.
       className={cn(
-        'chat-frosted flex flex-col h-full overflow-hidden transition-colors',
+        'flex flex-col h-full overflow-hidden transition-colors',
         isDragging && 'ring-2 ring-inset ring-[var(--accent-primary)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — carbon·silicon binding-dot brand motif + NM mono label.
-          Hidden on mobile: the top bar shows the breadcrumb, and the activity
-          icon moves into the Chat/Artifacts tab row (see MainLayout). */}
-      <div className="px-5 hidden md:flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
-        {/* min-w-0 + overflow-hidden: when the artifact column squeezes
-            the chat, the label/agent-id side TRUNCATES — it must never
-            run under the Processing/cost cluster on the right. */}
-        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <BindingDot size={7} pulse={isStreaming} className="shrink-0" />
-          <BracketSectionLabel
-            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
-          >
-            {t('chat.interaction')}
-          </BracketSectionLabel>
-        </div>
+      {/* v4 header — agent-name protagonist + session label; Chat / Inner
+          Thoughts segmented toggle; Jobs / Inbox / Artifacts / Cost entries
+          and the ⋯ detail menu (doors only — panels unchanged). Hidden on
+          mobile: the top strip shows the breadcrumb there and the tab pair
+          below stands in. */}
+      <ChatHeader
+        agentId={agentId}
+        agentName={currentAgent?.name || agentId || 'AI'}
+        sessionLabel={sessionLabel}
+        isStreaming={isStreaming}
+        currentSteps={currentSteps}
+        chatTab={chatTab}
+        onChatTabChange={setChatTab}
+        onOpenAgentConfig={() => setAgentCfgOpen(true)}
+      />
 
-        <div className="flex items-center gap-3 shrink-0">
-          {isStreaming && <ExecutionPopover steps={currentSteps} />}
-          {/* Per-agent model & framework settings — sits left of the cost
-              chip in the header icon cluster. Opens the detailed panel;
-              the composer chip stays the quick model switch. */}
-          {agentId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              title="Model & framework (this agent)"
-              onClick={() => setAgentCfgOpen(true)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-          )}
-          {/* Cost chip — a proper header member (it used to float
-              absolutely over this corner and collided with the
-              Processing indicator during runs). */}
-          <span data-help-id="chat.cost">
-            <CostPopover />
-          </span>
-        </div>
-      </div>
-
-      {/* Chat tabs — Conversation (owner↔agent direct chat) vs Inner Thoughts
-          (the agent's background activity + cross-channel narrations). */}
+      {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
+          in the header, which doesn't render on < md. */}
       <div
-        className="px-5 max-md:px-3 flex items-center gap-1 border-b"
+        className="px-3 flex md:hidden items-center gap-1 border-b"
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
         {(['conversation', 'inner'] as const).map((tab) => (
@@ -906,22 +899,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         ))}
       </div>
 
-      {/* Security reminder banner — persistent, non-dismissible. Warns
-          users not to paste sensitive personal data into chat (it would be
-          stored in trajectories + sent to the LLM provider). Added as part
-          of the 2026-06-17 security hardening. */}
-      <div
-        className="px-5 py-1.5 flex items-center gap-1.5 text-[11px] leading-snug border-b"
-        style={{
-          borderColor: 'var(--nm-hairline)',
-          background: 'var(--bg-tertiary)',
-          color: 'var(--color-warning, var(--text-tertiary))',
-        }}
-      >
-        <span aria-hidden="true">⚠</span>
-        <span>{t('chat.securityReminder')}</span>
-      </div>
-
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
           cannot be hijacked by macOS's "always show scrollbars" AppKit
@@ -933,7 +910,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="flex-1 min-h-0"
         data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
-        viewportClassName="p-5 max-md:p-3"
+        viewportClassName="py-6 px-6 max-md:p-3"
         onViewportScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop < 50 && !isLoadingMore && historyMessages.length < historyTotalCount) {
@@ -944,7 +921,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           shouldAutoScrollRef.current = isAtBottom;
         }}
       >
-      <div className="space-y-4">
+      {/* v4: the conversation reads in a centered 820px measure regardless
+          of how wide the (now full-bleed) chat column gets. */}
+      <div className="mx-auto w-full max-w-[820px] space-y-4">
         {/* Loading more (top) — NM bracket-loading placeholder */}
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2">
@@ -959,13 +938,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Empty state. With an agent selected → the JourneyBand onboarding
-            (binding-dot eyebrow, memory→network→team stations, suggested
-            prompts that fill the composer). With no agent → the plain
-            bracket prompt to pick one from the sidebar. */}
+        {/* Empty state. With an agent selected → the v4 in-stream onboarding
+            card ("<Agent> is ready" + suggested prompts that fill the
+            composer; dismissible, persisted per agent). With no agent → the
+            plain bracket prompt to pick one from the sidebar. */}
         {showEmptyState && (
           agentId ? (
             <OnboardingJourney
+              agentId={agentId}
               agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
@@ -987,6 +967,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
+              isLatest
             />
           </div>
         )}
@@ -1068,6 +1049,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 eventId={item.eventId}
                 agentId={agentId}
                 agentName={currentAgent?.name || agentId}
+                isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
@@ -1117,11 +1099,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 if (!liveSegments.some((s) => s.reply?.content)) return null;
                 return (
                   <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
+                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)]"
                     style={{
-                      background: 'var(--color-silicon-soft)',
+                      background: 'var(--nm-paper)',
                       color: 'var(--nm-ink)',
-                      border: '1px solid var(--color-silicon-hair)',
+                      border: '1px solid var(--nm-hairline)',
                       borderLeft: '3px solid var(--color-silicon)',
                     }}
                   >
@@ -1172,17 +1154,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </ScrollArea>
 
       {/* Input area — drop is handled at the Card root, so this wrapper
-          no longer needs its own onDragOver/onDragLeave/onDrop. */}
-      <div className="px-5 py-4 border-t border-[var(--rule)]">
+          no longer needs its own onDragOver/onDragLeave/onDrop. Inner
+          wrapper mirrors the 820px stream measure (v4). */}
+      <div className="border-t border-[var(--rule)]">
+      <div className="mx-auto w-full max-w-[820px] px-6 max-md:px-3 pt-3.5 pb-3">
         {/* Audio transcription unavailable notice — only shown when an
             audio upload returned transcription_available=false. */}
         {transcriptionNotice && (
-          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+          <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
             <span className="flex-1">{transcriptionNotice}</span>
             <button
               type="button"
               onClick={() => setTranscriptionNotice(null)}
-              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
               title="Dismiss"
             >
               <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1200,7 +1184,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                  className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
                   {isVoiceMemo ? (
                     <VoiceTranscript compact transcript={att.transcript} />
@@ -1234,7 +1218,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
-                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                     title="Remove"
                   >
                     <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1243,7 +1227,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               );
             })}
             {uploadingCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Uploading {uploadingCount}
               </div>
@@ -1331,11 +1315,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           )}
         </div>
 
-        {/* Tools row — attach (+) and voice on the left; fast-mode toggle
-            (ComposerFastToggle) and model badge (ComposerModelBadge) on the
-            right. */}
+        {/* Tools row — attach (+) and voice on the left, followed by the
+            always-visible privacy reminder (v4: the old banner folded into
+            this row — permanent, non-dismissible, full text via the title
+            tooltip); fast-mode toggle (ComposerFastToggle) and model badge
+            (ComposerModelBadge) on the right. */}
         <div className="mt-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 min-w-0">
           <Button
             variant="ghost"
             size="icon"
@@ -1378,6 +1364,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
+          <span
+            className="ml-2 truncate text-[11px] text-[var(--nm-ink30)]"
+            title={t('chat.securityReminder')}
+          >
+            {t('chat.composerPrivacyHint')}
+          </span>
           </div>
           <div className="flex items-center gap-1.5">
             <ComposerFastToggle
@@ -1388,6 +1380,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
           </div>
         </div>
+      </div>
       </div>
 
       {/* Per-agent model & framework panel (opened from the header). */}

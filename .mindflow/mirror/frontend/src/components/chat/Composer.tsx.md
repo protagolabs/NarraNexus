@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-06-20
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 输入框浅底 + focus 边框加深
+
+Owner 确认输入栏惯例:字段是卡面上**最浅**的面,focus 用边框加深表达。
+composer 的 Textarea 覆盖 bg 为 --nm-card(白),并**移除**原先把
+hover/focus 边框钉回 hairline 的覆盖 — 恢复 Textarea 基类行为
+(hover→border-strong,focus→nm-ink)。nx-composer-input 的 outline
+抑制不变(焦点信号只走边框)。渲染隔离契约不动。
 
 ## 2026-06-20 — ComposerHandle gained setText (suggested-prompt fill)
 

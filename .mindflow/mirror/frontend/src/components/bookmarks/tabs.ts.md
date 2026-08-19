@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-06-20
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 (2) — tabDescKey:每个面板一句话说明
+
+新增 `tabDescKey(id)` → `rail.desc.<id>` 约定(11 个面板 × 10 语言)。
+消费方:BookmarkDrawer 头部的 ? 圆圈(hover 气泡)、ChatHeader ⋯ 菜单项
+的 title。目的:不看文档的用户也能知道 Awareness / Channels / MCP 等
+是干什么的(Owner 2026-08-06)。文案讲「用处 + 使用逻辑」各一句,
+新增面板时必须同步补 10 语言的 desc key。
+
+## 2026-08-06 — artifacts 成为原子 tab + 自定义 glyph
+
+新增 `artifacts` AtomicTabId(Activity 类目,Jobs/Inbox 之后),面板 =
+ArtifactColumn(forceExpanded)走 BookmarkPanelHost。图标是本文件导出的
+**ArtifactsGlyph**(圆点-连线-方块,Owner 2026-08-06 截图指定;lucide 无
+此形,本地按 lucide 笔画约定手绘,cast 成 LucideIcon 供注册表/palette/
+ChatHeader 混用)。deriveTabStatus 对 artifacts 走默认 none — 头部徽标
+数来自 artifactStore,不经 bookmark 信号。
 
 ## 2026-06-20 — MCP strip caption shortened
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/stores/uiStore.ts
-last_verified: 2026-06-24
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:collapse + palette 状态入驻
+
+新增 `sidebarCollapsed`(持久化 localStorage `sidebar_collapsed_v1`;
+v4 收起=整栏隐藏,展开按钮在 ChatPanel 头部 / MainLayout chip,因此必须
+跨组件共享)与 `paletteOpen`(⌘K palette 唯一宿主在 MainLayout,触发器
+分布在 Sidebar 搜索钮和移动端 TopBar)。mobileNavOpen / pendingPanel 不变。
 
 # stores/uiStore.ts — shared UI-chrome state with no backend
 

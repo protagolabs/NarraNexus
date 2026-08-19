@@ -17,7 +17,23 @@
     "you": "Du",
     "cloud": "Cloud",
     "localMode": "Lokaler Modus",
-    "cloudMode": "Cloud-Modus"
+    "cloudMode": "Cloud-Modus",
+    "collapseTitle": "Seitenleiste einklappen",
+    "expandTitle": "Seitenleiste ausklappen",
+    "export": "Exportieren",
+    "exportTitle": "Bundle exportieren — Agent oder Team",
+    "settingsTitle": "Einstellungen — Modelle & Provider",
+    "searchChatsTitle": "Agenten & Teams suchen",
+    "account": "Konto",
+    "billing": "Abrechnung",
+    "subscription": "Abonnement",
+    "theme": "Design",
+    "language": "Sprache",
+    "themeLight": "Hell",
+    "themeDark": "Dunkel",
+    "themeSystem": "System",
+    "workspace": "Dein Arbeitsbereich",
+    "accountTitle": "Konto"
   },
   "chat": {
     "conversation": "Unterhaltung",
@@ -75,20 +91,13 @@
       "recoveredAfterErrorTip": "Ein Schritt in dieser Runde ist fehlgeschlagen; die Antwort wurde aus der abgeschlossenen Arbeit und dem Bekannten über den Fehler verfasst."
     },
     "onboarding": {
-      "eyebrow": "Neue Unterhaltung",
-      "heading": "Ein leeres Blatt.",
-      "framing": "Hier ist noch nichts — und genau das ist der Sinn. Je mehr du und {{name}} zusammenarbeiten, desto mehr merkt es sich, verknüpft und trägt es weiter.",
       "defaultAgentName": "deinem Agenten",
-      "narraBrand": "Narra · Gedächtnis",
-      "narraCaption": "es merkt sich",
-      "nexusBrand": "Nexus · Netzwerk",
-      "nexusCaption": "es verbindet",
-      "teamBrand": "Dein Team",
-      "teamCaption": "es liefert",
-      "tryAsking": "Frag doch mal",
       "prompt1": "Fasse mir die wichtigsten Neuigkeiten dieser Woche zusammen",
       "prompt2": "Verbinde einen Kanal und behalte ihn auf Dringendes im Blick",
-      "prompt3": "Richte eine Montagmorgen-Übersicht mit dem Wichtigsten ein"
+      "prompt3": "Richte eine Montagmorgen-Übersicht mit dem Wichtigsten ein",
+      "readyTitle": "{{name}} ist bereit",
+      "readyBody": "Starte mit einem der Vorschläge — oder sag einfach, was du brauchst.",
+      "dismiss": "Schließen"
     },
     "team": {
       "notFound": "Team nicht gefunden.",
@@ -254,7 +263,14 @@
       "plan": "Plan",
       "title": "Agent · Prozess",
       "ops": "Ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "Sitzung · {{time}}",
+      "agentDetailTitle": "Agent-Details",
+      "detailMenuTitle": "Agent-Details — Panels",
+      "modelFramework": "Modell & Framework"
+    },
+    "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten."
   },
   "awareness": {
     "common": {
@@ -721,12 +737,18 @@
       "create": "Erstellen",
       "createAgentOrTeam": "Agent oder Team erstellen",
       "createAgent": "Agent erstellen",
-      "createTeam": "Team erstellen"
+      "createTeam": "Team erstellen",
+      "new": "Neu",
+      "newTitle": "Neu — Agent, Team, Import…",
+      "importBundle": ".nxbundle importieren",
+      "importAgent": "Aus anderer Quelle importieren"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — Gruppenchat",
       "agentCount_one": "{{count}} Agent",
       "agentCount_other": "{{count}} Agents",
+      "toggleMembers": "Mitglieder anzeigen",
+      "noMembers": "Noch keine Mitglieder",
       "unread": "Ungelesene Nachrichten"
     },
     "teamRowMenu": {
@@ -738,7 +760,6 @@
       "crumbDashboard": "Dashboard",
       "crumbSettings": "Einstellungen",
       "crumbSystem": "System",
-      "crumbManageAgents": "Agents verwalten",
       "crumbTeam": "Team",
       "crumbBundle": "Bundle",
       "crumbChat": "Chat",
@@ -1228,7 +1249,22 @@
       "title": "Agent-Dashboard",
       "agentsCount": "{{count}} Agenten",
       "emptyLabel": "Noch keine Agenten",
-      "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen."
+      "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen.",
+      "statRunning": "Aktiv",
+      "statQueued": "Wartend",
+      "statErrors": "Fehler",
+      "statCostToday": "Kosten heute",
+      "colStatus": "Status",
+      "colTeam": "Team",
+      "colMembers": "Mitglieder",
+      "teamsCount": "{{count}} Teams",
+      "membersCount": "{{count}} Agenten",
+      "noStatusYet": "Noch kein Live-Status — der nächste Poll füllt das auf.",
+      "publicAgent": "öffentlich",
+      "noTeamsLabel": "Noch keine Teams",
+      "noTeamsHint": "Erstelle eins über das Neu-Menü in der Seitenleiste.",
+      "manageTeam": "Verwalten",
+      "teamsTip": "Teams über das Neu-Menü der Seitenleiste erstellen; hier umbenennen, umfärben und Mitglieder bearbeiten."
     },
     "createUser": {
       "title": "Neuen Benutzer erstellen",
@@ -1261,20 +1297,9 @@
       "providers": {
         "label": "LLM-Anbieter"
       },
-      "bundle": {
-        "label": "Bundle · Export / Import",
-        "hint": "Verpacke deine Agenten (und optional ein Team) in eine portable .nxbundle-Datei zum Teilen, oder importiere eine .nxbundle-Datei, die mit dir geteilt wurde.",
-        "exportButton": "Bundle exportieren…",
-        "importButton": "Bundle importieren…"
-      },
       "artifacts": {
         "label": "Artefakte",
         "hint": "Verwalte jedes Diagramm, jeden Bericht und jede Datei, die deine Agenten für dich erstellt haben. Mehrfachauswahl, um dein Kontingent freizugeben, wenn ein Agent meldet, dass das Limit erreicht ist."
-      },
-      "manageAgents": {
-        "label": "Agenten verwalten · Stapel",
-        "hint": "Wähle mehrere Agenten zum Löschen aus oder füge sie stapelweise zu Teams hinzu bzw. entferne sie. Nützlich nach dem Import eines Bundles, das du nicht behalten möchtest – filtere nach „Aus Bundles“, um sie zu finden.",
-        "openButton": "Stapelverwaltung öffnen…"
       },
       "updates": {
         "label": "App-Updates",
@@ -1297,6 +1322,11 @@
         "frameworkFilteredNote": "Es werden nur Frameworks aufgeführt, die deine verbundenen Anbieter tatsächlich ausführen können.",
         "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
         "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
+      },
+      "manageAgents": {
+        "label": "Agenten verwalten · Stapel",
+        "hint": "Wähle mehrere Agenten zum Löschen aus oder füge sie stapelweise zu Teams hinzu bzw. entferne sie. Nützlich nach dem Import eines Bundles, das du nicht behalten möchtest – filtere nach „Aus Bundles“, um sie zu finden.",
+        "openButton": "Stapelverwaltung öffnen…"
       },
       "privacy": {
         "label": "Datenschutz",
@@ -1397,7 +1427,7 @@
       "orSeparator": "— oder —",
       "chooseFile": "Datei auswählen",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Vorschau",
+      "preview": "Preflight ausführen →",
       "preflightFailed": "Vorabprüfung fehlgeschlagen",
       "waitingForBackend": "Warten auf Backend (Versuch {{attempt}}/{{total}})…",
       "fetchFailed": "Vorlage konnte nicht abgerufen werden",
@@ -1439,9 +1469,12 @@
         "skillsTip": "Tipp: Als „Vollkopie“ markierte Skills haben bereits Anmeldedaten. URL-/Zip-Skills benötigen erneutes Lernen oder neue Anmeldedaten – sprich mit den importierten Agenten, um die Einrichtung abzuschließen.",
         "viewTeamIntro": "Team-Vorstellung ansehen",
         "doneButton": "Fertig"
-      }
+      },
+      "uploadInfoNote": "Ein Bundle kann einen einzelnen Agenten oder ein ganzes Team enthalten (Agenten, Gedächtnis, Skills, Kanäle). Im nächsten Schritt prüfst du Namenskonflikte und Warnungen, bevor etwas geschrieben wird."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Zugangsdaten einschließen (IM-Kanäle + Skill-Secrets)",
+      "pickFirstHint": "Wählen Sie zuerst oben den Agenten oder das Team aus — die Bereiche für Narrative, Skills und Kanäle erscheinen danach.",
       "title": "Bundle exportieren",
       "backToSettings": "Zurück zu den Einstellungen",
       "summaryLine": "{{agents}} Agenten · {{skills}} Skills · {{entities}} Entitäten · {{channels}} Kanäle",
@@ -1486,19 +1519,11 @@
         "freeText": "Freitext (Bewusstsein / Ereignisse / Nachrichten) wird NICHT automatisch auf eingebettete Geheimnisse geprüft – überprüfe das selbst."
       },
       "agents": {
-        "whatYouPick": "Was du hier auswählst:",
-        "intro1": "die Menge an Agenten, die dieses Bundle enthält. Alles andere im Assistenten (Narrative, Skills, MCPs, Dateien…) wird auf diesen Geltungsbereich gefiltert.",
-        "intro2": "Die Auswahl eines Teams fügt alle vorhandenen Mitglieder mit einem Klick hinzu; du kannst einzelne danach trotzdem abwählen. Externe Verweise (z. B. eine soziale Entität, die auf einen Agenten außerhalb dieses Geltungsbereichs zeigt) werden beim Export automatisch verworfen.",
         "bundleTeamLabel": "Dieses Team bündeln (optional)",
         "noTeamOption": "— Kein Team / einzelne Agenten —",
-        "quickAddByTeam": "Schnell nach Team hinzufügen",
-        "deselectTeamTitle": "Alle Mitglieder von „{{name}}“ abwählen",
-        "addTeamTitle": "Alle Mitglieder von „{{name}}“ hinzufügen",
-        "replaceTeamTitle": "Auswahl durch Mitglieder von „{{name}}“ ersetzen",
-        "only": "nur",
-        "allAgents": "alle Agenten ({{count}})",
-        "clear": "leeren",
-        "agentsToInclude": "Einzubeziehende Agenten · {{selected}}/{{total}}"
+        "agentsToInclude": "Einzubeziehende Agenten · {{selected}}/{{total}}",
+        "pickTeamFirst": "Wähle oben ein Team — seine Mitglieder werden automatisch aufgenommen.",
+        "pickOne": "Wähle den zu exportierenden Agenten"
       },
       "skills": {
         "emptySelectAgents": "Wähle im vorherigen Tab Agenten aus – ihre Skills erscheinen hier.",
@@ -1684,6 +1709,13 @@
         "noArtifacts": "Dieser Agent hat keine Artefakte.",
         "pinned": "angeheftet",
         "fullModeNote": "Der vollständige Snapshot-Modus bezieht automatisch jedes Artefakt ein. Wechsle zu Benutzerdefiniert, um auszuwählen."
+      },
+      "kind": {
+        "label": "Typ",
+        "agentTitle": "Agent-Bundle",
+        "agentDesc": "Exportiere einen Agenten — seine Narrative, Skills und Workspace-Dateien reisen mit.",
+        "teamTitle": "Team-Bundle",
+        "teamDesc": "Exportiere ein ganzes Team — seine Agenten, Intro und geteilte Kanäle reisen zusammen."
       }
     },
     "signup": {
@@ -1711,6 +1743,27 @@
         "special": "Ein Sonderzeichen"
       },
       "codePlaceholder": "6-stelliger Code"
+    },
+    "createTeam": {
+      "title": "Team erstellen",
+      "back": "Zurück",
+      "nameLabel": "Name",
+      "namePlaceholder": "z. B. Research",
+      "descLabel": "Beschreibung",
+      "descPlaceholder": "Wofür ist dieses Team?",
+      "colorLabel": "Farbe",
+      "membersLabel": "Agenten hinzufügen",
+      "selectedCount": "{{count}} ausgewählt",
+      "noAgents": "Noch keine Agenten — erstelle zuerst einen über das Neu-Menü.",
+      "createButton": "Team erstellen",
+      "manageHint": "Bestehende Teams verwaltest du im Dashboard.",
+      "membersFailed": "Team erstellt, aber {{count}} Mitglied(er) konnten nicht hinzugefügt werden: {{ids}}",
+      "searchPlaceholder": "Agenten nach Name / ID suchen…",
+      "noMatch": "Keine passenden Agenten",
+      "cancel": "Abbrechen"
+    },
+    "account": {
+      "powerOnlyHint": "Konto, Abrechnung und Abonnement sind NetMind-Kontofunktionen — melde dich mit einem NetMind-Konto an, um sie hier zu sehen."
     }
   },
   "rail": {
@@ -1736,7 +1789,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Artefakte",
+    "desc": {
+      "awareness": "Wer dein Agent ist — Identität, Persönlichkeit und ständige Anweisungen. Hier bearbeiten oder einfach im Chat sagen; er hält es selbst aktuell.",
+      "workspace": "Der Dateibereich des Agenten: Lade Dokumente zum Lesen hoch; auch seine Ergebnisse landen hier.",
+      "channels": "Verbinde den Agenten mit IM-Plattformen (Lark, Slack, Telegram…), damit er auch außerhalb der App erreichbar ist.",
+      "smarthome": "Verknüpfe Smart-Home-Geräte (Home Assistant), damit der Agent sie sehen und steuern kann.",
+      "jobs": "Geplante und Hintergrund-Arbeit. Sag es einfach im Chat — „schick mir jeden Morgen ein Briefing“ — und der Agent legt einen Job an.",
+      "inbox": "Nachrichten aus Kanälen und von anderen Agenten; Einträge, die dich brauchen, zeigen ein Badge.",
+      "artifacts": "Berichte, Seiten und Dateien, die der Agent erstellt hat — hier öffnen und ansehen.",
+      "skills": "Installierte Fähigkeiten des Agenten. Mehr im Marketplace oder per GitHub / zip installieren.",
+      "mcp": "Externe MCP-Tool-Server, die der Agent aufrufen kann — Drittanbieter-Fähigkeiten anschließen.",
+      "memory": "Das Langzeitgedächtnis des Agenten, als Narrative organisiert — was er über Gespräche hinweg behält.",
+      "social": "Wen der Agent kennt — Kontakte sammeln sich an, während er mit Menschen und Agenten arbeitet."
+    }
   },
   "jobs": {
     "title": "Jobs",

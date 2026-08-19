@@ -60,7 +60,7 @@ export function NetmindTopUpControls({
               type="button"
               onClick={() => onSelectTier(v)}
               disabled={processing}
-              className={`px-3 py-1 rounded-md text-sm border transition-colors disabled:opacity-50 ${
+              className={`px-3 py-1 rounded-[var(--radius-md)] text-sm border transition-colors disabled:opacity-50 ${
                 active
                   ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
                   : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
@@ -80,7 +80,7 @@ export function NetmindTopUpControls({
             onChange={(e) => onChangeCustom(e.target.value)}
             placeholder={t('settings.netmind.rechargeCustom', 'Custom')}
             disabled={processing}
-            className="w-24 px-2 py-1 rounded-md text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50"
+            className="w-24 px-2 py-1 rounded-[var(--radius-md)] text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50"
           />
         </div>
         <Button variant="accent" size="sm" onClick={onRecharge} disabled={processing}>

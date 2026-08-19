@@ -1,5 +1,24 @@
 ---
 code_file: frontend/src/App.tsx
+last_verified: 2026-08-06
+stub: false
+---
+
+## 2026-08-06 (3) — /app/account 路由
+
+用户级设置页(account/billing/subscription)懒加载路由;Settings 对
+?tab=account 的重定向指向这里。
+
+## 2026-08-06 (2) — /app/teams/new 路由
+
+新增 CreateTeamPage 懒加载路由,列在 teams/:teamId 之前(静态段本就
+优先于动态段,列前只为可读性)。
+
+## 2026-08-06 — /app/manage-agents 路由移除
+
+Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与
+路由删除。其余路由结构(element={null} 的 chat/team-chat 技巧、懒加载、
+ProtectedRoute)不变。
 last_verified: 2026-08-12
 stub: false
 ---

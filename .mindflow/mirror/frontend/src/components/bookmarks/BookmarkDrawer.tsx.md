@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 (2) — 头部 ? 说明气泡
+
+标题右侧新增 HelpCircle 圆圈(description prop 非空才渲染):hover /
+focus 浮出 ink 底 paper 字的一句话说明(max-w 280,面板下方展开,
+不会被 drawer 的 overflow-hidden 裁掉)。文案由 MainLayout 用
+tabDescKey 取,语言随 i18n 切换。
+
+## 2026-08-06 — 桌面临时抽屉改内嵌列 + per-tab 宽度
+
+Owner 两点:①悬浮 overlay 盖住聊天内容(own 头像被挡)→ 桌面端
+(inset=true)未 pin 的抽屉也**入流布局**,chat 左移让位;临时语义保留
+(backdrop 点击 + Esc 关闭;in-flow 列 z-[201] 压过 z-[200] backdrop,
+自身点击不被吃)。真正的 fixed overlay 只剩移动端。②新增 insetWidth:
+artifacts 面板 ~50vw(大屏可读性,clamp 保住 sidebar272+chat400 底线),
+其余面板 440px;pinned 仍走用户可拖的 pinnedWidth。
+「单元素稳定槽位、模式切换不 remount」约束未破坏(drawerPinToggle 测试通过)。
 
 ## 2026-07-30 (2) — pin/unpin no longer remounts the panel; the portal is gone
 

@@ -141,7 +141,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
   return (
     <div
       data-testid="process-panel"
-      className="mb-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
+      className="mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
       style={{ fontFamily: 'var(--font-mono)' }}
     >
       {/* Terminal chrome — the whole bar toggles collapse. Live dot on

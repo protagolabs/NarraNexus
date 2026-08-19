@@ -17,7 +17,23 @@
     "you": "あなた",
     "cloud": "クラウド",
     "localMode": "ローカルモード",
-    "cloudMode": "クラウドモード"
+    "cloudMode": "クラウドモード",
+    "collapseTitle": "サイドバーを折りたたむ",
+    "expandTitle": "サイドバーを展開",
+    "export": "エクスポート",
+    "exportTitle": "バンドルをエクスポート — エージェントまたはチーム",
+    "settingsTitle": "設定 — モデルとプロバイダー",
+    "searchChatsTitle": "エージェントとチームを検索",
+    "account": "アカウント",
+    "billing": "請求",
+    "subscription": "サブスクリプション",
+    "theme": "テーマ",
+    "language": "言語",
+    "themeLight": "ライト",
+    "themeDark": "ダーク",
+    "themeSystem": "システム",
+    "workspace": "あなたのワークスペース",
+    "accountTitle": "アカウント"
   },
   "chat": {
     "conversation": "会話",
@@ -75,20 +91,13 @@
       "recoveredAfterErrorTip": "このターンのあるステップが失敗しました。返信は完了した作業と既知のエラー情報から生成されました。"
     },
     "onboarding": {
-      "eyebrow": "新しい会話",
-      "heading": "まっさらなページ。",
-      "framing": "ここにはまだ何もありません — それが狙いです。あなたと {{name}} が一緒に取り組むほど、記憶し、つなぎ、引き継いでいきます。",
       "defaultAgentName": "あなたのエージェント",
-      "narraBrand": "Narra · メモリー",
-      "narraCaption": "記憶する",
-      "nexusBrand": "Nexus · ネットワーク",
-      "nexusCaption": "つなげる",
-      "teamBrand": "あなたのチーム",
-      "teamCaption": "成し遂げる",
-      "tryAsking": "こう聞いてみましょう",
       "prompt1": "今週の最も重要なアップデートをまとめて",
       "prompt2": "チャンネルを接続して、緊急の事項を監視して",
-      "prompt3": "月曜の朝に重要事項のダイジェストを設定して"
+      "prompt3": "月曜の朝に重要事項のダイジェストを設定して",
+      "readyTitle": "{{name}} の準備ができました",
+      "readyBody": "以下の提案から始めるか、必要なことをそのまま伝えてください。",
+      "dismiss": "閉じる"
     },
     "team": {
       "notFound": "チームが見つかりません。",
@@ -254,7 +263,14 @@
       "plan": "プラン",
       "title": "エージェント · プロセス",
       "ops": "回の操作"
-    }
+    },
+    "header": {
+      "sessionLabel": "セッション · {{time}}",
+      "agentDetailTitle": "エージェント詳細",
+      "detailMenuTitle": "エージェント詳細 — パネル",
+      "modelFramework": "モデルとフレームワーク"
+    },
+    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
   },
   "awareness": {
     "common": {
@@ -721,11 +737,17 @@
       "create": "作成",
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
-      "createTeam": "チームを作成"
+      "createTeam": "チームを作成",
+      "new": "新規",
+      "newTitle": "新規 — エージェント、チーム、インポート…",
+      "importBundle": ".nxbundle をインポート",
+      "importAgent": "他のソースからインポート"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",
       "agentCount_other": "{{count}} 体のエージェント",
+      "toggleMembers": "メンバーを表示",
+      "noMembers": "メンバーはまだいません",
       "unread": "未読メッセージ"
     },
     "teamRowMenu": {
@@ -737,7 +759,6 @@
       "crumbDashboard": "ダッシュボード",
       "crumbSettings": "設定",
       "crumbSystem": "システム",
-      "crumbManageAgents": "エージェントを管理",
       "crumbTeam": "チーム",
       "crumbBundle": "バンドル",
       "crumbChat": "チャット",
@@ -1227,7 +1248,22 @@
       "title": "エージェントダッシュボード",
       "agentsCount": "{{count}} 件のエージェント",
       "emptyLabel": "エージェントはまだありません",
-      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。"
+      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。",
+      "statRunning": "実行中",
+      "statQueued": "待機中",
+      "statErrors": "エラー",
+      "statCostToday": "本日のコスト",
+      "colStatus": "ステータス",
+      "colTeam": "チーム",
+      "colMembers": "メンバー",
+      "teamsCount": "{{count}} チーム",
+      "membersCount": "{{count}} エージェント",
+      "noStatusYet": "ライブステータスはまだありません — 次のポーリングで反映されます。",
+      "publicAgent": "公開",
+      "noTeamsLabel": "チームがまだありません",
+      "noTeamsHint": "サイドバーの New メニューから作成できます。",
+      "manageTeam": "管理",
+      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1260,20 +1296,9 @@
       "providers": {
         "label": "LLM プロバイダー"
       },
-      "bundle": {
-        "label": "バンドル · エクスポート / インポート",
-        "hint": "エージェント（任意でチームも）を持ち運び可能な .nxbundle ファイルにまとめて共有したり、共有された .nxbundle ファイルをインポートしたりできます。",
-        "exportButton": "バンドルをエクスポート…",
-        "importButton": "バンドルをインポート…"
-      },
       "artifacts": {
         "label": "アーティファクト",
         "hint": "エージェントが作成したすべてのチャート、レポート、ファイルを管理します。エージェントが上限に達したと報告したら、一括選択して容量を解放しましょう。"
-      },
-      "manageAgents": {
-        "label": "エージェント管理 · 一括",
-        "hint": "エージェントを一括選択して削除したり、チームへの追加／削除をまとめて行えます。保持したくないバンドルをインポートした後に便利です。「バンドル由来」で絞り込むと見つけられます。",
-        "openButton": "一括管理を開く…"
       },
       "updates": {
         "label": "アプリの更新",
@@ -1296,6 +1321,11 @@
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
+      },
+      "manageAgents": {
+        "label": "エージェント管理 · 一括",
+        "hint": "エージェントを一括選択して削除したり、チームへの追加／削除をまとめて行えます。保持したくないバンドルをインポートした後に便利です。「バンドル由来」で絞り込むと見つけられます。",
+        "openButton": "一括管理を開く…"
       },
       "privacy": {
         "label": "プライバシー",
@@ -1396,7 +1426,7 @@
       "orSeparator": "— または —",
       "chooseFile": "ファイルを選択",
       "fileSizeKb": "（{{size}} KB）",
-      "preview": "プレビュー",
+      "preview": "プリフライトを実行 →",
       "preflightFailed": "プリフライトに失敗しました",
       "waitingForBackend": "バックエンドを待機中（試行 {{attempt}}/{{total}}）…",
       "fetchFailed": "テンプレートの取得に失敗しました",
@@ -1438,9 +1468,12 @@
         "skillsTip": "ヒント：「フルコピー」のスキルには既に認証情報が含まれています。URL/Zip スキルは再学習または新しい認証情報が必要です — インポートしたエージェントと対話してセットアップを完了してください。",
         "viewTeamIntro": "チーム紹介を表示",
         "doneButton": "完了"
-      }
+      },
+      "uploadInfoNote": "バンドルには単一のエージェント、またはチーム全体（エージェント、メモリ、スキル、チャンネル）を含められます。次のステップで名前の衝突や警告を確認してから書き込みが行われます。"
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "認証情報を含める（IMチャンネル + スキルシークレット）",
+      "pickFirstHint": "まず上でエージェントまたはチームを選択してください。選択すると、ナラティブ・スキル・チャンネルなどのセクションが表示されます。",
       "title": "バンドルをエクスポート",
       "backToSettings": "設定に戻る",
       "summaryLine": "{{agents}} エージェント · {{skills}} スキル · {{entities}} エンティティ · {{channels}} チャンネル",
@@ -1485,19 +1518,11 @@
         "freeText": "自由記述テキスト（アウェアネス／イベント／メッセージ）は、インラインの機密情報について自動スキャンされません — ご自身で確認してください。"
       },
       "agents": {
-        "whatYouPick": "ここで選ぶもの：",
-        "intro1": "このバンドルに含まれるエージェントの集合。ウィザード内のその他すべて（ナラティブ、スキル、MCP、ファイルなど）はこのクロージャに絞り込まれます。",
-        "intro2": "チームを選ぶと既存メンバー全員がワンクリックで追加されます。後から個別にチェックを外すこともできます。外部参照（例：このクロージャ外のエージェントを指すソーシャルエンティティ）はエクスポート時に自動的に除外されます。",
         "bundleTeamLabel": "このチームをバンドルする（任意）",
         "noTeamOption": "— チームなし / 個別のエージェント —",
-        "quickAddByTeam": "チームでクイック追加",
-        "deselectTeamTitle": "「{{name}}」のメンバーをすべて選択解除",
-        "addTeamTitle": "「{{name}}」のメンバーをすべて追加",
-        "replaceTeamTitle": "選択を「{{name}}」のメンバーに置き換える",
-        "only": "のみ",
-        "allAgents": "すべてのエージェント（{{count}}）",
-        "clear": "クリア",
-        "agentsToInclude": "含めるエージェント · {{selected}}/{{total}}"
+        "agentsToInclude": "含めるエージェント · {{selected}}/{{total}}",
+        "pickTeamFirst": "上でチームを選択してください — メンバーは自動的に含まれます。",
+        "pickOne": "エクスポートするエージェントを選択"
       },
       "skills": {
         "emptySelectAgents": "前のタブでエージェントを選択してください — そのスキルがここに表示されます。",
@@ -1683,6 +1708,13 @@
         "noArtifacts": "このエージェントにはアーティファクトがありません。",
         "pinned": "ピン留め済み",
         "fullModeNote": "フルスナップショットモードでは、すべてのアーティファクトが自動的に含まれます。選択するにはカスタムに切り替えてください。"
+      },
+      "kind": {
+        "label": "種類",
+        "agentTitle": "エージェントバンドル",
+        "agentDesc": "1 つのエージェントをエクスポート — そのナラティブ・スキル・ワークスペースのファイルが一緒に含まれます。",
+        "teamTitle": "チームバンドル",
+        "teamDesc": "チーム全体をエクスポート — 所属エージェント、紹介文、共有チャンネルが一緒に含まれます。"
       }
     },
     "signup": {
@@ -1710,6 +1742,27 @@
         "special": "記号を含む"
       },
       "codePlaceholder": "6桁のコード"
+    },
+    "createTeam": {
+      "title": "チームを作成",
+      "back": "戻る",
+      "nameLabel": "名前",
+      "namePlaceholder": "例: Research",
+      "descLabel": "説明",
+      "descPlaceholder": "このチームの目的は？",
+      "colorLabel": "カラー",
+      "membersLabel": "エージェントを追加",
+      "selectedCount": "{{count}} 件選択中",
+      "noAgents": "エージェントがまだありません — まず New メニューから作成してください。",
+      "createButton": "チームを作成",
+      "manageHint": "既存のチームはダッシュボードで管理します。",
+      "membersFailed": "チームは作成されましたが、{{count}} 件のメンバーを追加できませんでした: {{ids}}",
+      "searchPlaceholder": "名前 / ID でエージェントを検索…",
+      "noMatch": "一致するエージェントがありません",
+      "cancel": "キャンセル"
+    },
+    "account": {
+      "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"
     }
   },
   "rail": {
@@ -1735,7 +1788,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "成果物",
+    "desc": {
+      "awareness": "エージェントの自己認識 — アイデンティティ、性格、恒常的な指示。ここで編集するか、チャットで伝えれば自動的に更新されます。",
+      "workspace": "エージェントのファイル空間。読ませたい文書をアップロードでき、エージェントの成果物もここに置かれます。",
+      "channels": "このエージェントを IM プラットフォーム（Lark、Slack、Telegram…）に接続し、アプリ外からも連絡できるようにします。",
+      "smarthome": "スマートホーム機器（Home Assistant）を連携し、エージェントが確認・操作できるようにします。",
+      "jobs": "定期・バックグラウンドの仕事。チャットで「毎朝ブリーフを送って」と言えばエージェントが作成します。",
+      "inbox": "チャンネルや他のエージェントから届くメッセージ。対応が必要な項目はバッジで示されます。",
+      "artifacts": "エージェントが作成したレポート・ページ・ファイルをここで開いて確認できます。",
+      "skills": "インストール済みのスキル。Marketplace から追加、または GitHub / zip からインストールできます。",
+      "mcp": "エージェントが呼び出せる外部 MCP ツールサーバー — サードパーティ機能を接続します。",
+      "memory": "ナラティブとして整理されたエージェントの長期記憶 — 会話をまたいで保持される内容です。",
+      "social": "エージェントの知り合い — 人や他のエージェントと協働するうちに連絡先が蓄積されます。"
+    }
   },
   "jobs": {
     "title": "ジョブ",

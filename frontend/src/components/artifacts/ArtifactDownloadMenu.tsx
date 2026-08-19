@@ -171,14 +171,14 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
               <>
                 <button
                   onClick={() => exportChartImage('png')}
-                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                   role="menuitem"
                 >
                   {t('artifacts.download.exportPng')}
                 </button>
                 <button
                   onClick={() => exportChartImage('jpeg')}
-                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                   role="menuitem"
                 >
                   {t('artifacts.download.exportJpeg')}
@@ -210,7 +210,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
                       );
                     });
                 }}
-                className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                 role="menuitem"
               >
                 {t('artifacts.download.original', { ext })}

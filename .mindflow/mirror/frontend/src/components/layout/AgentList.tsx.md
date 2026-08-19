@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — merge ruling: team 行未读圆点不接线（下方 08-14 条 UI 半边失效）
+
+Owner ruled v4 行尾结构（成员数 → ⋮）胜出，dev 的未读圆点 + 「谁说了什么」
+第二行**不接线**：本文件不再向 [[TeamChatRow]] 传 `unread/preview/authorName`，
+`teamUnread` 判定函数随之移除。dev 的 `teamUnreadBadge.test.tsx` 随 UI 一起
+删除——圆点回归时从 dev 恢复它。
+
+保留的半边：`markTeamRead` 水位线 effect 原样保留（打开房间即记已读，离开后
+仍是清的），[[useAutoRefresh]] 里的 `teamHasUnread` toast 判定也仍然在用。
+所以 08-14 条里 UI 渲染的描述已失效，水位线/useAutoRefresh 的描述仍准确。
 
 ## 2026-08-17 — 改名成功后回读列表，别让手打的补丁成为持久化的那份
 
@@ -58,6 +69,21 @@ active 时清掉，正是 agent 徽标在拿到自己的 marker 之前的那个 
 另一半在 [[useAutoRefresh]]：team 列表此前只在 sidebar 发现它未加载时取过一次，
 没有任何定时刷新。标记只会在整页重新加载后才出现——从用户角度和「这功能没做」
 无法区分。
+
+## 2026-08-11 — TEAMS/AGENTS 分组头三角换 lucide
+
+"▶" 字符三角(渲染为实心)→ lucide ChevronRight + rotate-90,与
+TeamChatRow / AgentGroupSection 的展开箭头统一线性图标语言
+(design_system.md §5)。
+
+## 2026-08-06 — Chat UI v4:回归纯列表
+
+创建 / 导入 / 导出 / manage-agents 入口全部移出(去 Sidebar 全局导航),
+`collapsed` prop 与 72px 头像栏代码路径删除(v4 收起=整栏隐藏)。头部只剩
+Chats 标签 + 计数 + 搜索(打开 ⌘K palette,uiStore.paletteOpen)+ 刷新。
+activitySignature 性能契约、TEAMS/AGENTS 两段式去重结构、unread 逻辑不变。
+TeamManagementModal / ImportAgentModal 挂载移交 [[Sidebar.tsx]];
+AgentsHeaderMenu 组件删除。
 
 ## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
 

@@ -121,7 +121,7 @@ export const SegmentedReply = memo(function SegmentedReply({
                     the old ReplyBlock documented on 2026-05-12). Markdown
                     renders on settle. */}
                 {isStreaming && (segment.reply.streaming || isLast) ? (
-                  <div className="whitespace-pre-wrap text-[0.95rem] leading-relaxed">
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
                     {segment.reply.content}
                   </div>
                 ) : (

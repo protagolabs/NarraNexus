@@ -33,6 +33,9 @@ const SkillsPanel = lazy(() =>
 const NarrativeList = lazy(() =>
   import('@/components/runtime/NarrativeList').then((m) => ({ default: m.NarrativeList })),
 );
+const ArtifactColumn = lazy(() =>
+  import('@/components/artifacts').then((m) => ({ default: m.ArtifactColumn })),
+);
 
 function PanelFallback() {
   const { t } = useTranslation();
@@ -72,6 +75,10 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
         {tab === 'social' && <AwarenessPanel embedded section="social" />}
         {tab === 'jobs' && <JobsPanel embedded onJobResolved={handleJobResolved} />}
         {tab === 'inbox' && <AgentInboxPanel embedded />}
+        {/* Artifacts — the retired side column rendered as a drawer panel
+            (forceExpanded skips its own sliver/collapse logic; the drawer
+            shell owns visibility now). */}
+        {tab === 'artifacts' && <ArtifactColumn agentId={agentId} forceExpanded />}
         {tab === 'skills' && <SkillsPanel embedded section="skills" />}
         {tab === 'mcp' && <SkillsPanel embedded section="mcp" />}
         {tab === 'memory' && (

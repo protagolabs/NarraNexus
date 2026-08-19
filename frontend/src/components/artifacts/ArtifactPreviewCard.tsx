@@ -87,7 +87,7 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   return (
     <button
       onClick={open}
-      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] text-left"
+      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--nm-paper-warm)] text-left"
     >
       <div className="text-xs uppercase opacity-60">{artifact.kind}</div>
       <div className="text-sm font-semibold">{artifact.title}</div>

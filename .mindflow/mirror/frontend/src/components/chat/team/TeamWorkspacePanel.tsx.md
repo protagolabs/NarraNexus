@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 (二次) — 常驻窄列 → 顶栏开合的大抽屉
+
+第一版修法(角落盒 + zoom 钮)Owner 否了:速览盒根本起不到预览作用。现在
+与单聊 artifacts 完全同构:入口是房间顶栏的 ArtifactsGlyph 按钮(带计数,
+消息下的 artifact 芯片点开也会弹出),面板是 `min(50vw,760px)` 的右侧覆盖
+抽屉——左列表(w-64)+ 右满高 ArtifactRenderer 查看器,Maximize2 仍可进
+全屏 zoom。常驻 w-72 列和 h-64 角落预览删除;`onClose` 归抽屉。
+
+## 2026-08-18 — 选中 artifact 可全屏查看(复用 ArtifactZoomModal)
+
+右下角 288×256 预览盒装不下一个真 artifact(Owner 对照实屏)。角落盒保留
+作速览,预览头部新增 Maximize2 放大钮 → 单聊同款全屏查看器。
 
 ## 2026-08-10 (review 修正) — Files 页可下载（验收 #5 的缺口）
 

@@ -91,7 +91,7 @@ export function YouWorkspace() {
         <div className="flex items-center gap-3 mb-1 shrink-0">
           <RingAvatar species="carbon" label={name || '?'} size="md" />
           <div className="flex-1 min-w-0">
-            <h1 className="text-[18px] font-medium leading-tight text-[var(--text-primary)]">
+            <h1 className="text-lg font-medium leading-tight text-[var(--text-primary)]">
               {t('pages.you.you')}{name ? ` · ${name}` : ''}
             </h1>
             <p className="mt-0.5 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">

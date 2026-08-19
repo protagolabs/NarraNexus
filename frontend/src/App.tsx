@@ -37,7 +37,8 @@ const MarketplacePage = lazy(() => import('@/pages/MarketplacePage'));
 const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
 const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
-const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
+const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
+const AccountPage = lazy(() => import('@/pages/AccountPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
@@ -486,7 +487,7 @@ function App() {
         )}
       {circuitOpen && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-error)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
           role="alert"
         >
           <span>
@@ -564,17 +565,23 @@ function App() {
           <Route path="you" element={<YouWorkspace />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          {/* User settings (account / billing / subscription) — reached from
+              the sidebar account popover; Settings redirects its legacy
+              ?tab=account deep link (Stripe return) here. */}
+          <Route path="account" element={<AccountPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />
           {/* Deep-link entry point from narra.nexus templates marketplace.
               Same component as bundle/import; URL query (?url=&sha256=)
               triggers the auto-fetch-then-preflight path. */}
           <Route path="templates/install" element={<BundleImportPage />} />
+          {/* Static segment ranks above :teamId in v6 route ranking, but it
+              also reads clearer listed first. */}
+          <Route path="teams/new" element={<CreateTeamPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           {/* Team group chat — element null; MainLayout renders TeamChatView
               in the main slot (like /app/chat) so it isn't a sub-page overlay. */}
           <Route path="teams/:teamId/chat" element={null} />
-          <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>
 
         {/* Root redirect + catch-all */}

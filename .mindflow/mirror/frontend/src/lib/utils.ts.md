@@ -1,5 +1,14 @@
 ---
 code_file: frontend/src/lib/utils.ts
+last_verified: 2026-08-06
+stub: false
+---
+
+## 2026-08-06 — formatMessageAge
+
+新增聊天气泡专用的本地化相对时长(Intl.RelativeTimeFormat,numeric:auto,
+秒/分/时/天/月/年阶梯,传 i18n.language)。与既有英文缩写版
+formatRelativeTime(jobs/system 面,7 天后落日期)并存,勿混用。
 last_verified: 2026-08-14
 stub: false
 ---
