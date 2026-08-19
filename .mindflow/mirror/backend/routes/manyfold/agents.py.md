@@ -4,6 +4,21 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 (十二改) — `updated_fields` 撤回改动,维持原语义
+
+八改把它从 `list(patch.keys())`(**请求了哪些**)改成实际写了哪些。读起来更准,但
+这是**单方面改跨服务语义**,而且失效方式正是本次改动在我方消灭的那个:带了
+`agent_name` 但值没变时返回从 `["agent_name"]` 变成 `[]`,若 Manyfold 用这个字段
+确认改名生效,一次幂等重发就被读成"没生效"→ 重试 → 每次同样答复。**#320 的循环
+被搬到服务边界上。**
+
+整洁不值得这个风险。已撤回,维持 `list(patch.keys())`。对面若想要"实际写入字段",
+那是需要双方同意的变更,不是我们顺手改的。
+
+**仍未关闭的对齐项**(本次无法自行确认,需 Owner 或对接人):`name_clash_with` /
+`identity_record_updated` 两个新增字段(additive,老客户端忽略)、以及
+`not_found → 404` 的映射。
+
 ## 2026-08-19 (九改·更正) — `created_by` 也是具名参数
 
 六改那条写「`created_by` 走 `extra_updates`」，现在是 `created_by=nx_user_id`。

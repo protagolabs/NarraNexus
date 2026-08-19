@@ -1108,3 +1108,37 @@ async def test_an_agent_correct_in_both_places_is_left_alone(db_client):
 
     result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
     assert result.identity_reconciled is None
+
+
+@pytest.mark.asyncio
+async def test_appending_to_a_name_reports_the_line_it_could_not_retire(
+    db_client, ui_client
+):
+    """The most ordinary rename shape there is: adding to a name.
+
+    `小绿` → `小绿2` makes the two names prefixes of each other, so which part of
+    `- 名称：小绿` is the name cannot be decided from the line and the rewrite is
+    correctly refused. But refusing silently left the profile saying 小绿 ABOVE a
+    record saying 小绿2 — the exact stacking a live run showed the model follow —
+    while the response said identity_record_updated: true and the UI warned
+    about nothing. Every existing test used 美食家/小绿, which have no prefix
+    relation and walk straight past this branch.
+    """
+    await _seed(
+        db_client,
+        name="小绿",
+        profile="# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+    )
+
+    body = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿2"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True, "the rename itself must still land"
+    assert body["identity_record_updated"] is False, (
+        "the profile still names the old identity and nothing said so"
+    )
+    profile = await _profile(db_client)
+    assert "You are 「小绿2」" in _identity_entries(profile)[0]

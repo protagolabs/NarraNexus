@@ -298,6 +298,19 @@ _IDENTITY_SECTION = re.compile(
 _ANY_H2 = re.compile(r"^\s*##\s+")
 
 
+class _AmbiguousSelfName(Exception):
+    """Raised when a self-name line cannot be rewritten without guessing.
+
+    An exception rather than a sentinel return so no caller can take the
+    unchanged profile for a successful retirement — which is precisely how this
+    degradation stayed invisible.
+    """
+
+    def __init__(self, profile: str) -> None:
+        super().__init__("ambiguous self-name rewrite refused")
+        self.profile = profile
+
+
 def _ends_the_name(rest: str) -> bool:
     return rest == "" or rest[0] in _NAME_ENDERS
 
@@ -410,11 +423,16 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     # visible, and still contradicted by the record — while guessing wrong edits
     # the agent's memory in a way `upsert` makes unrecoverable.
     if old.startswith(new) or new.startswith(old):
-        logger.info(
+        logger.warning(
             f"[identity] refusing an ambiguous self-name rewrite "
-            f"({old!r} → {new!r}); leaving the line to the record"
+            f"({old!r} → {new!r}); the line still names the old identity"
         )
-        return profile
+        # WARNING, not info, and reported through `retire_refused` below: this
+        # branch fires on the most ordinary rename shape there is — appending to
+        # a name (小绿 → 小绿2, Ann → Anna) — and leaving it silent made
+        # identity_record_updated report True in exactly the case the field
+        # exists to flag.
+        raise _AmbiguousSelfName(profile)
 
     out = []
     for line, editable in _scan(profile):
@@ -486,7 +504,16 @@ async def record_identity_change(
         # record, so the profile is never left with one section naming the old
         # name and another the new one — which is precisely the state a real
         # two-turn run answered the old name from (2026-08-19).
-        profile = retire_self_name(profile, old_name, new_name)
+        try:
+            profile = retire_self_name(profile, old_name, new_name)
+        except _AmbiguousSelfName as refused:
+            # The record still lands — it is what tells the agent which name is
+            # current — but the caller is told the memory is NOT fully correct,
+            # because a line above it still names the old one.
+            await awareness_repo.upsert(
+                instance_id, merge_identity_change_note(refused.profile, note)
+            )
+            return False
         await awareness_repo.upsert(
             instance_id, merge_identity_change_note(profile, note)
         )
@@ -571,8 +598,12 @@ async def reconcile_identity_record(
         note = build_identity_reconciliation_note(current_name, was_called)
         if not _note_is_readable(note, current_name):
             return False
+        refused = False
         if stale_line and declared:
-            profile = retire_self_name(profile, declared, current_name)
+            try:
+                profile = retire_self_name(profile, declared, current_name)
+            except _AmbiguousSelfName as exc:
+                profile, refused = exc.profile, True
         if stale_record:
             profile = merge_identity_change_note(profile, note)
         elif IDENTITY_CHANGE_SECTION not in profile:
@@ -580,7 +611,7 @@ async def reconcile_identity_record(
             # agent which name is current, so file one.
             profile = merge_identity_change_note(profile, note)
         await repo.upsert(instance_id, profile)
-        return True
+        return not refused
     except Exception as e:  # noqa: BLE001 — the profile write already landed
         logger.warning(f"reconcile_identity_record failed for {agent_id}: {e}")
         return False  # found stale, failed to fix — NOT "nothing to do"

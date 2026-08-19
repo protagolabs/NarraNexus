@@ -430,11 +430,16 @@ async def update_agent_for_manyfold(
             if updated
             else patch.get("agent_description")
         ),
-        # What was WRITTEN, not what was requested: re-sending an identical
-        # name issued no write, and the no-op branch above already answers [].
-        # (Response-shape change on a cross-service contract — flagged to the
-        # Manyfold side rather than shipped silently.)
-        "updated_fields": list(result.updated_fields),
+        # What the caller REQUESTED, unchanged. Reporting what was written
+        # instead reads better, and it was changed to that for one round — but
+        # it is a semantic change on a contract the other side owns half of, and
+        # its failure mode is the one this whole change exists to remove: an
+        # idempotent resend of the same name would come back as [], and a
+        # Manyfold that checks this field to confirm the rename landed would
+        # read "did not happen" and retry, forever. #320's loop, moved to the
+        # service boundary. Tidiness is not worth shipping that unilaterally;
+        # if the other side wants written-fields, that is a change they agree to.
+        "updated_fields": list(patch.keys()),
     }
 
 

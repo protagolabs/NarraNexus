@@ -685,12 +685,22 @@ class TestNamesContainingSeparators:
         after = (await db.get_one("instance_awareness", {"instance_id": instance_id}))["awareness"]
         assert "- 名称：小绿-2\n" in after, f"the name line was mangled: {after!r}"
 
-    def test_an_ambiguous_overlap_is_refused_rather_than_guessed(self):
+    def test_an_ambiguous_overlap_is_refused_LOUDLY(self):
         """`小绿` vs `小绿-2`: one is a prefix of the other, so which part of
-        the line is the name cannot be decided. Refuse and leave it — the
-        identity record still tells the agent which name is current, and a
-        wrong rewrite of its memory cannot be taken back."""
+        the line is the name cannot be decided. Refuse — a wrong rewrite of an
+        agent's memory cannot be taken back.
+
+        Refusing by RAISING, not by returning the profile unchanged: the caller
+        cannot then mistake "left alone" for "retired", which is how the
+        degradation stayed invisible while the response reported success. The
+        record still lands; the caller is told the memory is not fully correct.
+        """
+        from xyz_agent_context.module.awareness_module._awareness_writes import (
+            _AmbiguousSelfName,
+        )
         from xyz_agent_context.module.awareness_module import retire_self_name
 
         profile = "## 4. Role and Identity\n- 名称：小绿-3\n"
-        assert retire_self_name(profile, "小绿", "小绿-2") == profile
+        with pytest.raises(_AmbiguousSelfName) as caught:
+            retire_self_name(profile, "小绿", "小绿-2")
+        assert caught.value.profile == profile, "the untouched profile must come along"
