@@ -154,6 +154,19 @@ export function ChatView() {
   // persisted on release). No iframe lives in the drawer, so there is
   // nothing to freeze here.
   const [drawerWidth, setDrawerWidth] = useState<number>(() => readInitialDrawerWidth());
+  // The width CAP is viewport-relative, so a window shrink (unplugging a
+  // monitor) must re-clamp at render time. The STORED width keeps the
+  // user's chosen value — clamping state here would let one visit to the
+  // laptop screen permanently overwrite a deliberate big-screen width.
+  const [viewportW, setViewportW] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1920,
+  );
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const effectiveDrawerWidth = clampDrawerWidth(drawerWidth, viewportW);
   const drawerColRef = useRef<HTMLDivElement | null>(null);
   const pendingDrawerWidthRef = useRef<number>(drawerWidth);
 
@@ -264,7 +277,7 @@ export function ChatView() {
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
-          pinnedWidth={drawerWidth}
+          pinnedWidth={effectiveDrawerWidth}
           activeTab={drawerTab}
           onSelectTab={(id) => setDrawerTab(id)}
           banner={

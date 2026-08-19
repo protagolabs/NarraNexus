@@ -9,8 +9,10 @@ stub: false
 - 抽屉默认**钉选**(只有显式 unpin 存 '0' 才关)——面板应该待在原地,
   除非用户说不。策略/键值抽到 [[drawerLayout]](纯函数可测)。
 - 拖拽上限从写死 720px 改为 `min(60vw, vw−672)`:大屏上 artifacts 能拉过
-  半屏;672 = 侧栏 272 + 聊天列最小 400,永远吃不进去。存量宽度按当前视口
-  重新 clamp。
+  半屏;672 = 侧栏 272 + 聊天列最小 400,永远吃不进去。上限是视口函数,
+  所以**渲染处**用 resize 监听维护的 viewportW 再 clamp 一次
+  (`effectiveDrawerWidth`)——窗口缩小/拔显示器时抽屉即刻回到合法宽度;
+  **持久化保留用户原值**,回大屏自动恢复(环境噪音不吃掉用户意图)。
 - 首跑(桌面、无 opened-once 标记):懒初始化直接以 artifacts 面板 + 
   [[../bookmarks/DrawerCoachMark]] 教学卡开局(不用 effect,无级联渲染;
   once 标记在 `claimFirstRunAutoOpen` 内一次性占用,手机访问不烧掉桌面首跑)。

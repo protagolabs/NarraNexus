@@ -7,10 +7,13 @@ stub: false
 ## 2026-08-19 — 输入框随内容增高
 
 此前 `rows=1` + max-h-160 但**没有任何增高机制**,多行输入永远挤在一行高度
-里滚。现在 useLayoutEffect 跟随 `text`:height 先塌回 auto 再设为
-scrollHeight,CSS `max-h-[min(320px,35vh)]` 封顶,超过后 textarea 内部滚动
-(overflow-y-auto)。挂在 effect 而非 onChange:程序性 setText/clear 与
-恢复的草稿走同一条路。测试:composerAutosize.test.tsx。
+里滚。现在 `resizeToContent`(唯一实现)= 塌回 auto → 设为 scrollHeight+边框
+(border-box 下 height 含边框而 scrollHeight 不含,差值取
+offsetHeight−clientHeight,必须在塌回 auto 之后读);只在值变化时写,
+防 ResizeObserver 自激。两个触发面:useLayoutEffect 跟 `text`(程序性
+setText/clear/草稿恢复同路),ResizeObserver 跟宽度(拖抽屉/钉选/折叠
+侧栏/窗口 resize 都会改折行数)。CSS `max-h-[min(320px,35vh)]` 封顶,
+超过后内滚。测试:composerAutosize.test.tsx。
 
 ## 2026-08-06 — 输入框浅底 + focus 边框加深
 

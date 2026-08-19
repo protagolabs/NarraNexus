@@ -167,9 +167,12 @@ const ToolCallBlock = memo(function ToolCallBlock({
           >
             {t('chat.timeline.toolLabel')}
           </span>
-          <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
-            {friendlyName}
-          </span>
+          {/* Same rule as the output row: no name recovered → label alone. */}
+          {friendlyName && (
+            <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
+              {friendlyName}
+            </span>
+          )}
           {!expanded && argsPreview && (
             <span className="ml-2 truncate" style={{ color: 'var(--nm-ink50)' }}>
               {argsPreview}

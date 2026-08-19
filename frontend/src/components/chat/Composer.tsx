@@ -30,6 +30,7 @@ import {
   forwardRef,
   memo,
   useEffect,
+  useCallback,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -154,17 +155,35 @@ export const Composer = memo(
       };
     }, [agentId]);
 
-    // Grow the field with its content: height tracks scrollHeight, the CSS
-    // max-height caps it, and past the cap the textarea scrolls internally.
-    // Collapsing to 'auto' first lets it shrink again when lines are
-    // deleted. useLayoutEffect (not the change handler) so programmatic
-    // setText/clear and the restored draft resize the same way typing does.
-    useLayoutEffect(() => {
+    // Grow the field with its content: height tracks scrollHeight (plus the
+    // border, which border-box height includes but scrollHeight does not),
+    // the CSS max-height caps it, and past the cap the textarea scrolls
+    // internally. Collapsing to 'auto' first lets it shrink again when
+    // lines are deleted.
+    const resizeToContent = useCallback(() => {
       const el = textareaRef.current;
       if (!el) return;
       el.style.height = 'auto';
-      el.style.height = `${el.scrollHeight}px`;
-    }, [text]);
+      const borderPx = el.offsetHeight - el.clientHeight;
+      const next = `${el.scrollHeight + borderPx}px`;
+      // Write only on change: a ResizeObserver re-fires on the write, and
+      // an unconditional set would self-oscillate.
+      if (el.style.height !== next) el.style.height = next;
+    }, []);
+    // useLayoutEffect (not the change handler) so programmatic setText /
+    // clear and the restored draft resize the same way typing does.
+    useLayoutEffect(() => {
+      resizeToContent();
+    }, [text, resizeToContent]);
+    // Width changes rewrap the text (drawer drag, pin toggle, sidebar
+    // collapse, window resize) — the height must follow those too.
+    useEffect(() => {
+      const el = textareaRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      const ro = new ResizeObserver(() => resizeToContent());
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [resizeToContent]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const v = e.target.value;

@@ -15,6 +15,7 @@ import {
   shouldAutoOpenFirstRun,
   DRAWER_OPENED_ONCE_KEY,
   DRAWER_PINNED_KEY,
+  DRAWER_WIDTH_KEY,
 } from '../drawerLayout';
 
 const storageWith = (value: string | null) => ({
@@ -51,6 +52,12 @@ describe('drawer width bounds', () => {
     expect(clampDrawerWidth(100, 1920)).toBe(MIN_DRAWER_PX);
     expect(clampDrawerWidth(500, 1920)).toBe(500);
   });
+
+  it('a width chosen on a big screen re-clamps when the window shrinks', () => {
+    // 2560 allows 1536 (60%); back on a 1280 window the reserve wins.
+    expect(clampDrawerWidth(1536, 2560)).toBe(1536);
+    expect(clampDrawerWidth(1536, 1280)).toBe(608);
+  });
 });
 
 describe('first-run auto-open', () => {
@@ -75,9 +82,11 @@ describe('first-run auto-open', () => {
     expect(shouldAutoOpenFirstRun(storage, false)).toBe(true);
   });
 
-  it('opening a panel by hand does not spend the coach mark (separate keys)', () => {
-    const storage = mem();
-    storage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
-    expect(shouldAutoOpenFirstRun(storage, false)).toBe(true);
+  it('any pre-existing drawer state means an existing user — no re-onboarding', () => {
+    for (const key of [DRAWER_OPENED_ONCE_KEY, DRAWER_PINNED_KEY, DRAWER_WIDTH_KEY]) {
+      const storage = mem();
+      storage.setItem(key, key === DRAWER_PINNED_KEY ? '0' : '1');
+      expect(shouldAutoOpenFirstRun(storage, false)).toBe(false);
+    }
   });
 });

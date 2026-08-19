@@ -991,7 +991,11 @@
       "cancelConfirmKeep": "サブスクを継続",
       "reactivateConfirmTitle": "自動更新を再開しますか？",
       "reactivateConfirmAction": "再開する",
-      "reactivateConfirmDismiss": "後で"
+      "reactivateConfirmDismiss": "後で",
+      "balanceScope": "NetMind アカウント残高 — この NetMind アカウントで実行したものはすべて(NarraNexus 以外も含め)ここから消費されます。",
+      "narraUsageTitle": "NarraNexus の使用量 · 過去 {{days}} 日",
+      "narraUsageTokens": "トークン",
+      "narraUsageEstimate": "≈ {{cost}} — 公開価格に基づく概算のため、NetMind の明細とは完全には一致しません。"
     }
   },
   "system": {

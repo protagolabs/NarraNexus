@@ -44,18 +44,26 @@ export function readInitialDrawerPinned(storage: Pick<Storage, 'getItem'>): bool
 /**
  * First run only (desktop): should the artifacts panel auto-open with the
  * coach mark? A brand-new user has to SEE where artifacts land before the
- * panel is worth closing. Read-only — render-safe; the caller marks the
- * first run as seen from an effect (markFirstRunSeen), so a discarded
- * render pass cannot burn the marker. The marker is its OWN key: opening a
- * panel by hand (any viewport) writes DRAWER_OPENED_ONCE_KEY, and a phone
- * visit must not spend the desktop coach mark.
+ * panel is worth closing — but ONLY a brand-new user: anyone carrying any
+ * pre-existing drawer state (opened a panel, chose a pin state, dragged a
+ * width) has already found the drawer and must not be re-onboarded when
+ * this feature ships. Read-only — render-safe; the caller marks the first
+ * run as seen from an effect (markFirstRunSeen), so a discarded render
+ * pass cannot burn the marker. Small viewports return false WITHOUT
+ * marking, so a phone visit does not spend the desktop coach mark.
  */
 export function shouldAutoOpenFirstRun(
   storage: Pick<Storage, 'getItem'>,
   isSmallViewport: boolean,
 ): boolean {
   try {
-    return !isSmallViewport && !storage.getItem(DRAWER_FIRST_RUN_KEY);
+    if (isSmallViewport) return false;
+    if (storage.getItem(DRAWER_FIRST_RUN_KEY)) return false;
+    const isExistingUser =
+      storage.getItem(DRAWER_OPENED_ONCE_KEY) !== null ||
+      storage.getItem(DRAWER_PINNED_KEY) !== null ||
+      storage.getItem(DRAWER_WIDTH_KEY) !== null;
+    return !isExistingUser;
   } catch {
     return false;
   }

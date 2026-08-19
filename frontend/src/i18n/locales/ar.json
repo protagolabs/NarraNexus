@@ -1000,7 +1000,11 @@
       "cancelConfirmKeep": "الإبقاء على الاشتراك",
       "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
       "reactivateConfirmAction": "استئناف",
-      "reactivateConfirmDismiss": "ليس الآن"
+      "reactivateConfirmDismiss": "ليس الآن",
+      "balanceScope": "رصيد حساب NetMind — كل ما تشغّله بهذا الحساب يستهلك الرصيد، بما في ذلك خارج NarraNexus.",
+      "narraUsageTitle": "استخدام NarraNexus · آخر {{days}} يومًا",
+      "narraUsageTokens": "رموز",
+      "narraUsageEstimate": "≈ {{cost}} — تقدير وفق الأسعار المعلنة، لذا لن يطابق كشف NetMind تمامًا."
     }
   },
   "system": {

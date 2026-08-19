@@ -996,7 +996,11 @@
       "cancelConfirmKeep": "Оставить подписку",
       "reactivateConfirmTitle": "Возобновить автопродление?",
       "reactivateConfirmAction": "Возобновить",
-      "reactivateConfirmDismiss": "Не сейчас"
+      "reactivateConfirmDismiss": "Не сейчас",
+      "balanceScope": "Баланс аккаунта NetMind — всё, что вы запускаете с этим аккаунтом NetMind, расходует его, в том числе вне NarraNexus.",
+      "narraUsageTitle": "Использовано NarraNexus · за {{days}} дн.",
+      "narraUsageTokens": "токенов",
+      "narraUsageEstimate": "≈ {{cost}} — оценка по открытым прайс-листам, поэтому с выпиской NetMind совпадать точно не будет."
     }
   },
   "system": {

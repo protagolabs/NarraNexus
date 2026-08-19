@@ -991,7 +991,11 @@
       "cancelConfirmKeep": "구독 유지",
       "reactivateConfirmTitle": "자동 갱신을 재개할까요?",
       "reactivateConfirmAction": "재개",
-      "reactivateConfirmDismiss": "나중에"
+      "reactivateConfirmDismiss": "나중에",
+      "balanceScope": "NetMind 계정 잔액 — 이 NetMind 계정으로 실행하는 모든 것이(NarraNexus 밖 사용 포함) 잔액을 차감합니다.",
+      "narraUsageTitle": "NarraNexus 사용량 · 최근 {{days}}일",
+      "narraUsageTokens": "토큰",
+      "narraUsageEstimate": "≈ {{cost}} — 공개 정가 기준 추정치이므로 NetMind 명세서와 정확히 일치하지 않습니다."
     }
   },
   "system": {

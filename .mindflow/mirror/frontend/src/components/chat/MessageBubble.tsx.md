@@ -4,12 +4,14 @@ last_verified: 2026-08-19
 stub: false
 ---
 
-## 2026-08-19 — 历史时间线的 tool_output 承接调用名
+## 2026-08-19 — 历史时间线的 tool_output 承接调用名(实现并入 segmentTurn)
 
 存储态 timeline 的 `tool_output` 条目常不带 `tool_name`,旧兜底把字面
-'unknown' 打在每一行 [输出] 后面。时间有序日志里输出属于最近一次调用,
-现在顺承前一条 `tool_call` 的名字;无可承接时留空串,由
-[[TurnTimeline]] 隐藏空名。[[segmentTurn]](NexusPower 路径)同修。
+'unknown' 打在每一行 [输出] 后面。Path-1 的手写转换副本删除,改调
+[[segmentTurn]] 的 `timelineToEvents(tl, { convertOwnerReplyTool: false })`
+——顺承逻辑只有一份;`false` 表示折叠态把 reply 工具当普通 process 行,
+是显式设计差异。无可承接时留空串,由 [[TurnTimeline]] 隐藏空名。
+测试:messageBubbleToolOutputName.test.tsx(真实渲染路径)。
 
 ## 2026-08-18 — 试过恒定列宽(w-full),当天撤回
 

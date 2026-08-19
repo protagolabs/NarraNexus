@@ -1,14 +1,20 @@
 /**
- * i18n parity ratchet. en.json is the reference key set; every other locale
- * is measured against it. Two rules:
+ * i18n parity gate. en.json is the reference key set; every other locale is
+ * measured against it, per NAMESPACE:
  *
- * 1. Namespaces this codebase has fully localized must STAY complete — a
- *    new key added to en without its nine siblings fails here, next to the
- *    edit that introduced it, instead of surfacing as one English row in a
- *    localized menu.
- * 2. The historical backlog (locales missing en keys wholesale) may only
- *    shrink. The counts below are a ceiling, not a target: lower them when
- *    keys are backfilled; the test refuses to let them grow.
+ * Namespaces this codebase has fully localized must STAY complete — a new
+ * key added to en without its nine siblings fails HERE, in the namespace
+ * the author touched, instead of surfacing as one English row inside a
+ * localized menu.
+ *
+ * Deliberately NOT a global missing-key ceiling: a hardcoded total turns
+ * every en-only key added by an unrelated PR into a red light with the
+ * wrong name on it (the count is branch-relative, so the PR that added the
+ * key stays green and the next PR to merge goes red). Per-namespace
+ * assertions keep the blame with the change that earned it. The historical
+ * backlog (~430 en keys per non-en/zh locale, i18next falls back to
+ * English) is a separate backfill effort; grow this list as namespaces get
+ * completed.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -26,31 +32,24 @@ import ru from '../locales/ru.json';
 
 const LOCALES: Record<string, unknown> = { zh, ar, de, es, fr, ja, ko, pt, ru };
 
-// Ceiling per locale, measured 2026-08-19. Shrink freely; never raise.
-const MISSING_CEILING: Record<string, number> = {
-  zh: 0,
-  ar: 429,
-  de: 429,
-  es: 429,
-  fr: 429,
-  ja: 430,
-  ko: 430,
-  pt: 429,
-  ru: 429,
-};
-
-// Namespaces every locale must carry in full.
+// Namespaces every locale must carry in full. Add a namespace here the
+// moment it reaches 10/10 — that is what keeps it complete.
 const COMPLETE_NAMESPACES = [
   'layout.teamRowMenu',
   'layout.agentRowMenu',
+  'layout.createMenu',
   'chat.team.workspace',
+  'chat.header',
   'bookmarks.coach',
+  'bookmarks.drawer',
   'pages.settings.nav',
   'pages.settings.personalization',
   'pages.manageAgents',
-  'chat.header',
-  'bookmarks.drawer',
 ];
+
+// zh is the co-source locale: it must mirror en in FULL, so a new en key
+// missing its zh twin fails regardless of namespace.
+const FULL_PARITY_LOCALES = ['zh'];
 
 function leaves(obj: unknown, prefix = ''): string[] {
   if (typeof obj !== 'object' || obj === null) return [prefix];
@@ -73,8 +72,10 @@ describe('locale parity with en', () => {
       expect(holes).toEqual([]);
     });
 
-    it(`${locale}: the missing-key backlog never grows (ceiling ${MISSING_CEILING[locale]})`, () => {
-      expect(missing.length).toBeLessThanOrEqual(MISSING_CEILING[locale]);
-    });
+    if (FULL_PARITY_LOCALES.includes(locale)) {
+      it(`${locale}: mirrors en in full (co-source locale)`, () => {
+        expect(missing).toEqual([]);
+      });
+    }
   }
 });

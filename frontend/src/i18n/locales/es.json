@@ -992,7 +992,11 @@
       "cancelConfirmKeep": "Mantener la suscripción",
       "reactivateConfirmTitle": "¿Reanudar la renovación automática?",
       "reactivateConfirmAction": "Reanudar",
-      "reactivateConfirmDismiss": "Ahora no"
+      "reactivateConfirmDismiss": "Ahora no",
+      "balanceScope": "Saldo de la cuenta NetMind — todo lo que ejecutes con esta cuenta NetMind lo consume, incluso fuera de NarraNexus.",
+      "narraUsageTitle": "Usado por NarraNexus · últimos {{days}} días",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimado con precios públicos de lista, por lo que no coincidirá exactamente con tu factura de NetMind."
     }
   },
   "system": {

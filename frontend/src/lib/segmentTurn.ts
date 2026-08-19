@@ -81,7 +81,10 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
  * it is kept here — the double-render is now prevented by the bubble
  * rendering segment.reply only.
  */
-export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[] {
+export function timelineToEvents(
+  timeline: EventLogTimelineEntry[],
+  { convertOwnerReplyTool = true }: { convertOwnerReplyTool?: boolean } = {},
+): TurnEvent[] {
   const events: TurnEvent[] = [];
   // Stored tool_output entries often carry no tool_name; in a time-ordered
   // log an output belongs to the nearest preceding call, so carry that name
@@ -103,7 +106,12 @@ export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[]
         // tool_call→reply conversion; matching it here is what makes a
         // reloaded turn segmentable at all. The acknowledgement
         // tool_output stays a process event — same as the live path.
-        if (isOwnerReplyTool(toolName)) {
+        // convertOwnerReplyTool=false keeps reply-tool calls as process
+        // rows — the collapsed bubble's disclosure shows send_message like
+        // any other tool. This divergence between the two consumers is a
+        // design choice, expressed as an option so there is exactly one
+        // implementation of this conversion.
+        if (convertOwnerReplyTool && isOwnerReplyTool(toolName)) {
           const content = (entry.tool_input as Record<string, unknown> | undefined)?.content;
           if (typeof content === 'string' && content) {
             events.push({ id, ts, type: 'reply', content, reply_via: entry.reply_via });

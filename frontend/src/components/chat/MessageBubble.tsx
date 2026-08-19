@@ -87,42 +87,11 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     const events: TurnEvent[] = [];
 
     // Path 1 — historical: the backend gave us a time-ordered timeline.
+    // ONE conversion implementation (segmentTurn.timelineToEvents); the
+    // collapsed disclosure keeps reply-tool calls as ordinary process rows,
+    // hence convertOwnerReplyTool: false.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
-      // Stored tool_output entries often carry no tool_name of their own; in
-      // a time-ordered log an output belongs to the nearest preceding call,
-      // so carry that name forward instead of labelling every output row
-      // with a literal placeholder.
-      let lastToolName = '';
-      eventLogTimeline.forEach((entry, idx) => {
-        const id = `tl-${idx}`;
-        const ts = idx;
-        switch (entry.type) {
-          case 'thinking':
-            if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
-            break;
-          case 'tool_call':
-            lastToolName = entry.tool_name || '';
-            events.push({
-              id, ts, type: 'tool_call',
-              tool_name: entry.tool_name || '',
-              tool_input: entry.tool_input || {},
-              reply_via: entry.reply_via,
-            });
-            break;
-          case 'tool_output':
-            events.push({
-              id, ts, type: 'tool_output',
-              tool_name: entry.tool_name || lastToolName,
-              output: entry.tool_output || '',
-            });
-            break;
-          case 'native_output':
-            if (entry.content) events.push({ id, ts, type: 'native_output', content: entry.content });
-            break;
-          // 'reply' intentionally skipped — see comment above.
-        }
-      });
-      return events;
+      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false });
     }
 
     // Path 2 — live stream: message.thinking + message.toolCalls came

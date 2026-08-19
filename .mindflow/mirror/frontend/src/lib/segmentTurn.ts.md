@@ -4,11 +4,14 @@ last_verified: 2026-08-19
 stub: false
 ---
 
-## 2026-08-19 — tool_output 承接调用名(去 'unknown' 占位)
+## 2026-08-19 — tool_output 承接调用名 + 转换唯一化
 
-与 [[../components/chat/MessageBubble]] 同因同修:`lastToolName` 顺承,
-空名留空。`isOwnerReplyTool('')` 恒 false,reply 转换不受影响。
-测试:segmentTurn.test.ts 新用例(承接 + 孤儿输出留空)。
+- `lastToolName` 顺承:存储态 tool_output 无名时继承最近一次 tool_call,
+  空名留空由渲染层隐藏。测试:segmentTurn.test.ts。
+- `timelineToEvents` 新选项 `convertOwnerReplyTool`(默认 true):
+  [[../components/chat/MessageBubble]] 的折叠态披露用 `false`——reply 工具
+  调用保持为普通 process 行,这是设计差异,现在以显式参数表达,转换实现
+  全仓只此一份(MessageBubble 的手写副本删除)。
 
 ## 2026-08-17 — 回放路径的 reply 判定同样走 `isOwnerReplyTool`
 

@@ -992,7 +992,11 @@
       "cancelConfirmKeep": "Abo behalten",
       "reactivateConfirmTitle": "Automatische Verlängerung fortsetzen?",
       "reactivateConfirmAction": "Fortsetzen",
-      "reactivateConfirmDismiss": "Jetzt nicht"
+      "reactivateConfirmDismiss": "Jetzt nicht",
+      "balanceScope": "NetMind-Kontoguthaben — alles, was du mit diesem NetMind-Konto ausführst, zehrt es auf, auch außerhalb von NarraNexus.",
+      "narraUsageTitle": "Von NarraNexus genutzt · letzte {{days}} Tage",
+      "narraUsageTokens": "Tokens",
+      "narraUsageEstimate": "≈ {{cost}} — geschätzt nach öffentlichen Listenpreisen, weicht daher von deiner NetMind-Abrechnung ab."
     }
   },
   "system": {
