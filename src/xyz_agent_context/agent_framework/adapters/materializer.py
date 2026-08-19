@@ -100,10 +100,13 @@ lines are NOT lost — they still live in their narrative (you can pull a full
 thread with your narrative tools).
 
 Each line is prefixed:  [<time> · <topic> · <narrative_id>]
-- <time>: when it was said. Use it to judge what the user is replying to — a
-  short reply ("好" / "ok" / "yes" / "继续") almost always answers the MOST
-  RECENT line, i.e. the one just above the current input — NOT an older line
-  from a different thread.
+- <time>: when it was said, in the USER's local timezone with an explicit UTC
+  offset (e.g. `2026-07-30 23:00 +08:00`) — the same frame as the current time
+  in "Real World Information", so you can compare the two directly and read
+  dates off these lines as the user's own calendar dates. Use it to judge what
+  the user is replying to — a short reply ("好" / "ok" / "yes" / "继续") almost
+  always answers the MOST RECENT line, i.e. the one just above the current
+  input — NOT an older line from a different thread.
 - <topic>: a human-readable name of that conversation thread.
 - <narrative_id>: the stable id of that thread. Different ids = different
   topics. The current input belongs, by default, to the most recent thread; if

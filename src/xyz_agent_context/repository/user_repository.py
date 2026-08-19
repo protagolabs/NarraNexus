@@ -17,6 +17,9 @@ from loguru import logger
 
 from .base import BaseRepository
 from xyz_agent_context.schema import User, UserStatus
+# repository -> utils is downwards; utils/timezone depends only on stdlib +
+# loguru, so this cannot cycle.
+from xyz_agent_context.utils.timezone import resolve_timezone
 
 
 class UserRepository(BaseRepository[User]):
@@ -195,18 +198,33 @@ class UserRepository(BaseRepository[User]):
 
     async def get_user_timezone(self, user_id: str) -> str:
         """
-        Get user timezone
+        Get user timezone — always a USABLE IANA zone.
+
+        The docstring used to promise "returns 'UTC' if user does not exist"
+        while the implementation returned `user.timezone` verbatim for any
+        user that DID exist, blank or malformed included. The promise was
+        therefore kept by each caller remembering to wrap the result in
+        `resolve_timezone`, and by 2026-08-18 three of six had not.
+
+        Most of those got away with it because something downstream wrapped
+        the value again before use. `services/instance_sync_service` did not:
+        it freezes this value into a Job's `trigger_config` at creation, so a
+        malformed zone was PERSISTED and re-read on every later schedule
+        computation, where it reaches `ZoneInfo()` and raises.
+
+        Normalising here makes the contract true at the source, so the next
+        caller cannot get it wrong by forgetting a wrapper. Callers that
+        already wrap are unaffected — `resolve_timezone` is idempotent.
 
         Args:
             user_id: User ID
 
         Returns:
-            User timezone string, returns 'UTC' if user does not exist
+            A valid IANA timezone string; 'UTC' when the user is unknown or
+            their stored value is empty/invalid.
         """
         user = await self.get_user(user_id)
-        if user:
-            return user.timezone
-        return "UTC"
+        return resolve_timezone(user.timezone if user else None)
 
     async def delete_user(self, user_id: str, soft_delete: bool = True) -> int:
         """Delete a user (soft delete by default)"""

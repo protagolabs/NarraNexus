@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — `USER_TEMPORAL_CONTEXT` 不再自己渲染 "now"
+
+原来这个块有一行 `Current local time: {now_local}`，值来自
+`now_local_dt.replace(tzinfo=None).isoformat()` —— naive、没有 UTC 偏移、没有星期。而同一个
+turn context 块里，BasicInfoModule 的「Real World Information」给的是带偏移带星期的正确
+格式。
+
+两个都自称"现在"，其中一个的形状正是之前事故追出来的那个。没有任何一种读法能让第二个
+成为权威，它能贡献的只有不确定性。
+
+现在这个块**只**负责时区和表达协议（job_create 的 `timezone` 字段等，job 的 MCP
+docstring 引用了 "User Temporal Context" 这个标题，所以标题不能改），"现在"是什么统一指向
+Real World Information。
+
+同时加了一条禁令：不许在脑子里做日历算术，「下周五」这类表达和"这个日期过了没有"一律走
+`resolve_relative_date` / `compare_dates`。
+
+副作用（好的）：这个块从此 byte-stable，flag OFF 时它不再是前缀缓存的破坏源。
+`tests/context_runtime/test_turn_context_relocation.py` 里那条断言"flag off 会破前缀"的
+测试因此改写了 —— 破坏源变成了 Module 指令里内联的那份 Real World Information。
 
 ## 2026-08-12 — PR #284 review 轮
 

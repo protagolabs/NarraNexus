@@ -119,12 +119,17 @@ async def _runtime(db_client, monkeypatch) -> ContextRuntime:
     return runtime
 
 
-async def _build(runtime: ContextRuntime, narrative: Narrative, ctx: ContextData):
+async def _build(
+    runtime: ContextRuntime,
+    narrative: Narrative,
+    ctx: ContextData,
+    module_instructions=None,
+):
     """Run the two assembly stages exactly as ContextRuntime.run() does."""
     system_prompt = await runtime.build_complete_system_prompt(
         narrative_list=[narrative],
         selected_events=[],
-        module_instructions_list=[
+        module_instructions_list=module_instructions or [
             ModuleInstructions(name="ChatModule", instruction="stay helpful", priority=1)
         ],
         ctx_data=ctx,
@@ -331,16 +336,44 @@ def _extract_hash(lines: list[str]) -> str:
     raise AssertionError("no [SYSPROMPT-BREAKDOWN] line captured")
 
 
-async def _hash_for_time(runtime, narrative, monkeypatch, fake_now: datetime) -> str:
+async def _hash_for_time(
+    runtime, narrative, monkeypatch, fake_now: datetime, module_instructions=None
+) -> str:
     import xyz_agent_context.utils.timezone as tz_mod
 
     monkeypatch.setattr(tz_mod, "utc_now", lambda: fake_now)
     lines, sink_id = _capture_hashes()
     try:
-        await _build(runtime, narrative, _ctx_data())
+        await _build(runtime, narrative, _ctx_data(), module_instructions)
     finally:
         logger.remove(sink_id)
     return _extract_hash(lines)
+
+
+def _time_embedding_instructions(fake_now: datetime):
+    """Stand-in for what a Module emits under flag OFF.
+
+    BasicInfoModule renders its "Real World Information" section — the
+    per-turn current time — straight into `get_instructions()` when the
+    relocation flag is off. That copy, not the User Temporal Context block,
+    is the thing that varies second to second in the legacy layout.
+    """
+    from xyz_agent_context.utils.timezone import format_now_for_agent
+    import xyz_agent_context.utils.timezone as tz_mod
+
+    original = tz_mod.utc_now
+    tz_mod.utc_now = lambda: fake_now
+    try:
+        rendered = format_now_for_agent("UTC")
+    finally:
+        tz_mod.utc_now = original
+    return [
+        ModuleInstructions(
+            name="BasicInfoModule",
+            instruction=f"##### Real World Information\n- Current date and time: {rendered}",
+            priority=2,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -361,6 +394,39 @@ async def test_ctx_sha256_stable_across_time_when_flag_on(db_client, monkeypatch
 
 @pytest.mark.asyncio
 async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatch):
+    """Legacy layout still breaks the prefix — but the breaker moved.
+
+    Until 2026-08-18 the User Temporal Context block rendered its own
+    second-resolution "Current local time", so it was the variance source
+    under flag OFF. That duplicate "now" is gone (there is exactly one
+    ground-truth renderer now), and what remains time-varying in the legacy
+    layout is the Module-instruction copy of Real World Information, which
+    flag OFF leaves inline in the system prompt.
+    """
+    monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
+    runtime = await _runtime(db_client, monkeypatch)
+    narrative = _narrative()
+
+    t1 = datetime(2026, 7, 25, 3, 0, 0, tzinfo=dt_timezone.utc)
+    t2 = datetime(2026, 7, 25, 3, 7, 42, tzinfo=dt_timezone.utc)
+
+    h1 = await _hash_for_time(
+        runtime, narrative, monkeypatch, t1, _time_embedding_instructions(t1)
+    )
+    h2 = await _hash_for_time(
+        runtime, narrative, monkeypatch, t2, _time_embedding_instructions(t2)
+    )
+    assert h1 != h2
+
+
+@pytest.mark.asyncio
+async def test_temporal_block_alone_no_longer_breaks_the_prefix(db_client, monkeypatch):
+    """The de-duplication, stated as a cache property.
+
+    With no time-embedding Module instruction, flag OFF now yields a
+    byte-stable system prompt across turns: the temporal block names the
+    timezone and delegates "now" instead of restating it.
+    """
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
     runtime = await _runtime(db_client, monkeypatch)
     narrative = _narrative()
@@ -371,8 +437,7 @@ async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatc
     h2 = await _hash_for_time(
         runtime, narrative, monkeypatch, datetime(2026, 7, 25, 3, 7, 42, tzinfo=dt_timezone.utc)
     )
-    # Legacy layout: the second-resolution temporal block breaks the prefix.
-    assert h1 != h2
+    assert h1 == h2
 
 
 # =========================================================================

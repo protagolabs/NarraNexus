@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_mcp_tools.py
-last_verified: 2026-05-08
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 注册第三个工具族：date
+
+`create_common_tools_mcp_server` 现在依次注册 web_search（按环境二选一的 backend）、
+artifact、date。date 无条件注册、无环境开关、无外部依赖 —— 纯日历算术，没有可失败的
+后端可挑。
 
 # _common_tools_mcp_tools.py — MCP server factory + env-based web_search backend dispatch
 

@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-08-04
+last_verified: 2026-08-18
 ---
+
+## 2026-08-18 — `_format_current_time_for_agent` 搬去 utils/timezone
+
+这个渲染器不再是本 Module 的私事：date MCP 工具和诊断用的 `utils/temporal_guard` 必须
+产出并比对**同样的字节**，而这两个去 import 一个 Module 会违反铁律 #3。
+
+现在统一是 `utils/timezone.format_now_for_agent`，本文件只调用。三条性质（非 naive、
+用用户时钟而不是服务器时钟、带星期）全部保留，理由也跟着搬进了那边的 docstring ——
+每一条背后都有一次真实事故。
 
 ## 2026-08-04 — 自我描述缺失时注入**指令**，不注入假状态
 

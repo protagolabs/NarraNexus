@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-07-28
+last_verified: 2026-08-18
 ---
+
+## 2026-08-18 — 新增「Time-bound Commitments」段
+
+agent 说"我周五通知你"这件事，在 runtime 眼里等于什么都没说：没有任何机制会在那个时刻
+重读它的回复。承诺静默过期，而从用户那侧看，这跟被无视没有区别。
+
+所以加了一条硬规则：带时间点的承诺必须当场排程（`job_create`），时刻用
+`resolve_relative_date` 算而不是自己推，事后动手前用 `compare_dates` 复核。
+
+**为什么放在 BasicInfoModule 而不是 JobModule**：JobModule 是 `module_type="task"`，不一定
+被加载 —— 而它没被加载的那些轮，恰恰是 agent 最可能随口做出承诺的时候。BasicInfoModule
+是 capability，永远在，而且它本来就管时间真值。
+
+放在 `BASIC_INFO_REAL_WORLD_TURN_TEMPLATE` 这个 volatile span **之外**：这段是静态文本，
+属于可缓存前缀。写进 span 里会让它每轮都随 turn context 重发一遍，永久多付，而且从系统
+提示里消失。`tests/basic_info_module/test_time_bound_commitments.py` 锁了这条。
 
 ## 2026-07-28 — R4b：{current_time} 段搬迁出模板（turn-context relocation）
 
