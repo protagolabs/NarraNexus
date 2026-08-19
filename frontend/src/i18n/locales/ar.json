@@ -198,7 +198,13 @@
         "close": "إغلاق لوحة مساحة العمل",
         "zoom": "تكبير العنصر",
         "emptyArtifacts": "اختر عنصرًا لعرضه هنا.",
-        "emptyFiles": "يتم تنزيل الملفات مباشرة — انقر على ملف على اليسار."
+        "emptyFiles": "يتم تنزيل الملفات مباشرة — انقر على ملف على اليسار.",
+        "tabArtifacts": "العناصر",
+        "tabFiles": "الملفات",
+        "artifactsHint": "العناصر التي يسجّلها وكلاء فريقك في هذه الغرفة تظهر هنا.",
+        "filesHint": "الملفات المشاركة عبر team_share_file تظهر هنا.",
+        "download": "تنزيل {{name}}",
+        "loading": "جارٍ التحميل…"
       }
     },
     "execution": {
@@ -274,9 +280,9 @@
     },
     "header": {
       "sessionLabel": "الجلسة · {{time}}",
-      "agentDetailTitle": "تفاصيل الوكيل",
       "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
-      "modelFramework": "النموذج وإطار العمل"
+      "modelFramework": "النموذج وإطار العمل",
+      "switchAgent": "تبديل الوكيل"
     },
     "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
   },
@@ -725,8 +731,10 @@
     "agentRowMenu": {
       "options": "خيارات الوكيل",
       "rename": "إعادة تسمية",
+      "edit": "تعديل…",
       "setPrivate": "تعيين كخاص",
       "setPublic": "تعيين كعام",
+      "clearData": "مسح البيانات",
       "delete": "حذف"
     },
     "agentsHeaderMenu": {
@@ -759,7 +767,10 @@
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
       "rename": "إعادة تسمية",
-      "delete": "حذف"
+      "clearData": "مسح البيانات",
+      "delete": "حذف",
+      "addAgent": "إضافة وكيل",
+      "addingAgent": "جارٍ الإضافة…"
     },
     "topBar": {
       "crumbDashboard": "لوحة التحكم",
@@ -989,7 +1000,11 @@
       "cancelConfirmKeep": "الإبقاء على الاشتراك",
       "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
       "reactivateConfirmAction": "استئناف",
-      "reactivateConfirmDismiss": "ليس الآن"
+      "reactivateConfirmDismiss": "ليس الآن",
+      "balanceScope": "رصيد حساب NetMind — كل ما تشغّله بهذا الحساب يستهلك الرصيد، بما في ذلك خارج NarraNexus.",
+      "narraUsageTitle": "استخدام NarraNexus · آخر {{days}} يومًا",
+      "narraUsageTokens": "رموز",
+      "narraUsageEstimate": "≈ {{cost}} — تقدير وفق الأسعار المعلنة، لذا لن يطابق كشف NetMind تمامًا."
     }
   },
   "system": {
@@ -1065,7 +1080,14 @@
     "drawer": {
       "unpin": "إلغاء تثبيت اللوحة",
       "pin": "تثبيت اللوحة",
-      "close": "إغلاق اللوحة"
+      "close": "إغلاق اللوحة",
+      "switchPanel": "تبديل اللوحة"
+    },
+    "coach": {
+      "title": "تظهر عناصرك هنا",
+      "unpinHint": "ألغِ التثبيت لتصبح نافذة عائمة تُغلق تلقائيًا.",
+      "closeHint": "أغلق اللوحة — يمكنك إعادة فتح أي لوحة من رأس الدردشة.",
+      "gotIt": "فهمت"
     }
   },
   "inbox": {
@@ -1296,7 +1318,13 @@
     "settings": {
       "title": "الإعدادات",
       "nav": {
-        "privacy": "الخصوصية"
+        "privacy": "الخصوصية",
+        "personalization": "التخصيص",
+        "account": "الحساب والفوترة",
+        "providers": "مزوّدو LLM",
+        "modelDefaults": "النماذج الافتراضية",
+        "artifacts": "العناصر",
+        "updates": "تحديثات التطبيق"
       },
       "providers": {
         "label": "مزوّدو نماذج اللغة"
@@ -1339,6 +1367,10 @@
         "telemetryManagedCloud": "يتحكم المسؤول لديك في القياس عن بُعد التشخيصي لهذا التثبيت.",
         "telemetryUnavailable": "تعذّر تحميل حالة القياس عن بُعد — يُخفى المفتاح بدلًا من التخمين. أعد التحميل للمحاولة مرة أخرى.",
         "telemetryError": "تعذّر حفظ التغيير. يعرض المفتاح الحالة الفعلية الحالية."
+      },
+      "personalization": {
+        "label": "التخصيص",
+        "hint": "السمة واللغة. المزيد قادم."
       }
     },
     "system": {

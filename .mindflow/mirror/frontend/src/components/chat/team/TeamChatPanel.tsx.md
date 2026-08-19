@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 推理披露上移 + workspace 改 in-flow
+
+- renderHeader 新增:agent 消息的 [[TeamMessageProcess]] 走气泡顶部插槽
+  (单聊位置对齐),footer 只剩 chips+时间。
+- [[TeamWorkspacePanel]] xl+ 从 absolute 悬浮改 in-flow 列——聊天左移
+  让位而不是被盖住;xl 以下保留 overlay(reserve 算不开,详见彼处)。
+
+## 2026-08-19 — 悬停提示补全
+
+带 aria-label 但无 title 的四处控件(guide「?」开关、composer 错误条与
+公告栏的两个关闭钮、房间头部的运行态气泡按钮)补上与 aria-label 同文案的
+title——键盘/读屏用户本来就有名字,悬停用户现在也有。
 
 ## 2026-08-14 — 转录区认全部「非 idle」状态，不再只认 running
 

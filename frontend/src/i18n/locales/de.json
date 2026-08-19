@@ -194,7 +194,13 @@
         "close": "Workspace-Panel schließen",
         "zoom": "Artefakt zoomen",
         "emptyArtifacts": "Wähle ein Artefakt aus, um es hier anzuzeigen.",
-        "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine."
+        "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine.",
+        "tabArtifacts": "Artefakte",
+        "tabFiles": "Dateien",
+        "artifactsHint": "Artefakte, die die Agenten deines Teams in diesem Raum registrieren, erscheinen hier.",
+        "filesHint": "Mit team_share_file geteilte Dateien erscheinen hier.",
+        "download": "{{name}} herunterladen",
+        "loading": "Lädt…"
       }
     },
     "execution": {
@@ -270,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "Sitzung · {{time}}",
-      "agentDetailTitle": "Agent-Details",
       "detailMenuTitle": "Agent-Details — Panels",
-      "modelFramework": "Modell & Framework"
+      "modelFramework": "Modell & Framework",
+      "switchAgent": "Agent wechseln"
     },
     "composerPrivacyHint": "Teile keine sensiblen persönlichen Daten."
   },
@@ -721,8 +727,10 @@
     "agentRowMenu": {
       "options": "Agent-Optionen",
       "rename": "Umbenennen",
+      "edit": "Bearbeiten…",
       "setPrivate": "Auf privat setzen",
       "setPublic": "Auf öffentlich setzen",
+      "clearData": "Daten leeren",
       "delete": "Löschen"
     },
     "agentsHeaderMenu": {
@@ -751,7 +759,10 @@
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
       "rename": "Umbenennen",
-      "delete": "Löschen"
+      "clearData": "Daten leeren",
+      "delete": "Löschen",
+      "addAgent": "Agent hinzufügen",
+      "addingAgent": "Wird hinzugefügt…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",
@@ -981,7 +992,11 @@
       "cancelConfirmKeep": "Abo behalten",
       "reactivateConfirmTitle": "Automatische Verlängerung fortsetzen?",
       "reactivateConfirmAction": "Fortsetzen",
-      "reactivateConfirmDismiss": "Jetzt nicht"
+      "reactivateConfirmDismiss": "Jetzt nicht",
+      "balanceScope": "NetMind-Kontoguthaben — alles, was du mit diesem NetMind-Konto ausführst, zehrt es auf, auch außerhalb von NarraNexus.",
+      "narraUsageTitle": "Von NarraNexus genutzt · letzte {{days}} Tage",
+      "narraUsageTokens": "Tokens",
+      "narraUsageEstimate": "≈ {{cost}} — geschätzt nach öffentlichen Listenpreisen, weicht daher von deiner NetMind-Abrechnung ab."
     }
   },
   "system": {
@@ -1057,7 +1072,14 @@
     "drawer": {
       "unpin": "Panel lösen",
       "pin": "Panel anheften",
-      "close": "Panel schließen"
+      "close": "Panel schließen",
+      "switchPanel": "Panel wechseln"
+    },
+    "coach": {
+      "title": "Deine Artefakte erscheinen hier",
+      "unpinHint": "Löse die Anheftung, um daraus ein selbstschließendes Overlay zu machen.",
+      "closeHint": "Panel schließen — jedes Panel lässt sich über die Chat-Kopfzeile wieder öffnen.",
+      "gotIt": "Verstanden"
     }
   },
   "inbox": {
@@ -1288,7 +1310,13 @@
     "settings": {
       "title": "Einstellungen",
       "nav": {
-        "privacy": "Datenschutz"
+        "privacy": "Datenschutz",
+        "personalization": "Personalisierung",
+        "account": "Konto & Abrechnung",
+        "providers": "LLM-Anbieter",
+        "modelDefaults": "Modell-Standards",
+        "artifacts": "Artefakte",
+        "updates": "App-Updates"
       },
       "providers": {
         "label": "LLM-Anbieter"
@@ -1331,6 +1359,10 @@
         "telemetryManagedCloud": "Dein Administrator steuert die Diagnose-Telemetrie dieser Installation.",
         "telemetryUnavailable": "Der Telemetrie-Status konnte nicht geladen werden – der Schalter wird ausgeblendet statt geraten. Lade neu, um es erneut zu versuchen.",
         "telemetryError": "Die Änderung konnte nicht gespeichert werden. Der Schalter zeigt den tatsächlichen aktuellen Zustand."
+      },
+      "personalization": {
+        "label": "Personalisierung",
+        "hint": "Design und Sprache. Weitere folgen."
       }
     },
     "system": {

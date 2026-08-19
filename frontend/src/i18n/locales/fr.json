@@ -194,7 +194,13 @@
         "close": "Fermer le panneau d'espace de travail",
         "zoom": "Agrandir l'artefact",
         "emptyArtifacts": "Sélectionnez un artefact pour l'afficher ici.",
-        "emptyFiles": "Les fichiers se téléchargent directement — cliquez sur l'un à gauche."
+        "emptyFiles": "Les fichiers se téléchargent directement — cliquez sur l'un à gauche.",
+        "tabArtifacts": "Artefacts",
+        "tabFiles": "Fichiers",
+        "artifactsHint": "Les artefacts que les agents de votre équipe enregistrent dans ce salon apparaissent ici.",
+        "filesHint": "Les fichiers partagés avec team_share_file apparaissent ici.",
+        "download": "Télécharger {{name}}",
+        "loading": "Chargement…"
       }
     },
     "execution": {
@@ -270,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "session · {{time}}",
-      "agentDetailTitle": "Détail de l'agent",
       "detailMenuTitle": "Détail de l'agent — panneaux",
-      "modelFramework": "Modèle & framework"
+      "modelFramework": "Modèle & framework",
+      "switchAgent": "Changer d'agent"
     },
     "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
   },
@@ -721,8 +727,10 @@
     "agentRowMenu": {
       "options": "Options de l'agent",
       "rename": "Renommer",
+      "edit": "Modifier…",
       "setPrivate": "Rendre privé",
       "setPublic": "Rendre public",
+      "clearData": "Effacer les données",
       "delete": "Supprimer"
     },
     "agentsHeaderMenu": {
@@ -751,7 +759,10 @@
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
-      "delete": "Supprimer"
+      "clearData": "Effacer les données",
+      "delete": "Supprimer",
+      "addAgent": "Ajouter un agent",
+      "addingAgent": "Ajout…"
     },
     "topBar": {
       "crumbDashboard": "Tableau de bord",
@@ -981,7 +992,11 @@
       "cancelConfirmKeep": "Conserver l’abonnement",
       "reactivateConfirmTitle": "Reprendre le renouvellement automatique ?",
       "reactivateConfirmAction": "Reprendre",
-      "reactivateConfirmDismiss": "Pas maintenant"
+      "reactivateConfirmDismiss": "Pas maintenant",
+      "balanceScope": "Solde du compte NetMind — tout ce que vous exécutez avec ce compte NetMind le consomme, y compris hors de NarraNexus.",
+      "narraUsageTitle": "Utilisé par NarraNexus · {{days}} derniers jours",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimation d’après les tarifs publics ; ne correspondra pas exactement à votre relevé NetMind."
     }
   },
   "system": {
@@ -1057,7 +1072,14 @@
     "drawer": {
       "unpin": "Désépingler le panneau",
       "pin": "Épingler le panneau",
-      "close": "Fermer le panneau"
+      "close": "Fermer le panneau",
+      "switchPanel": "Changer de panneau"
+    },
+    "coach": {
+      "title": "Vos artefacts apparaissent ici",
+      "unpinHint": "Détachez pour en faire une fenêtre volante qui se ferme toute seule.",
+      "closeHint": "Fermez le panneau — rouvrez n’importe quel panneau depuis l’en-tête du chat.",
+      "gotIt": "Compris"
     }
   },
   "inbox": {
@@ -1288,7 +1310,13 @@
     "settings": {
       "title": "Paramètres",
       "nav": {
-        "privacy": "Confidentialité"
+        "privacy": "Confidentialité",
+        "personalization": "Personnalisation",
+        "account": "Compte et facturation",
+        "providers": "Fournisseurs LLM",
+        "modelDefaults": "Modèles par défaut",
+        "artifacts": "Artefacts",
+        "updates": "Mises à jour"
       },
       "providers": {
         "label": "Fournisseurs LLM"
@@ -1331,6 +1359,10 @@
         "telemetryManagedCloud": "Votre administrateur contrôle la télémétrie de diagnostic de cette installation.",
         "telemetryUnavailable": "L'état de la télémétrie n'a pas pu être chargé — l'interrupteur est masqué plutôt que deviné. Rechargez pour réessayer.",
         "telemetryError": "La modification n'a pas pu être enregistrée. L'interrupteur affiche l'état actuel réel."
+      },
+      "personalization": {
+        "label": "Personnalisation",
+        "hint": "Thème et langue. D’autres suivront."
       }
     },
     "system": {

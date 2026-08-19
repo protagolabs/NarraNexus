@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/CreateMenu.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 点击页面任意处可关闭
+
+backdrop 换 [[useDismissOnOutside]],与两个行菜单同批(transform 祖先陷阱,
+详见 [[AgentRowMenu]])。
 
 ## 2026-08-06 — Chat UI v4:从 ⊕ 图标改为全宽 "New" 导航行
 

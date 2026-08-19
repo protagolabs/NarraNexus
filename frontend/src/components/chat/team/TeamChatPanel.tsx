@@ -34,6 +34,7 @@ import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
 import { matchMembers, mentionTokens } from './mentionPattern';
 import { TeamSystemLine } from './TeamSystemLine';
 import { TeamMessageFooter } from './TeamMessageFooter';
+import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import { ArtifactsGlyph } from '@/components/bookmarks';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
@@ -132,6 +133,7 @@ function LivenessIndicator({
         <button
           type="button"
           onClick={onClick}
+          title={label}
           aria-label={label}
           className="nm-bubble-ai inline-flex items-center gap-2 rounded-[var(--radius-lg)] px-3.5 py-2.5"
           style={{
@@ -850,6 +852,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             type="button"
             onClick={() => setGuideOpen((v) => !v)}
             aria-expanded={guideOpen}
+            title={t('chat.team.guide.title')}
             aria-label={t('chat.team.guide.title')}
             className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
           >
@@ -964,6 +967,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   leadAgentId={leadAgentId ?? ''}
                   memberNames={memberNameMap}
                   renderSystem={(m) => <TeamSystemLine key={m.message_id} message={m} />}
+                  renderHeader={(m) =>
+                    !m.is_user && m.event_id ? (
+                      <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                    ) : null
+                  }
                   renderFooter={(m) => (
                     <TeamMessageFooter
                       message={m}
@@ -1021,6 +1029,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   type="button"
                   onClick={() => setComposerError(null)}
                   className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  title={t('common.close')}
                   aria-label={t('common.close')}
                 >
                   <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1272,9 +1281,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           />
         )}
 
-        {/* Workspace drawer — overlays the content area below the top bar,
-            like the single-chat artifacts drawer. Toggled from the top bar;
-            a message's artifact chip also opens it with that artifact
+        {/* Workspace drawer — on xl+ an in-flow column like the single-chat
+            artifacts drawer (the chat shifts left, nothing is covered);
+            below xl it overlays, because the row cannot also fit the
+            roster and a readable chat column. Toggled from the top bar; a
+            message's artifact chip also opens it with that artifact
             selected. */}
         {wsPanelOpen && (
           <TeamWorkspacePanel
@@ -1339,6 +1350,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             </h3>
             <button
               type="button"
+              title={t('common.close')}
               aria-label={t('common.close')}
               onClick={() => setBulletinOpen(false)}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"

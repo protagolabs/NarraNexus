@@ -11,17 +11,19 @@
  */
 
 import { useState } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
+import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { useConfigStore } from '@/stores';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -218,26 +220,38 @@ function ProvidersSection() {
   );
 }
 
-// Left-nav items (master). Each maps to one content panel (detail).
-// ``desktopOnly`` items (App updates) only appear in the Tauri build.
+// Left-nav items (master). Each maps to one content panel (detail), except
+// ``href`` items which navigate to their own page — the Account surface is
+// user-scoped (/app/account) but must stay reachable from Settings, since
+// Settings is the single "where do I configure things" front door.
+// ``desktopOnly`` items (App updates) only appear in the Tauri build;
+// ``powerOnly`` items only for NetMind-authenticated users.
 interface NavItem {
   id: string;
   labelKey: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
+  powerOnly?: boolean;
+  href?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, powerOnly: true, href: '/app/account' },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
   { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
+  { id: 'personalization', labelKey: 'pages.settings.nav.personalization', icon: Palette },
   { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
 export default function SettingsPage() {
   const { t } = useTranslation();
-  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+  const navigate = useNavigate();
+  const netmindToken = useConfigStore((s) => s.netmindToken);
+  const items = NAV_ITEMS.filter(
+    (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || Boolean(netmindToken)),
+  );
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
   // payer to /app/settings?tab=account&status=… after checkout (see
@@ -249,8 +263,8 @@ export default function SettingsPage() {
   // falls back to the first visible item rather than opening an empty pane.
   const [active, setActive] = useState(() => {
     const requested = searchParams.get('tab');
-    if (requested && items.some((it) => it.id === requested)) return requested;
-    return items[0]?.id ?? 'providers';
+    if (requested && items.some((it) => it.id === requested && !it.href)) return requested;
+    return items.find((it) => !it.href)?.id ?? 'providers';
   });
 
   // Account moved to the user-scoped /app/account page; Stripe still returns
@@ -284,7 +298,7 @@ export default function SettingsPage() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActive(item.id)}
+                onClick={() => (item.href ? navigate(item.href) : setActive(item.id))}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors ${
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
@@ -300,7 +314,16 @@ export default function SettingsPage() {
 
         {/* Content (detail) */}
         <ScrollArea className="flex-1" viewportClassName="p-6">
-          <div className="max-w-3xl">
+          <div className="max-w-3xl mx-auto">
+            {active === 'personalization' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.personalization.label')}
+                  hint={t('pages.settings.personalization.hint')}
+                />
+                <PersonalizationSettings />
+              </section>
+            )}
             {active === 'providers' && <ProvidersSection />}
             {active === 'modeldefaults' && (
               <section>

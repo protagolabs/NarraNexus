@@ -4,12 +4,24 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 历史翻页改元素锚定
+
+往上翻页后视图跳到新加载段顶部的根因:`scrollTop = newScrollHeight −
+prevScrollHeight` 把 prepend 前后**其他**高度变化(loading 行的出现/消失、
+图片落尺寸)也一并算进了差值,且丢掉了原 scrollTop。改用 [[scrollAnchor]]:
+prepend 前记住最顶部已渲染条目(`[data-timeline-item]`,React key 稳定所以
+DOM 节点跨 prepend 存活)的 rect.top,flushSync 后按该元素实际位移修正
+scrollTop——无论位移由什么造成。无旧条目时回退高度差值法。
+测试:lib/__tests__/scrollAnchor.test.ts。
+
 ## 2026-08-19 — 安全提示可读性修正(更正 08-14 条的「只是位置变了」)
 
 06-17 安全横幅在 v4 里其实同时被降了三件事:warning 底色→全套 ink 最淡的
 `--nm-ink30`、`truncate` 截断、完整文案只活在 `title` 悬停里(触屏永远看不到)。
 本条修正:去掉 `truncate`、颜色升到 `--nm-ink50`,`title` 保留完整
 `chat.securityReminder`(zh-localization.test.ts:62 唯一挂靠点,别删)。
+宽度侧改用 `min-w-0` + `line-clamp-2`——两行封顶,窄视口/长译文下不再把
+tools row 撑成三行;超出两行仍是省略号,完整文案由 title 承载。
 「demote 到 tools row」保留为 Owner 已接受的版式;若要恢复独占横幅需另行拍板。
 
 另:`OnboardingJourney` 挂载点加 `key={agentId}`——它的 `dismissed` 只在挂载时

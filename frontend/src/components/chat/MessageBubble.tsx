@@ -68,10 +68,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
-  // Build a unified TurnEvent[] for inline rendering. We deliberately
-  // skip "reply" events here — the user-facing reply text lives in
-  // message.content and is already rendered as Markdown below, so
-  // duplicating it inside the timeline would print the reply twice.
+  // Build a unified TurnEvent[] for inline rendering. All three source
+  // paths deliberately carry NO "reply" events — the user-facing reply
+  // text lives in message.content and is already rendered as Markdown
+  // below, so duplicating it inside the timeline would print it twice.
   const inlineEvents: TurnEvent[] = useMemo(() => {
     if (isUser) return [];
 
@@ -87,36 +87,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     const events: TurnEvent[] = [];
 
     // Path 1 — historical: the backend gave us a time-ordered timeline.
+    // ONE conversion implementation (segmentTurn.timelineToEvents); the
+    // collapsed disclosure keeps reply-tool calls as ordinary process rows,
+    // hence convertOwnerReplyTool: false.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
-      eventLogTimeline.forEach((entry, idx) => {
-        const id = `tl-${idx}`;
-        const ts = idx;
-        switch (entry.type) {
-          case 'thinking':
-            if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
-            break;
-          case 'tool_call':
-            events.push({
-              id, ts, type: 'tool_call',
-              tool_name: entry.tool_name || 'unknown',
-              tool_input: entry.tool_input || {},
-              reply_via: entry.reply_via,
-            });
-            break;
-          case 'tool_output':
-            events.push({
-              id, ts, type: 'tool_output',
-              tool_name: entry.tool_name || 'unknown',
-              output: entry.tool_output || '',
-            });
-            break;
-          case 'native_output':
-            if (entry.content) events.push({ id, ts, type: 'native_output', content: entry.content });
-            break;
-          // 'reply' intentionally skipped — see comment above.
-        }
-      });
-      return events;
+      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false })
+        .filter((e) => e.type !== 'reply');
     }
 
     // Path 2 — live stream: message.thinking + message.toolCalls came

@@ -13,6 +13,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { activeLocale, formatAbsolute, formatMessageAge } from '@/lib/utils';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -28,20 +29,6 @@ const KIND_LABEL: Record<string, string> = {
   'image/jpeg': 'JPEG',
   'application/pdf': 'PDF',
 };
-
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return iso.slice(0, 10);
-  const ms = Date.now() - then;
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 export default function ArtifactsSection() {
   const { t } = useTranslation();
@@ -205,8 +192,14 @@ export default function ArtifactsSection() {
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
                 {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}
               </span>
-              <span className="text-xs text-[var(--text-tertiary)] w-20 text-right">
-                {formatRelativeTime(a.updated_at)}
+              {/* Relative age for scanning, absolute (UTC-parsed) in the
+                  tooltip — this list exists to pick OLD artifacts to prune,
+                  and "last year" alone can't support that decision. */}
+              <span
+                className="text-xs text-[var(--text-tertiary)] w-20 text-right whitespace-nowrap"
+                title={formatAbsolute(a.updated_at, activeLocale())}
+              >
+                {formatMessageAge(a.updated_at, activeLocale())}
               </span>
             </label>
           ))}

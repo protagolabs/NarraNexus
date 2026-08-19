@@ -249,7 +249,13 @@
         "close": "Close workspace panel",
         "zoom": "Zoom artifact",
         "emptyArtifacts": "Select an artifact to view it here.",
-        "emptyFiles": "Files download directly — click one on the left."
+        "emptyFiles": "Files download directly — click one on the left.",
+        "tabArtifacts": "Artifacts",
+        "tabFiles": "Files",
+        "artifactsHint": "Artifacts your team's agents register in this room appear here.",
+        "filesHint": "Files shared with team_share_file appear here.",
+        "download": "Download {{name}}",
+        "loading": "Loading…"
       }
     },
     "execution": {
@@ -336,9 +342,9 @@
     },
     "header": {
       "sessionLabel": "session · {{time}}",
-      "agentDetailTitle": "Agent detail",
       "detailMenuTitle": "Agent detail — panels",
-      "modelFramework": "Model & framework"
+      "modelFramework": "Model & framework",
+      "switchAgent": "Switch agent"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information."
   },
@@ -843,7 +849,9 @@
       "options": "Group chat options",
       "rename": "Rename",
       "clearData": "Clear data",
-      "delete": "Delete"
+      "delete": "Delete",
+      "addAgent": "Add agent",
+      "addingAgent": "Adding…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",
@@ -1361,7 +1369,14 @@
     "drawer": {
       "unpin": "Unpin panel",
       "pin": "Pin panel",
-      "close": "Close panel"
+      "close": "Close panel",
+      "switchPanel": "Switch panel"
+    },
+    "coach": {
+      "title": "Your artifacts live here",
+      "unpinHint": "Unpin to turn this into a pop-over that closes on its own.",
+      "closeHint": "Close the panel — reopen any panel from the chat header.",
+      "gotIt": "Got it"
     }
   },
   "inbox": {
@@ -1636,12 +1651,13 @@
     "settings": {
       "title": "Settings",
       "nav": {
-        "account": "Account & Subscription",
+        "account": "Account & billing",
         "providers": "LLM Providers",
         "modelDefaults": "Model Defaults",
         "artifacts": "Artifacts",
         "updates": "App updates",
-        "privacy": "Privacy"
+        "privacy": "Privacy",
+        "personalization": "Personalization"
       },
       "providers": {
         "label": "LLM Providers"
@@ -1731,6 +1747,10 @@
         "telemetryManagedCloud": "Your administrator controls diagnostic telemetry for this install.",
         "telemetryUnavailable": "Telemetry state could not be loaded — the switch is hidden rather than guessed. Reload to retry.",
         "telemetryError": "The change could not be saved. The switch shows the actual current state."
+      },
+      "personalization": {
+        "label": "Personalization",
+        "hint": "Theme and language. More to come."
       }
     },
     "system": {

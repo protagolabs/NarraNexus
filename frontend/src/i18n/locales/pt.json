@@ -194,7 +194,13 @@
         "close": "Fechar o painel do espaço de trabalho",
         "zoom": "Ampliar artefato",
         "emptyArtifacts": "Selecione um artefato para vê-lo aqui.",
-        "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda."
+        "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda.",
+        "tabArtifacts": "Artefatos",
+        "tabFiles": "Arquivos",
+        "artifactsHint": "Os artefatos que os agentes da sua equipe registram nesta sala aparecem aqui.",
+        "filesHint": "Arquivos compartilhados com team_share_file aparecem aqui.",
+        "download": "Baixar {{name}}",
+        "loading": "Carregando…"
       }
     },
     "execution": {
@@ -270,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "sessão · {{time}}",
-      "agentDetailTitle": "Detalhes do agente",
       "detailMenuTitle": "Detalhes do agente — painéis",
-      "modelFramework": "Modelo e framework"
+      "modelFramework": "Modelo e framework",
+      "switchAgent": "Trocar de agente"
     },
     "composerPrivacyHint": "Evite compartilhar informações pessoais sensíveis."
   },
@@ -721,8 +727,10 @@
     "agentRowMenu": {
       "options": "Opções do agente",
       "rename": "Renomear",
+      "edit": "Editar…",
       "setPrivate": "Tornar privado",
       "setPublic": "Tornar público",
+      "clearData": "Limpar dados",
       "delete": "Excluir"
     },
     "agentsHeaderMenu": {
@@ -751,7 +759,10 @@
     "teamRowMenu": {
       "options": "Opções do chat em grupo",
       "rename": "Renomear",
-      "delete": "Excluir"
+      "clearData": "Limpar dados",
+      "delete": "Excluir",
+      "addAgent": "Adicionar agente",
+      "addingAgent": "Adicionando…"
     },
     "topBar": {
       "crumbDashboard": "Painel",
@@ -981,7 +992,11 @@
       "cancelConfirmKeep": "Manter a subscrição",
       "reactivateConfirmTitle": "Retomar a renovação automática?",
       "reactivateConfirmAction": "Retomar",
-      "reactivateConfirmDismiss": "Agora não"
+      "reactivateConfirmDismiss": "Agora não",
+      "balanceScope": "Saldo da conta NetMind — tudo o que você executa com esta conta NetMind o consome, inclusive fora do NarraNexus.",
+      "narraUsageTitle": "Usado pelo NarraNexus · últimos {{days}} dias",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimado por preços públicos de tabela, então não corresponderá exatamente à sua fatura NetMind."
     }
   },
   "system": {
@@ -1057,7 +1072,14 @@
     "drawer": {
       "unpin": "Desafixar painel",
       "pin": "Afixar painel",
-      "close": "Fechar painel"
+      "close": "Fechar painel",
+      "switchPanel": "Trocar painel"
+    },
+    "coach": {
+      "title": "Seus artefatos aparecem aqui",
+      "unpinHint": "Desafixe para transformá-lo em um painel flutuante que fecha sozinho.",
+      "closeHint": "Feche o painel — reabra qualquer painel pelo cabeçalho do chat.",
+      "gotIt": "Entendi"
     }
   },
   "inbox": {
@@ -1288,7 +1310,13 @@
     "settings": {
       "title": "Configurações",
       "nav": {
-        "privacy": "Privacidade"
+        "privacy": "Privacidade",
+        "personalization": "Personalização",
+        "account": "Conta e cobrança",
+        "providers": "Provedores LLM",
+        "modelDefaults": "Modelos padrão",
+        "artifacts": "Artefatos",
+        "updates": "Atualizações"
       },
       "providers": {
         "label": "Provedores de LLM"
@@ -1331,6 +1359,10 @@
         "telemetryManagedCloud": "O seu administrador controla a telemetria de diagnóstico desta instalação.",
         "telemetryUnavailable": "Não foi possível carregar o estado da telemetria — o interruptor é ocultado em vez de adivinhado. Recarregue para tentar novamente.",
         "telemetryError": "Não foi possível guardar a alteração. O interruptor mostra o estado atual real."
+      },
+      "personalization": {
+        "label": "Personalização",
+        "hint": "Tema e idioma. Mais em breve."
       }
     },
     "system": {

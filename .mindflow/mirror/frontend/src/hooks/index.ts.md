@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19
+
+新增 `useDismissOnOutside` 导出([[useDismissOnOutside]])——五个自绘弹层
+([[../components/layout/AgentRowMenu]] / [[../components/layout/TeamRowMenu]] /
+[[../components/layout/CreateMenu]] / [[../components/layout/Sidebar]] 账户弹层 /
+[[../components/chat/ChatHeader]] ⋯ 菜单)经 barrel 引用。
 
 ## 2026-08-14
 

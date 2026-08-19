@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMessageFooter.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 只剩 chips + 时间戳
+
+推理披露上移到气泡顶部(见 [[TeamMessageProcess]]),本组件不再 import 它。
 
 # TeamMessageFooter — 一条消息底下挂的东西
 

@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 钉选默认开 + 宽度上限跟视口 + 首跑教学
+
+- 抽屉默认**钉选**(只有显式 unpin 存 '0' 才关)——面板应该待在原地,
+  除非用户说不。策略/键值抽到 [[drawerLayout]](纯函数可测)。
+- 拖拽上限从写死 720px 改为 `min(60vw, vw−672)`:大屏上 artifacts 能拉过
+  半屏;672 = 侧栏 272 + 聊天列最小 400,永远吃不进去。上限是视口函数,
+  所以**渲染处**用 resize 监听维护的 viewportW 再 clamp 一次
+  (`effectiveDrawerWidth`)——窗口缩小/拔显示器时抽屉即刻回到合法宽度;
+  **持久化保留用户原值**,回大屏自动恢复(环境噪音不吃掉用户意图)。
+- 首跑:懒初始化按 `shouldAutoOpenFirstRun` 的**只读**判定直接以 artifacts
+  面板 + [[../bookmarks/DrawerCoachMark]] 教学卡开局(判据细节的唯一出处是
+  [[drawerLayout]],此处不复述);标记由 `markFirstRunSeen` 在 **mount
+  effect** 里写——被丢弃的渲染烧不掉它。宽度持久化只发生在拖拽释放
+  (handleDrawerResizeEnd),所以 WIDTH key 是「用户选过宽度」的真信号,
+  不会因为挂载过页面就把新用户误判成老用户。unpin/close/知道了 任一操作
+  即收起教学卡。抽屉列仅在有 agent 时渲染,setup 期间不闪面板。
+- 抽屉接上 `activeTab`/`onSelectTab`(标题下拉切换,见 [[../bookmarks/BookmarkDrawer]])。
+测试:drawerLayout.test.ts。
 
 ## 2026-08-06 (5) — 抽屉 inset + artifacts 50vw
 

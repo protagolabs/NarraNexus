@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/settings/ArtifactsSection.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 相对时间改走共享格式器
+
+本地 `formatRelativeTime`(英文写死)删除,列表行时间改用 [[utils]] 的
+`formatMessageAge(iso, activeLocale())`——非英语用户不再看到 "3h ago"。
+与 [[TeamWorkspacePanel]] 的同款副本同批清除。列加 `whitespace-nowrap`
+(长译文不折行)且 `title` 带 UTC 解析的绝对时间([[utils]] 新
+`formatAbsolute`)——这个列表是「挑旧的删」,绝对日期必须有入口。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 

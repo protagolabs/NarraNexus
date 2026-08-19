@@ -4,6 +4,21 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 账户弹层只剩身份;工作台升一级导航
+
+- 弹层瘦身为:用户名+在线/模式/版本头、Account(NetMind 用户,去
+  /app/account)、移动端反馈入口、Logout。主题/语言迁去 Settings →
+  Personalization([[PersonalizationSettings]]),工作台入口迁出。
+  langOpen 状态、语言列表、主题切换项及其 import 一并删除。
+- 全局导航在 Marketplace 与 Settings 之间新增「你的工作台」行(/app/you,
+  BookOpen 图标)——它是常用目的地,不该藏在身份弹层里。
+
+## 2026-08-19 — 账户弹层点击页面任意处可关闭
+
+账户弹层的全屏 backdrop 换 [[useDismissOnOutside]](挂 Zone-3 容器,dismiss
+同时收起语言子菜单)。与行菜单/CreateMenu 同批统一:侧栏内所有自绘弹层的
+关闭语义现在都是「点页面任意处/Escape」。
+
 ## 2026-08-19 — squash 残留清理
 
 两条指向 `@/components/ui` 的 import 合并为一条(squash 自动合并残留,无行为

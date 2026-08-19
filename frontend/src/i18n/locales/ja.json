@@ -194,7 +194,13 @@
         "close": "ワークスペースパネルを閉じる",
         "zoom": "アーティファクトを拡大",
         "emptyArtifacts": "表示するアーティファクトを選択してください。",
-        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。"
+        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。",
+        "tabArtifacts": "アーティファクト",
+        "tabFiles": "ファイル",
+        "artifactsHint": "チームのエージェントがこのルームで登録したアーティファクトがここに表示されます。",
+        "filesHint": "team_share_file で共有されたファイルがここに表示されます。",
+        "download": "{{name}} をダウンロード",
+        "loading": "読み込み中…"
       }
     },
     "execution": {
@@ -270,9 +276,9 @@
     },
     "header": {
       "sessionLabel": "セッション · {{time}}",
-      "agentDetailTitle": "エージェント詳細",
       "detailMenuTitle": "エージェント詳細 — パネル",
-      "modelFramework": "モデルとフレームワーク"
+      "modelFramework": "モデルとフレームワーク",
+      "switchAgent": "エージェントを切り替え"
     },
     "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
   },
@@ -721,8 +727,10 @@
     "agentRowMenu": {
       "options": "エージェントのオプション",
       "rename": "名前を変更",
+      "edit": "編集…",
       "setPrivate": "非公開にする",
       "setPublic": "公開にする",
+      "clearData": "データを消去",
       "delete": "削除"
     },
     "agentsHeaderMenu": {
@@ -750,7 +758,10 @@
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
-      "delete": "削除"
+      "clearData": "データを消去",
+      "delete": "削除",
+      "addAgent": "エージェントを追加",
+      "addingAgent": "追加中…"
     },
     "topBar": {
       "crumbDashboard": "ダッシュボード",
@@ -980,7 +991,11 @@
       "cancelConfirmKeep": "サブスクを継続",
       "reactivateConfirmTitle": "自動更新を再開しますか？",
       "reactivateConfirmAction": "再開する",
-      "reactivateConfirmDismiss": "後で"
+      "reactivateConfirmDismiss": "後で",
+      "balanceScope": "NetMind アカウント残高 — この NetMind アカウントで実行したものはすべて(NarraNexus 以外も含め)ここから消費されます。",
+      "narraUsageTitle": "NarraNexus の使用量 · 過去 {{days}} 日",
+      "narraUsageTokens": "トークン",
+      "narraUsageEstimate": "≈ {{cost}} — 公開価格に基づく概算のため、NetMind の明細とは完全には一致しません。"
     }
   },
   "system": {
@@ -1056,7 +1071,14 @@
     "drawer": {
       "unpin": "パネルのピンを外す",
       "pin": "パネルをピン留め",
-      "close": "パネルを閉じる"
+      "close": "パネルを閉じる",
+      "switchPanel": "パネルを切り替え"
+    },
+    "coach": {
+      "title": "アーティファクトはここに表示されます",
+      "unpinHint": "ピンを外すと、自動で閉じるオーバーレイになります。",
+      "closeHint": "パネルを閉じる — チャットヘッダーからいつでも再表示できます。",
+      "gotIt": "わかりました"
     }
   },
   "inbox": {
@@ -1287,7 +1309,13 @@
     "settings": {
       "title": "設定",
       "nav": {
-        "privacy": "プライバシー"
+        "privacy": "プライバシー",
+        "personalization": "パーソナライズ",
+        "account": "アカウントと請求",
+        "providers": "LLM プロバイダー",
+        "modelDefaults": "モデル既定値",
+        "artifacts": "アーティファクト",
+        "updates": "アプリ更新"
       },
       "providers": {
         "label": "LLM プロバイダー"
@@ -1330,6 +1358,10 @@
         "telemetryManagedCloud": "このインストールの診断テレメトリーは管理者が管理しています。",
         "telemetryUnavailable": "テレメトリーの状態を読み込めませんでした。推測で表示せず、スイッチを非表示にしています。再読み込みしてやり直してください。",
         "telemetryError": "変更を保存できませんでした。スイッチは実際の現在の状態を表示しています。"
+      },
+      "personalization": {
+        "label": "パーソナライズ",
+        "hint": "テーマと言語。今後追加予定。"
       }
     },
     "system": {

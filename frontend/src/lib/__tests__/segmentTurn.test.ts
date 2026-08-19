@@ -138,4 +138,18 @@ describe('timelineToEvents', () => {
     expect(segs).toHaveLength(1);
     expect(segs[0].reply?.content).toBe('这就是回复');
   });
+
+  it('a stored tool_output without a name inherits the preceding call\'s name — never a placeholder', () => {
+    const events = timelineToEvents([
+      { type: 'tool_call', tool_name: 'mcp__fs__read_file', tool_input: { path: 'a' } },
+      { type: 'tool_output', tool_output: 'file body' },
+    ] as EventLogTimelineEntry[]);
+    const output = events[1] as Extract<TurnEvent, { type: 'tool_output' }>;
+    expect(output.tool_name).toBe('mcp__fs__read_file');
+    // With nothing to inherit, the name stays empty — the UI hides it.
+    const orphan = timelineToEvents([
+      { type: 'tool_output', tool_output: 'x' },
+    ] as EventLogTimelineEntry[]);
+    expect((orphan[0] as Extract<TurnEvent, { type: 'tool_output' }>).tool_name).toBe('');
+  });
 });

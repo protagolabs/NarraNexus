@@ -30,7 +30,9 @@ import {
   forwardRef,
   memo,
   useEffect,
+  useCallback,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -153,6 +155,46 @@ export const Composer = memo(
       };
     }, [agentId]);
 
+    // Grow the field with its content: height tracks scrollHeight (plus the
+    // border, which border-box height includes but scrollHeight does not),
+    // the CSS max-height caps it, and past the cap the textarea scrolls
+    // internally. Collapsing to 'auto' first lets it shrink again when
+    // lines are deleted.
+    const resizeToContent = useCallback(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      // Border must be read AFTER the collapse to auto, and added back:
+      // border-box height includes it, scrollHeight does not.
+      const borderPx = el.offsetHeight - el.clientHeight;
+      el.style.height = `${el.scrollHeight + borderPx}px`;
+    }, []);
+    // useLayoutEffect (not the change handler) so programmatic setText /
+    // clear and the restored draft resize the same way typing does.
+    useLayoutEffect(() => {
+      resizeToContent();
+    }, [text, resizeToContent]);
+    // Width changes rewrap the text (drawer drag, pin toggle, sidebar
+    // collapse, window resize) — the height must follow those too. The
+    // observer recomputes ONLY when the width changed: this callback only
+    // writes height, so filtering on width is what actually breaks the
+    // self-feedback loop (the write itself re-fires the observer).
+    useEffect(() => {
+      const el = textareaRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      // -1 so the initial delivery from observe() always runs, even in the
+      // edge case of a zero-width hidden container.
+      let lastWidth = -1;
+      const ro = new ResizeObserver((entries) => {
+        const width = entries[0].contentRect.width;
+        if (width === lastWidth) return;
+        lastWidth = width;
+        resizeToContent();
+      });
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [resizeToContent]);
+
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const v = e.target.value;
       setText(v);
@@ -195,12 +237,13 @@ export const Composer = memo(
           onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
-          // Input-field convention (Owner 2026-08-06): the field is the
-          // LIGHTEST surface on the card and focus is signalled by the
-          // border deepening — so bg overrides the Textarea base to
-          // nm-card, and the base's hover(border-strong)/focus(ink)
-          // treatments are no longer pinned back to the hairline.
-          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
+          // Input-field convention: the field is the LIGHTEST surface on
+          // the card and focus is signalled by the border deepening — so bg
+          // overrides the Textarea base to nm-card, and the base's
+          // hover(border-strong)/focus(ink) treatments are no longer pinned
+          // back to the hairline. Height is managed by the autosize effect;
+          // max-h caps it at ~a third of the viewport before it scrolls.
+          className="nx-composer-input block min-h-[52px] max-h-[min(320px,35vh)] overflow-y-auto py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
           rows={1}
         />
       </div>
