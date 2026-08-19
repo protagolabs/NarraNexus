@@ -67,3 +67,10 @@ The `useEffect` dependency array uses stable scalar fields `(kind, agent_id, art
 **Error path (I3, 2026-05-09)**: The fetch chain now checks `r.ok` and catches network errors. A `previewError` state slot stores the error string; when set, a small red fallback line renders below the thumbnail area. The effect uses an async IIFE (matching ChartRenderer's pattern) so that the `setPreviewError(null)` reset and the async `setPreviewError(String(e))` are in the same async microtask batch — required by `react-hooks/set-state-in-effect` (eslint-plugin-react-hooks v7).
 
 **No spinner-forever bug**: Previously, a failed fetch would leave csvHead/mdHead as null with no error indicator, producing an empty 80px div with no feedback. The error path makes the failure visible.
+
+## 2026-08-19 — kind 分支改查注册表
+
+`kind ===` 链换成 `KIND_REGISTRY[kind].preview` 策略
+(image/csv-head/md-head/placeholder/none)+ `previewPlaceholderKey`。
+行为逐一保持(office-live/x-url 依旧无预览体)。加 kind 的预览形态
+在注册表声明,本组件不再改。

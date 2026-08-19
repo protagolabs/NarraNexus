@@ -19,16 +19,7 @@ import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/compon
 import { useConfigStore } from '@/stores';
 import { artifactsApi } from '@/services/artifactsApi';
 import type { Artifact } from '@/types/artifact';
-
-const KIND_LABEL: Record<string, string> = {
-  'text/html': 'HTML',
-  'application/vnd.echarts+json': 'Chart',
-  'text/csv': 'CSV',
-  'text/markdown': 'Markdown',
-  'image/png': 'PNG',
-  'image/jpeg': 'JPEG',
-  'application/pdf': 'PDF',
-};
+import { KIND_REGISTRY } from '@/components/artifacts/kindRegistry';
 
 export default function ArtifactsSection() {
   const { t } = useTranslation();
@@ -187,7 +178,7 @@ export default function ArtifactsSection() {
               />
               <span className="flex-1 truncate" title={a.title}>{a.title}</span>
               <span className="text-xs text-[var(--text-secondary)] w-20 text-right">
-                {KIND_LABEL[a.kind] ?? a.kind}
+                {KIND_REGISTRY[a.kind]?.label ?? a.kind}
               </span>
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
                 {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}
