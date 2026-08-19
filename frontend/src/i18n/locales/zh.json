@@ -1640,12 +1640,13 @@
     "settings": {
       "title": "设置",
       "nav": {
-        "account": "账户与订阅",
+        "account": "账户与账单",
         "providers": "LLM 服务商",
         "modelDefaults": "模型配置",
         "artifacts": "制品",
         "updates": "应用更新",
-        "privacy": "隐私"
+        "privacy": "隐私",
+        "personalization": "个性化"
       },
       "providers": {
         "label": "LLM 服务商"
@@ -1735,6 +1736,10 @@
         "telemetryManagedCloud": "本安装实例的诊断遥测由管理员统一管理。",
         "telemetryUnavailable": "遥测状态加载失败——开关已隐藏而非猜测显示。请刷新重试。",
         "telemetryError": "更改未能保存。开关显示的是实际当前状态。"
+      },
+      "personalization": {
+        "label": "个性化",
+        "hint": "主题与语言。后续会有更多。"
       }
     },
     "system": {

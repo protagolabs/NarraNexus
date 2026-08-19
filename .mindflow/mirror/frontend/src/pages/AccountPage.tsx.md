@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/AccountPage.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 内容列居中
+
+`max-w-3xl` 容器加 `mx-auto`,与 [[SettingsPage]] 同批(Owner:设置类
+页面内容要居中,不贴左)。
 
 # AccountPage — 用户级设置(account / billing / subscription)
 

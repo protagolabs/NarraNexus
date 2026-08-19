@@ -2,10 +2,11 @@
  * Sidebar — the app's three-zone shell.
  *
  * Zone 1: logo + collapse (panel icon). Zone 2: global nav (New / Export /
- * Dashboard / Marketplace / Settings) then the Chats list (teams + agents,
- * owned by AgentList — the sidebar stays "a shell, not a list owner").
- * Zone 3: the user row opening an account popover (workspace / account /
- * billing / subscription / theme / language / logout) + the Find Us entry.
+ * Dashboard / Marketplace / Workspace / Settings) then the Chats list
+ * (teams + agents, owned by AgentList — the sidebar stays "a shell, not a
+ * list owner"). Zone 3: the user row opening an identity-only account
+ * popover (account / version / logout) + the Find Us entry. Theme and
+ * language live in Settings → Personalization, not here.
  *
  * Collapse hides the whole aside (uiStore.sidebarCollapsed); the expand
  * button renders in the chat header / a floating chip, outside this tree.
@@ -26,14 +27,8 @@ import {
   Store,
   Upload,
   User,
-  CreditCard,
-  Star,
-  Sun,
-  Moon,
-  Globe,
   Users,
   BookOpen,
-  Check,
   ChevronsUpDown,
 } from 'lucide-react';
 import { BetaBadge, ScrollArea, useConfirm } from '@/components/ui';
@@ -42,7 +37,6 @@ import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useCreateAgent, useAgentImported, useDismissOnOutside } from '@/hooks';
-import { SUPPORTED_LANGUAGES } from '@/i18n';
 import {
   useConfigStore,
   useChatStore,
@@ -76,7 +70,6 @@ const NAV_ROW_ACTIVE = 'bg-[var(--nm-row-active)] text-[var(--nm-ink)]';
 export function Sidebar() {
   const [showModePopup, setShowModePopup] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [langOpen, setLangOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   // Mobile-only feedback entry. Desktop uses the floating FeedbackButton
   // (bottom-right, by the help "?"); on mobile that corner is the composer's,
@@ -112,23 +105,10 @@ export function Sidebar() {
   // flipping to true; only the UI entry points are gated.
   const SHOW_MODE_SWITCHER = false;
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const { theme, toggleTheme, isDark } = useTheme();
-  const { t, i18n } = useTranslation();
-  const accountRef = useDismissOnOutside<HTMLDivElement>(accountOpen, () => {
-    setAccountOpen(false);
-    setLangOpen(false);
-  });
+  const { isDark } = useTheme();
+  const { t } = useTranslation();
+  const accountRef = useDismissOnOutside<HTMLDivElement>(accountOpen, () => setAccountOpen(false));
 
-  const currentLang =
-    SUPPORTED_LANGUAGES.find(
-      (l) => i18n.resolvedLanguage === l.code || i18n.language?.startsWith(l.code),
-    ) ?? SUPPORTED_LANGUAGES[0];
-  const themeLabel =
-    theme === 'system'
-      ? t('sidebar.themeSystem')
-      : isDark
-        ? t('sidebar.themeDark')
-        : t('sidebar.themeLight');
   const modeLabel = mode === 'local' ? t('sidebar.local') : t('sidebar.cloud');
 
   /**
@@ -207,7 +187,6 @@ export function Sidebar() {
 
   const accountNavigate = (to: string) => {
     setAccountOpen(false);
-    setLangOpen(false);
     navigate(to);
   };
 
@@ -302,6 +281,14 @@ export function Sidebar() {
         </button>
         <button
           type="button"
+          onClick={() => navigate('/app/you')}
+          className={cn(NAV_ROW, location.pathname === '/app/you' && NAV_ROW_ACTIVE)}
+        >
+          <BookOpen className="w-4 h-4 shrink-0" />
+          {t('sidebar.workspace')}
+        </button>
+        <button
+          type="button"
           onClick={() => navigate('/app/settings')}
           title={t('sidebar.settingsTitle')}
           className={cn(NAV_ROW, location.pathname === '/app/settings' && NAV_ROW_ACTIVE)}
@@ -344,69 +331,16 @@ export function Sidebar() {
                   {t('sidebar.online')} · {modeLabel} · v{__APP_VERSION__}
                 </div>
               </div>
-              <AccountItem
-                icon={<BookOpen className="w-3.5 h-3.5" />}
-                label={t('sidebar.workspace')}
-                onClick={() => accountNavigate('/app/you')}
-              />
-              {/* Account / billing / subscription — the user-scoped
-                  /app/account page (moved out of app Settings); present only
-                  for NetMind-authenticated (power) users. */}
+              {/* Identity actions only. Theme and language live in Settings →
+                  Personalization; the workspace has its own nav row. Keeping a
+                  second settings surface here is what made users ask what the
+                  difference between the two was. */}
               {netmindToken && (
-                <>
-                  <AccountItem
-                    icon={<User className="w-3.5 h-3.5" />}
-                    label={t('sidebar.account')}
-                    onClick={() => accountNavigate('/app/account')}
-                  />
-                  <AccountItem
-                    icon={<CreditCard className="w-3.5 h-3.5" />}
-                    label={t('sidebar.billing')}
-                    onClick={() => accountNavigate('/app/account')}
-                  />
-                  <AccountItem
-                    icon={<Star className="w-3.5 h-3.5" />}
-                    label={t('sidebar.subscription')}
-                    onClick={() => accountNavigate('/app/account')}
-                  />
-                </>
-              )}
-              <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-              <AccountItem
-                icon={theme === 'system' ? <Monitor className="w-3.5 h-3.5" /> : isDark ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
-                label={t('sidebar.theme')}
-                hint={themeLabel}
-                onClick={toggleTheme}
-              />
-              <AccountItem
-                icon={<Globe className="w-3.5 h-3.5" />}
-                label={t('sidebar.language')}
-                hint={currentLang.code.toUpperCase()}
-                onClick={() => setLangOpen((v) => !v)}
-              />
-              {langOpen && (
-                <div className="max-h-56 overflow-y-auto mx-1 mb-1 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)]">
-                  {SUPPORTED_LANGUAGES.map((l) => {
-                    const active = l.code === currentLang.code;
-                    return (
-                      <button
-                        key={l.code}
-                        type="button"
-                        dir={l.code === 'ar' ? 'rtl' : undefined}
-                        onClick={() => { void i18n.changeLanguage(l.code); setLangOpen(false); }}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left transition-colors',
-                          'hover:bg-[var(--nm-paper-warm)]',
-                          active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
-                        )}
-                      >
-                        <span className="text-sm leading-none">{l.flag}</span>
-                        <span className="flex-1">{l.label}</span>
-                        {active && <Check className="w-3 h-3 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
+                <AccountItem
+                  icon={<User className="w-3.5 h-3.5" />}
+                  label={t('sidebar.account')}
+                  onClick={() => accountNavigate('/app/account')}
+                />
               )}
               {isMobile && (
                 <AccountItem

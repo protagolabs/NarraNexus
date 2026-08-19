@@ -36,7 +36,7 @@ export default function AccountPage() {
         </h1>
       </header>
       <ScrollArea className="flex-1" viewportClassName="p-6">
-        <div className="max-w-3xl">
+        <div className="max-w-3xl mx-auto">
           {hasPower ? (
             <NetmindAccountPanel />
           ) : (

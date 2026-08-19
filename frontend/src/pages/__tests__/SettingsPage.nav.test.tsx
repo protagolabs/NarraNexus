@@ -1,10 +1,12 @@
 /**
- * Nav test for SettingsPage (Chat UI v4): account/billing/subscription moved
- * to the user-scoped /app/account page and bundle entries to the sidebar —
- * neither appears in the Settings nav anymore. The legacy ?tab=account deep
- * link (Stripe's post-payment return target) must REDIRECT to /app/account
- * with the query preserved instead of falling back to a random pane. Heavy
- * content panels are stubbed so the test only exercises nav + redirect.
+ * Nav test for SettingsPage. Settings is the single configuration front
+ * door: it carries a Personalization pane (theme/language — moved out of
+ * the sidebar account popover) and, for NetMind users, an Account entry
+ * that navigates to the user-scoped /app/account page. Bundle entries live
+ * in the sidebar. The legacy ?tab=account deep link (Stripe's post-payment
+ * return target) must REDIRECT to /app/account with the query preserved
+ * instead of falling back to a random pane. Heavy content panels are
+ * stubbed so the test only exercises nav + redirect.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -20,10 +22,19 @@ const { mockT } = vi.hoisted(() => {
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockT }) }));
 let mockSearch = '';
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
   useSearchParams: () => [new URLSearchParams(mockSearch), vi.fn()] as const,
   Navigate: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />,
+}));
+const { authState } = vi.hoisted(() => ({ authState: { netmindToken: null as string | null } }));
+vi.mock('@/stores', () => ({
+  useConfigStore: (sel: (s: { netmindToken: string | null }) => unknown) =>
+    sel({ netmindToken: authState.netmindToken }),
+}));
+vi.mock('@/components/settings/PersonalizationSettings', () => ({
+  PersonalizationSettings: () => <div data-testid="personalization-pane" />,
 }));
 vi.mock('@/components/settings/ProviderSettings', () => ({
   ProviderSettings: () => <div data-testid="providers-pane" />,
@@ -40,16 +51,34 @@ vi.mock('@/stores/updaterStore', () => ({ useUpdaterStore: (sel: (s: unknown) =>
 
 import SettingsPage from '../SettingsPage';
 
-describe('SettingsPage nav — app-scoped items only (v4)', () => {
+describe('SettingsPage nav', () => {
   beforeEach(() => {
     mockSearch = '';
+    authState.netmindToken = null;
+    mockNavigate.mockClear();
   });
 
-  test('account and bundle entries are gone from the nav', () => {
+  test('bundle entries are gone; account hidden without a NetMind session', () => {
     render(<SettingsPage />);
-    expect(screen.queryByRole('button', { name: /account/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /pages.settings.nav.account/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /bundle/i })).toBeNull();
     expect(screen.getByRole('button', { name: /LLM Providers/ })).toBeTruthy();
+  });
+
+  test('account entry shows for NetMind users and navigates to /app/account', () => {
+    authState.netmindToken = 'tok';
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.account/ }));
+    expect(mockNavigate).toHaveBeenCalledWith('/app/account');
+    // A navigation entry, not a pane: the providers pane stays mounted.
+    expect(screen.getByTestId('providers-pane')).toBeTruthy();
+  });
+
+  test('personalization pane opens from the nav', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.personalization/ }));
+    expect(screen.getByTestId('personalization-pane')).toBeTruthy();
+    expect(screen.queryByTestId('providers-pane')).toBeNull();
   });
 });
 

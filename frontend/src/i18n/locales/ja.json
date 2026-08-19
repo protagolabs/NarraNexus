@@ -1295,7 +1295,9 @@
     "settings": {
       "title": "設定",
       "nav": {
-        "privacy": "プライバシー"
+        "privacy": "プライバシー",
+        "personalization": "パーソナライズ",
+        "account": "アカウントと請求"
       },
       "providers": {
         "label": "LLM プロバイダー"
@@ -1338,6 +1340,10 @@
         "telemetryManagedCloud": "このインストールの診断テレメトリーは管理者が管理しています。",
         "telemetryUnavailable": "テレメトリーの状態を読み込めませんでした。推測で表示せず、スイッチを非表示にしています。再読み込みしてやり直してください。",
         "telemetryError": "変更を保存できませんでした。スイッチは実際の現在の状態を表示しています。"
+      },
+      "personalization": {
+        "label": "パーソナライズ",
+        "hint": "テーマと言語。今後追加予定。"
       }
     },
     "system": {

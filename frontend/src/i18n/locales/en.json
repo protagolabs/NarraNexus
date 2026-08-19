@@ -1640,12 +1640,13 @@
     "settings": {
       "title": "Settings",
       "nav": {
-        "account": "Account & Subscription",
+        "account": "Account & billing",
         "providers": "LLM Providers",
         "modelDefaults": "Model Defaults",
         "artifacts": "Artifacts",
         "updates": "App updates",
-        "privacy": "Privacy"
+        "privacy": "Privacy",
+        "personalization": "Personalization"
       },
       "providers": {
         "label": "LLM Providers"
@@ -1735,6 +1736,10 @@
         "telemetryManagedCloud": "Your administrator controls diagnostic telemetry for this install.",
         "telemetryUnavailable": "Telemetry state could not be loaded — the switch is hidden rather than guessed. Reload to retry.",
         "telemetryError": "The change could not be saved. The switch shows the actual current state."
+      },
+      "personalization": {
+        "label": "Personalization",
+        "hint": "Theme and language. More to come."
       }
     },
     "system": {

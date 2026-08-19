@@ -1296,7 +1296,9 @@
     "settings": {
       "title": "Einstellungen",
       "nav": {
-        "privacy": "Datenschutz"
+        "privacy": "Datenschutz",
+        "personalization": "Personalisierung",
+        "account": "Konto & Abrechnung"
       },
       "providers": {
         "label": "LLM-Anbieter"
@@ -1339,6 +1341,10 @@
         "telemetryManagedCloud": "Dein Administrator steuert die Diagnose-Telemetrie dieser Installation.",
         "telemetryUnavailable": "Der Telemetrie-Status konnte nicht geladen werden – der Schalter wird ausgeblendet statt geraten. Lade neu, um es erneut zu versuchen.",
         "telemetryError": "Die Änderung konnte nicht gespeichert werden. Der Schalter zeigt den tatsächlichen aktuellen Zustand."
+      },
+      "personalization": {
+        "label": "Personalisierung",
+        "hint": "Design und Sprache. Weitere folgen."
       }
     },
     "system": {

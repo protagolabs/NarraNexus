@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 设置成为唯一配置前门:个性化栏目 + 账户入口 + 内容居中
+
+- 新「Personalization」pane([[PersonalizationSettings]]):主题三档 + 语言
+  列表,从侧栏账户弹层整体迁入——两个「设置」并存让用户分不清差别,现在
+  可配置的东西只此一处。排序放 privacy 之后,默认落点仍是 Providers。
+- NavItem 支持 `href`:「Account & billing」对 NetMind 用户显示,点击
+  `navigate('/app/account')` 而非切 pane(账户页仍是 user-scoped 独立页,
+  设置只做入口)。`?tab=` 初始化忽略 href 项。
+- 内容列 `max-w-3xl` 加 `mx-auto` 居中([[AccountPage]] 同改)。
 
 ## 2026-08-18 — "管理 Agent" 入口移除(与智能体管理页重合)
 

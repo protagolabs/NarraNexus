@@ -1296,7 +1296,9 @@
     "settings": {
       "title": "Configurações",
       "nav": {
-        "privacy": "Privacidade"
+        "privacy": "Privacidade",
+        "personalization": "Personalização",
+        "account": "Conta e cobrança"
       },
       "providers": {
         "label": "Provedores de LLM"
@@ -1339,6 +1341,10 @@
         "telemetryManagedCloud": "O seu administrador controla a telemetria de diagnóstico desta instalação.",
         "telemetryUnavailable": "Não foi possível carregar o estado da telemetria — o interruptor é ocultado em vez de adivinhado. Recarregue para tentar novamente.",
         "telemetryError": "Não foi possível guardar a alteração. O interruptor mostra o estado atual real."
+      },
+      "personalization": {
+        "label": "Personalização",
+        "hint": "Tema e idioma. Mais em breve."
       }
     },
     "system": {

@@ -1296,7 +1296,9 @@
     "settings": {
       "title": "Paramètres",
       "nav": {
-        "privacy": "Confidentialité"
+        "privacy": "Confidentialité",
+        "personalization": "Personnalisation",
+        "account": "Compte et facturation"
       },
       "providers": {
         "label": "Fournisseurs LLM"
@@ -1339,6 +1341,10 @@
         "telemetryManagedCloud": "Votre administrateur contrôle la télémétrie de diagnostic de cette installation.",
         "telemetryUnavailable": "L'état de la télémétrie n'a pas pu être chargé — l'interrupteur est masqué plutôt que deviné. Rechargez pour réessayer.",
         "telemetryError": "La modification n'a pas pu être enregistrée. L'interrupteur affiche l'état actuel réel."
+      },
+      "personalization": {
+        "label": "Personnalisation",
+        "hint": "Thème et langue. D’autres suivront."
       }
     },
     "system": {
