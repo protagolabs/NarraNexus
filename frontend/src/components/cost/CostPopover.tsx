@@ -15,31 +15,12 @@ import { Button } from '@/components/ui';
 import { usePreloadStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+// Shared with the account page's NarraNexus-usage section — the same week of
+// usage must not read 1.2M here and 1.23M there. See lib/tokenFormat.ts.
+import { formatCost, formatTokens } from '@/lib/tokenFormat';
 import type { CostModelBreakdown, CostSummary } from '@/types/api';
 
 type CostView = 'agent' | 'all';
-
-/** Format token count (e.g. 12345 -> "12.3k") */
-function formatTokens(n: number): string {
-  if (n < 1000) return n.toString();
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
-
-/**
- * Format USD cost so a real amount never renders as a zero.
- *
- * toFixed(4) still prints "$0.0000" below a hundredth of a cent — and an
- * embedding-heavy day lands there. That is the same failure this panel avoids
- * everywhere else by hiding cost when it is 0: a displayed zero reads as
- * "free", not as "too small to show". Callers already gate on > 0, so anything
- * reaching here is genuinely non-zero and says so.
- */
-function formatCost(n: number): string {
-  if (n >= 0.01) return `$${n.toFixed(2)}`;
-  if (n >= 0.0001) return `$${n.toFixed(4)}`;
-  return '<$0.0001';
-}
 
 /** Short model name for display (drop date suffixes) */
 function shortModelName(

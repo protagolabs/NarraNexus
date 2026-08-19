@@ -4,6 +4,29 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19（当天第三条）— 余额是**账户级**的，这件事此前一个字都没说
+
+用户反馈（P2）：「usage 显示的是 model usage / api usage，而不是 narra usage」——
+在别的平台用同一个 NetMind 账号，Narra 里看到的余额跟着掉。
+
+**属实，且是设计使然**：本卡的余额、流水、eligibility 全部来自 NetMind 的 finance
+域，口径是整个 NetMind 账号。问题不在数字，在于**界面从头到尾没有一处说明这个口径**，
+而旧文案还在往反方向推：副标题写「used for your LLM API usage」、流水区叫「最近流水」
+—— 于是别的产品造成的余额下降，读起来就是 Narra 的用量。
+
+三处文案改成点名口径（副标题 / 余额 hero 下新增 `balanceScope` / `activityTitle`
+改「NetMind 账户流水（全部产品）」；页脚 `scopeNote` 补一句账户级），并挂上
+[[NarraUsageSection.tsx]] —— 平台自己的 `cost_records` 账本，就放在账户流水正上方。
+
+**为什么不是「把余额换成 Narra 的数字」**：`cost_records` 是牌价估算，NetMind 是
+聚合商、不按直营价出账（[[model_pricing.py]]）。两个数字并排就必须让人一眼看出
+它们**不该相等**，所以新区块以 token 为主、金额带 `≈` 和一句说明。真正能对账的做法
+需要 NetMind 侧按 API key 归因（[[netmind_key_client.py]] 已经为每个用户铸了独占的
+`NarraNexus-<uuid8>` key，归因的钥匙是现成的），那要等上游开接口。
+
+顺带：`formatTokens` / `formatCost` 抽到 [[tokenFormat.ts]]，与 [[CostPopover.tsx]]
+共用 —— 同一周用量在两个屏幕上不能读出两个数。
+
 ## 2026-08-19（当天第二条）— 续订侧汇率查询补上防抖
 
 原注释写着「月数网格只会被点击、不会被按键改变，所以不需要合并请求」。**这句话被

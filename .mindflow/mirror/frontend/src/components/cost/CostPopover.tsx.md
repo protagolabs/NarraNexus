@@ -1,7 +1,16 @@
 ---
 code_file: frontend/src/components/cost/CostPopover.tsx
-last_verified: 2026-08-03
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — `formatTokens` / `formatCost` 移出本文件
+
+两个函数搬到 [[tokenFormat.ts]]，本文件改为 import。触发是账户页新增
+[[NarraUsageSection.tsx]] 需要同一套规则：**两份独立的实现会静默漂移**，同一周的
+用量在两个屏幕上读出两个数，而读者无从判断哪个被四舍五入过。
+
+**规则一个字没改**，下面这条 08-03 的推理仍然是正本 —— 它记的是「为什么低于
+0.0001 要换说法」，不是「函数住在哪个文件」，所以留在这里，不搬走也不复制。
 
 ## 2026-08-03 — `formatCost` 低于万分之一美元时显示 `<$0.0001`
 
