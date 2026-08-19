@@ -2069,7 +2069,8 @@
       "conflictBody": "編集中にファイルが変更されました。自分の版を残すか、相手の版を再読み込みしますか?",
       "overwriteMine": "自分の版を残す",
       "discardMine": "再読み込み",
-      "loadError": "読み込み失敗:{{error}}"
+      "loadError": "読み込み失敗:{{error}}",
+      "mdGuardDisabled": "このドキュメントにはエディタが無損失で保持できない構文が含まれるため、直接編集は無効です。AI に変更を依頼してください。"
     }
   },
   "skills": {

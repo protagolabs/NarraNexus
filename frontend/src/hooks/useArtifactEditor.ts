@@ -82,9 +82,14 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
   // The lock base: hash of the bytes the editor loaded (or last saved).
   const baseHashRef = useRef<string>('');
   // Read by the load effect without being a dependency: a url change must
-  // NOT re-run the load just because dirtiness changed.
+  // NOT re-run the load just because dirtiness changed. Assigned in an
+  // effect (post-render), never during render.
   const dirtyRef = useRef(false);
-  dirtyRef.current = dirty;
+  const textRef = useRef('');
+  useEffect(() => {
+    dirtyRef.current = dirty;
+    textRef.current = text;
+  });
 
   const loadFrom = useCallback(async (rawUrl: string): Promise<void> => {
     const r = await fetch(rawUrl);
@@ -168,11 +173,6 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
       setSaving(false);
     }
   }, [artifact.agent_id, artifact.artifact_id]);
-
-  // save/overwrite read the CURRENT text without re-creating callbacks per
-  // keystroke (a per-keystroke identity would re-render every toolbar).
-  const textRef = useRef(text);
-  textRef.current = text;
 
   const save = useCallback(() => doSave(baseHashRef.current), [doSave]);
 

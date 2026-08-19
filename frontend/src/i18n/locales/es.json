@@ -2070,7 +2070,8 @@
       "conflictBody": "El archivo cambió mientras editabas. ¿Conservar tu versión o recargar la suya?",
       "overwriteMine": "Conservar la mía",
       "discardMine": "Recargar",
-      "loadError": "Error al cargar: {{error}}"
+      "loadError": "Error al cargar: {{error}}",
+      "mdGuardDisabled": "Este documento contiene sintaxis que el editor no puede preservar sin pérdidas: la edición directa está deshabilitada. Pide a la IA que haga los cambios."
     }
   },
   "skills": {

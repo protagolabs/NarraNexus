@@ -38,6 +38,7 @@
     "reactflow": "^11.11.4",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.17",
     "unist-util-visit": "^5.0.0",

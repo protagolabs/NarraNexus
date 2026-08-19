@@ -2468,7 +2468,8 @@
       "conflictBody": "编辑期间文件被修改了。保留你的版本，还是重新加载对方的？",
       "overwriteMine": "保留我的",
       "discardMine": "加载对方的",
-      "loadError": "加载失败:{{error}}"
+      "loadError": "加载失败:{{error}}",
+      "mdGuardDisabled": "此文档含编辑器无法无损保留的语法,直接编辑已停用。请让 AI 代为修改。"
     }
   },
   "skills": {

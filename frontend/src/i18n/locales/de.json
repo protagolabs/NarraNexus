@@ -2070,7 +2070,8 @@
       "conflictBody": "Die Datei wurde während der Bearbeitung geändert. Deine Version behalten oder neu laden?",
       "overwriteMine": "Meine behalten",
       "discardMine": "Neu laden",
-      "loadError": "Laden fehlgeschlagen: {{error}}"
+      "loadError": "Laden fehlgeschlagen: {{error}}",
+      "mdGuardDisabled": "Dieses Dokument enthält Syntax, die der Editor nicht verlustfrei erhalten kann — direkte Bearbeitung ist deaktiviert. Bitte die KI um Änderungen."
     }
   },
   "skills": {

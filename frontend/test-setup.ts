@@ -50,6 +50,23 @@ if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+// jsdom implements neither IntersectionObserver nor ResizeObserver; the md
+// block editor (Milkdown/Crepe) constructs both at mount for code blocks and
+// toolbar placement. Observing nothing is honest in jsdom — layout callbacks
+// are unobservable there anyway.
+class _NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return []; }
+}
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  (globalThis as Record<string, unknown>).IntersectionObserver = _NoopObserver;
+}
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  (globalThis as Record<string, unknown>).ResizeObserver = _NoopObserver;
+}
+
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({

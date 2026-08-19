@@ -2468,7 +2468,8 @@
       "conflictBody": "The file changed while you were editing. Keep your version or reload theirs?",
       "overwriteMine": "Keep mine",
       "discardMine": "Reload theirs",
-      "loadError": "Failed to load: {{error}}"
+      "loadError": "Failed to load: {{error}}",
+      "mdGuardDisabled": "This document contains syntax the editor cannot preserve losslessly — direct editing is disabled. Ask the AI to make changes instead."
     }
   },
   "skills": {
