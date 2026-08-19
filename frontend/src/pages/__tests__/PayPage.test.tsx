@@ -8,10 +8,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { PayPage } from '../PayPage';
-import { ApiError } from '@/lib/api';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', () => ({
@@ -37,21 +36,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
   };
 });
 
-const mockIsTauri = vi.fn(() => false);
-vi.mock('@/lib/tauri', () => ({
-  isTauri: () => mockIsTauri(),
-}));
-
-const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
-vi.mock('@/lib/platform', () => ({
-  platform: { openExternal: (url: string) => mockOpenExternal(url) },
-}));
-
 const replaceSpy = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   authState.netmindToken = 'tok_live';
-  mockIsTauri.mockReturnValue(false);
   Object.defineProperty(window, 'location', {
     value: { ...window.location, replace: replaceSpy },
     writable: true,
@@ -61,7 +49,6 @@ beforeEach(() => {
 
 const FREE = { success: true, data: { subscription: null } };
 const ACTIVE = { success: true, data: { subscription: { status: 'ACTIVE', auto_renew: true } } };
-const CHECKOUT = { success: true, data: { checkout_url: 'https://checkout.stripe.com/c/pay_123' } };
 
 describe('PayPage', () => {
   // This page no longer mints a checkout. It is where the marketing pricing
@@ -72,7 +59,7 @@ describe('PayPage', () => {
 
   it('free power user: lands ON the purchase, not merely near it', async () => {
     authState.netmindToken = 'tok_live';
-    mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+    mockGetSubscription.mockResolvedValue(FREE);
     render(<PayPage />);
     // intent=buy is load-bearing: without it the CTA would arrive at a settings
     // page with the purchase one click away, which moves the dead end rather
@@ -94,7 +81,6 @@ describe('PayPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/app/settings?tab=account', { replace: true }),
     );
     expect(mockSubscribe).not.toHaveBeenCalled();
-    expect(replaceSpy).not.toHaveBeenCalled();
   });
 
   it('probe failure is "unknown", not fatal: the buyer still reaches the purchase', async () => {
@@ -127,7 +113,7 @@ describe('PayPage', () => {
     // runs OVERLAPPING — the second entering while the first is still awaiting
     // the probe, which is the only situation the ref exists for.
     authState.netmindToken = 'tok_live';
-    mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
+    mockGetSubscription.mockResolvedValue(FREE);
     render(
       <StrictMode>
         <PayPage />

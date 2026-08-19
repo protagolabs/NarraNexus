@@ -548,3 +548,24 @@ async def test_fx_rate_sends_logintoken():
 
     await _client_with(handler).fx_rate("jwt-xyz", "CNY")
     assert seen["auth"] == "Bearer jwt-xyz"  # same convention as every other call
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["cancel", "reactivate"])
+async def test_cancel_and_reactivate_put_the_channel_in_the_body(action):
+    """Assert on the OUTBOUND body, not on a stub's kwargs.
+
+    The route tests prove the route hands `channel` to the client; only this
+    proves the client puts it in the request. Without it, deleting
+    `json_body=_channel_field(channel)` from either method leaves the whole
+    backend suite green (verified: 1252 passed) while a card subscription
+    created on the nexus account may become impossible to cancel — the one
+    upstream behaviour in this feature with no measurement behind it, and this
+    line is the entire hedge against it.
+
+    Field-scoped, not a whole-body equality: upstream requiring another field
+    here later should not turn a normal extension into a red build.
+    """
+    seen: dict = {}
+    await getattr(_client_with(_body_capture(seen)), action)("jwt", channel="nexus")
+    assert seen["body"]["channel"] == "nexus"

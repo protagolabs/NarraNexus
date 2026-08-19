@@ -1,44 +1,26 @@
 /**
- * @file_name: PayPage.tsx
- * @author: NarraNexus
- * @date: 2026-07-31
- * @description: /pay — the website-to-Stripe bounce route. No UI beyond a
- * spinner: it exists so a pricing-page CTA can promise "click the plan, land
- * on checkout".
+ * @file PayPage.tsx
+ * @author NarraNexus
+ * @date 2026-07-31
+ * @description `/pay` — the landing point for the marketing pricing page's CTA.
  *
- * Why a dedicated route (P0 bug "付费流程断裂", deadline 2026-08-08): the
- * website cannot create a checkout session itself — sessions are minted by
- * NetMind's billing API and require the user's NetMind loginToken, which only
- * an authenticated app session holds. So "website → Stripe directly" is
- * really "website → smallest possible authenticated hop → Stripe". This page
- * is that hop:
+ * Why a dedicated route rather than deep-linking the settings panel: the
+ * pricing page is public and its CTA has to work for a logged-out visitor too,
+ * so the login redirect needs somewhere stable to send them back to.
  *
- *   logged in + free      → subscribe() → checkout_url → same-tab redirect
- *   logged out            → ProtectedRoute sends /login?next=%2Fpay, and the
- *                           login/signup flows honor `next` — payment intent
- *                           survives authentication
- *   already subscribed    → /app/settings?tab=account (manage, don't re-buy)
- *   not a Power account   → /app/settings?tab=account (no token to pay with;
- *                           the panel explains the account situation)
- *   billing auth expired  → /app/settings?tab=account (retry can never fix a
- *                           dead loginToken; the panel owns re-linking)
- *   subscribe failed      → inline error + retry, plus a link to the account
- *                           page as the manual fallback
+ * Four ways out, and only four:
  *
- * Same-tab redirect via location.REPLACE, NOT assign and NOT
- * platform.openExternal: the user clicked a plan on the website and this
- * tab's only job is checkout. replace() removes /pay from history, so the
- * browser Back button on the Stripe page returns to wherever the user came
- * from (pricing page / login) — with assign(), Back would re-mount /pay and
- * mint a SECOND checkout session (or, under bfcache, restore a dead spinner).
- * Stripe's return URL brings the payer back to /app/settings?tab=account
- * (see backend/routes/billing.py::_return_urls), which closes the loop.
+ *   logged out            → ProtectedRoute sends /login?next=%2Fpay, which
+ *                           returns here after sign-in
+ *   no NetMind account    → /app/settings?tab=account (a pure-local session
+ *                           holds no loginToken, so it cannot buy anything)
+ *   already subscribed    → /app/settings?tab=account (manage, do not re-buy)
+ *   otherwise             → /app/settings?tab=account&intent=buy, which opens
+ *                           the rail choice
  *
- * Desktop (Tauri) is the one exception (iron rule #7 — the two run modes must
- * not diverge): navigating the webview itself to Stripe would strand the
- * window (Stripe's return URL points at the cloud web app). No desktop
- * surface links here today, but if reached, checkout opens in the system
- * browser and the webview lands on the account page.
+ * This page mints no checkout of its own — see PayPage.tsx.md for why that
+ * changed. Consequently it has no error state: the probe swallows its own
+ * failure and `navigate` cannot throw, so every path ends in a redirect.
  */
 
 import { useCallback, useEffect, useRef } from 'react';

@@ -1,10 +1,18 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
 ## 2026-08-19（当天第二条）— cancel / reactivate 经 `_write_action` 带上 channel
+
+**`/reactivate` 没有服务端护栏，这是记录在案的决定，不是遗漏。** 实测确认它对一次性
+订阅会真的把 `auto_renew` 翻成 true，而阻止误用的只有前端不渲染那个按钮 —— 带着自己
+的 token curl 一下就能绕过。不加校验的理由：受影响的只是账号持有者自己的一个
+**无意义标志位**（上游没有任何东西会去续那个订阅，面板也因为 `resolveState` 的判断
+顺序仍然显示正确），为一个纯装饰性的位加一次同步上游往返不划算（铁律 #18 不要求为
+不存在的伤害做防御）。若日后给面板加「恢复自动续费」入口，校验属于 `reactivate`
+这个路由函数自己，**不要**塞进三个 action 共用的 `_write_action`。
 
 理由见 [[netmind_billing_client]]。要点是 `extra` 这个形参的价值在这里第二次兑现：
 两个端点**只**收到 `channel`，**绝不**收到 `_return_urls` —— 它们不开 Stripe

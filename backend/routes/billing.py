@@ -381,10 +381,12 @@ async def _write_action(
     reactivate): Power-account gate + NetMind token, then dispatch to the client
     method, mapping the three error kinds consistently.
 
-    ``extra`` carries per-action keyword arguments — today only subscribe's
-    return URLs. cancel/reactivate open no Stripe checkout, so they must never
-    receive them; keeping this a parameter rather than resolving it inside the
-    harness is what keeps that true.
+    ``extra`` carries per-action keyword arguments, and now has two kinds of
+    payload: ``channel`` (all three actions) and subscribe's return URLs (only
+    subscribe). Only the second is excluded from cancel/reactivate — they open
+    no Stripe checkout, so they have nowhere to redirect to. Keeping this a
+    parameter rather than resolving it inside the harness is what keeps that
+    exclusion true, and there is a test named for it.
 
     BillingBusinessError -> 400 (surface the user-safe message, e.g. "Already
     subscribed"); BillingAuthError -> 401; BillingUpstreamError -> 502.
