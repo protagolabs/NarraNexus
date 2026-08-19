@@ -2,20 +2,83 @@
  * @file tokenFormat.ts
  * @author NarraNexus
  * @date 2026-08-19
- * @description Shared rendering rules for every LLM-usage surface: token counts,
- * USD amounts, and the model label.
+ * @description Shared rendering rules for every LLM-usage surface: how a token
+ * count is summed, how it is formatted, how USD is formatted, and what a
+ * `by_model` key is called on screen.
  *
  * Extracted from CostPopover when a second usage surface (the account page's
- * NarraNexus-usage section) needed the same two functions. Two independent
- * copies of "how do we render a token count" drift, and they drift silently —
- * the same week's usage would read 1.2M on one screen and 1.23M on another,
- * and the reader has no way to tell which one is rounded.
+ * NarraNexus-usage section) needed the same functions. Two independent copies
+ * of "how do we render a token count" drift, and they drift silently — the same
+ * week's usage would read 1.2M on one screen and 1.23M on another, and the
+ * reader has no way to tell which one is rounded.
  *
- * NOTE: InnerThoughtCard.tsx still carries a third copy with slightly
- * different rules (1 decimal at the M scale instead of 2). Folding it in
- * changes what that card renders and what its tests assert, so it is tracked
- * separately rather than smuggled into a billing-copy fix.
+ * The summing rules matter more than the formatting ones: they have already
+ * caused a real defect (2026-07-30, "input 213" for a 1.2M-token week), and the
+ * failure mode is a number off by an order of magnitude rather than a crash.
+ *
+ * NOTE: InnerThoughtCard.tsx still carries its own `formatTokens` with slightly
+ * different rules (1 decimal at the M scale instead of 2). Folding it in changes
+ * what that card renders and what its tests assert, so it is tracked separately
+ * rather than smuggled into a billing-copy fix. It does share the summing rule
+ * below.
  */
+
+/**
+ * The three input-side buckets, summed.
+ *
+ * `input_tokens` is ONLY the full-rate bucket. Cache reads (0.1x) and cache
+ * writes (1.25x) are separate columns, and on a cache-warm run they are >99% of
+ * what the model actually read. Summing only the first is what produced
+ * "input 213" for a 1.2M-token week (2026-07-30, live agent) — the number is
+ * wrong by an order of magnitude and nothing looks broken.
+ *
+ * `?? 0` is load-bearing: a response cached by a frontend running against an
+ * older backend has no such keys, and `undefined` in a sum renders "NaN".
+ *
+ * Deliberately NOT one function that sniffs its argument shape with `in`. The
+ * `total_`-prefixed summary shape gets its own pair below; a single clever
+ * discriminator stops being clever at the third shape.
+ */
+export function inputSideTokens(d: {
+  input_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+}): number {
+  return d.input_tokens + (d.cache_read_tokens ?? 0) + (d.cache_creation_tokens ?? 0);
+}
+
+/** Everything read plus everything written, for a per-model or per-day entry. */
+export function totalTokens(d: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+}): number {
+  return inputSideTokens(d) + d.output_tokens;
+}
+
+/** `inputSideTokens` for the `total_`-prefixed CostSummary shape. */
+export function summaryInputSideTokens(s: {
+  total_input_tokens: number;
+  total_cache_read_tokens?: number;
+  total_cache_creation_tokens?: number;
+}): number {
+  return (
+    s.total_input_tokens +
+    (s.total_cache_read_tokens ?? 0) +
+    (s.total_cache_creation_tokens ?? 0)
+  );
+}
+
+/** `totalTokens` for the `total_`-prefixed CostSummary shape. */
+export function summaryTotalTokens(s: {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens?: number;
+  total_cache_creation_tokens?: number;
+}): number {
+  return summaryInputSideTokens(s) + s.total_output_tokens;
+}
 
 /** Format a token count: 980 → "980", 12345 → "12.3k", 2_400_000 → "2.40M". */
 export function formatTokens(n: number): string {

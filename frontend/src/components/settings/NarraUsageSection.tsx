@@ -38,38 +38,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
-import { formatCost, formatTokens, shortModelName } from '@/lib/tokenFormat';
-import type { CostModelBreakdown, CostSummary } from '@/types';
+import {
+  formatCost,
+  formatTokens,
+  shortModelName,
+  summaryTotalTokens,
+  totalTokens,
+} from '@/lib/tokenFormat';
+import type { CostSummary } from '@/types';
 
 /** Match the NetMind finance view above, which is month-shaped. */
 const WINDOW_DAYS = 30;
-/** Enough to show where the money goes without turning the card into a report. */
-const MAX_MODELS = 4;
-
 /**
- * Every bucket the model read, plus what it wrote.
- *
- * input_tokens is only the FULL-RATE bucket; cache reads (0.1x) and cache
- * writes (1.25x) are separate columns. Summing only the first under-reports a
- * cache-warm month by an order of magnitude. `?? 0` guards a backend build
- * predating those fields — undefined in a sum renders "NaN".
+ * Headroom, not a limit that bites today: the endpoint currently returns at most
+ * two buckets (see `shortModelName` in lib/tokenFormat.ts). 4 leaves room for a
+ * widened contract without this card silently truncating on the day it widens.
  */
-function bucketTotal(d: CostModelBreakdown | CostSummary): number {
-  if ('total_input_tokens' in d) {
-    return (
-      d.total_input_tokens +
-      (d.total_cache_read_tokens ?? 0) +
-      (d.total_cache_creation_tokens ?? 0) +
-      d.total_output_tokens
-    );
-  }
-  return (
-    d.input_tokens +
-    (d.cache_read_tokens ?? 0) +
-    (d.cache_creation_tokens ?? 0) +
-    d.output_tokens
-  );
-}
+const MAX_MODELS = 4;
 
 export function NarraUsageSection() {
   const { t } = useTranslation();
@@ -84,13 +69,34 @@ export function NarraUsageSection() {
   // of live ones, which is worse than not showing it.
   useEffect(() => {
     mounted.current = true;
+    // Synchronous in-flight guard, same shape as the panel's `pollingRef`. This
+    // is the heaviest read on the settings page: the endpoint scans every
+    // cost_records row in the window for every agent the viewer owns, with no
+    // SQL LIMIT and the aggregation done in Python (backend/routes/agents/
+    // cost.py) — so its cost grows with the account's history, and the trigger
+    // is "user alt-tabbed", which they may do twice in a second. Skipping while
+    // a read is already in the air also removes the out-of-order case: two
+    // concurrent reads could resolve backwards and flash a stale total.
+    //
+    // Deliberately NOT a minimum refresh interval: that would blunt the
+    // post-payment case where the user comes back from an external window and
+    // must see fresh numbers immediately.
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       // `.catch(() => null)` IS the failure posture (see the file header): a
       // failed first load leaves the section absent, a failed REFRESH leaves
       // the last good value standing. Neither says anything to the user —
       // nothing here is actionable, and an error line inside a billing card
-      // reads as "your money is broken".
-      const res = await api.getCosts('_all', WINDOW_DAYS).catch(() => null);
+      // reads as "your money is broken". The debug line is the only trace:
+      // without it, "this endpoint is 500ing" and "this account has no usage"
+      // look identical from the outside, forever.
+      const res = await api.getCosts('_all', WINDOW_DAYS).catch((e: unknown) => {
+        console.debug('[narra-usage] cost ledger read failed', e);
+        return null;
+      });
+      inFlight = false;
       if (!mounted.current || !res) return;
       setSummary(res.summary ?? null);
     };
@@ -104,13 +110,13 @@ export function NarraUsageSection() {
   }, []);
 
   if (!summary) return null;
-  const totalTokens = bucketTotal(summary);
+  const total = summaryTotalTokens(summary);
   // No usage yet is not a fact worth a heading. It is also the state a brand
   // new account is in, where an empty "0" block is pure noise.
-  if (totalTokens <= 0) return null;
+  if (total <= 0) return null;
 
   const models = Object.entries(summary.by_model ?? {})
-    .sort(([, a], [, b]) => bucketTotal(b) - bucketTotal(a))
+    .sort(([, a], [, b]) => totalTokens(b) - totalTokens(a))
     .slice(0, MAX_MODELS);
   // > 0 only: an unpriced model books $0, and "$0.00" would claim it was free
   // rather than admit we don't know the rate.
@@ -125,7 +131,7 @@ export function NarraUsageSection() {
           })}
         </span>
         <span className="font-mono tabular-nums text-sm text-[var(--text-primary)]">
-          {formatTokens(totalTokens)}
+          {formatTokens(total)}
           <span className="ml-1 text-[11px] text-[var(--text-tertiary)]">
             {t('settings.netmind.narraUsageTokens', 'tokens')}
           </span>
@@ -154,7 +160,7 @@ export function NarraUsageSection() {
                   ×{data.call_count}
                 </span>
                 <span className="font-mono tabular-nums text-[var(--text-primary)] min-w-[52px] text-right">
-                  {formatTokens(bucketTotal(data))}
+                  {formatTokens(totalTokens(data))}
                 </span>
               </span>
             </li>

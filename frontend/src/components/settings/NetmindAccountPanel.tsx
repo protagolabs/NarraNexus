@@ -1089,7 +1089,7 @@ export function NetmindAccountPanel() {
             </div>
           )}
 
-          {/* 3 · action zone (plan × runway) */}
+          {/* 4 · action zone (plan × runway) */}
           <NetmindActionZone
             state={state}
             runway={runway}
@@ -1114,14 +1114,14 @@ export function NetmindAccountPanel() {
           )}
           {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
-          {/* 4 · what NarraNexus itself consumed. Sits directly above the
+          {/* 5 · what NarraNexus itself consumed. Sits directly above the
               NetMind account ledger because the two answer adjacent questions
               and are constantly mistaken for each other: this one is scoped to
               this platform and measured in tokens, the one below is the whole
               account measured in money. Self-hiding when empty/unavailable. */}
           <NarraUsageSection />
 
-          {/* 5 · recent activity — collapsed by default, settled ledger only.
+          {/* 6 · recent activity — collapsed by default, settled ledger only.
               `pending` rows are hidden: an abandoned checkout leaves a pending
               record that only flips to failed ~24h later, so showing them piles
               up noise; in-progress payment is already surfaced by the live

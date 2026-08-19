@@ -17,27 +17,28 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 // Shared with the account page's NarraNexus-usage section — the same week of
 // usage must not read 1.2M here and 1.23M there. See lib/tokenFormat.ts.
-import { formatCost, formatTokens, shortModelName } from '@/lib/tokenFormat';
-import type { CostModelBreakdown, CostSummary } from '@/types/api';
+import {
+  formatCost,
+  formatTokens,
+  shortModelName,
+  summaryInputSideTokens,
+  summaryTotalTokens,
+  totalTokens,
+} from '@/lib/tokenFormat';
+import type { CostModelBreakdown, CostSummary } from '@/types';
 
 type CostView = 'agent' | 'all';
 
 function SummaryContent({ summary }: { summary: CostSummary }) {
   const { t } = useTranslation();
-  // input_tokens is only the full-rate bucket; the model also read the two
-  // cache buckets (write 1.25x, read 0.1x). Display input as all three or a
-  // cache-warm agent shows "input 213" for a 1.2M-token week. `?? 0`: a
-  // response from a backend build predating the cache fields has no such
-  // keys, and undefined in a sum renders as "NaN".
+  // The three-input-bucket rule lives in lib/tokenFormat.ts — see it for why
+  // input_tokens alone under-reports a cache-warm agent by an order of
+  // magnitude, and why `?? 0` is load-bearing.
   const cacheRead = summary.total_cache_read_tokens ?? 0;
   const cacheWrite = summary.total_cache_creation_tokens ?? 0;
-  const totalInputSide = summary.total_input_tokens + cacheRead + cacheWrite;
-  const totalTokens = totalInputSide + summary.total_output_tokens;
-  const modelTokens = (d: CostModelBreakdown) =>
-    d.input_tokens +
-    (d.cache_read_tokens ?? 0) +
-    (d.cache_creation_tokens ?? 0) +
-    d.output_tokens;
+  const totalInputSide = summaryInputSideTokens(summary);
+  const grandTotal = summaryTotalTokens(summary);
+  const modelTokens = (d: CostModelBreakdown) => totalTokens(d);
 
   // The raw token total reads scary on a cache-warm agent — 1.2M of it may be
   // 0.1x-priced cache reads. The hit rate carries the good news visibly
@@ -63,7 +64,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           className="text-2xl font-bold text-[var(--text-primary)]"
           title={totalCostTip}
         >
-          {formatTokens(totalTokens)}
+          {formatTokens(grandTotal)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
           {t('cost.popover.inOut', { in: formatTokens(totalInputSide), out: formatTokens(summary.total_output_tokens) })}
@@ -121,12 +122,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
             <div key={entry.date} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-tertiary)]">{entry.date.slice(5)}</span>
               <span className="font-medium text-[var(--text-primary)]">
-                {formatTokens(
-                  entry.input_tokens +
-                    (entry.cache_read_tokens ?? 0) +
-                    (entry.cache_creation_tokens ?? 0) +
-                    entry.output_tokens
-                )}
+                {formatTokens(totalTokens(entry))}
               </span>
             </div>
           ))}

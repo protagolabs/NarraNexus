@@ -37,14 +37,14 @@ stub: false
 
 ## 端到端验证抓到、单测没抓到的两件事（2026-08-19）
 
-- **`by_model` 的 key 不是模型 id。** `/api/agents/{id}/costs` 按 `call_type` 折成
-  `__main_model__` / `__helper_model__` 两个合成 key（[[agents/cost.py]]），照抄渲染
-  就是把裸 sentinel 打到用户屏幕上。映射在 [[tokenFormat.ts]] 的 `shortModelName`，
-  i18n key 与 [[CostPopover.tsx]] **复用同两个** —— 同一个桶不能在两个界面有两个名字。
+- **`by_model` 的 key 不是模型 id**，第一版把裸 sentinel 渲染到了真实账户页上。
+  规则正本在 [[tokenFormat.ts]] 的 `shortModelName` 一节，这里不重述。
 
-  **单测为什么放行**：fixture 用了"看起来很真"的模型 id。测试替身编造了一个后端从不
-  返回的形状，于是它测的是一个不存在的世界。现在 fixture 用真契约，并有一条断言直接
-  钉「页面上不能出现裸 sentinel」。
+  **值得记在这里的是单测为什么放行**：fixture 用了"看起来很真"的模型 id
+  （`anthropic/claude-opus-5` 之类）。**测试替身编造了一个后端从不返回的形状**，于是
+  它忠实地测了一个不存在的世界。现在 fixture 用真契约，并有一条断言直接钉「页面上
+  不能出现裸 sentinel」。同一个替身问题在 [[mock/fixtures.ts]] 里还有一份（demo 模式
+  的 `mockCostSummary`），同批改掉了 —— 新人最先看到的往往是 mock。
 
 - **必须跟着 focus 刷新。** 用量是在**别处**累积的（agent 在后台跑，花钱的标签页很少
   是这一个）。卡片其余部分本来就有 focus 重拉，只有这一块冻在挂载时刻 —— 一屏活数字里
@@ -54,12 +54,18 @@ stub: false
   `react-hooks/set-state-in-effect`（在 effect 体里直接调用一个会 setState 的 memoized
   回调），而且订阅与首读本就是对同一个外部系统的同一件事。
 
+  **必须带 in-flight 守卫**（review 抓到）。这是设置页上最重的一次读：端点对 viewer
+  拥有的全部 agent 扫整窗口的 `cost_records`，**没有 SQL LIMIT，聚合在 Python 侧
+  做**（[[agents/cost.py]]），行数随账号历史线性增长；而触发条件是"用户切了标签页"，
+  他可能一秒切两次。守卫同时消掉了乱序：两个并发读可能倒序返回，把旧值刷回屏幕。
+  **刻意不加最小刷新间隔** —— 那会削掉支付外跳回来必须立刻看到新数的场景（C3 缓解）。
+
 ## Gotcha
 
-- **token 总数必须含两个 cache 桶。** `input_tokens` 只是全价桶，cache read（0.1x）
-  与 cache write（1.25x）是独立列；只加第一个会让一个 cache 命中良好的月份少报一个
-  数量级。`?? 0` 防的是旧后端构建没有这些字段时 `undefined` 进求和渲染出 `NaN` ——
-  这个坑 [[CostPopover.tsx]] 2026-07-30 已经踩过一次。
+- **token 总数必须含两个 cache 桶** —— 求和一律走 [[tokenFormat.ts]] 的
+  `summaryTotalTokens` / `totalTokens`，不要在这里就地相加。本文件曾自带一个
+  `bucketTotal`，靠 `'total_input_tokens' in d` 判别两种形状；那正是"加入第三种形状
+  就会悄悄走错分支"的写法，已删。
 - **窗口取 30 天**，对齐上方 NetMind finance 视图的「本月」形状；后端上限 90。
 - i18n 用**三参数形式** `t(key, 'default with {{x}}', { x })` —— 面板测试的 i18n mock
   只认第二个参数是字符串的写法，对象形式 `{ defaultValue }` 会退化成渲染出 key。

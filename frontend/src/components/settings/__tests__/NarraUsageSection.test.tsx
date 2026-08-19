@@ -157,6 +157,23 @@ test('a failed refresh keeps the last good value instead of blanking', async () 
   expect(screen.getByText('1.00M')).toBeInTheDocument();
 });
 
+test('concurrent focus events collapse to one read — this endpoint scans the whole ledger', async () => {
+  let resolveFirst: (v: unknown) => void = () => {};
+  mockGetCosts.mockReturnValueOnce(new Promise((r) => { resolveFirst = r; }));
+  render(<NarraUsageSection />);
+  await waitFor(() => expect(mockGetCosts).toHaveBeenCalledTimes(1));
+  // Two alt-tabs while the first read is still in the air.
+  fireEvent(window, new Event('focus'));
+  fireEvent(window, new Event('focus'));
+  expect(mockGetCosts).toHaveBeenCalledTimes(1);
+  // Once it lands, the next focus is served normally — this is a guard, not a
+  // one-shot latch.
+  resolveFirst(SUMMARY);
+  expect(await screen.findByText('1.00M')).toBeInTheDocument();
+  fireEvent(window, new Event('focus'));
+  await waitFor(() => expect(mockGetCosts).toHaveBeenCalledTimes(2));
+});
+
 test('renders nothing when the ledger is empty — no "$0.00, so it must be free"', async () => {
   mockGetCosts.mockResolvedValue(EMPTY);
   const { container } = render(<NarraUsageSection />);
