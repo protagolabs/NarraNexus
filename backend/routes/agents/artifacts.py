@@ -35,7 +35,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService
+from xyz_agent_context.artifact import ArtifactEditConflict, ArtifactError, ArtifactService
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -89,6 +89,14 @@ async def _get_owned_artifact(repo: ArtifactRepository, agent_id: str, artifact_
 class PatchArtifact(BaseModel):
     pinned: Optional[bool] = None
     title: Optional[str] = None
+
+
+class PutContentRequest(BaseModel):
+    """A user edit from an editing surface: the FULL new file content plus the
+    sha256 the editor's copy was based on (optimistic lock)."""
+
+    content: str
+    base_hash: str
 
 
 class RegisterRequest(BaseModel):
@@ -340,6 +348,42 @@ async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     db = await get_db_client()
     repo = ArtifactRepository(db)
     return await _get_owned_artifact(repo, agent_id, artifact_id)
+
+
+@router.put("/{agent_id}/artifacts/{artifact_id}/content", response_model=Artifact)
+async def put_artifact_content(
+    request: Request, agent_id: str, artifact_id: str, body: PutContentRequest
+):
+    """
+    Persist a user edit onto the artifact's entry file (spec A §3.1).
+
+    The service commits it as one atomic edit: optimistic lock against the
+    on-disk content, temp-file + atomic-rename write, hash/size/updated_at
+    refresh, history action="user_edited", staged "updated" event.
+
+    409 carries {current_hash} in the detail so the editor can offer the
+    re-base choice ("overwrite anyway" resends with it; "discard mine"
+    reloads). Session-authed only — view tokens stay read-only.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.save_user_content(
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            content=body.content,
+            base_hash=body.base_hash,
+        )
+    except ArtifactEditConflict as e:
+        # Structured detail, not a plain string: current_hash is data the
+        # editor needs, not a message for a human.
+        raise HTTPException(
+            status_code=e.code,
+            detail={"error": str(e), "current_hash": e.current_hash},
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)

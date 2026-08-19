@@ -126,3 +126,8 @@ updated_at 经 useArtifactRawUrl refreshKey 驱动)。loadPinned 的刷新自
 2026-08-18 拉 scope=context(自有 pinned ∪ team,与 agent 状态块同一可见
 面)——方法名保留,因为"加载该 agent 的面板"语义未变。文件头那句「tool_output
 frames parsed in ChatPanel」已过时,发现机制=事件+全量拉。
+
+## 2026-08-19 — editorDirtyIds(dirty 守卫的视觉层)
+
+编辑面 dirty 集合,TabStrip 圆点消费。内容安全**不**依赖它
+(localStorage 草稿层才是兜底),纯视觉。

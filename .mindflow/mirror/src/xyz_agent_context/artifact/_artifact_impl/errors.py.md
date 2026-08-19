@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/errors.py
-last_verified: 2026-07-21
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -30,3 +30,9 @@ type-by-type branching.
   collapse them.
 - 404 (not 403) for ownership mismatches — probing must not reveal which
   artifact_ids exist.
+
+## 2026-08-19 — ArtifactEditConflict(409)
+
+用户编辑乐观锁失败:携带 `.current_hash`(盘上现状指纹)供编辑器
+re-base 二选(覆盖=换 hash 重发;放弃=重载)。路由把它转成结构化
+detail(`{error, current_hash}`),不是纯文本——current_hash 是数据。

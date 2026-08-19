@@ -2060,6 +2060,17 @@
     },
     "url": {
       "toggleFailed": "Impossible de changer de mode : {{error}}"
+    },
+    "editor": {
+      "save": "Enregistrer",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré",
+      "unsavedChanges": "Modifications non enregistrées",
+      "draftRestored": "Modifications non enregistrées restaurées depuis cet appareil.",
+      "conflictBody": "Le fichier a changé pendant l'édition. Garder votre version ou recharger la leur ?",
+      "overwriteMine": "Garder la mienne",
+      "discardMine": "Recharger",
+      "loadError": "Échec du chargement : {{error}}"
     }
   },
   "skills": {

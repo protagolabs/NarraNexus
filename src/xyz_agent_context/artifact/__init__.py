@@ -17,6 +17,7 @@ outside this package).
 
 from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactContentGone,
+    ArtifactEditConflict,
     ArtifactError,
     ArtifactKindMismatch,
     ArtifactNotFound,
@@ -34,6 +35,7 @@ __all__ = [
     "ArtifactService",
     "ResolvedRawFile",
     "ArtifactError",
+    "ArtifactEditConflict",
     "ArtifactTooLarge",
     "ArtifactNotFound",
     "ArtifactKindMismatch",

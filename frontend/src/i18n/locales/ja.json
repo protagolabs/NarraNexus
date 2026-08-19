@@ -2059,6 +2059,17 @@
     },
     "url": {
       "toggleFailed": "モードを変更できませんでした: {{error}}"
+    },
+    "editor": {
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "保存済み",
+      "unsavedChanges": "未保存の変更があります",
+      "draftRestored": "このデバイスの未保存の編集を復元しました。",
+      "conflictBody": "編集中にファイルが変更されました。自分の版を残すか、相手の版を再読み込みしますか?",
+      "overwriteMine": "自分の版を残す",
+      "discardMine": "再読み込み",
+      "loadError": "読み込み失敗:{{error}}"
     }
   },
   "skills": {

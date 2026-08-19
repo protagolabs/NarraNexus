@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -89,3 +89,8 @@ Primary consumer is `stores/artifactStore.ts`, which calls these methods inside 
 
 scope=context 的取数封装:agent 完整感知面(自有 pinned ∪ team),面板全量
 拉的唯一来源——面板所见与 agent 所信永不分叉。
+
+## 2026-08-19 — putContent + ArtifactEditConflictError
+
+PUT /content;409 解析结构化 detail 抛 ArtifactEditConflictError
+(.currentHash)——调用方靠 instanceof 分流,别改成普通 Error。

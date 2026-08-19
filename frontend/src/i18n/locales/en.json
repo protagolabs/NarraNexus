@@ -2458,6 +2458,17 @@
     },
     "url": {
       "toggleFailed": "Could not change mode: {{error}}"
+    },
+    "editor": {
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "unsavedChanges": "Unsaved changes",
+      "draftRestored": "Restored your unsaved edits from this device.",
+      "conflictBody": "The file changed while you were editing. Keep your version or reload theirs?",
+      "overwriteMine": "Keep mine",
+      "discardMine": "Reload theirs",
+      "loadError": "Failed to load: {{error}}"
     }
   },
   "skills": {

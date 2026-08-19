@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -182,3 +182,9 @@ Returns 404 (not 403) for mismatches to avoid leaking existence information.
 
 list_for_agent_context 的 HTTP 暴露:前端全量拉(打开/切 agent/WS 重连)用,
 与 agent 状态块同一可见面。session/pinned 语义不变。
+
+## 2026-08-19 — PUT /{aid}/content(用户编辑保存)
+
+session 鉴权(view-token 永远只读);409 的 detail 是结构化
+`{error, current_hash}` —— 编辑器要拿它 re-base,别改成纯文本。
+其余 ArtifactError 照 e.code 直映。

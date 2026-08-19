@@ -2458,6 +2458,17 @@
     },
     "url": {
       "toggleFailed": "切换模式失败：{{error}}"
+    },
+    "editor": {
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "unsavedChanges": "有未保存的修改",
+      "draftRestored": "已恢复本设备上未保存的编辑。",
+      "conflictBody": "编辑期间文件被修改了。保留你的版本，还是重新加载对方的？",
+      "overwriteMine": "保留我的",
+      "discardMine": "加载对方的",
+      "loadError": "加载失败:{{error}}"
     }
   },
   "skills": {

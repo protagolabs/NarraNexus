@@ -2060,6 +2060,17 @@
     },
     "url": {
       "toggleFailed": "Não foi possível mudar de modo: {{error}}"
+    },
+    "editor": {
+      "save": "Salvar",
+      "saving": "Salvando…",
+      "saved": "Salvo",
+      "unsavedChanges": "Alterações não salvas",
+      "draftRestored": "Edições não salvas restauradas deste dispositivo.",
+      "conflictBody": "O arquivo mudou durante a edição. Manter sua versão ou recarregar a deles?",
+      "overwriteMine": "Manter a minha",
+      "discardMine": "Recarregar",
+      "loadError": "Falha ao carregar: {{error}}"
     }
   },
   "skills": {

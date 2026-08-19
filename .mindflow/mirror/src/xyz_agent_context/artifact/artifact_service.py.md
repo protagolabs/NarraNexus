@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/artifact_service.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -60,3 +60,8 @@ single table write, it belongs here; otherwise call the repository.
 变成域操作(归属校验+行捕获+删除+staging "deleted"),调用方不允许「只拿删除不拿
 事件」,所以路由薄化、逻辑收进来。register 的三个分支(新建/重注册/去重原地)也在
 _impl 里各自 stage(registered/updated)。
+
+## 2026-08-19 — save_user_content(用户编辑提交管线)
+
+Spec A §3 的唯一用户编辑提交口,薄桥接到 [[user_edit.py]]。Spec B 的
+office user-edit-commit 将复用同一落点语义(hash/history/事件)。

@@ -2060,6 +2060,17 @@
     },
     "url": {
       "toggleFailed": "Modus konnte nicht gewechselt werden: {{error}}"
+    },
+    "editor": {
+      "save": "Speichern",
+      "saving": "Speichern…",
+      "saved": "Gespeichert",
+      "unsavedChanges": "Ungespeicherte Änderungen",
+      "draftRestored": "Nicht gespeicherte Änderungen von diesem Gerät wiederhergestellt.",
+      "conflictBody": "Die Datei wurde während der Bearbeitung geändert. Deine Version behalten oder neu laden?",
+      "overwriteMine": "Meine behalten",
+      "discardMine": "Neu laden",
+      "loadError": "Laden fehlgeschlagen: {{error}}"
     }
   },
   "skills": {

@@ -79,6 +79,15 @@ interface ArtifactState {
    */
   chartLruOrder: string[];
 
+  /**
+   * Artifact ids whose editing surface holds unsaved text. Written by the
+   * editor hook's host component, read by ArtifactTabStrip (dirty dot).
+   * Content safety does NOT depend on this — the localStorage draft layer in
+   * useArtifactEditor carries the text — this is only the visual layer of
+   * the dirty guard.
+   */
+  editorDirtyIds: Set<string>;
+
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
   /**
@@ -100,6 +109,7 @@ interface ArtifactState {
    */
   upsert: (artifact: Artifact, opts?: { focus?: boolean }) => void;
   remove: (artifactId: string) => void;
+  setEditorDirty: (artifactId: string, dirty: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   /** Identity-checked clear: only the mount that registered may remove. */
   unregisterChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
@@ -181,6 +191,17 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   chartInstances: {},
   minimizedTabIds: initialMinimizedTabIds,
   chartLruOrder: [],
+  editorDirtyIds: new Set<string>(),
+
+  setEditorDirty(artifactId, dirty) {
+    set((state) => {
+      if (state.editorDirtyIds.has(artifactId) === dirty) return state;
+      const next = new Set(state.editorDirtyIds);
+      if (dirty) next.add(artifactId);
+      else next.delete(artifactId);
+      return { editorDirtyIds: next };
+    });
+  },
 
   async loadForSession(agentId, sessionId) {
     // Stale-while-revalidate: switch the active agent and surface any cached

@@ -2059,6 +2059,17 @@
     },
     "url": {
       "toggleFailed": "모드를 변경할 수 없습니다: {{error}}"
+    },
+    "editor": {
+      "save": "저장",
+      "saving": "저장 중…",
+      "saved": "저장됨",
+      "unsavedChanges": "저장되지 않은 변경 사항",
+      "draftRestored": "이 기기의 저장되지 않은 편집을 복원했습니다.",
+      "conflictBody": "편집 중에 파일이 변경되었습니다. 내 버전을 유지할까요, 아니면 다시 불러올까요?",
+      "overwriteMine": "내 버전 유지",
+      "discardMine": "다시 불러오기",
+      "loadError": "불러오기 실패: {{error}}"
     }
   },
   "skills": {

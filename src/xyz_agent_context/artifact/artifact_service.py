@@ -28,6 +28,7 @@ from xyz_agent_context.artifact._artifact_impl import (
     raw_access,
     registration,
     url_artifact,
+    user_edit,
 )
 from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.artifact._artifact_impl.raw_access import ResolvedRawFile
@@ -207,4 +208,27 @@ class ArtifactService:
             agent_id=agent_id,
             artifact_id=artifact_id,
             file_path=file_path,
+        )
+
+    async def save_user_content(
+        self,
+        *,
+        agent_id: str,
+        artifact_id: str,
+        content: str,
+        base_hash: str,
+    ) -> Artifact:
+        """Persist a user edit from an editing surface and commit it (hash
+        refresh + history "user_edited" + staged "updated" event).
+
+        See `_artifact_impl/user_edit.py` for the optimistic-lock and
+        atomic-write rules; raises ArtifactEditConflict (409) on a stale
+        base_hash with `.current_hash` for the editor's re-base flow.
+        """
+        return await user_edit.save_user_content(
+            self._repo.db,
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            content=content,
+            base_hash=base_hash,
         )
