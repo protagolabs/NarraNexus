@@ -533,7 +533,7 @@ async def test_an_agent_that_was_never_renamed_is_handed_no_record(db_client):
 
     result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
 
-    assert result.identity_reconciled is False
+    assert result.identity_reconciled is None, "nothing needed repairing"
     assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)
 
 
@@ -551,7 +551,7 @@ async def test_a_description_only_edit_does_not_touch_the_identity_record(
         db_client, AGENT_ID, new_description="只推荐深圳本地菜"
     )
 
-    assert result.identity_reconciled is False
+    assert result.identity_reconciled is None, "a description edit repairs nothing"
     assert "You are 「美食家」" in _identity_entries(await _profile(db_client))[0]
 
 
@@ -621,7 +621,7 @@ async def test_naming_a_row_that_holds_an_empty_name_is_a_rename(db_client):
 
     assert result.renamed_from == "", "an empty stored name is still a previous name"
     assert result.renamed_to == "小绿"
-    assert result.identity_reconciled is False, "this is a rename, not a repair"
+    assert result.identity_reconciled is None, "this is a rename, not a repair"
     entries = _identity_entries(await _profile(db_client))
     assert len(entries) == 1, f"the stale record was not superseded: {entries}"
     assert "You are 「小绿」" in entries[0]
@@ -659,7 +659,7 @@ async def test_a_name_that_could_break_the_record_format_still_round_trips(
     # "the record disagrees with the row" rewrite.
     second = await apply_agent_profile_change(db_client, AGENT_ID, new_name=hostile)
     assert second.status == "unchanged"
-    assert second.identity_reconciled is False, (
+    assert second.identity_reconciled is None, (
         "reconciliation did not converge — every call would rewrite the profile"
     )
 
@@ -817,3 +817,48 @@ async def test_an_edit_that_renames_nothing_reports_no_verdict_on_the_record(
 
     assert body["success"] is True
     assert body["identity_record_updated"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_repair_that_failed_is_not_reported_as_nothing_to_do(
+    db_client, monkeypatch
+):
+    """``False`` means "found a stale record and failed to fix it".
+
+    Collapsed into the same value as "nothing to repair", the population this
+    branch exists for — already-diverged agents — becomes uncountable: a
+    rollout cannot answer "how many did we actually fix", and a user retrying
+    gets the same success either way. That is #320's shape, one layer down.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    import xyz_agent_context.module.awareness_module as aw
+
+    await _seed(db_client, name="小绿", profile=STALE_PROFILE)
+
+    async def _boom(_db, _agent_id, _current_name):  # noqa: ANN001
+        return False
+
+    monkeypatch.setattr(aw, "reconcile_identity_record", _boom)
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    assert result.status == "unchanged"
+    assert result.identity_reconciled is False
+
+
+@pytest.mark.asyncio
+async def test_repairing_a_diverged_agent_reports_it_to_the_caller(
+    db_client, ui_client
+):
+    """The repair path answers the same question the rename path does, in the
+    same field — otherwise "fixed" and "still broken" both read as success."""
+    await _seed(db_client, name="小绿", profile=STALE_PROFILE)
+
+    body = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True
+    assert body["identity_record_updated"] is True

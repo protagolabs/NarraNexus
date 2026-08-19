@@ -4,6 +4,27 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (六改) — 响应契约变了三处，**要通知 Manyfold 侧**
+
+本次改动动了这个端点对外的响应形状。三处都是有意的，但它们是**跨服务契约**，
+不该只活在代码里：
+
+| 变更 | 之前 | 现在 | 性质 |
+|---|---|---|---|
+| `updated_fields` | `list(patch.keys())`（**请求**了哪些字段） | `list(result.updated_fields)`（**真的写了**哪些） | 语义变化 |
+| `name_clash_with` | 无 | 同 owner 下已占用该名字的 agent_id，`None` 表示无冲突 | 新增 |
+| `identity_record_updated` | 无 | `True`/`False`/`None`——身份记录有没有跟着改对 | 新增 |
+| 失败状态码 | 恒 `400` | `not_found` → `404`，其余 `400` | 语义变化 |
+
+- `updated_fields` 那条修的是「重发同一个名字会报告一次并不存在的写入」。本端点
+  的 no-op 分支本来就返回 `[]`，改完两者一致。
+- 两个新增字段是 **additive**，老客户端忽略即可。
+- **故意不用 409**：`not_applied` 语义上确实是并发覆盖，但 409 邀请重试，而本端点
+  的契约是「失败必须让整个改名中止」。Manyfold 侧是否重试 409 是那边的策略。
+
+⚠ **合并前要和 Manyfold 侧对齐**：如果那边对 `updated_fields` 有分支逻辑，或者把
+4xx 一律当「我的请求有问题」处理，这两条语义变化需要它们同步。
+
 ## 2026-08-18 (四改) — import 改指领域包
 
 同 [[auth]]：`apply_agent_profile_change` 改从 `xyz_agent_context.agent_profile`

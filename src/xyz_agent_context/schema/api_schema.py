@@ -196,7 +196,10 @@ class UpdateAgentResponse(BaseModel):
     #: worse lie — but "the column moved and the memory did not" is the exact
     #: state the Shenzhen incident was, and it must not be visible only in a
     #: container log that `docker restart` wipes (incident lesson #5). None when
-    #: this call did not rename.
+    #: this call had nothing to do about the record — it renamed nothing and
+    #: found no stale one. The repair path reports here too: renaming an agent
+    #: to the name it already holds is how an already-diverged agent gets fixed,
+    #: and "fixed" and "still broken" must not both read as success.
     identity_record_updated: Optional[bool] = None
 
 

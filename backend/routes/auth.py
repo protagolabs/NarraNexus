@@ -1218,8 +1218,9 @@ async def update_agent(
             # a name to a second agent happens silently.
             name_clash_with=result.name_clash_with,
             identity_record_updated=(
-                result.identity_note_recorded if result.renamed_from is not None
-                else None
+                result.identity_note_recorded
+                if result.renamed_from is not None
+                else result.identity_reconciled
             ),
         )
 

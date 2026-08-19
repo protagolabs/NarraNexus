@@ -520,3 +520,56 @@ class TestSelfNameLine:
 
         out = retire_self_name(f"- 名称：美食家{sep}精通各地美食\n", "美食家", "小绿")
         assert out == f"- 名称：小绿{sep}精通各地美食\n"
+
+
+    # A profile shaped like the template the prompt actually prescribes:
+    # sections 1-3 are the OWNER's preferences and observations, section 4 is
+    # the agent's own identity. Every other test in this class passes bare
+    # fragments, so none of them can see a scoping regression.
+    FULL_PROFILE = (
+        "# Agent Awareness Profile\n"
+        "\n"
+        "## 1. Narrative Management Preferences (Topic Organization)\n"
+        "### Topic Continuity Style\n"
+        "- owner 习惯一个话题聊到底\n"
+        "\n"
+        "## 3. Communication Style Preferences (Interaction)\n"
+        "### Tone and Voice\n"
+        "- 姓名：美食家\n"          # the OWNER's own name, as they are addressed
+        "- 偏好简短回答\n"
+        "\n"
+        "## 4. Role and Identity\n"
+        "### Role Definition\n"
+        "- 名称：美食家；精通各地美食推荐\n"
+    )
+
+    def test_only_the_identity_section_is_rewritten(self):
+        """Sections 1-3 are about the OWNER.
+
+        An owner recorded as `- 姓名：美食家` in Communication Style, for an
+        agent that also happened to be called 美食家, would have their name
+        silently replaced by the agent's new one — unrecoverable, because
+        instance_awareness is overwritten by upsert and nothing logged it.
+        """
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name(self.FULL_PROFILE, "美食家", "小绿")
+
+        assert "- 名称：小绿；精通各地美食推荐" in out, "the identity line was not retired"
+        assert "- 姓名：美食家" in out, "an owner observation in section 3 was rewritten"
+
+    def test_scoping_survives_a_renumbered_identity_section(self):
+        """Excluded by negation, not by matching section 4's title.
+
+        The model writes these headings; requiring an exact "## 4. Role and
+        Identity" would make retirement stop silently the first time it drifts.
+        """
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        drifted = (
+            "## 1. Narrative Management Preferences\n- 姓名：美食家\n\n"
+            "## 5. 身份与角色\n- 名称：美食家\n"
+        )
+        out = retire_self_name(drifted, "美食家", "小绿")
+        assert "## 5. 身份与角色\n- 名称：小绿" in out
+        assert "## 1. Narrative Management Preferences\n- 姓名：美食家" in out

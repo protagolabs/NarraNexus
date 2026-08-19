@@ -808,7 +808,10 @@
       "tooLong": "Must be {{max}} characters or fewer.",
       "save": "Save",
       "cancel": "Cancel",
-      "saveFailedTitle": "Update failed"
+      "saveFailedTitle": "Update failed",
+      "renameWarnTitle": "Renamed, with something to know",
+      "renameClashWarn": "Another of your agents ({{agentId}}) already answers to this name. The rename was applied — if that was not intended, decide which agent should keep it.",
+      "renameMemoryWarn": "The name was changed, but this agent's identity memory could not be updated, so it may still introduce itself by the old name."
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",

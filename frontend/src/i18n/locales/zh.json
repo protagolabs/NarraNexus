@@ -808,7 +808,10 @@
       "tooLong": "不能超过 {{max}} 个字符。",
       "save": "保存",
       "cancel": "取消",
-      "saveFailedTitle": "更新失败"
+      "saveFailedTitle": "更新失败",
+      "renameWarnTitle": "已改名，但有一件事要知道",
+      "renameClashWarn": "你名下还有一个 agent（{{agentId}}）也叫这个名字。改名已经生效——如果不是有意的，请决定这个名字归谁。",
+      "renameMemoryWarn": "名字改好了，但这个 agent 的身份记忆没能更新，它可能仍然自述旧名。"
     },
     "clearAgentData": {
       "title": "清理数据 · {{name}}",

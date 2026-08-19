@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import type { UpdateAgentResponse } from '../../types/api';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -269,6 +270,38 @@ export function AgentList() {
     if (id) navigate(`/app/teams/${teamId}/chat`);
   };
 
+  /**
+   * Report what a successful update still wants the user to know.
+   *
+   * Two things the backend computes are not failures, so they never reach the
+   * error branch, and reporting neither is what made the UI the one rename path
+   * where both happened silently:
+   *
+   * - `name_clash_with` — another of this owner's agents already answers to the
+   *   name. Deliberate often enough that blocking it would be wrong; silent is
+   *   how two agents came to share one name (Shenzhen P1).
+   * - `identity_record_updated === false` — the name IS stored but the agent's
+   *   identity memory was not corrected, so it may keep introducing itself by
+   *   the old name. That state IS the incident.
+   *
+   * One function for all three call sites on purpose: three copies is how the
+   * fourth call site gets added without one.
+   */
+  const warnAboutUpdateSideEffects = async (res: UpdateAgentResponse) => {
+    const notes: string[] = [];
+    if (res.name_clash_with) {
+      notes.push(t('layout.editAgentDialog.renameClashWarn', { agentId: res.name_clash_with }));
+    }
+    if (res.identity_record_updated === false) {
+      notes.push(t('layout.editAgentDialog.renameMemoryWarn'));
+    }
+    if (!notes.length) return;
+    await alert({
+      title: t('layout.editAgentDialog.renameWarnTitle'),
+      message: notes.join('\n\n'),
+    });
+  };
+
   const handleTogglePublic = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
     e.stopPropagation();
     const newIsPublic = !agent.is_public;
@@ -283,6 +316,7 @@ export function AgentList() {
           a.agent_id === agent.agent_id ? { ...a, is_public: newIsPublic } : a
         ));
         await refreshAgents();
+        await warnAboutUpdateSideEffects(res);
       } else {
         console.error('Failed to toggle public:', res.error);
         await alert({
@@ -338,6 +372,7 @@ export function AgentList() {
         ));
         setEditTarget(null);
         await refreshAgents();
+        await warnAboutUpdateSideEffects(res);
       } else {
         await alert({
           title: t('layout.editAgentDialog.saveFailedTitle'),
@@ -379,6 +414,7 @@ export function AgentList() {
         setEditingAgentId(null);
         setEditingName('');
         await refreshAgents();
+        await warnAboutUpdateSideEffects(res);
       } else {
         // A rename that did not happen must say so. Console-only meant the row
         // silently snapped back to the old name, which the user reads as "the

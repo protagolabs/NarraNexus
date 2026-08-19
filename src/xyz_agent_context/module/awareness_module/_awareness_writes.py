@@ -239,6 +239,21 @@ _SELF_NAME_LINE = re.compile(
 # rewriting it would be the content loss this whole area promises never to cause.
 _NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", ".", "|", "/", "-", "—", "(", "（")
 
+# The prescribed profile has FOUR numbered sections and only the fourth is about
+# the agent: 1-3 record the owner's preferences and observations. An owner
+# recorded as `- 姓名：张三` under Communication Style, for an agent that also
+# happened to be called 张三, would otherwise have their name replaced by the
+# agent's new one — silently, and unrecoverably, since instance_awareness is
+# overwritten by upsert.
+#
+# Excluded by NEGATION rather than by matching section 4's title: the model
+# writes these headings and they drift, and a positive match would make
+# retirement stop working the moment one did — silently, which is the failure
+# mode this whole change exists to remove. Skipping 1/2/3 keeps the owner's
+# sections protected while a renamed or renumbered identity section still works.
+_OWNER_SECTION = re.compile(r"^\s*##\s*[123]\s*[.、]")
+_ANY_H2 = re.compile(r"^\s*##\s+")
+
 
 def _ends_the_name(rest: str) -> bool:
     return rest == "" or rest[0] in _NAME_ENDERS
@@ -264,6 +279,10 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     description). An owner observation that merely starts with the marker — and
     then keeps talking — is left exactly as written.
 
+    Scoped to the agent's own section: the prescribed profile puts the owner's
+    preferences and observations in sections 1-3 and the agent's identity in 4,
+    and a name in an owner section is the OWNER's.
+
     Known limit, stated rather than papered over: the label set is the spellings
     this prompt's structure produces in Chinese and English. A profile the model
     wrote in another language keeps its stale self-name line, and the identity
@@ -275,12 +294,23 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     if not old or old == new:
         return profile
 
-    out = []
+    out, in_owner_section = [], False
     for line in (profile or "").splitlines():
-        m = _SELF_NAME_LINE.match(line)
+        if _ANY_H2.match(line):
+            in_owner_section = bool(_OWNER_SECTION.match(line))
+        m = None if in_owner_section else _SELF_NAME_LINE.match(line)
         value = m.group("value").strip() if m else ""
         if m and value.startswith(old) and _ends_the_name(value[len(old):]):
-            out.append(m.group("head") + new + value[len(old):])
+            rewritten = m.group("head") + new + value[len(old):]
+            # The one place the platform edits an agent's own long-term memory.
+            # An edit nobody can see afterwards is an edit nobody can undo:
+            # instance_awareness is overwritten by upsert, so the previous line
+            # exists in no other record once this returns.
+            logger.info(
+                f"[identity] retiring self-name line: {line.strip()!r} -> "
+                f"{rewritten.strip()!r}"
+            )
+            out.append(rewritten)
         else:
             out.append(line)
     return "\n".join(out) + ("\n" if profile.endswith("\n") else "")
@@ -327,7 +357,9 @@ async def record_identity_change(
         return False
 
 
-async def reconcile_identity_record(db, agent_id: str, current_name: str) -> bool:
+async def reconcile_identity_record(
+    db, agent_id: str, current_name: str
+) -> Optional[bool]:
     """Correct the profile when it asserts a name the row does not hold.
 
     The note used to be written whenever THIS call changed the column, which
@@ -339,14 +371,18 @@ async def reconcile_identity_record(db, agent_id: str, current_name: str) -> boo
 
     So the obligation belongs to the STATE, not to the write: if the record
     disagrees with the row, correct it, whether or not this call wrote anything.
-    Best-effort like every other identity write; returns whether it acted.
+    Three-valued on purpose. ``None`` means there was nothing to repair — no
+    record, or one that already agrees with the row — while ``False`` means a
+    stale record was found and correcting it FAILED. Collapsing those into one
+    boolean makes "this agent was fine" and "this agent is still broken"
+    indistinguishable, and the second is the state the incident was.
     """
     try:
         instances = await InstanceRepository(db).get_by_agent(
             agent_id=agent_id, module_class="AwarenessModule"
         )
         if not instances:
-            return False
+            return None
         instance_id = instances[0].instance_id
         repo = InstanceAwarenessRepository(db)
         current = await repo.get_by_instance(instance_id)
@@ -354,7 +390,7 @@ async def reconcile_identity_record(db, agent_id: str, current_name: str) -> boo
         if IDENTITY_CHANGE_SECTION not in profile:
             # Nothing has ever asserted a name here, so nothing contradicts the
             # row. An agent that was never renamed must not be handed a note.
-            return False
+            return None
 
         _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
         lines = rest.splitlines()
@@ -379,7 +415,7 @@ async def reconcile_identity_record(db, agent_id: str, current_name: str) -> boo
         # unequal forever — every call would "correct" the record and rewrite
         # the profile, converging on nothing and logging a warning each time.
         if asserted is None or asserted == _for_note(current_name):
-            return False
+            return None
 
         logger.warning(
             f"[agent-profile-write] {agent_id}: identity record asserted "
@@ -398,7 +434,7 @@ async def reconcile_identity_record(db, agent_id: str, current_name: str) -> boo
         return True
     except Exception as e:  # noqa: BLE001 — the profile write already landed
         logger.warning(f"reconcile_identity_record failed for {agent_id}: {e}")
-        return False
+        return False  # found stale, failed to fix — NOT "nothing to do"
 
 
 async def update_agent_profile_from_args(

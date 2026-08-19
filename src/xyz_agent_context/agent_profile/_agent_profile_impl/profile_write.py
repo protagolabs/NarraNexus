@@ -77,10 +77,10 @@ async def _record_identity(db, agent_id: str, old_name: str, new_name: str) -> b
     return await aw.record_identity_change(db, agent_id, old_name, new_name)
 
 
-async def _reconcile_identity(db, agent_id: str, current_name: str) -> bool:
+async def _reconcile_identity(db, agent_id: str, current_name: str) -> Optional[bool]:
     aw = _awareness_identity_writers()
     if aw is None:
-        return False
+        return None
     return await aw.reconcile_identity_record(db, agent_id, current_name)
 
 
@@ -122,7 +122,10 @@ class AgentProfileWrite:
     #: without any rename happening? Separate from ``identity_note_recorded``,
     #: which reports the note for a rename THIS call performed — a caller asking
     #: "did this rename" must not be answered "yes" by a repair.
-    identity_reconciled: bool = False
+    #: ``None`` = nothing needed repairing; ``True`` = a stale record was
+    #: corrected; ``False`` = one was found and the correction FAILED, which is
+    #: the state the incident was and must not read as "fine".
+    identity_reconciled: Optional[bool] = None
     #: Did the Awareness identity correction actually land? Only meaningful when
     #: ``renamed_from`` is set. The write is best-effort on purpose (the name is
     #: already stored; failing the caller afterwards would report a rename that
@@ -325,7 +328,7 @@ async def apply_agent_profile_change(
         # own agent lands — row and request both 「小绿」, record still asserting
         # 「美食家」 — and returning success without looking was the reason the fix
         # did not repair the population it was written for.
-        reconciled = False
+        reconciled = None
         if new_name is not None:
             reconciled = await _reconcile_identity(
                 db, agent_id, normalize_agent_text(agent.agent_name)
@@ -384,7 +387,7 @@ async def apply_agent_profile_change(
     # writers produced — a stale correction is worse than none, because it
     # speaks in the platform's voice and the agent believes it.
     note_recorded = False
-    reconciled = False
+    reconciled = None
     # ``is not None``, not truthiness: renamed_from carries the PREVIOUS name,
     # and a legacy row can hold "". Folding that into "did not rename" sent a
     # first naming down the reconcile path with an empty old name, producing a
