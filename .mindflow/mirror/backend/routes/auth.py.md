@@ -598,3 +598,24 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
   就是①的 order guard——重排会红,红的是重排不是测试。
 - 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
   仓单独 commit,本仓注释已互指并标明该文件不在本仓）。
+
+## 2026-08-19 — 登录路径挂载 onboarding 引导 Agent 供给
+
+`_schedule_guide_agent_provisioning(user_id)`：三个登录入口（`netmind_login`、
+本地 `login`、本地 `create_user`）在成功路径尾部 fire-and-forget 调
+`xyz_agent_context.bootstrap.onboarding.ensure_guide_agent`（create_task +
+done_callback，incident lesson #2 模式）。要点：
+
+- **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
+  ensure 内部有用户级 write-once 幂等标记
+  （`users.metadata.onboarding_progress.guide_agent_provisioned`），热路径
+  只是一次用户读；正是"每次都调"让存量零 Agent 用户在下次登录补领引导
+  Agent，而不是只有新注册才有。
+- **调度前先查 kill-switch**（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`，默认
+  开）：关掉时连 task 都不建。测试套件在 tests/conftest.py 全局置 0，
+  避免无关登录测试背后真跑 provisioning；guide 测试自行 setenv 开启。
+- **必须排在 suspended 门禁之后**（netmind_login 里在
+  `_schedule_provider_provisioning` 之后）：被停号的登录 403 早退，
+  永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
+- 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度、
+  kill-switch 零调度、provisioning 崩溃不影响登录响应）。

@@ -140,6 +140,7 @@ async def login(request: LoginRequest):
         await user_repo.update_last_login(request.user_id)
         logger.info(f"User {request.user_id} logged in (local)")
         _schedule_login_rearm(request.user_id)
+        _schedule_guide_agent_provisioning(request.user_id)
         return LoginResponse(
             success=True,
             user_id=request.user_id,
@@ -471,6 +472,41 @@ def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
     )
 
 
+def _schedule_guide_agent_provisioning(user_id: str) -> None:
+    """Run the onboarding guide-agent provisioning off the login path.
+
+    Fire-and-forget like :func:`_schedule_provider_provisioning`: a login must
+    never block on, or fail from, it. `ensure_guide_agent` is idempotent
+    (user-level write-once marker) and cheap on the warm path, so calling it
+    on every login is fine — that is what lets existing zero-agent users pick
+    up their guide on their next login, not just brand-new signups.
+    """
+    import asyncio
+
+    from xyz_agent_context.bootstrap.onboarding import (
+        ensure_guide_agent,
+        is_guide_agent_enabled,
+    )
+
+    if not is_guide_agent_enabled():
+        return  # kill-switch: schedule nothing at all
+
+    async def _run() -> None:
+        db_client = await get_db_client()
+        await ensure_guide_agent(db_client, user_id)
+
+    try:
+        task = asyncio.get_running_loop().create_task(_run())
+    except RuntimeError:
+        return  # no loop (not the request path) — nothing to schedule
+    # Incident lesson #2: a bare create_task swallows its exception at GC.
+    task.add_done_callback(
+        lambda t: t.cancelled() or t.exception() and logger.error(
+            f"[login] guide-agent provisioning died for {user_id}: {t.exception()!r}"
+        )
+    )
+
+
 @router.post("/netmind-login", response_model=NetmindLoginResponse)
 async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     """Log in with a NetMind account token ("passport for visa" exchange).
@@ -597,6 +633,11 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     # unaffected — the NetMind provisioner still registers-only when it finds a
     # complete config, which after chaining it actually does.
     _schedule_provider_provisioning(user.user_id, request.netmind_token)
+
+    # Onboarding guide agent — new users and existing zero-agent users get
+    # their first companion. Behind the suspended-account gate above, so a
+    # suspended login never provisions anything.
+    _schedule_guide_agent_provisioning(user.user_id)
 
     return NetmindLoginResponse(
         success=True,
@@ -1645,6 +1686,7 @@ async def create_user(request: CreateUserRequest):
             event=EVENT_SIGNED_UP,
             properties={PROP_METHOD: "create_user"},
         )
+        _schedule_guide_agent_provisioning(request.user_id)
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
