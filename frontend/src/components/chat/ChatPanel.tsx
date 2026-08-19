@@ -1373,7 +1373,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               at least the mid ink step. The title carries the long-form text
               (and zh-localization.test.ts asserts on it). */}
           <span
-            className="ml-2 text-[11px] leading-tight text-[var(--nm-ink50)]"
+            className="ml-2 min-w-0 line-clamp-2 text-[11px] leading-tight text-[var(--nm-ink50)]"
             title={t('chat.securityReminder')}
           >
             {t('chat.composerPrivacyHint')}

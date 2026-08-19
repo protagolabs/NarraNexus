@@ -122,8 +122,16 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
     });
     if (!ok) return;
     try {
-      await deleteTeam(selected.team.team_id);
-      setSelectedTeamId(null);
+      const deletedId = selected.team.team_id;
+      await deleteTeam(deletedId);
+      // Land on the next surviving team, computed from the pre-delete list
+      // (the store hasn't refreshed yet). Writing null instead would strand
+      // the pane on the empty state: the teams[0] fallback effect is guarded
+      // off whenever the caller passed initialTeamId — which every current
+      // caller does.
+      setSelectedTeamId(
+        teams.find((tm) => tm.team.team_id !== deletedId)?.team.team_id ?? null,
+      );
     } catch (e) {
       void notifyError(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
     }

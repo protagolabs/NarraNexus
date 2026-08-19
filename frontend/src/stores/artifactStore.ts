@@ -92,7 +92,6 @@ interface ArtifactState {
   openUrl: (agentId: string, url: string, title?: string) => Promise<Artifact>;
 }
 
-
 const initialMinimizedTabIds = (() => {
   try {
     const raw = window.localStorage.getItem(MINIMIZED_IDS_KEY);
