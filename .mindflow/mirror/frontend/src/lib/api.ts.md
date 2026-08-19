@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 支付宝 / 微信：recharge 带 payment_method，新增 fxRate
+
+- `recharge(amount, paymentMethod)` —— **第二个参数不再是 currency**。币种由后端
+  按支付方式派生（上游校验这一对、错配 400），所以前端连这个自由度都不该有。
+  ⚠ **作废下方 2026-07-05 条目里的 `recharge(amount, currency?)`**。
+- `amount` **永远是 USD**，即使微信按人民币扣款 —— 它是"到账多少额度"，不是
+  "这次划走多少钱"。
+- `fxRate(amount?)` 是新方法，只为**展示**服务：让微信付款者在掏钱前看到
+  "$10 ≈ ¥73"。**绝不能拿它的结果去决定金额** —— 真正的扣款由上游按它自己的
+  实时汇率定价，我们这边算出来的任何数字都只是个预览。
+- `subscribe(paymentMethod?, months?)` —— `months` 只在支付宝/微信时进 body。
+  后端对"卡 + months"是**拒绝**而不是忽略，所以这里必须省略而不是给默认值。
 
 ## 2026-08-14 — `getTeamChat` 有三种模式
 

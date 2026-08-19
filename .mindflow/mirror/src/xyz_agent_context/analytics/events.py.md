@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/analytics/events.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `PROP_PAYMENT_METHOD` / `PROP_MONTHS`：让 checkout 事件能区分两个商品
+
+`checkout_created` 原来只带 `session_id`，于是**一笔 $19 的信用卡订阅和一笔 $228
+的 12 个月一次性购买在漏斗里长得一模一样**。加支付宝/微信这件事值不值得继续投入，
+只能去 Stripe 后台手工对账才答得出来。
+
+`months` **只在一次性轨带**：信用卡订阅没有月数，发 `1` 会被读成"有人买了一个月的
+卡订阅"，而那不是一个存在的东西。
+
+**这两个维度绝不能进 `event_id`**（幂等键仍是 `checkout_created:{session_id}`）——
+同一个 session 会因维度不同而重复计数。有测试钉住这一条。
+
+已知仍未覆盖：`subscription_activated` 不带这两个维度，而一次性的**叠加续期**发生在
+同一个 subscription 上、因此一个新事件都不发。所以目前只有**意图**侧可分辨，转化侧
+不行 —— 而复购正是一次性商品的全部留存模型。记在这里，不在本次范围内。
+
 
 # events.py
 

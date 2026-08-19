@@ -20,7 +20,10 @@ import type { SubscriptionPlan } from '@/types';
 
 interface NetmindUpsellCardProps {
   proPlan: SubscriptionPlan | null;
-  onUpgrade: () => void;
+  /** Optional because `subscribed` renders no CTA — a required callback there
+   *  was a handler nothing could ever invoke, and it kept a duplicate purchase
+   *  implementation alive to satisfy the type. */
+  onUpgrade?: () => void;
   busy: boolean;
   /** Render as the current plan (state chip instead of the upgrade CTA). */
   subscribed?: boolean;
