@@ -20,6 +20,7 @@ the write path does not retroactively clean the DB.
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import zipfile
@@ -247,6 +248,36 @@ def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: s
     d.mkdir(parents=True, exist_ok=True)
     (d / "SKILL.md").write_text("---\nname: arena\n---\n\nbody\n", encoding="utf-8")
     return d
+
+
+def _find_canary(bundle: Path, needle: bytes, name_fragment: str) -> list[str]:
+    """Every member of the bundle, one level of nesting deep, hunting for bytes
+    or member names that should not be there.
+
+    One level is enough for what we ship (`skills/**.zip` inside the outer
+    `.nxbundle`) and keeps the failure message readable.
+    """
+    found: list[str] = []
+    with zipfile.ZipFile(bundle) as z:
+        for n in z.namelist():
+            if n.endswith("/"):
+                continue
+            if name_fragment in n:
+                found.append(n)
+            data = z.read(n)
+            if needle in data:
+                found.append(n)
+            if n.endswith(".zip"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(data)) as inner:
+                        for m in inner.namelist():
+                            if m.endswith("/"):
+                                continue
+                            if name_fragment in m or needle in inner.read(m):
+                                found.append(f"{n}!{m}")
+                except zipfile.BadZipFile:
+                    pass
+    return found
 
 
 def _manifest(bundle: Path) -> dict:
@@ -522,3 +553,299 @@ async def test_shared_skill_import_records_a_real_sha(
     assert re.fullmatch(r"[0-9a-f]{64}", row.sha256 or ""), (
         f"skill_archives.sha256 is not a digest: {row.sha256!r}"
     )
+
+
+# ─── export side: skill_dir is a client string too ──────────────────────────
+
+
+@pytest.mark.parametrize("method", ["zip", "full_copy"])
+@pytest.mark.parametrize(
+    "skill_dir",
+    [
+        "../../../../tmp/qa-export-escape",
+        "../escape",
+        "sub/dir",
+        "sub\\dir",
+        "/abs/path",
+        "..",
+        # SEC-08's real shape. From {base}/{uid}/{aid}/skills/ this resolves to
+        # `base_working_path` itself — the parent of EVERY user's workspace —
+        # and full_copy zips whatever directory it lands on. The first version
+        # of this table omitted it, which is why the victim-canary assertion
+        # below could never fail: nothing in the table actually reached a
+        # victim. Keep both forms: the root, and a direct hop into a named
+        # victim.
+        "../../..",
+        "../../../victim_user/agent_victim",
+        # NOT "" — an absent skill_dir legitimately falls back to skill_name
+        # (builder.py), so it is covered by the fallback test below instead.
+    ],
+)
+async def test_export_rejects_a_traversing_skill_dir(
+    db_client, tmp_workspace_root, tmp_path, archives_root, skill_dir, method
+):
+    """SEC-07 sealed `skill_name` and `archive_path`; `skill_dir` travels in the
+    same request body and lands in a filesystem path too. It must not be able to
+    put (or, since the corrupt-archive fix added an `unlink`, remove) a file
+    outside the bundle staging dir."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = f"agent_dirtrav_{method}", "test_user"
+    await _seed_agent(db_client, aid, "TravAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    # A second user's workspace, one `..` hop away from ours. `full_copy` reads
+    # whatever directory `skill_dir` resolves to, so `../../..` used to land on
+    # `base_working_path` itself and zip every user's tree into the download.
+    victim = tmp_workspace_root / "victim_user" / "agent_victim" / "skills" / "private"
+    victim.mkdir(parents=True, exist_ok=True)
+    (victim / "creds.json").write_text("VICTIM_SECRET_CANARY", encoding="utf-8")
+
+    good = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(good, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nESCAPE_CANARY\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="arena", source_type="zip",
+        sha256="cafebabe", archive_path=str(good),
+    )
+
+    before = {p for p in tmp_path.rglob("*")}
+    bundle = tmp_path / "trav.nxbundle"
+    result = await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena",
+                 "skill_dir": skill_dir, "install_method": method}
+            ],
+            include_skill_secrets=True,   # worst case: no sensitive-file scrub
+        ),
+        bundle,
+    )
+
+    # 1. Degraded, and the warning names THIS gate — not just "something about
+    #    arena", which `zip not found` / `archive path escapes` also satisfy.
+    warnings = " ".join(result.get("warnings", []))
+    assert "unusable skill_dir" in warnings, warnings
+    # 2. The skill is absent from the manifest (the established "skipped" shape).
+    assert not [s for s in _manifest(bundle).get("skills", []) if s.get("name") == "arena"]
+    # 3. The observable contract that actually matters: no other user's bytes.
+    #    Must recurse. A packed workspace arrives as a NESTED zip member
+    #    (`skills/{aid}/{dir}-full.zip`, deflated), so a single-level
+    #    `z.read(n)` returns compressed bytes and the plaintext canary never
+    #    appears — the first version of this assertion was blind for that
+    #    reason on top of having no payload that reached a victim.
+    #    Scans root-level members too: with the gate removed the escaping
+    #    archive lands as `..-full.zip` in the staging root, not under skills/.
+    leaks = _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")
+    assert not leaks, f"another user's workspace was packed: {leaks}"
+    # 4. Nothing written outside the bundle staging dir.
+    escaped = {
+        p for p in (tmp_path.rglob("*"))
+        if p not in before and p.suffix == ".zip" and "nxbundle" not in p.name
+        and "skill_archives" not in str(p)
+    }
+    assert not escaped, f"export wrote outside the bundle: {escaped}"
+    assert not Path("/tmp/qa-export-escape.zip").exists()
+
+
+async def test_same_skill_dir_on_one_agent_gets_distinct_bundle_filenames(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """Two different skills declaring the same `skill_dir` used to collide on
+    `{dir}__{agent_id}.zip`: the second overwrote the first (whose manifest
+    sha256 then described someone else's bytes), and a failure would delete it.
+    Names must be unique per bundle."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_dupdir01", "test_user"
+    await _seed_agent(db_client, aid, "DupDirAgent", uid)
+    repo = SkillArchiveRepository(db_client)
+    for name, canary in (("skill_a", "CANARY_A"), ("skill_b", "CANARY_B")):
+        _seed_skill_on_disk(tmp_workspace_root, aid, uid, name)
+        p = prepare_archive_target(uid, name)
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr(f"{name}/SKILL.md", f"---\nname: {name}\n---\n{canary}\n")
+        await repo.upsert(user_id=uid, skill_name=name, source_type="zip",
+                          sha256="c0ffee", archive_path=str(p))
+
+    bundle = tmp_path / "dupdir.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                # both claim the SAME skill_dir on the SAME agent
+                {"agent_id": aid, "skill_name": n, "skill_dir": "shared",
+                 "install_method": "zip"}
+                for n in ("skill_a", "skill_b")
+            ],
+        ),
+        bundle,
+    )
+
+    skills = {s["name"]: s for s in _manifest(bundle).get("skills", [])}
+    refs = {n: skills[n]["archive_ref"] for n in ("skill_a", "skill_b")}
+    assert refs["skill_a"] != refs["skill_b"], f"both skills share one file: {refs}"
+    with zipfile.ZipFile(bundle) as z:
+        for n, canary in (("skill_a", b"CANARY_A"), ("skill_b", b"CANARY_B")):
+            inner = z.read(refs[n])
+            with zipfile.ZipFile(io.BytesIO(inner)) as iz:
+                blob = b"".join(iz.read(m) for m in iz.namelist())
+            assert canary in blob, f"{n}'s archive_ref points at the wrong bytes"
+
+
+async def test_absent_skill_dir_falls_back_to_skill_name(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """`skill_dir=None`/"" is not an attack, it means "not specified" — the
+    builder falls back to `skill_name`, which goes through the same gate."""
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.skill_backup import prepare_archive_target
+    from xyz_agent_context.repository import SkillArchiveRepository
+
+    aid, uid = "agent_nodir01", "test_user"
+    await _seed_agent(db_client, aid, "NoDirAgent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+    p = prepare_archive_target(uid, "arena")
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("arena/SKILL.md", "---\nname: arena\n---\nFALLBACK_CANARY\n")
+    await SkillArchiveRepository(db_client).upsert(
+        user_id=uid, skill_name="arena", source_type="zip",
+        sha256="c0ffee", archive_path=str(p),
+    )
+
+    bundle = tmp_path / "nodir.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena", "skill_dir": "",
+                 "install_method": "zip"}
+            ],
+        ),
+        bundle,
+    )
+    entry = [s for s in _manifest(bundle).get("skills", []) if s["name"] == "arena"]
+    assert entry and entry[0]["archive_ref"] == "skills/arena.zip", entry
+
+
+# ─── the other write entry point gets the same gate ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    "make_archive,expected",
+    [
+        pytest.param("entries", "too many entries", id="too-many-entries"),
+        pytest.param("bomb", "unpacks to", id="declared-size-bomb"),
+        pytest.param("encrypted", "encrypted", id="encrypted"),
+        pytest.param("garbage", "not a valid zip", id="not-a-zip"),
+        pytest.param("no_skill_md", "skill.md", id="missing-SKILL.md"),
+    ],
+)
+async def test_archive_local_zip_enforces_the_shared_gate(
+    tmp_path, archives_root, monkeypatch, make_archive, expected
+):
+    """`archive_local_zip` is the SECOND writer into `skill_archives`, and it
+    now shares the upload route's validator. Before, it only looked for SKILL.md
+    — so entry-count, declared-size and encrypted archives all walked in here
+    while being rejected at the door two metres away. Only the route had test
+    coverage for the new gates; this closes that.
+    """
+    import io as _io
+
+    from xyz_agent_context.bundle import skill_backup
+    from xyz_agent_context.utils import file_safety
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
+    monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
+
+    aid, uid = "agent_localzip01", "test_user"
+    ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
+    ws.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+
+    src = ws / "candidate.zip"
+    if make_archive == "garbage":
+        src.write_bytes(b"not a zip at all")
+    elif make_archive == "entries":
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            for i in range(20):
+                z.writestr(f"f{i}.txt", "x")
+    elif make_archive == "bomb":
+        with zipfile.ZipFile(src, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+            z.writestr("bomb.bin", b"\0" * (4 * 1024 * 1024))
+    elif make_archive == "encrypted":
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("SKILL.md", "---\nname: x\n---\n")
+        raw = bytearray(buf.getvalue())
+        raw[6] |= 0x01
+        raw[raw.find(b"PK\x01\x02") + 8] |= 0x01
+        src.write_bytes(bytes(raw))
+    else:  # no_skill_md
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("readme.txt", "no skill manifest here")
+
+    with pytest.raises(ValueError) as exc:
+        await skill_backup.archive_local_zip(
+            user_id=uid, agent_id=aid, skill_name="candidate", zip_file_path=str(src)
+        )
+    assert expected in str(exc.value).lower(), str(exc.value)
+    assert not (archives_root / uid).exists(), "a rejected archive was still stored"
+
+
+async def test_full_copy_cannot_pack_another_users_workspace(
+    db_client, tmp_workspace_root, tmp_path, archives_root
+):
+    """SEC-08's regression net, asserting ONE thing: another user's bytes are
+    not in the artifact.
+
+    Deliberately separate from `test_export_rejects_a_traversing_skill_dir`.
+    That test asserts the warning text first, so under mutation it fails on
+    line 1 and the leak assertion is never evaluated — it can report "12 red"
+    while the P0's actual contract goes unchecked. A regression net for a
+    cross-tenant read has to fail *because bytes leaked*, nothing else.
+
+    Payload is `../../..` specifically: from `{base}/{uid}/{aid}/skills/` it
+    resolves to `base_working_path` — the parent of every user's workspace —
+    and its OUTPUT path (`{staging}/skills/{aid}/../../..-full.zip`) still
+    lands inside the staging dir, so a regression really does ship the bytes.
+    Deeper payloads fail on the write instead and would prove nothing.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+
+    aid, uid = "agent_sec08", "test_user"
+    await _seed_agent(db_client, aid, "Sec08Agent", uid)
+    _seed_skill_on_disk(tmp_workspace_root, aid, uid, "arena")
+
+    victim = tmp_workspace_root / "victim_user" / "agent_victim" / "skills" / "private"
+    victim.mkdir(parents=True, exist_ok=True)
+    (victim / "creds.json").write_text("VICTIM_SECRET_CANARY", encoding="utf-8")
+
+    bundle = tmp_path / "sec08.nxbundle"
+    await build_bundle(
+        uid,
+        ExportSelection(
+            agent_ids=[aid],
+            skill_methods=[
+                {"agent_id": aid, "skill_name": "arena",
+                 "skill_dir": "../../..", "install_method": "full_copy"}
+            ],
+            include_skill_secrets=True,   # worst case: sensitive-file scrub off
+        ),
+        bundle,
+    )
+
+    leaks = _find_canary(bundle, b"VICTIM_SECRET_CANARY", "victim_user")
+    assert not leaks, f"SEC-08 regression — another user's workspace shipped: {leaks}"
+

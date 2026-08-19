@@ -42,6 +42,7 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.schema.skill_schema import SkillInfo
 from xyz_agent_context.utils import DatabaseClient
+from xyz_agent_context.utils import file_safety as _file_safety
 from xyz_agent_context.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
@@ -1219,8 +1220,14 @@ class SkillModule(XYZBaseModule):
 
     def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
         """Extract a skill archive while rejecting zip-slip style paths."""
-        max_entries = 500
-        max_uncompressed_bytes = 100 * 1024 * 1024
+        # Shared with the admission gate that lets archives in
+        # (`bundle/security.validate_skill_archive_*`). If these two disagree,
+        # an archive can be stored and exported and then fail here at install
+        # time — see the constants' definition for why they live in one place.
+        # Module attribute, not a from-import: same value the admission gate
+        # reads, resolved at call time so the two can never diverge.
+        max_entries = _file_safety.MAX_SKILL_ARCHIVE_ENTRIES
+        max_uncompressed_bytes = _file_safety.MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES
         max_uncompressed_mb = max_uncompressed_bytes // (1024 * 1024)
 
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:

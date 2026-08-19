@@ -1,8 +1,45 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/_awareness_writes.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 比较上提共享,判据也从 rowcount 换成回读
+
+两处改动,都是和 [[auth.py]] 那半边对齐:
+
+1. 值相等短路改调 [[entity_schema]] 的 `agent_field_matches` /
+   `normalize_agent_text`(行为不变 —— 本文件本来就是 strip 后比较,
+   只是不再自带一份)。原因见那份 md:同一个输入,本文件判「没变化」而
+   HTTP route 判「要写」,两个写入方对 `agents` 行的等价规则不一致。
+2. `affected = await repo.update_agent(...)` / `if affected <= 0` 这对**去掉了**,
+   改成回读 + 同一个谓词核对。短路已经挡掉 no-op 那一支,但「**真有改动而
+   驱动报 0**」这一支原来仍然会答 "Error: the update did not apply" ——
+   `cursor.rowcount` 在 MySQL 上数 CHANGED 行,而 agent 读到这句会去重发一次
+   其实已经成功的改名。这正是 HTTP 侧 2026-08-17 那次修掉的推断。
+
+**返回串一个字没动**:DirectStore 与 HTTP twin 靠这些串保持 byte-identical
+(`backend/routes/agents/profile.py` 直接把它当响应体)。改的是**什么条件下**
+返回那句,不是那句本身。
+
+> 措辞更正:本文件 2026-08-05 那次只拆了 **no-op 短路**这一支,module docstring
+> 里「陷阱已 defused」的说法当时仅对 agent 侧成立,且 HTTP twin 直到 2026-08-17
+> 都还带着原样的 rowcount 判据。现在两条路径在这个 trap 上才真的同语义。
+
+补记(同日 review 第二轮):回读判失败那条分支现在**记一行 WARNING**(字段名 +
+「并发覆盖或没落库」),与 [[auth.py]] 同分支对齐。原来一个日志都没有 ——
+真发生时唯一的记录是递给模型的那句话,若是并发写造成的,日志与 DB 里没有任何
+东西能和它对上(踩着 CLAUDE.md 事故教训 #5 的反面)。**返回串一个字没动**。
+
+再补(第三轮):import 从 `xyz_agent_context.schema.entity_schema` 深引改为
+`xyz_agent_context.schema` 门面。本文件在 `schema/` 之外,用门面没有环。
+
+> 更正(第四轮):上一句原来还写着「manyfold 路由**必须**保留深引,因为成环」——
+> **假的**。成环只对 [[api_schema]] 成立(它在 `schema/` 包内,门面反过来导出它的
+> 模型);manyfold 在 `backend/` 下,引门面不可能成环(门面不 import backend,
+> 这正是本仓的依赖方向)。它当时深引的真实原因只是 `StrippedText` 还没进门面。
+> 现在 `StrippedText` 已导出,manyfold 四个符号全走门面。这是同一类毛病的第三次:
+> **给一个观察到的现状编一个比事实更强的理由**。
 
 # _awareness_writes.py — update_agent_profile 的共享实现（AgentDataStore seam 单点）
 

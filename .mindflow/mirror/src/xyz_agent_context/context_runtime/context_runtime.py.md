@@ -4,6 +4,60 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (review 修正) — 「同一份 prompt 一个时区」这条保证的**适用范围**
+
+上一条注释把它写成了无条件保证，实际只在 relocation 开启时成立（默认开启）。关掉
+`PROMPT_TURN_CONTEXT_RELOCATION_ENABLED` 时，`build_complete_system_prompt` 会自己查一次
+时区渲染 User Temporal Context，跟 `build_input_for_framework` 的 `turn_tz` 是两次独立查询。
+
+**没有统一**，是因为这两个块在两个先后调用的方法里，唯一能跨过去的办法是 per-turn 缓存——
+而缓存会在用户改时区时持有过期值，那比多一次主键查询糟得多。两者能不一致的窗口是：用户在
+同一轮的两个 await 之间改了自己的时区。
+
+注释已改成准确的说法并写明了为什么不统一。那个 flag 的定位是 fail-open ops gate（出事会
+被真的关掉），所以"关掉之后保证降一档"这件事必须写在纸面上。
+
+## 2026-08-18 (review 修正) — 同一份 prompt 里不能有两个 frame
+
+上一条只修了时间线行。但 `_build_recent_actions_section` 还在用同样的 `[:16]` 裸 UTC 切片，
+**和被修好的时间线相隔 45 行、注入同一份 prompt**。
+
+改之前两边都是裸 UTC，彼此一致；只修一边反而**制造了一处原本不存在的分歧**——recent-actions
+装的就是 job 执行记录，跟时间线反映的是重叠的事件，现在一个带偏移一个不带，而带偏移的那个
+看起来更权威。这正是本次要消灭的那个机制，只修一半比两边都不修更糟。
+
+现在两处共用 `format_timestamp_for_agent`，时区由调用方传入而不是各查一次：两次查询可能
+在用户中途改时区时给出不同的值，那就又是两个 frame。
+
+顺带把「一轮只查一次」这句注释变成事实：`turn_tz` 提到 `build_input_for_framework` 顶部，
+recent-actions 和时间线循环共用；`_build_turn_context_block` 里的 `block_tz` 同理，
+`_build_user_temporal_block` 新增可选 `user_tz` 参数接收它。原来那句注释只在时间线循环内
+成立，跨函数其实查了 3 次——注释不准的代价是下一个人会以为有个 per-turn 结果可以复用。
+
+## 2026-08-18 — 时间线时间戳过去是 UTC，而且没标 frame
+
+`_format_timeline_tag` 用 `ts[:16]` 切字符串渲染每条历史消息的时间。`meta_data.timestamp`
+的所有写入方都是 `utc_now().isoformat()`，所以切出来的是 **UTC**，而且切完什么标记都不剩。
+
+同一份 prompt 里，「Real World Information」给的是用户本地时间**带 `+08:00` 偏移**。两个
+不同 frame 的时间摆在一起，对模型来说读不出"这是两个坐标系"，只读得出"这里有矛盾"，
+而它处理矛盾的方式是合理化过去。
+
+对 +08:00 的用户，本地 00:00–08:00 之间发的每条消息都被打上**前一天**的日期。据此解析
+「下周五」会整体错位，已经过去的日期会读成还没到 —— 就是线上报的那个现象。
+
+现在时间戳走 `utils/timezone.format_timestamp_for_agent`，转成用户时区并带显式偏移
+（`2026-07-30 23:00 +08:00`），跟 ground truth 同一个 frame，可以直接比。偏移放在**每一行**
+而不是在导言里声明一次：每行多约 7 个字符，换来模型不需要跨三十行记住一个 frame 声明。
+
+时区一轮只查一次（`_resolve_user_timezone`），逐行查就是 N 次同样的查询。
+
+顺带收掉 `_build_user_temporal_block` 里的第二个 "now"：它渲染的是
+`replace(tzinfo=None).isoformat()` —— naive、无偏移、无星期，正是
+`format_now_for_agent` 当初为了取代而写的那个格式，还跟正确的那个躺在同一个 turn context
+块里。两个 "now" 不可能都是真值，形状错的那个只能增加疑虑。现在 ground truth 只有一个
+渲染器、一个落点，这个块只留时区和协议。
+
 ## 2026-08-12 — PR #284 review 轮
 
 文案改用 prompts.REPLY_LANGUAGE_SECTION;新段登记进 part_sizes["reply_language"](review #7)。

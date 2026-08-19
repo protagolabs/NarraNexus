@@ -126,6 +126,15 @@ from .entity_schema import (
     # Agent description "unset" judgement (legacy placeholder recognition)
     LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
     is_agent_description_unset,
+    # Shared write-edge cap for agent name/description.
+    AGENT_TEXT_MAX_LENGTH,
+    # One definition of "this write would change nothing", shared by every
+    # writer of the agents row (HTTP route + awareness tool).
+    normalize_agent_text,
+    normalize_agent_row_text,
+    agent_field_matches,
+    AGENT_TEXT_FIELDS,
+    StrippedText,
     # Entities
     SocialNetworkEntity,
     User,
@@ -399,6 +408,12 @@ __all__ = [
     "NON_TRANSACTING_USER_STATUSES",
     "LEGACY_AGENT_DESCRIPTION_PLACEHOLDER",
     "is_agent_description_unset",
+    "AGENT_TEXT_MAX_LENGTH",
+    "normalize_agent_text",
+    "normalize_agent_row_text",
+    "agent_field_matches",
+    "AGENT_TEXT_FIELDS",
+    "StrippedText",
     "SocialNetworkEntity",
     "User",
     "Agent",

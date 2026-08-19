@@ -3,6 +3,13 @@ code_file: src/xyz_agent_context/module/skill_module/skill_module.py
 last_verified: 2026-08-18
 ---
 
+## 2026-08-18 — `_extract_zip_safely` 的两个上限改读 [[file_safety.py]]
+
+原先是函数内两个字面量（500 / 100MB）。它们和 bundle 侧的归档准入闸
+（[[security.py]]）必须一致——门口按一个数收、安装时按另一个数拒，就是"A 接口
+收下、B 接口失败"。现在两边读同一个常量，且是模块属性、调用时解析。
+本文件行为不变。
+
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
 
 新增模块函数 `configured_env_var_names(env_config)`——「一个 var 算不算已配置」的**单一真相**(存在且可解密;吃 dict 不吃 name,故对 enabled/disabled skill 一致)。此前该规则以 `bool(env_config.get(v))` 散在 6 处、3 种语义(密文非空即算已配置)。`_parse_skill_md` 两处 env_configured 改用它→源头即诚实,hook 表格与 install_pipeline 的 config_required 只读 env_configured 故自动跟对。删掉上一版的 `get_configured_env_var_names`(按 name 解析、只认 enabled 目录,会把禁用 skill 全判未配置)。

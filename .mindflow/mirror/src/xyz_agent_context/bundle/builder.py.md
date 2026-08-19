@@ -1,8 +1,113 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 五审 — 来源点闸口的适用范围写清楚
+
+补记一个**有意的副作用**：`skill_dir` 的闸装在来源点，因此对 `url` / `builtin`
+这两个**根本不用它碰文件系统**的分支同样生效。这是故意的——`entry["skill_dir"]`
+会进 manifest、导入侧拿它当目录名用，所以"我们不肯写的值也不该发出去"。
+
+可见代价很窄：某个 skill 的 SKILL.md frontmatter `name` 含分隔符、用 url 方式
+导出、且没传显式 `skill_dir` 时，它现在会被跳过并留一条 `unusable skill_dir`
+warning，而不是照常导出。选这个而不是"只对 zip/full_copy 拦"，是因为后者会让
+导出侧和导入侧对同一个字符串的理解分叉。
+
+另：`per_agent_dir.mkdir()` 挪进了 full_copy 的降级 try（`tgt_zip` 的路径计算
+留在外面，因为 except 里要 unlink 它）——四审只裹了 `_zip_dir` / `file_sha256`，
+mkdir 真在 ENOSPC 上失败仍会 500，降级契约比注释声称的窄一行。
+
+## 2026-08-18 四审 — `skill_dir` 收到来源点；full_copy 补降级
+
+**上一轮我只修了 zip 分支，这是错的。** `skill_dir` 的闸装在
+`_safe_bundle_zip_name` 里，而 `full_copy` 分支根本不经过它——那一侧还是**读**
+侧：`_find_skill_dir` 用这个字符串决定读哪个目录，`skill_dir="../../.."` 在
+nested 布局下解析到 `base_working_path` 本身，`_zip_dir` 把**所有用户的 agent
+workspace** 打进请求者下载的包；配 `include_skill_secrets: true` 连
+`.skill_meta.json` 里的凭据一起。**比 SEC-07 原本那个单文件读更严重。**
+
+现在闸在**唯一来源点**（`skill_dir = sanitize_filename(cfg.get("skill_dir") or
+skill_name)`），一处覆盖 builtin 前置守卫、zip、full_copy、`_find_skill_dir`，
+以及写进 manifest 的 `entry["skill_dir"]`——导出侧存的就是净化值，和导入侧
+（`install_skill(target_dir_name=...)` 那边还会再 `sanitize_filename` 一次）对
+同一个字符串的理解一致。
+
+> **教训写在这里**：逐分支补闸 = 下一个分支必然漏。这一条我犯了两次
+> （SEC-07 漏 `skill_dir`，本轮又只修 zip 半边），所以判据是"这个不受信字符串
+> 是在哪一行被**造出来**的"，而不是"它在哪些地方被用到"。
+
+`_safe_bundle_zip_name` 相应退化成只管唯一文件名（`ensure_within_directory` 留
+作纵深），并且**自己往 `taken` 里登记**——原先要求调用方记得 `.add()`，等于把
+"名字唯一"这个不变式交出去一半。
+
+**full_copy 分支补上降级 try**：`_zip_dir` 走整棵目录树，一个不可读文件 / 磁盘
+满 / 非 UTF-8 的 `.skill_meta.json`（按文本读）都会冒成 500。捕
+`(OSError, UnicodeDecodeError, BadZipFile)` → 清半成品 + warning + `continue`，
+`continue` 落在 `skills_summary.append` 之前，保持"跳过的 skill 整条不出现"这
+个约定。**不用 `except Exception`**：`SensitiveZipDetected` 是控制流，必须继续
+冒。
+
+> 边界说明（别以为端到端解决了）：文件名唯一性**只到 bundle 为止**。导入侧按
+> `skill_dir` pin 安装目录，两个共用同一 `skill_dir` 的 skill 在接收端仍会落进
+> 同一个 `skills/{dir}/`、后者覆盖前者。
+
+## 2026-08-18 三审 — `skill_dir` 是 SEC-07 漏掉的那个字段
+
+`tgt_zip = skills_dir / f"{skill_dir}.zip"` —— `skill_dir` 来自导出请求体，
+`SkillExportSpec` 上没有任何 validator，一路原样进文件系统路径。SEC-07 堵了
+`archive_path`（任意读）和 `skill_name`（写入穿越），**同一个请求体里的
+`skill_dir` 漏了**；而本轮新加的 `unlink` 把这条路径从"只写"扩成了"还能删"。
+
+收进 `_safe_bundle_zip_name()`，它同时干两件事：
+
+1. `sanitize_filename` + `ensure_within_directory` —— 客户端字符串不得决定服
+   务端路径，和 SEC-07 对 `skill_name` 的处理同一套手法。抛 `ValueError`，调
+   用处降级成 per-skill warning，不 500。
+2. **真正唯一的文件名**。原来的 `{dir}.zip` → `{dir}__{agent_id}.zip` 只区分
+   "不同 agent"：同一个 agent 上两个不同 `skill_name` 声明同一个 `skill_dir`
+   时，两者算出的名字一样——成功则后者覆盖前者的字节（前者 manifest 里的
+   sha256 就指向了别人的内容），失败则新加的 `unlink` 把前者**删掉**、manifest
+   指向一个不存在的 `archive_ref`。改成计数器后缀，`exists()` 分支退化成断言。
+
+另外降级文案的条件收紧成 `isinstance(e, BadZipFile) and src_type != "zip"`：
+`copy2` 因磁盘/权限抛 `OSError` 时归档本身没毛病，再说"这是 github 源不是
+zip"就是把上一轮刚修掉的误导换个方向重来一遍。
+
+> `archive_ref` 与导入侧是一对（importer 按 `archive_ref` 原样取文件、不解析
+> 文件名），所以改命名规则是安全的。
+
+## 2026-08-18 — 坏归档降级：try 覆盖到 copy/sha，文案不再冤枉 tarball
+
+（承接下方 2026-08-18 那条）三处收紧：
+
+1. **try 范围**从"只裹 `scan_zip_for_sensitive`"扩到 **scan + `copy2` +
+   `file_sha256`**。只裹 scan 的话，同一个源文件在 copy 阶段抛 `OSError` 仍会
+   冒成 500——"一份坏归档不该让整份导出失败"这个不变式就只覆盖了两个失败点里
+   的一个。
+2. **失败时清理半成品**：`copy2` 中途失败会在 `skills_dir` 留下不完整的
+   `{skill_dir}.zip`，而下一个同名条目的 `if tgt_zip.exists()` 分支会因此拐到
+   `__{agent_id}` 后缀——换来一个更难查的问题。降级路径里 `unlink(missing_ok)`。
+3. **`archive_rows_by_skill` 现在同时带 `source_type`**：github 装的 skill 归
+   档是真 `.tar.gz`，导出请求若对它声明 `install_method="zip"`，喂给
+   `scan_zip_for_sensitive` 的是一份**完全健康**的 tarball。原文案"你的归档不
+   是可读的 zip"会让用户去重传一个好包然后发现症状不变——真正的错配是 method
+   与 source_type。现在这种情况给专门的文案，指向 `install_method='url'`。
+
+## 2026-08-18 — 坏归档降级成 warning，不再整份导出失败
+
+`scan_zip_for_sensitive(Path(src_zip))` 原先裸调用，`BadZipFile` 一路冒到路
+由变成 500。上传侧现在会挡住新的坏包（见 [[bundle.py]]），但**已经在库里的
+坏行**挡不住：早于上传校验写入的、写了一半被截断的、磁盘上损坏的。
+
+现在捕 `(BadZipFile, OSError)` → warning 带 skill 名 + `logger.warning` 带
+user/skill/path → `continue`。形状照抄它上面那条 `zip not found, skipping`，
+这样 manifest 里的约定只有一种：**跳过的 skill 直接不出现在 skills 列表
+里**（不是出现但没有 `archive_ref`）。
+
+关键不是"别 500"，是**一份坏归档不该让整份导出失败**——一个用户的一条脏数
+据会把他所有导出都堵死，而错误信息指不到是哪一份。
 
 ## 2026-08-17 — SEC-07：zip 归档路径由服务端解析，且读前复查 containment
 
