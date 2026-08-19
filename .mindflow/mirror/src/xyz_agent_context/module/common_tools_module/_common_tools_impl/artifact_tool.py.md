@@ -193,3 +193,12 @@ self-correct and retry. Don't change the shape.
 
 工具名匹配不再驱动发现(事件化后),只锚定聊天内徽章;改名的代价从「tab 静默
 消失」降为「旧转写少个 chip」。
+
+## 2026-08-18 — list_artifacts 工具
+
+只读库存工具:可见面=list_for_agent_context(成员关系服务端推导,**参数只能收窄
+不能扩大**——报不属于自己的 team_id 得到空集,构造上安全);kind/team_id/
+title_contains 过滤,50/页。impl 为纯函数(直接测试),@mcp.tool 薄包装。
+可选参数用 str=""(FastMCP 把 Optional 渲染成 anyOf null,严格 schema 供应商
+整请求 400——scope 参数的旧教训)。**听众隔离预留**:将来按 #309 落时,过滤加在
+impl 内、取服务端身份头(caller_team_id_from_request),签名不变。

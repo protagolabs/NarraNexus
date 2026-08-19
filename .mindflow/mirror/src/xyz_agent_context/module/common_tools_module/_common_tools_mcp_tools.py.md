@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_mcp_tools.py
-last_verified: 2026-05-08
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -62,3 +62,7 @@ CommonToolsModule MCP server 的薄入口层。它做两件事：
 
 - DDGS backend 细节：`.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/web_search_ddgs_tool.py.md`
 - artifact tool 注册细节：`.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py.md`
+
+## 2026-08-18 — 注册 list_artifacts
+
+factory 里紧随 artifact_tool.register 调 register_list_artifacts。

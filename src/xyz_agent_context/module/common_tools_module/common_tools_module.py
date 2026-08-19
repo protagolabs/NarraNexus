@@ -336,63 +336,31 @@ class CommonToolsModule(XYZBaseModule):
                 "a file as a tab the user can see)"
             )
 
-        import os
-        import posixpath
-
-        from xyz_agent_context.schema.artifact_schema import (
-            URL_ARTIFACT_KIND,
-            URL_TAB_CONTENT_FILENAME,
+        from xyz_agent_context.module.common_tools_module._common_tools_impl.artifact_lines import (
+            format_artifact_lines,
         )
-        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
-
-        # Strip whichever workspace prefix the stored path carries (current
-        # nested layout, or a legacy flat path from before the flip).
-        workspace_prefixes = (
-            f"{agent_workspace_relpath(self.agent_id, self.user_id or '')}/",
-            f"{self.agent_id}_{self.user_id or ''}/",
-        )
-        base = os.path.realpath(settings.base_working_path)
 
         lines = [header]
-        for a in artifacts:
-            rel = a.file_path
-            # Own workspace → short relative form, which is what the agent's
-            # tools take. Anything else → ABSOLUTE.
-            #
-            # A teammate's team artifact matches neither prefix, and printing
-            # the bare base-relative path would be worse than useless: a
-            # relative path resolves against the READER's own workspace (the
-            # confinement layer rebases relative paths there deliberately), so
-            # the agent would open a file that does not exist. Same for an
-            # entry registered out of the shared folder, which sits outside
-            # every agent workspace by design. "Sees the list" would hold while
-            # the first step of picking the work up silently failed.
-            outside_own_workspace = True
-            for prefix in workspace_prefixes:
-                if rel.startswith(prefix):
-                    rel = rel[len(prefix):]
-                    outside_own_workspace = False
-                    break
-            if outside_own_workspace:
-                rel = os.path.join(base, a.file_path)
-            # For URL tabs, point the agent at the readable text snapshot so it
-            # can SEE the page content — but ONLY when the snapshot exists on
-            # disk (URL tabs opened before this feature have no content.md, so
-            # a blind hint would point the agent at a missing file).
-            content_rel = None
-            if a.kind == URL_ARTIFACT_KIND:
-                candidate = posixpath.join(posixpath.dirname(rel), URL_TAB_CONTENT_FILENAME)
-                if os.path.isfile(os.path.join(base, a.file_path.rsplit("/", 1)[0], URL_TAB_CONTENT_FILENAME)):
-                    content_rel = candidate
-            if content_rel is not None:
-                lines.append(
-                    f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → web page; "
-                    f"Read `{content_rel}` to see its text content"
-                )
-            else:
-                lines.append(
-                    f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`"
-                )
+        lines.extend(
+            format_artifact_lines(
+                artifacts, agent_id=self.agent_id, user_id=self.user_id or ""
+            )
+        )
+        # Truthful footer: the cap must never be silent. Past the limit the
+        # agent is told it is looking at a window and which tool lists the
+        # rest — otherwise older artifacts read as nonexistent and get
+        # recreated (spec artifact-events §4). COUNT is a separate cheap
+        # query; on failure we degrade to no footer rather than no block.
+        try:
+            total = await repo.count_for_agent_context(self.agent_id)
+        except Exception:  # noqa: BLE001
+            total = len(artifacts)
+        if total > len(artifacts):
+            lines.append(
+                f"(showing the {len(artifacts)} most recently updated of "
+                f"{total} — call `list_artifacts` to see the rest, filter "
+                "by kind/team, or search titles)"
+            )
         lines.append("")
         lines.append(
             "Paths above are relative to your workspace unless they start "

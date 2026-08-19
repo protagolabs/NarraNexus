@@ -360,6 +360,17 @@ class ArtifactRepository(BaseRepository[Artifact]):
             )
         return {r["file_path"] for r in rows if r.get("file_path")}
 
+    async def count_for_agent_context(self, agent_id: str) -> int:
+        """COUNT of the `list_for_agent_context` surface — the state block's
+        truthful footer needs the total without paying for the rows."""
+        sql = """
+        SELECT COUNT(*) AS n FROM instance_artifacts
+        WHERE (agent_id = %s AND pinned = 1 AND team_id IS NULL)
+           OR team_id IN (SELECT team_id FROM team_members WHERE agent_id = %s)
+        """
+        rows = await self._db.execute(sql, params=(agent_id, agent_id), fetch=True)
+        return int(rows[0]["n"]) if rows else 0
+
     async def list_by_user(self, user_id: str) -> List[Artifact]:
         """
         Return all artifacts owned by a user, across every agent the user owns.

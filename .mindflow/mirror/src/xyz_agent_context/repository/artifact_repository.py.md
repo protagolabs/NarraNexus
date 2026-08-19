@@ -124,3 +124,7 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 
 heal 护栏的数据源:同 scope(私有=本 agent 无队行;团队=该队全行)活 artifact 的
 file_path 集合,候选凡命中即排除。scope 口径刻意镜像 heal 的 search_root。
+
+## 2026-08-18 — `count_for_agent_context`
+
+状态块尾注的 COUNT 版可见面查询(同 union 语义),不为拿总数付整行代价。
