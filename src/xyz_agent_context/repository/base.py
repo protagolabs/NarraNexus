@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Generic, TypeVar, List, Optional, Dict, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    # Type-only: importing it at runtime would be a cycle
-    # (database -> repository -> database).
+    # Type-only: the class is referenced only in annotations, so keep the
+    # runtime import graph unchanged.
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 # Generic type variable
