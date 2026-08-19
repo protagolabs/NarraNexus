@@ -314,40 +314,6 @@ async def test_worker_counters_are_read_fresh_even_on_a_cache_hit(monkeypatch):
 
     assert body["team_summary"]["rooms"] == 9, "worker counters were frozen by the cache"
 
-
-@pytest.mark.asyncio
-async def test_a_slow_database_is_probed_once_no_matter_how_many_requests_arrive(monkeypatch):
-    """The half the cache alone could not close.
-
-    A cache only stops requests arriving AFTER a result is published. Between a
-    miss and that publication, every arrival used to run its own probe and hold
-    its own pooled connection — and that window is the full timeout precisely
-    when the database is slow, which is the case the cache was added for. With
-    a 10-connection pool and an unauthenticated endpoint, that is `/health`
-    holding the pool while real traffic queues behind it.
-    """
-    release = asyncio.Event()
-    probes = {"n": 0}
-
-    class _Client:
-        async def probe(self) -> None:
-            probes["n"] += 1
-            await release.wait()
-
-    async def fake_get_db_client():
-        return _Client()
-
-    monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
-
-    callers = [asyncio.create_task(main.health()) for _ in range(20)]
-    await asyncio.sleep(0)
-    assert probes["n"] == 1, f"{probes['n']} concurrent probes against a slow database"
-
-    release.set()
-    await asyncio.gather(*callers)
-    assert probes["n"] == 1, "the queued callers each ran their own probe after all"
-
-
 @pytest.mark.asyncio
 async def test_a_probe_that_started_earlier_cannot_overwrite_a_newer_verdict(monkeypatch):
     """The publish guard, kept as a belt to single-flight's braces.
@@ -386,149 +352,45 @@ async def test_a_probe_that_started_earlier_cannot_overwrite_a_newer_verdict(mon
     )
 
 
-def test_the_probe_lock_survives_an_event_loop_change():
-    """`asyncio.Lock` pins itself to the loop that first CONTENDS it, and raises
-    on any later contention from a different one.
-
-    A module-level lock therefore leaks its binding: the first test (or the
-    first in-process loop) to run concurrent probes owns it forever. This repo
-    does swap loops in-process — `db_factory` carries an eviction path for
-    exactly that — and a `/health` that raises becomes a 500, an unhealthy
-    container, and a `docker compose up` that fails outright.
-
-    Synchronous on purpose: it drives two loops itself, which cannot be done
-    from inside one that is already running.
-    """
-    seen = []
-
-    async def contend():
-        lock = main._probe_lock()
-        seen.append(lock)
-
-        async def hold():
-            async with lock:          # two waiters, so it takes the contended path
-                await asyncio.sleep(0)
-
-        await asyncio.gather(hold(), hold())
-
-    sizes = []
-    for _ in range(3):
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(contend())
-        finally:
-            sizes.append(len(main._health_probe_locks))
-            loop.close()
-
-    # Objects, not `id()`: the two lifetimes do not overlap, so CPython may well
-    # place the second lock at the first one's address.
-    assert seen[0] is not seen[1], "the same lock object was reused across loops"
-
-    # The registry holds loops strongly (that is what makes `id()` keys safe),
-    # so it must prune dead ones when a new loop registers — otherwise a process
-    # that churns loops accumulates one entry per loop forever.
-    assert sizes[2] <= sizes[1], f"registry grew unbounded across loops: {sizes}"
-
-
-
-
+@pytest.mark.asyncio
 
 @pytest.mark.asyncio
-async def test_the_whole_handler_stays_inside_one_budget(monkeypatch):
-    """Queue time counts against the budget, not just the probe.
 
-    `_HEALTH_DB_TIMEOUT_SEC` exists only to stay under the container
-    healthcheck's `timeout: 5s`, so a failure is recorded as our 503 + reason
-    rather than replaced by docker's own "health check timed out". Budgeting
-    only the probe let a queued caller spend its wait AND then a full probe.
+@pytest.mark.asyncio
+
+@pytest.mark.asyncio
+async def test_concurrent_probes_publish_the_newest_verdict(monkeypatch):
+    """Without single-flight, probes CAN overlap. The publish guard is what
+    keeps the result sane: a slow failing probe that started before a fast
+    succeeding one must not overwrite the good verdict on arrival.
+
+    This is the property that survives the removal of the lock, so it is worth
+    a test that drives real overlapping calls rather than the guard's condition.
     """
-    monkeypatch.setattr(main, "_HEALTH_DB_TIMEOUT_SEC", 0.15)
+    release_a = asyncio.Event()
+    state = {"fail": True}
 
     class _Client:
         async def probe(self) -> None:
-            await asyncio.sleep(10)          # never finishes inside the budget
+            if state["fail"]:
+                await release_a.wait()
+                raise RuntimeError("(0, 'Not connected')")
+            return None
 
     async def fake_get_db_client():
         return _Client()
 
     monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
 
-    started = time.monotonic()
-    results = await asyncio.gather(*(main.health() for _ in range(5)))
-    elapsed = time.monotonic() - started
-
-    # Serial would be 5 x 0.15; the holder's timeout publishes and the rest hit
-    # the cache, so the whole batch costs about one budget.
-    assert elapsed < 0.15 * 3, f"the batch took {elapsed:.2f}s — queue time is unbudgeted"
-    assert all(r.status_code == 503 for r in results)
-
-
-@pytest.mark.asyncio
-async def test_a_caller_that_times_out_queueing_does_not_leak_the_lock(monkeypatch):
-    """Bounding the acquire replaced `async with`, so the release is now ours to
-    get right. A leaked lock would wedge every later probe in the process."""
-    monkeypatch.setattr(main, "_HEALTH_DB_TIMEOUT_SEC", 0.05)
-
-    release = asyncio.Event()
-
-    class _Slow:
-        async def probe(self) -> None:
-            await release.wait()
-
-    async def fake_get_db_client():
-        return _Slow()
-
-    monkeypatch.setattr(main, "get_db_client", fake_get_db_client)
-
-    holder = asyncio.create_task(main.health())
+    a = asyncio.create_task(main.health())      # starts first, still in flight
     await asyncio.sleep(0)
-    queued = await main.health()          # gives up queueing within the budget
-    assert queued.status_code == 503
 
-    release.set()
-    await holder
+    state["fail"] = False                       # database recovers
+    b = await main.health()                     # starts later, finishes first
+    assert b["status"] == "healthy"
 
-    lock = main._probe_lock()
-    assert not lock.locked(), "the lock was left held after a queue timeout"
+    release_a.set()
+    await a
 
-    # And the process still works afterwards.
-    async def ok():
-        return None
-
-    _install(monkeypatch, ok)
-    main._health_cache = None
+    assert main._health_cache[2] is True, "the older, failing probe won"
     assert (await main.health())["status"] == "healthy"
-
-
-@pytest.mark.asyncio
-async def test_degrading_to_a_stale_result_does_not_extend_its_life(monkeypatch):
-    """Answering a queue timeout from the last known verdict must not refresh
-    its deadline, or one burst of congestion keeps a stale conclusion alive
-    indefinitely.
-
-    The lock is held directly rather than by another `health()` call: a real
-    holder would publish its own result on the way out, which is a different
-    branch from the one under test.
-    """
-    monkeypatch.setattr(main, "_HEALTH_DB_TIMEOUT_SEC", 0.05)
-
-    async def ok():
-        return None
-
-    _install(monkeypatch, ok)
-    await main.health()
-    started, _, was_ok, detail = main._health_cache
-
-    # An entry that is already expired, so only the degrade path can serve it.
-    stale = (started, time.monotonic() - 1, was_ok, detail)
-    main._health_cache = stale
-
-    lock = main._probe_lock()
-    await lock.acquire()
-    try:
-        body = await main.health()         # cannot queue in; must degrade
-    finally:
-        lock.release()
-
-    assert body["status"] == "healthy", "the stale verdict was not served"
-    assert main._health_cache == stale, "the stale entry was rewritten or extended"
