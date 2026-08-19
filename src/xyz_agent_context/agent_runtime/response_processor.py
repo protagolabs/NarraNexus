@@ -621,6 +621,15 @@ class ResponseProcessor:
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
+            if not item.get("tool_name") and not item.get("pending"):
+                # A completed tool call with no name persists as '' — which
+                # history_projection then DROPS (call and output both), so
+                # later turns replay without this step. That silent context
+                # loss must be observable.
+                logger.warning(
+                    f"tool_call missing tool_name (call_id={tool_call_id!r}); "
+                    "the step will be absent from history replay"
+                )
             arguments = item.get("arguments", {})
             # Name-first frame: the tool's name arrived before its
             # arguments finished streaming. Ship it so the UI can show

@@ -225,3 +225,26 @@ async def test_timeline_parallel_outputs_pair_by_call_id(db_client):
     calls = {c["tool_name"]: c["tool_output"] for c in body["tool_calls"]}
     assert calls == {"read_file": "file body", "web_search": "search results"}
 
+
+@pytest.mark.asyncio
+async def test_timeline_empty_named_call_does_not_borrow_sibling_name(db_client):
+    """A persisted call whose name is KNOWN-empty (the writer refuses to
+    invent placeholders) must keep its output unnamed — inheriting a
+    parallel sibling's name would be a confidently wrong label."""
+    await _seed_event(
+        db_client,
+        event_id="evt_emptyname",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "", "arguments": {}}},
+            {"content": {"type": "tool_call", "tool_call_id": "id2",
+                         "tool_name": "web_search", "arguments": {"q": "x"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "anon result"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_emptyname").json()
+    outputs = {e["tool_output"]: e["tool_name"] for e in body["timeline"] if e["type"] == "tool_output"}
+    assert outputs["anon result"] == ""
+

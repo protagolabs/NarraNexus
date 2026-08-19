@@ -9,7 +9,10 @@ stub: false
 - **配对按 id**:并行调用下所有 call 先于任何 output 落盘、output 按完成序
   返回,「最近前驱」会自信地贴错名字(与 response_processor 的重建同规则
   同理由)。timeline 与分组 tool_calls 两个视图都 id 优先;无 id 的存量行
-  回退位置法(timeline=最近前驱,分组=紧邻无 id output)。
+  回退位置法(timeline=最近前驱;分组=紧邻 output,带 id 的 output 只有在
+  call 自己无 id 时才允许被位置法吃掉)。`call_names` 记录**已知为空**的
+  名字并用成员判定取值(不是 or 链)——空名调用的 output 保持空,不借
+  兄弟调用的名字;test_event_log_meta 有专项用例钉住。
 - **占位符零发明**:读侧(本文件)与写侧
   (response_processor.state_update 持久化空串而非 "unknown")都不再制造
   它;前端 realName() 归一化只是**历史数据**兜底,不是长期契约。

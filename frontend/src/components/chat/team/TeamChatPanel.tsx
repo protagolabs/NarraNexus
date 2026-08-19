@@ -333,8 +333,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // The room's right side IS the single-chat right side: one shared drawer
   // (same pin/width preferences, same title switcher) hosting the team's
   // panels — members, artifacts, shared files. Which panel is open lives
-  // here; desktop starts on the roster (the standing column it replaces),
-  // phones start closed (the drawer overlays the transcript there).
+  // in drawerTab below; its default is decided there.
   const isMobile = useIsMobile();
   const {
     pinned: drawerPinned,
@@ -1324,7 +1323,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               onToggle={toggleRoster}
               accent={accent}
               onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-              className="flex h-full w-full border-l-0"
+              className="flex h-full w-full"
             />
           )}
           {(drawerTab === 'artifacts' || drawerTab === 'files') && (

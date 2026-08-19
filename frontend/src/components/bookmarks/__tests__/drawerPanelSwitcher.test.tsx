@@ -10,6 +10,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import { BookmarkDrawer } from '../BookmarkDrawer';
 import { ALL_TABS, STRIP_CATEGORIES } from '../tabs';
+import { teamDrawerCategories } from '@/components/chat/team/teamTabs';
 
 function renderDrawer(onSelectTab = vi.fn()) {
   render(
@@ -72,3 +73,29 @@ describe('drawer panel switcher', () => {
     expect(screen.queryByRole('button', { name: /switch panel/i })).toBeNull();
   });
 });
+
+describe('drawer panel switcher counts', () => {
+  it('renders live counts on entries and hides zeros', () => {
+    render(
+      <BookmarkDrawer
+        open
+        pinned
+        onPinnedChange={vi.fn()}
+        onClose={vi.fn()}
+        title="MEMBERS"
+        activeTab="members"
+        onSelectTab={vi.fn()}
+        switcherCategories={teamDrawerCategories({ members: 2, artifacts: 0, files: 3 })}
+      >
+        <div>panel body</div>
+      </BookmarkDrawer>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /switch panel/i }));
+    const filesRow = screen.getByRole('button', { name: /files/i });
+    expect(filesRow.textContent).toContain('3');
+    // count > 0 gate: a zero must not render at all.
+    const artifactsRow = screen.getByRole('button', { name: /artifacts/i });
+    expect(artifactsRow.textContent).not.toContain('0');
+  });
+});
+

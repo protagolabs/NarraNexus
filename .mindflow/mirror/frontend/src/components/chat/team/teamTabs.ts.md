@@ -7,8 +7,9 @@ stub: false
 ## 2026-08-19(二)— 注册表变 builder(带活计数)
 
 `teamDrawerCategories({members,artifacts,files})` 返回带 count 的注册表
-(共享文件的数量此前无处可见);`teamTabLabelKey` 用显式映射表,不再依赖
-「第一个 category」的下标假设。
+(共享文件的数量此前无处可见);label key 单一来源 `TAB_LABEL_KEYS`
+(builder 与 `teamTabLabelKey` 同吃,改名只动一处;Record 的穷尽性让
+加新 tab 时漏映射直接编译错)。
 
 # teamTabs — 团队房间的抽屉面板注册表
 

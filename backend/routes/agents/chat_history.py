@@ -745,7 +745,10 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                     if (
                         isinstance(next_entry, dict)
                         and next_entry.get("type") == "tool_output"
-                        and not next_entry.get("tool_call_id")
+                        # An id-carrying output is reserved for id pairing —
+                        # unless this call has no id of its own, in which
+                        # case positional adjacency is all we have.
+                        and (not next_entry.get("tool_call_id") or not call_id)
                     ):
                         tool_output = next_entry.get("output")
                         i += 1  # Skip the tool_output entry
@@ -801,7 +804,11 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 # block can render the "helper_llm fallback" badge.
                 last_tool_name = content.get("tool_name") or ""
                 call_id = content.get("tool_call_id")
-                if call_id and last_tool_name:
+                if call_id:
+                    # Record even a known-empty name: the lookup below must
+                    # distinguish "this call's name is empty" from "id not
+                    # seen", or an empty-named call's output would inherit a
+                    # SIBLING call's name through the fallback.
                     call_names[call_id] = last_tool_name
                 timeline.append(EventLogTimelineEntry(
                     type="tool_call",
@@ -811,11 +818,16 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
             elif ctype == "tool_output":
                 _flush_thinking()
-                out_name = (
-                    content.get("tool_name")
-                    or call_names.get(content.get("tool_call_id") or "")
-                    or last_tool_name
-                )
+                out_id = content.get("tool_call_id") or ""
+                if content.get("tool_name"):
+                    out_name = content.get("tool_name")
+                elif out_id in call_names:
+                    # Membership check, not an `or` chain: a known-empty
+                    # name must stay empty rather than fall through to the
+                    # nearest sibling's name.
+                    out_name = call_names[out_id]
+                else:
+                    out_name = last_tool_name
                 timeline.append(EventLogTimelineEntry(
                     type="tool_output",
                     tool_name=out_name,

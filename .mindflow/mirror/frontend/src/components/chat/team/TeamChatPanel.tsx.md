@@ -10,7 +10,10 @@ drawerTab 的一次性初始化改为 `!isMobile && pinned` 才开 members:钉�
 与单聊共享的偏好,unpin 过的用户此前会被自动弹出的 transient 抽屉+全屏
 背板吃掉进房间的第一次点击。刻意保持 initializer(非派生/非 effect)——
 房间内 unpin 不得触发面板重开。切换器注册表改传
-`teamDrawerCategories(counts)`(成员/制品/文件计数进下拉)。
+`teamDrawerCategories(counts)`(成员/制品/文件计数进下拉)。「未钉选不
+自动开」与「计数渲染/零隐藏」均有用例钉住(roster.test 的 unpinned 用例
++ drawerPanelSwitcher 的 counts 用例);roster 的 className 注入不再带
+空转的 border-l-0(组件已无自带边框)。
 
 ## 2026-08-19(二)— 与单聊同批的三处对齐
 

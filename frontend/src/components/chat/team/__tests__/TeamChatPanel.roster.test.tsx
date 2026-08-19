@@ -14,6 +14,7 @@
  */
 import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { DRAWER_PINNED_KEY } from '@/components/layout/drawerLayout';
 
 const getTeamChatMock = vi.fn();
 const getEventLogMock = vi.fn();
@@ -132,6 +133,8 @@ async function renderRoom(
 }
 
 beforeEach(() => {
+  // The drawer's pin preference is a shared persisted key; isolate cases.
+  window.localStorage.clear();
   getTeamChatMock.mockReset();
   getEventLogMock.mockReset();
   getEventLogMock.mockResolvedValue({ success: true, timeline: [] });
@@ -144,9 +147,10 @@ describe('TeamChatPanel · two-pane room', () => {
   test('renders the roster panel with every member', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    // The roster is the drawer's members panel; it opens by default on
-    // non-mobile (jsdom's matchMedia stub answers false to the max-width
-    // query, so useIsMobile is false here).
+    // The roster is the drawer's members panel; it opens by default only
+    // on non-mobile AND with the pinned preference on (the storage default
+    // — jsdom's matchMedia stub answers false to the max-width query, so
+    // useIsMobile is false, and no stored key means pinned).
     // Both members have a row — the idle one is not hidden just because it
     // has nothing in flight.
     expect(within(screen.getByTestId('roster-row-a1')).getByText('Ana')).toBeTruthy();
@@ -268,5 +272,13 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
     // And back to members via the top-bar toggle.
     fireEvent.click(screen.getAllByLabelText('chat.team.roster.title')[0]);
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
+  });
+
+  test('an unpinned preference means the drawer does NOT auto-open', async () => {
+    // Shared preference with single chat — an unpinned user must not be
+    // greeted by a transient drawer whose backdrop eats their first click.
+    window.localStorage.setItem(DRAWER_PINNED_KEY, '0');
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
   });
 });

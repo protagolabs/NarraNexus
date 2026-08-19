@@ -683,10 +683,11 @@ def _translate_codex_item(
         if not is_completed:
             # Start: emit tool_call_item with args, no output yet.
             # IMPORTANT: response_processor._handle_run_item_stream_event
-            # reads ``item.get("tool_name", "unknown")``, NOT
-            # ``item.get("name", ...)``. Using the wrong key silently
-            # records every tool call as "unknown" and the frontend
-            # filters / hides them after the run completes.
+            # reads ``item.get("tool_name", ...)``, NOT
+            # ``item.get("name", ...)``. Using the wrong key persists an
+            # EMPTY name, which history_projection then drops wholesale —
+            # the call and its output vanish from later turns' replay
+            # (a warning is logged at persist time).
             return [{
                 "type": TYPE_RUN_ITEM_STREAM_EVENT,
                 "item": tool_call_item(

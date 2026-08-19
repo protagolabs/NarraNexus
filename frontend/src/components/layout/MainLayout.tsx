@@ -37,11 +37,11 @@ import { ResizableDivider } from './ResizableDivider';
 import {
   BookmarkDrawer,
   BookmarkPanelHost,
+  STRIP_CATEGORIES,
   tabLabelKey,
   tabDescKey,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
-import { STRIP_CATEGORIES } from '@/components/bookmarks/tabs';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
