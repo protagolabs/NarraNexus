@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — timeline 不再发明 "unknown"
+
+`/event-log` 的 timeline 构建曾把缺失的 tool_name 填成字面 "unknown"——
+UI 会把它原样打在每一行 [输出] 旁(Owner 实测全是 unknown 的根因;前端的
+顺承修复被这个 truthy 占位符穿透)。现在:tool_call 记 `last_tool_name`,
+tool_output 缺名时顺承它;两处默认改空串。分组 tool_calls 提取同口径。
+测试:test_event_log_meta.py::test_timeline_tool_output_inherits_call_name
+(夹具本就是「output 无名」场景,断言响应里 0 个 unknown)。
 
 ## 2026-08-10 (PR-10) — 新增 seam 孪生端点 POST /{agent_id}/chat-history/by-instance
 

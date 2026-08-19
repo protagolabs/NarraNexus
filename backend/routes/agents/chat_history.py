@@ -720,7 +720,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         while i < len(entries_content):
             entry = entries_content[i]
             if isinstance(entry, dict) and entry.get("type") == "tool_call":
-                tool_name = entry.get("tool_name", "unknown")
+                tool_name = entry.get("tool_name") or ""
                 tool_input = entry.get("arguments", {})
 
                 # Look ahead for matching tool_output
@@ -746,6 +746,12 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         # the UI doesn't render 50 tiny italic blocks.
         timeline: List[EventLogTimelineEntry] = []
         pending_thinking: List[str] = []
+        # Stored tool_output entries usually carry no tool_name of their
+        # own; in a time-ordered log an output belongs to the nearest
+        # preceding call, so carry that name forward. Never invent a
+        # placeholder ("unknown") — the UI renders whatever arrives here
+        # next to every [output] row, and a literal word reads as a bug.
+        last_tool_name = ""
 
         def _flush_thinking():
             if pending_thinking:
@@ -769,9 +775,10 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 # Some legacy stored entries carry a reply_via tag on the
                 # send_message tool — preserve it so the historical Reply
                 # block can render the "helper_llm fallback" badge.
+                last_tool_name = content.get("tool_name") or ""
                 timeline.append(EventLogTimelineEntry(
                     type="tool_call",
-                    tool_name=content.get("tool_name", "unknown"),
+                    tool_name=last_tool_name,
                     tool_input=content.get("arguments", {}) or {},
                     reply_via=(content.get("details") or {}).get("reply_via"),
                 ))
@@ -779,7 +786,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 _flush_thinking()
                 timeline.append(EventLogTimelineEntry(
                     type="tool_output",
-                    tool_name=content.get("tool_name", "unknown"),
+                    tool_name=content.get("tool_name") or last_tool_name,
                     tool_output=content.get("output"),
                 ))
             elif ctype in ("native_output", "agent_response"):

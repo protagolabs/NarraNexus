@@ -4,6 +4,11 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 账户入口指向设置内 pane
+
+弹层 Account 项改 navigate('/app/settings?tab=account')——同一目的地,
+少一跳别名重定向。
+
 ## 2026-08-19 — 账户弹层只剩身份;工作台升一级导航
 
 - 弹层瘦身为:用户名+在线/模式/版本头、Account(NetMind 用户,去

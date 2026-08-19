@@ -24,7 +24,7 @@
  * the drawer panel). No dedicated artifact WS.
  */
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -58,29 +58,17 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAutoRefresh } from '@/hooks';
 import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
 import {
-  DEFAULT_DRAWER_PX,
   DRAWER_OPENED_ONCE_KEY,
-  DRAWER_PINNED_KEY,
-  DRAWER_WIDTH_KEY,
-  clampDrawerWidth,
   markFirstRunSeen,
-  readInitialDrawerPinned,
   shouldAutoOpenFirstRun,
 } from './drawerLayout';
+import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
 
 // Pinned bookmark drawer: user-resizable like the chat ↔ artifacts split, so
 // every column on the right side follows the same "grab the rule and drag"
-// rule instead of one of them being a hardcoded width. Sizing policy and
-// persistence keys live in drawerLayout.ts.
-
-function readInitialDrawerWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_DRAWER_PX;
-  const raw = window.localStorage.getItem(DRAWER_WIDTH_KEY);
-  if (!raw) return DEFAULT_DRAWER_PX;
-  const parsed = parseFloat(raw);
-  if (!Number.isFinite(parsed)) return DEFAULT_DRAWER_PX;
-  return clampDrawerWidth(parsed, window.innerWidth);
-}
+// rule instead of one of them being a hardcoded width. Sizing policy lives
+// in drawerLayout.ts; the React wiring is the shared usePinnedDrawer hook —
+// the team room mounts the SAME drawer with the same preferences.
 
 /** Default chat view with context panel */
 export function ChatView() {
@@ -104,10 +92,14 @@ export function ChatView() {
   const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
     () => (showDrawerCoach ? 'artifacts' : null),
   );
-  const [drawerPinned, setDrawerPinned] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    return readInitialDrawerPinned(window.localStorage);
-  });
+  const {
+    pinned: drawerPinned,
+    setPinned: setDrawerPinned,
+    effectiveWidth: effectiveDrawerWidth,
+    colRef: drawerColRef,
+    handleResize: handleDrawerResize,
+    handleResizeEnd: handleDrawerResizeEnd,
+  } = usePinnedDrawer();
   const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
   useBookmarkSignals(agentId);
@@ -141,74 +133,12 @@ export function ChatView() {
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);
     setShowDrawerCoach(false);
-    try {
-      window.localStorage.setItem(DRAWER_PINNED_KEY, pinned ? '1' : '0');
-    } catch { /* non-fatal */ }
   };
 
 
   const loadPinned = useArtifactStore((s) => s.loadPinned);
   const artifactsLength = useArtifactStore((s) => s.artifacts.length);
 
-  // Pinned-drawer width — two-phase drag (imperative during, committed +
-  // persisted on release). No iframe lives in the drawer, so there is
-  // nothing to freeze here.
-  const [drawerWidth, setDrawerWidth] = useState<number>(() => readInitialDrawerWidth());
-  // The width CAP is viewport-relative, so a window shrink (unplugging a
-  // monitor) must re-clamp at render time. The STORED width keeps the
-  // user's chosen value — clamping state here would let one visit to the
-  // laptop screen permanently overwrite a deliberate big-screen width.
-  const [viewportW, setViewportW] = useState<number>(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 1920,
-  );
-  useEffect(() => {
-    // rAF-coalesced: raw resize fires at ~60Hz and a setState per event
-    // would reconcile the whole ChatView subtree every frame of a window
-    // drag. A debounce would be wrong here — late clamping is exactly the
-    // overflow this state exists to prevent.
-    let raf = 0;
-    const onResize = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setViewportW(window.innerWidth));
-    };
-    window.addEventListener('resize', onResize);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
-    };
-  }, []);
-  const effectiveDrawerWidth = clampDrawerWidth(drawerWidth, viewportW);
-  const drawerColRef = useRef<HTMLDivElement | null>(null);
-  const pendingDrawerWidthRef = useRef<number>(drawerWidth);
-
-  // Pinned-drawer drag. Width grows leftward from the drawer's own right
-  // edge, so the edge stays put while the chat column absorbs the change.
-  const computeDrawerWidth = useCallback((clientX: number): number | null => {
-    const el = drawerColRef.current;
-    if (!el) return null;
-    const right = el.getBoundingClientRect().right;
-    return clampDrawerWidth(right - clientX, window.innerWidth);
-  }, []);
-
-  const handleDrawerResize = useCallback((clientX: number) => {
-    const el = drawerColRef.current;
-    const width = computeDrawerWidth(clientX);
-    if (!el || width === null) return;
-    pendingDrawerWidthRef.current = width;
-    el.style.width = `${width}px`;
-  }, [computeDrawerWidth]);
-
-  const handleDrawerResizeEnd = useCallback((clientX: number) => {
-    const width = computeDrawerWidth(clientX);
-    if (width !== null) pendingDrawerWidthRef.current = width;
-    setDrawerWidth(pendingDrawerWidthRef.current);
-    // Persist HERE, on the explicit release, and nowhere else: the stored
-    // width doubles as an "existing user" signal for the first-run coach,
-    // so it must mean "the user chose a width", not "a ChatView mounted".
-    try {
-      window.localStorage.setItem(DRAWER_WIDTH_KEY, String(pendingDrawerWidthRef.current));
-    } catch { /* non-fatal */ }
-  }, [computeDrawerWidth]);
 
   // Load pinned artifacts whenever agentId changes — even with the side
   // column retired, the header badge count and the drawer panel both read
@@ -283,7 +213,7 @@ export function ChatView() {
       {agentId && (
         <BookmarkDrawer
           open={drawerTab !== null}
-          pinned={drawerPinned}
+          pinned={drawerPinned && !isMobile}
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
@@ -304,8 +234,8 @@ export function ChatView() {
           inset={!isMobile}
           insetWidth={
             drawerTab === 'artifacts'
-              ? 'min(max(440px, 50vw), calc(100vw - 672px))'
-              : 440
+              ? 'min(max(440px, 50vw), max(320px, calc(100vw - 672px)))'
+              : 'min(440px, max(320px, calc(100vw - 672px)))'
           }
           columnRef={drawerColRef}
         >

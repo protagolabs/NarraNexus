@@ -565,9 +565,9 @@ function App() {
           <Route path="you" element={<YouWorkspace />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          {/* User settings (account / billing / subscription) — reached from
-              the sidebar account popover; Settings redirects its legacy
-              ?tab=account deep link (Stripe return) here. */}
+          {/* Legacy alias: the account surface lives inside Settings
+              (?tab=account, left nav intact). This route only forwards old
+              links there with the query preserved. */}
           <Route path="account" element={<AccountPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />

@@ -174,3 +174,20 @@ async def test_meta_input_text_is_capped(db_client):
     body = client.get("/api/agents/agent_a/event-log/evt_big").json()
 
     assert len(body["meta"]["input_text"]) <= 4000
+
+
+@pytest.mark.asyncio
+async def test_timeline_tool_output_inherits_call_name(db_client):
+    """Stored tool_output entries carry no tool_name; the timeline must give
+    them the preceding call's name — never a literal placeholder. A reverted
+    fix shows "[output] unknown" on every row of the disclosure."""
+    await _seed_event(db_client, event_id="evt_names")
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_names").json()
+
+    assert body["success"] is True
+    timeline = body["timeline"]
+    outputs = [e for e in timeline if e["type"] == "tool_output"]
+    assert outputs and outputs[0]["tool_name"] == "web_search"
+    assert "unknown" not in json.dumps(timeline)
+

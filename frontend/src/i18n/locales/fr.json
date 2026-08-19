@@ -191,7 +191,6 @@
       "today": "Aujourd’hui",
       "agentPaused": "Cet agent est en pause ({{reason}}). Utilisez « Reprendre » dans la bannière ci-dessus une fois la cause levée.",
       "workspace": {
-        "close": "Fermer le panneau d'espace de travail",
         "zoom": "Agrandir l'artefact",
         "emptyArtifacts": "Sélectionnez un artefact pour l'afficher ici.",
         "emptyFiles": "Les fichiers se téléchargent directement — cliquez sur l'un à gauche.",
@@ -201,7 +200,8 @@
         "filesHint": "Les fichiers partagés avec team_share_file apparaissent ici.",
         "download": "Télécharger {{name}}",
         "loading": "Chargement…"
-      }
+      },
+      "drawerCategory": "Salle d'équipe"
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",

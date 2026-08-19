@@ -339,7 +339,7 @@ export function Sidebar() {
               <AccountItem
                 icon={<User className="w-3.5 h-3.5" />}
                 label={t('sidebar.account')}
-                onClick={() => accountNavigate('/app/account')}
+                onClick={() => accountNavigate('/app/settings?tab=account')}
               />
             )}
             {isMobile && (

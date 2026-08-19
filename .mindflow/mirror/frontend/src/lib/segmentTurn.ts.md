@@ -4,6 +4,12 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19（二)— 字面 'unknown' 视同缺失
+
+旧后端在 API 层把缺名填成 "unknown"(truthy,穿透顺承)。`realName()`
+归一化:'unknown' 与空同待遇,一样继承前一调用名。配套后端已治根
+(chat_history.py 不再发明占位符),此处是对旧数据面/旧后端的兼容层。
+
 ## 2026-08-19 — tool_output 承接调用名 + 转换唯一化
 
 - `lastToolName` 顺承:存储态 tool_output 无名时继承最近一次 tool_call,

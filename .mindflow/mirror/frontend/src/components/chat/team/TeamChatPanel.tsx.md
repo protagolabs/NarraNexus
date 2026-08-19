@@ -4,6 +4,24 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(二)— 与单聊同批的三处对齐
+
+`pinned && !isMobile`(手机不钉)、inset 宽度 320px 地板、Users2 按钮
+去掉 ml-auto 归入右组;断点单一来源(useIsMobile,初始化直接用它,
+删掉平行的 matchMedia 查询)。抽屉面板切换测试:roster.test 新用例
+(标题下拉 members→artifacts→顶栏切回)。
+
+## 2026-08-19 — 右侧统一为共享抽屉(成员/制品/文件)
+
+站立 roster 列、移动端 roster overlay、workspace 面板三套挂载合并为
+**一个 [[../../bookmarks/BookmarkDrawer]]**:[[teamTabs]] 三面板、
+[[../../../hooks/usePinnedDrawer]] 共享钉选/宽度偏好、标题下拉切换、
+ResizableDivider 拖宽——与单聊右栏同一实现与语义(钉=常驻列,
+非钉=桌面 in-flow 透明/手机 overlay)。桌面初始开 members(对齐旧站立
+roster),手机初始关。顶栏按钮:Users2 toggle members(全视口)、
+Artifacts toggle artifacts;chip 点击开 artifacts 并选中。
+之前 xl 断点的自定宽度方案随之删除(抽屉自带 reserve 策略)。
+
 ## 2026-08-19 — 推理披露上移 + workspace 改 in-flow
 
 - renderHeader 新增:agent 消息的 [[TeamMessageProcess]] 走气泡顶部插槽

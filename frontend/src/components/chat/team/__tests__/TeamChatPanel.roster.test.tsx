@@ -144,8 +144,11 @@ describe('TeamChatPanel · two-pane room', () => {
   test('renders the roster panel with every member', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    // Both members have a standing row — the idle one is not hidden just
-    // because it has nothing in flight.
+    // The roster is the drawer's members panel; it opens by default on
+    // non-mobile (jsdom's matchMedia stub answers false to the max-width
+    // query, so useIsMobile is false here).
+    // Both members have a row — the idle one is not hidden just because it
+    // has nothing in flight.
     expect(within(screen.getByTestId('roster-row-a1')).getByText('Ana')).toBeTruthy();
     expect(within(screen.getByTestId('roster-row-a2')).getByText('Bruno')).toBeTruthy();
   });
@@ -252,5 +255,18 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
     fireEvent.click(screen.getByText('chat.message.viewReasoning'));
     expect(await screen.findByText('weighing options')).toBeTruthy();
     expect(getEventLogMock).toHaveBeenCalledWith('a2', 'evt_9');
+  });
+
+  test('the drawer switches panels: members → artifacts via the title dropdown', async () => {
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    // Open the title switcher and pick Artifacts.
+    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    fireEvent.click(screen.getByRole('button', { name: /chat.team.workspace.tabArtifacts/ }));
+    // The members rows are gone; the artifacts panel's empty state shows.
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+    expect(screen.getByText('chat.team.workspace.artifactsHint')).toBeTruthy();
+    // And back to members via the top-bar toggle.
+    fireEvent.click(screen.getAllByLabelText('chat.team.roster.title')[0]);
+    expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
   });
 });

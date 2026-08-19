@@ -5,19 +5,23 @@
  * App-scoped settings only (Chat UI v4): providers, model defaults,
  * artifacts, desktop updates. Account/billing/subscription moved to the
  * user-scoped /app/account page (sidebar account popover); bundle
- * import/export entries live in the sidebar's New menu + Export row.
+ * import/export entries live in the sidebar's New menu + Export row. The
+ * Account pane (account / billing / subscription) lives HERE — the left
+ * nav stays visible on every pane, and /app/account survives only as a
+ * redirect alias for old links.
  * Each section is headed with a BracketSectionLabel so the page reads as
  * a stack of NM-bracketed regions instead of plain `<h2>` headings.
  */
 
 import { useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
+import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
@@ -220,23 +224,19 @@ function ProvidersSection() {
   );
 }
 
-// Left-nav items (master). Each maps to one content panel (detail), except
-// ``href`` items which navigate to their own page — the Account surface is
-// user-scoped (/app/account) but must stay reachable from Settings, since
-// Settings is the single "where do I configure things" front door.
-// ``desktopOnly`` items (App updates) only appear in the Tauri build;
-// ``powerOnly`` items only for NetMind-authenticated users.
+// Left-nav items (master). Each maps to one content panel (detail) — the
+// left nav stays visible whichever pane is open, Account included: losing
+// the tab list on one entry made Settings feel like it navigated away.
+// ``desktopOnly`` items (App updates) only appear in the Tauri build.
 interface NavItem {
   id: string;
   labelKey: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
-  powerOnly?: boolean;
-  href?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, powerOnly: true, href: '/app/account' },
+  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
@@ -247,11 +247,8 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function SettingsPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const netmindToken = useConfigStore((s) => s.netmindToken);
-  const items = NAV_ITEMS.filter(
-    (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || Boolean(netmindToken)),
-  );
+  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
   // payer to /app/settings?tab=account&status=… after checkout (see
@@ -259,20 +256,13 @@ export default function SettingsPage() {
   // whatever pane happens to be first and read that as "my payment went
   // nowhere". Only the FIRST render honors the URL: afterwards the user's clicks
   // own the selection, so a stale query param can't fight them. An unknown id,
-  // or one this session cannot see (powerOnly / desktopOnly filtered it out),
+  // or one this session cannot see (desktopOnly filtered it out),
   // falls back to the first visible item rather than opening an empty pane.
   const [active, setActive] = useState(() => {
     const requested = searchParams.get('tab');
-    if (requested && items.some((it) => it.id === requested && !it.href)) return requested;
-    return items.find((it) => !it.href)?.id ?? 'providers';
+    if (requested && items.some((it) => it.id === requested)) return requested;
+    return items.find((it) => it.id !== 'account')?.id ?? 'providers';
   });
-
-  // Account moved to the user-scoped /app/account page; Stripe still returns
-  // payers to /app/settings?tab=account&status=… (backend billing.py), so
-  // forward that deep link with the whole query preserved.
-  if (searchParams.get('tab') === 'account') {
-    return <Navigate to={`/app/account?${searchParams.toString()}`} replace />;
-  }
 
   return (
     <div className="h-full flex flex-col">
@@ -298,7 +288,7 @@ export default function SettingsPage() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => (item.href ? navigate(item.href) : setActive(item.id))}
+                onClick={() => setActive(item.id)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors ${
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
@@ -315,6 +305,23 @@ export default function SettingsPage() {
         {/* Content (detail) */}
         <ScrollArea className="flex-1" viewportClassName="p-6">
           <div className="max-w-3xl mx-auto">
+            {active === 'account' && (
+              <section>
+                <SectionHeader label={t('pages.settings.nav.account')} />
+                {/* The user-scoped account/billing/subscription surface —
+                    Stripe returns payers to ?tab=account (billing.py), which
+                    lands here with the nav intact. The panel self-gates to
+                    null without a NetMind session, so the hint keeps this
+                    pane from reading as blank. */}
+                {netmindToken ? (
+                  <NetmindAccountPanel />
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+                    {t('pages.account.powerOnlyHint')}
+                  </p>
+                )}
+              </section>
+            )}
             {active === 'personalization' && (
               <section>
                 <SectionHeader

@@ -191,7 +191,6 @@
       "today": "Heute",
       "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist.",
       "workspace": {
-        "close": "Workspace-Panel schließen",
         "zoom": "Artefakt zoomen",
         "emptyArtifacts": "Wähle ein Artefakt aus, um es hier anzuzeigen.",
         "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine.",
@@ -201,7 +200,8 @@
         "filesHint": "Mit team_share_file geteilte Dateien erscheinen hier.",
         "download": "{{name}} herunterladen",
         "loading": "Lädt…"
-      }
+      },
+      "drawerCategory": "Team-Raum"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",

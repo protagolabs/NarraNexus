@@ -246,7 +246,6 @@
       "uploadFailedGeneric": "Could not upload the file.",
       "loadingOlder": "Loading older messages…",
       "workspace": {
-        "close": "Close workspace panel",
         "zoom": "Zoom artifact",
         "emptyArtifacts": "Select an artifact to view it here.",
         "emptyFiles": "Files download directly — click one on the left.",
@@ -256,7 +255,8 @@
         "filesHint": "Files shared with team_share_file appear here.",
         "download": "Download {{name}}",
         "loading": "Loading…"
-      }
+      },
+      "drawerCategory": "Team room"
     },
     "execution": {
       "showSteps": "Show execution steps",

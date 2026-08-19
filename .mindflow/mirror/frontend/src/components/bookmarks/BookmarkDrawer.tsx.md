@@ -4,6 +4,18 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(二)— 切换器泛型化 `<T extends string>`
+
+activeTab/onSelectTab/switcherCategories 以 T 贯通,两个调用方
+(AtomicTabId/TeamTabId)恢复端到端类型检查,as 断言删除;默认
+STRIP_CATEGORIES 经一次内部断言桥接。
+
+## 2026-08-19 — 切换器注册表可注入(switcherCategories)
+
+标题下拉的面板清单从写死 STRIP_CATEGORIES 变为 prop(默认仍是它);
+activeTab/onSelectTab 放宽为 string。团队房间以同一抽屉挂自己的
+成员/制品/文件三面板([[../chat/team/teamTabs]]),机制零分叉。
+
 ## 2026-08-19 — 标题变面板切换器 + banner 插槽
 
 - 新可选 props `activeTab`/`onSelectTab`:传入时头部标题变成下拉——列出
