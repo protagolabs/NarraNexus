@@ -2082,7 +2082,12 @@
       "delete": "削除",
       "color": "文字色",
       "opFailed": "編集に失敗しました。",
-      "lockNotice": "デスクトップの Office で開かれています — 直接編集は一時停止中。"
+      "lockNotice": "デスクトップの Office で開かれています — 直接編集は一時停止中。",
+      "moveUp": "上へ",
+      "moveDown": "下へ",
+      "addRow": "+ 行",
+      "addCol": "+ 列",
+      "replaceImage": "画像を置換"
     }
   },
   "skills": {

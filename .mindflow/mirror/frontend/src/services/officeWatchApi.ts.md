@@ -36,3 +36,5 @@ stub: false
 
 watch server 双层包裹(外层 {success,message},message 才是真结果
 JSON)——解析集中在这里,别在组件里再拆一遍。
+
+## 2026-08-19(二)— uploadAsset(office-asset multipart)

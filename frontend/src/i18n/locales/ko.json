@@ -2082,7 +2082,12 @@
       "delete": "삭제",
       "color": "글자 색",
       "opFailed": "편집 실패.",
-      "lockNotice": "데스크톱 Office에서 열려 있음 — 직접 편집이 일시 중지되었습니다."
+      "lockNotice": "데스크톱 Office에서 열려 있음 — 직접 편집이 일시 중지되었습니다.",
+      "moveUp": "위로",
+      "moveDown": "아래로",
+      "addRow": "+ 행",
+      "addCol": "+ 열",
+      "replaceImage": "이미지 교체"
     }
   },
   "skills": {

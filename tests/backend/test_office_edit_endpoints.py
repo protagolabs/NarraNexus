@@ -184,3 +184,40 @@ def test_commit_rejects_non_office_kind(commit_env, tmp_path):
         "/api/agents/agent_x/artifacts/art_mdxx0001/office-edit-commit"
     )
     assert r.status_code == 400
+
+
+# ── office-asset upload (T2 image replace) ───────────────────────────────────
+
+
+def test_asset_upload_lands_next_to_entry(commit_env):
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
+        files={"file": ("logo.png", b"\x89PNG fake bytes", "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # absolute server path, inside the entry's directory, name randomized
+    assert body["path"].startswith(str(commit_env["entry"].parent))
+    assert body["path"].endswith(".png")
+    assert "logo" in body["path"]
+    import pathlib
+    assert pathlib.Path(body["path"]).read_bytes() == b"\x89PNG fake bytes"
+
+
+def test_asset_upload_sanitizes_hostile_filename(commit_env):
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
+        files={"file": ("../../escape.png", b"x", "image/png")},
+    )
+    assert r.status_code == 200
+    import pathlib
+    p = pathlib.Path(r.json()["path"])
+    assert p.parent == commit_env["entry"].parent  # never escapes the entry dir
+
+
+def test_asset_upload_rejects_non_office_artifact(commit_env):
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_mdxx0001/office-asset",
+        files={"file": ("x.png", b"x", "image/png")},
+    )
+    assert r.status_code in (400, 404)

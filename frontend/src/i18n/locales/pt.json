@@ -2083,7 +2083,12 @@
       "delete": "Excluir",
       "color": "Cor do texto",
       "opFailed": "Falha na edição.",
-      "lockNotice": "Aberto em um app Office de desktop — edições diretas pausadas."
+      "lockNotice": "Aberto em um app Office de desktop — edições diretas pausadas.",
+      "moveUp": "Mover para cima",
+      "moveDown": "Mover para baixo",
+      "addRow": "+ Linha",
+      "addCol": "+ Coluna",
+      "replaceImage": "Substituir imagem"
     }
   },
   "skills": {

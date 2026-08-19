@@ -192,3 +192,10 @@ session 鉴权(view-token 永远只读);409 的 detail 是结构化
 ## 2026-08-19(二)— POST /{aid}/office-edit-commit
 
 watch 页用户编辑的登记提交(hash/history user_edited/事件),幂等。
+
+## 2026-08-19(三)— POST /{aid}/office-asset
+
+T2 图片替换的落盘半步:multipart 存 entry 同目录,文件名=随机前缀+
+净化 basename(带路径分隔/点串的敌意名进不来目录外),10MB 封顶,
+返回绝对路径供 `set src=` 用——watch server 与 entry 同一文件系统
+(本地同机;云端 executor 路径一致性在手动清单)。

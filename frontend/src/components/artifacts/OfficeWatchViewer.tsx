@@ -37,10 +37,17 @@ import { useTranslation } from 'react-i18next';
 import { isTauri } from '@/lib/tauri';
 import { officeWatchApi } from '@/services/officeWatchApi';
 import {
+  buildAddCommand,
+  buildMoveCommand,
   buildRemoveCommands,
+  buildSetFormulaCommand,
   buildSetPropsCommands,
+  buildSetSrcCommand,
   buildSetTextCommand,
+  cellFromPath,
+  isPicturePath,
   parseSelectionMessage,
+  slideIndexFromPath,
 } from '@/lib/officeEditCommands';
 import type { Artifact } from '@/types/artifact';
 
@@ -233,6 +240,32 @@ export default function OfficeWatchViewer({ artifact }: Props) {
     setEditText(el?.text ?? '');
   };
 
+  // '=' in a CELL is a formula (verified prop, T2); everywhere else it is text.
+  const buildCellValueCommand = (path: string, value: string) =>
+    value.startsWith('=') && cellFromPath(path)
+      ? buildSetFormulaCommand(path, value)
+      : buildSetTextCommand(path, value);
+
+  const soleSlide = selection.length === 1 ? slideIndexFromPath(selection[0]) : null;
+  const soleCell = selection.length === 1 ? cellFromPath(selection[0]) : null;
+  const solePicture = selection.length === 1 && isPicturePath(selection[0]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const replaceImage = async (file: File) => {
+    setEditBusy(true);
+    setEditNotice(null);
+    try {
+      const path = await officeWatchApi.uploadAsset(
+        artifact.agent_id, artifact.artifact_id, file,
+      );
+      setEditBusy(false);
+      await runEdit([buildSetSrcCommand(selection[0], path)]);
+    } catch (e) {
+      setEditNotice(String(e));
+      setEditBusy(false);
+    }
+  };
+
   const editBar = selection.length > 0 && src && !error && (
     <div className="flex items-center gap-2 border-b border-[var(--border-default)] px-3 py-1.5 text-xs shrink-0 flex-wrap">
       <span className="opacity-60">
@@ -255,13 +288,13 @@ export default function OfficeWatchViewer({ artifact }: Props) {
             className="flex-1 min-w-[10rem] border border-[var(--border-default)] bg-transparent px-2 py-0.5"
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void runEdit([buildSetTextCommand(selection[0], editText)]);
+              if (e.key === 'Enter') void runEdit([buildCellValueCommand(selection[0], editText)]);
               if (e.key === 'Escape') setEditText(null);
             }}
           />
           <button
             disabled={editBusy}
-            onClick={() => void runEdit([buildSetTextCommand(selection[0], editText)])}
+            onClick={() => void runEdit([buildCellValueCommand(selection[0], editText)])}
             className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
           >
             {t('artifacts.officeEdit.apply', { defaultValue: 'Apply' })}
@@ -312,6 +345,64 @@ export default function OfficeWatchViewer({ artifact }: Props) {
               }
             />
           </label>
+          {soleSlide !== null && (
+            <>
+              <button
+                disabled={editBusy || soleSlide <= 1}
+                onClick={() => void runEdit([buildMoveCommand(selection[0], soleSlide - 2)])}
+                className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
+              >
+                {t('artifacts.officeEdit.moveUp', { defaultValue: 'Move up' })}
+              </button>
+              <button
+                disabled={editBusy}
+                onClick={() => void runEdit([buildMoveCommand(selection[0], soleSlide)])}
+                className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
+              >
+                {t('artifacts.officeEdit.moveDown', { defaultValue: 'Move down' })}
+              </button>
+            </>
+          )}
+          {soleCell !== null && (
+            <>
+              <button
+                disabled={editBusy}
+                onClick={() => void runEdit([buildAddCommand(soleCell.sheet, 'row', soleCell.row)])}
+                className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
+              >
+                {t('artifacts.officeEdit.addRow', { defaultValue: '+ Row' })}
+              </button>
+              <button
+                disabled={editBusy}
+                onClick={() => void runEdit([buildAddCommand(soleCell.sheet, 'column')])}
+                className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
+              >
+                {t('artifacts.officeEdit.addCol', { defaultValue: '+ Column' })}
+              </button>
+            </>
+          )}
+          {solePicture && (
+            <>
+              <button
+                disabled={editBusy}
+                onClick={() => imageInputRef.current?.click()}
+                className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40"
+              >
+                {t('artifacts.officeEdit.replaceImage', { defaultValue: 'Replace image' })}
+              </button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (f) void replaceImage(f);
+                }}
+              />
+            </>
+          )}
           <button
             disabled={editBusy}
             onClick={() => void runEdit(buildRemoveCommands(selection))}

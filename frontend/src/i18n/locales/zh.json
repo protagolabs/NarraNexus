@@ -2481,7 +2481,12 @@
       "delete": "删除",
       "color": "文字颜色",
       "opFailed": "编辑失败。",
-      "lockNotice": "文件正在桌面 Office 中打开——直接编辑已暂停。"
+      "lockNotice": "文件正在桌面 Office 中打开——直接编辑已暂停。",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "addRow": "+ 行",
+      "addCol": "+ 列",
+      "replaceImage": "替换图片"
     }
   },
   "skills": {

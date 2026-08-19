@@ -56,3 +56,58 @@ describe('parseSelectionMessage', () => {
     expect(parseSelectionMessage('{"paths":"nope"}')).toEqual([]);
   });
 });
+
+describe('T2 builders and path classifiers', () => {
+  it('slide move command', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.buildMoveCommand('/slide[3]', 1)).toEqual({
+      command: 'move', path: '/slide[3]', index: 1,
+    });
+  });
+
+  it('add row/column commands carry parent and optional index', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.buildAddCommand('/Sheet1', 'row', 2)).toEqual({
+      command: 'add', parent: '/Sheet1', type: 'row', index: 2,
+    });
+    expect(m.buildAddCommand('/Sheet1', 'column')).toEqual({
+      command: 'add', parent: '/Sheet1', type: 'column',
+    });
+  });
+
+  it('formula set uses the formula prop', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.buildSetFormulaCommand('/Sheet1/B2', '=SUM(A1:A9)')).toEqual({
+      command: 'set', path: '/Sheet1/B2', props: { formula: '=SUM(A1:A9)' },
+    });
+  });
+
+  it('image src replace', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.buildSetSrcCommand('/slide[1]/pic[2]', '/abs/new.png')).toEqual({
+      command: 'set', path: '/slide[1]/pic[2]', props: { src: '/abs/new.png' },
+    });
+  });
+
+  it('classifies slide paths', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.slideIndexFromPath('/slide[3]')).toBe(3);
+    expect(m.slideIndexFromPath('/slide[3]/sp[1]')).toBeNull();
+    expect(m.slideIndexFromPath('/body/p[1]')).toBeNull();
+  });
+
+  it('classifies cell paths into sheet + row', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.cellFromPath('/Sheet1/B12')).toEqual({ sheet: '/Sheet1', row: 12 });
+    expect(m.cellFromPath('/Q3 数据/AA3')).toEqual({ sheet: '/Q3 数据', row: 3 });
+    expect(m.cellFromPath('/slide[1]/pic[1]')).toBeNull();
+    expect(m.cellFromPath('/body/p[2]')).toBeNull();
+  });
+
+  it('classifies picture paths', async () => {
+    const m = await import('../officeEditCommands');
+    expect(m.isPicturePath('/slide[1]/pic[2]')).toBe(true);
+    expect(m.isPicturePath('/slide[1]/picture[@id=100001]')).toBe(true);
+    expect(m.isPicturePath('/slide[1]/sp[1]')).toBe(false);
+  });
+});

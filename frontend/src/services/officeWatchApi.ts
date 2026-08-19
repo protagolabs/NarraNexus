@@ -92,6 +92,19 @@ export const officeWatchApi = {
     }
   },
 
+  /** Land an image next to the office entry for a T2 replace; returns the
+   * absolute server path `set … src=` resolves against. */
+  async uploadAsset(agentId: string, artifactId: string, file: File): Promise<string> {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await fetch(
+      `${getApiBaseUrl()}/api/agents/${agentId}/artifacts/${artifactId}/office-asset`,
+      { method: 'POST', headers: authHeaders(), body: form },
+    );
+    if (!r.ok) throw new Error(`office-asset upload failed: ${r.status}`);
+    return ((await r.json()) as { path: string }).path;
+  },
+
   /** Turn an applied watch edit into a registry commit point (spec B §3.2). */
   async commitEdit(agentId: string, artifactId: string): Promise<void> {
     const r = await fetch(

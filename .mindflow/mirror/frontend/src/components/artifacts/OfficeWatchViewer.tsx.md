@@ -75,3 +75,10 @@ officeWatchApi.sendBatch 走 proxy POST 白名单,成功后 commitEdit
 officewatch:// 变体;DMG 上 https://tauri.localhost→http://localhost
 的 fetch 可能被 WKWebView 混合内容拦——桌面路径待手动验证,拦了则
 编辑静默不可用(选区消息仍到,op 失败提示),IPC 化是后续项。
+
+## 2026-08-19(二)— T2 按钮
+
+单选分派:整页 slide→上移/下移(move,1 基→0 基换算,index=N-2/N);
+单元格→+行(index=行号,插当前行后)/+列(追加);图片→替换(uploadAsset
+落 entry 同目录取绝对路径→set src);编辑框里 '=' 开头且是单元格→
+formula prop 而非 text。全部走同一 runEdit(batch→commit)管线。

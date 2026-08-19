@@ -2083,7 +2083,12 @@
       "delete": "Eliminar",
       "color": "Color del texto",
       "opFailed": "Error al editar.",
-      "lockNotice": "Abierto en una app de Office de escritorio: edición directa en pausa."
+      "lockNotice": "Abierto en una app de Office de escritorio: edición directa en pausa.",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "addRow": "+ Fila",
+      "addCol": "+ Columna",
+      "replaceImage": "Reemplazar imagen"
     }
   },
   "skills": {

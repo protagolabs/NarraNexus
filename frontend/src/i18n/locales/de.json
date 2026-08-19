@@ -2083,7 +2083,12 @@
       "delete": "Löschen",
       "color": "Textfarbe",
       "opFailed": "Bearbeitung fehlgeschlagen.",
-      "lockNotice": "In einer Desktop-Office-App geöffnet — direkte Bearbeitung pausiert."
+      "lockNotice": "In einer Desktop-Office-App geöffnet — direkte Bearbeitung pausiert.",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "addRow": "+ Zeile",
+      "addCol": "+ Spalte",
+      "replaceImage": "Bild ersetzen"
     }
   },
   "skills": {

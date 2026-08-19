@@ -2083,7 +2083,12 @@
       "delete": "Supprimer",
       "color": "Couleur du texte",
       "opFailed": "Échec de la modification.",
-      "lockNotice": "Ouvert dans une application Office de bureau — modifications directes en pause."
+      "lockNotice": "Ouvert dans une application Office de bureau — modifications directes en pause.",
+      "moveUp": "Monter",
+      "moveDown": "Descendre",
+      "addRow": "+ Ligne",
+      "addCol": "+ Colonne",
+      "replaceImage": "Remplacer l'image"
     }
   },
   "skills": {

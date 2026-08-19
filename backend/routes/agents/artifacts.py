@@ -29,9 +29,12 @@ via the workspace section in the config panel.
 
 from __future__ import annotations
 
+import os
+import re
+import uuid
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -406,6 +409,48 @@ async def office_edit_commit(request: Request, agent_id: str, artifact_id: str):
         )
     except ArtifactError as e:
         raise HTTPException(status_code=e.code, detail=str(e))
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/office-asset")
+async def upload_office_asset(
+    request: Request, agent_id: str, artifact_id: str, file: UploadFile
+):
+    """
+    Land an asset (an image for a T2 replace) next to an office artifact's
+    entry file and return its absolute server path — the watch server resolves
+    `set … src=<path>` against ITS filesystem, which is the same one the
+    entry lives on.
+
+    The filename is reduced to a sanitized basename with a random prefix: the
+    upload can never escape the entry's directory or overwrite the document.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    repo = ArtifactRepository(db)
+    art = await _get_owned_artifact(repo, agent_id, artifact_id)
+    if art.kind != "application/vnd.officecli-live":
+        raise HTTPException(400, "office-asset only applies to office artifacts")
+    if not art.file_path:
+        raise HTTPException(410, "artifact has no entry file")
+
+    from xyz_agent_context.settings import settings as _settings
+
+    entry_dir = os.path.dirname(os.path.join(_settings.base_working_path, art.file_path))
+    if not os.path.isdir(entry_dir):
+        raise HTTPException(410, "entry directory is gone")
+
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(413, "asset too large (10 MB max)")
+
+    # basename only, path separators and dot-runs stripped — a hostile
+    # filename must not navigate anywhere.
+    raw_name = os.path.basename(file.filename or "asset")
+    safe = re.sub(r"[^A-Za-z0-9._\-一-鿿]", "_", raw_name).lstrip(".") or "asset"
+    dest = os.path.join(entry_dir, f"{uuid.uuid4().hex[:8]}_{safe}")
+    with open(dest, "wb") as f:
+        f.write(data)
+    return {"path": dest}
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
