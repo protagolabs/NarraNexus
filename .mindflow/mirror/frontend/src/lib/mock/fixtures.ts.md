@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/mock/fixtures.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `mockCostSummary.by_model` 改回后端真实契约
+
+原来的 key 是三个真实模型 id（`claude-sonnet-4.6` 等），而
+`GET /api/agents/{id}/costs` **从不返回模型 id** —— 它按 `call_type` 折成
+`__main_model__` / `__helper_model__` 两桶（正本见 [[tokenFormat.ts]]）。
+
+这不只是"数据不准"。同一周里，[[NarraUsageSection.tsx]] 的作者正是照着一个编造的
+形状写渲染代码，把裸 `__main_model__` 打到了真实账户页上。**mock 往往是新人最先
+看到的那个"契约"**，让它继续编造，就是把同一个坑留在最显眼的位置。
+
+两桶的分项数值仍与 `total_*` 合计精确对齐（改 key 时一并核过）。
 
 # mock/fixtures.ts — demo / 离线模式的静态数据集
 

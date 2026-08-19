@@ -63,6 +63,7 @@ import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
 import { NetmindProPurchase } from './NetmindProPurchase';
 import { NetmindReturnNotice } from './NetmindReturnNotice';
+import { NarraUsageSection } from './NarraUsageSection';
 import { useNetmindPaymentReturn } from './useNetmindPaymentReturn';
 
 type PanelState =
@@ -928,6 +929,14 @@ export function NetmindAccountPanel() {
             ? t('settings.netmind.balanceUsable', 'Current usable balance')
             : t('settings.netmind.currentBalance', 'Current balance')}
       </div>
+      {/* The hero is the number people watch move, so the "which wallet is
+          this" caveat belongs ON it, not in a footnote. Any NetMind product on
+          this account draws it down — that is the whole confusion this line
+          exists to pre-empt. */}
+      <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+        {t('settings.netmind.balanceScope',
+          'NetMind account balance — anything you run on this NetMind account draws it down, including outside NarraNexus.')}
+      </div>
     </div>
   ) : null;
 
@@ -1008,8 +1017,13 @@ export function NetmindAccountPanel() {
       {/* Header — product brand only (plan badge moved into the plan row) */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>
+        {/* Names the SCOPE, not just the product. Everything below comes from
+            NetMind's finance domain, which is per-ACCOUNT: the old subtitle
+            ("used for your LLM API usage") let a balance drop caused by another
+            NetMind product read as NarraNexus usage. */}
         <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-          {t('settings.netmind.subtitle', 'Power plan & credits · used for your LLM API usage')}
+          {t('settings.netmind.subtitle',
+            'Your NetMind.AI account · plan & credits shared by every NetMind product, not only NarraNexus')}
         </p>
       </div>
 
@@ -1075,7 +1089,7 @@ export function NetmindAccountPanel() {
             </div>
           )}
 
-          {/* 3 · action zone (plan × runway) */}
+          {/* 4 · action zone (plan × runway) */}
           <NetmindActionZone
             state={state}
             runway={runway}
@@ -1100,7 +1114,14 @@ export function NetmindAccountPanel() {
           )}
           {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
-          {/* 4 · recent activity — collapsed by default, settled ledger only.
+          {/* 5 · what NarraNexus itself consumed. Sits directly above the
+              NetMind account ledger because the two answer adjacent questions
+              and are constantly mistaken for each other: this one is scoped to
+              this platform and measured in tokens, the one below is the whole
+              account measured in money. Self-hiding when empty/unavailable. */}
+          <NarraUsageSection />
+
+          {/* 6 · recent activity — collapsed by default, settled ledger only.
               `pending` rows are hidden: an abandoned checkout leaves a pending
               record that only flips to failed ~24h later, so showing them piles
               up noise; in-progress payment is already surfaced by the live
@@ -1114,7 +1135,7 @@ export function NetmindAccountPanel() {
                 aria-expanded={showActivity}
               >
                 <span className={`transition-transform ${showActivity ? 'rotate-90' : ''}`}>›</span>
-                {t('settings.netmind.activityTitle', 'Recent activity')}
+                {t('settings.netmind.activityTitle', 'NetMind account activity (all products)')}
               </button>
               {showActivity && (
               <ul className="mt-1.5 space-y-1">
@@ -1148,7 +1169,7 @@ export function NetmindAccountPanel() {
       <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[11px] text-[var(--text-tertiary)] leading-relaxed space-y-1.5">
         <div>
           {t('settings.netmind.scopeNote',
-            'These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.')}
+            'These NetMind.AI Power credits cover LLM API usage across every NetMind product and API key on this account — the balance and activity above are account-wide, not NarraNexus-only. Compute (GPU) and other pricing are billed separately.')}
         </div>
         <div>
           {t('settings.netmind.sandboxNotice',

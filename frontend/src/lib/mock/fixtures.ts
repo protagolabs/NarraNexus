@@ -633,24 +633,22 @@ export const mockCostSummary: CostSummary = {
   total_output_tokens: 218_900,
   total_cache_read_tokens: 3_600_000,
   total_cache_creation_tokens: 640_000,
+  // GET /api/agents/{id}/costs does NOT key by model id: it buckets every row
+  // by call_type into exactly these two synthetic keys (backend/routes/agents/
+  // cost.py). A fixture full of plausible model ids is how a raw
+  // `__main_model__` once reached a real account page — the code that renders
+  // it was written against a shape the backend never returns. Demo mode must
+  // show the same shape production does.
   by_model: {
-    'claude-sonnet-4.6': {
-      cost: 8.12,
-      input_tokens: 820_000,
-      output_tokens: 140_000,
-      cache_read_tokens: 2_400_000,
-      cache_creation_tokens: 420_000,
-      call_count: 148,
+    __main_model__: {
+      cost: 11.87,
+      input_tokens: 1_068_000,
+      output_tokens: 198_000,
+      cache_read_tokens: 3_100_000,
+      cache_creation_tokens: 540_000,
+      call_count: 170,
     },
-    'claude-opus-4.8': {
-      cost: 3.75,
-      input_tokens: 248_000,
-      output_tokens: 58_000,
-      cache_read_tokens: 700_000,
-      cache_creation_tokens: 120_000,
-      call_count: 22,
-    },
-    'claude-haiku-4.5': {
+    __helper_model__: {
       cost: 0.60,
       input_tokens: 180_300,
       output_tokens: 20_900,
