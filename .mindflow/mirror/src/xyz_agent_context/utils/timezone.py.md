@@ -1,12 +1,12 @@
 ---
 code_file: src/xyz_agent_context/utils/timezone.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
 ## 2026-08-19（PR#327 审后）— 抽出共享的 `coerce_utc` / `to_datetime6_literal`
 
-反滥用 canary 的两个 admin 端点各自需要把「一个 datetime 或 ISO 字符串」归一化成 UTC：
+两个 admin 端点各自需要把「一个 datetime 或 ISO 字符串」归一化成 UTC：
 `warn.py` 的 dedup 读（原 `_as_utc`）与 gateway-key-misuse 的 `hit_at` 幂等锚。两处是同一
 套惯例，收敛到这里避免漂移：
 

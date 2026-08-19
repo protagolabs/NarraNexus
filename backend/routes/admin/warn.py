@@ -4,17 +4,17 @@
 @date: 2026-08-19
 @description: Admin-only sensitive-operation user warning.
 
-The progressive-response layer between scoring and hard enforcement: when the
-sentinel detects a suspicious-but-unproven operation (a soft signal / scoring
-rule such as bare tunnel contact), it POSTs here to push ONE generic warning to
-the user. Gated on the platform ``admin_secret_key`` via ``X-Admin-Secret`` —
-the SAME lock as suspend/reinstate; an executor or an agent has no such secret.
+The progressive-response layer before hard enforcement: when the private
+monitor decides a soft (unproven) signal warrants a nudge, it POSTs here to
+push ONE generic warning to the user. Gated on the platform ``admin_secret_key``
+via ``X-Admin-Secret`` — the SAME lock as suspend/reinstate; an executor or an
+agent has no such secret.
 
 Security shape (do not weaken):
   * The user-facing wording is a FIXED generic constant (``SENSITIVE_OP_WARNING``)
-    written here regardless of any input, so the detection rule / threshold /
-    evidence can never leak to the user. The caller's ``category`` is OPAQUE and
-    goes ONLY into the ban_audit trail, never into the user notification.
+    written here regardless of any input, so no rule / threshold / evidence can
+    leak to the user. The caller's ``category`` is OPAQUE and goes ONLY into the
+    ban_audit trail, never into the user notification.
   * Best-effort dedup within ``_DEDUP_WINDOW_SEC``: a recent ``abuse_warning``
     for the same user short-circuits to ``already=True`` without a second row.
     This collapses a SEQUENTIAL retry (the caller re-POSTs after seeing/ not
@@ -58,8 +58,9 @@ SENSITIVE_OP_WARNING = (
 )
 
 # Idempotency window: a second warn for the same user inside this window is a
-# no-op success. 6h matches the sentinel-side de-dup window; kept here so the
-# endpoint is independently idempotent against retries.
+# no-op success. The window must stay consistent with the caller-side de-dup
+# window (cross-repo convention); kept here so the endpoint is independently
+# idempotent against retries.
 _DEDUP_WINDOW_SEC = 6 * 3600
 
 
@@ -136,7 +137,8 @@ async def warn_user(
         },
     )
     # Audit: category is OPAQUE (recorded verbatim in ``reason``), never shown to
-    # the user. The precise rule/evidence lives in sentinel's incident ledger.
+    # the user. The precise rule/evidence stays with the private caller, never
+    # in the user-facing payload.
     await BanAuditRepository(db).record(
         request.user_id,
         ACTION_WARN,

@@ -19,7 +19,11 @@ from httpx import ASGITransport
 from xyz_agent_context.repository.ban_audit_repository import ACTION_WARN
 
 SECRET = "test-admin-secret-xyz"
-UID = "9f3a1c229f3a1c229f3a1c229f3a1c22"  # 32-hex, a real user_id shape
+UID = "9f3a1c229f3a1c229f3a1c229f3a1c22"  # a real user_id shape
+# Opaque, caller-supplied placeholders — this repo asserts on the SHAPE of the
+# contract (audit-only, never in the notification), not on any concrete value.
+OPAQUE_CATEGORY = "opaque_category"
+OPAQUE_ACTOR = "internal_monitor"
 
 
 def test_action_warn_constant_exists():
@@ -68,7 +72,7 @@ async def test_warn_writes_generic_notification_and_audit(db_client, monkeypatch
     await _seed_user(db_client)
     app = _make_app(db_client, monkeypatch)
     r = await _post(app, "/api/admin/warn-user",
-                    json={"user_id": UID, "category": "tunnel_contact", "actor": "nexus_sentinel"},
+                    json={"user_id": UID, "category": OPAQUE_CATEGORY, "actor": OPAQUE_ACTOR},
                     headers={"X-Admin-Secret": SECRET})
     assert r.status_code == 200
     assert r.json() == {"warned": True, "already": False}
@@ -77,16 +81,18 @@ async def test_warn_writes_generic_notification_and_audit(db_client, monkeypatch
     assert len(notes) == 1
     assert notes[0]["kind"] == "abuse_warning"
     assert notes[0]["severity"] == "warning"
-    # Generic wording: payload is always the fixed template, never the triggering rule id / category
+    # Generic wording: payload is always the fixed template, never the caller's category
     payload = _json.loads(notes[0]["payload"])
     assert payload == {"code": "sensitive_operation_warning",
                        "message": mod.SENSITIVE_OP_WARNING}
-    assert "tunnel_contact" not in notes[0]["payload"]
+    # Trust boundary: the opaque category MUST NOT leak into the user notification.
+    # Same variable as the request above, so this stays a real assertion.
+    assert OPAQUE_CATEGORY not in notes[0]["payload"]
 
     audits = await db_client.get("ban_audit", {"user_id": UID})
     assert any(a["action"] == ACTION_WARN for a in audits)
     # opaque category goes only to the audit, never to the user message
-    assert any((a.get("reason") == "tunnel_contact") for a in audits)
+    assert any((a.get("reason") == OPAQUE_CATEGORY) for a in audits)
 
 
 @pytest.mark.asyncio
