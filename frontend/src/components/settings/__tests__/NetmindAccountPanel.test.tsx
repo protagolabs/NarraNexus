@@ -359,7 +359,7 @@ test('free: a user with only Alipay can actually buy Pro', async () => {
   render(<NetmindAccountPanel />);
   await openBuyPro();
   await pickMethod(/Alipay/);
-  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
   fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
   await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
   await waitFor(() =>
@@ -1263,7 +1263,7 @@ test('one-time renew: months reach api.subscribe and the checkout opens', async 
   mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
   render(<NetmindAccountPanel />);
   fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
-  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
   fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
   await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
   await waitFor(() =>
@@ -1378,7 +1378,7 @@ test('renew dialog never invents a future end date', async () => {
   mockGetSubscription.mockResolvedValue(ONETIME_SUB()); // period_end 1790000000
   render(<NetmindAccountPanel />);
   fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
-  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
   expect(await screen.findByText(/current end date, 2026-09-21/)).toBeTruthy();
   // 3 months of invented 30-day arithmetic would have landed here:
   expect(document.body.textContent).not.toMatch(/2026-12-20|2026\/12\/20/);
@@ -1410,4 +1410,40 @@ test('a payment in flight disables the OTHER money button, not just its own', as
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('a /plans failure does not take the purchase down with it', async () => {
+  // Creating the checkout needs the rail and the month count, never the price
+  // — upstream prices it. Gating the button on the catalog turned a read-only
+  // 502 into "nobody can buy Pro", with a dead button and no reason given.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetPlans.mockRejectedValue(new Error('plans 502'));
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_np', checkout_url: 'https://checkout.stripe.com/c/pay/cs_np' },
+  });
+  render(<NetmindAccountPanel />);
+  await openBuyPro();
+  const buy = screen.getByRole('button', { name: /^Subscribe$/ });
+  expect(buy).toHaveProperty('disabled', false);
+  fireEvent.click(buy);
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+});
+
+test('month choice is a radiogroup: one tab stop, arrow keys move it', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  const group = await screen.findByRole('radiogroup', { name: /How many months/ });
+  const one = within(group).getByRole('radio', { name: /^1$/ });
+  expect(one.getAttribute('aria-checked')).toBe('true');
+  expect(one.getAttribute('tabindex')).toBe('0');
+  // ...and the unselected ones are OUT of the tab order, which is the half
+  // that makes it one stop instead of six.
+  expect(within(group).getByRole('radio', { name: /^6$/ }).getAttribute('tabindex')).toBe('-1');
+
+  fireEvent.keyDown(group, { key: 'ArrowRight' });
+  const two = within(group).getByRole('radio', { name: /^2$/ });
+  expect(two.getAttribute('aria-checked')).toBe('true');
+  expect(document.activeElement).toBe(two);
 });

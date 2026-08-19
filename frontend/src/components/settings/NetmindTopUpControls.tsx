@@ -32,7 +32,7 @@ interface NetmindTopUpControlsProps {
   /** This top-up's own progress — drives the NARRATIVE only. */
   rechargeState: RechargeState;
   /** Any money action is in flight, whichever control started it — see the twin
-   *  prop on NetmindRenewControls for why this is not `rechargeState`. */
+   *  prop on NetmindProPurchase for why this is not `rechargeState`. */
   busy: boolean;
   rechargeError: string | null;
   paymentMethod: RechargePaymentMethod;

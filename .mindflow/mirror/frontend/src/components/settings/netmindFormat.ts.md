@@ -75,5 +75,5 @@ copy-paste 漂移,且纯函数可独立单测(12 用例)。
 
 ## 上下游
 
-消费方:[[NetmindAccountPanel]]、[[NetmindUpsellCard]]、[[NetmindTopUpControls]]、[[NetmindRenewControls]]（后两个 2026-08-19 起，都是为了不再就地写 `Number().toFixed()`）。输入形状来自
+消费方:[[NetmindAccountPanel]]、[[NetmindUpsellCard]]、[[NetmindTopUpControls]]、[[NetmindProPurchase]]（后两个 2026-08-19 起，都是为了不再就地写 `Number().toFixed()`）。输入形状来自
 `QuotaMeResponse` / `SubscriptionPlan`(frontend/src/types/api.ts)。

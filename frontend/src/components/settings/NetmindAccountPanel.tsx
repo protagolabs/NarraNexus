@@ -31,6 +31,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -160,6 +161,13 @@ export function NetmindAccountPanel() {
   // they are different purchases with different rails and must not share a
   // debounce, a poll generation or an error line.
   const [payFlow, setPayFlow] = useState<'topup' | 'renew'>('topup');
+  // `/pay` — where the marketing pricing CTA lands — redirects here instead of
+  // minting a card checkout of its own, so the rail choice has exactly one
+  // implementation. Arriving with this intent has to OPEN that choice: landing
+  // on a settings page with the purchase one click away would move the dead
+  // end rather than remove it.
+  const [routeParams] = useSearchParams();
+  const buyIntent = routeParams.get('intent') === 'buy';
   const [buyMonths, setBuyMonths] = useState(1);
   // All three rails are legal here: a FREE user starts Pro from this same
   // control and card is one of their options. What removes card while a
@@ -270,26 +278,12 @@ export function NetmindAccountPanel() {
     }
   }, [t]);
 
-  const handleSubscribe = useCallback(async () => {
-    if (busyRef.current) return; // synchronous double-click guard
-    busyRef.current = true;
-    setBusy(true);
-    setActionError(null);
-    captureProductEvent('subscribe_clicked');
-    try {
-      const r = await api.subscribe();
-      const url = r.data?.checkout_url;
-      if (!url) throw new Error('No checkout URL returned');
-      captureProductEvent('checkout_opened');
-      await platform.openExternal(url);
-      void pollUntilActive(); // reflect the result when payment completes
-    } catch (e) {
-      if (mounted.current) setActionError(errMessage(e));
-    } finally {
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  }, [pollUntilActive]);
+  // (handleSubscribe lived here. It had become a line-for-line copy of
+  // handleBuyPro's card branch, and its only remaining consumer was
+  // NetmindUpsellCard in `subscribed` mode — which renders no CTA, so the
+  // callback could never fire. Two implementations of the same purchase means
+  // the next change to it lands in one of them, so it is deleted rather than
+  // kept "just in case".)
 
   const handleCancel = useCallback(async () => {
     if (busyRef.current) return;
@@ -1081,7 +1075,7 @@ export function NetmindAccountPanel() {
             proPlan={proPlan}
             topUp={topUp}
             proPurchase={proPurchase}
-            onSubscribe={handleSubscribe}
+            openBuyOnMount={buyIntent}
             onCancel={handleCancel}
             onReactivate={handleReactivate}
           />

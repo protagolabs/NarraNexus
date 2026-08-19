@@ -90,6 +90,6 @@ stub: false
 
 ## 上下游
 
-- 只被 [[NetmindActionZone]] 的 `pro_onetime` 分支消费（经 `renew` slot）。
+- 被 [[NetmindActionZone]] 的**两处**消费（经 `proPurchase` slot）：free 用户的购买弹窗，以及 `pro_onetime` 的续订弹窗。
 - 纯展示：购买、防重复提交、轮询全部留在 [[NetmindAccountPanel]] 的
   handler 里，和其余花钱逻辑放在一起。

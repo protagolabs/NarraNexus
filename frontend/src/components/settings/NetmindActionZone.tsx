@@ -56,7 +56,9 @@ interface NetmindActionZoneProps {
   /** "How do you want to pay for Pro" — rendered for a free user starting one
    *  AND for a one-time subscriber extending theirs. */
   proPurchase?: ReactNode;
-  onSubscribe: () => void;
+  /** Open the purchase dialog immediately — `/pay` redirects here with
+   *  `intent=buy`, and that CTA must land ON the purchase, not beside it. */
+  openBuyOnMount?: boolean;
   onCancel: () => void;
   onReactivate: () => void;
 }
@@ -70,14 +72,14 @@ export function NetmindActionZone({
   proPlan,
   topUp,
   proPurchase,
-  onSubscribe,
+  openBuyOnMount = false,
   onCancel,
   onReactivate,
 }: NetmindActionZoneProps) {
   const { t } = useTranslation();
   const [manageOpen, setManageOpen] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
-  const [buyOpen, setBuyOpen] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(openBuyOnMount);
 
   const closeManage = () => {
     setManageOpen(false);
@@ -145,7 +147,14 @@ export function NetmindActionZone({
     <div className="space-y-3">
       <NetmindUpsellCard
         proPlan={proPlan}
-        onUpgrade={() => setBuyOpen(true)}
+        // closeManage first: on the healthy-free path this CTA lives INSIDE the
+        // manage dialog, and Dialog has no focus trap while each instance binds
+        // its own document-level Escape — two stacked scrims, and one Escape
+        // closing both would drop the user out of a purchase mid-way.
+        onUpgrade={() => {
+          closeManage();
+          setBuyOpen(true);
+        }}
         busy={busy || polling}
       />
       {topUpDisclosure}
@@ -312,7 +321,7 @@ export function NetmindActionZone({
         <DialogContent className="space-y-4">
           {/* The plan intro in its subscribed state — the user sees what
               their Pro includes right where they'd cancel it. */}
-          <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy} subscribed />
+          <NetmindUpsellCard proPlan={proPlan} busy={busy} subscribed />
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
               {t('settings.netmind.cancelBtn', 'Cancel subscription')}

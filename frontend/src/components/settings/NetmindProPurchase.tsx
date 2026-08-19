@@ -27,6 +27,7 @@
  * NetmindAccountPanel with the rest of the money handlers.
  */
 
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui';
 import { PaymentMethodChoice } from './PaymentMethodChoice';
@@ -37,6 +38,7 @@ import type { SubscribePaymentMethod } from '@/types';
 // actually think in. A grid rather than a number input: the bound then cannot
 // be violated at all, so the upstream `invalid_months` 400 is unreachable.
 const MONTH_CHOICES = [1, 2, 3, 6, 9, 12];
+const MONTHS_LABEL_ID = 'nm-pro-months-label';
 
 interface NetmindProPurchaseProps {
   months: number;
@@ -78,6 +80,22 @@ export function NetmindProPurchase({
   onPay,
 }: NetmindProPurchaseProps) {
   const { t } = useTranslation();
+  const monthRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Arrow keys move the selection AND the focus — that pairing is what makes
+  // this a radiogroup rather than buttons wearing radio roles.
+  const onMonthKeyDown = (e: React.KeyboardEvent) => {
+    const at = MONTH_CHOICES.indexOf(months);
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1
+      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1
+      : 0;
+    if (!step || at < 0) return;
+    e.preventDefault();
+    const next = (at + step + MONTH_CHOICES.length) % MONTH_CHOICES.length;
+    onChangeMonths(MONTH_CHOICES[next]);
+    monthRefs.current[next]?.focus();
+  };
+
   const isCard = payMethod === 'stripe';
   const total = monthlyPriceUsd != null ? monthlyPriceUsd * (isCard ? 1 : months) : null;
 
@@ -112,17 +130,30 @@ export function NetmindProPurchase({
 
       {!isCard && (
         <div className="space-y-1.5">
-          <div className="text-xs text-[var(--text-tertiary)]">
+          <div id={MONTHS_LABEL_ID} className="text-xs text-[var(--text-tertiary)]">
             {t('settings.netmind.renewMonthsLabel', 'How many months')}
           </div>
-          <div className="grid grid-cols-6 gap-1.5">
-            {MONTH_CHOICES.map((n) => (
+          {/* A radiogroup, for the same reason PaymentMethodChoice is one: this
+              is one mutually-exclusive choice, so it takes ONE tab stop and the
+              arrow keys move within it. As six aria-pressed buttons it gave a
+              keyboard user six stops inside a payment form and said
+              "pressed/not pressed" where the truth is "selected". */}
+          <div
+            role="radiogroup"
+            aria-labelledby={MONTHS_LABEL_ID}
+            onKeyDown={onMonthKeyDown}
+            className="grid grid-cols-6 gap-1.5"
+          >
+            {MONTH_CHOICES.map((n, i) => (
               <button
                 key={n}
+                ref={(el) => { monthRefs.current[i] = el; }}
                 type="button"
+                role="radio"
+                aria-checked={months === n}
+                tabIndex={months === n ? 0 : -1}
                 onClick={() => onChangeMonths(n)}
                 disabled={busy}
-                aria-pressed={months === n}
                 className={`h-8 rounded-[var(--radius-sm)] border text-[13px] tabular-nums transition-colors disabled:opacity-50 ${
                   months === n
                     ? 'border-[var(--nm-ink)] text-[var(--text-primary)] bg-[var(--nm-ink)]/[0.06] font-semibold'
@@ -179,12 +210,18 @@ export function NetmindProPurchase({
                 'Added on top of your current end date, {{date}}.', { date: extendsFrom })
             : ''}
         </p>
-        <Button variant="accent" size="sm" onClick={onPay} disabled={busy || total == null}>
+        {/* NOT gated on the price. Creating the checkout needs the rail and the
+            month count, never the amount — upstream prices it. Gating on
+            `total` turned a /plans 502 into "nobody can buy Pro, and the button
+            gives no reason", which is the exact escalation this file refuses to
+            make for a failed exchange-rate quote. The price BLOCK is still
+            conditional; only the action is unconditional. */}
+        <Button variant="accent" size="sm" onClick={onPay} disabled={busy}>
           {state === 'processing'
             ? t('settings.netmind.working', 'Working…')
-            : isCard
+            : isCard || total == null
               ? t('settings.netmind.subscribeBtn', 'Subscribe')
-              : t('settings.netmind.renewPay', 'Pay ${{total}}', { total: money(total as number) })}
+              : t('settings.netmind.renewPay', 'Pay ${{total}}', { total: money(total) })}
         </Button>
       </div>
 

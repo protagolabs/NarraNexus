@@ -41,17 +41,11 @@
  * browser and the webview lands on the account page.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
-import { api, ApiError } from '@/lib/api';
-import { isTauri } from '@/lib/tauri';
-import { platform } from '@/lib/platform';
-import { captureProductEvent } from '@/lib/productAnalytics';
-
-type PayPhase = 'working' | 'error';
+import { api } from '@/lib/api';
 
 const ACCOUNT_PAGE = '/app/settings?tab=account';
 
@@ -59,8 +53,6 @@ export function PayPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isPowerUser = !!useConfigStore((s) => s.netmindToken);
-  const [phase, setPhase] = useState<PayPhase>('working');
-  const [errorText, setErrorText] = useState('');
   // One checkout session per visit: StrictMode double-fires effects in dev,
   // and a retry re-enters run() manually — the ref keeps concurrent runs out.
   const inFlight = useRef(false);
@@ -68,8 +60,12 @@ export function PayPage() {
   const run = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
-    setPhase('working');
-    try {
+    // No try/catch around this any more: the probe below swallows its own
+    // failure and `navigate` does not throw, so once this page stopped minting
+    // checkouts there was nothing left for an outer handler to catch. The
+    // error phase and its retry button went with it rather than staying as
+    // unreachable UI.
+    {
       // Already subscribed → manage on the account page instead of minting a
       // second checkout session. The probe is DEFENSIVE only: the real
       // invariant lives server-side (subscribe → 400 "Already subscribed").
@@ -79,45 +75,26 @@ export function PayPage() {
         const sub = await api.getSubscription();
         if (sub.success && sub.data?.subscription?.status === 'ACTIVE') {
           navigate(ACCOUNT_PAGE, { replace: true });
+          inFlight.current = false;
           return;
         }
       } catch {
         // Unknown subscription state — let subscribe() and the backend decide.
       }
-      captureProductEvent('subscribe_clicked');
-      const r = await api.subscribe();
-      const url = r.data?.checkout_url;
-      if (!url) throw new Error(r.error || 'No checkout URL returned');
-      captureProductEvent('checkout_opened');
-      // Backend allowlists the host (https://*.stripe.com) before it ever
-      // reaches us — see billing.py::_validate_checkout_url.
-      if (isTauri()) {
-        // Desktop: never navigate the webview to Stripe — its return URL
-        // points at the cloud web app and the window would never come back.
-        await platform.openExternal(url);
-        navigate(ACCOUNT_PAGE, { replace: true });
-        return;
-      }
-      // replace, not assign: keep /pay out of history so Back from Stripe
-      // cannot re-mount this page and mint a second session (see header).
-      window.location.replace(url);
-      // Keep the spinner while the browser unloads; no state change needed.
-    } catch (e) {
-      // A dead/expired NetMind loginToken (401) can never be fixed by the
-      // retry button; the account panel owns re-linking. The probe above may
-      // have been skipped, so subscribe can also answer 400 "Already
-      // subscribed" — same destination as the probe's ACTIVE branch.
-      if (
-        e instanceof ApiError &&
-        (e.status === 401 || (e.status === 400 && /already subscribed/i.test(e.message)))
-      ) {
-        navigate(ACCOUNT_PAGE, { replace: true });
-        return;
-      }
-      setErrorText(e instanceof Error ? e.message : String(e));
-      setPhase('error');
-      inFlight.current = false;
+      // Hand the rail choice to the account panel instead of minting a card
+      // checkout here. This page is where the marketing pricing page lands, and
+      // going straight to Stripe's card form made it a dead end for exactly the
+      // people this work is for: Alipay and WeChat cannot pay a Stripe
+      // subscription at all, so they arrived somewhere they could not buy.
+      //
+      // A redirect rather than a second rail picker: "which rail, how many
+      // months" carries real rules (a card takes no month count, one-time is
+      // bounded 1-12, a live one-time withdraws the card option), and a second
+      // implementation of them would drift from the first. `intent=buy` opens
+      // the panel's dialog straight away, so the CTA still lands on a purchase.
+      navigate(`${ACCOUNT_PAGE}&intent=buy`, { replace: true });
     }
+    inFlight.current = false;
   }, [navigate]);
 
   useEffect(() => {
@@ -130,38 +107,23 @@ export function PayPage() {
     void run();
   }, [isPowerUser, navigate, run]);
 
+  // A spinner and nothing else. There is no error branch left to render: the
+  // probe swallows its own failure and `navigate` cannot throw, so every path
+  // through this page ends in a redirect. Keeping the old error card + retry
+  // button would have been UI for a state that can no longer occur.
   return (
     <main
       className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[var(--bg-primary)] px-6"
-      aria-busy={phase === 'working'}
+      aria-busy
     >
-      {phase === 'working' ? (
-        <>
-          <div
-            className="w-8 h-8 rounded-full border-2 border-[var(--accent-primary)] border-t-transparent animate-spin"
-            role="status"
-            aria-label={t('pages.pay.working', 'Taking you to checkout…')}
-          />
-          <p className="text-sm text-[var(--text-secondary)]">
-            {t('pages.pay.working', 'Taking you to checkout…')}
-          </p>
-        </>
-      ) : (
-        <div className="max-w-sm w-full text-center space-y-4">
-          <h1 className="text-base font-semibold text-[var(--text-primary)]">
-            {t('pages.pay.errorTitle', "Couldn't start checkout")}
-          </h1>
-          <p className="text-sm text-[var(--text-secondary)] break-words">{errorText}</p>
-          <div className="flex items-center justify-center gap-3">
-            <Button variant="accent" size="sm" onClick={() => void run()}>
-              {t('pages.pay.retry', 'Try again')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate(ACCOUNT_PAGE)}>
-              {t('pages.pay.goAccount', 'Open account page')}
-            </Button>
-          </div>
-        </div>
-      )}
+      <div
+        className="w-8 h-8 rounded-full border-2 border-[var(--accent-primary)] border-t-transparent animate-spin"
+        role="status"
+        aria-label={t('pages.pay.working', 'Taking you to checkout…')}
+      />
+      <p className="text-sm text-[var(--text-secondary)]">
+        {t('pages.pay.working', 'Taking you to checkout…')}
+      </p>
     </main>
   );
 }

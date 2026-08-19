@@ -20,7 +20,7 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -375,7 +375,11 @@ class Settings(BaseSettings):
     # Free credit and subscription state land on the same NetMind ledger either
     # way, and cancelling/reactivating a card subscription is routed by upstream
     # to whichever account owns it.
-    billing_channel: str = "nexus"
+    # Literal, not str: this field exists to be edited under pressure during a
+    # payment incident, and `BILLING_CHANNEL=nexux` in a deploy .env would start
+    # both boxes cleanly and only surface as an upstream 400 at the first real
+    # payment — found by a paying user rather than by the release.
+    billing_channel: Literal["nexus", "power"] = "nexus"
 
     # NetMind Key-management API (generate/list inference API keys). This is a
     # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),
