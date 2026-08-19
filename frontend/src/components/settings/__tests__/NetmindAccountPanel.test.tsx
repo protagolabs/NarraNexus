@@ -51,8 +51,10 @@ const mockRechargeStatus = vi.fn();
 const mockFxRate = vi.fn();
 const mockGetProviders = vi.fn();
 const mockUseSubscription = vi.fn();
+const mockGetCosts = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
+    getCosts: (...a: unknown[]) => mockGetCosts(...a),
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
     getFeeInfo: (...a: unknown[]) => mockGetFeeInfo(...a),
     getRecords: (...a: unknown[]) => mockGetRecords(...a),
@@ -186,6 +188,10 @@ beforeEach(() => {
   mockGetProviders.mockReset();
   mockUseSubscription.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
+  mockGetCosts.mockReset();
+  // Default: no platform ledger, so the NarraNexus-usage section stays hidden
+  // and the pre-existing cases assert on exactly what they did before.
+  mockGetCosts.mockRejectedValue(new Error('no costs'));
   mockOpenExternal.mockReset();
   mockOpenExternal.mockResolvedValue(undefined); // re-prime after restoreAllMocks
 });
@@ -846,7 +852,7 @@ test('activity: collapsed by default, expands on click', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  const toggle = await screen.findByRole('button', { name: /Recent activity/ });
+  const toggle = await screen.findByRole('button', { name: /NetMind account activity/ });
   expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
   fireEvent.click(toggle);
   expect(await screen.findByText(/\+\$10\.00 USD/)).toBeTruthy();
@@ -862,7 +868,7 @@ test('activity: pending records are hidden (abandoned checkouts)', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Recent activity/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /NetMind account activity/ }));
   expect(await screen.findByText(/\+\$5\.00 USD/)).toBeTruthy();
   expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
 });
@@ -877,7 +883,7 @@ test('activity: hidden entirely when every record is pending', async () => {
   });
   render(<NetmindAccountPanel />);
   await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
-  expect(screen.queryByText(/Recent activity/)).toBeNull();
+  expect(screen.queryByText(/NetMind account activity/)).toBeNull();
 });
 
 test('activity: hidden when records fetch fails', async () => {
@@ -885,7 +891,72 @@ test('activity: hidden when records fetch fails', async () => {
   mockGetRecords.mockRejectedValue(new Error('502'));
   render(<NetmindAccountPanel />);
   await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
-  expect(screen.queryByText(/Recent activity/)).toBeNull();
+  expect(screen.queryByText(/NetMind account activity/)).toBeNull();
+});
+
+// ── usage attribution (2026-08-19: "usage shows model usage, not narra usage")
+// The balance and the ledger are NetMind-account-wide; spending that account
+// elsewhere moves the number in this card. Three places now say so, and the
+// platform's own ledger renders beside them. ──────────────────────────────────
+
+test('attribution: the card states that the balance is account-wide, not NarraNexus-only', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  render(<NetmindAccountPanel />);
+  // On the hero itself — this is the number users watch move.
+  expect(
+    await screen.findByText(/anything you run on this NetMind account draws it down/i),
+  ).toBeInTheDocument();
+  // And in the header, where the old copy said "used for your LLM API usage".
+  expect(
+    screen.getByText(/shared by every NetMind product, not only NarraNexus/i),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/Power plan & credits · used for your LLM API usage/)).toBeNull();
+});
+
+test('attribution: the ledger is labelled as the NetMind account, all products', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetRecords.mockResolvedValue({
+    success: true,
+    data: [
+      { record_id: 'r1', kind: 'Payment', type: 'Payment', direction: 'expense', amount: '2.00', currency: 'USD', status: 'succeeded', created_at: '2026-08-18T00:00:00+00:00' },
+    ],
+  });
+  render(<NetmindAccountPanel />);
+  expect(
+    await screen.findByRole('button', { name: /NetMind account activity \(all products\)/ }),
+  ).toBeInTheDocument();
+});
+
+test('attribution: the platform-scoped usage section renders with the account ledger', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetCosts.mockResolvedValue({
+    success: true,
+    summary: {
+      total_cost_usd: 0.5,
+      total_input_tokens: 200_000,
+      total_output_tokens: 50_000,
+      // Real contract: buckets by call_type, never a model id (backend cost.py).
+      by_model: { __main_model__: { cost: 0.5, input_tokens: 200_000, output_tokens: 50_000, call_count: 3 } },
+      daily: [],
+    },
+    records: [],
+    total_count: 3,
+  });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/Used by NarraNexus · last 30 days/)).toBeInTheDocument();
+  // Twice: the section total and the single model row that makes it up.
+  expect(screen.getAllByText('250.0k')).toHaveLength(2);
+});
+
+test('attribution: a broken cost ledger cannot blank the billing card', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  mockGetCosts.mockRejectedValue(new Error('500'));
+  render(<NetmindAccountPanel />);
+  // Balance still renders; the usage section simply isn't there.
+  expect(await screen.findByText('$12.50')).toBeInTheDocument();
+  expect(screen.queryByText(/Used by NarraNexus/)).toBeNull();
 });
 
 // ── recharge / top-up (free × low: expand via the demoted link first) ──────

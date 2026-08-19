@@ -1,7 +1,17 @@
 ---
 code_file: frontend/src/components/chat/InnerThoughtCard.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 输入侧求和改用共享实现
+
+下面 07-30 那条规则（输入侧 = 全价桶 + cache read + cache write，`?? 0` 兜旧响应）
+一字未改，只是实现搬到了 [[tokenFormat.ts]] 的 `inputSideTokens`，本卡改为 import。
+起因是账户页新增用量区时同一条规则出现了第四份实现 —— 它出过一次事故（见下），
+失败方式是**某个屏幕上的数字少一个数量级**，不是崩溃，所以四份各自演化最危险。
+
+**本文件自带的 `formatTokens` 没有一起收**：它的 M 档是一位小数，共享版是两位，
+合并会改变本卡渲染与其测试断言。另记 todo，不夹带。
 
 ## 2026-07-30 — token chip includes the cache buckets
 
