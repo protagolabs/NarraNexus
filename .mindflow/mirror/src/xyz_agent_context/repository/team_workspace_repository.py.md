@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_workspace_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -34,3 +34,8 @@ stub: false
   [[registration.py]]（归因追加）、[[team_files.py]]（agent 侧列举，带 bound LIMIT）使用。
   **MCP 工具那一处是本文件「为什么存在」开篇点名的三处之一**，清单漏了它就等于文档与自己的
   立论矛盾。
+
+## 2026-08-19 — ArtifactHistoryRepository.latest_actions
+
+artifact_id→最后动作 映射(状态块标记的数据源)。仅限有界调用方
+(状态块传≤展示上限)。

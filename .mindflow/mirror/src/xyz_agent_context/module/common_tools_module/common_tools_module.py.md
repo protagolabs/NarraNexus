@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -247,3 +247,12 @@ and side-effect-free.
 「还有多少 + 用 list_artifacts 查」——治的是「agent 把窗口当全集,老 artifact 被
 认定不存在→重复创建」。COUNT 失败降级为无尾注而非无块。行渲染移入
 _common_tools_impl/artifact_lines.py(与 list_artifacts 工具共用)。
+
+## 2026-08-19 — 状态块=外部编辑侦测的 T-A 触发点
+
+渲染时逐 artifact 跑 refresh_external_state(≤上限行,成本恒定),
+确认的外部改动当场提交;行标记由 **history 最后动作**导出(无状态):
+external_edited→EXTERNALLY MODIFIED 行;user_edited→modified by the
+user 行;agent 重注册(updated/registered)自动清标。office kind 另查
+~$ 锁附「desktop Office」提示。整段 best-effort——侦测失败只降标记
+不降块。

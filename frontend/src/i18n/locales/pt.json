@@ -2074,6 +2074,16 @@
       "mdGuardDisabled": "Este documento contém sintaxe que o editor não consegue preservar sem perdas — a edição direta está desativada. Peça à IA para fazer as alterações.",
       "htmlAnchorFailed": "Esse texto é gerado pelo script da página ou não pode ser localizado de forma única no código — peça à IA para alterá-lo.",
       "htmlEditConflict": "O arquivo mudou durante a edição — essa alteração não foi salva."
+    },
+    "officeEdit": {
+      "selected": "{{count}} selecionado(s)",
+      "editText": "Editar texto",
+      "apply": "Aplicar",
+      "cancel": "Cancelar",
+      "delete": "Excluir",
+      "color": "Cor do texto",
+      "opFailed": "Falha na edição.",
+      "lockNotice": "Aberto em um app Office de desktop — edições diretas pausadas."
     }
   },
   "skills": {

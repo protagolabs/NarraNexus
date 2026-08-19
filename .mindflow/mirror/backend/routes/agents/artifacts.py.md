@@ -188,3 +188,7 @@ list_for_agent_context 的 HTTP 暴露:前端全量拉(打开/切 agent/WS 重�
 session 鉴权(view-token 永远只读);409 的 detail 是结构化
 `{error, current_hash}` —— 编辑器要拿它 re-base,别改成纯文本。
 其余 ArtifactError 照 e.code 直映。
+
+## 2026-08-19(二)— POST /{aid}/office-edit-commit
+
+watch 页用户编辑的登记提交(hash/history user_edited/事件),幂等。

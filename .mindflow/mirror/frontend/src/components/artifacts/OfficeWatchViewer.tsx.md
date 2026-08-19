@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/OfficeWatchViewer.tsx
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -63,3 +63,15 @@ officecli 的 per-file resident 按**原始 (cwd,路径字符串)** 做键——
 
 2026-07-13 晚:桌面从"暂不支持"占位升级为经 `officewatch://` 自定义协议渲染(轮询重载版)。
 
+
+## 2026-08-19 — T1 直改浮条(spec B §3.3)
+
+选区来自 shim 镜像(officewatch-selection 消息,parseSelectionMessage
+防御解析);操作=改文字(单选,get 预填)/B/I/颜色/删除,经
+officeWatchApi.sendBatch 走 proxy POST 白名单,成功后 commitEdit
+落提交点;预览刷新骑 watch 自己的 SSE,**不重载 iframe**。~$ lock
+(version 轮询带回)时浮条只显示暂停提示。
+**坑:POST 永远用 postBaseRef(原始 http open URL)**,不能用桌面
+officewatch:// 变体;DMG 上 https://tauri.localhost→http://localhost
+的 fetch 可能被 WKWebView 混合内容拦——桌面路径待手动验证,拦了则
+编辑静默不可用(选区消息仍到,op 失败提示),IPC 化是后续项。

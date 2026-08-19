@@ -2074,6 +2074,16 @@
       "mdGuardDisabled": "Dieses Dokument enthält Syntax, die der Editor nicht verlustfrei erhalten kann — direkte Bearbeitung ist deaktiviert. Bitte die KI um Änderungen.",
       "htmlAnchorFailed": "Dieser Text wird vom Skript der Seite erzeugt oder ist im Quelltext nicht eindeutig auffindbar — bitte die KI um die Änderung.",
       "htmlEditConflict": "Die Datei wurde während der Bearbeitung geändert — diese Änderung wurde nicht gespeichert."
+    },
+    "officeEdit": {
+      "selected": "{{count}} ausgewählt",
+      "editText": "Text bearbeiten",
+      "apply": "Anwenden",
+      "cancel": "Abbrechen",
+      "delete": "Löschen",
+      "color": "Textfarbe",
+      "opFailed": "Bearbeitung fehlgeschlagen.",
+      "lockNotice": "In einer Desktop-Office-App geöffnet — direkte Bearbeitung pausiert."
     }
   },
   "skills": {

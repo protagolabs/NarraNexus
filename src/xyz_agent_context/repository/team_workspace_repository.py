@@ -131,6 +131,27 @@ class ArtifactHistoryRepository:
             "event_id": event_id,
         })
 
+    async def latest_actions(self, artifact_ids: List[str]) -> Dict[str, str]:
+        """Map artifact_id → its most recent history action.
+
+        The state block derives its "modified by the user / externally
+        modified" markers from this: the marker clears when the agent
+        re-registers (a newer updated/registered row wins). Bounded callers
+        only (the state block passes ≤ its display cap)."""
+        if not artifact_ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(artifact_ids))
+        rows = await self._db.execute(
+            "SELECT artifact_id, action FROM instance_artifact_history "
+            f"WHERE artifact_id IN ({placeholders}) ORDER BY id",
+            params=tuple(artifact_ids),
+            fetch=True,
+        )
+        latest: Dict[str, str] = {}
+        for r in rows or []:
+            latest[r["artifact_id"]] = r["action"]
+        return latest
+
     async def turns_for_team(self, team_id: str) -> Dict[str, List[str]]:
         """Map each turn to the team artifacts it created or updated.
 

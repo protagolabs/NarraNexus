@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -79,3 +79,15 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
 
 - open 里 import `ArtifactRepository` 等是函数内延迟 import(避免启动期循环依赖)。
 - `/api/public/` 在 `backend/auth.py` 的 `AUTH_EXEMPT_PREFIXES` 内,公共代理才免鉴权。
+
+## 2026-08-19 — POST 编辑通道 + 选区镜像 + lock 旗标(5② T1)
+
+①`POST /office-watch-proxy/.../{path}`:三重门=签名 token(user+port)
++watch 端口 allowlist(SSRF 闸不变)+**路径精确白名单**
+(api/send|batch|selection),体积 64KB 封顶;`_post_upstream` 独立成
+模块级函数=测试桩缝。**绝不能放宽成通用 POST 隧道**(watch server
+还有 shutdown/文件操作)。
+②shim 的 fetch 包装镜像选区:页面自己 POST api/selection 的 body
+原样 postMessage 给父窗口(officewatch-selection)——T1 浮条的锚点源,
+纯镜像不拦截。
+③/office-watch/version 增 `lock`(~$ 锁,云端恒 false)。

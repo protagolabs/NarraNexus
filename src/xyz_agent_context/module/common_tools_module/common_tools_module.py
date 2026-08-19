@@ -366,12 +366,65 @@ class CommonToolsModule(XYZBaseModule):
             format_artifact_lines,
         )
 
+        # Trigger point T-A of external-edit safety (spec B §2.3): the block
+        # is rendered right before the agent starts working, so this is the
+        # last moment to notice that a file moved past its last commit point.
+        # Detection commits the change (hash refresh + history + event);
+        # markers derive from the LAST history action so an agent
+        # re-registration clears them. Best-effort: a failed check must not
+        # cost the block.
+        markers: dict = {}
+        try:
+            import os as _os
+
+            from xyz_agent_context.artifact import ArtifactService
+            from xyz_agent_context.artifact._artifact_impl.freshness import (
+                office_lock_present,
+            )
+            from xyz_agent_context.repository.team_workspace_repository import (
+                ArtifactHistoryRepository,
+            )
+            from xyz_agent_context.settings import settings as _settings
+
+            service = ArtifactService(self.db)
+            for a in artifacts:
+                await service.refresh_external_state(a)
+            latest = await ArtifactHistoryRepository(self.db).latest_actions(
+                [a.artifact_id for a in artifacts]
+            )
+            for a in artifacts:
+                notes = []
+                action = latest.get(a.artifact_id)
+                if action == "external_edited":
+                    notes.append(
+                        "EXTERNALLY MODIFIED since your last update; "
+                        "re-read the file before editing"
+                    )
+                elif action == "user_edited":
+                    notes.append(
+                        "modified by the user since your last update; "
+                        "re-read before editing"
+                    )
+                if a.kind == "application/vnd.officecli-live" and a.file_path:
+                    abs_entry = _os.path.join(_settings.base_working_path, a.file_path)
+                    if office_lock_present(abs_entry):
+                        notes.append(
+                            "currently open in a desktop Office app; its saves "
+                            "may race yours while the lock is held"
+                        )
+                if notes:
+                    markers[a.artifact_id] = " — " + "; ".join(notes)
+        except Exception as e:  # noqa: BLE001 — markers degrade, the block survives
+            logger.warning(f"artifact-state block: freshness pass failed: {e}")
+
         lines = [header]
-        lines.extend(
+        for line, a in zip(
             format_artifact_lines(
                 artifacts, agent_id=self.agent_id, user_id=self.user_id or ""
-            )
-        )
+            ),
+            artifacts,
+        ):
+            lines.append(line + markers.get(a.artifact_id, ""))
         # Truthful footer: the cap must never be silent. Past the limit the
         # agent is told it is looking at a window and which tool lists the
         # rest — otherwise older artifacts read as nonexistent and get

@@ -2073,6 +2073,16 @@
       "mdGuardDisabled": "이 문서에는 편집기가 무손실로 보존할 수 없는 구문이 포함되어 있어 직접 편집이 비활성화되었습니다. AI에게 수정을 요청하세요.",
       "htmlAnchorFailed": "이 텍스트는 페이지 스크립트가 생성했거나 소스에서 고유하게 찾을 수 없습니다. AI에게 수정을 요청하세요.",
       "htmlEditConflict": "편집 중에 파일이 변경되어 이 변경 사항이 저장되지 않았습니다."
+    },
+    "officeEdit": {
+      "selected": "{{count}}개 선택됨",
+      "editText": "텍스트 편집",
+      "apply": "적용",
+      "cancel": "취소",
+      "delete": "삭제",
+      "color": "글자 색",
+      "opFailed": "편집 실패.",
+      "lockNotice": "데스크톱 Office에서 열려 있음 — 직접 편집이 일시 중지되었습니다."
     }
   },
   "skills": {

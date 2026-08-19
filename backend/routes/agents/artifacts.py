@@ -386,6 +386,28 @@ async def put_artifact_content(
         raise HTTPException(status_code=e.code, detail=str(e))
 
 
+@router.post("/{agent_id}/artifacts/{artifact_id}/office-edit-commit", response_model=Artifact)
+async def office_edit_commit(request: Request, agent_id: str, artifact_id: str):
+    """
+    Commit point for an office watch-page user edit (spec B §3.2).
+
+    The bytes were already written by the officecli watch server (single
+    resident writer); this refreshes the registry — hash/size/updated_at,
+    history action="user_edited", staged event — so the agent's state block
+    and other open surfaces learn about the change. Idempotent on an
+    unchanged hash.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.commit_office_user_edit(
+            agent_id=agent_id, artifact_id=artifact_id
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
+
+
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
 async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body: PatchArtifact):
     """

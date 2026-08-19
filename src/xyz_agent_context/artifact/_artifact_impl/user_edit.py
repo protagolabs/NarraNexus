@@ -146,3 +146,60 @@ async def save_user_content(
     )
     await stage_artifact_event(db, action="updated", artifact=updated)
     return updated
+
+
+OFFICE_LIVE_KIND = "application/vnd.officecli-live"
+
+
+async def commit_office_user_edit(
+    db: AsyncDatabaseClient, *, agent_id: str, artifact_id: str
+) -> Artifact:
+    """Turn a watch-page user edit into a commit point (spec B §3.2).
+
+    The bytes were already written by the officecli watch server (the single
+    resident writer serializes them against the agent's own CLI edits); this
+    only refreshes the registry: hash/size/updated_at + history
+    action="user_edited" + staged "updated" event. Idempotent — an unchanged
+    hash commits nothing, so a double-fired frontend callback cannot flood
+    history.
+    """
+    repo = ArtifactRepository(db)
+    artifact = await repo.get_by_id(artifact_id)
+    if artifact is None or artifact.agent_id != agent_id:
+        raise ArtifactNotFound(f"artifact not found: {artifact_id}")
+    if artifact.kind != OFFICE_LIVE_KIND:
+        raise ArtifactKindMismatch(
+            f"office-edit-commit only applies to {OFFICE_LIVE_KIND}, "
+            f"got {artifact.kind}"
+        )
+    abs_entry = os.path.join(settings.base_working_path, artifact.file_path)
+    if not artifact.file_path or not os.path.isfile(abs_entry):
+        raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
+
+    new_hash = compute_entry_hash(abs_entry)
+    if new_hash is None:
+        raise ArtifactContentGone(f"entry unreadable: {artifact.file_path}")
+    if new_hash == artifact.content_hash:
+        return artifact  # nothing changed — not a commit point
+
+    entry_dir = os.path.dirname(abs_entry)
+    workspace_top = os.path.dirname(artifact.file_path) in ("", ".")
+    size_bytes = os.path.getsize(abs_entry) if workspace_top else _dir_size(entry_dir)
+
+    await repo.update_pointer(
+        artifact_id,
+        file_path=artifact.file_path,
+        size_bytes=size_bytes,
+        content_hash=new_hash,
+    )
+    updated = await repo.get_by_id(artifact_id)
+    await _record_history(
+        repo,
+        artifact_id=artifact_id,
+        agent_id=artifact.agent_id,
+        file_path=artifact.file_path,
+        size_bytes=size_bytes,
+        action="user_edited",
+    )
+    await stage_artifact_event(db, action="updated", artifact=updated)
+    return updated

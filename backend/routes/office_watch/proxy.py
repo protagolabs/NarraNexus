@@ -103,7 +103,15 @@ def _rewrite_watch_html(html: str, prefix: str) -> str:
         "es.addEventListener('update',notify);es.addEventListener('message',notify);"
         "return es;};window.EventSource.prototype=OE.prototype;}"
         "var of=window.fetch;"
-        "if(of){window.fetch=function(u,o){return of(rebase(u),o);};}"
+        # Mirror the page's own selection reports to the parent
+        # (OfficeWatchViewer): the page POSTs {'paths': [...]} to
+        # api/selection whenever the user (de)selects elements — that payload
+        # IS the anchor set the T1 edit bar operates on (data-path anchors,
+        # spec B §3.3). Pure mirroring; the POST still goes through.
+        "if(of){window.fetch=function(u,o){"
+        "try{if(o&&o.method==='POST'&&typeof u==='string'&&u.indexOf('api/selection')!==-1&&typeof o.body==='string'){"
+        "parent.postMessage({type:'officewatch-selection',body:o.body},'*');}}catch(e){}"
+        "return of(rebase(u),o);};}"
         # The watch page scales the slide (transform: scale) by measuring the
         # container ONCE at load (clientWidth/innerWidth), and only re-scales on
         # a window `resize`. In the desktop WKWebView the sandboxed iframe often
@@ -342,12 +350,19 @@ async def office_watch_version(request: Request, artifact_id: str) -> dict:
     """
     user_id, agent_id, abs_path, rel = await _lookup_office_file(request, artifact_id)
     if is_cloud_mode():
-        return await _file_version_in_executor(user_id, agent_id, rel)
+        # Cloud workspaces have no desktop Office reaching in — lock is a
+        # local-disk concept, reported false there.
+        return {**(await _file_version_in_executor(user_id, agent_id, rel)), "lock": False}
     try:
         st = os.stat(abs_path)
     except OSError:
         raise HTTPException(status_code=404, detail="file not found")
-    return {"mtime": st.st_mtime, "size": st.st_size}
+    from xyz_agent_context.artifact import office_lock_present
+
+    # `lock` = a desktop Office app holds the ~$ owner-lock on the file; the
+    # viewer greys its direct-edit bar on it (officecli writes would race the
+    # desktop app's saves).
+    return {"mtime": st.st_mtime, "size": st.st_size, "lock": office_lock_present(abs_path)}
 
 
 async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: str, fwd_headers: dict):
@@ -400,6 +415,66 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
         if h in resp.headers and h != "content-type":
             headers[h] = resp.headers[h]
     return StreamingResponse(_body(), status_code=resp.status, media_type=media_type, headers=headers)
+
+
+# Browser-driven edit endpoints (office T1 direct editing, spec B §3.2).
+# EXACT paths only — the watch server exposes more (shutdown, file ops); the
+# proxy must never become a generic POST tunnel into it.
+EDIT_POST_ALLOWLIST = frozenset({"api/send", "api/batch", "api/selection"})
+# officecli commands are small JSON; anything bigger is not an edit.
+MAX_EDIT_POST_BYTES = 64 * 1024
+
+
+async def _post_upstream(
+    user_id: str, port: int, path: str, query: str, body: bytes, content_type: str
+) -> tuple[int, str, bytes]:
+    """POST ``body`` to the watch server and return (status, media_type, bytes).
+    Module-level (not inline in the handler) so tests can stub the network
+    seam while exercising the real gate logic."""
+    upstream = await _resolve_upstream(user_id, port, path, query)
+    timeout = aiohttp.ClientTimeout(total=30, sock_connect=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            resp = await session.post(
+                upstream, data=body, headers={"Content-Type": content_type}
+            )
+            payload = await resp.read()
+            return resp.status, resp.headers.get("Content-Type", "application/json"), payload
+        except aiohttp.ClientError as e:
+            logger.warning(f"office-watch POST upstream failed ({upstream}): {e}")
+            raise HTTPException(status_code=502, detail="watch server unavailable")
+
+
+@public_router.post("/office-watch-proxy/{token}/{port}/{path:path}")
+async def proxy_office_watch_post(token: str, port: int, path: str, request: Request):
+    """Token-authed POST passthrough for the watch server's edit APIs.
+
+    Three gates stack: the signed token (user + authorized port), the watch
+    port allowlist (SSRF guard, same as GET), and the exact-path allowlist
+    above. The body is capped — an edit command is a small JSON payload.
+    """
+    try:
+        claims = office_watch_token.verify(token)
+    except TokenError as e:
+        raise HTTPException(status_code=e.http_status, detail=str(e))
+    if port != claims.port or not is_watch_port(port):
+        raise HTTPException(status_code=403, detail="port not allowed for this token")
+    if path not in EDIT_POST_ALLOWLIST:
+        raise HTTPException(status_code=405, detail="POST not allowed on this path")
+
+    body = await request.body()
+    if len(body) > MAX_EDIT_POST_BYTES:
+        raise HTTPException(status_code=413, detail="edit payload too large")
+
+    status, media_type, payload = await _post_upstream(
+        claims.user_id,
+        port,
+        path,
+        request.url.query,
+        body,
+        request.headers.get("Content-Type", "application/json"),
+    )
+    return Response(content=payload, status_code=status, media_type=media_type, headers=_CORS_HEADERS)
 
 
 @public_router.get("/office-watch-proxy/{token}/{port}/{path:path}")

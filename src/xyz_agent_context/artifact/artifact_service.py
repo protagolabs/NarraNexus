@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from xyz_agent_context.artifact._artifact_impl import (
+    freshness,
     heal,
     raw_access,
     registration,
@@ -232,3 +233,18 @@ class ArtifactService:
             content=content,
             base_hash=base_hash,
         )
+
+    async def commit_office_user_edit(self, *, agent_id: str, artifact_id: str) -> Artifact:
+        """Refresh the registry after a watch-page user edit on an office
+        artifact (hash + history "user_edited" + event). Idempotent on an
+        unchanged hash. See `_artifact_impl/user_edit.py`."""
+        return await user_edit.commit_office_user_edit(
+            self._repo.db, agent_id=agent_id, artifact_id=artifact_id
+        )
+
+    async def refresh_external_state(self, artifact: Artifact) -> str:
+        """Detect (and commit) an external change to the artifact's entry
+        file. Returns "fresh" / "external" / "missing" — see
+        `_artifact_impl/freshness.py` for the two-stage detection and the
+        commit-point contract."""
+        return await freshness.refresh_external_state(self._repo.db, artifact)

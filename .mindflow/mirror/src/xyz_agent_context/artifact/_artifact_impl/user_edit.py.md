@@ -31,3 +31,10 @@ service 桥:[[artifact_service.py]] save_user_content;路由:
 backend/routes/agents/artifacts.py PUT /content;复用
 [[registration.py]] 的 MAX_ARTIFACT_BYTES/_dir_size/_record_history/
 compute_entry_hash 与 [[notify.py]] 的 stage_artifact_event。
+
+## 2026-08-19(二)— commit_office_user_edit
+
+office watch 页用户编辑的提交点:字节已由 watch 常驻写入(单写者
+串行化),本函数只刷新登记(hash/size/updated_at+history user_edited
++事件)。**hash 未变=幂等跳过**——前端回调重复触发不会灌 history。
+kind 门:仅 application/vnd.officecli-live。
