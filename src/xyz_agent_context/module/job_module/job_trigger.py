@@ -1437,11 +1437,10 @@ The task was executed but produced no text output.
                         # end_at horizon, same semantics as the SCHEDULED
                         # branch — the primitive is generic to recurring jobs,
                         # and ONGOING is the type that most needs a platform
-                        # brake (its end_condition is model-judged). Only in
-                        # THIS mechanical-fallback arm on purpose: when the
-                        # hook took over (status != RUNNING) the hook owns the
-                        # schedule decision — see the entry-point comments
-                        # above.
+                        # brake (its end_condition is model-judged). Both arms
+                        # honor it: this one when the hook failed (mechanical
+                        # fallback), and the else-branch below when the hook
+                        # rescheduled past the horizon.
                         if next_run and past_schedule_horizon(job.trigger_config, next_run.utc):
                             await repo.update_job(job.job_id, {
                                 "status": JobStatus.COMPLETED.value,
@@ -1462,6 +1461,37 @@ The task was executed but produced no text output.
                             next_run_str = "N/A"
                         await repo.update_job_status(job.job_id, JobStatus.ACTIVE)
                     else:
+                        # Hook (entry point 1) owns the schedule decision now
+                        # — EXCEPT the end_at horizon. The horizon is not a
+                        # call the LLM makes (it decides end_condition; whether
+                        # the schedule still owes a next fire is declared
+                        # platform-side, _job_lifecycle.py), so if the hook
+                        # rescheduled a fire that lands past end_at, complete
+                        # instead of respecting it. This is the NORMAL ongoing
+                        # path (the mechanical-fallback arm above only runs
+                        # when the hook failed). A hook that already finished
+                        # the job (COMPLETED/FAILED) cleared next_run →
+                        # next_run_time is None → we skip and never
+                        # double-complete (which would re-fire instance
+                        # completion). next_run_time may round-trip naive from
+                        # the DB, so normalize to aware-UTC before comparing
+                        # (same as _rearm_cooled_jobs).
+                        hook_next = current_job.next_run_time if current_job else None
+                        if hook_next is not None:
+                            if hook_next.tzinfo is None:
+                                hook_next = hook_next.replace(tzinfo=timezone.utc)
+                            if past_schedule_horizon(job.trigger_config, hook_next):
+                                await repo.update_job(job.job_id, {
+                                    "status": JobStatus.COMPLETED.value,
+                                })
+                                await repo.clear_next_run(job.job_id)
+                                if job.instance_id:
+                                    await self._update_instance_completed(job.instance_id)
+                                logger.info(
+                                    f"Job {job.job_id} completed (ongoing, end_at "
+                                    f"horizon reached; hook had rescheduled past it)"
+                                )
+                                return
                         logger.info(
                             f"Job {job.job_id}: status={current_status.value} (updated by hook), "
                             f"respecting hook's decision."

@@ -103,11 +103,14 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 平台级"排到哪天为止"。约定与 `run_at` 完全一致——naive 本地时间 + 由
 `timezone` 字段声明时区（同一 validator 拒绝 aware 值；`end_at` 也计入
 "time-bearing 字段必须带 timezone"的 model validator）。执行方在
-`job_trigger.py`：SCHEDULED finalize 分支 + ONGOING 机械回退分支（谓词
-`_job_scheduling.past_schedule_horizon`）——下次 fire 落在地平线之后 →
-COMPLETED 而非重排；one_off 忽略该字段（单次运行没有"下一次 fire"，
-_rearm_cooled_jobs 对 one_off 有显式守卫）。语义一句话：recurring 认、
-one_off 不认，四个执行点（两条 finalize + 两个重武装侧门）一致。默认 None = 老 job 逐字不变（铁律 #6）。首个消费方是
+`job_trigger.py`（谓词 `_job_scheduling.past_schedule_horizon`）——下次
+fire 落在地平线之后 → COMPLETED 而非重排；one_off 忽略该字段（单次运行
+没有"下一次 fire"，_rearm_cooled_jobs 对 one_off 有显式守卫）。语义一句
+话：recurring 认、one_off 不认，**五个写 next_run 的点全部一致**：
+SCHEDULED finalize、ONGOING finalize 的两支（hook 失败的机械回退支 + hook
+接管后的 else 支——后者查 hook 重排的 next_run 是否越线，四轮 review 补，
+因为 hook 正常接管才是常走路径）、以及两个重武装侧门（`_rearm_cooled_jobs`
+/ `_heal_unscheduled_active_jobs`）。默认 None = 老 job 逐字不变（铁律 #6）。首个消费方是
 onboarding 引导 Agent 的每日 check-in；试用期提醒/倒计时/N 天课程是同一
 原语的后续候选。**暴露面已同批接线**（否则原语只有 Python 直调可达）：
 MCP 工具 schema（`_job_mcp_tools.TriggerConfigArg.end_at: NotRequired[str]`

@@ -331,13 +331,10 @@ def test_safe_timezone_falls_back_on_garbage():
     assert ob._safe_timezone("") == "UTC"
 
 
-def test_goodbye_day_is_reachable_by_the_drifting_fire_sequence():
-    """Simulate the real fire sequence: compute_next_run schedules each fire
-    from the previous run's ACTUAL completion time, so every round drifts a
-    little later and end_at's own day never fires. The payload must quote a
-    day the sequence actually reaches — the last un-crossed fire's local date
-    must be >= the quoted goodbye day. Protects anyone who later changes
-    CHECKIN_END_AFTER_DAYS, the interval, or the end_date arithmetic."""
+def _simulate_last_fire_and_goodbye_day(drift):
+    """Run the real fire sequence (compute_next_run schedules each fire from
+    the previous run's ACTUAL completion time, so it drifts later each round)
+    and return (last_un_crossed_fire_local_date, quoted_goodbye_day)."""
     from datetime import datetime, timedelta, timezone as dt_tz
 
     from xyz_agent_context.module.job_module._job_scheduling import (
@@ -351,20 +348,49 @@ def test_goodbye_day_is_reachable_by_the_drifting_fire_sequence():
     goodbye_day = (end_local - timedelta(days=1)).date()  # what provisioning quotes
     tc = TriggerConfig(interval_seconds=86400, timezone="UTC", end_at=end_local)
 
-    drift = timedelta(seconds=90)  # poller delay + agent_loop runtime, per round
     next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=provision_utc).utc
     last_fire_date = None
     for _ in range(ob.CHECKIN_END_AFTER_DAYS + 2):  # bounded, no while-true
         if past_schedule_horizon(tc, next_fire):
             break
-        completion = next_fire + drift
-        last_fire_date = completion.date()
+        # The FIRE instant is when the poller runs the job and the agent reads
+        # "today" — NOT fire + runtime. next_fire.date() is the day the goodbye
+        # would be evaluated against end_date.
+        last_fire_date = next_fire.date()
+        completion = next_fire + drift  # drift = poller delay + agent_loop runtime
         next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=completion).utc
     else:
         raise AssertionError("fire sequence never crossed the horizon")
-
     assert last_fire_date is not None
-    # The goodbye day must actually get a fire (equality is the normal case;
-    # a later date would mean drift crossed a midnight — still covered by the
-    # payload's "or later" wording).
+    return last_fire_date, goodbye_day
+
+
+def test_goodbye_day_is_reachable_by_the_drifting_fire_sequence():
+    """Normal drift (a check-in is one short message, seconds of runtime): the
+    quoted goodbye day must actually get a fire — last un-crossed fire's local
+    date >= the quoted day. Protects anyone who later changes
+    CHECKIN_END_AFTER_DAYS, the interval, or the end_date arithmetic. (Equality
+    is the normal case; a later date means drift crossed a midnight — still
+    covered by the payload's "or later" wording.)"""
+    from datetime import timedelta
+
+    last_fire_date, goodbye_day = _simulate_last_fire_and_goodbye_day(
+        timedelta(seconds=90)
+    )
     assert last_fire_date >= goodbye_day
+
+
+def test_goodbye_day_holds_even_under_large_drift():
+    """The "minus one day" budget is more robust than one naive interval:
+    drift delays the FIRE instant by the same amount it advances the horizon
+    crossing, so the two cancel and the last fire's DATE stays on the goodbye
+    day regardless of drift magnitude (verified at 3h AND 12h per round — an
+    order of magnitude past any real check-in). This documents that the
+    round-4-review Minor-1 worry ("large drift slips the last fire to day 12,
+    missing the goodbye") does NOT materialise: the earlier miss came from
+    measuring the wrong instant (fire + runtime instead of the fire itself)."""
+    from datetime import timedelta
+
+    for drift in (timedelta(hours=3), timedelta(hours=12)):
+        last_fire_date, goodbye_day = _simulate_last_fire_and_goodbye_day(drift)
+        assert last_fire_date >= goodbye_day, f"drift={drift} missed the goodbye day"

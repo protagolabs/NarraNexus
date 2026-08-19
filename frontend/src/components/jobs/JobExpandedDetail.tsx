@@ -167,9 +167,11 @@ export function JobExpandedDetail({
               two weeks") looks identical to an unbounded one and the user
               can't tell it will stop on its own. Rendered whenever present:
               the platform enforces end_at for both recurring types
-              (scheduled AND ongoing — see job_trigger.py), and one_off jobs
-              never carry it (the MCP schema/instructions don't teach it
-              there and the trigger ignores it). */}
+              (scheduled AND ongoing — see job_trigger.py). The MCP
+              schema/instructions don't teach end_at for one_off and the
+              trigger ignores it there, so a one_off shouldn't carry it — but
+              nothing rejects one if a caller sets it, in which case this just
+              shows a harmless extra row. */}
           {typeof triggerConfig?.end_at === 'string' && (
             <div>
               <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.endAt')} </span>

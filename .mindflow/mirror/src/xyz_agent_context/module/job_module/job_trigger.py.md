@@ -397,11 +397,21 @@ COOLING 与僵尸两条侧门的越线+无地平线对照）。
 
 ## 2026-08-19（三轮）— 地平线推广到 ONGOING；in-run stop 清 next_run
 
-- **ONGOING 机械回退分支接地平线**：end_at 随 MCP schema 开放给模型后，
-  三种 job_type 必须一句话说清语义——现在是"recurring（scheduled/ongoing）
-  认地平线，one_off 忽略"。判断只加在 hook 没接管（status 仍 RUNNING）的
-  机械回退支内：hook 接管时 hook 拥有调度决策（entry-point 注释防的正是
-  这个打架面）；iteration_count 照写。
+- **ONGOING 两条路径都接地平线**：end_at 随 MCP schema 开放给模型后，
+  三种 job_type 必须一句话说清语义——"recurring（scheduled/ongoing）认
+  地平线，one_off 忽略"。ONGOING 有两支：①hook 失败的机械回退支（status
+  仍 RUNNING）自算 next_run 后查越线；②hook 接管的 else 支——**四轮 review
+  补**，因为 hook 正常接管才是常走路径，只补机械回退支等于只在 hook 失败
+  时才刹车。else 支不覆盖 hook 的语义决策（end_condition 由 LLM 判），只查
+  hook 重排的 `current_job.next_run_time` 是否越线：非空且越线 → COMPLETED
+  + clear_next_run + instance completed；hook 已完结（COMPLETED/FAILED）时
+  next_run 已清空为 None → 跳过、绝不二次完结（防重复触发 instance
+  completion）。next_run_time 从 DB 回来可能 naive，先补 tzinfo=utc 再比
+  （同 _rearm_cooled_jobs）。iteration_count 只在机械回退支前写一次，else
+  支不重写。测试：test_schedule_horizon.py 的
+  hook_reschedule_past_horizon_completes（越线完结，删 else 支判断必红）/
+  hook_reschedule_before_horizon_is_respected（未越线保持 active）/
+  hook_completed_is_not_double_completed（None next_run 跳过）。
 - **`_rearm_cooled_jobs` 两处收口**：加 `job_type != ONE_OFF` 守卫（one_off
   没有"下一次 fire"可bound，越线完结会把一个从未送达的一次性提醒标成
   completed）；重试时刻用 `max(cu, now)`——停机数天后 cu 早于地平线而 now

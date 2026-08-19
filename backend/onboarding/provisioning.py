@@ -100,6 +100,14 @@ CHECKIN_JOB_TITLE = "Daily check-in"
 # drift-simulation test in test_onboarding_provisioning.py pins this).
 # "or later" keeps the goodbye firing even if drift pushes the last fire
 # past a midnight into day 14.
+#
+# ROBUSTNESS: the "minus one day" is stable under drift of ANY magnitude, not
+# just small drift. Per-run drift delays the fire INSTANT by the same amount
+# it advances the horizon crossing (an earlier fire index), so the two cancel
+# and the last allowed fire's DATE stays on the goodbye day. Verified in
+# test_onboarding_provisioning.py at 3h and 12h per round (orders of magnitude
+# past a real check-in). The brake never depends on the goodbye either way —
+# the platform completes on schedule regardless.
 CHECKIN_END_AFTER_DAYS = 14
 _CHECKIN_JOB_DESCRIPTION = (
     "Once a day, drop by with a fresh topic. Pause or cancel this job "

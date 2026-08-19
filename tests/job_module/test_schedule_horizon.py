@@ -353,3 +353,83 @@ async def test_rearm_cooling_one_off_ignores_horizon(db_client):
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_oo1"})
     assert row["status"] == JobStatus.ACTIVE.value  # retried, NOT completed
+
+
+# ── ONGOING normal (hook-owned) path also honors the horizon ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_ongoing_hook_reschedule_past_horizon_completes(db_client):
+    # The NORMAL ongoing path: hook_after_event_execution took over (status
+    # moved off RUNNING) and rescheduled a fire that lands past end_at. The
+    # horizon is not a call the LLM makes (it only judges end_condition), so
+    # finalize must complete the job instead of "respecting" a fire the
+    # schedule no longer owes. Distinct from the mechanical-fallback tests
+    # above, which all leave status="running".
+    await _insert_job_of_type(
+        db_client, "job_o3", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00","end_condition":"x"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o3")  # snapshot: running
+    # Simulate the hook: status active + a rescheduled (past-horizon) fire.
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_o3"},
+        {"status": "active", "next_run_time": "2026-08-20T00:00:00Z"},
+    )
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o3"})
+    assert row["status"] == JobStatus.COMPLETED.value
+    assert row["next_run_time"] is None
+
+
+@pytest.mark.asyncio
+async def test_ongoing_hook_reschedule_before_horizon_is_respected(db_client):
+    # Hook rescheduled a fire BEFORE the horizon: finalize must respect the
+    # hook's decision (leave it active), not complete it.
+    await _insert_job_of_type(
+        db_client, "job_o4", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2099-01-01T00:00:00","end_condition":"x"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o4")
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_o4"},
+        {"status": "active", "next_run_time": "2026-08-20T00:00:00Z"},
+    )
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o4"})
+    assert row["status"] == JobStatus.ACTIVE.value  # hook's decision respected
+    assert row["next_run_time"] is not None
+
+
+@pytest.mark.asyncio
+async def test_ongoing_hook_completed_is_not_double_completed(db_client):
+    # Hook already finished the job (COMPLETED, next_run cleared): finalize
+    # must NOT re-complete it (would re-fire instance completion). The cleared
+    # next_run (None) is the skip signal.
+    await _insert_job_of_type(
+        db_client, "job_o5", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00","end_condition":"x"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o5")
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_o5"},
+        {"status": "completed", "next_run_time": None},
+    )
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o5"})
+    assert row["status"] == JobStatus.COMPLETED.value  # unchanged, no error
