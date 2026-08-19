@@ -42,6 +42,12 @@ PROP_AGENT_ID = "agent_id"   # message_round_trip_succeeded
 PROP_RUN_ID = "run_id"       # message_round_trip_succeeded
 PROP_SOURCE = "source"
 PROP_SESSION_ID = "session_id"
+# checkout_created. Without these, a $19 card subscription and a $228 twelve-
+# month one-time purchase are indistinguishable in the funnel, so "did adding
+# Alipay and WeChat sell anything" can only be answered by hand in Stripe.
+# NOT part of the idempotency key — the same session must stay one event.
+PROP_PAYMENT_METHOD = "payment_method"
+PROP_MONTHS = "months"
 PROP_TRIGGER_SOURCE = "trigger_source"
 PROP_PROVIDER_CARD_SOURCE = "provider_card_source"
 PROP_FAILURE_CATEGORY = "failure_category"

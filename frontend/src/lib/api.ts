@@ -103,6 +103,9 @@ import type {
   FeeInfoResponse,
   RecordsResponse,
   RechargeResponse,
+  RechargePaymentMethod,
+  SubscribePaymentMethod,
+  FxQuoteResponse,
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
@@ -1806,8 +1809,24 @@ class ApiClient {
   }
 
   // Start a Pro subscription — returns Stripe checkout_url to redirect to.
-  async subscribe(): Promise<SubscribeResponse> {
-    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  //
+  // `months` applies to the one-time products (alipay / wechat) ONLY. The
+  // backend REJECTS it on a card subscription rather than ignoring it, so it is
+  // omitted here instead of defaulted: sending "card, 6 months" would describe
+  // a purchase that cannot happen.
+  async subscribe(
+    paymentMethod: SubscribePaymentMethod = 'stripe',
+    months?: number,
+  ): Promise<SubscribeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const body: Record<string, unknown> = { payment_method: paymentMethod };
+    if (paymentMethod !== 'stripe') body.months = months ?? 1;
+    return this.request<SubscribeResponse>('/api/billing/subscribe', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify(body),
+    });
   }
 
   // Cancel = turn off auto-renew (stays Pro until period end).
@@ -1823,13 +1842,31 @@ class ApiClient {
   // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
   // default) and return checkout_url to open externally, then poll
   // rechargeStatus(session_id) until succeeded/failed.
-  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+  // `amount` is ALWAYS the USD credit being bought, even when the payer is
+  // charged in CNY — the backend derives the charge currency from the method,
+  // because upstream 400s when the two disagree.
+  async recharge(
+    amount: number,
+    paymentMethod: RechargePaymentMethod = 'default',
+  ): Promise<RechargeResponse> {
     const token = this.getNetmindToken();
     if (!token) throw new Error('NetMind account not linked (no loginToken)');
     return this.request<RechargeResponse>('/api/billing/recharge', {
       method: 'POST',
       headers: { 'X-Netmind-Token': token },
-      body: JSON.stringify({ amount, currency }),
+      body: JSON.stringify({ amount, payment_method: paymentMethod }),
+    });
+  }
+
+  // What a CNY charge costs right now, for showing "$10 ≈ ¥73" BEFORE the user
+  // commits. Quote-only: never call this to decide an amount, only to display
+  // one — the charge is priced upstream at its own live rate.
+  async fxRate(amount?: number): Promise<FxQuoteResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = amount !== undefined ? `?amount=${encodeURIComponent(amount)}` : '';
+    return this.request<FxQuoteResponse>(`/api/billing/fx-rate${qs}`, {
+      headers: { 'X-Netmind-Token': token },
     });
   }
 
