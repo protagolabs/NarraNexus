@@ -4,6 +4,15 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — TYPE_CHECKING 导入 `DatabaseBackend`（F821 配套，零行为变化）
+
+`auto_migrate` / `_self_heal_missing_tables` / `_verify_all_tables_present`
+的字符串注解 `"DatabaseBackend"` 此前没有任何导入支撑；本 PR 启用 ruff F821
+（注解里的未定义名会被拦）后补了 `if TYPE_CHECKING:` 导入。这些注解在
+`from __future__ import annotations` 下是纯字符串、运行时从不求值，所以导入
+只需 type-only。顺手删掉了 `auto_migrate` 函数体内那个遗留的延迟导入
+（原 `# noqa: F811` 行）——函数体内对该名字零使用，是死代码。行为零变化。
+
 ## 2026-08-17 — inbox 拿到自己的两张表（记录层，与 bus 解耦）
 
 `inbox_threads` + `inbox_thread_messages`。inbox 此前住在 `bus_messages` /
@@ -57,7 +66,6 @@ live 写入没有对应的 bus 行，NOT NULL 会逼写入方编一个 id，而�
 
 → 完整回填步骤与验证清单：`reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
 → 设计全文：`reference/self_notebook/specs/2026-08-17-conversation-harness-redesign-design.md`
-
 
 ## 2026-08-14 — 差事层与 job 来源面：三列两索引
 

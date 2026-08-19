@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/db/db_backend_sqlite_proxy.py
+last_verified: 2026-08-18
+stub: false
+---
+
 # db_backend_sqlite_proxy.py
 
 `SQLiteProxyBackend` — a `DatabaseBackend` that forwards every operation over HTTP to `sqlite_proxy_server.py`, eliminating multi-process SQLite file lock contention.

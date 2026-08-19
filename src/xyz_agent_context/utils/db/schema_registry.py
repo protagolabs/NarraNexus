@@ -15,9 +15,14 @@ On next app startup, the column is automatically added via ALTER TABLE ADD COLUM
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    # Type-only: the name is referenced only in annotations, so keep the
+    # runtime import graph unchanged.
+    from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 # ============================================================================
@@ -2889,8 +2894,6 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
     Args:
         backend: An initialized DatabaseBackend instance.
     """
-    from xyz_agent_context.utils.db.db_backend import DatabaseBackend  # noqa: F811
-
     dialect = backend.dialect
     tables_created = 0
     columns_added = 0
