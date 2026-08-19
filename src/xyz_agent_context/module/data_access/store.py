@@ -303,11 +303,24 @@ class DirectStore:
     async def update_awareness(self, agent_id: str, awareness: str) -> str:
         from xyz_agent_context.repository import InstanceAwarenessRepository
 
+        from xyz_agent_context.module.awareness_module import (
+            carry_over_platform_record,
+        )
+
         db = await self._db()
         instance_id = await self._awareness_instance_id(db, agent_id)
         if not instance_id:
             return _no_instance_msg(agent_id)
-        await InstanceAwarenessRepository(db).upsert(instance_id, awareness)
+        repo = InstanceAwarenessRepository(db)
+        # The model rewrites the WHOLE profile here, and the format it is given
+        # does not include the platform's identity record — so a rewrite silently
+        # deleted the rename correction. Re-attached in code, because asking the
+        # model to keep it would make prompt text the mechanism (rule #15).
+        current = await repo.get_by_instance(instance_id)
+        awareness = carry_over_platform_record(
+            (current.awareness if current else "") or "", awareness
+        )
+        await repo.upsert(instance_id, awareness)
         return _AWARENESS_OK
 
     async def update_agent_profile(

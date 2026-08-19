@@ -901,3 +901,82 @@ async def test_renaming_an_agent_with_no_memory_raises_no_warning_in_the_ui(
     assert body["identity_record_updated"] is None, (
         "nothing to correct must not reach the UI as a warning"
     )
+
+
+@pytest.mark.asyncio
+async def test_an_agent_diverged_by_a_ui_rename_is_repaired_too(db_client, ui_client):
+    """The population the UI path created, which has no record at all.
+
+    Reconciliation first keyed on "a record contradicts the row" — but a rename
+    through the UI before this fix wrote no record, so those agents carry only a
+    stale self-name line. They took the "nothing to repair" branch and were
+    reported as success with identity_record_updated null, i.e. healthy: the fix
+    saying "already correct" about the exact state it exists to correct.
+
+    The prod agent this was written from happened to have a record, because its
+    rename went through the agent's own tool first — one shape, generalised from.
+    """
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=(
+            "# Agent Awareness Profile\n\n"
+            "## 4. Role and Identity\n"
+            "- 名称：美食家；精通各地美食推荐\n"
+        ),
+    )
+
+    body = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},
+        headers={"X-User-Id": OWNER},
+    ).json()
+    assert body["success"] is True
+    assert body["identity_record_updated"] is True, "reported healthy while stale"
+
+    profile = await _profile(db_client)
+    assert "- 名称：小绿；精通各地美食推荐" in profile
+    entries = _identity_entries(profile)
+    assert len(entries) == 1 and "You are 「小绿」" in entries[0]
+
+
+@pytest.mark.asyncio
+async def test_repairing_a_recordless_profile_converges(db_client):
+    """Repairing the record-less shape must be idempotent.
+
+    It writes both a retirement and a new record, so the second call has to see
+    a profile that already agrees with the row — otherwise every later rename
+    rewrites the profile and logs a correction forever.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(
+        db_client,
+        name="小绿",
+        profile="# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：美食家\n",
+    )
+
+    first = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+    assert first.identity_reconciled is True
+
+    second = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+    assert second.identity_reconciled is None, "the repair did not converge"
+    assert len(_identity_entries(await _profile(db_client))) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_profile_that_never_named_the_agent_is_left_alone(db_client):
+    """No self-name line and no record is not a divergence — it is an agent
+    whose profile simply never stated a name, and it must not be handed one."""
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(
+        db_client,
+        name="小绿",
+        profile="# Agent Awareness Profile\n\n## 4. Role and Identity\n- 我擅长推荐美食\n",
+    )
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    assert result.identity_reconciled is None
+    assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)

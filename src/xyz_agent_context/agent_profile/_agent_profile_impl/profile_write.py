@@ -149,6 +149,21 @@ class AgentProfileWrite:
     error: Optional[str] = None
 
     @property
+    def identity_record_updated(self) -> Optional[bool]:
+        """Did this call leave the agent's identity record correct?
+
+        One question, one answer, whichever half did the work: a rename files a
+        correction, a repair supersedes a stale one, and a call that did neither
+        has no verdict to give (``None``). Both HTTP routes derived this with
+        the same three-line conditional, which is two places for one rule to
+        drift — and this change has already shipped an asymmetry created exactly
+        that way.
+        """
+        if self.renamed_from is not None:
+            return self.identity_note_recorded
+        return self.identity_reconciled
+
+    @property
     def ok(self) -> bool:
         return self.status != "error"
 

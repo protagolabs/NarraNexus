@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 (更正) — 事务不在 [[_awareness_writes]] 了
+
+本文件下面那条 2026-08-18 的条目说「统一经由 `_awareness_writes` 的
+`apply_agent_profile_change`」——**同一个 PR 里它已经搬到**
+`xyz_agent_context/agent_profile/`（见 [[_overview]]）。改名侧调用本函数的仍然只有
+那一个事务，只是它换了住址。
 
 ## 2026-08-18 (二改) — manyfold 的 POST 也进来了
 

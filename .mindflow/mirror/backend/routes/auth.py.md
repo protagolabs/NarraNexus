@@ -14,6 +14,25 @@ COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
+## 2026-08-19 (九改·更正) — 不再有 `extra_updates` 这个参数
+
+四改那条只更正了 import 路径，把签名留在了旧样子。现在传的是**具名参数**：
+
+```python
+result = await apply_agent_profile_change(
+    db_client, agent_id,
+    new_name=..., new_description=...,
+    is_public=... ,          # None 表示"没传"；False 是值
+)
+```
+
+`extra_updates` 已经不是参数，只是事务**内部**拼出来的局部 dict。改成具名的理由
+见 [[profile_write]] 八改：开放 dict 让下一个人一句 `model_dump()` 就能顺带改 agent
+归属人，而这个函数的名字不会提示审查者去查鉴权。
+
+`identity_record_updated` 也不再在本路由推导——那是 `AgentProfileWrite` 上的
+property，两个路由各推一份就是同一条规则的两处漂移点（本次已经因此出过一次不对称）。
+
 ## 2026-08-18 (四改) — import 改指领域包
 
 `apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从

@@ -599,3 +599,40 @@ class TestSelfNameLine:
         assert "## 5. Owner observations\n- 姓名：美食家" in out, (
             "an owner name line outside the identity section was rewritten"
         )
+
+
+@pytest.mark.asyncio
+async def test_a_model_rewrite_cannot_delete_the_platform_record(db):
+    """`update_awareness` hands the model the whole document to rewrite, and its
+    prescribed format lists four sections — none of them the platform record.
+
+    So the transaction wrote the correction, and the very next time the model
+    reorganised its profile (which §5 and the tool's own "When to Update"
+    actively encourage) the record went with it: the agent back to a stale
+    self-name line with nothing contradicting it, and no way to tell it had
+    ever been fixed. Iron rule #15 decides the shape of the fix: prompt text is
+    a supplement, never the mechanism, so the section is carried over in code.
+    """
+    from xyz_agent_context.module.data_access.store import DirectStore
+    from xyz_agent_context.module.awareness_module import (
+        IDENTITY_CHANGE_SECTION, build_identity_change_note,
+        merge_identity_change_note,
+    )
+    from xyz_agent_context.repository import InstanceAwarenessRepository
+
+    instance_id = await _seed_agent(db, "agent_rw", "小绿")
+    kept = merge_identity_change_note(
+        "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+        build_identity_change_note("美食家", "小绿"),
+    )
+    await InstanceAwarenessRepository(db).upsert(instance_id, kept)
+
+    # What the model sends back: the four prescribed sections, record dropped.
+    await DirectStore().update_awareness(
+        "agent_rw",
+        "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+    )
+
+    after = (await db.get_one("instance_awareness", {"instance_id": instance_id}))["awareness"]
+    assert IDENTITY_CHANGE_SECTION in after, "the platform record was rewritten away"
+    assert "You are 「小绿」" in after

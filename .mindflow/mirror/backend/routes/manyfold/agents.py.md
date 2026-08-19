@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/manyfold/agents.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 (九改·更正) — `created_by` 也是具名参数
+
+六改那条写「`created_by` 走 `extra_updates`」，现在是 `created_by=nx_user_id`。
+`extra_updates` 已从签名上移除（[[profile_write]] 八改）。
 
 ## 2026-08-18 (六改) — 响应契约变了三处，**要通知 Manyfold 侧**
 

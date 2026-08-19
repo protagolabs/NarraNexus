@@ -201,6 +201,43 @@ def merge_identity_change_note(profile: str, note: str) -> str:
     return "\n\n".join(parts) + "\n"
 
 
+def carry_over_platform_record(previous: str, rewritten: str) -> str:
+    """Keep the platform's identity record across a model rewrite of the profile.
+
+    ``update_awareness`` hands the model the whole document and takes back
+    whatever it returns, and the format that tool prescribes lists four sections
+    — none of them this one. So the correction the rename transaction wrote
+    survived exactly until the next time the model reorganised its profile,
+    which §5 and the tool's own "When to Update" actively encourage. The agent
+    then went back to a stale self-name line with nothing contradicting it, and
+    nothing recorded that it had ever been fixed.
+
+    Asking the model to preserve the section would make prompt text the
+    mechanism, which rule #15 forbids: a machine-knowable fact is derived. The
+    section is re-attached here instead. A rewrite that KEPT the section is left
+    alone — the model may legitimately have moved it.
+    """
+    if IDENTITY_CHANGE_SECTION in (rewritten or ""):
+        return rewritten
+    if IDENTITY_CHANGE_SECTION not in (previous or ""):
+        return rewritten
+
+    _, _, rest = previous.partition(IDENTITY_CHANGE_SECTION)
+    lines = rest.splitlines()
+    cut = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
+        len(lines),
+    )
+    entries = [ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")]
+    if not entries:
+        return rewritten
+    logger.info(
+        "[identity] re-attaching the platform record a profile rewrite dropped"
+    )
+    section = f"{IDENTITY_CHANGE_SECTION}\n" + "\n".join(entries)
+    return (rewritten or "").rstrip() + "\n\n" + section + "\n"
+
+
 def _note_is_readable(note: str, expected_name: str) -> bool:
     """Refuse to file a record whose own assertion cannot be read back.
 
@@ -263,6 +300,33 @@ _ANY_H2 = re.compile(r"^\s*##\s+")
 
 def _ends_the_name(rest: str) -> bool:
     return rest == "" or rest[0] in _NAME_ENDERS
+
+
+def _identity_section_lines(profile: str):
+    """Yield the lines that live in the agent's OWN section.
+
+    Shared with ``retire_self_name`` on purpose: two copies of "which part of
+    this document is the agent's" is how one of them starts editing the owner's.
+    """
+    editable = True
+    for line in (profile or "").splitlines():
+        if _ANY_H2.match(line):
+            editable = bool(_IDENTITY_SECTION.match(line))
+        if editable:
+            yield line
+
+
+def declared_self_name(profile: str) -> Optional[str]:
+    """The name the agent's own section says it has, if it says one."""
+    for line in _identity_section_lines(profile):
+        m = _SELF_NAME_LINE.match(line)
+        if m:
+            value = m.group("value").strip()
+            for ender in _NAME_ENDERS:
+                if ender and ender in value:
+                    return value.split(ender, 1)[0].strip()
+            return value
+    return None
 
 
 def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
@@ -416,9 +480,27 @@ async def reconcile_identity_record(
         current = await repo.get_by_instance(instance_id)
         profile = (current.awareness if current else "") or ""
         if IDENTITY_CHANGE_SECTION not in profile:
-            # Nothing has ever asserted a name here, so nothing contradicts the
-            # row. An agent that was never renamed must not be handed a note.
-            return None
+            # No record — but that is the shape a UI rename LEFT BEHIND before
+            # this transaction existed: the column moved and nothing was written
+            # here at all. Those agents carry only a stale self-name line, and
+            # keying reconciliation on "a record contradicts the row" reported
+            # the largest diverged population as healthy. The question is
+            # whether the PROFILE contradicts the row, wherever it says so.
+            declared = declared_self_name(profile)
+            if declared is None or declared == current_name:
+                return None
+            logger.warning(
+                f"[agent-profile-write] {agent_id}: profile still declares "
+                f"{declared!r} while the row holds {current_name!r} — correcting"
+            )
+            note = build_identity_reconciliation_note(current_name, declared)
+            if not _note_is_readable(note, current_name):
+                return False
+            profile = retire_self_name(profile, declared, current_name)
+            await repo.upsert(
+                instance_id, merge_identity_change_note(profile, note)
+            )
+            return True
 
         _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
         lines = rest.splitlines()

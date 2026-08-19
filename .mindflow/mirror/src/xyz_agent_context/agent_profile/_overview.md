@@ -36,7 +36,13 @@ agent_profile/
 warning，其余照常——这才是热插拔该有的含义。
 
 反过来 [[_awareness_writes]] 的 `update_agent_profile_from_args`（MCP 工具的
-渲染器）**调用**本包。Module 依赖核心领域包，方向是对的；核心不依赖 Module。
+渲染器）**调用**本包。Module 依赖核心领域包，方向是对的。
+
+**但"核心不依赖 Module"要说准**：本包在改名时会按名字 import
+`module.awareness_module`，而 Python 必然先导入父包——实测连带拉进 22 个兄弟模块。
+延迟导入买到的是**归属**（本包与其上的路由都没有模块作用域的依赖，import 图说明谁
+拥有这个事务），**不是 import 期隔离**。[[profile_write]] 的 docstring 写的是准的
+版本；这里曾经写得更强，是本次第三次把断言写在验证之前。
 
 ## 边界
 

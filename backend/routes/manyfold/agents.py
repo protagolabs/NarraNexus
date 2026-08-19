@@ -414,11 +414,7 @@ async def update_agent_for_manyfold(
         # Same collision report the UI and the agent's own tool get: applied,
         # never blocked, never silent.
         "name_clash_with": result.name_clash_with,
-        "identity_record_updated": (
-            result.identity_note_recorded
-            if result.renamed_from is not None
-            else result.identity_reconciled
-        ),
+        "identity_record_updated": result.identity_record_updated,
         "agent_id": updated.get("agent_id") if updated else agent_id,
         "name": updated.get("agent_name") if updated else patch.get("agent_name"),
         "description": (
