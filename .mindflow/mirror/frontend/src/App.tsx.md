@@ -248,3 +248,6 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 **`PublicRoute` redirects to `/mode-select` if `mode=null`.** A user who navigates directly to `/login` or `/register` with no stored mode (cleared localStorage) will be bounced to `/mode-select`. This is correct but unexpected if the developer clears storage during testing.
 
 **`ProtectedRoute` shows `PageFallback` during session validation.** The `validating` state delays rendering protected content by one async round-trip (`api.getAgents`). On a slow connection this can show the spinner for 1-2 seconds even for logged-in users with valid sessions.
+
+2026-08-19：needsSetup 段注释更新——"onboarding checklist" 改指 balance
+panel + 自动供给的引导 Agent（checklist 卡片已退役，纯注释同步，无行为变化）。
