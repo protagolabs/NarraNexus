@@ -162,18 +162,24 @@ export function ChatView() {
     typeof window !== 'undefined' ? window.innerWidth : 1920,
   );
   useEffect(() => {
-    const onResize = () => setViewportW(window.innerWidth);
+    // rAF-coalesced: raw resize fires at ~60Hz and a setState per event
+    // would reconcile the whole ChatView subtree every frame of a window
+    // drag. A debounce would be wrong here — late clamping is exactly the
+    // overflow this state exists to prevent.
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setViewportW(window.innerWidth));
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
   const effectiveDrawerWidth = clampDrawerWidth(drawerWidth, viewportW);
   const drawerColRef = useRef<HTMLDivElement | null>(null);
   const pendingDrawerWidthRef = useRef<number>(drawerWidth);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(DRAWER_WIDTH_KEY, String(drawerWidth));
-  }, [drawerWidth]);
 
   // Pinned-drawer drag. Width grows leftward from the drawer's own right
   // edge, so the edge stays put while the chat column absorbs the change.
@@ -196,6 +202,12 @@ export function ChatView() {
     const width = computeDrawerWidth(clientX);
     if (width !== null) pendingDrawerWidthRef.current = width;
     setDrawerWidth(pendingDrawerWidthRef.current);
+    // Persist HERE, on the explicit release, and nowhere else: the stored
+    // width doubles as an "existing user" signal for the first-run coach,
+    // so it must mean "the user chose a width", not "a ChatView mounted".
+    try {
+      window.localStorage.setItem(DRAWER_WIDTH_KEY, String(pendingDrawerWidthRef.current));
+    } catch { /* non-fatal */ }
   }, [computeDrawerWidth]);
 
   // Load pinned artifacts whenever agentId changes — even with the side

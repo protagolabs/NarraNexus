@@ -164,11 +164,10 @@ export const Composer = memo(
       const el = textareaRef.current;
       if (!el) return;
       el.style.height = 'auto';
+      // Border must be read AFTER the collapse to auto, and added back:
+      // border-box height includes it, scrollHeight does not.
       const borderPx = el.offsetHeight - el.clientHeight;
-      const next = `${el.scrollHeight + borderPx}px`;
-      // Write only on change: a ResizeObserver re-fires on the write, and
-      // an unconditional set would self-oscillate.
-      if (el.style.height !== next) el.style.height = next;
+      el.style.height = `${el.scrollHeight + borderPx}px`;
     }, []);
     // useLayoutEffect (not the change handler) so programmatic setText /
     // clear and the restored draft resize the same way typing does.
@@ -176,11 +175,22 @@ export const Composer = memo(
       resizeToContent();
     }, [text, resizeToContent]);
     // Width changes rewrap the text (drawer drag, pin toggle, sidebar
-    // collapse, window resize) — the height must follow those too.
+    // collapse, window resize) — the height must follow those too. The
+    // observer recomputes ONLY when the width changed: this callback only
+    // writes height, so filtering on width is what actually breaks the
+    // self-feedback loop (the write itself re-fires the observer).
     useEffect(() => {
       const el = textareaRef.current;
       if (!el || typeof ResizeObserver === 'undefined') return;
-      const ro = new ResizeObserver(() => resizeToContent());
+      // -1 so the initial delivery from observe() always runs, even in the
+      // edge case of a zero-width hidden container.
+      let lastWidth = -1;
+      const ro = new ResizeObserver((entries) => {
+        const width = entries[0].contentRect.width;
+        if (width === lastWidth) return;
+        lastWidth = width;
+        resizeToContent();
+      });
       ro.observe(el);
       return () => ro.disconnect();
     }, [resizeToContent]);

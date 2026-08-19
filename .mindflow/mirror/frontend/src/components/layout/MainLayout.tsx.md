@@ -13,11 +13,13 @@ stub: false
   所以**渲染处**用 resize 监听维护的 viewportW 再 clamp 一次
   (`effectiveDrawerWidth`)——窗口缩小/拔显示器时抽屉即刻回到合法宽度;
   **持久化保留用户原值**,回大屏自动恢复(环境噪音不吃掉用户意图)。
-- 首跑(桌面、无 opened-once 标记):懒初始化直接以 artifacts 面板 + 
-  [[../bookmarks/DrawerCoachMark]] 教学卡开局(不用 effect,无级联渲染;
-  once 标记在 `claimFirstRunAutoOpen` 内一次性占用,手机访问不烧掉桌面首跑)。
-  unpin/close/知道了 任一操作即消失。抽屉列仅在有 agent 时渲染,所以
-  setup 期间不闪面板。
+- 首跑:懒初始化按 `shouldAutoOpenFirstRun` 的**只读**判定直接以 artifacts
+  面板 + [[../bookmarks/DrawerCoachMark]] 教学卡开局(判据细节的唯一出处是
+  [[drawerLayout]],此处不复述);标记由 `markFirstRunSeen` 在 **mount
+  effect** 里写——被丢弃的渲染烧不掉它。宽度持久化只发生在拖拽释放
+  (handleDrawerResizeEnd),所以 WIDTH key 是「用户选过宽度」的真信号,
+  不会因为挂载过页面就把新用户误判成老用户。unpin/close/知道了 任一操作
+  即收起教学卡。抽屉列仅在有 agent 时渲染,setup 期间不闪面板。
 - 抽屉接上 `activeTab`/`onSelectTab`(标题下拉切换,见 [[../bookmarks/BookmarkDrawer]])。
 测试:drawerLayout.test.ts。
 

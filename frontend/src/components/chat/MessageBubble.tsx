@@ -68,10 +68,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
-  // Build a unified TurnEvent[] for inline rendering. We deliberately
-  // skip "reply" events here — the user-facing reply text lives in
-  // message.content and is already rendered as Markdown below, so
-  // duplicating it inside the timeline would print the reply twice.
+  // Build a unified TurnEvent[] for inline rendering. All three source
+  // paths deliberately carry NO "reply" events — the user-facing reply
+  // text lives in message.content and is already rendered as Markdown
+  // below, so duplicating it inside the timeline would print it twice.
   const inlineEvents: TurnEvent[] = useMemo(() => {
     if (isUser) return [];
 
@@ -91,7 +91,8 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     // collapsed disclosure keeps reply-tool calls as ordinary process rows,
     // hence convertOwnerReplyTool: false.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
-      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false });
+      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false })
+        .filter((e) => e.type !== 'reply');
     }
 
     // Path 2 — live stream: message.thinking + message.toolCalls came
