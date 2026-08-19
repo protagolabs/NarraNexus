@@ -29,9 +29,9 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService
+from xyz_agent_context.artifact import ArtifactError, ArtifactService, inject_edit_bridge
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
@@ -219,4 +219,20 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         csp = "default-src 'none'"
 
     headers = {**SAFE_HEADERS, "Content-Security-Policy": csp}
+
+    # Per-element edit bridge (spec A §3.3): the ENTRY html only, and only
+    # when the viewer asked for it. Assets and non-html kinds are never
+    # touched — the bridge is a viewer affordance, not part of the artifact.
+    if (
+        resolved.is_entry
+        and resolved.kind == "text/html"
+        and request.query_params.get("edit_bridge") == "1"
+    ):
+        try:
+            with open(resolved.path, encoding="utf-8", errors="replace") as f:
+                html = f.read()
+        except OSError as e:
+            raise HTTPException(status_code=410, detail=f"entry unreadable: {e}")
+        return HTMLResponse(content=inject_edit_bridge(html), headers=headers)
+
     return FileResponse(path=resolved.path, media_type=resolved.media_type, headers=headers)

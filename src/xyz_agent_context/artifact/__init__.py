@@ -24,6 +24,7 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactPathEscape,
     ArtifactTooLarge,
 )
+from xyz_agent_context.artifact._artifact_impl.edit_bridge import inject_edit_bridge
 from xyz_agent_context.artifact._artifact_impl.raw_access import ResolvedRawFile
 from xyz_agent_context.artifact._artifact_impl.registration import (
     ALL_KINDS,
@@ -43,4 +44,5 @@ __all__ = [
     "ArtifactContentGone",
     "ALL_KINDS",
     "MAX_ARTIFACT_BYTES",
+    "inject_edit_bridge",
 ]

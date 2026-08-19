@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/artifacts/public.py
-last_verified: 2026-07-21
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -157,3 +157,9 @@ right now — re-registering an artifact silently swaps the served content.
   `Host` — robust enough.
 - Path confinement uses `os.path.realpath` + `startswith(workspace + os.sep)`
   so symlinks inside the workspace can't escape.
+
+## 2026-08-19 — entry html 的 edit_bridge 注入
+
+`?edit_bridge=1` 且 is_entry 且 kind=text/html → 读文本注入桥脚本
+(HTMLResponse,同一套 CSP/SAFE_HEADERS);资产与非 html 一律不注入。
+桥来自 artifact 包公共口 inject_edit_bridge(不直捅 _impl)。
