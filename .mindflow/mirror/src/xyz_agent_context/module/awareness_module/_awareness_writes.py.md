@@ -4,6 +4,31 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (四改) — 事务搬去 [[_overview]]，本文件只留身份记录那一步
+
+第三轮审查：改名事务住在**可热插拔的 Module** 里，而两个核心平台路由 import 了它。
+把 AwarenessModule 从 `MODULE_MAP` 摘掉不是功能降级，是 route import 期
+ImportError——**后端起不来**（铁律 #3 的方向被反过来了）。而本文件上一版那句
+「别再新增写入方，要写就调这个函数」，等于用文档把这个反向依赖固化。
+
+事务（`AgentProfileWrite` / `apply_agent_profile_change` / `_stored_text_is_unnormalized`
+/ `_same_owner_name_holder` / `_refresh_peer_directory`）搬到
+`xyz_agent_context/agent_profile/`。本文件留下的是**真正属于 Awareness 的那一步**：
+`## Identity Changes` 段的常量、三个字符串助手（build ×2 / `identity_note_asserts`）、
+`merge_identity_change_note`，以及两个 DB 写入器——
+`_record_identity_change` / `_reconcile_identity_record` 改成**公开**
+（去掉 `_` 前缀）并从门面导出，因为现在由包外调用；私有实现不跨边界外露。
+
+`update_agent_profile_from_args`（MCP 渲染器）留在这里并**调用**新包：Module 依赖
+核心领域包，方向对；核心不依赖 Module。新包那边是**延迟 + 容错**导入本模块，
+所以 Awareness 缺席时改名只降级一步，不是整体失败。
+
+顺带：本文件从 679 行降到 328 行（拆分前已逼近 800 行上限）。
+
+**护栏表（8 行）随之更新**：`_awareness_writes.py` 那一行的 `repo.update_agent`
+已经不在本文件——现在在
+`agent_profile/_agent_profile_impl/profile_write.py`。命令本身不变。
+
 ## 2026-08-18 (三改) — 等值短路问错了问题：未归一化的行修不回来
 
 把 manyfold 的 upsert 折进事务，顺带接管了一个**没人提起过的义务**，是全量测试

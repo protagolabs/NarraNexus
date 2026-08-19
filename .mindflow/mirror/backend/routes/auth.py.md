@@ -14,6 +14,12 @@ COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
+## 2026-08-18 (四改) — import 改指领域包
+
+`apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
+`xyz_agent_context.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+Module——它 import 的是一个核心领域包。行为不变。
+
 ## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
 
 `not_applied` 分支原来读 `result.updated_fields`，而那个字段在成功分支的含义是

@@ -4,6 +4,13 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (四改) — import 改指领域包
+
+同 [[auth]]：`apply_agent_profile_change` 改从 `xyz_agent_context.agent_profile`
+导入。另外三改那条注释里「唯一一个既不刷名录也不走事务的写入方」**是假的**，
+第三轮审查用一条 grep 证伪：`bundle/importer.py` 也是，而且它导入时会改名
+（去重后缀/截断/空名兜底）并原样搬运 `instance_awareness` 里的身份记录。注释已
+改，缺口记在 `reference/self_notebook/todo/2026-08-18-bundle-import-identity-gap.md`。
 
 ## 2026-08-18 (三改) — 建号分支补刷名录
 

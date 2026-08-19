@@ -73,7 +73,7 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.module.awareness_module import apply_agent_profile_change
+from xyz_agent_context.agent_profile import apply_agent_profile_change
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -81,7 +81,7 @@ from xyz_agent_context.settings import settings as app_settings
 
 from pydantic import BaseModel
 from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
-from typing import Optional
+from typing import Iterable, Optional
 
 
 router = APIRouter()
@@ -1019,7 +1019,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         )
 
 
-def _not_persisted(fields) -> str:
+def _not_persisted(fields: Iterable[str]) -> str:
     """The one wording for "the row is not what you asked for".
 
     Two checks reach it — the shared transaction's "did my write land" and this
@@ -1028,7 +1028,10 @@ def _not_persisted(fields) -> str:
     duplicating the literal is how the two drift into two phrasings for one
     failure.
     """
-    return f"The update did not persist: {', '.join(fields)}"
+    # Sorts here rather than trusting each caller to: the helper exists so the
+    # two checks cannot drift into two sentences, and ordering is part of the
+    # sentence.
+    return f"The update did not persist: {', '.join(sorted(fields))}"
 
 
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
@@ -1178,7 +1181,7 @@ async def update_agent(
             )
             return UpdateAgentResponse(
                 success=False,
-                error=_not_persisted(sorted(unapplied)),
+                error=_not_persisted(unapplied),
             )
 
         # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,

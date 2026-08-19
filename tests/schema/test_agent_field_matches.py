@@ -124,3 +124,11 @@ class TestCreatedBy:
 
     def test_none_and_empty_are_the_same_absence(self):
         assert agent_field_matches(_agent(created_by=""), "created_by", None)
+
+    @pytest.mark.parametrize("wanted", [3, b"x", ["x"]])
+    def test_a_non_str_owner_is_refused_like_every_other_field(self, wanted):
+        """This branch returns before the text branch's type guard, so it needs
+        its own — otherwise it is the one documented hole in a predicate whose
+        whole design is that wrong-typed input fails loudly."""
+        with pytest.raises(TypeError):
+            agent_field_matches(_agent(created_by="alice"), "created_by", wanted)

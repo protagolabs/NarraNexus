@@ -319,6 +319,15 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
         # ``_row_to_entity`` may hand back either a bool or an int.
         return bool(agent.is_public) == bool(wanted)
     if field == "created_by":
+        if not isinstance(wanted, (str, type(None))):
+            # The closed-set discipline this predicate is built on has no
+            # exceptions: a non-str would compare unequal instead of raising,
+            # forcing a write of a wrong-typed owner id. Same refusal the text
+            # branch makes below, made here because this branch returns first.
+            raise TypeError(
+                f"agent_field_matches: created_by expects str, got "
+                f"{type(wanted).__name__}"
+            )
         # Owner id, compared byte-for-byte. Deliberately NOT run through
         # normalize_agent_text like the display-text fields: that helper strips
         # and length-caps prose written for humans, and quietly reshaping an

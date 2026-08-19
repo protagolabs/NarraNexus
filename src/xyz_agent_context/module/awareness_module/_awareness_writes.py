@@ -39,6 +39,7 @@ different.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import List, Literal, Optional
 
 from loguru import logger
@@ -85,6 +86,46 @@ def build_identity_change_note(
     )
 
 
+# Every note states the current name exactly once, in this shape. The builder
+# below writes it and ``identity_note_asserts`` reads it back, deliberately
+# adjacent: the moment those two drift, reconciliation silently stops finding
+# stale records and the section goes back to contradicting the row.
+_ASSERTS_NAME = re.compile(r"You are 「([^」]+)」")
+
+
+def identity_note_asserts(entry: str) -> Optional[str]:
+    """The name an identity entry tells the agent it currently has."""
+    m = _ASSERTS_NAME.search(entry or "")
+    return m.group(1) if m else None
+
+
+def build_identity_reconciliation_note(
+    current_name: str, stale_name: str, when: Optional[str] = None
+) -> str:
+    """Correct a platform record that names the wrong agent name.
+
+    Distinct wording from a rename on purpose: nothing was renamed just now, and
+    telling the agent it "was renamed" when its owner did no such thing is a
+    false statement in the one section whose whole value is that the agent
+    believes it. This says only what is true — the record was wrong, and here is
+    the name the platform holds.
+    """
+    if when is None:
+        from datetime import datetime, timezone
+        when = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # "You are 「X」" is not a wording choice — it is the shape
+    # ``identity_note_asserts`` reads, and therefore what lets this note
+    # supersede the stale one it is correcting. The first draft said "Your name
+    # is 「X」", which parsed as asserting nothing, so the record it was written
+    # to replace survived beside it. Any future note MUST contain this phrase;
+    # ``test_every_identity_note_states_the_current_name_readably`` enforces it.
+    return (
+        f"- {when}: platform record corrected. You are 「{current_name}」. "
+        f"An earlier record here said 「{stale_name}」 — that record was stale, "
+        f"not a rename, and 「{stale_name}」 is not your name."
+    )
+
+
 def merge_identity_change_note(profile: str, note: str) -> str:
     """Append ``note`` to the profile's identity-change section.
 
@@ -116,6 +157,19 @@ def merge_identity_change_note(profile: str, note: str) -> str:
         entries = [
             ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")
         ]
+        # Drop entries this note supersedes — every one that tells the agent it
+        # is called something other than what this note says it is called. The
+        # incident proved a single platform-voiced line is enough for the agent
+        # to introduce itself by the wrong name and defend it; leaving three
+        # mutually exclusive ones and trusting the model to prefer the last is
+        # the same bet with worse odds. Nothing is lost: the surviving note
+        # names the previous name itself ("renamed from X to Y").
+        now_called = identity_note_asserts(note)
+        if now_called:
+            entries = [
+                e for e in entries
+                if identity_note_asserts(e) in (None, now_called)
+            ]
         entries.append(note)
         tail = "\n".join(lines[cut:]).strip("\n")
 
@@ -126,27 +180,7 @@ def merge_identity_change_note(profile: str, note: str) -> str:
     return "\n\n".join(parts) + "\n"
 
 
-async def _same_owner_name_holder(
-    db, *, owner_user_id: str, name: str, exclude_agent_id: str
-) -> Optional[str]:
-    """agent_id of another agent of the SAME owner already using ``name``.
-
-    Scoped to the owner on purpose: two users naming their agents the same
-    thing is not a conflict and must never be reported across accounts.
-    """
-    try:
-        rows = await db.get("agents", {"created_by": owner_user_id})
-        for row in rows or []:
-            if row.get("agent_id") == exclude_agent_id:
-                continue
-            if (row.get("agent_name") or "").strip() == name:
-                return row.get("agent_id")
-    except Exception as e:  # noqa: BLE001 — advisory note, never blocking
-        logger.debug(f"name-clash check failed for {owner_user_id}: {e}")
-    return None
-
-
-async def _record_identity_change(
+async def record_identity_change(
     db, agent_id: str, old_name: str, new_name: str
 ) -> bool:
     """File the rename into the agent's Awareness profile.
@@ -162,7 +196,7 @@ async def _record_identity_change(
         )
         if not instances:
             logger.warning(
-                f"_record_identity_change: no AwarenessModule instance for "
+                f"record_identity_change: no AwarenessModule instance for "
                 f"{agent_id}; identity memory not corrected"
             )
             return False
@@ -178,304 +212,74 @@ async def _record_identity_change(
         )
         return True
     except Exception as e:  # noqa: BLE001 — see docstring
-        logger.warning(f"_record_identity_change failed for {agent_id}: {e}")
+        logger.warning(f"record_identity_change failed for {agent_id}: {e}")
         return False
 
 
-@dataclass(frozen=True)
-class AgentProfileWrite:
-    """What a profile write actually did, for callers that are not the model.
+async def reconcile_identity_record(db, agent_id: str, current_name: str) -> bool:
+    """Correct the profile when it asserts a name the row does not hold.
 
-    ``update_agent_profile_from_args`` renders this into the sentence the MCP
-    tool has always returned. Every OTHER caller is an HTTP route that owes its
-    client a status code, and inferring one by matching on English prose is a
-    coupling that breaks the first time the wording is improved — so the facts
-    are carried structurally and the prose is derived from them, never parsed.
-    """
+    The note used to be written whenever THIS call changed the column, which
+    left every already-diverged agent unrepairable: prod agent_4a0ae5f40af2 has
+    the row at 「小绿」 and a record asserting 「美食家」, so an owner renaming it to
+    「小绿」 takes the "no changes needed" path, is told it worked, and reads the
+    same wrong record on the next turn. That is #320's shape — retry, same
+    answer, nothing moves — one layer down.
 
-    #: Spelled out rather than left as ``str``: a caller comparing against a
-    #: typo'd literal type-checks fine and then silently takes the fallback
-    #: branch, handing a model-facing sentence to a UI.
-    status: Literal["updated", "unchanged", "error"]
-    #: Which of ``agent_name`` / ``agent_description`` / extras were written.
-    #: Non-empty only when ``status == "updated"``.
-    updated_fields: tuple[str, ...] = ()
-    #: Fields the write was supposed to land and the re-read did not confirm.
-    #: Kept separate from ``updated_fields`` rather than overloading it: a
-    #: caller adding write telemetry would otherwise read the failure list as
-    #: "what we wrote" without checking ``ok``, and count failures as writes —
-    #: an error that never raises and only makes a metric quietly optimistic.
-    unapplied_fields: tuple[str, ...] = ()
-    #: The previous name, set only when this write renamed the agent.
-    renamed_from: Optional[str] = None
-    #: The name now stored, set only when this write renamed the agent — so it
-    #: is None for a normalization repair, which writes agent_name without the
-    #: name having changed. Tied to ``renamed_from``, never to "was it written":
-    #: the field name reads as "did this rename", and a caller testing it that
-    #: way would get a false positive on every legacy unnormalized row.
-    renamed_to: Optional[str] = None
-    #: agent_id of another agent of the same owner now sharing the new name.
-    name_clash_with: Optional[str] = None
-    #: Did the Awareness identity correction actually land? Only meaningful when
-    #: ``renamed_from`` is set. The write is best-effort on purpose (the name is
-    #: already stored; failing the caller afterwards would report a rename that
-    #: happened as one that did not) — but that silent degradation IS the
-    #: incident this transaction exists for, so it must at least be visible.
-    identity_note_recorded: bool = False
-    #: Machine-readable failure, so routes can map it to a status code. Same
-    #: reason as ``status`` for pinning the spellings in the type.
-    error_kind: Optional[
-        Literal[
-            "nothing_to_update", "not_found", "empty_name", "too_long",
-            "not_applied",
-        ]
-    ] = None
-    #: The same failure as a sentence written for a model to read.
-    error: Optional[str] = None
-
-    @property
-    def ok(self) -> bool:
-        return self.status != "error"
-
-
-def _stored_text_is_unnormalized(agent, field: str) -> bool:
-    """Does the row still hold text that normalization would change?
-
-    ``agent_field_matches`` compares the NORMALIZED forms, so a row written
-    before normalization existed (or by a pre-fix bundle import) holding
-    `"  old  "` reads as already equal to the `"old"` it would be rewritten to.
-    The write is suppressed, the row keeps the unstripped value, and every
-    future comparison answers the same way — that row can never be renamed
-    again. The manyfold upsert wrapper used to be the one place that repaired
-    such rows on the way past; folding that path into this transaction moved the
-    obligation here, which also extends it from one caller to all of them.
-
-    Deliberately NOT merged into ``agent_field_matches``: that predicate answers
-    "are these the same value", which is the right question for the caller
-    deciding whether it got what it asked for. This one answers "would writing
-    change the bytes in the row", and only the writer needs it.
-    """
-    stored = getattr(agent, field, None) or ""
-    return stored != normalize_agent_text(stored)
-
-
-async def apply_agent_profile_change(
-    db, agent_id: str, *, new_name: Optional[str] = None,
-    new_description: Optional[str] = None,
-    extra_updates: Optional[dict] = None,
-) -> AgentProfileWrite:
-    """Write an agent's name and/or description as ONE transaction.
-
-    This is the whole rename obligation in one place, and it is the reason the
-    function exists rather than each caller writing the column itself: a rename
-    is not "set a column", it is set-the-column-AND-correct-the-memory-AND-
-    refresh-the-directory. Shenzhen round 2 (prod agent_4a0ae5f40af2) is what a
-    caller doing only the first part looks like — the UI rename wrote the name
-    while the Awareness profile kept a platform-voiced record asserting the
-    PREVIOUS name, so the agent read it and introduced itself as 「美食家」 for a
-    row that said 「小绿」. Three writers each remembering three steps is a
-    standing invitation to that bug; there is now one writer and no steps to
-    remember.
-
-    ``extra_updates`` carries fields with no identity semantics (``is_public``)
-    so a caller that edits them alongside the name still issues a SINGLE row
-    write — splitting it would open a window where the row is half-updated.
-    """
-    if new_name is None and new_description is None and not extra_updates:
-        return AgentProfileWrite(
-            status="error",
-            error_kind="nothing_to_update",
-            error=(
-                "Error: nothing to update — pass new_name and/or "
-                "new_description."
-            ),
-        )
-
-    repo = AgentRepository(db)
-
-    agent = await repo.get_agent(agent_id)
-    if not agent:
-        return AgentProfileWrite(
-            status="error",
-            error_kind="not_found",
-            error=f"Error: Agent {agent_id} not found",
-        )
-
-    # Extras go through the SAME value-equality short-circuit as name and
-    # description. Skipping it would make "set the value it already holds"
-    # issue a write — harmless on its own, but it is what the dialect-
-    # independence of this function rests on: a write that changes nothing
-    # returns rowcount 0 on MySQL and 1 on SQLite, and everything downstream
-    # is built on never having to interpret that number.
-    updates: dict = {
-        field: wanted
-        for field, wanted in (extra_updates or {}).items()
-        if not agent_field_matches(agent, field, wanted)
-    }
-    old_name = normalize_agent_text(agent.agent_name)
-    renamed_from: Optional[str] = None
-    clash: Optional[str] = None
-
-    if new_name is not None:
-        wanted = normalize_agent_text(new_name)
-        if not wanted:
-            return AgentProfileWrite(
-                status="error",
-                error_kind="empty_name",
-                error="Error: new_name cannot be empty",
-            )
-        # Bind to the SAME cap the read model enforces (Agent.agent_name
-        # Field(max_length=AGENT_TEXT_MAX_LENGTH)) and the MySQL column
-        # (VARCHAR(255)). Without it a >255 write succeeds on sqlite (TEXT) but
-        # makes the row UNREADABLE (get_agent → Agent(...) ValidationError, the
-        # NetMindAI-Open#71 bug) and diverges on MySQL (1406 / silent truncate).
-        # Checked HERE — the one shared fn every caller reaches — so the MCP
-        # tool, both stores and both HTTP routes reject identically.
-        if len(wanted) > AGENT_TEXT_MAX_LENGTH:
-            return AgentProfileWrite(
-                status="error",
-                error_kind="too_long",
-                error=(
-                    f"Error: new_name is too long "
-                    f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
-                ),
-            )
-        # Two different questions, and conflating them costs either the repair
-        # or a bogus identity record: "is this a rename" decides whether the
-        # agent's memory must be corrected, while "would this write change the
-        # row" decides whether to write at all. A stored `"  old  "` normalizes
-        # to the same value it would be rewritten to, so it is NOT a rename —
-        # but it still needs the write, or the row stays unrenameable forever.
-        is_rename = not agent_field_matches(agent, "agent_name", wanted)
-        if is_rename or _stored_text_is_unnormalized(agent, "agent_name"):
-            updates["agent_name"] = wanted
-        if is_rename:
-            renamed_from = old_name
-            # Duplicate names are ALLOWED — the owner may deliberately hand a
-            # name from one agent to another. What is forbidden is doing it
-            # silently: two agents answering to one name is exactly how the
-            # incident started, so name the current holder and let the agent
-            # check with its owner.
-            clash = await _same_owner_name_holder(
-                db, owner_user_id=agent.created_by,
-                name=wanted, exclude_agent_id=agent_id,
-            )
-
-    if new_description is not None:
-        wanted_desc = normalize_agent_text(new_description)
-        # Same AGENT_TEXT_MAX_LENGTH cap the name branch and the read model
-        # enforce — an over-long description would make the agent row unreadable
-        # (see the name branch).
-        if len(wanted_desc) > AGENT_TEXT_MAX_LENGTH:
-            return AgentProfileWrite(
-                status="error",
-                error_kind="too_long",
-                error=(
-                    f"Error: new_description is too long "
-                    f"(max {AGENT_TEXT_MAX_LENGTH} characters)"
-                ),
-            )
-        # Same equality short-circuit the name branch does, and for a sharper
-        # reason: update_agent returns cursor.rowcount, which counts CHANGED
-        # rows on MySQL (dev/prod) but MATCHED rows on SQLite. Re-saving an
-        # identical description would therefore report "Error: the update did
-        # not apply" on cloud only — for a write that was simply a no-op — and
-        # the §5 prompt invites exactly those repeat calls (review 2026-08-05).
-        if not agent_field_matches(
-            agent, "agent_description", wanted_desc
-        ) or _stored_text_is_unnormalized(agent, "agent_description"):
-            updates["agent_description"] = wanted_desc
-
-    if not updates:
-        # Nothing to write, but the directory is still refreshed below: sync
-        # swallows its own failures, so a peer directory left on the old name
-        # has no other way back — and re-saving the same values is the most
-        # natural way a user retries after being told the save failed. That
-        # retry must not be the one path that skips the repair (#320).
-        await _refresh_peer_directory(db, agent_id)
-        return AgentProfileWrite(status="unchanged")
-
-    await repo.update_agent(agent_id, updates)
-
-    # The row decides, not the rowcount. The value-equality short-circuit above
-    # already removes the no-op case, but `cursor.rowcount` can still report 0
-    # for a write that DID land (it counts CHANGED rows on MySQL), and reading
-    # that as failure is precisely the bug the HTTP twin was fixed for — an
-    # agent told "the update did not apply" would re-issue a rename that had
-    # already happened. Same predicate as the comparison above, so "needed a
-    # write" and "the write landed" cannot mean different things.
-    stored = await repo.get_agent(agent_id)
-    unapplied = (
-        list(updates)
-        if stored is None
-        else [
-            field
-            for field, wanted in updates.items()
-            if not agent_field_matches(stored, field, wanted)
-        ]
-    )
-    if unapplied:
-        # Leave a trace. Without one, the only record that this happened is the
-        # sentence the model was handed — and if a concurrent writer caused it,
-        # nothing in the logs or the DB can be lined up with it afterwards.
-        # WARNING, not ERROR: there is no CAS across read-write-reread, so a
-        # second tab or the agent's own tool landing inside that window shows
-        # up here as benign last-write-wins, which must not page anyone.
-        logger.warning(
-            f"[agent-profile-write] {agent_id} does not hold the requested "
-            f"values for {unapplied} after the write — concurrent overwrite, "
-            f"or the write did not land"
-        )
-        return AgentProfileWrite(
-            status="error",
-            error_kind="not_applied",
-            error="Error: the update did not apply; nothing was changed",
-            unapplied_fields=tuple(sorted(unapplied)),
-        )
-
-    # A rename is not complete until the memory that asserts the old identity
-    # has been corrected (P1 section 02 ①). Unconditional here, for every
-    # caller: the note only ever pointed the right way because the agent's own
-    # tool happened to be the writer, and Shenzhen round 2 is what the other
-    # writers produced — a stale correction is worse than none, because it
-    # speaks in the platform's voice and the agent believes it.
-    note_recorded = False
-    if renamed_from:
-        note_recorded = await _record_identity_change(
-            db, agent_id, renamed_from, updates["agent_name"]
-        )
-
-    # Peers must see this now, not after the next turn (P1 section 02 target 2).
-    await _refresh_peer_directory(db, agent_id)
-
-    return AgentProfileWrite(
-        status="updated",
-        updated_fields=tuple(sorted(updates)),
-        renamed_from=renamed_from,
-        renamed_to=updates.get("agent_name") if renamed_from else None,
-        name_clash_with=clash,
-        identity_note_recorded=note_recorded,
-    )
-
-
-async def _refresh_peer_directory(db, agent_id: str) -> None:
-    """Republish the agent's discovery row; never raise into the caller.
-
-    The profile write has already landed by the time this runs, so a failure
-    here may not turn into "the rename failed" — it is logged and swallowed,
-    exactly as ``sync_agent_discovery`` does internally.
+    So the obligation belongs to the STATE, not to the write: if the record
+    disagrees with the row, correct it, whether or not this call wrote anything.
+    Best-effort like every other identity write; returns whether it acted.
     """
     try:
-        from xyz_agent_context.message_bus.agent_discovery_sync import (
-            sync_agent_discovery,
+        instances = await InstanceRepository(db).get_by_agent(
+            agent_id=agent_id, module_class="AwarenessModule"
         )
-        if not await sync_agent_discovery(db, agent_id):
-            logger.warning(
-                f"[agent-profile-write] peer-directory sync failed for "
-                f"{agent_id}; peers may still see the previous name"
-            )
-    except Exception as e:  # noqa: BLE001 — profile write already landed
-        logger.warning(f"[agent-profile-write] discovery sync failed: {e}")
+        if not instances:
+            return False
+        instance_id = instances[0].instance_id
+        repo = InstanceAwarenessRepository(db)
+        current = await repo.get_by_instance(instance_id)
+        profile = (current.awareness if current else "") or ""
+        if IDENTITY_CHANGE_SECTION not in profile:
+            # Nothing has ever asserted a name here, so nothing contradicts the
+            # row. An agent that was never renamed must not be handed a note.
+            return False
+
+        _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
+        lines = rest.splitlines()
+        cut = next(
+            (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
+            len(lines),
+        )
+        entries = [
+            ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")
+        ]
+        asserted = next(
+            (
+                name
+                for name in (identity_note_asserts(e) for e in reversed(entries))
+                if name
+            ),
+            None,
+        )
+        if asserted is None or asserted == current_name:
+            return False
+
+        logger.warning(
+            f"[agent-profile-write] {agent_id}: identity record asserted "
+            f"{asserted!r} while the row holds {current_name!r} — correcting"
+        )
+        await repo.upsert(
+            instance_id,
+            merge_identity_change_note(
+                profile,
+                build_identity_reconciliation_note(current_name, asserted),
+            ),
+        )
+        return True
+    except Exception as e:  # noqa: BLE001 — the profile write already landed
+        logger.warning(f"reconcile_identity_record failed for {agent_id}: {e}")
+        return False
 
 
 async def update_agent_profile_from_args(
@@ -496,6 +300,8 @@ async def update_agent_profile_from_args(
     is shared with the HTTP rename routes so the identity correction cannot be
     skipped by whichever caller happens to write the column.
     """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
     result = await apply_agent_profile_change(
         db, agent_id, new_name=new_name, new_description=new_description,
     )

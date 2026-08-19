@@ -11,20 +11,24 @@ makes. (This is not about avoiding module-load cost — importing any submodule 
 ``xyz_agent_context.module`` already runs the parent package's MODULE_MAP.)"""
 from ._awareness_writes import (
     IDENTITY_CHANGE_SECTION,
-    AgentProfileWrite,
-    apply_agent_profile_change,
     MAX_IDENTITY_CHANGE_ENTRIES,
     build_identity_change_note,
+    record_identity_change,
+    reconcile_identity_record,
+    build_identity_reconciliation_note,
+    identity_note_asserts,
     merge_identity_change_note,
     update_agent_profile_from_args,
 )
 
 __all__ = [
     "IDENTITY_CHANGE_SECTION",
-    "AgentProfileWrite",
-    "apply_agent_profile_change",
     "MAX_IDENTITY_CHANGE_ENTRIES",
     "build_identity_change_note",
+    "record_identity_change",
+    "reconcile_identity_record",
+    "build_identity_reconciliation_note",
+    "identity_note_asserts",
     "merge_identity_change_note",
     "update_agent_profile_from_args",
 ]

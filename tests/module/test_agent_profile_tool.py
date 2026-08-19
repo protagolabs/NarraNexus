@@ -66,7 +66,16 @@ def test_the_note_is_appended_to_a_profile_not_rewritten_over_it():
     assert IDENTITY_CHANGE_SECTION in merged
 
 
-def test_repeated_renames_do_not_grow_without_bound():
+def test_a_chain_of_renames_leaves_one_current_record():
+    """Each note supersedes the ones naming a different name, so a chain
+    collapses to the note that is true now.
+
+    Nothing is lost: the survivor names the previous name itself ("renamed from
+    X to Y"). What goes is the contradiction — the incident showed one
+    platform-voiced line is enough for the agent to introduce itself by the
+    wrong name and defend it, so keeping five mutually exclusive ones and
+    trusting the model to prefer the last is the same bet with worse odds.
+    """
     profile = "# Agent Awareness Profile\n"
     for i in range(MAX_IDENTITY_CHANGE_ENTRIES + 4):
         profile = merge_identity_change_note(
@@ -75,11 +84,30 @@ def test_repeated_renames_do_not_grow_without_bound():
 
     section = profile.split(IDENTITY_CHANGE_SECTION, 1)[1]
     entries = [ln for ln in section.splitlines() if ln.strip().startswith("- ")]
-    assert len(entries) == MAX_IDENTITY_CHANGE_ENTRIES
-    # The newest rename must be the one that survives.
     last = f"name{MAX_IDENTITY_CHANGE_ENTRIES + 4}"
-    assert any(last in e for e in entries)
+    assert len(entries) == 1, f"superseded records were kept: {entries}"
+    assert last in entries[0]
     assert profile.count(IDENTITY_CHANGE_SECTION) == 1, "one section, not one per rename"
+
+
+def test_records_agreeing_on_the_current_name_are_still_capped():
+    """Pruning removes contradictions, not the growth bound.
+
+    Entries asserting the SAME name survive each other — a rename followed by
+    reconciliations of the same name is the real case — so the cap is still the
+    only thing keeping the section from growing into the context window it
+    lives in. Testing it with a chain of DIFFERENT names would pass on a build
+    with no cap at all, since pruning alone leaves one entry.
+    """
+    profile = "# Agent Awareness Profile\n"
+    for _ in range(MAX_IDENTITY_CHANGE_ENTRIES + 4):
+        profile = merge_identity_change_note(
+            profile, build_identity_change_note("old", "same")
+        )
+
+    section = profile.split(IDENTITY_CHANGE_SECTION, 1)[1]
+    entries = [ln for ln in section.splitlines() if ln.strip().startswith("- ")]
+    assert len(entries) == MAX_IDENTITY_CHANGE_ENTRIES
 
 
 def test_an_empty_profile_still_gets_a_valid_section():
@@ -375,3 +403,23 @@ def test_the_old_name_only_tool_is_gone():
     names = {t.name for t in mcp._tool_manager.list_tools()}
     assert "update_agent_profile" in names
     assert "update_agent_name" not in names
+
+
+def test_every_identity_note_states_the_current_name_readably():
+    """Whatever a note says, `identity_note_asserts` must find the name in it.
+
+    Superseding a stale record depends on reading back what each record claims,
+    so a note phrased outside that shape silently asserts nothing: it is
+    appended beside the record it was written to replace, and the contradiction
+    the whole mechanism exists to remove survives. That is exactly what the
+    reconciliation note did on its first draft ("Your name is 「X」").
+    """
+    from xyz_agent_context.module.awareness_module import (
+        build_identity_reconciliation_note,
+        identity_note_asserts,
+    )
+
+    assert identity_note_asserts(build_identity_change_note("A", "B")) == "B"
+    assert (
+        identity_note_asserts(build_identity_reconciliation_note("B", "A")) == "B"
+    )

@@ -339,7 +339,7 @@ def test_a_field_that_needed_no_write_is_still_verified_against_the_row(
     only.
     """
     import backend.routes.auth as auth_mod
-    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+    from xyz_agent_context.agent_profile import AgentProfileWrite
 
     async def _concurrent_writer(db, agent_id, **_kwargs):  # noqa: ANN001
         """No-op write, then someone else renames the row underneath us."""
@@ -371,7 +371,7 @@ def test_a_transaction_level_failure_names_the_fields_that_did_not_land(
     "The update did not persist: " with no fields, silently.
     """
     import backend.routes.auth as auth_mod
-    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+    from xyz_agent_context.agent_profile import AgentProfileWrite
 
     async def _did_not_land(_db, _agent_id, **_kwargs):  # noqa: ANN001
         return AgentProfileWrite(

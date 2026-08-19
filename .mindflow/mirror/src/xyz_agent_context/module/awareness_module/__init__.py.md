@@ -4,6 +4,14 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 (四改) — 门面换了内容
+
+`apply_agent_profile_change` / `AgentProfileWrite` **移出**（现在在
+`xyz_agent_context.agent_profile`，见 [[_overview]]）。新导出的是两个身份记录
+写入器 `record_identity_change` / `reconcile_identity_record`——它们现在由包外
+（那个领域包）调用，所以去掉了 `_` 前缀；跨边界不外露私有符号。
+字符串助手新增 `build_identity_reconciliation_note` / `identity_note_asserts`。
+
 ## 2026-08-18 — 门面新增 `apply_agent_profile_change` / `AgentProfileWrite`
 
 改名事务下沉后（见 [[_awareness_writes]] 同日条目），共享的是**结构化**入口而不再只是

@@ -34,7 +34,7 @@ from xyz_agent_context.schema import (
     normalize_agent_row_text,
     normalize_agent_text,
 )
-from xyz_agent_context.module.awareness_module import apply_agent_profile_change
+from xyz_agent_context.agent_profile import apply_agent_profile_change
 from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
@@ -247,15 +247,21 @@ async def create_agent_for_manyfold(
             "is_public": 0,
         }))
         agent_created = True
-        # Publish it to the peer directory NOW. This branch is the only writer
-        # of the agents row that reached neither `sync_agent_discovery` nor the
-        # shared transaction, so a Manyfold-provisioned agent nobody had talked
-        # to yet did not exist in `bus_agent_registry` at all — peers could
+        # Publish it to the peer directory NOW. This branch reached neither
+        # `sync_agent_discovery` nor the shared transaction, so a
+        # Manyfold-provisioned agent nobody had talked to yet did not exist in
+        # `bus_agent_registry` at all — peers could
         # neither list it nor send to it until its first turn created instances
         # (InstanceFactory syncs there). "Its next turn will fix it" is exactly
         # what P1 section 02 rejected: an idle agent is the case that cannot
         # self-heal. Best-effort, like every other caller — provisioning must
         # not fail because discovery metadata could not be refreshed.
+        #
+        # NOT the last such writer: `bundle/importer.py` raw-inserts agents and
+        # their instances without ever syncing, and renames on import (dedupe
+        # suffix / clamp / empty-name fallback) while copying instance_awareness
+        # verbatim. Tracked in
+        # reference/self_notebook/todo/2026-08-18-bundle-import-identity-gap.md
         #
         # Deliberately NOT routed through apply_agent_profile_change: that
         # function's precondition is that the row already exists, and a brand

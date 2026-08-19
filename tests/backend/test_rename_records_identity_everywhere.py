@@ -143,7 +143,10 @@ async def test_ui_rename_supersedes_a_note_pointing_the_other_way(
     assert resp.status_code == 200 and resp.json()["success"] is True
 
     entries = _identity_entries(await _profile(db_client))
-    assert len(entries) == 2, f"expected the rename to be appended, got {entries}"
+    # One record, not two: the entry asserting 「美食家」 is superseded and pruned.
+    # Leaving both would put two mutually exclusive platform statements in the
+    # prompt, which is the bet that lost the first time.
+    assert len(entries) == 1, f"the superseded record was kept: {entries}"
     latest = entries[-1]
     assert "「小绿」" in latest and "「美食家」" in latest
     assert "You are 「小绿」" in latest
@@ -191,8 +194,9 @@ async def test_manyfold_rename_records_the_identity_change(
     )
     assert resp.status_code == 200
 
-    latest = _identity_entries(await _profile(db_client))[-1]
-    assert "You are 「小绿」" in latest
+    entries = _identity_entries(await _profile(db_client))
+    assert len(entries) == 1
+    assert "You are 「小绿」" in entries[-1]
 
 
 @pytest.mark.asyncio
@@ -235,8 +239,9 @@ async def test_manyfold_provisioning_rerun_that_renames_records_it_too(
     )
     assert resp.status_code == 200, resp.text
 
-    latest = _identity_entries(await _profile(db_client))[-1]
-    assert "You are 「小绿」" in latest
+    entries = _identity_entries(await _profile(db_client))
+    assert len(entries) == 1
+    assert "You are 「小绿」" in entries[-1]
 
     row = await db_client.get_one("bus_agent_registry", {"agent_id": AGENT_ID})
     assert row is not None, "provisioning rerun left the agent out of the directory"
@@ -288,9 +293,7 @@ async def test_normalizing_a_stale_row_is_not_a_rename(db_client):
     about: an identity record saying it was renamed from 「小绿」 to 「小绿」 is
     noise in the one section whose whole value is that the agent believes it.
     """
-    from xyz_agent_context.module.awareness_module import (
-        apply_agent_profile_change,
-    )
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     # Bypass the repository (it normalizes on write) to plant the stale shape.
@@ -346,7 +349,7 @@ async def test_manyfold_post_maps_not_found_like_the_patch_does(
     """Both manyfold endpoints must answer one error_kind with one status code,
     or the caller needs two mappings for the same failure."""
     import backend.routes.manyfold.agents as mf_mod
-    from xyz_agent_context.module.awareness_module import AgentProfileWrite
+    from xyz_agent_context.agent_profile import AgentProfileWrite
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -380,9 +383,7 @@ async def test_the_description_repair_branch_is_symmetric_with_the_name_one(
     to the equality check; without this test, deleting it as cleanup leaves
     those rows unrepaired and the suite green.
     """
-    from xyz_agent_context.module.awareness_module import (
-        apply_agent_profile_change,
-    )
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     await db_client.update(
@@ -408,9 +409,7 @@ async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
     list alone reports renamed_to on legacy rows — a false positive for the
     next caller that tests it, and one that never raises.
     """
-    from xyz_agent_context.module.awareness_module import (
-        apply_agent_profile_change,
-    )
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
     await db_client.update(
@@ -430,9 +429,7 @@ async def test_a_repair_write_is_not_reported_as_a_rename(db_client):
 async def test_a_real_rename_reports_that_its_note_landed(db_client):
     """The note is the point of the whole transaction, and it degrades
     silently — so the result has to say whether it landed."""
-    from xyz_agent_context.module.awareness_module import (
-        apply_agent_profile_change,
-    )
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -451,9 +448,7 @@ async def test_a_rename_with_no_awareness_instance_says_the_note_did_not_land(
     """An agent with no AwarenessModule instance has nowhere to file the
     correction. The rename still succeeds — reporting failure for a name that
     IS stored would be the worse lie — but the degradation must be visible."""
-    from xyz_agent_context.module.awareness_module import (
-        apply_agent_profile_change,
-    )
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
 
     await db_client.insert("agents", {
         "agent_id": "agent_no_aware", "agent_name": "美食家",
@@ -468,4 +463,140 @@ async def test_a_rename_with_no_awareness_instance_says_the_note_did_not_land(
     assert result.identity_note_recorded is False, (
         "a rename whose identity correction went nowhere looks identical to a "
         "complete one — that state IS the incident"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The population that already diverged. Correcting the write paths does nothing
+# for an agent whose record went stale BEFORE the fix shipped — and the ticket's
+# own agent is one of those, so this is the part that closes it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_incidents_own_agent_is_repaired_by_renaming_to_its_own_name(
+    db_client, ui_client
+):
+    """Prod as probed on 2026-08-18: row 「小绿」, record asserting 「美食家」.
+
+    An owner who sees the wrong name does the obvious thing — sets the name to
+    what it should be. The column already holds it, so the write short-circuits,
+    and before reconciliation that path returned success without looking at the
+    record: told it worked, nothing changed, same answer on every retry. That is
+    #320's shape one layer down, and it would have shipped as "fixed".
+    """
+    await _seed(db_client, name="小绿", profile=STALE_PROFILE)
+
+    resp = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},  # already the stored value
+        headers={"X-User-Id": OWNER},
+    )
+    assert resp.json()["success"] is True
+
+    entries = _identity_entries(await _profile(db_client))
+    assert len(entries) == 1, f"the stale record survived: {entries}"
+    assert "「小绿」" in entries[0]
+    assert "You are 「美食家」" not in entries[0]
+    # The correction must not claim a rename nobody performed.
+    assert "renamed by your creator" not in entries[0]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_record_is_corrected_without_being_called_a_rename(
+    db_client,
+):
+    """``renamed_from``/``renamed_to`` keep meaning "did THIS call rename".
+
+    A caller asking that question must not be answered "yes" by a repair, so
+    reconciliation reports itself on its own field.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(db_client, name="小绿", profile=STALE_PROFILE)
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    assert result.status == "unchanged"
+    assert result.renamed_from is None and result.renamed_to is None
+    assert result.identity_note_recorded is False
+    assert result.identity_reconciled is True
+
+
+@pytest.mark.asyncio
+async def test_an_agent_that_was_never_renamed_is_handed_no_record(db_client):
+    """Reconciliation keys on a record that CONTRADICTS the row, never on the
+    absence of one — an agent nobody renamed must not be told about names."""
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(db_client, name="小绿", profile="# Agent Awareness Profile\n")
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    assert result.identity_reconciled is False
+    assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)
+
+
+@pytest.mark.asyncio
+async def test_a_description_only_edit_does_not_touch_the_identity_record(
+    db_client,
+):
+    """Reconciliation is owed to a caller that named a NAME. A description edit
+    makes no claim about identity and must not rewrite that section."""
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(db_client, name="小绿", profile=STALE_PROFILE)
+
+    result = await apply_agent_profile_change(
+        db_client, AGENT_ID, new_description="只推荐深圳本地菜"
+    )
+
+    assert result.identity_reconciled is False
+    assert "You are 「美食家」" in _identity_entries(await _profile(db_client))[0]
+
+
+@pytest.mark.parametrize("verb", ["post", "patch"])
+@pytest.mark.asyncio
+async def test_manyfold_maps_a_concurrent_overwrite_to_400_not_409(
+    db_client, manyfold_client, monkeypatch, verb
+):
+    """The "not 409" decision is argued at length in two comments and a mirror,
+    and was pinned by nothing.
+
+    409 would be the accurate word for a concurrent overwrite, and it is
+    deliberately not used: it invites a retry, while this endpoint's contract is
+    that a failure aborts the whole rename. That is a cross-service decision, so
+    it gets a test rather than only prose.
+    """
+    import backend.routes.manyfold.agents as mf_mod
+    from xyz_agent_context.agent_profile import AgentProfileWrite
+
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    async def _overwritten(_db, _agent_id, **_kwargs):  # noqa: ANN001
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_applied",
+            error="Error: the update did not apply; nothing was changed",
+            unapplied_fields=("agent_name",),
+        )
+
+    monkeypatch.setattr(mf_mod, "apply_agent_profile_change", _overwritten)
+
+    if verb == "patch":
+        resp = manyfold_client.patch(
+            f"/manyfold/agents/{AGENT_ID}", json={"agent_name": "小绿"}
+        )
+    else:
+        resp = manyfold_client.post(
+            "/manyfold/agents",
+            json={
+                "agent_id": AGENT_ID,
+                "agent_name": "小绿",
+                "manyfold_user_id": "shenzhen-tester",
+            },
+        )
+
+    assert resp.status_code == 400, (
+        "409 invites a retry; this contract aborts the rename instead"
     )
