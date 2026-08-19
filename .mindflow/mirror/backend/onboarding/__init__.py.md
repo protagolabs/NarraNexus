@@ -4,22 +4,25 @@ last_verified: 2026-08-19
 stub: false
 ---
 
-# __init__.py — profile registration side effect + login-hook exports
+# __init__.py — deliberately import-free package marker
 
-## Why it exists
+## Why it exists (and why it is empty)
 
-Two jobs: (1) re-export `ensure_guide_agent` / `is_guide_agent_enabled` /
-`is_backfill_enabled` for the login hooks; (2) **register the "onboarding"
-bootstrap profile** — the `from backend.onboarding import profile as
-_profile  # noqa: F401` line is a load-bearing side-effect import, exactly
-like Arena's profile registering on import of its provisioning service.
+`naming.py` is also consumed by `backend/integrations/arena/
+arena_onboarding.py`, a pure-HTTP module whose docstring promises "no DB, no
+settings" — an eager re-export of `provisioning` here would drag
+AsyncDatabaseClient and the whole provisioning stack into every
+`import backend.onboarding.naming`. So the package `__init__` carries only a
+docstring, and consumers import their module directly: the login hooks use
+`backend.onboarding.provisioning`, Arena uses `backend.onboarding.naming`.
 
 ## Gotchas
 
-- **Do not delete the `_profile` import as "unused".** Removing it raises
-  nothing anywhere: `get_profile("onboarding")` silently falls back to the
-  "default" profile on an unknown name, so every guide agent would render
-  the generic blank-slate first-run (wrong greeting, wrong playbook) with no
-  error in any log. The import IS the registration.
-- The login hooks import THIS package (not `provisioning` directly), so the
-  registration always precedes any `apply_bootstrap` call.
+- **The "onboarding" profile registration rides `provisioning`'s import**
+  (`import backend.onboarding.profile  # noqa` at its import block), NOT this
+  file. Anyone re-adding convenience re-exports here must keep naming's
+  import cheap — that is the one invariant this emptiness protects.
+- Removing the registration import in provisioning.py raises nothing:
+  `get_profile("onboarding")` silently falls back to the default profile,
+  and every guide agent renders the generic blank-slate first-run. The
+  integration test (bilingual greeting assertion) is what goes red.

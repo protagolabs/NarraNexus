@@ -28,7 +28,7 @@ import asyncio
 import os
 import random
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -38,16 +38,26 @@ from xyz_agent_context.utils import utc_now
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
+# Load-bearing side-effect import: registers the "onboarding" bootstrap
+# profile so provision_new_agent's apply_bootstrap resolves it. Lives HERE
+# (not in the package __init__) so importing backend.onboarding.naming stays
+# dependency-free for Arena — see the package __init__ docstring.
+import backend.onboarding.profile  # noqa: E402,F401  isort:skip
+
+if TYPE_CHECKING:
+    from xyz_agent_context.repository.user_repository import UserRepository
+
 # Env kill-switch. Default ON: merging to dev exercises it on the dev
 # deployment immediately and prod picks it up at the next release, with no
 # deploy-repo env change; setting "0"/"false"/"no" disables provisioning.
 ENV_FLAG = "NARRANEXUS_ONBOARDING_GUIDE_AGENT"
 
 # Separate brake for the BACKFILL population (existing zero-agent users, who
-# get their guide on their next login). Default ON, but prod can set it to 0
-# at rollout to limit the feature to brand-new signups until the backfill
-# population size has been measured — the backfill is the unbounded cost face
-# (N existing accounts x a daily agent-loop job each).
+# get their guide on their next login). Default OFF — the backfill is the
+# unbounded cost face (N historical accounts x a daily agent-loop job each,
+# on free-tier wallets, including known sock-puppet cohorts), so it opts IN:
+# ops sets it to 1 after measuring the zero-agent population. Brand-new
+# signups are unaffected by this flag.
 BACKFILL_ENV_FLAG = "NARRANEXUS_ONBOARDING_GUIDE_BACKFILL"
 
 # Write-once TOP-LEVEL key in users.metadata (see module docstring for why it
@@ -60,7 +70,12 @@ PROVISIONED_SOURCE = "onboarding"
 
 GUIDE_SKILL_ID = "narranexus-guide"
 
-CHECKIN_JOB_TITLE = "Daily check-in ☕"
+# No emoji in the title on purpose: it is simultaneously the string the
+# payload tells the agent to retrieve, the string awareness quotes, and the
+# find_active_by_title dedup key — an emoji is the part most likely to drift
+# or trip retrieval-side matching, which would silently break the agent's
+# self-pause (leaving only the user's manual cancel).
+CHECKIN_JOB_TITLE = "Daily check-in"
 # The daily check-in is a plain SCHEDULED job, deliberately NOT "ongoing":
 # an ONGOING job's iteration counter and end_condition analysis also run on
 # every CHAT event (hook_after_event_execution), which would (a) burn a
@@ -93,24 +108,32 @@ _CHECKIN_JOB_PAYLOAD = (
     "the product). Never send more than one message."
 )
 
-_TRUTHY_OFF = ("0", "false", "no")
+# Every spelling someone at an incident keyboard plausibly types to kill it
+# (conftest itself uses "off" for NEXUS_DIAG_SHIP; an empty value should read
+# as "explicitly cleared", not "on").
+_FALSY = ("0", "false", "no", "off", "disabled", "")
+_TRUTHY = ("1", "true", "yes", "on")
 
 # Best-effort per-user serialization of concurrent logins (two tabs from the
 # same ?token= link, client retries, local create-user immediately followed
 # by login). In-process only — the cloud backend runs as a single process, so
 # this closes the realistic race; a multi-process deployment would reopen a
-# small cross-process window (documented in the mirror md). Entries are
-# popped after release; the pop/setdefault race is benign (worst case two
-# locks serialize nothing once, which is where we started).
+# small cross-process window. Entries are popped unconditionally after
+# release, which can discard a lock object that queued coroutines still hold
+# — a later arrival then gets a fresh lock and skips their queue. That is
+# accepted: the claim-first marker write is the actual double-provision
+# backstop; the lock only narrows the window.
 _inflight_locks: Dict[str, asyncio.Lock] = {}
 
 
 def is_guide_agent_enabled() -> bool:
-    return os.environ.get(ENV_FLAG, "1").strip().lower() not in _TRUTHY_OFF
+    # Default ON; any recognised "off" spelling disables.
+    return os.environ.get(ENV_FLAG, "1").strip().lower() not in _FALSY
 
 
 def is_backfill_enabled() -> bool:
-    return os.environ.get(BACKFILL_ENV_FLAG, "1").strip().lower() not in _TRUTHY_OFF
+    # Default OFF; requires an explicit truthy opt-in (see BACKFILL_ENV_FLAG).
+    return os.environ.get(BACKFILL_ENV_FLAG, "0").strip().lower() in _TRUTHY
 
 
 async def ensure_guide_agent(
@@ -135,8 +158,12 @@ async def ensure_guide_agent(
         async with lock:
             return await _ensure_locked(db, user_id)
     finally:
-        if not lock.locked():
-            _inflight_locks.pop(user_id, None)
+        # Unconditional: `async with` released the lock before this runs, so
+        # a locked() check would never fire (and entries must not accumulate
+        # across event loops — a stale lock bound to a finished loop would
+        # blow up the next login's await). See the _inflight_locks comment
+        # for why discarding a queued waiter's lock is acceptable.
+        _inflight_locks.pop(user_id, None)
 
 
 async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any]:
@@ -147,7 +174,8 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     user = await user_repo.get_user(user_id)
     if user is None:
         return {"skipped": "no_user"}
-    if (user.metadata or {}).get(GUIDE_METADATA_FLAG):
+    metadata = dict(user.metadata or {})
+    if metadata.get(GUIDE_METADATA_FLAG):
         return {"skipped": "already_provisioned"}
 
     agent_repo = AgentRepository(db)
@@ -155,7 +183,7 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     if existing is not None:
         # The user already lives here (owns agents) — a proactive stranger
         # would be noise. Mark so we never re-evaluate on later logins.
-        await _write_marker(user_repo, user_id)
+        await _write_marker(user_repo, user_id, metadata)
         return {"skipped": "has_agents"}
 
     # CLAIM FIRST: write the marker before provisioning, so a concurrent
@@ -166,7 +194,7 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     # write-once posture as the post-step failures below: no path re-runs
     # provisioning, because a retry that half-succeeded once would
     # double-greet.
-    await _write_marker(user_repo, user_id)
+    await _write_marker(user_repo, user_id, metadata)
 
     rng = random.Random()
     from backend.onboarding.naming import generate_name
@@ -200,11 +228,12 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     )
     warnings = list(result.warnings)
     for w in warnings:
-        if w.startswith("bootstrap"):
+        if w.startswith(("bootstrap", "awareness")):
             # A failed bootstrap delivers a mute guide (empty greeting) whose
-            # awareness claims a greeting was already shown — error, not
-            # warning, because nothing ever retries it.
-            logger.error(f"[onboarding] bootstrap failed for {agent_id}: {w}")
+            # awareness claims a greeting was already shown; a failed
+            # awareness seed delivers a persona-less generic assistant.
+            # Error, not warning, because nothing ever retries either.
+            logger.error(f"[onboarding] first-run step failed for {agent_id}: {w}")
 
     # Tag the agent for ops/statistics (and as a secondary idempotency key).
     try:
@@ -255,15 +284,15 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     }
 
 
-async def _write_marker(user_repo: Any, user_id: str) -> None:
-    """Write-once top-level marker; merge-and-write so sibling metadata keys
-    (onboarding_progress etc.) are preserved."""
-    user = await user_repo.get_user(user_id)
-    if user is None:
+async def _write_marker(
+    user_repo: "UserRepository", user_id: str, base_metadata: Dict[str, Any]
+) -> None:
+    """Write-once top-level marker; merge-and-write over the caller's
+    already-loaded metadata so sibling keys (onboarding_progress etc.) are
+    preserved without a second read (keeps the claim window one round-trip)."""
+    if base_metadata.get(GUIDE_METADATA_FLAG):
         return
-    metadata = dict(user.metadata or {})
-    if metadata.get(GUIDE_METADATA_FLAG):
-        return
+    metadata = dict(base_metadata)
     metadata[GUIDE_METADATA_FLAG] = True
     await user_repo.update_user(user_id, {"metadata": metadata})
 

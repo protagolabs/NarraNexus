@@ -44,15 +44,25 @@ marker. Zero raw SQL.
   create-user→login). The cloud backend is single-process, so this closes
   the realistic double-provision race; a multi-process deployment would
   reopen a small cross-process window (claim-first shrinks it to one DB
-  round-trip). The flip side — a crash mid-provision leaves the user
-  guide-less with no retry — is deliberate: a retry that half-succeeded once
-  would double-greet.
-- **Two env levers, both default ON**: `NARRANEXUS_ONBOARDING_GUIDE_AGENT`
-  (master kill-switch) and `NARRANEXUS_ONBOARDING_GUIDE_BACKFILL` (existing
-  zero-agent users only). The backfill population is the unbounded cost face
-  (N historical accounts × a daily agent-loop each, on free-tier wallets) —
-  prod rollout can set BACKFILL=0 to start with new signups only, measure,
-  then flip. `is_*_enabled()` read os.environ per call, but a deployed
+  round-trip). Lock entries are popped unconditionally after release — that
+  can discard a lock queued coroutines still hold, letting a later arrival
+  skip their queue; accepted because claim-first is the actual backstop and
+  stale entries must not leak across event loops. The concurrency test's
+  fakes carry real awaits so deleting the lock goes red. The flip side of
+  claim-first — a crash mid-provision leaves the user guide-less with no
+  retry — is deliberate: a retry that half-succeeded once would
+  double-greet.
+- **Two env levers with opposite defaults**: `NARRANEXUS_ONBOARDING_GUIDE_AGENT`
+  (master kill-switch, default ON; any of 0/false/no/off/disabled/empty
+  turns it off — incident-keyboard spellings included) and
+  `NARRANEXUS_ONBOARDING_GUIDE_BACKFILL` (existing zero-agent users,
+  **default OFF, explicit truthy opt-in**). The backfill population is the
+  unbounded cost face (N historical accounts × a daily agent-loop each, on
+  free-tier wallets, including known sock-puppet cohorts) — ops flips it to
+  1 after measuring the zero-agent population; new signups need no flag.
+  The frontend learns the master switch via the login response's
+  `guide_agent_provisioning` field, so pulling it also silences the
+  coachmark. `is_*_enabled()` read os.environ per call, but a deployed
   container needs an env change + restart to flip.
 - **The daily check-in is a SCHEDULED job, deliberately NOT "ongoing"**: an
   ONGOING job's iteration counter and end_condition Helper-LLM analysis also
@@ -73,8 +83,16 @@ marker. Zero raw SQL.
   interval; rows start PENDING and the poller fires pending+active), so the
   check-in never races the greeting.
 - **Best-effort after the row exists**: tag / skill / job failures fold into
-  warnings; a failed bootstrap is logged at ERROR (it delivers a mute guide
-  whose awareness claims a greeting was shown — and nothing retries it).
+  warnings; failed bootstrap OR awareness seeding is logged at ERROR (a mute
+  guide / a persona-less generic assistant — and nothing retries either).
+- **Job title has no emoji on purpose**: "Daily check-in" is simultaneously
+  the payload's retrieval string, the awareness quote, and the
+  find_active_by_title dedup key — an emoji is the part most likely to break
+  retrieval-side matching and silently kill the agent's self-pause.
+- **The profile registration side-effect import lives at THIS module's
+  import block** (`import backend.onboarding.profile`), not the package
+  `__init__` — so `backend.onboarding.naming` stays import-cheap for the
+  Arena module (which is deliberately DB/settings-free).
 
 ## Gotchas
 

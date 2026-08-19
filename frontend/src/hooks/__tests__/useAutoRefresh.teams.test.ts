@@ -82,6 +82,35 @@ describe('background refresh keeps the team rows current', () => {
     expect(refreshAgents).toHaveBeenCalled();
   });
 
+  test('the first-login fast poll fetches agents while the guide coachmark is armed', () => {
+    // A brand-new user: the server is provisioning their guide agent in the
+    // background, the coachmark is armed, and the sidebar is empty. The 30s
+    // tick is too slow for a first impression — a 2s bounded poll covers it.
+    window.localStorage.setItem('nx-guide-coachmark', 'pending');
+    try {
+      renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_new' }));
+
+      vi.advanceTimersByTime(2_000);
+      expect(refreshAgents).toHaveBeenCalledTimes(1);
+
+      // Bounded: /api/auth/agents is enriched and must not be fast-polled
+      // forever — the poll gives up after ~20s.
+      vi.advanceTimersByTime(60_000);
+      const callsAfterCap = refreshAgents.mock.calls.length;
+      vi.advanceTimersByTime(10_000);
+      expect(refreshAgents.mock.calls.length).toBe(callsAfterCap);
+    } finally {
+      window.localStorage.removeItem('nx-guide-coachmark');
+    }
+  });
+
+  test('no fast poll without the coachmark armed', () => {
+    renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_1' }));
+
+    vi.advanceTimersByTime(4_000); // under the 30s mid tick
+    expect(refreshAgents).not.toHaveBeenCalled();
+  });
+
   test('nothing polls without a user', () => {
     renderHook(() => useAutoRefresh({ agentId: 'a1', userId: '' }));
 

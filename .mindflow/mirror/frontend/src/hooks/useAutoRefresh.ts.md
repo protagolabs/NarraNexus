@@ -104,9 +104,11 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
    30s 多一次 /api/auth/agents，这是有意为之（注释已写明，防止后人把
    guard 移回去）。
 2. **新增首登快轮询 effect**：`isGuideCoachmarkPending()` 且 agents 为空
-   时，每 2s 拉一次 agent 列表、上限 10 次（~20s），拉到或超时即停。
+   时，每 2s 拉一次 agent 列表、上限 10 次（~20s），拉到或超时即停；
+   `document.hidden` 时跳过（与三个 tick 同一条"后台零请求"纪律）。
    上限是承重的——/api/auth/agents 带 active-run + last-message 富化，
-   不允许无限期快轮。
+   不允许无限期快轮。快轮询有专属测试（armed→2s 内拉到 / 超时封顶 /
+   未 armed 不快轮）。
 
 对应测试更新：useAutoRefresh.teams.test.ts 的「no agent selected」用例
 从"断言 refreshAgents 不被调"反转为"必须被调"（旧断言钉的正是这个盲区）。

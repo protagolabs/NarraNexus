@@ -106,7 +106,8 @@ MainLayout 就是同一个原因,注释里写着)。自门控(看过 / 遥测未
 根容器塌成 auto 高度。App.tsx（PageFallback）和 SetupPage 的整屏根
 同批换成该类。artifact 滑不动修复批次的次要项（Base recvpm05jsLg3o）。
 
-> 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
+> 2026-07-30: mounts [[MigrationGuide]] beside the OnboardingChecklist (the
+> checklist was retired 2026-08-19 — see that dated section below) above the
 > chat panel — the local-only, once-per-user "import your other agents" guided
 > flow (welcome modal → import, or a coach-mark pointing at the sidebar "+").
 > Superseded the earlier MigrationNudge banner.

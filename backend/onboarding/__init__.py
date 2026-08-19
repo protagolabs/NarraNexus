@@ -3,19 +3,14 @@
 @author: Bin Liang
 @date: 2026-08-19
 @description: Onboarding guide-agent subpackage (backend-side per 铁律 #21 —
-its only consumers are the login routes). Importing it REGISTERS the
-"onboarding" bootstrap profile (side effect, like the arena profile) and
-exposes the provisioning entry points the login hooks call.
-"""
+its only consumers are the login routes).
 
-# Load-bearing side-effect import: profile.py's import-time register_profile()
-# is what makes get_profile("onboarding") resolve. Removing this line would
-# NOT raise anywhere — get_profile falls back to the "default" profile on an
-# unknown name — so every guide agent would silently render the generic
-# blank-slate first-run instead of its persona greeting.
-from backend.onboarding import profile as _profile  # noqa: F401
-from backend.onboarding.provisioning import (  # noqa: F401
-    ensure_guide_agent,
-    is_backfill_enabled,
-    is_guide_agent_enabled,
-)
+DELIBERATELY EMPTY of imports: `naming.py` is also consumed by
+backend/integrations/arena/arena_onboarding.py, a pure-HTTP module with no
+DB/settings coupling — an eager re-export of `provisioning` here would drag
+AsyncDatabaseClient (and the whole provisioning stack) into every
+`import backend.onboarding.naming`. Consumers import their module directly:
+the login hooks use `backend.onboarding.provisioning` (whose import also
+registers the "onboarding" bootstrap profile as a side effect — see the note
+at its import block), Arena uses `backend.onboarding.naming`.
+"""

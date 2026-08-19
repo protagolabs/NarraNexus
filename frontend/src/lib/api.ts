@@ -627,7 +627,12 @@ class ApiClient {
     // callback) converges HERE, so this is the one place that reliably sees
     // is_new_user — the flag that arms the one-shot "create your own agent"
     // coachmark for users whose first agent was auto-provisioned server-side.
-    if (res.success && res.is_new_user) markGuideCoachmarkPending();
+    // guide_agent_provisioning gates it on the SERVER's kill-switch: with
+    // provisioning disabled, the coachmark would promise an agent that never
+    // appears.
+    if (res.success && res.is_new_user && res.guide_agent_provisioning) {
+      markGuideCoachmarkPending();
+    }
     return res;
   }
 
@@ -659,8 +664,9 @@ class ApiClient {
       }),
     });
     // Local-mode signup is by definition a brand-new user — arm the same
-    // "create your own agent" coachmark the cloud path arms via is_new_user.
-    if (res.success) markGuideCoachmarkPending();
+    // "create your own agent" coachmark the cloud path arms via is_new_user,
+    // under the same server-side kill-switch gate.
+    if (res.success && res.guide_agent_provisioning) markGuideCoachmarkPending();
     return res;
   }
 

@@ -107,6 +107,7 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
     if (useConfigStore.getState().agents.length > 0) return;
     let attempts = 0;
     const id = window.setInterval(() => {
+      if (document.hidden) return; // same zero-requests-in-background rule as the ticks
       attempts += 1;
       if (attempts > 10 || useConfigStore.getState().agents.length > 0) {
         window.clearInterval(id);

@@ -8,11 +8,13 @@ stub: false
 
 ## Why it exists
 
-Agent creation is triggered from two places: the sidebar `AgentList`
-button and the `OnboardingChecklist` card. Before this hook the logic
-lived only in `AgentList.handleCreateAgent`; duplicating it into the
-checklist would have let the two drift (forget `setActiveAgent`, forget
-the onboarding side effect, etc.). The hook is the single create path.
+Agent creation was triggered from two places — the sidebar `AgentList`
+button and the `OnboardingChecklist` card (retired 2026-08-19; the
+auto-provisioned guide agent carries onboarding now, so AgentList is the
+only remaining UI caller). Before this hook the logic lived only in
+`AgentList.handleCreateAgent`; duplicating it into the checklist would
+have let the two drift (forget `setActiveAgent`, forget the onboarding
+side effect, etc.). The hook stays the single create path.
 
 ## What it owns
 

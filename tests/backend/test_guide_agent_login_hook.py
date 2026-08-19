@@ -32,7 +32,7 @@ class _FakeNetmind:
 def guide_spy(monkeypatch):
     """Enable the feature (conftest force-disables it suite-wide) and replace
     ensure_guide_agent with a recorder."""
-    import backend.onboarding as ob_pkg
+    import backend.onboarding.provisioning as ob_pkg
 
     monkeypatch.setenv("NARRANEXUS_ONBOARDING_GUIDE_AGENT", "1")
     calls: list[tuple[str, bool]] = []
@@ -85,6 +85,8 @@ def test_netmind_login_schedules_guide_agent_every_login(db_client, monkeypatch,
     # existing zero-agent user pick up their guide on a later login. The
     # is_new flag rides along so the backfill brake can tell them apart.
     assert guide_spy == [(_CODE, True), (_CODE, False)]
+    # The response echoes the server switch — the frontend coachmark's gate.
+    assert first.json()["guide_agent_provisioning"] is True
 
 
 def test_kill_switch_schedules_nothing(db_client, monkeypatch, guide_spy):
@@ -94,6 +96,10 @@ def test_kill_switch_schedules_nothing(db_client, monkeypatch, guide_spy):
         resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
     assert resp.status_code == 200
     assert guide_spy == []
+    # The kill-switch reaches the frontend too: with it off, the response
+    # must NOT tell the UI a guide agent is coming (else the coachmark
+    # promises an agent that never appears).
+    assert resp.json()["guide_agent_provisioning"] is False
 
 
 @pytest.mark.asyncio
@@ -142,7 +148,7 @@ def test_local_create_user_schedules_guide_agent(db_client, monkeypatch, guide_s
 
 
 def test_crashing_provisioning_cannot_fail_the_login(db_client, monkeypatch):
-    import backend.onboarding as ob_pkg
+    import backend.onboarding.provisioning as ob_pkg
 
     monkeypatch.setenv("NARRANEXUS_ONBOARDING_GUIDE_AGENT", "1")
 

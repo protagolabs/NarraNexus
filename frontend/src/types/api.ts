@@ -416,6 +416,10 @@ export interface NetmindLoginResponse extends ApiResponse {
   token?: string;        // our self-issued JWT
   role?: string;
   is_new_user?: boolean;
+  // Whether the deployment auto-provisions the onboarding guide agent —
+  // gates the "your first agent is already here" coachmark so the server's
+  // kill-switch silences the UI too.
+  guide_agent_provisioning?: boolean;
   display_name?: string;
   email?: string;
 }
@@ -442,6 +446,8 @@ export type QuotaMeResponse =
 
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
+  // See NetmindLoginResponse.guide_agent_provisioning.
+  guide_agent_provisioning?: boolean;
 }
 
 export interface AgentListResponse extends ApiResponse {

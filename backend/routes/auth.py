@@ -474,6 +474,19 @@ def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
     )
 
 
+def _guide_agent_feature_on() -> bool:
+    """Whether this deployment auto-provisions the onboarding guide agent.
+
+    Returned to the frontend on login/create-user so the "your first agent is
+    already here" coachmark obeys the SAME kill-switch as the provisioning —
+    otherwise pulling the server-side switch would leave the UI promising an
+    agent that never appears.
+    """
+    from backend.onboarding.provisioning import is_guide_agent_enabled
+
+    return is_guide_agent_enabled()
+
+
 def _schedule_guide_agent_provisioning(user_id: str, *, is_new: bool) -> None:
     """Run the onboarding guide-agent provisioning off the login path.
 
@@ -490,7 +503,7 @@ def _schedule_guide_agent_provisioning(user_id: str, *, is_new: bool) -> None:
     """
     import asyncio
 
-    from backend.onboarding import (
+    from backend.onboarding.provisioning import (
         ensure_guide_agent,
         is_guide_agent_enabled,
     )
@@ -652,6 +665,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         token=token,
         role=role,
         is_new_user=is_new,
+        guide_agent_provisioning=_guide_agent_feature_on(),
         display_name=user.display_name,
         email=user.email,
     )
@@ -1697,6 +1711,7 @@ async def create_user(request: CreateUserRequest):
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
+            guide_agent_provisioning=_guide_agent_feature_on(),
         )
 
     except Exception as e:

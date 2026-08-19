@@ -394,7 +394,9 @@ void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正
 「添加」，而不是写完才被拒。
 ## 2026-08-19 — 登录响应接线 guide coachmark；getOnboarding 退役
 
-`netmindLogin` / `createUser` 成功后调 `markGuideCoachmarkPending()`
+`netmindLogin` / `createUser` 成功后调 `markGuideCoachmarkPending()`——
+但都以响应里的 `guide_agent_provisioning`（服务端 kill-switch 的回显）为
+门：服务端关掉供给时，UI 不会承诺一个永远不出现的 Agent。
 （lib/guideCoachmark.ts）：放在 api 层而非各消费方，是因为云端三条登录流
 （登录页 / ?token= 直通 / OAuth 回调）全部收敛在 `api.netmindLogin` 这一处，
 这里是唯一可靠看到 `is_new_user` 的地方（该字段自 2026-06 起返回但一直无

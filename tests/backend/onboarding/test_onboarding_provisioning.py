@@ -40,6 +40,12 @@ class FakeUserRepo:
         self.state = FakeUserRepo.instances
 
     async def get_user(self, user_id):
+        # Real awaits, not sync-through: the concurrency test below relies on
+        # these yield points to model the real DB client's suspension between
+        # the marker read and the marker write — without them, two gathered
+        # coroutines never interleave and the per-user lock is untestable
+        # (deleting the lock would stay green).
+        await asyncio.sleep(0)
         if user_id not in self.state:
             return None
         return SimpleNamespace(
@@ -47,6 +53,7 @@ class FakeUserRepo:
         )
 
     async def update_user(self, user_id, updates):
+        await asyncio.sleep(0)
         if FakeUserRepo.recorder is not None:
             FakeUserRepo.recorder.calls.append(("update_user", updates))
         self.state[user_id] = updates.get("metadata", self.state.get(user_id))
@@ -111,7 +118,9 @@ def _wire(monkeypatch, rec, *, users, agents=(), job_fails=False, provision_dela
 
 def _enable(monkeypatch):
     monkeypatch.delenv(ob.ENV_FLAG, raising=False)
-    monkeypatch.delenv(ob.BACKFILL_ENV_FLAG, raising=False)
+    # Most tests here exercise the provisioning flow itself with is_new_user
+    # combinations; the backfill brake (default OFF) gets its own tests.
+    monkeypatch.setenv(ob.BACKFILL_ENV_FLAG, "1")
 
 
 def test_kill_switch_disables_everything(monkeypatch):
@@ -123,25 +132,43 @@ def test_kill_switch_disables_everything(monkeypatch):
     assert rec.calls == []  # zero repo/db work when disabled
 
 
-def test_flag_defaults_are_on(monkeypatch):
-    _enable(monkeypatch)
+def test_flag_defaults(monkeypatch):
+    monkeypatch.delenv(ob.ENV_FLAG, raising=False)
+    monkeypatch.delenv(ob.BACKFILL_ENV_FLAG, raising=False)
+    # Master switch defaults ON; the backfill brake defaults OFF (the
+    # existing-zero-agent population is the unbounded cost face — it opts in).
     assert ob.is_guide_agent_enabled() is True
-    assert ob.is_backfill_enabled() is True
+    assert ob.is_backfill_enabled() is False
     monkeypatch.setenv(ob.ENV_FLAG, "false")
     assert ob.is_guide_agent_enabled() is False
+    # Incident-keyboard spellings all count as off for the master switch.
+    for spelling in ("0", "off", "disabled", ""):
+        monkeypatch.setenv(ob.ENV_FLAG, spelling)
+        assert ob.is_guide_agent_enabled() is False
+    monkeypatch.setenv(ob.BACKFILL_ENV_FLAG, "yes")
+    assert ob.is_backfill_enabled() is True
 
 
-def test_backfill_brake_limits_to_new_users(monkeypatch):
+def test_backfill_brake_defaults_to_new_users_only(monkeypatch):
     rec = Recorder()
     _wire(monkeypatch, rec, users={"u1": {}})
     monkeypatch.delenv(ob.ENV_FLAG, raising=False)
-    monkeypatch.setenv(ob.BACKFILL_ENV_FLAG, "0")
+    monkeypatch.delenv(ob.BACKFILL_ENV_FLAG, raising=False)  # default OFF
     # Returning (non-new) login: braked before any DB work.
     res = asyncio.run(ob.ensure_guide_agent(object(), "u1", is_new_user=False))
     assert res == {"skipped": "backfill_disabled"}
     assert rec.calls == []
     # Brand-new signup still provisions.
     res = asyncio.run(ob.ensure_guide_agent(object(), "u1", is_new_user=True))
+    assert res.get("provisioned") is True
+
+
+def test_backfill_opt_in_covers_returning_users(monkeypatch):
+    rec = Recorder()
+    _wire(monkeypatch, rec, users={"u1": {}})
+    monkeypatch.delenv(ob.ENV_FLAG, raising=False)
+    monkeypatch.setenv(ob.BACKFILL_ENV_FLAG, "1")
+    res = asyncio.run(ob.ensure_guide_agent(object(), "u1", is_new_user=False))
     assert res.get("provisioned") is True
 
 
@@ -208,9 +235,14 @@ def test_happy_path_full_sequence_and_claim_first(monkeypatch):
     assert tc == {"interval_seconds": 86400, "timezone": "Asia/Shanghai"}
     assert job_kw["title"] == ob.CHECKIN_JOB_TITLE
     # The payload carries both model-judged exits: 3-strikes and a concrete
-    # provision-stamped end date.
+    # provision-stamped end date (exact ISO literal, not just "some date").
     assert "three consecutive" in job_kw["payload"]
-    assert "after 20" in job_kw["payload"]  # ISO date literal, e.g. 2026-09-02
+    from datetime import timedelta
+
+    from xyz_agent_context.utils import utc_now
+
+    expected_end = (utc_now() + timedelta(days=ob.CHECKIN_END_AFTER_DAYS)).date().isoformat()
+    assert f"after {expected_end}" in job_kw["payload"]
 
     tag = next(kw for name, kw in rec.calls if name == "update_agent")
     assert tag["agent_metadata"]["provisioned_source"] == "onboarding"

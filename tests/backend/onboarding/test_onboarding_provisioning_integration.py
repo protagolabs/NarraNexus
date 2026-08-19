@@ -77,6 +77,7 @@ async def test_real_provisioning_persists_the_full_contract(
     user = await user_repo.get_user("u_int")
     assert user.metadata[ob.GUIDE_METADATA_FLAG] is True
 
-    # Second call: warm-path skip, no second agent.
-    res2 = await ob.ensure_guide_agent(db_client, "u_int", is_new_user=False)
+    # Second call: warm-path marker skip, no second agent. (is_new_user=True
+    # so the marker check — not the default-off backfill brake — decides.)
+    res2 = await ob.ensure_guide_agent(db_client, "u_int", is_new_user=True)
     assert res2 == {"skipped": "already_provisioned"}
