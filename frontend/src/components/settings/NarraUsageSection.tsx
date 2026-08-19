@@ -35,7 +35,7 @@
  * billing card down with it.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { formatCost, formatTokens, shortModelName } from '@/lib/tokenFormat';
@@ -76,36 +76,32 @@ export function NarraUsageSection() {
   const [summary, setSummary] = useState<CostSummary | null>(null);
   const mounted = useRef(true);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.getCosts('_all', WINDOW_DAYS);
-      if (mounted.current) setSummary(res.summary ?? null);
-    } catch {
-      // Silent by design — see the failure posture note in the file header.
-      // Nothing here is actionable by the user, and an error line inside a
-      // billing card reads as "your money is broken". A failed REFRESH also
-      // keeps the last good value rather than blanking the section.
-    }
-  }, []);
-
+  // One effect owns both reads of the same external system: the initial one and
+  // every refresh. Usage accrues while the user is elsewhere (agents run in the
+  // background, and the tab that spends is rarely this one), and the rest of
+  // this card already refreshes on focus for exactly that reason — a block that
+  // froze at its mount-time value would be the single stale number on a screen
+  // of live ones, which is worse than not showing it.
   useEffect(() => {
     mounted.current = true;
+    const load = async () => {
+      // `.catch(() => null)` IS the failure posture (see the file header): a
+      // failed first load leaves the section absent, a failed REFRESH leaves
+      // the last good value standing. Neither says anything to the user —
+      // nothing here is actionable, and an error line inside a billing card
+      // reads as "your money is broken".
+      const res = await api.getCosts('_all', WINDOW_DAYS).catch(() => null);
+      if (!mounted.current || !res) return;
+      setSummary(res.summary ?? null);
+    };
+    const onFocus = () => void load();
+    window.addEventListener('focus', onFocus);
     void load();
     return () => {
       mounted.current = false;
+      window.removeEventListener('focus', onFocus);
     };
-  }, [load]);
-
-  // Usage accrues while the user is elsewhere (agents run in the background,
-  // and the tab that spends is rarely this one). The rest of the card already
-  // refreshes on focus for exactly this reason; a block that silently froze at
-  // its mount-time value would be the one stale number on a screen of live
-  // ones — worse than not showing it.
-  useEffect(() => {
-    const onFocus = () => void load();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [load]);
+  }, []);
 
   if (!summary) return null;
   const totalTokens = bucketTotal(summary);
