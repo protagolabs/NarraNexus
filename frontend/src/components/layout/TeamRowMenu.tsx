@@ -62,37 +62,37 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
       </button>
 
       {open && (
-          <div
+        <div
             className={cn(
               'absolute right-0 top-full mt-0.5 z-50',
               'min-w-[120px] py-0.5',
               'rounded-[var(--radius-sm)] border shadow-md',
               'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
             )}
-          >
-            <MenuItem
-              icon={<UserPlus className="w-3 h-3" />}
-              label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
-              disabled={addingAgent}
-              onClick={handleItem(onAddAgent)}
-            />
-            <MenuItem
-              icon={<Pencil className="w-3 h-3" />}
-              label={t('layout.teamRowMenu.rename')}
-              onClick={handleItem(onRename)}
-            />
-            <MenuItem
-              icon={<Eraser className="w-3 h-3" />}
-              label={t('layout.teamRowMenu.clearData')}
-              onClick={handleItem(onClearData)}
-            />
-            <MenuItem
-              icon={<Trash2 className="w-3 h-3" />}
-              label={t('layout.teamRowMenu.delete')}
-              danger
-              onClick={handleItem(onDelete)}
-            />
-          </div>
+        >
+          <MenuItem
+            icon={<UserPlus className="w-3 h-3" />}
+            label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
+            disabled={addingAgent}
+            onClick={handleItem(onAddAgent)}
+          />
+          <MenuItem
+            icon={<Pencil className="w-3 h-3" />}
+            label={t('layout.teamRowMenu.rename')}
+            onClick={handleItem(onRename)}
+          />
+          <MenuItem
+            icon={<Eraser className="w-3 h-3" />}
+            label={t('layout.teamRowMenu.clearData')}
+            onClick={handleItem(onClearData)}
+          />
+          <MenuItem
+            icon={<Trash2 className="w-3 h-3" />}
+            label={t('layout.teamRowMenu.delete')}
+            danger
+            onClick={handleItem(onDelete)}
+          />
+        </div>
       )}
     </div>
   );

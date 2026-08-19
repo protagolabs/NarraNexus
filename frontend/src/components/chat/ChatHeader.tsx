@@ -286,36 +286,36 @@ export function ChatHeader({
               <MoreVertical className="h-4 w-4" />
             </button>
             {detailOpen && (
-                <div
-                  className={cn(
-                    'absolute right-0 top-full z-50 mt-2 w-[236px] p-1.5',
-                    'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
-                    'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
-                  )}
+              <div
+                className={cn(
+                  'absolute right-0 top-full z-50 mt-2 w-[236px] p-1.5',
+                  'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
+                  'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
+                )}
+              >
+                {DETAIL_GROUP_A.map((id) => (
+                  <DetailItem key={id} id={id} onOpen={openPanel} />
+                ))}
+                <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+                {DETAIL_GROUP_B.map((id) => (
+                  <DetailItem key={id} id={id} onOpen={openPanel} />
+                ))}
+                <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+                {/* Per-agent model & framework — the panel formerly behind
+                    the header sliders icon; the composer chip stays the
+                    quick model switch. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailOpen(false);
+                    onOpenAgentConfig();
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
                 >
-                  {DETAIL_GROUP_A.map((id) => (
-                    <DetailItem key={id} id={id} onOpen={openPanel} />
-                  ))}
-                  <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                  {DETAIL_GROUP_B.map((id) => (
-                    <DetailItem key={id} id={id} onOpen={openPanel} />
-                  ))}
-                  <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                  {/* Per-agent model & framework — the panel formerly behind
-                      the header sliders icon; the composer chip stays the
-                      quick model switch. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDetailOpen(false);
-                      onOpenAgentConfig();
-                    }}
-                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
-                  >
-                    <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
-                    {t('chat.header.modelFramework')}
-                  </button>
-                </div>
+                  <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
+                  {t('chat.header.modelFramework')}
+                </button>
+              </div>
             )}
           </div>
         </div>

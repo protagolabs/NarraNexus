@@ -96,53 +96,53 @@ export function AgentRowMenu({
             'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
           )}
         >
-            {/* Rename — quick inline name edit, available to everyone */}
+          {/* Rename — quick inline name edit, available to everyone */}
+          <MenuItem
+            icon={<Pencil className="w-3 h-3" />}
+            label={t('layout.agentRowMenu.rename')}
+            onClick={handleItem(onStartEdit)}
+          />
+
+          {/* Edit — full name + description editor (the only UI for the
+              description field). Available to everyone; backend enforces
+              ownership on the save. */}
+          <MenuItem
+            icon={<SquarePen className="w-3 h-3" />}
+            label={t('layout.agentRowMenu.edit')}
+            onClick={handleItem(onEditAgent)}
+          />
+
+          {/* Owner-only: public/private toggle */}
+          {showPublicToggle && isOwner && (
             <MenuItem
-              icon={<Pencil className="w-3 h-3" />}
-              label={t('layout.agentRowMenu.rename')}
-              onClick={handleItem(onStartEdit)}
+              icon={
+                isPublic
+                  ? <Globe className="w-3 h-3" />
+                  : <Lock className="w-3 h-3" />
+              }
+              label={isPublic ? t('layout.agentRowMenu.setPrivate') : t('layout.agentRowMenu.setPublic')}
+              onClick={handleItem(onTogglePublic)}
             />
+          )}
 
-            {/* Edit — full name + description editor (the only UI for the
-                description field). Available to everyone; backend enforces
-                ownership on the save. */}
+          {/* Owner-only: clear conversation & memory */}
+          {isOwner && (
             <MenuItem
-              icon={<SquarePen className="w-3 h-3" />}
-              label={t('layout.agentRowMenu.edit')}
-              onClick={handleItem(onEditAgent)}
+              icon={<Eraser className="w-3 h-3" />}
+              label={t('layout.agentRowMenu.clearData')}
+              onClick={handleItem(onClearData)}
             />
+          )}
 
-            {/* Owner-only: public/private toggle */}
-            {showPublicToggle && isOwner && (
-              <MenuItem
-                icon={
-                  isPublic
-                    ? <Globe className="w-3 h-3" />
-                    : <Lock className="w-3 h-3" />
-                }
-                label={isPublic ? t('layout.agentRowMenu.setPrivate') : t('layout.agentRowMenu.setPublic')}
-                onClick={handleItem(onTogglePublic)}
-              />
-            )}
-
-            {/* Owner-only: clear conversation & memory */}
-            {isOwner && (
-              <MenuItem
-                icon={<Eraser className="w-3 h-3" />}
-                label={t('layout.agentRowMenu.clearData')}
-                onClick={handleItem(onClearData)}
-              />
-            )}
-
-            {/* Owner-only: delete */}
-            {isOwner && (
-              <MenuItem
-                icon={<Trash2 className="w-3 h-3" />}
-                label={t('layout.agentRowMenu.delete')}
-                danger
-                onClick={handleItem(onDelete)}
-              />
-            )}
+          {/* Owner-only: delete */}
+          {isOwner && (
+            <MenuItem
+              icon={<Trash2 className="w-3 h-3" />}
+              label={t('layout.agentRowMenu.delete')}
+              danger
+              onClick={handleItem(onDelete)}
+            />
+          )}
         </div>
       )}
     </div>

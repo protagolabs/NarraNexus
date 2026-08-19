@@ -68,36 +68,36 @@ export function CreateMenu({
       </button>
 
       {open && (
-          <div
+        <div
             className={cn(
               'absolute left-0 right-0 top-full mt-1 z-50 p-1.5',
               'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
               'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
             )}
-          >
+        >
+          <MenuItem
+            icon={<Bot className="w-3.5 h-3.5" />}
+            label={t('layout.createMenu.createAgent')}
+            onClick={handleItem(onCreateAgent)}
+          />
+          <MenuItem
+            icon={<Users2 className="w-3.5 h-3.5" />}
+            label={t('layout.createMenu.createTeam')}
+            onClick={handleItem(onCreateTeam)}
+          />
+          <MenuItem
+            icon={<Download className="w-3.5 h-3.5" />}
+            label={t('layout.createMenu.importBundle')}
+            onClick={handleItem(onImportBundle)}
+          />
+          {onImportAgent && (
             <MenuItem
-              icon={<Bot className="w-3.5 h-3.5" />}
-              label={t('layout.createMenu.createAgent')}
-              onClick={handleItem(onCreateAgent)}
+              icon={<Import className="w-3.5 h-3.5" />}
+              label={t('layout.createMenu.importAgent')}
+              onClick={handleItem(onImportAgent)}
             />
-            <MenuItem
-              icon={<Users2 className="w-3.5 h-3.5" />}
-              label={t('layout.createMenu.createTeam')}
-              onClick={handleItem(onCreateTeam)}
-            />
-            <MenuItem
-              icon={<Download className="w-3.5 h-3.5" />}
-              label={t('layout.createMenu.importBundle')}
-              onClick={handleItem(onImportBundle)}
-            />
-            {onImportAgent && (
-              <MenuItem
-                icon={<Import className="w-3.5 h-3.5" />}
-                label={t('layout.createMenu.importAgent')}
-                onClick={handleItem(onImportAgent)}
-              />
-            )}
-          </div>
+          )}
+        </div>
       )}
     </div>
   );

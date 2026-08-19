@@ -316,71 +316,71 @@ export function Sidebar() {
       {/* ── Zone 3: user row + account popover + Find Us ────────────────── */}
       <div ref={accountRef} className="p-2 border-t border-[var(--nm-hairline)] relative">
         {accountOpen && (
-            <div
-              className={cn(
-                'absolute bottom-full left-2 right-2 mb-1.5 z-50 p-1.5',
-                'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
-                'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
-              )}
-            >
-              <div className="px-2.5 pt-2 pb-1.5 border-b border-[var(--nm-hairline)] mb-1">
-                <div className="text-[13px] font-semibold text-[var(--nm-ink)] truncate" title={userLabel}>
-                  {userLabel}
-                </div>
-                <div className="text-[10px] text-[var(--nm-ink50)]">
-                  {t('sidebar.online')} · {modeLabel} · v{__APP_VERSION__}
-                </div>
+          <div
+            className={cn(
+              'absolute bottom-full left-2 right-2 mb-1.5 z-50 p-1.5',
+              'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
+              'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
+            )}
+          >
+            <div className="px-2.5 pt-2 pb-1.5 border-b border-[var(--nm-hairline)] mb-1">
+              <div className="text-[13px] font-semibold text-[var(--nm-ink)] truncate" title={userLabel}>
+                {userLabel}
               </div>
-              {/* Identity actions only. Theme and language live in Settings →
-                  Personalization; the workspace has its own nav row. Keeping a
-                  second settings surface here is what made users ask what the
-                  difference between the two was. */}
-              {netmindToken && (
-                <AccountItem
-                  icon={<User className="w-3.5 h-3.5" />}
-                  label={t('sidebar.account')}
-                  onClick={() => accountNavigate('/app/account')}
-                />
-              )}
-              {isMobile && (
-                <AccountItem
-                  icon={<Users className="w-3.5 h-3.5" />}
-                  label={t('feedback.title')}
-                  onClick={() => { setAccountOpen(false); setShowFeedback(true); }}
-                />
-              )}
-              {SHOW_MODE_SWITCHER && (
-                <AccountItem
-                  icon={mode === 'local' ? <Monitor className="w-3.5 h-3.5" /> : <Cloud className="w-3.5 h-3.5" />}
-                  label={t('layout.sidebar.switchTo', {
-                    mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
-                  })}
-                  onClick={() => setShowModePopup(!showModePopup)}
-                />
-              )}
-              {SHOW_MODE_SWITCHER && showModePopup && (
-                <button
-                  type="button"
-                  onClick={handleSwitchMode}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)]"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  {t('layout.sidebar.currentMode', {
-                    mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
-                  })}
-                </button>
-              )}
-              <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-              <AccountItem
-                icon={<LogOut className="w-3.5 h-3.5" />}
-                label={t('sidebar.logout')}
-                danger
-                onClick={handleLogout}
-              />
-              <div className="px-2.5 pt-1 pb-0.5 text-[9px] text-[var(--nm-ink30)] font-mono tracking-wider truncate">
-                {t('sidebar.poweredBy')}
+              <div className="text-[10px] text-[var(--nm-ink50)]">
+                {t('sidebar.online')} · {modeLabel} · v{__APP_VERSION__}
               </div>
             </div>
+            {/* Identity actions only. Theme and language live in Settings →
+                Personalization; the workspace has its own nav row. Keeping a
+                second settings surface here is what made users ask what the
+                difference between the two was. */}
+            {netmindToken && (
+              <AccountItem
+                icon={<User className="w-3.5 h-3.5" />}
+                label={t('sidebar.account')}
+                onClick={() => accountNavigate('/app/account')}
+              />
+            )}
+            {isMobile && (
+              <AccountItem
+                icon={<Users className="w-3.5 h-3.5" />}
+                label={t('feedback.title')}
+                onClick={() => { setAccountOpen(false); setShowFeedback(true); }}
+              />
+            )}
+            {SHOW_MODE_SWITCHER && (
+              <AccountItem
+                icon={mode === 'local' ? <Monitor className="w-3.5 h-3.5" /> : <Cloud className="w-3.5 h-3.5" />}
+                label={t('layout.sidebar.switchTo', {
+                  mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
+                })}
+                onClick={() => setShowModePopup(!showModePopup)}
+              />
+            )}
+            {SHOW_MODE_SWITCHER && showModePopup && (
+              <button
+                type="button"
+                onClick={handleSwitchMode}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)]"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {t('layout.sidebar.currentMode', {
+                  mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
+                })}
+              </button>
+            )}
+            <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+            <AccountItem
+              icon={<LogOut className="w-3.5 h-3.5" />}
+              label={t('sidebar.logout')}
+              danger
+              onClick={handleLogout}
+            />
+            <div className="px-2.5 pt-1 pb-0.5 text-[9px] text-[var(--nm-ink30)] font-mono tracking-wider truncate">
+              {t('sidebar.poweredBy')}
+            </div>
+          </div>
         )}
 
         <div className="flex items-stretch gap-1.5">
