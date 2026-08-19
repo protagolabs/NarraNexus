@@ -35,21 +35,16 @@
  * billing card down with it.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
-import { formatCost, formatTokens } from '@/lib/tokenFormat';
+import { formatCost, formatTokens, shortModelName } from '@/lib/tokenFormat';
 import type { CostModelBreakdown, CostSummary } from '@/types';
 
 /** Match the NetMind finance view above, which is month-shaped. */
 const WINDOW_DAYS = 30;
 /** Enough to show where the money goes without turning the card into a report. */
 const MAX_MODELS = 4;
-
-/** Drop the date suffix so `claude-opus-5-2026-05-01` fits a settings row. */
-function shortModelName(model: string): string {
-  return model.replace(/-\d{4}-?\d{2}-?\d{2}$/, '').replace(/-\d{8}$/, '');
-}
 
 /**
  * Every bucket the model read, plus what it wrote.
@@ -81,22 +76,36 @@ export function NarraUsageSection() {
   const [summary, setSummary] = useState<CostSummary | null>(null);
   const mounted = useRef(true);
 
+  const load = useCallback(async () => {
+    try {
+      const res = await api.getCosts('_all', WINDOW_DAYS);
+      if (mounted.current) setSummary(res.summary ?? null);
+    } catch {
+      // Silent by design — see the failure posture note in the file header.
+      // Nothing here is actionable by the user, and an error line inside a
+      // billing card reads as "your money is broken". A failed REFRESH also
+      // keeps the last good value rather than blanking the section.
+    }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
-    void (async () => {
-      try {
-        const res = await api.getCosts('_all', WINDOW_DAYS);
-        if (mounted.current) setSummary(res.summary ?? null);
-      } catch {
-        // Silent by design — see the failure posture note in the file header.
-        // Nothing here is actionable by the user, and an error line inside a
-        // billing card reads as "your money is broken".
-      }
-    })();
+    void load();
     return () => {
       mounted.current = false;
     };
-  }, []);
+  }, [load]);
+
+  // Usage accrues while the user is elsewhere (agents run in the background,
+  // and the tab that spends is rarely this one). The rest of the card already
+  // refreshes on focus for exactly this reason; a block that silently froze at
+  // its mount-time value would be the one stale number on a screen of live
+  // ones — worse than not showing it.
+  useEffect(() => {
+    const onFocus = () => void load();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load]);
 
   if (!summary) return null;
   const totalTokens = bucketTotal(summary);
@@ -135,8 +144,14 @@ export function NarraUsageSection() {
               data-testid="narra-usage-model"
               className="flex items-center justify-between gap-2 text-xs text-[var(--text-secondary)]"
             >
+              {/* Same two i18n keys as the chat header's token popover: the
+                  endpoint buckets by call_type, not by model, and the two
+                  surfaces must not invent two names for the same bucket. */}
               <span className="truncate" title={model}>
-                {shortModelName(model)}
+                {shortModelName(model, {
+                  main: t('cost.popover.modelUsage', 'Model usage'),
+                  helper: t('cost.popover.helperUsage', 'Helper Model Usage'),
+                })}
               </span>
               <span className="flex items-center gap-2 shrink-0">
                 <span className="text-[11px] text-[var(--text-tertiary)]">

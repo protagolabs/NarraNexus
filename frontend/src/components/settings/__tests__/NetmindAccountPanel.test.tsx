@@ -936,7 +936,8 @@ test('attribution: the platform-scoped usage section renders with the account le
       total_cost_usd: 0.5,
       total_input_tokens: 200_000,
       total_output_tokens: 50_000,
-      by_model: { 'gpt-5': { cost: 0.5, input_tokens: 200_000, output_tokens: 50_000, call_count: 3 } },
+      // Real contract: buckets by call_type, never a model id (backend cost.py).
+      by_model: { __main_model__: { cost: 0.5, input_tokens: 200_000, output_tokens: 50_000, call_count: 3 } },
       daily: [],
     },
     records: [],

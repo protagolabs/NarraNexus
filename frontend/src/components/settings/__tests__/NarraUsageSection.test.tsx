@@ -7,7 +7,7 @@
  * card down with it (fetch failure / empty ledger → renders nothing).
  * api + i18n are mocked; no network.
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { NarraUsageSection } from '../NarraUsageSection';
 
@@ -34,8 +34,12 @@ const SUMMARY = {
     total_output_tokens: 100_000,
     total_cache_read_tokens: 500_000,
     total_cache_creation_tokens: 0,
+    // The REAL contract: /api/agents/{id}/costs buckets by call_type into two
+    // synthetic keys, it never returns model ids (backend cost.py). The first
+    // version of this fixture used plausible model ids, which is precisely how
+    // a raw `__main_model__` reached the live account page.
     by_model: {
-      'anthropic/claude-opus-5': {
+      __main_model__: {
         cost: 1.0,
         input_tokens: 300_000,
         output_tokens: 90_000,
@@ -43,7 +47,7 @@ const SUMMARY = {
         cache_creation_tokens: 0,
         call_count: 42,
       },
-      'deepseek-ai/DeepSeek-V4-Flash': {
+      __helper_model__: {
         cost: 0.2345,
         input_tokens: 100_000,
         output_tokens: 10_000,
@@ -106,13 +110,51 @@ test('labels the money as an estimate and says why it can differ from the bill',
   ).toBeInTheDocument();
 });
 
-test('breaks down by model, busiest first', async () => {
+test('breaks down by bucket, busiest first, with no raw sentinel on screen', async () => {
   render(<NarraUsageSection />);
   const rows = await screen.findAllByTestId('narra-usage-model');
   expect(rows.map((r) => r.textContent)).toEqual([
-    expect.stringContaining('claude-opus-5'),
-    expect.stringContaining('DeepSeek-V4-Flash'),
+    expect.stringContaining('Model usage'),
+    expect.stringContaining('Helper Model Usage'),
   ]);
+  // The bug this pins: rendering the by_model key verbatim.
+  expect(screen.queryByText(/__main_model__|__helper_model__/)).toBeNull();
+});
+
+test('a real model id still renders (date suffix stripped) if the contract widens', async () => {
+  mockGetCosts.mockResolvedValue({
+    ...SUMMARY,
+    summary: {
+      ...SUMMARY.summary,
+      by_model: {
+        'claude-opus-5-2026-05-01': {
+          cost: 1, input_tokens: 10, output_tokens: 10, call_count: 1,
+        },
+      },
+    },
+  });
+  render(<NarraUsageSection />);
+  expect(await screen.findByText('claude-opus-5')).toBeInTheDocument();
+});
+
+test('refreshes on window focus — the rest of the card does, and usage accrues elsewhere', async () => {
+  render(<NarraUsageSection />);
+  expect(await screen.findByText('1.00M')).toBeInTheDocument();
+  mockGetCosts.mockResolvedValue({
+    ...SUMMARY,
+    summary: { ...SUMMARY.summary, total_output_tokens: 200_000 },
+  });
+  fireEvent(window, new Event('focus'));
+  expect(await screen.findByText('1.10M')).toBeInTheDocument();
+});
+
+test('a failed refresh keeps the last good value instead of blanking', async () => {
+  render(<NarraUsageSection />);
+  expect(await screen.findByText('1.00M')).toBeInTheDocument();
+  mockGetCosts.mockRejectedValue(new Error('502'));
+  fireEvent(window, new Event('focus'));
+  await waitFor(() => expect(mockGetCosts).toHaveBeenCalledTimes(2));
+  expect(screen.getByText('1.00M')).toBeInTheDocument();
 });
 
 test('renders nothing when the ledger is empty — no "$0.00, so it must be free"', async () => {

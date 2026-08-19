@@ -2,7 +2,8 @@
  * @file tokenFormat.ts
  * @author NarraNexus
  * @date 2026-08-19
- * @description Shared token-count / USD formatting for every LLM-usage surface.
+ * @description Shared rendering rules for every LLM-usage surface: token counts,
+ * USD amounts, and the model label.
  *
  * Extracted from CostPopover when a second usage surface (the account page's
  * NarraNexus-usage section) needed the same two functions. Two independent
@@ -36,4 +37,25 @@ export function formatCost(n: number): string {
   if (n >= 0.01) return `$${n.toFixed(2)}`;
   if (n >= 0.0001) return `$${n.toFixed(4)}`;
   return '<$0.0001';
+}
+
+/**
+ * Display label for a `by_model` key from GET /api/agents/{id}/costs.
+ *
+ * That endpoint does NOT key by model id. It buckets every row into exactly two
+ * synthetic keys by call_type (backend/routes/agents/cost.py): `__main_model__`
+ * for agent_loop, `__helper_model__` for everything else. Rendering the key
+ * verbatim puts a raw `__main_model__` on the user's screen — which is what
+ * shipped to the account page before a live check caught it.
+ *
+ * The date-suffix strip below is therefore unreachable for that endpoint today;
+ * it stays as the sane default for any caller handed a real model id.
+ */
+export function shortModelName(
+  model: string,
+  labels: { main: string; helper: string },
+): string {
+  if (model === '__main_model__') return labels.main;
+  if (model === '__helper_model__') return labels.helper;
+  return model.replace(/-\d{4}-?\d{2}-?\d{2}$/, '').replace(/-\d{8}$/, '');
 }
