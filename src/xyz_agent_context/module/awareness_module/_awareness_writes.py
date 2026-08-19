@@ -316,16 +316,41 @@ def _identity_section_lines(profile: str):
             yield line
 
 
-def declared_self_name(profile: str) -> Optional[str]:
-    """The name the agent's own section says it has, if it says one."""
+def _name_part(value: str) -> str:
+    """The leading run of a declaration's value, up to the first separator.
+
+    A guess, and it is only sound where the caller has already established that
+    the value does NOT hold the current name — see ``declared_self_name``.
+    """
+    cut = min(
+        (value.index(e) for e in _NAME_ENDERS if e and e in value),
+        default=len(value),
+    )
+    return value[:cut].strip()
+
+
+def declared_self_name(profile: str, current_name: str = "") -> Optional[str]:
+    """The name the agent's own section says it has, if it says one.
+
+    ``current_name`` is not decoration. A name may contain the very characters
+    used to find where a name ends — an agent called ``小绿-2`` was read as
+    ``小绿``, disagreed with its own row on every call, and each "correction"
+    prefixed the name again: 小绿-2 → 小绿-2-2 → 小绿-2-2-2. Checking the value
+    against the name we already know, before guessing a boundary at all, is what
+    removes the class rather than one instance of it.
+    """
     for line in _identity_section_lines(profile):
         m = _SELF_NAME_LINE.match(line)
-        if m:
-            value = m.group("value").strip()
-            for ender in _NAME_ENDERS:
-                if ender and ender in value:
-                    return value.split(ender, 1)[0].strip()
-            return value
+        if not m:
+            continue
+        value = m.group("value").strip()
+        current = (current_name or "").strip()
+        if current and (
+            value == current or _ends_the_name(value[len(current):])
+            and value.startswith(current)
+        ):
+            return current  # already the current name; nothing to guess
+        return _name_part(value)
     return None
 
 
@@ -371,8 +396,19 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     # Before the first `##`, there is no section to be wrong about: that is the
     # preamble, the default profile, and every bare fragment. Editable.
     profile = profile or ""
+    # `小绿` vs `小绿-2`: one is a prefix of the other, so which part of the line
+    # is the name cannot be decided from the line. Refusing costs a stale line —
+    # visible, and still contradicted by the record — while guessing wrong edits
+    # the agent's memory in a way `upsert` makes unrecoverable.
+    if old.startswith(new) or new.startswith(old):
+        logger.info(
+            f"[identity] refusing an ambiguous self-name rewrite "
+            f"({old!r} → {new!r}); leaving the line to the record"
+        )
+        return profile
+
     out, editable = [], True
-    for line in (profile or "").splitlines():
+    for line in profile.splitlines():
         if _ANY_H2.match(line):
             editable = bool(_IDENTITY_SECTION.match(line))
         m = _SELF_NAME_LINE.match(line)
@@ -486,7 +522,7 @@ async def reconcile_identity_record(
             # keying reconciliation on "a record contradicts the row" reported
             # the largest diverged population as healthy. The question is
             # whether the PROFILE contradicts the row, wherever it says so.
-            declared = declared_self_name(profile)
+            declared = declared_self_name(profile, current_name)
             if declared is None or declared == current_name:
                 return None
             logger.warning(

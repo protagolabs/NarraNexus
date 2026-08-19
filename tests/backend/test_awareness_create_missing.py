@@ -48,6 +48,13 @@ def client(monkeypatch):
         def __init__(self, db):
             pass
 
+        async def get_by_instance(self, instance_id):
+            # The route READS before it writes now: the model rewrites the whole
+            # profile here and the prescribed format omits the platform identity
+            # record, so the stored copy is needed to carry that section over.
+            # None = nothing stored yet, which is this test's shape.
+            return None
+
         async def upsert(self, instance_id, awareness):
             upserts.append((instance_id, awareness))
             return True

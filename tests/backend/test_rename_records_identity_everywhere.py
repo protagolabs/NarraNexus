@@ -980,3 +980,72 @@ async def test_a_profile_that_never_named_the_agent_is_left_alone(db_client):
 
     assert result.identity_reconciled is None
     assert IDENTITY_CHANGE_SECTION not in await _profile(db_client)
+
+
+@pytest.mark.asyncio
+async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_client):
+    """The carry-over landed on DirectStore only — the LOCAL path.
+
+    The incident happened on prod, where `update_awareness` goes through the
+    HttpStore to `PUT /agents/{id}/awareness`, and that route upserts whatever
+    it is given. So the fix protected the environment the bug did not occur in.
+    Same shape as every other miss in this change: two paths, one fixed.
+    """
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+    import backend.routes.agents.awareness as aw_route
+    from xyz_agent_context.module.awareness_module import (
+        IDENTITY_CHANGE_SECTION, build_identity_change_note,
+        merge_identity_change_note,
+    )
+
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=merge_identity_change_note(
+            "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+            build_identity_change_note("美食家", "小绿"),
+        ),
+    )
+
+    async def _db():
+        return db_client
+
+    # The route resolves its own db, and ownership is checked by the shared
+    # guard in backend.routes._ownership, which resolves ANOTHER one — patching
+    # only the route module leaves the guard reading a different database and
+    # answering 404 for an agent that is right there.
+    import backend.routes._ownership as ownership
+
+    monkey = getattr(aw_route, "get_db_client", None)
+    assert monkey is not None
+    aw_route.get_db_client = _db
+    own_monkey = ownership.assert_owned
+
+    async def _owned(_request, _agent_id):
+        return None
+
+    ownership.assert_owned = _owned
+    aw_route.assert_owned = _owned
+    try:
+        app = FastAPI()
+
+        @app.middleware("http")
+        async def fake_auth(request: Request, call_next):
+            request.state.user_id = OWNER
+            return await call_next(request)
+
+        app.include_router(aw_route.router, prefix="/api/agents")
+        client = TestClient(app)
+        resp = client.put(
+            f"/api/agents/{AGENT_ID}/awareness",
+            json={"awareness": "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n"},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        aw_route.get_db_client = monkey
+        ownership.assert_owned = own_monkey
+        aw_route.assert_owned = own_monkey
+
+    after = await _profile(db_client)
+    assert IDENTITY_CHANGE_SECTION in after, "the cloud route dropped the record"

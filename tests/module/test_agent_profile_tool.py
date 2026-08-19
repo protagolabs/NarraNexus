@@ -636,3 +636,61 @@ async def test_a_model_rewrite_cannot_delete_the_platform_record(db):
     after = (await db.get_one("instance_awareness", {"instance_id": instance_id}))["awareness"]
     assert IDENTITY_CHANGE_SECTION in after, "the platform record was rewritten away"
     assert "You are 「小绿」" in after
+
+
+class TestNamesContainingSeparators:
+    """A name may contain the characters used to spot where a name ends.
+
+    `declared_self_name` guessed the boundary by splitting on the first
+    separator, so an agent called `小绿-2` read as `小绿`, disagreed with its own
+    row, and every call "corrected" the line by prefixing the name again:
+    小绿-2 → 小绿-2-2 → 小绿-2-2-2. Self-amplifying corruption of the one
+    document the platform edits on the agent's behalf, and `upsert` keeps no
+    earlier copy.
+    """
+
+    def test_a_line_already_holding_the_current_name_is_not_stale(self):
+        """Given the name we already know, the boundary is not guessed at all.
+
+        Without it the function can only split on the first separator — which is
+        exactly why the caller passes it. The two-argument form is the contract;
+        the one-argument form is a best effort and says so.
+        """
+        from xyz_agent_context.module.awareness_module import declared_self_name
+
+        profile = "## 4. Role and Identity\n- 名称：小绿-2\n"
+        assert declared_self_name(profile, "小绿-2") == "小绿-2"
+        assert declared_self_name(profile, "美食家") == "小绿"  # stale: guess the tail off
+
+    def test_the_description_tail_still_comes_off(self):
+        from xyz_agent_context.module.awareness_module import declared_self_name
+
+        profile = "## 4. Role and Identity\n- 名称：美食家；精通各地美食推荐\n"
+        assert declared_self_name(profile) == "美食家"
+
+    @pytest.mark.asyncio
+    async def test_reconciling_a_separator_name_neither_fires_nor_corrupts(self, db):
+        from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+        instance_id = await _seed_agent(db, "agent_sep", "小绿-2")
+        from xyz_agent_context.repository import InstanceAwarenessRepository
+        await InstanceAwarenessRepository(db).upsert(
+            instance_id, "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿-2\n"
+        )
+
+        for _ in range(3):
+            r = await apply_agent_profile_change(db, "agent_sep", new_name="小绿-2")
+            assert r.identity_reconciled is None, "false-positive reconcile"
+
+        after = (await db.get_one("instance_awareness", {"instance_id": instance_id}))["awareness"]
+        assert "- 名称：小绿-2\n" in after, f"the name line was mangled: {after!r}"
+
+    def test_an_ambiguous_overlap_is_refused_rather_than_guessed(self):
+        """`小绿` vs `小绿-2`: one is a prefix of the other, so which part of
+        the line is the name cannot be decided. Refuse and leave it — the
+        identity record still tells the agent which name is current, and a
+        wrong rewrite of its memory cannot be taken back."""
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = "## 4. Role and Identity\n- 名称：小绿-3\n"
+        assert retire_self_name(profile, "小绿", "小绿-2") == profile
