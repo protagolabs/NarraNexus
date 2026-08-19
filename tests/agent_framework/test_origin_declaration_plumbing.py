@@ -174,13 +174,18 @@ def test_origin_declaration_key_is_always_present_even_when_empty():
 def test_executor_service_reads_the_same_body_key():
     """Producer (build_agent_loop_request) and consumer (executor_service) must
     name the key identically — the two-independent-constructions hazard this PR
-    keeps flagging. Rename it on either side and this goes red."""
+    keeps flagging. Rename it on either side and this goes red.
+
+    Whitespace is normalised first so a pure reformat (line-wrap, ruff reorder)
+    of a still-correct call can only ever false-RED, never survive: the property
+    under test is 'the two string literals match', not the source layout."""
     import inspect
+    import re
 
     from xyz_agent_context.agent_runtime import executor_service
 
-    src = inspect.getsource(executor_service)
-    assert 'origin_declaration=body.get("origin_declaration")' in src, (
+    src_no_ws = re.sub(r"\s+", "", inspect.getsource(executor_service))
+    assert 'origin_declaration=body.get("origin_declaration")' in src_no_ws, (
         "executor_service no longer forwards body['origin_declaration'] — the "
         "line is being dropped on the remote hop again"
     )

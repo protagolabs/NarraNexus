@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — members[0] 显示名 + mark_room_read 裸 naive UTC
+
+两处本轮改动:(1) `get_agent_inbox` 的 `members[0].agent_name` 从裸 `agent_<hex>` 改成解析出的 `agents.agent_name`(整请求一次 `get_one`,非 N+1;对方那栏用落库的 `counterpart_name` 本就正确)。(2) `mark_room_read` 的 `last_read_at` 写裸 naive UTC(去掉 `+00:00` 偏移)——MySQL `DATETIME(6)` 下带偏移字面量会被 session tz 转换,与 `mark_message_read` 的裸游标不一致会在非 UTC 库上静默错标已读;SQLite 侧读时统一归 UTC-aware,本改动只对 MySQL 生效。响应**结构**不变。
 
 ## 2026-08-17 — 面板改读 inbox 自己的表，且只列「你不在场的对话」
 

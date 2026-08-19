@@ -6,7 +6,7 @@
               itself.
 
 The board (#259) could already notice a stalled task and chase it. What it
-could not do was FIND OUT about one: its only entrance was `team_work_add`, a
+could not do was FIND OUT about one: its only entrance was `work_add_item`, a
 tool the Leader has to remember to call. That put the entire guard on model
 obedience, which is the dependency iron rule #15 keeps off correctness-critical
 paths — and the founding case walks straight through it. During the Dunhuang

@@ -136,6 +136,11 @@ _UNAVAILABLE = "messaging is temporarily unavailable — do not retry this turn"
 #: does not choose it.
 READ_HISTORY_MAX = 200
 
+#: Ceiling on `create_team` membership. `members` is a model-supplied string, so
+#: it gets the same "the model does not choose the bound" treatment as the cap
+#: above — a runaway list would be N serial DB round-trips on one agent turn.
+CREATE_TEAM_MAX_MEMBERS = 50
+
 
 def _reject_empty_text(text: str) -> Optional[dict]:
     """The refusal for a send with no content, or None when there is content.
@@ -474,20 +479,35 @@ def register_message_bus_mcp_tools(
             if agent_id not in member_list:
                 member_list.insert(0, agent_id)
 
+            if len(member_list) > CREATE_TEAM_MAX_MEMBERS:
+                return {
+                    "success": False,
+                    "error": (
+                        f"a team can have at most {CREATE_TEAM_MAX_MEMBERS} "
+                        f"members; you gave {len(member_list)}"
+                    ),
+                }
+
             owner = await _resolve_owner_user_id(agent_id)
             if not owner:
                 return {"success": False, "error": "could not resolve your owner"}
 
             db = await get_db_client()
 
-            # Same-user boundary (mirrors LocalMessageBus.create_channel): a team
-            # may only hold agents owned by the creator's user. Checked BEFORE any
-            # write so a rejected invite leaves no orphan `teams` row behind.
+            # Same-user boundary AND existence — mirror the UI writer
+            # (backend/routes/teams.py: 404 an unknown agent, 403 a cross-owner
+            # one). `_resolve_owner_user_id` returns None for an id with no
+            # `agents` row, so a model-typo'd or invented id must be REJECTED
+            # here, not silently written as a ghost member (which room_roster
+            # would then surface into @mention/@all). Checked BEFORE any write so
+            # a rejection leaves no orphan `teams` row.
             for member in member_list:
                 if member == agent_id:
                     continue
                 member_owner = await _resolve_owner_user_id(member)
-                if member_owner and member_owner != owner:
+                if not member_owner:
+                    return {"success": False, "error": f"unknown agent: {member}"}
+                if member_owner != owner:
                     return {
                         "success": False,
                         "error": (
@@ -504,6 +524,7 @@ def register_message_bus_mcp_tools(
             team = await TeamRepository(db).create_team(
                 owner_user_id=owner,
                 name=name.strip(),
+                source="agent",  # not a UI creation — keep the provenance
             )
             try:
                 member_repo = TeamMemberRepository(db)
@@ -519,9 +540,23 @@ def register_message_bus_mcp_tools(
                 )
             except Exception:
                 # A crash BETWEEN the teams row and its room would leave a team
-                # with no room and no members — message_team would then find the
-                # team but no room. Roll the row back so a retry starts clean.
+                # with no room — message_team would then find the team but no
+                # room. Roll back everything this call wrote (teams row,
+                # team_members, and the room channel + its members if
+                # get_or_create_team_room got that far) so a retry starts clean.
                 try:
+                    from xyz_agent_context.message_bus.team_rooms import (
+                        primary_room_of,
+                        team_room_marker,
+                    )
+                    room_cid = await primary_room_of(db, team.team_id)
+                    if room_cid:
+                        await db.delete("bus_channel_members", {"channel_id": room_cid})
+                    await db.delete(
+                        "bus_channels",
+                        {"created_by": team_room_marker(team.team_id),
+                         "channel_type": "group"},
+                    )
                     await db.delete("team_members", {"team_id": team.team_id})
                     await TeamRepository(db).delete_team(team.team_id)
                 except Exception:  # noqa: BLE001 — cleanup is best-effort

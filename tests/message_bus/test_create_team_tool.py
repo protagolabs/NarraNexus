@@ -55,7 +55,7 @@ def _tools(db_client):
         return bus
 
     register_message_bus_mcp_tools(_Stub(), _bus)
-    return captured
+    return captured, bus
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_create_team_makes_a_real_team_the_agent_can_then_message(db_clien
     _patch_db(monkeypatch, db_client)
     await _agent(db_client, ME, OWNER)
     await _agent(db_client, PEER, OWNER)
-    tools = _tools(db_client)
+    tools, _bus = _tools(db_client)
 
     created = await tools["create_team"](
         agent_id=ME, name="Project Alpha Coordination", members=PEER
@@ -100,7 +100,7 @@ async def test_create_team_rejects_a_cross_owner_invite_without_writing_a_team(d
     _patch_db(monkeypatch, db_client)
     await _agent(db_client, ME, OWNER)
     await _agent(db_client, STRANGER, OTHER_OWNER)  # different owner
-    tools = _tools(db_client)
+    tools, _bus = _tools(db_client)
 
     result = await tools["create_team"](agent_id=ME, name="Cross Tenant", members=STRANGER)
     assert result["success"] is False and "cross-user" in result["error"]
@@ -110,25 +110,65 @@ async def test_create_team_rejects_a_cross_owner_invite_without_writing_a_team(d
 
 
 @pytest.mark.asyncio
-async def test_create_team_rolls_back_the_team_row_if_the_room_build_crashes(db_client, monkeypatch):
-    """A crash BETWEEN writing the teams row and building its room must not leave
-    an orphan team (message_team would find the team but no room). The row is
-    rolled back so a retry is clean."""
+async def test_create_team_rolls_back_all_rows_if_room_build_crashes_after_the_channel(db_client, monkeypatch):
+    """A crash AFTER get_or_create_team_room has written the channel + `team_<id>`
+    marker must roll back EVERYTHING: teams, team_members, AND the room channel +
+    its members. The crash is injected at `get_channel_members` (which runs after
+    `create_channel` + the marker UPDATE), so the channel really exists when the
+    rollback fires — a rollback that skipped `bus_channels` would leave an orphan
+    `team_<dead-id>` room."""
     _patch_db(monkeypatch, db_client)
     await _agent(db_client, ME, OWNER)
     await _agent(db_client, PEER, OWNER)
-    tools = _tools(db_client)
+    tools, bus = _tools(db_client)
 
     async def _boom(*_a, **_k):
-        raise RuntimeError("room build failed")
+        raise RuntimeError("member sync failed")
 
-    monkeypatch.setattr(
-        "xyz_agent_context.message_bus.team_rooms.get_or_create_team_room", _boom
-    )
+    monkeypatch.setattr(bus, "get_channel_members", _boom)
 
     result = await tools["create_team"](agent_id=ME, name="Doomed", members=PEER)
     assert result["success"] is False
 
-    # No orphan: neither the teams row nor its team_members survive.
     assert await db_client.get("teams", {"owner_user_id": OWNER}) == []
     assert await db_client.get("team_members", {"agent_id": ME}) == []
+    # The room channel (created before the crash) is gone too — no orphan.
+    assert await db_client.get("bus_channels", {"channel_type": "group"}) == []
+    assert await db_client.get("bus_channel_members", {"agent_id": ME}) == []
+
+
+@pytest.mark.asyncio
+async def test_create_team_rejects_an_unknown_agent_without_writing_a_team(db_client, monkeypatch):
+    """A member id with no `agents` row (a model typo / invented id) must be
+    rejected, not written as a ghost member — the UI writer 404s the same input.
+    `_resolve_owner_user_id` returns None for it, so the check must treat None as
+    'reject', not 'allow'."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, ME, OWNER)
+    tools, _bus = _tools(db_client)
+
+    result = await tools["create_team"](agent_id=ME, name="Ghosts", members="agent_ghost")
+    assert result["success"] is False and "unknown agent" in result["error"]
+
+    # No writes: no team, no team_members, no ghost bus_channel_members.
+    assert await db_client.get("teams", {"owner_user_id": OWNER}) == []
+    assert await db_client.get("team_members", {"agent_id": "agent_ghost"}) == []
+
+
+@pytest.mark.asyncio
+async def test_create_team_rejects_over_the_member_cap_without_writing_a_team(db_client, monkeypatch):
+    """`members` is a model-supplied string; the cardinality bound is the code's,
+    not the model's. Over the cap → rejected before any write."""
+    from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+        CREATE_TEAM_MAX_MEMBERS,
+    )
+
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, ME, OWNER)
+    tools, _bus = _tools(db_client)
+
+    too_many = ",".join(f"agent_{i}" for i in range(CREATE_TEAM_MAX_MEMBERS + 5))
+    result = await tools["create_team"](agent_id=ME, name="Huge", members=too_many)
+    assert result["success"] is False and str(CREATE_TEAM_MAX_MEMBERS) in result["error"]
+
+    assert await db_client.get("teams", {"owner_user_id": OWNER}) == []

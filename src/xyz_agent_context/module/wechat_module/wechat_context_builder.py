@@ -150,8 +150,10 @@ class WeChatContextBuilder(ChannelContextBuilderBase):
         """Deploy-window fallback: read pre-decouple turns from ``bus_messages``.
 
         Remove once the inbox backfill has run (see
-        reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md). The
-        old writer stored turns under ``channel_id = f"wechat_{chat_id}"`` with
+        reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md — the
+        Telegram builder has an IDENTICAL copy; the runbook's delete step must
+        remove BOTH). The old writer stored turns under
+        ``channel_id = f"wechat_{chat_id}"`` with
         ``from_agent`` = ``wechat_user_<sender_id>`` (inbound) or this agent's id
         (outbound). AGENT-ISOLATED: only this bot's own replies and user messages
         are read; another bot's reply in the same shared ``wechat_{chat_id}``

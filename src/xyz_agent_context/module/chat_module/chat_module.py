@@ -30,7 +30,7 @@ from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
-from xyz_agent_context.schema.hook_schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
+from xyz_agent_context.schema.hook_schema import is_plain_text_turn
 
 # Schema
 from xyz_agent_context.schema import (
@@ -304,8 +304,7 @@ class ChatModule(XYZBaseModule):
         # fall silent on the contradiction). Withdraw the DECLARATION only; the
         # schema stays on the desk (escalating to the owner mid-sweep is
         # legitimate — get_disallowed_tools is unchanged).
-        extra = getattr(ctx_data, "extra_data", None) or {}
-        if extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY):
+        if is_plain_text_turn(ctx_data):
             return []
         config = await self.get_mcp_config()
         name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"

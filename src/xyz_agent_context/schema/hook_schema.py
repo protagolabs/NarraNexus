@@ -73,6 +73,19 @@ BUS_TEAM_ROOM_EXTRA_KEY = "bus_team_room"
 BUS_PLAIN_TEXT_TURN_EXTRA_KEY = "bus_plain_text_turn"
 
 
+def is_plain_text_turn(ctx_data: Any) -> bool:
+    """Does this turn deliver by SPEAKING (patrol) rather than via a reply tool?
+
+    The single home of the ``BUS_PLAIN_TEXT_TURN_EXTRA_KEY`` predicate. Every
+    module that declares reply tools must withhold that declaration on such a
+    turn, or its reply reminder names a tool the patrol prompt forbids — so the
+    check lives once, next to the marker it reads, instead of being copied into
+    each declarer.
+    """
+    extra = getattr(ctx_data, "extra_data", None) or {}
+    return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
+
+
 class WorkingSource(str, Enum):
     """
     Agent execution source - Identifies the origin that triggered Agent execution

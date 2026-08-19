@@ -36,8 +36,8 @@ from xyz_agent_context.module.base import (
     working_source_matches,
 )
 from xyz_agent_context.schema import (
-    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
     BUS_TEAM_ROOM_EXTRA_KEY,
+    is_plain_text_turn,
     ModuleConfig,
     MCPServerConfig,
     ContextData,
@@ -232,9 +232,11 @@ class MessageBusModule(XYZBaseModule):
         Only patrol. Kept separate from `_is_team_turn` because a patrol turn is
         also a team-room turn — it carries both markers — and the room marker on
         its own would declare `message_team`, which the patrol prompt forbids.
+
+        Delegates to the shared `is_plain_text_turn` (schema.hook_schema) so the
+        predicate has one definition across every module that gates on it.
         """
-        extra = getattr(ctx_data, "extra_data", None) or {}
-        return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
+        return is_plain_text_turn(ctx_data)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """The peer/room tools this turn can deliver through.
