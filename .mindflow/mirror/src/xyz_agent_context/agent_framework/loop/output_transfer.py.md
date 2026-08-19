@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 错 key 注释的后果改准(仅注释)
+
+「用错 tool_name 键」的后果描述从「全记成 unknown」改为现状:写侧持久化
+空串→history_projection 把 call+output 整对丢出回放(持久化处有
+logger.warning)。无行为改动;上下文见
+[[../../agent_runtime/response_processor]] 08-19 条。
 
 ## 2026-07-30 — tool_call_item 统一构造函数（pending 语义）
 
