@@ -267,7 +267,15 @@ async def create_agent_for_manyfold(
         # function's precondition is that the row already exists, and a brand
         # new agent has no previous name, so it has no identity correction to
         # record either.
-        await sync_agent_discovery(db, body.agent_id)
+        if not await sync_agent_discovery(db, body.agent_id):
+            # sync swallows its own failures and returns False, so an unchecked
+            # call here fails in total silence — and this branch exists BECAUSE
+            # an idle agent has no second chance: nothing re-runs until its
+            # first turn. Same wording as the transaction's _refresh_peer_directory.
+            logger.warning(
+                f"[manyfold-create] peer-directory sync failed for "
+                f"{body.agent_id}; peers cannot discover it until its first turn"
+            )
 
     logger.info(
         f"[manyfold-create] agent {body.agent_id!r} "

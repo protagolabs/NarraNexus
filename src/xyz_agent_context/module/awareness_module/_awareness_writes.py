@@ -302,18 +302,25 @@ def _ends_the_name(rest: str) -> bool:
     return rest == "" or rest[0] in _NAME_ENDERS
 
 
-def _identity_section_lines(profile: str):
-    """Yield the lines that live in the agent's OWN section.
+def _scan(profile: str):
+    """Yield ``(line, is_the_agents_own_section)`` for the whole profile.
 
-    Shared with ``retire_self_name`` on purpose: two copies of "which part of
-    this document is the agent's" is how one of them starts editing the owner's.
+    THE definition of "which part of this document is the agent's", used by
+    every reader and the one writer. It said it was shared before it was: the
+    retirement kept a hand-rolled copy of the same walk while this docstring
+    claimed otherwise, which is how the two answers start to differ and one of
+    them begins editing the owner's text.
     """
     editable = True
     for line in (profile or "").splitlines():
         if _ANY_H2.match(line):
             editable = bool(_IDENTITY_SECTION.match(line))
-        if editable:
-            yield line
+        yield line, editable
+
+
+def _identity_section_lines(profile: str):
+    """Just the agent's own lines."""
+    return (line for line, editable in _scan(profile) if editable)
 
 
 def _name_part(value: str) -> str:
@@ -344,7 +351,9 @@ def declared_self_name(profile: str, current_name: str = "") -> Optional[str]:
         if not m:
             continue
         value = m.group("value").strip()
-        current = (current_name or "").strip()
+        # Compared in the stored (escaped) form, because that is what the
+        # profile holds — see retire_self_name.
+        current = _for_note((current_name or "").strip())
         if current and (
             value == current or _ends_the_name(value[len(current):])
             and value.startswith(current)
@@ -407,18 +416,16 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
         )
         return profile
 
-    out, editable = [], True
-    for line in profile.splitlines():
-        if _ANY_H2.match(line):
-            editable = bool(_IDENTITY_SECTION.match(line))
+    out = []
+    for line, editable in _scan(profile):
         m = _SELF_NAME_LINE.match(line)
         value = m.group("value").strip() if m else ""
-        if (
-            m
-            and not editable
-            and value.startswith(old)
-            and _ends_the_name(value[len(old):])
-        ):
+        # One predicate, asked once: "is this line a declaration of the old
+        # name". Where it applies is the separate question below.
+        is_old_name_decl = bool(
+            m and value.startswith(old) and _ends_the_name(value[len(old):])
+        )
+        if is_old_name_decl and not editable:
             # A declaration of the old name outside the agent's own section. Not
             # touched — but said out loud, so "the heading drifted and retirement
             # quietly stopped" is diagnosable instead of invisible.
@@ -426,8 +433,12 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
                 f"[identity] leaving a name line outside the identity section "
                 f"alone: {line.strip()!r}"
             )
-        if m and editable and value.startswith(old) and _ends_the_name(value[len(old):]):
-            rewritten = m.group("head") + new + value[len(old):]
+        if is_old_name_decl and editable:
+            # Written through the SAME escape the record uses. A name may
+            # contain a newline, and pasting it raw into a single-line
+            # declaration splits the line in two: the next read sees only the
+            # first half, disagrees with the row, and "corrects" it forever.
+            rewritten = m.group("head") + _for_note(new) + value[len(old):]
             # The one place the platform edits an agent's own long-term memory.
             # An edit nobody can see afterwards is an edit nobody can undo:
             # instance_awareness is overwritten by upsert, so the previous line
@@ -485,6 +496,27 @@ async def record_identity_change(
         return False
 
 
+def _asserted_name(profile: str) -> Optional[str]:
+    """The name the platform record's newest entry claims, if there is one."""
+    if IDENTITY_CHANGE_SECTION not in (profile or ""):
+        return None
+    _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
+    lines = rest.splitlines()
+    cut = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
+        len(lines),
+    )
+    entries = [ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")]
+    return next(
+        (
+            name
+            for name in (identity_note_asserts(e) for e in reversed(entries))
+            if name
+        ),
+        None,
+    )
+
+
 async def reconcile_identity_record(
     db, agent_id: str, current_name: str
 ) -> Optional[bool]:
@@ -515,68 +547,39 @@ async def reconcile_identity_record(
         repo = InstanceAwarenessRepository(db)
         current = await repo.get_by_instance(instance_id)
         profile = (current.awareness if current else "") or ""
-        if IDENTITY_CHANGE_SECTION not in profile:
-            # No record — but that is the shape a UI rename LEFT BEHIND before
-            # this transaction existed: the column moved and nothing was written
-            # here at all. Those agents carry only a stale self-name line, and
-            # keying reconciliation on "a record contradicts the row" reported
-            # the largest diverged population as healthy. The question is
-            # whether the PROFILE contradicts the row, wherever it says so.
-            declared = declared_self_name(profile, current_name)
-            if declared is None or declared == current_name:
-                return None
-            logger.warning(
-                f"[agent-profile-write] {agent_id}: profile still declares "
-                f"{declared!r} while the row holds {current_name!r} — correcting"
-            )
-            note = build_identity_reconciliation_note(current_name, declared)
-            if not _note_is_readable(note, current_name):
-                return False
-            profile = retire_self_name(profile, declared, current_name)
-            await repo.upsert(
-                instance_id, merge_identity_change_note(profile, note)
-            )
-            return True
-
-        _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
-        lines = rest.splitlines()
-        cut = next(
-            (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
-            len(lines),
-        )
-        entries = [
-            ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")
-        ]
-        asserted = next(
-            (
-                name
-                for name in (identity_note_asserts(e) for e in reversed(entries))
-                if name
-            ),
-            None,
-        )
-        # Compare against the ESCAPED form, because that is what a record
-        # holds: a name containing 「」 or a newline is stored escaped so it can
-        # be read back at all. Comparing against the raw name would find them
-        # unequal forever — every call would "correct" the record and rewrite
-        # the profile, converging on nothing and logging a warning each time.
-        if asserted is None or asserted == _for_note(current_name):
+        # BOTH sources, always. The profile contradicts the row if the
+        # platform record asserts another name, OR the agent's own section
+        # declares one — and an agent can be stale in either alone. Round 9
+        # keyed on the record and missed the record-less shape; the fix put the
+        # self-name check inside the "no record" branch, which turned it into an
+        # either/or and missed the mirror case: a record already corrected while
+        # the Role and Identity line still named the old name. Two sources, one
+        # question, asked of both every time.
+        asserted = _asserted_name(profile)
+        declared = declared_self_name(profile, current_name)
+        stale_record = asserted is not None and asserted != _for_note(current_name)
+        stale_line = declared is not None and declared != _for_note(current_name)
+        if not stale_record and not stale_line:
             return None
 
+        was_called = asserted if stale_record else declared
         logger.warning(
-            f"[agent-profile-write] {agent_id}: identity record asserted "
-            f"{asserted!r} while the row holds {current_name!r} — correcting"
+            f"[agent-profile-write] {agent_id}: profile still says "
+            f"{was_called!r} while the row holds {current_name!r} — correcting "
+            f"(record={stale_record}, self-name={stale_line})"
         )
-        note = build_identity_reconciliation_note(current_name, asserted)
+        note = build_identity_reconciliation_note(current_name, was_called)
         if not _note_is_readable(note, current_name):
             return False
-        # The same retirement the rename path does. This branch exists FOR the
-        # already-diverged population — the ticket's own agent — so leaving its
-        # self-name line stale would miss exactly the agents it was written for.
-        # ``asserted`` is what the stale record claimed, which is the name that
-        # line will be carrying.
-        profile = retire_self_name(profile, asserted, current_name)
-        await repo.upsert(instance_id, merge_identity_change_note(profile, note))
+        if stale_line and declared:
+            profile = retire_self_name(profile, declared, current_name)
+        if stale_record:
+            profile = merge_identity_change_note(profile, note)
+        elif IDENTITY_CHANGE_SECTION not in profile:
+            # No record yet: the retirement alone leaves nothing telling the
+            # agent which name is current, so file one.
+            profile = merge_identity_change_note(profile, note)
+        await repo.upsert(instance_id, profile)
         return True
     except Exception as e:  # noqa: BLE001 — the profile write already landed
         logger.warning(f"reconcile_identity_record failed for {agent_id}: {e}")

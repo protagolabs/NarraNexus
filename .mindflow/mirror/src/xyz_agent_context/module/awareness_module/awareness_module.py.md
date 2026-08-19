@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 下面 2026-08-10 那条的指路已经过期
+
+那条说改名事务和两个 DB 助手「移到 [[_awareness_writes]]」——本次改动把它们**再次
+搬走**了，历史正文保留（哪一轮知道了什么要可追溯），但按它去找会扑空：
+
+| 找什么 | 现在在哪 |
+|---|---|
+| `apply_agent_profile_change`（改名事务） | `agent_profile/_agent_profile_impl/profile_write.py`（[[profile_write]]） |
+| `_same_owner_name_holder` | 同上 |
+| `_record_identity_change` | 仍在 [[_awareness_writes]]，但**改名为公开的 `record_identity_change`**（跨包调用，不再是私有符号） |
+
+搬走的理由见 [[_overview]]：事务写 `agents` 行、刷 `bus_agent_registry`、还接
+`is_public`/`created_by`，没有一样是 Awareness 的职责——Awareness 只是它其中一步。
+留在本模块的是真正属于它的那部分：身份记录段的常量与助手、两个写入器、
+`retire_self_name`、以及 MCP 渲染器。
 
 ## 2026-08-10 — update_agent_profile routes through AgentDataStore
 

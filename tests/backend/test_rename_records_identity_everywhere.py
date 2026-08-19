@@ -1049,3 +1049,62 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
 
     after = await _profile(db_client)
     assert IDENTITY_CHANGE_SECTION in after, "the cloud route dropped the record"
+
+
+@pytest.mark.asyncio
+async def test_a_correct_record_does_not_excuse_a_stale_self_name_line(db_client):
+    """Both sources are checked, always — not one or the other.
+
+    Round 9 found that keying reconciliation on the RECORD missed agents that
+    only had a stale self-name line. The fix put the self-name check inside the
+    "no record" branch, which made it an either/or: an agent whose record was
+    already corrected but whose Role and Identity line still named the old name
+    reported "nothing to repair". That is the same population reached by a
+    different route — a rename that filed a record before retirement existed.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from xyz_agent_context.module.awareness_module import (
+        build_identity_change_note, merge_identity_change_note,
+    )
+
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=merge_identity_change_note(
+            "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：美食家\n",
+            build_identity_change_note("美食家", "小绿"),
+        ),
+    )
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    assert result.identity_reconciled is True
+    profile = await _profile(db_client)
+    assert "- 名称：小绿" in profile
+    entries = _identity_entries(profile)
+    outside = [
+        ln for ln in profile.splitlines()
+        if "美食家" in ln and ln.strip() not in entries
+    ]
+    assert not outside, f"the old name still stands unretired on: {outside}"
+
+
+@pytest.mark.asyncio
+async def test_an_agent_correct_in_both_places_is_left_alone(db_client):
+    """Checking both must not mean acting twice, or every call rewrites."""
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from xyz_agent_context.module.awareness_module import (
+        build_identity_change_note, merge_identity_change_note,
+    )
+
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=merge_identity_change_note(
+            "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+            build_identity_change_note("美食家", "小绿"),
+        ),
+    )
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+    assert result.identity_reconciled is None
