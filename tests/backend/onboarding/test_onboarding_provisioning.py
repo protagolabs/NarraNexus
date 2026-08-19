@@ -123,6 +123,17 @@ def _enable(monkeypatch):
     monkeypatch.setenv(ob.BACKFILL_ENV_FLAG, "1")
 
 
+def test_importing_provisioning_registers_the_profile():
+    """The PRODUCTION registration point is provisioning.py's side-effect
+    `import backend.onboarding.profile` — get_profile falls back to "default"
+    silently on an unknown name, so without this pin an import cleanup could
+    strip every guide agent's persona/greeting with all tests green."""
+    from xyz_agent_context.bootstrap.profiles import get_profile
+
+    # `ob` (backend.onboarding.provisioning) is imported at module top.
+    assert get_profile("onboarding").name == "onboarding"
+
+
 def test_kill_switch_disables_everything(monkeypatch):
     rec = Recorder()
     _wire(monkeypatch, rec, users={"u1": {}})
@@ -232,17 +243,19 @@ def test_happy_path_full_sequence_and_claim_first(monkeypatch):
     # analysis also fire on every chat event (cost + early COMPLETED).
     assert job_kw["job_type"] == "scheduled"
     tc = job_kw["trigger_config"]
-    assert tc == {"interval_seconds": 86400, "timezone": "Asia/Shanghai"}
+    assert tc["interval_seconds"] == 86400 and tc["timezone"] == "Asia/Shanghai"
+    # The PLATFORM brake: a naive-local end_at the trigger enforces; its date
+    # must be the same day the payload's goodbye script quotes.
+    from datetime import datetime as _dt
+
+    end_at = _dt.fromisoformat(tc["end_at"])
+    assert end_at.tzinfo is None
+    assert f"after {end_at.date().isoformat()}" in job_kw["payload"]
     assert job_kw["title"] == ob.CHECKIN_JOB_TITLE
-    # The payload carries both model-judged exits: 3-strikes and a concrete
-    # provision-stamped end date (exact ISO literal, not just "some date").
+    # The payload carries the model-judged exits: 3-strikes plus the goodbye
+    # script for the platform-enforced end_at horizon (date equality with
+    # end_at is asserted above).
     assert "three consecutive" in job_kw["payload"]
-    from datetime import timedelta
-
-    from xyz_agent_context.utils import utc_now
-
-    expected_end = (utc_now() + timedelta(days=ob.CHECKIN_END_AFTER_DAYS)).date().isoformat()
-    assert f"after {expected_end}" in job_kw["payload"]
 
     tag = next(kw for name, kw in rec.calls if name == "update_agent")
     assert tag["agent_metadata"]["provisioned_source"] == "onboarding"

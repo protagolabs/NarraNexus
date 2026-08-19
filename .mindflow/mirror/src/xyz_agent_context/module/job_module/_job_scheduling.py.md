@@ -50,3 +50,11 @@ last_verified: 2026-04-21
 - 不要再用 `calculate_next_run_time`——它是 Task 10 会删的 legacy。新代码一律 `compute_next_run`。
 - `croniter` 在 Python 3.13 + zoneinfo 组合下，对 aware datetime 的行为不稳定。本函数采用 "naive in, naive out, 调用方补 tzinfo" 的策略规避。
 - `NextRunTuple.local` 是**naive ISO 8601**（如 `2026-05-01T08:00:00`），不带 offset 后缀。展示层如果想显示 `+08:00`，自己拼；但一般直接显示 `local + " " + tz` 更清楚。
+
+## 2026-08-19 — past_schedule_horizon
+
+纯谓词：`(trigger_config, next_fire_utc) -> bool`，判定 recurring job 的下
+次 fire 是否越过 `trigger_config.end_at` 地平线（end_at 按 run_at 同款
+naive+timezone 约定换算成 UTC 再比较）。无 config / 无 end_at → False，
+存量 job 零影响。唯一调用方是 job_trigger 的 SCHEDULED finalize 分支；
+放在本文件是因为它是调度规则不是数据访问，与 compute_next_run 同层。

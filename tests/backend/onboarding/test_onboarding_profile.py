@@ -9,7 +9,7 @@
 
 import random
 
-import backend.onboarding  # noqa: F401 — profile registry side effect
+import backend.onboarding.profile  # noqa: F401 — registers the "onboarding" profile
 from backend.onboarding.personas import (
     PERSONAS,
     TOPIC_OPENERS,

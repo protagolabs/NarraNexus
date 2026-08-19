@@ -70,6 +70,7 @@ async def test_real_provisioning_persists_the_full_contract(
     assert job_row["status"] in ("pending", "active")
     tc = json.loads(job_row["trigger_config"])
     assert tc["interval_seconds"] == 86400
+    assert tc["end_at"]  # platform-enforced horizon persisted with the job
     payload = job_row["payload"]
     assert "three consecutive" in payload and "job_update" in payload
 

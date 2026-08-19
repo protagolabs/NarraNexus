@@ -165,6 +165,19 @@ class TriggerConfig(BaseModel):
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
     )
 
+    # === Scheduling horizon (optional; recurring jobs) ===
+    end_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "Scheduling horizon for recurring (scheduled) jobs: once the NEXT "
+            "fire time would land past this local time, the trigger completes "
+            "the job instead of rescheduling — a platform-enforced 'this "
+            "schedule runs until date X', needing no model cooperation. Naive "
+            "local time interpreted in `timezone` (same convention as run_at). "
+            "None = no horizon (unchanged behavior)."
+        ),
+    )
+
     # === Timezone (required for all time-bearing triggers) ===
     timezone: Optional[str] = Field(
         default=None,
@@ -185,14 +198,15 @@ class TriggerConfig(BaseModel):
             v = cls.MAX_INTERVAL_SECONDS
         return v
 
-    @field_validator("run_at")
+    @field_validator("run_at", "end_at")
     @classmethod
     def run_at_must_be_naive(cls, v: Optional[datetime]) -> Optional[datetime]:
-        """Reject timezone-aware run_at; timezone must be specified via the timezone field."""
+        """Reject timezone-aware run_at/end_at; timezone must be specified via
+        the timezone field (one timezone convention per model)."""
         if v is not None and v.tzinfo is not None:
             raise ValueError(
-                "run_at must be naive (no tzinfo). Use the `timezone` field to "
-                "declare timezone; do not attach offset or tzinfo to run_at."
+                "run_at/end_at must be naive (no tzinfo). Use the `timezone` "
+                "field to declare timezone; do not attach offset or tzinfo."
             )
         return v
 
@@ -220,6 +234,7 @@ class TriggerConfig(BaseModel):
             self.run_at is not None
             or self.cron is not None
             or self.interval_seconds is not None
+            or self.end_at is not None
         )
         if has_time_field and self.timezone is None:
             raise ValueError(

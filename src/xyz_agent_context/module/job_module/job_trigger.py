@@ -94,7 +94,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
-from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+from xyz_agent_context.module.job_module._job_scheduling import (
+    compute_next_run,
+    past_schedule_horizon,
+)
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
 
@@ -1250,6 +1253,26 @@ The task was executed but produced no text output.
                     trigger_config=job.trigger_config,
                     last_run_utc=now,
                 )
+                # Scheduling horizon (trigger_config.end_at): a recurring job
+                # whose NEXT fire would land past its horizon is done — the
+                # platform completes it here, no model cooperation needed.
+                # Only the horizon path completes; a None next_run keeps the
+                # historical semantics (ACTIVE with NULL next_run) untouched.
+                if next_run and past_schedule_horizon(job.trigger_config, next_run.utc):
+                    await repo.clear_next_run(job.job_id)
+                    await repo.update_job_status(
+                        job_id=job.job_id,
+                        status=JobStatus.COMPLETED
+                    )
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    end_at = job.trigger_config.end_at if job.trigger_config else None
+                    logger.info(
+                        f"Job {job.job_id} completed (scheduled, end_at horizon "
+                        f"{end_at} {tz_name} reached)"
+                    )
+                    return
+
                 if next_run:
                     await repo.update_next_run(job.job_id, next_run)
                 else:

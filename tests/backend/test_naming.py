@@ -10,7 +10,7 @@ import random
 
 import pytest
 
-from backend.onboarding.naming import (
+from backend.naming import (
     BASE_NAME_COMBINATIONS,
     GROUP_CREATURE,
     GROUP_FORCE,

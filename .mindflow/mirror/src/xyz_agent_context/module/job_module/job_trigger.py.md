@@ -362,3 +362,14 @@ real failure reason on the job row.
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-08-19 — SCHEDULED finalize 增加 end_at 地平线完结
+
+`_finalize_job_execution` 的 SCHEDULED 分支在 compute_next_run 之后先问
+`past_schedule_horizon(trigger_config, next_run.utc)`：越线 → clear
+next_run + 置 COMPLETED + 更新 instance，然后 return——平台强制"这个日程
+排到 X 日为止"，不依赖模型自觉。**只有地平线路径会完结**：next_run 为
+None 的历史语义（ACTIVE + NULL next_run）原样保留，别把它也改成完结。
+恢复面核对过：job_recovery 只复活 PAUSED_NO_QUOTA，不会把 COMPLETED 拉
+回来。测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线
+照常重排 / 无地平线逐字不变）。

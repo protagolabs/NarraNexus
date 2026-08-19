@@ -22,8 +22,10 @@ the anchor is measurable). Reads/writes via `lib/guideCoachmark`. i18n keys:
 
 ## Design decisions
 
-Anchoring/portal mechanics are a deliberate copy of `MigrationCoachmark`
-(measure `[data-help-id="sidebar.create-agent"]`, portal to body, 500ms
-mount-race interval capped at ~10s, nothing on collapsed rail) — same UX,
-same failure modes, reviewed once already. Not extracted into a shared base:
-two instances is below the abstraction threshold and their gating differs.
+Rendering rides the shared `AnchoredCoachmark` (extracted 2026-08-19 after
+review flagged that this file was a character-for-character copy of
+MigrationCoachmark AND both could render pixel-overlapped on a local first
+run — the shared component adds one-bubble-per-anchor queueing). This file
+owns only the gate (localStorage via lib/guideCoachmark) and the copy; the
+literal `t('onboarding.guideCoachmark.text')` call stays here because
+zh-localization.test.ts asserts it at the file level.

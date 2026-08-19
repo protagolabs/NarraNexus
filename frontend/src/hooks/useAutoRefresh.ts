@@ -107,12 +107,15 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
     if (useConfigStore.getState().agents.length > 0) return;
     let attempts = 0;
     const id = window.setInterval(() => {
-      if (document.hidden) return; // same zero-requests-in-background rule as the ticks
+      // Count BEFORE the hidden skip so the ~20s cap is wall-clock time, not
+      // foreground time — a backgrounded tab must not keep this interval
+      // armed indefinitely (the 30s tick covers late returns).
       attempts += 1;
       if (attempts > 10 || useConfigStore.getState().agents.length > 0) {
         window.clearInterval(id);
         return;
       }
+      if (document.hidden) return; // same zero-requests-in-background rule as the ticks
       void useConfigStore.getState().refreshAgents();
     }, 2_000);
     return () => window.clearInterval(id);

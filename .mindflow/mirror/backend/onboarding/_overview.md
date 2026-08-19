@@ -18,11 +18,14 @@ panel (model-judged exits: 3-ignored-check-ins goodbye + a provision-stamped
 hard end date in the payload).
 
 Files:
-- `naming.py` — shared three-group random name generator (Arena delegates).
 - `personas.py` — content pools (personas, topic openers) + greeting /
   awareness / Bootstrap.md renderers. Pure data, no IO.
 - `profile.py` — the "onboarding" BootstrapProfile (registered on import).
 - `provisioning.py` — the orchestration seam the login hooks call.
+
+Random names come from the neutral shared leaf `backend/naming.py` (also
+consumed by the Arena integration — it deliberately does NOT live in this
+package, so Arena never depends on this feature package).
 
 Placement (铁律 #21 import-graph litmus): everything here is consumed ONLY by
 backend login routes (and Arena's naming re-export), so it lives under

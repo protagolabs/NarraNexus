@@ -40,8 +40,9 @@ from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
 # Load-bearing side-effect import: registers the "onboarding" bootstrap
 # profile so provision_new_agent's apply_bootstrap resolves it. Lives HERE
-# (not in the package __init__) so importing backend.onboarding.naming stays
-# dependency-free for Arena — see the package __init__ docstring.
+# (not in the package __init__) so the production path has exactly one
+# registration point — see the package __init__ docstring; pinned by
+# test_importing_provisioning_registers_the_profile.
 import backend.onboarding.profile  # noqa: E402,F401  isort:skip
 
 if TYPE_CHECKING:
@@ -82,11 +83,13 @@ CHECKIN_JOB_TITLE = "Daily check-in"
 # max_iterations budget on ordinary conversation — a chatty first week would
 # silently kill the "daily companionship" — and (b) add one Helper-LLM
 # analysis call to EVERY chat turn of every new user. A scheduled job fires
-# once a day and touches nothing else. The trade-off: no runtime-enforced
-# hard stop, so the exit paths are (1) the user pausing/cancelling in the
-# Jobs panel (the greeting says how), (2) the payload's three-ignored-
-# check-ins goodbye + self-pause, and (3) the payload's hard end date,
-# stamped at provision time. (2)+(3) are model-judged; (1) is not.
+# once a day and touches nothing else. Exit paths: (1) the user pausing/
+# cancelling in the Jobs panel (the greeting says how); (2) the payload's
+# three-ignored-check-ins goodbye + self-pause (model-judged); (3) the
+# PLATFORM-ENFORCED trigger_config.end_at horizon — once the next fire would
+# land past provision-time + CHECKIN_END_AFTER_DAYS, JobTrigger completes the
+# job with no model cooperation. The payload's end-date sentence is the
+# polite goodbye script for (3), not the brake itself.
 CHECKIN_END_AFTER_DAYS = 14
 _CHECKIN_JOB_DESCRIPTION = (
     "Once a day, drop by with a fresh topic. Pause or cancel this job "
@@ -197,7 +200,7 @@ async def _ensure_locked(db: AsyncDatabaseClient, user_id: str) -> Dict[str, Any
     await _write_marker(user_repo, user_id, metadata)
 
     rng = random.Random()
-    from backend.onboarding.naming import generate_name
+    from backend.naming import generate_name
     from backend.onboarding.personas import (
         pick_persona,
         pick_topic_index,
@@ -317,7 +320,12 @@ async def _create_checkin_job(
 
     user = await UserRepository(db).get_user(user_id)
     tz = _safe_timezone(getattr(user, "timezone", None) if user else None)
-    end_date = (utc_now() + timedelta(days=CHECKIN_END_AFTER_DAYS)).date().isoformat()
+    # One instant, two encodings: end_local is the naive-local end_at the
+    # trigger enforces; end_date is the same day quoted in the payload so the
+    # goodbye script and the platform brake can never disagree.
+    end_utc = utc_now() + timedelta(days=CHECKIN_END_AFTER_DAYS)
+    end_local = end_utc.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
+    end_date = end_local.date().isoformat()
 
     result = await JobInstanceService(db).create_job_with_instance(
         agent_id=agent_id,
@@ -325,7 +333,13 @@ async def _create_checkin_job(
         title=CHECKIN_JOB_TITLE,
         description=_CHECKIN_JOB_DESCRIPTION,
         job_type="scheduled",
-        trigger_config={"interval_seconds": 86400, "timezone": tz},
+        trigger_config={
+            "interval_seconds": 86400,
+            "timezone": tz,
+            # Platform-enforced horizon: JobTrigger completes the job once the
+            # next fire would land past this local time (see job_trigger.py).
+            "end_at": end_local.isoformat(),
+        },
         payload=_CHECKIN_JOB_PAYLOAD.format(end_date=end_date),
         # Fixed platform spec, not an LLM guess — skip similarity confirmation.
         confirm_new=True,

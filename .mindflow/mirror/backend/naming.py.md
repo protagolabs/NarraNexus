@@ -1,5 +1,5 @@
 ---
-code_file: backend/onboarding/naming.py
+code_file: backend/naming.py
 last_verified: 2026-08-19
 stub: false
 ---
@@ -12,10 +12,12 @@ The Nintendo-style gamertag generator (three 24-word groups → 13,824 base
 combinations, `_NN` suffix on collision) was born inside
 `backend/integrations/arena/arena_onboarding.py`. The onboarding guide-agent
 provisioning needs the same generator, so the word lists and generation
-logic moved to this neutral backend-side module; Arena re-exports and
-delegates. Backend-side per 铁律 #21: its only consumers are backend
-provisioning flows (Arena + the guide agent) — nothing agent-side imports
-it.
+logic moved to this neutral backend-ROOT leaf; Arena re-exports and
+delegates. Backend-side per 铁律 #21 (its only consumers are backend
+provisioning flows; nothing agent-side imports it), and at backend root —
+deliberately NOT inside backend/onboarding/ — so the Arena integration never
+depends on the guide-agent feature package, and a third random-name consumer
+(team rooms, template instantiation) has a neutral home to import from.
 
 ## Upstream / Downstream
 
@@ -25,7 +27,7 @@ lists on its historical import path; `ArenaOnboarder.generate_name` /
 `backend/onboarding/provisioning.py` (guide-agent naming — no uniqueness
 oracle needed there, agent names are not unique keys locally).
 **Imports:** stdlib only. This module must stay a pure leaf (no DB, no
-settings) so both backend integrations and src provisioning can use it.
+settings) so any backend consumer can import it for free.
 
 ## Design decisions
 

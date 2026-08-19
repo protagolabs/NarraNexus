@@ -28,6 +28,10 @@ provision time).
   the system-default greeting — scenario-authored greetings pass through
   verbatim. Once the user speaks, the awareness LANGUAGE rule makes the agent
   mirror them.
+- **Awareness carries a missing-handbook fallback**: skill install is
+  best-effort (offline desktop installs can fail to fetch narranexus-guide),
+  so the HOW TO TEACH section tells the agent what to do when SKILL.md is
+  absent — admit the handbook isn't installed, never invent UI steps.
 - **The local-install provider notice is a render flag** (`is_local`), not a
   separate template: local installs cannot reply until a model provider is
   configured, so both the greeting (point 4) and the awareness (LOCAL INSTALL

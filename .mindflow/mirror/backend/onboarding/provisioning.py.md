@@ -70,12 +70,14 @@ marker. Zero raw SQL.
   burn a max_iterations budget on ordinary conversation — a chatty first
   week would silently COMPLETE the "daily companionship" — and (b) add one
   LLM call to every chat turn of every new user (the exact cost face that
-  blew the monthly limit on 8/13). Trade-off accepted: no runtime-enforced
-  hard stop. Exits: user pause/cancel in Jobs panel (greeting says how),
-  payload's 3-ignored-check-ins goodbye + self-pause, payload's hard end
-  date (`CHECKIN_END_AFTER_DAYS`, stamped at provision). The latter two are
-  model-judged — if the model misbehaves, the blast radius is one message
-  per day, user-cancellable.
+  blew the monthly limit on 8/13). The hard stop is PLATFORM-enforced via
+  `trigger_config.end_at` (provision-time + `CHECKIN_END_AFTER_DAYS`; the
+  scheduling-horizon primitive added to TriggerConfig/JobTrigger in this
+  same change — no model cooperation needed). Softer exits remain: user
+  pause/cancel in the Jobs panel (greeting says how) and the payload's
+  3-ignored-check-ins goodbye + self-pause; the payload's end-date sentence
+  is the polite goodbye script for the horizon, stamped from the SAME
+  instant so script and brake can never disagree.
 - **has-agents users get the marker, not an agent**: someone already using
   the product doesn't need a stranger pinging them; the marker makes later
   logins skip before the agents query (`find_one`, not a full find).
@@ -91,8 +93,8 @@ marker. Zero raw SQL.
   retrieval-side matching and silently kill the agent's self-pause.
 - **The profile registration side-effect import lives at THIS module's
   import block** (`import backend.onboarding.profile`), not the package
-  `__init__` — so `backend.onboarding.naming` stays import-cheap for the
-  Arena module (which is deliberately DB/settings-free).
+  `__init__` — one unambiguous registration point on the production path,
+  pinned by test_importing_provisioning_registers_the_profile.
 
 ## Gotchas
 

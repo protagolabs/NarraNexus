@@ -96,3 +96,16 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 - `JobModel.limit` is a field with default `10` that appears to be a pagination hint for the repository. It is stored in the database alongside business data. This field was probably intended for API responses and should not have been on the persistence model.
 - `OngoingExecutionResult.should_notify` defaults to `False` for ONGOING jobs. Only the final "completed" execution should notify the user. The LLM is responsible for setting `should_notify=True` only when `should_continue=False`.
 - Comparing `job.status == JobStatus.ACTIVE` works because `JobStatus` is `str, Enum`. The string `"active"` and `JobStatus.ACTIVE` are equal.
+
+## 2026-08-19 — TriggerConfig.end_at（recurring 调度地平线）
+
+新增可选字段 `end_at: Optional[datetime]`：recurring（scheduled）job 的
+平台级"排到哪天为止"。约定与 `run_at` 完全一致——naive 本地时间 + 由
+`timezone` 字段声明时区（同一 validator 拒绝 aware 值；`end_at` 也计入
+"time-bearing 字段必须带 timezone"的 model validator）。执行方在
+`job_trigger.py` 的 SCHEDULED finalize 分支（谓词
+`_job_scheduling.past_schedule_horizon`）：下次 fire 落在地平线之后 →
+COMPLETED 而非重排。默认 None = 老 job 逐字不变（铁律 #6）。首个消费方是
+onboarding 引导 Agent 的每日 check-in；试用期提醒/倒计时/N 天课程是同一
+原语的后续候选。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
+不触碰铁律 #14——ONGOING 的 max_iterations 是既有先例。

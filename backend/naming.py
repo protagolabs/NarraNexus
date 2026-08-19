@@ -6,10 +6,12 @@
 
 Extracted from `backend/integrations/arena/arena_onboarding.py` so non-Arena
 provisioning flows (the onboarding guide agent) can use the same word lists
-without importing an external-platform integration. Lives backend-side
-(铁律 #21: its only consumers are backend provisioning flows — Arena and the
-guide agent). The Arena onboarder delegates to these functions with its own
-seeded RNG and re-exports the lists on its historical import path.
+without importing an external-platform integration. Lives at backend ROOT
+as a neutral shared leaf (铁律 #21: its consumers are backend provisioning
+flows — Arena and the guide agent — and neither may depend on the other's
+feature package just to get a name). The Arena onboarder delegates to these
+functions with its own seeded RNG and re-exports the lists on its historical
+import path.
 
 24 x 24 x 24 = 13,824 base combinations; a numeric suffix on collision extends
 that to ~1.38M. Tokens are single words, [A-Za-z] only — Arena's naming rules

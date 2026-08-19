@@ -105,7 +105,9 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
    guard 移回去）。
 2. **新增首登快轮询 effect**：`isGuideCoachmarkPending()` 且 agents 为空
    时，每 2s 拉一次 agent 列表、上限 10 次（~20s），拉到或超时即停；
-   `document.hidden` 时跳过（与三个 tick 同一条"后台零请求"纪律）。
+   `document.hidden` 时跳过请求但照常计数（上限是**墙钟** ~20s，不是前台
+   时间——后台标签页不会让 interval 无限存活；与三个 tick 同一条"后台零
+   请求"纪律）。
    上限是承重的——/api/auth/agents 带 active-run + last-message 富化，
    不允许无限期快轮。快轮询有专属测试（armed→2s 内拉到 / 超时封顶 /
    未 armed 不快轮）。
