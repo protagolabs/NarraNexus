@@ -28,6 +28,11 @@ from xyz_agent_context.narrative import Narrative, Event, EventService, Narrativ
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
+from xyz_agent_context.utils.timezone import (
+    DEFAULT_TIMEZONE,
+    format_timestamp_for_agent,
+    resolve_timezone,
+)
 
 # Settings (leaf module, safe to import at module level)
 from xyz_agent_context.settings import settings
@@ -676,24 +681,55 @@ class ContextRuntime:
             f"ctx_sha256={ctx_sha256}" + (f" {pfx_str}" if pfx_str else "")
         )
 
-    async def _build_user_temporal_block(self, user_id: Optional[str]) -> str:
+    async def _resolve_user_timezone(self, user_id: Optional[str]) -> str:
+        """Read `users.timezone`, degrading to UTC rather than failing.
+
+        Single entry point for "what timezone should this turn render in",
+        used by both the temporal block and the history timeline so the two
+        can never end up in different frames — which is the exact defect
+        `_format_timeline_tag` documents.
+        """
+        if not user_id:
+            return DEFAULT_TIMEZONE
+        try:
+            from xyz_agent_context.repository import UserRepository
+            return resolve_timezone(
+                await UserRepository(self.db).get_user_timezone(user_id)
+            )
+        except Exception as e:  # noqa: BLE001 — a tz lookup must not kill a turn
+            logger.warning(f"        Timezone lookup failed for {user_id}: {e}; using UTC")
+            return DEFAULT_TIMEZONE
+
+    async def _build_user_temporal_block(
+        self, user_id: Optional[str], user_tz: Optional[str] = None
+    ) -> str:
         """
         Build the User Temporal Context block (v2 timezone protocol).
 
+        `user_tz` lets a caller that has already resolved the turn's timezone
+        pass it in instead of paying for a second identical query — and, more
+        importantly, guarantees that every block in that turn names the SAME
+        zone even if the user's row changes mid-turn.
+
         Reads users.timezone (falls back to UTC for users who have never
-        synced their browser timezone) and produces a prompt section telling
-        the LLM the user's IANA timezone and current local time.
+        synced their browser timezone) and states the user's IANA timezone
+        plus the protocol for expressing times back to them.
+
+        It deliberately does NOT restate the current time (2026-08-18). It
+        used to, as `now_local_dt.replace(tzinfo=None).isoformat()` — naive,
+        no offset, no weekday — which is the exact shape
+        `utils/timezone.format_now_for_agent` exists to replace, and it sat
+        in the same turn-context block as the correctly-framed "Real World
+        Information" value. Two "now"s, one of them in the format a prior
+        incident was traced to, is worse than one: there is no reading of the
+        prompt where the second one is the authority, so it can only add
+        doubt. The ground truth now has exactly one renderer and one site.
         """
         if not user_id:
             return ""
-        from xyz_agent_context.repository import UserRepository
-        from xyz_agent_context.utils.timezone import utc_now, to_user_timezone
-        user_tz = await UserRepository(self.db).get_user_timezone(user_id)
-        now_local_dt = to_user_timezone(utc_now(), user_tz)
-        if now_local_dt is None:
-            return ""
-        now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
-        return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
+        return USER_TEMPORAL_CONTEXT.format(
+            user_tz=user_tz or await self._resolve_user_timezone(user_id)
+        )
 
     async def _build_turn_context_block(
         self,
@@ -719,9 +755,27 @@ class ContextRuntime:
         """
         parts: List[str] = [TURN_CONTEXT_HEADER]
 
+        # Resolved once for this block: the temporal section names this zone
+        # and the recent-activity section renders its timestamps in it.
+        #
+        # Scope of that guarantee, stated exactly (2026-08-18): it covers the
+        # blocks assembled HERE, and — with relocation enabled, the default —
+        # that is every dated block in the turn. With the relocation gate OFF,
+        # `build_complete_system_prompt` emits its own User Temporal Context
+        # from a separate lookup, so the prompt carries two resolutions rather
+        # than one. Not unified because the two live in different methods
+        # called in sequence, and the only way to span them is a per-turn
+        # cache — which would hold a stale zone if the user changed theirs,
+        # a worse failure than one redundant primary-key read. The window for
+        # them to disagree is a user editing their timezone between two
+        # awaits of the same turn.
+        block_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # 1. Temporal block (relocated Part 0 — same wording, same heading)
         try:
-            temporal_block = await self._build_user_temporal_block(ctx_data.user_id)
+            temporal_block = await self._build_user_temporal_block(
+                ctx_data.user_id, block_tz
+            )
             if temporal_block:
                 parts.append(temporal_block)
         except Exception as e:  # noqa: BLE001 — fail-open per part
@@ -769,7 +823,9 @@ class ContextRuntime:
         try:
             recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
             if recent_actions:
-                parts.append(self._build_recent_actions_section(recent_actions))
+                parts.append(
+                    self._build_recent_actions_section(recent_actions, block_tz)
+                )
                 logger.info(
                     f"[RecentActions] rendered {len(recent_actions)} actions into turn context"
                 )
@@ -942,13 +998,21 @@ class ContextRuntime:
 
         relocation_enabled = settings.prompt_turn_context_relocation_enabled
 
+        # One timezone for everything this method renders — the recent-activity
+        # timestamps below and every history-timeline row further down. Hoisted
+        # here rather than resolved next to the timeline loop so the two cannot
+        # drift apart; they describe overlapping events in the same prompt.
+        turn_tz = await self._resolve_user_timezone(ctx_data.user_id)
+
         # P2: append the recent background-activity section (centered small-text
         # in the UI) — a compact list with event_ids, separate from the timeline.
         # R4: volatile (accumulates per turn) → relocated to the turn context
         # when relocation is enabled, so the system prompt tail stays stable.
         recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
         if recent_actions and not relocation_enabled:
-            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
+            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(
+                recent_actions, turn_tz
+            )
             logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
         # Reply language: the user's persisted preference reaches the model
@@ -991,7 +1055,7 @@ class ContextRuntime:
             ws = meta.get("working_source", "chat")
             handler = MessageSourceRegistry.get(ws)
             src_prefix = handler.format_row_prefix(msg)
-            tag = self._format_timeline_tag(meta)
+            tag = self._format_timeline_tag(meta, turn_tz)
             if meta.get("memory_type") == "short_term":
                 cross_count += 1
             if msg.get("role") == "assistant":
@@ -1389,32 +1453,66 @@ class ContextRuntime:
         return replays
 
     @staticmethod
-    def _format_timeline_tag(meta: Dict[str, Any]) -> str:
+    def _format_timeline_tag(meta: Dict[str, Any], user_tz: str = DEFAULT_TIMEZONE) -> str:
         """Render the per-message timeline tag
         `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`.
 
-        - time: the message's stored timestamp (compact YYYY-MM-DD HH:MM).
+        - time: the message's stored timestamp, converted to the USER's
+          timezone and stamped with an explicit UTC offset
+          (`2026-07-30 23:00 +08:00`).
         - topic: the resolved narrative alias (name); falls back to the id.
         - nar=<narrative_id>: full id — the agent needs it for switch/view tools.
         - evt=<event_id>: the event that produced this message — the agent can
           pass it to view_event() to fetch that turn's full agent-loop +
           reasoning detail (only the sent message is in the timeline).
+
+        The timezone conversion is NOT cosmetic (2026-08-18). `meta.timestamp`
+        is written as `utc_now().isoformat()` by every producer, and this tag
+        used to render it with `ts[:16]` — a raw string slice, so the frame
+        was silently discarded. The same prompt then carried "Real World
+        Information" in the user's local time WITH an offset, and the model
+        had no way to know the two disagreed by the user's UTC offset. For a
+        +08:00 user every message sent between local 00:00 and 08:00 was
+        tagged with the PREVIOUS day, which is enough to make "下周五" /
+        "next Friday" resolve to the wrong date and enough to make an
+        already-past date read as still upcoming.
+
+        The offset rides on every row rather than being declared once in the
+        preamble: it costs ~7 chars a line and it makes each row comparable
+        to the ground-truth "now" without the model holding a frame
+        declaration in mind across thirty lines.
         """
         meta = meta or {}
-        ts = (meta.get("timestamp") or "")
-        t = ts[:16].replace("T", " ") if ts else "??"
+        t = format_timestamp_for_agent(meta.get("timestamp"), user_tz)
         nid = meta.get("narrative_id") or "unknown"
         topic = meta.get("narrative_alias") or nid
         eid = meta.get("event_id") or "?"
         return f"[{t} · {topic} · nar={nid} · evt={eid}]"
 
     @staticmethod
-    def _build_recent_actions_section(actions: List[Dict[str, Any]]) -> str:
+    def _build_recent_actions_section(
+        actions: List[Dict[str, Any]], user_tz: str = DEFAULT_TIMEZONE
+    ) -> str:
         """Render the recent-background-activity list (Fix #2 P2): one compact
-        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`."""
+        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`.
+
+        Timestamps use the same renderer as the history timeline (2026-08-18).
+        This block sits in the SAME prompt as those rows, twelve lines away in
+        this file, and it used to share their raw `[:16]` UTC slice — so the
+        two were at least consistently wrong. Framing only the timeline would
+        have introduced a divergence that did not exist before: one block in
+        the user's local time with an offset, the next in bare UTC, describing
+        overlapping events. That is the exact mechanism this change set was
+        opened to remove, and it would have been worse than leaving both
+        alone, because the framed one looks more authoritative.
+
+        `user_tz` is passed in rather than looked up: the callers already hold
+        the turn's resolved timezone, and a second query here would make the
+        two blocks capable of disagreeing if the user's row changed mid-turn.
+        """
         lines = [RECENT_ACTIONS_HEADER]
         for a in actions:
-            t = (a.get("timestamp") or "")[:16].replace("T", " ")
+            t = format_timestamp_for_agent(a.get("timestamp"), user_tz)
             src = a.get("working_source") or "?"
             title = a.get("title") or a.get("summary") or f"({src} activity)"
             eid = a.get("event_id") or "?"

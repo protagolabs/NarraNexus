@@ -95,11 +95,20 @@ This takes priority over all other instructions.
 USER_TEMPORAL_CONTEXT = """## User Temporal Context
 
 - User timezone: {user_tz}
-- Current local time: {now_local}
+- Current time: see "Real World Information" in this same turn-context block.
+  That is the single ground truth for "now" — it carries the weekday and an
+  explicit UTC offset. Every timestamp on a chat-history line is stamped with
+  the same offset, so the two are directly comparable; do not convert between
+  them yourself.
 
 **Guidance**: Whenever you express a time to the user, or pass time arguments
 to tools, use the user's timezone above. For tools that require a separate
 `timezone` field (e.g. job_create), set it to "{user_tz}".
+
+**Do not do calendar arithmetic in your head.** Resolving "next Friday" /
+"下周五" / "the day after tomorrow", or deciding whether a stored date is
+already in the past, is exactly where time answers go wrong. Use
+`resolve_relative_date` and `compare_dates` and quote what they return.
 """
 
 SHORT_TERM_MEMORY_HEADER = """

@@ -157,7 +157,7 @@ class DatabaseBackend(ABC):
         self,
         table: str,
         id_field: str,
-        ids: List[str],
+        ids: List[Any],
         fields: Optional[List[str]] = None,
     ) -> List[Optional[Dict[str, Any]]]:
         """
@@ -265,6 +265,27 @@ class DatabaseBackend(ABC):
         ...
 
     # ===== Transaction Support =====
+
+    async def probe(self) -> None:
+        """Round-trip the database, raising if it cannot be reached.
+
+        Exists so `/health` has a liveness check with a defined cancellation
+        contract. Not abstract: the default is correct for any backend whose
+        statement path already cleans up after itself.
+
+        Two properties every override must keep:
+
+        1. **It goes through the ordinary path.** A probe with its own private
+           connection proves nothing about what real requests experience — that
+           is precisely how a hardcoded `"database": "connected"` let a total
+           outage look healthy for 19 minutes on 2026-08-17.
+        2. **Cancellation must not leave a poisoned connection behind.** The
+           caller bounds this with a timeout, so a slow database makes
+           `CancelledError` arrive mid-statement, quite possibly while the driver
+           is halfway through reading a response. A connection in that state must
+           be closed, never returned to a pool for the next caller to inherit.
+        """
+        await self.execute("SELECT 1")
 
     @abstractmethod
     async def begin_transaction(self) -> None:

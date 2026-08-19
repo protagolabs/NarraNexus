@@ -20,13 +20,35 @@ from xyz_agent_context.settings import settings
 
 
 def test_user_temporal_context_template_fields():
-    block = USER_TEMPORAL_CONTEXT.format(
-        user_tz="Asia/Shanghai",
-        now_local="2026-04-21T14:32:00",
-    )
+    block = USER_TEMPORAL_CONTEXT.format(user_tz="Asia/Shanghai")
     assert "Asia/Shanghai" in block
-    assert "2026-04-21T14:32:00" in block
     assert "timezone" in block.lower()
+
+
+def test_user_temporal_context_states_no_second_now():
+    """The block must not render a "now" of its own (2026-08-18).
+
+    It used to emit `Current local time: 2026-04-21T14:32:00` — naive, no
+    offset, no weekday — the precise format a prior incident was traced to,
+    sitting in the same turn-context block as the correctly-framed "Real
+    World Information" value. Two "now"s cannot both be the ground truth,
+    and the wrong-shaped one can only add doubt. Delegation stays; the
+    duplicate value goes.
+    """
+    block = USER_TEMPORAL_CONTEXT.format(user_tz="Asia/Shanghai")
+    assert "Current local time" not in block
+    assert "Real World Information" in block
+    # No bare naive datetime literal anywhere in the block.
+    import re as _re
+    assert not _re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", block)
+
+
+def test_user_temporal_context_forbids_mental_date_arithmetic():
+    """The prompt half of the fix: the tools exist, the agent must be told
+    to prefer them over reasoning "下周五" out in its head."""
+    block = USER_TEMPORAL_CONTEXT.format(user_tz="Asia/Shanghai")
+    assert "resolve_relative_date" in block
+    assert "compare_dates" in block
 
 
 @pytest.mark.asyncio
@@ -49,10 +71,10 @@ async def test_build_user_temporal_block_uses_user_timezone(db_client):
 
     block = await runtime._build_user_temporal_block("u_tz_test")
     assert "Asia/Shanghai" in block
-    # Current date will appear — format is ISO 8601; just check the year
+    # No date literal: the block names the timezone and delegates "now" to
+    # Real World Information (see test_user_temporal_context_states_no_second_now).
     from datetime import datetime
-    year = str(datetime.now().year)
-    assert year in block
+    assert str(datetime.now().year) not in block
 
 
 @pytest.mark.asyncio

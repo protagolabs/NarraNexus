@@ -23,6 +23,7 @@ from xyz_agent_context.narrative import EventLogEntry
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 from xyz_agent_context.utils.cost_tracker import record_cost
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.timezone import DEFAULT_TIMEZONE
 
 if TYPE_CHECKING:
     from .context import RunContext
@@ -35,21 +36,28 @@ if TYPE_CHECKING:
     )
 
 
-def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
-    """Did this turn deliver a user-visible message?
+def _owner_visible_reply_texts(agent_loop_response, working_source: str) -> list:
+    """Every piece of text the OWNER actually saw this turn, in order.
 
-    True iff the agent fired a reply tool that surfaces in the user's chat
-    (``send_message_to_user_directly`` for any source; plus the per-channel
-    reply tools like ``lark_cli`` for IM sources). Uses the same
-    ``MessageSourceRegistry`` source-of-truth the ChatModule uses to split
-    user-visible replies, so the two never disagree.
+    THE single traversal for "what did the owner see" in this file. Two
+    consumers read it: the session anchor asks only whether the list is
+    non-empty, the temporal guard reads the texts themselves. Keeping one
+    implementation is what stops them from ever disagreeing — and a
+    disagreement here is nasty to find, because the symptom is an audit
+    probe silently skipping part of the traffic while its numbers look fine.
+
+    Owner-visible specifically: a bus reply to a peer agent is a delivery,
+    but no human read it, so it must not re-anchor the owner's session
+    (see MessageSourceHandler.owner_visible_reply_tool_names) and it is not
+    something to measure human-facing accuracy against.
 
     Imports the channel registry (not any concrete Module) on purpose —
     Modules stay hot-pluggable (铁律 #3); the registry is shared infra.
-    On any shape/registry mismatch we return False, which only means the
-    background-delivery anchor is skipped — the human-turn anchor path is
-    unaffected, so we never regress existing behavior.
+    On any shape/registry mismatch we return `[]`, which reads as "nothing
+    delivered": the background-delivery anchor is skipped and the guard runs
+    on nothing. The human-turn anchor path is unaffected either way.
     """
+    texts: list = []
     try:
         from xyz_agent_context.schema import ProgressMessage
         from xyz_agent_context.channel.message_source_handler import (
@@ -60,17 +68,50 @@ def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bo
         for resp in agent_loop_response or []:
             if not (isinstance(resp, ProgressMessage) and resp.details):
                 continue
-            tool_name = resp.details.get("tool_name", "")
-            arguments = resp.details.get("arguments", {})
-            # Owner-visible only: a bus reply to a peer agent is a delivery,
-            # but the owner saw nothing — it must not re-anchor the owner's
-            # session (see MessageSourceHandler.owner_visible_reply_tool_names).
-            if handler.extract_owner_visible_text(tool_name, arguments):
-                return True
+            text = handler.extract_owner_visible_text(
+                resp.details.get("tool_name", ""),
+                resp.details.get("arguments", {}),
+            )
+            # Falsy covers both "not a reply tool" (None) and "reply that
+            # stripped to blank" ("") — same two cases the boolean predicate
+            # below has always treated as "nothing delivered".
+            if text:
+                texts.append(text)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"_turn_delivered_user_message: detection failed ({e}); treating as not delivered")
-        return False
-    return False
+        logger.warning(
+            f"_owner_visible_reply_texts: detection failed ({e}); "
+            "treating as not delivered"
+        )
+        return []
+    return texts
+
+
+def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
+    """Did this turn deliver a user-visible message?
+
+    True iff the agent fired a reply tool that surfaces in the user's chat
+    (``send_message_to_user_directly`` for any source; plus the per-channel
+    reply tools like ``lark_cli`` for IM sources).
+
+    Value-identical to the hand-rolled loop this used to be — that loop
+    returned True on the first truthy `extract_owner_visible_text` and False
+    otherwise, which is exactly `bool()` of the list above — with ONE
+    documented exception, so nobody reads the equivalence as unconditional:
+
+    the old loop short-circuited on the first hit and so never touched later
+    elements. The list version walks the whole response, so a malformed
+    element AFTER a real reply now sends the traversal down its `except` and
+    flips this predicate from True to False. That is deliberate: "we could
+    not read the response cleanly" resolves to "treat as not delivered",
+    which is the safe side for both consumers (the anchor stays put, the
+    guard skips a turn). Do NOT "improve" the except into `return texts` to
+    salvage what was collected — that is exactly what would let the two
+    readings diverge on a partially-broken response.
+
+    Pinned by `test_boolean_predicate_agrees_with_the_list_on_every_case`,
+    including the hit-then-malformed input.
+    """
+    return bool(_owner_visible_reply_texts(agent_loop_response, working_source))
 
 
 def _detect_narrative_routing_signal(agent_loop_response):
@@ -555,6 +596,56 @@ async def step_4_persist_results(
     # there is no handle to store and no anchor to keep aligned — which is also
     # why a mid-turn narrative switch can no longer cost a cold start. See
     # adapters/claude/transcript.py.
+
+    # =========================================================================
+    # 4.8 Temporal guard — DIAGNOSTIC ONLY (2026-08-18)
+    #
+    # Reads the replies the owner already received and records a signal when
+    # the agent asserted a date or weekday for "today" that contradicts the
+    # clock. It does not rewrite the reply, does not re-prompt, does not stop
+    # anything: the message has already been delivered by the time we get
+    # here, and 铁律 #15/#16 put "the platform corrects the model's output"
+    # firmly out of bounds.
+    #
+    # Its purpose is to answer a question we could not otherwise answer
+    # honestly — how often the prompt rules and date tools are actually
+    # failing on real traffic. Per the incident lessons (§4 L3, §5), that
+    # belongs in a queryable table rather than in log archaeology.
+    #
+    # Placed last, after every persistence step, so that even a pathological
+    # failure inside it cannot cost the turn any real work.
+    # =========================================================================
+    if delivered_user_message:
+        try:
+            reply_texts = _owner_visible_reply_texts(
+                execution_result.agent_loop_response, src_str or "chat"
+            )
+            if reply_texts:
+                from xyz_agent_context.repository import UserRepository
+                from xyz_agent_context.utils.temporal_guard import (
+                    record_date_claim_mismatches,
+                )
+
+                db = await get_db_client()
+                user_tz = (
+                    await UserRepository(db).get_user_timezone(ctx.user_id)
+                    if ctx.user_id else DEFAULT_TIMEZONE
+                )
+                mismatches = await record_date_claim_mismatches(
+                    db,
+                    "\n".join(reply_texts),
+                    user_tz,
+                    agent_id=ctx.agent_id,
+                    user_id=ctx.user_id or "",
+                    event_id=ctx.event.id if ctx.event else "",
+                )
+                if mismatches:
+                    ctx.substeps_4.append(
+                        f"[4.8] ⚠ Temporal guard: {len(mismatches)} date claim(s) "
+                        f"disagree with the clock (recorded, reply untouched)"
+                    )
+        except Exception as e:  # noqa: BLE001 — a probe must never cost a turn
+            logger.warning(f"Temporal guard failed (non-blocking): {e}")
 
     # =========================================================================
     # Complete
