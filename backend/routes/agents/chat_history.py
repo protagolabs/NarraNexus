@@ -722,12 +722,38 @@ async def get_event_log_detail(agent_id: str, event_id: str):
             for entry in event_log
         ]
 
+        # ONE shared index for "which output belongs to which call", read by
+        # BOTH views below (the grouped tool_calls and the timeline). The two
+        # views answer the same question over the same rows; separate indexes
+        # kept drifting one patch apart, and a drift means the endpoint
+        # contradicts itself (timeline says read_file, the tool card says
+        # web_search). First occurrence wins for duplicate ids (legacy rows).
         outputs_by_id: Dict[str, Any] = {}
+        call_names: Dict[str, str] = {}
         for entry in entries_content:
-            if isinstance(entry, dict) and entry.get("type") == "tool_output":
-                out_id = entry.get("tool_call_id")
-                if out_id and out_id not in outputs_by_id:
-                    outputs_by_id[out_id] = entry.get("output")
+            if not isinstance(entry, dict):
+                continue
+            entry_id = entry.get("tool_call_id")
+            if not entry_id:
+                continue
+            if entry.get("type") == "tool_output" and entry_id not in outputs_by_id:
+                outputs_by_id[entry_id] = entry.get("output")
+            elif entry.get("type") == "tool_call" and entry_id not in call_names:
+                # Record even a known-empty name: lookups must distinguish
+                # "this call's name is empty" from "id never seen".
+                call_names[entry_id] = entry.get("tool_name") or ""
+
+        def _pairs_positionally(next_entry: Any, call_id: Optional[str]) -> bool:
+            """May this adjacent output pair with the call positionally?
+            An id-carrying output is reserved for id pairing — unless the
+            call itself has no id, in which case adjacency is all we have.
+            (Pointer advancement stays with the caller: the grouped view
+            consumes the row, the timeline never does.)"""
+            return (
+                isinstance(next_entry, dict)
+                and next_entry.get("type") == "tool_output"
+                and (not next_entry.get("tool_call_id") or not call_id)
+            )
 
         i = 0
         while i < len(entries_content):
@@ -740,18 +766,11 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 tool_output = None
                 if call_id and call_id in outputs_by_id:
                     tool_output = outputs_by_id[call_id]
-                elif i + 1 < len(entries_content):
-                    next_entry = entries_content[i + 1]
-                    if (
-                        isinstance(next_entry, dict)
-                        and next_entry.get("type") == "tool_output"
-                        # An id-carrying output is reserved for id pairing —
-                        # unless this call has no id of its own, in which
-                        # case positional adjacency is all we have.
-                        and (not next_entry.get("tool_call_id") or not call_id)
-                    ):
-                        tool_output = next_entry.get("output")
-                        i += 1  # Skip the tool_output entry
+                elif i + 1 < len(entries_content) and _pairs_positionally(
+                    entries_content[i + 1], call_id
+                ):
+                    tool_output = entries_content[i + 1].get("output")
+                    i += 1  # Skip the tool_output entry
 
                 tool_calls.append(EventLogToolCall(
                     tool_name=tool_name,
@@ -769,7 +788,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         timeline: List[EventLogTimelineEntry] = []
         pending_thinking: List[str] = []
         # Stored tool_output entries usually carry no tool_name of their
-        # own. Resolve it by tool_call_id when present (parallel calls
+        # own. Resolve via the SHARED call_names index (parallel calls
         # interleave: every call lands before any output, so "nearest
         # preceding call" would confidently attach the WRONG name);
         # nearest-preceding survives only as the fallback for legacy rows
@@ -777,7 +796,6 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         # write side (response_processor's record_tool_call persistence)
         # honours the same rule, so new rows never carry one either; the
         # frontend's normalization is a shim for rows persisted before.
-        call_names: Dict[str, str] = {}
         last_tool_name = ""
 
         def _flush_thinking():
@@ -788,8 +806,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
                 pending_thinking.clear()
 
-        for entry in event_log:
-            content = entry.get("content", {}) if isinstance(entry.get("content"), dict) else entry
+        for content in entries_content:
             if not isinstance(content, dict):
                 continue
             ctype = content.get("type")
@@ -803,13 +820,6 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 # send_message tool — preserve it so the historical Reply
                 # block can render the "helper_llm fallback" badge.
                 last_tool_name = content.get("tool_name") or ""
-                call_id = content.get("tool_call_id")
-                if call_id:
-                    # Record even a known-empty name: the lookup below must
-                    # distinguish "this call's name is empty" from "id not
-                    # seen", or an empty-named call's output would inherit a
-                    # SIBLING call's name through the fallback.
-                    call_names[call_id] = last_tool_name
                 timeline.append(EventLogTimelineEntry(
                     type="tool_call",
                     tool_name=last_tool_name,
@@ -826,6 +836,12 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                     # name must stay empty rather than fall through to the
                     # nearest sibling's name.
                     out_name = call_names[out_id]
+                elif out_id:
+                    # An id we never saw a call for: we OUGHT to know the
+                    # owner and genuinely don't — an honest blank beats a
+                    # sibling's name. last_tool_name serves id-less legacy
+                    # rows only.
+                    out_name = ""
                 else:
                     out_name = last_tool_name
                 timeline.append(EventLogTimelineEntry(

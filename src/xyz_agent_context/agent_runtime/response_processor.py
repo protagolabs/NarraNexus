@@ -621,7 +621,8 @@ class ResponseProcessor:
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
-            if not item.get("tool_name") and not item.get("pending"):
+            pending = bool(item.get("pending"))
+            if not item.get("tool_name") and not pending:
                 # A completed tool call with no name persists as '' — which
                 # history_projection then DROPS (call and output both), so
                 # later turns replay without this step. That silent context
@@ -637,7 +638,6 @@ class ResponseProcessor:
             # that reply already streams live via reply deltas, and an
             # empty-argument reply frame would inject a stray empty
             # bubble into the turn's content.
-            pending = bool(item.get("pending"))
             if pending and _looks_like_user_reply_tool(tool_name):
                 return
             # Strip OpenAI Responses-API citation tokens from reply

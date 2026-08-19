@@ -15,7 +15,7 @@
  * GET /api/teams/{id}/chat/messages for the live transcript.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
@@ -264,8 +264,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // Read by the poll without making `refresh` depend on the transcript: a
   // changing dependency would tear down and recreate the interval on every
   // message, which is how a 3s poll becomes a much faster one.
+  // useLayoutEffect, NOT useEffect: passive effects flush asynchronously —
+  // possibly after paint AND after user events — so a scroll landing in
+  // that window read a stale (empty) ref, loadOlder's !cursor guard bailed
+  // silently, and the top-of-history fetch simply didn't happen (no retry;
+  // the user has to scroll again). Layout effects commit synchronously,
+  // before any event can observe the DOM of this render.
   const messagesRef = useRef<TeamChatMessage[]>([]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 

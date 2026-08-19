@@ -10,9 +10,15 @@ stub: false
   返回,「最近前驱」会自信地贴错名字(与 response_processor 的重建同规则
   同理由)。timeline 与分组 tool_calls 两个视图都 id 优先;无 id 的存量行
   回退位置法(timeline=最近前驱;分组=紧邻 output,带 id 的 output 只有在
-  call 自己无 id 时才允许被位置法吃掉)。`call_names` 记录**已知为空**的
-  名字并用成员判定取值(不是 or 链)——空名调用的 output 保持空,不借
-  兄弟调用的名字;test_event_log_meta 有专项用例钉住。
+  call 自己无 id 时才允许被位置法吃掉)。**两个视图共用一份索引**:
+  `outputs_by_id`/`call_names` 在两视图之前一次遍历建好,unwrap 只做一次,
+  位置兜底条件收敛为 `_pairs_positionally` helper(指针推进留在调用方——
+  分组消费该行,timeline 从不消费)。此前两视图各维护一套、逐轮各打补丁,
+  漂移=接口自相矛盾(timeline 说 read_file、工具卡说 web_search)。
+  `call_names` 记录**已知为空**的名字并用成员判定取值(不是 or 链)——
+  空名调用的 output 保持空;**带未见 id 的 output 给诚实空白**而不是
+  兄弟的名字(`last_tool_name` 只服务无 id 存量行)。专项夹具:空名
+  (双视图断言)、幽灵 id、并行交叉。
 - **占位符零发明**:读侧(本文件)与写侧
   (response_processor.state_update 持久化空串而非 "unknown")都不再制造
   它;前端 realName() 归一化只是**历史数据**兜底,不是长期契约。

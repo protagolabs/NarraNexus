@@ -261,6 +261,18 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
     expect(getEventLogMock).toHaveBeenCalledWith('a2', 'evt_9');
   });
 
+
+});
+
+describe('TeamChatPanel · drawer defaults and switching', () => {
+  test('an unpinned preference means the drawer does NOT auto-open', async () => {
+    // Shared preference with single chat — an unpinned user must not be
+    // greeted by a transient drawer whose backdrop eats their first click.
+    window.localStorage.setItem(DRAWER_PINNED_KEY, '0');
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+  });
+
   test('the drawer switches panels: members → artifacts via the title dropdown', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
     // Open the title switcher and pick Artifacts.
@@ -272,13 +284,5 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
     // And back to members via the top-bar toggle.
     fireEvent.click(screen.getAllByLabelText('chat.team.roster.title')[0]);
     expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
-  });
-
-  test('an unpinned preference means the drawer does NOT auto-open', async () => {
-    // Shared preference with single chat — an unpinned user must not be
-    // greeted by a transient drawer whose backdrop eats their first click.
-    window.localStorage.setItem(DRAWER_PINNED_KEY, '0');
-    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
-    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
   });
 });

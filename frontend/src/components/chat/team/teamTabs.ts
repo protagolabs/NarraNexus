@@ -46,7 +46,6 @@ export function teamDrawerCategories(
   ];
 }
 
-
 export function teamTabLabelKey(id: TeamTabId): string {
   return TAB_LABEL_KEYS[id] ?? 'chat.team.roster.title';
 }

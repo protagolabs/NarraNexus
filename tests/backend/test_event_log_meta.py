@@ -247,4 +247,31 @@ async def test_timeline_empty_named_call_does_not_borrow_sibling_name(db_client)
     body = client.get("/api/agents/agent_a/event-log/evt_emptyname").json()
     outputs = {e["tool_output"]: e["tool_name"] for e in body["timeline"] if e["type"] == "tool_output"}
     assert outputs["anon result"] == ""
+    # BOTH views must agree — they read one shared index now, and a drift
+    # would make the endpoint contradict itself.
+    grouped = {c["tool_name"]: c["tool_output"] for c in body["tool_calls"]}
+    assert grouped == {"": "anon result", "web_search": None}
+
+
+@pytest.mark.asyncio
+async def test_timeline_output_with_unseen_id_stays_unnamed(db_client):
+    """An output carrying an id we never saw a call for: we OUGHT to know
+    the owner and genuinely don't — an honest blank, never a sibling's
+    name."""
+    await _seed_event(
+        db_client,
+        event_id="evt_ghostid",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "web_search", "arguments": {"q": "x"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "ghost",
+                         "output": "orphan"}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "results"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_ghostid").json()
+    outputs = {e["tool_output"]: e["tool_name"] for e in body["timeline"] if e["type"] == "tool_output"}
+    assert outputs == {"orphan": "", "results": "web_search"}
 

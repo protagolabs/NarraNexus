@@ -11,8 +11,13 @@ drawerTab 的一次性初始化改为 `!isMobile && pinned` 才开 members:钉�
 背板吃掉进房间的第一次点击。刻意保持 initializer(非派生/非 effect)——
 房间内 unpin 不得触发面板重开。切换器注册表改传
 `teamDrawerCategories(counts)`(成员/制品/文件计数进下拉)。「未钉选不
-自动开」与「计数渲染/零隐藏」均有用例钉住(roster.test 的 unpinned 用例
-+ drawerPanelSwitcher 的 counts 用例);roster 的 className 注入不再带
+自动开」与「计数渲染/零隐藏」均有用例钉住(roster.test 独立 describe
+「drawer defaults and switching」+ drawerPanelSwitcher 的 counts 用例);
+`messagesRef` 同步改 **useLayoutEffect**——passive effect 可晚于 paint 与
+事件冲刷,scroll 落进窗口读到空 ref,loadOlder 的 !cursor 静默早退无重试
+(CI 满载时 dev 实测 2/20 复现,本地打补丁后 0/40);layout effect 在任何
+事件可观察本次渲染前同步提交,窗口关闭。refresh/loadOlder 依赖未动
+(3s 轮询不因 messages 重建)。roster 的 className 注入不再带
 空转的 border-l-0(组件已无自带边框)。
 
 ## 2026-08-19(二)— 与单聊同批的三处对齐
