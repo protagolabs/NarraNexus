@@ -4,6 +4,16 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 历史翻页改元素锚定
+
+往上翻页后视图跳到新加载段顶部的根因:`scrollTop = newScrollHeight −
+prevScrollHeight` 把 prepend 前后**其他**高度变化(loading 行的出现/消失、
+图片落尺寸)也一并算进了差值,且丢掉了原 scrollTop。改用 [[scrollAnchor]]:
+prepend 前记住最顶部已渲染条目(`[data-timeline-item]`,React key 稳定所以
+DOM 节点跨 prepend 存活)的 rect.top,flushSync 后按该元素实际位移修正
+scrollTop——无论位移由什么造成。无旧条目时回退高度差值法。
+测试:lib/__tests__/scrollAnchor.test.ts。
+
 ## 2026-08-19 — 安全提示可读性修正(更正 08-14 条的「只是位置变了」)
 
 06-17 安全横幅在 v4 里其实同时被降了三件事:warning 底色→全套 ink 最淡的

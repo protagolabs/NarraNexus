@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 输入框随内容增高
+
+此前 `rows=1` + max-h-160 但**没有任何增高机制**,多行输入永远挤在一行高度
+里滚。现在 useLayoutEffect 跟随 `text`:height 先塌回 auto 再设为
+scrollHeight,CSS `max-h-[min(320px,35vh)]` 封顶,超过后 textarea 内部滚动
+(overflow-y-auto)。挂在 effect 而非 onChange:程序性 setText/clear 与
+恢复的草稿走同一条路。测试:composerAutosize.test.tsx。
 
 ## 2026-08-06 — 输入框浅底 + focus 边框加深
 

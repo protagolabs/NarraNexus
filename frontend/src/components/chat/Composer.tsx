@@ -31,6 +31,7 @@ import {
   memo,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -153,6 +154,18 @@ export const Composer = memo(
       };
     }, [agentId]);
 
+    // Grow the field with its content: height tracks scrollHeight, the CSS
+    // max-height caps it, and past the cap the textarea scrolls internally.
+    // Collapsing to 'auto' first lets it shrink again when lines are
+    // deleted. useLayoutEffect (not the change handler) so programmatic
+    // setText/clear and the restored draft resize the same way typing does.
+    useLayoutEffect(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }, [text]);
+
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const v = e.target.value;
       setText(v);
@@ -195,12 +208,13 @@ export const Composer = memo(
           onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
-          // Input-field convention (Owner 2026-08-06): the field is the
-          // LIGHTEST surface on the card and focus is signalled by the
-          // border deepening — so bg overrides the Textarea base to
-          // nm-card, and the base's hover(border-strong)/focus(ink)
-          // treatments are no longer pinned back to the hairline.
-          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
+          // Input-field convention: the field is the LIGHTEST surface on
+          // the card and focus is signalled by the border deepening — so bg
+          // overrides the Textarea base to nm-card, and the base's
+          // hover(border-strong)/focus(ink) treatments are no longer pinned
+          // back to the hairline. Height is managed by the autosize effect;
+          // max-h caps it at ~a third of the viewport before it scrolls.
+          className="nx-composer-input block min-h-[52px] max-h-[min(320px,35vh)] overflow-y-auto py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
           rows={1}
         />
       </div>

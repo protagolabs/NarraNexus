@@ -30,6 +30,7 @@ import { cn, formatChatTimestamp } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { chatDayInfo } from '@/lib/chatDays';
+import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { artifactsApi } from '@/services/artifactsApi';
@@ -393,24 +394,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsLoadingMore(true);
     shouldAutoScrollRef.current = false;
     const container = scrollContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight ?? 0;
+    // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for why
+    // scrollHeight arithmetic alone lands the user on the new chunk).
+    const captured = container
+      ? capturePrependAnchor(
+          container,
+          container.querySelector<HTMLElement>('[data-timeline-item]'),
+        )
+      : null;
 
     try {
       const response = await api.getSimpleChatHistory(
         agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
       );
       if (response.success && response.messages.length > 0) {
-        // Use flushSync to ensure DOM updates synchronously before measuring scroll
+        // flushSync so the DOM holds the prepended rows before measuring.
         flushSync(() => {
           setHistoryMessages((prev) => [...response.messages, ...prev]);
           setHistoryTotalCount(response.total_count);
         });
 
-        // Now DOM is updated, restore scroll position
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          container.scrollTop = newScrollHeight - prevScrollHeight;
-        }
+        if (container && captured) restorePrependAnchor(container, captured);
       }
     } catch (error) {
       console.error('Failed to load more chat history:', error);
@@ -1012,7 +1016,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (item.messageType === 'activity') {
             return (
-              <div key={item.id}>
+              <div key={item.id} data-timeline-item>
                 {separator}
                 <InnerThoughtCard item={item} agentId={agentId} />
               </div>
@@ -1030,6 +1034,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           return (
             <div
               key={item.id}
+              data-timeline-item
               className={isNewSession ? 'animate-slide-up' : undefined}
             >
               {separator}
