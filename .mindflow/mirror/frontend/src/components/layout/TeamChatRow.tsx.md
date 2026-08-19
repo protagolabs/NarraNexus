@@ -1,8 +1,36 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 行悬停改 --nm-row-hover
+
+与 AgentGroupSection 同步:行悬停 = 选中色减淡档;展开成员子行同改。
+
+## 2026-08-18 — merge ruling: v4 row layout kept, dev's unread dot/preview NOT wired
+
+Owner ruled the v4 trailing structure (count → ⋮ at the row edge) wins over
+dev's unread-dot + last-message-preview row. The `unread/preview/authorName`
+props from dev were removed here; AgentList still maintains dev's durable
+read-watermark (markTeamRead on open), so re-adding the dot later is a
+one-prop change. dev's teamUnreadBadge.test.tsx was dropped with the UI —
+restore it from dev if the dot comes back.
+
+## 2026-08-11 — ⋮ 钉到行尾,与 agent 行同构
+
+kebab 原在名字后面(位置随名字长短漂移,Owner 截图指出与 agent 行改后不
+一致)。现行尾顺序与 AgentGroupSection 完全同构:meta(成员数)在前、⋮
+在最右缘;opacity 显隐保留占位。
+
+## 2026-08-06 — 团队行可展开成员(UI/UX 设计文档采纳项)
+
+行首新增 chevron 展开钮(stopPropagation,行本体仍开群聊):展开后缩进
+列出成员 agent,点成员跳到该 agent **自己的单聊**(onSelectMember =
+AgentList.handleSelectAgent),当前打开的 agent 高亮。members 由
+AgentList 从 team.member_agent_ids ⨝ rawAgents 计算传入。
+同文档中的拖拽入团 / manage-team 重构方案 Owner 未定,未实现
+(见 self_notebook/todo)。
 
 > 2026-06-24：`GroupAvatar` size `md`→`sm` (32px),与 agent 行 + 用户头部统一大小。
 > 同时改成**单行**:去掉 "Group chat · N agents" 副标题,成员数 "N agents" 移到右侧

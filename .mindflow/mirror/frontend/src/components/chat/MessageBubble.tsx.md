@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-01
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — 试过恒定列宽(w-full),当天撤回
+
+短回复右侧留白一大片,Owner 对照实屏否了;保持双方气泡贴内容宽度。
+代码里留了注释防止再试一遍。
+
+## 2026-08-06 (2) — meta 行 claude.ai 化
+
+- meta 行(时间+按钮)默认隐藏,行 hover 显现(根节点加 group);
+  **仅最新一条**(ChatPanel 传 isLatest)常显 — cc 同款。
+- user 消息也有 copy 了(download 仍仅 assistant — 用户消息不是 md 文档)。
+- 时间从 HH:mm:ss 改为相对时长(lib/utils formatMessageAge,
+  Intl.RelativeTimeFormat 按 i18n.language 本地化,秒→分→时→天→月→年);
+  悬停 title 给完整年月日+时间。
+
+## 2026-08-06 — Chat UI v4:纸面气泡
+
+own/AI 气泡填色从物种 soft 色(carbon-soft / silicon-soft)改为纸面
+(--nm-paper-warm / --nm-paper)+ hairline 边;物种信号完全由 3px 描边
+(own 右 carbon / AI 左 silicon)+ 头像环承担 — 这是 Owner 在 v4 设计稿
+里亲自定的,覆盖 2026-06-20「own = carbon-soft 填色」的旧决策。
+nm-bubble-ai(蓝色 code/table 重绑定)随 silicon-soft 填色一起退役。
+错误气泡(实心 error 红)与「补救按钮放纸面上」规则不变。时间戳 9.5→10px。
 
 ## 2026-08-01 — 余额用完的第二个入口（Owner 决定）
 

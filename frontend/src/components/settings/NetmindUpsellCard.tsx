@@ -44,7 +44,7 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy, subscribed = false
   const hasMemberPrice = proPlan?.features?.member_price !== false;
 
   return (
-    <div className="rounded-md border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
           {t('settings.netmind.upsellCardName', 'Nexus Pro')}

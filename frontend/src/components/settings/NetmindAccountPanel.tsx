@@ -961,7 +961,7 @@ export function NetmindAccountPanel() {
       // no more "sign out and back in" busywork (that path still works and
       // stays as the login-time auto-heal, this is just the in-session exit).
       return (
-        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
+        <div className="rounded-[var(--radius-md)] bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0">
               {t('settings.netmind.notConnected',
@@ -1004,7 +1004,7 @@ export function NetmindAccountPanel() {
   };
 
   return (
-    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
       {/* Header — product brand only (plan badge moved into the plan row) */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>

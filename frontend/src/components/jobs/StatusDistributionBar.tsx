@@ -83,7 +83,7 @@ export function StatusDistributionBar({ jobs }: { jobs: Job[] }) {
           />
         )}
       </div>
-      <div className="flex flex-wrap gap-2 text-[8px] font-mono">
+      <div className="flex flex-wrap gap-2 text-[9px] font-mono">
         {stats.completed > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />

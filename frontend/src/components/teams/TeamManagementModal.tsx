@@ -13,23 +13,18 @@ import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
+import { COLOR_PRESETS } from './teamColors';
+
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Team to select when the modal opens (e.g. the row whose Manage was
+   *  clicked). Only applied on the open transition — switching teams inside
+   *  the modal is never overridden. */
+  initialTeamId?: string | null;
 }
 
-const COLOR_PRESETS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#a855f7', // purple
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#64748b', // slate
-];
-
-export function TeamManagementModal({ open, onClose }: Props) {
+export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
@@ -52,9 +47,20 @@ export function TeamManagementModal({ open, onClose }: Props) {
     if (open) refresh();
   }, [open, refresh]);
 
+  // Apply the caller's team on the open transition only; the fallback effect
+  // below must not drag the selection back after the user switches manually.
   useEffect(() => {
-    if (!selectedTeamId && teams.length) setSelectedTeamId(teams[0].team.team_id);
-  }, [teams, selectedTeamId]);
+    if (open && initialTeamId) setSelectedTeamId(initialTeamId);
+  }, [open, initialTeamId]);
+
+  useEffect(() => {
+    // Fallback only when no caller-directed team exists: if both effects
+    // flush in the same commit (selectedTeamId still null), this one runs
+    // last and must not overwrite initialTeamId with teams[0].
+    if (!selectedTeamId && !initialTeamId && teams.length) {
+      setSelectedTeamId(teams[0].team.team_id);
+    }
+  }, [teams, selectedTeamId, initialTeamId]);
 
   const selected = useMemo(
     () => teams.find((t) => t.team.team_id === selectedTeamId) || null,
@@ -116,8 +122,16 @@ export function TeamManagementModal({ open, onClose }: Props) {
     });
     if (!ok) return;
     try {
-      await deleteTeam(selected.team.team_id);
-      setSelectedTeamId(null);
+      const deletedId = selected.team.team_id;
+      await deleteTeam(deletedId);
+      // Land on the next surviving team, computed from the pre-delete list
+      // (the store hasn't refreshed yet). Writing null instead would strand
+      // the pane on the empty state: the teams[0] fallback effect is guarded
+      // off whenever the caller passed initialTeamId — which every current
+      // caller does.
+      setSelectedTeamId(
+        teams.find((tm) => tm.team.team_id !== deletedId)?.team.team_id ?? null,
+      );
     } catch (e) {
       void notifyError(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
     }
@@ -166,7 +180,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
             <h2 className="font-mono text-sm">{t('teams.title')}</h2>
             <span className="text-xs text-[var(--text-tertiary)]">{t('teams.teamCount', { count: teams.length })}</span>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-[var(--bg-tertiary)]"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1 hover:bg-[var(--nm-paper-warm)]"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
@@ -208,7 +222,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                   key={tm.team.team_id}
                   onClick={() => setSelectedTeamId(tm.team.team_id)}
                   className={cn(
-                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] flex items-center gap-2',
+                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] flex items-center gap-2',
                     selectedTeamId === tm.team.team_id && 'bg-[var(--bg-elevated)]'
                   )}
                 >
@@ -279,7 +293,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                     {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     {t('teams.saveChanges')}
                   </Button>
-                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-red-500)]">
+                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
                     <Trash2 className="w-3.5 h-3.5" />
                     {t('teams.deleteTeam')}
                   </Button>
@@ -295,7 +309,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                     {agents.map((a) => {
                       const inTeam = selected.member_agent_ids.includes(a.agent_id);
                       return (
-                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)]">
+                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)]">
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-mono truncate">{a.name || a.agent_id}</div>
                             <div className="text-[10px] text-[var(--text-tertiary)] truncate">{a.agent_id}</div>
@@ -305,8 +319,8 @@ export function TeamManagementModal({ open, onClose }: Props) {
                             className={cn(
                               'text-xs px-2 py-1 border',
                               inTeam
-                                ? 'border-[var(--color-red-500)] text-[var(--color-red-500)] hover:bg-[var(--color-red-500)]/10'
-                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
+                                ? 'border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
+                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]'
                             )}
                           >
                             {inTeam ? t('teams.remove') : t('teams.add')}

@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Check, X, Globe } from 'lucide-react';
+import { Loader2, Check, X, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
 import { AgentRowMenu } from './AgentRowMenu';
@@ -195,17 +195,16 @@ export function AgentGroupSection({
           </span>
         )}
 
-        {/* Collapse arrow */}
-        <span
+        {/* Collapse arrow — lucide chevron, same linear icon language as the
+            team-row toggle (design_system.md §5: no solid/linear mixing). */}
+        <ChevronRight
           className={cn(
-            'text-[10px] shrink-0 transition-transform duration-150',
-            collapsed ? 'rotate-0' : 'rotate-90',
+            'h-3 w-3 shrink-0 transition-transform duration-150',
+            !collapsed && 'rotate-90',
           )}
           style={{ color: 'var(--nm-ink30)' }}
           aria-hidden
-        >
-          ▶
-        </span>
+        />
       </div>
       )}
 
@@ -336,7 +335,7 @@ function AgentRow({
       }}
       onMouseEnter={(e) => {
         if (allowHover) {
-          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-paper-warm)';
+          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-row-hover)';
         }
       }}
       onMouseLeave={(e) => {
@@ -407,30 +406,6 @@ function AgentRow({
                 </span>
               )}
 
-              {/* Kebab menu — shown on hover or when selected */}
-              <div
-                className={cn(
-                  'shrink-0',
-                  isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                  'transition-opacity duration-150',
-                )}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <AgentRowMenu
-                  agentId={agent.agent_id}
-                  agentName={displayName}
-                  onOpenChange={setMenuOpen}
-                  isOwner={isOwner}
-                  isPublic={!!agent.is_public}
-                  showPublicToggle={showPublicToggle}
-                  onStartEdit={(e) => onStartEdit(agent, e)}
-                  onEditAgent={(e) => onEditAgent(agent, e)}
-                  onClearData={(e) => onClearData(agent, e)}
-                  onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
-                  onTogglePublic={(e) => onTogglePublic(agent, e)}
-                />
-              </div>
-
               {/* Trailing meta — pushed to the right edge */}
               <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
                 {unread > 0 && (
@@ -461,6 +436,32 @@ function AgentRow({
                 >
                   {time}
                 </span>
+                {/* Kebab pinned at the row's right edge (after the meta) so
+                    its position never depends on the name's length. Opacity
+                    keeps the slot reserved — the timestamp doesn't shift on
+                    hover. Owner request 2026-08-11. */}
+                <div
+                  className={cn(
+                    'shrink-0',
+                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                    'transition-opacity duration-150',
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <AgentRowMenu
+                    agentId={agent.agent_id}
+                    agentName={displayName}
+                    onOpenChange={setMenuOpen}
+                    isOwner={isOwner}
+                    isPublic={!!agent.is_public}
+                    showPublicToggle={showPublicToggle}
+                    onStartEdit={(e) => onStartEdit(agent, e)}
+                    onEditAgent={(e) => onEditAgent(agent, e)}
+                    onClearData={(e) => onClearData(agent, e)}
+                    onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
+                    onTogglePublic={(e) => onTogglePublic(agent, e)}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -489,10 +490,10 @@ export function AvatarWithStreaming({
       <div className="relative inline-flex items-center justify-center">
         <span
           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
-          style={{ border: '2px solid var(--color-yellow-500)' }}
+          style={{ border: '2px solid var(--color-warning)' }}
         />
         <RingAvatar species="silicon" label={label} size={size} />
-        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
+        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-warning)]" />
       </div>
     );
   }

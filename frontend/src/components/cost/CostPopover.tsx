@@ -243,11 +243,11 @@ export function CostPopover({ compact = false }: { compact?: boolean } = {}) {
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[260px] p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-xl shadow-lg"
+        className="w-[260px] p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-[var(--radius-xl)] shadow-lg"
       >
         {/* Header with view toggle */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-tertiary)] rounded-md">
+          <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-tertiary)] rounded-[var(--radius-md)]">
             <button
               onClick={() => setView('agent')}
               className={cn(

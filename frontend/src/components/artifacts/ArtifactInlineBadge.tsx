@@ -31,10 +31,8 @@ function ArtifactInlineBadgeImpl({ artifact }: Props) {
   // restoreTab, not setActive: the target may be minimized, and an active
   // pointer on a hidden tab blanks the column (0802 ①⑤ family).
   const restoreTab = useArtifactStore((s) => s.restoreTab);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
 
   const open = () => {
-    setCollapsed(false);
     restoreTab(artifact.artifact_id);
   };
 
@@ -42,7 +40,7 @@ function ArtifactInlineBadgeImpl({ artifact }: Props) {
     <button
       onClick={open}
       title={t('artifacts.openBadge', { title: artifact.title, kind: artifact.kind })}
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] hover:border-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors max-w-full"
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] hover:border-[var(--text-tertiary)] hover:bg-[var(--nm-paper-warm)] text-[var(--text-secondary)] transition-colors max-w-full"
     >
       <Paperclip className="w-3 h-3 shrink-0 opacity-60" />
       <span className="truncate">{artifact.title || artifact.artifact_id}</span>

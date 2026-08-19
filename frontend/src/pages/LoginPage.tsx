@@ -211,7 +211,7 @@ export function LoginPage() {
   // Short caption explaining what each login method is (dual-mode clarity).
   const methodDesc = (text: string) => (
     <p
-      className="text-xs leading-relaxed rounded-lg p-3"
+      className="text-xs leading-relaxed rounded-[var(--radius-lg)] p-3"
       style={{
         color: 'var(--nm-ink70)',
         background: 'var(--nm-raised)',

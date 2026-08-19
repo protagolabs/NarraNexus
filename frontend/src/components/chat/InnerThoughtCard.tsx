@@ -41,6 +41,9 @@ interface SourceMeta {
 }
 
 // Each source gets a distinct colour so the Inner Thoughts list is scannable.
+// design_system.md §6.2 exemption: platform BRAND colours (WeChat green, Lark
+// blue, ...) plus a matching series palette — centralized here on purpose;
+// semantic tokens cannot express "this is Slack".
 const SOURCE_META: Record<string, SourceMeta> = {
   wechat: { label: 'WeChat', color: '#07C160' },
   lark: { labelKey: 'chat.inner.source.lark', color: '#3370FF' },
@@ -95,7 +98,7 @@ function StatChip({ icon, children, title }: {
       style={{
         color: 'var(--text-secondary)',
         background: 'var(--bg-tertiary, rgba(0,0,0,0.04))',
-        border: '1px solid var(--border-subtle, #e5e5e5)',
+        border: '1px solid var(--border-subtle)',
       }}
     >
       {icon}
@@ -131,9 +134,9 @@ function RunMeta({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }) 
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold"
               style={{
-                color: failed ? 'var(--status-error, #c0392b)' : 'var(--text-secondary)',
+                color: failed ? 'var(--color-error)' : 'var(--text-secondary)',
                 background: failed ? 'rgba(192,57,43,0.08)' : 'var(--bg-tertiary, rgba(0,0,0,0.04))',
-                border: `1px solid ${failed ? 'rgba(192,57,43,0.25)' : 'var(--border-subtle, #e5e5e5)'}`,
+                border: `1px solid ${failed ? 'color-mix(in srgb, var(--color-error) 25%, transparent)' : 'var(--border-subtle)'}`,
               }}
             >
               <AlertTriangle className="w-2.5 h-2.5" />
@@ -168,7 +171,7 @@ function RunMeta({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }) 
 
       {meta.input_text && (
         <div
-          className="rounded-md px-2.5 py-2"
+          className="rounded-[var(--radius-md)] px-2.5 py-2"
           style={{ background: 'var(--bg-tertiary, rgba(0,0,0,0.03))' }}
         >
           <div
@@ -195,7 +198,7 @@ function RunOutput({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }
   if (!meta.final_output) return null;
   return (
     <div
-      className="mt-2 rounded-md px-2.5 py-2"
+      className="mt-2 rounded-[var(--radius-md)] px-2.5 py-2"
       style={{ background: 'var(--bg-tertiary, rgba(0,0,0,0.03))' }}
     >
       <div
@@ -251,7 +254,7 @@ function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
   if (entry.type === 'reply') {
     return (
       <div className="flex items-start gap-1.5 text-xs">
-        <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--status-success, #2e7d32)' }} />
+        <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-success)' }} />
         <span className="break-words">{entry.content}</span>
       </div>
     );
@@ -296,8 +299,8 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
   return (
     <div
       data-testid="inner-thought-card"
-      className="mx-3 my-1.5 rounded-lg border pr-3 py-2 pl-3 transition-shadow hover:shadow-sm"
-      style={{ borderColor: 'var(--border-subtle, #e5e5e5)', borderLeft: `3px solid ${meta.color}` }}
+      className="mx-3 my-1.5 rounded-[var(--radius-lg)] border pr-3 py-2 pl-3 transition-shadow hover:shadow-sm"
+      style={{ borderColor: 'var(--border-subtle)', borderLeft: `3px solid ${meta.color}` }}
     >
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color }} />
@@ -335,7 +338,7 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
               {t('chat.inner.loading')}
             </div>
           ) : state === 'error' ? (
-            <div className="text-xs mt-1" style={{ color: 'var(--status-error, #c0392b)' }}>
+            <div className="text-xs mt-1" style={{ color: 'var(--color-error)' }}>
               {t('chat.inner.loadFailed')}
             </div>
           ) : (
@@ -348,7 +351,7 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
               ) : (
                 <div
                   className="mt-2 space-y-1.5 pl-2 border-l-2"
-                  style={{ borderColor: 'var(--border-subtle, #e5e5e5)' }}
+                  style={{ borderColor: 'var(--border-subtle)' }}
                 >
                   {entries.map((e, i) => <EntryRow key={i} entry={e} />)}
                 </div>

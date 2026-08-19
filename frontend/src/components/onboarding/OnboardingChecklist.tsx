@@ -256,7 +256,7 @@ export function OnboardingChecklist() {
                   type="button"
                   onClick={step.onAction}
                   disabled={creating && step.key === 'agent'}
-                  className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                  className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-[var(--radius-lg)] text-xs font-medium transition-colors disabled:opacity-50"
                   style={{
                     background: 'var(--bg-tertiary)',
                     color: 'var(--text-primary)',

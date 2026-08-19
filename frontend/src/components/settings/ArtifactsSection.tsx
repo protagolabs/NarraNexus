@@ -190,7 +190,7 @@ export default function ArtifactsSection() {
           {items.map((a) => (
             <label
               key={a.artifact_id}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--bg-secondary)] cursor-pointer text-sm"
+              className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--nm-paper-warm)] cursor-pointer text-sm"
             >
               <input
                 type="checkbox"
