@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/AgentRowMenu.tsx
-last_verified: 2026-07-23
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 点击页面任意处可关闭
+
+全屏 backdrop `<div>` 换成 [[useDismissOnOutside]]:backdrop 的 `position:
+fixed` 会被最近的 transform 祖先劫持——行有 `animate-slide-up`(fill:
+forwards 保留 transform),于是"全屏"遮罩只盖住那一行,点行外永远关不掉。
+document 级 pointerdown(capture)监听没有这个陷阱,还顺带获得 Escape 关闭。
+测试:popoverDismiss.test.tsx。
 
 ## 2026-07-23 — 新增"编辑…"菜单项
 

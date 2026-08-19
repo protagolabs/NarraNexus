@@ -10,6 +10,8 @@ stub: false
 `--nm-ink30`、`truncate` 截断、完整文案只活在 `title` 悬停里(触屏永远看不到)。
 本条修正:去掉 `truncate`、颜色升到 `--nm-ink50`,`title` 保留完整
 `chat.securityReminder`(zh-localization.test.ts:62 唯一挂靠点,别删)。
+宽度侧改用 `min-w-0` + `line-clamp-2`——两行封顶,窄视口/长译文下不再把
+tools row 撑成三行;超出两行仍是省略号,完整文案由 title 承载。
 「demote 到 tools row」保留为 Owner 已接受的版式;若要恢复独占横幅需另行拍板。
 
 另:`OnboardingJourney` 挂载点加 `key={agentId}`——它的 `dismissed` 只在挂载时

@@ -124,14 +124,16 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
     try {
       const deletedId = selected.team.team_id;
       await deleteTeam(deletedId);
-      // Land on the next surviving team, computed from the pre-delete list
-      // (the store hasn't refreshed yet). Writing null instead would strand
-      // the pane on the empty state: the teams[0] fallback effect is guarded
-      // off whenever the caller passed initialTeamId — which every current
-      // caller does.
-      setSelectedTeamId(
-        teams.find((tm) => tm.team.team_id !== deletedId)?.team.team_id ?? null,
-      );
+      // Land on the neighbouring team — the one after the deleted row, or
+      // the one before it at the end of the list — computed from the
+      // pre-delete list (the store hasn't refreshed yet). Jumping to the
+      // top of the list would lose the user's place when pruning several
+      // teams in a row; writing null would strand the pane on the empty
+      // state, since the teams[0] fallback is guarded off whenever the
+      // caller passed initialTeamId — which every current caller does.
+      const idx = teams.findIndex((tm) => tm.team.team_id === deletedId);
+      const neighbour = teams[idx + 1] ?? teams[idx - 1];
+      setSelectedTeamId(neighbour?.team.team_id ?? null);
     } catch (e) {
       void notifyError(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
     }

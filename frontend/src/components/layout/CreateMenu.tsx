@@ -2,7 +2,7 @@
  * @file_name: CreateMenu.tsx
  * @author:
  * @date: 2026-06-23
- * @description: The "New" entry in the sidebar's global nav (Chat UI v4).
+ * @description: The "New" entry in the sidebar's global nav.
  * A full-width nav row that opens a dropdown of everything creatable or
  * importable: Create agent / Create team / Import .nxbundle / Import from
  * other source — one front door for "bring a new thing into NarraNexus".
@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Bot, Users2, Download, Import } from 'lucide-react';
+import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
 
 export interface CreateMenuProps {
@@ -44,8 +45,10 @@ export function CreateMenu({
     handler();
   };
 
+  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpen(false));
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
@@ -65,11 +68,6 @@ export function CreateMenu({
       </button>
 
       {open && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-          />
           <div
             className={cn(
               'absolute left-0 right-0 top-full mt-1 z-50 p-1.5',
@@ -100,7 +98,6 @@ export function CreateMenu({
               />
             )}
           </div>
-        </>
       )}
     </div>
   );

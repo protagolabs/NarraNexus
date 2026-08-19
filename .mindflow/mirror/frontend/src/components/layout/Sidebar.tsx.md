@@ -4,6 +4,12 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 账户弹层点击页面任意处可关闭
+
+账户弹层的全屏 backdrop 换 [[useDismissOnOutside]](挂 Zone-3 容器,dismiss
+同时收起语言子菜单)。与行菜单/CreateMenu 同批统一:侧栏内所有自绘弹层的
+关闭语义现在都是「点页面任意处/Escape」。
+
 ## 2026-08-19 — squash 残留清理
 
 两条指向 `@/components/ui` 的 import 合并为一条(squash 自动合并残留,无行为

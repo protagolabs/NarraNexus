@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/utils.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — formatMessageAge 对坏时间戳降级为空串
+
+`Intl.RelativeTimeFormat.format(NaN)` 会抛 RangeError——渲染期一个坏时间戳
+等于整块面板进 error boundary。现在不可解析的输入直接返回 `''`(空标签,
+不是崩溃)。这个守卫护住全部调用点(MessageBubble / TeamWorkspacePanel /
+ArtifactsSection),各处不必再自带 NaN 分支。
 
 ## 2026-08-06 — formatMessageAge
 

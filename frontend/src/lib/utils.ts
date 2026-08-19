@@ -54,6 +54,9 @@ export function formatMessageAge(
   locale?: string,
 ): string {
   const date = parseUTCTimestamp(timestamp);
+  // An unparseable timestamp must degrade to an empty label, not a render
+  // crash: Intl.RelativeTimeFormat.format(NaN) throws a RangeError.
+  if (!Number.isFinite(date.getTime())) return '';
   const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
   let rtf: Intl.RelativeTimeFormat;
   try {

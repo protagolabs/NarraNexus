@@ -194,7 +194,13 @@
         "close": "ワークスペースパネルを閉じる",
         "zoom": "アーティファクトを拡大",
         "emptyArtifacts": "表示するアーティファクトを選択してください。",
-        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。"
+        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。",
+        "tabArtifacts": "アーティファクト",
+        "tabFiles": "ファイル",
+        "artifactsHint": "チームのエージェントがこのルームで登録したアーティファクトがここに表示されます。",
+        "filesHint": "team_share_file で共有されたファイルがここに表示されます。",
+        "download": "{{name}} をダウンロード",
+        "loading": "読み込み中…"
       }
     },
     "execution": {
@@ -750,7 +756,9 @@
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
-      "delete": "削除"
+      "delete": "削除",
+      "addAgent": "エージェントを追加",
+      "addingAgent": "追加中…"
     },
     "topBar": {
       "crumbDashboard": "ダッシュボード",

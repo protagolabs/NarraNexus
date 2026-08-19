@@ -249,7 +249,13 @@
         "close": "关闭工作区面板",
         "zoom": "放大制品",
         "emptyArtifacts": "选择一个制品在此查看。",
-        "emptyFiles": "文件为直接下载——点击左侧任意文件。"
+        "emptyFiles": "文件为直接下载——点击左侧任意文件。",
+        "tabArtifacts": "制品",
+        "tabFiles": "文件",
+        "artifactsHint": "团队成员在本房间注册的制品会出现在这里。",
+        "filesHint": "通过 team_share_file 共享的文件会出现在这里。",
+        "download": "下载 {{name}}",
+        "loading": "加载中…"
       }
     },
     "execution": {
@@ -843,7 +849,9 @@
       "options": "群聊选项",
       "rename": "重命名",
       "clearData": "清理数据",
-      "delete": "删除"
+      "delete": "删除",
+      "addAgent": "添加 agent",
+      "addingAgent": "添加中…"
     },
     "topBar": {
       "crumbDashboard": "智能体管理",

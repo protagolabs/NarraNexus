@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MoreVertical, Pencil, SquarePen, Trash2, Globe, Lock, Eraser } from 'lucide-react';
+import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
 
 export interface AgentRowMenuProps {
@@ -59,6 +60,7 @@ export function AgentRowMenu({
     setOpen(next);
     onOpenChange?.(next);
   };
+  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpenAndNotify(false));
 
   const handleTrigger = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -72,7 +74,7 @@ export function AgentRowMenu({
   };
 
   return (
-    <div className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
+    <div ref={containerRef} className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
         aria-label={t('layout.agentRowMenu.options')}
         onClick={handleTrigger}
@@ -86,20 +88,14 @@ export function AgentRowMenu({
       </button>
 
       {open && (
-        <>
-          {/* Click-outside overlay */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpenAndNotify(false); }}
-          />
-          <div
-            className={cn(
-              'absolute right-0 top-full mt-0.5 z-50',
-              'min-w-[120px] py-0.5',
-              'rounded-[var(--radius-sm)] border shadow-md',
-              'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
-            )}
-          >
+        <div
+          className={cn(
+            'absolute right-0 top-full mt-0.5 z-50',
+            'min-w-[120px] py-0.5',
+            'rounded-[var(--radius-sm)] border shadow-md',
+            'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
+          )}
+        >
             {/* Rename — quick inline name edit, available to everyone */}
             <MenuItem
               icon={<Pencil className="w-3 h-3" />}
@@ -147,8 +143,7 @@ export function AgentRowMenu({
                 onClick={handleItem(onDelete)}
               />
             )}
-          </div>
-        </>
+        </div>
       )}
     </div>
   );

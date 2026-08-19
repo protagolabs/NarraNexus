@@ -4,6 +4,15 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 残余英文清零 + 相对时间共享化
+
+- Artifacts/Files 两个 tab 标签、两句空态 hint、Download title、Loading
+  全部改走 `chat.team.workspace.*`(10 locale)——上一批只覆盖了
+  close/zoom/viewer 空态,这批把面板内最后的硬编码英文清零。
+- 本地 `formatWhen`(英文写死)删除,改用 [[utils]] 的 `formatMessageAge`
+  (Intl.RelativeTimeFormat,全语种免费)。[[ArtifactsSection]] 的同款
+  本地副本同批清除。
+
 ## 2026-08-19 — 6 处硬编码英文接入 i18n
 
 close/zoom 的 title+aria、两句空态文案全部改走 `chat.team.workspace.*`

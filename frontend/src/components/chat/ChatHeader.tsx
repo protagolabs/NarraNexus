@@ -41,6 +41,7 @@ import {
   type AtomicTabId,
 } from '@/components/bookmarks';
 import { useUIStore, useArtifactStore } from '@/stores';
+import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
@@ -88,6 +89,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const [detailOpen, setDetailOpen] = useState(false);
+  const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
 
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
@@ -216,7 +218,7 @@ export function ChatHeader({
           </span>
 
           {/* Detail ⋯ menu — every agent panel, one door. */}
-          <div className="relative">
+          <div ref={detailRef} className="relative">
             <button
               type="button"
               onClick={() => setDetailOpen((v) => !v)}
@@ -228,8 +230,6 @@ export function ChatHeader({
               <MoreVertical className="h-4 w-4" />
             </button>
             {detailOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setDetailOpen(false)} />
                 <div
                   className={cn(
                     'absolute right-0 top-full z-50 mt-2 w-[236px] p-1.5',
@@ -260,7 +260,6 @@ export function ChatHeader({
                     {t('chat.header.modelFramework')}
                   </button>
                 </div>
-              </>
             )}
           </div>
         </div>
@@ -281,7 +280,7 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
   const { t } = useTranslation();
   const def = tabDef(id);
   const Icon = def.icon;
-  // "Social Network" reads as "Network" here (v4 mock) — reuse the strip's
+  // "Social Network" reads as just "Network" here — reuse the strip's
   // short label key.
   const labelKey = id === 'social' && def.stripLabelKey ? def.stripLabelKey : def.labelKey;
   return (

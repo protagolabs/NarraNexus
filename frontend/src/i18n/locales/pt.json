@@ -194,7 +194,13 @@
         "close": "Fechar o painel do espaço de trabalho",
         "zoom": "Ampliar artefato",
         "emptyArtifacts": "Selecione um artefato para vê-lo aqui.",
-        "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda."
+        "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda.",
+        "tabArtifacts": "Artefatos",
+        "tabFiles": "Arquivos",
+        "artifactsHint": "Os artefatos que os agentes da sua equipe registram nesta sala aparecem aqui.",
+        "filesHint": "Arquivos compartilhados com team_share_file aparecem aqui.",
+        "download": "Baixar {{name}}",
+        "loading": "Carregando…"
       }
     },
     "execution": {
@@ -751,7 +757,9 @@
     "teamRowMenu": {
       "options": "Opções do chat em grupo",
       "rename": "Renomear",
-      "delete": "Excluir"
+      "delete": "Excluir",
+      "addAgent": "Adicionar agente",
+      "addingAgent": "Adicionando…"
     },
     "topBar": {
       "crumbDashboard": "Painel",

@@ -26,6 +26,7 @@ import { Maximize2, X } from 'lucide-react';
 import ArtifactRenderer from '@/components/artifacts/ArtifactRenderer';
 import ArtifactZoomModal from '@/components/artifacts/ArtifactZoomModal';
 import { api } from '@/lib/api';
+import { activeLocale, formatMessageAge } from '@/lib/utils';
 import type { Artifact, TeamFile } from '@/types/artifact';
 
 interface TeamWorkspacePanelProps {
@@ -41,8 +42,8 @@ interface TeamWorkspacePanelProps {
    */
   selectedId: string | null;
   onSelect: (artifactId: string | null) => void;
-  /** Dismiss the drawer (v4: the panel is a top-bar-opened overlay, not a
-   *  standing column — same interaction as the single-chat artifacts drawer). */
+  /** Dismiss the drawer — same interaction as the single-chat artifacts
+   *  drawer (the panel is a top-bar-opened overlay, not a standing column). */
   onClose: () => void;
 }
 
@@ -53,18 +54,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** "2h ago" style — absolute timestamps read as noise in a list this dense. */
-function formatWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const mins = Math.floor((Date.now() - t) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
 
 export function TeamWorkspacePanel({
@@ -122,28 +111,28 @@ export function TeamWorkspacePanel({
   };
 
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
-    { id: 'artifacts', label: 'Artifacts', count: artifacts.length },
-    { id: 'files', label: 'Files', count: files.length },
+    { id: 'artifacts', label: t('chat.team.workspace.tabArtifacts'), count: artifacts.length },
+    { id: 'files', label: t('chat.team.workspace.tabFiles'), count: files.length },
   ];
 
   return (
     // A drawer sized like the single-chat artifacts panel (~50vw), not a
-    // skinny standing column: the 288px version could list artifacts but a
-    // 288×256 corner box could never SHOW one (Owner 2026-08-18).
+    // skinny standing column: a narrow corner box can list artifacts but
+    // never SHOW one.
     <div className="absolute inset-y-0 right-0 z-30 flex w-[min(50vw,760px)] max-md:w-full flex-col border-l border-[var(--nm-hairline)] bg-[var(--nm-card)] shadow-xl">
       <div className="shrink-0 flex items-center gap-1 px-3 py-2 border-b border-[var(--nm-hairline)]">
-        {tabs.map((t) => (
+        {tabs.map((item) => (
           <button
-            key={t.id}
+            key={item.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(item.id)}
             className={`px-2 py-1 text-[11px] font-mono uppercase tracking-wider rounded ${
-              tab === t.id
+              tab === item.id
                 ? 'text-[var(--nm-ink)] bg-[var(--nm-hairline)]'
                 : 'text-[var(--text-tertiary)]'
             }`}
           >
-            {t.label} {t.count > 0 && <span className="opacity-60">{t.count}</span>}
+            {item.label} {item.count > 0 && <span className="opacity-60">{item.count}</span>}
           </button>
         ))}
         <button
@@ -171,7 +160,7 @@ export function TeamWorkspacePanel({
               loading={loading}
               // Names the mechanism rather than just saying "empty": the user's
               // next question is always "how does something get in here".
-              hint="Artifacts your team's agents register in this room appear here."
+              hint={t('chat.team.workspace.artifactsHint')}
             />
           ) : (
             artifacts.map((a) => (
@@ -185,7 +174,7 @@ export function TeamWorkspacePanel({
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{a.title}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-                  {a.agent_id} · {formatWhen(a.updated_at)}
+                  {a.agent_id} · {formatMessageAge(a.updated_at, activeLocale())}
                 </div>
               </button>
             ))
@@ -195,7 +184,7 @@ export function TeamWorkspacePanel({
           (files.length === 0 ? (
             <EmptyState
               loading={loading}
-              hint="Files shared with team_share_file appear here."
+              hint={t('chat.team.workspace.filesHint')}
             />
           ) : (
             files.map((f) => (
@@ -203,12 +192,12 @@ export function TeamWorkspacePanel({
                 key={f.file_id}
                 type="button"
                 onClick={() => void download(f)}
-                title={`Download ${f.original_name}`}
+                title={t('chat.team.workspace.download', { name: f.original_name })}
                 className="w-full text-left px-3 py-2 border-b border-[var(--nm-hairline)] hover:bg-[var(--nm-hairline)]"
               >
                 <div className="text-xs text-[var(--nm-ink)] truncate">{f.original_name}</div>
                 <div className="mt-0.5 text-[10px] font-mono text-[var(--text-tertiary)] truncate">
-                  {f.shared_by_agent_id} · {formatWhen(f.created_at)}
+                  {f.shared_by_agent_id} · {formatMessageAge(f.created_at, activeLocale())}
                   {f.size_bytes ? ` · ${formatSize(f.size_bytes)}` : ''}
                 </div>
               </button>
@@ -257,9 +246,10 @@ export function TeamWorkspacePanel({
 }
 
 function EmptyState({ loading, hint }: { loading: boolean; hint: string }) {
+  const { t } = useTranslation();
   return (
     <div className="px-3 py-6 text-[11px] text-[var(--text-tertiary)]">
-      {loading ? 'Loading…' : hint}
+      {loading ? t('chat.team.workspace.loading') : hint}
     </div>
   );
 }

@@ -194,7 +194,13 @@
         "close": "워크스페이스 패널 닫기",
         "zoom": "아티팩트 확대",
         "emptyArtifacts": "여기에서 볼 아티팩트를 선택하세요.",
-        "emptyFiles": "파일은 바로 다운로드됩니다 — 왼쪽에서 파일을 클릭하세요."
+        "emptyFiles": "파일은 바로 다운로드됩니다 — 왼쪽에서 파일을 클릭하세요.",
+        "tabArtifacts": "아티팩트",
+        "tabFiles": "파일",
+        "artifactsHint": "팀 에이전트가 이 룸에 등록한 아티팩트가 여기에 표시됩니다.",
+        "filesHint": "team_share_file로 공유된 파일이 여기에 표시됩니다.",
+        "download": "{{name}} 다운로드",
+        "loading": "불러오는 중…"
       }
     },
     "execution": {
@@ -750,7 +756,9 @@
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
       "rename": "이름 변경",
-      "delete": "삭제"
+      "delete": "삭제",
+      "addAgent": "에이전트 추가",
+      "addingAgent": "추가 중…"
     },
     "topBar": {
       "crumbDashboard": "대시보드",

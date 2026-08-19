@@ -194,7 +194,13 @@
         "close": "Workspace-Panel schließen",
         "zoom": "Artefakt zoomen",
         "emptyArtifacts": "Wähle ein Artefakt aus, um es hier anzuzeigen.",
-        "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine."
+        "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine.",
+        "tabArtifacts": "Artefakte",
+        "tabFiles": "Dateien",
+        "artifactsHint": "Artefakte, die die Agenten deines Teams in diesem Raum registrieren, erscheinen hier.",
+        "filesHint": "Mit team_share_file geteilte Dateien erscheinen hier.",
+        "download": "{{name}} herunterladen",
+        "loading": "Lädt…"
       }
     },
     "execution": {
@@ -751,7 +757,9 @@
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
       "rename": "Umbenennen",
-      "delete": "Löschen"
+      "delete": "Löschen",
+      "addAgent": "Agent hinzufügen",
+      "addingAgent": "Wird hinzugefügt…"
     },
     "topBar": {
       "crumbDashboard": "Dashboard",

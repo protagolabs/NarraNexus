@@ -4,6 +4,13 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 删除后落到相邻团队
+
+`handleDeleteTeam` 的落点从 `find`(列表第一个幸存者)改为相邻项:被删行
+的下一行,列表末尾则取上一行。连续清理多个团队时选中不再每次跳回列表顶部。
+仍用删除前的列表计算(store 未刷新),空列表回 null。
+测试:teamManagementModal.deleteSelection.test.tsx。
+
 ## 2026-08-19 — initialTeamId prop + COLOR_PRESETS 出走
 
 - 新可选 prop `initialTeamId`:open 上升沿 `setSelectedTeamId(initialTeamId)`。

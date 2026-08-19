@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MoreVertical, Pencil, Trash2, UserPlus, Eraser } from 'lucide-react';
+import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
 
 export interface TeamRowMenuProps {
@@ -44,9 +45,10 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
     setOpenAndNotify(false);
     handler(e);
   };
+  const containerRef = useDismissOnOutside<HTMLDivElement>(open, () => setOpenAndNotify(false));
 
   return (
-    <div className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
+    <div ref={containerRef} className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
         aria-label={t('layout.teamRowMenu.options')}
         onClick={(e) => { e.stopPropagation(); setOpenAndNotify(!open); }}
@@ -60,11 +62,6 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
       </button>
 
       {open && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpenAndNotify(false); }}
-          />
           <div
             className={cn(
               'absolute right-0 top-full mt-0.5 z-50',
@@ -75,7 +72,7 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
           >
             <MenuItem
               icon={<UserPlus className="w-3 h-3" />}
-              label={addingAgent ? 'Adding…' : 'Add agent'}
+              label={addingAgent ? t('layout.teamRowMenu.addingAgent') : t('layout.teamRowMenu.addAgent')}
               disabled={addingAgent}
               onClick={handleItem(onAddAgent)}
             />
@@ -96,7 +93,6 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, on
               onClick={handleItem(onDelete)}
             />
           </div>
-        </>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 /**
- * Sidebar — Chat UI v4 three-zone shell.
+ * Sidebar — the app's three-zone shell.
  *
  * Zone 1: logo + collapse (panel icon). Zone 2: global nav (New / Export /
  * Dashboard / Marketplace / Settings) then the Chats list (teams + agents,
@@ -41,7 +41,7 @@ import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useCreateAgent, useAgentImported } from '@/hooks';
+import { useCreateAgent, useAgentImported, useDismissOnOutside } from '@/hooks';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import {
   useConfigStore,
@@ -56,21 +56,19 @@ import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
 import { FIND_US_URL } from './TopBar';
 
-// v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
-// arrives to a warm cache. Static literal -> Vite resolves at build time,
-// no injection risk.
+// Prefetch the lazy DashboardPage chunk on hover/focus so the click arrives
+// to a warm cache. Static literal -> Vite resolves at build time, no
+// injection risk.
 const prefetchDashboard = () => {
   // Background prefetch — swallow a failure explicitly (the real navigation
   // retries, and ChunkErrorBoundary handles the render-blocking case).
   import('@/pages/DashboardPage').catch(() => {});
 };
 
-// v4 nav row treatment: flat rows, raised bg on hover/active (design mock),
-// ink70 label brightening to ink.
 // Nav rows are LIST ROWS — same interaction ladder as the agent/team rows
 // below them (design_system.md §2.5): hover = --nm-row-hover, current page =
-// --nm-row-active. They used to sit on the warm control family, which put two
-// hue systems inside one sidebar (Owner 2026-08-18).
+// --nm-row-active. Keeping them off the warm control family avoids two hue
+// systems inside one sidebar.
 const NAV_ROW =
   'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-row-hover)] hover:text-[var(--nm-ink)]';
 const NAV_ROW_ACTIVE = 'bg-[var(--nm-row-active)] text-[var(--nm-ink)]';
@@ -116,6 +114,10 @@ export function Sidebar() {
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { theme, toggleTheme, isDark } = useTheme();
   const { t, i18n } = useTranslation();
+  const accountRef = useDismissOnOutside<HTMLDivElement>(accountOpen, () => {
+    setAccountOpen(false);
+    setLangOpen(false);
+  });
 
   const currentLang =
     SUPPORTED_LANGUAGES.find(
@@ -222,7 +224,7 @@ export function Sidebar() {
         // 36px below the viewport and clip the footer).
         'fixed top-9 bottom-0 left-0 z-40 w-[272px] transition-transform duration-300 ease-out',
         mobileNavOpen ? 'translate-x-0 shadow-[var(--nm-elev-3)]' : '-translate-x-full',
-        // Tablet/desktop (md+): back in normal flow, full height; v4 collapse
+        // Tablet/desktop (md+): back in normal flow, full height; collapse
         // hides the whole aside (the expand affordance lives outside it).
         'md:static md:top-auto md:bottom-auto md:z-auto md:h-full md:translate-x-0 md:shadow-none',
         sidebarCollapsed ? 'md:hidden' : 'md:flex',
@@ -325,13 +327,8 @@ export function Sidebar() {
       </ScrollArea>
 
       {/* ── Zone 3: user row + account popover + Find Us ────────────────── */}
-      <div className="p-2 border-t border-[var(--nm-hairline)] relative">
+      <div ref={accountRef} className="p-2 border-t border-[var(--nm-hairline)] relative">
         {accountOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => { setAccountOpen(false); setLangOpen(false); }}
-            />
             <div
               className={cn(
                 'absolute bottom-full left-2 right-2 mb-1.5 z-50 p-1.5',
@@ -450,7 +447,6 @@ export function Sidebar() {
                 {t('sidebar.poweredBy')}
               </div>
             </div>
-          </>
         )}
 
         <div className="flex items-stretch gap-1.5">

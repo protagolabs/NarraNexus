@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — ⋯ 菜单换 useDismissOnOutside
+
+手写全屏 backdrop 换 [[../../hooks/useDismissOnOutside]],与侧栏各弹层同一
+实现(此处今天没有 transform 祖先所以旧写法碰巧能用,但它是最后一个手写
+backdrop,留着就是下一个被照抄的样板)。顺带获得 Escape 关闭。
 
 ## 2026-08-11 — agent 名与侧栏同字族(sans),主角感靠字号/字重
 

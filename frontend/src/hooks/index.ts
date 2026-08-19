@@ -11,3 +11,4 @@ export { useCreateAgent } from './useCreateAgent';
 export { useAgentImported } from './useAgentImported';
 export { useBookmarkSignals } from './useBookmarkSignals';
 export { useFastMode } from './useFastMode';
+export { useDismissOnOutside } from './useDismissOnOutside';
