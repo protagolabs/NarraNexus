@@ -25,9 +25,12 @@ ImportError——**后端起不来**（铁律 #3 的方向被反过来了）。�
 
 顺带：本文件从 679 行降到 328 行（拆分前已逼近 800 行上限）。
 
-**护栏表（8 行）随之更新**：`_awareness_writes.py` 那一行的 `repo.update_agent`
-已经不在本文件——现在在
+**护栏表第 8 行随之更新**：`repo.update_agent` 那一行的文件已从本文件改成
 `agent_profile/_agent_profile_impl/profile_write.py`。命令本身不变。
+
+（四改补记：三改写下这句时**表本体没改**，第四轮审查按命令实跑对出来的。同一轮里
+我已经因为「断言写在验证之前」被抓过两次，这是第三次。凡是声称"某某已更新"，
+**先跑一遍再写这句话**。）
 
 ## 2026-08-18 (三改) — 等值短路问错了问题：未归一化的行修不回来
 
@@ -93,7 +96,7 @@ git grep -nE 'add_agent\(|update_agent\(|(insert|update)\(\s*"agents"|_ins\("age
 | `bundle/importer.py` | `_ins("agents"` | 建 agent（bundle 导入） |
 | `arena/arena_provisioning_service.py` | `update_agent` | **只写 `agent_metadata`**，不碰名字 |
 | `bootstrap/profiles.py` | `update_agent` | 同上，只写 `agent_metadata` |
-| `_awareness_writes.py`（本文件） | `repo.update_agent` | **就是那个事务本身** |
+| `agent_profile/_agent_profile_impl/profile_write.py` | `repo.update_agent` | **就是那个事务本身**（2026-08-18 从本文件搬走） |
 
 前五处是创建，名字在建号那一刻确定，没有"旧名"可更正；中间两处不碰
 `agent_name`。所以：

@@ -37,31 +37,44 @@ from xyz_agent_context.schema import (
 )
 
 
-async def _identity(fn_name: str, *args) -> bool:
-    """Call one of Awareness's identity-record writers, if Awareness is here.
+def _awareness_identity_writers():
+    """Awareness's two identity-record writers, or None when it is not loaded.
 
-    Deferred and guarded on purpose. The identity note lives in
-    ``instance_awareness``, an Awareness-owned table, so writing it IS an
-    Awareness operation — but this transaction must not stop working when that
-    Module is not loaded, or "hot-pluggable" (铁律 #3) is only true on paper.
-    An absent Awareness degrades exactly one step of the rename, and says so.
+    Deferred so this package never imports a Module at import time (see the
+    package docstring). Returns the module rather than dispatching by name: a
+    typo in a dispatch key is a runtime KeyError on a path with no try/except
+    around it, and callers keep their real signatures and types.
+
+    Note what the ImportError branch does and does not cover. Unregistering
+    AwarenessModule from MODULE_MAP does not remove the package from disk, so
+    the import still succeeds — the degradation that actually happens is that
+    the agent has no AwarenessModule instance, and both writers return False on
+    their own. This guard is for a deployment that ships without the package
+    at all.
     """
     try:
-        from xyz_agent_context.module.awareness_module import (
-            reconcile_identity_record,
-            record_identity_change,
-        )
-    except ImportError:  # AwarenessModule not installed in this deployment
+        from xyz_agent_context.module import awareness_module
+    except ImportError:
         logger.warning(
             "[agent-profile-write] AwarenessModule unavailable; the identity "
             "record was not touched"
         )
+        return None
+    return awareness_module
+
+
+async def _record_identity(db, agent_id: str, old_name: str, new_name: str) -> bool:
+    aw = _awareness_identity_writers()
+    if aw is None:
         return False
-    fn = {
-        "record": record_identity_change,
-        "reconcile": reconcile_identity_record,
-    }[fn_name]
-    return await fn(*args)
+    return await aw.record_identity_change(db, agent_id, old_name, new_name)
+
+
+async def _reconcile_identity(db, agent_id: str, current_name: str) -> bool:
+    aw = _awareness_identity_writers()
+    if aw is None:
+        return False
+    return await aw.reconcile_identity_record(db, agent_id, current_name)
 
 
 @dataclass(frozen=True)
@@ -307,8 +320,8 @@ async def apply_agent_profile_change(
         # did not repair the population it was written for.
         reconciled = False
         if new_name is not None:
-            reconciled = await _identity(
-                "reconcile", db, agent_id, normalize_agent_text(agent.agent_name)
+            reconciled = await _reconcile_identity(
+                db, agent_id, normalize_agent_text(agent.agent_name)
             )
         return AgentProfileWrite(
             status="unchanged", identity_reconciled=reconciled
@@ -360,9 +373,15 @@ async def apply_agent_profile_change(
     # speaks in the platform's voice and the agent believes it.
     note_recorded = False
     reconciled = False
-    if renamed_from:
-        note_recorded = await _identity(
-            "record", db, agent_id, renamed_from, updates["agent_name"]
+    # ``is not None``, not truthiness: renamed_from carries the PREVIOUS name,
+    # and a legacy row can hold "". Folding that into "did not rename" sent a
+    # first naming down the reconcile path with an empty old name, producing a
+    # record reading "You are 「」" — which asserts nothing the reader can parse,
+    # so it failed to supersede the stale record and sat beside it. Exactly the
+    # self-contradicting prompt this transaction exists to prevent.
+    if renamed_from is not None:
+        note_recorded = await _record_identity(
+            db, agent_id, renamed_from, updates["agent_name"]
         )
         if not note_recorded:
             # One greppable line for the state that IS the incident: the column
@@ -379,8 +398,8 @@ async def apply_agent_profile_change(
         # Wrote something (a description, a normalization repair) without
         # renaming — the record can still be stale, and the same entitlement
         # applies as in the no-op branch above.
-        reconciled = await _identity(
-            "reconcile", db, agent_id, normalize_agent_text(agent.agent_name)
+        reconciled = await _reconcile_identity(
+            db, agent_id, normalize_agent_text(agent.agent_name)
         )
 
     # Peers must see this now, not after the next turn (P1 section 02 target 2).
@@ -390,7 +409,7 @@ async def apply_agent_profile_change(
         status="updated",
         updated_fields=tuple(sorted(updates)),
         renamed_from=renamed_from,
-        renamed_to=updates.get("agent_name") if renamed_from else None,
+        renamed_to=updates.get("agent_name") if renamed_from is not None else None,
         name_clash_with=clash,
         identity_note_recorded=note_recorded,
         identity_reconciled=reconciled,
