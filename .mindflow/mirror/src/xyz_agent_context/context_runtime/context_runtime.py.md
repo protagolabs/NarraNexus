@@ -486,3 +486,32 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 The `run()` method's Step 1-1 comment says "Event selection disabled" and sets `messages = []`. This is not a bug — it is a documented transitional state. Do not "fix" it by restoring `extract_narrative_data()` without understanding that `ChatModule.hook_data_gathering()` in Step 1-2 is now the authoritative source of conversation history. Enabling both simultaneously would produce duplicate message history.
 
 `ContextRuntime.__init__()` accepts a `database_client` parameter but falls back to `get_db_client_sync()` if none is provided. In test environments where no database is available, omitting this parameter produces a `DatabaseClient` that fails on the first `await` rather than at construction time — the same lazy-init gotcha documented in `database.py`.
+
+## 2026-08-18 — 收集环把 `ctx_data` 传给 `get_disallowed_tools`
+
+同环内 **先压制、后声明**，此顺序此前是隐式契约。压制 hook 不带 ctx，需要按轮次决策的模块
+只能读声明 hook 遗留的实例状态 —— 在这个顺序下永远是空的（详见 [[base.py]] 2026-08-18）。
+现在两个 hook 同传 ctx_data，顺序不再有语义。fail-open 姿态不变。
+
+## 2026-08-18 (二) — 压制 hook 也要有 TypeError 响亮分支
+
+声明侧 `get_expressive_tools` 早有 `except TypeError → logger.error`，起因是一次签名漂移
+静默清空了 ChatModule 的整个声明面。压制 hook 的 `ctx_data` 参数是 2026-08-18 才长出来的，
+于是它正处在同样的位置上 —— 而后果更重：压制 fail-open 会让**两个**发送动词都留在桌上，
+在 patrol 轮上就是一张自己的提示明令禁止的桌子（即 C1 那一类缺陷复现，藏在没人 grep 的
+warning 后面）。`test_every_module_disallow_signature_accepts_ctx_data` 只覆盖 MODULE_MAP，
+这条分支覆盖它看不到的情况：从不进入 map 的模块类。
+
+## 2026-08-18 (三) — TypeError 分两种：签名被拒 vs 函数体抛出
+
+两个响亮分支（声明面与压制面）都无法区分「调用被签名拒了」和「实现体自己抛了 TypeError」。
+两者都 fail open、行为一致，所以代价纯在日志上 —— 而那不是小事：on-call 读到「signature
+mismatch」、去查覆写签名、发现签名没问题，于是手上多了一行与代码矛盾的 ERROR，而真正的后果
+（压制被丢掉、patrol 桌上留着它自己提示禁止的两个动词）没人去看。
+
+判据是 traceback 深度：签名 TypeError 在绑定参数时抛出、从不进入被调方，所以只有一帧；函数体
+里抛的至少两帧。预审执行验证过误报：一个签名正确、体内做 `["a"] * None` 的模块被报成了
+signature mismatch。
+
+两个分支同批改 —— 只改一个会让另一个的文案在对比之下更具误导性。fail-open 姿态不变，只改
+消息与是否 `logger.exception`。

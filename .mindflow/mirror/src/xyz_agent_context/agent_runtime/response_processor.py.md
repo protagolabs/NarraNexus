@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-30
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -203,3 +203,9 @@ processor.process(...):` 而不是 `result = processor.process(...)`。Stream �
 
 - `process()` 是无副作用的纯函数，不修改任何状态。需要通过 `apply_state_update()` 才能让 state 变化生效。忘记调用 `apply_state_update` 的话 state 永远是初始状态，工具调用序号会永远是 1。
 - `_handle_run_item_stream_event` 里的 `format_tool_call_for_display()` 调用：前端只看到格式化后的展示数据（icon、desc），`tool_name` 原始值也在 `details` 里保留，但 `arguments` 可能因为 `desc_template` 格式化失败而显示为 raw 参数。
+
+## 2026-08-18 — 「没有调用任何回复工具」不再点名单一工具
+
+判定一轮是否交付过的注释此前写 `send_message_to_user_directly`，那个工具已拆成
+`reply_owner`/`notify_owner`；且团队房间此前是例外（纯文本自动张贴）。现在两处都不成立 ——
+「没有调用任何回复工具」对每个面无条件成立，注释也就不需要点名了。

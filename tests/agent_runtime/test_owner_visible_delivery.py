@@ -45,12 +45,12 @@ def _tool_progress(tool_name: str, content: str = "hello") -> ProgressMessage:
 
 def test_bus_handler_counts_bus_send_as_delivered_but_not_owner_visible():
     h = MessageSourceRegistry.get("message_bus")
-    assert h.is_user_reply_tool("mcp__message_bus_module__bus_send_message")
+    assert h.is_user_reply_tool("mcp__message_bus_module__message_team")
     assert not h.is_owner_visible_reply_tool(
-        "mcp__message_bus_module__bus_send_message"
+        "mcp__message_bus_module__message_team"
     )
     assert h.is_owner_visible_reply_tool(
-        "mcp__chat_module__send_message_to_user_directly"
+        "mcp__chat_module__notify_owner"
     )
 
 
@@ -65,13 +65,13 @@ def test_extract_owner_visible_text_gates_on_owner_list():
     h = MessageSourceRegistry.get("message_bus")
     assert (
         h.extract_owner_visible_text(
-            "mcp__message_bus_module__bus_send_to_agent", {"content": "peer reply"}
+            "mcp__message_bus_module__message_agent", {"content": "peer reply"}
         )
         is None
     )
     assert (
         h.extract_owner_visible_text(
-            "mcp__chat_module__send_message_to_user_directly", {"content": "hi owner"}
+            "mcp__chat_module__notify_owner", {"content": "hi owner"}
         )
         == "hi owner"
     )
@@ -84,14 +84,14 @@ def test_bus_only_delivery_does_not_count_as_user_message():
     """A bus turn whose only delivery went to a peer agent must NOT flip
     the proactive-delivery branch — the owner saw nothing."""
     responses = [
-        _tool_progress("mcp__message_bus_module__bus_send_to_agent"),
-        _tool_progress("mcp__message_bus_module__bus_send_message"),
+        _tool_progress("mcp__message_bus_module__message_agent"),
+        _tool_progress("mcp__message_bus_module__message_team"),
     ]
     assert _turn_delivered_user_message(responses, "message_bus") is False
 
 
 def test_owner_relay_still_counts_as_user_message():
-    responses = [_tool_progress("mcp__chat_module__send_message_to_user_directly")]
+    responses = [_tool_progress("mcp__chat_module__notify_owner")]
     assert _turn_delivered_user_message(responses, "message_bus") is True
 
 
@@ -112,8 +112,8 @@ def test_owner_visible_texts_returns_every_reply_in_order():
     """Multi-reply turns are normal — the guard scans all of them, so none
     may be dropped and the order must hold."""
     responses = [
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "first"),
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "second"),
+        _tool_progress("mcp__chat_module__reply_owner", "first"),
+        _tool_progress("mcp__chat_module__reply_owner", "second"),
     ]
     assert _owner_visible_reply_texts(responses, "chat") == ["first", "second"]
 
@@ -122,8 +122,8 @@ def test_owner_visible_texts_excludes_peer_only_replies():
     """Same split the anchor relies on: a bus reply to a peer is a delivery,
     but no human read it, so it must not be measured as owner-facing text."""
     responses = [
-        _tool_progress("mcp__message_bus_module__bus_send_to_agent", "peer only"),
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "hi owner"),
+        _tool_progress("mcp__message_bus_module__message_agent", "peer only"),
+        _tool_progress("mcp__message_bus_module__notify_owner", "hi owner"),
     ]
     assert _owner_visible_reply_texts(responses, "message_bus") == ["hi owner"]
 
@@ -132,7 +132,7 @@ def test_owner_visible_texts_skips_blank_replies():
     """A reply that strips to blank is "nothing delivered" for the boolean
     reading; the list reading must agree, or the guard would scan "" and the
     anchor would still see a delivery."""
-    responses = [_tool_progress("mcp__chat_module__send_message_to_user_directly", "   ")]
+    responses = [_tool_progress("mcp__chat_module__reply_owner", "   ")]
     assert _owner_visible_reply_texts(responses, "chat") == []
     assert _turn_delivered_user_message(responses, "chat") is False
 
@@ -155,9 +155,9 @@ def test_boolean_predicate_agrees_with_the_list_on_every_case():
     """
     cases = [
         ([], "chat"),
-        ([_tool_progress("mcp__chat_module__send_message_to_user_directly")], "chat"),
-        ([_tool_progress("mcp__message_bus_module__bus_send_to_agent")], "message_bus"),
-        ([_tool_progress("mcp__chat_module__send_message_to_user_directly", "")], "chat"),
+        ([_tool_progress("mcp__chat_module__reply_owner")], "chat"),
+        ([_tool_progress("mcp__message_bus_module__message_agent")], "message_bus"),
+        ([_tool_progress("mcp__chat_module__reply_owner", "")], "chat"),
     ]
     for responses, source in cases:
         assert _turn_delivered_user_message(responses, source) == bool(
@@ -169,7 +169,7 @@ def test_non_progress_message_elements_are_filtered_not_fatal():
     """Junk in the response list is skipped by the isinstance guard — it does
     NOT reach the except, so a real reply beside it still counts."""
     responses = [
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "real reply"),
+        _tool_progress("mcp__chat_module__reply_owner", "real reply"),
         object(),
     ]
     assert _owner_visible_reply_texts(responses, "chat") == ["real reply"]
@@ -214,8 +214,8 @@ def test_a_raise_after_a_real_reply_reads_as_not_delivered(monkeypatch):
     )
 
     responses = [
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "real reply"),
-        _tool_progress("mcp__chat_module__send_message_to_user_directly", "second"),
+        _tool_progress("mcp__chat_module__reply_owner", "real reply"),
+        _tool_progress("mcp__chat_module__reply_owner", "second"),
     ]
     assert _owner_visible_reply_texts(responses, "chat") == []
     assert _turn_delivered_user_message(responses, "chat") is False

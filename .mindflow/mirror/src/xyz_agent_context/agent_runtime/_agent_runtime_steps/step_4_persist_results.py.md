@@ -55,6 +55,12 @@ bus 回复不计入、空白回复不计入、畸形输入返回 `[]`），外�
 `MessageSourceRegistry` 真值来源，所以"用户看到了什么"这个判断不会在两处分叉。没有合并成
 一个函数：那个的 boolean 契约挂在 session anchor 这条路径上，改形状的代价不对称。
 
+## 2026-08-17 — 「在用户聊天里可见」按该轮桌上的那个 owner 工具判定
+
+owner 面的工具有两个名字，判据从写死一个改成「这个来源的桌上carry 的那个」：owner 聊天
+是 `reply_owner`，其余全是 `notify_owner`。写死任一个，都会在用另一个的表面上把成功的
+回复读成「没回复」。
+
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 
 §4.4 原来对 `ctx.narrative_list[1:]`（辅助 Narrative）逐条调
@@ -288,3 +294,24 @@ Step 4 does not mutate `RunContext` fields — it reads and writes to the databa
 - Adding new DB writes after Step 4 in the main pipeline: anything that needs to be durable before the WebSocket closes must go here. Steps 5–6 run as background tasks after the socket closes.
 - Writing a per-Narrative COPY of the turn's `events` row to associate it with more than one thread. `narratives.event_ids` is a list — that is where the many-to-many lives. See the 2026-08-05 entry above for what copying cost us.
 - Forgetting to handle the case where `ctx.execution_result` is `None` (cancelled turn) — all sub-steps must guard for this.
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

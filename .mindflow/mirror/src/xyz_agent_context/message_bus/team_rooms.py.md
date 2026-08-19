@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_rooms.py
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -34,3 +34,14 @@ origin 解析。四份拷贝意味着约定要改那天有三次漏改的机会�
 
 被用：[[_work_board_mcp_tools]]（注入身份分支）、[[team_bulletin]]、
 [[_job_mcp_tools]]。共享约定但不共享代码：`backend/routes/teams.py`。
+
+## 2026-08-18 — 与 dev 的 team_rooms 合并成一个联合体
+
+本分支与 dev 的 PR #310 各自新建了同名文件、内容不相交：dev 侧只有 `primary_room_of`，
+分支侧有 `team_room_marker` / `get_or_create_team_room` / `resolve_team_room` / `room_roster`。
+任一侧「取我的」都会在容器启动时炸 ImportError（取分支侧则 `errand.py` 找不到入口，取 dev 侧
+则 `message_team` 找不到房间解析），所以只有联合是对的。
+
+联合后 `resolve_team_room` 与 `primary_room_of` 是同一个查询的两个名字，已合并为
+`primary_room_of` 一个 —— 它的 docstring 现在自己写明「唯一读路径」，因为四份副本就是从
+「两个名字一个查询」开始的。

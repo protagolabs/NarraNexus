@@ -8,11 +8,12 @@ ChatModule provides Agent messaging capabilities on the XYZ-Platform.
 
 Core concept - Thinking vs Speaking:
 - All output from Agent's LLM calls, Agent Loop, and tool calls are the Agent's internal thinking, invisible to users
-- Only by calling the send_message_to_user_directly tool does the Agent actually "speak", and only then can users receive a response
+- Only by calling an owner-facing tool does the Agent actually "speak"; plain text reaches nobody
 - Like two people talking face-to-face: thinking in your head (invisible) vs speaking out loud (visible)
 
 Included MCP Tools:
-- send_message_to_user_directly: Agent speaks to user (the ONLY way to deliver messages to the user)
+- reply_owner / notify_owner: the two registers of speaking to the owner. The
+  turn's desk carries exactly one; see get_expressive_tools / get_disallowed_tools
 - get_chat_history: Get chat history for a Chat Instance
 
 Note: ChatModule itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network/Memory modules
@@ -26,8 +27,10 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
+from xyz_agent_context.schema.hook_schema import is_plain_text_turn
 
 # Schema
 from xyz_agent_context.schema import (
@@ -185,12 +188,13 @@ class ChatModule(XYZBaseModule):
 
     Core concept - Thinking vs Speaking:
     Agent's internal processing (LLM calls, Agent Loop, tool calls) is like thinking in your head, completely invisible to users.
-    Only through the send_message_to_user_directly tool can the Agent "speak", and only then can users receive the Agent's response.
+    Only through an owner-facing tool can the Agent "speak", and only then can users receive the Agent's response.
 
     Provided capabilities:
     1. **Instructions** - Guide Agent to understand the "thinking vs speaking" distinction
     2. **Tools** (via MCP):
-       - send_message_to_user_directly: The ONLY way to deliver messages to the user
+       - reply_owner / notify_owner: the only ways to deliver to the owner,
+         one on the desk per turn
        - get_chat_history: Retrieve past conversations for a specific Chat Instance
 
     Dual-track memory loading (2026-01-21 P1-2):
@@ -257,7 +261,7 @@ class ChatModule(XYZBaseModule):
         Return MCP Server configuration
 
         ChatModule provides MCP Server for:
-        - send_message_to_user_directly: Agent speaks to user
+        - reply_owner / notify_owner: Agent speaks to its owner
         - get_chat_history: Retrieve past conversations
 
         Returns:
@@ -276,16 +280,69 @@ class ChatModule(XYZBaseModule):
         return working_source_matches(working_source, WorkingSource.CHAT.value)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """The owner-chat delivery tool. On CHAT turns the origin-first
-        collection puts this first; on other turns priority 1 keeps it
-        directly after the origin module's declaration — it stays on the
-        surface everywhere because Owner Relay legitimately delivers
-        through it from non-chat turns. Derived from get_mcp_config's
-        server_name — a rename must not silently mute the agent.
-        ``ctx_data`` is accepted for the origin-aware base signature; the
-        owner-chat declaration does not vary by turn origin."""
+        """The owner-facing tool THIS turn can actually deliver through.
+
+        Exactly one of the two, never both — which is the whole reason the old
+        `send_message_to_user_directly` was split:
+
+        * an owner-chat turn gets ``reply_owner``. ``notify_owner`` would be a
+          second name for the same destination and a choice with no meaning.
+        * every other turn gets ``notify_owner``. The owner is not part of that
+          conversation, and the "default is not to use this" discipline that
+          belongs to it is then the only owner-facing rule on the desk.
+
+        Paired with ``get_disallowed_tools`` below: declaring one while both
+        schemas stay in context is how a rule ends up arguing with a tool the
+        model can still see. 615 calls to two tools documented "Do NOT call"
+        (prod, 2026-08-17) is what that argument is worth.
+        """
+        # A plain-text (patrol) turn delivers by SPEAKING — the platform posts
+        # the composed line under the room marker. Declaring a reply tool here is
+        # what made both frameworks' reply reminders name `notify_owner` on a turn
+        # whose prompt says "write plain text, do NOT call a tool", pushing the
+        # lead to DM the owner instead of writing the room's status line (or to
+        # fall silent on the contradiction). Withdraw the DECLARATION only; the
+        # schema stays on the desk (escalating to the owner mid-sweep is
+        # legitimate — get_disallowed_tools is unchanged).
+        if is_plain_text_turn(ctx_data):
+            return []
         config = await self.get_mcp_config()
-        return [f"mcp__{config.server_name}__send_message_to_user_directly"]
+        name = "reply_owner" if self._is_owner_chat_turn(ctx_data) else "notify_owner"
+        return [f"mcp__{config.server_name}__{name}"]
+
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
+        """Take the owner tool that does NOT apply this turn off the desk.
+
+        The declaration above only decides what the reply REMINDER names. The
+        schemas reach the model separately, so without this the agent still sees
+        both and has to pick — and the disciplines attached to the two are
+        opposites, so picking wrong is not free.
+
+        Reads the turn from its own ``ctx_data``, not from state the
+        declaration left behind: the runtime calls THIS hook first.
+        """
+        config = await self.get_mcp_config()
+        drop = "notify_owner" if self._is_owner_chat_turn(ctx_data) else "reply_owner"
+        return [f"mcp__{config.server_name}__{drop}"]
+
+    def _is_owner_chat_turn(self, ctx_data: Any) -> bool:
+        """Is the owner the one who started this turn?
+
+        Both hooks that ask this question are handed the turn's own ctx_data,
+        so they cannot disagree about which turn it is — a mismatch would put
+        both tools on the desk, or neither.
+        """
+        source = getattr(ctx_data, "working_source", None)
+        if not source:
+            # No declared origin — ChatModule's own fall-through rule (see
+            # `owns_working_source`) says that is the owner's desk. It is also
+            # the safer of the two wrong answers: guessing `notify_owner` on a
+            # real chat turn hands the agent a tool whose documented discipline
+            # is "default is not to use this", and the owner gets silence for
+            # something they just said. Guessing `reply_owner` on a non-chat
+            # turn only misses a register.
+            return True
+        return working_source_matches(source, WorkingSource.CHAT.value)
 
     def create_mcp_server(self) -> Optional[Any]:
         """
@@ -321,7 +378,7 @@ class ChatModule(XYZBaseModule):
         Per-source dispatch via MessageSourceRegistry: each WorkingSource
         (chat / lark / message_bus / job / …) registers which tool names
         count as the agent replying to the user. Chat uses
-        send_message_to_user_directly; Lark also accepts lark_cli
+        notify_owner; Lark also accepts lark_cli
         +messages-send / +messages-reply; bus accepts its own bus_send;
         etc. Without this dispatch, Lark turns where the agent really
         did reply via lark_cli would be misclassified as "no response"
@@ -346,10 +403,10 @@ class ChatModule(XYZBaseModule):
           - the platform reply tool (tg_cli sendMessage, slack_cli
             chat.postMessage, lark_cli +messages-send/reply), which goes
             back to the IM sender;
-          - ``send_message_to_user_directly``, which surfaces in the
-            owner's chat panel for the "this is important, the owner
-            should know about it" carve-out spelled out in the iron
-            rules.
+          - the owner-facing tool (``notify_owner`` on an IM turn), which
+            surfaces in the owner's chat panel for the "this is important,
+            the owner should know about it" carve-out spelled out in the
+            iron rules.
 
         Both currently get joined into one ``assistant_content`` string,
         which means downstream consumers can't tell them apart. The
@@ -359,14 +416,15 @@ class ChatModule(XYZBaseModule):
 
         Returns ``(im_reply, direct_notify, combined)``:
           - ``im_reply``: parts that came from non-direct platform tools.
-          - ``direct_notify``: parts from ``send_message_to_user_directly``.
+          - ``direct_notify``: parts from the owner-facing tool
+            (``reply_owner`` / ``notify_owner``).
           - ``combined``: the original "\\n\\n"-joined string, preserved
             for callers (long-term memory write, log lines) that want
             the full picture.
 
-        For working_source="chat", direct_notify will hold everything
-        (the handler only matches ``send_message_to_user_directly``)
-        and im_reply will be empty — backward-compatible.
+        For working_source="chat", direct_notify holds everything (the
+        default handler matches only the two owner-facing names) and im_reply
+        is empty.
         """
         from xyz_agent_context.schema import ProgressMessage
         from xyz_agent_context.channel.message_source_handler import (
@@ -389,9 +447,14 @@ class ChatModule(XYZBaseModule):
             reply = handler.extract_owner_visible_text(tool_name, arguments)
             if not reply:
                 continue
-            # send_message_to_user_directly is the owner-notify path
-            # regardless of which channel triggered the turn.
-            if "send_message_to_user_directly" in tool_name:
+            # The owner-facing path, whichever of its two registers the turn
+            # put on the desk. `reply_owner` (owner chat) and `notify_owner`
+            # (every other surface) are one delivery split in two so the agent
+            # knows which voice it is speaking in — they are the SAME
+            # destination, so classification must accept both. Matching only
+            # one sends every owner reply on the other surface into the IM
+            # bucket, where the chat panel renders it as "Background activity".
+            if is_owner_tool(tool_name):
                 direct_parts.append(reply)
             else:
                 im_parts.append(reply)
@@ -1028,7 +1091,7 @@ class ChatModule(XYZBaseModule):
         it is deferred to the background hook_after_event_execution below.
 
         Note: assistant messages store the content parameter from the
-        send_message_to_user_directly tool call, not final_output (the Agent's
+        notify_owner tool call, not final_output (the Agent's
         thinking result). This ensures chat history displays the Agent's actual
         reply to the user, not the internal thinking process.
 
@@ -1277,7 +1340,7 @@ class ChatModule(XYZBaseModule):
         # speaking design (final_output is the agent's internal reasoning,
         # not a user-facing reply). The real no-reply recovery now lives
         # one layer up: step_3_agent_loop detects a chat turn that ended
-        # without send_message_to_user_directly and asks the helper_llm
+        # without notify_owner and asks the helper_llm
         # to generate a real reply, streamed to the frontend and emitted
         # as a synthetic send_message ProgressMessage. By the time we get
         # here, _extract_user_visible_response will have already picked
@@ -1330,7 +1393,7 @@ class ChatModule(XYZBaseModule):
             asst_meta = {**assistant_meta}
             # If the upstream agent loop's helper_llm fallback fired
             # (see step_3_agent_loop._stream_fallback_recovery), it
-            # emits a synthetic send_message_to_user_directly
+            # emits a synthetic notify_owner
             # ProgressMessage tagged details.reply_via="helper_llm_*"
             # (either helper_llm_no_reply or helper_llm_after_error).
             # Surface that tag on the persisted row so observability
@@ -1347,7 +1410,7 @@ class ChatModule(XYZBaseModule):
                     break
             # Stash the owner-notify portion on meta_data when the turn
             # was IM-triggered AND the agent explicitly called
-            # send_message_to_user_directly. The chat-history endpoint
+            # notify_owner. The chat-history endpoint
             # shows this string verbatim, falling back to the
             # "Background activity (...)" placeholder when absent. We
             # only set it for non-chat triggers — on chat-triggered

@@ -106,11 +106,13 @@ class TelegramTrigger(ChannelTriggerBase):
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
-            # Telegram has no platform-side conversation history API, but
-            # ChannelInboxWriter persists every turn to bus_messages
-            # under channel_id=f"telegram_{chat_id}". The context builder
-            # reads from there — same load_conversation_history=True
-            # contract as Slack/Lark, just with a local data source.
+            # Telegram has no platform-side conversation history API, so the
+            # record we keep IS the history. `InboxRecorder` writes every turn to
+            # `inbox_thread_messages` (it was `bus_messages` under
+            # channel_id=f"telegram_{chat_id}" before 2026-08-17), and
+            # TelegramContextBuilder reads it back — same
+            # load_conversation_history=True contract as Slack/Lark, just with a
+            # local data source.
             # Without this, agents see zero prior context and treat
             # follow-up messages like "再试一下" as fresh requests.
             history_config=ChannelHistoryConfig(

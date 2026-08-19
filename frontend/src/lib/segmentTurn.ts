@@ -20,6 +20,7 @@ import type {
   SegmentReply,
   TurnEvent,
 } from '@/types';
+import { isOwnerReplyTool } from '@/lib/ownerTools';
 
 const isProcess = (e: TurnEvent): e is ProcessEvent =>
   e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output';
@@ -97,7 +98,7 @@ export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[]
         // tool_call→reply conversion; matching it here is what makes a
         // reloaded turn segmentable at all. The acknowledgement
         // tool_output stays a process event — same as the live path.
-        if (toolName.includes('send_message_to_user_directly')) {
+        if (isOwnerReplyTool(toolName)) {
           const content = (entry.tool_input as Record<string, unknown> | undefined)?.content;
           if (typeof content === 'string' && content) {
             events.push({ id, ts, type: 'reply', content, reply_via: entry.reply_via });

@@ -48,10 +48,10 @@ def _reply(text: str) -> ProgressMessage:
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )

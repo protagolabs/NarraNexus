@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 把 origin_declaration 传给 build_agent_loop_request
+
+`agent_loop` 构造 body 时新增 `origin_declaration=kwargs.get("origin_declaration") or ""`，与 `expressive_tools`/`turn_profile` 同形。缺这一跳 = §6 来源声明到不了云端执行器。
 
 ## 2026-08-10 (review 修正) — 字段改名 `extra_readable_roots` → `extra_accessible_roots`
 

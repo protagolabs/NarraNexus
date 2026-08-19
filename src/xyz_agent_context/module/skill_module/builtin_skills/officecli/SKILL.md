@@ -15,7 +15,7 @@ NOT try to install, download, or `curl | bash` it. Just call it directly.
 Sanity-check once with `officecli --version`. In the rare case it is missing
 (`command not found`), do NOT attempt a global install (it will be blocked in the
 cloud sandbox and is unnecessary locally). Instead call
-`send_message_to_user_directly` and tell the user that officecli is unavailable in
+`reply_owner` and tell the user that officecli is unavailable in
 this environment so they can report it — then fall back to another approach.
 
 ---

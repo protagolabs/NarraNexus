@@ -68,7 +68,7 @@ def repo(db_client):
 
 @pytest.mark.asyncio
 async def test_creating_an_item_lands_on_the_board(tools, repo):
-    r = await tools["work_add_item"]("agent_lead", "write the OCR report")
+    r = await tools["team_work_add"]("agent_lead", "write the OCR report")
 
     assert r["success"] is True
     items = await repo.list_active("t1")
@@ -80,7 +80,7 @@ async def test_creating_an_item_lands_on_the_board(tools, repo):
 
 @pytest.mark.asyncio
 async def test_assigning_at_creation_starts_it(tools, repo):
-    await tools["work_add_item"]("agent_lead", "OCR", assignee_id="agent_a")
+    await tools["team_work_add"]("agent_lead", "OCR", assignee_id="agent_a")
 
     item = (await repo.list_active("t1"))[0]
     assert item.assignee_id == "agent_a"
@@ -89,23 +89,23 @@ async def test_assigning_at_creation_starts_it(tools, repo):
 
 @pytest.mark.asyncio
 async def test_claiming_and_finishing(tools, repo):
-    created = await tools["work_add_item"]("agent_lead", "OCR")
+    created = await tools["team_work_add"]("agent_lead", "OCR")
     item_id = created["item_id"]
 
-    assert (await tools["work_claim_item"]("agent_a", item_id))["success"] is True
+    assert (await tools["team_work_claim"]("agent_a", item_id))["success"] is True
     assert (await repo.get(item_id)).assignee_id == "agent_a"
 
-    assert (await tools["work_complete_item"]("agent_a", item_id))["success"] is True
+    assert (await tools["team_work_complete"]("agent_a", item_id))["success"] is True
     assert (await repo.get(item_id)).status == WorkItemStatus.DONE
     assert await repo.list_active("t1") == []
 
 
 @pytest.mark.asyncio
 async def test_listing_shows_the_board(tools, repo):
-    await tools["work_add_item"]("agent_lead", "one")
-    await tools["work_add_item"]("agent_lead", "two", assignee_id="agent_a")
+    await tools["team_work_add"]("agent_lead", "one")
+    await tools["team_work_add"]("agent_lead", "two", assignee_id="agent_a")
 
-    r = await tools["work_list_items"]("agent_lead")
+    r = await tools["team_work_list"]("agent_lead")
 
     assert r["success"] is True
     assert {i["title"] for i in r["items"]} == {"one", "two"}
@@ -121,9 +121,9 @@ async def test_a_model_cannot_declare_an_item_stalled(tools, repo):
     would be reporting the model's own guess back to it — and iron rule #15
     forbids putting a correctness-critical fact on model obedience.
     """
-    created = await tools["work_add_item"]("agent_lead", "OCR")
+    created = await tools["team_work_add"]("agent_lead", "OCR")
 
-    r = await tools["work_update_status"](
+    r = await tools["team_work_update_status"](
         "agent_lead", created["item_id"], WorkItemStatus.STALLED
     )
 
@@ -140,9 +140,9 @@ async def test_a_model_cannot_pause_or_cancel(tools, repo, forbidden):
     An agent that could pause its own work board would be able to silence
     patrol — the exact supervision this feature exists to add.
     """
-    created = await tools["work_add_item"]("agent_lead", "OCR")
+    created = await tools["team_work_add"]("agent_lead", "OCR")
 
-    r = await tools["work_update_status"]("agent_lead", created["item_id"], forbidden)
+    r = await tools["team_work_update_status"]("agent_lead", created["item_id"], forbidden)
 
     assert r["success"] is False
     assert (await repo.get(created["item_id"])).status == WorkItemStatus.OPEN
@@ -150,9 +150,9 @@ async def test_a_model_cannot_pause_or_cancel(tools, repo, forbidden):
 
 @pytest.mark.asyncio
 async def test_an_unknown_status_is_refused(tools, repo):
-    created = await tools["work_add_item"]("agent_lead", "OCR")
+    created = await tools["team_work_add"]("agent_lead", "OCR")
 
-    r = await tools["work_update_status"]("agent_lead", created["item_id"], "whatever")
+    r = await tools["team_work_update_status"]("agent_lead", created["item_id"], "whatever")
 
     assert r["success"] is False
     assert (await repo.get(created["item_id"])).status == WorkItemStatus.OPEN
@@ -164,9 +164,9 @@ async def test_an_unknown_status_is_refused(tools, repo):
 async def test_unknown_item_ids_degrade_cleanly(tools):
     """A model typo must read as "not found", not as a platform fault."""
     for call in (
-        tools["work_claim_item"]("agent_a", "wi_nope"),
-        tools["work_complete_item"]("agent_a", "wi_nope"),
-        tools["work_update_status"]("agent_a", "wi_nope", WorkItemStatus.DONE),
+        tools["team_work_claim"]("agent_a", "wi_nope"),
+        tools["team_work_complete"]("agent_a", "wi_nope"),
+        tools["team_work_update_status"]("agent_a", "wi_nope", WorkItemStatus.DONE),
     ):
         r = await call
         assert r["success"] is False
@@ -192,7 +192,7 @@ async def test_outside_a_team_room_the_board_is_unavailable(db_client, monkeypat
     mcp = _FakeMCP()
     mod.register_work_board_mcp_tools(mcp)
 
-    r = await mcp.tools["work_add_item"]("agent_lead", "OCR")
+    r = await mcp.tools["team_work_add"]("agent_lead", "OCR")
 
     assert r["success"] is False
     assert "team" in r["error"].lower()
@@ -228,9 +228,9 @@ async def test_write_tools_refuse_another_teams_item(db_client, monkeypatch):
     mod.register_work_board_mcp_tools(mcp)
 
     for call in (
-        mcp.tools["work_claim_item"]("agent_a", other.item_id),
-        mcp.tools["work_complete_item"]("agent_a", other.item_id),
-        mcp.tools["work_update_status"]("agent_a", other.item_id, WorkItemStatus.DONE),
+        mcp.tools["team_work_claim"]("agent_a", other.item_id),
+        mcp.tools["team_work_complete"]("agent_a", other.item_id),
+        mcp.tools["team_work_update_status"]("agent_a", other.item_id, WorkItemStatus.DONE),
     ):
         r = await call
         assert r["success"] is False

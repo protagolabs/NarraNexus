@@ -66,7 +66,19 @@ from xyz_agent_context.message_bus.system_messages import (
     trigger_label as _platform_trigger_label,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
+from xyz_agent_context.channel.message_source_handler import (
+    im_channel_prefixes,
+)
+from xyz_agent_context.message_bus.team_posting import (
+    MAX_TEAM_AGENT_HOPS,
+    extract_team_mentions,
+)
+from xyz_agent_context.schema import (
+    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,
+    BUS_TEAM_ROOM_EXTRA_KEY,
+    WorkingSource,
+)
+from xyz_agent_context.schema.turn_profile import TurnProfile
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -104,11 +116,15 @@ POLL_MIN_INTERVAL = 3
 POLL_MAX_INTERVAL = 12
 POLL_STEP_UP = 3
 
+# How often the poll loop checks the cross-process wake signal while it sleeps.
+# Bounds the added latency of a send made outside this process; 0.5s keeps that
+# under a second while costing two single-row reads per second.
+WAKE_SIGNAL_SLICE = 0.5
+
 # Team group chat: cap how many consecutive agent-to-agent hops can keep the
 # @-mention cascade alive without a human message. Past this, an agent reply's
 # @mentions are dropped so two agents can't @ each other forever. A user
 # message resets the chain.
-MAX_TEAM_AGENT_HOPS = 4
 
 # Team group chat: how many recent room messages to feed a triggered agent as
 # context (oldest→newest). The agent replies to the latest message addressed to
@@ -137,9 +153,6 @@ TEAM_BOARD_MAX_ITEMS = 15
 #: "the runtime never called it" is NOT "it landed" — reading it that way books
 #: an undelivered turn as a completed hop and announces a failure to a room
 #: that may already have heard the agent.
-POST_OK = "ok"
-POST_FAILED = "failed"
-POST_NOT_ATTEMPTED = "not_attempted"
 
 # Owned by local_bus (whose `get_pending_messages` enforces the filter) and
 # imported here so the two can't drift. Once a message's failure_count reaches
@@ -193,31 +206,19 @@ class TurnResult:
         return not self.text and not self.delivered
 
 
-def im_channel_prefixes() -> tuple[str, ...]:
-    """Channel-id prefixes owned by dedicated IM triggers — registry-driven.
+def _log_wake_task_failure(task: "asyncio.Task") -> None:
+    """Surface a cross-process wake task that died, and swallow the cancel.
 
-    ChannelInboxWriter persists IM turns to ``bus_messages`` under
-    ``{channel}_{chat_id}`` purely for history/Inbox display; the channel's
-    own trigger already ran AgentRuntime for them. Those rows must never be
-    re-dispatched here. The set used to be a hand-maintained tuple
-    ("lark_", "telegram_", "slack_") that silently drifted — wechat,
-    narramessenger and discord were missing, so every message on those
-    channels fired a SECOND agent run wearing the Owner-Relay peer-agent
-    prompt (2026-07-03 wechat incident: fabricated context_token sends +
-    bogus "我已经在微信上回复你啦" platform DMs). Deriving from
-    ``MessageSourceHandler.dedicated_trigger`` keeps a future channel
-    covered the moment it registers; computed per call because channel
-    modules register at import time and import order isn't guaranteed.
+    Cancellation is the normal path — `_sleep_until_due` cancels the loser of
+    every cycle — so only a real exception is worth a line.
     """
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
-
-    return tuple(sorted(
-        f"{name}_"
-        for name, handler in MessageSourceRegistry.handlers().items()
-        if handler.dedicated_trigger
-    ))
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning(
+            f"[bus-wake] cross-process waiter died: {type(exc).__name__}: {exc}"
+        )
 
 
 def build_bus_anchor(messages: List[BusMessage]) -> str:
@@ -298,6 +299,10 @@ class MessageBusTrigger:
         # Wakes the poll loop because WORK just landed, not because we are
         # shutting down. Set by a successful team-room post; see `_wake`.
         self._wake_event = asyncio.Event()
+        #: Cross-process wake signal as of the TOP of the current poll cycle.
+        #: None means "never read" — which reads as a difference on the first
+        #: slice and costs one early scan, the safe direction.
+        self._wake_baseline: Optional[str] = None
         # L2/L3 observability. This trigger was the only long-running worker
         # without its own auditor: the supervisor's aggregate liveness only
         # proves the asyncio task object still exists, so when the poll loop
@@ -333,6 +338,15 @@ class MessageBusTrigger:
 
         while self._running:
             try:
+                # BEFORE the scan, not at sleep entry. A `message_team` posted
+                # from the MCP server while `_poll_cycle` is running bumps the
+                # signal; if the sleeper read its own baseline afterwards it
+                # would fold that bump in and then wait for a FURTHER change,
+                # so the message sat out the whole adaptive interval — the dead
+                # air the cross-process wake exists to remove. The in-process
+                # `_wake_event` has no such hole: it is `.set()` during the scan
+                # and only cleared at the end of the sleep.
+                await self._snapshot_wake_baseline()
                 dispatched = await self._poll_cycle()
                 if dispatched:
                     self._current_interval = POLL_MIN_INTERVAL
@@ -373,7 +387,15 @@ class MessageBusTrigger:
         only alternative — re-reading the room to find the row just written —
         would race the very poll loop this method just woke.
 
-        The ONLY way this process should post to the bus. Not because posting
+        The only way THIS PROCESS's own posts should reach the bus — the trigger's
+        two of them. It is no longer the only post path in the system: a team
+        reply is a `message_team` tool call that goes through
+        `team_posting.post_team_reply` -> `bus.send_message` from the MCP server,
+        and that is correct rather than an oversight. What replaced this method's
+        guarantee for that path is `wake_signal`, bumped inside `send_message`
+        itself, i.e. at the write seam where it cannot be skipped.
+
+        Still worth keeping for the two local callers, and not because posting
         needs abstracting — the call is one line — but because "post" and "wake"
         must not be separable. They were, and the second of two call sites was
         already missing the wake: the leader patrol posts under the room's own
@@ -390,8 +412,10 @@ class MessageBusTrigger:
         never show it" case, and the patrol site is content to let a failure
         surface.
 
-        Three callers now, not two: the team reply moved INSIDE the turn
-        (`_deliver_reply`), and the team-room failure notice posts here too.
+        Two callers: the team-room failure notice and the leader patrol line. The
+        team reply was a third while the trigger posted it (`_deliver_reply`);
+        that method is gone and the reply arrives via the tool now.
+
         The notice's wake finds nothing to dispatch — a platform line mentions
         nobody — so it costs one indexed query and is left in rather than
         special-cased, because "post and wake are inseparable" is worth more
@@ -422,63 +446,6 @@ class MessageBusTrigger:
         self._wake()
         return message_id or ""
 
-    async def _record_errands(
-        self,
-        *,
-        team_id: str,
-        channel_id: str,
-        agent_id: str,
-        mentions: Optional[List[str]],
-        text: str,
-        message_id: str,
-        root_run_id: str,
-    ) -> None:
-        """Settle and open the room's message-level errands for one post.
-
-        A thin seam over `message_bus.errand` so the delivery path holds one
-        call and one failure policy rather than two of each.
-
-        **Never raises.** By the time this runs the reply is in the room and
-        the hop has succeeded; a board write that could fail that hop would
-        trade a working delivery for bookkeeping. The cost of the swallow is
-        bounded and self-correcting: a missed close leaves an item patrol asks
-        about once, a missed open leaves the room exactly as it was before this
-        layer existed.
-        """
-        if not team_id:
-            return  # errands are a team-room fact; ordinary bus DMs have no board
-        # Imported here, like every other db_factory use in this module: the
-        # trigger is constructed in processes that have no DB yet.
-        from xyz_agent_context.utils.db.db_factory import get_db_client
-        from xyz_agent_context.message_bus.errand import (
-            close_delivered_errands,
-            record_handoffs,
-        )
-
-        try:
-            await close_delivered_errands(
-                await get_db_client(),
-                team_id=team_id,
-                channel_id=channel_id,
-                agent_id=agent_id,
-                text=text,
-            )
-            await record_handoffs(
-                await get_db_client(),
-                team_id=team_id,
-                channel_id=channel_id,
-                from_agent=agent_id,
-                mentions=mentions,
-                text=text,
-                message_id=message_id,
-                root_run_id=root_run_id,
-            )
-        except Exception as e:  # noqa: BLE001 — see docstring
-            logger.warning(
-                f"[errand] bookkeeping failed team={team_id} agent={agent_id}: "
-                f"{type(e).__name__}: {e}"
-            )
-
     def _wake(self) -> None:
         """Ask the poll loop to look again now instead of at the next tick.
 
@@ -493,11 +460,18 @@ class MessageBusTrigger:
         Cheap and idempotent: an Event that is already set stays set, and the
         sleep clears it on the way out.
 
-        **Only covers posts made by this process.** An agent that replies via
-        the `bus_send` MCP tool posts from the MCP server, where an in-process
-        Event cannot reach; that path still waits for the poll. Making it
-        cross-process means a DB signal and a reader for it — worth doing if
-        peer-DM latency ever becomes the complaint, not needed for team relay.
+        **Only covers posts made by this process** — which is now the smaller
+        half. An agent's reply is a tool call from the MCP server, where an
+        in-process Event cannot reach. That gap is covered by `wake_signal`: a
+        row bumped inside `send_message` and polled by
+        `_wait_cross_process_wake`, 40 lines below. This Event remains the
+        cheaper shortcut for the trigger's own two posts, not the only mechanism.
+
+        (An earlier version of this paragraph said a cross-process signal was
+        "worth doing if peer-DM latency ever becomes the complaint, not needed
+        for team relay". It became needed the moment the team reply itself moved
+        to the MCP server, and it exists — the sentence outlived the design it
+        described by one commit.)
         """
         self._wake_event.set()
 
@@ -511,13 +485,22 @@ class MessageBusTrigger:
         """
         stop_task = asyncio.create_task(self._stop_event.wait())
         wake_task = asyncio.create_task(self._wake_event.wait())
+        cross_task = asyncio.create_task(self._wait_cross_process_wake())
+        # Every create_task pairs with a done callback (incident lesson #2). This
+        # one is internally guarded, so the callback should never fire — which is
+        # exactly why it is here: if it ever does, the `.cancel()` in `finally`
+        # is a no-op on an already-failed task and asyncio would otherwise log
+        # "Task exception was never retrieved" once per poll cycle, i.e. a real
+        # fault reported as recurring noise nobody reads.
+        cross_task.add_done_callback(_log_wake_task_failure)
         try:
             await asyncio.wait(
-                {stop_task, wake_task},
+                {stop_task, wake_task, cross_task},
                 timeout=self._current_interval,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
+            cross_task.cancel()
             # Both are cancelled every cycle, including the winner (already
             # done, so the cancel is a no-op). Leaving either pending would
             # leak one waiter per poll cycle onto the Events.
@@ -527,6 +510,69 @@ class MessageBusTrigger:
             # had its effect, and a flag left set would make the NEXT sleep
             # return instantly and spin the loop.
             self._wake_event.clear()
+
+    async def _snapshot_wake_baseline(self) -> None:
+        """Remember the signal's value as of the top of this poll cycle.
+
+        Split from the sleeper so the baseline predates the scan.
+
+        Fails open, but not by keeping the old value: `wake_signal.read` swallows
+        its own errors and returns `""`, so an unreadable signal CLOBBERS the
+        baseline to the empty string. The `except` here is reachable only via
+        `get_db_client()`. The direction is still the safe one — an empty baseline
+        differs from any real value, so the next sleep returns early and costs one
+        wasted scan rather than leaving a message to wait out the interval — but
+        the mechanism is a clobber, not a retention, and a reader reasoning from
+        the old wording would expect the opposite failure.
+        """
+        from xyz_agent_context.message_bus import wake_signal
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        try:
+            self._wake_baseline = await wake_signal.read(await get_db_client())
+        except Exception:  # noqa: BLE001 — see docstring
+            pass
+
+    async def _wait_cross_process_wake(self) -> None:
+        """Return as soon as ANOTHER process reports new work.
+
+        The in-process `_wake_event` cannot be set from the MCP server, and a
+        team reply is now a tool call made there — so without this the room's own
+        relay would wait out the adaptive interval (3-12s per hop), handing back
+        part of the latency win `c7739ad1` measured, as dead air a person in the
+        room can see (iron rule #16).
+
+        Polls a single-row signal rather than the pending-work scan: the scan is
+        the expensive query this exists to schedule, so running it every slice
+        would defeat the point. One tiny read per slice, two reads a second.
+
+        Fails OPEN and quietly: an unreadable signal means "no news" and the
+        caller's timeout takes over. Raising would take the poll loop down over
+        a latency optimisation. The observable that catches a signal which
+        stopped working is `queue_wait` in the `[bus-timing]` line, not this
+        function's silence (iron-rule lesson #4).
+        """
+        from xyz_agent_context.message_bus import wake_signal
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        try:
+            db = await get_db_client()
+        except Exception:  # noqa: BLE001 — no signal, no early wake
+            await asyncio.sleep(self._current_interval)
+            return
+
+        # Taken at the top of the cycle by `_snapshot_wake_baseline`, so a bump
+        # that landed DURING the scan is already a difference when the first
+        # slice reads.
+        baseline = self._wake_baseline
+
+        while True:
+            await asyncio.sleep(WAKE_SIGNAL_SLICE)
+            try:
+                if await wake_signal.read(db) != baseline:
+                    return
+            except Exception:  # noqa: BLE001
+                return
 
     async def _check_worker_starvation(self) -> None:
         """Alert when the WORKER POOL, not the agents, is the bottleneck.
@@ -934,6 +980,25 @@ class MessageBusTrigger:
                     # would fire AgentRuntime a second time and send duplicate
                     # replies. Prefixes derive from MessageSourceRegistry (see
                     # im_channel_prefixes) so new channels can't be forgotten.
+                    # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
+                    #
+                    # `InboxRecorder` (2026-08-17) stopped writing IM turns into
+                    # the bus tables, so no NEW row can arrive here. But the old
+                    # rows and memberships are still in place — iron rule #6
+                    # forbids the destructive migration — and this branch is
+                    # what has been keeping their `last_processed_at` current.
+                    #
+                    # Deleting it now would re-dispatch that history for any
+                    # agent whose cursor is stale, and the circuit-breaker gate
+                    # above is exactly how a cursor goes stale: a paused agent
+                    # never reaches this loop, so its IM channels never got
+                    # acked. Those turns would then run wearing the Owner-Relay
+                    # peer prompt — the 2026-07-03 wechat incident, by a second
+                    # route.
+                    #
+                    # Removal is a POST-MIGRATION step, after the Owner's
+                    # backfill + cleanup. See
+                    # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
                     if channel_id.startswith(im_channel_prefixes()):
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
@@ -1175,7 +1240,7 @@ class MessageBusTrigger:
                 # agent its owner is waiting in chat) and the inbox writer.
                 owner_user_id = await self._get_agent_owner(agent_id)
                 # Resolve the owner's human name for the relay prose (the raw
-                # user_id stays as the send_message_to_user_directly routing key).
+                # user_id stays as the notify_owner routing key).
                 owner_name = ""
                 if owner_user_id:
                     from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -1245,142 +1310,24 @@ class MessageBusTrigger:
                     if note_event_id is not None:
                         await note_event_id(run_id)
 
-                # The deliverer's outcome, in THREE states rather than two:
-                # it landed, it was called and failed, or it was never called
-                # at all. The last one is the runtime having refused to deliver,
-                # and its gate is stricter than `turn.fatal` — a raised
-                # exception makes step_3 refuse, while the error frame that
-                # follows can be `recovered_after_reply`, which leaves the
-                # collection non-fatal. Collapsing "never called" into "no
-                # error recorded" therefore books a turn the platform never
-                # delivered as a completed hop, in silence.
-                room_post: list[tuple[str, Exception | None]] = [
-                    (POST_NOT_ATTEMPTED, None)
-                ]
-                # What the hop cap dropped, if it fired. Captured here because
-                # the capping now happens INSIDE the turn while the notice is
-                # posted after it: the room has to read "agent speaks, then the
-                # platform explains what it declined to do", and a notice posted
-                # mid-turn would land above the reply it is about.
-                capped: dict[str, object] = {"names": [], "everyone": False}
-                # Segments accumulate as the run streams, and `_deliver_reply`
-                # is called after the last delta of the reply — so by post time
-                # this holds the boundary for exactly the text being posted.
-                # Shared with the collector rather than read off `turn`, which
-                # does not exist until the run returns; the post is now inside
-                # it (see `_deliver_reply`).
-                live_segments: list[dict] = []
-
-                # Imported here rather than at module scope to match the other
-                # agent_runtime imports in this file, which are deferred so the
-                # bus can be imported without the runtime present.
-                from xyz_agent_context.agent_runtime.run_collector import (
-                    joined_segments,
-                )
-
-                async def _deliver_reply(text: str) -> bool:
-                    """Put the agent's plain text into the room. True if it landed.
-
-                    Handed to the runtime so the post happens INSIDE the turn:
-                    the chat rows are written by `hook_persist_turn` before
-                    `run()` returns, so a post made after it cannot be recorded
-                    as a reply — which is why a team turn used to file as "no
-                    reply sent" and start the next one cold.
-
-                    What delivery MEANS stays here: @mention parsing is how work
-                    is handed on, the hop cap is a bus policy, and the run-id
-                    stamp is what lets the transcript open the turn behind a
-                    line. The runtime only decides whether the post counted.
-                    """
-                    # Everything from here in, including the mention parsing
-                    # and the cascade-depth read: a failure in ANY of it is this
-                    # callback having been called and failed, which is a
-                    # different fact from the runtime never calling it. Leaving
-                    # the first two outside would file a DB problem in
-                    # `_team_cascade_depth` as "the runtime refused to deliver",
-                    # and send whoever is debugging it to the wrong gate.
-                    try:
-                        mentions = self._extract_team_mentions(text, member_map)
-                        # Cap agent↔agent cascades: if too many agent hops have
-                        # piled up since the last human message, stop
-                        # propagating @mentions so two agents can't loop
-                        # forever.
-                        if mentions:
-                            depth = await self._team_cascade_depth(channel_id)
-                            if depth >= MAX_TEAM_AGENT_HOPS:
-                                logger.info(
-                                    f"Team cascade depth {depth} >= "
-                                    f"{MAX_TEAM_AGENT_HOPS} in {channel_id}; "
-                                    f"dropping @mentions to break the loop"
-                                )
-                                # `_extract_team_mentions` returns EITHER
-                                # ["@everyone"] OR a list of ids, never a mix —
-                                # so an @all that hits the cap leaves the named
-                                # list empty. Kept as its own flag rather than
-                                # dropped: @all is the commonest way a room
-                                # reaches the cap, and it was the silent one.
-                                capped["everyone"] = "@everyone" in mentions
-                                capped["names"] = [
-                                    member_map.get(m, m)
-                                    for m in mentions
-                                    if m != "@everyone"
-                                ]
-                                mentions = []
-                        # Through `_post_to_room`, never `_bus.send_message`:
-                        # posting and waking the poll loop must not be
-                        # separable, and this is the team reply — the very path
-                        # whose next hop is a teammate sitting out a full
-                        # adaptive interval if the wake is skipped.
-                        posted_message_id = await self._post_to_room(
-                            from_agent=agent_id,
-                            to_channel=channel_id,
-                            content=text,
-                            mentions=mentions or None,
-                            # Stamp the reply with the turn that produced it, so
-                            # the transcript can open this turn's full event_log.
-                            event_id=watched_run_id[0] or None,
-                            # The monologue/reply boundary, which `content`
-                            # loses by concatenation and nothing downstream can
-                            # recover. Only a team turn has one
-                            # (`include_monologue=is_team`).
-                            segments=joined_segments(live_segments) or None,
-                        )
-                    except Exception as post_err:  # noqa: BLE001
-                        # Returning False keeps the books honest: the turn did
-                        # not reach the room, so nothing records that it did.
-                        # The loss is announced after the turn, where the
-                        # already-built machinery for it lives.
-                        room_post[0] = (POST_FAILED, post_err)
-                        return False
-                    room_post[0] = (POST_OK, None)
-                    # The errand layer, on the far side of a LANDED post — and
-                    # OUTSIDE the try above on purpose: that block answers "did
-                    # this turn reach the room", and book-keeping must never be
-                    # able to make a delivered reply report itself as lost.
-                    # `_record_errands` swallows its own failures for the same
-                    # reason.
-                    #
-                    # Ordering inside it is the whole design: close first, then
-                    # open. On the founding message ("收到…完成后交付 @A4") the
-                    # close is a no-op — it is a promise, not a delivery — and
-                    # the open adds the next link, so BOTH hops stay watched.
-                    # Reversing it would let a hand-off close the errand it just
-                    # created.
-                    #
-                    # `mentions` is the POST-cap list: an @mention the cascade
-                    # cap stripped never reached the teammate, so an errand for
-                    # it would be owed by someone who was never asked.
-                    await self._record_errands(
-                        team_id=team_id,
-                        channel_id=channel_id,
-                        agent_id=agent_id,
-                        mentions=mentions,
-                        text=text,
-                        message_id=posted_message_id,
-                        root_run_id=trigger_message.root_run_id or "",
-                    )
-                    return True
-
+                # No deliverer any more.
+                #
+                # A team reply used to be the agent's PLAIN TEXT, posted here by
+                # `_deliver_reply` from inside the turn. That made this the one
+                # surface in the system where "plain text reaches nobody" was
+                # false, and the exception propagated: the framework
+                # constitution, ChatModule's instructions and this module's rules
+                # all assert the general rule, and only one of the three could be
+                # switched off per turn. Six review rounds on PR #311 went to the
+                # contradictions that grew out of it.
+                #
+                # The room now takes a tool call (`message_team`) like every
+                # other surface, so what the trigger has to know shrinks to ONE
+                # question — did the agent post here this turn? — and the bus can
+                # answer it (`has_message_from_turn`). The @mention parsing, the
+                # hop cap and the cap's narration moved to `team_posting`, where
+                # they are properties of posting into a room rather than of the
+                # trigger that used to own delivery.
                 # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
                 # only, no Owner-Relay boilerplate) for narrative routing — the
                 # execution `prompt` is far noisier. See 2026-06-01 design.
@@ -1395,33 +1342,27 @@ class MessageBusTrigger:
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     cancellation=cancellation,
-                    # Team rooms are the one surface whose prompt tells the
-                    # agent its plain text IS the delivered reply (auto-posted
-                    # to the room), so NexusPower monologue joins the collected
-                    # text. The peer-DM/inbox branch keeps the monologue
-                    # private — its prompt makes no such promise.
+                    # No monologue harvest on a reply turn: a team reply is a
+                    # tool call (`message_team`) now, so `include_monologue`
+                    # stays False here and is passed only by the patrol path.
+                    # See `_invoke_runtime`'s docstring for why patrol is the
+                    # one exception.
                     # The tree this turn continues, as stamped on the message
                     # that woke it. Empty for a user's message (this run then
                     # becomes a root) — see the recorder's bind.
                     root_run_id=trigger_message.root_run_id or "",
-                    include_monologue=is_team,
                     # The turn's team, for the MCP identity headers — tools
                     # must learn it from the server, never from a model
                     # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
-                    # Team rooms only: this is the one surface whose contract
-                    # is "your plain text IS the message". A DM reply goes to
-                    # the inbox, and handing that lane a deliverer would post
-                    # it into the channel as well.
-                    on_plain_text_delivery=_deliver_reply if is_team else None,
-                    # Filled as the run streams, so `_deliver_reply` can post
-                    # the boundary with the text it belongs to.
-                    segments_sink=live_segments,
-                    # Same fact, module-side consumer: the team room must NOT
-                    # advertise bus tools as its reply surface (plain text
-                    # auto-posts; the prompt forbids delivery tools), so the
-                    # marker rides trigger_extra_data for the expressive
-                    # declaration to gate on.
+                    # The team-room marker for this turn. It rides
+                    # trigger_extra_data so MessageBusModule can gate on it:
+                    # get_expressive_tools declares `message_team` (not the peer
+                    # `message_agent`) and get_disallowed_tools drops
+                    # `message_agent` off the desk. A team reply is a tool call
+                    # like every other surface now, so dropping this marker does
+                    # not silence the room — it makes the turn advertise the peer
+                    # verb and post team replies into the wrong conversation.
                     team_room=is_team,
                 )
 
@@ -1444,46 +1385,49 @@ class MessageBusTrigger:
 
             if turn.text:
                 if is_team:
-                    # The post itself already happened, inside the turn (see
-                    # `_deliver_reply`). Doing it again here would make the room
-                    # say everything twice; what is left is the case where it
-                    # did NOT land.
-                    post_state, post_err = room_post[0]
-                    if post_state != POST_OK:
-                        # Whatever the reason, nothing of this turn is in the
-                        # room, so the hop did not complete.
-                        posted = False
-                    if post_state == POST_FAILED:
-                        # The reply EXISTS and the room will never show it.
-                        # Deliberately handled here instead of raising: the
-                        # cursor was advanced a few lines up, so this message is
-                        # already acked and `record_failure` could only inflate
-                        # a poison counter for a delivery that will never be
-                        # retried. What is needed is for the loss to stop being
-                        # silent — which is what this announcement does, and it
-                        # also keeps the text for the owner's inbox.
-                        await self._announce_failed_room_post(
-                            agent_id, channel_id, trigger_message, turn,
-                            post_err or "the room post failed",
+                    # ONE question now: did the agent put anything in this room
+                    # during this turn? The room is a tool call, so the answer is
+                    # a fact in the bus rather than the outcome of a callback the
+                    # trigger owned — `has_message_from_turn` matches
+                    # `bus_messages.event_id` against this turn's id.
+                    #
+                    # Deliberately NOT `turn.delivered`: that counts
+                    # `notify_owner` too, and an agent that only
+                    # told its owner has left this room silent — precisely the
+                    # case the notice below is for.
+                    # Can we even JUDGE "did it reach the room"? The judge is an
+                    # event_id identity join, and event_id rides an MCP request
+                    # header that is legitimately absent sometimes
+                    # (`caller_event_id_from_request`: "None is normal ... must
+                    # never fail a registration"; identity is never flow control).
+                    can_judge = bool(turn.event_id)
+                    spoke = (
+                        await self._bus.has_message_from_turn(
+                            channel_id, agent_id, turn.event_id
                         )
-                    elif turn.fatal:
-                        # `turn.text` is a failure notice, not the agent's
-                        # words, and the in-turn delivery deliberately refuses
-                        # to post on a fatal run (a half-streamed fragment
-                        # would read as an answer). Nothing else would reach
-                        # the room, so a teammate that @mentioned this agent
-                        # could not tell "not interested" from "broken" — the
-                        # hand-off just stops. Posted as the ROOM: it is not a
-                        # reply the agent made, and routing it through the
-                        # normal path would parse @mentions and drag teammates
-                        # into somebody else's failure.
+                        if can_judge
+                        else False
+                    )
+                    # When we cannot judge, assume the reply landed. A false
+                    # "never sent it" notice posted UNDER a message that IS in the
+                    # room is the worse harm — and treating the miss as real also
+                    # made _hop_done undercount delivery. A CONFIRMED miss needs
+                    # event_id present AND the join empty (the elif below).
+                    posted = spoke or not can_judge
+
+                    if turn.fatal:
+                        # `turn.text` is a failure notice, not the agent's words.
+                        # Nothing else would reach the room, so a teammate that
+                        # @mentioned this agent could not tell "not interested"
+                        # from "broken" — the hand-off just stops. Posted as the
+                        # ROOM: it is not a reply the agent made, and routing it
+                        # through the normal path would parse @mentions and drag
+                        # teammates into somebody else's failure.
                         #
-                        # Deliberately does NOT ask "did the agent post here
-                        # itself?" the way the arm below does. That question
-                        # decides whether a DELIVERY FAILURE claim would be
-                        # false; this notice claims the TURN failed, which is
-                        # true either way, and a room whose agent spoke and
-                        # then broke needs the second half stated.
+                        # Announced whether or not the agent spoke: this notice
+                        # claims the TURN failed, which is true either way, and a
+                        # room whose agent spoke and then broke needs the second
+                        # half stated.
                         try:
                             await self._post_to_room(
                                 from_agent=channel_owner,
@@ -1491,81 +1435,44 @@ class MessageBusTrigger:
                                 content=turn.text,
                             )
                         except Exception as e:  # noqa: BLE001
-                            # Swallowed — a notice must not take the turn down
-                            # — but never silently: this is the room's only
-                            # window onto a broken agent, and a version that
-                            # fails without a trace makes "the room went quiet"
-                            # two indistinguishable causes.
+                            # Swallowed — a notice must not take the turn down —
+                            # but never silently: this is the room's only window
+                            # onto a broken agent, and a version that fails
+                            # without a trace makes "the room went quiet" two
+                            # indistinguishable causes.
                             logger.warning(
                                 f"[team-room] could not post failure notice in "
                                 f"{channel_id}: {e}"
                             )
-                    elif post_state == POST_NOT_ATTEMPTED:
-                        # The runtime declined to deliver, yet nothing here
-                        # calls this turn failed either — the two gates
-                        # disagreed. Reachable when the loop raises after the
-                        # agent already spoke: step_3 refuses to post (a
-                        # half-streamed fragment reads as an answer) and the
-                        # closing frame is `recovered_after_reply`, which is not
-                        # fatal.
+                    elif not spoke and can_judge:
+                        # The turn produced text and none of it reached the room.
+                        # Under the old contract this was the platform's post
+                        # failing; now it is the agent not having called
+                        # `message_team` — the 2026-08-01 briefing-squad shape,
+                        # which this surface was structurally immune to while
+                        # plain text auto-posted and is exposed to again.
                         #
-                        # "already spoke" is exactly the ambiguity, and it has
-                        # to be resolved before announcing anything: the frame
-                        # that makes this reachable is emitted BECAUSE the agent
-                        # used a delivery tool, and one of those tools posts
-                        # into this very room. The prompt forbids them, but that
-                        # is prompt text and the platform does not police what
-                        # the model does with it (CLAUDE.md binding rule
-                        # #15). So ask the room
-                        # instead of assuming: a notice on top of the agent's
-                        # own reply is the same false ⚠️ this lane spent two
-                        # rounds removing from the DM side.
-                        #
-                        # Not `turn.delivered` — that counts
-                        # `send_message_to_user_directly` too, and an agent that
-                        # only told its owner has left this room silent, which
-                        # is precisely the case the announcement is for.
-                        spoke = await self._bus.has_message_from_turn(
-                            channel_id, agent_id, turn.event_id or ""
+                        # The platform does NOT write the reply for it (binding
+                        # rule #15 — we do not police what the model does), but
+                        # the loss must stop being silent, and the text is kept
+                        # for the owner's inbox.
+                        await self._announce_failed_room_post(
+                            agent_id, channel_id, trigger_message, turn,
+                            "the turn produced a reply but never sent it to "
+                            "the room",
                         )
-                        if spoke:
-                            # Nothing to announce: the room heard the agent.
-                            # `posted` stays False all the same — the PLATFORM
-                            # delivery is what a hop measures, and it did not
-                            # happen.
-                            logger.info(
-                                f"[team-room] runtime did not deliver in "
-                                f"{channel_id}, but the agent posted there "
-                                f"itself this turn; no failure notice"
-                            )
-                        else:
-                            await self._announce_failed_room_post(
-                                agent_id, channel_id, trigger_message, turn,
-                                "the runtime did not deliver this turn to "
-                                "the room",
-                            )
-                    if post_state == POST_OK and (capped["names"] or capped["everyone"]):
-                        # Posted after the reply, so the room reads in the order
-                        # things happened: the agent speaks, then the platform
-                        # explains what it declined to do. A log line left the
-                        # user thinking the teammate had ignored the request.
-                        #
-                        # Only when the reply itself landed: narrating "I did
-                        # not pull anyone in" next to a reply nobody can see
-                        # would explain the wrong absence.
-                        from xyz_agent_context.message_bus.team_notices import (
-                            post_cascade_capped,
+                    elif not spoke:
+                        # Undecidable, not a confirmed miss: no event_id header
+                        # this turn, so the identity join cannot run. Announcing
+                        # here is exactly the false ⚠️ this branch must not emit.
+                        logger.debug(
+                            f"[team-room] cannot confirm delivery for {agent_id} "
+                            f"in {channel_id} (no event_id this turn) — assuming "
+                            f"posted, not announcing"
                         )
-                        from xyz_agent_context.utils.db.db_factory import get_db_client
-
-                        await post_cascade_capped(
-                            await get_db_client(),
-                            team_id=team_id,
-                            channel_id=channel_id,
-                            dropped=list(capped["names"]),  # type: ignore[arg-type]
-                            dropped_everyone=bool(capped["everyone"]),
-                            depth=MAX_TEAM_AGENT_HOPS,
-                        )
+                    # The cap's narration is NOT here any more: `team_posting`
+                    # posts it, because it is the thing that applied the cap.
+                    # Narrating from both places said it twice.
                 else:
                     # Write response to inbox
                     await self._write_to_inbox(
@@ -2148,6 +2055,7 @@ class MessageBusTrigger:
             retrieval_anchor="team patrol",
             include_monologue=True,
             team_room=True,
+            patrol=True,
             on_progress=act.on_progress,
             on_event_id=on_event_id,
             cancellation=cancellation,
@@ -2168,11 +2076,25 @@ class MessageBusTrigger:
         # Posted under the ROOM's marker, not the lead's id: that is what
         # keeps the line out of the agent-hop count, and it reads honestly
         # — this is the platform taking stock, not the lead chatting.
+        #
+        # These @mentions DELIBERATELY skip `team_cascade_depth`. Patrol's whole
+        # job is to chase work that has stalled, and a chain that stalled is a
+        # chain the cap has usually already stopped relaying — so applying the cap
+        # here would silence the mechanism precisely when it is needed. What
+        # bounds patrol instead is its own speech cap (`may_patrol_speak`, 6 per
+        # 30 min per team), which is a budget on the platform's voice rather than
+        # on a relay depth.
+        #
+        # Stated explicitly because `team_posting`'s docstring says the cap moved
+        # so that "the loop-breaker was installed on the door the agent was told
+        # not to use" — and this is a door with no counting on it. The difference
+        # is who walks through: an agent relaying an @mention can loop, the
+        # platform posting a status line every 180s at most cannot.
         await self._post_to_room(
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
             to_channel=channel_id,
             content=text,
-            mentions=self._extract_team_mentions(text, member_map) or None,
+            mentions=extract_team_mentions(text, member_map) or None,
             msg_type=PATROL_MSG_TYPE,
         )
         await note_patrol_spoke(db, team_id)
@@ -2263,7 +2185,7 @@ class MessageBusTrigger:
         """One line per member, in the same shape as the Known Agents list.
 
         The shape is not cosmetic. That list renders ``\`id\` — name: desc`` and
-        it is where an agent learns the identifiers `bus_send_to_agent` expects.
+        it is where an agent learns the identifiers `message_agent` expects.
         A roster that gave display names only forced the model to guess a
         mapping between two surfaces, so the two now read alike.
 
@@ -2369,7 +2291,7 @@ class MessageBusTrigger:
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
-        peer/owner-relay path — there is no send_message_to_user_directly step.
+        peer/owner-relay path — there is no notify_owner step.
 
         ``history`` is the recent room scrollback (oldest→newest) so the agent
         sees files/images posted by ANYONE, not only the message that @mentioned
@@ -2411,9 +2333,9 @@ class MessageBusTrigger:
             shared = team_shared_dir(owner_user_id, team_id)
             lines.append(
                 f"Team shared folder: {shared} — files placed here (via "
-                f"bus_share_to_team) are visible to every teammate; open them "
+                f"team_share_file) are visible to every teammate; open them "
                 f"with the Read tool. To find out what is already in there, "
-                f"call bus_list_team_files(team_id=\"{team_id}\") rather than "
+                f"call team_list_files(team_id=\"{team_id}\") rather than "
                 f"guessing a path or asking someone to repeat one. "
                 f"WRITE ANYTHING THE TEAM SHOULD SEE HERE TOO — reports, "
                 f"pages, data files you intend to register as artifacts. Your "
@@ -2433,7 +2355,7 @@ class MessageBusTrigger:
             "",
             "If the team settles on a convention that should govern FUTURE "
             "replies (an output format, where files go), pin it with "
-            "bus_pin_team_rule so nobody has to repeat it — every teammate "
+            "team_pin_rule so nobody has to repeat it — every teammate "
             "loads it every turn. Findings, status and conversation belong in "
             "the chat, not the bulletin.",
         ]
@@ -2488,6 +2410,15 @@ class MessageBusTrigger:
                 "",
                 "[Patrol] Nobody messaged you. The platform woke you because "
                 "this team has unfinished work and you are its Leader.",
+                # This turn is the ONE exception to "words reach the room only
+                # through message_team", and it is stated here rather than in any
+                # shared block because it is true of this surface only (P1). The
+                # platform is asking for a status line and will post it AS THE
+                # ROOM — so the line must not be written as the Leader chatting.
+                "On THIS turn you are composing the room's status line, not "
+                "speaking as yourself: write it as plain text (do NOT call "
+                "message_team) and the platform posts it as the room. Write "
+                "nothing at all to stay silent.",
             ]
             if patrol_stalled:
                 lines.append(
@@ -2503,12 +2434,12 @@ class MessageBusTrigger:
                     "unfinished work' is not 'never coming back', and two "
                     "agents on one deliverable is worse than a late one.",
                     "If something has clearly been delivered but the board "
-                    "still says otherwise, close it with work_complete_item.",
+                    "still says otherwise, close it with team_work_complete.",
                 ]
             else:
                 lines.append(
                     "Nothing is stalled. If there is genuinely nothing worth "
-                    "saying, say NOTHING — reply with empty text. A routine "
+                    "saying, say NOTHING — write empty text. A routine "
                     "'all good' every few minutes is noise in a room the user "
                     "is trying to read."
                 )
@@ -2520,11 +2451,11 @@ class MessageBusTrigger:
                 "Nobody else is watching whether this team's work actually "
                 "finishes — that is your job, and it does not end when you "
                 "hand something out.",
-                "- When you assign work, record it: work_add_item(title, "
+                "- When you assign work, record it: team_work_add(title, "
                 "assignee_id). A task that exists only in your reply is a task "
                 "nobody can notice has stalled — including you, next time you "
                 "wake up, because this turn's memory is gone by then.",
-                "- When someone delivers, close it: work_complete_item(item_id).",
+                "- When someone delivers, close it: team_work_complete(item_id).",
                 "- The board above is the team's real state. If it disagrees "
                 "with what you just read in the room, the room is right and the "
                 "board needs updating.",
@@ -2651,25 +2582,28 @@ class MessageBusTrigger:
                 lines.append(tail)
         lines += [
             "",
-            "Write your chat reply now. Rules:",
-            "- Output ONLY the message itself — natural, conversational text "
-            "(markdown is fine). It is posted to the group as-is; everyone sees it.",
-            # Distinguish REPLY-DELIVERY functions (forbidden — the reply
-            # auto-posts, so re-sending double-delivers) from ACTION tools
-            # (allowed): Read views a file; bus_share_to_team publishes a file to
-            # the team folder (it stages bytes, it does NOT post a message). A
-            # blanket "no tools" ban made agents refuse to open a shared image and
-            # even fake a "forwarded ✅" they couldn't actually do.
-            "- Do NOT deliver your answer through a function: no "
-            "send_message_to_user_directly, no bus_send_message/bus_send_to_agent "
-            "to post this reply — your text below is posted to the group "
-            "automatically. You MAY use action tools that DO something: the "
-            "built-in Read tool to open a file path shown above, and "
-            "bus_share_to_team to publish a file YOU produced to the team folder "
-            "(then mention the returned path in your reply). Do the action, then "
-            "reply with plain text.",
-            "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
-            "need to find…\", no tool/function names, no step-by-step. Just talk.",
+            f"Speak in this room by calling message_team(team_id=\"{team_id}\", "
+            "text=...). Rules:",
+            "- Put ONLY the message in `text` — natural, conversational text "
+            "(markdown is fine). It goes to the group as-is; everyone sees it.",
+            # The room is a tool call now (2026-08-17). It used to be the agent's
+            # plain text, auto-posted by the trigger — which made this the one
+            # surface where "plain text reaches nobody" was false, and every layer
+            # that states the general rule contradicted this one. What replaced
+            # that ban is a positive instruction: nothing is forbidden here, there
+            # is simply one verb that puts words in the room.
+            "- Nothing you write outside that call reaches the room. Thinking it "
+            "through in plain text first is fine and private — but the turn only "
+            "speaks when you make the call.",
+            "- If you have nothing worth saying, make no call at all. Silence is a "
+            "legitimate answer here; a routine acknowledgement is not.",
+            "- You MAY use action tools alongside it: the built-in Read tool to "
+            "open a file path shown above, and team_share_file to publish a file "
+            "YOU produced to the team folder (then mention the returned path in "
+            "your message). Do the action, then say what you found.",
+            "- Do NOT narrate your process or thinking in the message. No "
+            "\"Let me…\", no \"I need to find…\", no tool/function names, no "
+            "step-by-step. Just talk.",
             "- Keep it short, like a real group chat. To pull in a teammate, "
             "@mention them by name (e.g. @Name); say @all for everyone — but only "
             "when you genuinely need them, not as a reflex.",
@@ -2699,65 +2633,6 @@ class MessageBusTrigger:
             "`job_create` if you have it.",
         ]
         return "\n".join(lines)
-
-    def _extract_team_mentions(
-        self, text: str, member_map: Dict[str, str]
-    ) -> List[str]:
-        """Resolve @mentions in an agent's reply to channel-member agent_ids
-        (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
-        tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
-        if not tokens:
-            return []
-        if "all" in tokens or "everyone" in tokens:
-            return ["@everyone"]
-        out: List[str] = []
-        for aid, name in member_map.items():
-            nm = (name or aid).lower()
-            first = nm.split()[0] if nm.split() else nm
-            if nm in tokens or first in tokens or any(
-                len(t) >= 2 and nm.startswith(t) for t in tokens
-            ):
-                out.append(aid)
-        return out
-
-    async def _team_cascade_depth(self, channel_id: str) -> int:
-        """How many consecutive agent (non-user) messages end the channel — i.e.
-        how many agent hops have happened since the last human message. A user
-        message resets this to 0 on its next turn."""
-        ph = self._bus._db.placeholder
-        # Platform lines are excluded IN SQL, not skipped after the fact.
-        #
-        # A patrol line is the PLATFORM taking stock, not an agent taking a
-        # turn, so it must not count toward the cap (owner decision
-        # 2026-08-07, option a) — otherwise the exemption is self-defeating:
-        # patrol speaks into a room that is already at the cap precisely
-        # because the flow broke, and its own line would push every later
-        # chase @ out of reach.
-        #
-        # The same sentence is true word for word of the stop notice and the
-        # bulletin notice, which were left in when this was written because
-        # patrol was the only one that existed. They are now all excluded
-        # through one shared tuple, so the next platform message type cannot
-        # be forgotten here (see `system_messages`).
-        #
-        # Filtering in Python was not enough. The window is a fixed LIMIT, so
-        # a skipped row still consumed a slot in it: with 3 patrol lines among
-        # the last 6 messages, only 3 countable hops fit, `depth` could never
-        # reach MAX_TEAM_AGENT_HOPS, and the runaway-@ cap silently stopped
-        # applying — in exactly the rooms patrol frequents, since it only
-        # speaks where a chain is already looping.
-        rows = await self._bus._db.execute(
-            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
-            f"AND (msg_type IS NULL OR msg_type NOT IN ({_platform_placeholders(ph)})) "
-            f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
-            (channel_id, *PLATFORM_MSG_TYPES),
-        )
-        depth = 0
-        for r in rows or []:
-            if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
-                break
-            depth += 1
-        return depth
 
     async def _incoming_is_reply_to_my_errand(
         self,
@@ -2868,7 +2743,7 @@ class MessageBusTrigger:
             rows = await self._bus._db.execute(
                 # No human-sender filter here on purpose: from_agent is bound
                 # to agent_id, so a usr_-prefixed sender cannot match anyway.
-                # (_team_cascade_depth needs one because it reads EVERY message
+                # (team_posting.team_cascade_depth needs one because it reads EVERY message
                 # in the channel.) A dead predicate would be worse than none —
                 # 'usr_%' is not even precise, since _ is a LIKE wildcard.
                 f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
@@ -2942,7 +2817,7 @@ class MessageBusTrigger:
         Includes all messages in the batch so the agent has full context.
 
         If `owner_user_id` is known, appends an owner-relay directive telling
-        the agent it MUST call send_message_to_user_directly(user_id=<owner>,
+        the agent it MUST call notify_owner(user_id=<owner>,
         ...) to surface the peer exchange back into the owner's chat. Without
         this directive, agents treat peer exchanges as self-contained (they
         reply to the peer or stay silent), and the original owner who asked
@@ -2970,7 +2845,7 @@ class MessageBusTrigger:
         holes this pair of directives still has).
 
         Note the directive an OWNER-RELAY turn receives (item 3: "send a
-        clarifying question with bus_send_to_agent") produces a bus send from
+        clarifying question with message_agent") produces a peer send from
         a bus turn, which is why the same verdict also travels to the tools as
         this turn's errand scope — see ``_invoke_runtime``.
         """
@@ -3012,15 +2887,15 @@ class MessageBusTrigger:
             lines.append("**What to do this turn:**")
             lines.append(
                 "1. If you can answer → reply to the asker with "
-                "`bus_send_to_agent(to_agent_id=<the sender above>, "
-                "content=<your answer>)`. This is the point of the turn."
+                "`message_agent(to=<the sender above>, "
+                "text=<your answer>)`. This is the point of the turn."
             )
             lines.append(
                 "2. If you need something clarified before you can answer → ask "
-                "the peer back via `bus_send_to_agent`."
+                "the peer back via `message_agent`."
             )
             lines.append(
-                "3. Only ALSO call `send_message_to_user_directly` when your "
+                "3. Only ALSO call `notify_owner` when your "
                 "owner genuinely needs to know (a decision only they can make, "
                 "or something affecting their work). It is never a substitute "
                 "for replying to the peer."
@@ -3045,7 +2920,7 @@ class MessageBusTrigger:
             lines.append(
                 "The owner's chat view does NOT automatically receive the "
                 "peer's reply. The ONLY channel that surfaces this exchange "
-                "to the owner is `send_message_to_user_directly`. If you do "
+                "to the owner is `notify_owner`. If you do "
                 "not call it, the owner sees nothing — they only know "
                 "there's a new entry in some inbox they may not be looking "
                 "at. This is a silent-failure pattern we explicitly want to "
@@ -3059,15 +2934,15 @@ class MessageBusTrigger:
             lines.append(
                 "2. If the peer's reply answers / progresses the owner's "
                 "original request → call "
-                f"`send_message_to_user_directly(agent_id=<you>, "
+                f"`notify_owner(agent_id=<you>, "
                 f"user_id=\"{owner_user_id}\", content=<summary + peer "
                 "quote>)`. Make the summary actionable: what did the peer "
                 "say, what does it mean for the owner's task, what's next."
             )
             lines.append(
                 "3. If the peer needs a clarifying follow-up from you → "
-                "send it via `bus_send_to_agent`, THEN also call "
-                "`send_message_to_user_directly` with a short status "
+                "send it via `message_agent`, THEN also call "
+                "`notify_owner` with a short status "
                 "update (\"asked peer for X, waiting for clarification\") "
                 "so the owner knows the thread is alive."
             )
@@ -3090,26 +2965,36 @@ class MessageBusTrigger:
         errand_continuation: bool = False,
         on_progress=None,
         on_event_id=None,
-        include_monologue: bool = False,
         team_room: bool = False,
+        patrol: bool = False,
+        include_monologue: bool = False,
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
-        on_plain_text_delivery=None,
-        segments_sink: Optional[list] = None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
+        ``include_monologue`` is PATROL'S, and only patrol's. A team REPLY is a
+        tool call now (`message_team`), so nothing harvests an agent's plain text
+        as a message any more — except the patrol line, which is a different act:
+        the platform asks the lead to compose the room's status line and then
+        posts it under the ROOM's own marker with `msg_type=patrol`. A tool could
+        not do that (a tool posts as the agent, and the line would then count as
+        an agent hop and read as the lead chatting).
+
+        NexusPower streams an agent's plain text as AGENT_THINKING with the
+        monologue subset set, so without this flag `turn.text` is EMPTY on that
+        framework — dropping it would have made patrol silently stop working for
+        every nexus_power agent while looking fine on claude_code.
+
         Returns a ``TurnResult``.
 
-        ``segments_sink`` — the caller's list, filled by the collector AS THE RUN
-        STREAMS. The monologue/reply boundary used to ride back on the result,
-        which stopped working the moment the room post moved inside the turn:
-        the deliverer needs the boundary for the text it is posting, and the
-        result does not exist yet. The field on ``TurnResult`` outlived its last
-        reader by one merge and has been removed rather than left as a channel
-        that writes to nobody.
+        ``segments_sink`` is NOT a parameter here any more, and the paragraph
+        that used to describe it is gone with it: the team lane stopped
+        harvesting an agent's plain text when the room became a tool call, so
+        there is nothing to accumulate mid-run. `run_collector` still accepts the
+        argument for its own callers.
 
         ``errand_continuation`` is the DM classifier's verdict ("this batch
         answers an errand I started"). When true, this turn's ERRAND SCOPE
@@ -3143,11 +3028,10 @@ class MessageBusTrigger:
         `collect_run` so the turn's events-row id gets bound onto the
         activity row for the team UI.
 
-        `on_plain_text_delivery` (team branch only) is the room deliverer: the
-        runtime hands it the turn's plain text so the post happens INSIDE the
-        turn, where `hook_persist_turn` can still record it as a reply. DM
-        passes None — a DM reply belongs in the inbox, and handing that lane a
-        deliverer would post it into the channel as well.
+        There is NO plain-text deliverer any more. The room used to be handed
+        the turn's plain text by the runtime; it takes a tool call now, so this
+        method's only remaining question about a team turn is whether the agent
+        posted — which the bus can answer directly.
 
         Raises:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
@@ -3166,9 +3050,39 @@ class MessageBusTrigger:
             user_id=sender_agent_id,
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
+            # PATROL ONLY (see the parameter's note in `_invoke_runtime`).
+            include_monologue=include_monologue,
+            # Team rooms only: one in-turn nudge if the turn is about to end
+            # without having spoken.
+            #
+            # The PRIMARY net is not this — it is that `message_team` is the
+            # turn's DECLARED default reply tool, which both frameworks' reply
+            # reminders render. This is the extra one, and it only exists on
+            # NexusPower (`loop.py` STOP_CHECK); a claude_code agent gets the
+            # reminder and the after-the-fact room notice, not the nudge.
+            #
+            # Deliberately NOT the helper-LLM fallback that the IM DM lane uses.
+            # That path has a helper write the reply and the platform deliver it
+            # — acceptable in a 1:1 thread, wrong in a team room, where it would
+            # be the platform impersonating an agent in front of its teammates
+            # and its owner. The room is told the turn said nothing instead
+            # (`_announce_failed_room_post`), and the words stay the agent's.
+            #
+            # A minimal profile, not `fast_for(...)`: every other field's default
+            # preserves current behaviour, and `narrative_persistence` is read
+            # only on the `bm25_top1` fast path, which this does not take.
+            # `expression_nudge` is the MESSAGE lane's, not patrol's. It fires
+            # NexusPower's mute-turn repair when a turn closes having called no
+            # reply tool — correct when the room expects `message_team`, exactly
+            # wrong on patrol, where closing with plain text (or in silence) is
+            # the specified outcome and the nudge would name a tool the patrol
+            # prompt forbids.
+            turn_profile=(
+                TurnProfile(name="team_room", expression_nudge=True)
+                if team_room and not patrol else None
+            ),
             on_progress=on_progress,
             on_event_id=on_event_id,
-            include_monologue=include_monologue,
             # Rides the extra_kwargs seam straight to AgentRuntime.run — no
             # signature change anywhere in between (collect_run's docstring
             # names `cancellation` as a supported pass-through). Until now
@@ -3180,18 +3094,23 @@ class MessageBusTrigger:
             # returns, so a post that lands after it cannot be recorded as a
             # reply — which is why every team turn used to file as "no reply
             # sent" and start the next one cold.
-            on_plain_text_delivery=on_plain_text_delivery,
-            segments_sink=segments_sink,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                # Delivery-contract marker: team rooms auto-post plain text
-                # and their prompt forbids delivery tools, so the collection
-                # (context_runtime) empties the turn's WHOLE expressive
-                # surface on this marker — every declarer, both frameworks'
-                # reminders. MessageBusModule's own gate is a second line
-                # of defense on its declaration.
+                # Delivery-contract marker: on a team-room turn the send verb
+                # is `message_team`, not the peer `message_agent`.
+                # MessageBusModule reads it (get_expressive_tools /
+                # get_disallowed_tools) to declare message_team and drop
+                # message_agent off the desk. Plain-text auto-post is retired, so
+                # this marker no longer empties the whole expressive surface —
+                # that is the patrol marker below. Deleting it does not silence
+                # the room; it makes the turn advertise the peer verb and post
+                # team replies into the wrong conversation.
                 BUS_TEAM_ROOM_EXTRA_KEY: team_room,
+                # Patrol delivers by speaking: the platform posts the composed
+                # line under the room's own marker. The module reads this to
+                # declare nothing and clear both send verbs off the desk.
+                BUS_PLAIN_TEXT_TURN_EXTRA_KEY: patrol,
                 # Errand scope — empty unless this turn continues our own
                 # errand. sender_agent_id is the peer whose reply triggered us,
                 # i.e. exactly who a follow-up would go to.
@@ -3269,10 +3188,11 @@ class MessageBusTrigger:
         the trust this whole change exists to rebuild.
 
         ``MessageSourceRegistry.get`` NEVER raises — it silently falls back to
-        the default handler (owner-chat tool only) for an unregistered source,
+        the default handler (the two owner-facing tools only) for an
+        unregistered source,
         which is a second, quieter failure mode than the exception this
         try/except covers. Both must fail open to True: a downgraded registry
-        that no longer recognises ``bus_send_message`` would otherwise stamp
+        that no longer recognises ``message_team`` would otherwise stamp
         "no reply" under every turn that answered its peer correctly.
         """
         try:

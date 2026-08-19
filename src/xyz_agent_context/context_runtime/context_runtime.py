@@ -13,7 +13,6 @@ from loguru import logger
 
 # Schema
 from xyz_agent_context.schema import (
-    BUS_TEAM_ROOM_EXTRA_KEY,
     ContextData,
     ModuleInstructions,
     ContextRuntimeOutput,
@@ -74,6 +73,31 @@ def build_reply_language_section(language: str | None) -> str:
         return ""
     name = _REPLY_LANGUAGE_NAMES.get(code.lower().split("-")[0], code)
     return REPLY_LANGUAGE_SECTION.format(name=name, code=code)
+
+
+def _is_signature_typeerror(exc: TypeError) -> bool:
+    """Did the CALL fail, or did the callee's body raise?
+
+    A signature TypeError is raised while binding arguments, so it never enters the
+    callee — its traceback has exactly one frame, ours. A TypeError from inside a
+    correctly-shaped implementation has at least one more.
+
+    **True only for an UNDECORATED callable.** A `functools.wraps` wrapper taking
+    `*args, **kwargs` absorbs the arity check, so the inner binding failure carries
+    two frames and lands in the other arm — reported as "raised" rather than as a
+    signature mismatch. No hook in-tree is decorated (six definitions of these two
+    hooks, all plain `async def`), and both arms fail open identically, so the cost
+    is log text. Stated because the alternative is a docstring that is confidently
+    wrong for a shape somebody may well introduce.
+
+    Worth distinguishing because both arms fail open identically, so the only thing
+    at stake is what the log says — and a loud line with the wrong cause sends
+    on-call to check an override signature that is fine, while the actual fault goes
+    unlooked-at. Verified: a module with the correct `(self, ctx_data=None)` shape
+    whose body did `["a"] * None` was reported as "signature mismatch".
+    """
+    tb = exc.__traceback__
+    return tb is None or tb.tb_next is None
 
 
 class ContextRuntime:
@@ -635,7 +659,7 @@ class ContextRuntime:
         Diagnostic for the system-prompt-growth incident (2026-07): the prompt
         drifts toward the 115K ceiling (MAX_SYSTEM_PROMPT_LENGTH) and, once the
         reply instruction is diluted / history is evicted, the agent stops
-        calling send_message_to_user_directly. Logging every round's
+        calling its reply tool at all. Logging every round's
         composition makes the growth source greppable in production without a
         debug build. Pure/static so it is unit-testable in isolation.
 
@@ -1239,14 +1263,17 @@ class ContextRuntime:
         # falling back to priority order (chat=1 first) when no module
         # owns the source. Deterministic across turns either way.
         #
-        # Team rooms are the one surface with NO delivery surface at all:
-        # the agent's plain text auto-posts to the room and the prompt
-        # forbids delivery tools. An empty declaration keeps both
-        # frameworks' reply reminders silent there — listing ANY tool
-        # (chat's unconditional owner-notify included) would put a
-        # "plain text is never delivered" reminder right next to the
-        # team prompt saying the opposite.
-        team_room_turn = bool(turn_extra.get(BUS_TEAM_ROOM_EXTRA_KEY))
+        # Team rooms USED to be the one surface with no delivery surface at
+        # all: the agent's plain text auto-posted and the prompt forbade
+        # delivery tools, so an empty declaration was the only way to keep both
+        # frameworks' reminders from contradicting the team prompt.
+        #
+        # That exception is gone (2026-08-17). A team reply is a `message_team`
+        # call like every other surface's reply, so the general rule — "whoever
+        # contacted you receives only what you send through a reply tool" — is
+        # true everywhere again and the reminder can simply be rendered. The
+        # modules decide WHICH verb belongs on this turn; the collection no
+        # longer needs to know that team rooms exist.
         expressive_declarations: list[tuple[int, int, str, list[str]]] = []
         seen_module_classes = set()
         collected_count = 0
@@ -1290,12 +1317,35 @@ class ContextRuntime:
                 # Failures fail-open — suppression is an optimization, never
                 # worth breaking the turn over.
                 try:
-                    suppressed = await inst.module.get_disallowed_tools()
+                    suppressed = await inst.module.get_disallowed_tools(ctx_data)
                     if suppressed:
                         disallowed_tools.extend(suppressed)
                         logger.debug(
                             f"          ⛔ {inst.module_class} suppresses "
                             f"{len(suppressed)} tools (setup-residency)"
+                        )
+                except TypeError as e:
+                    # Same loud arm as the declaration below, for the same reason
+                    # and now with a precedent: this hook GREW `ctx_data` on
+                    # 2026-08-18, so a stale `(self)`-only override is a live
+                    # possibility rather than a hypothetical. Fail-open would
+                    # suppress nothing, and on a patrol turn that leaves both
+                    # send verbs on a desk whose prompt forbids them — the C1
+                    # defect class, back, behind a warning nobody greps.
+                    #
+                    # But only when the SIGNATURE is what rejected the call: a
+                    # TypeError from inside a correctly-shaped body reported as a
+                    # signature mismatch sends the reader to check a signature
+                    # that is fine.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_disallowed_tools signature mismatch "
+                            f"for {inst.module_class} (suppression DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_disallowed_tools raised for "
+                            f"{inst.module_class} (suppression DROPPED)"
                         )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
@@ -1304,14 +1354,8 @@ class ContextRuntime:
                     )
                 # Same fail-open posture as suppression: a module whose
                 # declaration crashes simply contributes no reply tools.
-                # Team rooms skip collection entirely (empty surface — see
-                # the declaration comment above).
                 try:
-                    declared = (
-                        []
-                        if team_room_turn
-                        else await inst.module.get_expressive_tools(ctx_data)
-                    )
+                    declared = await inst.module.get_expressive_tools(ctx_data)
                     if declared:
                         # Origin-first: the module that OWNS this turn's
                         # working_source sorts ahead of everyone, so the
@@ -1345,10 +1389,20 @@ class ContextRuntime:
                     # failure once silently muted ChatModule's declaration
                     # (fail-open turned a signature drift into an empty
                     # reply surface for the whole turn).
-                    logger.error(
-                        f"          get_expressive_tools signature mismatch "
-                        f"for {inst.module_class} (declaration DROPPED): {e}"
-                    )
+                    #
+                    # Split the same way as the suppression arm above: fixing one
+                    # and not the other would make the untouched message actively
+                    # misleading by contrast.
+                    if _is_signature_typeerror(e):
+                        logger.error(
+                            f"          get_expressive_tools signature mismatch "
+                            f"for {inst.module_class} (declaration DROPPED): {e}"
+                        )
+                    else:
+                        logger.exception(
+                            f"          get_expressive_tools raised for "
+                            f"{inst.module_class} (declaration DROPPED)"
+                        )
                 except Exception as e:  # noqa: BLE001 — fail-open
                     logger.warning(
                         f"          get_expressive_tools failed for "

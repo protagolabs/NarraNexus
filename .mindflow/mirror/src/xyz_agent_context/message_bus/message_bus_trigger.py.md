@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
+
+`has_message_from_turn` 的判据是 `event_id` 身份 join，而 event_id 来自 MCP 请求头、合法地会缺失（identity 从不是 flow control）。改为：`can_judge = bool(turn.event_id)`；判不了时**假定已投递**（`posted = spoke or not can_judge`），只有 event_id 在场且 join 为空才 `_announce_failed_room_post`。此前缺 header → `spoke=False` → 在一条已在房间里的回复下贴假「never sent it」通告 + `_hop_done` 低估投递率。由 `test_team_delivery_e2e.py::...without_an_event_id` 钉住。
 
 ## 2026-08-17 — 板子进 prompt 加上限（review 🔴3 的第三项）
 
@@ -121,6 +125,73 @@ trigger 发一条团队回复再把行读回来**的测试；把修复的任意�
 真机复验通过：`service_audit` 落到
 `{"stage": "worker_starvation", "starved_for_s": 27, "running": 1, "waiting": 1,
 "max_workers": 1, "longest_running_agent": ...}`。
+
+## 2026-08-17 — team 回复改成工具调用，投递不再是 trigger 的事
+
+`_deliver_reply` / `include_monologue=is_team` / `on_plain_text_delivery` /
+`live_segments` / `POST_OK|FAILED|NOT_ATTEMPTED` 全部删除。房间收
+`message_team`，落点在 [[team_posting]]。
+
+**事后记账从「平台投递成功了吗」变成「agent 这一轮在房间里说过话吗」**，而这个问题
+`has_message_from_turn` 本来就能答（它此前只在 `POST_NOT_ATTEMPTED` 那一支被用到）。
+于是整块三态状态机塌成一个布尔。**刻意不用 `turn.delivered`**：那会把
+`notify_owner` 也算进去，而只通知了 owner 的 agent 把房间留在沉默里
+——正是通知存在的理由。
+
+**级联上限的叙述从这里移走**（搬到 team_posting，因为施加上限的是它）；两处都留会说两次。
+
+**fatal 通知保持不变**，仍以房间自己的标记发、且不问 agent 有没有说过话：这条通知声称的是
+**这一轮失败了**，不论如何都为真。
+
+### `include_monologue` 只剩 patrol，而它必须剩下
+
+patrol 是**另一件事**：平台请 lead 撰写房间的状态行，然后以**房间自己的标记** +
+`msg_type=patrol` 发出去。工具做不到这件事（工具以 agent 身份发，那条线会被算成 agent
+一跳、并读作 lead 在闲聊）。而 NexusPower 把 agent 的纯文本走 AGENT_THINKING，**去掉这个
+开关会让 patrol 在 nexus_power 上静默失效、在 claude_code 上看起来正常**——本仓吃过两次的
+那个形状。守卫从「team 批次必须开」翻转成「team 批次不许开 + patrol 必须开」
+（`test_team_monologue_wiring`）。
+
+patrol 的 prompt 现在**自己说明**这条例外（P1：surface 特有的事实由该 surface 自己讲）：
+「这一轮你在撰写房间的状态行，不是以自己的身份说话：写成纯文本、不要调 message_team」。
+
+### 安全网（与投递变更同批，不可拆）
+
+briefing-squad 那个 P0 重新进入射程——纯文本自动上墙时它结构上不可能发生。三层网：
+
+1. **`message_team` 是本轮声明的默认回复工具** → 两个框架的 reply reminder 都会渲染它。
+   **这是主网**，且两个框架都覆盖。
+2. **哑轮通知**：turn 产出了文本但房间里什么都没有 → `_announce_failed_room_post`
+   （措辞改为「产出了回复但从未发给房间」）。平台**不**替它写（铁律 #15），但损失不再静默。
+3. **`expression_nudge`**：team 轮次传一个最小 `TurnProfile`（只开这一项，其余全默认；
+   `narrative_persistence` 只在 `bm25_top1` 快路上被读，本 profile 不走那条）。仅
+   NexusPower 有。
+
+**刻意没用 IM DM 那条 helper-LLM 兜底。** 那条路让 helper 写回复、平台投递——在 1:1 里
+可以接受，在 team 房间里是**平台冒充一个 agent 在它的队友和 owner 面前发言**。spec §5.2
+建议把 team 从兜底排除名单里摘出来，这里没有照做，理由就是这一句。
+
+## 2026-08-17 — 唤醒终于跨进程了（`_wait_cross_process_wake`）
+
+2026-08-14 那条的末尾写着「要跨进程就得上 DB 信号 + 读取方，**等 peer DM 延迟真成为
+抱怨再说**」。现在必须做了，原因不是抱怨，是**契约变了**：team 回复改成 MCP 工具
+（`message_team`）之后，房间自己的接力**搬到了进程内 Event 从来覆盖不到的那条路上**。
+不做的话，把 team 投递改成工具会把 `c7739ad1` 量出来的延迟收益吐回去一部分——而且是以
+「房间安静了」的形式被用户感知到，正是铁律 #16 禁止的那类退步。
+
+`_sleep_until_due` 现在同时等三个：stop、进程内 `_wake_event`、以及
+`_wait_cross_process_wake()`。第三个每 `WAKE_SIGNAL_SLICE`（0.5s）读一次
+[[wake_signal]] 的单行信号，变了就返回。
+
+**为什么读信号而不是直接跑 pending 扫描**：那个扫描正是这套东西要调度的昂贵查询，每
+0.5s 跑一遍就把目的抵消了。单行读，每秒两次。
+
+**fail open 且安静**：信号读不到 = 没有新消息，退回调用方的 timeout。为一个延迟优化把
+poll 循环搞崩是本末倒置。但「安静」不等于「不可观测」——能发现信号失效的是
+`[bus-timing]` 里的 `queue_wait`（铁律教训 #4：只有 L1 存活检查是僵尸的后门）。
+
+**连带**：`_post_to_room` 与那条结构性守卫测试的立论消失了（见 [[local_bus]] 同日条）。
+唤醒现在在 `send_message` 里面，调用方无从遗漏。该测试待随 team 投递契约改动一并处理。
 
 ## 2026-08-14 — 投递即唤醒（`_wake`）+ 槽位饥饿告警 + `MAX_WORKERS` 配置化
 
@@ -1380,3 +1451,24 @@ worker 池是**进程级、跨用户共享**的,所以后果不局限在这个�
 此前只有 `logger.info`。通知发在**回复之后**，让房间按事情发生的顺序读：
 agent 先说话，然后平台解释它没做什么。名字用 `member_map` 解析成显示名——
 「agent_b 没被拉进来」不是用户能行动的句子。
+
+## 2026-08-18 — 删除 `_record_errands`（合并残留的死代码）
+
+与 dev 的 PR #310 合并后，trigger 侧这份差事记账已无调用者：它原本由 `_deliver_reply` 调用，
+而该方法随「房间改为工具调用」一并移除。活的实现在 [[team_posting.py]]，理由同级联上限——
+这是「把消息放进团队房间」的属性，不是「恰好触发了本轮的循环」的属性。
+
+## 2026-08-18 — 删掉级联上限的三个重复符号与死常量
+
+`MAX_TEAM_AGENT_HOPS`、`_extract_team_mentions`、`_team_cascade_depth` 在
+[[team_posting.py]] 落地后是**复制**而非移动，trigger 侧仍留着一份；`_team_cascade_depth`
+已无生产调用者，而「平台行必须在 SQL 的 WHERE 里排除、不能取回后再过滤」这条上限真正依赖
+的不变量，测试只钉在这份死代码上 —— 从活的查询里删掉排除子句，整个测试套照样全绿。
+
+删除前先把断言搬到活实现上，并发现搬过去的断言本身也钉不住：`depth >= MAX_TEAM_AGENT_HOPS`
+在两种读法下都成立（平台行自己就把计数凑满了）。改成精确值构造 —— 一条用户发言 + 三个真实
+hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确），取回后再过滤得 6，且用户那条
+「重置点」被挤出窗口从此不可见，于是刚被用户重启的三跳链会被误判超限、@ 被剥掉。两条测试
+均做过变异验证。
+
+顺带删除三态 `POST_OK`/`POST_FAILED`/`POST_NOT_ATTEMPTED`（铁律 #2）。

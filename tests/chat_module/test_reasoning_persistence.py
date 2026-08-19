@@ -11,7 +11,7 @@ Agent kept looping on Lark incremental-scope authorization because the
 tool_call_output_item — stripped from the next turn's context. The Agent
 could neither paste the value into the follow-up `--device-code` call
 nor recognize it had minted one already. Root cause: ChatModule stored
-only the `send_message_to_user_directly.content` (what the user sees);
+only the `reply_owner.content` (what the user sees);
 the Agent's own reasoning text (which could have carried the
 `device_code` across turns) was discarded.
 
@@ -62,15 +62,15 @@ def chat_module(db_client):
 
 
 def _reply_progress(text: str) -> ProgressMessage:
-    """A ProgressMessage wrapping a successful send_message_to_user_directly
+    """A ProgressMessage wrapping a successful reply_owner
     tool call — matches what AgentRuntime sends to the hook."""
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )

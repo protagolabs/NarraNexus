@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-07-30
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -96,3 +96,13 @@ response_processor`），import 时常量尚未绑定（2026-06-11 incident）�
 
 - `AgentTextDelta.delta` is a *chunk*, not the full response. Multiple deltas must be concatenated by the consumer to form the complete agent response. Do not display `delta` alone as if it were the complete answer.
 - These message types are used for real-time streaming only. The persistent record of what the agent said is stored in `EventLogEntry` (in `narrative/models.py`), not in these objects. The `agent_loop_response` list in `HookExecutionTrace` may hold serialized versions of these objects for post-hoc analysis, but the source of truth for storage is always the event log.
+
+
+## 2026-08-18 — owner 工具改名跟随
+
+`send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`
+（未被问就主动告知）。两者行为相同但纪律相反，合成一个工具就要求模型每轮自己判断该用哪种
+register。本文件里改到的是该 handler 注册的 `user_reply_tool_names` / 相关文案 —— 一两行，
+但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
+`render_origin_declaration` 取 label 的同一条记录。规范解释见
+[[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

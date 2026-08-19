@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_display.py
-last_verified: 2026-04-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — owner 工具两个名字各占一条图标条目
+
+图标表的 key 从 `send_message_to_user_directly` 拆成 `reply_owner` + `notify_owner`
+两条。一个目的地两种语气，**两条都要有**：漏掉的那个会落到 `_default`（🔧、无名字），
+把 owner 自己的回复渲染成一次匿名的普通工具调用。
+
 # step_display.py — Pipeline Display Formatting Utilities
 
 ## Why It Exists

@@ -92,14 +92,14 @@ def _hook_params(
 
 
 def _success_progress_with_reply(text: str) -> ProgressMessage:
-    """A ProgressMessage that wraps a successful `send_message_to_user_directly` tool call."""
+    """A ProgressMessage that wraps a successful `reply_owner` tool call."""
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )
@@ -143,7 +143,7 @@ async def test_failed_turn_stores_user_message_only_with_failed_status(
 async def test_failed_turn_with_partial_assistant_output_still_not_stored_as_pair(
     chat_module,
 ):
-    """Even if the agent managed a partial `send_message_to_user_directly`
+    """Even if the agent managed a partial `reply_owner`
     before crashing, the turn is still a failure — we must not store
     the partial reply as a completed assistant answer that would trick
     the next turn into continuation.

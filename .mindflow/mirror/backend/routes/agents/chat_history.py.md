@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-05
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -137,3 +137,23 @@ Event 的 `event_log` 字段里存的是流式 delta，每个 thinking_delta 是
 `events`——两个结论都错。`/simple-chat-history`（聊天面板）读的是
 `instance_json_format_memory_chat`；`/chat-history`（Narrative / Runtime 面板）
 读的才是 `events`。见 [[agent_message_repository]] 2026-08-05。
+
+## 2026-08-18 — `/clear` 的响应补上五个一直没上报的计数器
+
+`WipeResult`（dataclass）→ `ClearHistoryResponse`（pydantic）→ 本路由手写的 kwargs：同一个字段表
+存在**三处**，且已经漂过两次。补上 `inbox_threads_count` / `inbox_thread_messages_count`
+（inbox 搬到自己的表时加的），以及三个更早就漏了的 `bus_failures_count` /
+`report_memory_count` / `instance_links_count`。
+
+**为什么这不是「数字不好看」的问题。** 同一批修掉的缺陷是「清空 agent 会话报告成功却什么都没
+清」（IM 记录搬表后，[[wipe_service.py]] 的清理循环再也找不到任何该删的行）。而**报告**这一半
+原本仍然瞎：本路由返回的 inbox 计数恒为 0，所以将来某次回归让 inbox 删除静默失效时，响应体与
+一次成功的清理**逐字节相同** —— 那正是原缺陷当初能活下来的机制。下一张「我清空了但 Lark 历史
+还在」的工单，拿到的响应体分不出这两种情况。
+
+`test_wipe_result_fields_reach_the_api` 现在断言每个 `*_count` 都出现在响应模型里**并且**被本
+路由真的填上 —— 有位置放却没人填会静默默认 0，与根本没有那个字段一样瞎。它当场就抓出了上面
+那两处更早的遗漏，不是有人注意到的。
+
+**加字段时的陷阱**：`WipeResult.narrative_ids` 在响应里叫 `narrative_ids_deleted`，所以不能用
+`**asdict(result)` 一把展开；覆盖测试因此只断言 `*_count` 这一类，而不是全字段相等。

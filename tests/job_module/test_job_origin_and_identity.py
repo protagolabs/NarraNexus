@@ -204,10 +204,18 @@ async def test_the_target_entity_is_not_touched(db_client):
 def test_a_room_job_is_told_its_reply_goes_to_the_room():
     """The prompt and the delivery have to agree.
 
-    Telling a room-origin job to call `send_message_to_user_directly` is how
-    the answer ended up in the owner's private chat; telling a private job that
-    its plain text auto-posts would lose the answer entirely. One template per
-    surface, chosen by the recorded origin.
+    Naming the owner's tool in a room-origin job is how the answer ended up in
+    one person's private chat while the room that asked heard nothing. One
+    template per surface, chosen by the recorded origin.
+
+    Both templates changed on 2026-08-17 and the room one changed in substance,
+    not wording: it used to say the reply auto-posts and no function was needed.
+    That was true only while the team room accepted plain text — the single
+    surface where "plain text reaches nobody" was false. It is a tool call now,
+    so an unchanged room prompt would have told a job to write its report and
+    stop, and the room would have received nothing at all. The assertions below
+    pin the tool NAMES rather than prose, because a name is what the agent has
+    to be able to call.
     """
     from xyz_agent_context.module.job_module.prompts import (
         JOB_DELIVERY_TO_OWNER,
@@ -220,8 +228,16 @@ def test_a_room_job_is_told_its_reply_goes_to_the_room():
 
     assert room is JOB_DELIVERY_TO_ROOM
     assert private is JOB_DELIVERY_TO_OWNER
-    assert "send_message_to_user_directly" not in room
-    assert "send_message_to_user_directly" in private
+    # Each names its own surface's tool, and NEITHER names the other's — a
+    # template that mentioned both would leave the choice to the model, which
+    # is the failure the split exists to remove.
+    assert "message_team" in room and "notify_owner" not in room
+    assert "notify_owner" in private and "message_team" not in private
+    # The retired name must not survive anywhere: it would point the job at a
+    # tool that no longer exists on any desk.
+    assert "send_message_to_user_directly" not in room + private
+    # And the room prompt must not go back to promising an auto-post.
+    assert "automatically" not in room
     # An unknown origin degrades to the surface that always exists.
     assert job_delivery_instructions("carrier_pigeon") is JOB_DELIVERY_TO_OWNER
 

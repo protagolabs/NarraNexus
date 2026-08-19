@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 ## 2026-08-14 — BusMessage.segments
@@ -91,3 +91,24 @@ rooms」现在只说对了一半。agent 自己调 `bus_send_message` / `bus_sen
 「发的时候知道自己在哪一轮」。为 None 的三种情形:用户消息、列存在之前的旧行、以及
 发送方确实说不出轮次(头缺失时按设计静默降级,消费方一律按「说不准」处理,绝不按
 「发生过」)。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

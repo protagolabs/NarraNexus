@@ -1,5 +1,5 @@
 /**
- * Blank replies never become bubbles: when send_message_to_user_directly
+ * Blank replies never become bubbles: when reply_owner
  * carries whitespace-only content ("\n"), stopStreaming falls through to
  * the placeholder branch — the same line the backend hook_persist_turn
  * strip guard draws. Otherwise the session shows a blank bubble that
@@ -20,14 +20,14 @@ const AGENT = 'agent_blank_reply';
 const replyProgress = (content: string, id: string, ts = 1000): ProgressMessage => ({
   type: 'progress',
   step: '3.4.1',
-  title: 'send_message_to_user_directly',
+  title: 'reply_owner',
   description: '',
   status: 'completed',
   substeps: [],
   // Distinct timestamps: currentToolCalls dedups on tool_name+timestamp.
   timestamp: ts,
   details: {
-    tool_name: 'mcp__chat_module__send_message_to_user_directly',
+    tool_name: 'mcp__chat_module__reply_owner',
     tool_call_id: id,
     arguments: { content },
   },

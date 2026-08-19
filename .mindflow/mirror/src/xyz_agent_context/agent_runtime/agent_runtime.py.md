@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-14
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 去掉 `on_plain_text_delivery`
+
+team 房间的纯文本投递回调没了（见 [[step_3_agent_loop]]），这个参数随之从 `run()` 签名
+和 `StepContext` 上删除。没有生产调用方再传它。
+
 
 ## 2026-08-14 — chat fast mode: run() 增 fast_mode 布尔（策略收敛在 runtime）
 

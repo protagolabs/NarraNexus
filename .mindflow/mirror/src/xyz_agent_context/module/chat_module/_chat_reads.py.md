@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_reads.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
 
@@ -19,7 +19,7 @@ stub: false
    已注册 schema_registry，auto_migrate 保证存在——删存在性检查、改 `db.get_one`（双方言安全，
    先例 chat_history.py get_simple_chat_history）。
 2. **instance 归属校验（闭 IDOR）**：旧工具只收 `instance_id`，任何 agent 猜到 `chat_xxx`
-   就能读别的 agent 的会话。现加 `agent_id`（LLM 传，同 send_message_to_user_directly 先例），
+   就能读别的 agent 的会话。现加 `agent_id`（LLM 传，同 reply_owner 先例），
    instance 必须属于该 agent；外来/未知 instance 读作**空历史**（无存在性 oracle，与自己没消息的
    instance 不可区分）。孪生路由再 owner-gate agent_id → 云调用方必须拥有该 agent。
    - **残留面（有意，勿在此模式上挂更敏感读）**：agent_id 是 LLM 自报、DirectStore 本地路径无门禁，故本地只把攻击从「猜 instance_id」收紧到「猜匹配的 (agent_id,instance_id)」——变好非关闭；云端 assert_owned 关**跨用户**，同 owner 名下 agent A 读 agent B 会话仍可（owner 本就有全部数据访问权，可接受）。

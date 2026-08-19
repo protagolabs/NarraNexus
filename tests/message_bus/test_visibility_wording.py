@@ -58,8 +58,16 @@ def test_resurfacing_is_scoped_to_where_it_happens():
     keeping the moment the agent is in a team."""
     text = _static_text()
 
-    line = next(ln for ln in text.splitlines() if "resurface" in ln.lower())
-    assert "direct" in line.lower() or "dm" in line.lower()
+    # The wording moved off "resurface" (2026-08-17 rewrite); the GUARANTEE is
+    # unchanged — the claim must name the surface it holds on, because a team
+    # room clears its cursor once a turn has rendered it.
+    line = next(
+        ln for ln in text.splitlines()
+        if "comes back" in ln.lower() or "resurface" in ln.lower()
+    )
+    low = line.lower()
+    assert "private" in low or "direct" in low or "dm" in low
+    assert "room works differently" in text
 
 
 def test_a_teammate_is_marked_as_one_in_the_known_agents_list():
@@ -129,36 +137,68 @@ def test_the_delivery_rule_defers_the_mechanism_to_the_surface():
         if "Finished work is never ping-pong" in ln
     )
 
-    assert "bus_send_message" in line
-    assert "posted for you" in line
+    # 2026-08-17 — this used to require the tool NAMES in the line. It must not
+    # any more: there is one send verb per surface now, and naming any of them
+    # here would be the surface-specific claim P1 forbids. What has to hold is
+    # that the rule points at the turn for the how, instead of leaving "deliver
+    # it" unactionable.
+    assert "the send call this turn offers you" in line
+    assert "only the turn knows" in line
 
 
-def test_the_delivery_rule_states_the_team_case_as_a_prohibition_and_first():
-    """A two-branch rule whose branches BOTH match is not a rule.
+def test_the_delivery_rule_names_no_surface_specific_tool():
+    """RETIRED-AND-REPLACED 2026-08-17.
 
-    The first draft read "when a bus delivery tool is offered, send with it;
-    when your reply is posted for you, writing it IS delivering". On a team
-    turn both antecedents hold — the team gate empties the expressive
-    declaration, but the tool schemas stay in context because this module has
-    no `get_disallowed_tools` override — and the sentence gave no precedence.
-    The branch a model can act on straight from the tool list is the one that
-    double-posts.
+    The old assertion required "do NOT also call a delivery tool" plus the team
+    case first — a prohibition that existed because a team room auto-posted the
+    agent's plain text, so calling a tool as well double-posted. Nothing
+    auto-posts any more, so that hazard is gone and the prohibition would now be
+    describing a mechanism that does not exist (P5).
 
-    So the team case comes FIRST and is phrased as a prohibition, and the tool
-    branch is the fallthrough.
+    What replaces it is narrower than the sentence that used to sit here, which
+    claimed "the block must not name a per-surface tool at all" while checking a
+    single line. The block DOES name both send verbs — it has to, since it is
+    where their disciplines are taught and it cannot branch on the turn (R4
+    byte-stability). What it must not do is attach a per-surface tool to the
+    GENERAL delivery rule, which is the line this checks: that rule applies to
+    every surface, so naming one surface's verb in it is false on the others.
+
+    The "exactly one per turn" half is pinned in test_bus_expressive_declaration
+    (the desk) and by the test below (the text that has to admit it).
     """
     line = next(
         ln for ln in _static_text().splitlines()
         if "Finished work is never ping-pong" in ln
     )
 
-    assert "do NOT also call a delivery tool" in line
-    assert line.index("posted for you") < line.index("bus_send_message")
-    # The antecedent is "posted for you WITHOUT A TOOL CALL". Unqualified, it
-    # brushes against narramessenger's "delivered to this room automatically",
-    # where a tool call IS required — and there the prohibition would suppress
-    # a real delivery, which is worse than the double-post it guards.
-    assert "without a tool call" in line
+    for surface_tool in ("message_team", "message_agent", "reply_owner"):
+        assert surface_tool not in line, (
+            f"{surface_tool} is surface-specific; naming it in the byte-stable "
+            f"block is the P1 violation this file exists to catch"
+        )
+
+def test_the_block_admits_that_only_one_send_verb_is_on_the_desk():
+    """The block teaches both verbs; the turn holds one. It has to say so.
+
+    `get_disallowed_tools` removes the other verb's SCHEMA, so an agent that
+    reads the team-rooms section on an owner-chat turn and reaches for
+    `message_team` finds nothing there. Teaching both while implying both are
+    callable is "the prompt names a tool that isn't there" — the failure this
+    redesign exists to remove — occurring in the redesign's own introduction.
+
+    Byte-stability (R4) rules out branching, so the only fix available is a true
+    sentence, and this pins that the sentence is present. Without it the block is
+    silently wrong on every turn.
+    """
+    text = _static_text()
+
+    assert "exactly ONE of these two calls per turn" in text, (
+        "the block documents both send verbs without saying that only one is "
+        "ever on the desk"
+    )
+    # And it must say what to do about the other one, or the agent is left with
+    # a dead end instead of a next step.
+    assert "finish this turn" in text.lower()
 
 
 def test_no_rule_flatly_calls_the_counterparty_a_machine():
@@ -178,11 +218,10 @@ def test_no_rule_flatly_calls_the_counterparty_a_machine():
     # And the POSITIVE half: retracting the flat claim is only half the fix if
     # nothing routes a human sender out of the skip-pleasantries rule.
     assert "When the sender is a PERSON" in text
-    assert "see Message Source Recognition" in text
-    # And the thing it points AT. Pinning only the pointer leaves a dangling
-    # in-prompt cross-reference the moment the heading is renamed — green
-    # suite, broken instruction.
-    assert "### Message Source Recognition" in text
+    # 2026-08-17 — the cross-reference is gone, so the dangling-pointer guard
+    # goes with it: the rule now stands on its own, and the fact it used to point
+    # at ("a sender shown as `User` is a PERSON") is asserted directly below.
+    assert "is a **PERSON**, not an agent" in text
 
 
 def test_the_block_infers_nothing_about_the_turn_from_an_absent_tag():
@@ -225,8 +264,9 @@ def test_no_rule_promises_a_tag_on_the_turns_input():
     # those lists into this very block, and with zero unreads the heading is
     # absent entirely.
     assert "MessageBus turn context" not in text
-    # And the rules now name the surface that does reach the model.
-    assert "Unread Messages" in text
+    # And the rules still describe the surface that DOES reach the model — the
+    # unread list — so the tag the agent sees is one it was taught.
+    assert "unread list is tagged" in text
 
 
 def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
@@ -303,8 +343,16 @@ def test_the_worked_example_is_the_tag_the_code_actually_emits():
 
     text = _static_text()
 
-    assert _bus_tag("agent_xxx", "ch_yyy") in text
+    # BOTH forms, because the tag now has two: a private conversation prints
+    # the sender alone, a team room prefixes the team's name. An example that
+    # showed only one would teach the agent to expect a field that is absent
+    # half the time — the same defect as the four-field example, one shape on.
+    assert _bus_tag("agent_xxx") in text
+    assert _bus_tag("agent_xxx", "Ops") in text
     assert "[MessageBus · AgentName · agent_xxx · ch_yyy]" not in text
+    # And no channel id may appear in the example, whatever its shape: the
+    # field it used to occupy is a team NAME now.
+    assert "ch_yyy" not in text
 
 
 def test_the_unread_header_does_not_repeat_the_retracted_promise():
@@ -355,11 +403,17 @@ def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
         bulletin=None,
     )
 
-    # "posted for you" in the module's words; the room says it its own way.
-    assert "posted to the group" in prompt
-    # And the prohibition the module's rule leans on.
-    assert "Do NOT deliver your answer through a function" in prompt
-    assert "bus_send_message" in prompt
+    # 2026-08-17 — the promise itself changed, and the contract has to track it.
+    #
+    # The static rule used to defer to "your reply is posted for you"; it now
+    # defers to "the send call this turn offers you". So what the room must
+    # actually do is NAME that call. If the room stopped naming it, the module's
+    # rule would be pointing at nothing — the exact failure this test exists for,
+    # one file over.
+    assert "message_team(" in prompt
+    # And the room must still say what reaches it, because "deliver it" is only
+    # actionable if the agent knows what counts as delivery here.
+    assert "Nothing you write outside that call reaches the room" in prompt
 
 
 def _unread_lines(rows: list[dict]) -> list[str]:
@@ -466,7 +520,11 @@ def test_silence_is_producing_nothing_not_merely_calling_nothing():
     # unqualified "no reply text at all" can swallow the answer a person is
     # waiting for. The tightened phrase is the assertion — not the loose
     # "no reply text", which the pre-M1 wording also satisfied.
-    assert "no reply text to the bus conversation" in line
+    # The wording moved (nothing auto-posts now, so "no reply text" stopped being
+    # the useful form); the M1 GUARANTEE is what is pinned — silence toward the
+    # peer or room must not read as silence toward the owner.
+    assert "no send call to that conversation" in line
+    assert "reporting to your owner is a separate act" in line
     # This rule's old tail went too: "the unread cursor advances appropriately"
     # was a third, vaguer account of a cursor the resurfacing rule states
     # precisely and scopes. Asserted HERE, on the rule it belonged to, so a
@@ -486,7 +544,9 @@ def test_the_bus_tag_is_not_claimed_to_mean_the_sender_is_a_machine():
     text = _static_text()
 
     assert "NOT from your owner" not in text
-    assert "a person can speak on the bus" in text
+    # Wording moved off "the bus" (the agent is no longer told that word exists);
+    # the guarantee is that a PERSON is named as possible.
+    assert "A person can be in these conversations" in text
 
 
 def test_the_platform_label_is_explained_not_just_rendered():

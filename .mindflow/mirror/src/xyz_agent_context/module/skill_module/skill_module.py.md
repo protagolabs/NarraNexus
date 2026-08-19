@@ -146,3 +146,13 @@ target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 ## 新人易踩的坑
 
 - `skill_env_vars` 在 `ctx_data.extra_data["skill_env_vars"]` 里的格式是 `{KEY: VALUE}` 的扁平 dict，把所有启用技能的所有环境变量合并到一起。如果两个技能有同名的环境变量，后者会覆盖前者，不会有警告。
+
+
+## 2026-08-18 — owner 工具改名跟随
+
+`send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`
+（未被问就主动告知）。两者行为相同但纪律相反，合成一个工具就要求模型每轮自己判断该用哪种
+register。本文件里改到的是该 handler 注册的 `user_reply_tool_names` / 相关文案 —— 一两行，
+但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
+`render_origin_declaration` 取 label 的同一条记录。规范解释见
+[[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

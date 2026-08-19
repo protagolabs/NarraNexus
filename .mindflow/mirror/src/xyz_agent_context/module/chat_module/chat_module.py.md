@@ -1,7 +1,31 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具
+
+`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合靠说话投递，声明 `notify_owner` 会让回复提醒渲染成「reply with notify_owner」，与巡查 prompt「写纯文本、别调工具」互斥。只撤**声明**，schema 仍在桌上（`get_disallowed_tools` 不变，中途升级给 owner 合法）。同类修复见 [[channel_module_base]]。
+
+## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
+
+`get_expressive_tools` 现在按轮次返回 `reply_owner`（owner 自己的聊天轮）或
+`notify_owner`（其余全部），**永远只有一个**；新增的 `get_disallowed_tools` 把另一个的
+schema 也从模型上下文里移走。
+
+只声明不移除是不够的：声明只决定回复提醒**念**哪个名字，schema 是另一条路进上下文的。
+两个工具挂着相反的纪律（一个是「几乎每轮都该用」，一个是「默认别用」），模型同时看得见
+就得自己挑，而挑错不是免费的。prod 实测：两个明写 "Do NOT call" 的工具被调用了 615 次
+——散文劝阻不管用，这是这次改造的直接依据。
+
+`_is_owner_chat_turn` 在**没有 working_source** 时返回 True。两个猜错方向不对等：把
+bus 轮猜成 owner 聊天只是语气偏了；把 owner 聊天猜成 `notify_owner`，桌上那条纪律写着
+「默认别用」，用户刚说完话可能一个字都收不到。
+
+`_split_user_visible_response` 的分流改用 `is_owner_tool`（见 [[message_source_handler]]）。
+只匹配其中一个名字，会让另一条表面上的 owner 回复全部落进 IM 桶，在聊天面板里渲染成
+「Background activity」。
+
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
 
@@ -386,7 +410,7 @@ lands. Don't uncomment without first reconciling the
 
 ## 为什么存在
 
-ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `send_message_to_user_directly` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
+ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `reply_owner` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
 
 **Hook 实现**：同时实现了 `hook_data_gathering`（双轨记忆加载）和 `hook_after_event_execution`（对话持久化）。
 
@@ -405,7 +429,7 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 **短期记忆移除了时间窗口限制**（2026-02-09 优化）：早期版本限制 30 分钟内的跨 Narrative 消息，但这导致非活跃用户的短期记忆总是空。改为直接取最近 15 条（`SHORT_TERM_MAX_MESSAGES = 15`），不论时间。
 
-**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `send_message_to_user_directly` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
+**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `reply_owner` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
 
 **失败轮隔离（Bug 8）**：当 agent loop 抛错时，`_detect_error_in_agent_loop` 从 `params.agent_loop_response` 扫出 `ErrorMessage`（`step_3_agent_loop.py` 在 catch Exception 分支里把 ErrorMessage 既 yield 也 append，保证下游 hook 看得到），`hook_after_event_execution` 只存 user 消息，`meta_data` 里打 `status="failed"` + `error_type=...`，**不写任何 assistant 行**（partial 输出也丢）。下一轮 `hook_data_gathering` + `_load_short_term_memory` 都会过 `_apply_failed_turn_filter`：失败的 user 行被重写成"Previous turn failed... Do NOT retry"的注解（保留原问题文本，方便代词解析），遗留的失败 assistant 行被丢。目的是让 LLM 看到"那轮断了"而不是"那轮我只说了一半还没说完"——后者正是污染下轮 prompt 让 LLM 重复执行上轮查询的根因。
 
@@ -467,3 +491,8 @@ assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_deliver
 
 留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
 做投递分类。
+
+## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+
+跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
+留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。

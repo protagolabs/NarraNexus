@@ -82,7 +82,7 @@ BEARER_AGENT_PREFIX = "nx-agent:"
 # WHICH KIND of turn is calling ("chat" / "job" / "message_bus" / …). Same
 # injection seam as the identity, because the same problem applies: a tool
 # cannot otherwise know whether the turn it serves is an owner-facing errand
-# or an agent answering a peer, and bus_send_to_agent must record that on the
+# or an agent answering a peer, and message_agent must record that on the
 # message (see message_bus_trigger's directive selection).
 TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
 

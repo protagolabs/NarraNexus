@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/segmentTurn.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 回放路径的 reply 判定同样走 `isOwnerReplyTool`
+
+和直播路径（[[chatStore]]）用同一个判定。两条路径对「哪次工具调用是 owner 回复」必须给
+同一个答案，否则重载一轮之后气泡会消失。判定见 [[ownerTools]]。
+
 
 # segmentTurn.ts — 一轮事件按「用户可见片段」切段的纯函数
 
@@ -35,7 +41,7 @@ message.content 渲染过）。切段需要 reply 作切点，所以这里保留
 重复渲染改由「气泡只渲染 segment.reply」来避免。
 
 **关键事实（2026-07-30 实测）**：后端 `/event-log` 的 timeline **从不产
-type='reply'**——回复以 `send_message_to_user_directly` 的 tool_call
+type='reply'**——回复以 `reply_owner` 的 tool_call
 条目存储（`tool_input.content` 即回复文本，`reply_via` 在条目上）。
 所以这里把 send_message 的 tool_call 转成 reply 事件（与直播路径
 chatStore 的同一转换对齐）；回执 tool_output 照旧作为过程事件。不做

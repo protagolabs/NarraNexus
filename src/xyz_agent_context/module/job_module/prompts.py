@@ -111,26 +111,32 @@ JOB_EXECUTION_PROMPT_TEMPLATE = """You are executing a background scheduled task
 #
 # The prompt and the delivery code must agree, so both are selected from the
 # SAME recorded origin (`jobs.origin_source`) — see `job_delivery_instructions`
-# and `job_trigger._deliver_to_origin`. Telling a room-origin job to call
-# `send_message_to_user_directly` would double-deliver into the wrong place;
-# telling an owner-chat job that its plain text auto-posts would lose the
-# answer entirely, since nothing would carry it anywhere.
+# and `job_trigger._deliver_to_origin`. Naming the wrong tool sends the report
+# to the wrong audience: the owner's private chat instead of the room that
+# asked, or the reverse.
+#
+# 2026-08-17: the room variant used to say the reply auto-posts and no function
+# was needed. That was true for exactly as long as the team room accepted plain
+# text — the one surface in the platform where "plain text reaches nobody" was
+# false. It is a tool call now like every other surface, so an unchanged room
+# prompt would have told a job to write its report and stop, and the room would
+# have received nothing at all.
 # ============================================================================
-JOB_DELIVERY_TO_OWNER = """- When you call `send_message_to_user_directly`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
+JOB_DELIVERY_TO_OWNER = """- When you call `notify_owner`, the message will appear in the chat history with this entity — the owner will see it when they open this conversation
 
 #### Important Requirements
 1. Complete all steps required for the task (search, analyze, organize, etc.)
-2. **After completing the task, you MUST use `send_message_to_user_directly` to send the final report to the user**
+2. **After completing the task, you MUST use `notify_owner` to send the final report to the user**
 3. The content sent should be the final report — do not include your thinking process
 4. The content should be complete, valuable, and clearly formatted (use Markdown)
 5. Send exactly ONE message with the final report. Do NOT send intermediate progress updates"""
 
 
-JOB_DELIVERY_TO_ROOM = """- **This task was set up in a group room, and your report goes back to that room** — everyone there will read it, not just one person
+JOB_DELIVERY_TO_ROOM = """- **This task was set up in a team room, and your report goes back to that room** — everyone there will read it, not just one person
 
 #### Important Requirements
 1. Complete all steps required for the task (search, analyze, organize, etc.)
-2. **Your reply below IS the report.** It is posted to the room automatically when this run ends — do NOT deliver it through any function
+2. **Post the report to the room with `message_team`.** Your plain text reaches nobody — the room included. Nothing is posted for you when the run ends
 3. Write only the report itself — do not include your thinking process
 4. Write it for the room: complete, valuable, clearly formatted (Markdown is fine)
 5. One report. Do NOT post intermediate progress updates"""

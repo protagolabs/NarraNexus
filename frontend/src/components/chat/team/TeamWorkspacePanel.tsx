@@ -195,7 +195,7 @@ export function TeamWorkspacePanel({
           (files.length === 0 ? (
             <EmptyState
               loading={loading}
-              hint="Files shared with bus_share_to_team appear here."
+              hint="Files shared with team_share_file appear here."
             />
           ) : (
             files.map((f) => (

@@ -434,6 +434,16 @@ async def clear_conversation_history(
             chat_instances_count=result.chat_instances_count,
             agent_messages_count=result.agent_messages_count,
             bus_messages_count=result.bus_messages_count,
+            bus_failures_count=result.bus_failures_count,
+            # The IM record is the largest content class and the frontend renders
+            # it directly, so a wipe that silently stopped clearing it has to be
+            # distinguishable from a successful one IN THE RESPONSE — that
+            # indistinguishability is how the missing delete survived until a
+            # review found it.
+            inbox_threads_count=result.inbox_threads_count,
+            inbox_thread_messages_count=result.inbox_thread_messages_count,
+            report_memory_count=result.report_memory_count,
+            instance_links_count=result.instance_links_count,
             memory_rows_count=result.memory_rows_count,
             artifacts_count=result.artifacts_count,
             disk_markdown_removed=result.disk_markdown_removed,
@@ -551,7 +561,7 @@ async def get_simple_chat_history(
                         # 'activity'`` branch.
                         #
                         # Carve-out: when the agent explicitly called
-                        # ``send_message_to_user_directly`` during the IM
+                        # ``notify_owner`` during the IM
                         # turn (the "tell owner about this important
                         # thing" path the iron rules carve out), the
                         # writer stashes that content on

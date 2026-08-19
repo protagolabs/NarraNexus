@@ -16,7 +16,7 @@ authority is asymmetric, and the asymmetry is what these tests pin:
     which it would otherwise be able to rewrite into an instruction.
 
 The team a write lands in comes from the SERVER-SIDE identity of the turn, not
-from a tool argument. `bus_share_to_team` takes team_id from the model and
+from a tool argument. `team_share_file` takes team_id from the model and
 checks it three ways; here the stronger option exists because the turn already
 carries its team, so naming another team is not a permission failure to catch
 — it is not expressible. A private turn therefore has no bulletin to write to
@@ -183,10 +183,10 @@ def test_the_tools_take_no_team_argument():
     from xyz_agent_context.module.message_bus_module import _message_bus_mcp_tools as m
 
     src = inspect.getsource(m)
-    pin = src[src.index("async def bus_pin_team_rule(") :]
+    pin = src[src.index("async def team_pin_rule(") :]
     signature = pin[: pin.index(")")]
     assert "team_id" not in signature
-    assert "caller_team_id_from_request()" in pin[: pin.index("async def bus_unpin_team_rule")]
+    assert "caller_team_id_from_request()" in pin[: pin.index("async def team_unpin_rule")]
 
 
 def test_the_agent_is_told_the_tool_exists():
@@ -204,7 +204,7 @@ def test_the_agent_is_told_the_tool_exists():
         team_id="team_42",
         bulletin=None,
     )
-    assert "bus_pin_team_rule" in prompt
+    assert "team_pin_rule" in prompt
 
 
 def test_the_prompt_discourages_using_the_bulletin_as_a_notepad():

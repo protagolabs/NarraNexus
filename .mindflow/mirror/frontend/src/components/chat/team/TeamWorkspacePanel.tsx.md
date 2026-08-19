@@ -85,3 +85,11 @@ agent 侧 view-token。而 agent 路由的鉴权是「JWT 用户是否拥有该 
 
 **挂在 transcript 旁边而非独立路由**：「我们做了什么」是**边读对话边问**的问题。
 `refreshKey` 取消息数，使得产出 artifact 的那一轮无需用户手动刷新即可显现。
+
+
+## 2026-08-18 — 已退役工具名的跟随
+
+`bus_share_to_team` → `team_share_file`（用户可见的提示文案，此前指向一个不存在的工具名）、
+`send_message_to_user_directly` → `reply_owner` / `notify_owner`。后者在前端不只是措辞：
+按工具名挑气泡内容的三处只匹配旧名字时，回复是真的、内容在那儿、气泡就是不渲染 —— 同一条
+规则现在收在 `lib/ownerTools.ts`，镜像见 [[ownerTools.ts]]。

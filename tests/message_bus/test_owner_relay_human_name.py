@@ -3,7 +3,7 @@
 @author: NarraNexus
 @date: 2026-06-12
 @description: The message-bus Owner-Relay prompt must NAME the owner by their
-human display name, while the send_message_to_user_directly routing argument
+human display name, while the notify_owner routing argument
 keeps the raw user_id (the tool needs the real key to deliver).
 """
 from __future__ import annotations

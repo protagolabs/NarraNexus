@@ -13,7 +13,7 @@ message to "do NOT retry" — effectively erasing the recovered turn
 from the agent's memory.
 
 After 2026-05-25: persistence checks whether a synthetic
-`send_message_to_user_directly` (carrying `reply_via=helper_llm_*`)
+`reply_owner` (carrying `reply_via=helper_llm_*`)
 is present in the response stream. If so:
   - normal user+assistant pair is persisted;
   - assistant `meta_data.reply_via` carries the helper_llm tag;
@@ -112,7 +112,7 @@ def _synthetic_recovered_reply(
         description="Recovered reply.",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
             "reply_via": "helper_llm_after_error",
         },
@@ -219,7 +219,7 @@ async def test_fatal_without_recovered_reply_keeps_failed_user_only_row(
 async def test_organic_reply_then_recovered_after_reply_persists_organic(
     chat_module,
 ):
-    """Agent called send_message_to_user_directly organically, then a
+    """Agent called reply_owner organically, then a
     follow-up step crashed (severity=recovered_after_reply). The
     persisted reply is the ORGANIC content, not a fallback. Meta has
     no reply_via=helper_llm_* tag — this was a real reply, not a
@@ -230,7 +230,7 @@ async def test_organic_reply_then_recovered_after_reply_persists_organic(
         description="send_message",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": "Here's the answer."},
         },
     )

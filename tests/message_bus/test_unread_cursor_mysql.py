@@ -154,3 +154,70 @@ async def test_has_message_from_turn_runs_on_mysql(bus):
     assert await bus.has_message_from_turn(ROOM, ME, "evt_other") is False
     assert await bus.has_message_from_turn(ROOM, f"{_PREFIX}_ghost", "evt_x") is False
     assert await bus.has_message_from_turn("ch_nope", ME, "evt_x") is False
+
+
+@pytest.mark.asyncio
+async def test_has_unread_before_runs_on_mysql_and_respects_the_legacy_filter(bus):
+    """The third reader of `_unread_predicate`, and the only one doing timestamp work.
+
+    `has_unread_before` adds `AND m.created_at < %s` with `canonical_ts(before)`.
+    On SQLite `created_at` is TEXT and that is a lexicographic string compare; on
+    MySQL it is `DATETIME(6)` and the engine casts the string. `canonical_ts` is
+    `value.isoformat()` over a value whose type came from whichever backend parsed
+    the row, so the two engines are fed different literal SHAPES into the same
+    comparison — the case a twin exists for.
+
+    If the cast degrades on MySQL the method returns False, its caller skips its
+    early return, and `ack_read` advances the cursor to the trigger message —
+    permanently marking as read every unread message older than the rendered
+    window. Irreversible context loss on the cloud deploy, and the call is wrapped
+    in `except Exception`, so even a hard failure degrades to a warning line. This
+    lane has already been bitten by a timestamp comparison once (`canonical_ts`'s
+    own docstring: "That cost us a re-trigger loop once").
+
+    `before` is taken from a `BusMessage.created_at` READ BACK FROM MySQL, not
+    hand-written: a literal built in Python proves nothing about the shape
+    mismatch, which is the whole point.
+
+    Also asserts the interleaved parameter tuple parses on a real engine — this is
+    the one caller whose prefix params sit between the predicate's own and its
+    extras.
+    """
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="older")
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="newer")
+
+    msgs = await bus.get_unread(ME)
+    assert [m.content for m in msgs] == ["older", "newer"]
+    older, newer = msgs[0], msgs[1]
+
+    # Something unread strictly older than the NEWER message: the older one.
+    assert await bus.has_unread_before(ME, ROOM, newer.created_at) is True
+    # Nothing is older than the OLDEST (the comparison is exclusive).
+    assert await bus.has_unread_before(ME, ROOM, older.created_at) is False
+
+    # A legacy IM channel answers False even asked about directly — the prefix
+    # exclusion has to apply in this reader too, or the cursor logic sees rows the
+    # context never rendered.
+    from xyz_agent_context.channel.message_source_handler import im_channel_prefixes
+
+    legacy = f"{im_channel_prefixes()[0]}{_PREFIX}_legacy"
+    await bus._db.execute_write(
+        "INSERT INTO bus_channels (channel_id, name, channel_type, created_by) "
+        "VALUES (%s, %s, %s, %s)",
+        (legacy, "legacy", "direct", ME),
+    )
+    await bus._db.execute_write(
+        "INSERT INTO bus_channel_members (channel_id, agent_id) VALUES (%s, %s)",
+        (legacy, ME),
+    )
+    try:
+        await bus.send_message(
+            from_agent="lark_user_1", to_channel=legacy, content="legacy row"
+        )
+        assert await bus.has_unread_before(ME, legacy, newer.created_at) is False
+        assert await bus.count_unread(ME) == 2, "the legacy row was counted"
+    finally:
+        for table in ("bus_messages", "bus_channel_members", "bus_channels"):
+            await bus._db.execute_write(
+                f"DELETE FROM {table} WHERE channel_id = %s", (legacy,)
+            )

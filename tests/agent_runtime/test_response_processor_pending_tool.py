@@ -70,7 +70,7 @@ def test_pending_reply_tool_frame_is_dropped():
     state = ExecutionState()
     events = list(rp._handle_run_item_stream_event(
         _tool_call_event(
-            "mcp__chat_module__send_message_to_user_directly", pending=True,
+            "mcp__chat_module__reply_owner", pending=True,
         ),
         state,
     ))

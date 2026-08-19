@@ -132,6 +132,7 @@ class RemoteAgentLoopDriver:
             expressive_tools=kwargs.get("expressive_tools"),
             turn_profile=_profile,
             extra_accessible_roots=kwargs.get("extra_accessible_roots"),
+            origin_declaration=kwargs.get("origin_declaration") or "",
         )
 
         # No total timeout: agent loops can run for hours (binding rule

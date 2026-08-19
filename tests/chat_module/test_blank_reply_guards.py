@@ -78,11 +78,11 @@ def _params(
 def _reply(content: str) -> ProgressMessage:
     return ProgressMessage(
         step="3.4.1",
-        title="send_message_to_user_directly",
+        title="reply_owner",
         description="reply",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )

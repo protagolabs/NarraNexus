@@ -36,6 +36,8 @@ from __future__ import annotations
 import pytest
 
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+
+from ._team_turn import speak_in_room
 from xyz_agent_context.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
@@ -101,9 +103,14 @@ def _trigger(db, reply: str = "on it"):
         # The team-room post also happens INSIDE the turn now, so the stub has
         # to hand the text to the deliverer the way the runtime does — these
         # tests are about the read cursor, which only moves on a turn that ran.
-        cb = kwargs.get("on_plain_text_delivery")
-        if cb is not None and reply.strip():
-            await cb(reply)
+        # The agent speaks by calling `message_team` (2026-08-17); these tests
+        # are about the READ cursor, which moves on a turn that RAN, so the stub
+        # has to actually put the words in the room the way the tool does.
+        if kwargs.get("team_room") and reply.strip():
+            await speak_in_room(
+                db=db, bus=t._bus, agent_id=kwargs.get("agent_id") or "",
+                team_id=TEAM, channel_id=CHANNEL, text=reply, event_id="evt_turn",
+            )
         return TurnResult(text=reply, event_id="evt_turn")
 
     t._invoke_runtime = _invoke  # type: ignore[method-assign]
@@ -298,14 +305,13 @@ async def test_a_backlog_the_scrollback_covers_is_cleared(db_client):
 
 @pytest.mark.asyncio
 async def test_the_team_reply_is_posted_exactly_once(db_client):
-    """The delivery moved into the turn; the trigger must not also post.
+    """Exactly once — the hazard survives every rewrite of HOW it is posted.
 
-    The room post has to happen before `run()` returns, because the chat rows
-    are written inside it — a post that lands afterwards cannot be recorded as
-    a reply, which is why every team turn used to file as "no reply sent". The
-    hazard of moving it is the obvious one: leaving the old call site in place
-    posts the same reply twice, and a room that double-speaks is worse than the
-    accounting bug being fixed.
+    2026-08-17: the post moved from a trigger callback to the agent's own tool
+    call. The double-speak hazard is unchanged and the reason is unchanged: a room
+    that says everything twice is worse than any accounting bug being fixed. What
+    this now guards is that the trigger, having stopped being the poster, did not
+    keep a post of its own anywhere on the success path.
     """
     trigger = _trigger(db_client)
     await _seed_team_room(db_client)
@@ -314,9 +320,11 @@ async def test_the_team_reply_is_posted_exactly_once(db_client):
     delivered: list[str] = []
 
     async def _invoke(**kwargs):
-        cb = kwargs.get("on_plain_text_delivery")
-        assert cb is not None, "the team lane must hand the runtime a deliverer"
-        assert await cb("on it") is True
+        assert kwargs.get("team_room") is True, "the team lane lost its marker"
+        await speak_in_room(
+            db=db_client, bus=trigger._bus, agent_id=ME, team_id=TEAM,
+            channel_id=CHANNEL, text="on it", event_id="evt_turn",
+        )
         delivered.append("on it")
         return TurnResult(text="on it", event_id="evt_turn")
 
@@ -334,12 +342,13 @@ async def test_the_team_reply_is_posted_exactly_once(db_client):
 
 @pytest.mark.asyncio
 async def test_the_deliverer_still_parses_mentions_and_stamps_the_run(db_client):
-    """What delivery MEANS stays in the trigger.
+    """What delivery MEANS travels with the post, wherever the post lives.
 
-    Mention parsing, the agent-hop cap and the run-id stamp are bus concerns;
-    the runtime only decides whether the post counted. Moving the call must not
-    quietly drop them — @mentions are how work is handed on, and without the
-    stamp the transcript cannot open the turn behind a line.
+    Mention parsing, the agent-hop cap and the run-id stamp are properties of
+    putting words in a room, so when the post moved to the agent's tool call they
+    moved to `team_posting` with it. Dropping them silently is the hazard —
+    @mentions are how work is handed on, and without the stamp the transcript
+    cannot open the turn behind a line.
     """
     trigger = _trigger(db_client)
     await _seed_team_room(db_client)
@@ -351,7 +360,11 @@ async def test_the_deliverer_still_parses_mentions_and_stamps_the_run(db_client)
         from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
 
         await kwargs["on_event_id"]("evt_turn")
-        await kwargs["on_plain_text_delivery"]("@Pat can you take the index?")
+        await speak_in_room(
+            db=db_client, bus=trigger._bus, agent_id=ME, team_id=TEAM,
+            channel_id=CHANNEL, text="@Pat can you take the index?",
+            event_id="evt_turn",
+        )
         return TurnResult(text="@Pat can you take the index?", event_id="evt_turn")
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
@@ -462,7 +475,10 @@ async def test_a_transient_hiccup_does_not_announce_a_failure(db_client):
         from xyz_agent_context.message_bus.message_bus_trigger import TurnResult
 
         await kwargs["on_event_id"]("evt_turn")
-        await kwargs["on_plain_text_delivery"]("here is your answer")
+        await speak_in_room(
+            db=db_client, bus=trigger._bus, agent_id=ME, team_id=TEAM,
+            channel_id=CHANNEL, text="here is your answer", event_id="evt_turn",
+        )
         return TurnResult(text="here is your answer", event_id="evt_turn")
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]

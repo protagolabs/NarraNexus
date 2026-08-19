@@ -44,13 +44,46 @@ if TYPE_CHECKING:
 
 
 # ctx_data.extra_data marker: stamped by MessageBusTrigger on team-room
-# turns (same MESSAGE_BUS working_source as ordinary bus turns, OPPOSITE
-# delivery contract — plain text auto-posts to the room, delivery tools are
-# forbidden by the room prompt). Consumers: context_runtime empties the
-# turn's whole expressive surface; MessageBusModule's declaration gate is a
-# second line of defense. Lives here (not in message_bus) because both
-# sides of the platform read it and schema is the shared base layer.
+# turns (same MESSAGE_BUS working_source as ordinary bus turns, different
+# reply VERB — a team room takes `message_team`, a peer DM takes
+# `message_agent`). Consumer: MessageBusModule's desk hooks, which declare one
+# verb and suppress the other on this marker. Lives here (not in message_bus)
+# because both sides of the platform read it and schema is the shared base layer.
+#
+# It used to mean the OPPOSITE: while the room auto-posted plain text and its
+# prompt forbade delivery tools, `context_runtime` emptied the turn's whole
+# expressive surface on this key. That exception is gone — the room takes a tool
+# call like every other surface — and the comment describing it outlived the
+# mechanism.
 BUS_TEAM_ROOM_EXTRA_KEY = "bus_team_room"
+
+# extra_data marker: this turn's reply IS its plain text, so it has no reply
+# tool at all. Patrol is the only such surface — the platform asks the lead to
+# compose the room's status line and posts it under the room's own marker, so a
+# `message_team` call would be the lead chatting mid-patrol, which is what the
+# patrol prompt forbids in so many words.
+#
+# It exists because "forbid it in prose" is the thing this redesign is a
+# reaction to. A patrol turn carries BUS_TEAM_ROOM_EXTRA_KEY, and on that key
+# `message_team` is declared as the turn's default reply tool and named by both
+# frameworks' reply reminders — contradicting the prompt three lines above it,
+# and on NexusPower actively nudging the lead to do the forbidden thing. On
+# this marker the module declares nothing and takes both send verbs off the
+# desk, and the trigger withholds the mute-turn nudge.
+BUS_PLAIN_TEXT_TURN_EXTRA_KEY = "bus_plain_text_turn"
+
+
+def is_plain_text_turn(ctx_data: Any) -> bool:
+    """Does this turn deliver by SPEAKING (patrol) rather than via a reply tool?
+
+    The single home of the ``BUS_PLAIN_TEXT_TURN_EXTRA_KEY`` predicate. Every
+    module that declares reply tools must withhold that declaration on such a
+    turn, or its reply reminder names a tool the patrol prompt forbids — so the
+    check lives once, next to the marker it reads, instead of being copied into
+    each declarer.
+    """
+    extra = getattr(ctx_data, "extra_data", None) or {}
+    return bool(extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY))
 
 
 class WorkingSource(str, Enum):

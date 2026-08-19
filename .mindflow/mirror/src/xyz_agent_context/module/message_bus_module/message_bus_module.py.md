@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — hook_after_event_execution 复用 primary_room_of
+
+`replied_teams → 房间 channel` 的解析从手写第五份 `created_by==team_<id> marker` 查询改为调 `team_rooms.primary_room_of(db, tid)`（marker 组合的唯一来源）。行为等价（`primary_room_of(None,...)` 内部 try/except 返回 None，保留旧「拿不到 db 就跳过」语义），去掉了会随 `primary_room_of` 演进而漂移的副本。
 
 ## ⚠️ 改这个文件的文案之前，先读这条（常青，不随条目滚动）
 
@@ -30,6 +34,56 @@ stub: false
 - **删一条断言就要问它守的是什么**；`tests/message_bus/test_visibility_wording.py`
   存在的唯一目的就是让上面这些句子不能被悄悄改回去。
 
+## 2026-08-17 — 指令块整体重写成「两种社交处境」，以及我重写时丢掉的那些保证
+
+工具面从 19 个收到 13 个并全部改名（`bus_send_message`→`message_team`、
+`message_agent` 合并进它、新增 `message_team`、`bus_*_team_*`→`team_*`、
+`work_*`→`team_work_*`），指令块随之整体重写：不再教一个叫 MessageBus 的子系统，只教
+**两种处境**——和某个同伴私聊、在某个 team 房间里。
+
+**声明面此前声明的是两个已经不存在的工具**（`message_team` / `message_agent`）。
+这是「声明死工具就是对模型的错误信息」最严重的形式。现按 surface 给**唯一动词**：
+team → `message_team`，peer → `message_agent`。新增
+`test_exactly_one_verb_per_surface`——那条不变量是整个改造的立论，此前无人守。
+
+`get_disallowed_tools` 已覆写但**目前返回空**：基类钩子不收 `ctx_data`，拿不到本轮的
+team 标记。docstring 明写了这一点，所以 spec §4.5 的桌面表**尚未完全强制**——声明是目前
+唯一的收窄手段。别读成已经做完。
+
+### 一次自己犯的 P11
+
+整块重写时我**丢掉了六轮评审建起来的好几条保证**，它们守的危害一条都没消失：
+
+- **「不 @ 就没人醒」** —— 我只写了「@ 会叫醒谁」，丢了那条承重的逆命题
+- **「读懂给你的东西」整节** —— 标签形状（由 `_bus_tag` 生成）、`User` = 人、
+  `[system]` = 平台、以及**不许从标签有无反推本轮来源**（P6 栽过两次的那条）
+- **沉默的作用域** —— 「make no call at all」会被过度解读成连 owner 都不许告知
+- **交付规则指向何处** —— 只说「through the call」太含混
+
+都已补回。**教训与 PR #311 那次同源**：这个文件的守卫是为了让某些句子不能被悄悄改回去，
+而「整块重写」正是最容易连守卫一起抹掉的动作。
+
+### 断言改成锁保证，不锁旧字面量
+
+`test_visibility_wording.py` 里 12 条因措辞变更而红。**一条没删**，全部改成锁住**保证**：
+"resurface" 变 "comes back" 但作用域检查保留；交付规则**不再要求点名工具**（点名就违反
+P1——现在一个 surface 一个动词），改为断言它指向本轮；「双发禁令」那条随「纯文本自动上墙」
+一起退役，替换为「本块不得点名任何 surface 专有工具」。跨文件契约测试跟着新承诺走
+（从「替你上墙」变成「房间必须点名 `message_team(`」）。
+
+### 一个功能 bug：改名让读游标死锁
+
+`hook_after_event_execution` 靠在 trace 里匹配 `message_team` / `message_agent`
+判断「这一轮回复了吗」，据此推进 `last_read_at`。两个工具改名后它**仍在匹配旧名**，于是
+**什么都不算回复、游标永不推进**——正是刚在 IM inbox 侧修掉的那种永久未读死锁，被一次改名
+在 peer 侧重新引入。现在匹配 `message_agent` / `message_team`，后者还要把 team 解析成房间
+频道。守卫是 `test_get_unread_contract` 那条（它自己也带着旧工具名，所以此前看不见）。
+
+### 词表：`MessageBus` 从 agent 可见文本清零
+
+未读列表标签 `[MessageBus · …]` → `[from …]`；turn context 标题
+`### MessageBus — Current State` → `### Who is around, and what is waiting`。日志与
+docstring 里的实现名保留（agent 看不到）。
 ## 2026-08-16 — 静态段里最响的那句，正是 team 房间逐字反驳的那句
 
 2026-08-12 那轮把「只看得到 @ 你的消息」和「未回复会重现」改成了处处成立的说法，
@@ -425,3 +479,61 @@ owner 名下其它所有 agent 混在一起,agent 想找人帮忙时分不清"�
 
 修一份留一份,正是这次改动开篇要消灭的「同一个上下文窗口里两句矛盾的话」,只是位置
 挪了一百行。铁律 #8 说的"加功能时顺手扫一遍相邻代码",这次没扫到。
+
+## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+
+跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
+留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
+
+## 2026-08-18 — 从 agent 词汇里清掉 channel：删列表、消息标签改用团队名
+
+`### Your Channels` 块把裸 `channel_id` 和 `channel_type` 印进每一轮上下文 —— 正是本次
+改造要拿掉的词汇（spec §3.1「没有 channel」/ §8 验收标准）。它存在的唯一理由是让
+`read_history(channel_id=...)` 可调用；该工具改成按把手取（`with_agent` / `team_id`，见
+[[_message_bus_mcp_tools.py]]）之后，这个列表没有读者了，连带 `hook_data_gathering` 里
+那条每轮白跑的 top-20 查询和 `MAX_CHANNELS_IN_CONTEXT` 一并删除。
+
+更硬的一处是 `_bus_tag`：它的第二个字段原本是 `channel_id`，出现在**每一条**未读消息行上，
+比那个列表更不可回避。现在是团队自己的名字，且只在团队房间出现 —— 私聊里 sender 就是
+conversation，第二个字段会是同一事实说两遍。空标签渲染短形式。
+
+标注来源 `_room_labels`：只解析未读**窗口**里出现的房间（有界，且每一行都会被打印，与被删
+的 top-N 列表相反），永不抛异常、永不猜测 —— 解析不到就缺席、退回私聊形式。把私聊误标成
+房间比缺标签更糟，因为两者的回复纪律不同。
+
+守卫：`test_visibility_wording.py` 的「示例必须由渲染同一个函数生成」保留，改为同时断言
+两种形态并禁止 `ch_yyy` 出现；`test_turn_context_split.py` 新增团队名形态的覆盖，且故意
+继续喂 `bus_channels` fixture —— 停止喂它会让「渲染器已丢弃」的断言变成空断言。
+
+
+## 2026-08-18 — 静态块的两句假话（预审 I10/I11）
+
+块是字节稳定的（R4 前缀缓存），因此不能按轮次分支，而它到达**每一个** turn —— 包括
+owner 聊天轮和 job 轮。两处因此站不住：
+
+1. 开篇「每轮开头会告诉你在哪种处境、该怎么回」在那两种轮次上是假的，它们既不是私聊也不是
+   团队房间、也没有那行开头。改成有条件的真话：「当其中一种唤醒了你时，开头会说是哪种」。
+   spec §6.1/P7 想要的那个由 registry 统一渲染的来源声明仍未建（见 §13 待补条目），这句话
+   在它建成前不能替它做承诺。
+2. 块教两个发送动词，而 `get_disallowed_tools` 每轮撤掉其中一个的 schema —— 于是「提示点名
+   一个不存在的工具」这个本改造要消灭的失败，出现在本改造自己的介绍里。字节稳定排除了分支，
+   唯一可用的修法是说真话：明写每轮只有一个、并给出想联系另一种处境时的下一步（结束本轮）。
+
+原守卫 `test_the_delivery_rule_names_no_surface_specific_tool` 的 docstring 声称「块里不得
+出现任何 per-surface 工具」，实际只检查一行 —— 声明已收窄到它真正守的东西（通用投递规则那
+一行不得绑定某个面的动词），并新增一条钉住「块必须承认只有一个动词在桌上」。
+
+## 2026-08-18 (二) — `_room_labels` 打的是裸 backend，SQLite 上一直静默返回空
+
+两条查询用 `%s` 打 `bus._db`。`LocalMessageBus` 原样保存传入的 **raw backend**，而 SQLite 裸
+backend 把 SQL 直接交给 aiosqlite —— `%s` 在那里不是占位符。于是两条都抛异常、fail-open 吞掉、
+SQLite 上这张映射**永远是空的**：每一条团队房间消息都渲染成私聊短形式，正是这个函数自己
+docstring 里写「比缺标签更糟」的那种误标。MySQL 上正常，所以这是一处铁律 #7 的裂口，且桌面端
+在坏的那一侧，日志里 debug 以上什么都没有。
+
+`team_posting.team_cascade_depth` 带着专门讲这个陷阱的注释块，写在本函数之前两个 commit，
+没能阻止它。所以现在写成直白一句：**`%s` 查询属于 client，而 `bus._db` 不是 client。**
+
+6433 个通过的测试没碰到它 —— `test_turn_context_split.py` 用手写的 `bus_room_labels` 覆盖
+渲染器，自带输入的渲染器测试证明渲染器，对输入从哪来一言不发。新增
+`tests/message_bus/test_room_labels_producer.py` 打真实数据库，已变异验证。

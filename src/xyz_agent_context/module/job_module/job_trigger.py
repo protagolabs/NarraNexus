@@ -836,7 +836,7 @@ class JobTrigger:
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
             # 3. Call AgentRuntime
-            # Agent will send report to user via send_message_to_user_directly
+            # Agent will send report to user via notify_owner
             result = await self._run_agent(job, prompt)
 
             # 4. Update Job status
@@ -854,7 +854,7 @@ class JobTrigger:
 
         Creates an AgentRuntime instance and runs the prompt,
         collecting all output. The agent sends the final report
-        to the user via send_message_to_user_directly.
+        to the user via notify_owner.
 
         Args:
             job: JobModel instance
@@ -999,21 +999,31 @@ The task was executed but produced no text output.
     async def _deliver_to_origin(
         self, job: JobModel, content: str, *, run_event_id: Optional[str] = None
     ) -> None:
-        """Post a room-origin job's report back into the room that asked.
+        """FALLBACK: post a room-origin job's report if the run did not.
 
         The other half of the origin pair: `_job_context_builder` picked the
         prompt from `job.origin_source`, and this picks the delivery from the
         same field, so the two can never describe different surfaces. An
         owner-chat job (empty origin) returns immediately and keeps the
-        historical path — the agent's own `send_message_to_user_directly` call
-        during the run (PRD acceptance #8).
+        historical path — the agent's own owner-facing call during the run
+        (PRD acceptance #8).
 
-        Posted by the PLATFORM under the agent's own name rather than left to
-        a tool call, for the same reason a team-room reply is: the room's
-        contract is that plain text auto-posts, and the prompt this job ran
-        under says exactly that. Making the model deliver would reintroduce
-        the "did it remember to call the tool" dependency that this whole
-        change is removing (iron rule #15).
+        Why this became a fallback (2026-08-17). It used to be the ONLY path:
+        the room's contract was that a job's plain text auto-posts, and the
+        prompt said so. That contract is gone — the team room was the single
+        surface in the platform where "your plain text reaches nobody" was
+        false, and every layer that states the general rule was contradicting
+        the one layer that carved it out. A team post is a tool call now, so
+        the room prompt tells the job to call `message_team` and the primary
+        path is the same one every other surface uses.
+
+        What did NOT change is the guarantee that motivated the original: the
+        room that asked always hears back. `has_message_from_turn` answers
+        "did this run put anything in that room" exactly (event id, not a
+        timestamp window), so the platform copy goes out only when the answer
+        is no. A job that posted its own report is not double-posted; a job
+        that produced a report and delivered it nowhere still reaches the four
+        people waiting on it.
 
         Never raises. The job itself SUCCEEDED — its status, its narrative and
         its next_run_time are all correct — so a failed post must not turn a
@@ -1031,7 +1041,21 @@ The task was executed but produced no text output.
             from xyz_agent_context.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
-            await LocalMessageBus(backend=db._backend).send_message(
+            bus = LocalMessageBus(backend=db._backend)
+            # The run's own post, if it made one, carries this same event id —
+            # so this is an identity check, not a "was something posted around
+            # then" guess. No event id means we cannot tell, and the safe
+            # answer there is to deliver: a duplicate report is noise, a
+            # missing one is the bug this fallback exists for.
+            if run_event_id and await bus.has_message_from_turn(
+                channel_id, job.agent_id, run_event_id
+            ):
+                logger.info(
+                    f"[job-origin] {job.job_id} posted its own report to "
+                    f"{channel_id}; platform copy skipped"
+                )
+                return
+            await bus.send_message(
                 from_agent=job.agent_id,
                 to_channel=channel_id,
                 content=content,

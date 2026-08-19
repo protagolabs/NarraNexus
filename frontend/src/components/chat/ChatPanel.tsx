@@ -982,7 +982,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             are the ONLY thing routed to Inner Thoughts; everything the agent
             actually *says* is owner-facing and stays in Conversation,
             including its cross-channel "I replied / notified you" narrations
-            (send_message_to_user_directly targets the owner regardless of
+            (the owner-facing tool targets the owner regardless of
             which channel triggered the turn). Session items (the owner's
             live in-app turn) are conversation too.
 
