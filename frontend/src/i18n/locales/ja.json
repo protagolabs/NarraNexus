@@ -727,8 +727,10 @@
     "agentRowMenu": {
       "options": "エージェントのオプション",
       "rename": "名前を変更",
+      "edit": "編集…",
       "setPrivate": "非公開にする",
       "setPublic": "公開にする",
+      "clearData": "データを消去",
       "delete": "削除"
     },
     "agentsHeaderMenu": {
@@ -756,6 +758,7 @@
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
+      "clearData": "データを消去",
       "delete": "削除",
       "addAgent": "エージェントを追加",
       "addingAgent": "追加中…"
@@ -1304,7 +1307,11 @@
       "nav": {
         "privacy": "プライバシー",
         "personalization": "パーソナライズ",
-        "account": "アカウントと請求"
+        "account": "アカウントと請求",
+        "providers": "LLM プロバイダー",
+        "modelDefaults": "モデル既定値",
+        "artifacts": "アーティファクト",
+        "updates": "アプリ更新"
       },
       "providers": {
         "label": "LLM プロバイダー"

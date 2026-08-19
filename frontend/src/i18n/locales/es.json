@@ -727,8 +727,10 @@
     "agentRowMenu": {
       "options": "Opciones del agente",
       "rename": "Renombrar",
+      "edit": "Editar…",
       "setPrivate": "Hacer privado",
       "setPublic": "Hacer público",
+      "clearData": "Limpiar datos",
       "delete": "Eliminar"
     },
     "agentsHeaderMenu": {
@@ -757,6 +759,7 @@
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
       "rename": "Renombrar",
+      "clearData": "Limpiar datos",
       "delete": "Eliminar",
       "addAgent": "Añadir agente",
       "addingAgent": "Añadiendo…"
@@ -1305,7 +1308,11 @@
       "nav": {
         "privacy": "Privacidad",
         "personalization": "Personalización",
-        "account": "Cuenta y facturación"
+        "account": "Cuenta y facturación",
+        "providers": "Proveedores LLM",
+        "modelDefaults": "Modelos predeterminados",
+        "artifacts": "Artefactos",
+        "updates": "Actualizaciones"
       },
       "providers": {
         "label": "Proveedores de LLM"

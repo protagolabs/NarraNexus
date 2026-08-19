@@ -729,8 +729,10 @@
     "agentRowMenu": {
       "options": "Параметры агента",
       "rename": "Переименовать",
+      "edit": "Изменить…",
       "setPrivate": "Сделать приватным",
       "setPublic": "Сделать публичным",
+      "clearData": "Очистить данные",
       "delete": "Удалить"
     },
     "agentsHeaderMenu": {
@@ -761,6 +763,7 @@
     "teamRowMenu": {
       "options": "Параметры группового чата",
       "rename": "Переименовать",
+      "clearData": "Очистить данные",
       "delete": "Удалить",
       "addAgent": "Добавить агента",
       "addingAgent": "Добавление…"
@@ -1309,7 +1312,11 @@
       "nav": {
         "privacy": "Конфиденциальность",
         "personalization": "Персонализация",
-        "account": "Аккаунт и оплата"
+        "account": "Аккаунт и оплата",
+        "providers": "LLM-провайдеры",
+        "modelDefaults": "Модели по умолчанию",
+        "artifacts": "Артефакты",
+        "updates": "Обновления"
       },
       "providers": {
         "label": "Провайдеры LLM"

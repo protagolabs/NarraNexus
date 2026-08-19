@@ -216,7 +216,9 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
         <span style={{ color: 'var(--nm-ink30)' }} className="uppercase tracking-[0.12em]">
           {t('chat.timeline.outputLabel')}
         </span>
-        <span>{toolName.split('__').pop()}</span>
+        {/* No name recovered → label alone; a literal placeholder word next
+            to every output row reads as a bug, not as information. */}
+        {toolName && <span>{toolName.split('__').pop()}</span>}
       </button>
       {expanded && (
         // No max-h / overflow — single parent scroll surface only.

@@ -727,8 +727,10 @@
     "agentRowMenu": {
       "options": "Agent-Optionen",
       "rename": "Umbenennen",
+      "edit": "Bearbeiten…",
       "setPrivate": "Auf privat setzen",
       "setPublic": "Auf öffentlich setzen",
+      "clearData": "Daten leeren",
       "delete": "Löschen"
     },
     "agentsHeaderMenu": {
@@ -757,6 +759,7 @@
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
       "rename": "Umbenennen",
+      "clearData": "Daten leeren",
       "delete": "Löschen",
       "addAgent": "Agent hinzufügen",
       "addingAgent": "Wird hinzugefügt…"
@@ -1305,7 +1308,11 @@
       "nav": {
         "privacy": "Datenschutz",
         "personalization": "Personalisierung",
-        "account": "Konto & Abrechnung"
+        "account": "Konto & Abrechnung",
+        "providers": "LLM-Anbieter",
+        "modelDefaults": "Modell-Standards",
+        "artifacts": "Artefakte",
+        "updates": "App-Updates"
       },
       "providers": {
         "label": "LLM-Anbieter"

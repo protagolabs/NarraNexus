@@ -731,8 +731,10 @@
     "agentRowMenu": {
       "options": "خيارات الوكيل",
       "rename": "إعادة تسمية",
+      "edit": "تعديل…",
       "setPrivate": "تعيين كخاص",
       "setPublic": "تعيين كعام",
+      "clearData": "مسح البيانات",
       "delete": "حذف"
     },
     "agentsHeaderMenu": {
@@ -765,6 +767,7 @@
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
       "rename": "إعادة تسمية",
+      "clearData": "مسح البيانات",
       "delete": "حذف",
       "addAgent": "إضافة وكيل",
       "addingAgent": "جارٍ الإضافة…"
@@ -1313,7 +1316,11 @@
       "nav": {
         "privacy": "الخصوصية",
         "personalization": "التخصيص",
-        "account": "الحساب والفوترة"
+        "account": "الحساب والفوترة",
+        "providers": "مزوّدو LLM",
+        "modelDefaults": "النماذج الافتراضية",
+        "artifacts": "العناصر",
+        "updates": "تحديثات التطبيق"
       },
       "providers": {
         "label": "مزوّدو نماذج اللغة"

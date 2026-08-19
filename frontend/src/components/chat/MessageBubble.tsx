@@ -88,6 +88,11 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
     // Path 1 — historical: the backend gave us a time-ordered timeline.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
+      // Stored tool_output entries often carry no tool_name of their own; in
+      // a time-ordered log an output belongs to the nearest preceding call,
+      // so carry that name forward instead of labelling every output row
+      // with a literal placeholder.
+      let lastToolName = '';
       eventLogTimeline.forEach((entry, idx) => {
         const id = `tl-${idx}`;
         const ts = idx;
@@ -96,9 +101,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
             break;
           case 'tool_call':
+            lastToolName = entry.tool_name || '';
             events.push({
               id, ts, type: 'tool_call',
-              tool_name: entry.tool_name || 'unknown',
+              tool_name: entry.tool_name || '',
               tool_input: entry.tool_input || {},
               reply_via: entry.reply_via,
             });
@@ -106,7 +112,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           case 'tool_output':
             events.push({
               id, ts, type: 'tool_output',
-              tool_name: entry.tool_name || 'unknown',
+              tool_name: entry.tool_name || lastToolName,
               output: entry.tool_output || '',
             });
             break;

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 历史时间线的 tool_output 承接调用名
+
+存储态 timeline 的 `tool_output` 条目常不带 `tool_name`,旧兜底把字面
+'unknown' 打在每一行 [输出] 后面。时间有序日志里输出属于最近一次调用,
+现在顺承前一条 `tool_call` 的名字;无可承接时留空串,由
+[[TurnTimeline]] 隐藏空名。[[segmentTurn]](NexusPower 路径)同修。
 
 ## 2026-08-18 — 试过恒定列宽(w-full),当天撤回
 

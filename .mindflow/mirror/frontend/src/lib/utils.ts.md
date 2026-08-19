@@ -4,6 +4,13 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — 新增 formatAbsolute
+
+绝对日期时间标签(locale 感知,dateStyle medium + timeStyle short),
+经 `parseUTCTimestamp` 解析——后端时间戳不带时区标记,裸 `new Date` 会当
+本地时间读,悬停绝对时间会和旁边的相对标签对不上。坏输入回空串。
+首个消费方:[[../components/settings/ArtifactsSection]] 的时间列 title。
+
 ## 2026-08-19 — formatMessageAge 对坏时间戳降级为空串
 
 `Intl.RelativeTimeFormat.format(NaN)` 会抛 RangeError——渲染期一个坏时间戳

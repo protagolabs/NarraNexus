@@ -727,8 +727,10 @@
     "agentRowMenu": {
       "options": "에이전트 옵션",
       "rename": "이름 변경",
+      "edit": "편집…",
       "setPrivate": "비공개로 설정",
       "setPublic": "공개로 설정",
+      "clearData": "데이터 지우기",
       "delete": "삭제"
     },
     "agentsHeaderMenu": {
@@ -756,6 +758,7 @@
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
       "rename": "이름 변경",
+      "clearData": "데이터 지우기",
       "delete": "삭제",
       "addAgent": "에이전트 추가",
       "addingAgent": "추가 중…"
@@ -1304,7 +1307,11 @@
       "nav": {
         "privacy": "개인정보 보호",
         "personalization": "개인화",
-        "account": "계정 및 결제"
+        "account": "계정 및 결제",
+        "providers": "LLM 제공자",
+        "modelDefaults": "기본 모델",
+        "artifacts": "아티팩트",
+        "updates": "앱 업데이트"
       },
       "providers": {
         "label": "LLM 제공자"

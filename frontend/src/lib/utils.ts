@@ -97,6 +97,20 @@ export function formatMessageAge(
  * Call it; do not memoise it. See the note about the runtime language switcher
  * above.
  */
+/**
+ * Absolute date+time label in the viewer's locale, parsed as UTC (backend
+ * timestamps carry no zone marker; a bare `new Date` would read them as
+ * local time and disagree with every relative label next to them).
+ */
+export function formatAbsolute(timestamp: number | string, locale?: string): string {
+  const date = parseUTCTimestamp(timestamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleString(locale || undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 export function activeLocale(): string | undefined {
   try {
     const tag = i18n.resolvedLanguage || i18n.language || '';

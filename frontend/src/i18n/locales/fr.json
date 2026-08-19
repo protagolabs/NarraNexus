@@ -727,8 +727,10 @@
     "agentRowMenu": {
       "options": "Options de l'agent",
       "rename": "Renommer",
+      "edit": "Modifier…",
       "setPrivate": "Rendre privé",
       "setPublic": "Rendre public",
+      "clearData": "Effacer les données",
       "delete": "Supprimer"
     },
     "agentsHeaderMenu": {
@@ -757,6 +759,7 @@
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
+      "clearData": "Effacer les données",
       "delete": "Supprimer",
       "addAgent": "Ajouter un agent",
       "addingAgent": "Ajout…"
@@ -1305,7 +1308,11 @@
       "nav": {
         "privacy": "Confidentialité",
         "personalization": "Personnalisation",
-        "account": "Compte et facturation"
+        "account": "Compte et facturation",
+        "providers": "Fournisseurs LLM",
+        "modelDefaults": "Modèles par défaut",
+        "artifacts": "Artefacts",
+        "updates": "Mises à jour"
       },
       "providers": {
         "label": "Fournisseurs LLM"

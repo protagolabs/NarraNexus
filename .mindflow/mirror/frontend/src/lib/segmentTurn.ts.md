@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/segmentTurn.ts
-last_verified: 2026-08-17
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — tool_output 承接调用名(去 'unknown' 占位)
+
+与 [[../components/chat/MessageBubble]] 同因同修:`lastToolName` 顺承,
+空名留空。`isOwnerReplyTool('')` 恒 false,reply 转换不受影响。
+测试:segmentTurn.test.ts 新用例(承接 + 孤儿输出留空)。
 
 ## 2026-08-17 — 回放路径的 reply 判定同样走 `isOwnerReplyTool`
 

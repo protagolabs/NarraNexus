@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { activeLocale, formatMessageAge } from '@/lib/utils';
+import { activeLocale, formatAbsolute, formatMessageAge } from '@/lib/utils';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -192,7 +192,13 @@ export default function ArtifactsSection() {
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
                 {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}
               </span>
-              <span className="text-xs text-[var(--text-tertiary)] w-20 text-right">
+              {/* Relative age for scanning, absolute (UTC-parsed) in the
+                  tooltip — this list exists to pick OLD artifacts to prune,
+                  and "last year" alone can't support that decision. */}
+              <span
+                className="text-xs text-[var(--text-tertiary)] w-20 text-right whitespace-nowrap"
+                title={formatAbsolute(a.updated_at, activeLocale())}
+              >
                 {formatMessageAge(a.updated_at, activeLocale())}
               </span>
             </label>
