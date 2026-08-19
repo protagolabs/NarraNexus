@@ -60,7 +60,7 @@ import {
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
-import { NetmindRenewControls } from './NetmindRenewControls';
+import { NetmindProPurchase } from './NetmindProPurchase';
 import { NetmindReturnNotice } from './NetmindReturnNotice';
 import { useNetmindPaymentReturn } from './useNetmindPaymentReturn';
 
@@ -160,13 +160,12 @@ export function NetmindAccountPanel() {
   // they are different purchases with different rails and must not share a
   // debounce, a poll generation or an error line.
   const [payFlow, setPayFlow] = useState<'topup' | 'renew'>('topup');
-  const [renewMonths, setRenewMonths] = useState(1);
-  // Narrowed to the two rails a renewal can actually use. The wider type let a
-  // 'stripe' value exist that the render then MASKED as "Alipay selected" while
-  // handleRenew still sent it (a 422). Unreachable today — but masking an
-  // illegal state is not the same as making it impossible.
-  const [renewMethod, setRenewMethod] =
-    useState<Extract<SubscribePaymentMethod, 'alipay' | 'wechat'>>('alipay');
+  const [buyMonths, setBuyMonths] = useState(1);
+  // All three rails are legal here: a FREE user starts Pro from this same
+  // control and card is one of their options. What removes card while a
+  // one-time subscription is live is `allowCard` on the control, NOT the type —
+  // that restriction is a fact about upstream's state, not about the value.
+  const [buyMethod, setBuyMethod] = useState<SubscribePaymentMethod>('stripe');
   const [renewFx, setRenewFx] = useState<{ quote: FxQuote; forAmount: number } | null>(null);
 
   const [fxLoading, setFxLoading] = useState(false);
@@ -575,6 +574,16 @@ export function NetmindAccountPanel() {
 
   const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
 
+  // The control must never render a rail it does not offer. `buyMethod` starts
+  // at 'stripe' (the right default for a free user), but card is withdrawn once
+  // a one-time subscription is live — and without this the extend dialog drew
+  // the CARD form with no card option in sight: no month grid, and a button
+  // reading "Subscribe". Normalised in ONE place so the form, the total, the
+  // exchange-rate quote and the request cannot disagree about which rail this is.
+  const cardAllowed = state !== 'pro_onetime';
+  const buyMethodEffective: SubscribePaymentMethod =
+    !cardAllowed && buyMethod === 'stripe' ? 'alipay' : buyMethod;
+
   // The one-time total is built from what a month COSTS, never from the grant:
   // they are equal today, and a change to either would otherwise silently
   // mis-price a 12-month checkout. Falls back to the grant only because the
@@ -583,13 +592,16 @@ export function NetmindAccountPanel() {
     const p = proPlan?.usd_monthly_price ?? proPlan?.monthly_grant_usd;
     return Number.isFinite(Number(p)) ? Number(p) : null;
   })();
-  const renewTotalUsd = monthlyPriceUsd != null ? monthlyPriceUsd * renewMonths : null;
+  const renewTotalUsd =
+    monthlyPriceUsd != null
+      ? monthlyPriceUsd * (buyMethodEffective === 'stripe' ? 1 : buyMonths)
+      : null;
 
   // A WeChat renewal is charged in CNY, so quote the total the same way the
   // top-up flow quotes its amount. No debounce here on purpose: the month grid
   // changes on discrete clicks, not keystrokes, so there is nothing to coalesce.
   useEffect(() => {
-    if (renewMethod !== 'wechat' || renewTotalUsd == null) {
+    if (buyMethodEffective !== 'wechat' || renewTotalUsd == null) {
       setRenewFx(null);
       return;
     }
@@ -609,26 +621,57 @@ export function NetmindAccountPanel() {
     return () => {
       cancelled = true;
     };
-  }, [renewMethod, renewTotalUsd]);
+  }, [buyMethodEffective, renewTotalUsd]);
 
-  const handleRenew = useCallback(async () => {
-    if (rechargeRef.current) return; // shares the money-submit guard
+  // ONE entry for both "start Pro" and "extend a one-time Pro": they are the
+  // same question — how do you want to pay for Pro — asked in two states, and
+  // splitting them is exactly what left Alipay/WeChat users unable to subscribe
+  // at all while the branch was named after letting them.
+  //
+  // The rails then need different guards AND different polls, because upstream
+  // models them as different things:
+  //   card      a real subscription -> busyRef, poll /me until ACTIVE
+  //   one-time  a RECHARGE          -> rechargeRef, poll that session
+  // Polling /me for an EXTENSION would report success on the first tick (the
+  // subscription is already ACTIVE), so the session poll is not an optimisation
+  // here, it is the only reading that can be true.
+  const handleBuyPro = useCallback(async () => {
+    const oneTime = buyMethodEffective !== 'stripe';
+    if (oneTime ? rechargeRef.current : busyRef.current) return;
+    captureProductEvent('subscribe_clicked');
+
+    if (!oneTime) {
+      busyRef.current = true;
+      setBusy(true);
+      setActionError(null);
+      try {
+        const r = await api.subscribe();
+        const url = r.data?.checkout_url;
+        if (!url) throw new Error('No checkout URL returned');
+        captureProductEvent('checkout_opened');
+        await platform.openExternal(url);
+        void pollUntilActive();
+      } catch (e) {
+        if (mounted.current) setActionError(errMessage(e));
+      } finally {
+        busyRef.current = false;
+        if (mounted.current) setBusy(false);
+      }
+      return;
+    }
+
     rechargeRef.current = true;
     const gen = ++rechargeGenRef.current;
     setPayFlow('renew');
     setRechargeState('processing');
     setRechargeError(null);
     try {
-      const r = await api.subscribe(renewMethod, renewMonths);
+      const r = await api.subscribe(buyMethodEffective, buyMonths);
       const url = r.data?.checkout_url;
       const sid = r.data?.session_id;
       if (!url || !sid) throw new Error('No checkout URL returned');
+      captureProductEvent('checkout_opened');
       await platform.openExternal(url);
-      // Upstream models a one-time purchase as a RECHARGE (verified dev
-      // 2026-08-19: by-session reports method="subscription_onetime"), so the
-      // session is pollable by id. This is what makes an EXTENSION detectable
-      // at all — the subscription is already ACTIVE when someone extends it,
-      // so a poll waiting for ACTIVE would report success before the payment.
       void pollRechargeStatus(sid, gen);
     } catch (e) {
       if (mounted.current && rechargeGenRef.current === gen) {
@@ -637,7 +680,7 @@ export function NetmindAccountPanel() {
       }
       rechargeRef.current = false;
     }
-  }, [renewMethod, renewMonths, pollRechargeStatus]);
+  }, [buyMethodEffective, buyMonths, pollRechargeStatus, pollUntilActive]);
 
   if (!isPowerUser) return null; // S0
 
@@ -763,12 +806,18 @@ export function NetmindAccountPanel() {
     return null;
   })();
 
-  const renewControls = (
-    <NetmindRenewControls
-      months={renewMonths}
-      onChangeMonths={setRenewMonths}
-      payMethod={renewMethod}
-      onChangePayMethod={setRenewMethod}
+  // Every spend control disables while ANY of them is mid-flight: the guards
+  // are refs and cannot reach the render, so a control that is merely NOT the
+  // narrator would stay clickable and do nothing at all when clicked.
+  const anyMoneyBusy = busy || polling || rechargeState === 'processing';
+
+  const proPurchase = (
+    <NetmindProPurchase
+      allowCard={cardAllowed}
+      months={buyMonths}
+      onChangeMonths={setBuyMonths}
+      payMethod={buyMethodEffective}
+      onChangePayMethod={setBuyMethod}
       monthlyPriceUsd={monthlyPriceUsd}
       chargeAmountCny={
         renewFx && renewFx.forAmount === renewTotalUsd
@@ -780,9 +829,9 @@ export function NetmindAccountPanel() {
       }
       currentPeriodEnd={me?.subscription?.current_period_end}
       state={payFlow === 'renew' ? rechargeState : 'idle'}
-      busy={rechargeState === 'processing'}
+      busy={anyMoneyBusy}
       error={payFlow === 'renew' && rechargeState === 'failed' ? rechargeError : null}
-      onPay={handleRenew}
+      onPay={handleBuyPro}
     />
   );
 
@@ -794,7 +843,7 @@ export function NetmindAccountPanel() {
       tier={tier}
       custom={custom}
       rechargeState={payFlow === 'topup' ? rechargeState : 'idle'}
-      busy={rechargeState === 'processing'}
+      busy={anyMoneyBusy}
       rechargeError={payFlow === 'topup' ? rechargeError : null}
       paymentMethod={payMethod}
       fx={fx && fx.forAmount === selectedAmount ? fx.quote : null}
@@ -1031,7 +1080,7 @@ export function NetmindAccountPanel() {
             polling={polling}
             proPlan={proPlan}
             topUp={topUp}
-            renew={renewControls}
+            proPurchase={proPurchase}
             onSubscribe={handleSubscribe}
             onCancel={handleCancel}
             onReactivate={handleReactivate}

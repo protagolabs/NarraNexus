@@ -53,8 +53,9 @@ interface NetmindActionZoneProps {
   proPlan: SubscriptionPlan | null;
   /** Top-up controls element (state + guards owned by the panel). */
   topUp: ReactNode;
-  /** Buy-more-months controls; only rendered for a one-time subscription. */
-  renew?: ReactNode;
+  /** "How do you want to pay for Pro" — rendered for a free user starting one
+   *  AND for a one-time subscriber extending theirs. */
+  proPurchase?: ReactNode;
   onSubscribe: () => void;
   onCancel: () => void;
   onReactivate: () => void;
@@ -68,7 +69,7 @@ export function NetmindActionZone({
   polling,
   proPlan,
   topUp,
-  renew,
+  proPurchase,
   onSubscribe,
   onCancel,
   onReactivate,
@@ -76,6 +77,7 @@ export function NetmindActionZone({
   const { t } = useTranslation();
   const [manageOpen, setManageOpen] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(false);
 
   const closeManage = () => {
     setManageOpen(false);
@@ -135,12 +137,34 @@ export function NetmindActionZone({
   // The plan-forward content: Pro card leads, top-up is a demoted line. NO
   // "subscribe vs recharge" peer choice. Used inline (free×low) and in the
   // free manage modal.
+  // The upsell CTA opens the rail choice; it does NOT subscribe by card. Going
+  // straight to card is what made "buy Pro with Alipay" unreachable for anyone
+  // who was not already a one-time subscriber — including a one-time subscriber
+  // whose period had lapsed, who then could never buy it back.
   const planBlock = (
     <div className="space-y-3">
-      <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
+      <NetmindUpsellCard
+        proPlan={proPlan}
+        onUpgrade={() => setBuyOpen(true)}
+        busy={busy || polling}
+      />
       {topUpDisclosure}
       {pricingLink}
     </div>
+  );
+
+  const buyDialog = (
+    <Dialog
+      isOpen={buyOpen}
+      onClose={() => setBuyOpen(false)}
+      title={t('settings.netmind.buyProTitle', 'Upgrade to Nexus Pro')}
+      size="lg"
+    >
+      <DialogContent className="space-y-4">
+        {proPurchase}
+        {pricingLink}
+      </DialogContent>
+    </Dialog>
   );
 
   // ── pro_onetime: a purchase that ENDS, so renewing is the whole job ────────
@@ -182,7 +206,7 @@ export function NetmindActionZone({
           size="lg"
         >
           <DialogContent className="space-y-4">
-            {renew}
+            {proPurchase}
             <hr className="border-[var(--nm-hairline)]" />
             {topUp}
           </DialogContent>
@@ -234,6 +258,7 @@ export function NetmindActionZone({
               : t('settings.netmind.lowChoose', "You're low on credits. To keep going:")}
           </p>
           {planBlock}
+          {buyDialog}
         </div>
       );
     }
@@ -263,6 +288,7 @@ export function NetmindActionZone({
         >
           <DialogContent>{planBlock}</DialogContent>
         </Dialog>
+        {buyDialog}
       </>
     );
   }

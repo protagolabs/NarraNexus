@@ -92,6 +92,7 @@ export function NetmindTopUpControls({
       <PaymentMethodChoice
         value={paymentMethod}
         cardValue="default"
+        label={t('settings.netmind.payMethodLabelTopUp', 'How to pay for these credits')}
         onChange={onChangePaymentMethod}
         disabled={busy}
       />

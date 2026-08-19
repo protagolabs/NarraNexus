@@ -1,10 +1,33 @@
 ---
-code_file: frontend/src/components/settings/NetmindRenewControls.tsx
+code_file: frontend/src/components/settings/NetmindProPurchase.tsx
 last_verified: 2026-08-19
 stub: false
 ---
 
-# NetmindRenewControls.tsx — 一次性订阅的「再买 N 个月」
+## 2026-08-19 — 从 NetmindRenewControls 改名并接回信用卡档
+
+**改名是因为「续订」只描述了它一半的工作**：同一个控件现在既用来**开通** Pro，也用来
+**延长**一次性 Pro —— 它们是同一个问题（你想怎么为 Pro 付钱）在两个状态下被问到。
+
+**把它们拆开正是那个缺陷本身**：改名前，支付宝/微信的订阅入口只出现在「已经持有
+一次性订阅」的人那里，于是分支名叫「让用户用支付宝买套餐」，而**用支付宝买套餐这条
+路不通**——只有支付宝的用户第一次买不了 Pro，一次性订阅到期掉回 free 之后也再买不
+回来。评审第二轮把它列为 Important，Owner 拍板本轮补齐。
+
+两条轨是**两个商品**，所以表单随轨**换形状**而不是加字段：信用卡不显示月数格子
+（月数对自动续费的订阅没有意义），一次性才有月数 + 合计 + 「不会自动续费」。
+
+`allowCard` 只在一次性订阅**生效期间**为 false，判据是上游那时会拒绝卡订阅
+（"Already subscribed to Pro."，2026-08-19 实测）—— **能力事实**，不是
+[[PaymentMethodChoice]] 拒绝做的那种按地区隐藏。
+
+**默认轨必须在 render 之前归一**（[[NetmindAccountPanel]] 的 `buyMethodEffective`）：
+`buyMethod` 初值是 `'stripe'`（对 free 用户是对的），但一次性订阅生效时卡被撤下，
+不归一就会画出**卡的表单却没有卡的选项**——没有月数格子、按钮写着「订阅」。
+这个 bug 是加完 free 入口后立刻被测试抓到的。
+
+
+# NetmindProPurchase.tsx — 「你想怎么为 Pro 付钱」
 
 ## 为什么单独存在，而不是给订阅按钮加个数字
 

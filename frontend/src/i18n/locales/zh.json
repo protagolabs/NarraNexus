@@ -1024,7 +1024,14 @@
       "renewProcessing": "等待付款完成…请在打开的窗口中完成支付，套餐会自动更新。",
       "renewSuccess": "Pro 已延长 —— 新的到期日见上方。",
       "planExplOnetime": "有效至 {{date}} —— 一次性购买，到期不会自动续费",
-      "renewExtendsFrom": "在你当前的到期日 {{date}} 之上顺延。"
+      "renewExtendsFrom": "在你当前的到期日 {{date}} 之上顺延。",
+      "payMethodLabelPro": "用什么方式支付 Pro",
+      "perMonthLabel": "每月",
+      "cardRenews": "自动续费",
+      "cardAutoRenew": "按月自动续费，随时可取消 —— 取消后仍可用到本周期结束。",
+      "subscribeBtn": "订阅",
+      "buyProTitle": "升级到 Nexus Pro",
+      "payMethodLabelTopUp": "用什么方式支付这笔充值"
     },
     "modal": {
       "title": "设置",

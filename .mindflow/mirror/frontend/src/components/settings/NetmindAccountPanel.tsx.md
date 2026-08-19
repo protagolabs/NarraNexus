@@ -4,6 +4,21 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — `handleBuyPro`：一个入口，两条轨，两套轮询
+
+开通与续期合并成一个处理器。**两条轨需要不同的锁和不同的轮询**，因为上游把它们建模成
+不同的东西：卡是真订阅（`busyRef` + 轮询 `/me` 等 ACTIVE），一次性是**一笔 recharge**
+（`rechargeRef` + 轮询那个 session）。对**延长**去轮询 `/me` 会在第一跳就报成功
+（订阅本来就是 ACTIVE），所以 session 轮询不是优化，是**唯一可能为真的读法**。
+
+两把锁**没有合并**——它们的释放语义本就不同（subscribe 在轮询开始前就释放，recharge
+要等轮询结束），强行统一风险大于收益。取而代之的是 `anyMoneyBusy`：**任一花钱动作在飞，
+所有花钱控件都禁用**。这既堵住了评审抓到的「另一个按钮点了没反应」，也不必动锁。
+
+`buyMethodEffective` 见 [[NetmindProPurchase]]：默认轨必须在 render 和请求之前归一，
+否则表单和实际发出去的支付方式会不一致。
+
+
 ## 2026-08-19 — `resolveState` 认第四态，靠 `/me` 的 `payment_method`
 
 ⚠ **作废下方「plan(free/pro_active/pro_cancelled)」的三状态枚举**，现在是四个。

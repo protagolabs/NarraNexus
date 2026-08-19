@@ -1024,7 +1024,14 @@
       "renewProcessing": "Waiting for payment… complete it in the opened window; your plan updates automatically.",
       "renewSuccess": "Pro extended — new end date shown above.",
       "planExplOnetime": "Valid until {{date}} — one-time purchase, does not renew",
-      "renewExtendsFrom": "Added on top of your current end date, {{date}}."
+      "renewExtendsFrom": "Added on top of your current end date, {{date}}.",
+      "payMethodLabelPro": "How to pay for Pro",
+      "perMonthLabel": "Per month",
+      "cardRenews": "Renews automatically",
+      "cardAutoRenew": "Renews monthly until you cancel. Cancel any time — you keep Pro to the end of the period.",
+      "subscribeBtn": "Subscribe",
+      "buyProTitle": "Upgrade to Nexus Pro",
+      "payMethodLabelTopUp": "How to pay for these credits"
     },
     "modal": {
       "title": "Settings",

@@ -28,7 +28,7 @@ const componentFiles = [
   'NetmindUpsellCard.tsx',
   'NetmindTopUpControls.tsx',
   'PaymentMethodChoice.tsx',
-  'NetmindRenewControls.tsx',
+  'NetmindProPurchase.tsx',
   // Added 2026-08-19: both author settings.netmind.* copy and had never been
   // listed, so the guard's own "every component" claim was false — the exact
   // hole it exists to close, and the same one NetmindTopUpControls sat in.
@@ -77,5 +77,30 @@ describe('netmind settings i18n defaults', () => {
     // If the regex silently stops matching, the test would pass on nothing —
     // the components carry far more than a dozen t() calls today.
     expect(total).toBeGreaterThan(12);
+  });
+});
+
+
+// The guard above only ever compared en.json. This feature's users are almost
+// all on the Chinese UI, where a missing key silently falls back to the English
+// default and a dropped {{placeholder}} renders a literal "{{total}}" on a
+// payment button — both with every test green.
+describe('zh.json parity', () => {
+  const zh = JSON.parse(
+    readFileSync(resolve(here, '../../../i18n/locales/zh.json'), 'utf8'),
+  ) as { settings: { netmind: Record<string, string> } };
+
+  it('has exactly the same settings.netmind keys as en.json', () => {
+    expect(Object.keys(zh.settings.netmind).sort()).toEqual(
+      Object.keys(enJson.settings.netmind).sort(),
+    );
+  });
+
+  it('keeps every {{placeholder}} that en.json declares', () => {
+    const holders = (s: string) => (s.match(/\{\{\w+\}\}/g) ?? []).sort();
+    for (const [key, en] of Object.entries(enJson.settings.netmind)) {
+      expect({ key, holders: holders(zh.settings.netmind[key] ?? '') })
+        .toEqual({ key, holders: holders(en) });
+    }
   });
 });

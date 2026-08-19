@@ -40,6 +40,11 @@ type PaymentMethodChoiceProps<T extends string> = {
   value: T;
   onChange: (next: T) => void;
   disabled?: boolean;
+  /** Accessible name for this group. Required in practice wherever two of these
+   *  can share a screen: both announcing "Payment method" leaves a screen-reader
+   *  user unable to tell which one spends which money, and a sighted user free
+   *  to set one to WeChat and assume the other followed — then be charged USD. */
+  label?: string;
 } & (
   | {
       /** Drop the card rail — ONLY where upstream cannot accept it. See the header. */
@@ -101,6 +106,7 @@ export function PaymentMethodChoice<T extends string>({
   onChange,
   disabled = false,
   hideCard = false,
+  label,
 }: PaymentMethodChoiceProps<T>) {
   const { t } = useTranslation();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -131,7 +137,7 @@ export function PaymentMethodChoice<T extends string>({
   return (
     <div
       role="radiogroup"
-      aria-label={t('settings.netmind.payMethodLabel', 'Payment method')}
+      aria-label={label ?? t('settings.netmind.payMethodLabel', 'Payment method')}
       className="flex gap-1.5"
       onKeyDown={onKeyDown}
     >

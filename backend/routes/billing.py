@@ -40,6 +40,8 @@ from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
     EVENT_CHECKOUT_CREATED,
     EVENT_SUBSCRIPTION_ACTIVATED,
+    PROP_MONTHS,
+    PROP_PAYMENT_METHOD,
     PROP_SESSION_ID,
 )
 from xyz_agent_context.settings import settings
@@ -452,7 +454,15 @@ async def subscribe(request: Request, req: SubscribeRequest | None = None):
         user_id=user_id,
         event=EVENT_CHECKOUT_CREATED,
         event_id=f"checkout_created:{session_id}" if session_id else None,
-        properties={PROP_SESSION_ID: session_id},
+        properties={
+            PROP_SESSION_ID: session_id,
+            # Which product was bought. `months` only for the one-time rails —
+            # a card subscription has no month count, and sending 1 would read
+            # as "someone bought one month on a card", a thing that cannot
+            # happen.
+            PROP_PAYMENT_METHOD: req.payment_method,
+            **({} if req.payment_method == "stripe" else {PROP_MONTHS: req.months}),
+        },
     )
     return result
 

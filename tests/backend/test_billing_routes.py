@@ -998,3 +998,39 @@ def test_one_time_subscribe_also_sends_return_urls(make_client, monkeypatch, met
     }
     # ...alongside the one-time fields, not instead of them.
     assert seen["subscribe_body"]["months"] == 2
+
+
+def test_checkout_event_distinguishes_the_two_products(make_client, monkeypatch, analytics_capture):
+    """Without these, a $19 card subscription and a $228 twelve-month one-time
+    purchase are the same row in the funnel."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "wechat", "months": 12},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    props = analytics_capture.await_args.kwargs["properties"]
+    assert props["payment_method"] == "wechat"
+    assert props["months"] == 12
+
+
+def test_card_checkout_event_carries_no_month_count(make_client, monkeypatch, analytics_capture):
+    """A card subscription has no month count; sending 1 would read as
+    "someone bought one month on a card", which is not a thing."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", json={}, headers=_headers()).status_code == 200
+    props = analytics_capture.await_args.kwargs["properties"]
+    assert props["payment_method"] == "stripe"
+    assert "months" not in props
+
+
+def test_checkout_event_id_stays_the_session_alone(make_client, monkeypatch, analytics_capture):
+    """The idempotency key must not gain the new dimensions, or one session
+    counts twice."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    client.post("/api/billing/subscribe", json={"payment_method": "alipay"}, headers=_headers())
+    assert analytics_capture.await_args.kwargs["event_id"] == "checkout_created:cs_1"

@@ -10,7 +10,7 @@
  * the read-only module-F status, recharge flows, and the activity ledger.
  * api + i18n + runtimeStore are mocked — no network.
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { NetmindAccountPanel } from '../NetmindAccountPanel';
 
@@ -334,13 +334,61 @@ test('free × low: the one-time top-up link toggles — click again collapses', 
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
 });
 
-test('free × low: upsell button → api.subscribe + openExternal(checkout_url)', async () => {
+test('free × low: upsell → card is preselected → api.subscribe()', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://pay/x' } });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
-  await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+  await openBuyPro();
+  fireEvent.click(await screen.findByRole('button', { name: /^Subscribe$/ }));
+  // No arguments = the card subscription, unchanged from before the rails
+  // existed: months do not apply to it and must not be sent.
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith());
   await waitFor(() => expect(mockOpenExternal).toHaveBeenCalledWith('https://pay/x'));
+});
+
+test('free: a user with only Alipay can actually buy Pro', async () => {
+  // The point of the whole branch. Before this, the upsell went straight to a
+  // card checkout, so Alipay/WeChat users could top up credits but never
+  // subscribe — and a one-time subscriber whose period lapsed fell back to
+  // free and could never buy it back either.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_new', checkout_url: 'https://checkout.stripe.com/c/pay/cs_new' },
+  });
+  render(<NetmindAccountPanel />);
+  await openBuyPro();
+  await pickMethod(/Alipay/);
+  fireEvent.click(await screen.findByRole('button', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
+  await waitFor(() =>
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_new'),
+  );
+});
+
+test('free: the card rail is offered; a live one-time subscription withdraws it', async () => {
+  // Not a preference — upstream refuses a card subscribe while a one-time
+  // subscription is live, so offering it there would be offering a failure.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  const { unmount } = render(<NetmindAccountPanel />);
+  await openBuyPro();
+  const freeGroup = await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+  expect(within(freeGroup).getByRole('radio', { name: /Card/ })).toBeTruthy();
+  unmount();
+
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  // Scoped to the Pro group: the TOP-UP chooser shares this dialog and does
+  // legitimately offer card — which is exactly why the two groups needed
+  // distinct accessible names.
+  const proGroup = await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+  expect(within(proGroup).queryByRole('radio', { name: /Card/ })).toBeNull();
+  // ...and the form must be the ONE-TIME one, not the card form with no card
+  // option in sight: the default rail is 'stripe', so this only holds because
+  // the panel normalises it before anything renders or is sent.
+  expect(screen.getByRole('button', { name: /^Pay/ })).toBeTruthy();
 });
 
 test('free × low: plans fetch fails → upsell card still renders, price line hidden', async () => {
@@ -752,7 +800,8 @@ test('subscribe payment lands → auto-link fires (no sign-out required)', async
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://stripe/x' } });
   mockUseSubscription.mockResolvedValue({ success: true });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
+  await openBuyPro();
+  fireEvent.click(await screen.findByRole('button', { name: /^Subscribe$/ }));
   // First poll tick returns ACTIVE.
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1), { timeout: 5000 });
@@ -1046,6 +1095,13 @@ const FX_QUOTE = {
     min_amount_usd: '0.740396', min_charge: '5.0',
   },
 };
+
+
+/** free → "Upgrade to Nexus Pro" → the rail dialog. Card is preselected. */
+async function openBuyPro() {
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
+  await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+}
 
 async function pickMethod(name: RegExp) {
   fireEvent.click(await screen.findByRole('radio', { name }));

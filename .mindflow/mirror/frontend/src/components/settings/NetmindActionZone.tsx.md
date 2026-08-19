@@ -4,6 +4,17 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — free 的升级 CTA 改为打开支付方式选择，不再直接走信用卡
+
+`NetmindUpsellCard` 的 `onUpgrade` 原本直接调 `handleSubscribe`（无参 = 卡）。
+**这一步就是「支付宝买不了套餐」的全部原因**：三条轨在后端早就通了、类型也定义了，
+但前端只给已经持有一次性订阅的人开了口子。现在它打开一个弹窗，里面是
+[[NetmindProPurchase]]（三轨全在，卡预选）。
+
+`free × low` 是**内联**渲染 planBlock 的，所以弹窗要跟着挂进那个分支，不能只挂在
+healthy 的 manage 弹窗里 —— 两处都要，否则最需要升级的那个状态反而点不开。
+
+
 ## 2026-08-19 — 定价链接搬到主域名
 
 `PRICING_URL`: `https://website.narra.nexus/pricing` → `https://narra.nexus/pricing`
