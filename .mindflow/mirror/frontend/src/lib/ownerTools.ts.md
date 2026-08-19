@@ -18,8 +18,9 @@ stub: false
 ## 边界
 
 - 匹配裸名与 `mcp__<server>__` 前缀两种形式。
-- 与后端 `chat_module.py` 的 `_OWNER_TOOL_RE` / `message_source_handler.is_owner_tool`
-  是同一条规则，**必须同步移动**。新增第三个 owner 名字时，这里和那两处一起改。
+- 与后端 `channel/message_source_handler.py` 的 `_OWNER_TOOL_RE` / `is_owner_tool`
+  是同一条规则（规则的规范副本 2026-08-17 已归到该文件），**必须同步移动**。新增第三个
+  owner 名字时，这里和那处一起改。
 
 ## 消费方
 

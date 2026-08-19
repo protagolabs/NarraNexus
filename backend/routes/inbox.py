@@ -251,7 +251,17 @@ async def mark_room_read(room_id: str, request: Request, agent_id: str = Query(.
                 "marked_count": 0,
             }
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        # Offset-FREE naive UTC. `last_read_at` is a DATETIME(6) column on
+        # MySQL, where an offset-bearing literal (`…+00:00`) is shifted by the
+        # session `time_zone` while a naive one is not. `created_at` and
+        # `mark_message_read`'s cursor read back naive on MySQL, so an offset
+        # room cursor would land on a different wall clock under any non-UTC
+        # session — new messages then read as permanently unread, or the
+        # only-advances guard turns every click into a silent no-op. On SQLite
+        # the column is TEXT but every `*_at` read is re-normalised to UTC-aware
+        # (`_auto_parse_row`), so the two cursors compare consistently there
+        # regardless of what was written; this fix is for MySQL.
+        now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         await db.execute(
             "UPDATE inbox_threads SET last_read_at = %s "
             "WHERE thread_id = %s AND (last_read_at IS NULL OR last_read_at < %s)",

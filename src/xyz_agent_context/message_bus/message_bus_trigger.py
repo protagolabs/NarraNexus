@@ -1342,11 +1342,11 @@ class MessageBusTrigger:
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     cancellation=cancellation,
-                    # Team rooms are the one surface whose prompt tells the
-                    # agent its plain text IS the delivered reply (auto-posted
-                    # to the room), so NexusPower monologue joins the collected
-                    # text. The peer-DM/inbox branch keeps the monologue
-                    # private — its prompt makes no such promise.
+                    # No monologue harvest on a reply turn: a team reply is a
+                    # tool call (`message_team`) now, so `include_monologue`
+                    # stays False here and is passed only by the patrol path.
+                    # See `_invoke_runtime`'s docstring for why patrol is the
+                    # one exception.
                     # The tree this turn continues, as stamped on the message
                     # that woke it. Empty for a user's message (this run then
                     # becomes a root) — see the recorder's bind.
@@ -1355,15 +1355,14 @@ class MessageBusTrigger:
                     # must learn it from the server, never from a model
                     # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
-                    # Team rooms only: this is the one surface whose contract
-                    # is "your plain text IS the message". A DM reply goes to
-                    # the inbox, and handing that lane a deliverer would post
-                    # it into the channel as well.
-                    # Same fact, module-side consumer: the team room must NOT
-                    # advertise bus tools as its reply surface (plain text
-                    # auto-posts; the prompt forbids delivery tools), so the
-                    # marker rides trigger_extra_data for the expressive
-                    # declaration to gate on.
+                    # The team-room marker for this turn. It rides
+                    # trigger_extra_data so MessageBusModule can gate on it:
+                    # get_expressive_tools declares `message_team` (not the peer
+                    # `message_agent`) and get_disallowed_tools drops
+                    # `message_agent` off the desk. A team reply is a tool call
+                    # like every other surface now, so dropping this marker does
+                    # not silence the room — it makes the turn advertise the peer
+                    # verb and post team replies into the wrong conversation.
                     team_room=is_team,
                 )
 
@@ -3074,12 +3073,15 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                # Delivery-contract marker: team rooms auto-post plain text
-                # and their prompt forbids delivery tools, so the collection
-                # (context_runtime) empties the turn's WHOLE expressive
-                # surface on this marker — every declarer, both frameworks'
-                # reminders. MessageBusModule's own gate is a second line
-                # of defense on its declaration.
+                # Delivery-contract marker: on a team-room turn the send verb
+                # is `message_team`, not the peer `message_agent`.
+                # MessageBusModule reads it (get_expressive_tools /
+                # get_disallowed_tools) to declare message_team and drop
+                # message_agent off the desk. Plain-text auto-post is retired, so
+                # this marker no longer empties the whole expressive surface —
+                # that is the patrol marker below. Deleting it does not silence
+                # the room; it makes the turn advertise the peer verb and post
+                # team replies into the wrong conversation.
                 BUS_TEAM_ROOM_EXTRA_KEY: team_room,
                 # Patrol delivers by speaking: the platform posts the composed
                 # line under the room's own marker. The module reads this to

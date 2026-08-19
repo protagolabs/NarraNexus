@@ -151,3 +151,43 @@ async def test_the_escape_hatch_is_reachable(db_client, client):
     after = client.get(f"/api/agent-inbox?agent_id={AGENT}").json()
     assert after["rooms"][0]["unread_count"] == 0
     assert after["total_unread"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mark_room_read_writes_an_offset_free_cursor(db_client, client):
+    """The room cursor must be written offset-FREE (naive UTC).
+
+    `last_read_at` is a `DATETIME(6)` column on MySQL: an offset-bearing literal
+    (`…+00:00`) is shifted by the session `time_zone` there while a naive one is
+    not, so an offset room cursor and the naive-reading message cursor land on
+    different wall clocks under any non-UTC session — silently wedging the
+    only-advances guard or leaving new messages unread. On SQLite the reads
+    re-normalise to UTC-aware, so it is consistent either way; the fix is for
+    MySQL. This asserts on the literal handed to the driver — the property the
+    bug lives in — so reverting to `...isoformat()` puts the `+00:00` back and
+    turns this red.
+    """
+    captured: dict = {}
+    real_execute = db_client.execute
+
+    async def _spy(query, params=None, *a, **k):
+        if "inbox_threads" in query and "last_read_at" in query:
+            captured["params"] = params
+        return await real_execute(query, params, *a, **k)
+
+    db_client.execute = _spy
+    try:
+        await _seed(db_client, read_at=None)
+        r = client.post(f"/api/agent-inbox/rooms/{THREAD}/read?agent_id={AGENT}")
+        assert r.status_code == 200 and r.json()["success"] is True
+    finally:
+        db_client.execute = real_execute
+
+    # The literal handed to the driver — the property the bug lives in, so it is
+    # asserted on the raw value rather than on anything a backend read-back may
+    # normalise away.
+    written = captured["params"][0]
+    assert isinstance(written, str), written
+    assert "+" not in written and not written.endswith("Z"), (
+        f"mark_room_read wrote a tz-offset cursor: {written!r}"
+    )

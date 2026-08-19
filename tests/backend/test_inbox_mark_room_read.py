@@ -182,10 +182,18 @@ def test_mark_room_read_db_error_returns_failure_not_500():
 # ── Server-time format ─────────────────────────────────────────────────
 
 
-def test_mark_room_read_uses_iso_with_tz():
-    """`last_read_at` cursor comparison is lexicographic (per `_to_iso`),
-    so the timestamp we write MUST be ISO 8601 with timezone offset to
-    sort correctly against ALL backend types (str / datetime / NULL)."""
+def test_mark_room_read_writes_naive_utc():
+    """The cursor MUST be written offset-FREE (naive UTC) — the opposite of what
+    this test asserted before.
+
+    `last_read_at` is `DATETIME(6)` on MySQL, where an offset literal (`+00:00`)
+    is shifted by the session `time_zone` and a naive one is not; `created_at`
+    and `mark_message_read`'s cursor read back naive there, so a `+00:00` room
+    cursor lands on a different wall clock under any non-UTC session and the
+    only-advances guard silently wedges (or new messages stay unread). On SQLite
+    the reads re-normalise to UTC-aware so it is consistent either way — the fix
+    is for MySQL. Reverting to `...isoformat()` with the offset turns this red.
+    """
     db = MagicMock()
     db.get_one = AsyncMock(return_value={
         "channel_id": "c", "agent_id": "a", "last_read_at": None,
@@ -195,12 +203,12 @@ def test_mark_room_read_uses_iso_with_tz():
 
     r = client.post("/api/agent-inbox/rooms/c/read?agent_id=a")
     ts = r.json()["last_read_at"]
-    # Must be ISO 8601 with timezone info
     parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    # Must be very recent (within last 60s)
-    delta = abs((datetime.now(timezone.utc) - parsed).total_seconds())
-    assert delta < 60.0
+    assert parsed.tzinfo is None, f"cursor must be naive UTC, got {ts!r}"
+    assert "+" not in ts and not ts.endswith("Z"), ts
+    # Must be very recent (within last 60s) — compare naive-to-naive.
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((now_naive - parsed).total_seconds()) < 60.0
 
 
 # ── Pytest-asyncio noop (the routes themselves are async) ──────────────

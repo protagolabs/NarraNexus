@@ -98,6 +98,13 @@ async def test_the_sleep_returns_early_when_another_process_sends(db_client):
 
     The trigger is sleeping its full interval; a send happens somewhere else
     entirely (no in-process Event is set). The sleep must still end promptly.
+
+    The baseline is snapshotted FIRST — the same order `start` runs
+    (`_snapshot_wake_baseline` then the cycle then `_sleep_until_due`). Without
+    it `_wake_baseline` stays `None`, the first slice reads `""`, and `"" != None`
+    ends the sleep on slice one no matter what — the send, and the `bump` inside
+    it, prove nothing. With the baseline pinned to the pre-send value, only the
+    send's bump can end the sleep, so deleting that bump turns this red (round-5).
     """
     ch = await _seed_channel(db_client)
     t = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
@@ -110,6 +117,7 @@ async def test_the_sleep_returns_early_when_another_process_sends(db_client):
         other = LocalMessageBus(backend=db_client._backend)
         await other.send_message(from_agent=B, to_channel=ch, content="from afar")
 
+    await t._snapshot_wake_baseline()
     started = time.monotonic()
     await asyncio.gather(t._sleep_until_due(), _send_from_elsewhere())
     elapsed = time.monotonic() - started
