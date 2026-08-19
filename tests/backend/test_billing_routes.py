@@ -97,12 +97,14 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, ac
                 raise raise_exc
             return action if action is not None else {"session_id": "cs", "checkout_url": "https://x"}
 
-        async def cancel(self, token):
+        async def cancel(self, token, **kwargs):
+            seen["cancel"] = dict(kwargs)
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"status": "auto_renew_off"}
 
-        async def reactivate(self, token):
+        async def reactivate(self, token, **kwargs):
+            seen["reactivate"] = dict(kwargs)
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"status": "auto_renew_on"}
@@ -1034,3 +1036,34 @@ def test_checkout_event_id_stays_the_session_alone(make_client, monkeypatch, ana
     client = make_client(cloud=True)
     client.post("/api/billing/subscribe", json={"payment_method": "alipay"}, headers=_headers())
     assert analytics_capture.await_args.kwargs["event_id"] == "checkout_created:cs_1"
+
+
+@pytest.mark.parametrize("action", ["cancel", "reactivate"])
+def test_cancel_and_reactivate_carry_the_channel(make_client, monkeypatch, action):
+    """A card subscription created on the nexus account has to be cancellable.
+
+    Whether upstream locates it by channel or by the subscription's own account
+    was never measured — the integration doc claims the latter, this client's
+    own note implies the former, and they cannot both be true. Sending it is
+    correct under the pessimistic reading and inert under the optimistic one,
+    so it is sent. Upstream accepts the field on both endpoints (dev
+    2026-08-19).
+    """
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(f"/api/billing/{action}", headers=_headers())
+    assert r.status_code == 200
+    assert seen[action]["channel"] == "nexus"
+
+
+@pytest.mark.parametrize("action", ["cancel", "reactivate"])
+def test_cancel_and_reactivate_never_carry_redirect_urls(make_client, monkeypatch, action):
+    """Neither opens a Stripe checkout, so neither has anywhere to redirect to.
+    This is why `extra` is a per-call parameter instead of something the shared
+    harness resolves — adding the channel must not smuggle the URLs in."""
+    seen = _stub_client(monkeypatch)
+    _set_origin(monkeypatch, "https://agent.narra.nexus")
+    client = make_client(cloud=True)
+    assert client.post(f"/api/billing/{action}", headers=_headers()).status_code == 200
+    assert "success_url" not in seen[action]
+    assert "cancel_url" not in seen[action]

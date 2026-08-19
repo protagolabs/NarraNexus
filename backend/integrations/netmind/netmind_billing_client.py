@@ -278,24 +278,56 @@ class NetmindBillingClient:
             json_body=body or None,
         )
 
-    async def cancel(self, login_token: str) -> Any:
+    async def cancel(self, login_token: str, *, channel: Optional[str] = None) -> Any:
         """Cancel = turn off auto-renew (stays Pro until period end).
 
         Returns ``{status: "auto_renew_off"}``. Raises BillingBusinessError on
         400 (e.g. "No active Pro subscription.").
+
+        ``channel`` is sent for the same reason subscribe sends it, and the
+        reasoning is worth stating because the two possible upstream behaviours
+        have very different costs. If upstream locates the subscription by
+        channel, omitting it means a card subscription created on the nexus
+        account CANNOT BE CANCELLED — the user clicks cancel, gets "No active
+        Pro subscription.", and is charged again next month. If instead upstream
+        routes by the subscription's own account, an extra field is inert. So
+        sending it is correct under one hypothesis and harmless under the other,
+        which is the only asymmetry that matters here. Measured 2026-08-19: both
+        endpoints accept the field (200).
+
+        WARNING, measured the same day: on a ONE-TIME (Alipay/WeChat)
+        subscription this endpoint answers 200 and reports success while
+        changing nothing that matters — it is a no-op that claims to have
+        cancelled something which was never renewing. The UI must not offer it
+        there; see NetmindActionZone's pro_onetime branch.
         """
         return await self._request(
-            "POST", "/v1/power-subscription/cancel", login_token=login_token
+            "POST",
+            "/v1/power-subscription/cancel",
+            login_token=login_token,
+            json_body=_channel_field(channel) or None,
         )
 
-    async def reactivate(self, login_token: str) -> Any:
+    async def reactivate(self, login_token: str, *, channel: Optional[str] = None) -> Any:
         """Re-enable auto-renew on a cancelled-but-in-period subscription.
 
-        NOTE: endpoint existence confirmed on dev (401 unauth); exact semantics
-        (resume auto-renew vs re-subscribe) still pending NetMind confirmation.
+        ``channel`` — see ``cancel`` for why these two send it.
+
+        WARNING (measured 2026-08-19, dev): called on a ONE-TIME
+        (Alipay/WeChat) subscription this does NOT merely no-op — it answers 200
+        and genuinely flips ``auto_renew`` to true on a product that cannot
+        auto-renew. Nothing then renews it, so the flag is simply a lie the
+        panel would have to read past. This is why ``resolveState`` tests
+        ``payment_method`` BEFORE ``auto_renew``: with the opposite ordering a
+        one-time subscriber whose state had been corrupted this way would be
+        shown "Pro active — cancel subscription". The UI never calls this for a
+        one-time subscription; the ordering is the belt to that braces.
         """
         return await self._request(
-            "POST", "/v1/power-subscription/reactivate", login_token=login_token
+            "POST",
+            "/v1/power-subscription/reactivate",
+            login_token=login_token,
+            json_body=_channel_field(channel) or None,
         )
 
     async def recharge(

@@ -373,8 +373,13 @@ class Settings(BaseSettings):
     # a user who previously paid through "power" is a DIFFERENT Stripe customer
     # here, so their saved card is not offered on the first nexus checkout.
     # Free credit and subscription state land on the same NetMind ledger either
-    # way, and cancelling/reactivating a card subscription is routed by upstream
-    # to whichever account owns it.
+    # way. Cancel and reactivate now SEND this channel rather than relying on
+    # upstream to route them by the subscription's own account — that routing
+    # claim comes from the integration doc, was never measured, and directly
+    # contradicted this client's own "an absent channel reads as power". Under
+    # the pessimistic reading, omitting it means a card subscription created
+    # here cannot be cancelled at all; sending it is inert under the optimistic
+    # one. Both endpoints accept the field (measured 2026-08-19).
     # Literal, not str: this field exists to be edited under pressure during a
     # payment incident, and `BILLING_CHANNEL=nexux` in a deploy .env would start
     # both boxes cleanly and only surface as an upstream 400 at the first real

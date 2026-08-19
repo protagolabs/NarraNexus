@@ -121,11 +121,20 @@ describe('PayPage', () => {
   });
 
   it('StrictMode double-effect redirects exactly once', async () => {
+    // <StrictMode>, not rerender(): the effect's deps never change on a
+    // rerender, so it simply would not run twice and the assertion would hold
+    // with the inFlight guard deleted. What has to be exercised is two effect
+    // runs OVERLAPPING — the second entering while the first is still awaiting
+    // the probe, which is the only situation the ref exists for.
     authState.netmindToken = 'tok_live';
     mockGetSubscription.mockResolvedValue({ success: true, data: { subscription: null } });
-    const { rerender } = render(<PayPage />);
-    rerender(<PayPage />);
+    render(
+      <StrictMode>
+        <PayPage />
+      </StrictMode>,
+    );
     await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
     expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockGetSubscription).toHaveBeenCalledTimes(1);
   });
 });

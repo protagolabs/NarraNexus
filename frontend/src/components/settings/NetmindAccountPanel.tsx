@@ -591,29 +591,39 @@ export function NetmindAccountPanel() {
       ? monthlyPriceUsd * (buyMethodEffective === 'stripe' ? 1 : buyMonths)
       : null;
 
-  // A WeChat renewal is charged in CNY, so quote the total the same way the
-  // top-up flow quotes its amount. No debounce here on purpose: the month grid
-  // changes on discrete clicks, not keystrokes, so there is nothing to coalesce.
+  // A WeChat renewal is charged in CNY, so quote the total the way the top-up
+  // flow quotes its amount — debounce included.
+  //
+  // This used to say a debounce was unnecessary "because the month grid changes
+  // on discrete clicks, not keystrokes". That stopped being true in the same
+  // change that wrote it: the grid is a radiogroup now, so holding an arrow key
+  // walks 1→12 and fires six quotes at an endpoint deliberately left uncached.
+  // A justification its own file can falsify is worse than none — the next
+  // person builds on it. The keyboard path must not be the one that hammers
+  // upstream, least of all right after making it the accessible one.
   useEffect(() => {
     if (buyMethodEffective !== 'wechat' || renewTotalUsd == null) {
       setRenewFx(null);
       return;
     }
     let cancelled = false;
-    void (async () => {
-      try {
-        const r = await api.fxRate(renewTotalUsd);
-        if (!cancelled && mounted.current && r.data) {
-          setRenewFx({ quote: r.data, forAmount: renewTotalUsd });
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const r = await api.fxRate(renewTotalUsd);
+          if (!cancelled && mounted.current && r.data) {
+            setRenewFx({ quote: r.data, forAmount: renewTotalUsd });
+          }
+        } catch {
+          // Display helper only. Refusing to let someone pay because the quote
+          // 502'd would turn a cosmetic outage into a revenue one; upstream
+          // does its own conversion regardless.
         }
-      } catch {
-        // Display helper only. Refusing to let someone pay because the quote
-        // 502'd would turn a cosmetic outage into a revenue one; upstream does
-        // its own conversion regardless.
-      }
-    })();
+      })();
+    }, FX_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [buyMethodEffective, renewTotalUsd]);
 

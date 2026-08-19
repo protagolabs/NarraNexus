@@ -505,14 +505,26 @@ async def fx_rate(request: Request, amount: float | None = Query(None, gt=0)):
 
 @router.post("/cancel")
 async def cancel(request: Request):
-    """Cancel = turn off auto-renew; stays Pro until period end."""
-    return await _write_action(request, "cancel")
+    """Cancel = turn off auto-renew; stays Pro until period end.
+
+    Carries `channel` but NOT the return URLs — this opens no Stripe checkout,
+    which is the whole reason `extra` is a parameter rather than something the
+    harness resolves. See the client for why the channel is sent.
+    """
+    return await _write_action(request, "cancel", {"channel": settings.billing_channel})
 
 
 @router.post("/reactivate")
 async def reactivate(request: Request):
-    """Re-enable auto-renew on a cancelled-but-in-period subscription."""
-    return await _write_action(request, "reactivate")
+    """Re-enable auto-renew on a cancelled-but-in-period subscription.
+
+    Card subscriptions only — on a one-time purchase this genuinely flips
+    auto_renew on something that cannot renew (measured 2026-08-19). The panel
+    never offers it there.
+    """
+    return await _write_action(
+        request, "reactivate", {"channel": settings.billing_channel}
+    )
 
 
 # --- Phase 4: recharge / top-up (module E) ---------------------------------
