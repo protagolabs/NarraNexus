@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 标题变面板切换器 + banner 插槽
+
+- 新可选 props `activeTab`/`onSelectTab`:传入时头部标题变成下拉——列出
+  [[tabs]] 注册表的全部面板(按 Config/Activity/Narra/Nexus 分组,当前项打勾),
+  钉选窗口自己就能换内容,不必回聊天头找按钮。菜单用 [[../../hooks/useDismissOnOutside]]。
+  不传则退回纯文本标题(移动端调用方不变)。
+- 新可选 `banner`:渲染在头部与内容之间(首跑教学卡 [[DrawerCoachMark]] 用)。
+测试:drawerPanelSwitcher.test.tsx。
 
 ## 2026-08-06 (2) — 头部 ? 说明气泡
 

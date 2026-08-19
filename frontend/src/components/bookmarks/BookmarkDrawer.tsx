@@ -47,10 +47,12 @@
  * parent).
  */
 
-import { type ReactNode, type Ref, useEffect, useCallback } from 'react';
+import { type ReactNode, type Ref, useEffect, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Pin, PinOff, HelpCircle } from 'lucide-react';
+import { X, Pin, PinOff, HelpCircle, ChevronDown, Check } from 'lucide-react';
+import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
+import { STRIP_CATEGORIES, type AtomicTabId } from './tabs';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,11 +75,11 @@ interface BookmarkDrawerProps {
   /** Column width in px, pinned mode only. Ignored by the slide-over. */
   pinnedWidth?: number;
   /**
-   * Desktop (Owner 2026-08-06): the transient (unpinned) drawer renders as
-   * an IN-FLOW column too — content shifts left instead of being covered
-   * (the fixed overlay was hiding the chat's own-message avatars). It keeps
-   * transient semantics: backdrop click + Esc close it. Overlay mode
-   * remains for mobile (inset=false), where there is no room to share.
+   * Desktop: the transient (unpinned) drawer renders as an IN-FLOW column —
+   * content shifts left instead of being covered (a fixed overlay hides the
+   * chat's own-message avatars). It keeps transient semantics: backdrop
+   * click + Esc close it. Overlay mode remains for mobile (inset=false),
+   * where there is no room to share.
    */
   inset?: boolean;
   /**
@@ -98,6 +100,17 @@ interface BookmarkDrawerProps {
    * `width` straight to the DOM during a drag. Null in slide-over mode.
    */
   columnRef?: Ref<HTMLDivElement>;
+  /**
+   * The open tab + switcher callback. When provided, the header title
+   * becomes a dropdown listing every panel (the tabs registry), so the
+   * drawer can change its own content without a trip to the chat header —
+   * a pinned drawer is an independent window and owns its own controls.
+   */
+  activeTab?: AtomicTabId | null;
+  onSelectTab?: (id: AtomicTabId) => void;
+  /** Optional banner rendered between the header and the panel content
+   *  (e.g. the first-run coach mark). */
+  banner?: ReactNode;
   children: ReactNode;
 }
 
@@ -117,6 +130,9 @@ export function BookmarkDrawer({
   insetWidth = 440,
   description = '',
   columnRef,
+  activeTab = null,
+  onSelectTab,
+  banner,
   children,
 }: BookmarkDrawerProps) {
   // Keyboard Esc handler — only for slide-over mode (not pinned)
@@ -207,7 +223,10 @@ export function BookmarkDrawer({
           pinned={pinned}
           onPinnedChange={onPinnedChange}
           onClose={onClose}
+          activeTab={activeTab}
+          onSelectTab={onSelectTab}
         />
+        {banner}
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
       </div>
     </>
@@ -224,26 +243,95 @@ interface DrawerHeaderProps {
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
+  activeTab?: AtomicTabId | null;
+  onSelectTab?: (id: AtomicTabId) => void;
 }
 
-function DrawerHeader({ title, description, pinned, onPinnedChange, onClose }: DrawerHeaderProps) {
+const TITLE_CLASS =
+  'text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none truncate';
+
+function DrawerHeader({
+  title,
+  description,
+  pinned,
+  onPinnedChange,
+  onClose,
+  activeTab,
+  onSelectTab,
+}: DrawerHeaderProps) {
   const { t } = useTranslation();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
       style={{ borderBottom: '1px solid var(--nm-hairline)' }}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        {/* Mono uppercase title */}
-        <span
-          className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none truncate"
-          style={{ color: 'var(--text-primary)' }}
-        >
-          {title}
-        </span>
+        {onSelectTab ? (
+          /* Title as a panel switcher: the drawer owns what it shows. */
+          <div ref={switcherRef} className="relative min-w-0">
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen((v) => !v)}
+              aria-expanded={switcherOpen}
+              aria-label={t('bookmarks.drawer.switchPanel')}
+              title={t('bookmarks.drawer.switchPanel')}
+              className="flex items-center gap-1 min-w-0 rounded-[var(--radius-xs)] px-1 -mx-1 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+            >
+              <span className={TITLE_CLASS} style={{ color: 'var(--text-primary)' }}>
+                {title}
+              </span>
+              <ChevronDown
+                className={cn('w-3 h-3 shrink-0 text-[var(--nm-ink50)] transition-transform', switcherOpen && 'rotate-180')}
+                aria-hidden
+              />
+            </button>
+            {switcherOpen && (
+              <div
+                className="absolute left-0 top-full z-50 mt-1.5 w-52 max-h-[60vh] overflow-y-auto rounded-[var(--radius-md)] border py-1 shadow-lg"
+                style={{ background: 'var(--nm-card)', borderColor: 'var(--nm-hairline)' }}
+              >
+                {STRIP_CATEGORIES.map((cat) => (
+                  <div key={cat.label}>
+                    <div className="px-3 pt-2 pb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--nm-ink30)]">
+                      {t(cat.labelKey)}
+                    </div>
+                    {cat.tabs.map(({ id, labelKey, icon: Icon }) => {
+                      const active = id === activeTab;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            setSwitcherOpen(false);
+                            if (!active) onSelectTab(id);
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-left transition-colors',
+                            'hover:bg-[var(--nm-paper-warm)]',
+                            active ? 'text-[var(--nm-ink)] font-medium' : 'text-[var(--nm-ink70)]',
+                          )}
+                        >
+                          <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                          <span className="flex-1 min-w-0 truncate">{t(labelKey)}</span>
+                          {active && <Check className="w-3 h-3 shrink-0" aria-hidden />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className={TITLE_CLASS} style={{ color: 'var(--text-primary)' }}>
+            {title}
+          </span>
+        )}
         {/* ? explainer — one sentence on what this panel is for, for users
-            who never open the docs (Owner 2026-08-06). Hover/focus reveals
-            a styled tooltip; localized upstream. */}
+            who never open the docs. Hover/focus reveals a styled tooltip;
+            localized upstream. */}
         {description && (
           <span className="group/help relative inline-flex shrink-0">
             <button

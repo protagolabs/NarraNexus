@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 钉选默认开 + 宽度上限跟视口 + 首跑教学
+
+- 抽屉默认**钉选**(只有显式 unpin 存 '0' 才关)——面板应该待在原地,
+  除非用户说不。策略/键值抽到 [[drawerLayout]](纯函数可测)。
+- 拖拽上限从写死 720px 改为 `min(60vw, vw−672)`:大屏上 artifacts 能拉过
+  半屏;672 = 侧栏 272 + 聊天列最小 400,永远吃不进去。存量宽度按当前视口
+  重新 clamp。
+- 首跑(桌面、无 opened-once 标记):懒初始化直接以 artifacts 面板 + 
+  [[../bookmarks/DrawerCoachMark]] 教学卡开局(不用 effect,无级联渲染;
+  once 标记在 `claimFirstRunAutoOpen` 内一次性占用,手机访问不烧掉桌面首跑)。
+  unpin/close/知道了 任一操作即消失。抽屉列仅在有 agent 时渲染,所以
+  setup 期间不闪面板。
+- 抽屉接上 `activeTab`/`onSelectTab`(标题下拉切换,见 [[../bookmarks/BookmarkDrawer]])。
+测试:drawerLayout.test.ts。
 
 ## 2026-08-06 (5) — 抽屉 inset + artifacts 50vw
 

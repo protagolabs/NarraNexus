@@ -1065,7 +1065,14 @@
     "drawer": {
       "unpin": "Panel lösen",
       "pin": "Panel anheften",
-      "close": "Panel schließen"
+      "close": "Panel schließen",
+      "switchPanel": "Panel wechseln"
+    },
+    "coach": {
+      "title": "Deine Artefakte erscheinen hier",
+      "unpinHint": "Löse die Anheftung, um daraus ein selbstschließendes Overlay zu machen.",
+      "closeHint": "Panel schließen — jedes Panel lässt sich über die Chat-Kopfzeile wieder öffnen.",
+      "gotIt": "Verstanden"
     }
   },
   "inbox": {

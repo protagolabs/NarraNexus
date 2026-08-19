@@ -1065,7 +1065,14 @@
     "drawer": {
       "unpin": "Desafixar painel",
       "pin": "Afixar painel",
-      "close": "Fechar painel"
+      "close": "Fechar painel",
+      "switchPanel": "Trocar painel"
+    },
+    "coach": {
+      "title": "Seus artefatos aparecem aqui",
+      "unpinHint": "Desafixe para transformá-lo em um painel flutuante que fecha sozinho.",
+      "closeHint": "Feche o painel — reabra qualquer painel pelo cabeçalho do chat.",
+      "gotIt": "Entendi"
     }
   },
   "inbox": {

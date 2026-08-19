@@ -56,16 +56,21 @@ import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAutoRefresh } from '@/hooks';
+import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
+import {
+  DEFAULT_DRAWER_PX,
+  DRAWER_OPENED_ONCE_KEY,
+  DRAWER_PINNED_KEY,
+  DRAWER_WIDTH_KEY,
+  claimFirstRunAutoOpen,
+  clampDrawerWidth,
+  readInitialDrawerPinned,
+} from './drawerLayout';
 
-const DRAWER_PINNED_KEY = 'bookmark_drawer_pinned_v1';
-const DRAWER_OPENED_ONCE_KEY = 'bookmark_drawer_opened_v1';
-const DRAWER_WIDTH_KEY = 'bookmark_drawer_width_v1';
 // Pinned bookmark drawer: user-resizable like the chat ↔ artifacts split, so
 // every column on the right side follows the same "grab the rule and drag"
-// rule instead of one of them being a hardcoded width.
-const DEFAULT_DRAWER_PX = 400;
-const MIN_DRAWER_PX = 300;
-const MAX_DRAWER_PX = 720;
+// rule instead of one of them being a hardcoded width. Sizing policy and
+// persistence keys live in drawerLayout.ts.
 
 function readInitialDrawerWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_DRAWER_PX;
@@ -73,7 +78,7 @@ function readInitialDrawerWidth(): number {
   if (!raw) return DEFAULT_DRAWER_PX;
   const parsed = parseFloat(raw);
   if (!Number.isFinite(parsed)) return DEFAULT_DRAWER_PX;
-  return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, parsed));
+  return clampDrawerWidth(parsed, window.innerWidth);
 }
 
 /** Default chat view with context panel */
@@ -82,10 +87,20 @@ export function ChatView() {
   // the drawer is pinned into a static column (persisted — pinning is a
   // deliberate workspace choice). One tab = one panel (Owner IA).
   const { t: tr } = useTranslation();
-  const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(null);
+  // First run (desktop): the artifacts panel opens pinned with a coach mark
+  // teaching unpin/close. Decided at mount via lazy initializers — no
+  // effect, no cascading render, and the once-marker is claimed exactly
+  // once (drawerLayout.claimFirstRunAutoOpen).
+  const [showDrawerCoach, setShowDrawerCoach] = useState<boolean>(() =>
+    typeof window !== 'undefined' &&
+    claimFirstRunAutoOpen(window.localStorage, window.matchMedia('(max-width: 767.98px)').matches),
+  );
+  const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
+    () => (showDrawerCoach ? 'artifacts' : null),
+  );
   const [drawerPinned, setDrawerPinned] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(DRAWER_PINNED_KEY) === '1';
+    if (typeof window === 'undefined') return true;
+    return readInitialDrawerPinned(window.localStorage);
   });
   const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
@@ -96,12 +111,14 @@ export function ChatView() {
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
 
-  const handleDrawerClose = () => setDrawerTab(null);
+  const handleDrawerClose = () => {
+    setDrawerTab(null);
+    setShowDrawerCoach(false);
+  };
 
   // A panel requested from the chat header entries / ⋯ detail menu / the
-  // command palette (all funnel through uiStore.requestPanel — the strip
-  // that used to own this is retired in v4). Re-requesting the open tab
-  // closes the drawer (toggle), matching the old strip behavior.
+  // command palette — all funnel through uiStore.requestPanel.
+  // Re-requesting the open tab closes the drawer (toggle).
   useEffect(() => {
     if (pendingPanel) {
       setDrawerTab((prev) => {
@@ -117,10 +134,13 @@ export function ChatView() {
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);
+    setShowDrawerCoach(false);
     try {
       window.localStorage.setItem(DRAWER_PINNED_KEY, pinned ? '1' : '0');
     } catch { /* non-fatal */ }
   };
+
+
 
   const loadPinned = useArtifactStore((s) => s.loadPinned);
   const artifactsLength = useArtifactStore((s) => s.artifacts.length);
@@ -143,7 +163,7 @@ export function ChatView() {
     const el = drawerColRef.current;
     if (!el) return null;
     const right = el.getBoundingClientRect().right;
-    return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, right - clientX));
+    return clampDrawerWidth(right - clientX, window.innerWidth);
   }, []);
 
   const handleDrawerResize = useCallback((clientX: number) => {
@@ -173,10 +193,10 @@ export function ChatView() {
   }, [agentId, loadPinned]);
 
   return (
-    // v4: full-bleed, seam-free — the chat surface runs edge to edge with
-    // hairline separations instead of padded floating cards. Artifacts no
-    // longer occupy a side column: they open in the bookmark drawer via the
-    // chat header's Artifacts entry (Owner 2026-08-06).
+    // Full-bleed, seam-free — the chat surface runs edge to edge with
+    // hairline separations instead of padded floating cards. Artifacts do
+    // not occupy a side column: they open in the bookmark drawer via the
+    // chat header's Artifacts entry.
     <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Mobile utility row — artifacts entry + cost chip (the desktop
@@ -240,6 +260,13 @@ export function ChatView() {
           description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          banner={
+            showDrawerCoach ? (
+              <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />
+            ) : null
+          }
           // Desktop: transient drawer is an in-flow column (chat shifts left,
           // nothing gets covered). Artifacts wants big-screen readability —
           // ~half the viewport, clamped so the sidebar (272) + chat (400)

@@ -1365,7 +1365,14 @@
     "drawer": {
       "unpin": "Unpin panel",
       "pin": "Pin panel",
-      "close": "Close panel"
+      "close": "Close panel",
+      "switchPanel": "Switch panel"
+    },
+    "coach": {
+      "title": "Your artifacts live here",
+      "unpinHint": "Unpin to turn this into a pop-over that closes on its own.",
+      "closeHint": "Close the panel — reopen any panel from the chat header.",
+      "gotIt": "Got it"
     }
   },
   "inbox": {

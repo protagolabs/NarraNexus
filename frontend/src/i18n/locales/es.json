@@ -1065,7 +1065,14 @@
     "drawer": {
       "unpin": "Desanclar panel",
       "pin": "Anclar panel",
-      "close": "Cerrar panel"
+      "close": "Cerrar panel",
+      "switchPanel": "Cambiar panel"
+    },
+    "coach": {
+      "title": "Tus artefactos aparecen aquí",
+      "unpinHint": "Desancla para convertirlo en una ventana emergente que se cierra sola.",
+      "closeHint": "Cierra el panel — reábrelo cuando quieras desde la cabecera del chat.",
+      "gotIt": "Entendido"
     }
   },
   "inbox": {
