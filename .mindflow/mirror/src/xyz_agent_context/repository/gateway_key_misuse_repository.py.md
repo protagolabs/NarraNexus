@@ -48,13 +48,14 @@ stub: false
 - **追加式（append-only）+ 幂等重试（M3）**：一次事件一行。`hit_at` 由**端点**先归一化成
   DATETIME(6) 契约 `YYYY-MM-DD HH:MM:SS.ffffff`(UTC) 再传进来（本层不再解析文本）。当带
   `hit_at` 时，表上 `(key_hash, hit_at)` 唯一索引让「写成功但响应超时」的重试落回同一行：
-  `record` 捕获**唯一冲突**（精确匹配 sqlite `UNIQUE constraint failed` / mysql
-  `Duplicate entry` / `1062`），据 `(key_hash, hit_at)` 反查既有行、返回 `(其 id, True)`——
-  **幂等成功，不是吞掉失败**。反查键用的正是端点写入时的同一归一化 `hit_at`，故必能命中
-  刚撞的那行。其余任何写错误照旧上抛（丢一行 = 漏一次处置）。冲突时 key_hash 与 hit_at
-  必为非空（唯一索引不在 NULL key_hash 上触发），故反查可靠。`hit_at` 省略（或端点判为不可解析而丢弃）时用列默认（落库
-  时间），无去重。此精确异常过滤沿用 [[instance_link_repository]] / [[channel_seen_message_repository]]
-  的既有惯例（铁律教训 #3：过滤须精确到具体异常类 + 上下文）。
+  `record` 捕获**唯一冲突**（判定走共享 [[dialect_errors.py]] 的 `is_unique_violation`，
+  双方言 sqlite `UNIQUE constraint failed` / mysql `Duplicate entry` / `1062`），据
+  `(key_hash, hit_at)` 反查既有行、返回 `(其 id, True)`——**幂等成功，不是吞掉失败**。
+  反查键用的正是端点写入时的同一归一化 `hit_at`，故必能命中刚撞的那行。其余任何写错误
+  照旧上抛（丢一行 = 漏一次处置）。冲突时 key_hash 与 hit_at 必为非空（唯一索引不在 NULL
+  key_hash 上触发），故反查可靠。`hit_at` 省略（或端点判为不可解析而丢弃）时用列默认（落库
+  时间），无去重。此唯一冲突判定与 [[instance_link_repository]] /
+  [[channel_seen_message_repository]] 等六处共用同一份谓词（铁律 #8 收敛，PR#327 I1）。
 
 ## Gotcha / 边界情况
 

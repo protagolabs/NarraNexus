@@ -24,6 +24,8 @@ from typing import Optional, Tuple
 
 from loguru import logger
 
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
+
 
 class GatewayKeyMisuseRepository:
     """Append-only writer for authoritative gateway-key misuse records."""
@@ -94,12 +96,7 @@ class GatewayKeyMisuseRepository:
         try:
             return await self._db.insert(self.TABLE, row), False
         except Exception as e:  # noqa: BLE001 — re-raised unless it is THE dedup race
-            msg = str(e).lower()
-            is_dupe = (
-                "unique constraint failed" in msg   # sqlite
-                or "duplicate entry" in msg          # mysql
-                or "1062" in msg                     # mysql err code
-            )
+            is_dupe = is_unique_violation(e)
             # Only a (key_hash, hit_at) collision — i.e. an at-least-once retry of
             # the same event — is idempotent. Both values are non-null in that
             # case (the unique index does not fire on a NULL key_hash), so we can
