@@ -33,6 +33,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_RUNNING,
     recording_enabled,
     sweep_stale_runs,
+    user_has_live_run,
 )
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -277,6 +278,44 @@ async def test_sweep_settles_a_cancel_in_flight_as_cancelled(db_client):
     # or the failure alerting downstream treats a user action as an incident.
     assert not (stopped["error_message"] or "")
     assert crashed["state"] == STATE_FAILED
+
+
+@pytest.mark.asyncio
+async def test_user_has_live_run(db_client):
+    """The cross-process "is this user busy?" answer the executor reaper
+    culls on. Only a running row with a fresh heartbeat counts, and only
+    for the user asked about."""
+    fresh = utc_now()
+    stale = utc_now() - timedelta(seconds=600)
+    await _seed_events_row(
+        db_client, "evt_live", user_id="u_busy", state="running",
+        started_at=fresh, last_event_at=fresh,
+    )
+    await _seed_events_row(
+        db_client, "evt_zombie", user_id="u_zombie", state="running",
+        started_at=stale, last_event_at=stale,
+    )
+    await _seed_events_row(
+        db_client, "evt_done", user_id="u_done", state=STATE_COMPLETED,
+        started_at=fresh, last_event_at=fresh,
+    )
+
+    assert await user_has_live_run(db_client, "u_busy") is True
+    assert await user_has_live_run(db_client, "u_zombie") is False   # heartbeat died
+    assert await user_has_live_run(db_client, "u_done") is False
+    assert await user_has_live_run(db_client, "u_never_seen") is False
+    assert await user_has_live_run(db_client, "") is False
+
+
+@pytest.mark.asyncio
+async def test_user_has_live_run_fails_safe_on_db_error():
+    """An unreadable DB must read as BUSY: a missed cull costs one idle
+    container, a wrong cull kills a working agent (rule #14)."""
+    class _BrokenDB:
+        async def get(self, *a, **kw):
+            raise RuntimeError("connection reset")
+
+    assert await user_has_live_run(_BrokenDB(), "u") is True
 
 
 def test_recording_kill_switch(monkeypatch):

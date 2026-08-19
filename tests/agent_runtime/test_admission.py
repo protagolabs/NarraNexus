@@ -128,6 +128,82 @@ async def test_reacquire_clears_idle():
     assert await c.claim_idle_users(1) == []
 
 
+@pytest.mark.asyncio
+async def test_claim_skips_users_busy_in_another_process():
+    """The controller is per-process; a user idle HERE may be mid-run in
+    workers. The injected veto must keep that user's executor alive."""
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("busy_elsewhere"))
+    await c.release(await c.acquire("really_idle"))
+    now["t"] = 9999.0
+
+    async def is_busy(user_id):
+        return user_id == "busy_elsewhere"
+
+    assert await c.claim_idle_users(60, is_busy=is_busy) == ["really_idle"]
+
+
+@pytest.mark.asyncio
+async def test_vetoed_user_keeps_its_idle_stamp():
+    """Regression: claiming is destructive. A user skipped by the veto must
+    stay claimable, or a user driven mostly from another process never gets
+    a new stamp here and its container leaks forever."""
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))
+    now["t"] = 9999.0
+    busy = {"v": True}
+
+    async def is_busy(user_id):
+        return busy["v"]
+
+    assert await c.claim_idle_users(60, is_busy=is_busy) == []
+    busy["v"] = False                                  # its run finished
+    assert await c.claim_idle_users(60, is_busy=is_busy) == ["u"]   # still known
+
+
+@pytest.mark.asyncio
+async def test_veto_failure_is_treated_as_busy():
+    """No verdict is not a licence to cull (rule #14)."""
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))
+    now["t"] = 9999.0
+
+    async def is_busy(user_id):
+        raise RuntimeError("db down")
+
+    assert await c.claim_idle_users(60, is_busy=is_busy) == []
+    assert "u" in c._idle_since          # and still tracked for the next pass
+
+
+@pytest.mark.asyncio
+async def test_user_reactivated_during_the_veto_is_not_claimed():
+    """The veto runs outside the lock, so a run can start while it is in
+    flight; the second pass must notice the stamp is gone."""
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))
+    now["t"] = 9999.0
+
+    async def is_busy(user_id):
+        await c.acquire(user_id)      # a new run lands mid-check
+        return False                  # ...and the DB hasn't seen it yet
+
+    assert await c.claim_idle_users(60, is_busy=is_busy) == []
+
+
+@pytest.mark.asyncio
+async def test_claim_without_veto_is_unchanged():
+    now = {"t": 0.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))
+    now["t"] = 9999.0
+    assert await c.claim_idle_users(60) == ["u"]
+    assert await c.claim_idle_users(60) == []
+
+
 def test_cloud_defaults(monkeypatch):
     monkeypatch.setattr(
         "xyz_agent_context.utils.deployment_mode.get_deployment_mode", lambda: "cloud"

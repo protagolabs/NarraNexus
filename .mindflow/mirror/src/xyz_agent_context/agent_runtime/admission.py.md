@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/admission.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — `claim_idle_users` 接受跨进程 `is_busy` 否决
+
+进程级单例这件事,对**准入**无害(每个进程管住自己那份配额),对**空闲记账**
+致命:`_idle_since` 只反映本进程的 run,而 executor 容器是按 user 共享的。
+详细事故经过见 [[executor_reaper.py]]。
+
+签名变成 `claim_idle_users(ttl_seconds, is_busy=None)`,`BusyCheck =
+Callable[[str], Awaitable[bool]]`。三条不能改的语义:
+
+1. **否决在锁外跑**。它会做 I/O(reaper 那个查 DB),握着 `_cond` 等 I/O 会让
+   所有 `acquire`/`release` 排在后面。
+2. **锁外跑就要二次校验**。第二段重新拿锁时比对
+   `self._idle_since.get(u) != ts`:否决在飞的时候用户可能已经重新活跃
+   (`acquire` 弹掉了戳)或又释放了一次(写了新戳),这两种都不认领。
+3. **被否决的用户保留原戳**。claim 是破坏性的,这是整个改动的要点——见
+   [[executor_reaper.py]] 里"为什么否决必须在这里"。异常也算 busy:拿不到
+   结论不构成回收许可(铁律 #14)。
+
+`is_busy=None` 保持原语义,只在"本进程是唯一跑 agent 的进程"时才安全(测试、
+单进程部署);生产装配一律注入。
 
 ## 2026-06-18 — snapshot() + queue-depth observability
 

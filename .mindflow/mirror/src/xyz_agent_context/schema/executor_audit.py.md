@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 新增 event_type `cull_skipped_busy`（跨进程回收护栏的度量）
+
+`EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"`：空闲回收器选中了某用户，但
+跨进程活性检查发现**另一个进程里有 run 在跑**，于是放弃本次回收
+（[[executor_reaper.py]] `cross_process_busy_check`）。同样**无需迁移**
+（event_type 是 VARCHAR(32) 字符串约定），`counts_since()` 与
+/admin/runtime/status 自动纳入。
+
+每一行 = 一次「2026-08-19 之前的代码会当场掐死的在途 run」。所以它不是噪声
+日志而是 L3 指标：非零说明这道护栏在承重；**突然掉到零要去查护栏是不是没跑**，
+而不是默认问题自己好了（incident lesson #4/#5）。
 
 ## 2026-08-10 — 新增 event_type `mcp_auth_denied` + `mcp_auth_tokenless`（MCP caller auth）
 

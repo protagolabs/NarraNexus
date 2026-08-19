@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
+## 2026-08-19 — `user_has_live_run`:判活口径升到"用户"这一层
+
+新增 `user_has_live_run(db, user_id)` —— 把 `run_is_live` 的答案聚到用户上,
+成为**跨进程**"这个用户忙不忙"的唯一事实源。第一个消费者是
+[[executor_reaper.py]]:executor 容器按 user 共享,但准入账本是进程级的,
+backend 看不见 workers 里的 run,于是把在跑的容器当空闲停了(2026-07-31 事故)。
+
+放在这里而不是 reaper 里,是因为本文件已经是判活口径的 SSOT ——
+`run_is_live` 的注释写着"ONE answer",再在别处手搓一次 running+心跳 的查询
+就是第二个口径。broker 侧(另一仓)的懒替换护栏也要查同一个口径。
+
+**fail-safe 方向与 `run_is_live` 相反且必须相反**:`run_is_live` 读不出时间戳
+时 fail-open 当作"活着";`user_has_live_run` 在 DB 读不出来时返回
+**True(忙)**。两者其实是同一个原则——**不确定就别动它**:漏收一轮只多留一个
+闲置容器,误收会打断正在干活的 agent(铁律 #14)。
+
 ## 2026-08-10 — retain normalized action reason
 
 Fatal capture retains `action_reason` beside error type/message so analytics

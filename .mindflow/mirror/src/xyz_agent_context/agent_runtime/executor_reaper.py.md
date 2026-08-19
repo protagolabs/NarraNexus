@@ -1,8 +1,49 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 空闲回收加跨进程活性否决(prod 事故修复)
+
+**事故**:2026-07-31 prod,用户在群聊 @ agent 后回复失败,前端报
+`infra_transient` / executor unreachable。真因不是网络也不是资源:backend 的
+reaper 把**正在干活**的容器停了。
+
+**为什么原来的不变量是假的**:executor 容器按 **user** 共享,但
+`AgentAdmissionController` 是 **进程级** 单例,而 reaper 只在 backend 起
+(`backend/main.py`)。云端编排跑在 backend + workers 两个进程里:backend 只看得见
+自己的网页单聊 run,看不见 workers 里的群聊/消息总线、定时任务、渠道触发。于是
+"0 活跃 loop" 实际只意味着"**在问的这个进程里**是 0"。触发组合=用户先在网页单聊
+聊过(backend 打了 idle 戳),TTL 到期那一刻正好有个 workers 驱动的 run 在跑。
+纯单聊或纯群聊用户都不会踩到——所以它藏了很久。
+
+**修法**:`claim_idle_users(ttl, is_busy=...)` 加一个跨进程否决,数据源是
+`events` 表(每个进程都往里写,事故教训 #5:DB 痕迹比日志可靠),判活复用
+[[run_recorder.py]] 的 `user_has_live_run` / `run_is_live`(30s 心跳、3 拍判死)。
+不需要新表、不需要 Redis。
+
+**为什么否决必须在 `claim_idle_users` 里,而不是在 `reap_once` 里过滤**:claim 是
+**破坏性**的——返回名单的同时就把 `_idle_since` 戳删了。若在 reaper 侧过滤,被
+跳过的用户戳已经没了,要等本进程下一次 `release()` 才重新打戳;而"主要在 workers
+里跑"的用户在 backend 永远等不到那次 release → 容器**永不回收**,从误杀换成泄漏。
+放进去之后,被否决的用户保留原戳,下一轮(120s)继续复查,run 一结束就能收。
+
+**残余窗口(已知,已记 todo)**:`events` 行要等 Step 0 建行、RunRecorder
+`_bind_run_id` 才翻成 `running`。从 admission `acquire()` 到那一刻之间(数百 ms~
+数秒)DB 里还看不到这个 run,理论上仍可能误杀。要彻底关掉得把 admission 账本本身
+变成跨进程(`admission.py` 里预留的 Redis seam,铁律 #20)——那牵动并发闸门本身,
+风险面大一个量级,单独排期。本次事故不在这个窗口内。
+
+**可观测**:被否决的每一次都写一行
+`instance_executor_audit` / `cull_skipped_busy`。这是 L3 指标:每行 = 一次
+"老代码会杀掉的在途 run"。计数长期为 0 要去查护栏是不是没跑,而不是默认问题消失了。
+
+**同一处不对称的另一半(未修,已记 todo)**:纯 workers 用户(只用群聊/定时任务)
+在 backend 的 `_idle_since` 里从来不出现,他们的容器**从来不会被回收**。
+不能靠"给 workers 也起一个 reaper"解决——两个进程各按局部账本回收会互相误杀。
+正解是让回收的**候选来源**也变成跨进程事实(DB 里的 per-user 最后活跃时间,
+或 Redis 化账本)。
 
 ## 2026-07-28 — post_reap 钩子随 per-run 会话票一起删除
 
