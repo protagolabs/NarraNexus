@@ -180,42 +180,34 @@ async def test_bootstrap_greeting_precedes_user_even_when_event_missing(chat_mod
 
 
 @pytest.mark.asyncio
-async def test_pre_seeded_greeting_not_duplicated_and_orders_first(chat_module):
-    """Cross-path invariant for the provision-time greeting seed
-    (bootstrap/greeting_seed.py): when the greeting was already persisted at
-    chat-instance birth, hook_persist_turn must NOT prepend a second greeting
-    (its `len(messages)==0` guard is now False), and the seeded greeting
-    (stamped at agent-creation, before the turn) must still sort before the
-    user's first message.
+async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_module):
+    """Cross-path invariant for the step_1 provision-time seed
+    (chat_module.seed_bootstrap_greeting → then hook_persist_turn in the same
+    turn): the real seed writes the greeting; the hook, seeing a non-empty
+    history, must NOT prepend a second one; and the greeting (stamped at
+    turn-start - 1ms by the writer) must sort before the user's first message.
 
-    Deleting the `len(messages)==0` guard on the hook's prepend, or letting the
-    seed anchor the greeting at a mid-turn `now()`, turns this red."""
-    # Simulate the seed's result: one greeting row already in history, stamped
-    # well before the turn (agent_create_time is always pre-turn).
-    seed_ts = (utc_now() - timedelta(minutes=5)).isoformat()
-    await chat_module.event_memory_module.add_instance_json_format_memory(
-        "ChatModule",
+    Deleting the hook's `len(messages)==0` guard, or letting the seed anchor the
+    greeting at a mid-turn `now()`, turns this red."""
+    from xyz_agent_context.module.chat_module import seed_bootstrap_greeting
+
+    event_started_at = utc_now() - timedelta(seconds=30)
+
+    # The REAL seed runs first (as step_1 does), anchored to this turn's start.
+    wrote = await seed_bootstrap_greeting(
+        chat_module.event_memory_module.db,
+        "a_boot",
+        "u_boot",
         "chat_boot_instance",
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": BOOTSTRAP_GREETING,
-                    "meta_data": {
-                        "timestamp": seed_ts,
-                        "instance_id": "chat_boot_instance",
-                        "bootstrap": True,
-                    },
-                }
-            ],
-            "updated_at": seed_ts,
-        },
+        BOOTSTRAP_GREETING,
+        event_started_at,
     )
+    assert wrote is True
 
     reply = _success_progress_with_reply("Hi back, Alice.")
     params = _hook_params(
         agent_loop_response=[reply],
-        event_created_at=utc_now() - timedelta(seconds=30),
+        event_created_at=event_started_at,
         bootstrap_active=True,
     )
 

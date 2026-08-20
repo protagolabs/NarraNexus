@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
+
+## 2026-08-20 — bootstrap 问候 prepend 改用共享行构造器
+
+`hook_persist_turn` 里首轮 prepend 问候语那段,行结构改成调用 [[_chat_writes]] 的
+`build_bootstrap_greeting_row(greeting, base_dt, instance_id, event_id=...)`,不再内联手写。
+行为不变(仍是 `event.created_at - 1ms`、`bootstrap:True`),但「问候行长什么样 + 时间戳规则」
+现在只有一处定义,和 `step_1` 的开局 seed 共用同一构造器,不会两处漂移。guard 仍是
+`len(messages)==0 and bootstrap_active`——seed 已经先写过时它自然跳过(不双写)。
+
 
 ## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具
 

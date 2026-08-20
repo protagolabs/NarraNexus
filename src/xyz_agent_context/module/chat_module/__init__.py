@@ -6,5 +6,10 @@ import the PACKAGE rather than the private leaf. The ChatModule class is importe
 from ``.chat_module`` by MODULE_MAP and is deliberately not re-exported here (same
 choice job_module / awareness_module make — avoids an init-order coupling)."""
 from ._chat_reads import fetch_chat_history
+from ._chat_writes import build_bootstrap_greeting_row, seed_bootstrap_greeting
 
-__all__ = ["fetch_chat_history"]
+__all__ = [
+    "fetch_chat_history",
+    "build_bootstrap_greeting_row",
+    "seed_bootstrap_greeting",
+]
