@@ -77,9 +77,9 @@ _KNOWN_AGENT_FRAMEWORKS = ("claude_code", "codex_cli", "nexus_power")
 
 
 def _agent_framework_from_slot(slot: dict | None) -> str:
-    framework = (slot or {}).get("agent_framework") or "claude_code"
+    framework = (slot or {}).get("agent_framework") or "nexus_power"
     if framework not in _KNOWN_AGENT_FRAMEWORKS:
-        return "claude_code"
+        return "nexus_power"
     return framework
 
 

@@ -161,7 +161,7 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     agent's override — the same identity the config resolver uses. (Reading the
     trigger identity was a latent bug for background triggers.)
 
-    Always falls back to ``"claude_code"`` on missing row / null column / DB
+    Always falls back to ``"nexus_power"`` on missing row / null column / DB
     lookup error — never let an ``agent_framework`` issue block an agent run.
     Unknown framework names are NOT silently rewritten here — they're handed to
     ``get_agent_loop_driver`` which raises ``ValueError`` so a config typo
@@ -1355,7 +1355,7 @@ async def step_3_agent_loop(
     captured_error: dict | None = None
     # Select the agent-loop framework via the registry (iron rule #9).
     # Read the user's per-agent choice from user_slots; fall back to
-    # claude_code on missing row / DB hiccup. Pass the resolved name
+    # nexus_power on missing row / DB hiccup. Pass the resolved name
     # into the registry — driver factories are registered under both
     # the canonical user-facing names (claude_code / codex_cli) and
     # short aliases (claude / codex), so any value we read here that

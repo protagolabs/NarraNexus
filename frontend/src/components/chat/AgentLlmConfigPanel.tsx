@@ -56,7 +56,7 @@ const EMPTY_DRAFT: Draft = {
   model: '',
   thinking: '',
   reasoning_effort: '',
-  agent_framework: 'claude_code',
+  agent_framework: 'nexus_power',
 };
 
 function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): Draft {
@@ -117,7 +117,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       setSlots(s);
       setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
       const ownerFramework =
-        s.agent?.owner_default?.agent_framework || 'claude_code';
+        s.agent?.owner_default?.agent_framework || 'nexus_power';
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
       const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
       setAgentDraft(a);

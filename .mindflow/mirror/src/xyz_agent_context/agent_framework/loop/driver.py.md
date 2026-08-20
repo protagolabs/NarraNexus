@@ -32,7 +32,7 @@ set[str]`（全部返回空集 = 今天的行为；词汇表见 driver.py 注释
 
 ## 2026-06-17 — 默认 framework 名 "claude" → "claude_code"
 
-`DEFAULT_AGENT_LOOP_FRAMEWORK` 从 `"claude"` 改名为 `"claude_code"`，文档串里的
+`DEFAULT_AGENT_LOOP_FRAMEWORK` 从 `"claude"` 改名为 `"claude_code"`，文档串里的 平台默认自 2026-08-20 起为 `nexus_power`（免费/默认用户跑自研 loop）。
 fallback 说明同步更新。意图是把默认 driver 的名字对齐到实际注册的
 claude-code agent-loop driver（与新引入的 `codex_oauth` 等 provider 形成清晰的
 命名空间），避免「默认值写的名字根本没人注册」导致 `get_agent_loop_driver`
