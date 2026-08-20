@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
+
+`/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
+`os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
+COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
+窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
+指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
 ## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
 

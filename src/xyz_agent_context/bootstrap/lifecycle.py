@@ -2,8 +2,19 @@
 @file_name: lifecycle.py
 @author: Bin Liang
 @date: 2026-08-20
-@description: The single definition of "is this agent still in its bootstrap
-phase" — the signal that gates BOTH greeting writers.
+@description: The bootstrap-phase judgment shared by the two BACKEND greeting
+writers — the step_1 seed and ChatModule.hook_persist_turn — and by
+context_runtime's Bootstrap prompt injection/auto-delete.
+
+Scope caveat: this is the definition for those three, NOT for the whole repo.
+`backend/routes/auth.py` computes a SEPARATE, looser `AgentInfo.bootstrap_active`
+that the FRONTEND trusts (it gates the static greeting bubble): a plain
+`os.path.isfile(Bootstrap.md)` with NO event-count threshold, because a list
+endpoint can't afford a per-agent COUNT. The two agree everywhere except the
+narrow "over threshold but Bootstrap.md not yet auto-deleted" window, where the
+frontend may show the overlay while these writers decline to persist. Unifying
+them needs the list endpoint's N+1 solved first (tracked in
+reference/self_notebook/todo); until then, touch both together.
 
 `bootstrap_active` used to live inline in context_runtime (inject the
 Bootstrap.md prompt) AND, once the step_1 greeting seed appeared, needed to be
@@ -46,13 +57,15 @@ class BootstrapStatus(NamedTuple):
       "bootstrap present but expired" — the latter is when context_runtime
       auto-deletes).
     - event_count / threshold: for the caller's auto-delete decision + logging.
+      event_count is None when it was NOT queried (file absent, or a
+      threshold-None semantic-only profile) — do not read it as "0 events".
     - bootstrap_path: the resolved Bootstrap.md path (so the caller can remove it
       without re-resolving the workspace).
     """
 
     active: bool
     present: bool
-    event_count: int
+    event_count: Optional[int]
     threshold: Optional[int]
     bootstrap_path: str
 
@@ -79,12 +92,19 @@ async def is_bootstrap_active(
         "Bootstrap.md",
     )
     if not os.path.isfile(bootstrap_path):
-        return BootstrapStatus(False, False, 0, None, bootstrap_path)
+        return BootstrapStatus(
+            active=False, present=False, event_count=None, threshold=None,
+            bootstrap_path=bootstrap_path,
+        )
 
     threshold = auto_delete_threshold_from_meta(agent_metadata)
     if threshold is None:
         # Semantic-only profile: never auto-deletes; active while the file exists.
-        return BootstrapStatus(True, True, 0, None, bootstrap_path)
+        # No count query — event_count stays None (not queried, not "0 events").
+        return BootstrapStatus(
+            active=True, present=True, event_count=None, threshold=None,
+            bootstrap_path=bootstrap_path,
+        )
 
     try:
         rows = await db.execute(
@@ -99,4 +119,7 @@ async def is_bootstrap_active(
         )
         event_count = 0
 
-    return BootstrapStatus(event_count < threshold, True, event_count, threshold, bootstrap_path)
+    return BootstrapStatus(
+        active=event_count < threshold, present=True, event_count=event_count,
+        threshold=threshold, bootstrap_path=bootstrap_path,
+    )

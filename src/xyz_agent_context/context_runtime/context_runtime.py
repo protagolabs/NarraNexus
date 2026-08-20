@@ -500,11 +500,15 @@ class ContextRuntime:
 
             agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
             if agent_record and agent_record.created_by and agent_record.created_by == ctx_data.user_id:
-                # Shared bootstrap-phase judgment (single source of truth; the
-                # step_1 greeting seed gates on the SAME call, so the two can't
-                # drift). This side keeps the auto-delete: when Bootstrap.md is
-                # present but over its threshold, remove it to end perpetual
-                # bootstrap mode; otherwise inject the prompt.
+                # Shared bootstrap-phase judgment (single source of truth for the
+                # two greeting writers + this injection; the step_1 seed gates on
+                # the SAME call, so they can't drift). This side keeps the
+                # auto-delete: when Bootstrap.md is present but over its threshold,
+                # remove it to end perpetual bootstrap mode; otherwise inject.
+                # Function-local import on purpose: bootstrap.lifecycle →
+                # bootstrap.profiles → context_runtime.prompts is a back-edge into
+                # this package, so a module-level import here could hit a
+                # half-initialised context_runtime during import; lazy avoids it.
                 from xyz_agent_context.bootstrap.lifecycle import is_bootstrap_active
 
                 status = await is_bootstrap_active(

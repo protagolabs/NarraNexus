@@ -796,7 +796,14 @@ async def get_agents(request: Request):
         agents = []
         for row in rows:
             description = row.get('agent_description')
-            # Check if Bootstrap.md exists for this agent (first-run setup pending)
+            # Check if Bootstrap.md exists for this agent (first-run setup pending).
+            # NOTE: this is the FRONTEND-facing bootstrap_active — deliberately a
+            # looser isfile-only rule (no event-count threshold), because a list
+            # endpoint can't afford a per-agent COUNT query. It diverges from
+            # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the two
+            # greeting writers' gate, which DOES apply the threshold) in the
+            # narrow "over threshold but Bootstrap.md not yet auto-deleted"
+            # window. Keep the two in mind together when touching either.
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
@@ -1167,7 +1174,9 @@ async def update_agent(
                 ),
             )
 
-        # Check bootstrap_active (Bootstrap.md exists in workspace)
+        # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,
+        # isfile-only rule (no threshold) — see the /api/auth/agents note above and
+        # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
         from xyz_agent_context.settings import settings
         from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
         workspace_path = str(resolve_existing_workspace(

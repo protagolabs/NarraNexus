@@ -6,10 +6,17 @@ stub: false
 
 ## 2026-08-20 — bootstrap_active 的单一判定源
 
-`is_bootstrap_active(db, agent_id, owner_id, agent_metadata) -> BootstrapStatus` 是「这个 agent
-还在不在引导期」的**唯一定义**。返回 `BootstrapStatus(active, present, event_count, threshold,
-bootstrap_path)`。判定 = Bootstrap.md 存在（读侧 `resolve_existing_workspace`，兼容 legacy flat
-布局）**且**（threshold 为 None 的语义型 profile，或 `event_count < threshold`）。
+`is_bootstrap_active(db, agent_id, owner_id, agent_metadata) -> BootstrapStatus` 是**三个后端消费方**
+——`step_1` 问候 seed、`ChatModule.hook_persist_turn` prepend、`context_runtime` 的 Bootstrap 注入/
+auto-delete——判「引导期」的共享判定源。返回 `BootstrapStatus(active, present, event_count,
+threshold, bootstrap_path)`；判定 = Bootstrap.md 存在（读侧 `resolve_existing_workspace`，兼容
+legacy flat 布局）**且**（threshold 为 None 的语义型 profile，或 `event_count < threshold`）。
+
+**不是全仓唯一**:`backend/routes/auth.py` 另算一个**前端信任**的 `AgentInfo.bootstrap_active`——
+只 `os.path.isfile(Bootstrap.md)`、**无阈值**（list 接口担不起每 agent 一次 COUNT），它 gate 前端那颗
+静态问候气泡。两者只在「越阈值但 Bootstrap.md 还没被 auto-delete」的窄窗口分叉（前端显示气泡、
+但两个写入方因 `status.active=False` 拒绝落库）。要统一得先解 list 接口的 N+1（记 `reference/
+self_notebook/todo/`）；在那之前,改一处记得连带看 `auth.py` 两处（已加注释指回本文件,可 grep 到）。
 
 **为什么单独成文**：这段判定原本内联在 [[../context_runtime/context_runtime]] 里（决定注不注入
 Bootstrap prompt）。当 `step_1` 的问候语 seed 出现后，[[greeting_seed]] 需要**一模一样**地复算它
