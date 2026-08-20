@@ -293,7 +293,7 @@ class BackgroundRun:
         the frontend's updated_at monotonic guard neutralises stale events
         and the full-pull on open is the self-healing floor. Best-effort by
         contract: any failure logs and returns — the run loop must never
-        break because eventing did (研究文档 §9.9 事故教训 #2/#3: the
+        break because eventing did (incident lessons #2/#3 in CLAUDE.md: the
         exception IS handled here, precisely and audibly)."""
         try:
             while True:

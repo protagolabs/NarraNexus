@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/freshness.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -33,3 +33,5 @@ watch version 轮询(带 ~$ lock 旗标)。**没有 watcher**——3′/3″/3�
 - 检测**永不移指针**(file_path 原样传回 update_pointer)。
 - entry 消失返回 "missing" 且零提交——那是 heal 的领土,别在这里
   标 deleted。
+
+## 2026-08-20 — 提交尾巴移交 [[commit.py]]

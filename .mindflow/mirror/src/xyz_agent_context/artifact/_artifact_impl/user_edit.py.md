@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/user_edit.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -38,3 +38,9 @@ office watch 页用户编辑的提交点:字节已由 watch 常驻写入(单写�
 串行化),本函数只刷新登记(hash/size/updated_at+history user_edited
 +事件)。**hash 未变=幂等跳过**——前端回调重复触发不会灌 history。
 kind 门:仅 application/vnd.officecli-live。
+
+## 2026-08-20 — 提交尾巴移交 [[commit.py]]
+
+两条路径的「update_pointer→history→事件」尾巴与 freshness 的第三份
+拷贝收敛到 commit_content_refresh;本文件只剩各自的门(锁/kind/幂等)
+与写盘。

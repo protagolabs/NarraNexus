@@ -84,7 +84,7 @@ describe('MarkdownRenderer editing surface', () => {
     // The probe is async: wait for its verdict (the guard banner), not for
     // the intermediate probing DOM.
     await waitFor(() => {
-      expect(getByText(/direct editing is disabled|直接编辑已停用/i)).toBeTruthy();
+      expect(getByText(/direct editing is disabled/i)).toBeTruthy();
     }, { timeout: 8000 });
     // the editor host is hidden; the read-only fallback carries the content
     const editable = container.querySelector('[contenteditable="true"]');

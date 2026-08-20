@@ -29,11 +29,9 @@ from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactNotFound,
     ArtifactTooLarge,
 )
-from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
+from xyz_agent_context.artifact._artifact_impl.commit import commit_content_refresh
 from xyz_agent_context.artifact._artifact_impl.registration import (
     MAX_ARTIFACT_BYTES,
-    _dir_size,
-    _record_history,
     compute_entry_hash,
 )
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
@@ -122,30 +120,9 @@ async def save_user_content(
         raise
 
     new_hash = hashlib.sha256(raw).hexdigest()
-    # size_bytes mirrors registration's semantics: entry at the workspace top
-    # level → the file alone; entry in a dedicated dir → the whole dir.
-    artifact_root = entry_dir
-    workspace_top = os.path.dirname(artifact.file_path) in ("", ".")
-    size_bytes = len(raw) if workspace_top else _dir_size(artifact_root)
-
-    await repo.update_pointer(
-        artifact_id,
-        file_path=artifact.file_path,  # a user edit never moves the pointer
-        size_bytes=size_bytes,
-        content_hash=new_hash,
+    return await commit_content_refresh(
+        db, artifact, new_hash=new_hash, history_action="user_edited"
     )
-    updated = await repo.get_by_id(artifact_id)
-
-    await _record_history(
-        repo,
-        artifact_id=artifact_id,
-        agent_id=artifact.agent_id,
-        file_path=artifact.file_path,
-        size_bytes=size_bytes,
-        action="user_edited",
-    )
-    await stage_artifact_event(db, action="updated", artifact=updated)
-    return updated
 
 
 OFFICE_LIVE_KIND = "application/vnd.officecli-live"
@@ -182,24 +159,6 @@ async def commit_office_user_edit(
     if new_hash == artifact.content_hash:
         return artifact  # nothing changed — not a commit point
 
-    entry_dir = os.path.dirname(abs_entry)
-    workspace_top = os.path.dirname(artifact.file_path) in ("", ".")
-    size_bytes = os.path.getsize(abs_entry) if workspace_top else _dir_size(entry_dir)
-
-    await repo.update_pointer(
-        artifact_id,
-        file_path=artifact.file_path,
-        size_bytes=size_bytes,
-        content_hash=new_hash,
+    return await commit_content_refresh(
+        db, artifact, new_hash=new_hash, history_action="user_edited"
     )
-    updated = await repo.get_by_id(artifact_id)
-    await _record_history(
-        repo,
-        artifact_id=artifact_id,
-        agent_id=artifact.agent_id,
-        file_path=artifact.file_path,
-        size_bytes=size_bytes,
-        action="user_edited",
-    )
-    await stage_artifact_event(db, action="updated", artifact=updated)
-    return updated

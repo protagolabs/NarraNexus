@@ -24,13 +24,8 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
-from xyz_agent_context.artifact._artifact_impl.registration import (
-    _dir_size,
-    _record_history,
-    compute_entry_hash,
-)
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.artifact._artifact_impl.commit import commit_content_refresh
+from xyz_agent_context.artifact._artifact_impl.registration import compute_entry_hash
 from xyz_agent_context.schema.artifact_schema import Artifact
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
@@ -80,26 +75,7 @@ async def refresh_external_state(
     if new_hash == artifact.content_hash:
         return "fresh"  # touch/backup noise — not a commit point
 
-    repo = ArtifactRepository(db)
-    entry_dir = os.path.dirname(abs_entry)
-    workspace_top = os.path.dirname(artifact.file_path) in ("", ".")
-    size_bytes = stat.st_size if workspace_top else _dir_size(entry_dir)
-
-    await repo.update_pointer(
-        artifact.artifact_id,
-        file_path=artifact.file_path,  # detection never moves the pointer
-        size_bytes=size_bytes,
-        content_hash=new_hash,
+    await commit_content_refresh(
+        db, artifact, new_hash=new_hash, history_action="external_edited", external=True
     )
-    updated = await repo.get_by_id(artifact.artifact_id)
-    await _record_history(
-        repo,
-        artifact_id=artifact.artifact_id,
-        agent_id=artifact.agent_id,
-        file_path=artifact.file_path,
-        size_bytes=size_bytes,
-        action="external_edited",
-    )
-    if updated is not None:
-        await stage_artifact_event(db, action="updated", artifact=updated, external=True)
     return "external"

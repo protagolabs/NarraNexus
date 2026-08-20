@@ -121,7 +121,7 @@ describe('HtmlRenderer per-element editing', () => {
     });
 
     await waitFor(() => {
-      expect(getByText(/cannot be located|无法唯一定位/i)).toBeTruthy();
+      expect(getByText(/cannot be located/i)).toBeTruthy();
     });
     expect(putContent).not.toHaveBeenCalled();
   });
