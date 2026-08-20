@@ -861,4 +861,19 @@ agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份�
 纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
 后者是所有文本消费者读的东西，一个渲染需求不该改写它。
 
+## 2026-08-18 — `instance_artifacts.content_hash` + 新表 `instance_artifact_events`
+
+**content_hash(可空,additive)**:注册时对 entry 文件算 sha256 存这里。heal 用它给
+候选**验明正身**——「改名但内容未动」从按扩展名猜升级成确定性认领。可空的两层含义:
+存量行 NULL(heal 跳过 hash 层),以及哈希失败绝不阻塞注册(best-effort 契约)。类型
+与 `team_files.content_hash` 同款(TEXT/VARCHAR(64)),将来 7′ 存档层直接复用同一指纹。
+
+**instance_artifact_events(跨进程 outbox)**:artifact_changed 事件的staging 表。
+为什么需要它:register_artifact 跑在 MCP 工具进程,而通往前端 WS 的 Broadcaster 在
+backend 进程——写入方把自包含 payload 落成一行,BackgroundRun 在每个 tool-output
+事件后 drain 本 agent 的未消费行并经 `self.emit()` 重发(录制+广播一次拿齐)。
+run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 updated_at 单调守卫
+中和迟到事件,打开时全量拉是自愈地板,所以无 TTL 无跨进程锁。`consumed_at` 不删行,
+近期尾部兼作投递审计。设计出处:spec 2026-08-18-artifact-events-inventory-pointer §3。
+
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。

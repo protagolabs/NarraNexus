@@ -76,6 +76,13 @@ export interface Artifact {
   file_path: string;
   /** Recursive size of the artifact root directory. */
   size_bytes: number;
+  /**
+   * sha256 of the entry file at the last commit point (register / re-register
+   * / user edit). Editors do NOT use this as their lock base — they hash the
+   * bytes they actually loaded (disk may have moved on) — but the PUT
+   * /content response returns it so a successful save can rebase.
+   */
+  content_hash?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -51,8 +51,10 @@ lifespan, at startup and periodically.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
@@ -63,6 +65,9 @@ from xyz_agent_context.agent_runtime.cancellation import (
     CancellationToken,
     CancelledByUser,
 )
+from xyz_agent_context.repository.artifact_event_repository import (
+    ArtifactEventRepository,
+)
 from xyz_agent_context.agent_runtime.run_recorder import (
     HEARTBEAT_INTERVAL_S,
     RUN_STALE_AFTER_S,
@@ -72,6 +77,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_FAILED,
     STATE_RUNNING,
     TERMINAL_STATES,
+    classify_event,
     event_to_wire,
     normalise_event,
     parse_db_utc,
@@ -192,6 +198,10 @@ class BackgroundRun:
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
+        # Constructed once here (r2 M1): the drain runs on every tool-output
+        # boundary, and a lazy in-loop construction hid ImportErrors inside
+        # the drain's best-effort try.
+        self._artifact_event_repo = ArtifactEventRepository(db)
         self._active_runs = active_runs  # the app.state.active_runs map
         self.cancellation = cancellation or CancellationToken()
         # Broadcaster is run_id-tagged but only for logging. It works
@@ -260,6 +270,58 @@ class BackgroundRun:
             await self.recorder.record(event)
         self.broadcaster.publish(event_to_wire(event))
 
+    async def on_event(self, event: dict) -> None:
+        """Route one already-normalised runtime event: emit it, then — for
+        tool-output events only — drain the artifact event outbox.
+
+        Registry writes can happen in the MCP tool process (register_artifact)
+        while this pipeline lives in the backend, so writers stage
+        artifact_changed rows in instance_artifact_events and this is the
+        bridge that re-emits them (spec artifact-events §3). The drain is
+        gated to tool outputs because that is the commit boundary — the tool
+        that changed the registry has just returned — and because text deltas
+        stream far too often to carry a DB query each.
+        """
+        await self.emit(event)
+        if classify_event(event) == "tool_output":
+            await self._drain_artifact_events()
+
+    # How many outbox rows one drain pass takes per query. Rows are small and
+    # the loop repeats until the backlog is empty, so this only bounds a
+    # single round-trip, not delivery.
+    _ARTIFACT_DRAIN_BATCH = 50
+
+    async def _drain_artifact_events(self) -> None:
+        """Re-emit this agent's pending artifact_changed rows, oldest first.
+
+        Riding self.emit gives persistence (event_stream via the recorder)
+        and WS fan-out (broadcaster) in one move. Rows staged while no run
+        was active (e.g. an HTTP delete) are drained late here — deliberate:
+        the frontend's updated_at monotonic guard neutralises stale events
+        and the full-pull on open is the self-healing floor. Best-effort by
+        contract: any failure logs and returns — the run loop must never
+        break because eventing did (incident lessons #2/#3 in CLAUDE.md: the
+        exception IS handled here, precisely and audibly)."""
+        try:
+            while True:
+                rows = await self._artifact_event_repo.pending_for_agent(
+                    self.agent_id, self._ARTIFACT_DRAIN_BATCH
+                )
+                if not rows:
+                    return
+                for row in rows:
+                    try:
+                        await self.emit(json.loads(row["payload_json"]))
+                    except Exception as e:  # noqa: BLE001 — one bad row must not strand the rest
+                        logger.warning(
+                            f"artifact event emit failed (outbox id={row['id']}): {e}"
+                        )
+                await self._artifact_event_repo.mark_consumed([r["id"] for r in rows])
+                if len(rows) < self._ARTIFACT_DRAIN_BATCH:
+                    return
+        except Exception as e:  # noqa: BLE001 — best-effort by contract (docstring)
+            logger.warning(f"artifact outbox drain failed for {self.agent_id}: {e}")
+
     # ----- driver entrypoint --------------------------------------------
 
     async def drive(
@@ -325,7 +387,9 @@ class BackgroundRun:
                     ):
                         # Uniform dict for routing; original fidelity is
                         # preserved by normalise_event's passthrough.
-                        await self.emit(normalise_event(event))
+                        # on_event = emit + artifact outbox drain at tool
+                        # output boundaries (the registry commit points).
+                        await self.on_event(normalise_event(event))
                 # Natural end
                 self.state = STATE_COMPLETED
                 # Funnel ⑤ fires only on a genuine reply. A fatal error

@@ -2452,6 +2452,37 @@
     },
     "url": {
       "toggleFailed": "切换模式失败：{{error}}"
+    },
+    "editor": {
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "unsavedChanges": "有未保存的修改",
+      "draftRestored": "已恢复本设备上未保存的编辑。",
+      "conflictBody": "编辑期间文件被修改了。保留你的版本，还是重新加载对方的？",
+      "overwriteMine": "保留我的",
+      "discardMine": "加载对方的",
+      "loadError": "加载失败:{{error}}",
+      "mdGuardDisabled": "此文档含编辑器无法无损保留的语法,直接编辑已停用。请让 AI 代为修改。",
+      "htmlAnchorFailed": "该处内容由页面脚本生成或无法在源码中唯一定位——请交给 AI 修改。",
+      "htmlEditConflict": "编辑期间文件被修改,这处改动未保存。",
+      "editFailed": "编辑失败——此改动未保存。",
+      "draftUnavailable": "此文件过大,无法本地暂存草稿——未保存的修改在关窗后不会保留,请及时保存。"
+    },
+    "officeEdit": {
+      "selected": "已选 {{count}} 项",
+      "editText": "改文字",
+      "apply": "应用",
+      "cancel": "取消",
+      "delete": "删除",
+      "color": "文字颜色",
+      "opFailed": "编辑失败。",
+      "lockNotice": "文件正在桌面 Office 中打开——直接编辑已暂停。",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "addRow": "+ 行",
+      "addCol": "+ 列",
+      "replaceImage": "替换图片"
     }
   },
   "skills": {
@@ -2642,7 +2673,9 @@
     "completed": "已完成",
     "roomSpoke": "房间里有新动静",
     "agent": "智能体",
-    "room": "房间"
+    "room": "房间",
+    "artifactRepointedVerified": "已重新指向:{{oldPath}} → {{newPath}}(内容已校验)",
+    "artifactRepointedUnverified": "已重新指向:{{oldPath}} → {{newPath}}(未经校验的匹配——请检查)"
   },
   "webAnalyticsNotice": {
     "body": "这是 NarraNexus 的云端网页版，它使用第三方分析服务 Google Tag Manager 收集匿名的页面交互数据（页面浏览、点击、来源）。不会收集任何对话内容。你可以随时在 设置 → 隐私 中关闭。",

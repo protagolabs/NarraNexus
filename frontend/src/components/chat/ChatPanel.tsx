@@ -33,7 +33,6 @@ import { chatDayInfo } from '@/lib/chatDays';
 import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
-import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
 import { ProcessPanel } from './ProcessPanel';
@@ -48,59 +47,21 @@ import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
 // Artifact tool names that produce an artifact_id in tool_output.
 //
-// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
-// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name.
-// An exact-match Set silently never matched, so artifact tool calls were
-// never recognised and the artifact panel only updated on an unrelated
-// reload (agent switch). Match the bare suffix instead so both the
-// qualified and unqualified forms are recognised.
+// DISPLAY-ONLY since 2026-08-18 (spec artifact-events §3.3): discovery moved
+// to backend-pushed `artifact_changed` events (useRunObservation → store's
+// applyEvent), so this matching no longer feeds the artifact panel. It only
+// anchors the inline badge chip to the tool call that produced the artifact —
+// a rename here costs a missing chip in old transcripts, never a missing tab.
 //
-// Pointer model (2026-05-14): the single tool is `register_artifact`; the
-// older `create_artifact` / `upload_artifact_file` names are gone — see the
-// artifact_runner + artifact_tool mirror md files.
+// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
+// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name,
+// so match the bare suffix.
 const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
 
 function isArtifactToolName(toolName: string): boolean {
   return ARTIFACT_TOOL_BASE_NAMES.some(
     (base) => toolName === base || toolName.endsWith(`__${base}`),
   );
-}
-
-/**
- * Fetch the latest Artifact metadata and upsert into the store, deduped by
- * tool_call_id so we run at most once per emitted tool call.
- *
- * Why always refetch (not just "if missing"): a `register_artifact` call
- * with `target_artifact_id=<existing>` is the agent's refresh signal — same
- * `artifact_id` returns but with a bumped `updated_at`. If we short-circuit
- * on "already in store" the renderers never see the new timestamp and the
- * iframe doesn't reload. Refetching every NEW tool call ensures the
- * downstream `useArtifactRawUrl(refreshKey=updated_at)` keys re-mint and
- * the artifact's iframe / blob reloads with the latest bytes.
- *
- * The seen-Set lives at module scope so the React render loop (which fires
- * this from inside the timeline map) doesn't re-trigger fetches that would
- * race with the upsert and cause an infinite re-render. A tool_call_id is
- * globally unique within an agent session, so collisions across panels
- * don't happen.
- */
-const _seenArtifactToolCallIds = new Set<string>();
-
-function refreshArtifactFromToolCall(
-  agentId: string,
-  artifactId: string,
-  toolCallId: string,
-): void {
-  if (_seenArtifactToolCallIds.has(toolCallId)) return;
-  _seenArtifactToolCallIds.add(toolCallId);
-  artifactsApi
-    .getDetail(agentId, artifactId)
-    // focus: a register_artifact success must bring the doc to front even
-    // if a list refresh already inserted it (or it is a re-register) —
-    // otherwise the panel stays on the previous tab and the user reads
-    // the successful generation as a failure.
-    .then((d) => useArtifactStore.getState().upsert(d, { focus: true }))
-    .catch(() => undefined);
 }
 
 /**
@@ -116,17 +77,17 @@ function refreshArtifactFromToolCall(
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
-  agentId: string;
   allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
 }
 
 const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
-  toolCalls, agentId, allArtifacts,
+  toolCalls, allArtifacts,
 }: ArtifactToolCallCardsProps) {
-  // Collect unique artifact_ids in first-seen order across the turn's
-  // tool calls. Re-register on the same artifact yields the same id; we
-  // still refresh its metadata (via refreshArtifactFromToolCall) but
-  // render one badge.
+  // Collect unique artifact_ids in first-seen order across the turn's tool
+  // calls — PURELY for badge placement. The store is fed by backend
+  // artifact_changed events (and the full pull on open/switch/reconnect);
+  // this render path issues no fetches and mutates nothing, so it is safe
+  // inside the timeline map and a parse miss costs a chip, never a tab.
   const seenIds = new Set<string>();
   const orderedIds: string[] = [];
 
@@ -146,13 +107,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     }
 
     if (!artifactId) continue;
-
-    // Refetch fresh metadata for this tool call (deduped per call). Same
-    // `artifact_id` from a re-register lands here with a new tool_output
-    // string (new token+timestamp), so the dedup key naturally distinguishes
-    // first-register vs. subsequent refresh signals.
-    const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
-    refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
 
     if (!seenIds.has(artifactId)) {
       seenIds.add(artifactId);
@@ -190,7 +144,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   // sufficient. allArtifacts swaps when the artifact store updates (exactly
   // when we want to re-render to upgrade a placeholder chip to a real badge).
   return (
-    prev.agentId === next.agentId &&
     prev.toolCalls === next.toolCalls &&
     prev.allArtifacts === next.allArtifacts
   );
@@ -1070,7 +1023,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {hasArtifactTools && agentId && item.toolCalls && (
                 <ArtifactToolCallCards
                   toolCalls={item.toolCalls}
-                  agentId={agentId}
                   allArtifacts={allArtifacts}
                 />
               )}
@@ -1134,7 +1086,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {agentId && currentToolCalls.length > 0 && (
                 <ArtifactToolCallCards
                   toolCalls={currentToolCalls}
-                  agentId={agentId}
                   allArtifacts={allArtifacts}
                 />
               )}

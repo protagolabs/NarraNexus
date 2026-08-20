@@ -40,3 +40,16 @@ class ArtifactContentGone(ArtifactError):
     self-heal trigger, distinct from 404 (no such artifact)."""
 
     code = 410
+
+
+class ArtifactEditConflict(ArtifactError):
+    """Optimistic-lock failure on a user edit: the caller's base_hash does not
+    match the entry's CURRENT on-disk content. Carries the current hash so the
+    editor can offer a re-base ("overwrite anyway" resends with this hash;
+    "discard mine" reloads). Maps to 409."""
+
+    code = 409
+
+    def __init__(self, message: str, *, current_hash: str):
+        super().__init__(message)
+        self.current_hash = current_hash

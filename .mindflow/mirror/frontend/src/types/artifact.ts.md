@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-08-07
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — `content_hash?: string | null`
+
+镜像后端新列(上次提交点时 entry 的 sha256)。**Gotcha:编辑器不拿它
+当乐观锁基准**——锁基准永远是编辑器**加载到的字节**的 hash(盘是真身,
+表指纹可能落后于外部写);它的用途是 `PUT /content` 的响应把新指纹
+带回来,保存成功后 re-base([[useArtifactEditor.ts]] 的 doSave),以及
+HtmlRenderer 的自回声判定(自己提交引发的 updated_at bump 不重挂
+iframe)。可选字段:事件 payload 携带,普通 list 响应也带,但存量行为
+null——消费方必须容 null。
 
 ## 2026-08-07 — `Artifact.team_id` + 新增导出 `TeamFile`
 

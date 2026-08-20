@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_workspace_repository.py
-last_verified: 2026-08-10
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -34,3 +34,13 @@ stub: false
   [[registration.py]]（归因追加）、[[team_files.py]]（agent 侧列举，带 bound LIMIT）使用。
   **MCP 工具那一处是本文件「为什么存在」开篇点名的三处之一**，清单漏了它就等于文档与自己的
   立论矛盾。
+
+## 2026-08-19 — ArtifactHistoryRepository.latest_actions
+
+artifact_id→最后动作 映射(状态块标记的数据源)。仅限有界调用方
+(状态块传≤展示上限)。
+
+## 2026-08-20 — latest_actions 只取 MAX(id) 行(#334 I10)
+
+800 条 history 不再整段拉回取尾;双 IN-list 双倍 placeholder,状态块
+≤20 上限内安全——更大的调用方要先想 placeholder 上限。

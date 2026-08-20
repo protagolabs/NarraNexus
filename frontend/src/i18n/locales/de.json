@@ -2066,6 +2066,37 @@
     },
     "url": {
       "toggleFailed": "Modus konnte nicht gewechselt werden: {{error}}"
+    },
+    "editor": {
+      "save": "Speichern",
+      "saving": "Speichern…",
+      "saved": "Gespeichert",
+      "unsavedChanges": "Ungespeicherte Änderungen",
+      "draftRestored": "Nicht gespeicherte Änderungen von diesem Gerät wiederhergestellt.",
+      "conflictBody": "Die Datei wurde während der Bearbeitung geändert. Deine Version behalten oder neu laden?",
+      "overwriteMine": "Meine behalten",
+      "discardMine": "Neu laden",
+      "loadError": "Laden fehlgeschlagen: {{error}}",
+      "mdGuardDisabled": "Dieses Dokument enthält Syntax, die der Editor nicht verlustfrei erhalten kann — direkte Bearbeitung ist deaktiviert. Bitte die KI um Änderungen.",
+      "htmlAnchorFailed": "Dieser Text wird vom Skript der Seite erzeugt oder ist im Quelltext nicht eindeutig auffindbar — bitte die KI um die Änderung.",
+      "htmlEditConflict": "Die Datei wurde während der Bearbeitung geändert — diese Änderung wurde nicht gespeichert.",
+      "editFailed": "Bearbeitung fehlgeschlagen — die Änderung wurde nicht gespeichert.",
+      "draftUnavailable": "Diese Datei ist zu groß für die lokale Entwurfssicherung — ungespeicherte Änderungen überleben das Schließen des Fensters nicht. Bitte zeitnah speichern."
+    },
+    "officeEdit": {
+      "selected": "{{count}} ausgewählt",
+      "editText": "Text bearbeiten",
+      "apply": "Anwenden",
+      "cancel": "Abbrechen",
+      "delete": "Löschen",
+      "color": "Textfarbe",
+      "opFailed": "Bearbeitung fehlgeschlagen.",
+      "lockNotice": "In einer Desktop-Office-App geöffnet — direkte Bearbeitung pausiert.",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "addRow": "+ Zeile",
+      "addCol": "+ Spalte",
+      "replaceImage": "Bild ersetzen"
     }
   },
   "skills": {
@@ -2197,7 +2228,9 @@
     "completed": "Fertig",
     "roomSpoke": "Neue Aktivität im Raum",
     "agent": "Agent",
-    "room": "Raum"
+    "room": "Raum",
+    "artifactRepointedVerified": "Neu verknüpft: {{oldPath}} → {{newPath}} (Inhalt verifiziert)",
+    "artifactRepointedUnverified": "Neu verknüpft: {{oldPath}} → {{newPath}} (unverifizierter Treffer — bitte prüfen)"
   },
   "webAnalyticsNotice": {
     "body": "Dies ist die Cloud-Webversion von NarraNexus. Sie verwendet Google Tag Manager, einen Analysedienst eines Drittanbieters, um anonyme Seiteninteraktionsdaten (Seitenaufrufe, Klicks, Referrer) zu erfassen. Es werden keine Gesprächsinhalte erfasst. Du kannst dies jederzeit unter Einstellungen → Datenschutz deaktivieren.",

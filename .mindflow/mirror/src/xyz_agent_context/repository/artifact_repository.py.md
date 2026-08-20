@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-08-07
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -113,3 +113,27 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
   legacy (pre-pointer-model) rows that never had these columns populated — such
   rows won't render but won't crash the list query either. They are hand-migrated
   per the cleanup TODO.
+
+## 2026-08-18 — `content_hash` 贯通行↔实体转换与 update_pointer
+
+`_row_to_entity`/`_entity_to_row` 是显式枚举字段的(新列默认会被静默丢掉——本次
+就踩了:写入成功读回 None),加列必须同步补这两处。`update_pointer` 增
+`content_hash` 参数,语义为 as-given 直写(含 None)。
+
+## 2026-08-18(二)— `list_file_paths_for_heal_scope`
+
+heal 护栏的数据源:同 scope(私有=本 agent 无队行;团队=该队全行)活 artifact 的
+file_path 集合,候选凡命中即排除。scope 口径刻意镜像 heal 的 search_root。
+
+## 2026-08-18 — `count_for_agent_context`
+
+状态块尾注的 COUNT 版可见面查询(同 union 语义),不为拿总数付整行代价。
+
+## 2026-08-20 — 可见性谓词单一定义 + 过滤下推(#334 I10)
+
+`_AGENT_CONTEXT_WHERE` 模块常量:list/search/count 三个口拼同一段
+(参数恒 (agent_id, agent_id))——安全谓词的第二份手抄消灭。新增
+search_agent_context / count_agent_context_filtered:list_artifacts
+工具的过滤与分页下推进 SQL,LIKE 转义 %/_(字面 "a_b" 不再匹配
+"axb");大小写按 DB collation(SQLite 仅 ASCII ci,较旧 .lower()
+对非 ASCII 略窄——如实声明)。

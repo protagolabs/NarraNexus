@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/base.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -56,3 +56,14 @@ Most concrete repository classes in this directory extend `BaseRepository`; a si
 
 - Not every repository extends `BaseRepository`, and the standalone ones say so on purpose in their own docstrings: the append-only audit/analytics stores, `UserSettingsRepository`, the seen-message dedup stores (`channel_seen_message` / `lark_seen_message` — "deliberately not a `BaseRepository` subclass"), `SocialNetworkRepository` (backed by the unified memory engine, not the db client), and the raw-SQL `TeamFileRepository` / `ArtifactHistoryRepository` in `team_workspace_repository.py`. Read the class definition before assuming inheritance; don't "fix" a standalone one into a subclass. (The old "EmbeddingStoreRepository is the one exception" note described a class that no longer exists.)
 - The `id_field` class attribute refers to the **business primary key**, not the database auto-increment `id` column. For example, `EventRepository.id_field = "event_id"` even though the events table also has an auto-increment `id`. Methods like `get_by_id()` query against `event_id`, not the numeric auto-increment column.
+
+## 2026-08-18 — 公开只读 `db` property
+
+domain-impl 代码(artifact 事件staging)需要在自家表之外发写。伸手拿 `_db` 是越界,
+所以给一个只读暴露;不支持中途换 client。
+
+## 2026-08-20 — `db` property 已删(#334 I9)
+
+原始 client 逃逸口撤销:events 表归 [[artifact_event_repository.py]],
+需要 db 的 impl 由 service 显式传参(register/heal/open_url 的 `db`
+形参)。「repository 是唯一入口」恢复为规则而非建议。

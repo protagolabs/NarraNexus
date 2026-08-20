@@ -98,3 +98,8 @@ and does not suffer from cross-origin or mixed-content issues.
 - `right` is computed as `window.innerWidth - rect.right`; if the trigger ever
   sits near the right viewport edge with a >200px menu, the menu stays pinned to
   the trigger's right edge (acceptable — the menu has room to the left).
+
+## 2026-08-19 — KIND_TO_EXT/isChart 改查注册表
+
+私有 ext 映射删除,`downloadExt` 与 `chartImageExport` 从
+[[kindRegistry.ts]] 查;'bin' 兜底语义不变。

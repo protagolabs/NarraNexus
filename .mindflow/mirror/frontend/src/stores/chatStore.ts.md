@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-17
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -216,3 +216,8 @@ Depends on `@/lib/utils` for `generateId` and `@/types` for the `RuntimeMessage`
 **Background agent toast lifecycle.** When `stopStreaming(agentId)` fires for a non-active agent, it pushes to both `completedAgentIds` and `toastQueue`. Consumers must call `dismissToast(agentId)` after displaying the toast and `clearCompletedNotification(agentId)` when the user switches to that agent. Omitting either leaves stale badge indicators permanently.
 
 **`processMessage` silently drops unknown types.** If a future backend version emits an unrecognized message type, the store does nothing. If the backend stops sending a `complete` message (protocol change), the session stays `isStreaming: true` until the WebSocket closes and `onclose` triggers `stopStreaming` as a fallback.
+
+## 2026-08-18 — ToastItem 增 artifact-repointed 变体 + 通用 pushToast
+
+heal 重指的诚实提示(标题/旧新路径尾/hash 是否验证)。pushToast 按 toastKey
+去重(同键重推=重置自动消失计时)。

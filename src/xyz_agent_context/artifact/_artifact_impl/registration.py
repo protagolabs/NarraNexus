@@ -23,6 +23,7 @@ to convert into caller-readable errors.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 from datetime import datetime, timezone
@@ -30,6 +31,7 @@ from typing import Optional
 
 from loguru import logger
 
+from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.artifact._artifact_impl.errors import (
     ArtifactError,
     ArtifactKindMismatch,
@@ -107,6 +109,26 @@ def _build_url(agent_id: str, artifact_id: str) -> str:
     """Directory-serving URL. The trailing slash makes the entry file's relative
     references (./style.css, ./data.json) resolve under the same path."""
     return f"/api/agents/{agent_id}/artifacts/{artifact_id}/raw/"
+
+
+def compute_entry_hash(abs_entry: str) -> Optional[str]:
+    """sha256 hex of the entry file; None on any IO error.
+
+    Best-effort by contract: the fingerprint upgrades heal's rename
+    detection from an extension guess to a verified identity, but a hashing
+    failure must never block the registration it accompanies. Entry files
+    are capped at MAX_ARTIFACT_BYTES (25 MB), so streaming in 1 MB chunks
+    keeps this a sub-perceptible cost on the register path.
+    """
+    try:
+        digest = hashlib.sha256()
+        with open(abs_entry, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError as e:
+        logger.warning(f"content_hash skipped for {abs_entry}: {e}")
+        return None
 
 
 def _dir_size(path: str) -> int:
@@ -249,6 +271,7 @@ async def _record_history(
 async def register_artifact(
     *,
     repo: ArtifactRepository,
+    db,
     agent_id: str,
     user_id: str,
     session_id: Optional[str],
@@ -259,6 +282,8 @@ async def register_artifact(
     target_artifact_id: Optional[str],
     team_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    history_action: str = "updated",
+    suppress_notify: bool = False,
 ) -> CreateArtifactToolResult:
     """
     Register a pointer to an entry file the agent wrote in its workspace.
@@ -340,6 +365,7 @@ async def register_artifact(
         )
 
     rel_path = _relative_to_base(abs_entry)
+    content_hash = compute_entry_hash(abs_entry)
     now = datetime.now(timezone.utc)
 
     if target_artifact_id is not None:
@@ -380,12 +406,20 @@ async def register_artifact(
             size_bytes=size_bytes,
             title=title[:200],
             description=description,
+            content_hash=content_hash,
         )
+        # history_action / suppress_notify only apply on this target branch:
+        # heal repoints through here and needs "healed" in the history plus a
+        # richer "repointed" event that it stages itself (with old/new path
+        # tails) — a plain "updated" on top of it would be a duplicate.
         await _record_history(
             repo, artifact_id=target_artifact_id, agent_id=agent_id,
-            file_path=rel_path, size_bytes=size_bytes, action="updated",
+            file_path=rel_path, size_bytes=size_bytes, action=history_action,
             event_id=event_id,
         )
+        refreshed = await repo.get_by_id(target_artifact_id)
+        if refreshed is not None and not suppress_notify:
+            await stage_artifact_event(db, action="updated", artifact=refreshed)
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
             artifact_id=target_artifact_id,
@@ -416,12 +450,18 @@ async def register_artifact(
                     size_bytes=size_bytes,
                     title=title[:200],
                     description=description,
+                    content_hash=content_hash,
                 )
                 await _record_history(
                     repo, artifact_id=existing.artifact_id, agent_id=agent_id,
                     file_path=rel_path, size_bytes=size_bytes, action="updated",
                     event_id=event_id,
                 )
+                refreshed = await repo.get_by_id(existing.artifact_id)
+                if refreshed is not None:
+                    await stage_artifact_event(
+                        db, action="updated", artifact=refreshed
+                    )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
                 )
@@ -449,6 +489,7 @@ async def register_artifact(
             team_id=team_id,
             file_path=rel_path,
             size_bytes=size_bytes,
+            content_hash=content_hash,
             created_at=now,
             updated_at=now,
         )
@@ -458,6 +499,9 @@ async def register_artifact(
         file_path=rel_path, size_bytes=size_bytes, action="created",
         event_id=event_id,
     )
+    created = await repo.get_by_id(artifact_id)
+    if created is not None:
+        await stage_artifact_event(db, action="registered", artifact=created)
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(
         artifact_id=artifact_id,

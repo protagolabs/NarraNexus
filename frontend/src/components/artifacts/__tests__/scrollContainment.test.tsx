@@ -28,12 +28,22 @@ import { render, waitFor } from '@testing-library/react';
 vi.mock('@/services/artifactsApi', () => ({
   artifactsApi: {
     getRawUrl: vi.fn(async () => '/api/public/artifacts/raw/FAKE_TOKEN/'),
+    putContent: vi.fn(),
   },
+  ArtifactEditConflictError: class extends Error {},
   fetchArtifactText: vi.fn(async (url: string) =>
     url.includes('csv') ? 'col_a,col_b\n1,2' : '# heading\n\nbody text',
   ),
   fetchArtifactBlobUrl: vi.fn(async () => 'blob:http://tauri.localhost/fake'),
 }));
+
+// The csv resident editor loads raw BYTES via global fetch (it hashes them
+// for the optimistic lock), not via fetchArtifactText.
+vi.stubGlobal('fetch', vi.fn(async () => ({
+  ok: true,
+  status: 200,
+  arrayBuffer: async () => new TextEncoder().encode('col_a,col_b\n1,2').buffer,
+})));
 
 vi.mock('@/lib/tauri', async () => {
   const actual = await vi.importActual<typeof import('@/lib/tauri')>('@/lib/tauri');
@@ -97,16 +107,19 @@ describe('ArtifactRenderer scroll ownership', () => {
     expect(wrapper.contains(content)).toBe(true);
   });
 
-  test('bounded (default): wide csv tables overflow inside the same wrapper', async () => {
+  test('bounded (default): the csv resident editor lives inside the same wrapper', async () => {
+    // csv renders as a resident editor since the no-mode framework (2026-08-19);
+    // the containment contract is unchanged — the editor surface must sit
+    // inside the bounded scroll wrapper, never own page-level overflow.
     const { container } = render(<ArtifactRenderer artifact={csvArtifact} />);
-    const table = await waitFor(() => {
-      const el = container.querySelector('table');
-      if (!el) throw new Error('csv table not rendered yet');
+    const editorRoot = await waitFor(() => {
+      const el = container.querySelector('.cm-editor');
+      if (!el) throw new Error('csv editor not rendered yet');
       return el;
     }, RENDER_TIMEOUT);
     const wrapper = container.firstElementChild as Element;
     expect(wrapper.className).toContain('overflow-auto');
-    expect(wrapper.contains(table)).toBe(true);
+    expect(wrapper.contains(editorRoot)).toBe(true);
   });
 
   test('renderer roots stay unbounded so the zoom modal keeps outer-scroll semantics', async () => {

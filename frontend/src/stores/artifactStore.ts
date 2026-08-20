@@ -7,9 +7,21 @@
 
 import { create } from 'zustand';
 import type { Artifact } from '@/types/artifact';
+import { removeDraft } from '@/lib/artifactEditing/drafts';
 import { artifactsApi } from '@/services/artifactsApi';
 
 const MINIMIZED_IDS_KEY = 'artifact_minimized_ids';
+
+/** Wire shape of a backend artifact_changed event (see backend notify.py). */
+export interface ArtifactChangedEvent {
+  type: 'artifact_changed';
+  action: 'registered' | 'updated' | 'deleted' | 'repointed';
+  /** True when the change was detected rather than committed (external edit). */
+  external?: boolean;
+  artifact: Artifact;
+  /** repointed only: heal's old/new path tails + whether the hash verified. */
+  extra?: { old?: string; new?: string; hash_matched?: boolean };
+}
 
 /**
  * Minimal interface to the echarts instance methods we actually use.
@@ -68,8 +80,26 @@ interface ArtifactState {
    */
   chartLruOrder: string[];
 
+  /**
+   * Artifact ids whose editing surface holds unsaved text. Written by the
+   * editor hook's host component, read by ArtifactTabStrip (dirty dot).
+   * Content safety does NOT depend on this — the localStorage draft layer in
+   * useArtifactEditor carries the text — this is only the visual layer of
+   * the dirty guard.
+   */
+  editorDirtyIds: Set<string>;
+
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
+  /**
+   * Apply one backend-pushed artifact_changed event (spec artifact-events
+   * §3.3). This is the store's ONLY realtime input — it replaced the chat
+   * stream string-matching path. Late/duplicate events are neutralised by
+   * an updated_at monotonic guard, so callers never need to order or dedupe.
+   * Never throws: a malformed event logs and is dropped (the full pull on
+   * open/switch/reconnect is the self-healing floor).
+   */
+  applyEvent: (event: ArtifactChangedEvent) => void;
   setActive: (artifactId: string | null) => void;
   /**
    * Insert or replace an artifact. New artifacts of the active agent
@@ -80,6 +110,7 @@ interface ArtifactState {
    */
   upsert: (artifact: Artifact, opts?: { focus?: boolean }) => void;
   remove: (artifactId: string) => void;
+  setEditorDirty: (artifactId: string, dirty: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
   /** Identity-checked clear: only the mount that registered may remove. */
   unregisterChartInstance: (artifactId: string, instance: ChartInstanceLike) => void;
@@ -161,6 +192,17 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   chartInstances: {},
   minimizedTabIds: initialMinimizedTabIds,
   chartLruOrder: [],
+  editorDirtyIds: new Set<string>(),
+
+  setEditorDirty(artifactId, dirty) {
+    set((state) => {
+      if (state.editorDirtyIds.has(artifactId) === dirty) return state;
+      const next = new Set(state.editorDirtyIds);
+      if (dirty) next.add(artifactId);
+      else next.delete(artifactId);
+      return { editorDirtyIds: next };
+    });
+  },
 
   async loadForSession(agentId, sessionId) {
     // Stale-while-revalidate: switch the active agent and surface any cached
@@ -204,6 +246,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
 
   async loadPinned(agentId) {
     // Stale-while-revalidate: switch + show cached immediately, then refresh.
+    // Since 2026-08-18 the refresh pulls scope=context (own pinned ∪ team
+    // artifacts — the agent's full awareness surface) so the panel and the
+    // agent's state block can never disagree about what exists. The method
+    // keeps its historical name because "load this agent's panel" is still
+    // exactly what it does.
     const cached = get().artifactsByAgent[agentId] ?? [];
     const nextActiveCached = _pickVisibleActive(
       cached,
@@ -217,7 +264,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
       chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActiveCached, cached),
     }));
 
-    const pinned = await artifactsApi.listPinned(agentId);
+    const pinned = await artifactsApi.listContext(agentId);
     if (get().activeAgentId !== agentId) return;
     const nextActivePinned = _pickVisibleActive(
       pinned,
@@ -230,6 +277,35 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
       activeArtifactId: nextActivePinned,
       chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActivePinned, pinned),
     }));
+  },
+
+  applyEvent(event) {
+    try {
+      const artifact = event?.artifact;
+      if (!artifact?.artifact_id) return;
+      if (event.action === 'deleted') {
+        get().remove(artifact.artifact_id);
+        return;
+      }
+      // Monotonic guard: an event older than (or equal to) what the store
+      // already holds is a replay or an out-of-order delivery — never let it
+      // regress state. Equal timestamps are skipped too: same-commit replays
+      // are common on reconnect (event_stream replay + full pull racing).
+      const known =
+        (get().artifactsByAgent[artifact.agent_id] ?? []).find(
+          (a) => a.artifact_id === artifact.artifact_id,
+        ) ?? get().artifacts.find((a) => a.artifact_id === artifact.artifact_id);
+      if (known && Date.parse(known.updated_at) >= Date.parse(artifact.updated_at)) {
+        return;
+      }
+      // registered (unknown row) auto-focuses via upsert's new-artifact rule;
+      // updated/repointed refresh in place without stealing the user's tab —
+      // content reload rides updated_at (useArtifactRawUrl's refreshKey).
+      get().upsert(artifact);
+    } catch (e) {
+      // Loud, never fatal: the WS dispatcher must survive any one bad event.
+      console.error('artifact event apply failed', e, event);
+    }
   },
 
   setActive(artifactId) {
@@ -274,6 +350,12 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   },
 
   remove(artifactId) {
+    // A removed artifact's editor draft must not squat in localStorage
+    // forever (quota is shared; a full quota silently kills EVERY draft —
+    // review #334 I8). deleted-events funnel through remove(), so this one
+    // hook covers both the local delete and the pushed deletion. Key
+    // template lives in ONE place (drafts.ts — r2 I5).
+    removeDraft(artifactId);
     const list = get().artifacts.filter((a) => a.artifact_id !== artifactId);
     const cache = { ...get().artifactsByAgent };
     for (const aid of Object.keys(cache)) {

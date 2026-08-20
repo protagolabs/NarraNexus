@@ -176,6 +176,7 @@ def _write_content(dir_abs: str, *, url: str, title: str, page_text: Optional[st
 async def open_url(
     *,
     repo: ArtifactRepository,
+    db,
     agent_id: str,
     user_id: str,
     session_id: Optional[str],
@@ -236,6 +237,7 @@ async def open_url(
 
     result = await registration.register_artifact(
         repo=repo,
+        db=db,
         agent_id=agent_id,
         user_id=user_id,
         session_id=session_id,

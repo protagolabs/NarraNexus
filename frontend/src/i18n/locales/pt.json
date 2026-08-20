@@ -2066,6 +2066,37 @@
     },
     "url": {
       "toggleFailed": "Não foi possível mudar de modo: {{error}}"
+    },
+    "editor": {
+      "save": "Salvar",
+      "saving": "Salvando…",
+      "saved": "Salvo",
+      "unsavedChanges": "Alterações não salvas",
+      "draftRestored": "Edições não salvas restauradas deste dispositivo.",
+      "conflictBody": "O arquivo mudou durante a edição. Manter sua versão ou recarregar a deles?",
+      "overwriteMine": "Manter a minha",
+      "discardMine": "Recarregar",
+      "loadError": "Falha ao carregar: {{error}}",
+      "mdGuardDisabled": "Este documento contém sintaxe que o editor não consegue preservar sem perdas — a edição direta está desativada. Peça à IA para fazer as alterações.",
+      "htmlAnchorFailed": "Esse texto é gerado pelo script da página ou não pode ser localizado de forma única no código — peça à IA para alterá-lo.",
+      "htmlEditConflict": "O arquivo mudou durante a edição — essa alteração não foi salva.",
+      "editFailed": "Falha na edição — a alteração não foi salva.",
+      "draftUnavailable": "Este arquivo é grande demais para o rascunho local — alterações não salvas serão perdidas ao fechar a janela. Salve logo."
+    },
+    "officeEdit": {
+      "selected": "{{count}} selecionado(s)",
+      "editText": "Editar texto",
+      "apply": "Aplicar",
+      "cancel": "Cancelar",
+      "delete": "Excluir",
+      "color": "Cor do texto",
+      "opFailed": "Falha na edição.",
+      "lockNotice": "Aberto em um app Office de desktop — edições diretas pausadas.",
+      "moveUp": "Mover para cima",
+      "moveDown": "Mover para baixo",
+      "addRow": "+ Linha",
+      "addCol": "+ Coluna",
+      "replaceImage": "Substituir imagem"
     }
   },
   "skills": {
@@ -2197,7 +2228,9 @@
     "completed": "Concluído",
     "roomSpoke": "Nova atividade na sala",
     "agent": "Agente",
-    "room": "Sala"
+    "room": "Sala",
+    "artifactRepointedVerified": "Reapontado: {{oldPath}} → {{newPath}} (conteúdo verificado)",
+    "artifactRepointedUnverified": "Reapontado: {{oldPath}} → {{newPath}} (correspondência não verificada — confira)"
   },
   "webAnalyticsNotice": {
     "body": "Esta é a versão web na nuvem do NarraNexus. Utiliza o Google Tag Manager, um serviço de análise de terceiros, para recolher dados anónimos de interação com a página (visualizações, cliques, referenciador). Nenhum conteúdo de conversa é recolhido. Pode desativar isto a qualquer momento em Definições → Privacidade.",

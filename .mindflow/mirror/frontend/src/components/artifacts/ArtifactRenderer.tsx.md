@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 渲染表迁出:kind 能力注册表(kindRegistry.ts)
+
+`RENDERER_BY_KIND` 与全部 lazy import 迁入 [[kindRegistry.ts]] —— 本组件
+只剩 Suspense/滚动盒外壳,渲染器经 `KIND_REGISTRY[kind].renderer` 查表。
+懒加载 memoisation 不受影响(lazy 调用点仍是模块级、单处)。加新 kind
+不再动本文件:注册表加一行 + renderer 文件即可。
 
 ## 2026-08-04 — bounded 开关：列内包装盒拥有全部滚动，弹窗零包装
 

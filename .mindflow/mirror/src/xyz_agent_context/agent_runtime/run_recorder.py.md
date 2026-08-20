@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-10
+last_verified: 2026-08-20
 stub: false
 ---
 ## 2026-08-10 — retain normalized action reason
@@ -90,3 +90,7 @@ live trace，任何读侧（聊天重连、team roster、未来 dashboard）走�
 lifespan 调 `sweep_stale_runs`。
 
 测试：tests/agent_runtime/test_run_recorder.py。
+
+## 2026-08-20 — classify_event 转公有(#334 minor)
+
+两个模块消费即非私有:去下划线并入 __all__;background_run 同步改。

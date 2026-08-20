@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/ui/AgentCompletionToast.tsx
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -46,3 +46,9 @@ Multi-agent concurrent chat: you can send a message to Agent B while looking at 
 ## Gotcha / 边界情况
 
 This component is in `ui/` (not in `chat/`) because it sits in `MainLayout` alongside the Sidebar, not inside the chat panel. Placing it in `chat/` would couple the layout to the chat module.
+
+## 2026-08-18 — artifact-repointed 渲染分支
+
+status=warning(指针被动移动值得注意而非庆祝);View=restoreTab 把重指的
+tab 带到前台;文案 i18n 键 toast.artifactRepointed{Verified,Unverified},
+十语言已配。

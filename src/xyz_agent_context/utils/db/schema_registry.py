@@ -2308,6 +2308,13 @@ _register(
             # panel lists by it, and the owning agent still shows in agent_id
             # so "who produced this" survives the ownership move.
             Column("team_id", "TEXT", "VARCHAR(64)"),
+            # sha256 hex of the entry file at last registration. Heal uses it
+            # to verify a candidate IS the same content (rename detection):
+            # a hash match upgrades the single-candidate auto-repoint from a
+            # guess to a verified identity. Nullable: legacy rows stay NULL
+            # (heal skips the hash tier) and hashing is best-effort — a
+            # hashing failure must never block a registration.
+            Column("content_hash", "TEXT", "VARCHAR(64)"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept registered because dropping a column is a
             # destructive migration (铁律 #6) — removal is Owner-gated
@@ -2363,14 +2370,63 @@ _register(
             # after the artifact is later re-pointed somewhere else.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
-            # "created" | "updated" — lets a reader tell the first registration
-            # from the ones that overwrote it without diffing timestamps.
+            # "created" | "updated" | "healed" | "user_edited" |
+            # "external_edited" — lets a reader tell the first registration
+            # from later overwrites, an intentional update from a heal
+            # repoint, and an agent commit from a user/external one.
+            # VARCHAR(16): the longest current value (external_edited) is 15
+            # chars; a longer action needs the column widened FIRST or MySQL
+            # strict mode 1406s the insert.
             Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             # The only read pattern: one artifact's history, newest first.
             Index("idx_artifact_history_artifact", ["artifact_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# instance_artifact_events — cross-process outbox for artifact_changed events.
+#
+# Registry writes happen in two different processes: register_artifact runs in
+# the MCP tool server, while the run's Broadcaster (the only road to the
+# frontend's WebSocket) lives in the backend. Writers therefore stage one
+# self-contained event payload here; BackgroundRun drains unconsumed rows for
+# its agent right after each tool-output event and re-emits them through the
+# normal recorder+broadcaster pipeline, which buys persistence (event_stream)
+# and fan-out in one move.
+#
+# Rows staged while no run is active (e.g. an HTTP delete) are drained late,
+# at the next run's first tool output. That is deliberate: late events are
+# neutralised client-side by the updated_at monotonic guard, and the frontend
+# full-pull on open/switch/reconnect is the self-healing floor — so the outbox
+# needs no TTL and no cross-process locking. Staging is best-effort by
+# contract: a failed insert logs a warning and never breaks the registry write
+# it accompanies (spec 2026-08-18-artifact-events-inventory-pointer §3).
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_artifact_events",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # The full wire event (type/action/external/artifact/extra), JSON.
+            # Self-contained so the drain is a dumb pump: no joins, no
+            # reconstruction, no schema coupling between staging and delivery.
+            Column("payload_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            # NULL = pending. Set when a drain delivered (or deliberately
+            # skipped) the row; never deleted, so the recent tail doubles as
+            # a delivery audit.
+            Column("consumed_at", "TEXT", "DATETIME(6)"),
+        ],
+        indexes=[
+            # The drain's only read pattern: this agent's pending rows, oldest
+            # first (ORDER BY id rides the PK).
+            Index("idx_artifact_events_agent_pending", ["agent_id", "consumed_at"]),
         ],
     )
 )
