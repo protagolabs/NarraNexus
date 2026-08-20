@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — Export 行深链进 Dashboard 导出标签
+
+「导出功能融入智能体管理」:侧栏 Export 行不再去独立的 `/app/bundle/export`,
+改跳 `/app/dashboard?tab=export`(DashboardPage 首帧读 `?tab=` 落到内嵌导出向导)。
+active 高亮判据同步为 pathname=/app/dashboard 且 search 含 tab=export。独立
+`/app/bundle/export` 路由仍在(TeamDetail 快捷导出等复用)。测试:
+sidebarExportEntry.test.tsx。
+
 
 ## 2026-08-19 — 账户入口指向设置内 pane
 

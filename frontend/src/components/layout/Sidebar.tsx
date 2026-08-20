@@ -252,10 +252,15 @@ export function Sidebar() {
         </span>
         <button
           type="button"
-          onClick={() => navigate('/app/bundle/export')}
+          onClick={() => navigate('/app/dashboard?tab=export')}
           title={t('sidebar.exportTitle')}
           data-help-id="sidebar.export"
-          className={cn(NAV_ROW, location.pathname === '/app/bundle/export' && NAV_ROW_ACTIVE)}
+          className={cn(
+            NAV_ROW,
+            location.pathname === '/app/dashboard' &&
+              location.search.includes('tab=export') &&
+              NAV_ROW_ACTIVE,
+          )}
         >
           <Upload className="w-4 h-4 shrink-0" />
           {t('sidebar.export')}
