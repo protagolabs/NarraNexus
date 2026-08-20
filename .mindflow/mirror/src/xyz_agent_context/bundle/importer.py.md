@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 改名的导入现在会纠正身份记忆
+
+本文件**会改名**:`unique_value` 加去重后缀、clamp 截长、空名兜到
+`"Imported Agent"`,`renamed = (final_name != clamped_name)` 就是这个判据。而
+`instance_awareness` 是**逐行复制**的,于是导入进来的 agent 行里是
+`小绿 (1)`、自己的 profile 却继续声明 `小绿` —— 深圳第二轮那个状态,从导入路径进来。
+
+已在 awareness 行插入**之后**接一次 `reconcile_identity_record(db, new_aid,
+final_name)`。三个要点:
+
+- **顺序要紧**:必须在 `_ins("instance_awareness", ...)` 之后,否则更正写进一个还
+  不存在的行。
+- **用对账,不用改名事务**:那个事务的前置是「行已存在且可写」,这里行刚被创建、
+  且里面已经是最终名字。
+- **天然幂等**:profile 与行一致时返回 `None`,所以每次导入都调是安全的。
+
+返回 `False`(发现了不一致但没修成)时打 warning —— 那正是事故本体的状态,不该只留在
+一条会被轮转掉的日志里以外什么都没有。
+
+⚠ `tests/schema/test_only_one_writer_of_agent_name.py` 的 allowlist 里,本文件那条
+理由**曾经写的是「创建路径无需纠正旧名」——对本文件是假的**。已改成陈述真实情况。
+闸门的价值等于它理由的可信度:下一个扩那个列表的人会照抄上一条的说辞。
 
 ## 2026-08-19 — PR#327 I1:唯一冲突判定收敛到共享谓词(六处里唯一被收紧的一处)
 

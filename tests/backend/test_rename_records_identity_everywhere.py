@@ -1111,18 +1111,17 @@ async def test_an_agent_correct_in_both_places_is_left_alone(db_client):
 
 
 @pytest.mark.asyncio
-async def test_appending_to_a_name_reports_the_line_it_could_not_retire(
+async def test_appending_to_a_name_retires_the_line_and_reports_success(
     db_client, ui_client
 ):
     """The most ordinary rename shape there is: adding to a name.
 
-    `小绿` → `小绿2` makes the two names prefixes of each other, so which part of
-    `- 名称：小绿` is the name cannot be decided from the line and the rewrite is
-    correctly refused. But refusing silently left the profile saying 小绿 ABOVE a
-    record saying 小绿2 — the exact stacking a live run showed the model follow —
-    while the response said identity_record_updated: true and the UI warned
-    about nothing. Every existing test used 美食家/小绿, which have no prefix
-    relation and walk straight past this branch.
+    This asserted the opposite for two rounds — that `小绿` → `小绿2` was refused
+    and reported as "identity memory not updated". The refusal came from a guard
+    against mistaking a hyphen for the end of a name; once weak characters
+    stopped being boundaries, the guard only rejected renames it could do
+    exactly, and turned the degradation signal into a false alarm on the common
+    case.
     """
     await _seed(
         db_client,
@@ -1136,12 +1135,12 @@ async def test_appending_to_a_name_reports_the_line_it_could_not_retire(
         headers={"X-User-Id": OWNER},
     ).json()
 
-    assert body["success"] is True, "the rename itself must still land"
-    assert body["identity_record_updated"] is False, (
-        "the profile still names the old identity and nothing said so"
-    )
+    assert body["success"] is True
+    assert body["identity_record_updated"] is True
     profile = await _profile(db_client)
+    assert "- 名称：小绿2" in profile
     assert "You are 「小绿2」" in _identity_entries(profile)[0]
+
 
 
 @pytest.mark.asyncio

@@ -147,6 +147,30 @@ def build_identity_reconciliation_note(
     )
 
 
+def _split_record_section(profile: str):
+    """``(text before the record, its bullet entries, text after it)``.
+
+    The section ends at the NEXT ``## `` heading, not at end-of-text: the model
+    rewrites the whole profile in the prescribed structure, so this section
+    routinely sits in the MIDDLE, and an early version that treated everything
+    after the marker as belonging to it silently dropped the sections below.
+
+    One copy. This walk was written out three times — in the merge, in the
+    rewrite carry-over, and in the record reader — and three copies of "where
+    does this section end" is how one of them starts eating the section below.
+    """
+    if IDENTITY_CHANGE_SECTION not in (profile or ""):
+        return (profile or ""), [], ""
+    head, _, rest = (profile or "").partition(IDENTITY_CHANGE_SECTION)
+    lines = rest.splitlines()
+    cut = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
+        len(lines),
+    )
+    entries = [ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")]
+    return head.rstrip(), entries, "\n".join(lines[cut:]).strip("\n")
+
+
 def merge_identity_change_note(profile: str, note: str) -> str:
     """Append ``note`` to the profile's identity-change section.
 
@@ -162,22 +186,10 @@ def merge_identity_change_note(profile: str, note: str) -> str:
     it and silently dropped the sections below on the next rename (review,
     2026-08-05). Whatever follows is carried through untouched.
     """
-    body = (profile or "").rstrip()
-    if IDENTITY_CHANGE_SECTION not in body:
-        entries: List[str] = [note]
-        head, tail = body, ""
+    head, entries, tail = _split_record_section((profile or "").rstrip())
+    if not entries:
+        entries = [note]
     else:
-        head, _, rest = body.partition(IDENTITY_CHANGE_SECTION)
-        head = head.rstrip()
-        # Cut at the next heading; everything from there on is someone else's.
-        lines = rest.splitlines()
-        cut = next(
-            (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
-            len(lines),
-        )
-        entries = [
-            ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")
-        ]
         # Drop entries this note supersedes — every one that tells the agent it
         # is called something other than what this note says it is called. The
         # incident proved a single platform-voiced line is enough for the agent
@@ -192,7 +204,6 @@ def merge_identity_change_note(profile: str, note: str) -> str:
                 if identity_note_asserts(e) in (None, now_called)
             ]
         entries.append(note)
-        tail = "\n".join(lines[cut:]).strip("\n")
 
     entries = entries[-MAX_IDENTITY_CHANGE_ENTRIES:]
     section = f"{IDENTITY_CHANGE_SECTION}\n" + "\n".join(entries) + "\n"
@@ -219,16 +230,7 @@ def carry_over_platform_record(previous: str, rewritten: str) -> str:
     """
     if IDENTITY_CHANGE_SECTION in (rewritten or ""):
         return rewritten
-    if IDENTITY_CHANGE_SECTION not in (previous or ""):
-        return rewritten
-
-    _, _, rest = previous.partition(IDENTITY_CHANGE_SECTION)
-    lines = rest.splitlines()
-    cut = next(
-        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
-        len(lines),
-    )
-    entries = [ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")]
+    _, entries, _ = _split_record_section(previous)
     if not entries:
         return rewritten
     logger.info(
@@ -429,22 +431,15 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     # Before the first `##`, there is no section to be wrong about: that is the
     # preamble, the default profile, and every bare fragment. Editable.
     profile = profile or ""
-    # `小绿` vs `小绿-2`: one is a prefix of the other, so which part of the line
-    # is the name cannot be decided from the line. Refusing costs a stale line —
-    # visible, and still contradicted by the record — while guessing wrong edits
-    # the agent's memory in a way `upsert` makes unrecoverable.
-    if old.startswith(new) or new.startswith(old):
-        logger.warning(
-            f"[identity] refusing an ambiguous self-name rewrite "
-            f"({old!r} → {new!r}); the line still names the old identity"
-        )
-        # WARNING, not info, and reported through `retire_refused` below: this
-        # branch fires on the most ordinary rename shape there is — appending to
-        # a name (小绿 → 小绿2, Ann → Anna) — and leaving it silent made
-        # identity_record_updated report True in exactly the case the field
-        # exists to flag.
-        raise _AmbiguousSelfName(profile)
-
+    # No prefix guard here any more. It existed because a hyphen could be
+    # mistaken for the end of a name, making `小绿` vs `小绿-2` undecidable — and
+    # round 13 removed that premise: weak characters are no longer boundaries, so
+    # `- 名称：小绿-3` simply does not declare `小绿` and is never a candidate.
+    # What the guard did instead was reject renames that ARE exact (小绿 → 小绿2,
+    # Ann → Anna — appending is one of the most ordinary shapes) and report the
+    # identity memory as not updated. A signal that cries wolf on the common case
+    # is not a signal, which is the same reason round 12 rejected the previous
+    # version of this field.
     out = []
     for line, editable in _scan(profile):
         m = _SELF_NAME_LINE.match(line)
@@ -536,15 +531,7 @@ async def record_identity_change(
 
 def _asserted_name(profile: str) -> Optional[str]:
     """The name the platform record's newest entry claims, if there is one."""
-    if IDENTITY_CHANGE_SECTION not in (profile or ""):
-        return None
-    _, _, rest = profile.partition(IDENTITY_CHANGE_SECTION)
-    lines = rest.splitlines()
-    cut = next(
-        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("## ")),
-        len(lines),
-    )
-    entries = [ln.strip() for ln in lines[:cut] if ln.strip().startswith("- ")]
+    _, entries, _ = _split_record_section(profile)
     return next(
         (
             name

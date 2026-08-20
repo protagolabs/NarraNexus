@@ -690,22 +690,50 @@ class TestNamesContainingSeparators:
         after = (await db.get_one("instance_awareness", {"instance_id": instance_id}))["awareness"]
         assert "- 名称：小绿-2\n" in after, f"the name line was mangled: {after!r}"
 
-    def test_an_ambiguous_overlap_is_refused_LOUDLY(self):
-        """`小绿` vs `小绿-2`: one is a prefix of the other, so which part of
-        the line is the name cannot be decided. Refuse — a wrong rewrite of an
-        agent's memory cannot be taken back.
+    def test_a_weak_separator_line_is_simply_not_a_declaration(self):
+        """This used to assert a LOUD refusal for `小绿` vs `小绿-2`.
 
-        Refusing by RAISING, not by returning the profile unchanged: the caller
-        cannot then mistake "left alone" for "retired", which is how the
-        degradation stayed invisible while the response reported success. The
-        record still lands; the caller is told the memory is not fully correct.
+        That guard existed because a hyphen might be the end of a name. It is
+        not, so `- 名称：小绿-3` does not declare `小绿` at all — there is nothing
+        to refuse, and nothing to rewrite. The refusal was rejecting exact
+        renames (小绿 → 小绿2) as collateral.
         """
-        from xyz_agent_context.module.awareness_module._awareness_writes import (
-            _AmbiguousSelfName,
-        )
         from xyz_agent_context.module.awareness_module import retire_self_name
 
         profile = "## 4. Role and Identity\n- 名称：小绿-3\n"
-        with pytest.raises(_AmbiguousSelfName) as caught:
-            retire_self_name(profile, "小绿", "小绿-2")
-        assert caught.value.profile == profile, "the untouched profile must come along"
+        assert retire_self_name(profile, "小绿", "小绿-2") == profile
+
+
+class TestAppendingToAName:
+    """`小绿` → `小绿2` is one of the most ordinary renames there is.
+
+    A guard added in round 10 refused any rewrite where the two names were
+    prefixes of each other, because a hyphen could then be mistaken for the end
+    of a name. Round 13 removed that premise — weak characters are no longer
+    boundaries — which left the guard rejecting renames it can now do exactly,
+    and reporting identity_record_updated=False on the most common shape. A
+    signal that cries wolf on the common case is not a signal.
+    """
+
+    def test_a_suffix_rename_retires_the_line(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name("## Role and Identity\n- 名称：小绿\n", "小绿", "小绿2")
+        assert "- 名称：小绿2\n" in out
+
+    def test_a_suffix_rename_keeps_the_description(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name(
+            "## Role and Identity\n- 名称：小绿；精通各地美食推荐\n", "小绿", "小绿2"
+        )
+        assert "- 名称：小绿2；精通各地美食推荐\n" in out
+
+    def test_a_line_naming_something_else_is_still_left_alone(self):
+        """The property the guard was protecting, now carried by the opener rule:
+        `- 名称：小绿-3` does not declare `小绿`, because a hyphen does not end a
+        name — so there is nothing here to retire."""
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = "## Role and Identity\n- 名称：小绿-3\n"
+        assert retire_self_name(profile, "小绿", "小绿2") == profile

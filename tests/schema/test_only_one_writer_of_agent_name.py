@@ -36,9 +36,18 @@ WRITE_PATTERN = (
 )
 
 # Where a write is legitimate, as (path suffix, what it does, why it is allowed).
-# Creation paths set the name at the moment the agent comes into existence, so
-# there is no previous name to correct and no memory to have gone stale. The two
-# metadata writers never touch agent_name.
+# Most creation paths set the name as the agent comes into existence, so there is
+# no previous name to correct and no memory to have gone stale. The two metadata
+# writers never touch agent_name.
+#
+# One exception, stated because a gate is only worth its reasons: bundle/importer
+# DOES rename — it clamps, appends a dedupe suffix, and falls back on an empty
+# name — and it copies instance_awareness row for row, so an imported agent can
+# arrive declaring the name it had in the bundle. It is allowed here because the
+# row is created rather than updated (the transaction's precondition is a row it
+# may write), and it calls reconcile_identity_record after the awareness insert
+# instead. Do not copy "creation paths need no correction" onto the next entry
+# without checking whether that entry renames.
 ALLOWED = {
     ("src/xyz_agent_context/bootstrap/provision.py", "add_agent"),
     ("src/xyz_agent_context/migration/applier.py", "add_agent"),
