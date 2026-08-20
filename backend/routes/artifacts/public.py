@@ -229,10 +229,23 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         and request.query_params.get("edit_bridge") == "1"
     ):
         try:
-            with open(resolved.path, encoding="utf-8", errors="replace") as f:
-                html = f.read()
+            with open(resolved.path, "rb") as f:
+                raw = f.read()
         except OSError as e:
             raise HTTPException(status_code=410, detail=f"entry unreadable: {e}")
-        return HTMLResponse(content=inject_edit_bridge(html), headers=headers)
+        try:
+            # STRICT decode (review #334 I4): errors="replace" would swap
+            # every non-UTF-8 byte for U+FFFD, and the edit pipeline PUTs the
+            # WHOLE decoded text back — one word edited, the entire file's
+            # encoding silently destroyed, and the optimistic lock can't see
+            # it (it hashes the bytes the frontend fetched). A document we
+            # cannot decode losslessly gets NO edit capability: fall through
+            # to the plain FileResponse — viewable, byte-identical, uneditable
+            # (same degrade discipline as the md guard).
+            html = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            html = None
+        if html is not None:
+            return HTMLResponse(content=inject_edit_bridge(html), headers=headers)
 
     return FileResponse(path=resolved.path, media_type=resolved.media_type, headers=headers)

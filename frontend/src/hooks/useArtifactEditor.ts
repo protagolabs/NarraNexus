@@ -96,7 +96,11 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
     if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
     const buf = await r.arrayBuffer();
     const hash = await sha256Hex(buf);
-    const loaded = new TextDecoder('utf-8').decode(buf);
+    // fatal: a document we cannot decode losslessly must not enter an
+    // editing surface — a lossy decode would be silently written back on
+    // the first save (review #334 I4). The thrown error surfaces as the
+    // editor's load-error state (read-only path).
+    const loaded = new TextDecoder('utf-8', { fatal: true }).decode(buf);
     baseHashRef.current = hash;
 
     const draft = readDraft(artifact.artifact_id);

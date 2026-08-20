@@ -114,3 +114,29 @@ def test_non_html_entry_never_injected(setup):
     r = client.get(f"/api/public/artifacts/raw/{t}/?edit_bridge=1")
     assert r.status_code == 200
     assert "narra-edit-bridge" not in r.text
+
+
+def test_non_utf8_entry_serves_bytes_untouched_without_bridge(setup, tmp_path):
+    """review #334 I4: a GBK/latin-1 html must NOT be decoded with
+    errors="replace" and re-encoded — that turns every non-UTF-8 byte into
+    U+FFFD and the edit pipeline would write the corruption back. The bridge
+    branch degrades to the plain FileResponse: viewable, not editable."""
+    gbk_bytes = "<html><body><h1>GBK quarterly report - \u5b63\u5ea6\u62a5\u544a</h1></body></html>".encode("gbk")
+    base = tmp_path / "workspaces"
+    root = base / WS_REL / "gbkpage"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "index.html").write_bytes(gbk_bytes)
+
+    client, token_for = setup["client"], setup["token_for"]
+    # Register through the manual-register endpoint — same validation path.
+    r = client.post(
+        "/api/agents/agent_x/artifacts/register",
+        json={"file_path": "gbkpage/index.html", "kind": "text/html", "title": "gbk"},
+    )
+    assert r.status_code == 200, r.text
+    aid = r.json()["artifact_id"]
+    t = token_for(aid)
+    resp = client.get(f"/api/public/artifacts/raw/{t}/?edit_bridge=1")
+    assert resp.status_code == 200
+    assert b"narra-edit-bridge" not in resp.content
+    assert resp.content == gbk_bytes  # byte-identical, no U+FFFD

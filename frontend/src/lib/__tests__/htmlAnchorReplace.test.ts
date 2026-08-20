@@ -86,3 +86,42 @@ describe('applyBridgeEdit', () => {
     expect(r).toEqual({ ok: false, reason: 'no-change' });
   });
 });
+
+describe('anchor priority (review #334 I5): outer first, attribute-safe fallback', () => {
+  it('a text unique only inside an attribute is refused, not written into alt', () => {
+    // The visible "Total revenue" is script-generated (not in source); the
+    // only literal occurrence is the alt attribute. Inner-first matching
+    // would silently rewrite alt while the visible text stays stale.
+    const page = '<div id="kpi"></div><img alt="Total revenue" src="c.png">';
+    const r = applyBridgeEdit(page, {
+      innerBefore: 'Total revenue',
+      innerAfter: 'Total revenue (Q3)',
+      outerBefore: '<span>Total revenue</span>', // script-made, not in source
+    });
+    expect(r).toEqual({ ok: false, reason: 'not-found' });
+  });
+
+  it('outer anchor wins even when the inner text also appears in an attribute', () => {
+    const page = '<h1 title="Report">Report</h1>';
+    const r = applyBridgeEdit(page, {
+      innerBefore: 'Report',
+      innerAfter: 'Q3 Report',
+      outerBefore: '<h1 title="Report">Report</h1>',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result).toBe('<h1 title="Report">Q3 Report</h1>');
+  });
+
+  it('inner fallback only fires at a text position (preceded by ">")', () => {
+    // outer doesn't match source (serializer differences are the norm), the
+    // inner IS at a text position → allowed.
+    const page = '<p class="x" >Fix me</p>';
+    const r = applyBridgeEdit(page, {
+      innerBefore: 'Fix me',
+      innerAfter: 'Fixed',
+      outerBefore: '<p class="x">Fix me</p>', // attr spacing differs
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result).toContain('>Fixed</p>');
+  });
+});

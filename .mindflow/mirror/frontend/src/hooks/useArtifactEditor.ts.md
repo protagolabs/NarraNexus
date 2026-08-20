@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/useArtifactEditor.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -27,3 +27,9 @@ md 块编辑器 C3 复用):load(bytes→text+hash)→ dirty → save(锁)→
   于盘);保存成功后用响应的 content_hash re-base。
 - textRef/dirtyRef:save 回调不随击键换身份;load effect 不把 dirty
   当依赖(url 变才触发)。
+
+## 2026-08-20 — 加载解码 fatal(#334 I4)
+
+TextDecoder fatal:true——解不动的文档不进编辑面(错误态=只读),
+有损解码在首存被写回的路径整个消灭。HtmlRenderer 的提交侧同改
+(解码失败=anchor-failed→交 AI 横幅,绝不 PUT)。

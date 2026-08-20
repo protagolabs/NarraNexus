@@ -204,7 +204,15 @@ export default function HtmlRenderer({ artifact }: Props) {
         const r = await fetch(url);
         if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
         const buf = await r.arrayBuffer();
-        const source = new TextDecoder('utf-8').decode(buf);
+        // fatal: a non-UTF-8 source must degrade to the AI channel, never be
+        // decoded lossily and PUT back (review #334 I4 — the lock hashes the
+        // fetched bytes, so it cannot catch decode corruption).
+        let source: string;
+        try {
+          source = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+        } catch {
+          return 'anchor-failed';
+        }
         const replaced = applyBridgeEdit(source, edit);
         if (!replaced.ok) {
           return replaced.reason === 'no-change' ? 'ok' : 'anchor-failed';

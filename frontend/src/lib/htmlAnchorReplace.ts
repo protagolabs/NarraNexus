@@ -38,38 +38,55 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
+/** True when the match at ``idx`` sits at a TEXT position — the previous
+    non-whitespace character is the '>' that closed a tag. An occurrence
+    inside an attribute value / comment / script literal fails this. */
+function atTextPosition(source: string, idx: number): boolean {
+  for (let i = idx - 1; i >= 0; i--) {
+    const ch = source[i];
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') continue;
+    return ch === '>';
+  }
+  return false;
+}
+
 export function applyBridgeEdit(source: string, edit: BridgeEdit): BridgeEditResult {
   const { innerBefore, innerAfter, outerBefore } = edit;
   if (innerAfter === innerBefore) return { ok: false, reason: 'no-change' };
 
-  const innerCount = countOccurrences(source, innerBefore);
-  if (innerCount === 1) {
-    const idx = source.indexOf(innerBefore);
+  // OUTER FIRST (review #334 I5): the element's outerHTML is the stronger
+  // anchor — an inner-first match can land on the same text inside an
+  // attribute (alt/title/aria-label commonly restate visible copy).
+  const outerCount = countOccurrences(source, outerBefore);
+  if (outerCount > 1) return { ok: false, reason: 'ambiguous' };
+  if (outerCount === 1) {
+    // Replace the inner within the outer occurrence. Search after the
+    // opening tag's '>' so an attribute inside the SAME element that
+    // restates the text (title="Report") can't be hit.
+    const tagEnd = outerBefore.indexOf('>');
+    const innerIdxInOuter = outerBefore.indexOf(innerBefore, tagEnd + 1);
+    if (innerIdxInOuter === -1) return { ok: false, reason: 'not-found' };
+    const newOuter =
+      outerBefore.slice(0, innerIdxInOuter) +
+      innerAfter +
+      outerBefore.slice(innerIdxInOuter + innerBefore.length);
+    const outerIdx = source.indexOf(outerBefore);
     return {
       ok: true,
-      result: source.slice(0, idx) + innerAfter + source.slice(idx + innerBefore.length),
+      result: source.slice(0, outerIdx) + newOuter + source.slice(outerIdx + outerBefore.length),
     };
   }
+
+  // Outer absent is the NORM (the browser re-serializes attribute order /
+  // quoting), so the inner fallback must stay — but it only fires when the
+  // unique match sits at a text position, never inside an attribute.
+  const innerCount = countOccurrences(source, innerBefore);
   if (innerCount === 0) return { ok: false, reason: 'not-found' };
-
-  // Inner text ambiguous — widen to the element's outerHTML.
-  const outerCount = countOccurrences(source, outerBefore);
-  if (outerCount !== 1) return { ok: false, reason: 'ambiguous' };
-
-  // Replace the inner within the outer occurrence. Search after the opening
-  // tag's '>' so an attribute that happens to contain the same text (e.g.
-  // title="repeated") can't be hit.
-  const tagEnd = outerBefore.indexOf('>');
-  const innerIdxInOuter = outerBefore.indexOf(innerBefore, tagEnd + 1);
-  if (innerIdxInOuter === -1) return { ok: false, reason: 'not-found' };
-  const newOuter =
-    outerBefore.slice(0, innerIdxInOuter) +
-    innerAfter +
-    outerBefore.slice(innerIdxInOuter + innerBefore.length);
-
-  const outerIdx = source.indexOf(outerBefore);
+  if (innerCount > 1) return { ok: false, reason: 'ambiguous' };
+  const idx = source.indexOf(innerBefore);
+  if (!atTextPosition(source, idx)) return { ok: false, reason: 'not-found' };
   return {
     ok: true,
-    result: source.slice(0, outerIdx) + newOuter + source.slice(outerIdx + outerBefore.length),
+    result: source.slice(0, idx) + innerAfter + source.slice(idx + innerBefore.length),
   };
 }
