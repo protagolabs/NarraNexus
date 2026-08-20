@@ -14,6 +14,7 @@ On next app startup, the column is automatically added via ALTER TABLE ADD COLUM
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -79,6 +80,31 @@ def _register(table: TableDef) -> None:
 def get_registered_tables() -> List[TableDef]:
     """Return all registered table definitions."""
     return list(TABLES.values())
+
+
+_VARCHAR_RE = re.compile(r"VARCHAR\((\d+)\)", re.IGNORECASE)
+
+
+def varchar_width(table: str, column: str) -> int:
+    """Return the declared ``VARCHAR(N)`` width of a column.
+
+    The schema registry is the single source of truth for column widths, so a
+    caller that must clip an attacker-influenced field to its column width — the
+    gateway-key-misuse endpoint clips every field it stores, and treats an
+    over-width ``user_id`` as unresolvable — derives its limit from here instead
+    of hardcoding a number that could silently drift from the DDL. Raises if the
+    column is not a plain ``VARCHAR(N)`` so a wrong lookup fails loudly at import
+    rather than clipping to a bogus width.
+    """
+    col = next((c for c in TABLES[table].columns if c.name == column), None)
+    if col is None:
+        raise KeyError(f"{table} has no column {column!r}")
+    m = _VARCHAR_RE.fullmatch(col.mysql_type.strip())
+    if m is None:
+        raise ValueError(
+            f"{table}.{column} is {col.mysql_type!r}, not a VARCHAR(N) column"
+        )
+    return int(m.group(1))
 
 
 # ============================================================================
@@ -1440,6 +1466,50 @@ _register(
             Index("idx_gateway_session_keys_user", ["user_id"]),
             # Reconciler scans revoked-but-unmetered runs by this pair.
             Index("idx_gateway_session_keys_metered", ["status", "metered_at"]),
+        ],
+    )
+)
+
+
+# 28d. gateway_key_misuse — records of abnormal / unauthorized use of a gateway
+# key, for security monitoring.
+#
+# Single writer: the backend admin gateway-key-misuse endpoint, which persists
+# what the caller AUTHORITATIVELY reverse-resolved for the offending key (the
+# gateway is the authority on which identity the key is bound to) — never
+# anything an attacker controls. This endpoint records ONLY the fields it is
+# handed; it parses no free-form text. The security monitor reads this table
+# read-only and drives its response ladder off it. executor/agent have no
+# credential to write here (admin-secret gated, same lock as suspend).
+#
+# user_id is nullable on purpose: an unresolved event (upstream hiccup / key
+# gone) is recorded as an ALERT-ONLY row with user_id=NULL — a human triages it;
+# the ladder never acts on a NULL id, so we never fabricate an attributable id.
+#
+# (key_hash, hit_at) is UNIQUE for idempotency: when the caller supplies the
+# authoritative event time, a write-succeeded-but-response-timed-out retry of the
+# same event collapses to the same row instead of a duplicate the response ladder
+# would act on twice. A NULL key_hash (unresolved event) does not participate —
+# SQL uniqueness treats NULLs as distinct, so alert-only rows never false-dedup.
+_register(
+    TableDef(
+        name="gateway_key_misuse",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(64)"),  # matches users.user_id VARCHAR(64); nullable: unresolved event → alert-only row, never actioned
+            Column("run_id", "TEXT", "VARCHAR(128)"),
+            Column("key_hash", "TEXT", "VARCHAR(256)"),
+            Column("caller_ip", "TEXT", "VARCHAR(64)"),
+            Column("caller_ua", "TEXT", "VARCHAR(256)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("hit_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("disposition_status", "TEXT", "VARCHAR(32)", nullable=False, default="'pending'"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_gateway_key_misuse_user", ["user_id"]),
+            Index("idx_gateway_key_misuse_status", ["disposition_status", "created_at"]),
+            Index("idx_gateway_key_misuse_dedup", ["key_hash", "hit_at"], unique=True),
         ],
     )
 )

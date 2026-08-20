@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — record_tool_call 持久化不再发明 "unknown"
+
+state_update 的 args 里 tool_name 改为 `item.get("tool_name") or ""`:
+写成 "unknown" 是不可逆信息丢失(「名字没到」与「工具真叫 unknown」从此
+无法区分),且所有下游(/event-log、UI 披露)会永远回显占位符。展示路径
+的 fallback 不动;`_looks_like_user_reply_tool("")` 恒 False,pending
+reply 帧丢弃判定不受影响。`pending` 单次读取归一(告警守卫与丢帧判定同一口径)。缺名的已完成调用现在落一条 logger.warning——
+空名会让 history_projection 把 call+output 整对丢出回放(静默上下文
+丢失必须可观测);output_transfer 里描述该后果的注释同步改准。读侧同批治理见 [[../../../backend/routes/agents/chat_history]]。
 
 ## 2026-07-30 — 独白子集同时上到 AgentThinking 消息本体
 

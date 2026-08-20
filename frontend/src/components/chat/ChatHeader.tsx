@@ -44,6 +44,7 @@ import {
 import { useUIStore, useArtifactStore, useConfigStore, useChatStore } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
 
@@ -132,8 +133,12 @@ export function ChatHeader({
       className="hidden md:flex items-center justify-between gap-3 px-4 min-h-[52px] shrink-0 border-b"
       style={{ borderColor: 'var(--nm-hairline)' }}
     >
-      {/* Left — expand + agent identity + session label */}
-      <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
+      {/* Left — expand + agent identity + session label. Shrinking is
+          min-w-0 down the chain (group → switcher wrapper → button) with
+          truncate on the name and session label; overflow-hidden here would
+          CLIP the agent-switcher dropdown (absolute, inside this subtree)
+          to the header strip — an open menu that renders nothing. */}
+      <div className="flex items-center gap-2.5 min-w-0">
         {sidebarCollapsed && (
           <button
             type="button"
@@ -151,14 +156,14 @@ export function ChatHeader({
           size="sm"
           className="shrink-0"
         />
-        <div ref={switcherRef} className="relative shrink-0">
+        <div ref={switcherRef} className="relative min-w-0">
           <button
             type="button"
             onClick={() => setSwitcherOpen((v) => !v)}
             aria-expanded={switcherOpen}
             title={t('chat.header.switchAgent')}
             aria-label={t('chat.header.switchAgent')}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
+            className="flex min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)]"
           >
             {/* Same family as the sidebar row that shows this same name — the
                 header keeps its lead role via size + weight, not a second
@@ -206,7 +211,7 @@ export function ChatHeader({
           )}
         </div>
         {sessionLabel && (
-          <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
+          <span className="min-w-0 font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
             {sessionLabel}
           </span>
         )}
@@ -236,39 +241,59 @@ export function ChatHeader({
           ))}
         </div>
 
+        {/* Panel-entry icon buttons. Each carries a styled Radix hover tooltip
+            (the drawer they open, named) INSTEAD of the browser's slow native
+            `title`, plus an aria-label so the icon has an accessible name.
+            One provider wraps the whole cluster (design_system.md §5). */}
+        <TooltipProvider delayDuration={200}>
         <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => openPanel('jobs')}
-            title={t('rail.jobs')}
-            data-help-id="bookmarks.jobs"
-            className={iconBtn}
-          >
-            <ListTodo className="h-4 w-4" />
-            {jobsStatus.badge ? <HeaderBadge count={jobsStatus.badge} /> : null}
-          </button>
-          <button
-            type="button"
-            onClick={() => openPanel('inbox')}
-            title={t('rail.inbox')}
-            data-help-id="bookmarks.inbox"
-            className={iconBtn}
-          >
-            <Inbox className="h-4 w-4" />
-            {inboxStatus.badge ? <HeaderBadge count={inboxStatus.badge} /> : null}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('jobs')}
+                aria-label={t('rail.jobs')}
+                data-help-id="bookmarks.jobs"
+                className={iconBtn}
+              >
+                <ListTodo className="h-4 w-4" />
+                {jobsStatus.badge ? <HeaderBadge count={jobsStatus.badge} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.jobs')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('inbox')}
+                aria-label={t('rail.inbox')}
+                data-help-id="bookmarks.inbox"
+                className={iconBtn}
+              >
+                <Inbox className="h-4 w-4" />
+                {inboxStatus.badge ? <HeaderBadge count={inboxStatus.badge} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.inbox')}</TooltipContent>
+          </Tooltip>
           {/* Artifacts — opens the drawer panel like every other entry (the
               resizable side column is retired; Owner 2026-08-06). */}
-          <button
-            type="button"
-            onClick={() => openPanel('artifacts')}
-            title={t('rail.artifacts')}
-            data-help-id="layout.artifacts"
-            className={iconBtn}
-          >
-            <ArtifactsGlyph className="h-4 w-4" strokeWidth={1.8} />
-            {artifactCount > 0 ? <HeaderBadge count={artifactCount} /> : null}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('artifacts')}
+                aria-label={t('rail.artifacts')}
+                data-help-id="layout.artifacts"
+                className={iconBtn}
+              >
+                <ArtifactsGlyph className="h-4 w-4" strokeWidth={1.8} />
+                {artifactCount > 0 ? <HeaderBadge count={artifactCount} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.artifacts')}</TooltipContent>
+          </Tooltip>
           <span data-help-id="chat.cost">
             <CostPopover />
           </span>
@@ -319,6 +344,7 @@ export function ChatHeader({
             )}
           </div>
         </div>
+        </TooltipProvider>
       </div>
     </div>
   );

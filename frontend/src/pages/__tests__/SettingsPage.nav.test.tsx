@@ -1,12 +1,10 @@
 /**
  * Nav test for SettingsPage. Settings is the single configuration front
- * door: it carries a Personalization pane (theme/language — moved out of
- * the sidebar account popover) and, for NetMind users, an Account entry
- * that navigates to the user-scoped /app/account page. Bundle entries live
- * in the sidebar. The legacy ?tab=account deep link (Stripe's post-payment
- * return target) must REDIRECT to /app/account with the query preserved
- * instead of falling back to a random pane. Heavy content panels are
- * stubbed so the test only exercises nav + redirect.
+ * door: Personalization (theme/language) and Account (billing /
+ * subscription — inline pane, the left nav stays visible) live here;
+ * bundle entries live in the sidebar. ?tab=account (Stripe's post-payment
+ * return target) must open the Account pane in place. Heavy content panels
+ * are stubbed so the test only exercises the nav.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -22,11 +20,8 @@ const { mockT } = vi.hoisted(() => {
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockT }) }));
 let mockSearch = '';
-const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
-  useNavigate: () => mockNavigate,
   useSearchParams: () => [new URLSearchParams(mockSearch), vi.fn()] as const,
-  Navigate: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />,
 }));
 const { authState } = vi.hoisted(() => ({ authState: { netmindToken: null as string | null } }));
 vi.mock('@/stores', () => ({
@@ -35,6 +30,9 @@ vi.mock('@/stores', () => ({
 }));
 vi.mock('@/components/settings/PersonalizationSettings', () => ({
   PersonalizationSettings: () => <div data-testid="personalization-pane" />,
+}));
+vi.mock('@/components/settings/NetmindAccountPanel', () => ({
+  NetmindAccountPanel: () => <div data-testid="account-pane" />,
 }));
 vi.mock('@/components/settings/ProviderSettings', () => ({
   ProviderSettings: () => <div data-testid="providers-pane" />,
@@ -55,22 +53,24 @@ describe('SettingsPage nav', () => {
   beforeEach(() => {
     mockSearch = '';
     authState.netmindToken = null;
-    mockNavigate.mockClear();
   });
 
-  test('bundle entries are gone; account hidden without a NetMind session', () => {
+  test('bundle entries are gone; account shows a sign-in hint without a NetMind session', () => {
     render(<SettingsPage />);
-    expect(screen.queryByRole('button', { name: /pages.settings.nav.account/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /bundle/i })).toBeNull();
-    expect(screen.getByRole('button', { name: /LLM Providers/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.account/ }));
+    expect(screen.getByText('pages.account.powerOnlyHint')).toBeTruthy();
+    expect(screen.queryByTestId('account-pane')).toBeNull();
   });
 
-  test('account entry shows for NetMind users and navigates to /app/account', () => {
+  test('account is a PANE for NetMind users — the left nav must survive opening it', () => {
     authState.netmindToken = 'tok';
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole('button', { name: /pages.settings.nav.account/ }));
-    expect(mockNavigate).toHaveBeenCalledWith('/app/account');
-    // A navigation entry, not a pane: the providers pane stays mounted.
+    expect(screen.getByTestId('account-pane')).toBeTruthy();
+    expect(screen.queryByTestId('providers-pane')).toBeNull();
+    // The tab list is still there: switching back works without leaving.
+    fireEvent.click(screen.getByRole('button', { name: /LLM Providers/ }));
     expect(screen.getByTestId('providers-pane')).toBeTruthy();
   });
 
@@ -88,12 +88,11 @@ describe('SettingsPage nav', () => {
 // must forward there with the whole query preserved — landing the payer on a
 // random Settings pane would read as "my payment went nowhere".
 describe('SettingsPage ?tab= deep link', () => {
-  test('tab=account redirects to /app/account preserving the query', () => {
+  test('tab=account opens the account pane in place — Stripe returns land with the nav intact', () => {
+    authState.netmindToken = 'tok';
     mockSearch = 'tab=account&status=success';
     render(<SettingsPage />);
-    const redirect = screen.getByTestId('redirect');
-    expect(redirect.getAttribute('data-to')).toContain('/app/account?');
-    expect(redirect.getAttribute('data-to')).toContain('status=success');
+    expect(screen.getByTestId('account-pane')).toBeTruthy();
   });
 
   test('opens the pane named in the URL, not the default first item', () => {

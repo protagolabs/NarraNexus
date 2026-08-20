@@ -174,3 +174,104 @@ async def test_meta_input_text_is_capped(db_client):
     body = client.get("/api/agents/agent_a/event-log/evt_big").json()
 
     assert len(body["meta"]["input_text"]) <= 4000
+
+
+@pytest.mark.asyncio
+async def test_timeline_tool_output_inherits_call_name(db_client):
+    """Stored tool_output entries carry no tool_name; the timeline must give
+    them the preceding call's name — never a literal placeholder. A reverted
+    fix shows "[output] unknown" on every row of the disclosure."""
+    await _seed_event(db_client, event_id="evt_names")
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_names").json()
+
+    assert body["success"] is True
+    timeline = body["timeline"]
+    outputs = [e for e in timeline if e["type"] == "tool_output"]
+    assert outputs and outputs[0]["tool_name"] == "web_search"
+    assert "unknown" not in json.dumps(timeline)
+
+
+@pytest.mark.asyncio
+async def test_timeline_parallel_outputs_pair_by_call_id(db_client):
+    """Parallel tool calls: every call lands before any output and the
+    outputs return in completion order. "Nearest preceding call" would
+    confidently attach the WRONG name — pairing must go by tool_call_id,
+    in both the timeline and the grouped tool_calls view."""
+    await _seed_event(
+        db_client,
+        event_id="evt_parallel",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "read_file", "arguments": {"path": "a"}}},
+            {"content": {"type": "tool_call", "tool_call_id": "id2",
+                         "tool_name": "web_search", "arguments": {"q": "spx"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "id2",
+                         "output": "search results"}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "file body"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_parallel").json()
+    assert body["success"] is True
+
+    outputs = [e for e in body["timeline"] if e["type"] == "tool_output"]
+    assert [(o["tool_name"], o["tool_output"]) for o in outputs] == [
+        ("web_search", "search results"),
+        ("read_file", "file body"),
+    ]
+
+    calls = {c["tool_name"]: c["tool_output"] for c in body["tool_calls"]}
+    assert calls == {"read_file": "file body", "web_search": "search results"}
+
+
+@pytest.mark.asyncio
+async def test_timeline_empty_named_call_does_not_borrow_sibling_name(db_client):
+    """A persisted call whose name is KNOWN-empty (the writer refuses to
+    invent placeholders) must keep its output unnamed — inheriting a
+    parallel sibling's name would be a confidently wrong label."""
+    await _seed_event(
+        db_client,
+        event_id="evt_emptyname",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "", "arguments": {}}},
+            {"content": {"type": "tool_call", "tool_call_id": "id2",
+                         "tool_name": "web_search", "arguments": {"q": "x"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "anon result"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_emptyname").json()
+    outputs = {e["tool_output"]: e["tool_name"] for e in body["timeline"] if e["type"] == "tool_output"}
+    assert outputs["anon result"] == ""
+    # BOTH views must agree — they read one shared index now, and a drift
+    # would make the endpoint contradict itself.
+    grouped = {c["tool_name"]: c["tool_output"] for c in body["tool_calls"]}
+    assert grouped == {"": "anon result", "web_search": None}
+
+
+@pytest.mark.asyncio
+async def test_timeline_output_with_unseen_id_stays_unnamed(db_client):
+    """An output carrying an id we never saw a call for: we OUGHT to know
+    the owner and genuinely don't — an honest blank, never a sibling's
+    name."""
+    await _seed_event(
+        db_client,
+        event_id="evt_ghostid",
+        event_log=json.dumps([
+            {"content": {"type": "tool_call", "tool_call_id": "id1",
+                         "tool_name": "web_search", "arguments": {"q": "x"}}},
+            {"content": {"type": "tool_output", "tool_call_id": "ghost",
+                         "output": "orphan"}},
+            {"content": {"type": "tool_output", "tool_call_id": "id1",
+                         "output": "results"}},
+        ]),
+    )
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_ghostid").json()
+    outputs = {e["tool_output"]: e["tool_name"] for e in body["timeline"] if e["type"] == "tool_output"}
+    assert outputs == {"orphan": "", "results": "web_search"}
+

@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — PR#327 I1:唯一冲突判定收敛到共享谓词(六处里唯一被收紧的一处)
+
+`instance_narrative_links` case 2 那个 `except` 分支的判定从本文件的裸字符串匹配换成
+共享 [[dialect_errors.py]] 的 `is_unique_violation`。六处收敛里,**只有这一处是被收紧的**:
+原判定含裸 `unique` / `duplicate` 子串,新谓词要求**完整短语**。收紧安全,因为两方言的真实
+冲突文本都含完整短语——sqlite 抛 `UNIQUE constraint failed: ...`、mysql 抛
+`Duplicate entry ... 1062`(SQLite Proxy 只是**前缀**包装、不是替换,`... error (/insert):
+UNIQUE constraint failed` 仍命中)。
+
+判**错**方向也随之翻转:旧的裸子串会把文本恰好含 `unique`/`duplicate` 的**无关**失败
+误判成冲突 → 悄悄吞掉当成"已去重";新谓词更严,漏判方向变成把**真冲突**误当无关错误
+`raise` 出去 → `confirm()` 中途 abort、触发回滚、部分导入失败。所以这一处必须有真库真冲突
+的测试兜住(见 `tests/bundle/test_narrative_link_dedup.py`:两个 agent 共享同一 instance
+的 bundle,断言 case 2 走 dedup 而非抛)。
 
 ## 2026-08-18(补)— 空名兜底,五条创建路径就此闭环
 

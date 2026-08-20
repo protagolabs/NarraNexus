@@ -118,7 +118,7 @@ A Job is an abstraction for background tasks, used to execute work that requires
 | Type | Description | Trigger Condition | Use Case |
 |------|-------------|-------------------|----------|
 | **ONE_OFF** | One-time task | Executes once at run_at (required) | Single reminder, one-time report |
-| **SCHEDULED** | Periodic task | Repeats by cron or interval_seconds | Daily reports, periodic checks |
+| **SCHEDULED** | Periodic task | Repeats by cron or interval_seconds; optional end_at = runs until that date, then the platform completes it | Daily reports, periodic checks, bounded routines ("every day for two weeks") |
 | **ONGOING** | Continuous task | Checks by interval_seconds until end_condition is met | Sales follow-up, goal achievement monitoring |
 
 **ONGOING Type Details**:
@@ -126,6 +126,7 @@ ONGOING type is designed for continuous tasks (e.g., sales follow-up), features:
 - **Continuous execution**: Does not complete after one run, but keeps checking until condition is met
 - **End condition**: Describes the task completion criteria via `end_condition`
 - **Max iterations**: Optional `max_iterations` to limit maximum execution count
+- **Scheduling horizon**: Optional `end_at` works here too (same platform-enforced "runs until date X" as SCHEDULED)
 - **CHAT interaction update**: When target user chats with Agent, system automatically analyzes whether end condition is met
 
 ---
@@ -174,6 +175,14 @@ Required fields:
 - `job_type`: "one_off" / "scheduled" / "ongoing"
 - `trigger_config`: Trigger configuration
 - `payload`: Execution parameters
+
+SCHEDULED / ONGOING optional field:
+- `trigger_config.end_at`: Scheduling horizon — naive local ISO 8601 (same
+  convention as run_at, interpreted in `trigger_config.timezone`). The
+  platform completes the job once its next fire would land past this time.
+  Use it whenever the user gives a bounded duration ("every day for two
+  weeks", "follow up daily for at most two weeks") — do NOT rely on
+  remembering to pause yourself. Not valid for one_off.
 
 ONGOING type required fields:
 - `trigger_config.interval_seconds`: Check interval (seconds)
@@ -500,6 +509,11 @@ class JobModule(XYZBaseModule):
                 trigger = f"at: {tc.run_at}"
             elif getattr(tc, 'interval_seconds', None):
                 trigger = f"every {tc.interval_seconds}s"
+            # Scheduling horizon — without this, an agent (e.g. the onboarding
+            # guide judging its farewell day) can't see when its own recurring
+            # job ends except by parsing its payload text.
+            if getattr(tc, 'end_at', None):
+                trigger += f" until {tc.end_at}"
 
         return f"| {job.title} | `{job.job_id}` | {status} | {trigger} |"
 

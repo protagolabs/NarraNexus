@@ -208,8 +208,8 @@ function RootRedirect() {
   // login. On cloud, first login provisions a free-tier provider card
   // (a $10 gateway wallet), so a fresh account can chat immediately — the
   // provider screen confused users who had no key to enter. They can still
-  // add their own provider later from Settings; the onboarding checklist +
-  // balance panel surface that path.
+  // add their own provider later from Settings; the balance panel (and the
+  // auto-provisioned guide agent) surface that path.
   if (needsSetup && mode === 'local') {
     return <Navigate to="/setup" replace />;
   }
@@ -565,9 +565,9 @@ function App() {
           <Route path="you" element={<YouWorkspace />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          {/* User settings (account / billing / subscription) — reached from
-              the sidebar account popover; Settings redirects its legacy
-              ?tab=account deep link (Stripe return) here. */}
+          {/* Legacy alias: the account surface lives inside Settings
+              (?tab=account, left nav intact). This route only forwards old
+              links there with the query preserved. */}
           <Route path="account" element={<AccountPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />

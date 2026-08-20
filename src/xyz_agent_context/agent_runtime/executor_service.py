@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -57,7 +58,41 @@ from xyz_agent_context.agent_runtime.executor_protocol import (
     apply_provider_configs,
 )
 
-app = FastAPI(title="NarraNexus Agent-Loop Executor")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Prime warm-runner pools for the frameworks in EXECUTOR_PREWARM_FRAMEWORKS
+    # (default: nexus_power) BEFORE serving, so the process's first turn on those
+    # frameworks draws a pre-imported runner instead of paying the cold
+    # subprocess import inline (measured ~12s cold vs ~2s warm on dev; see
+    # NexusAgent.warmup). Gated so ops can drop the per-container ~350MB idle-
+    # runner cost on a memory-pressured host by setting the var empty. Cloud
+    # executors receive this env ONLY because the broker forwards it (deploy
+    # broker.py + compose "EXECUTOR_PREWARM_FRAMEWORKS-nexus_power", single-dash
+    # so an explicit empty value survives); local/dev reads it from the process
+    # env directly. A follow-up can make the broker pass the container's ACTUAL
+    # framework so only the ones a user really uses are primed. Best-effort: a
+    # warmup failure only logs and NEVER stops the executor from booting.
+    frameworks = [
+        f.strip()
+        for f in os.getenv("EXECUTOR_PREWARM_FRAMEWORKS", "nexus_power").split(",")
+        if f.strip()
+    ]
+    for name in frameworks:
+        try:
+            driver = get_agent_loop_driver(name)
+            _warmup = getattr(driver, "warmup", None)
+            if callable(_warmup):
+                _warmup()
+            else:
+                # Not an error: local/desktop drivers (and remote_driver) may
+                # have no warmup; make the skip visible instead of silent.
+                logger.debug(f"[Executor] driver for {name!r} has no warmup(); skipped")
+        except Exception as e:  # noqa: BLE001 - warmup is best-effort, never fatal
+            logger.warning(f"[Executor] {name} warmup skipped: {e}")
+    yield
+
+
+app = FastAPI(title="NarraNexus Agent-Loop Executor", lifespan=_lifespan)
 
 # Long-lived work in flight inside THIS container, reported on /health as
 # ``busy`` so the broker can refuse to stop a container that is working.

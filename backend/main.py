@@ -516,6 +516,8 @@ from backend.routes.notifications import router as notifications_router
 from backend.routes.admin.logs import router as admin_logs_router
 from backend.routes.admin.migration import router as admin_migration_router
 from backend.routes.admin.suspend import router as admin_suspend_router
+from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router
+from backend.routes.admin.warn import router as admin_warn_router
 from backend.routes.admin.runtime import router as admin_runtime_router
 from backend.routes.transcription.routes import router as transcription_router
 from backend.routes.transcription.public import router as transcription_public_router
@@ -574,6 +576,8 @@ app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])
 app.include_router(admin_suspend_router, tags=["AdminSuspend"])
+app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])
+app.include_router(admin_warn_router, tags=["AdminWarn"])
 app.include_router(admin_runtime_router, tags=["AdminRuntime"])
 app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])

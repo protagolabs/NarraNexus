@@ -31,12 +31,12 @@
     "themeLight": "ライト",
     "themeDark": "ダーク",
     "themeSystem": "システム",
-    "workspace": "あなたのワークスペース",
+    "workspace": "マイワールド",
     "accountTitle": "アカウント"
   },
   "chat": {
     "conversation": "会話",
-    "innerThoughts": "内なる思考",
+    "innerThoughts": "アクティビティログ",
     "composerPlaceholder": "メッセージを入力、または / でスキル…",
     "selectAgent": "エージェントを選択",
     "selectAgentHint": "サイドバーからエージェントを選んで対話を始めましょう。",
@@ -191,7 +191,6 @@
       "today": "今日",
       "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。",
       "workspace": {
-        "close": "ワークスペースパネルを閉じる",
         "zoom": "アーティファクトを拡大",
         "emptyArtifacts": "表示するアーティファクトを選択してください。",
         "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。",
@@ -201,7 +200,8 @@
         "filesHint": "team_share_file で共有されたファイルがここに表示されます。",
         "download": "{{name}} をダウンロード",
         "loading": "読み込み中…"
-      }
+      },
+      "drawerCategory": "チームルーム"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -1265,6 +1265,11 @@
     },
     "dashboard": {
       "title": "エージェントダッシュボード",
+      "tabAgents": "エージェント管理",
+      "tabTeams": "チーム管理",
+      "tabExport": "エクスポート",
+      "createAgent": "エージェントを作成",
+      "createTeam": "チームを作成",
       "agentsCount": "{{count}} 件のエージェント",
       "emptyLabel": "エージェントはまだありません",
       "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。",
@@ -1390,7 +1395,7 @@
       "noMembersHint": "「編集」をクリックして追加しましょう。"
     },
     "you": {
-      "you": "あなた",
+      "you": "マイワールド",
       "subtitle": "すべてのエージェントにまたがる、あなたの世界",
       "viewsAriaLabel": "あなたのワークスペースビュー",
       "tabMemory": "Narra メモリ",
@@ -1502,7 +1507,7 @@
       "includeChannelCredentialsLabel": "認証情報を含める（IMチャンネル + スキルシークレット）",
       "pickFirstHint": "まず上でエージェントまたはチームを選択してください。選択すると、ナラティブ・スキル・チャンネルなどのセクションが表示されます。",
       "title": "バンドルをエクスポート",
-      "backToSettings": "設定に戻る",
+      "back": "戻る",
       "summaryLine": "{{agents}} エージェント · {{skills}} スキル · {{entities}} エンティティ · {{channels}} チャンネル",
       "fileName": "ファイル名",
       "bundleNotesLabel": "バンドルのメモ（任意、受信者に表示されます）",
@@ -1919,6 +1924,7 @@
       "trigger": "トリガー:",
       "cron": "Cron:",
       "interval": "間隔:",
+      "endAt": "実行期限:",
       "runAt": "実行日時:",
       "endCondition": "終了条件:",
       "maxIter": "最大反復:",

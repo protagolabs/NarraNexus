@@ -38,14 +38,14 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "themeSystem": "System",
-    "workspace": "Your workspace",
+    "workspace": "My World",
     "accountTitle": "Account"
   },
   "chat": {
     "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
     "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
-    "innerThoughts": "Inner Thoughts",
+    "innerThoughts": "Activity Log",
     "composerPlaceholder": "Type a message or / for skills...",
     "selectAgent": "Select an agent",
     "selectAgentHint": "Choose an agent from the sidebar to begin your interaction.",
@@ -246,7 +246,6 @@
       "uploadFailedGeneric": "Could not upload the file.",
       "loadingOlder": "Loading older messages…",
       "workspace": {
-        "close": "Close workspace panel",
         "zoom": "Zoom artifact",
         "emptyArtifacts": "Select an artifact to view it here.",
         "emptyFiles": "Files download directly — click one on the left.",
@@ -256,7 +255,8 @@
         "filesHint": "Files shared with team_share_file appear here.",
         "download": "Download {{name}}",
         "loading": "Loading…"
-      }
+      },
+      "drawerCategory": "Team room"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -1527,27 +1527,15 @@
     }
   },
   "onboarding": {
-    "checklist": {
-      "gettingStarted": "Getting started",
-      "dismissAria": "Dismiss getting-started checklist",
-      "providerLabel": "Configure an LLM provider",
-      "providerHint": "NetMind Power is the one-key default — or bring your own API key.",
-      "openSettings": "Open Settings",
-      "agentLabel": "Create your first agent",
-      "agentHint": "Start a blank agent and chat to shape who it is.",
-      "creating": "Creating…",
-      "createAgent": "Create agent",
-      "templateLabel": "Or start from a template",
-      "templateHint": "Browse ready-made agent teams on the templates marketplace.",
-      "browseTemplates": "Browse templates",
-      "bookmarksLabel": "Meet your bookmark strip",
-      "bookmarksHint": "Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes."
-    },
     "migrationGuide": {
       "title": "Import an existing agent",
       "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
       "import": "Import",
       "later": "Later"
+    },
+    "guideCoachmark": {
+      "text": "Your first agent is already here — and you can create more of your own anytime with this button.",
+      "gotIt": "Got it"
     },
     "migrationCoachmark": {
       "text": "Want to import later? Use the “+” → {{action}}.",
@@ -1604,6 +1592,11 @@
     },
     "dashboard": {
       "title": "Agent Dashboard",
+      "tabAgents": "Manage Agents",
+      "tabTeams": "Team Management",
+      "tabExport": "Export",
+      "createAgent": "Create Agent",
+      "createTeam": "Create Team",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "No agents yet",
       "emptyHint": "Create an agent from the sidebar to populate this dashboard.",
@@ -1779,7 +1772,7 @@
       "noMembersHint": "Click Edit to add some."
     },
     "you": {
-      "you": "You",
+      "you": "My World",
       "subtitle": "your world, across all your agents",
       "viewsAriaLabel": "You workspace views",
       "tabMemory": "Narra Memory",
@@ -1898,7 +1891,7 @@
     },
     "bundleExport": {
       "title": "Export bundle",
-      "backToSettings": "Back to settings",
+      "back": "Back",
       "summaryLine": "{{agents}} agents · {{skills}} skills · {{entities}} entities · {{channels}} channels",
       "fileName": "File name",
       "bundleNotesLabel": "Bundle Notes (optional, shown to recipient)",
@@ -2318,6 +2311,7 @@
       "trigger": "Trigger:",
       "cron": "Cron:",
       "interval": "Interval:",
+      "endAt": "Runs until:",
       "runAt": "Run at:",
       "endCondition": "End condition:",
       "maxIter": "Max iter:",

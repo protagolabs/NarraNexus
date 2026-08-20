@@ -51,3 +51,13 @@ call.
 - 依赖: [[agent_repository]] / InstanceFactory / agent_discovery_sync /
   [[profiles]] apply_bootstrap / SkillMarketplaceService
 - 语义来源: [[auth]] create_agent 路由(已改调 seam,仅留 team #43 + response)
+
+## 2026-08-19 — `bootstrap_ctx_extra` 透传
+
+新增 keyword-only 参数 `bootstrap_ctx_extra: Optional[dict]`，原样进
+`BootstrapContext.extra` 供 profile 渲染（onboarding profile 的
+persona_key / topic_index / is_local）。动机：场景调用方此前只能
+`bootstrap_profile="none"` 供给后再自己 apply 真 profile——中间态短暂持久化
+空 greeting，且第二次 apply 失败会被吞成永久哑巴 Agent。默认 None，四个既有
+调用点（auth 路由 / social-network 路由 / MCP create_agent / onboarding）
+零行为变化。

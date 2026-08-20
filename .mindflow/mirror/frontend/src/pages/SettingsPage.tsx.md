@@ -4,6 +4,24 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19(三)— neverDefault 取代内联 id 比较
+
+「account 不做默认落地页」从 `it.id !== 'account'` 字符串比较改为
+NavItem 的声明式 `neverDefault` 标记——规则住在数据上,读 NAV_ITEMS 即见。
+
+## 2026-08-19(二)— Account pane 全会话可见 + powerOnly 机制退役
+
+- 非 NetMind 会话点 Account 看到登录提示(pages.account.powerOnlyHint 复活),
+  而不是被过滤后静默落到 Providers——?tab=account 的深链对任何会话都有着陆点。
+- nav 的 `powerOnly` 字段随之无消费者,整个机制删除(铁律 #2)。
+
+## 2026-08-19 — Account 变**页内 pane**,左侧标签栏永不消失
+
+href 导航项撤销:点 Account 曾整页跳去 /app/account,左侧标签栏消失、
+无法切换其他页——现在它是普通 pane(内嵌 [[NetmindAccountPanel]]),
+nav 常驻。?tab=account 直接落本 pane(Stripe 回跳带查询参数原样工作),
+原 Navigate 重定向删除。[[AccountPage]] 退化为旧链接别名(反向 302 进来)。
+
 ## 2026-08-19 — 设置成为唯一配置前门:个性化栏目 + 账户入口 + 内容居中
 
 - 新「Personalization」pane([[PersonalizationSettings]]):主题三档 + 语言

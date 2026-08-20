@@ -20,7 +20,6 @@ Note: ChatModule itself does not include "multi-turn conversation" capability; m
 """
 
 
-from datetime import timedelta
 from typing import Optional, Any, List, Dict
 from loguru import logger
 
@@ -1201,17 +1200,16 @@ class ChatModule(XYZBaseModule):
                 if params.event is not None and params.event.created_at is not None
                 else utc_now()
             )
-            greeting_ts_iso = (base_dt - timedelta(milliseconds=1)).isoformat()
-            messages.append({
-                "role": "assistant",
-                "content": greeting,
-                "meta_data": {
-                    "event_id": params.event_id,
-                    "timestamp": greeting_ts_iso,
-                    "instance_id": instance_id,
-                    "bootstrap": True,
-                }
-            })
+            # Shared row builder (chat_module owns the shape + timestamp rule) so
+            # this lazy prepend and the step_1 provision-time seed stay identical.
+            from xyz_agent_context.module.chat_module._chat_writes import (
+                build_bootstrap_greeting_row,
+            )
+            messages.append(
+                build_bootstrap_greeting_row(
+                    greeting, base_dt, instance_id, event_id=params.event_id
+                )
+            )
             logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
 
         # Append this conversation

@@ -31,12 +31,12 @@
     "themeLight": "Claro",
     "themeDark": "Escuro",
     "themeSystem": "Sistema",
-    "workspace": "Seu espaço de trabalho",
+    "workspace": "Meu mundo",
     "accountTitle": "Conta"
   },
   "chat": {
     "conversation": "Conversa",
-    "innerThoughts": "Pensamentos internos",
+    "innerThoughts": "Registro de atividades",
     "composerPlaceholder": "Digite uma mensagem ou / para habilidades…",
     "selectAgent": "Selecione um agente",
     "selectAgentHint": "Escolha um agente na barra lateral para começar.",
@@ -191,7 +191,6 @@
       "today": "Hoje",
       "agentPaused": "Este agente está pausado ({{reason}}). Use «Retomar» no aviso acima assim que a causa for resolvida.",
       "workspace": {
-        "close": "Fechar o painel do espaço de trabalho",
         "zoom": "Ampliar artefato",
         "emptyArtifacts": "Selecione um artefato para vê-lo aqui.",
         "emptyFiles": "Os arquivos são baixados diretamente — clique em um à esquerda.",
@@ -201,7 +200,8 @@
         "filesHint": "Arquivos compartilhados com team_share_file aparecem aqui.",
         "download": "Baixar {{name}}",
         "loading": "Carregando…"
-      }
+      },
+      "drawerCategory": "Sala da equipe"
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Painel de agentes",
+      "tabAgents": "Gerenciar agentes",
+      "tabTeams": "Gestão de equipes",
+      "tabExport": "Exportar",
+      "createAgent": "Criar agente",
+      "createTeam": "Criar equipe",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Nenhum agente ainda",
       "emptyHint": "Crie um agente pela barra lateral para preencher este painel.",
@@ -1391,7 +1396,7 @@
       "noMembersHint": "Clique em Editar para adicionar alguns."
     },
     "you": {
-      "you": "Você",
+      "you": "Meu mundo",
       "subtitle": "seu mundo, em todos os seus agentes",
       "viewsAriaLabel": "Visualizações do espaço Você",
       "tabMemory": "Memória Narra",
@@ -1503,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Incluir credenciais (canais de IM + segredos de habilidades)",
       "pickFirstHint": "Primeiro escolha o agente ou a equipe acima — as seções de narrativas, habilidades e canais aparecem depois da seleção.",
       "title": "Exportar pacote",
-      "backToSettings": "Voltar às configurações",
+      "back": "Voltar",
       "summaryLine": "{{agents}} agentes · {{skills}} habilidades · {{entities}} entidades · {{channels}} canais",
       "fileName": "Nome do arquivo",
       "bundleNotesLabel": "Notas do pacote (opcional, mostradas ao destinatário)",
@@ -1920,6 +1925,7 @@
       "trigger": "Gatilho:",
       "cron": "Cron:",
       "interval": "Intervalo:",
+      "endAt": "Executa até:",
       "runAt": "Executar em:",
       "endCondition": "Condição de término:",
       "maxIter": "Máx. iter.:",

@@ -500,51 +500,34 @@ class ContextRuntime:
 
             agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
             if agent_record and agent_record.created_by and agent_record.created_by == ctx_data.user_id:
-                from xyz_agent_context.utils.workspace_paths import (
-                    resolve_existing_workspace,
-                )
-                bootstrap_path = os.path.join(
-                    str(resolve_existing_workspace(
-                        self.agent_id, agent_record.created_by, settings.base_working_path
-                    )),
-                    "Bootstrap.md"
-                )
-                if os.path.isfile(bootstrap_path):
-                    # Auto-delete Bootstrap.md after 3 rounds to prevent
-                    # perpetual bootstrap mode if the agent fails to delete it.
-                    try:
-                        event_count_rows = await self.db.execute(
-                            "SELECT COUNT(*) AS cnt FROM events WHERE agent_id = %s",
-                            (self.agent_id,),
-                            fetch=True,
-                        )
-                        event_count = event_count_rows[0]["cnt"] if event_count_rows else 0
-                    except Exception:
-                        event_count = 0
+                # Shared bootstrap-phase judgment (single source of truth for the
+                # two greeting writers + this injection; the step_1 seed gates on
+                # the SAME call, so they can't drift). This side keeps the
+                # auto-delete: when Bootstrap.md is present but over its threshold,
+                # remove it to end perpetual bootstrap mode; otherwise inject.
+                # Function-local import on purpose: bootstrap.lifecycle →
+                # bootstrap.profiles → context_runtime.prompts is a back-edge into
+                # this package, so a module-level import here could hit a
+                # half-initialised context_runtime during import; lazy avoids it.
+                from xyz_agent_context.bootstrap.lifecycle import is_bootstrap_active
 
-                    # Rule-based deletion threshold comes from the agent's
-                    # bootstrap profile (stored in metadata at creation). None =
-                    # never auto-delete (semantic-only: the agent deletes the doc
-                    # itself per its instructions). Missing key (pre-profile
-                    # agents) → historical default of 3.
-                    from xyz_agent_context.bootstrap.profiles import (
-                        auto_delete_threshold_from_meta,
-                    )
-                    threshold = auto_delete_threshold_from_meta(agent_record.agent_metadata)
-                    if threshold is not None and event_count >= threshold:
-                        try:
-                            os.remove(bootstrap_path)
-                            logger.info(
-                                f"        Auto-deleted Bootstrap.md after {event_count} events "
-                                f"(threshold={threshold}, agent={self.agent_id})"
-                            )
-                        except OSError as rm_err:
-                            logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
-                    else:
-                        prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
-                        ctx_data.bootstrap_active = True
-                        part_sizes["bootstrap"] = len(BOOTSTRAP_INJECTION_PROMPT)
-                        logger.debug("        Added Bootstrap injection (file-read approach)")
+                status = await is_bootstrap_active(
+                    self.db, self.agent_id, agent_record.created_by, agent_record.agent_metadata
+                )
+                if status.present and not status.active:
+                    try:
+                        os.remove(status.bootstrap_path)
+                        logger.info(
+                            f"        Auto-deleted Bootstrap.md after {status.event_count} events "
+                            f"(threshold={status.threshold}, agent={self.agent_id})"
+                        )
+                    except OSError as rm_err:
+                        logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
+                elif status.active:
+                    prompt_parts.append(BOOTSTRAP_INJECTION_PROMPT)
+                    ctx_data.bootstrap_active = True
+                    part_sizes["bootstrap"] = len(BOOTSTRAP_INJECTION_PROMPT)
+                    logger.debug("        Added Bootstrap injection (file-read approach)")
         except Exception as e:
             logger.warning(f"        Failed to inject Bootstrap: {e}")
 

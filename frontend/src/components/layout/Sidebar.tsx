@@ -83,6 +83,10 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
+  // Active dashboard tab (drives the Manage-Agents vs Export highlight). Parsed,
+  // not `search.includes('tab=export')`, so `?tab=exportfoo`/`?x=tab=export`
+  // can't false-match.
+  const dashboardTab = new URLSearchParams(location.search).get('tab');
 
   const { userId, displayName, logout } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
@@ -252,10 +256,15 @@ export function Sidebar() {
         </span>
         <button
           type="button"
-          onClick={() => navigate('/app/bundle/export')}
+          onClick={() => navigate('/app/dashboard?tab=export')}
+          onMouseEnter={prefetchDashboard}
+          onFocus={prefetchDashboard}
           title={t('sidebar.exportTitle')}
           data-help-id="sidebar.export"
-          className={cn(NAV_ROW, location.pathname === '/app/bundle/export' && NAV_ROW_ACTIVE)}
+          className={cn(
+            NAV_ROW,
+            location.pathname === '/app/dashboard' && dashboardTab === 'export' && NAV_ROW_ACTIVE,
+          )}
         >
           <Upload className="w-4 h-4 shrink-0" />
           {t('sidebar.export')}
@@ -266,7 +275,10 @@ export function Sidebar() {
           onMouseEnter={prefetchDashboard}
           onFocus={prefetchDashboard}
           data-help-id="sidebar.manage-agents"
-          className={cn(NAV_ROW, location.pathname === '/app/dashboard' && NAV_ROW_ACTIVE)}
+          className={cn(
+            NAV_ROW,
+            location.pathname === '/app/dashboard' && dashboardTab !== 'export' && NAV_ROW_ACTIVE,
+          )}
         >
           <LayoutDashboard className="w-4 h-4 shrink-0" />
           {t('sidebar.dashboard')}
@@ -339,7 +351,7 @@ export function Sidebar() {
               <AccountItem
                 icon={<User className="w-3.5 h-3.5" />}
                 label={t('sidebar.account')}
-                onClick={() => accountNavigate('/app/account')}
+                onClick={() => accountNavigate('/app/settings?tab=account')}
               />
             )}
             {isMobile && (

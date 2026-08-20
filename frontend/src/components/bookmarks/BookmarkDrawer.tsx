@@ -52,13 +52,47 @@ import { useTranslation } from 'react-i18next';
 import { X, Pin, PinOff, HelpCircle, ChevronDown, Check } from 'lucide-react';
 import { useDismissOnOutside } from '@/hooks';
 import { cn } from '@/lib/utils';
-import { STRIP_CATEGORIES, type AtomicTabId } from './tabs';
+
+/** One switcher entry: any panel id, its i18n label key, and an icon. */
+export interface DrawerSwitcherTab<T extends string = string> {
+  id: T;
+  labelKey: string;
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+  /** Optional live count rendered after the label — an entry that never
+   *  advertises its contents is closed exactly when it mattered. */
+  count?: number;
+}
+export interface DrawerSwitcherCategory<T extends string = string> {
+  label: string;
+  labelKey: string;
+  tabs: ReadonlyArray<DrawerSwitcherTab<T>>;
+}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface BookmarkDrawerProps {
+/**
+ * The switcher props travel together (a discriminated pair): providing a
+ * tab without its categories would silently render the WRONG registry in
+ * the dropdown — the default-value + assertion shortcut this replaces let
+ * exactly that compile. With the switcher, the header title becomes a
+ * dropdown listing every panel in `switcherCategories`; a pinned drawer is
+ * an independent window and owns its own controls.
+ */
+type DrawerSwitcherProps<T extends string> =
+  | {
+      activeTab?: undefined;
+      onSelectTab?: undefined;
+      switcherCategories?: undefined;
+    }
+  | {
+      activeTab: T | null;
+      onSelectTab: (id: T) => void;
+      switcherCategories: ReadonlyArray<DrawerSwitcherCategory<T>>;
+    };
+
+interface BookmarkDrawerBaseProps {
   open: boolean;
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
@@ -100,41 +134,37 @@ interface BookmarkDrawerProps {
    * `width` straight to the DOM during a drag. Null in slide-over mode.
    */
   columnRef?: Ref<HTMLDivElement>;
-  /**
-   * The open tab + switcher callback. When provided, the header title
-   * becomes a dropdown listing every panel (the tabs registry), so the
-   * drawer can change its own content without a trip to the chat header —
-   * a pinned drawer is an independent window and owns its own controls.
-   */
-  activeTab?: AtomicTabId | null;
-  onSelectTab?: (id: AtomicTabId) => void;
+
   /** Optional banner rendered between the header and the panel content
    *  (e.g. the first-run coach mark). */
   banner?: ReactNode;
   children: ReactNode;
 }
 
+type BookmarkDrawerProps<T extends string> = BookmarkDrawerBaseProps & DrawerSwitcherProps<T>;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function BookmarkDrawer({
-  open,
-  pinned,
-  onPinnedChange,
-  onClose,
-  title,
-  edgeReservePx = 0,
-  pinnedWidth = 400,
-  inset = false,
-  insetWidth = 440,
-  description = '',
-  columnRef,
-  activeTab = null,
-  onSelectTab,
-  banner,
-  children,
-}: BookmarkDrawerProps) {
+export function BookmarkDrawer<T extends string = string>(props: BookmarkDrawerProps<T>) {
+  const {
+    open,
+    pinned,
+    onPinnedChange,
+    onClose,
+    title,
+    edgeReservePx = 0,
+    pinnedWidth = 400,
+    inset = false,
+    insetWidth = 440,
+    description = '',
+    columnRef,
+    banner,
+    children,
+  } = props;
+  const activeTab = props.activeTab ?? null;
+  const { onSelectTab, switcherCategories } = props;
   // Keyboard Esc handler — only for slide-over mode (not pinned)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -225,6 +255,7 @@ export function BookmarkDrawer({
           onClose={onClose}
           activeTab={activeTab}
           onSelectTab={onSelectTab}
+          switcherCategories={switcherCategories}
         />
         {banner}
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
@@ -237,20 +268,21 @@ export function BookmarkDrawer({
 // Header sub-component
 // ---------------------------------------------------------------------------
 
-interface DrawerHeaderProps {
+interface DrawerHeaderProps<T extends string = string> {
   title: string;
   description?: string;
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
-  activeTab?: AtomicTabId | null;
-  onSelectTab?: (id: AtomicTabId) => void;
+  activeTab?: T | null;
+  onSelectTab?: (id: T) => void;
+  switcherCategories?: ReadonlyArray<DrawerSwitcherCategory<T>>;
 }
 
 const TITLE_CLASS =
   'text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] leading-none truncate';
 
-function DrawerHeader({
+function DrawerHeader<T extends string = string>({
   title,
   description,
   pinned,
@@ -258,7 +290,8 @@ function DrawerHeader({
   onClose,
   activeTab,
   onSelectTab,
-}: DrawerHeaderProps) {
+  switcherCategories,
+}: DrawerHeaderProps<T>) {
   const { t } = useTranslation();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const switcherRef = useDismissOnOutside<HTMLDivElement>(switcherOpen, () => setSwitcherOpen(false));
@@ -268,7 +301,7 @@ function DrawerHeader({
       style={{ borderBottom: '1px solid var(--nm-hairline)' }}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        {onSelectTab ? (
+        {onSelectTab && switcherCategories ? (
           /* Title as a panel switcher: the drawer owns what it shows. */
           <div ref={switcherRef} className="relative min-w-0">
             <button
@@ -292,12 +325,12 @@ function DrawerHeader({
                 className="absolute left-0 top-full z-50 mt-1.5 w-52 max-h-[60vh] overflow-y-auto rounded-[var(--radius-md)] border py-1 shadow-lg"
                 style={{ background: 'var(--nm-card)', borderColor: 'var(--nm-hairline)' }}
               >
-                {STRIP_CATEGORIES.map((cat) => (
+                {switcherCategories.map((cat) => (
                   <div key={cat.label}>
                     <div className="px-3 pt-2 pb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--nm-ink30)]">
                       {t(cat.labelKey)}
                     </div>
-                    {cat.tabs.map(({ id, labelKey, icon: Icon }) => {
+                    {cat.tabs.map(({ id, labelKey, icon: Icon, count }) => {
                       const active = id === activeTab;
                       return (
                         <button
@@ -315,6 +348,9 @@ function DrawerHeader({
                         >
                           <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
                           <span className="flex-1 min-w-0 truncate">{t(labelKey)}</span>
+                          {typeof count === 'number' && count > 0 && (
+                            <span className="shrink-0 font-mono text-[10px] text-[var(--nm-ink50)]">{count}</span>
+                          )}
                           {active && <Check className="w-3 h-3 shrink-0" aria-hidden />}
                         </button>
                       );

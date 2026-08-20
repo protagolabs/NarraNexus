@@ -621,6 +621,16 @@ class ResponseProcessor:
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
+            pending = bool(item.get("pending"))
+            if not item.get("tool_name") and not pending:
+                # A completed tool call with no name persists as '' — which
+                # history_projection then DROPS (call and output both), so
+                # later turns replay without this step. That silent context
+                # loss must be observable.
+                logger.warning(
+                    f"tool_call missing tool_name (call_id={tool_call_id!r}); "
+                    "the step will be absent from history replay"
+                )
             arguments = item.get("arguments", {})
             # Name-first frame: the tool's name arrived before its
             # arguments finished streaming. Ship it so the UI can show
@@ -628,7 +638,6 @@ class ResponseProcessor:
             # that reply already streams live via reply deltas, and an
             # empty-argument reply frame would inject a stray empty
             # bubble into the turn's content.
-            pending = bool(item.get("pending"))
             if pending and _looks_like_user_reply_tool(tool_name):
                 return
             # Strip OpenAI Responses-API citation tokens from reply
@@ -674,7 +683,14 @@ class ResponseProcessor:
                 state_update=None if pending else {
                     "method": "record_tool_call",
                     "args": {
-                        "tool_name": tool_name,
+                        # Persist the REAL name or nothing: a stored
+                        # "unknown" is an irreversible loss ("name never
+                        # arrived" becomes indistinguishable from a tool
+                        # actually called unknown), and every reader
+                        # downstream — /event-log, the UI's disclosure —
+                        # would echo the placeholder forever. Display
+                        # strings keep their own fallback above.
+                        "tool_name": item.get("tool_name") or "",
                         "tool_call_id": tool_call_id,
                         "arguments": arguments
                     }

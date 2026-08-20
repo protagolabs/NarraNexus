@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — bootstrap 注入的判定外包给共享 lifecycle
+
+Part 5（Bootstrap 注入）里「Bootstrap.md 在不在 + 有没有超阈值」这段判定不再内联,改调
+[[../bootstrap/lifecycle]]`.is_bootstrap_active`（返回 `BootstrapStatus`）。原因:`step_1` 的问候语
+seed（[[../bootstrap/greeting_seed]]）必须用**同一个** `bootstrap_active` 信号,否则 bootstrap 过期
+后 seed 仍会问候。判定归 `bootstrap/` 单一真源,两侧不再各自复算(裸 COUNT 查询也只剩一份)。
+
+**副作用仍留在这里**:`present and not active`（Bootstrap.md 在但超阈值）→ `os.remove` 自动删;
+`active` → 注入 `BOOTSTRAP_INJECTION_PROMPT` + 置 `ctx_data.bootstrap_active`。行为与内联版逐路径
+等价(helper 返回 `event_count/threshold/bootstrap_path` 让这里能删)。
 
 ## 2026-08-18 (review 修正) — 「同一份 prompt 一个时区」这条保证的**适用范围**
 

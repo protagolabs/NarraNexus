@@ -49,3 +49,17 @@ is collapsed and re-expanded.
   Fields like `cron_expression`, `interval_seconds`, etc. are cast with `as`
   inside the component. If the backend changes field names, these casts will
   silently produce `undefined` without a type error.
+
+## 2026-08-19 — 显示 end_at 调度地平线
+
+configuration 区在 interval 之后渲染 `jobs.expanded.endAt`（"Runs until:"，
+取日期部分）：没有它，有界例程（"每天一次跑两周"）与无限期 job 在 UI 上
+无法区分，用户看不出它会自己停。**对所有带 end_at 的 job 渲染是对的**：
+平台对 scheduled 与 ongoing **两条 finalize 路径**都强制该地平线（四轮
+review B 选了"真通用"路线，含 ONGOING 的 hook 接管 else 支）。one_off 的
+MCP schema/instructions 不教 end_at、trigger 也忽略，所以它本不该携带；
+但没有硬校验拒绝，万一带了这里只多显示一行无害的 "Runs until:"。
+类型来自 `types/api.ts` 的 `TriggerConfig.end_at?`（与后端 schema 对齐）；
+i18n `jobs.expanded.endAt` 十个 locale 全量（该块历史上就是全量翻译的，
+与 onboarding.* 只有 en/zh 的口径不同）。编辑对话框有意不加该字段
+（reschedule_job 的 _TIME_FIELDS 不含它，传了会被静默忽略）。

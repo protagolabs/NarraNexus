@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — bootstrap 问候气泡传 agentName（修「AI」头像）
+
+`showBootstrapGreeting` 那条静态问候 `<MessageBubble>` 之前没传 `agentName`/`agentId`，
+`MessageBubble` 只能 fallback 成通用 `'AI'` 头像（`agentName?.slice(0,2) || 'AI'`）。现在补上
+`agentId={agentId}` + `agentName={currentAgent?.name || agentId}`，和 timeline 里真实消息的
+`MessageBubble` 调用一致 → 显示 agent 名字缩写。
+
+注：这条静态气泡只在 `historyMessages.length === 0`（首轮之前、还没有 chat 实例）时显示；
+用户首次交互后，问候语由后端持久化（`step_1` 开局 seed / `hook_persist_turn` 兜底，见
+[[step_1_select_narrative]] / [[_chat_writes]]）成真实消息，走正常 timeline 渲染。发送时压进
+session 的那条 client 副本（`Date.now()-1`，无 event_id）靠 `buildTimeline.ts` 的
+`(role,content)+5min` 窗口去重 —— 后端 seed 的时间戳锚在 turn 起点满足其中的**时间**条件。
+**已知限制**:去重还需 content 相等,而后端落库的是英文默认串、session 副本是
+`localizeBootstrapGreeting` 翻译后的串,所以**非英文 UI 下 content 对不上、问候语会渲染两次**。
+非本次引入(改前 hook 也写英文 content),根因修复(给 bootstrap 行稳定标识、按身份去重而非 content)
+留单独 PR,记在 `reference/self_notebook/todo/`。
 
 ## 2026-08-19 — 历史翻页改元素锚定
 

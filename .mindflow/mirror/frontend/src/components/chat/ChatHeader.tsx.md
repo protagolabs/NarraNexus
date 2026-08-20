@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 面板入口按钮换 Radix 悬停 tooltip
+
+Jobs/Inbox/Artifacts 三个图标入口原来只有原生 `title`(慢、无障碍名缺失)。
+改为 `@/components/ui/tooltip` 的 Radix Tooltip(整簇一个 `TooltipProvider
+delayDuration=200`),按钮补 `aria-label`、去掉 `title`——悬停即出样式化提示,
+且图标有了可访问名(getByLabelText 可查)。⋯ 详情按钮保留原生 title+aria
+(菜单开合与 tooltip 叠加有风险,不动)。测试:chatHeaderTooltips.test.tsx。
+
+## 2026-08-19(二)— 身份组真的可收缩
+
+切换器 wrapper 从 shrink-0 改 min-w-0(按钮同加):此前名字块最小
+~246px 顶死,窄聊天列下左组会画到右组底下。现在收缩链
+组→wrapper→按钮 全程 min-w-0,名字/会话标签各自 truncate。
+
+## 2026-08-19 — Agent 切换下拉被裁剪修复
+
+左侧身份组的 `overflow-hidden` 会把组内 absolute 下拉裁到头部条高度——
+菜单打开等于什么都看不见。移除该属性,收缩改由 min-w-0 + 各子项自带
+truncate 承担(sessionLabel 补 min-w-0)。教训:含 absolute 弹层的祖先
+不能挂 overflow-hidden。
 
 ## 2026-08-19 — 点名字=切换 agent,设置只走 ⋯
 

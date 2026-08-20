@@ -4,6 +4,13 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19（二)— 字面 'unknown' 视同缺失
+
+历史上占位符有两个源头:API 读侧(chat_history 曾默认 "unknown")与
+写侧(response_processor 曾把它持久化进 event_log)。两侧均已治根;
+`realName()` 归一化('unknown' 与空同待遇,继承前一调用名)保留为
+**存量数据**兜底——数据库里已写入的 "unknown" 行无法回改。
+
 ## 2026-08-19 — tool_output 承接调用名 + 转换唯一化
 
 - `lastToolName` 顺承:存储态 tool_output 无名时继承最近一次 tool_call,

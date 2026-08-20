@@ -151,7 +151,7 @@ describe('TeamChatPanel · the transcript shows a sign of life', () => {
     // The whole point is that the room says WHO is up, not just "something".
     expect(bubbles[0].getAttribute('aria-label')).toContain('Bruno');
     // ...and for how long it has been waiting, so a stuck queue is legible.
-    // Scoped INSIDE the bubble: the roster renders the same string, and an
+    // Scoped INSIDE the bubble: the members panel (when open) renders the same string, and an
     // unscoped query would pass on the roster alone — i.e. it would pass
     // against the exact bug this file exists to catch.
     expect(

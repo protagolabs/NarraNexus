@@ -15,6 +15,7 @@ from loguru import logger
 
 from .base import BaseRepository
 from xyz_agent_context.utils import utc_now
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
 from xyz_agent_context.schema.instance_schema import (
     InstanceNarrativeLink,
     LinkType,
@@ -101,8 +102,9 @@ class InstanceNarrativeLinkRepository(BaseRepository[InstanceNarrativeLink]):
             # composite UNIQUE constraint. That is exactly the state we wanted —
             # the link now exists — so treat it as a no-op (return 0). Anything
             # that is NOT this duplicate-key collision is re-raised untouched.
-            msg = str(e).lower()
-            if "unique constraint failed" in msg or "duplicate entry" in msg:
+            # (This insert has a single composite UNIQUE (instance_id,
+            # narrative_id), so any unique violation here IS that race.)
+            if is_unique_violation(e):
                 logger.debug(
                     f"    link({instance_id}, {narrative_id}) lost an insert race "
                     f"— link already created concurrently; treating as existing."

@@ -31,12 +31,12 @@
     "themeLight": "Hell",
     "themeDark": "Dunkel",
     "themeSystem": "System",
-    "workspace": "Dein Arbeitsbereich",
+    "workspace": "Meine Welt",
     "accountTitle": "Konto"
   },
   "chat": {
     "conversation": "Unterhaltung",
-    "innerThoughts": "Innere Gedanken",
+    "innerThoughts": "Aktivitätsprotokoll",
     "composerPlaceholder": "Nachricht eingeben oder / für Skills…",
     "selectAgent": "Agent auswählen",
     "selectAgentHint": "Wähle in der Seitenleiste einen Agenten, um zu beginnen.",
@@ -191,7 +191,6 @@
       "today": "Heute",
       "agentPaused": "Dieser Agent ist pausiert ({{reason}}). Nutze „Fortsetzen“ im Banner oben, sobald die Ursache behoben ist.",
       "workspace": {
-        "close": "Workspace-Panel schließen",
         "zoom": "Artefakt zoomen",
         "emptyArtifacts": "Wähle ein Artefakt aus, um es hier anzuzeigen.",
         "emptyFiles": "Dateien werden direkt heruntergeladen — klicke links auf eine.",
@@ -201,7 +200,8 @@
         "filesHint": "Mit team_share_file geteilte Dateien erscheinen hier.",
         "download": "{{name}} herunterladen",
         "loading": "Lädt…"
-      }
+      },
+      "drawerCategory": "Team-Raum"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Agent-Dashboard",
+      "tabAgents": "Agenten verwalten",
+      "tabTeams": "Teamverwaltung",
+      "tabExport": "Exportieren",
+      "createAgent": "Agent erstellen",
+      "createTeam": "Team erstellen",
       "agentsCount": "{{count}} Agenten",
       "emptyLabel": "Noch keine Agenten",
       "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen.",
@@ -1391,7 +1396,7 @@
       "noMembersHint": "Klicke auf Bearbeiten, um welche hinzuzufügen."
     },
     "you": {
-      "you": "Du",
+      "you": "Meine Welt",
       "subtitle": "deine Welt, über all deine Agenten hinweg",
       "viewsAriaLabel": "Ansichten des Du-Arbeitsbereichs",
       "tabMemory": "Narra-Gedächtnis",
@@ -1503,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Zugangsdaten einschließen (IM-Kanäle + Skill-Secrets)",
       "pickFirstHint": "Wählen Sie zuerst oben den Agenten oder das Team aus — die Bereiche für Narrative, Skills und Kanäle erscheinen danach.",
       "title": "Bundle exportieren",
-      "backToSettings": "Zurück zu den Einstellungen",
+      "back": "Zurück",
       "summaryLine": "{{agents}} Agenten · {{skills}} Skills · {{entities}} Entitäten · {{channels}} Kanäle",
       "fileName": "Dateiname",
       "bundleNotesLabel": "Bundle-Notizen (optional, dem Empfänger angezeigt)",
@@ -1920,6 +1925,7 @@
       "trigger": "Auslöser:",
       "cron": "Cron:",
       "interval": "Intervall:",
+      "endAt": "Läuft bis:",
       "runAt": "Ausführen um:",
       "endCondition": "Endbedingung:",
       "maxIter": "Max. Iter.:",

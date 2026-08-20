@@ -39,8 +39,8 @@ SEED_TEMPLATES: List[Dict[str, Any]] = [
         "categories": ["finance", "team"],
         "author": "NarraNexus team",
         "agent_count": 6,
-        "source_url": "https://www.narra.nexus/templates/briefing_team.nxbundle",
-        "bundle_sha256": "58316c737c7d37f26b4ed17e9911e0a920b1aeec5fb35f7e15056349b3f3c4bd",
+        "source_url": "https://www.narra.nexus/templates/briefing_team-20260819c.nxbundle",
+        "bundle_sha256": "f1fc5725d1d90dd69f6d64919b4fc7ef3c577dacde56d8958f3d53224b0aca37",
         "sort_order": 0,
     },
     {
@@ -50,8 +50,8 @@ SEED_TEMPLATES: List[Dict[str, Any]] = [
         "categories": ["marketing", "sponsorship", "team"],
         "author": "NarraNexus team contributor",
         "agent_count": 4,
-        "source_url": "https://www.narra.nexus/templates/marketing_team-20260527.nxbundle",
-        "bundle_sha256": "0fa87e83c9397b447184bcc3a621a5c95827f516e7dbf058cf535a8046c7782c",
+        "source_url": "https://www.narra.nexus/templates/marketing_team-20260819.nxbundle",
+        "bundle_sha256": "3b2b271ae2cc6d28ec2121aaed5e4e25017352dc45a79e55bf59e9dbe11603c9",
         "sort_order": 1,
     },
     {
@@ -72,8 +72,8 @@ SEED_TEMPLATES: List[Dict[str, Any]] = [
         "categories": ["development", "web"],
         "author": "NarraNexus team contributor",
         "agent_count": 4,
-        "source_url": "https://www.narra.nexus/templates/Web_Development-20260603.nxbundle",
-        "bundle_sha256": "8bb5e3a55ec37885a9251ce5e6486e01c234c65f9fea59299968d1e797d9fb8e",
+        "source_url": "https://www.narra.nexus/templates/Web_Development-20260819c.nxbundle",
+        "bundle_sha256": "de6b86c73b9800f7029417c9682d9c568cf2ff80ae3c090705a8ebf5041440d7",
         "sort_order": 3,
     },
     {
@@ -127,8 +127,8 @@ SEED_TEMPLATES: List[Dict[str, Any]] = [
         "categories": ["education", "team"],
         "author": "NarraNexus team",
         "agent_count": 5,
-        "source_url": "https://www.narra.nexus/templates/gaokao-team.nxbundle",
-        "bundle_sha256": "26b86d2c1e443ced39e2c8a68c03dacd9c71673eaad9dbd193109fba5d568a77",
+        "source_url": "https://www.narra.nexus/templates/gaokao-team-20260819.nxbundle",
+        "bundle_sha256": "799d6a1db8a0d0a7df64eeaefaf628f4fb835db3a9184926c35690985e12cea8",
         "sort_order": 8,
     },
 ]

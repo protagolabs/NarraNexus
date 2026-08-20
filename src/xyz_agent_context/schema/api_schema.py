@@ -63,6 +63,12 @@ class NetmindLoginResponse(BaseModel):
     token: Optional[str] = None
     role: Optional[str] = None
     is_new_user: bool = False
+    # Whether this deployment auto-provisions the onboarding guide agent.
+    # The frontend gates its "your first agent is already here" coachmark on
+    # this so pulling the server-side kill-switch also silences the UI —
+    # without it, a disabled deployment would still promise an agent that
+    # never appears.
+    guide_agent_provisioning: bool = False
     display_name: Optional[str] = None
     email: Optional[str] = None
     error: Optional[str] = None
@@ -196,6 +202,9 @@ class CreateUserResponse(BaseModel):
     """Response model for creating user"""
     success: bool
     user_id: Optional[str] = None
+    # See NetmindLoginResponse.guide_agent_provisioning — same gate for the
+    # local-mode signup path.
+    guide_agent_provisioning: bool = False
     error: Optional[str] = None
 
 

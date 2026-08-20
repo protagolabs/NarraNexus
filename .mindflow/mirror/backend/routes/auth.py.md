@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
+
+`/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
+`os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
+COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
+窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
+指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
 ## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
 
@@ -598,3 +608,36 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
   就是①的 order guard——重排会红,红的是重排不是测试。
 - 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
   仓单独 commit,本仓注释已互指并标明该文件不在本仓）。
+
+## 2026-08-19 — 登录路径挂载 onboarding 引导 Agent 供给
+
+`_schedule_guide_agent_provisioning(user_id, *, is_new)`：三个登录入口
+（`netmind_login`、本地 `login`、本地 `create_user`）在成功路径尾部
+fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
+（create_task + done_callback，incident lesson #2 模式；铁律 #21：消费方
+只有登录路由，子包住 backend 侧）。要点：
+
+- **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
+  ensure 内部有用户级 write-once 幂等标记——**顶层键**
+  `users.metadata.guide_agent_provisioned`，不嵌在 `onboarding_progress`
+  里，因为本文件的 `POST /api/auth/onboarding` 会整块替换那个子 dict，
+  嵌套标记会被第一次 UI 建 Agent 清掉（→ 永久重复供给 + 用户删掉引导
+  Agent 后复活）。回归测试：
+  test_onboarding.py::test_post_never_clobbers_the_guide_agent_marker。
+  热路径只是一次用户读；"每次都调"是存量零 Agent 用户补领的通道。
+- **is_new 贯穿**：netmind_login 传 upsert 的 is_new，本地 login 恒
+  False，create_user 恒 True——`backend/onboarding` 的 BACKFILL 刹车
+  （`NARRANEXUS_ONBOARDING_GUIDE_BACKFILL`，**默认关**）用它把"存量零
+  Agent 回访补领"做成 ops 显式开启的动作，新注册不受该刹车影响。
+- **调度前先查 kill-switch**（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`，默认
+  开）：关掉时连 task 都不建。测试套件在 tests/conftest.py 全局置 0，
+  避免无关登录测试背后真跑 provisioning；guide 测试自行 setenv 开启。
+- **前端同门**：netmind_login / create_user 响应带
+  `guide_agent_provisioning=_guide_agent_feature_on()`——前端的"你的第一
+  个 Agent 已就位"coachmark 以它为门，拉下服务端 kill-switch 时 UI 不会
+  承诺一个永远不出现的 Agent。
+- **必须排在 suspended 门禁之后**（netmind_login 里在
+  `_schedule_provider_provisioning` 之后）：被停号的登录 403 早退，
+  永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
+- 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
+  取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。
