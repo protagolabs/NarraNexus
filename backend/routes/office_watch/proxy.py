@@ -53,6 +53,7 @@ from backend.auth import resolve_current_user_id
 from backend.routes.office_watch import _token as office_watch_token
 from backend.routes.artifacts._token import TokenError
 from xyz_agent_context.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
+from xyz_agent_context.artifact import office_lock_present
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.utils.office_watch import (
     OFFICE_LIVE_KIND,
@@ -357,8 +358,6 @@ async def office_watch_version(request: Request, artifact_id: str) -> dict:
         st = os.stat(abs_path)
     except OSError:
         raise HTTPException(status_code=404, detail="file not found")
-    from xyz_agent_context.artifact import office_lock_present
-
     # `lock` = a desktop Office app holds the ~$ owner-lock on the file; the
     # viewer greys its direct-edit bar on it (officecli writes would race the
     # desktop app's saves).
@@ -462,9 +461,20 @@ async def proxy_office_watch_post(token: str, port: int, path: str, request: Req
     if path not in EDIT_POST_ALLOWLIST:
         raise HTTPException(status_code=405, detail="POST not allowed on this path")
 
-    body = await request.body()
-    if len(body) > MAX_EDIT_POST_BYTES:
+    # Two size gates (review #334 I3): a declared-length fast reject BEFORE
+    # any byte is read, then a streamed accumulation cap — Content-Length can
+    # lie or be absent (chunked), so neither gate alone is enough.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_EDIT_POST_BYTES:
         raise HTTPException(status_code=413, detail="edit payload too large")
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > MAX_EDIT_POST_BYTES:
+            raise HTTPException(status_code=413, detail="edit payload too large")
+        chunks.append(chunk)
+    body = b"".join(chunks)
 
     status, media_type, payload = await _post_upstream(
         claims.user_id,

@@ -19,6 +19,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactEditor } from '@/hooks/useArtifactEditor';
+import { ConflictBanner, DraftRestoredBanner } from './editorBanners';
 
 interface Props {
   artifact: Artifact;
@@ -79,27 +80,12 @@ export default function ResidentTextEditor({ artifact, url, onLoadError }: Props
           {editor.saving ? t('artifacts.editor.saving') : t('artifacts.editor.save')}
         </button>
       </div>
-      {editor.draftRestored && (
-        <div className="px-3 py-1.5 text-xs bg-amber-500/10 border-b border-amber-500/30 shrink-0">
-          {t('artifacts.editor.draftRestored')}
-        </div>
-      )}
+      {editor.draftRestored && <DraftRestoredBanner />}
       {editor.conflict && (
-        <div className="px-3 py-2 text-xs bg-red-500/10 border-b border-red-500/30 shrink-0 flex items-center gap-2">
-          <span className="flex-1">{t('artifacts.editor.conflictBody')}</span>
-          <button
-            onClick={() => void editor.overwriteConflict()}
-            className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)]"
-          >
-            {t('artifacts.editor.overwriteMine')}
-          </button>
-          <button
-            onClick={() => void editor.discardConflict()}
-            className="px-2 py-0.5 border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)]"
-          >
-            {t('artifacts.editor.discardMine')}
-          </button>
-        </div>
+        <ConflictBanner
+          onOverwrite={() => void editor.overwriteConflict()}
+          onDiscard={() => void editor.discardConflict()}
+        />
       )}
       <div className="flex-1 min-h-0 overflow-auto">
         <CodeMirror

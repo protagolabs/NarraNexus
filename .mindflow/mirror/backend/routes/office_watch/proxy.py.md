@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -91,3 +91,8 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
 原样 postMessage 给父窗口(officewatch-selection)——T1 浮条的锚点源,
 纯镜像不拦截。
 ③/office-watch/version 增 `lock`(~$ 锁,云端恒 false)。
+
+## 2026-08-20 — POST 双重体积门(#334 I3)
+
+Content-Length 快拒(零字节入内存)+ 流式累计上限(header 可撒谎/缺失)
+——两道缺一不可。

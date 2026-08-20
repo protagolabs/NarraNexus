@@ -72,13 +72,16 @@ export default function MarkdownRenderer({ artifact }: Props) {
   // or a conflict discard — replaces docBase and remounts the surface.
   // Render-time adjustment (React's "adjusting state when a prop changes"
   // pattern), not an effect: the re-render restarts immediately.
-  const [docBase, setDocBase] = useState<string | null>(null);
+  // docEpoch is the remount key — comparing/keying on the whole document
+  // string made React diff megabyte keys per render (review #334 minor).
+  const [docState, setDocState] = useState<{ base: string; epoch: number } | null>(null);
   if (
     editor.status === 'ready' &&
-    (docBase === null || (!editor.dirty && editor.text !== docBase))
+    (docState === null || (!editor.dirty && editor.text !== docState.base))
   ) {
-    setDocBase(editor.text);
+    setDocState({ base: editor.text, epoch: (docState?.epoch ?? 0) + 1 });
   }
+  const docBase = docState?.base ?? null;
 
   if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
   if (editor.status === 'error') {
@@ -100,7 +103,7 @@ export default function MarkdownRenderer({ artifact }: Props) {
         />
       )}
       <MdEditSurface
-        key={docBase}
+        key={docState?.epoch ?? 0}
         body={body}
         frontmatter={frontmatter}
         editor={editor}

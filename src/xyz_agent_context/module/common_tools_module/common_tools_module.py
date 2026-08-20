@@ -15,11 +15,17 @@ Design choices:
   MCP server to keep the tool-count moderate
 """
 
+import asyncio
+import os
 from typing import Any, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.artifact import ArtifactService, office_lock_present
 from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.repository.team_workspace_repository import (
+    ArtifactHistoryRepository,
+)
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -375,25 +381,12 @@ class CommonToolsModule(XYZBaseModule):
         # cost the block.
         markers: dict = {}
         try:
-            import os as _os
-
-            from xyz_agent_context.artifact import ArtifactService
-            from xyz_agent_context.artifact._artifact_impl.freshness import (
-                office_lock_present,
-            )
-            from xyz_agent_context.repository.team_workspace_repository import (
-                ArtifactHistoryRepository,
-            )
-            from xyz_agent_context.settings import settings as _settings
-
             service = ArtifactService(self.db)
             # Bounded concurrency, not a serial await chain: each check may
             # stat + (rarely) hash; four in flight keeps a 20-line block fast
             # without stampeding the DB pool (review #334 I12). Failures are
             # per-artifact best-effort — one bad row must not kill the pass.
-            import asyncio as _asyncio
-
-            sem = _asyncio.Semaphore(4)
+            sem = asyncio.Semaphore(4)
 
             async def _check(a):
                 async with sem:
@@ -404,7 +397,7 @@ class CommonToolsModule(XYZBaseModule):
                             f"artifact-state block: freshness check failed for {a.artifact_id}: {e}"
                         )
 
-            await _asyncio.gather(*(_check(a) for a in artifacts))
+            await asyncio.gather(*(_check(a) for a in artifacts))
             latest = await ArtifactHistoryRepository(self.db).latest_actions(
                 [a.artifact_id for a in artifacts]
             )
@@ -422,7 +415,7 @@ class CommonToolsModule(XYZBaseModule):
                         "re-read before editing"
                     )
                 if a.kind == "application/vnd.officecli-live" and a.file_path:
-                    abs_entry = _os.path.join(_settings.base_working_path, a.file_path)
+                    abs_entry = os.path.join(settings.base_working_path, a.file_path)
                     if office_lock_present(abs_entry):
                         notes.append(
                             "currently open in a desktop Office app; its saves "

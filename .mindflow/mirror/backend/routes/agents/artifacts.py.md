@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -199,3 +199,12 @@ T2 图片替换的落盘半步:multipart 存 entry 同目录,文件名=随机前
 净化 basename(带路径分隔/点串的敌意名进不来目录外),10MB 封顶,
 返回绝对路径供 `set src=` 用——watch server 与 entry 同一文件系统
 (本地同机;云端 executor 路径一致性在手动清单)。
+
+## 2026-08-20 — 上传/PUT 体积门 + 文件名 Unicode 净化(#334 I3/I15)
+
+office-asset:声明长度快拒 + 1MB 分块流式写(越界 413 且**不留半个
+文件**——entry 目录会被 raw 路由端出去);PUT /content:路由级依赖按
+Content-Length 快拒(service 的 MAX_ARTIFACT_BYTES 仍是第二道,防
+伪造 header)。文件名净化改 `\w`(UNICODE)——全语种字母数字放行,
+分隔符/控制符打下划线,120 字符截断(防 ENAMETOOLONG 变 500);
+原 CJK-only 白名单是「只想到中文」的物证,已除。

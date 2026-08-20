@@ -2073,7 +2073,8 @@
       "loadError": "불러오기 실패: {{error}}",
       "mdGuardDisabled": "이 문서에는 편집기가 무손실로 보존할 수 없는 구문이 포함되어 있어 직접 편집이 비활성화되었습니다. AI에게 수정을 요청하세요.",
       "htmlAnchorFailed": "이 텍스트는 페이지 스크립트가 생성했거나 소스에서 고유하게 찾을 수 없습니다. AI에게 수정을 요청하세요.",
-      "htmlEditConflict": "편집 중에 파일이 변경되어 이 변경 사항이 저장되지 않았습니다."
+      "htmlEditConflict": "편집 중에 파일이 변경되어 이 변경 사항이 저장되지 않았습니다.",
+      "editFailed": "편집 실패 — 변경 사항이 저장되지 않았습니다."
     },
     "officeEdit": {
       "selected": "{{count}}개 선택됨",

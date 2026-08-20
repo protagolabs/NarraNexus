@@ -18,6 +18,7 @@ import { Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore, useConfigStore } from '@/stores';
+import { useArtifactStore } from '@/stores/artifactStore';
 import { toastKey, type ToastItem } from '@/stores/chatStore';
 import { Toast, RingAvatar, GroupAvatar, Button } from '@/components/nm';
 
@@ -54,9 +55,7 @@ export function AgentCompletionToast() {
       } else if (toast.kind === 'artifact-repointed') {
         // Bring the repointed tab to front (restores if minimized) — the
         // whole point of the toast is "look at where it went".
-        import('@/stores/artifactStore').then(({ useArtifactStore }) =>
-          useArtifactStore.getState().restoreTab(toast.artifactId),
-        );
+        useArtifactStore.getState().restoreTab(toast.artifactId);
       } else {
         setAgentId(toast.agentId);
         setActiveAgent(toast.agentId);

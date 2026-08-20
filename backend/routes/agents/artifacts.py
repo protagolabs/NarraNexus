@@ -34,12 +34,18 @@ import re
 import uuid
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.artifact import ArtifactEditConflict, ArtifactError, ArtifactService
+from xyz_agent_context.artifact import (
+    MAX_ARTIFACT_BYTES,
+    ArtifactEditConflict,
+    ArtifactError,
+    ArtifactService,
+)
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.settings import settings
 from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
@@ -92,6 +98,17 @@ async def _get_owned_artifact(repo: ArtifactRepository, agent_id: str, artifact_
 class PatchArtifact(BaseModel):
     pinned: Optional[bool] = None
     title: Optional[str] = None
+
+
+async def _reject_oversized_put(request: Request) -> None:
+    """Declared-length fast reject BEFORE the JSON body is parsed into
+    memory (review #334 I3). Content-Length can lie, so the service's
+    MAX_ARTIFACT_BYTES check on the decoded bytes stays as the second gate;
+    this one just refuses to buffer an honest oversized body at all. The
+    margin covers JSON quoting/escaping overhead."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_ARTIFACT_BYTES + 2 * 1024 * 1024:
+        raise HTTPException(413, "content too large")
 
 
 class PutContentRequest(BaseModel):
@@ -353,7 +370,11 @@ async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     return await _get_owned_artifact(repo, agent_id, artifact_id)
 
 
-@router.put("/{agent_id}/artifacts/{artifact_id}/content", response_model=Artifact)
+@router.put(
+    "/{agent_id}/artifacts/{artifact_id}/content",
+    response_model=Artifact,
+    dependencies=[Depends(_reject_oversized_put)],
+)
 async def put_artifact_content(
     request: Request, agent_id: str, artifact_id: str, body: PutContentRequest
 ):
@@ -433,23 +454,41 @@ async def upload_office_asset(
     if not art.file_path:
         raise HTTPException(410, "artifact has no entry file")
 
-    from xyz_agent_context.settings import settings as _settings
-
-    entry_dir = os.path.dirname(os.path.join(_settings.base_working_path, art.file_path))
+    entry_dir = os.path.dirname(os.path.join(settings.base_working_path, art.file_path))
     if not os.path.isdir(entry_dir):
         raise HTTPException(410, "entry directory is gone")
 
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
+    # Two size gates (review #334 I3): declared-length fast reject, then a
+    # streamed cap — read in chunks so a lying/absent Content-Length can
+    # never park 1 GB in memory before the 413.
+    max_bytes = 10 * 1024 * 1024
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > max_bytes:
         raise HTTPException(413, "asset too large (10 MB max)")
 
-    # basename only, path separators and dot-runs stripped — a hostile
-    # filename must not navigate anywhere.
+    # Unicode-category sanitize (review #334 I15): \w keeps letters/digits of
+    # EVERY script (kana, hangul, cyrillic, arabic, CJK...), not a
+    # we-only-thought-of-Chinese whitelist; separators/控制 chars become _.
+    # Length-capped — a 500-char name would ENAMETOOLONG as an opaque 500.
     raw_name = os.path.basename(file.filename or "asset")
-    safe = re.sub(r"[^A-Za-z0-9._\-一-鿿]", "_", raw_name).lstrip(".") or "asset"
+    safe = re.sub(r"[^\w.\-]", "_", raw_name, flags=re.UNICODE).lstrip(".")[:120] or "asset"
     dest = os.path.join(entry_dir, f"{uuid.uuid4().hex[:8]}_{safe}")
-    with open(dest, "wb") as f:
-        f.write(data)
+    received = 0
+    try:
+        with open(dest, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                received += len(chunk)
+                if received > max_bytes:
+                    raise HTTPException(413, "asset too large (10 MB max)")
+                out.write(chunk)
+    except BaseException:
+        # Never leave a partial file: the entry dir is served by the raw
+        # route and counted by _dir_size.
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
     return {"path": dest}
 
 

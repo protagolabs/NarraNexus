@@ -74,7 +74,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_FAILED,
     STATE_RUNNING,
     TERMINAL_STATES,
-    _classify_event,
+    classify_event,
     event_to_wire,
     normalise_event,
     parse_db_utc,
@@ -276,7 +276,7 @@ class BackgroundRun:
         stream far too often to carry a DB query each.
         """
         await self.emit(event)
-        if _classify_event(event) == "tool_output":
+        if classify_event(event) == "tool_output":
             await self._drain_artifact_events()
 
     # How many outbox rows one drain pass takes per query. Rows are small and

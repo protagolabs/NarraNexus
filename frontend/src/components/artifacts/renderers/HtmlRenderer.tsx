@@ -238,7 +238,8 @@ export default function HtmlRenderer({ artifact }: Props) {
           setEditNotice(t('artifacts.editor.htmlEditConflict'));
         }
       } catch (e) {
-        setEditNotice(String(e));
+        console.error('html per-element edit failed', e);
+        setEditNotice(t('artifacts.editor.editFailed'));
       }
     },
     [url, artifact.agent_id, artifact.artifact_id, t],

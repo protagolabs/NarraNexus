@@ -227,7 +227,8 @@ export default function OfficeWatchViewer({ artifact }: Props) {
       setSelection([]);
       setEditText(null);
     } catch (e) {
-      setEditNotice(String(e));
+      console.error('office edit failed', e);
+      setEditNotice(t('artifacts.officeEdit.opFailed', { defaultValue: 'Edit failed.' }));
     } finally {
       setEditBusy(false);
     }
@@ -261,7 +262,8 @@ export default function OfficeWatchViewer({ artifact }: Props) {
       setEditBusy(false);
       await runEdit([buildSetSrcCommand(selection[0], path)]);
     } catch (e) {
-      setEditNotice(String(e));
+      console.error('office image replace failed', e);
+      setEditNotice(t('artifacts.officeEdit.opFailed', { defaultValue: 'Edit failed.' }));
       setEditBusy(false);
     }
   };
