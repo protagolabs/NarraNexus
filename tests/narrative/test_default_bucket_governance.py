@@ -115,6 +115,49 @@ def test_judge_instructions_keep_the_eight_category_names():
         assert name in text, f"{name} must survive as vocabulary"
 
 
+def test_judge_instructions_carry_the_p1_no_topic_narrowing():
+    """P1 calibration (2026-08-19): the two rules that bound NO_TOPIC.
+
+    The after-run measured M6 = 20.8% (11/53) — the judge was dumping
+    substantive turns into `no_durable_topic` once the buckets stopped being
+    available as a residual category (cluster-first "none" went 21.4% -> 94.7%).
+    These two sentences are the whole calibration; if either is edited away the
+    M6 number stops meaning what it meant when it was measured.
+
+    Pre-registration: `data/replay_runs/2026-08-19/P1_CALIBRATION_PREREGISTRATION.md`
+    """
+    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
+    assert "is NEW,\n  never NO_TOPIC" in text or "is NEW, never NO_TOPIC" in text.replace("\n  ", " ")
+    assert "Never prefer NO_TOPIC merely to avoid creating a topic" in text
+
+
+def test_judge_instructions_carry_the_three_trap_counterexamples():
+    """The three shapes the 08-19 survey found the judge losing turns on:
+    a polite opener wrapping a request, a bare imperative, and a rule set for
+    the future. Each is stated as a counter-example because the abstract rule
+    above it demonstrably did not transfer on its own."""
+    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
+    assert "polite opener" in text.lower()
+    assert "bare imperative" in text.lower()
+    assert "from now on" in text.lower()
+
+
+def test_p1_narrowing_does_not_swallow_shapes_4_5_and_7():
+    """The boundary clause, and why it is not optional.
+
+    "names ANY concrete object, task, question, or rule is NEW" read literally
+    contradicts three of the eight shapes the previous test pins: a question
+    about the Agent (4), a throwaway persona instruction (5), and a one-shot
+    trivia question (7) are all "questions" or "rules". The reverse check
+    before the run predicted `怎么变帅` and `你在干嘛` would wrongly flip
+    without this clause. It resolves the collision by reference — does the
+    message point at the USER'S own work — not by listing exceptions.
+    """
+    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
+    assert "USER'S OWN work" in text
+    assert "still carries no durable topic" in text
+
+
 def test_judge_instructions_no_longer_offer_buckets_as_a_target():
     """The verdict is a label, not a destination: the prompt must not tell
     the model it can return an index into a list of default topics."""

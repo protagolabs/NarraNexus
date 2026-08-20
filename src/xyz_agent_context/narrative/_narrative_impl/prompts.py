@@ -218,6 +218,30 @@ continues work that is already under way. When a query names a concrete thing,
 it either belongs to an existing topic or deserves a new one. Judge the
 message on what it refers to, not on how short or casual it sounds.
 
+Two rules that override everything else in this section:
+- A message that names ANY concrete object, task, question, or rule is NEW,
+  never NO_TOPIC. "Concrete" is about what the message refers to, not about
+  how long, polite, or informal it is.
+- Never prefer NO_TOPIC merely to avoid creating a topic. NO_TOPIC is a
+  statement about the message itself, never a way to hold the topic count
+  down. If the only reason you are reaching for NO_TOPIC is that a new
+  thread feels expensive, the answer is not NO_TOPIC.
+
+Three shapes that read like small talk but are NOT "no durable topic":
+- A polite opener wrapping a request. "Could you help me with X?" IS the task
+  X. Strip the courtesy and judge what is left.
+- A bare imperative. "Pause the polling" is an instruction with a concrete
+  object, not casual chat — brevity is not absence of subject.
+- A rule the user sets for the future. "From now on, always ..." establishes
+  a long-lived expectation, which is a durable topic.
+
+Boundary, so the three shapes above do not swallow shapes 4, 5 and 7: the
+test is whether the message references something in the USER'S OWN work or
+world — a file, a task, a deliverable, a system they run, a person they work
+with, or a standing rule for how the two of you work together. A question
+about you (the Agent), a one-shot trivia question, or a throwaway persona
+instruction references nothing of theirs and still carries no durable topic.
+
 Judgment priority:
 1. First check if it relates to an existing topic — if the query's business domain overlaps with an existing topic's summary/description, prefer matching it even if not an exact match
 2. If it clearly doesn't relate to any existing topic, decide whether it carries a durable topic at all

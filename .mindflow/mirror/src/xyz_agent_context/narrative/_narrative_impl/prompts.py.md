@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-16
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -127,3 +127,40 @@ PROMPT_TEMPLATE）；`continuity.py`（CONTINUITY_DETECTION_INSTRUCTIONS）；
 - MAIN/STABLE 模板以 `"\n## Narrative System"` 开头（前导换行），与
   context_runtime 的 `"\n\n".join` 组合产生刻意的段间距——改前导空白会静默改变
   system prompt 字节。
+
+## 2026-08-19 — P1 校准：那条正向排除规则**没有转移**，M6 实测 20.8%
+
+上一节押的注(补一条"点名了具体东西就不是无持久话题"的正向排除规则)
+**被 after-run 证伪**：`data/replay_runs/2026-08-19/` 两跑对比里
+
+- **M6 = 20.8%(11/53)**，判据是 ≤10%；最严读法(边界样本全算判对)仍有 15.1%。
+- judge 簇首轮判"无"的比例从 **21.4% 飙到 94.7%** —— 桶被拿走后，
+  judge 把"残差类目"整个倾倒到了 `no_durable_topic` 上。词表留着了，
+  **但残差倾倒换了个出口继续发生**。
+
+机制上这比进桶更隐蔽：④-A′ 下 `no_topic_anchored` 会挂上活跃线但**刻意不触发
+updater**，所以被误判的实质话题**内容永远进不了检索面** —— 与"进桶只进不出"
+同一类伤害，只是不再有一条 default 行可以指着说"它在这儿"。
+
+**本次改法**(只动措辞，八类目与"新建是最后手段"都没动)：
+
+1. 两条压倒性规则：点名任何具体物件/任务/问题/规则 ⇒ NEW 而非 NO_TOPIC；
+   **不许为了少建线而选 NO_TOPIC**(后者直指上面那个倾倒动作)。
+2. 三条反例，来自普查实际丢轮的三种形状：礼貌开启句包着请求、祈使短句、
+   为将来设的规则。抽象规则上一轮已被证明**自己传不下去**，所以这轮写成反例。
+3. ⚠ **边界句不是可选项**。"点名任何具体……问题……就是 NEW"字面上与保留的
+   类目 4/5/7 直接冲突(问 Agent 自己、一次性人格指令、闲聊问题都是"问题/规则")。
+   花钱前的反向核对预测 `怎么变帅`、`你在干嘛` 会被误翻，因此加了以
+   **"是否指向用户自己的工作/世界"**为准的边界句 —— 靠指向判，不靠列例外。
+
+三条都由单测钉住(`test_judge_instructions_carry_the_p1_no_topic_narrowing` /
+`..._three_trap_counterexamples` / `test_p1_narrowing_does_not_swallow_shapes_4_5_and_7`)。
+
+⚠ **这是预注册的一次性校准**：预测写在
+`data/replay_runs/2026-08-19/P1_CALIBRATION_PREREGISTRATION.md`，**复验不过就回
+设计层，不许再调词** —— 对着同一份考卷反复改措辞就是过拟合，M6 会失去意义。
+
+⚠ **未动但已知不一致**：`NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS`
+仍把八类目当**可选中的目的地**(`matched_category = "default"`)，与四件包"桶不是
+容器"的前提冲突。本卷 PARTICIPANT 零使用所以没被测到，prod 的 IM 多人场景会走到。
+见 `todo/2026-08-19-participant-judge-prompt-still-offers-buckets.md`。
