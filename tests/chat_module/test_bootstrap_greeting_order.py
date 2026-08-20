@@ -180,6 +180,63 @@ async def test_bootstrap_greeting_precedes_user_even_when_event_missing(chat_mod
 
 
 @pytest.mark.asyncio
+async def test_pre_seeded_greeting_not_duplicated_and_orders_first(chat_module):
+    """Cross-path invariant for the provision-time greeting seed
+    (bootstrap/greeting_seed.py): when the greeting was already persisted at
+    chat-instance birth, hook_persist_turn must NOT prepend a second greeting
+    (its `len(messages)==0` guard is now False), and the seeded greeting
+    (stamped at agent-creation, before the turn) must still sort before the
+    user's first message.
+
+    Deleting the `len(messages)==0` guard on the hook's prepend, or letting the
+    seed anchor the greeting at a mid-turn `now()`, turns this red."""
+    # Simulate the seed's result: one greeting row already in history, stamped
+    # well before the turn (agent_create_time is always pre-turn).
+    seed_ts = (utc_now() - timedelta(minutes=5)).isoformat()
+    await chat_module.event_memory_module.add_instance_json_format_memory(
+        "ChatModule",
+        "chat_boot_instance",
+        {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": BOOTSTRAP_GREETING,
+                    "meta_data": {
+                        "timestamp": seed_ts,
+                        "instance_id": "chat_boot_instance",
+                        "bootstrap": True,
+                    },
+                }
+            ],
+            "updated_at": seed_ts,
+        },
+    )
+
+    reply = _success_progress_with_reply("Hi back, Alice.")
+    params = _hook_params(
+        agent_loop_response=[reply],
+        event_created_at=utc_now() - timedelta(seconds=30),
+        bootstrap_active=True,
+    )
+
+    await chat_module.hook_persist_turn(params)
+
+    memory = await chat_module.event_memory_module.search_instance_json_format_memory(
+        "ChatModule", "chat_boot_instance"
+    )
+    messages = memory.get("messages", [])
+
+    bootstrap_rows = [m for m in messages if m["meta_data"].get("bootstrap") is True]
+    assert len(bootstrap_rows) == 1, f"greeting duplicated: {messages!r}"
+    # Order: seeded greeting first, then user, then assistant reply.
+    assert messages[0]["meta_data"].get("bootstrap") is True
+    user_msg = next(m for m in messages if m["role"] == "user")
+    assert _parse(bootstrap_rows[0]["meta_data"]["timestamp"]) < _parse(
+        user_msg["meta_data"]["timestamp"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_no_bootstrap_when_inactive(chat_module):
     """When `bootstrap_active=False`, no greeting row is prepended."""
     reply = _success_progress_with_reply("Sure.")

@@ -189,6 +189,15 @@ async def _ensure_user_chat_instance(
     await link_repo.link(new_instance_id, narrative_id, link_type=LinkType.ACTIVE)
     logger.info(f"Linked ChatModule instance {new_instance_id} to Narrative {narrative_id}")
 
+    # 4. Seed the bootstrap greeting as this fresh instance's FIRST message, so a
+    # new agent's history opens with a real, correctly-attributed assistant
+    # message instead of the frontend's identity-less "AI" overlay. No-op unless
+    # the agent is still bootstrapping; the ChatModule.hook_persist_turn prepend
+    # then auto-skips (history no longer empty) — no double write. Best-effort.
+    from xyz_agent_context.bootstrap.greeting_seed import seed_first_greeting_message
+
+    await seed_first_greeting_message(db_client, agent_id, user_id, new_instance_id)
+
     return new_instance_id
 
 
