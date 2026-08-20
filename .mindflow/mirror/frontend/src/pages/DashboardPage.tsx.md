@@ -8,8 +8,12 @@ stub: false
 
 Owner 要求「智能体管理」(=本页,zh title 就叫智能体管理)的视图切换改成
 **和 SettingsPage 一样的左侧竖排标签栏**,并拆出第三个「导出」标签:
-- `view` 类型扩到 `'agents' | 'teams' | 'export'`,首帧从 `?tab=` 播种
-  (侧栏 Export 行深链 `?tab=export`,之后用户点击说了算——同 SettingsPage 规则)。
+- `view` 类型扩到 `'agents' | 'teams' | 'export'`。**`?tab=` 是当前标签的
+  唯一真相源**:除了 useState 初值,还有一个 `useEffect([searchParams])` 把
+  URL→view 同步——因为本页是单一 `<Route path="dashboard">`,侧栏 Export 行
+  只是 `navigate('/app/dashboard?tab=export')` 不会重挂载,只靠初值会导致「已在
+  Dashboard 时点 Export 不切换」。标签点击走 `selectTab` 把参数写回 URL
+  (agents 清空参数,teams/export 写 `?tab=`),URL/侧栏高亮始终一致。
 - 外层从居中 `ScrollArea>max-w-960` 改成 `h-full flex flex-col`:标题 header +
   `flex flex-1 min-h-0`(左 `w-56 border-r` nav 三项 + 右 detail)。agents/teams
   两个 pane 仍走 padded ScrollArea+max-w-960;**export pane 直接内嵌

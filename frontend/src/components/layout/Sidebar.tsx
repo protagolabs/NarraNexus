@@ -271,7 +271,12 @@ export function Sidebar() {
           onMouseEnter={prefetchDashboard}
           onFocus={prefetchDashboard}
           data-help-id="sidebar.manage-agents"
-          className={cn(NAV_ROW, location.pathname === '/app/dashboard' && NAV_ROW_ACTIVE)}
+          className={cn(
+            NAV_ROW,
+            location.pathname === '/app/dashboard' &&
+              !location.search.includes('tab=export') &&
+              NAV_ROW_ACTIVE,
+          )}
         >
           <LayoutDashboard className="w-4 h-4 shrink-0" />
           {t('sidebar.dashboard')}

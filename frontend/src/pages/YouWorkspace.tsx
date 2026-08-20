@@ -48,7 +48,9 @@ export function YouWorkspace() {
   const { t } = useTranslation();
   const userId = useConfigStore((s) => s.userId);
   const displayName = useConfigStore((s) => s.displayName);
-  const name = (displayName || userId || t('pages.you.you')).trim();
+  // Just the identity here — the "My World" heading is rendered separately
+  // (below), so falling back to it would read "My World · My World".
+  const name = (displayName || userId || '').trim();
 
   const [tab, setTab] = useState<YouTab>('memory');
 

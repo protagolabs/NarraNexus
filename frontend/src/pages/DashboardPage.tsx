@@ -71,16 +71,27 @@ export function DashboardPage() {
   const { teams, refresh: refreshTeams, addMember, removeMember } = useTeamsStore();
   const { confirm, alert, dialog } = useConfirm();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { creating: creatingAgent, createAgent } = useCreateAgent();
 
-  // Left-rail tabs (master–detail, mirrors SettingsPage). `?tab=` seeds the
-  // FIRST render only — the sidebar's "Export" row deep-links ?tab=export;
-  // afterwards the user's tab clicks own the selection.
+  // Left-rail tabs (master–detail, mirrors SettingsPage). `?tab=` is the single
+  // source of truth for the active tab so a deep-link works whether the page is
+  // freshly mounted OR already open (the sidebar "Export" row is a plain
+  // navigate to /app/dashboard?tab=export — no remount). Tab clicks write the
+  // param back (below), so the URL and the sidebar highlight always agree.
   const [view, setView] = useState<'agents' | 'teams' | 'export'>(() => {
     const requested = searchParams.get('tab');
     return requested === 'teams' || requested === 'export' ? requested : 'agents';
   });
+  useEffect(() => {
+    const requested = searchParams.get('tab');
+    setView(requested === 'teams' || requested === 'export' ? requested : 'agents');
+  }, [searchParams]);
+  const selectTab = (id: 'agents' | 'teams' | 'export') => {
+    setView(id);
+    // agents is the default → drop the param for a clean URL; teams/export keep it.
+    setSearchParams(id === 'agents' ? {} : { tab: id }, { replace: true });
+  };
   // v4 table: multiple rows can be expanded at once (a Set, not the old
   // single expandedId — the mirror doc called this out explicitly).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -463,7 +474,7 @@ export function DashboardPage() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setView(item.id)}
+                onClick={() => selectTab(item.id)}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors',
                   isActive
