@@ -166,6 +166,50 @@ def test_judge_instructions_no_longer_offer_buckets_as_a_target():
     assert 'matched_category = "default"' not in text
 
 
+def test_participant_judge_prompt_does_not_offer_buckets_either():
+    """The participant variant must not sell a destination that is gone.
+
+    P0 removed the eight-bucket menu from NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
+    but left the participant variant untouched, so the IM-group-chat path was
+    still telling the model it could return `matched_category = "default"` with
+    an index into a list that is now always empty. The only symptom would have
+    been an `out of range` warning and a silent fall-through to "no match" —
+    and the replay corpus never exercises it, because PARTICIPANT is unused
+    there (see the module docstring of the todo).
+    """
+    text = prompts.NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS
+    assert 'matched_category = "default"' not in text
+    assert "Default topic types:" not in text
+    assert "Match a default topic type" not in text
+
+
+def test_participant_judge_prompt_has_the_no_durable_topic_verdict():
+    """Deleting the menu without giving the variant the verdict would push
+    every greeting to "none" -> a brand new thread, which is the fragmentation
+    the bucket removal is supposed to avoid. Same exit as the main variant."""
+    text = prompts.NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS
+    assert "no_durable_topic" in text
+
+
+def test_both_judge_prompts_agree_on_the_bucket_question():
+    """One question, one answer, whichever variant is chosen at
+    `_retrieval_llm.py:89-91`. This is the test the P0 change should have had:
+    it fails if EITHER prompt drifts back to offering buckets, so the next
+    person cannot fix one and forget the other."""
+    for name in (
+        "NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS",
+        "NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS",
+    ):
+        text = getattr(prompts, name)
+        assert 'matched_category = "default"' not in text, f"{name} still offers buckets"
+        assert "no_durable_topic" in text, f"{name} lacks the verdict"
+        # The eight names survive as recognition vocabulary in BOTH, never as
+        # a destination — dropping them collapses the taxonomy (M6's risk).
+        for cat in ("GreetingAndCourtesy", "AgentHelpAndCapability",
+                    "GeneralOneShotQuestion", "UnclassifiedOrGarbage"):
+            assert cat in text, f"{name} lost vocabulary {cat}"
+
+
 @pytest.mark.asyncio
 async def test_judge_receives_no_default_candidates(judge_spy):
     """Menu shape: real threads only. Eight fixed entries with worked

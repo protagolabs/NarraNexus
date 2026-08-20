@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -160,7 +160,43 @@ updater**，所以被误判的实质话题**内容永远进不了检索面** —
 `data/replay_runs/2026-08-19/P1_CALIBRATION_PREREGISTRATION.md`，**复验不过就回
 设计层，不许再调词** —— 对着同一份考卷反复改措辞就是过拟合，M6 会失去意义。
 
-⚠ **未动但已知不一致**：`NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS`
-仍把八类目当**可选中的目的地**(`matched_category = "default"`)，与四件包"桶不是
-容器"的前提冲突。本卷 PARTICIPANT 零使用所以没被测到，prod 的 IM 多人场景会走到。
-见 `todo/2026-08-19-participant-judge-prompt-still-offers-buckets.md`。
+~~⚠ **未动但已知不一致**：participant 版仍把八类目当可选目的地~~
+→ **已修,见下一节(2026-08-20)**。
+
+## 2026-08-20 — participant 版补上同一刀(P0 范围内的执行遗漏)
+
+P0 把八类目从"可选中的目标"降为词表时**只改了不带 PARTICIPANT 的那一版**。
+`_retrieval_llm.py:89-91` 二选一,于是 IM 多人场景(有 participant 候选时)
+仍在对模型推销 `matched_category = "default"` + 一个索引,而桶已经不再播种、
+也不再进池 ⇒ `default_candidates` 必为空 ⇒ 模型选它必然越界,只留一条
+`out of range` 警告然后静默落到"无匹配"。**等于 participant 场景下"寒暄识别"
+被悄悄关掉。**
+
+本次按主版的同一套删除逻辑处理:八个名字**留作识别词表**(连同那句
+"These are DESCRIPTIONS, not destinations"),出口从 `default` 改成
+`no_durable_topic`,participant 优先级与其余措辞一字未动。
+
+⚠ **刻意的分叉**:主版带着 P1 的收窄措辞(两条压倒性规则 + 三条反例 + 边界句),
+participant 版**没有**。因为 P1 复验 M6 严读法 13.3% 未过、已停在设计层,
+把一个没通过判据的措辞复制到第二处只会放大它。两版现在**结构一致**
+(都不提供桶目的地、都有 no_durable_topic 出口、都保留八类目词表),
+**收窄程度不一致** —— 等设计轮定了出口形状再统一。
+
+### 铁律 #8 扫尾:八类目名全仓 grep,逐处判定(无第三处漏网)
+
+| 位置 | 判定 |
+|---|---|
+| `_narrative_impl/default_narratives.py` 的 8 条种子定义 | **留**。播种由开关跳过,但定义在开关=1(回滚)时仍需要,且存量行的名字指向这里 |
+| `CONTINUITY_DETECTION_INSTRUCTIONS` 的"8 Special Default Narratives"段 | **留 —— 承重,不是死文本**。`narrative_service.py:322-332` 的跳过分支 gate 在 `not NARRATIVE_DEFAULT_BUCKETS_ENABLED`:开关关时该段不可达,**开关开(一行回滚)时它是活的**。删了会打断回滚路径 |
+| `backend/routes/me.py` 的 `include_default` 参数说明 | **留**。读侧过滤器,存量桶行永不删除(铁律 #6),这个说明仍然准确 |
+| `narrative/config.py` 的注释 | **留**。注释 |
+
+⇒ 真正的漏网只有 participant prompt 一处,本 commit 已修。
+
+### 覆盖面的诚实口径(必须留痕)
+
+**这次改动只有单测护体。** 重演考卷(`data/replay_runs/` 全部 18 序列)
+**PARTICIPANT 零触发**(三臂的 `selection_method` 分布里没有 `participant`),
+所以本次改动的行为效果**在评测上完全没有覆盖**,M6/G 全套指标都测不到它。
+prod 的 IM 多人场景是**盲区**。发版后应按 §D.3 的只读口径专门看一眼
+participant 路径的 `judge_category` 分布。

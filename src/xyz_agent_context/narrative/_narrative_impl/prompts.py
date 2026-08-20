@@ -154,15 +154,15 @@ Output format:
 # ============================================================================
 NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = """You are a conversation topic matching expert. You need to determine which category the user's new query should match:
 1. Match a **participant-associated topic** (the user is a PARTICIPANT in these Narratives, prioritize matching)
-2. Match a default topic type (generic scenarios like greetings, jokes, etc.)
+2. No durable topic — the message carries nothing worth remembering as its own thread
 3. Match an existing specific topic (a conversation topic already in the database)
 4. Create a new topic (does not match any existing content)
 
 **Important**: The current user is a PARTICIPANT in certain Narratives.
 - If the user's message relates to the topic of a participant Narrative, prioritize matching the "participant" type
-- If the user is simply greeting or chatting casually, it can still match the "default" type
+- If the user is simply greeting or chatting casually, it carries no durable topic
 
-Default topic types:
+Recognising "no durable topic". These eight shapes are what it looks like:
 1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
 2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
 3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
@@ -172,9 +172,13 @@ Default topic types:
 7. GeneralOneShotQuestion: One-time general knowledge Q&A
 8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
 
+These are DESCRIPTIONS, not destinations: they tell you how to recognise a
+turn that should not open or claim a thread. You never file a message "into"
+one of them.
+
 Judgment priority:
 1. **First check if it relates to a participant Narrative** (prioritize matching "participant")
-2. If it's simple greetings/chat, match a default type
+2. If it's simple greetings/chat, it carries no durable topic
 3. If it relates to an existing topic, match search results
 4. If nothing matches, return create new topic
 
@@ -182,15 +186,15 @@ Requirements:
 - Carefully analyze the user query's intent
 - Provide detailed reasoning
 - If matching a participant Narrative, return matched_category = "participant" with the corresponding index
-- If matching a default type, return matched_category = "default" with the corresponding index
+- If the message carries no durable topic, return matched_category = "no_durable_topic"
 - If matching an existing topic, return matched_category = "search" with the corresponding index
 - If nothing matches, return matched_category = "none"
 
 Output format:
 class UnifiedMatchOutput(BaseModel):
     reason: str  # Detailed reasoning process
-    matched_category: str  # "participant", "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "participant", "no_durable_topic", "search", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category is "participant" or "search"
 """
 
 NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. You need to decide where the user's new query belongs:
