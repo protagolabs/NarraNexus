@@ -158,6 +158,20 @@ class NexusAgent:
                 except RuntimeError:
                     pass
 
+    def warmup(self) -> None:
+        """Eagerly fill the warm-runner pool NOW (called from the executor's
+        startup lifespan). Without this the pool only starts filling when the
+        process's FIRST turn constructs a NexusAgent — too late, so that turn
+        pays the cold ~1.4s+1.8s import inline (measured ~12s vs ~2s warm on
+        dev). Priming at startup lets the first real turn draw a pre-imported
+        runner too. No-op in in-process mode or when pooling is disabled;
+        best-effort — the caller must never be blocked or raised into."""
+        if os.getenv("NEXUS_POWER_INPROCESS") == "1":
+            return
+        pool = _WarmRunnerPool.shared()
+        if pool.enabled:
+            pool.schedule_refill()
+
     def capabilities(self) -> set[str]:
         """Shipped beyond the base contract: the two-track event log
         (local NDJSON truth file per turn)."""

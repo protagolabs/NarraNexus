@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -57,7 +58,25 @@ from xyz_agent_context.agent_runtime.executor_protocol import (
     apply_provider_configs,
 )
 
-app = FastAPI(title="NarraNexus Agent-Loop Executor")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Prime the nexus_power warm-runner pool BEFORE serving requests, so the
+    # FIRST turn on this process draws a pre-imported runner instead of paying
+    # the cold subprocess import inline (measured ~12s cold vs ~2s warm on dev;
+    # see NexusAgent.warmup). Without this the pool only starts filling when the
+    # first turn constructs a NexusAgent — too late for that turn. Best-effort:
+    # a warmup failure must NEVER stop the executor from booting.
+    try:
+        driver = get_agent_loop_driver("nexus_power")
+        _warmup = getattr(driver, "warmup", None)
+        if callable(_warmup):
+            _warmup()
+    except Exception as e:  # noqa: BLE001 - warmup is best-effort, never fatal
+        logger.warning(f"[Executor] nexus_power warmup skipped: {e}")
+    yield
+
+
+app = FastAPI(title="NarraNexus Agent-Loop Executor", lifespan=_lifespan)
 
 
 @app.get("/health")

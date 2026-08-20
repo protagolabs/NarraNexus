@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — warmup()：启动时预填 warm-runner 池
+
+新增 `NexusAgent.warmup()`：executor 启动 lifespan 调用，提前触发
+`_WarmRunnerPool.shared().schedule_refill()`，让**进程首个** nexus_power turn
+也能拿到已预导入的 runner。此前池只在首个 turn 构造 `NexusAgent`（`__init__`）时才开始
+填充，首个 turn 的 acquire 赶不上、自己 spawn 冷 runner（dev 实测 ~12s vs warm ~2s）。
+门控：`NEXUS_POWER_INPROCESS=1` 或 `NEXUS_POWER_POOL_SIZE=0` 时 no-op。best-effort，
+调用方（executor lifespan）绝不被阻塞或抛入。配套 deploy 侧 `Dockerfile.executor`
+的 `compileall`（bake app .pyc，缩短冷 runner 自身 prewarm import）。
 
 ## 2026-08-13 — 平台来源绑定：nexus 腿发 identity 头
 

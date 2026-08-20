@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
+
+## 2026-08-20 — 启动 lifespan 预热 nexus_power runner 池
+
+`app` 挂 `_lifespan`：接受请求前调 `get_agent_loop_driver("nexus_power").warmup()`
+预填 warm-runner 池，消除进程首个 nexus_power turn 的冷启动（dev 实测 ~12s→~3s）。
+warmup 失败只 `logger.warning`、绝不阻塞 executor 启动；driver 无 `warmup`（如
+`remote_driver`）则跳过。claude_code/codex 天生 eager import（启动即 `import
+agent_framework` 已付），无需预热。详见 [[nexus_agent.py]]。
 
 ## 2026-08-19 — 执行器侧读取并转发 origin_declaration
 
