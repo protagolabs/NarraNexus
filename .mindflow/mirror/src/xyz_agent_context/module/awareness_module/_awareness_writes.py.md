@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/_awareness_writes.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 门禁的判据从「看文件」改成「看那次调用」
+
+合并 dev 最新 7 个提交后,`test_only_one_writer_of_agent_name` **当天就红了**,抓到
+新增的 `backend/onboarding/provisioning.py`。门禁起了作用——但那是**假阳性**:那个
+文件通过 `provision_new_agent`(白名单里的创建路径)建 agent,自己的 `update_agent`
+只写 `agent_metadata`;`agent_name` 只是它生成后**交给创建函数**的一个值。
+
+第二条判据当初为了抓「已在白名单里的文件再加一次同类写入」,用的是
+「文件写了这一行 **且** 文件里出现过 `"agent_name"`」——粗到会把合法的创建路径算成
+违规。而一个在正常改动上误报的门禁,第二次就没人看了(第十二轮刚因为同一个道理
+批过 `identity_record_updated` 恒真)。
+
+改成 **AST 判定**:遍历该文件里的写入调用,看**那次调用本身**有没有把值放进
+`agent_name`(字面量 key,或 `agent_name=` 关键字,含包在
+`normalize_agent_row_text(...)` 里的)。粗判据(文件+写法的等值白名单)保留作第二道网,
+因为 AST 看不见「dict 存在变量里再传进去」这种形状——事务自己就是那个形状。
+
+**改完重新验证过它还会拦**:往白名单文件里偷加一次
+`update_agent(aid, {"agent_name": ...})` → 红;恢复 → 绿。判据变细了,拦得住的形状
+没变窄。
 
 ## 2026-08-19 (十二改) — 「拒绝退休」必须能被观测
 

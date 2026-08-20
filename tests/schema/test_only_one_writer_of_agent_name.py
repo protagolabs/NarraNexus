@@ -45,6 +45,7 @@ ALLOWED = {
     ("backend/integrations/arena/arena_provisioning_service.py", "add_agent"),
     ("backend/integrations/arena/arena_provisioning_service.py", "update_agent"),
     ("src/xyz_agent_context/bootstrap/profiles.py", "update_agent"),
+    ("backend/onboarding/provisioning.py", "update_agent"),
     ("backend/routes/manyfold/agents.py", 'insert("agents"'),
     ("src/xyz_agent_context/bundle/importer.py", '_ins("agents"'),
     # The transaction itself — the one writer a rename may go through.
@@ -118,20 +119,48 @@ MAY_NAME_THE_COLUMN = {
 }
 
 
-def test_no_unlisted_file_both_writes_the_row_and_names_the_column():
-    """The discriminating half.
+def _sets_agent_name_in_a_write(path: str) -> bool:
+    """Does a WRITE CALL in this file put a value into agent_name?
 
-    A rename is not a column write, so a file that issues a write to this row
-    and also mentions `agent_name` is either the transaction, a creation path,
-    or a bug. Reading is unrestricted — many surfaces render the name — which is
-    why this pairs "writes the row" with "names the column" instead of banning
-    the string outright.
+    Asked of the call, not of the file. The first version asked "does this file
+    write the row AND mention agent_name anywhere", which flagged
+    backend/onboarding/provisioning.py the day it arrived on dev: it generates a
+    name, hands it to provision_new_agent (an allowed creation path), and its own
+    update_agent writes agent_metadata only. Legitimate, and the gate cried wolf
+    — which is how a gate stops being read.
+    """
+    import ast
+
+    tree = ast.parse((REPO / path).read_text())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        name = getattr(fn, "attr", None) or getattr(fn, "id", None)
+        if name not in ("add_agent", "update_agent", "insert", "update", "_ins"):
+            continue
+        # Any literal "agent_name" key, or an agent_name= keyword, INSIDE the
+        # call — including one nested in a wrapper like normalize_agent_row_text.
+        if any(k.arg == "agent_name" for k in node.keywords if k.arg):
+            return True
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and sub.value == "agent_name":
+                return True
+    return False
+
+
+def test_no_unlisted_file_writes_agent_name_into_the_row():
+    """The discriminating half, asked of the write itself.
+
+    A rename is not a column write, so a call that puts a value into agent_name
+    is either the transaction or a creation path. Note what this cannot see: a
+    dict built in a variable and passed by name (the transaction's own shape) —
+    which is why the coarse allowlist above stays as the second net.
     """
     offenders = sorted(
         path
         for path, _form in _writes_found()
-        if path not in MAY_NAME_THE_COLUMN
-        and '"agent_name"' in (REPO / path).read_text()
+        if path not in MAY_NAME_THE_COLUMN and _sets_agent_name_in_a_write(path)
     )
     assert not offenders, (
         "these files write the agents row and name agent_name, without being "
