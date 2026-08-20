@@ -31,12 +31,12 @@
     "themeLight": "Clair",
     "themeDark": "Sombre",
     "themeSystem": "Système",
-    "workspace": "Votre espace de travail",
+    "workspace": "Mon monde",
     "accountTitle": "Compte"
   },
   "chat": {
     "conversation": "Conversation",
-    "innerThoughts": "Pensées internes",
+    "innerThoughts": "Journal d'activité",
     "composerPlaceholder": "Tapez un message ou / pour les compétences…",
     "selectAgent": "Sélectionner un agent",
     "selectAgentHint": "Choisissez un agent dans la barre latérale pour commencer.",
@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Tableau de bord des agents",
+      "tabAgents": "Gérer les agents",
+      "tabTeams": "Gestion d'équipe",
+      "tabExport": "Exporter",
+      "createAgent": "Créer un agent",
+      "createTeam": "Créer une équipe",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "Aucun agent pour l'instant",
       "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord.",
@@ -1391,7 +1396,7 @@
       "noMembersHint": "Cliquez sur Modifier pour en ajouter."
     },
     "you": {
-      "you": "Vous",
+      "you": "Mon monde",
       "subtitle": "votre univers, à travers tous vos agents",
       "viewsAriaLabel": "Vues de l'espace Vous",
       "tabMemory": "Mémoire Narra",
@@ -1503,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Inclure les identifiants (canaux IM + secrets des compétences)",
       "pickFirstHint": "Choisissez d'abord l'agent ou l'équipe ci-dessus — les sections narratifs, compétences et canaux apparaîtront ensuite.",
       "title": "Exporter le bundle",
-      "backToSettings": "Retour aux paramètres",
+      "back": "Retour",
       "summaryLine": "{{agents}} agents · {{skills}} compétences · {{entities}} entités · {{channels}} canaux",
       "fileName": "Nom du fichier",
       "bundleNotesLabel": "Notes du bundle (facultatif, visibles par le destinataire)",

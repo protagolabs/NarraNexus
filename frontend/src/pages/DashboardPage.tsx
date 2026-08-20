@@ -17,8 +17,9 @@
  * Paired with setTrayBadge for Tauri; web mode no-op. Handles 429 with
  * exponential backoff (store.onRateLimited).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronRight,
   Loader2,
@@ -28,9 +29,13 @@ import {
   UserMinus,
   AlertTriangle,
   Users2,
+  Package,
+  Plus,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useConfigStore, useTeamsStore } from '@/stores';
+import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
 import { Button, ScrollArea, useConfirm } from '@/components/ui';
@@ -45,6 +50,22 @@ import { MetricsRow } from '@/components/dashboard/MetricsRow';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { cn } from '@/lib/utils';
 import type { AgentStatus, OwnedAgentStatus } from '@/types';
+
+// The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
+// App.tsx's route-level split) so opening /app/dashboard doesn't drag the
+// ~1400-line wizard into the dashboard bundle — Export is the least-visited tab.
+const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
+
+// Left-rail tabs (master–detail, mirrors SettingsPage). Module-scope constant so
+// it isn't rebuilt per render and stays the single list of valid tab ids.
+const TAB_ITEMS = [
+  { id: 'agents', labelKey: 'pages.dashboard.tabAgents', icon: LayoutDashboard },
+  { id: 'teams', labelKey: 'pages.dashboard.tabTeams', icon: Users2 },
+  { id: 'export', labelKey: 'pages.dashboard.tabExport', icon: Package },
+] as const;
+type TabId = (typeof TAB_ITEMS)[number]['id'];
+const parseTab = (v: string | null): TabId =>
+  (TAB_ITEMS.some((it) => it.id === v) ? (v as TabId) : 'agents');
 
 type StatusCell = {
   label: string;
@@ -64,8 +85,27 @@ export function DashboardPage() {
   const { agents: rosterAgents, refreshAgents } = useConfigStore();
   const { teams, refresh: refreshTeams, addMember, removeMember } = useTeamsStore();
   const { confirm, alert, dialog } = useConfirm();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { creating: creatingAgent, createAgent } = useCreateAgent();
 
-  const [view, setView] = useState<'agents' | 'teams'>('agents');
+  // `?tab=` is the single source of truth for the active tab — DERIVED, not a
+  // mirrored useState. A deep-link works whether the page mounts fresh or is
+  // already open (the sidebar "Export" row is a plain navigate to
+  // /app/dashboard?tab=export — no remount). selectTab writes the param back
+  // incrementally (preserving any other query params) so the URL and the
+  // sidebar highlight always agree.
+  const view: TabId = parseTab(searchParams.get('tab'));
+  // Boolean the polling effect keys off of — so switching agents↔teams (both
+  // want polling) does NOT restart the loop; only crossing the export boundary
+  // (which pauses polling) does.
+  const exportOpen = view === 'export';
+  const selectTab = (id: TabId) => {
+    const next = new URLSearchParams(searchParams);
+    if (id === 'agents') next.delete('tab');
+    else next.set('tab', id);
+    setSearchParams(next, { replace: true });
+  };
   // v4 table: multiple rows can be expanded at once (a Set, not the old
   // single expandedId — the mirror doc called this out explicitly).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -109,7 +149,11 @@ export function DashboardPage() {
   }, [setTauriFocused]);
 
   // --- Polling loop (cadence owned by dashboardStore.computeInterval) ---
+  // Paused on the Export tab: its wizard fills the pane, so the status feed is
+  // off-screen — polling it would just spend /dashboard/status requests and
+  // could surface an error banner the user can't see from inside the wizard.
   useEffect(() => {
+    if (exportOpen) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -146,7 +190,7 @@ export function DashboardPage() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [onFetchSuccess, onFetchError, onRateLimited]);
+  }, [exportOpen, onFetchSuccess, onFetchError, onRateLimited]);
 
   // --- Roster ⨝ status join -------------------------------------------------
   const statusById = useMemo(() => {
@@ -410,53 +454,95 @@ export function DashboardPage() {
     'flex items-center gap-2 h-[34px] px-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)]';
 
   return (
-    <ScrollArea className="h-full" viewportClassName="px-6 py-6">
-      <div className="max-w-[960px] mx-auto space-y-4">
-        {dialog}
-        <TeamManagementModal
-          open={teamsMgmt.open}
-          initialTeamId={teamsMgmt.teamId}
-          onClose={() => setTeamsMgmt({ open: false, teamId: null })}
-        />
+    <div className="h-full flex flex-col">
+      {dialog}
+      <TeamManagementModal
+        open={teamsMgmt.open}
+        initialTeamId={teamsMgmt.teamId}
+        onClose={() => setTeamsMgmt({ open: false, teamId: null })}
+      />
 
-        {/* Header — title + Agents/Teams toggle + meta. pr-10 reserves the
-            top-right corner for MainLayout's close (X). */}
-        <div className="flex items-center justify-between gap-3 pr-10">
-          <div className="flex items-center gap-4 min-w-0">
-            <h1
-              className="text-xl font-bold tracking-tight"
-              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+      {/* Title — pr-10 reserves the top-right corner for MainLayout's close (X). */}
+      <header className="px-6 pt-6 pb-4 shrink-0 pr-10">
+        <h1
+          className="text-xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          {t('pages.dashboard.title')}
+        </h1>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left rail (master) — Manage Agents / Team Management / Export,
+            mirroring SettingsPage's master–detail nav. */}
+        <nav
+          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          style={{ borderColor: 'var(--nm-line)' }}
+        >
+          {TAB_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = view === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => selectTab(item.id)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors',
+                  isActive
+                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
+                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]',
+                )}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {t(item.labelKey)}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Detail pane. Export embeds the full wizard (its own scroll/footer),
+            so it renders outside the padded ScrollArea the other panes share. */}
+        {view === 'export' ? (
+          <div className="flex-1 min-w-0">
+            {/* Neutral fallback — a dashboard-grid skeleton here would flash the
+                wrong shape before the wizard swaps in (layout shift). */}
+            <Suspense
+              fallback={
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--nm-ink30)]" />
+                </div>
+              }
             >
-              {t('pages.dashboard.title')}
-            </h1>
-            <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] p-0.5">
-              {(['agents', 'teams'] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setView(v)}
-                  className={cn(
-                    'rounded-[var(--radius-sm)] px-3.5 py-1 text-[12px] transition-colors',
-                    view === v
-                      ? 'bg-[var(--nm-raised)] font-semibold text-[var(--nm-ink)]'
-                      : 'font-medium text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
-                  )}
-                >
-                  {v === 'agents' ? t('sidebar.agents') : t('sidebar.teams')}
-                </button>
-              ))}
-            </div>
+              <BundleExportPage embedded />
+            </Suspense>
           </div>
-          <BracketSectionLabel>
-            {view === 'agents'
-              ? t('pages.manageAgents.summary', {
-                  shown: filteredAgents.length,
-                  selected: selected.size,
-                  total: rosterAgents.length,
-                })
-              : t('pages.dashboard.teamsCount', { count: teams.length })}
-          </BracketSectionLabel>
-        </div>
+        ) : (
+        <ScrollArea className="flex-1" viewportClassName="px-6 py-6">
+          <div className="max-w-[960px] mx-auto space-y-4">
+            {/* Per-tab summary + primary create action */}
+            <div className="flex items-center justify-between gap-3">
+              <BracketSectionLabel>
+                {view === 'agents'
+                  ? t('pages.manageAgents.summary', {
+                      shown: filteredAgents.length,
+                      selected: selected.size,
+                      total: rosterAgents.length,
+                    })
+                  : t('pages.dashboard.teamsCount', { count: teams.length })}
+              </BracketSectionLabel>
+              {view === 'agents' ? (
+                <Button onClick={() => void createAgent()} disabled={creatingAgent} size="sm" className="gap-1">
+                  {creatingAgent ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  {t('pages.dashboard.createAgent')}
+                </Button>
+              ) : (
+                <Button onClick={() => navigate('/app/teams/new')} size="sm" className="gap-1">
+                  <Plus className="w-3.5 h-3.5" />
+                  {t('pages.dashboard.createTeam')}
+                </Button>
+              )}
+            </div>
 
         {error && (
           <div
@@ -809,8 +895,11 @@ export function DashboardPage() {
             </p>
           </>
         )}
+          </div>
+        </ScrollArea>
+        )}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 

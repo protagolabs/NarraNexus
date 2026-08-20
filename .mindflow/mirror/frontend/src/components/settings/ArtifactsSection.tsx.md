@@ -33,11 +33,11 @@ message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名�
 写出来的文件」的断言。
 
 
-# ArtifactsSection.tsx — 设置页的制品管理区
+# ArtifactsSection.tsx — 设置页的可视化产物管理区
 
 ## 为什么存在
 
-Settings → Artifacts 面板：列出当前用户的制品、支持多选批量删除。挂在
+Settings → Artifacts 面板：列出当前用户的可视化产物、支持多选批量删除。挂在
 [[SettingsPage]] 的 `artifacts` 导航项下，**按需挂载**（只有该面板激活时才渲染），
 所以它的 fetch 不会在其他面板上触发。
 

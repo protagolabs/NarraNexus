@@ -44,6 +44,7 @@ import {
 import { useUIStore, useArtifactStore, useConfigStore, useChatStore } from '@/stores';
 import { useDismissOnOutside } from '@/hooks';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
 
@@ -240,39 +241,59 @@ export function ChatHeader({
           ))}
         </div>
 
+        {/* Panel-entry icon buttons. Each carries a styled Radix hover tooltip
+            (the drawer they open, named) INSTEAD of the browser's slow native
+            `title`, plus an aria-label so the icon has an accessible name.
+            One provider wraps the whole cluster (design_system.md §5). */}
+        <TooltipProvider delayDuration={200}>
         <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => openPanel('jobs')}
-            title={t('rail.jobs')}
-            data-help-id="bookmarks.jobs"
-            className={iconBtn}
-          >
-            <ListTodo className="h-4 w-4" />
-            {jobsStatus.badge ? <HeaderBadge count={jobsStatus.badge} /> : null}
-          </button>
-          <button
-            type="button"
-            onClick={() => openPanel('inbox')}
-            title={t('rail.inbox')}
-            data-help-id="bookmarks.inbox"
-            className={iconBtn}
-          >
-            <Inbox className="h-4 w-4" />
-            {inboxStatus.badge ? <HeaderBadge count={inboxStatus.badge} /> : null}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('jobs')}
+                aria-label={t('rail.jobs')}
+                data-help-id="bookmarks.jobs"
+                className={iconBtn}
+              >
+                <ListTodo className="h-4 w-4" />
+                {jobsStatus.badge ? <HeaderBadge count={jobsStatus.badge} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.jobs')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('inbox')}
+                aria-label={t('rail.inbox')}
+                data-help-id="bookmarks.inbox"
+                className={iconBtn}
+              >
+                <Inbox className="h-4 w-4" />
+                {inboxStatus.badge ? <HeaderBadge count={inboxStatus.badge} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.inbox')}</TooltipContent>
+          </Tooltip>
           {/* Artifacts — opens the drawer panel like every other entry (the
               resizable side column is retired; Owner 2026-08-06). */}
-          <button
-            type="button"
-            onClick={() => openPanel('artifacts')}
-            title={t('rail.artifacts')}
-            data-help-id="layout.artifacts"
-            className={iconBtn}
-          >
-            <ArtifactsGlyph className="h-4 w-4" strokeWidth={1.8} />
-            {artifactCount > 0 ? <HeaderBadge count={artifactCount} /> : null}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => openPanel('artifacts')}
+                aria-label={t('rail.artifacts')}
+                data-help-id="layout.artifacts"
+                className={iconBtn}
+              >
+                <ArtifactsGlyph className="h-4 w-4" strokeWidth={1.8} />
+                {artifactCount > 0 ? <HeaderBadge count={artifactCount} /> : null}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('rail.artifacts')}</TooltipContent>
+          </Tooltip>
           <span data-help-id="chat.cost">
             <CostPopover />
           </span>
@@ -323,6 +344,7 @@ export function ChatHeader({
             )}
           </div>
         </div>
+        </TooltipProvider>
       </div>
     </div>
   );
