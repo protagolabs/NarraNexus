@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
+## 2026-08-19 — 导出 `GatewayKeyMisuseRepository`
+
+网关 key 异常/越权使用事件（`gateway_key_misuse` 表）的命中写方进公共导出面
+（import + `__all__`）。纯转发改动，无行为变化。见 [[gateway_key_misuse_repository]]。
+
 ## 2026-08-13 — 导出 `BanAuditRepository`
 
 账户状态变更审计（`ban_audit` 表）的数据访问进公共导出面（import + `__all__`）。

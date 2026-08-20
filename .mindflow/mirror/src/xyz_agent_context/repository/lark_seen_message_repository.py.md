@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/lark_seen_message_repository.py
-last_verified: 2026-04-21
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -36,9 +36,10 @@ Lark 的 WebSocket event 投递是 **at-least-once**：客户端 ack 不到位�
 "already seen, drop"。这让调用方不用先 SELECT 再 INSERT，从根上避免并发 worker
 之间的竞态——DB 的 UNIQUE 约束是唯一真源。
 
-**错误文本匹配 SQLite + MySQL**：通过 `"UNIQUE constraint failed"` /
-`"Duplicate entry"` / `"1062"` 同时识别两个驱动的 integrity error。更严谨的做法
-是 import 两个 driver 的异常类，但会把 driver 细节拖进 repo 层。
+**错误文本匹配 SQLite + MySQL**：唯一冲突判定走共享 [[dialect_errors.py]] 的
+`is_unique_violation`（双方言 `"UNIQUE constraint failed"` / `"Duplicate entry"` /
+`"1062"`，PR#327 I1 六处收敛到一份）。更严谨的做法是 import 两个 driver 的异常类，但会把
+driver 细节拖进 repo 层。
 
 **Fail-open on unexpected errors** (2026-04-21 修正)：uniqueness 外的 insert 异常
 **raise 出去**，由 trigger 层的 `_should_process_event` try/except 兜底走 fail-open

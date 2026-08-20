@@ -92,3 +92,25 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
 **`tickBgMessages` makes N HTTP calls per tick** (one per agent). For users with many agents this could be significant. The `getSimpleChatHistory` endpoint returns only 5 messages (`limit=5`) to minimize payload, but the number of requests scales with agent count.
 
 **The hook does not restart timers on agent switch.** The `useEffect` dependency array includes `agentId` and `userId`, so the timers are torn down and recreated when the active agent changes. This resets the interval clocks — the user may wait up to 30 seconds for the first mid-freq tick after switching agents, rather than seeing data immediately. `preloadAll` in `MainLayout` handles the initial data fetch on switch; `useAutoRefresh` only needs to handle subsequent background refresh.
+
+## 2026-08-19 — 零 Agent 也刷新侧栏 + 首登快轮询
+
+两处配合服务端自动供给的引导 Agent（登录返回后 fire-and-forget 创建，
+前端只能靠拉取发现）：
+
+1. **`tickMid` 里 `refreshAgents()` 移到 agent guard 之前**。此前零 Agent
+   用户（无 agentId）的 mid tick 在 guard 处早退，侧栏永不更新——引导
+   Agent 只有手动刷新页面才出现。代价是"已登录但未选中 Agent"的用户每
+   30s 多一次 /api/auth/agents，这是有意为之（注释已写明，防止后人把
+   guard 移回去）。
+2. **新增首登快轮询 effect**：`isGuideCoachmarkPending()` 且 agents 为空
+   时，每 2s 拉一次 agent 列表、上限 10 次（~20s），拉到或超时即停；
+   `document.hidden` 时跳过请求但照常计数（上限是**墙钟** ~20s，不是前台
+   时间——后台标签页不会让 interval 无限存活；与三个 tick 同一条"后台零
+   请求"纪律）。
+   上限是承重的——/api/auth/agents 带 active-run + last-message 富化，
+   不允许无限期快轮。快轮询有专属测试（armed→2s 内拉到 / 超时封顶 /
+   未 armed 不快轮）。
+
+对应测试更新：useAutoRefresh.teams.test.ts 的「no agent selected」用例
+从"断言 refreshAgents 不被调"反转为"必须被调"（旧断言钉的正是这个盲区）。

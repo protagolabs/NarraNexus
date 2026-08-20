@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/repository/channel_seen_message_repository.py
 stub: false
-last_verified: 2026-07-16
+last_verified: 2026-08-19
 ---
 
 ## Why it exists
@@ -50,8 +50,11 @@ the guardrail against silently re-opening the bug.
 
 ## Gotchas
 
-- Error-string matching covers sqlite ("UNIQUE constraint failed"),
-  mysql ("Duplicate entry"), and the mysql error-code form ("1062").
-  If a future backend lands, add its sentinel here — silently
-  returning ``True`` on a UNIQUE violation would double-process
-  every replay.
+- Unique-violation detection runs through the shared
+  [[dialect_errors.py]] ``is_unique_violation`` (dual-dialect; the six
+  hand-copied checks converged onto it in PR#327). To onboard a future
+  backend, add its sentinel *there* — do NOT re-copy the match into this
+  file. Note that predicate-ising also flipped the test from
+  case-**sensitive** to case-**insensitive** (it lowercases the message),
+  which only widens what counts as a duplicate and is harmless here (a
+  UNIQUE hit → drop the replay, never the reverse).

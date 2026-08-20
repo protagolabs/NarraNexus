@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/instance_link_repository.py
-last_verified: 2026-06-09
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -12,10 +12,14 @@ once an agent has many jobs, e.g. a freshly imported squad) both pass the "not
 linked" check and both insert, so the second trips
 `UNIQUE(instance_id, narrative_id)` and surfaces as
 "SQLite Proxy error (/insert): UNIQUE constraint failed" (it broke the Job list).
-The insert now catches THAT specific collision (message contains "unique
-constraint failed" / "duplicate entry" — cross-dialect; everything else
-re-raised) and returns 0 = "already linked", since the concurrent winner
-produced exactly the state we wanted. Tests:
+The insert now catches THAT specific collision (via the shared
+[[dialect_errors.py]] `is_unique_violation` — cross-dialect "unique constraint
+failed" / "duplicate entry" / MySQL `1062`; everything else re-raised) and
+returns 0 = "already linked", since the concurrent winner produced exactly the
+state we wanted. The `1062` code was added when the six inline copies converged
+on the shared predicate (PR#327 I1) — a widening/bugfix here, safe because this
+table has a single composite UNIQUE `uk_instance_narrative(instance_id,
+narrative_id)` so any unique violation on this insert IS that race. Tests:
 `tests/repository/test_instance_link_race.py`.
 
 # instance_link_repository.py

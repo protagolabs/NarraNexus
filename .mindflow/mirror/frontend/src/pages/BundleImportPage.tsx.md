@@ -76,3 +76,7 @@ the templates marketplace is not.
 显示 import 摘要 toast + mcp_hints_data 列表（用户决定是否手动加 MCP）。
 
 `onViewIntro` 跳 `/app/chat`（B10：还没真做 team detail page，临时跳到 chat）。
+
+2026-08-19：`markOnboardingStep('template_applied')` 保留但注释改口——
+checklist 卡片已退役，这笔写入现在只作为 onboarding-progress metadata
+（分析用途）存在，无行为变化。

@@ -1527,27 +1527,15 @@
     }
   },
   "onboarding": {
-    "checklist": {
-      "gettingStarted": "开始使用",
-      "dismissAria": "关闭新手引导清单",
-      "providerLabel": "配置 LLM 服务商",
-      "providerHint": "可一键使用 NetMind Power，也可以添加你自己的 API 密钥。",
-      "openSettings": "打开设置",
-      "agentLabel": "创建你的第一个 Agent",
-      "agentHint": "从空白 Agent 开始，通过聊天逐步塑造它。",
-      "creating": "创建中…",
-      "createAgent": "创建 Agent",
-      "templateLabel": "或从模板开始",
-      "templateHint": "在模板市场浏览可直接使用的 Agent 团队。",
-      "browseTemplates": "浏览模板",
-      "bookmarksLabel": "认识侧边书签栏",
-      "bookmarksHint": "任务、收件箱和 Agent 资料都在右侧边缘的书签中；有变化时书签会亮起。"
-    },
     "migrationGuide": {
       "title": "导入已有的 agent",
       "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
       "import": "导入",
       "later": "以后再说"
+    },
+    "guideCoachmark": {
+      "text": "你的第一个 Agent 已经就位——也可以随时用这个按钮创建属于你自己的新 Agent。",
+      "gotIt": "知道了"
     },
     "migrationCoachmark": {
       "text": "想导入的话，点“+” → {{action}}。",
@@ -2318,6 +2306,7 @@
       "trigger": "触发器：",
       "cron": "Cron：",
       "interval": "间隔：",
+      "endAt": "运行至：",
       "runAt": "运行于：",
       "endCondition": "结束条件：",
       "maxIter": "最大迭代：",

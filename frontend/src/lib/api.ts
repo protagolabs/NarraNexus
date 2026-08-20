@@ -119,6 +119,7 @@ import type {
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
 
@@ -618,10 +619,21 @@ class ApiClient {
   }
 
   async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
-    return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
+    const res = await this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
       method: 'POST',
       body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
     });
+    // Every cloud login flow (login page, ?token= pass-through, OAuth
+    // callback) converges HERE, so this is the one place that reliably sees
+    // is_new_user — the flag that arms the one-shot "create your own agent"
+    // coachmark for users whose first agent was auto-provisioned server-side.
+    // guide_agent_provisioning gates it on the SERVER's kill-switch: with
+    // provisioning disabled, the coachmark would promise an agent that never
+    // appears.
+    if (res.success && res.is_new_user && res.guide_agent_provisioning) {
+      markGuideCoachmarkPending();
+    }
+    return res;
   }
 
   /**
@@ -644,13 +656,18 @@ class ApiClient {
   }
 
   async createUser(userId: string, displayName?: string): Promise<CreateUserResponse> {
-    return this.request<CreateUserResponse>('/api/auth/create-user', {
+    const res = await this.request<CreateUserResponse>('/api/auth/create-user', {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
         display_name: displayName,
       }),
     });
+    // Local-mode signup is by definition a brand-new user — arm the same
+    // "create your own agent" coachmark the cloud path arms via is_new_user,
+    // under the same server-side kill-switch gate.
+    if (res.success && res.guide_agent_provisioning) markGuideCoachmarkPending();
+    return res;
   }
 
   async updateTimezone(userId: string, timezone: string): Promise<UpdateTimezoneResponse> {
@@ -663,18 +680,17 @@ class ApiClient {
     });
   }
 
-  /** New-user onboarding checklist state (cloud version). */
-  async getOnboarding(userId: string): Promise<OnboardingResponse> {
-    return this.request<OnboardingResponse>(
-      `/api/auth/onboarding?user_id=${encodeURIComponent(userId)}`,
-    );
-  }
-
   /** Mark a single onboarding step complete. Write-once-true on the
-   *  backend — passing a step here can only ever set it, never clear it. */
+   *  backend — passing a step here can only ever set it, never clear it.
+   *  The checklist card that used to READ this state is retired (the
+   *  auto-provisioned guide agent replaced it); the write stays because the
+   *  progress metadata still feeds analytics and the server-side
+   *  guide-agent marker shares the same metadata blob. */
   async markOnboardingStep(
     userId: string,
-    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+    // 'dismissed' left the union with the checklist card (its only setter);
+    // the backend still accepts it, so re-adding is a one-line change.
+    step: 'first_agent_created' | 'template_applied',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',

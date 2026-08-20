@@ -26,6 +26,8 @@ export interface TriggerConfig {
   cron?: string;               // cron expression, e.g. "0 8 * * *"
   interval_seconds?: number;
   timezone?: string;           // IANA name, e.g. "Asia/Shanghai"
+  end_at?: string;             // scheduled jobs: naive local ISO horizon —
+                               // the platform completes the job past this
   end_condition?: string;      // ongoing jobs
   max_iterations?: number;     // ongoing jobs
   [key: string]: unknown;
@@ -416,6 +418,10 @@ export interface NetmindLoginResponse extends ApiResponse {
   token?: string;        // our self-issued JWT
   role?: string;
   is_new_user?: boolean;
+  // Whether the deployment auto-provisions the onboarding guide agent —
+  // gates the "your first agent is already here" coachmark so the server's
+  // kill-switch silences the UI too.
+  guide_agent_provisioning?: boolean;
   display_name?: string;
   email?: string;
 }
@@ -442,6 +448,8 @@ export type QuotaMeResponse =
 
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
+  // See NetmindLoginResponse.guide_agent_provisioning.
+  guide_agent_provisioning?: boolean;
 }
 
 export interface AgentListResponse extends ApiResponse {

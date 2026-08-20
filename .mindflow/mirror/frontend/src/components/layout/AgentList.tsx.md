@@ -236,9 +236,9 @@ unchanged (it already cleared correctly on `setActiveAgent`).
 
 `handleCreateAgent` no longer holds the create logic — it delegates to the
 shared `useCreateAgent` hook (`creatingAgent` state now comes from the
-hook too). Reason: the onboarding checklist also creates agents, and both
-call sites must share one path (store wiring + the
-`first_agent_created` onboarding side effect). See
+hook too). Reason at the time: the onboarding checklist (retired
+2026-08-19) also created agents, and both call sites had to share one path
+(store wiring + the `first_agent_created` onboarding side effect). See
 `.mindflow/mirror/frontend/src/hooks/useCreateAgent.ts.md`.
 
 ## 2026-05-19 — NM messenger fidelity pass

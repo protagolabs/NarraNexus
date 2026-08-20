@@ -12,7 +12,7 @@ const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'u
 
 describe('Chinese localization completeness', () => {
   it('defines Chinese copy for onboarding, setup, greeting, and reasoning controls', () => {
-    expect(zh.onboarding.checklist).toBeDefined();
+    expect(zh.onboarding.guideCoachmark.text).not.toBe(en.onboarding.guideCoachmark.text);
     expect(zh.pages.setup.welcome).not.toBe(en.pages.setup.welcome);
     expect(zh.chat.bootstrapGreeting).not.toBe(en.chat.bootstrapGreeting);
     expect(zh.chat.securityReminder).not.toBe(en.chat.securityReminder);
@@ -38,8 +38,8 @@ describe('Chinese localization completeness', () => {
     const oneKeyOnboard = source('../components/settings/OneKeyOnboard.tsx');
     const providerSettings = source('../components/settings/ProviderSettings.tsx');
 
-    expect(source('../components/onboarding/OnboardingChecklist.tsx')).toContain(
-      "t('onboarding.checklist.gettingStarted')",
+    expect(source('../components/onboarding/GuideAgentCoachmark.tsx')).toContain(
+      "t('onboarding.guideCoachmark.text')",
     );
     expect(source('../pages/SetupPage.tsx')).toContain("t('pages.setup.welcome')");
     expect(settingsPage).toContain("t('pages.settings.title')");

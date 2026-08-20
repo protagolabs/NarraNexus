@@ -40,6 +40,13 @@ import pytest_asyncio
 # into test processes.
 _os.environ["NEXUS_DIAG_SHIP"] = "off"
 
+# The onboarding guide-agent provisioning is scheduled fire-and-forget on
+# every login route hit, and defaults ON in production. Force it off for the
+# whole suite so unrelated login tests never spawn a real provisioning task
+# (agent rows, skill installs) behind their back; the guide-agent tests that
+# want it re-enable it explicitly via monkeypatch.
+_os.environ["NARRANEXUS_ONBOARDING_GUIDE_AGENT"] = "0"
+
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.schema_registry import auto_migrate

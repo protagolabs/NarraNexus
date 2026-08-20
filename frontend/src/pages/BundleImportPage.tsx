@@ -194,8 +194,9 @@ export default function BundleImportPage() {
       setStep('done');
       await refreshTeams();
       await refreshAgents();
-      // A confirmed import counts as "applied a template" for the
-      // onboarding checklist. Best-effort — never let it surface as an
+      // A confirmed import counts as "applied a template" in the user's
+      // onboarding-progress metadata (analytics; the checklist card that
+      // displayed it is retired). Best-effort — never let it surface as an
       // import error.
       if (userId) {
         api.markOnboardingStep(userId, 'template_applied').catch(() => {});

@@ -106,7 +106,8 @@ MainLayout 就是同一个原因,注释里写着)。自门控(看过 / 遥测未
 根容器塌成 auto 高度。App.tsx（PageFallback）和 SetupPage 的整屏根
 同批换成该类。artifact 滑不动修复批次的次要项（Base recvpm05jsLg3o）。
 
-> 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
+> 2026-07-30: mounts [[MigrationGuide]] beside the OnboardingChecklist (the
+> checklist was retired 2026-08-19 — see that dated section below) above the
 > chat panel — the local-only, once-per-user "import your other agents" guided
 > flow (welcome modal → import, or a coach-mark pointing at the sidebar "+").
 > Superseded the earlier MigrationNudge banner.
@@ -326,3 +327,12 @@ The artifact WS lifecycle (`connectWs` / `disconnectWs`) lives in `ChatView`'s `
 **Right-panel height chain (must keep `flex flex-col` on the framed wrapper)**: the `<div>` that wraps `<ContextPanelContent>` carries both `overflow-hidden` (visual clipping for the bordered frame) and `flex flex-col` (so the chain flex-1 → ContextPanelContent's flex-1 → Card's h-full → CardContent's overflow-y-auto can resolve a real height). Removing `flex flex-col` breaks the chain — every right-side panel renders at content height, gets clipped, and the user sees a "tab won't scroll" bug. There is no React state hint in this file telling future editors that the className is load-bearing; this paragraph is the warning.
 
 **ArtifactColumn conditional rendering**: `{agentId && <ArtifactColumn agentId={agentId} />}` — when `agentId` is falsy (no agent selected), the column is omitted entirely. Inside `ArtifactColumn`, if `artifacts.length === 0`, it also returns `null`. The net result: the column only occupies layout space when there is both an active agent AND at least one artifact loaded.
+
+## 2026-08-19 — OnboardingChecklist 退役，换 GuideAgentCoachmark
+
+聊天列头部不再挂 OnboardingChecklist（组件已删）：新手引导由登录时服务端
+自动供给的引导 Agent 承担（开场白自带"可自建 Agent / 可取消 check-in job"
+提示）。原位改挂 `GuideAgentCoachmark`——portal 到 body 的一次性气泡，仅当
+lib/guideCoachmark 报 'pending'（登录响应 is_new_user 置位）时渲染，点掉
+永不再现。原注释里"flex-col 是为了 checklist 摞在聊天上方"的理由随之失效，
+但 flex-col 本身仍被 ChatPanel 高度链依赖，保留。

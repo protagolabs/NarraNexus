@@ -51,7 +51,7 @@ import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
-import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
+import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
@@ -178,14 +178,15 @@ export function ChatView() {
         )}
 
         {/* Chat column — NM paper card (the actual conversation surface,
-            --nm-card sits on top of the warm nm-paper background).
-            flex-col so the (cloud-only, self-hiding) onboarding checklist
-            can sit above the chat without ChatPanel losing its height. */}
+            --nm-card sits on top of the warm nm-paper background). */}
         <div
           className="min-w-0 flex-1 animate-fade-in overflow-hidden flex flex-col"
           style={{ background: 'var(--nm-card)' }}
         >
-          <OnboardingChecklist />
+          {/* One-shot new-user nudge (portals to body; renders nothing once
+              dismissed). Replaces the retired OnboardingChecklist card — the
+              auto-provisioned guide agent now carries the onboarding. */}
+          <GuideAgentCoachmark />
           <MigrationGuide />
           <div className="relative flex-1 min-h-0">
             <ChatPanel onAgentComplete={refreshAll} />
