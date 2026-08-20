@@ -65,10 +65,13 @@ async def _lifespan(app: FastAPI):
     # frameworks draws a pre-imported runner instead of paying the cold
     # subprocess import inline (measured ~12s cold vs ~2s warm on dev; see
     # NexusAgent.warmup). Gated so ops can drop the per-container ~350MB idle-
-    # runner cost on a memory-pressured host by setting the var empty; a
-    # follow-up can make the broker pass the container's actual framework so
-    # only the ones a user really uses are primed. Best-effort: a warmup failure
-    # only logs and NEVER stops the executor from booting.
+    # runner cost on a memory-pressured host by setting the var empty. Cloud
+    # executors receive this env ONLY because the broker forwards it (deploy
+    # broker.py + compose "EXECUTOR_PREWARM_FRAMEWORKS-nexus_power", single-dash
+    # so an explicit empty value survives); local/dev reads it from the process
+    # env directly. A follow-up can make the broker pass the container's ACTUAL
+    # framework so only the ones a user really uses are primed. Best-effort: a
+    # warmup failure only logs and NEVER stops the executor from booting.
     frameworks = [
         f.strip()
         for f in os.getenv("EXECUTOR_PREWARM_FRAMEWORKS", "nexus_power").split(",")

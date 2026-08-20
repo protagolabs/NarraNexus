@@ -90,13 +90,21 @@ async def test_warmup_fills_pool_up_to_size_with_running_loop(monkeypatch):
         return _FakeProc()
 
     monkeypatch.setattr(na._WarmRunnerPool, "spawn", fake_spawn)
+    pool = na._WarmRunnerPool.shared()
     try:
         agent = na.NexusAgent()  # __init__ (has a loop here) already schedules a refill
         agent.warmup()           # idempotent second schedule
-        await asyncio.sleep(0.05)  # let the fire-and-forget refill task(s) run
-        pool = na._WarmRunnerPool.shared()
+        # Bounded poll instead of a fixed sleep: deterministic and not dependent
+        # on the fire-and-forget refill task winning a scheduling slot inside a
+        # fixed wall-clock window (flaky on preempted CI runners).
+        for _ in range(100):
+            if len(pool._idle) >= 1:
+                break
+            await asyncio.sleep(0.01)
         assert len(pool._idle) == 1   # filled to size, not exceeded
         assert spawned["n"] == 1      # 2nd refill saw idle>=size and did not spawn
-        pool._idle.clear()
     finally:
+        # Drop the fake procs BEFORE atexit's _shutdown_sync (which reads
+        # process.pid) can see them — even if an assertion above failed.
+        pool._idle.clear()
         na._WarmRunnerPool._shared = None

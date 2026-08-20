@@ -13,8 +13,11 @@ last_verified: 2026-08-20
 
 门控让 ops 能在内存吃紧时设空关掉：每个容器一个 idle warm runner ~350MB，撞
 `EXECUTOR_MEM_MB=1536` 硬上限与 admission `MIN_FREE_MEM_MB`（6144）准入水位；`broker`
-只有 `NEXUS_POWER_POOL_SIZE` 这个全有全无开关，本 env 提供细粒度关停。更彻底的“按容器
-实际 framework 预热”（零浪费）需 broker 透传容器 framework，记为 follow-up。warmup 失败
+原本只有 `NEXUS_POWER_POOL_SIZE` 这个全有全无开关，本 env 提供细粒度关停——**云端由
+broker 透传**（deploy `broker/broker.py` 照 `NEXUS_POWER_POOL_SIZE` 先例 + compose
+`EXECUTOR_PREWARM_FRAMEWORKS-nexus_power`，**单 dash** 保留 ops 显式设空的关停语义；
+`is not None` 而非 truthiness 区分未设/关停），本地/dev 从进程 env 直接读。更彻底的
+“按容器实际 framework 预热”（零浪费）需 broker 传每容器 user framework，记为 follow-up。warmup 失败
 只 `logger.warning`、driver 无 `warmup`（如 `remote_driver`）打 `debug` 跳过——都不阻塞
 启动。接缝由 `test_executor_service_warmup.py::test_real_nexus_power_driver_exposes_warmup`
 （不 mock）钉住,防重命名/代理静默取消优化。详见 [[nexus_agent.py]]。
