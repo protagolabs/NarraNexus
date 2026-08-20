@@ -174,9 +174,12 @@ turn's full detail (tools used, reasoning, output).
 # language request in the message wins, then the CURRENT message's own
 # language, then the configured preference as the undeterminable-language
 # fallback. The separator reference reuses USER_MESSAGE_SEPARATOR (one
-# spelling; relocation may be off, hence "when present"). Filled by
-# context_runtime.build_reply_language_section; still byte-stable per user,
-# so the cacheable prompt region stays intact (R4).
+# spelling; relocation may be off, hence "when present") — this is the
+# file's first constant-to-constant reference, so this definition MUST stay
+# below USER_MESSAGE_SEPARATOR or the module dies with a NameError at
+# import time. Filled by context_runtime.build_reply_language_section;
+# still byte-stable per user, so the cacheable prompt region stays intact
+# (R4).
 REPLY_LANGUAGE_SECTION = (
     "## Reply language\n"
     "Reply in the language of the user's CURRENT message — when a '"

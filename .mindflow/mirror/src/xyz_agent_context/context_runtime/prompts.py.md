@@ -4,6 +4,30 @@ last_verified: 2026-08-20
 stub: false
 ---
 
+## 2026-08-20 (review #335 修正) — 补回显式覆盖这一级:政策是三级优先,以本条为准
+
+下一条(同日)只记了两级,漏了最高的一级——**消息内显式语言要求**赢过
+其余一切(「用英文回答这个问题」整句是中文也要用英文答);这正是
+round-1 抓到被误删的那一支。完整政策:**显式请求 > 当次消息语言 >
+配置偏好兜底**(兜底仅当消息语言不可判定)。另两点当时也漏记:
+① "current message" 锚定为 `USER_MESSAGE_SEPARATOR`(`--- User
+message ---`)**之后**的文本——relocation 开启时最后一条 user message
+以英文 turn-context 块开头,不锚定会把块的语言当成消息语言;
+relocation 关闭时分隔符不存在,故模板措辞为 "when a '…' separator is
+present"。② 短语与优先序由
+`tests/context_runtime/test_reply_language_section.py` 钉住(含
+`str.index` 相对位置断言——短语全在、优先序反转也会红)。
+
+## 2026-08-20 — 回复语言:当次消息优先,偏好只做兜底(深圳复测 B4)
+
+(本条只写了三级中的后两级,完整政策见上一条修正。)
+
+2026-08-11 版把界面语言写成硬约束(「write every reply in {name}」),
+复测实锤方向反转:界面中文时英文提问也回中文。Owner 拍板:**当次
+消息的语言赢**,配置偏好只在消息语言不可判定(纯代码/链接/数字/
+emoji/均匀混合)时兜底。模板仍 byte-stable per user(R4 缓存区纪律
+不变)。验收=同一会话中文问中文答、英文问英文答,切界面语言不改变。
+
 ## 2026-08-18 — `USER_TEMPORAL_CONTEXT` 不再自己渲染 "now"
 
 原来这个块有一行 `Current local time: {now_local}`，值来自
@@ -115,16 +139,13 @@ that each line carries an event id for view_event drill-down.
 
 **Whitespace matters at assembly time.** `context_runtime.py` joins prompt parts with `"\n\n".join(...)`. The constants themselves begin with a leading newline (e.g., `"\n## Related Narratives..."`). The combination produces three blank lines between sections, which is intentional for LLM readability but looks odd in raw Python string literals. Changing the leading newline in a constant without also adjusting the join separator will silently collapse or over-expand the section gaps.
 
+**`REPLY_LANGUAGE_SECTION` 引用了 `USER_MESSAGE_SEPARATOR` —— 本文件第一处常量间引用。**
+「常量都是自包含 markdown 片段,逐行读完本文件即可重建 prompt 骨架」这条对它不再完全成立
+(其完整字面值在定义处看不全,分隔符部分来自 `USER_MESSAGE_SEPARATOR`);且它必须定义在
+`USER_MESSAGE_SEPARATOR` **之后**,否则 import 期 `NameError`(源文件注释里有同样的顺序约束)。
+
 **`BOOTSTRAP_INJECTION_PROMPT` contains a `⚡` emoji.** The Bootstrap section uses `## ⚡ Bootstrap Mode (PRIORITY)` to draw the LLM's attention. If a downstream text-processing pipeline strips non-ASCII characters (e.g., certain log sanitisers), this heading degrades to `##  Bootstrap Mode (PRIORITY)` with a double space, which still works functionally but loses the visual emphasis.
 
 ## 新人易踩的坑
 
 Adding a new structural section to the system prompt requires two coordinated changes: a new constant here, and a corresponding insertion point in `context_runtime.py`. Defining the constant without wiring it in, or wiring it in with an inline string literal rather than a constant, both compile without errors and produce a broken or non-auditable prompt. The convention is: if text appears literally in a `build_*` method, it belongs in this file instead.
-
-## 2026-08-20 — 回复语言:当次消息优先,偏好只做兜底(深圳复测 B4)
-
-2026-08-11 版把界面语言写成硬约束(「write every reply in {name}」),
-复测实锤方向反转:界面中文时英文提问也回中文。Owner 拍板:**当次
-消息的语言赢**,配置偏好只在消息语言不可判定(纯代码/链接/数字/
-emoji/均匀混合)时兜底。模板仍 byte-stable per user(R4 缓存区纪律
-不变)。验收=同一会话中文问中文答、英文问英文答,切界面语言不改变。

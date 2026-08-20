@@ -15,6 +15,7 @@ the section in the cacheable prompt region.
 from xyz_agent_context.context_runtime.context_runtime import (
     build_reply_language_section,
 )
+from xyz_agent_context.context_runtime.prompts import USER_MESSAGE_SEPARATOR
 
 
 def test_unset_yields_empty():
@@ -50,10 +51,26 @@ def test_explicit_request_in_message_wins_over_everything():
     written in Chinese must be honored — the message's own language does
     not override an explicit request inside it. The 2026-08-11 wording
     protected this branch; deleting it silently was the regression this
-    test prevents from recurring."""
+    test prevents from recurring.
+
+    Beyond phrase presence, the RELATIVE ORDER is pinned (review #335 r2
+    I2): "wins over" must be bound to the explicit-request clause, before
+    the preference-fallback sentence — a rewrite that keeps every phrase
+    but attaches "wins over everything else" to the configured preference
+    (exactly the B4 inversion) must go red. str.index over regex: the
+    template is prose and reflows; only the ordering is contractual."""
     lowered = build_reply_language_section("zh").lower()
     assert "explicitly asks" in lowered
-    assert "wins over" in lowered
+    # binding pin: subject + verb as ONE contiguous phrase — "wins over"
+    # must be predicated of the user's request, not merely occur somewhere
+    # between the anchors (position alone can't see what a verb binds to)
+    assert "that request wins over everything else" in lowered
+    i_explicit = lowered.index("explicitly asks")
+    i_wins = lowered.index("wins over")
+    i_fallback = lowered.index("only as the fallback")
+    assert i_explicit < i_wins < i_fallback
+    # no second "wins over" hanging off the fallback sentence
+    assert "wins over" not in lowered[i_fallback:]
 
 
 def test_current_message_is_anchored_to_the_separator():
@@ -61,12 +78,12 @@ def test_current_message_is_anchored_to_the_separator():
     message starts with an English context block — "current message" must
     point past the '--- User message ---' separator (spelled via the
     USER_MESSAGE_SEPARATOR constant, one spelling repo-wide) and be phrased
-    for the separator-absent case too."""
-    from xyz_agent_context.context_runtime.prompts import USER_MESSAGE_SEPARATOR
-
+    for the separator-absent case too. The full conditional clause is
+    pinned (review #335 r2 M4-class: "is present" alone is two generic
+    words) — NOTE: `section` is the raw, un-lowered text; the constant
+    contains an uppercase 'U'."""
     section = build_reply_language_section("zh")
-    assert USER_MESSAGE_SEPARATOR in section
-    assert "is present" in section  # relocation may be off
+    assert f"when a '{USER_MESSAGE_SEPARATOR}' separator is present" in section
 
 
 def test_region_variant_and_unknown_code_fall_back():
