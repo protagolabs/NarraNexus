@@ -1,8 +1,46 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — inbox 写入换成 InboxRecorder
+
+`self._inbox_writer`（`ChannelInboxWriter`，写 MessageBus 的表）换成
+`self._inbox_recorder`（`InboxRecorder`，写 inbox 自己的表）。两个调用点都改了。
+
+动机不是整洁：旧写入器为了让面板找得到会话，**给 agent 建 `bus_channel_members` 成员行**，
+而没有任何人推进它的 `last_read_at` ——于是每条 IM 消息都永久挂在 agent 的 bus 未读游标上
+（prod 实测 1,364 条 / 90 个 agent）。见 [[inbox_recorder]]。
+
+`owner_user_id` 是新增的必要信息（线程按用户列），由 `resolve_owner_for_agent` 走
+`AgentRepository.resolve_owner` 这条共享缝解析，不在这里另开查询。
+
+## 2026-08-17 — "从没执行过"不能写成 0.0（monotonic 从开机计数）
+
+`_last_heartbeat_monotonic` / `_last_cleanup_monotonic` 的初值从 `0.0` 改成
+`float("-inf")`。两道门都是 `time.monotonic() - mark >= interval`，而
+`time.monotonic()` 在 Linux 上**从开机计数**——所以 `0.0` 表达的不是"从没执行
+过"，而是"在开机那一刻执行过"。宿主机 uptime 小于间隔时，门**静默不开**：
+
+- **heartbeat（600s）**：刚开机的宿主机头十分钟没有任何 L2 存活行——而那正是
+  启动失败最可能发生的窗口，也正是事故教训 #4 要求这些心跳覆盖的东西。
+- **cleanup（24h）**：`_run_cleanup` 自己的 docstring 写着 "once at startup +
+  daily"，而新开的 EC2 实例两样都没拿到，第一次 retention sweep 要等宿主机
+  uptime 满一天。
+
+`-inf` 让"从没执行过"成为真正的哨兵，第一轮必然执行。**长 uptime 的机器上行为
+不变**（`now - 0.0` 本来就远大于间隔），这次只修好刚开机那一档。两个 mark 都只
+参与差值比较、从不进 payload，所以无穷不会泄进任何一行审计数据；heartbeat 里的
+`uptime_seconds` 用的是 `_startup_time_ms`（wall clock），不受影响。
+
+**别改成 seed 语义**（`_thinking_batcher.py` 那种 `if mark == 0.0: mark = now`）
+——那表达的是"第一次调用不执行、从此刻开始计时"，与这里想要的正好相反。
+
+线索来自反方向：`test_credential_breaker.py` 里同一个 `0.0` 写法让一条测试在所有
+开发机上绿、在全新 CI runner 上红（索引空列表）。测试那处是实例，这两处是同一个
+假设在生产侧。守卫见 `tests/channel/test_first_cycle_on_a_fresh_host.py`（把
+`time.monotonic` 垫成刚开机，是这个差别唯一可观测的条件）。
 
 ## 2026-08-10 — processed 行合并 audit_details(review 后:seam 撤销)
 

@@ -24,11 +24,13 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
       inputContent: string,
       agentName?: string,
       attachments?: Attachment[],
+      fastMode?: boolean,
     ) => {
       wsManager.run(agentId, userId, inputContent, {
         onComplete: options.onComplete,
         agentName,
         attachments,
+        fastMode,
       });
     },
     [options.onComplete]

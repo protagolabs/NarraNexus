@@ -42,6 +42,8 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
+
 
 class ChannelSeenMessageRepository:
     """Persistent dedup store keyed on (channel, dedup_key).
@@ -95,12 +97,7 @@ class ChannelSeenMessageRepository:
             )
             return True
         except Exception as e:
-            msg = str(e)
-            if (
-                "UNIQUE constraint failed" in msg     # sqlite
-                or "Duplicate entry" in msg            # mysql
-                or "1062" in msg                       # mysql err code
-            ):
+            if is_unique_violation(e):
                 return False
             # Non-UNIQUE failures (connection lost, disk full, etc.) MUST
             # propagate. The trigger's hot path catches this and chooses

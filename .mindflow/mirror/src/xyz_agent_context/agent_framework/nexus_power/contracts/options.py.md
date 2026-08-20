@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — `origin_declaration`
+
+一行已渲染好的来源声明（见 [[message_source_handler]] 的 `render_origin_declaration`）。
+框架拿到的是成品句子而不是原料，这样 CLI driver 和本框架发出的字符完全一致。空 = 本轮
+没有已声明的回复面，那就对回复只字不提。
+
 
 ## 2026-08-13 — expression_nudge 开关
 

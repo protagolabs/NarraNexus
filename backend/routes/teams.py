@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.dialect_time import event_time_str
 from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository
@@ -35,6 +36,15 @@ from xyz_agent_context.message_bus.attachments import (
     resolve_shared_file_for_user,
     store_bus_attachment_meta,
     store_bytes_into_bus,
+)
+from xyz_agent_context.message_bus.team_rooms import (
+    get_or_create_team_room,
+    primary_room_of,
+    team_room_marker,
+)
+from xyz_agent_context.message_bus.system_messages import (
+    PLATFORM_MSG_TYPES,
+    placeholders as _platform_placeholders,
 )
 from xyz_agent_context.schema.attachment_schema import derive_category_from_mime
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
@@ -76,6 +86,11 @@ from backend.auth import resolve_current_user_id
 
 
 router = APIRouter()
+
+# How many room messages one request carries. The same number in all three
+# directions (newest page / catching up / scrolling back) so a reader cannot
+# tell which mode produced the page they are looking at.
+PAGE_SIZE = 200
 
 
 async def _user_id_for_request(request: Request) -> str:
@@ -240,36 +255,6 @@ async def _wipe_team_data(
     return result
 
 
-async def _get_or_create_team_room(
-    db, bus: LocalMessageBus, team_id: str, team_name: str, member_agent_ids: list[str]
-) -> str:
-    """Find (or create) the team's group-chat channel and sync its members to
-    the team's current agents. Returns the channel_id."""
-    marker = f"{TEAM_ROOM_OWNER_PREFIX}{team_id}"
-    existing = await db.get_one("bus_channels", {"created_by": marker, "channel_type": "group"})
-    if existing:
-        channel_id = existing["channel_id"]
-    else:
-        # create_channel sets created_by = members[0]; immediately rewrite it to
-        # the non-agent marker so no member is the always-activated owner.
-        channel_id = await bus.create_channel(
-            name=team_name or "Team",
-            members=list(member_agent_ids),
-            channel_type="group",
-        )
-        await db.update("bus_channels", {"channel_id": channel_id}, {"created_by": marker})
-
-    # Sync membership to the team's current agents (add missing, drop extras).
-    current = {m.agent_id for m in await bus.get_channel_members(channel_id)}
-    target = set(member_agent_ids)
-    for aid in target - current:
-        await bus.join_channel(aid, channel_id)
-    for aid in current - target:
-        await bus.leave_channel(aid, channel_id)
-
-    return channel_id
-
-
 def _sanitized_attachment(user_id: str, att: object) -> dict | None:
     """Rebuild one echoed attachment dict from server-side state only.
 
@@ -330,7 +315,9 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
 
     members = await member_repo.list_members_by_team(team_id)
     bus = LocalMessageBus(backend=db._backend)
-    channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
+    channel_id = await get_or_create_team_room(
+        db, bus, team_id=team_id, team_name=team.name, member_agent_ids=members
+    )
 
     # Map the UI's "@all" to the bus-native "@everyone"; pass agent_ids through.
     resolved = ["@everyone" if m == "@all" else m for m in (payload.mentions or [])]
@@ -356,6 +343,53 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
         attachments=valid_attachments or None,
         routed_by=routed_by,
     )
+    # The user's own hand-offs go on the board too.
+    #
+    # `record_handoffs` otherwise only sees agent→agent traffic, because that
+    # is the one path routed through MessageBusTrigger. A user message reaches
+    # the bus straight from here — so "@Bruno pull the numbers", ignored, left
+    # no trace at all, and patrol had nothing to sweep. That is the ONE broken
+    # hand-off a person actually witnesses: an agent ignoring another agent is
+    # invisible to them, being ignored themselves is not.
+    #
+    # It also fixes the denominator. `make work-item-report` is meant to answer
+    # "how many hand-offs never come back", and measuring only the half nobody
+    # watches would answer a different question than the one PR #230's
+    # measure-first position is asking.
+    #
+    # `close_delivered_errands` is deliberately NOT called here: the user is
+    # never an assignee, so there is nothing of theirs to settle.
+    #
+    # Fire-and-forget in spirit but awaited in practice — it is bounded by
+    # MAX_HANDOFFS_PER_MESSAGE, and it swallows its own failures, so it cannot
+    # fail a send that already succeeded (the message id above is returned
+    # either way).
+    try:
+        from xyz_agent_context.message_bus.errand import record_handoffs
+
+        await record_handoffs(
+            db,
+            team_id=team_id,
+            channel_id=channel_id,
+            from_agent=f"{USER_SENDER_PREFIX}{user_id}",
+            # Post-routing: a `default_responder` wake-up is the platform
+            # picking someone to answer, not the user handing work to them.
+            mentions=(payload.mentions and resolved) or None,
+            # This is the only entrance that allows an empty body (an agent
+            # reply always has text), so the shared "(untitled hand-off)"
+            # fallback would surface here and nowhere else. Only the route
+            # knows an attachment is what was handed over, so it says so —
+            # the board is read by every member every turn, and a row that
+            # names nothing is a row that costs tokens to skip.
+            text=payload.content.strip() or (
+                f"{len(valid_attachments)} attachment(s)"
+                if valid_attachments else ""
+            ),
+            message_id=msg_id,
+        )
+    except Exception as e:  # noqa: BLE001 — the message is already delivered
+        logger.warning(f"Team chat: errand bookkeeping failed for {team_id}: {e}")
+
     logger.info(f"Team chat: user {user_id} -> team {team_id} channel {channel_id} (mentions={resolved})")
     return {"success": True, "message_id": msg_id, "channel_id": channel_id}
 
@@ -434,7 +468,19 @@ async def upload_team_chat_attachment(
 
 
 @router.get("/{team_id}/chat/messages")
-async def get_team_chat(team_id: str, request: Request, since: str | None = None):
+async def get_team_chat(
+    team_id: str, request: Request, since: str | None = None, before: str | None = None
+):
+    """The room's transcript, in one of three modes.
+
+    * no cursor — the NEWEST page. This was `get_messages(limit=200)`, which is
+      `ORDER BY created_at ASC LIMIT n`: the OLDEST 200. A room that had said
+      more than that opened on its first day and, because every later poll used
+      `since` to walk forward from what was on screen, stayed there. Nothing
+      looked broken; it showed the wrong end of the conversation forever.
+    * `since` — everything after the cursor, oldest first. The 3s poll.
+    * `before` — the page above the cursor. Scrolling up through history.
+    """
     user_id = await _user_id_for_request(request)
     db = await get_db_client()
     team_repo = TeamRepository(db)
@@ -448,9 +494,16 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
 
     members = await member_repo.list_members_by_team(team_id)
     bus = LocalMessageBus(backend=db._backend)
-    channel_id = await _get_or_create_team_room(db, bus, team_id, team.name, members)
+    channel_id = await get_or_create_team_room(
+        db, bus, team_id=team_id, team_name=team.name, member_agent_ids=members
+    )
 
-    messages = await bus.get_messages(channel_id, since=since, limit=200)
+    if before:
+        messages = await bus.get_messages_before(channel_id, before=before, limit=PAGE_SIZE)
+    elif since:
+        messages = await bus.get_messages(channel_id, since=since, limit=PAGE_SIZE)
+    else:
+        messages = await bus.get_recent_messages(channel_id, limit=PAGE_SIZE)
 
     # Resolve sender display names: agents -> agent_name; usr_<id> -> the user.
     agent_rows = await db.get_by_ids("agents", "agent_id", members) if members else []
@@ -472,6 +525,18 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
                 # stop notice, which the frontend renders as a system line (from an
                 # i18n key) rather than as this agent speaking.
                 "msg_type": m.msg_type,
+                # Whether this line is the PLATFORM narrating itself. Answered
+                # here rather than by the client keeping its own copy of
+                # PLATFORM_MSG_TYPES: the wire carries strings, and a type the
+                # server starts sending that a client-side list does not know
+                # renders as a member speaking — with an identity colour, an
+                # avatar and a `team_<id>` marker for a name. That list has grown
+                # from 5 to 7 in this change alone, so "remember to update the
+                # other copy" is not a mechanism.
+                "is_platform": (m.msg_type or "") in PLATFORM_MSG_TYPES,
+                # Null for legacy messages and for any path without a monologue;
+                # the panel renders those as one block.
+                "segments": m.segments,
                 # Turn that produced this reply (None for user messages / legacy
                 # rows) — powers the per-message reasoning disclosure.
                 "event_id": m.event_id,
@@ -575,6 +640,149 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
     return out
 
 
+async def _team_room_activity(
+    db, team_ids: list[str], *, user_sender: str
+) -> dict[str, dict]:
+    """When each team's room last said something worth coming back for.
+
+    The sidebar has no transcript — it never loads one — so "did anything happen
+    while I was away" cannot be derived on the client. The unread WATERMARK is
+    client-side (localStorage, per device, so the server cannot know it); what the
+    server owes is the other half of the comparison: one timestamp per room.
+
+    Two exclusions decide whether a message qualifies, and both are the
+    difference between a mark users trust and one they learn to ignore:
+
+      * the user's own message does not count, or sending a message would badge
+        the room it was sent from;
+      * platform lines do not count. A bulletin notice fires on the user's own
+        edit and a roster notice on their own member change — badging those says
+        "someone replied" when the only actor was the user.
+
+    Deliberately does NOT create rooms. Listing teams is a read; materialising a
+    channel for every team the user has never opened would mean the sidebar
+    creates rooms by looking at them.
+
+    Args:
+        db: AsyncDatabaseClient.
+        team_ids: Teams to report on. Empty is answered without a query — an
+            ``IN ()`` with no values is a syntax error in both dialects.
+        user_sender: This user's room sender id (``usr_<user_id>``).
+
+    Returns:
+        team_id -> {last_message_at, from_agent, preview}, omitting any team
+        whose room does not exist or has nothing qualifying in it.
+    """
+    if not team_ids:
+        return {}
+
+    team_by_marker = {f"{TEAM_ROOM_OWNER_PREFIX}{tid}": tid for tid in team_ids}
+    channel_rows = await db.execute(
+        "SELECT channel_id, created_by FROM bus_channels "
+        f"WHERE channel_type = 'group' AND created_by IN ({', '.join(['%s'] * len(team_by_marker))})",
+        tuple(team_by_marker),
+        fetch=True,
+    )
+
+    channel_to_team = {
+        r["channel_id"]: team_by_marker[r["created_by"]]
+        for r in channel_rows or []
+        if r.get("created_by") in team_by_marker
+    }
+    if not channel_to_team:
+        return {}
+
+    # ONE query for every room, not one per room. This endpoint is polled every
+    # 30s by each open tab, so a per-room query multiplies by teams AND by tabs.
+    #
+    # The newest QUALIFYING message per channel, filtered in SQL rather than by
+    # reading a window and skipping rows: a room whose tail is all platform lines
+    # would otherwise report silence while a real reply sits just behind them.
+    #
+    # The filter names the platform's types rather than admitting known-good
+    # ones. An ordinary type added later shows up correctly under an exclusion
+    # list and would be INVISIBLE under an allowlist — a talking room reading as
+    # silent. `msg_type IS NULL` cannot happen (the column is NOT NULL) but is
+    # kept so this filter is word-for-word the one in `message_bus_trigger`,
+    # which is what `system_messages` exists to hold together.
+    #
+    # A MAX + self-join rather than a window function: `ROW_NUMBER() OVER` needs
+    # MySQL 8, and nothing else in this codebase requires it.
+    chan_ph = ", ".join(["%s"] * len(channel_to_team))
+
+    def _where(alias: str) -> str:
+        # Qualified with the alias: the outer query joins bus_messages to a
+        # subquery over bus_messages, so an unqualified `channel_id` is
+        # ambiguous — and SQLite says so while MySQL might not.
+        return (
+            f"{alias}.channel_id IN ({chan_ph}) AND {alias}.from_agent != %s "
+            f"AND ({alias}.msg_type IS NULL OR "
+            f"{alias}.msg_type NOT IN ({_platform_placeholders()}))"
+        )
+
+    params = (*channel_to_team, user_sender, *PLATFORM_MSG_TYPES)
+    rows = await db.execute(
+        f"SELECT m.channel_id, m.from_agent, m.content, m.created_at "
+        f"FROM bus_messages m JOIN ("
+        f"  SELECT b.channel_id AS channel_id, MAX(b.created_at) AS newest "
+        f"  FROM bus_messages b WHERE {_where('b')} GROUP BY b.channel_id"
+        f") t ON t.channel_id = m.channel_id AND t.newest = m.created_at "
+        f"WHERE {_where('m')}",
+        (*params, *params),
+        fetch=True,
+    )
+
+    out: dict[str, dict] = {}
+    # Raw timestamps for the cross-room comparison, function-local by
+    # construction so they cannot reach the caller.
+    newest: dict[str, object] = {}
+    for msg in rows or []:
+        team_id = channel_to_team.get(msg["channel_id"])
+        if not team_id:
+            continue
+        # A team is one room today, but the mapping is many-to-one and nothing
+        # enforces otherwise — so keep the NEWEST across a team's rooms rather
+        # than whichever row the result set happened to end on. An arbitrary
+        # winner would move the watermark backwards on some refreshes, which
+        # reads as a mark that will not stay cleared.
+        #
+        # Two messages CAN share the newest instant, and then the join returns
+        # both. No tie-break there: the timestamp is identical, so the watermark
+        # is too, and neither of two things said in the same microsecond is the
+        # more correct one to show. A guard that picked the first stood here
+        # until a mutation showed nothing could tell the difference.
+        # Compared on the RAW column, not on `format_for_api`'s output: that
+        # truncates to whole seconds, so two rooms that spoke in the same second
+        # would tie and the first row would win by accident. The formatted value
+        # is for the wire only.
+        #
+        # Through `event_time_str`, which is what this repository already means
+        # by "normalise a DATETIME cell before comparing it": sqlite hands back
+        # `datetime` objects and mysql hands back strings, so a bare `str()` is
+        # a fourth hand-rolled copy of a helper that exists precisely because
+        # copies of it drifted. It is not equivalent either — `str(None)` is
+        # `"None"`, which sorts above every real timestamp and would let a NULL
+        # win forever, and a non-UTC offset compares lexicographically as if the
+        # offset were part of the clock.
+        raw_at = msg.get("created_at")
+        # The raw value lives in a PARALLEL map, not inside the response dict:
+        # putting an internal field into the object being returned and stripping
+        # it at the end works only for as long as nobody adds an early return.
+        if team_id in newest and event_time_str(newest[team_id]) >= event_time_str(raw_at):
+            continue
+        newest[team_id] = raw_at
+        # Flattened and capped like the agent rows' preview right above it in the
+        # same sidebar: a row is one line, and this rides in every refresh for
+        # every team, so an untrimmed reply would be payload nobody can see.
+        flat = " ".join((msg.get("content") or "").split())
+        out[team_id] = {
+            "last_message_at": format_for_api(raw_at),
+            "from_agent": msg.get("from_agent") or "",
+            "preview": flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…",
+        }
+    return out
+
+
 @router.get("", response_model=TeamListResponse)
 async def list_teams(request: Request):
     user_id = await _user_id_for_request(request)
@@ -583,10 +791,32 @@ async def list_teams(request: Request):
     member_repo = TeamMemberRepository(db)
 
     teams = await team_repo.list_teams_by_owner(user_id)
+    activity = await _team_room_activity(
+        db, [t.team_id for t in teams], user_sender=f"{USER_SENDER_PREFIX}{user_id}"
+    )
+
+    agent_names: dict[str, str] = {}
+    speakers = [a["from_agent"] for a in activity.values() if a.get("from_agent")]
+    if speakers:
+        rows = await db.get_by_ids("agents", "agent_id", speakers)
+        agent_names = {r["agent_id"]: (r.get("agent_name") or r["agent_id"]) for r in rows if r}
+
     enriched: list[TeamWithMembers] = []
     for t in teams:
         members = await member_repo.list_members_by_team(t.team_id)
-        enriched.append(TeamWithMembers(team=t, member_agent_ids=members))
+        act = activity.get(t.team_id)
+        enriched.append(
+            TeamWithMembers(
+                team=t,
+                member_agent_ids=members,
+                last_message_at=(act or {}).get("last_message_at"),
+                last_message_preview=(act or {}).get("preview"),
+                # Resolved here rather than in the frontend: the sidebar has no
+                # agent-name map for members of teams it is not showing, and a
+                # raw agent_id in a preview line reads as a bug.
+                last_message_author=agent_names.get((act or {}).get("from_agent") or ""),
+            )
+        )
     return TeamListResponse(teams=enriched)
 
 
@@ -643,6 +873,10 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
             if lead not in members:
                 raise HTTPException(status_code=400, detail="lead_agent_id must be a team member")
         updates["lead_agent_id"] = lead or None
+    lead_changed = (
+        "lead_agent_id" in updates
+        and (updates["lead_agent_id"] or "") != (getattr(team, "lead_agent_id", None) or "")
+    )
     if updates:
         await team_repo.update_team(team_id, updates)
         # The room carries its own copy of the name, and it is the copy agents
@@ -653,7 +887,7 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
             try:
                 await db.update(
                     "bus_channels",
-                    {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}",
+                    {"created_by": team_room_marker(team_id),
                      "channel_type": "group"},
                     {"name": updates["name"]},
                 )
@@ -661,6 +895,12 @@ async def update_team(team_id: str, payload: UpdateTeamRequest, request: Request
                 logger.warning(
                     f"[teams] renamed {team_id} but could not update its room: {e}"
                 )
+    if lead_changed and updates.get("lead_agent_id"):
+        # The lead is who answers when nobody is named and who patrol wakes, so
+        # changing it changes who is responsible. Only announced when a lead was
+        # SET: clearing it hands responsibility back to the earliest-joined
+        # member by rule, which is not an event with a name to report.
+        await _announce_roster(db, team_id, "lead", updates["lead_agent_id"])
     refreshed = await team_repo.get_team(team_id)
     return TeamOperationResponse(success=True, team=refreshed, message="Team updated")
 
@@ -993,6 +1233,28 @@ async def list_team_files(team_id: str, request: Request):
     return await _team_files(db, team_id)
 
 
+async def _announce_roster(db, team_id: str, action: str, agent_id: str) -> None:
+    """Tell the room its roster or lead changed.
+
+    Only when the room EXISTS: a team whose chat has never been opened has no
+    channel, and creating one to narrate a membership edit would be the tail
+    wagging the dog. Best-effort — the edit itself already succeeded.
+    """
+    from xyz_agent_context.message_bus.team_notices import post_roster_change
+
+    channel_id = await primary_room_of(db, team_id) or ""
+    if not channel_id:
+        return
+    agent = await db.get_one("agents", {"agent_id": agent_id})
+    await post_roster_change(
+        db,
+        team_id=team_id,
+        channel_id=channel_id,
+        action=action,
+        agent_name=(agent or {}).get("agent_name") or agent_id,
+    )
+
+
 @router.post("/{team_id}/members", response_model=TeamOperationResponse)
 async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
     user_id = await _user_id_for_request(request)
@@ -1013,6 +1275,11 @@ async def add_member(team_id: str, payload: AddMemberRequest, request: Request):
         raise HTTPException(status_code=403, detail="Cannot add another user's agent")
 
     added = await member_repo.add_member(team_id, payload.agent_id)
+    if added:
+        # Who is in the room decides what @all reaches and who can answer. It
+        # used to change silently, which also leaves the transcript above the
+        # change reading as though the current roster wrote it.
+        await _announce_roster(db, team_id, "joined", payload.agent_id)
     return TeamOperationResponse(
         success=True,
         message="Agent added to team" if added else "Agent already in team",
@@ -1035,6 +1302,7 @@ async def remove_member(team_id: str, agent_id: str, request: Request):
     deleted = await member_repo.remove_member(team_id, agent_id)
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Member not found in team")
+    await _announce_roster(db, team_id, "left", agent_id)
     return TeamOperationResponse(success=True, message="Member removed")
 
 

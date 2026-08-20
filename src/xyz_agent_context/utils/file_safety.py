@@ -8,6 +8,18 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
+# Skill-archive admission caps. Single source of truth: the upload/registration
+# gate (`bundle/security.validate_skill_archive_*`) and the installer that
+# actually unpacks (`skill_module._extract_zip_safely`) MUST agree, or an
+# archive can be accepted at the door and then rejected at install time — the
+# "A endpoint accepts, B endpoint fails" shape this pair exists to prevent.
+# They lived as two separate literals held equal only by a comment; they don't
+# anymore. NOT related to `bundle.security.MAX_DECOMPRESSED_BYTES` (2 GB), which
+# bounds a whole `.nxbundle` — a different order of magnitude, kept separate.
+MAX_SKILL_ARCHIVE_ENTRIES = 500
+MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
 def sanitize_filename(
     filename: str,
     *,

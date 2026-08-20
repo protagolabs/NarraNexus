@@ -26,6 +26,8 @@ export interface TriggerConfig {
   cron?: string;               // cron expression, e.g. "0 8 * * *"
   interval_seconds?: number;
   timezone?: string;           // IANA name, e.g. "Asia/Shanghai"
+  end_at?: string;             // scheduled jobs: naive local ISO horizon —
+                               // the platform completes the job past this
   end_condition?: string;      // ongoing jobs
   max_iterations?: number;     // ongoing jobs
   [key: string]: unknown;
@@ -416,6 +418,10 @@ export interface NetmindLoginResponse extends ApiResponse {
   token?: string;        // our self-issued JWT
   role?: string;
   is_new_user?: boolean;
+  // Whether the deployment auto-provisions the onboarding guide agent —
+  // gates the "your first agent is already here" coachmark so the server's
+  // kill-switch silences the UI too.
+  guide_agent_provisioning?: boolean;
   display_name?: string;
   email?: string;
 }
@@ -442,6 +448,8 @@ export type QuotaMeResponse =
 
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
+  // See NetmindLoginResponse.guide_agent_provisioning.
+  guide_agent_provisioning?: boolean;
 }
 
 export interface AgentListResponse extends ApiResponse {
@@ -1108,6 +1116,11 @@ export interface SubscriptionPlan {
   quota_limits: { rpm?: number };
   features: { support?: boolean; member_price?: boolean };
   monthly_grant_usd: number;
+  // What a month COSTS, as opposed to monthly_grant_usd (what it gives you).
+  // They happen to be equal today; the one-time purchase total must be built
+  // from the price, because a change to either would otherwise silently
+  // mis-price a 12-month checkout. Nullable upstream on the free plan.
+  usd_monthly_price?: number | null;
   prices: SubscriptionPlanPrice[];
 }
 
@@ -1117,6 +1130,21 @@ export interface SubscriptionStatus {
   current_period_start: number; // Unix seconds
   current_period_end: number; // Unix seconds
   auto_renew: boolean;
+  // Which product this subscription actually is. Load-bearing, not decorative:
+  // a one-time (Alipay/WeChat) purchase never renews, so `auto_renew` is false
+  // for its whole life — the exact tuple a CANCELLED card subscription sits in.
+  // Every other field reads identically in the two states, so this is what the
+  // panel branches on — and the two need opposite actions (resume auto-renew
+  // vs buy more months).
+  //
+  // Optional because every subscription created before the nexus account is a
+  // card one and predates the field; absent therefore means "card", which is
+  // what the pre-existing reading already assumed — and what keeps the
+  // branching correct whether upstream spells the card case "stripe" or omits
+  // it entirely. Only the one-time shape was measured (dev 2026-08-19, a live
+  // Alipay purchase); the card case is inferred, which is why the fallback
+  // rather than an equality test is what the code relies on.
+  payment_method?: SubscribePaymentMethod;
 }
 
 // GET /api/billing/subscription -> data. Plan fields are flat at top level;
@@ -1137,10 +1165,19 @@ export interface PlanListResponse extends ApiResponse {
   data?: PlanList;
 }
 
+// Which Pro product to start. `stripe` is a card subscription that renews
+// itself; `alipay` / `wechat` cannot pay a Stripe subscription at all and are
+// therefore a ONE-TIME purchase of N months that ends when the period does.
+export type SubscribePaymentMethod = 'stripe' | 'alipay' | 'wechat';
+
 // POST /api/billing/subscribe -> Stripe checkout to redirect the user to.
 export interface SubscribeCheckout {
   session_id: string;
   checkout_url: string;
+  // Only on a CNY (WeChat) one-time purchase; see RechargeCheckout.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
 }
 
 export interface SubscribeResponse extends ApiResponse {
@@ -1213,12 +1250,45 @@ export interface RecordsResponse extends ApiResponse {
   has_next?: boolean;
 }
 
+// Which rail the payer picked. `default` is the card page (Stripe shows Alipay
+// alongside the card form there too); the explicit values force one rail.
+// WeChat is the only one that settles in a foreign currency — see FxQuote.
+export type RechargePaymentMethod = 'default' | 'alipay' | 'wechat';
+
 // POST /api/billing/recharge -> hosted Stripe checkout for a top-up (module E).
 export interface RechargeCheckout {
   recharge_id?: string;
   session_id: string;
   checkout_url: string;
   status?: string; // pending at creation
+  // Present only when the charge is not in USD (WeChat). `charge_amount` is
+  // what the payer's bank actually takes; the credit they receive is still the
+  // USD `amount` they asked for.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
+}
+
+// GET /api/billing/fx-rate -> what a CNY charge would cost right now.
+//
+// Every field is a STRING (upstream sends money as text to avoid float drift)
+// and every field is optional: the backend proxies the upstream body without
+// schema validation, so a partial 200 is possible and call sites must not
+// assume presence — the same rule FeeInfo carries.
+export interface FxQuote {
+  from?: string;
+  to?: string;
+  rate?: string;
+  amount_usd?: string;
+  charge_amount?: string;
+  // The floor below which upstream rejects the payment outright. Shown and
+  // enforced before checkout so the user never meets that 400.
+  min_amount_usd?: string;
+  min_charge?: string;
+}
+
+export interface FxQuoteResponse extends ApiResponse {
+  data?: FxQuote;
 }
 
 export interface RechargeResponse extends ApiResponse {

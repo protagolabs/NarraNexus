@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-08-18
 ---
 
 ## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
@@ -22,7 +22,7 @@ last_verified: 2026-08-10
 从 `chat_module.py` 分离出来（2026-03-06），把 MCP 工具注册逻辑与 Module 的 Hook 生命周期逻辑解耦。`chat_module.py` 专注于记忆管理，这个文件专注于"Agent 如何输出给用户"。
 
 提供两个工具：
-- `send_message_to_user_directly`：Agent 向用户说话的**唯一通道**，没有 DB 操作，只返回确认
+- `reply_owner`：Agent 向用户说话的**唯一通道**，没有 DB 操作，只返回确认
 - `get_chat_history`：经 AgentDataStore seam 取会话历史（实现见 [[_chat_reads]]；2026-08-10 前是直查裸表，见 dated section）
 
 ## 上下游关系
@@ -36,7 +36,7 @@ last_verified: 2026-08-10
 
 ## 设计决策
 
-**`send_message_to_user_directly` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
+**`reply_owner` 不写 DB**：工具本身只返回一个成功确认，实际的消息展示依赖于 `AgentRuntime` 监听 `ProgressMessage` 里的工具调用，从 `arguments.content` 里提取内容发给前端 WebSocket。DB 写入在 `ChatModule.hook_after_event_execution` 里完成（提取该工具的调用内容作为 assistant 消息）。
 
 **~~`get_chat_history` 直接查表而不走 Repository~~（2026-08-10 已改）**：曾经直查动态命名表 `instance_json_format_memory_chat` 是权宜之计+技术债。现已迁 [[_chat_reads]]，用 `db.get_one`（双方言安全），表名仍是该模块常量但不再有裸 SQL。
 
@@ -49,4 +49,25 @@ last_verified: 2026-08-10
 
 ## 新人易踩的坑
 
-- 以为调用 `send_message_to_user_directly` 就完成了响应——工具本身不推送消息，推送是 `AgentRuntime` 在 agent loop 里监听工具调用并转发给前端 WebSocket 完成的。如果前端没收到消息，先检查 WebSocket 连接，而不是检查这个工具。
+- 以为调用 `reply_owner` 就完成了响应——工具本身不推送消息，推送是 `AgentRuntime` 在 agent loop 里监听工具调用并转发给前端 WebSocket 完成的。如果前端没收到消息，先检查 WebSocket 连接，而不是检查这个工具。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

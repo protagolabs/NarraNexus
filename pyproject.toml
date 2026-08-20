@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.16.0"
+version = "1.17.0"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -35,7 +35,20 @@ dependencies = [
     # because retrieval.grep_filter imports it explicitly.
     "regex>=2024.0.0",
     "aiomysql>=0.3.2",
-    "aiosqlite>=0.20.0",
+    # Floor raised from 0.20.0 on 2026-08-17: db_backend_sqlite monkeypatches
+    # aiosqlite internals (the module-level `core._connection_worker_thread`
+    # and `Connection._thread`), and setting an attribute that upstream has
+    # renamed away SUCCEEDS SILENTLY — the hardening would degrade to a no-op
+    # and the 5-minute lock class would come back green. uv.lock pins 0.22.1.
+    "aiosqlite>=0.22.1",
+    # A RUNTIME dep, not a test one (2026-08-17): `skill_module.py` imports yaml
+    # unconditionally at module scope. Before this line it was in the graph only
+    # transitively, so the day the resolver stopped routing it here the
+    # SkillModule would have stopped importing — in production, with a traceback
+    # pointing at pyyaml rather than at the missing declaration. Which packages
+    # supply it transitively is a property of the resolution, not of our need for
+    # it, so they are deliberately not named here. Same reasoning as `regex`.
+    "pyyaml>=6.0",
     "google-genai>=1.0.0",
     "fastmcp>=2.14.1",
     "numpy>=1.26.0",
@@ -120,9 +133,21 @@ ignore = [
     "E741",   # ambiguous variable name
     "F401",   # unused imports (too many false positives with re-exports)
     "F811",   # redefinition of unused name
-    "F821",   # undefined name (false positives with forward refs and method scope)
     "F841",   # local variable assigned but never used
 ]
+# F821 (undefined name) is deliberately NOT ignored. It was, with the stated
+# reason "false positives with forward refs and method scope" — but running it
+# over the entire tree produced exactly four hits, all of them real string
+# annotations naming a type the module never imports, and all fixed by a
+# TYPE_CHECKING import. The cost of the ignore was paid on 2026-08-18: four
+# methods in database.py referenced an undefined `fetch` and shipped through
+# lint, CI and three review rounds; the first caller on the lazy path got a
+# NameError.
+#
+# Enforcement follows the repo's existing lint scope — CI and `make lint` both
+# run `ruff check src/ backend/` — so scripts/ and tests/ are checked only when
+# someone runs ruff over the tree by hand. Widening that scope is a separate
+# change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
 
 [tool.ruff.lint.isort]
 known-first-party = ["xyz_agent_context", "backend"]

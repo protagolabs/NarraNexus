@@ -284,6 +284,29 @@ async def test_the_watermark_round_trips_on_mysql(mysql_client):
 async def test_an_end_to_end_pass_writes_a_summary_on_mysql(mysql_client):
     """The whole trigger→transcript→upsert→watermark chain on the real dialect."""
     await mysql_client.insert("teams", {"team_id": TEAM, "owner_user_id": OWNER, "name": "T"})
+    # KNOWN DUPLICATION (2026-08-17, deliberate): "what a summarisable team needs
+    # seeded" now lives here AND in `test_team_summary_worker.py::_seed_room`.
+    # Those two drifting apart is what broke this test in the first place. Not
+    # extracted into a shared helper in the same change, for one reason worth
+    # writing down: the MySQL twin can only be executed in CI (no container on
+    # the authoring machine), and a seeding refactor whose sole verification is a
+    # CI round trip is not a good trade against a duplication that is currently
+    # identical. What changed is the cost of the next drift: with pytest in CI
+    # and the dialect service up, the same mistake now fails loudly on the next
+    # PR instead of skipping silently for weeks. Whoever adds the NEXT gate to
+    # `_summarise_team` should extract `_seed_room` (parameterise TEAM / CHANNEL /
+    # message-id prefixes — this file's cleanup deletes by `_PREFIX` LIKE, so the
+    # prefixes must stay injectable).
+    #
+    # A member is REQUIRED for the chain to run at all: `_summarise_team` gates on
+    # `_cost_bearer(team_id)` and skips a memberless team, because no member means
+    # no cost bearer and the tokens would go unrecorded. That gate landed after
+    # this twin was written, and the twin skipped on every machine without a
+    # MySQL URL and was never run in CI — so it rotted into asserting the tail of
+    # a chain that had already returned early. First CI run with the dialect
+    # service caught it (2026-08-17). The SQLite sibling
+    # (`test_team_summary_worker.py::_seed_room`) has always seeded this.
+    await mysql_client.insert("team_members", {"team_id": TEAM, "agent_id": "agent_a"})
     await mysql_client.insert(
         "bus_channels",
         {

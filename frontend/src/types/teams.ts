@@ -22,6 +22,19 @@ export interface Team {
 export interface TeamWithMembers {
   team: Team;
   member_agent_ids: string[];
+  /**
+   * When this team's room last said something worth coming back for, and what.
+   *
+   * The sidebar never loads a transcript, so "did anything happen while I was
+   * away" cannot be derived on the client — this is the server half of the
+   * unread mark, compared against a watermark held per device in localStorage
+   * (`lib/unread`). All three are null for a room that does not exist yet or has
+   * only the user's own messages and the platform's own notices in it: neither
+   * qualifies, or sending a message would mark the room you sent it from.
+   */
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  last_message_author?: string | null;
 }
 
 export interface TeamListResponse {
@@ -37,6 +50,12 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** True when this line is the PLATFORM narrating itself rather than a member
+   *  speaking. Decided server-side from `PLATFORM_MSG_TYPES`, so the client does
+   *  not keep a second copy of a list that grows — one it did not know about
+   *  would render with an identity colour, an avatar, and a `team_<id>` marker
+   *  for a name. `msg_type` still says WHICH kind, for choosing the wording. */
+  is_platform?: boolean;
   /** 'text' | 'multimodal' for ordinary messages. Everything else is the
    *  PLATFORM narrating itself, rendered as a room-level line rather than as
    *  a member speaking: 'system_stop' (owner stopped a run), 'patrol' (the
@@ -46,6 +65,11 @@ export interface TeamChatMessage {
    *  The last two exist so an empty room can no longer be mistaken for an
    *  agent ignoring you — see message_bus/delivery_notice.py. */
   msg_type?: string | null;
+  /** Monologue/reply boundary, when the producing run recorded one. Absent for
+   *  every message written before it existed and for any path without a
+   *  monologue — the bubble renders those as one block, which is what it did
+   *  before. There is no backfill and no guessing (iron rule #2). */
+  segments?: Array<{ kind: string; text: string }> | null;
   /** `events` row id of the turn that produced this reply — drives the
    *  per-message reasoning disclosure. Null for user messages / legacy rows. */
   event_id?: string | null;
@@ -159,8 +183,13 @@ export interface SkillExportSpec {
   source_url?: string | null;
   source_type?: 'github' | 'zip';
   branch?: string | null;
-  archive_path?: string | null;
-  manual_zip_path?: string | null;
+  // No archive_path / manual_zip_path: for install_method 'zip' the backend
+  // resolves the archive from the caller's own skill_archives rows. Echoing a
+  // path back from GET /skills/archives used to make it a client-chosen file
+  // read (SEC-07). Sending one anyway is *ignored*, not rejected (pydantic
+  // defaults to extra="ignore"), which is deliberate: an older DMG build still
+  // sends it, and `extra="forbid"` would 422 those clients for a field the
+  // server no longer reads.
 }
 
 export interface BundleExportRequest {

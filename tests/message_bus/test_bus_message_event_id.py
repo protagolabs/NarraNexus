@@ -25,6 +25,8 @@ from xyz_agent_context.message_bus.message_bus_trigger import (
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
 
+from ._team_turn import speak_in_room
+
 ROOM = "ch_evt_room"
 
 
@@ -74,6 +76,14 @@ async def test_team_reply_is_stamped_with_the_turn_event_id(db_client, monkeypat
     trigger = MessageBusTrigger(bus=bus)
 
     async def _fake_invoke(*_a, **_k):
+        # The stub does what the runtime plus the agent do: report the run id
+        # (which is what stamps the reply), then make the room call.
+        await _k["on_event_id"]("evt_from_turn")
+        await speak_in_room(
+            db=db_client, bus=trigger._bus, agent_id=_k.get("agent_id") or "",
+            team_id="team_1", channel_id=ROOM, text="the reply",
+            event_id="evt_from_turn",
+        )
         return TurnResult(text="the reply", event_id="evt_from_turn")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)

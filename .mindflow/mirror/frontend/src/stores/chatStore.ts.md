@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 气泡提取改用 `isOwnerReplyTool`
+
+三处按工具名挑 owner 回复内容的地方（`stopStreaming` 的拼接、内联时间线的 reply 事件、
+`complete` 的 `hasReply`）改用 [[ownerTools]] 的共享判定。
+
+后端把一个 owner 工具拆成了 `reply_owner` / `notify_owner`，每轮桌上只有一个。前端只匹配
+其中一个名字时，另一条表面上的回复内容是真的、字也在，**气泡就是不渲染**——一个不报错的
+静默失败。
+
+
+## 2026-08-14 — ToastItem 成为可辨识联合
+
+`ToastItem` 从 `{agentId, agentName, timestamp}` 改成
+`{kind:'agent',…} | {kind:'team',…}`，`dismissToast` 从按 agentId 改成按
+`toastKey(item)`（`agent:<id>` / `team:<id>`）。
+
+原因见 [[AgentCompletionToast.tsx]]：团队房间的 toast 既没有可切换的 agent，也没有
+可以当键的 agent id。**键按 kind 限定**，是因为无法从代码确认 team id 和 agent id
+是否可能相等——不能确认的事就让它不可能发生，而不是依赖它。
+
+这个改动的价值在改的过程中就兑现了：tsc 立刻指出 [[useAutoRefresh.ts]] 里还有一处
+没带 `kind` 的入队。联合类型让"少写一个字段"从运行时的怪现象变成编译错误。
 
 ## 2026-08-10 — rendered reply as value outcome
 
@@ -180,7 +203,7 @@ Depends on `@/lib/utils` for `generateId` and `@/types` for the `RuntimeMessage`
 
 **No persistence.** Deliberate: in-flight streaming state does not survive a page reload. Conversation history is re-hydrated from `preloadStore` (backed by the server) on mount, not from localStorage.
 
-**`send_message_to_user_directly` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
+**`reply_owner` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
 
 **Rejected: separate stores per agent.** Would require dynamic store creation and explicit cross-store wiring for the toast/badge system. A single store with a session map is easier to subscribe to and requires no lifecycle management for agent removal.
 

@@ -63,6 +63,25 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"    # Cancelled (reserved)
 
 
+class JobOrigin:
+    """Surfaces a job can be asked for on, and report back to.
+
+    Deliberately a small closed set rather than "any WorkingSource": every
+    value here needs delivery code that actually exists, and a source we can
+    record but not deliver to is worse than no record — it would route the
+    answer at execution time into a branch that silently does nothing.
+
+    ``MESSAGE_BUS`` currently means a TEAM ROOM. A peer DM is not included: a
+    job reporting into an agent-to-agent channel has no human reader, and the
+    owner-chat fallback is the honest destination for it.
+    """
+
+    MESSAGE_BUS = "message_bus"
+
+    #: Origins with a delivery path. Anything else falls back to owner chat.
+    DELIVERABLE = (MESSAGE_BUS,)
+
+
 class JobUpdateFields(BaseModel):
     """The single source of truth for the job_update tool's MUTABLE field set.
 
@@ -146,6 +165,21 @@ class TriggerConfig(BaseModel):
         description="Execution interval (seconds), e.g., 3600 means every hour. Max 7776000 (90 days)."
     )
 
+    # === Scheduling horizon (optional; recurring jobs) ===
+    end_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "Scheduling horizon for recurring (scheduled / ongoing) jobs: "
+            "once the NEXT fire time would land past this local time, the "
+            "trigger completes the job instead of rescheduling — a "
+            "platform-enforced 'this schedule runs until date X', needing no "
+            "model cooperation. Ignored for one_off (a single run has no "
+            "next fire to bound). Naive local time interpreted in `timezone` "
+            "(same convention as run_at). None = no horizon (unchanged "
+            "behavior)."
+        ),
+    )
+
     # === Timezone (required for all time-bearing triggers) ===
     timezone: Optional[str] = Field(
         default=None,
@@ -166,14 +200,15 @@ class TriggerConfig(BaseModel):
             v = cls.MAX_INTERVAL_SECONDS
         return v
 
-    @field_validator("run_at")
+    @field_validator("run_at", "end_at")
     @classmethod
     def run_at_must_be_naive(cls, v: Optional[datetime]) -> Optional[datetime]:
-        """Reject timezone-aware run_at; timezone must be specified via the timezone field."""
+        """Reject timezone-aware run_at/end_at; timezone must be specified via
+        the timezone field (one timezone convention per model)."""
         if v is not None and v.tzinfo is not None:
             raise ValueError(
-                "run_at must be naive (no tzinfo). Use the `timezone` field to "
-                "declare timezone; do not attach offset or tzinfo to run_at."
+                "run_at/end_at must be naive (no tzinfo). Use the `timezone` "
+                "field to declare timezone; do not attach offset or tzinfo."
             )
         return v
 
@@ -201,6 +236,7 @@ class TriggerConfig(BaseModel):
             self.run_at is not None
             or self.cron is not None
             or self.interval_seconds is not None
+            or self.end_at is not None
         )
         if has_time_field and self.timezone is None:
             raise ValueError(
@@ -381,6 +417,25 @@ class JobModel(BaseModel):
     notification_method: str = Field(
         default="inbox",
         description="Notification method: none / inbox / future extensions"
+    )
+
+    # === Origin (2026-08-14) — where this job was asked for ===
+    origin_source: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "WorkingSource-shaped label for the surface that asked for this "
+            "job (see JobOrigin). Empty = the owner's chat, which is both the "
+            "historical behaviour and the fallback that always exists."
+        ),
+    )
+    origin_channel_id: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "The room within origin_source to report back to. Meaningless "
+            "without origin_source, which is why the two travel together."
+        ),
     )
 
 

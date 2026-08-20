@@ -25,15 +25,26 @@ clearing their own agent. That makes `agent_id` a safe scoping key.
   (no user_id, no narrative_id — see schema_registry `_memory_kind_table`), so
   they can only be cleared by `agent_id`. That is intended for a full wipe.
 
-MessageBus channel history (`bus_messages`) IS cleared under `conversations`,
-but ONLY for channels where this agent is the sole member (its private IM
-channels: lark/telegram/wechat DMs). This is load-bearing: the agent can call
-`bus_get_messages(agent_id, channel_id)` and reconstruct "what did we talk
-about on each channel" straight from the bus mirror — so leaving it made a
-"cleared" agent still recall everything. Channels shared with other agents are
-left untouched (deleting them would corrupt other members' history). The
-channel bindings/membership (`bus_channels`, `bus_channel_members`) are kept so
-the agent keeps receiving new IM messages; only the message rows go.
+IM conversation history IS cleared under `conversations`, and since 2026-08-17
+it lives in `inbox_threads` / `inbox_thread_messages` — the inbox got its own
+tables and `ChannelInboxWriter` is gone, so no IM pseudo-agent, channel or
+membership row is created any more. Both are wiped by `agent_id`, which the
+thread row carries and which `im_thread_id` now keys on, so one agent's wipe
+cannot reach another agent's record even when both talk to the same chat.
+
+This is load-bearing twice over. The IM record is the largest content class in
+the system and the frontend renders it directly (`/api/agent-inbox`), so a wipe
+that missed it would report success while the whole Lark/Telegram/WeChat
+conversation stayed visible in the panel. And Telegram/WeChat read
+`inbox_thread_messages` back as their conversation memory, so a "cleared" agent
+would still recall everything — the same reason the bus mirror had to go.
+
+`bus_messages` is still cleared for channels where this agent is the SOLE member,
+because deployed databases still hold pre-2026-08-17 IM rows written by the old
+writer. Channels shared with other agents are left untouched (deleting them
+would corrupt other members' history). The channel bindings/membership
+(`bus_channels`, `bus_channel_members`) are kept so the agent keeps receiving new
+messages; only the message rows go.
 
 NOTE the platform caveat: the IM platform (Lark/Telegram/WeChat) still holds
 the real messages on ITS servers. This wipe clears NarraNexus's local mirror
@@ -78,6 +89,8 @@ class WipeResult:
     agent_messages_count: int = 0
     bus_messages_count: int = 0
     bus_failures_count: int = 0
+    inbox_threads_count: int = 0
+    inbox_thread_messages_count: int = 0
     memory_rows_count: int = 0
     artifacts_count: int = 0
     disk_markdown_removed: bool = False
@@ -197,10 +210,32 @@ async def wipe_agent_data(
                 "agent_messages", {"agent_id": agent_id}
             )
 
-            # MessageBus channel history — the agent recalls cross-channel
-            # conversations via bus_get_messages, so this must go too. Only
-            # channels where this agent is the SOLE member (its private IM
-            # DMs) are wiped; shared channels are left for the other members.
+            # IM conversation history, in the inbox's own tables. Scoped by
+            # `agent_id` — NOT `owner_user_id`, since one user may own several
+            # agents and each has its own threads.
+            #
+            # What prevents orphans is the TRANSACTION this whole block runs in,
+            # not the order of these two deletes: the thread_id set is read once,
+            # before either, so both see the same list either way. An earlier
+            # version of this comment claimed messages-first was load-bearing —
+            # mutation-checked and it is not, swapping them leaves the suite green.
+            # The order that WOULD matter is moving the read between the deletes,
+            # which is the one edit that comment's reasoning would have permitted.
+            threads = await db_client.get(
+                "inbox_threads", filters={"agent_id": agent_id}
+            )
+            for tid in {t["thread_id"] for t in threads if t.get("thread_id")}:
+                result.inbox_thread_messages_count += await db_client.delete(
+                    "inbox_thread_messages", {"thread_id": tid}
+                )
+            result.inbox_threads_count += await db_client.delete(
+                "inbox_threads", {"agent_id": agent_id}
+            )
+
+            # Legacy IM history: rows the retired `ChannelInboxWriter` left on
+            # deployed databases. Only channels where this agent is the SOLE
+            # member (its private DMs) are wiped; shared channels are left for
+            # the other members. Retire this branch when those rows are purged.
             member_rows = await db_client.get(
                 "bus_channel_members", filters={"agent_id": agent_id}
             )

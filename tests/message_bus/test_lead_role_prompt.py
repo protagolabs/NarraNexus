@@ -56,7 +56,7 @@ def test_the_lead_is_told_it_is_the_lead():
     assert "Leader" in text
     # The obligations, not just the label — a title with no duties attached is
     # what the product had before.
-    assert "work_add_item" in text
+    assert "team_work_add" in text
 
 
 def test_a_member_is_not_given_the_leader_section():

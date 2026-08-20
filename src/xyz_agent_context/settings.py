@@ -20,7 +20,7 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -135,6 +135,55 @@ class Settings(BaseSettings):
     # diagnostic only; it never force-stops the run (铁律 #14).
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
+
+    # ===== Message-bus worker pool =====
+    # How many bus turns may run concurrently in the trigger process. This is
+    # OUR resource decision, not a policy on how long an agent may run (binding
+    # rule #14) — the pool caps how many rooms we can serve at once, and a pool
+    # too small shows up to the user as "the group chat is dead", which is the
+    # one failure mode the platform is responsible for avoiding.
+    #
+    # Was hard-coded at 3, which made a slot shortage both invisible and
+    # unfixable without a code change. 8 is the new floor-of-comfort: a bus turn
+    # is almost entirely await (LLM + DB), so slots are cheap, and a single team
+    # room relaying between members can occupy several at once.
+    #
+    # Slot wait is inside the `queue_wait_s` that `[bus-timing]` reports, so
+    # raising this and re-reading `make latency-report` is a measurable change,
+    # not a guess.
+    #
+    # CROSS-REPO DEPENDENCY — read before raising this again.
+    # Production runs `run_worker_supervisor`: poller + jobs + bus + every
+    # channel trigger share ONE asyncio loop and therefore ONE MySQL pool. That
+    # pool is sized in the deploy repo, `stacks/narranexus-app/compose.yml`
+    # (service `workers`, `MYSQL_POOL_SIZE`), whose comment derives the number
+    # from "poller(3) + jobs(5) + bus + every channel worker/subscriber". This
+    # value is the `bus` term in that arithmetic; changing it here without
+    # revisiting that number there is how a bus change turns into "the database
+    # got slow" for poller, jobs and every IM channel at once.
+    #
+    # Why raising it is nonetheless cheap: a connection is borrowed per QUERY,
+    # not held for the turn. A bus turn spends ~20 of its ~24 seconds waiting on
+    # an LLM and holds nothing during that time — which is also why the pool has
+    # always been sized for the typical concurrent QUERY mix rather than the
+    # theoretical task count (channel triggers alone allow 50 workers each).
+    #
+    # If this ever needs to go higher, get evidence first: a `worker_starvation`
+    # row in `service_audit` means the pool really is the bottleneck (see
+    # `_check_worker_starvation`); its absence means it is not.
+    #
+    # What changed on 2026-08-14, and why `worker_starvation` is now ambiguous:
+    # a team-room reply is posted from INSIDE the turn, so the next hop of a
+    # relay is dispatched while the previous agent's turn is STILL RUNNING (an
+    # agent may legitimately keep working for a long time after replying —
+    # binding rule #14). A slot is released at the end of the turn, not at the
+    # reply. So one room's D-hop relay now holds up to D slots at once, where
+    # it used to hold 1, and "slots are cheap because a bus turn is mostly
+    # await" is only half true: the waiting is cheap, the HOLDING is not.
+    # A `worker_starvation` row during a busy team relay is therefore an
+    # expected shape, not evidence that someone's agent is wedged — read it
+    # together with how many rooms were relaying at the time.
+    bus_max_workers: int = 8
 
 
 
@@ -306,6 +355,36 @@ class Settings(BaseSettings):
     # (see backend/routes/billing.py) — we never store the token, only forward.
     billing_api_base: str = "https://billing.api.netmind.ai"
     billing_api_timeout_seconds: float = 10.0
+
+    # Which Stripe account collects. NarraNexus IS the "nexus" scenario, and
+    # only that account has Alipay + WeChat Pay enabled, so it is the default
+    # rather than something a caller opts into. Upstream reads an absent value
+    # as "power" (the original shared account); we always send ours explicitly
+    # so the body says what it means.
+    #
+    # It is a SETTING and not a constant for one reason: if the nexus account
+    # has an incident, flipping this to "power" restores the previous payment
+    # path in one deploy. It must never be reachable from client input — the
+    # merchant that collects a payment is exactly as attacker-interesting as
+    # the post-payment redirect target, which backend/routes/billing.py already
+    # refuses to take from a request body (see `_return_urls`).
+    #
+    # Consequence of the default, stated so nobody rediscovers it in support:
+    # a user who previously paid through "power" is a DIFFERENT Stripe customer
+    # here, so their saved card is not offered on the first nexus checkout.
+    # Free credit and subscription state land on the same NetMind ledger either
+    # way. Cancel and reactivate now SEND this channel rather than relying on
+    # upstream to route them by the subscription's own account — that routing
+    # claim comes from the integration doc, was never measured, and directly
+    # contradicted this client's own "an absent channel reads as power". Under
+    # the pessimistic reading, omitting it means a card subscription created
+    # here cannot be cancelled at all; sending it is inert under the optimistic
+    # one. Both endpoints accept the field (measured 2026-08-19).
+    # Literal, not str: this field exists to be edited under pressure during a
+    # payment incident, and `BILLING_CHANNEL=nexux` in a deploy .env would start
+    # both boxes cleanly and only surface as an upstream 400 at the first real
+    # payment — found by a paying user rather than by the release.
+    billing_channel: Literal["nexus", "power"] = "nexus"
 
     # NetMind Key-management API (generate/list inference API keys). This is a
     # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),

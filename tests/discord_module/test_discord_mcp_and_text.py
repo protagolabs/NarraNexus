@@ -58,7 +58,7 @@ def test_extract_reply_from_discord_reply():
 
 
 def test_extract_reply_from_generic_chat_tool():
-    assert _extract_discord_reply("send_message_to_user_directly", {"content": "c"}) == "c"
+    assert _extract_discord_reply("notify_owner", {"content": "c"}) == "c"
 
 
 def test_extract_reply_none_for_history_tool():

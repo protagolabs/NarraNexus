@@ -1,8 +1,89 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-18 — merge ruling: team 行未读圆点不接线（下方 08-14 条 UI 半边失效）
+
+Owner ruled v4 行尾结构（成员数 → ⋮）胜出，dev 的未读圆点 + 「谁说了什么」
+第二行**不接线**：本文件不再向 [[TeamChatRow]] 传 `unread/preview/authorName`，
+`teamUnread` 判定函数随之移除。dev 的 `teamUnreadBadge.test.tsx` 随 UI 一起
+删除——圆点回归时从 dev 恢复它。
+
+保留的半边：`markTeamRead` 水位线 effect 原样保留（打开房间即记已读，离开后
+仍是清的），[[useAutoRefresh]] 里的 `teamHasUnread` toast 判定也仍然在用。
+所以 08-14 条里 UI 渲染的描述已失效，水位线/useAutoRefresh 的描述仍准确。
+
+## 2026-08-17 — 改名成功后回读列表，别让手打的补丁成为持久化的那份
+
+`doEditAgent` / `handleSaveEdit` 原来只做乐观更新：`setAgents(rawAgents.map(...))`
+把响应里的 `name` 拍进本地数组就完事。两个问题：
+
+1. 写的是 `name: res.agent?.name`——`res.agent` 虽然在 `if` 里判过真，但字段本身
+   可能缺，于是整行的名字被写成 `undefined`。现在是 `?? a.name`，缺字段就保留原值，
+   不把行标题清空。
+2. 更要紧的：`configStore.agents` 是 persist 到 localStorage 的且没有
+   `partialize`（见 [[configStore.ts]]），所以**手打的那份补丁就是下次页面加载
+   显示的那份**。它与服务端真值之间任何差异（后端做了 trim / 长度截断 / 归一化）
+   都会以「改名后来又变回去了」的形态出现。所以成功之后 `await refreshAgents()`
+   ——即工单要求的「失效 agent 列表/详情缓存」。乐观更新保留，给即时反馈；
+   回读负责对账。
+
+`name` 与 `description` 取响应的方式**故意不同，别去「统一」它们**：
+`description` 直接取服务端值（`?? ''`）——响应总是带这个 key，清空后回的是
+`''`（已实测；只有从没设过的行才回 `null`），这里回退到本地值等于把用户刚删掉
+的文字放回持久化 store。`name` 保留本地兜底，因为它是行标题，写成 `undefined`
+会让整行退回显示裸 `agent_id`。两支各留一句注释就是为了防止下一个人合并它们。
+
+`handleTogglePublic` 是 `api.updateAgent` 的第三个调用点，一并对齐（成功后
+`refreshAgents()`、失败弹 alert）。它今天走不到——`SHOW_AGENT_PUBLIC_TOGGLE`
+是 false——但那个 flag 的注释自己写着「翻回来只要一行」，翻回来的那一刻本条修掉
+的两个缺陷会在这个入口原样复活，所以现在就对齐比留给未来便宜。
+
+第三件：inline 改名（`handleSaveEdit`）失败时原来只 `console.error`，用户那一侧
+**什么都没有**——输入框收起、行标题弹回旧名，和「平台把我的编辑丢了」无法区分，
+于是继续重试。现在与 `doEditAgent` 一致走 `alert(...)`（同一个
+`layout.editAgentDialog.saveFailedTitle`），catch 分支同样弹。
+
+侧栏名字只有一个来源：`configStore.agents`（TopBar / ChatPanel / BookmarkStrip /
+TeamManagementModal 全是 `agents.find(...)` 解析，team 成员存的是 id 不是名字）。
+所以这一条 + [[configStore.ts]] 2026-08-17 条覆盖了前端能显示旧名的全部路径。
+
+工单：深圳线下第二轮 P1。注意**根因不在前端**——见 [[auth.py]] 2026-08-17 条，
+后端把已落库的改名报成了失败（rowcount 方言差异），本条修的是同一条链上前端
+这一段的两个真实缺陷。
+
+## 2026-08-14 — team 行的未读标记
+
+每个 team 行（展开态和折叠态的头像轨道**都有**：窄窗口下轨道就是整个 sidebar，
+只在展开态显示的标记等于用户看不见的标记）现在会在房间说过话之后打一个圆点，并在
+第二行显示「谁说了什么」，和它下面的 agent 行一致。
+
+判定是 `teamHasUnread(t.last_message_at, teamId)`（[[unread.ts]]），**当前打开的
+那个房间永远不打标记**——正在读的那一行上的标记是噪音。
+
+打开房间会把水位线写进 localStorage，所以**离开之后标记依然是清的**：只在行处于
+active 时清掉，正是 agent 徽标在拿到自己的 marker 之前的那个 bug。
+
+另一半在 [[useAutoRefresh]]：team 列表此前只在 sidebar 发现它未加载时取过一次，
+没有任何定时刷新。标记只会在整页重新加载后才出现——从用户角度和「这功能没做」
+无法区分。
+
+## 2026-08-11 — TEAMS/AGENTS 分组头三角换 lucide
+
+"▶" 字符三角(渲染为实心)→ lucide ChevronRight + rotate-90,与
+TeamChatRow / AgentGroupSection 的展开箭头统一线性图标语言
+(design_system.md §5)。
+
+## 2026-08-06 — Chat UI v4:回归纯列表
+
+创建 / 导入 / 导出 / manage-agents 入口全部移出(去 Sidebar 全局导航),
+`collapsed` prop 与 72px 头像栏代码路径删除(v4 收起=整栏隐藏)。头部只剩
+Chats 标签 + 计数 + 搜索(打开 ⌘K palette,uiStore.paletteOpen)+ 刷新。
+activitySignature 性能契约、TEAMS/AGENTS 两段式去重结构、unread 逻辑不变。
+TeamManagementModal / ImportAgentModal 挂载移交 [[Sidebar.tsx]];
+AgentsHeaderMenu 组件删除。
 
 ## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
 
@@ -155,9 +236,9 @@ unchanged (it already cleared correctly on `setActiveAgent`).
 
 `handleCreateAgent` no longer holds the create logic — it delegates to the
 shared `useCreateAgent` hook (`creatingAgent` state now comes from the
-hook too). Reason: the onboarding checklist also creates agents, and both
-call sites must share one path (store wiring + the
-`first_agent_created` onboarding side effect). See
+hook too). Reason at the time: the onboarding checklist (retired
+2026-08-19) also created agents, and both call sites had to share one path
+(store wiring + the `first_agent_created` onboarding side effect). See
 `.mindflow/mirror/frontend/src/hooks/useCreateAgent.ts.md`.
 
 ## 2026-05-19 — NM messenger fidelity pass

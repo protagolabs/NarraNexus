@@ -1,8 +1,92 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-13
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
+
+`/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
+`os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
+COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
+窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
+指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
+
+## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
+
+`PUT /agents/{agent_id}` 原来是 `affected_rows > 0` 才算成功，否则回
+`success=False, error="No changes made"`。而 `AgentRepository.update_agent`
+返回的是 `cursor.rowcount`——**SQLite 数 MATCHED 行，MySQL 数 CHANGED 行**。
+于是「把值改成它已经是的那个值」在 SQLite 上返 1（成功），在 MySQL 上返 0
+（被判失败）：**只在 cloud 上错**。用户看到「保存失败」，重试，每次都失败，
+而库里一直就是他要的新名字。深圳线下第二轮 P1 就是这个形态（取证：
+`agents.agent_name` 已是「小绿」，前端却说没保存成，测试者反复重试）。
+
+同一个陷阱 [[_awareness_writes]] 在 2026-08-05 已经为 agent 侧的
+`update_agent_profile` 拆过（写前做值相等短路）；本次是**用户侧 HTTP 那一半**，
+当时漏了。两边现在在这个 trap 上同语义——但这是**本次同时改了 agent 侧**才
+成立的：那边当时只拆了 no-op 一支，「真有改动而驱动报 0」仍会答失败，本次一并
+换成回读判定（见 [[_awareness_writes]] 2026-08-17 条）。
+
+修法（不是给 rowcount 打补丁，是把它从判据里拿掉）：
+
+1. `requested` = 调用方要的字段，**并且已经是入库形态**（`normalize_agent_text`）。
+   `update_data` = 其中与当前行真的不同的那些（谓词见下）。全都相同 →
+   **一次写都不发**。
+   > 更正（2026-08-18）：原文这里还写着「`sync_agent_discovery` 也不发（没有
+   > 变化要广播）」。已改成**每个被接受的请求都发一次**。理由是这个调用存在的
+   > 初衷：2026-08-04 那条写着「此前注册是『跑过一轮』的副作用，所以刚创建、
+   > 或改完名字/描述后**闲着**的 agent 对同伴不存在」——「下一轮会自己重写」
+   > 当初就被判定为不够。而 sync 自己吞失败只返回 False（所以本轮给它加了
+   > warning），一旦某次失败让同伴目录停在旧名，**原值重存是用户最自然的重试
+   > 方式**，它不该恰好是唯一跳过修复的那条路。代价是 no-op 重存多一次
+   > discovery 写——而 no-op 重存本身很罕见。测试：
+   > `test_a_no_op_re_save_still_refreshes_the_peer_directory`。
+2. 发过写之后**回读**，再用同一个谓词核对 `requested` 是否都落到行上。
+   rowcount 只进 debug 日志，注明 dialect-dependent、仅供参考。
+3. 回读后仍不符 → `success=False`（错误串点名哪些字段没落）。日志级别是
+   **WARNING 不是 ERROR**：读—写—回读之间没有 CAS，另一个标签页或 agent 自己的
+   `update_agent_profile` 在窗口内写入，就会在这里表现为「不是我要的值」——
+   良性的 last-write-wins 不该长得像持久化故障。
+
+谓词 `agent_field_matches` **不在本文件**，在 [[entity_schema]]：它编码的是
+Agent 实体的字段等价规则，而 `agents` 行有两个写入方（本路由 +
+[[_awareness_writes]]），各写一份比较迟早分歧——事实上分歧当时已经存在
+（那边比较 strip 过的值，这边比较原样值）。**决定要不要写**和**核对写没写成**
+共用同一个函数，两者不可能各说各话。
+
+归一化连带的一条：入库前 strip，所以「比较说相等」和「行里是什么」永远同形。
+另外空名（`""` 或纯空格）现在**被拒**，与 agent 侧 `update_agent_profile` 的
+拒绝语义对齐——没有名字的 agent 在所有界面上退回显示裸 `agent_id`，而同一个
+输入原来在一条路径被拒、在另一条被存。不放在 schema 的 `min_length`：`"  "`
+过得去，得在归一之后判。
+
+`sync_agent_discovery` 的返回值现在接住了：它内部吞掉自己的失败并返回 False，
+不接的话「同伴目录还是旧名」与「接口答成功」这两件事事后对不上。
+
+测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`(路由级) +
+`tests/schema/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
+rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op 写返回 1，
+照原样测会在「本来就不会出这个 bug 的方言」上空过。覆盖：no-op 重存=成功且
+**不发写**、真改动但驱动报 0=成功（回读为准）、真的没落库=仍然失败（防止修成
+「永远成功」）、可见性开关在同样条件下**必须真的发写**（断言写调用本身而不是
+`success`——见下）、空名被拒、首尾空格入库前被 strip、改名后 list 端点能看到新名。
+
+⚠ 回读校验对**谓词自身**的错误是结构性失明的：谓词若错判「已经相等」，则既不
+发写、又由同一套逻辑判定「已落库」→ 返回成功、日志无异常。所以谓词必须有自己的
+单测，且路由级用例要断言**写调用**（`calls == [...]`）而不是返回的 `success`。
+
+**创建路径同日补齐(review 第二轮)**:`create_agent` 的默认值改成在归一**之后**
+判 —— `agent_name = normalize_agent_text(request.agent_name) or "New Agent"`。
+`"   "` 是 truthy,先 `or` 会漏过默认串把纯空格存成名字,侧栏行标题直接空白
+(比空名退回显示 `agent_id` 还难认)。描述同理走 `normalize_agent_text`。
+
+长度上限**不在本文件判**:它在 [[api_schema]] 的 `_StrippedText` 上,归一之后量,
+所以本路由与 agent 侧对同一输入的验收集合一致,且 422 契约不变。中途试过把 cap
+搬进路由,打破了「四个写边模型统一 422」那条既有契约,被
+`tests/backend/test_agent_request_length.py` 当场抓住 —— 别再往这个方向走。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 
@@ -524,3 +608,36 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
   就是①的 order guard——重排会红,红的是重排不是测试。
 - 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
   仓单独 commit,本仓注释已互指并标明该文件不在本仓）。
+
+## 2026-08-19 — 登录路径挂载 onboarding 引导 Agent 供给
+
+`_schedule_guide_agent_provisioning(user_id, *, is_new)`：三个登录入口
+（`netmind_login`、本地 `login`、本地 `create_user`）在成功路径尾部
+fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
+（create_task + done_callback，incident lesson #2 模式；铁律 #21：消费方
+只有登录路由，子包住 backend 侧）。要点：
+
+- **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
+  ensure 内部有用户级 write-once 幂等标记——**顶层键**
+  `users.metadata.guide_agent_provisioned`，不嵌在 `onboarding_progress`
+  里，因为本文件的 `POST /api/auth/onboarding` 会整块替换那个子 dict，
+  嵌套标记会被第一次 UI 建 Agent 清掉（→ 永久重复供给 + 用户删掉引导
+  Agent 后复活）。回归测试：
+  test_onboarding.py::test_post_never_clobbers_the_guide_agent_marker。
+  热路径只是一次用户读；"每次都调"是存量零 Agent 用户补领的通道。
+- **is_new 贯穿**：netmind_login 传 upsert 的 is_new，本地 login 恒
+  False，create_user 恒 True——`backend/onboarding` 的 BACKFILL 刹车
+  （`NARRANEXUS_ONBOARDING_GUIDE_BACKFILL`，**默认关**）用它把"存量零
+  Agent 回访补领"做成 ops 显式开启的动作，新注册不受该刹车影响。
+- **调度前先查 kill-switch**（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`，默认
+  开）：关掉时连 task 都不建。测试套件在 tests/conftest.py 全局置 0，
+  避免无关登录测试背后真跑 provisioning；guide 测试自行 setenv 开启。
+- **前端同门**：netmind_login / create_user 响应带
+  `guide_agent_provisioning=_guide_agent_feature_on()`——前端的"你的第一
+  个 Agent 已就位"coachmark 以它为门，拉下服务端 kill-switch 时 UI 不会
+  承诺一个永远不出现的 Agent。
+- **必须排在 suspended 门禁之后**（netmind_login 里在
+  `_schedule_provider_provisioning` 之后）：被停号的登录 403 早退，
+  永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
+- 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
+  取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-08-04
+last_verified: 2026-08-17
 ---
 
 ## 2026-08-04 (review 修正) — working_source_matches 公共谓词
@@ -124,3 +124,21 @@ summaries). Default for both is no-op.
 - 忘记调用 `super().__init__()` 会导致 `self.agent_id`、`self.db` 等属性 `AttributeError`，错误往往在 hook 执行时才暴露，难以追踪。
 - 在 MCP 工具里用 `self.db`（同步 wrapper）而非 `await get_mcp_db_client()` 会遇到事件循环不匹配或跨进程连接共享问题，症状是随机 `RuntimeError` 或连接超时。
 - 在 `hook_data_gathering` 里修改了 `ctx_data` 字段后没有 `return ctx_data`，修改会被静默丢弃（特别是并行模式下每个模块拿到的是副本）。
+
+## 2026-08-18 — `get_disallowed_tools` 改为接收 `ctx_data`（修 P0：团队房间说不出话）
+
+原签名不带 ctx。当模块需要「声明一个动词、同时压掉它的对偶」时（[[message_bus_module]]
+的 `message_team`/`message_agent`、[[chat_module]] 的 `reply_owner`/`notify_owner`），
+它只能从声明 hook 留在实例上的状态里读本轮身份 —— 而 [[context_runtime.py]] 的收集环
+**先问压制、后问声明**。于是每个团队轮次在全新实例上拿到空状态，判成非团队轮，把
+`message_team` 从桌面撤掉；紧接着声明层又把它宣告为本轮的回复工具。两个框架的回复提醒
+都点名一个 schema 已被移除的工具 —— 房间永远收不到消息，且不报错。
+
+修法是消灭顺序依赖而不是记录它：两个 hook 都拿本轮自己的 ctx，谁先被调用都无所谓。
+覆写者需同步签名（[[channel_module_base]] / [[chat_module]] / [[message_bus_module]]）——
+旧签名会在调用点 TypeError，而该处 **fail-open**，结果是压制静默失效、两把动词都留在桌上。
+`tests/context_runtime/test_expressive_collection.py` 新增两条守卫：桌面自洽性（跑真实模块、
+按生产顺序、三种轮次断言声明∩压制为空）与 MODULE_MAP 全量签名检查。
+
+教训：此前所有守卫都直接调两个 hook 且**反着生产顺序**调，因此在坏代码上全绿。
+接缝类不变量必须经真实调用点断言。

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — origin_declaration 进白名单 body（§6 在云端生效）
+
+`build_agent_loop_request` 新增 `origin_declaration: str = ""` 入参，body 里 `"origin_declaration": origin_declaration or ""`（**键恒在**，与 `turn_profile`/`expressive_tools` 同纪律）。此前该字段只经进程内 driver 生效；而 dev/prod 每个回合都走 RemoteAgentLoop，白名单里缺这个键 = §6 来源声明在云端被静默丢弃。跨 remote 跳由 `tests/agent_framework/test_origin_declaration_plumbing.py` 钉住。
 
 ## 2026-08-13 — apply_provider_configs 容忍未知字段（wire 契约变化，防御性向前兼容）
 

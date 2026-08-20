@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
+
+**删除** `_team_room_delivery_phase` / `_should_deliver_team_reply` /
+`_post_team_room_reply` / `_team_room_reply_frame`（共 155 行）及其调用点，
+`AgentRuntime.run` 的 `on_plain_text_delivery` 参数与 `StepContext` 上的同名字段一并删除。
+
+team 房间此前是**唯一**「agent 的纯文本就是回复、由平台代发」的表面。这个例外关不住：
+框架 constitution、ChatModule instruction、bus module 规则都在陈述通则，而三者里每轮
+只能关掉一个——PR #311 被评审打了六轮，打的全是由此长出来的矛盾。房间现在收工具调用
+（`message_team`），本步骤因此无事可判：agent 有没有在房间里说话是 bus 里的一个事实，
+由 trigger 直接读（`has_message_from_turn`）。原来这里权衡的 @mention 解析、级联上限
+及其播报、errand 记账，全部搬到 [[team_posting]]——它们是「往房间发帖」的属性，而不是
+「恰好拥有投递权的那一步」的属性。
+
+**新增**：`origin_declaration=render_origin_declaration(ctx.working_source, ...)`。
+
+`_im_reply_tool_name` 的过滤改用 `is_owner_tool`：它此前只写死排除 `notify_owner`，
+默认 handler 开始同时列出两个名字的那一刻 `reply_owner` 就溜了过去。
+
 
 ## 2026-08-13 — 平台来源绑定：stamp identity 上 provider 配置
 
@@ -666,3 +686,88 @@ Chat history is injected into the system prompt (not as native multi-turn messag
 - Trying to add module data gathering here: all data gathering belongs in `ContextRuntime` (which calls `hook_data_gathering` on each module). This step only orchestrates.
 - Assuming `ctx.execution_result` is set inside this generator: the router (`step_3_execute_path.py`) sets it after intercepting the `PathExecutionResult` yield.
 - Forgetting that `skill_env_vars` must be a `dict[str, str]` — passing any other type will cause the SDK subprocess to reject it silently.
+
+## 2026-08-12 — `_emit_team_room_delivery`:平台代发也要先确认再记账
+
+team 房间是唯一"你的纯文本**就是**消息"的表面 —— 它的回复面被整体清空,agent 连投递
+工具都调不到。于是 turn 的 trace 里没有任何东西说"回复过",`_delivered_to_origin`
+**正确地**得出"没回复":每一轮 team turn 都记成 no reply sent,落成 activity 行,而
+下一轮的历史加载器会丢掉 activity 行。这就是 team 房间每轮冷启动的成因。
+
+投递因此搬进 turn 里(见 [[message_bus_trigger]] 同日条目):会话行由
+`hook_persist_turn` 在 `run()` 返回**之前**写完,trigger 事后再贴,账已经结了。
+
+**但不能乐观地合成伪帧。** 本文件下面 IM DM fallback 那段自己立了规矩:
+帧只在**渠道确认发送之后**才发出,因为给一条从未离开进程的消息记"已回复",和我们
+正在修的"纯文本被丢弃"是同一类谎。所以 `deliver` 返回 True 才 yield 帧;返回 False
+或抛异常都不发 —— 那一轮**确实**没回复。
+
+`deliver` 的语义归调用方(mention 解析、级联封顶、run id 盖章),这里只决定它**算不算**。
+
+帧骑的是 `bus_send_message`:它在 message_bus handler 的 `user_reply_tool_names` 里,
+但**不在** `owner_visible_reply_tool_names` 里。这个不对称是承重的 —— 提升它会让每次
+团队回复重新锚定 owner 的会话(PR #230 修过一次的 bug),有专门测试钉住。
+
+## 2026-08-13 — `_should_deliver_team_reply`:两个必须挡住的情形
+
+3.4.T 位于 loop 的 `try/except` **之后**,所以"不该投递"的每一个理由都得在那里显式
+检查,而且写成内联 `if` 就既容易漏又测不了。抽成命名谓词,和同文件
+`_should_run_helper_llm_fallback` 同一个形状。
+
+* **`captured_error`** —— loop 死了。`state.final_output` 此时是断掉之前流出来的部分,
+  贴出去就是把一句没写完的话摆在整个房间面前,而它读起来像答案。故障由 trigger 侧
+  以房间身份单独通知。
+* **`cancelled`** —— owner 点了停止。`CancelledByUser` 只在 step 4 之后才抛(为了让被
+  打断的 turn 也进历史),所以这段代码一定会跑到,必须自己查。漏掉的代价不只是多一行:
+  投递路径会解析 @mention,于是一轮**被用户杀掉的** turn 能把队友唤醒去跑各自的一整轮。
+  本文件两条 helper-LLM fallback 流早就设了同一个门,只有这条 lane 漏了。
+
+## 2026-08-13 (review 后) — 两个判据合一,阶段整体可测
+
+**`_turn_hit_a_fatal` 取代了裸 `captured_error`。** `captured_error` 只在 loop **抛
+异常**时被赋值,而 `auth_expired` / `config_actionable` 标着 `severity="fatal"` 却是
+**return 一个帧**,不 raise —— 于是门看不见它们,fatal 的一轮照样把断掉之前流出来的
+半截明文贴进房间。判定复用 `chat_module._detect_fatal_error_in_agent_loop`,不造第三份
+副本:平台不该对"这轮成没成"持有两种意见。
+
+**`_emit_team_room_delivery` 拆成 `_post_team_room_reply`(返回 bool)+
+`_team_room_reply_frame`(调用点造帧)。** 原先是 async generator —— 一个没人迭代的
+async generator**什么都不做,而且是静默的**,这对"决定一轮会不会被记住"的唯一代码路径
+是很差的形状。
+
+**整个阶段抽成 `_team_room_delivery_phase`。** 门和投递各自可测并不够:没有任何测试
+覆盖**它们怎么被接在一起**。把门的结果换成 `team_deliver is not None`、或把
+`captured_error` 误传 None,这一片的测试**全部保持绿色** —— 本次会话已经栽过同一类
+坑三次。现在阶段整体有 6 条测试,并且实测过"把门换成裸判断会让 3 条变红"。
+
+## 2026-08-14 — 一个 fatal 谓词,以及 phase 不再是 generator
+
+**`_has_fatal_error_frame`。** 这个判定此前在本文件里有两份逐字相同的实现(helper-LLM
+fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatModule 的私有函数**
+—— 一个 runtime step 向上穿透依赖某个模块的内部,来回答一个它自己就能回答的问题。
+三份副本就是三个"什么算 fatal"各自漂移的地方。
+
+**`_team_room_delivery_phase` 改成返回 `Optional[frame]`。** async generator 的问题是
+**没人迭代它就什么都不做,而且是静默的** —— 对"决定这一轮记不记得住"的唯一路径,这是
+最不能接受的失败形状。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

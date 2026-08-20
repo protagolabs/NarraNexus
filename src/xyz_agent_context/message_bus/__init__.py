@@ -16,9 +16,9 @@ from .schemas import BusAgentInfo, BusChannel, BusChannelMember, BusMessage
 
 # Register the MessageBus channel handler so chat_module can recognise
 # bus-triggered reply tools and render bus rows with a distinct prefix.
-# The reply list carries every tool that DELIVERS on a bus turn: the bus
-# sends (answer-the-peer / group replies) and send_message_to_user_directly
-# (Owner Relay). Its live consumer is ChatModule._delivered_to_origin —
+# The reply list carries every tool that DELIVERS on a bus turn: the peer
+# and room sends (answer-the-peer / team replies) and `notify_owner`
+# (Owner Relay). Its live consumer is ChatModule._origin_delivered_text —
 # the [DELIVERED-BG]/[NO-REPLY-BG] persistence split whose counts are the
 # no-reply metric behind the delivery-fallback decision. Listing only the
 # owner-chat tool recorded genuine bus deliveries as NO-REPLY (2026-08-01)
@@ -31,17 +31,25 @@ from xyz_agent_context.channel.message_source_handler import (
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="message_bus",
+        # Not "Message Bus" — the bus is infrastructure the agent never sees.
+        # What it sees is that it is inside NarraNexus talking to a peer agent
+        # or a team; WHICH of those is answered by the tool on its desk.
+        display_label="NarraNexus",
         user_reply_tool_names=(
-            "send_message_to_user_directly",
-            "bus_send_message",
-            "bus_send_to_agent",
+            "notify_owner",
+            "message_agent",
+            "message_team",
         ),
         # Bus sends deliver to peer AGENTS — nothing appears in the
         # owner's web chat. Only the owner-notify tool is owner-visible,
         # so session anchoring and chat-history persistence ignore
         # agent-to-agent traffic (see MessageSourceHandler docstring).
-        owner_visible_reply_tool_names=("send_message_to_user_directly",),
-        row_prefix_template="[Bus · from agent={from_agent}]",
+        owner_visible_reply_tool_names=("notify_owner",),
+        # Not "[Bus · …]": the word names the transport, which is the third
+        # concept spec §8 removes from the agent's vocabulary — it has private
+        # conversations and teams, and every other handler's prefix names the
+        # PLACE the message came from rather than the pipe it arrived through.
+        row_prefix_template="[private message from {from_agent}]",
     ))
 except ValueError:
     pass

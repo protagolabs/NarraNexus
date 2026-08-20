@@ -285,7 +285,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
           >
             <CheckCircle2
               className="w-4 h-4 mt-0.5 shrink-0"
-              style={{ color: 'var(--color-success, #16a34a)' }}
+              style={{ color: 'var(--color-success)' }}
             />
             <div>
               <div className="font-medium">
@@ -308,7 +308,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
                 </div>
               )}
               {done.keyCheck.startsWith('unverified') && (
-                <div className="text-xs mt-1" style={{ color: 'var(--color-warning, #b45309)' }}>
+                <div className="text-xs mt-1" style={{ color: 'var(--color-warning)' }}>
                   {t('settings.provider.unverifiedKey', {
                     reason: done.keyCheck.replace(/^unverified \(|\)$/g, ''),
                   })}

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
+from typing import AsyncGenerator, Any, Optional, Union, TYPE_CHECKING
 
 from loguru import logger
 from xyz_agent_context.utils.logging import timed
@@ -41,9 +41,12 @@ from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
 from xyz_agent_context.channel.channel_sender_registry import (
     ChannelSenderRegistry,
 )
+from xyz_agent_context.schema import BUS_PLAIN_TEXT_TURN_EXTRA_KEY
 from xyz_agent_context.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
     MessageSourceRegistry,
+    is_owner_tool,
+    render_origin_declaration,
 )
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
@@ -340,10 +343,10 @@ def _has_organic_reply(
     """True if the agent already sent a real user reply this turn.
 
     "A reply" is per-channel: on chat that means
-    ``send_message_to_user_directly``, on an IM turn it also means the
+    ``reply_owner``, on an IM turn ``notify_owner`` plus the
     channel's own send tool (``wechat_send``, ``lark_cli +messages-send``,
     …). The authority is ``MessageSourceRegistry``, the same registry
-    ``chat_module._delivered_to_origin`` consults — so "did this turn
+    ``chat_module._origin_delivered_text`` consults — so "did this turn
     speak?" cannot drift between the two layers.
 
     Two consumers:
@@ -388,7 +391,7 @@ def _should_run_helper_llm_fallback(
     Returns ``(mode, skip_reason)``:
 
     - ``("no_reply", "")``: chat turn finished cleanly without
-      ``send_message_to_user_directly`` — run helper_llm to write the
+      ``reply_owner`` — run helper_llm to write the
       reply the agent forgot to send. No error to surface.
     - ``("after_error", "")``: chat turn hit a fatal mid-stream AND no
       organic reply was sent yet — run helper_llm with full context
@@ -459,10 +462,7 @@ def _should_run_helper_llm_fallback(
     if cancellation is not None and getattr(cancellation, "is_cancelled", False):
         return None, "cancellation_requested"
 
-    has_fatal = any(
-        isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
-        for r in agent_loop_response
-    )
+    has_fatal = _has_fatal_error_frame(agent_loop_response)
     has_reply = _has_organic_reply(agent_loop_response, working_source)
 
     if is_im_dm:
@@ -745,7 +745,7 @@ async def _generate_fallback_reply_stream(
 
     Modes:
       - ``"no_reply"``: agent finished cleanly but never called
-        send_message_to_user_directly; produce the reply it forgot to
+        ``reply_owner``; produce the reply it forgot to
         send.
       - ``"after_error"``: agent loop crashed mid-stream; produce a
         recovery reply telling the user what was achieved, what
@@ -801,7 +801,7 @@ async def _stream_fallback_recovery(
     Yields (when applicable, strictly in this order):
       1. ``AgentTextDelta`` frames from the helper_llm stream.
       2. A synthetic ``ProgressMessage`` (one) tagging the fallback as
-         a ``send_message_to_user_directly`` call so downstream
+         a ``notify_owner`` call so downstream
          persistence (chat_module) records it as a normal turn. Carries
          ``details.reply_via=helper_llm_{mode}``.
       3. An ``ErrorMessage`` (one) if ``captured_error`` was set,
@@ -835,9 +835,9 @@ async def _stream_fallback_recovery(
         #   it into the owner's conversation would fake a message the
         #   agent never sent them.
         # - **the synthetic frame is tagged with the CHANNEL's send tool**,
-        #   not send_message_to_user_directly, so
+        #   not notify_owner, so
         #   `_split_user_visible_response` files it as an IM reply and
-        #   `_delivered_to_origin` reports the turn as delivered.
+        #   `_origin_delivered_text` recovers the turn's reply text.
         #
         # The frame is emitted ONLY after the channel confirms the send.
         # Recording "replied" for a message that never left the process is
@@ -975,7 +975,7 @@ async def _stream_fallback_recovery(
         fallback_full = "".join(chunks).strip()
         if fallback_full:
             synth_details: dict = {
-                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "tool_name": "mcp__chat_module__notify_owner",
                 "arguments": {"content": fallback_full},
                 "reply_via": f"helper_llm_{fallback_mode}",
             }
@@ -1022,18 +1022,65 @@ async def _stream_fallback_recovery(
 def _im_reply_tool_name(working_source: str) -> str:
     """The channel's own send tool, for tagging a platform-delivered reply.
 
-    Deliberately NOT ``send_message_to_user_directly``: that tool means
-    "tell the owner", and tagging an IM reply with it would surface the
-    message in the owner's chat panel as if the agent had addressed them
+    Deliberately NEITHER owner register: those tools mean "tell the owner", and
+    tagging an IM reply with one would surface the message in the owner's chat
+    panel as if the agent had addressed them
     (``chat_module._split_user_visible_response`` routes on exactly this
-    distinction). Falls back to a synthetic name so the frame is still
-    self-describing if a channel ever registers only the owner tool.
+    distinction). Both are rejected via the shared `is_owner_tool` — an earlier
+    version spelled out only `notify_owner` and let `reply_owner` through the
+    moment the default handler started listing both, which is precisely the
+    kind of half-updated filter a hardcoded name invites.
+
+    Falls back to a synthetic name so the frame is still self-describing if a
+    channel ever registers only the owner tools.
     """
     handler = MessageSourceRegistry.get(working_source)
     for name in handler.user_reply_tool_names:  # noqa: SIM110 — first non-owner wins
-        if "send_message_to_user_directly" not in name:
+        if not is_owner_tool(name):
             return name
     return f"{working_source}_send"
+
+
+def _turn_hit_a_fatal(
+    captured_error: dict | None, agent_loop_response: list
+) -> bool:
+    """Did this turn end with no usable output?
+
+    `captured_error` alone is not the answer, and that gap is the bug it papered
+    over: `auth_expired` and `config_actionable` are marked `severity="fatal"`
+    but RETURNED as error frames rather than raised, so the loop never throws
+    and `captured_error` stays None. A gate reading only that variable lets a
+    fatal turn through — which for a team room means posting whatever streamed
+    before the failure, unmarked, in front of everyone.
+
+    A recoverable frame is deliberately NOT fatal: the loop absorbed it and went
+    on to produce a real reply.
+
+    The scan is the same one ChatModule already uses to decide whether a turn
+    collapses into a failed row, reused rather than re-derived so the platform
+    cannot hold two opinions about whether a turn worked.
+    """
+    return captured_error is not None or _has_fatal_error_frame(agent_loop_response)
+
+
+def _has_fatal_error_frame(agent_loop_response: list) -> bool:
+    """A frame in this turn marked the failure fatal.
+
+    One definition for the whole step. There were two identical scans here (the
+    helper-LLM fallback's and the team-room gate's) and a third reached for by
+    importing ChatModule's private copy from inside a function — a runtime step
+    depending on a module's internals, upward through the layering, to answer a
+    question it can answer itself. Three copies of one predicate is three places
+    for "what counts as fatal" to drift.
+
+    Default `"fatal"` matches ErrorMessage's own default: an unlabelled error is
+    the worse case, and treating a possibly-broken turn as working is the more
+    harmful mistake.
+    """
+    return any(
+        isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
+        for r in agent_loop_response or []
+    )
 
 
 async def _deliver_im_fallback_reply(
@@ -1357,6 +1404,23 @@ async def step_3_agent_loop(
             # (context 3.2). NexusPower's monologue contract routes every
             # user-visible reply through these; CLI drivers ignore them.
             expressive_tools=tuple(context.expressive_tools),
+            # Composed HERE and nowhere else: this is the one layer that holds
+            # both halves at once — the turn's working_source and the tools the
+            # modules just declared. Rendering it downstream would mean passing
+            # working_source to every driver and trusting each to phrase it the
+            # same way, which is the drift this line replaced.
+            origin_declaration=render_origin_declaration(
+                ctx.working_source or "",
+                context.expressive_tools,
+                # A turn whose reply is its plain text has no tool answer, and
+                # origin-first ordering would otherwise present some other
+                # module's tool as one. Read here because this is the layer that
+                # holds both halves; the marker is set by whoever knows the turn
+                # is that kind (today: patrol).
+                reply_is_plain_text=bool(
+                    _turn_extra.get(BUS_PLAIN_TEXT_TURN_EXTRA_KEY)
+                ),
+            ),
             turn_profile=ctx.turn_profile,
             extra_accessible_roots=extra_accessible_roots,
         )
@@ -1484,6 +1548,23 @@ async def step_3_agent_loop(
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()
+    # No team-room delivery phase any more.
+    #
+    # A team reply used to be this turn's PLAIN TEXT, posted from here through a
+    # callback the bus trigger handed in. That made the team room the one
+    # surface in the platform where "your plain text reaches nobody" was false,
+    # and the exception could not be contained: the framework constitution,
+    # ChatModule's instructions and the bus module's rules all state the general
+    # rule, and only one of the three could be switched off per turn. Six review
+    # rounds on PR #311 went to the contradictions that grew out of it.
+    #
+    # The room takes a tool call (`message_team`) like every other surface now,
+    # so this step has nothing to decide: whether the agent spoke in the room is
+    # a fact in the bus, and the trigger reads it (`has_message_from_turn`).
+    # Everything the phase used to weigh — @mention parsing, the cascade cap and
+    # its narration, the errand book-keeping — moved to `message_bus.team_posting`,
+    # where they are properties of posting into a room rather than of the step
+    # that happened to own delivery.
 
     # ------------- 3.4.X: Post-loop recovery phase -------------
     # Three modes cover the recovery slot:
@@ -1572,7 +1653,7 @@ async def step_3_agent_loop(
             else self_serviceable_user_message(skip_reason_detail, raw_detail)
         )
         # If the agent ALREADY sent a real reply before this failure (an executor
-        # OOM/drop can hit AFTER send_message_to_user_directly), surface a warning
+        # OOM/drop can hit AFTER notify_owner), surface a warning
         # badge (recovered_after_reply), not a hard "retry" fatal — the user got
         # their answer, and telling them to resend would re-run a done turn. Only
         # a no-reply failure is fatal. (Self-serviceable errors fire before the

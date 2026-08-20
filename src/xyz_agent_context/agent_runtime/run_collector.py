@@ -41,6 +41,20 @@ from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
 
+#: Severities that are a VERDICT on a fatal rather than a competing claim about
+#: it: ``recovered`` (the helper-LLM fallback answered anyway) and
+#: ``recovered_after_reply`` (the agent had already spoken). Both are only ever
+#: emitted BECAUSE a fatal happened, so any rule that reasons "a fatal was seen,
+#: therefore fatal wins" has to exempt them or it overrules the only thing they
+#: exist to say.
+#:
+#: One name because this knowledge had drifted into three copies in this file,
+#: and the drift's symptom is concrete: add a fourth "answered anyway" severity
+#: to one list and not the other, and a turn that produced a real reply gets a
+#: failure notice in its place. That bug has already been paid for once here.
+VERDICT_ON_FATAL_SEVERITIES = ("recovered", "recovered_after_reply")
+
+
 @dataclass(frozen=True)
 class RunError:
     """A failure surfaced by AgentRuntime via a ``MessageType.ERROR`` event.
@@ -53,10 +67,62 @@ class RunError:
         error_message: Human-readable explanation. May be surfaced to
             the owner in web chat verbatim, or replaced by a friendlier
             text for IM channels where the sender is not the owner.
+        severity: What the failure means for the turn's OUTPUT. FOUR values,
+            and a consumer that knows only two will discard a correct answer
+            or announce a failure that did not happen:
+            ``"fatal"`` — the turn has no usable output.
+            ``"recoverable"`` — a transient provider hiccup the loop absorbed;
+            it kept going and produced a real reply.
+            ``"recovered"`` — a fatal-class failure the helper-LLM fallback
+            papered over with a real reply.
+            ``"recovered_after_reply"`` — the agent had already spoken when
+            the failure landed.
+            The last two are a VERDICT on a fatal rather than a competing
+            claim about the turn (see ``VERDICT_ON_FATAL_SEVERITIES``), which
+            is why the sticky-fatal rule at collection time exempts them.
+            Empty when the runtime did not say — read as fatal, because
+            calling a possibly-empty turn a success is the worse mistake.
+            Not reachable from ``runtime.run()`` today (``ErrorMessage``
+            declares the four as a ``Literal`` and defaults to ``"fatal"``):
+            an empty value means a hand-built ``RunError``, so treating it
+            defensively costs nothing and assumes nothing.
     """
 
     error_type: str
     error_message: str
+    severity: str = ""
+
+
+def _add_segment(segments: list[dict], kind: str, text: str) -> None:
+    """Append text, merging into the previous segment when the kind matches.
+
+    Deltas arrive in fragments, so without merging one thought would render as
+    six bubbles — the rhythm this exists to show would be noise instead.
+
+    Accumulates into a list of PARTS, joined once at the end, exactly like
+    ``text_parts`` beside it. The first version did ``segments[-1]["text"] +=
+    text``, and CPython's in-place concatenation optimisation cannot fire on a
+    string the dict still references — so every delta copied the whole segment
+    so far, making a long reply quadratic in its own length. This path runs on
+    EVERY agent turn, and iron rule #14 makes runs of tens of thousands of
+    deltas a first-class case, not an outlier.
+    """
+    if segments and segments[-1]["kind"] == kind:
+        segments[-1]["parts"].append(text)
+    else:
+        segments.append({"kind": kind, "parts": [text]})
+
+
+def joined_segments(segments: list[dict]) -> list[dict]:
+    """Turn the accumulator's `{kind, parts}` into the contract's `{kind, text}`.
+
+    Exported because the team-room deliverer reads the segments MID-RUN: since
+    the room post moved inside the turn, it needs the boundary for the text it
+    is posting, and the collection does not exist yet. The join is done in one
+    place so an in-flight reader and the final return cannot disagree about the
+    shape — and the parts form never escapes either way.
+    """
+    return [{"kind": s["kind"], "text": "".join(s["parts"])} for s in segments]
 
 
 @dataclass
@@ -68,6 +134,27 @@ class RunCollection:
     plus — only when the caller opted in via ``include_monologue`` — every
     ``AGENT_THINKING.monologue`` segment (NexusPower's assistant plain text,
     which streams as thinking under the monologue contract)."""
+
+    segments: list[dict] = field(default_factory=list)
+    """``output_text`` with the monologue/reply boundary still intact:
+    ``[{"kind": "monologue"|"reply", "text": str}]`` in arrival order,
+    consecutive pieces of one kind merged.
+
+    Exists because that boundary is destroyed by the join above and cannot be
+    recovered downstream. A team room wants to lay deliberation out differently
+    from an answer, and the private chat's `segmentTurn` cannot help: it cuts a
+    turn from the EVENT STREAM, which no longer exists by the time a room
+    message does. A frontend heuristic could only guess, and guessing wrong
+    renders thinking as conclusion or the reverse.
+
+    Present on every run, not only ``include_monologue`` ones: a turn with no
+    monologue is simply one ``reply`` segment. Only the MONOLOGUE segments
+    depend on the opt-in — so a non-empty ``segments`` says nothing about
+    whether this was a team turn, and code that needs to know must ask.
+
+    Empty for a silent or whitespace-only turn, so a caller cannot render a
+    blank bubble from it.
+    ``"".join(s["text"] for s in segments) == output_text`` always holds."""
 
     tool_calls: list[str] = field(default_factory=list)
     """Names of tools invoked by the agent, in arrival order."""
@@ -90,7 +177,34 @@ class RunCollection:
 
     @property
     def is_error(self) -> bool:
+        """Any failure frame reached the collector, recoverable ones included.
+
+        Consumers deciding whether the turn produced usable OUTPUT want
+        ``is_fatal`` instead: a recoverable hiccup sets this while the loop goes
+        on to answer correctly, so treating it as failure means discarding a
+        real reply — or announcing a breakdown that did not happen.
+        """
         return self.error is not None
+
+    #: Severities that still leave the turn with something worth showing:
+    #: ``recoverable`` (absorbed mid-loop, the agent answered anyway) plus the
+    #: two verdicts ON a fatal. Treating any of these as fatal discards a reply
+    #: the user is entitled to see.
+    _NON_FATAL_SEVERITIES = ("recoverable", *VERDICT_ON_FATAL_SEVERITIES)
+
+    @property
+    def is_fatal(self) -> bool:
+        """The turn has no usable output.
+
+        Not simply "an error happened": three of the four severities describe a
+        turn that produced a reply anyway, and only ``fatal`` (plus an
+        unlabelled error, treated as the worse case since presenting a
+        possibly-empty turn as a success is the more harmful direction) means
+        there is nothing to show.
+        """
+        if self.error is None:
+            return False
+        return self.error.severity not in self._NON_FATAL_SEVERITIES
 
 
 async def collect_run(
@@ -103,6 +217,7 @@ async def collect_run(
     on_progress: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
     on_event_id: Optional[Callable[[str], Awaitable[None]]] = None,
     include_monologue: bool = False,
+    segments_sink: Optional[list] = None,
     **extra_kwargs,
 ) -> RunCollection:
     """Drive ``runtime.run(...)`` to completion and group its output.
@@ -117,6 +232,14 @@ async def collect_run(
     (``tool_name`` set only for "tool"). Used to mirror a live "what is this
     agent doing" status (e.g. the team-chat activity view). It must never raise;
     any exception is swallowed so status reporting can't break the run.
+
+    ``segments_sink`` — optional — is accumulated INTO as the run streams, so a
+    caller holding the same list can read the monologue/reply boundary before
+    the run returns. The team room needs that: its post happens inside the turn
+    (the chat rows are written before ``run()`` returns, so a post made after it
+    is not recorded as a reply), and by the time the deliverer is called the
+    reply's deltas have all been seen. Entries are in the accumulator's
+    ``{kind, parts}`` form — join them with ``joined_segments``.
 
     ``on_event_id(event_id)`` — optional, opt-in — is awaited at most once, as
     soon as the Step-0 progress message's ``details.event_id`` is observed.
@@ -134,9 +257,15 @@ async def collect_run(
     deliberation the agent never addressed to anyone.
     """
     text_parts: list[str] = []
+    # The live accumulator. When the caller passes a sink, it IS the list, so a
+    # reader holding that reference sees segments as they arrive — which is what
+    # the team-room deliverer needs, being called during the run rather than
+    # after it.
+    segments: list[dict] = segments_sink if segments_sink is not None else []
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    saw_fatal = False
     event_id: Optional[str] = None
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
@@ -168,9 +297,11 @@ async def collect_run(
             delta = getattr(msg, "delta", None)
             if delta:
                 text_parts.append(delta)
+                _add_segment(segments, "reply", delta)
         elif mt == MessageType.AGENT_THINKING:
             if monologue:
                 text_parts.append(monologue)
+                _add_segment(segments, "monologue", monologue)
         elif mt == MessageType.TOOL_CALL:
             name = getattr(msg, "tool_name", None)
             if name:
@@ -179,10 +310,19 @@ async def collect_run(
             # Last error wins — keep the most specific failure the run
             # reached (typically there's only one, but AgentRuntime may
             # yield a generic + specific pair in edge cases).
+            severity = str(getattr(msg, "severity", "") or "")
             error = RunError(
                 error_type=getattr(msg, "error_type", "unknown"),
                 error_message=getattr(msg, "error_message", str(msg)),
+                severity=severity,
             )
+            # Fatality is sticky, because "last error wins" is the wrong rule
+            # for it: a run that hits a fatal and then emits a recoverable
+            # follow-up frame is still a run with no usable output, and letting
+            # the later frame overwrite the verdict would present a broken turn
+            # as a working one.
+            if severity not in RunCollection._NON_FATAL_SEVERITIES:
+                saw_fatal = True
 
         # Raw payload on any message type (Lark needs it from TOOL_CALL
         # events; other triggers simply ignore the list).
@@ -258,8 +398,43 @@ async def collect_run(
                     except Exception:  # noqa: BLE001 — status must never break the run
                         logger.opt(exception=True).warning("on_event_id callback failed")
 
+    # A fatal seen anywhere in the run outranks a LESS informed last frame —
+    # but not a MORE informed one. `recovered` and `recovered_after_reply` are
+    # only ever emitted BECAUSE a fatal happened; they are the verdict on that
+    # fatal ("the fallback answered anyway", "the agent had already spoken"),
+    # not a competing claim about it. Upgrading them here would undo the only
+    # thing they exist to say, and the turn's real reply would be replaced by a
+    # failure notice.
+    #
+    # What the rule is actually for: a `recoverable` frame arriving after a
+    # fatal, where the later frame knows less, not more.
+    #
+    # `""` is exempt for a different reason than the verdicts: it already READS
+    # as fatal (`is_fatal` takes the worse side for anything unlabelled), so
+    # stamping it would change nothing except to destroy the one thing the
+    # empty string carries — that the runtime did not say.
+    if (
+        error is not None
+        and saw_fatal
+        and error.severity not in ("", "fatal", *VERDICT_ON_FATAL_SEVERITIES)
+    ):
+        error = RunError(
+            error_type=error.error_type,
+            error_message=error.error_message,
+            severity="fatal",
+        )
+
+    # A turn whose whole output is blank is dropped upstream (`if response_text`);
+    # the segments must agree rather than resurrect an empty bubble.
+    if not "".join(text_parts).strip():
+        segments = []
+
+    # Parts are an accumulation detail; the contract is `{kind, text}`.
+    final_segments = joined_segments(segments)
+
     return RunCollection(
         output_text="".join(text_parts),
+        segments=final_segments,
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,

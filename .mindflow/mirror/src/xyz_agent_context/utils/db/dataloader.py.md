@@ -1,3 +1,8 @@
+---
+code_file: src/xyz_agent_context/utils/db/dataloader.py
+stub: false
+---
+
 # dataloader.py
 
 GraphQL-DataLoader-style automatic batcher — coalesces scattered `load(id)` calls within the same event loop tick into a single `SELECT ... WHERE id IN (...)` query.
@@ -29,3 +34,16 @@ The N+1 query problem appeared repeatedly in Narrative and Event retrieval: code
 **Cache is not invalidated on write.** `DataLoader` has no write-through or write-around invalidation. If code writes to a table and then reads from a cached `DataLoader`, it will get stale data. Either disable caching for mutable entities or create a fresh `DataLoader` per request.
 
 **New-contributor trap.** `DataLoader` is a per-request or per-operation object, not a global singleton. Creating one `DataLoader` per `Repository` class attribute and reusing it across requests will serve stale cached data to subsequent requests (the cache is never cleared). Instantiate a new `DataLoader` per agent run or per HTTP request.
+
+## 2026-08-14 — batch dispatch is tracked, not bare
+
+`_schedule_dispatch` now hands `_dispatch_batch()` to
+`utils.background_tasks.spawn` instead of `asyncio.create_task`. The two-hop
+shape is unchanged (`loop.call_soon(_schedule_dispatch)` → task); only the
+task's ownership is.
+
+Why here specifically: every waiting `load()` caller is parked on a Future that
+*only this task* completes. A dispatch task that is collected mid-flight, or
+that dies with its traceback deferred to GC, strands all of them — silently,
+and in the one component the whole data layer leans on to avoid N+1. Incident
+lesson #2.

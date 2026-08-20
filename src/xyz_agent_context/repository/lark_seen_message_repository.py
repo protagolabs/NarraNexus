@@ -26,6 +26,8 @@ from typing import Optional
 
 from loguru import logger
 
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
+
 
 class LarkSeenMessageRepository:
     """Persistent dedup store for Lark event ``message_id``.
@@ -66,16 +68,9 @@ class LarkSeenMessageRepository:
             return True
         except Exception as e:
             # Distinguish UNIQUE-constraint violations (genuine duplicate) from
-            # everything else (transient DB trouble). Both aiomysql
-            # (IntegrityError 1062) and aiosqlite ("UNIQUE constraint failed")
-            # have their own class hierarchies; we match on the error text so
-            # we don't have to import either driver here.
-            msg = str(e)
-            if (
-                "UNIQUE constraint failed" in msg         # sqlite
-                or "Duplicate entry" in msg                # mysql
-                or "1062" in msg                           # mysql err code
-            ):
+            # everything else (transient DB trouble). The dual-dialect text match
+            # lives in ``is_unique_violation`` so neither driver is imported here.
+            if is_unique_violation(e):
                 return False
             # Non-UNIQUE failures (connection lost, disk full, etc.) MUST
             # propagate. The trigger's `_should_process_event` catches this

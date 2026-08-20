@@ -1,7 +1,34 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 复用 helper + 日志级别提到 warning
+
+自带的那份团队房定位换成 [[team_rooms]] 的 `primary_room_of`——它落地时就丢了兄
+弟实现的兜底分支，两份实现行为已经不一致。
+
+`except` 从 `debug` 提到 `warning`：这个分支正是未来「mcp 容器不再持有 DB 凭据」
+那次迁移会撞上的地方，而症状是**静默的**——room origin 消失，job 悄悄退回 owner
+私聊，也就是这个功能刚修好的那个 bug 原样回来。翻开关的人需要看得见。
+
+`caller_team_id_from_request()` 为空**仍然静默**：那是私聊/peer DM 的正常路径，
+在那儿告警会让每个 owner-chat job 都响一次，然后所有人学会忽略真正要紧的那行。
+
+## 2026-08-14 — `_caller_job_origin`：来源只能来自注入身份
+
+`job_create` 记录这一轮**跑在哪个团队房**。取自服务器注入的 team 身份，**绝不做
+成工具参数**：模型被问「你在哪个房间」只能猜，而猜错的 channel id 会把别人的提
+醒投进别人的房间。与工作板工具对 team_id 的处理同源
+（[[_work_board_mcp_tools]]）。
+
+**没有新增 bearer 字段**：bearer 的字段表是位置固定且冻结的，追加合法但要动协议
+和每个读者；而团队房**确定性地**就是 `created_by` 为 `team_<id>` 标记的那个群频
+道，这个事实已经在线上了。
+
+失败返回 `(None, None)`：报给 owner 是旧行为，而旧行为永远不是「我们没搞清它从
+哪来」的错误答案。
+
 ## 2026-08-11 — create/pause/cancel 迁走 seam，工具彻底弃 db 凭据
 
 job_create/pause/cancel 改为 `get_agent_data_store().job_create|job_pause|job_cancel(...)`，
@@ -104,3 +131,14 @@ next_run_time 被写空,job 变成 status 正常却永不被调度的僵尸。�
 刻意删除的：重复的销售场景长示例（原 job_create 3 个、job_update 6 个）、"WHEN TO USE" 叙事段、两个工具间重复的背景说明（job_update 的 trigger_config 完整 JSON 示例改为引用 job_create 的 shape 并压成单段速记）、"Feature 2.2.2 / Type-B" 内部黑话。原 docstring 中 `notification_method: default "inbox"` 与签名默认值 `"direct"` 矛盾，压缩版不再陈述默认值（schema 自带），顺手消除了这个误导。
 
 其余 5 个工具本次未动（`job_retrieval_semantic` 1,572 / `job_retrieval_by_id` 516 / `job_retrieval_by_keywords` 822 / `job_pause` 589 / `job_cancel` 716 字符，raw 计）。
+
+## 2026-08-19 — TriggerConfigArg 增 end_at
+
+发布给模型的 trigger_config schema 增 `end_at: NotRequired[str]`（naive 本地
+ISO，run_at 同款约定），job_create/job_update docstring 的 scheduled **与
+ongoing** shape 都教了它（三轮 review：TriggerConfigArg 是全类型共享的一份
+schema，模型看到的是"键存在"而非"只对 scheduled 有效"，所以平台侧把
+ongoing 也接上了地平线、one_off 显式忽略——语义必须一句话说得清）——没有这一步，模型在协议层就无法表达"这个日程排到哪天为止"，
+"接下来两周每天提醒我"只能建无限期 job + 让模型记得自己暂停（已被证明会被
+finalize 回滚的机制）。沿用 NotRequired 而非 Optional（见上方 $ref/anyOf-
+null 说明）；真校验仍在 TriggerConfig（naive validator 的报错足够模型自纠）。

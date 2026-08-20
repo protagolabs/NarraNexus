@@ -1,7 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-07-23
+last_verified: 2026-08-17
 ---
+
+## 2026-08-17 — 记一个已知缺口：`should_update_persona` 的 change-signal 只认英文
+
+本次**没改代码**，只是把一个原本只存在于一份已删除文件里的期望搬到有人会读的
+地方。
+
+`should_update_persona()` 判断"对话里出现显著变化信号"用的是写死的英文字面量
+表（`"i changed my mind"` / `"budget changed"` / ...）。被删掉的
+`src/.../social_network_module/test_persona.py` 里曾有一条用例断言中文也该触发
+（`"我改变主意了……"`）——那条断言**从未通过过**（它调的方法早已重构到本文件，
+而脚本从不被 `make test` 执行），所以这不是回归，是一个从未实现的期望；但它是
+该期望唯一的书面记录，而产品对中文用户上线。
+
+两个问题别混着修：(1) 非英文说法不触发重新推断，用户只会在 agent 继续按旧画像
+说话时察觉，没有任何报错；(2) `"budget changed"` / `"decision process changed"`
+是销售场景词汇，写死在通用模块里已经违反铁律 #4，**补一份中文表会让这个违规加
+倍，不是修好它**。方向应是让本函数不再自带任何场景词表（交给 Awareness 声明，
+或并入既有 LLM 判断），而不是加语言。
+
+优先级不高的原因：每 10 轮的周期性刷新是保底路径，所以漏掉信号只是**延迟**重新
+推断，不是永不推断。
+
+守卫：`tests/social_network_module/test_persona_refresh.py`（只覆盖当前英文行为
++ turn-0 与大小写边界）。详细讨论在本地 `reference/self_notebook/todo/`
+（该目录 gitignored，故此处留正本）。
 
 ## 2026-07-23 — meaningfulness guard (junk-entity filter)
 

@@ -2,15 +2,18 @@
  * @file_name: TeamRosterPanel.tsx
  * @author:
  * @date: 2026-07-30
- * @description: The team room's standing member column — every member,
- *   its status, its timer, and one click to that member's live process.
+ * @description: The team room's members panel — every member, its
+ *   status, its timer, and one click to that member's live process.
+ *   Rendered inside the room's shared right-side drawer (the members
+ *   tab), which owns width, border and visibility; this panel fills what
+ *   it is given.
  *
  * A folded console answers "is anything happening" only after you ask it.
  * In a room where six agents work in parallel, the question the user
  * actually holds is "what is EACH of them doing, right now" — so the
- * roster is permanent chrome down the right edge: one row per member,
- * always, including members the activity poll never mentioned (absent
- * from `activity` = idle with no trace).
+ * drawer opens on this panel by default where it is a pinned column:
+ * one row per member, always, including members the activity poll never
+ * mentioned (absent from `activity` = idle with no trace).
  *
  * v2 (2026-07-31, owner feedback: the column must not read cheap):
  * - The column BREATHES: 256px at rest, and when a member's detail is
@@ -287,11 +290,12 @@ export function TeamRosterPanel({
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col border-l border-[var(--rule)] min-h-0',
-        // The column breathes: opening a member's terminal needs width,
-        // and the transcript (flex-1 min-w-0) yields on its own.
-        'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none',
-        expandedId ? 'w-[min(430px,92vw)]' : 'w-64',
+        // Width and border belong to the drawer shell that hosts this
+        // panel (the shared BookmarkDrawer — user-resizable, preference
+        // shared with single chat). The panel fills whatever it is given;
+        // an expanded member's terminal works within that width instead of
+        // widening a column of its own.
+        'flex flex-col min-h-0',
         className,
       )}
     >

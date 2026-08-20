@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/run_channel_triggers.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-08-17
 ---
 
 ## 2026-07-22 — now launched BY the worker supervisor, not the startup paths
@@ -68,12 +68,16 @@ Three shutdown hazards caught by the 2026-07-08 end-to-end run (all fixed):
 - **SIGTERM must be handled explicitly.** `asyncio.run()` handles SIGINT but NOT
   SIGTERM; without an explicit handler, systemd/`docker stop` would hard-kill the
   process instead of letting each channel `stop()`.
-- **The DB client MUST be closed on shutdown.** The aiosqlite backend runs its
-  single connection on a background thread that keeps the process alive after
-  `main()` returns — skipping `close_db_client()` turns a clean signal into a
-  hang. The old per-channel entrypoints never closed it but exited via a
-  propagating `KeyboardInterrupt`; the supervisor returns normally, so it must
-  close explicitly.
+- **The DB client MUST be closed on shutdown.** This used to be justified by
+  aiosqlite's connection thread keeping the process alive after `main()`
+  returns, turning a clean signal into a hang. **That reason expired on
+  2026-08-17**: [[db_backend_sqlite.py]] makes the worker a daemon thread, so it
+  no longer blocks exit. The requirement stands on what outlived the hang — a
+  daemon thread is KILLED wherever it stands at interpreter exit, so
+  `close_db_client()` is the only point at which pending writes are drained and
+  SQLite locks released deliberately. The old per-channel entrypoints never
+  closed it but exited via a propagating `KeyboardInterrupt`; the supervisor
+  returns normally, so it must close explicitly.
 - `loguru.complete()` is drained inside the same `asyncio.run` scope on shutdown;
   a fresh `asyncio.run` would bind it to a closed loop (inherited from the old
   per-channel entrypoints).

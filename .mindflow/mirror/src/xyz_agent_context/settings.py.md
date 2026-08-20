@@ -1,8 +1,59 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-04
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 取消/恢复改为显式带 channel（本条不是 08-18 就定下的）
+
+原来这里写着「卡订阅的取消/恢复由上游路由到它所属的那个账号」。那句话来自接入文档、
+**从未实测**，而且与 [[netmind_billing_client]] 自己的注释（「不传 channel = 上游按
+power 处理」）**直接矛盾** —— 评审读出来的。
+
+两个端点现在显式带 `channel`：悲观假设下这是必需的（不带 = nexus 上新建的卡订阅
+取消不掉，用户下个月照扣），乐观假设下是惰性字段。**单独开一节而不是改写 08-18 那段**，
+因为这是评审推动的当日改动，混进旧小节会让人以为它是一开始就想清楚的。
+
+
+## 2026-08-18 — `billing_channel`（默认 `"nexus"`）
+
+选哪个 Stripe 账号收款。NarraNexus 本身就是接入文档里说的 "nexus 场景"，而且
+**只有这个账号开了支付宝和微信**，所以它是默认值而不是可选项。上游把"不传"读作
+原来的共享 "power" 账号；我们总是显式发出去，让 body 表达它真正的意思。
+
+做成 setting 而不是常量只有一个理由：nexus 账号出事时，切回 `"power"` 一个 deploy
+就能恢复原来的付款链路。**绝不能从客户端输入到达** —— 见 [[billing]]。
+
+已知代价（写在这里，省得日后在客服工单里重新发现一遍）：之前走 "power" 付过款的
+用户在这里是**另一个 Stripe customer**，第一次走 nexus 结账时不会出现已保存的卡。
+免费额度和订阅状态两边落同一个 NetMind 账本；卡订阅的取消/恢复见下方 2026-08-19 条目。
+
+
+## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
+
+message bus trigger 的并发 turn 上限。这是**我们自己的**资源决策，不是对 agent 运行时长
+的限制（铁律 #14）：池子决定同时能服务几个房间，池子太小在用户那儿的表现就是「群聊死了」
+——恰恰是平台有责任避免的那个失效模式。
+
+写死成 3 让槽位短缺既**看不见**、又**必须改代码**才能修。8 是新的舒适下限：bus turn 几乎
+全是 await（LLM + DB），槽位很便宜，而一个团队房内部接力就能同时占掉好几个。
+
+槽位等待就在 `[bus-timing]` 行的 `queue_wait_s` 里面，所以调这个值再重跑
+`make latency-report` 是**可测量**的改动，不是拍脑袋。
+
+**跨仓依赖（再调之前必读）**：生产跑 `run_worker_supervisor`，poller + jobs + bus +
+所有 channel trigger 共享一个 asyncio loop、因而共享**一个 MySQL 池**。那个池的大小定
+在 deploy 仓 `stacks/narranexus-app/compose.yml` 的 `workers` 服务（`MYSQL_POOL_SIZE`），
+其注释的算式是「poller(3) + jobs(5) + bus + 每个 channel worker/subscriber」——本项就是
+算式里的 `bus` 项。在这边改而不回头看那个数，就是「bus 的改动变成 poller / jobs / 每个
+IM channel 一起说『数据库变慢了』」的由来。
+
+**为什么调高仍然便宜**：连接是**按查询**借还的，不是按 turn 占住。一个 bus turn 约 24
+秒里有 20 秒在等 LLM，那期间不占连接——这也是池子一直按「典型并发查询数」而非「理论
+任务数」来定的原因（光 channel trigger 每个就允许 50 个 worker）。
+
+**再往上调需要证据**：`service_audit` 里出现 `worker_starvation` 行才说明池子真的是瓶颈
+（见 `_check_worker_starvation`）；没有，就不是。
 
 ## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
 
@@ -296,7 +347,7 @@ Before this file, configuration was loaded through scattered `load_dotenv()` + `
 
 **Reads from:** the `.env` file at `_PROJECT_ROOT/.env` (three levels up from the file itself) and system environment variables. For API key fields, `.env` values are injected into `os.environ` before pydantic-settings reads them, overriding any pre-existing shell variables.
 
-**Consumed by:** `database.py` (`load_db_config`, `_ensure_pool`), `db_factory.py` (`get_db_client`), `agent_framework/` (LLM API keys), `narrative/`, `module/`, and the FastAPI backend. Essentially every module that needs an API key, database URL, or path configuration imports `settings`.
+**Consumed by:** `database.py` (`load_db_config`, `_ensure_backend`), `db_factory.py` (`get_db_client`), `agent_framework/` (LLM API keys), `narrative/`, `module/`, and the FastAPI backend. Essentially every module that needs an API key, database URL, or path configuration imports `settings`.
 
 **Also writes to `os.environ`** at the bottom of the file for `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_BASE_URL`, so that third-party SDKs (like OpenAI Agents SDK) that read `os.environ` directly also see the correct values.
 
@@ -319,3 +370,17 @@ Before this file, configuration was loaded through scattered `load_dotenv()` + `
 **`extra="ignore"` silently drops unknown variables.** Any environment variable that does not match a `Settings` field is silently ignored. If you mistype a variable name in `.env` (e.g., `ANTHROPIC_API_KEYS` instead of `ANTHROPIC_API_KEY`), pydantic-settings will not warn you.
 
 **New-contributor trap.** The sync to `os.environ` at the bottom of the file only covers the four API key variables. Other settings (e.g., `DATABASE_URL`) are not written to `os.environ`. Code that tries to read `os.environ["DATABASE_URL"]` directly rather than `settings.database_url` will get nothing.
+
+## 2026-08-14 — 「槽位很便宜」要加一个限定:便宜的是等待,不是持有
+
+上面那句成立的前提是槽位周转快。2026-08-14 起团队房的回复**在 turn 内**代发,而槽位
+到 **turn 结束**才归还 —— 按铁律 #14,agent 在回复之后继续干几十分钟是一等场景。于是
+下一跳在上一个 turn 还在跑时就被派发,同一房间一次 D 跳接力峰值占用最多 D 个槽位
+(旧顺序是 1 个)。
+
+实践后果只有一条要记住:`service_audit` 里的 `worker_starvation` 在团队接力期是
+**预期信号**,不是「有人的 agent 卡住了」,要连着当时有几个房间在接力一起读。
+详见 [[message_bus_trigger]] 的 08-14 节。
+
+(第 26-27 行讲的是 MySQL **连接**按查询借还 —— 那是另一件事,仍然成立。)
+

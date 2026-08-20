@@ -41,6 +41,10 @@ class MessageBusService(ABC):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
+        segments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -53,8 +57,10 @@ class MessageBusService(ABC):
             mentions: List of agent_ids to mention, or ["@everyone"].
             attachments: Optional list of bus-attachment dicts (see
                 _bus_attachment_impl); files travel by reference, not bytes.
-            event_id: events row id of the turn that produced this message
-                (agent replies posted by the trigger); None otherwise.
+            event_id: WHICH turn produced this message — the events-row id.
+                Stamped by the trigger's in-turn room post AND by the agent's
+                own bus sends, so a present id does NOT mean "the platform
+                posted it". None when the caller cannot tell, never a guess.
             sender_turn_source: WHICH KIND of turn produced this send —
                 a WorkingSource value ("chat"/"job"/"message_bus"/…) or
                 BUS_ERRAND_TURN_SOURCE. Recipients' trigger uses it to tell
@@ -111,6 +117,36 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def get_messages_before(
+        self,
+        channel_id: str,
+        before: str,
+        limit: int = 50,
+    ) -> List[BusMessage]:
+        """
+        Get the page immediately ABOVE ``before``, oldest→newest.
+
+        The mirror image of ``get_messages(since=…)``, and deliberately not
+        symmetrical with it: ``since`` returns the OLDEST after the cursor
+        (catching up must never skip a message), while this returns the NEWEST
+        before it (scrolling up wants the page directly above what is on
+        screen). Either one implemented in the other direction produces a
+        transcript with a silent hole rather than an error.
+
+        Args:
+            channel_id: The channel to fetch messages from.
+            before: ISO timestamp string; EXCLUSIVE, so the caller passes the
+                timestamp of the oldest message it already holds.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            at the top of the history — which is how a caller knows to stop
+            offering "load more" rather than inferring it from a short page.
+        """
+        ...
+
+    @abstractmethod
     async def get_unread(
         self, agent_id: str, limit: Optional[int] = None
     ) -> List[BusMessage]:
@@ -152,6 +188,27 @@ class MessageBusService(ABC):
         ...
 
     @abstractmethod
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
+    ) -> bool:
+        """
+        Whether this agent put any message into this channel during a turn.
+
+        An existence question keyed on the turn id that both delivery paths
+        stamp, so it covers a reply the platform posted and one the agent sent
+        through a tool alike.
+
+        Args:
+            channel_id: The channel to look in.
+            from_agent: The sender whose messages count.
+            event_id: The turn id stamped on messages produced by that run.
+
+        Returns:
+            True when at least one such message exists.
+        """
+        ...
+
+    @abstractmethod
     async def count_unread(self, agent_id: str) -> int:
         """
         How many unread messages exist, independent of any window.
@@ -185,6 +242,7 @@ class MessageBusService(ABC):
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -201,9 +259,23 @@ class MessageBusService(ABC):
                 _bus_attachment_impl); files travel by reference, not bytes.
             sender_turn_source: WHICH KIND of turn produced this send (see
                 ``send_message``); None when unknown.
+            event_id: WHICH turn produced it — the events-row id. None when
+                the caller cannot tell, never a guess.
 
         Returns:
             The generated message_id.
+
+        Raises:
+            ValueError: when ``from_agent == to_agent``. Not a nicety: the DM
+                channel lookup joins the channel against two member rows, so the
+                same id twice is satisfied by the SAME row and every direct
+                channel the agent belongs to matches — the send lands in an
+                arbitrary peer's conversation and wakes them. Declared HERE
+                because `CloudMessageBus.send_to_agent` will be written against
+                this protocol, and `LocalMessageBus` is where the guard currently
+                lives; an implementation that skips it reproduces the bug rather
+                than inheriting the fix. See `local_bus.direct_channel_sql`.
+            PermissionError: cross-user messaging (different owners).
         """
         ...
 

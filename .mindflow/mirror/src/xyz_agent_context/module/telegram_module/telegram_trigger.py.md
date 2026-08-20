@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-08-18
 ---
 
 ## 2026-07-10 — react_tool_ref = "react_to_user_message"
@@ -149,3 +149,14 @@ Edge cases:
   matches the new value → resolution never fires. User must rebind.
 - Already resolved: no-op (idempotent guard on ``owner_user_id`` being
   empty).
+
+## 2026-08-18 — 历史来源改为 InboxRecorder 的表
+
+`history_config` 上那段注释原先是现在时的「ChannelInboxWriter 把每一轮写进 bus_messages」——
+那个类已删除。Telegram 没有平台侧历史 API，所以**我们自己留的记录就是历史**：
+`InboxRecorder` 写 `inbox_thread_messages`，`TelegramContextBuilder` 读回来
+（2026-08-17 之前是 `bus_messages` 下的 `telegram_<chat_id>`）。
+
+这类现在时注释的危险在于它**论证着删除**：读者正确推断出写入器已经没了，于是判定相关的过滤
+或读取是死代码。见 [[local_bus.py]] 2026-08-18 —— 那道旧 IM 前缀过滤正是这样一个「看起来该删、
+删了会静默重演投毒」的东西。

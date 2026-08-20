@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-11
-stub: true
+last_verified: 2026-08-19
+stub: false
 ---
+
+## 2026-08-19 — `SubscriptionStatus.payment_method` / `SubscriptionPlan.usd_monthly_price`
+
+`payment_method` 是**判别字段**，不是装饰：一次性订阅与已取消的卡订阅在其余每个字段
+上都一模一样。可选，因为早于 nexus 账号的订阅都没有它 —— **缺失即卡**。
+
+`usd_monthly_price`（一个月多少钱）和 `monthly_grant_usd`（一个月给多少额度）
+今天数值相同，也正因如此才分开：一次性总价必须按前者算，否则任一边变动都会静默
+算错 12 个月的结账金额。
+
+
+## 2026-08-18 — 支付方式与汇率报价的类型
+
+`RechargePaymentMethod`（`default | alipay | wechat`）与
+`SubscribePaymentMethod`（`stripe | alipay | wechat`）**故意分成两个类型**：同一条
+"刷卡"通道，上游在两个接口里的拼写就是不一样的，合并成一个联合类型会让调用点在
+编译期看起来合法、运行期被上游 400。
+
+`FxQuote` 的每个字段都是 `string` 且都可选 —— 金额用文本传（避免浮点漂移），
+且后端逐字代理上游、不做 schema 校验，所以**部分字段缺失的 200 是可能的**，
+读取点必须可选链 + 兜底。与 [[FeeInfo]] 同一条规矩。
+
+`RechargeCheckout` / `SubscribeCheckout` 多了 `charge_currency` / `charge_amount`
+/ `fx_rate`：**只有非美元（微信）才有**。`charge_amount` 是银行真正划走的钱，
+用户拿到的额度仍是他请求的那个美元数 —— 两者不是一回事，别混用。
 
 ## 2026-08-11 — ApiResponse 加可选 `message`
 
@@ -141,3 +166,8 @@ last_run_timezone?: string;
 
 - 不要"为了方便前端排序"悄悄加回 `next_run_time: string`。β 之间不可比较（跨时区 job 无全序），排序/筛选的"时间 cursor"只存在于后端 α 里
 - 如果后端 response 新增时间字段，**必须**同步配 `_timezone` 字段，不能只有时间主体
+
+2026-08-19：`TriggerConfig` 增 `end_at?: string`（scheduled 地平线，镜像后端
+`job_schema.TriggerConfig.end_at`）；`NetmindLoginResponse`/`CreateUserResponse`
+增 `guide_agent_provisioning?: boolean`（服务端 kill-switch 回显，见
+api.ts.md 的 coachmark 门控段）。

@@ -47,71 +47,10 @@ from typing import Any, Optional
 from loguru import logger
 
 
-# ── Agent workspace CWD resolution (2026-05-28) ──────────────────────────
-#
-# When lark-cli is spawned for an agent-scoped call we want its CWD to be
-# the agent's workspace directory. Reason: a number of lark-cli commands
-# (e.g. `vc +notes --minute-tokens`, `drive +download`, `mail
-# +attachments-download`) write files at a default `./<thing>` path —
-# relative to the child process' CWD. If we don't set CWD, the child
-# inherits the MCP container's CWD (typically `/app/`), which is not
-# mounted into the backend container where the agent's Read tool lives,
-# so the resulting file is unreachable to the agent.
-#
-# The agent workspace path is the same one `tool_policy_guard` uses to
-# sandbox the agent's Read tool: `{settings.base_working_path}/
-# {agent_id}_{user_id}`. Both the MCP container and the backend container
-# have the same volume mount, so writing there from MCP and reading from
-# backend works out of the box.
-#
-# user_id lookup: `agents.created_by` (immutable per agent), cached in a
-# process-local dict to avoid an extra DB round-trip on every lark-cli call.
-_agent_user_id_cache: dict[str, str] = {}
-
-
-async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
-    """Return the agent's workspace dir to use as the subprocess CWD.
-
-    Returns None if:
-      - the agent has no `created_by` (orphaned bind / corrupted row)
-      - the workspace path can't be ensured (filesystem error)
-    Callers MUST tolerate None — they fall back to inheriting the parent
-    CWD (the pre-2026-05-28 behaviour), which is wrong for downloads but
-    safe for everything else.
-    """
-    user_id = _agent_user_id_cache.get(agent_id)
-    if user_id is None:
-        try:
-            from xyz_agent_context.repository import AgentRepository
-            repo = AgentRepository(db)
-            agent = await repo.get_agent(agent_id)
-            if agent is None or not agent.created_by:
-                logger.debug(
-                    f"[lark-cli] no created_by for {agent_id}; "
-                    f"subprocess will inherit parent CWD"
-                )
-                return None
-            user_id = agent.created_by
-            _agent_user_id_cache[agent_id] = user_id
-        except Exception as e:
-            logger.debug(f"[lark-cli] could not resolve user_id for {agent_id}: {e}")
-            return None
-
-    try:
-        from xyz_agent_context.utils.attachment_storage import (
-            get_workspace_path as _get_agent_workspace_path,
-        )
-        ws = _get_agent_workspace_path(agent_id, user_id)
-        # Ensure the directory exists. The agent runtime usually creates it
-        # at first run, but for a lark-cli call that happens before the
-        # agent has ever produced an artifact (e.g. fresh agent + first
-        # transcript download) we need to mkdir to give lark-cli somewhere
-        # to write.
-        ws.mkdir(parents=True, exist_ok=True)
-        return ws
-    except Exception as e:
-        logger.debug(f"[lark-cli] workspace path resolution failed for {agent_id}: {e}")
-        return None
+# Agent workspace CWD resolution (2026-05-28 P0): lark-cli writes
+# default-relative outputs to its CWD, so agent-scoped calls spawn inside
+# the agent's workspace — shared implementation in data_access.
+from xyz_agent_context.module.data_access import resolve_agent_workspace_cwd
 
 
 # =============================================================================
@@ -262,7 +201,8 @@ class LarkCLIClient:
         from ._lark_credential_manager import _cred_from_raw
         from ._lark_workspace import get_home_env, get_workspace_path
 
-        raw = await get_channel_credential_store().get_credential("lark", agent_id)
+        store = get_channel_credential_store()
+        raw = await store.get_credential("lark", agent_id)
         cred = _cred_from_raw(raw) if raw is not None else None
         if not cred:
             return {
@@ -270,17 +210,28 @@ class LarkCLIClient:
                 "error": f"No Lark credential for agent {agent_id}. Run lark_setup first.",
             }
 
-        # Lazy migration: pre-refactor manual binds had workspace_path=""
+        # Lazy migration: pre-refactor manual binds had workspace_path="".
+        # Persist through the seam so it works in both direct-db and
+        # zero-cred deployments; the seam never raises, so a failed write
+        # only surfaces here — warn or the migration retries invisibly on
+        # every call.
         if not cred.workspace_path:
             cred.workspace_path = str(get_workspace_path(agent_id))
-            await mgr.update_workspace_path(agent_id, cred.workspace_path)
+            res = await store.patch_credential(
+                "lark", agent_id, {"workspace_path": cred.workspace_path}
+            )
+            if not res.get("success"):
+                logger.warning(
+                    f"[lark-cli] workspace_path migration not persisted for "
+                    f"{agent_id}: {res.get('error')}"
+                )
 
         hydrated, err = await self._ensure_hydrated(cred)
         if not hydrated:
             return {"success": False, "error": err}
 
         env = get_home_env(agent_id)
-        cwd = await _resolve_agent_workspace_cwd(agent_id, db)
+        cwd = await resolve_agent_workspace_cwd(agent_id, log_tag="lark-cli")
         cmd = ["lark-cli"] + args
         logger.debug(
             f"lark-cli [{agent_id}/{cred.profile_name}] cwd={cwd}: {' '.join(cmd)}"

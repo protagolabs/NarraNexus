@@ -233,7 +233,7 @@ def create_social_network_mcp_server(port: int) -> FastMCP:
         This returns contact details only; it does NOT contact anyone and
         cannot tell you what another agent is doing or whether they finished
         a task. To actually ask another agent something, message them with
-        `bus_send_to_agent` instead — they will be triggered and reply.
+        `message_agent` instead — they will be triggered and reply.
 
         Args:
             agent_id: Your own agent id (the owner of this social network)

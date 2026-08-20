@@ -10,6 +10,7 @@ Subproject 1: Team Membership
 
 Source values for Team.source:
 - "user": created by the user via UI
+- "agent": created by an agent via the `create_team` MCP tool
 - "bundle:<bundle_id>": auto-created from a bundle import (subproject 2)
 """
 
@@ -129,8 +130,23 @@ class AddMemberRequest(BaseModel):
 
 
 class TeamWithMembers(BaseModel):
+    """A team as the sidebar needs it: who is in it, and whether it has spoken.
+
+    The activity fields answer a question a team row could not answer before:
+    a room the user left looked identical whether six agents had been talking for
+    ten minutes or nothing had happened. They are the server half of the unread
+    mark — the read watermark itself is client-side, per device.
+
+    All three are None for a room that does not exist yet or has said nothing the
+    user has not already seen themselves (their own messages and the platform's
+    own notices do not qualify; see `_team_room_activity`).
+    """
+
     team: Team
     member_agent_ids: List[str] = Field(default_factory=list)
+    last_message_at: Optional[str] = None
+    last_message_preview: Optional[str] = None
+    last_message_author: Optional[str] = None
 
 
 class TeamListResponse(BaseModel):

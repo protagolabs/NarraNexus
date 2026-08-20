@@ -96,10 +96,17 @@ TOOL_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
         "desc_template": "query={query}",
     },
 
-    # Chat tools
-    "send_message_to_user_directly": {
+    # Chat tools — one destination, two registers, so BOTH need an entry.
+    # A missing key falls through to "_default" (🔧, no name), which would
+    # render the owner's own reply as an anonymous generic tool call.
+    "reply_owner": {
         "icon": "💬",
-        "name": "send_message_to_user_directly",
+        "name": "reply_owner",
+        "desc_template": "",
+    },
+    "notify_owner": {
+        "icon": "💬",
+        "name": "notify_owner",
         "desc_template": "",
     },
 

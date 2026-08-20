@@ -44,6 +44,10 @@ class CloudMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
+        segments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -54,6 +58,11 @@ class CloudMessageBus(MessageBusService):
 
     async def get_recent_messages(
         self, channel_id: str, limit: int = 20
+    ) -> List[BusMessage]:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def get_messages_before(
+        self, channel_id: str, before: str, limit: int = 50
     ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -74,6 +83,7 @@ class CloudMessageBus(MessageBusService):
         attachments: Optional[List[dict]] = None,
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -111,6 +121,11 @@ class CloudMessageBus(MessageBusService):
 
     async def has_unread_before(
         self, agent_id: str, channel_id: str, before: str
+    ) -> bool:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def has_message_from_turn(
+        self, channel_id: str, from_agent: str, event_id: str
     ) -> bool:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

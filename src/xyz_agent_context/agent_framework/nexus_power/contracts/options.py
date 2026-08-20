@@ -110,6 +110,12 @@ class TurnOptions(BaseModel):
     allowed_tools: tuple[str, ...] = ()      # empty = no allowlist
     disallowed_tools: tuple[str, ...] = ()
     expressive_tools: tuple[str, ...] = ()   # monologue/expression contract
+    # One pre-rendered line naming where this turn came from and which tool
+    # answers it (channel.message_source_handler.render_origin_declaration).
+    # The framework NEVER composes it — it is handed the finished sentence so
+    # that the CLI drivers and this one emit the identical characters. Empty =
+    # no declared surface; then nothing is said about replying at all.
+    origin_declaration: str = ""
     marker_tools: tuple[str, ...] = ()       # label tools declared out-of-band
     builtin_groups: tuple[str, ...] = ("files", "shell", "context")
     permission_mode: Literal["default", "plan", "accept_edits", "bypass"] = "default"

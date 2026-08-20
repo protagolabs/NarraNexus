@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — chat fast mode: drive() 透传 fast_mode
+
+`drive()` 新增 `fast_mode: bool = False`，原样转发给
+`AgentRuntime.run(fast_mode=...)` ——零策略、零判断（「fast 意味着什么」
+收敛在 runtime 的 `_resolve_turn_profile`）。缺省 False 与旧行为逐字节
+相同。锁在 tests/agent_runtime/test_background_run_fast_mode.py。
 
 ## 2026-08-10 — terminal outcome facts and latency
 

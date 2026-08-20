@@ -119,7 +119,7 @@ class TestSilentDmTurnReachesThePerson:
 
         details = progress[0].details
         assert details["tool_name"] == "wechat_send"
-        assert "send_message_to_user_directly" not in details["tool_name"]
+        assert "notify_owner" not in details["tool_name"]
         assert details["reply_via"] == "helper_llm_no_reply_im_dm"
 
     async def test_no_text_deltas_leak_to_the_owner_panel(
@@ -140,7 +140,7 @@ class TestSilentDmTurnReachesThePerson:
         which is how the 0802 no-reply metric got poisoned."""
         frames = await _drive()
 
-        assert ChatModule._delivered_to_origin("wechat", frames) is True
+        assert bool(ChatModule._origin_delivered_text("wechat", frames)) is True
 
         im_reply, direct_notify, combined = ChatModule._split_user_visible_response(
             None, frames, "wechat"
@@ -204,7 +204,7 @@ class TestChannelAgnostic:
         )
         assert im_reply == "好的，这是你要的答案。"
         assert direct_notify == ""
-        assert ChatModule._delivered_to_origin("lark", frames) is True
+        assert bool(ChatModule._origin_delivered_text("lark", frames)) is True
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/_tool_policy_guard.py
-last_verified: 2026-04-20
+last_verified: 2026-08-17
 stub: false
 ---
 
@@ -21,7 +21,7 @@ Claude Code CLI 的 `permission_mode="bypassPermissions"` 让 Agent 可以无阻
 1. **Workspace 越界拦截（仅云端）**：`Read` / `Glob` / `Grep` 的目标路径必须落在 per-agent 工作空间内，`Path.resolve()` 后用 `relative_to(workspace)` 验证，走软链接到外部也拦。本地模式跳过——是用户自己的机器。
 2. **Server-tool 拦截（两种模式都开）**：`WebSearch` 依赖 Anthropic 的 `web_search_20250305` server tool，聚合商（NetMind/OpenRouter/Yunwu）不实现，调用会静默 hang 45 秒再超时。`supports_server_tools=False` 时直接拒，prompt 里提示 Agent 转用 `WebFetch`。
 3. **`lark-cli` shell-out 重定向（两种模式都开）**：直接 `lark-cli` 或 `npm install @larksuite/cli` 等方式绕过 MCP 层会跳过凭证注入和工作空间隔离。拦截并提示 Agent 走 `mcp__lark_module__*` 工具。
-4. **全局安装拦截（仅云端）**：`brew install`、`npm install -g`、`yarn global add`、`apt-get install`、`sudo ...`、裸 `pip install`（不带 `--target=`/`--user`）全部拒绝——这些会改到共享宿主机影响其他租户。回复提示里告诉 Agent 改用 `pip install --target=./libs`、workspace-local `npm install`，或者 `send_message_to_user_directly` 告知用户该 skill 在云端不支持。
+4. **全局安装拦截（仅云端）**：`brew install`、`npm install -g`、`yarn global add`、`apt-get install`、`sudo ...`、裸 `pip install`（不带 `--target=`/`--user`）全部拒绝——这些会改到共享宿主机影响其他租户。回复提示里告诉 Agent 改用 `pip install --target=./libs`、workspace-local `npm install`，或者 `notify_owner` 告知用户该 skill 在云端不支持。
 
 ## 设计决策
 

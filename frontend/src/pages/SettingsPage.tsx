@@ -2,26 +2,32 @@
  * @file_name: SettingsPage.tsx
  * @description: Settings page — NM section labels + display-font title.
  *
- * Reuses existing ProviderSettings, ArtifactsSection and adds bundle
- * export/import + batch agent manager links. Each section is headed with
- * a BracketSectionLabel so the page reads as a stack of NM-bracketed
- * regions instead of plain `<h2>` headings.
+ * App-scoped settings only (Chat UI v4): providers, model defaults,
+ * artifacts, desktop updates. Account/billing/subscription moved to the
+ * user-scoped /app/account page (sidebar account popover); bundle
+ * import/export entries live in the sidebar's New menu + Export row. The
+ * Account pane (account / billing / subscription) lives HERE — the left
+ * nav stays visible on every pane, and /app/account survives only as a
+ * redirect alias for old links.
+ * Each section is headed with a BracketSectionLabel so the page reads as
+ * a stack of NM-bracketed regions instead of plain `<h2>` headings.
  */
 
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal, Shield } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
+import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
-import { useConfigStore } from '@/stores/configStore';
+import { useConfigStore } from '@/stores';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -40,29 +46,6 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
 // of a collapsible stack. One content component per nav item; the left nav
 // in SettingsPage switches between them.
 
-function BundleContent() {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  return (
-    <section>
-      <SectionHeader
-        label={t('pages.settings.bundle.label')}
-        hint={t('pages.settings.bundle.hint')}
-      />
-      <div className="flex gap-3">
-        <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
-          <Package className="w-4 h-4" />
-          {t('pages.settings.bundle.exportButton')}
-        </Button>
-        <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
-          <Upload className="w-4 h-4" />
-          {t('pages.settings.bundle.importButton')}
-        </Button>
-      </div>
-    </section>
-  );
-}
-
 function ArtifactsContent() {
   const { t } = useTranslation();
   return (
@@ -72,23 +55,6 @@ function ArtifactsContent() {
         hint={t('pages.settings.artifacts.hint')}
       />
       <ArtifactsSection />
-    </section>
-  );
-}
-
-function ManageAgentsContent() {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  return (
-    <section>
-      <SectionHeader
-        label={t('pages.settings.manageAgents.label')}
-        hint={t('pages.settings.manageAgents.hint')}
-      />
-      <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
-        <Users className="w-4 h-4" />
-        {t('pages.settings.manageAgents.openButton')}
-      </Button>
     </section>
   );
 }
@@ -226,7 +192,7 @@ function UpdatesSection() {
         )}
 
         {state.kind === 'failed' && (
-          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-red-500)' }}>
+          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-error)' }}>
             <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <div>
               <div>{t('pages.settings.updates.failed', { stage: state.stage })}</div>
@@ -258,41 +224,34 @@ function ProvidersSection() {
   );
 }
 
-// Left-nav items (master). Each maps to one content panel (detail).
+// Left-nav items (master). Each maps to one content panel (detail) — the
+// left nav stays visible whichever pane is open, Account included: losing
+// the tab list on one entry made Settings feel like it navigated away.
 // ``desktopOnly`` items (App updates) only appear in the Tauri build.
-// ``powerOnly`` items (Account & Subscription) only appear for a NetMind
-// ("Power") account session — the account/billing panels are NetMind features
-// and render nothing for a pure-local username user, so the nav entry would
-// otherwise open a blank pane. Keyed on the per-user signal (a held NetMind
-// loginToken), NOT the deployment mode, so it shows for a Power user on a local
-// dual-mode install.
+// ``neverDefault`` items are reachable but are not a landing pane — the
+// page must not open on them unless the URL asked for them by name.
 interface NavItem {
   id: string;
   labelKey: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
-  powerOnly?: boolean;
+  neverDefault?: boolean;
 }
 
-// Account first for a Power user: their home question is "what are my credits /
-// plan", so billing leads; bring-your-own provider config follows.
 const NAV_ITEMS: NavItem[] = [
-  { id: 'account', labelKey: 'pages.settings.nav.account', icon: CreditCard, powerOnly: true },
+  { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, neverDefault: true },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
-  { id: 'bundle', labelKey: 'pages.settings.nav.bundle', icon: Package },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
-  { id: 'agents', labelKey: 'pages.settings.nav.manageAgents', icon: Users },
   { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
+  { id: 'personalization', labelKey: 'pages.settings.nav.personalization', icon: Palette },
   { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
 export default function SettingsPage() {
   const { t } = useTranslation();
-  const hasPower = !!useConfigStore((s) => s.netmindToken);
-  const items = NAV_ITEMS.filter(
-    (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || hasPower),
-  );
+  const netmindToken = useConfigStore((s) => s.netmindToken);
+  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
   // payer to /app/settings?tab=account&status=… after checkout (see
@@ -300,12 +259,12 @@ export default function SettingsPage() {
   // whatever pane happens to be first and read that as "my payment went
   // nowhere". Only the FIRST render honors the URL: afterwards the user's clicks
   // own the selection, so a stale query param can't fight them. An unknown id,
-  // or one this session cannot see (powerOnly / desktopOnly filtered it out),
+  // or one this session cannot see (desktopOnly filtered it out),
   // falls back to the first visible item rather than opening an empty pane.
   const [active, setActive] = useState(() => {
     const requested = searchParams.get('tab');
     if (requested && items.some((it) => it.id === requested)) return requested;
-    return items[0]?.id ?? 'providers';
+    return items.find((it) => !it.neverDefault)?.id ?? 'providers';
   });
 
   return (
@@ -333,7 +292,7 @@ export default function SettingsPage() {
                 key={item.id}
                 type="button"
                 onClick={() => setActive(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors ${
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
                     : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]'
@@ -348,7 +307,33 @@ export default function SettingsPage() {
 
         {/* Content (detail) */}
         <ScrollArea className="flex-1" viewportClassName="p-6">
-          <div className="max-w-3xl">
+          <div className="max-w-3xl mx-auto">
+            {active === 'account' && (
+              <section>
+                <SectionHeader label={t('pages.settings.nav.account')} />
+                {/* The user-scoped account/billing/subscription surface —
+                    Stripe returns payers to ?tab=account (billing.py), which
+                    lands here with the nav intact. The panel self-gates to
+                    null without a NetMind session, so the hint keeps this
+                    pane from reading as blank. */}
+                {netmindToken ? (
+                  <NetmindAccountPanel />
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+                    {t('pages.account.powerOnlyHint')}
+                  </p>
+                )}
+              </section>
+            )}
+            {active === 'personalization' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.personalization.label')}
+                  hint={t('pages.settings.personalization.hint')}
+                />
+                <PersonalizationSettings />
+              </section>
+            )}
             {active === 'providers' && <ProvidersSection />}
             {active === 'modeldefaults' && (
               <section>
@@ -359,19 +344,7 @@ export default function SettingsPage() {
                 <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
               </section>
             )}
-            {active === 'account' && (
-              <section>
-                <SectionHeader label={t('pages.settings.nav.account')} />
-                {/* One card owns every "what are my credits / how is usage paid"
-                    concern: platform free tier, NetMind.AI Power balance,
-                    subscription, and top-up — told as one runway story. Self-gates
-                    to null unless this session is a NetMind (Power) account. */}
-                <NetmindAccountPanel />
-              </section>
-            )}
-            {active === 'bundle' && <BundleContent />}
             {active === 'artifacts' && <ArtifactsContent />}
-            {active === 'agents' && <ManageAgentsContent />}
             {active === 'privacy' && (
               <section>
                 <SectionHeader

@@ -1,8 +1,24 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — AUTH_EXEMPT_PATHS 新增 `/api/admin/warn-user`
+
+敏感操作即时警告端点（[[warn.py]]，写 `user_notifications` + `ban_audit(action="warn")`）
+进精确路径豁免。它在 handler 内用 `X-Admin-Secret` 自凭证（与 [[suspend.py]] /
+[[gateway_key_misuse.py]] 同一把锁），调用方是私有 monitor 转发软信号检测的机器请求、没有
+用户 JWT，用用户认证 gate 反而不对（否则 middleware 先 401、端点不可达）。与
+`/api/admin/gateway-key-misuse` 同模式。
+
+## 2026-08-19 — AUTH_EXEMPT_PATHS 新增 `/api/admin/gateway-key-misuse`
+
+网关 key 异常使用事件落库端点（[[gateway_key_misuse.py]]，`gateway_key_misuse` 唯一写方）进
+精确路径豁免。它在 handler 内用 `X-Admin-Secret` 自凭证（与 [[suspend.py]] 同一把锁），
+调用方是内部 server-to-server 路径转发权威事件的机器请求、没有用户 JWT，用用户认证 gate
+反而不对。与 `/api/admin/suspend` / `/api/admin/runtime/status` 同模式：豁免同时跳过 quota
+resolver，正确——它根本不是用户面请求。
 
 ## 2026-08-13 — 账户状态闸门（account-state gate）+ 30s TTL 缓存 + 停用端点豁免
 

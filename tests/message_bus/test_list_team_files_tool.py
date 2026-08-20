@@ -89,3 +89,49 @@ async def test_empty_folder_is_a_success_not_an_error(db_client):
 
     assert res["success"] is True
     assert res["files"] == []
+
+
+# ── The MCP tool wrapper itself ─────────────────────────────────────────────
+#
+# Everything above calls the impl directly, which is exactly how the wrapper
+# shipped with an unresolvable `get_db_client` (NameError on 100% of calls)
+# while this file stayed green. This test goes through the registered tool.
+
+
+class _FakeMCP:
+    """Collects the registered tools so tests can call them directly."""
+
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self, *a, **kw):
+        def deco(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+
+        return deco
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_wrapper_resolves_its_own_db(db_client, monkeypatch):
+    from xyz_agent_context.module.message_bus_module import (
+        _message_bus_mcp_tools as mod,
+    )
+    from xyz_agent_context.utils.db import db_factory
+
+    await _seed(db_client)
+
+    async def _get_db():
+        return db_client
+
+    monkeypatch.setattr(db_factory, "get_db_client", _get_db)
+
+    async def _get_bus():
+        raise AssertionError("team_list_files must not need the bus service")
+
+    mcp = _FakeMCP()
+    mod.register_message_bus_mcp_tools(mcp, _get_bus)
+    res = await mcp.tools["team_list_files"]("agent_a", TEAM)
+
+    assert res["success"] is True
+    assert {f["name"] for f in res["files"]} == {"a.md", "b.md"}

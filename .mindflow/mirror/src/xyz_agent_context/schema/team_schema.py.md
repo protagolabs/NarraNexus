@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/schema/team_schema.py
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — Team.source 增加 "agent" 取值
+
+docstring 的 source 取值说明加一行:`"agent"` = agent 经 `create_team` MCP 工具建的 team(区别于 UI 的 `"user"` 与 bundle 导入)。纯文档;`create_team` 建 team 时传 `source="agent"`。无按 team source 分支的消费逻辑(核过 `source==` 只在 provider 侧,与 team 无关)。
+
+## 2026-08-14 — TeamWithMembers 增加房间活动三字段
+
+`last_message_at` / `last_message_preview` / `last_message_author`。这是
+sidebar 未读标记的服务端那一半，由 [[teams.py]] 的 `_team_room_activity` 填充；
+客户端那一半（水位线，逐设备）在前端。
+
+放在响应模型上而不是 `Team` 上是有意的：这不是 team 的属性，是**这次列举时**房间
+的状态。写进 `Team` 会让它看起来像一列可持久化的字段，然后迟早有人试图去更新它。
+
 ## 2026-08-10 — Team 增加 patrol_enabled / last_patrol_at(只读)
 
 Leader 巡查的两列。**`patrol_enabled` 为 NULL 时,对*有 lead* 的 team 读作

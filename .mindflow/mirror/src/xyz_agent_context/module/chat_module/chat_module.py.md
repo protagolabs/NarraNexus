@@ -1,7 +1,42 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-05
+last_verified: 2026-08-20
 ---
+
+## 2026-08-20 — bootstrap 问候 prepend 改用共享行构造器
+
+`hook_persist_turn` 里首轮 prepend 问候语那段,行结构改成调用 [[_chat_writes]] 的
+`build_bootstrap_greeting_row(greeting, base_dt, instance_id, event_id=...)`,不再内联手写。
+「问候行长什么样 + 时间戳规则」现在只有一处定义,和 `step_1` 的开局 seed 共用同一构造器,不会
+两处漂移。guard 仍是 `len(messages)==0 and bootstrap_active`——seed 已经先写过时它自然跳过(不双写)。
+顺带:hook 路径的时间戳也纳入了 `_chat_writes` 的 naive→aware-UTC 归一(今天 `event` 是进程内
+aware 对象、无可观察差异,但不再依赖这个前提);内联版用的 `from datetime import timedelta`
+随之成死 import,已删除。
+
+
+## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具
+
+`get_expressive_tools` 在 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY` 为真时返回 `[]`：巡查回合靠说话投递，声明 `notify_owner` 会让回复提醒渲染成「reply with notify_owner」，与巡查 prompt「写纯文本、别调工具」互斥。只撤**声明**，schema 仍在桌上（`get_disallowed_tools` 不变，中途升级给 owner 合法）。同类修复见 [[channel_module_base]]。
+
+## 2026-08-17 — 每轮桌上只有一个 owner 工具，另一个从上下文里拿掉
+
+`get_expressive_tools` 现在按轮次返回 `reply_owner`（owner 自己的聊天轮）或
+`notify_owner`（其余全部），**永远只有一个**；新增的 `get_disallowed_tools` 把另一个的
+schema 也从模型上下文里移走。
+
+只声明不移除是不够的：声明只决定回复提醒**念**哪个名字，schema 是另一条路进上下文的。
+两个工具挂着相反的纪律（一个是「几乎每轮都该用」，一个是「默认别用」），模型同时看得见
+就得自己挑，而挑错不是免费的。prod 实测：两个明写 "Do NOT call" 的工具被调用了 615 次
+——散文劝阻不管用，这是这次改造的直接依据。
+
+`_is_owner_chat_turn` 在**没有 working_source** 时返回 True。两个猜错方向不对等：把
+bus 轮猜成 owner 聊天只是语气偏了；把 owner 聊天猜成 `notify_owner`，桌上那条纪律写着
+「默认别用」，用户刚说完话可能一个字都收不到。
+
+`_split_user_visible_response` 的分流改用 `is_owner_tool`（见 [[message_source_handler]]）。
+只匹配其中一个名字，会让另一条表面上的 owner 回复全部落进 IM 桶，在聊天面板里渲染成
+「Background activity」。
+
 
 ## 2026-08-10 (PR-10) — create_mcp_server 调用简化
 
@@ -386,7 +421,7 @@ lands. Don't uncomment without first reconciling the
 
 ## 为什么存在
 
-ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `send_message_to_user_directly` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
+ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交流历史，以及在对话结束后把这轮对话持久化。它同时定义了"用户可见响应"的提取逻辑——只有通过 `reply_owner` 工具发送的内容才算用户可见，Agent 的内部推理过程不记录为 assistant 消息。
 
 **Hook 实现**：同时实现了 `hook_data_gathering`（双轨记忆加载）和 `hook_after_event_execution`（对话持久化）。
 
@@ -405,7 +440,7 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 **短期记忆移除了时间窗口限制**（2026-02-09 优化）：早期版本限制 30 分钟内的跨 Narrative 消息，但这导致非活跃用户的短期记忆总是空。改为直接取最近 15 条（`SHORT_TERM_MAX_MESSAGES = 15`），不论时间。
 
-**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `send_message_to_user_directly` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
+**背景任务的 activity record 而非 fake 对话**：当 `working_source != "chat"` 且 Agent 没有调用 `reply_owner` 时，不记录一对 user/assistant 消息，而是记录一条 `message_type: "activity"` 的简短描述（如 "Executed a background job"）。防止历史记录被无意义的 "(Agent decided no response needed)" 污染。
 
 **失败轮隔离（Bug 8）**：当 agent loop 抛错时，`_detect_error_in_agent_loop` 从 `params.agent_loop_response` 扫出 `ErrorMessage`（`step_3_agent_loop.py` 在 catch Exception 分支里把 ErrorMessage 既 yield 也 append，保证下游 hook 看得到），`hook_after_event_execution` 只存 user 消息，`meta_data` 里打 `status="failed"` + `error_type=...`，**不写任何 assistant 行**（partial 输出也丢）。下一轮 `hook_data_gathering` + `_load_short_term_memory` 都会过 `_apply_failed_turn_filter`：失败的 user 行被重写成"Previous turn failed... Do NOT retry"的注解（保留原问题文本，方便代词解析），遗留的失败 assistant 行被丢。目的是让 LLM 看到"那轮断了"而不是"那轮我只说了一半还没说完"——后者正是污染下轮 prompt 让 LLM 重复执行上轮查询的根因。
 
@@ -420,3 +455,55 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 - 误以为 `instance_id` 就是用户 ID——`chat_xxxxxxxx` 是 Module 实例的 ID，不是用户 ID。一个用户在不同 Narrative 里有不同的 Chat 实例。`get_chat_history` 工具需要的是 `instance_id`，不是 `user_id`。
 - 调试时看到 `chat_history` 为空但数据库里有记录——通常是 `instance_id` 不对导致的：ModuleLoader 注入的 `instance_ids` 不包含要查的实例。
+
+## 2026-08-13 — `_origin_delivered_text`:投递过的轮次要记下**说了什么**
+
+上一批改动让 team turn 的投递被正确判定为"已投递",然后**声称**行类型会随之变成真
+assistant 行。**那是错的。** 分支选择器读的是 `is_no_response`,而它来自
+**owner-visible** 抽取 —— `extract_owner_visible_text` 在读 `PLATFORM_REPLY_TEXT_KEY`
+**之前**就先过 `is_owner_visible_reply_tool`,对 `bus_send_message` 返回 None。于是
+`assistant_content` 被兜底成 "(Agent decided no response needed)"、`is_no_response`
+为真、落 `activity` 行、两个加载器照旧丢掉。`delivered_to_origin` 当时的全部作用只是
+换了摘要文案加一个 meta 字段。
+
+**owner-visible 那道门必须继续说 None** —— 它正是拦住"每次团队回复重新锚定 owner
+会话"的东西(PR #230)。所以不能靠提升 `bus_send_message` 来解决。
+
+真正的问题是把"owner 没看见"读成了"什么都没说"。`_origin_delivered_text` 用
+**origin** 抽取(全量 `user_reply_tool_names`)取回真正说出去的文本,`is_no_response`
+为真但取到文本时就用它当 content 并翻转结论。「owner 看见了吗」和「这是 agent 真说过
+的话吗」是两个问题,只有后者决定它下一轮记不记得。
+
+真沉默的轮次一字未动:仍写 activity 行、仍被过滤器丢掉,
+`test_filtered_activity_row_invisible_to_long_term` 仍绿。这是治误分类,不是放宽过滤器。
+
+## 2026-08-13 (review 后) — 一个判定一份实现,一条死分支清掉
+
+`_delivered_to_origin` 与 `_origin_delivered_text` 是同一段抽取的两份逐行拷贝。现在
+前者实现为 `bool(后者)` —— 它们**一致**这件事正是行类型逻辑成立的前提,而两份实现里
+任何一边改了抽取规则(比如将来跳过某类 tool_name),另一边不会跟着变,后果是行被静默
+归错档。
+
+**activity 分支里的 `delivered_to_origin` 恒为 False,分支已清掉。** 能让它为真的输入
+必然让 `_origin_delivered_text` 非空,于是上面那段恢复会把 `is_no_response` 翻成 False、
+走 assistant 分支 —— 根本到不了这里。`[DELIVERED-BG]` 那条日志因此永远不会打印,而
+**一条永远不打印的日志比没有更糟**:按它做看板的人会得出"bus turn 从不投递"的结论。
+
+`not turn_interrupted` 那个守卫也是冗余的:被打断的一轮兜底文案是
+"(Interrupted by user)",不是 no-response 标记,两个条件互斥。留着会让下一个人去找
+一个不存在的情形。
+
+## 2026-08-14 — 删掉零调用方的 `_delivered_to_origin` 与不可达的摘要分支
+
+文本恢复那块落地之后,`_delivered_to_origin` 在生产**没有任何调用方**,
+`_build_activity_summary` 的 `delivered_to_origin` 形参与它的 `"Replied to X"` 分支也
+永远走不到(能让它为真的输入必然让 `_origin_delivered_text` 非空,于是那一轮走的是
+assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_delivered_text`。
+
+留着的代价不是运行时错误,是**代码对自己撒谎**:下一个人读到会以为 activity 行仍在
+做投递分类。
+
+## 2026-08-18 — `get_disallowed_tools(ctx_data)` 签名同步
+
+跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
+留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。

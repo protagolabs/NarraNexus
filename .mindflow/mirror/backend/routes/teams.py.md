@@ -1,8 +1,132 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17（二）— 只带附件的交接也有个说得出口的标题
+
+这条路由是**唯一**允许正文为空的开项入口（agent 回帖必有文本），所以
+[[errand]] 里 `_title_from` 的 `(untitled hand-off)` 兜底只会在这儿冒出来。板子
+被注入每个成员每一轮的 prompt，一行读不出内容的项就是纯粹的 token 浪费。
+
+传参而不是改 `_title_from`：兜底文案是共享出口，改它会同时影响 trigger 路径；而
+且只有路由知道被交接的是附件。
+
+## 2026-08-17 — 用户发的 @ 也进工作板
+
+`POST /{team_id}/chat/messages` 在 `send_message` 之后调 [[errand]] 的
+`record_handoffs`。
+
+在此之前 [[errand]] 只挂在 [[message_bus_trigger]] 上，也就是**agent 回帖**走的
+路；人发的消息从这个路由直接进 bus，于是「@Bruno 把数拉一下」被无视之后什么痕
+迹都没有。而这恰恰是**用户唯一亲眼看得见**的那类断链——agent 互相无视用户看不
+见，自己被无视看得见。同时也修了闭环率报告的分母：只量 agent→agent 那一半，回答
+的是另一个问题。
+
+三条边界：无 @ 时路由到默认响应者，那是**平台挑人回答**不是用户派活，不开项；
+`@all` 映射成 `@everyone` 后被 helper 自己滤掉；记账失败只记 warning——消息已经
+在房间里了，让用户重打一遍所有人都已看见的东西是最差的结果。
+
+不调 `close_delivered_errands`：用户不是 assignee，没有什么可结的。
+
+## 2026-08-15 — 时间比较走 `event_time_str`；跨层不变式改成真问两边
+
+跨房间比较原本手写 `str()`，那是这个仓库里**第四份**手抄——`utils/db/dialect_time.py` 的
+`event_time_str` 就是为这件事存在的（sqlite 驱动给 `datetime`，mysql 给字符串），而且它自己
+的来历就是"被拷进两个审计仓库、又被一个 backend 路由跨包 import 私有名"之后收口的。两者
+也不等价：`str(None)` 是 `"None"`，字典序上高于任何真实时间戳，会让一个 NULL 行永远胜出。
+
+`test_the_mark_and_the_transcript_agree_on_precision` 之前**一次都没碰过 transcript**：
+两边都是测试自己调 `format_for_api`，等于只断言了"activity 这一侧用的是它"。名字里写着
+`agree`，却只问了一方——而它 docstring 里描述得最细的那个失效场景（transcript 那侧换个
+formatter，圆点开始偶发消失）恰恰是它抓不到的。现在真跑一次 chat 路由，拿渲染出来的
+`created_at` 和 `last_message_at` 比。
+
+`_raw_at` 那个"塞进响应字典再摘掉"的形状也换了：原始时间戳现在活在一个函数内的并行 map 里，
+从构造上就到不了调用方——不再需要一条"内部字段没泄漏"的测试来守它。
+
+## 2026-08-14 (三) — 跨房间比较要用原始时间戳
+
+`format_for_api` **截断到整秒**。用它的输出做"哪个房间更新"的比较，等于同一秒内说话的两个
+房间会平手、然后由结果集顺序随便挑一个——这个测试单独跑过、在全量里失败，正是因为它断言的
+是墙上时钟而不是规则。现在比较原始列，格式化只用于上线的那一份，并且内部字段在返回前摘掉。
+
+同时钉住一条跨层不变式：`last_message_at` 和 transcript 的 `created_at` **来自同一个
+formatter**。客户端把"已读水位线"推到它**渲染过**的最新 `created_at`，再拿它和这个
+`last_message_at` 比——两边精度不一致的话，:00.800 的回复会被当成 :00.000，对上 :00.500 的
+水位线，圆点就不出现，偶发、只差一条消息。一致的粗粒度才让这个比较成立。
+
+## 2026-08-14 (二) — 一个 team 有多个房间时取最新的那个
+
+`channel_to_team` 是多对一，循环里直接覆盖同一个 `team_id` 意味着"结果集最后一行赢"，而
+不是"最新的赢"。现实中一个 team 一个房间，所以今天不会发生——但它错的方向是**水位线会
+倒退**，表现为"标记怎么清都清不掉"，那会被当成计数的 bug 排查。
+
+同一轮把 `test_the_route_opens_on_the_newest_page` 从读源码改成**真的走一遍 HTTP**
+（`PAGE_SIZE` monkeypatch 成 3，塞 6 条消息，断言拿到的是最后 3 条）。源码断言对这个 bug
+是反的：重命名会红，行为回归会绿。
+
+新增 `tests/backend/test_team_room_activity_mysql.py`（`NARRANEXUS_MYSQL_TEST_URL` 门禁）：
+这是本次唯一一段**方言差异会体现在结果而不是报错**上的 SQL——`created_at` 在 SQLite 是
+TEXT 字典序、在 MySQL 是 `DATETIME(6)`，而查询在 `MAX()` 和自连接里各比较了一次。已对真实
+MySQL 8 跑过。
+
+## 2026-08-14 — 房间活动一次查完；`is_platform` 由服务端回答
+
+`_team_room_activity` 从"每个房间一次查询"改成 **MAX + 自连接，一次查完**。这个端点被
+每个打开的标签页每 30 秒轮一次，所以按房间查会同时乘以团队数和标签页数。用 `MAX` 子查询
+而不是窗口函数：`ROW_NUMBER() OVER` 需要 MySQL 8，而这个代码库其余部分并不要求它。
+
+`get_team_chat` 的每条消息多带一个 `is_platform`。此前前端自己维护了一份
+`PLATFORM_MSG_TYPES` 的镜像 Set，注释还声称"有测试守住"——那个测试是**第三份**手写拷贝，
+而且已经比另外两份少了两项。线上传的是字符串：服务端开始发一种前端不认识的类型，那条平台
+通知就会被渲染成**成员发言**（带身份色、头像，名字位置是 `team_<id>` 这种 marker）。这个
+tuple 光在本分支里就从 5 项长到 7 项，"记得改另一份"从来不是一种机制。
+
+## 2026-08-14 — 房间打开的是**最新**一页（一个一直存在的严重 bug）
+
+`get_team_chat` 之前是 `get_messages(channel_id, since=since, limit=200)`，而
+`get_messages` 是 `ORDER BY created_at ASC LIMIT n` —— **最旧的 200 条**。于是一个说过
+超过 200 句话的房间，永远打开在它的第一天；而之后每次轮询都用 `since` 从屏幕上最新那条
+**往前**走，所以它就停在史前时代了。没有任何东西看起来是坏的，它只是永远显示了会话的错误
+一端。
+
+现在三种模式：无游标 = 最新一页（`get_recent_messages`），`since` = 往后追（3 秒轮询），
+`before` = 往上翻历史（见 [[local_bus.py]]）。三个方向共用同一个 `PAGE_SIZE`，读者无法
+从页面大小反推自己拿到的是哪一种。
+
+值得记的是：`get_recent_messages` **一直都在**，路由调的是另一个。
+
+## 2026-08-14 — `list_teams` 带上房间活动；一个被装饰器吃掉的 handler
+
+`_team_room_activity` 给每个 team 回答一件事：**这个房间上一次说了值得回来看的话
+是什么时候**。sidebar 从不加载 transcript，所以「我不在的时候有事发生吗」在客户端
+根本推不出来；而未读水位线又在 localStorage 里、逐设备，服务端也无从知道。于是切成
+两半：服务端给时间戳，客户端拿自己的水位线去比（见 [[unread.ts]]）。
+
+**两条排除决定了它有没有用**：
+
+- 用户自己的消息不算 —— 否则发一条消息就会给自己刚发消息的那个房间打标记；
+- 平台自己的通知不算 —— 公告通知是在**用户自己编辑公告**时发出的，名册通知是在
+  用户自己增删成员时发出的。给这些打标记，等于告诉用户「有人回你了」，而唯一动作
+  的人是他自己。
+
+排除用的是 `PLATFORM_MSG_TYPES`（[[system_messages]]），而不是手写字符串——这个
+tuple 存在的全部理由就是这类过滤器各写各的会漂移。方向是**排除平台类型**而非
+**放行已知类型**：以后新增一种普通消息，在排除式下正常显示，在白名单下会隐形——
+一个正在说话的房间读起来像哑的。两种失败不对称。
+
+**它不创建房间**。列 team 是读操作；给每个用户从没打开过的 team 都物化一个 channel，
+等于 sidebar 看一眼就把房间建出来了。
+
+同一次改动里修掉一个真 bug：`_announce_roster` 被插在了
+`@router.post("/{team_id}/members")` 和 `add_member` 之间，装饰器抓住了紧随其后的
+那个函数——于是「加成员」这个接口打到了一个私有 helper 上（它的第一个参数是数据库
+客户端），而 `add_member` 无人可达。import 不报错、没有测试覆盖。
+`tests/backend/test_route_registration.py` 现在按命名约定守住整类问题：`_` 开头的
+函数不应该在回答 HTTP。
+
 ## 2026-08-10 — Clear team data 增加 board 作用域
 
 `_wipe_team_data` 增加 `clear_board`,端点增加 `board` 查询参数。
@@ -27,6 +151,7 @@ stub: false
 
 `Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
 `_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
+
 ## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
 
 **同一条规则改了两次，第二次才是重点。**
@@ -127,7 +252,8 @@ Two serialization fixes for the roster/transcript:
   every finished turn rendered as a confident "ran 0s" while the DB held the
   real value (2026-07-31 issue, Step 3).
 - **each chat message includes `event_id`** (from `BusMessage.event_id`,
-  stamped by the trigger on agent replies) — drives the per-message
+  stamped by whichever path posted it — the trigger's in-turn room post or
+  the agent's own bus send) — drives the per-message
   "view reasoning & tools" disclosure in the transcript. Null for user
   messages and legacy rows.
 
@@ -315,6 +441,7 @@ Drives the team status strip + activity bubbles.
 `_post_bulletin_notice` 移到核心包 [[team_bulletin]]（agent 写入也需要它，而核心包不能反向
 import 路由），这里改为 import。`Optional` / `BulletinUsage` 在预算函数搬走后成了未用 import，
 已删。
+
 ## 2026-08-10 — the work-board endpoint stopped writing its own SQL
 
 `GET /teams/{id}/work-items` briefly carried a hand-written `SELECT` so it could
@@ -356,3 +483,27 @@ import——那是兼容层，违反铁律 #2。壳已删除，调用点直接�
 的**(`Your Channels` 渲染的是它)。此前改名只落 teams 表,于是每个成员继续把旧名字
 念给用户听,而 UI 显示新名 —— 两边对不上,谁也解释不了。best-effort:改名本身已经
 成功,回写失败只记警告。
+
+## 2026-08-12 — `get_team_chat` 透传 `segments`
+
+API 不返回的列，UI 就渲染不了。
+
+## 2026-08-12 — 成员与 lead 变更落墙
+
+`add_member` / `remove_member` / lead 变更三处宣告。**只在房间已存在时**宣告：
+一个聊天从未打开过的团队没有 channel，为了叙述一次成员编辑而创建 channel 是本末倒置。
+
+lead 只在**被设置**时宣告；清空 lead 是把责任按规则交回最早加入的成员，
+那不是一个有名字可报的事件。
+
+## 2026-08-18 — 私有的 `_get_or_create_team_room` 退役，改调 `team_rooms`
+
+本文件里那个 30 行的私有 `_get_or_create_team_room` 已删除，四个调用点改调
+[[team_rooms.py]] 的 `get_or_create_team_room` / `primary_room_of` / `team_room_marker`。
+
+**理由不是「抽公共函数好看」，而是这个查询当时有四份副本。** `team_rooms.py` 的模块 docstring
+把那段历史写清了：同一个「团队 → group channel」的映射分散在多处各自演化，而
+「两个名字一个查询」正是四份副本的起点。本文件这一份是其中之一，是最后被收回的。
+
+上面 2026-06-23 那条条目描述的是**当时**的私有实现，故意保持原样 —— 那是它当时确实的样子。
+需要知道「团队房间的查找现在在哪」的读者应看本条与 [[team_rooms.py]]，而不是那一条。

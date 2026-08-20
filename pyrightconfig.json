@@ -18,13 +18,14 @@
         "src/xyz_agent_context/module/job_module/job_module.py",
         "src/xyz_agent_context/module/run_channel_triggers.py",
         "src/xyz_agent_context/module/slack_module/slack_sdk_client.py",
-        "src/xyz_agent_context/module/social_network_module/social_network_module.py",
-        "src/xyz_agent_context/module/social_network_module/test_persona.py",
-        // Remove after PR #202 merges — its fix removes the very self.db
-        // typo this gate flags (the gate catches the incident bug live).
-        "src/xyz_agent_context/module/lark_module/lark_trigger.py"
+        "src/xyz_agent_context/module/social_network_module/social_network_module.py"
     ],
     "typeCheckingMode": "off",
     "reportAttributeAccessIssue": "error",
-    "reportUndefinedVariable": "error"
+    "reportUndefinedVariable": "error",
+    // Missing-module imports are the same incident class as undefined
+    // names (hook_manager imported a module path that didn't exist);
+    // pyright reports them as warnings in "off" mode and CI only fails
+    // on errors, so promote them.
+    "reportMissingImports": "error"
 }

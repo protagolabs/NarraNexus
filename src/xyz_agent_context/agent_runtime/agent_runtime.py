@@ -77,6 +77,30 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
 INTERRUPT_DRAIN_BUDGET_S = 8.0
 
 
+def _resolve_turn_profile(
+    fast_mode: bool,
+    turn_profile: Optional["TurnProfile"],
+    working_source: Union[WorkingSource, str],
+) -> Optional["TurnProfile"]:
+    """Resolve the trigger-facing ``fast_mode`` boolean into a TurnProfile.
+
+    Policy lives here so triggers only signal intent with one boolean. An
+    explicit profile always wins — paths that build their own (e.g. the
+    voice path's ``TurnProfile.voice_fast()``) are unaffected by the flag.
+    Pure — unit-tested in test_resolve_turn_profile.py.
+    """
+    if turn_profile is not None:
+        if fast_mode:
+            logger.debug(
+                "fast_mode ignored: explicit turn_profile '{}' takes precedence",
+                turn_profile.name,
+            )
+        return turn_profile
+    if fast_mode:
+        return TurnProfile.fast_for(working_source)
+    return None
+
+
 def _turn_timing_line(
     *,
     agent_id: str,
@@ -264,6 +288,7 @@ class AgentRuntime:
         trigger_extra_data: Optional[Dict[str, Any]] = None,
         cancellation: Optional[CancellationToken] = None,
         silent: bool = False,
+        fast_mode: bool = False,
         turn_profile: Optional["TurnProfile"] = None,
     ) -> AsyncGenerator:
         """
@@ -405,6 +430,10 @@ class AgentRuntime:
             # Use a no-op token if none provided (avoids None checks everywhere)
             if cancellation is None:
                 cancellation = CancellationToken()
+
+            turn_profile = _resolve_turn_profile(
+                fast_mode, turn_profile, working_source
+            )
 
             ctx = RunContext(
                 agent_id=agent_id,
@@ -564,8 +593,10 @@ class AgentRuntime:
             #   - ctx.main_narrative: Narrative (the primary one)
             # =============================================================================
             # Fast mode (F28): the profile may swap step_1 for the BM25
-            # top-1 direct pick — no continuity LLM, no creation, no
-            # session writes. Step 1.5 still runs but skips the history
+            # top-1 direct pick — no continuity LLM. Miss/anchor behavior
+            # follows profile.narrative_persistence (voice: bare turn, no
+            # session writes; durable chat: CRUD create + anchored
+            # session). Step 1.5 still runs but skips the history
             # read (that output only feeds the instance-decision LLM,
             # which settings.skip_module_decision_llm already bypasses);
             # its other two outputs — the previous_instances trajectory
@@ -576,7 +607,9 @@ class AgentRuntime:
                 and ctx.turn_profile.narrative_strategy == "bm25_top1"
             )
             if use_fast_narrative:
-                async for msg in step_1_fast_select(ctx, self.narrative_service):
+                async for msg in step_1_fast_select(
+                    ctx, self.narrative_service, self.session_service
+                ):
                     yield msg
             else:
                 async for msg in step_1_select_narrative(
@@ -931,7 +964,7 @@ class AgentRuntime:
 
             async def _run_hooks_background():
                 """Run Step 5 hooks + Step 6 callbacks in background."""
-                # This task is detached via ``asyncio.create_task`` and does NOT
+                # This task is detached via ``spawn`` and does NOT
                 # inherit the per-turn helper-LLM config that this run set on its
                 # own ContextVars. Re-inject the agent OWNER's Helper LLM so the
                 # Step-5 LLM hooks (social-network entity summaries, memory
@@ -1021,7 +1054,18 @@ class AgentRuntime:
                 finally:
                     clear_cost_context()
 
-            asyncio.create_task(_run_hooks_background())
+            # `spawn`, not a bare `create_task`: the returned Task had no owner
+            # here, which is both halves of incident lesson #2 — the loop's
+            # reference is weak, and an escaping exception would surface only as
+            # a GC warning. The coroutine's own try/except still owns the
+            # DOMAIN failures (credential alerts, per-module isolation); spawn
+            # only guarantees the task cannot be lost or die quietly.
+            from xyz_agent_context.utils.background_tasks import spawn as _spawn_bg
+
+            _spawn_bg(
+                _run_hooks_background(),
+                name=f"post_turn_hooks:{_agent_id}:{_event_id or '-'}",
+            )
             logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
 
             # Yield a completed Step 5 progress message so the frontend sidebar

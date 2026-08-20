@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/settings/ArtifactsSection.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 相对时间改走共享格式器
+
+本地 `formatRelativeTime`(英文写死)删除,列表行时间改用 [[utils]] 的
+`formatMessageAge(iso, activeLocale())`——非英语用户不再看到 "3h ago"。
+与 [[TeamWorkspacePanel]] 的同款副本同批清除。列加 `whitespace-nowrap`
+(长译文不折行)且 `title` 带 UTC 解析的绝对时间([[utils]] 新
+`formatAbsolute`)——这个列表是「挑旧的删」,绝对日期必须有入口。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 
@@ -25,11 +33,11 @@ message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名�
 写出来的文件」的断言。
 
 
-# ArtifactsSection.tsx — 设置页的制品管理区
+# ArtifactsSection.tsx — 设置页的可视化产物管理区
 
 ## 为什么存在
 
-Settings → Artifacts 面板：列出当前用户的制品、支持多选批量删除。挂在
+Settings → Artifacts 面板：列出当前用户的可视化产物、支持多选批量删除。挂在
 [[SettingsPage]] 的 `artifacts` 导航项下，**按需挂载**（只有该面板激活时才渲染），
 所以它的 fetch 不会在其他面板上触发。
 

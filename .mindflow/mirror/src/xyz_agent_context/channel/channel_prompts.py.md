@@ -1,8 +1,60 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 删掉三处对「怎么回复」的重述（设计 §6.2）
+
+删除：「两个不同的沟通对象」块、回复步骤下的 ⚠️、"Remember" 页脚里的第一条，以及第 6 条
+「Owner notification discipline」。
+
+同一条规则此前在**六处**各说一遍（本文件三处、各 trigger 一处、ChatModule instruction、
+回复提醒）。六份副本就是六次漂移机会，而且确实漂了：某份副本会继续点名一个该轮桌上已经
+没有的工具，agent 拿到两条指令且无从裁决。
+
+规则现在只活在两个地方，且两处都是**生成的而非写死的**：本轮的来源声明
+（[[message_source_handler]] 的 `render_origin_declaration`，由 `get_expressive_tools`
+产出的同一个 tuple 渲染）；以及每个 owner 工具自己的 docstring——它随工具一起进上下文，
+所以工具不在时它也不可能在。
+
+留下的是**只有这个渠道知道**的东西：房间类型、发送者档案、本平台确切的回复调用方式、
+文件/路径投递规则、群聊沉默协议。
+
+
+## 2026-08-17 — 「禁止承诺」和它隔壁的示例句原本互相打架
+
+新加那条规则的**下一行**，既有的「对话太频繁要收住」bullet 给的标准话术就是
+「Let me work on it and share results when ready」——一句承诺未来交付。而这不是主
+观判断：[[errand]] 的 `is_promise_only` 里 `\blet me (…|work on)\b` 逐字命中它，
+按本项目自己的定义那就是承诺。
+
+模型在「抽象规则」和「带引号的示例」之间通常抄示例，而这条 bullet 触发的场景
+（对话过密、该收一收）恰恰最容易脱口而出承诺。示例句改成说清现状、不许诺下一次
+交付。
+
+**保住那条 bullet 的出口语义**：它治的是「对话太频繁」，和承诺是两个问题；而且只
+说「不要」会让沉默成为合规答案（0802 微信那次的教训）。
+
+IM 群聊**没有工作板兜底**（`record_handoffs` 只在团队房与团队聊天 route 上跑），
+所以在这类频道里这段 prompt 就是唯一的机制，它不能自带反例。
+
+`test_the_protocol_does_not_model_the_thing_it_forbids` 用**本仓库自己的判据**
+（`is_promise_only`）而不是子串匹配来断言，这样两者不会再各改各的。DIRECT 那条不
+动——它没有矛盾邻居，且措辞被 voice 那批用例锁着。
+
+## 2026-08-14 — GROUP 协议补上「禁止承诺未来工作」
+
+这条规则 DIRECT 协议里早就有（「Once your reply is sent, this turn is over」），
+GROUP 里一直没有——于是同一句「我稍后回来汇报」在每个群聊频道里都是合规的。
+
+它治的是敦煌形状：模型被人类对话数据训练成「先应答、再干活」，而 runtime 的语
+义是「你这条文本 = 你的交付 = 你的终点」。团队房那份同源规则在
+[[message_bus_trigger]] 的 `_build_team_prompt` 里（团队房 prompt 自己拼，不走
+这两个常量）。
+
+两处都带出口而不是光禁止：只说「不要」会让沉默成为合规答案，那是 0802 微信那
+次的失败形状。
 
 ## 2026-08-13 — 语音模板：通话上人人有回应
 
@@ -87,6 +139,6 @@ Slack 私聊会继续吃群聊纪律。已改成按 `D...` 频道 id 前缀判�
 
 ## 新人易踩的坑
 
-模板里有两个"消息目标"的说明：`matrix_send_message` 回复渠道房间，`send_message_to_user_directly` 发送给 owner。这两个工具名是硬编码在模板里的。如果渠道的 MCP 工具名改了，必须同步更新这里的说明，否则 Agent 会用错工具。
+模板里有两个"消息目标"的说明：`matrix_send_message` 回复渠道房间，`notify_owner` 发送给 owner。这两个工具名是硬编码在模板里的。如果渠道的 MCP 工具名改了，必须同步更新这里的说明，否则 Agent 会用错工具。
 
 **File & Path Rules for IM Delivery（Bug 23，2026-04-20 加）**：模板里有一节专门告诉 agent——**IM 对端读不了本地路径**。场景就是 agent 干完活把内容保存成了文件，然后直接回复"保存在 /app/xxx.md 了"。IM 用户看到一条他永远打不开的路径。解法三选一：短内容内联进消息、中长内容创建 Lark 文档发 URL、二进制文件走 Lark 文件上传 API。这和 `basic_info_module/prompts.py` 的 deployment_context 是联动的——后者在 **system prompt** 层提醒 agent "你在容器/本地机里，用户能不能触到你的路径"；这里在 **每条 IM 消息的 runtime prompt** 层重复强调（防止 agent 在长 context 里忘了）。**修改时保持 3 条 delivery route 的结构**，有测试（`tests/channel/test_channel_prompts_path_rules.py`）pin 住。

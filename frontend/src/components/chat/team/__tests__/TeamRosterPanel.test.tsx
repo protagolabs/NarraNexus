@@ -155,8 +155,9 @@ describe('TeamRosterPanel', () => {
     // "starting up" fallback rather than pretending it knows more.
     expect(screen.getByTestId('member-panel-a1')).toBeTruthy();
     expect(screen.getByText('chat.execution.startingUp')).toBeTruthy();
-    // The column breathes: an open member widens the aside for the terminal.
-    expect(container.querySelector('aside')?.className).toContain('430px');
+    // Width belongs to the hosting drawer shell now — the panel itself no
+    // longer widens; the terminal works within the drawer's width.
+    expect(container.querySelector('aside')?.className).not.toContain('430px');
     // A running turn's process is not in the event log yet — it is written at
     // the end of the turn — so there is nothing to fetch.
     expect(getEventLogMock).not.toHaveBeenCalled();

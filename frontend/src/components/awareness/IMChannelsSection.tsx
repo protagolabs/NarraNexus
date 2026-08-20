@@ -250,16 +250,16 @@ export function IMChannelsSection() {
               >
                 <button
                   onClick={() => toggleChannel(ch.key)}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)] transition-colors text-left"
                   aria-expanded={isExpanded}
                 >
                   <span className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
                     <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
                     {ch.label}
                     {status === 'active' ? (
-                      <span className="ml-2 text-xs text-[var(--color-green-500)]">{t('awareness.channels.connectedBadge')}</span>
+                      <span className="ml-2 text-xs text-[var(--color-success)]">{t('awareness.channels.connectedBadge')}</span>
                     ) : status === 'inactive' ? (
-                      <span className="ml-2 text-xs text-[var(--color-yellow-500)] inline-flex items-center gap-1">
+                      <span className="ml-2 text-xs text-[var(--color-warning)] inline-flex items-center gap-1">
                         <LinkIcon className="w-3 h-3" /> {t('awareness.channels.inactiveBadge')}
                       </span>
                     ) : (

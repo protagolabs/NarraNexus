@@ -1,8 +1,99 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-13
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — admin_warn_router 注册
+
+新增 `from backend.routes.admin.warn import router as admin_warn_router` 和
+`app.include_router(admin_warn_router, tags=["AdminWarn"])`。router 自带 prefix
+`/api/admin`，挂载敏感操作即时警告端点（`POST /api/admin/warn-user`，写一行
+`user_notifications` + 一行 `ban_audit(action="warn")`）。与 `admin_suspend_router` /
+`admin_gateway_key_misuse_router` 同 pattern；路径同步进 [[auth]] 的 `AUTH_EXEMPT_PATHS`。见
+[[warn.py]]。
+
+## 2026-08-19 — admin_gateway_key_misuse_router 注册
+
+新增 `from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router`
+和 `app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])`。router
+自带 prefix `/api/admin`，挂载网关 key 异常使用事件落库端点（`POST /api/admin/gateway-key-misuse`，
+`gateway_key_misuse` 唯一写方）。与 `admin_suspend_router` 同 pattern。见 [[gateway_key_misuse.py]]。
+
+## 2026-08-18 — `/health` 的结果缓存
+
+`/health` **不是每请求一次 `SELECT 1`**：探测结果缓存 5 秒，**成功与失败同 TTL**。
+
+这个端点公开无鉴权、nginx 直通，而每次探测占一条池连接、backend 的池是 10、没有任何
+限流中间件。只缓存成功会把放大面正好留在数据库已经挂了的时刻，所以失败也缓存。
+
+5s 这个值是对着容器 healthcheck 的 `interval: 30s` 选的：单个探测方按自己的节奏每次
+仍是真往返，而**结果发布之后**到达的洪水收敛成一次查询（发布之前到达的不在此列，
+见下面的已知限制）；两个探测方在 5s 内交叠时后到的吃缓存。**它与
+`_HEALTH_DB_TIMEOUT_SEC` 的大小关系不是硬约束** —— 缓存 deadline 按**发布时刻**计算，
+所以没有调用方会拿到一条「在生产它的过程中就已过期」的记录。
+
+**发布守卫按探测的开始时刻排序，不是完成时刻。** 探测**可以**重叠（见下面的已知限制），
+没有这条守卫的话，一个先开始、慢、且失败的探测会在返回时覆盖掉后开始但已成功的结论，
+于是数据库恢复之后还会继续报 unhealthy 一个 TTL；反方向则会掩盖一次新故障。
+
+**已知限制（有意接受）**：上面这套只在数据库健康时把放大面关到零——那时探测是毫秒级，
+缓存几乎立刻生效。**数据库慢的时候，在飞探测发布之前到达的请求仍会各探各的。**
+
+单飞（一把锁把这个窗口也盖住）能关掉它，本 PR 里试过又撤了：那套机器（per-loop 锁、
+横跨排队与探测的共享预算、排队超时的降级路径）连续三轮评审各产出一个新问题，最后一版
+自己制造了一条假的 unhealthy——预算被排队吃光后仍去探测，于是在**一次都没真正碰过
+数据库**的情况下按完整 TTL 发布了 `"database": "timeout"`。一个为了让故障可见而加的
+探针不该产出无依据的结论。这件事单独做，不跟着事故修复一起上。
+
+**on-call 需要知道的一条**：数据库恢复后 `/health` 最多晚 5s 才翻绿，叠在
+`retries: 5 × interval: 30s` 之上。把探针滞后误判成「数据库还没好」，代价是多等一轮。
+
+## 2026-08-17 — `/health` 的 `database` 字段改成真探测
+
+原来是硬编码字面量 `"database": "connected"` —— 一个**永远不可能为假的健康字段**，
+承载的信息量为零。代价在 2026-08-17 兑现：后端每条查询都在报
+`InterfaceError: (0, 'Not connected')` 的那 19 分钟里，容器 healthcheck 全程 healthy，
+建立在它之上的 sentinel 容器状态探测因此一路绿灯，无人告警。
+
+现在走**普通客户端路径**跑一次 `SELECT 1`（同一个连接池、同一套 task 级事务查找），
+探的就是真实请求走的那条路——探测器不该有自己的特权通道，否则它证明的东西和线上无关。
+
+**它是 `status` 的唯一例外。** 上面 2026-08-11 定的"只报告不判定"仍然成立（`failed`
+不影响 `status`），但连不上数据库的后端无法服务任何鉴权请求，所以 DB 探测失败时
+`status=unhealthy` 且返回 **503**——healthcheck 用的 `urlopen` 遇 5xx 抛异常，容器
+因此转 unhealthy，这正是要的效果。
+
+`_HEALTH_DB_TIMEOUT_SEC = 3.0`，压在 compose 里 healthcheck 自己的 `timeout: 5s`
+之下：探测若比 healthcheck 活得久，docker 记录的是超时，我们那句「unhealthy + 原因」
+就丢了。改这个常量前先看 `stacks/narranexus-app/compose.yml`（deploy 仓）。
+
+**失败原因只回异常类名，原文只进日志。** 这个端点在 `backend/auth.py` 的公开白名单
+里，线上是 `https://<app domain>/health`，无鉴权；而 pymysql 的错误串带 RDS 端点
+（`Can't connect to MySQL server on '<endpoint>'`）和库用户名（`Access denied for
+user 'x'@'<内网IP>'`）。故障期恰恰是它最可能被扫到的时候。类名仍能区分「连不上 /
+认证失败 / 池子死了」，这正是 on-call 需要的粒度。**日志那行必须写在 `except` 块
+内**——`logger.exception` 在离开 except 后调用没有活跃异常可渲染，只会打出字面量
+`NoneType: None`，真正的原因哪里都不剩，比改造前的可观测性更差。
+
+**部署耦合（改 503 之前必读）。** healthcheck 用 `urllib.request.urlopen`，5xx 会抛
+异常，所以 503 会让容器转 unhealthy——这正是让容器状态监控**能看见**数据库故障的
+机制（2026-08-17 它看不见）。但 compose 里有 **4 个**服务声明
+`depends_on: backend: condition: service_healthy`：`frontend`，以及经
+`x-python-common` 锚点继承的 `mcp` / `workers` / `model-sync`。
+
+后果要完整说，因为漏掉的那一半最容易踩：在数据库不可用期间执行 `docker compose up`
+**不是部分降级，而是整条命令失败**（`dependency failed to start: container
+narranexus-backend is unhealthy`）。什么都起不来——前端起不来（ops 侧 Caddy 失去上游，
+公网入口返 **502**；前端自己没有 host 端口映射，Caddy 反代到 `narranexus-frontend:80`），
+**workers 也起不来**，那是全部 channel trigger、ModulePoller、Job trigger 和 message bus。
+
+于是恢复顺序被硬性约束成「先修数据库，再部署」。冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
+非首次启动；已经在跑的栈会继续服务，直到探针在 `retries: 5 x interval: 30s` 后翻转。
+
+这是**有意接受**的代价：另一条路（healthcheck 改指浅探针 `/healthz`）会把本次要关掉
+的盲区原样装回去。不要用「DB 失败仍返回 200、只把 status 置 unhealthy」来绕开耦合——
+一个永远不可能为假的健康字段不承载信息，原 bug 就是这么活下来的。
 
 ## 2026-08-13 — admin_suspend_router 注册
 

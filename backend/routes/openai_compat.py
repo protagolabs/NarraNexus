@@ -269,7 +269,7 @@ def _classify_event(
       monologue. Routed to ``delta.reasoning_content`` (OpenAI o1 /
       DeepSeek convention).
     - ``("content",   str)``  — the user-visible reply text the agent
-      explicitly emits via ``send_message_to_user_directly``. Routed
+      explicitly emits via ``reply_owner``. Routed
       to ``delta.content``.
     - ``("tool_call", {name, arguments})`` — any OTHER internal tool the
       agent invokes (lark_cli, skill_module, etc.). Routed to
@@ -301,7 +301,7 @@ def _classify_event(
     # 1b. The other inner stream: actual response tokens being generated
     # (before any tool call wrap them up). Same destination —
     # delta.reasoning_content — because for narranexus the ONLY
-    # user-facing text is the explicit send_message_to_user_directly
+    # user-facing text is the explicit ``reply_owner``
     # tool call below; everything else is chain-of-thought.
     if t == "agent_response":
         d = event.get("delta")
@@ -344,7 +344,7 @@ def _classify_event(
         # the per-WorkingSource declaration (MessageSourceRegistry), the
         # same chain chat_module uses to split user-visible replies. For
         # owner chat the default handler resolves to
-        # send_message_to_user_directly + arguments["content"], exactly
+        # ``reply_owner`` + arguments["content"], exactly
         # the retired hardcoded list.
         reply_text = source_handler.extract_reply_text(tool_name, args)
         if reply_text:

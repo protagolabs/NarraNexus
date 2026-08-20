@@ -26,6 +26,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -63,7 +64,7 @@ def _extract_discord_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a Discord agent tool call.
 
     Recognises ``discord_send`` / ``discord_reply`` / ``discord_dm`` (the
-    text-sending paths) and the generic ``send_message_to_user_directly``
+    text-sending paths) and the generic ``notify_owner``
     (used when the agent also echoes to the NarraNexus UI). Returns
     ``None`` when the tool call isn't a user reply (e.g.
     ``discord_read_history`` / ``discord_list_channels``).
@@ -77,7 +78,7 @@ def _extract_discord_reply(tool_name: str, arguments: dict) -> Optional[str]:
     if not isinstance(args, dict):
         return None
 
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if is_owner_tool(tool_name):
         content = args.get("content", "")
         return content or None
 
@@ -93,11 +94,12 @@ try:
     MessageSourceRegistry.register(
         MessageSourceHandler(
             name="discord",
+            display_label="Discord",
             user_reply_tool_names=(
                 "discord_send",
                 "discord_reply",
                 "discord_dm",
-                "send_message_to_user_directly",
+                "notify_owner",
             ),
             row_prefix_template="[Discord · {sender_name} · {sender_id} · {chat_id}]",
             extract_reply_fn=_extract_discord_reply,

@@ -1,8 +1,56 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkDrawer.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19(三)— 切换器 props 成判别对;条目可带计数
+
+- `activeTab/onSelectTab/switcherCategories` 三者 all-or-nothing(判别联合):
+  之前"默认 STRIP_CATEGORIES + as unknown as"让「传了 team 的 tab 却忘传
+  注册表」能编译——下拉列出单聊面板、点了全空白。现在漏传=编译错;
+  内部再无断言,调用方(单聊传 STRIP_CATEGORIES、团队传
+  teamDrawerCategories(counts))显式给表。
+- `DrawerSwitcherTab.count?`:下拉项尾部渲染活计数——不宣传自己的入口
+  等于关键时刻是关着的(共享文件此前无处可见数量)。
+
+## 2026-08-19(二)— 切换器泛型化 `<T extends string>`
+
+activeTab/onSelectTab/switcherCategories 以 T 贯通,两个调用方
+(AtomicTabId/TeamTabId)恢复端到端类型检查,as 断言删除;默认
+STRIP_CATEGORIES 经一次内部断言桥接。
+
+## 2026-08-19 — 切换器注册表可注入(switcherCategories)
+
+标题下拉的面板清单从写死 STRIP_CATEGORIES 变为 prop(默认仍是它);
+activeTab/onSelectTab 放宽为 string。团队房间以同一抽屉挂自己的
+成员/可视化产物/文件三面板([[../chat/team/teamTabs]]),机制零分叉。
+
+## 2026-08-19 — 标题变面板切换器 + banner 插槽
+
+- 新可选 props `activeTab`/`onSelectTab`:传入时头部标题变成下拉——列出
+  [[tabs]] 注册表的全部面板(按 Config/Activity/Narra/Nexus 分组,当前项打勾),
+  钉选窗口自己就能换内容,不必回聊天头找按钮。菜单用 [[../../hooks/useDismissOnOutside]]。
+  不传则退回纯文本标题(移动端调用方不变)。
+- 新可选 `banner`:渲染在头部与内容之间(首跑教学卡 [[DrawerCoachMark]] 用)。
+测试:drawerPanelSwitcher.test.tsx。
+
+## 2026-08-06 (2) — 头部 ? 说明气泡
+
+标题右侧新增 HelpCircle 圆圈(description prop 非空才渲染):hover /
+focus 浮出 ink 底 paper 字的一句话说明(max-w 280,面板下方展开,
+不会被 drawer 的 overflow-hidden 裁掉)。文案由 MainLayout 用
+tabDescKey 取,语言随 i18n 切换。
+
+## 2026-08-06 — 桌面临时抽屉改内嵌列 + per-tab 宽度
+
+Owner 两点:①悬浮 overlay 盖住聊天内容(own 头像被挡)→ 桌面端
+(inset=true)未 pin 的抽屉也**入流布局**,chat 左移让位;临时语义保留
+(backdrop 点击 + Esc 关闭;in-flow 列 z-[201] 压过 z-[200] backdrop,
+自身点击不被吃)。真正的 fixed overlay 只剩移动端。②新增 insetWidth:
+artifacts 面板 ~50vw(大屏可读性,clamp 保住 sidebar272+chat400 底线),
+其余面板 440px;pinned 仍走用户可拖的 pinnedWidth。
+「单元素稳定槽位、模式切换不 remount」约束未破坏(drawerPinToggle 测试通过)。
 
 ## 2026-07-30 (2) — pin/unpin no longer remounts the panel; the portal is gone
 

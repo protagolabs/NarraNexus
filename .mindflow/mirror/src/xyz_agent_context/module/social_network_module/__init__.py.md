@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/__init__.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 导出 CREATE_AGENT_EMPTY_NAME_MSG
+
+建 agent 的空名拒绝串进公共导出面,[[store.py]](DirectStore)与
+[[social_network.py]](Http 孪生)从这里同引一份,保持 byte-parity。纯转发。
 
 # social_network_module/__init__.py — package surface
 

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-08-13
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -90,3 +90,16 @@ zip 文件上传时先保存到 `tempfile.mkdtemp()` 创建的临时目录，解
 ## 新人易踩的坑
 
 `_get_skill_module` 创建 `SkillModule` 时传 `database_client=None`。`SkillModule` 的很多操作（文件系统操作）不需要 DB，但某些操作（比如创建 Job）会需要 DB。学习任务内部调用 `AgentRuntime` 时 AgentRuntime 自己会初始化 DB，不依赖 SkillModule 的 DB 参数。如果将来 SkillModule 需要直接读写 DB，要在这里传入有效的 `db_client`。
+
+## 2026-08-18 — agent 可见提示不再点名单一 owner 工具
+
+那句「你 MUST 用 `send_message_to_user_directly` 告诉用户」里的工具名已退役 —— 它拆成了
+`reply_owner`（回答刚说话的 owner）与 `notify_owner`（未被问就主动告知），两者纪律相反。
+
+改成「你桌上那个面向 owner 的工具」而不是列出两个名字，是刻意的：**本轮到底哪一个在桌上，由
+平台决定并写在该轮开头那行里**（`render_origin_declaration`，见 [[message_source_handler.py]]），
+而 `get_disallowed_tools` 会把另一个的 schema 从模型上下文里移走。这里再列一次名字，就等于让一段
+散文去和平台每轮算出来的事实竞争 —— 而本次改造的起因正是那种竞争：prod 上两个明写「Do NOT
+call」的工具被调用了 615 次。
+
+同理，这里也不该改成「用 `reply_owner`」：skill 的执行语境不一定是 owner 聊天轮。

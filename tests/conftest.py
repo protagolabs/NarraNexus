@@ -15,14 +15,19 @@ Also owns two suite-wide safety nets:
    `XYZBaseModule.get_mcp_db_client()` inside channel/module code under
    test) can never read or write the developer's real database.
 
-2. `pytest_sessionfinish` closes every factory client. The SQLite
-   backend's aiosqlite connection runs a NON-daemon worker thread; a
-   client leaked by a lazy acquisition (whose per-test event loop is long
-   gone by session end) otherwise blocks interpreter shutdown forever —
-   the "pytest prints the summary but the process never exits" hang.
+2. `pytest_sessionfinish` closes every factory client. This used to be
+   justified by the aiosqlite worker being a NON-daemon thread, which made
+   a leaked client an interpreter-shutdown hang — the "pytest prints the
+   summary but the process never exits" symptom. That worker is a DAEMON
+   thread since 2026-08-17 (see `db_backend_sqlite`), so the hang is gone
+   and this hook is no longer what keeps the suite exitable. It stays for
+   the reason that outlived the hang: a daemon thread is killed wherever
+   it stands, so this is the only point at which a leaked client's writes
+   are drained and its SQLite locks released deliberately.
 """
 import asyncio
 import os as _os
+import sys
 
 import pytest
 import pytest_asyncio
@@ -34,6 +39,13 @@ import pytest_asyncio
 # default nor a developer's `export NEXUS_DIAG_SHIP=full` can leak
 # into test processes.
 _os.environ["NEXUS_DIAG_SHIP"] = "off"
+
+# The onboarding guide-agent provisioning is scheduled fire-and-forget on
+# every login route hit, and defaults ON in production. Force it off for the
+# whole suite so unrelated login tests never spawn a real provisioning task
+# (agent rows, skill installs) behind their back; the guide-agent tests that
+# want it re-enable it explicitly via monkeypatch.
+_os.environ["NARRANEXUS_ONBOARDING_GUIDE_AGENT"] = "0"
 
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
@@ -71,6 +83,19 @@ def _isolate_shared_db(tmp_path_factory):
         os.environ["SQLITE_PROXY_URL"] = original_proxy
 
 
+@pytest.fixture(autouse=True)
+def _clear_cwd_owner_cache():
+    """The channel-CLI owner cache (data_access.workspace_cwd) is one
+    process-wide dict shared by lark and narra — clear it around every
+    test or a cached owner leaks ACROSS test modules, which surfaces as
+    order-dependent "green alone, red in the full run" failures."""
+    from xyz_agent_context.module.data_access.workspace_cwd import _cwd_owner_cache
+
+    _cwd_owner_cache.clear()
+    yield
+    _cwd_owner_cache.clear()
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Close leaked factory clients so their worker threads let us exit."""
     from xyz_agent_context.utils.db.db_factory import close_db_client
@@ -90,3 +115,29 @@ async def db_client():
     client = await AsyncDatabaseClient.create_with_backend(backend)
     yield client
     await client.close()
+
+
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """`/health` caches its probe result for a few seconds.
+
+    Autouse and repo-wide: without it one test's outcome answers the next test's
+    request. File-local was not enough — `tests/backend/test_health_db_probe.py`
+    and `tests/services/test_team_summary_worker.py` both call `main.health()`,
+    and whichever ran first left the cache populated for everything after it.
+
+    Only resets a module that is ALREADY imported. The previous version imported
+    `backend.main` in every test's setup — cheap after the first one, but it
+    made a fixture that most of the suite does not need drag the whole FastAPI
+    app into processes that were never going to touch it (`-k` runs, single-file
+    runs). `sys.modules` costs a dict lookup and is exact: if nothing imported
+    it, nothing cached anything.
+    """
+    def _reset() -> None:
+        module = sys.modules.get("backend.main")
+        if module is not None:
+            module._health_cache = None
+
+    _reset()
+    yield
+    _reset()

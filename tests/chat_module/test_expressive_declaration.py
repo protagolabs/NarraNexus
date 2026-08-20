@@ -29,7 +29,7 @@ async def test_declaration_derives_from_mcp_server_name():
     module = _module()
     mcp_config = await module.get_mcp_config()
     assert await module.get_expressive_tools() == [
-        f"mcp__{mcp_config.server_name}__send_message_to_user_directly"
+        f"mcp__{mcp_config.server_name}__reply_owner"
     ]
 
 
@@ -39,4 +39,4 @@ async def test_declared_short_name_is_actually_registered():
     mcp = module.create_mcp_server()
     assert mcp is not None
     registered = {t.name for t in await mcp.list_tools()}
-    assert "send_message_to_user_directly" in registered
+    assert "reply_owner" in registered

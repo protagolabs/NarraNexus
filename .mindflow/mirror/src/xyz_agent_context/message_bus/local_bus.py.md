@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — `send_message` 顺手叫醒轮询循环（跨进程）
+
+插入成功之后调 [[wake_signal]] 的 `bump()`。**放在这里而不是各调用点**，理由和
+`_post_to_room` 当初存在的理由是同一个，但强一档：`send_message` 是全仓**唯一**的
+`bus_messages` 插入点，所以「发了帖没叫醒」从「一条要记住的纪律」变成**结构上不可能**
+——没有第二个插入点可漏。
+
+这也让 [[message_bus_trigger]] 那条结构性守卫测试（禁止本模块内出现
+`self._bus.send_message(`）失去存在意义：它守的是「调用方可能忘记唤醒」，而唤醒现在在
+写入里面。
+
+**在 insert 之后，不是之前**：信号的含义是「有新活儿」，插入失败了还 bump 会让轮询醒来
+发现什么都没有，信号从此不再有意义（测试 `test_a_send_that_fails_does_not_bump` 钉住）。
+
+`bump()` 自身 best-effort、不抛：一个延迟提示不该让发送失败。
+
+## 2026-08-14 — `get_messages_before`：房间的另一个方向
+
+翻历史用的游标。和 `get_messages(since=…)` **刻意不对称**：
+
+- `since` 返回游标**之后最旧的** n 条 —— 补进度不能跳过任何一条，所以从读者所在的位置
+  往前走；
+- `before` 返回游标**之前最新的** n 条 —— 往上翻要的是屏幕正上方那一页，不是房间历史的
+  开头。
+
+任何一个方向写反，产出的都是**中间静静少了一段**的 transcript，而不是一个报错。
+
+游标**开区间**：调用方传的是它已经持有的最旧那条的时间戳。闭区间会让每一页都重发那一条，
+前端的合并再把它去重掉——于是每页都比请求的少一条，而且没有任何看得见的原因。
+
+空列表表示"到顶了"。调用方据此停止提供"加载更多"，而不是从"这页比较短"去猜——短页也可能
+只是稀疏窗口。
+
 ## 2026-08-07 (二次) — 抑制谓词改问「这棵树里有人被停吗」(PR #252 review Critical #1)
 
 初版是 `LEFT JOIN events ON m.root_run_id = e.event_id` + 判断**那一行**的
@@ -54,6 +88,8 @@ owner 面 turn(chat/job/…)= 发送方在跑差事、这条是**提问**;`messa
 `bus_messages` row and surfaced by `_row_to_message`. Only the trigger's team
 branch passes it (the turn that produced the reply); every other caller keeps
 the default None.
+
+> ⚠️ 末句已于 2026-08-14 失效 —— agent 自己的 bus 发送也盖。见本文件 08-14 节。
 
 ## 2026-07-28 — batched room pending summary + the poison threshold moves here
 
@@ -215,3 +251,120 @@ looked unprocessed and the agent re-triggered forever. See the matching note in
 现在是 `SELECT 1 … LIMIT 1`,复用 `_unread_where`。副作用同样重要:**排序判据回到
 SQL**,不再靠 Python 侧手工复现游标的字典序比较 —— 那等于把一条已经咬过人的规则实现
 两遍。
+
+## 2026-08-14 — `has_message_from_turn`:用 turn id 问"这个房间听见它说话了吗"
+
+团队房的失败公告要回答一个此前没人问过的问题:**这一轮有没有任何东西以本 agent 的身份
+落进本房间**。问它的场合很窄(平台代发没发生、但这一轮又不算 fatal),答错的代价却是
+在房间里贴一条假的投递失败 —— 而房间里同时还摆着 agent 自己发的那句话。
+
+判据用 **turn id**,不是时间窗:两条投递路径(平台在 turn 内代发、agent 自己调
+`bus_send_message`)现在都往 `bus_messages.event_id` 上盖同一个 id,所以一次
+`SELECT 1 ... LIMIT 1` 就同时覆盖两者。时间窗只能回答"差不多那会儿",而且要再写一遍
+本模块刚清理掉的那套时间戳比较 —— 这个仓库为它付过一次学费(见 08-12 那节的
+`canonical_ts`)。身份是精确的。
+
+只问存在性:调用方在决定"要不要公告",消息正文与这个决定无关。
+
+## 2026-08-14 (补) — `send_to_agent` 也透传 `event_id`(并作废 07-31 那句)
+
+它本来就是 `send_message` 的一层包装,只是没把新参数往下带。一列的含义如果取决于
+**哪个工具写的行**,这一列就没法被查询 —— 归因要么处处都有,要么不如没有。
+
+**上面 07-31 那节的「Only the trigger's team branch passes it … every other
+caller keeps the default None」已经失效。** 现在 agent 自己调
+`bus_send_message` / `bus_send_to_agent` 发的行也带 id(见
+[[_message_bus_mcp_tools]]),包括 **DM 频道的行** —— 而 DM 从来不是「平台代发」。
+所以 `event_id IS NOT NULL` **不能**当「这条是平台代发的」过滤条件用;它现在只表示
+「发的时候知道自己在哪一轮」。
+
+## 2026-08-12 — `segments` 落库与读回
+
+`send_message` 追加 `segments`（**追加，不插入**——存在位置参数调用方，中间插一个会静默重绑，
+本仓库在 `ContextRuntime` 上已经付过这笔学费；有测试钉住它在参数表末位）。
+
+- 空列表存 NULL：它看起来像数据，会诱使读者相信「这轮确实没有分段」；NULL 明确表示「没有记录边界」。
+- **坏 JSON 不炸整个房间**：一行手改坏了只丢那条消息的排版（降级），
+  而不是让整个 transcript 打不开（故障）。会记 warning，否则就是静默降级。
+
+## 2026-08-18 — 未读谓词排除旧 IM 频道，注入在部署当天就停
+
+2026-08-17 之前 `ChannelInboxWriter` 把每一轮 IM 都镜像进 `bus_messages` 供 Inbox 显示，
+而那个频道从没人标记已读。prod 实测后果：1,364 条永久未读，每一轮都随上下文进入 90 个
+agent，署名 `lark_user_<id>` 这类伪 agent。
+
+inbox 搬到自己的表只让**新**行不再产生。旧行还在每一个已部署的库里，而 `_unread_predicate`
+正是把它们交给模型的地方 —— 所以不加这道过滤，这次改造会带着「containment 是结构性的」
+的注释上线，而 90 个 agent 之后照旧被投毒。清理是部署后的手动步骤（owner 的决定），
+但**注入必须在部署当天就停**，这就是过滤加在读侧的理由。
+
+诚实的措辞是「一道盖在退役写入器遗留行上的前缀过滤」，不是结构性隔离。它可存活的原因有两个：
+由 registry 推导而非手工维护（手工那版漂移过，代价是 2026-07-03 事故），以及它是临时的 ——
+旧行清理完即可退休。注意 `MessageBusTrigger` 侧那道**不能**退休，它防的是重复派发。
+
+加在 `_unread_predicate` 而不是三个读方法里：`get_unread` / `has_unread_before` /
+`count_unread` 共用它正是为了不会互相矛盾 —— 「N unread (showing M)」对自己的列表说谎就是
+分歧的产物。
+
+
+## 2026-08-18 (二) — 私聊频道查询提为 `direct_channel_sql`
+
+同一个三表 join 曾存在于两个文件，只差占位符方言。共享的是 **SQL 文本**而不是 execute()：
+`send_to_agent` 持裸 backend（`self._db.placeholder`），`read_history` 的解析器持
+AsyncDatabaseClient（`%s`），共享调用会强迫一方用错占位符 —— 那正是
+[[message_bus_module.py]] 的 `_room_labels` 在 SQLite 上静默返回空的成因。
+
+新增 `ORDER BY created_at ASC`，不是装饰：`send_to_agent` 查不到时会建频道，两个并发首发
+可以都查不到、都建，此后无序的 `rows[0]` 依赖引擎，发送方和历史读取方会对「这段会话是哪个
+频道」产生分歧 —— agent 拿到的是一份可信但错误的记录，而不是一个报错。
+
+
+## 2026-08-18 (三) — 前缀匹配不能用 LIKE：`_` 是通配符
+
+上一条那道过滤的第一版写的是 `NOT LIKE '<prefix>%'`,而每个前缀都以 `_` 结尾 —— `_` 在 LIKE
+里是**单字符通配符**,所以 `NOT LIKE 'lark_%'` 同时排除了 `larkX_…` 和 `larky_…`,即任何以
+"lark" 加任意一个字符开头的频道。SQLite 上实测:给定
+(lark_oc_1, larkX_oc_2, larky_room, ch_team_1, lark),未转义的模式只留下 (ch_team_1, lark)。
+
+当前 id 格式让这个过度匹配不可达 —— 而这恰恰是它会一直活到有人改 id 格式那天的原因,而这道
+过滤决定的是**什么进入模型上下文**,过度匹配是静默的上下文丢失而不是报错。
+
+改用 `SUBSTR(m.channel_id, 1, n) <> ?`:没有通配符语义,且前缀成为**绑定参数**,只有它的长度
+进入 SQL(一个由 registry key 推出的整数)。LIKE 加 ESCAPE 也能работать,但转义字符是又一件
+必须在两个方言上含义一致的东西。
+
+因此谓词当时带参数:`_unread_params()` 与 `_unread_where()` 按同一顺序产出,三个调用方各自
+拼自己的参数元组 —— 一个参数个数在调用点看不出来的谓词,正是第四个调用方会拼错的那种。
+
+## 2026-08-18 (四) — 给自己发私聊会落进别人的频道
+
+`direct_channel_sql` 把频道对着两条成员行做 join。两个参数相同时**两个 join 由同一条成员行
+满足**，于是该 agent 所属的任意 direct 频道都匹配，`rows[0]` 是任意一条。第三轮预审执行验证：
+在已有 `a↔b` 频道的库上 `send_to_agent(from="a", to="a")`，那行落进了 `a↔b`。
+
+两个后果都比报错糟：给自己的备注被投递给了 peer b，而且经由 wake signal 给 b 起了一整轮 LLM ——
+b 没有任何东西可回答。agent 把自己写成收件人是普通的模型错误（自我备注、「回复我自己」、
+复制错 id），而 `message_agent` 现在的描述正是「回答别人和自己起话头是同一个动作」，等于在邀请
+它发生。
+
+读路径（`_resolve_conversation`）从一开始就拒绝了这种输入。写路径**共享了那段 SQL、却没共享
+它的不变量** —— 所以不变量现在写在 `direct_channel_sql` 的 docstring 里，而不是只写在某个
+调用方那儿：已经有两个调用方了，第三个否则也会踩。顺带补 `LIMIT 1`（两个调用方都只取 `rows[0]`）。
+
+
+## 2026-08-18 (五) — 谓词与它的参数合成一个构造，并且是配对追加的
+
+未读谓词与它的前缀参数原本是**两个方法**，各自读一遍 `im_channel_prefixes()`，没有任何东西把
+「发出了几个占位符」和「返回了几个参数」绑在一起。这正是
+[[message_bus_module.py]] `_room_labels` 的注释亲自否定过的形状（「两个独立构造分别喂计数和它的
+元组，正是有人改一行就坏掉的形状」）—— 而我把它建在了那条注释隔两个文件的地方。
+
+**合并成一个方法还不够。** 第一版 SQL 走生成器、参数取 `tuple(prefixes)`，于是在生成器里加一个
+条件（跳过某个前缀、去重、`if len(pfx) > 1`）参数仍然是全量的。已实测：那个变异让整个测试套通过。
+现在 clause 与 param 在**同一个循环里成对追加**，一个 `continue` 会同时丢掉两者，错位在结构上
+不可能发生。
+
+错位产生的失败是最坏的那种：`has_unread_before` 是唯一**交错**传参的调用方，多一个参数就让
+`m.channel_id = ?` 收到一个前缀字符串、`m.created_at < ?` 收到一个 channel id；查询什么都不匹配，
+该方法返回 False，调用方跳过 early return，`ack_read` 推进游标 —— 丢掉窗口之外所有未读。
+没有异常，也不会有测试失败，除非 fixture 恰好持有正确数量的前缀。

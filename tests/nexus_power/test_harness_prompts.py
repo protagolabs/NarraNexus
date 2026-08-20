@@ -35,14 +35,14 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.prompts.lib
 
 def test_expression_contract_names_and_tagging():
     contract = ExpressionContract(
-        frozenset({"mcp__chat_module__send_message_to_user_directly"})
+        frozenset({"mcp__chat_module__reply_owner"})
     )
-    assert contract.is_expressive("mcp__chat_module__send_message_to_user_directly")
+    assert contract.is_expressive("mcp__chat_module__reply_owner")
     assert not contract.is_expressive("bash")
     calls = [ToolCall(id="1", name="bash", args={})]
     assert contract.turn_had_expression(calls) is False
     calls.append(
-        ToolCall(id="2", name="mcp__chat_module__send_message_to_user_directly", args={})
+        ToolCall(id="2", name="mcp__chat_module__reply_owner", args={})
     )
     assert contract.turn_had_expression(calls) is True
 
@@ -122,18 +122,18 @@ def test_expression_contract_is_incremental():
     additions, preserves declaration order (first = the default), and
     dedupes."""
     contract = ExpressionContract(
-        ("mcp__chat_module__send_message_to_user_directly",)
+        ("mcp__chat_module__reply_owner",)
     )
-    assert contract.names() == ("mcp__chat_module__send_message_to_user_directly",)
+    assert contract.names() == ("mcp__chat_module__reply_owner",)
     contract.add_tools(
         (
             "mcp__lark_module__lark_cli",
-            "mcp__chat_module__send_message_to_user_directly",  # dupe: ignored
+            "mcp__chat_module__reply_owner",  # dupe: ignored
         )
     )
     assert contract.is_expressive("mcp__lark_module__lark_cli")
     assert contract.names() == (
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__reply_owner",
         "mcp__lark_module__lark_cli",
     )
 
@@ -144,25 +144,25 @@ def test_constitution_default_reply_tool_is_data_not_copy():
     assembler = PromptAssembler()
     with_default = assembler.assemble(
         PromptInputs(
-            default_reply_tool="mcp__chat_module__send_message_to_user_directly"
+            default_reply_tool="mcp__chat_module__reply_owner"
         ),
         PromptMode.FULL,
     )
-    assert "mcp__chat_module__send_message_to_user_directly" in with_default.stable_prefix
+    assert "mcp__chat_module__reply_owner" in with_default.stable_prefix
 
     mute = assembler.assemble(PromptInputs(), PromptMode.FULL)
-    assert "send_message_to_user_directly" not in mute.stable_prefix
+    assert "reply_owner" not in mute.stable_prefix
     assert "reply tool" in mute.stable_prefix  # the generic rule survives
 
 
 def test_reply_reminder_lists_tools_and_defers_to_message_instructions():
     reminder = NexusPowerPrompts.reply_reminder(
         (
-            "mcp__chat_module__send_message_to_user_directly",
+            "mcp__chat_module__reply_owner",
             "mcp__lark_module__lark_cli",
         )
     )
-    assert "mcp__chat_module__send_message_to_user_directly" in reminder
+    assert "mcp__chat_module__reply_owner" in reminder
     assert "mcp__lark_module__lark_cli" in reminder
     # A message carrying its own reply instruction outranks the default list.
     assert "reply instruction" in reminder

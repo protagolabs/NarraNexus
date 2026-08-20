@@ -31,6 +31,12 @@ class TurnProfile(BaseModel, frozen=True):
     reasoning_effort: Optional[str] = None            # -> llm_extra["reasoning_effort"]
     include_arg_deltas: Optional[bool] = None         # None = TurnOptions default
     expression_nudge: Optional[bool] = None           # None = TurnOptions default
+    # Consulted only by the bm25_top1 fast path. "ephemeral" is the F28
+    # voice contract: a miss runs the turn bare, no creation, no session
+    # writes. "durable" is for persisted chat surfaces: a miss creates the
+    # narrative (CRUD, no LLM) and the session continuity anchor is kept
+    # consistent — a fast turn must never vanish from history.
+    narrative_persistence: Literal["ephemeral", "durable"] = "ephemeral"
     # NOTE deliberately absent: a reply_tool field. The reply surface is
     # declared by modules (get_expressive_tools orders speak first on
     # voice turns via extra_data) — a profile field nothing consumes
@@ -38,19 +44,49 @@ class TurnProfile(BaseModel, frozen=True):
     # turn_input.py warns about.
 
     @classmethod
-    def voice_fast(cls, *, reasoning_effort: str = "low") -> "TurnProfile":
-        """The F28 voice-call profile (v1 decisions: FULL prompt, tools kept)."""
+    def fast_for(
+        cls, working_source: object, *, reasoning_effort: str = "low"
+    ) -> "TurnProfile":
+        """Build the fast profile for a trigger surface.
+
+        The single source of truth for what "fast" means. ``working_source``
+        is a ``WorkingSource`` enum member or its bare string value; the
+        profile name derives from it (``"<source>_fast"``) so [turn-timing]
+        logs separate surfaces without per-surface factories. Knobs carry
+        the shared F28 v1 decisions: FULL prompt, tools kept, BM25 top-1
+        narrative, low reasoning effort.
+        """
+        from xyz_agent_context.schema.hook_schema import WorkingSource
+
+        source = getattr(working_source, "value", None) or str(working_source)
+        # The one per-surface knob, and its whitelist is WorkingSource.
+        # is_from_human — the same judgement the step layer uses to honor
+        # durability, so declaration and enforcement can never diverge:
+        # persisted human chat surfaces (chat/lark/slack/telegram) are
+        # durable (miss = create, anchor kept); background/machine sources
+        # (job/message_bus/callback) and non-enum surfaces (the live
+        # "voice" RTC path) stay ephemeral (miss = bare turn).
+        try:
+            durable = WorkingSource(source).is_from_human()
+        except ValueError:
+            durable = False
         return cls(
-            name="voice_fast",
+            name=f"{source}_fast",
+            narrative_persistence="durable" if durable else "ephemeral",
             narrative_strategy="bm25_top1",
             framework_override="nexus_power",
             prompt_mode="full",
             reasoning_effort=reasoning_effort,
             include_arg_deltas=True,
-            # An unanswered voice turn is never the right outcome — a
+            # An unanswered fast turn is never the right outcome — a
             # mute turn gets one steering nudge before it may close.
             expression_nudge=True,
         )
+
+    @classmethod
+    def voice_fast(cls, *, reasoning_effort: str = "low") -> "TurnProfile":
+        """The F28 voice-call profile — ``fast_for("voice")`` by another name."""
+        return cls.fast_for("voice", reasoning_effort=reasoning_effort)
 
     @property
     def is_fast(self) -> bool:

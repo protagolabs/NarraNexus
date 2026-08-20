@@ -351,12 +351,13 @@ class LarkCredentialManager:
         step passes ``{"permission_state": {"admin_request_url": …}}``, enabling
         receive passes ``{"app_secret_encoded": …}``.
 
-        Writes ONLY the columns the patch names (resolved via ``_PATCHABLE_COLUMN``),
-        not the whole row — so a concurrent single-column writer on a DISJOINT
-        column (``update_auth_status`` from lark_trigger writing BRAND_MISMATCH,
-        the lazy ``update_workspace_path``) is not clobbered by a whole-row
-        rewrite. Two writers on the SAME column still race (inherent without a row
-        lock), but the three-click flow's per-key writes rarely overlap those."""
+        Writes ONLY the columns the patch names (resolved via
+        ``_PATCHABLE_COLUMN``), not the whole row — so a concurrent
+        single-column writer on a DISJOINT column (``update_auth_status``
+        from lark_trigger writing BRAND_MISMATCH) is not clobbered by a
+        whole-row rewrite. Two writers on the SAME column still race
+        (inherent without a row lock), but the three-click flow's per-key
+        writes rarely overlap those."""
         from xyz_agent_context.module.data_access.channel_store import deep_merge
 
         cred = await self.get_credential(agent_id)
@@ -430,20 +431,6 @@ class LarkCredentialManager:
             self.TABLE,
             {"agent_id": agent_id},
             {"owner_open_id": open_id, "owner_name": name},
-        )
-
-    async def update_workspace_path(self, agent_id: str, workspace_path: str) -> None:
-        """Set the DB's workspace_path for an agent.
-
-        Used for lazy migration: pre-refactor manual binds had
-        workspace_path="" and relied on shared ~/.lark-cli/ config. On
-        first agent-scoped lark-cli call after the refactor, we compute
-        the workspace path, persist it, and hydrate the workspace.
-        """
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"workspace_path": workspace_path},
         )
 
     async def delete_credential(self, agent_id: str) -> None:

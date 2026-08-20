@@ -1,15 +1,36 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
-## 2026-08-13 — TeamChatMessage.msg_type 增加两种投递通知
 
-取值清单补上 `system_undelivered` / `system_delivery_failed`（与已有的
-`system_stop` / `patrol` / `system_bulletin` 同属房间级系统行，统一由
-[[TeamChatPanel]] 渲染）。语义见 [[delivery_notice]]：前者是「一轮 turn 没投递
-任何东西」，后者是「回复存在、上墙失败」。两者存在，是为了让「agent 无视了你」
-和「回复丢了」不再对用户不可区分。
+## 2026-08-17 — `SkillExportSpec` 去掉 archive_path / manual_zip_path
+
+导出请求里不再有路径字段（SEC-07，见 [[bundle.py]]）：客户端选 method，
+服务端按 user 查 `skill_archives` 定 bytes。`SkillArchiveRecord.archive_path`
+保留——那是服务端下发的、只用来显示 basename 的字段，方向相反。
+
+老客户端发上来的 `archive_path` 是被**忽略**（pydantic 默认
+`extra="ignore"`），不是被拒绝。这里**故意不加** `extra="forbid"`：还在用
+旧 DMG 的用户前端仍会发这个字段，forbid 会让他们的导出直接 422，而服务端
+本来就不再读它——忽略掉严格更优。铁律 #2 反对的是留兼容 shim，不是反对
+宽容地忽略一个无关字段。
+
+## 2026-08-14 — TeamChatMessage.is_platform
+
+"这一行是平台在自述吗"，由服务端回答（见 [[teams.py]]）。前端不再维护
+`PLATFORM_MSG_TYPES` 的第二份拷贝：线上传的是字符串，一个前端不认识的类型会被渲染成成员
+发言——带身份色、头像，名字位置是 `team_<id>`。`msg_type` 仍然说的是**哪一种**，用来选文案。
+
+## 2026-08-14 — TeamWithMembers 带上房间活动
+
+`last_message_at` / `last_message_preview` / `last_message_author`：房间上一次说了
+什么、谁说的。这是未读标记的**服务端那一半**——客户端那一半（水位线）在
+[[unread.ts]]，逐设备存在 localStorage 里，服务端无从知道，所以它只回答"这个房间
+上次说话是什么时候"。
+
+三个字段对以下房间都是 null：还不存在的房间；以及只有用户自己的消息和平台自己的
+通知的房间——两者都不算数，否则发一条消息就会给自己发消息的那个房间打上标记。
 
 ## 2026-08-10 — TeamWorkItem / TeamWorkBoardResponse
 
@@ -96,3 +117,8 @@ TeamManagementModal picker → `updateTeam`. See backend [[teams]].
 
 `source` 驱动权限与渲染，`author_id` 只驱动「由谁添加」标签、自动总结为 null。
 `TeamBulletin` 把 usage/limits 一起带上，见 [[api]]。
+
+## 2026-08-12 — `TeamChatMessage.segments`
+
+可选。缺失表示「没有记录边界」——本改动之前写入的每一条消息、以及任何没有独白的路径。
+气泡把这类消息按整块渲染，也就是它此前的样子。**不回填、不猜**（铁律 #2）。

@@ -16,7 +16,7 @@ Phase 1 (IM abstraction — trigger side):
 - ChannelTriggerBase: Abstract base for IM channel triggers
 - ChannelDedupStore: Three-layer dedup cascade
 - ChannelDebounceMerger: Rapid-fire message merge
-- ChannelInboxWriter: Generic Inbox writer
+- InboxRecorder: records a turn into the inbox's own tables
 - channel_audit_events (re-exported as ``audit_events``): event-type constants
 
 Phase 2 (IM abstraction — module / agent-loop side):
@@ -41,7 +41,7 @@ from .channel_contact_utils import (
 )
 from .channel_dedup_store import ChannelDedupStore
 from .channel_debounce_merger import ChannelDebounceMerger
-from .channel_inbox_writer import ChannelInboxWriter
+from .inbox_recorder import InboxRecorder
 from .channel_trigger_base import ChannelTriggerBase
 from .channel_module_base import ChannelModuleBase
 from . import channel_audit_events as audit_events
@@ -64,7 +64,7 @@ __all__ = [
     "ChannelTriggerBase",
     "ChannelDedupStore",
     "ChannelDebounceMerger",
-    "ChannelInboxWriter",
+    "InboxRecorder",
     "audit_events",
     # Phase 2 abstraction (module side)
     "ChannelModuleBase",

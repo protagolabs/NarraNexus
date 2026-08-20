@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/openai_agents.py
-last_verified: 2026-08-03
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -148,3 +148,13 @@ Narrative 选择、Module 决策、数据提取等辅助 LLM 调用需要结构�
 
 - `result.final_output` 在没有 `output_type` 时是字符串；有 `output_type` 时是 Pydantic model 实例。两种情况的类型完全不同，调用方需要根据是否传了 `output_type` 来决定如何处理返回值。
 - 测试时如果用假的 `openai_config.base_url`（非官方端点），`_resolve_model` 会强制用 slot 配置的 model name，即使你传了其他 model 名也不生效。
+
+
+## 2026-08-18 — owner 工具改名跟随
+
+`send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`
+（未被问就主动告知）。两者行为相同但纪律相反，合成一个工具就要求模型每轮自己判断该用哪种
+register。本文件里改到的是该 handler 注册的 `user_reply_tool_names` / 相关文案 —— 一两行，
+但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
+`render_origin_declaration` 取 label 的同一条记录。规范解释见
+[[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

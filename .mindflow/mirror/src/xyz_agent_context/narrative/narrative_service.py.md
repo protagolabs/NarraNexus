@@ -1,8 +1,68 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-07
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — 撤回 query_units/新线旗标（supersede 下一条）
+
+`query_units` 与 `FastSelectResult.related/suggests_new_thread` 删除
+（单位门实测在中文上复发碎片化，见 config.py.md 同日条目）。终版契约：
+`FastSelectResult{narrative, top1_raw}`——命中与分数，仲裁全在 step 层，
+分数进 audit（`gate_top1_raw` 落库锁保留）。
+
+## 2026-08-14 — query_units + audit 落库锁（R2 复核 I2/I3）
+
+新增模块级纯函数 `query_units(text)`：脚本无关的 query 体量（CJK 每字 1
+单位 + 其余每空白词 1 单位），select_fast 的新线门改用它（字符数对 CJK
+全盲）。`audit_fast` 的 `top1_raw→gate_top1_raw` 映射补了**落库断言**
+（test_fast_path_service.test_audit_fast_persists_top1_raw，删映射即红，
+mutation 验证过）——`_write_audit` 按设计吞掉一切异常，对象层断言抓不住
+repository 映射回归，只有查回持久化行才算锁住。
+
+## 2026-08-14 — select_fast 返回 FastSelectResult（#307 增量 🟡1/🟡2）
+
+契约从 Narrative-or-None 升级为 frozen dataclass `FastSelectResult`
+（进程内值对象不上 wire，故不用 pydantic）：`narrative`=当前 floor 下的
+决断命中；`related`=top-1 过噪声底；`suggests_new_thread`=沉默可信（无
+related 且 query ≥ config.FAST_NEW_THREAD_MIN_QUERY_CHARS）；`top1_raw`
+随行给 audit。`audit_fast` 增 `top1_raw` 参数写既有 `gate_top1_raw` 列
+（不动表、无双方言面）。三个测试消费方（test_select_fast /
+test_fast_path_service / test_step_1_fast_select）同批更新。
+
+## 2026-08-14 — select_fast 双 floor + audit_fast（#307 🟡1/🟡4）
+
+`select_fast` 增 `against_live_anchor: bool = False`：调用方持有 live
+session 锚点时命中意味着**抢线**，用 `config.FAST_ANCHOR_OVERRIDE_FLOOR`
+（强分阈值）而非噪声 floor。新增 `audit_fast(...)`：快路径每个路由决策
+（命中/复用/新建/裸跑）落一行 RoutingAudit（selection_method="fast"，
+continuity/judge 字段保持「该 tier 未跑」的 None 语义，不填 0/假值），
+委托既有 `_write_audit` best-effort——快路径与 full select() 同享 DB 证
+据契约。
+
+## 2026-08-14 — create_fast：快路径的 CRUD-only 创建
+
+`create_fast(agent_id, user_id, query)` 委托 retrieval impl 的
+`create_from_query`（原私有 `_create_narrative` 公开更名），新 narrative
+带与 full select() 创建完全相同的 BM25 路由面（title/keywords/topic_hint）。
+select_fast 文档同步更新：miss 后怎么办是 surface 的事（voice 裸跑、
+durable chat 落到 create_fast），continuity/LLM tier 仍是 full select() 独占。
+
+
+## 2026-08-14 — `continuity_ms` / `retrieve_ms` 落审计行
+
+`[TIMED] narrative.*` 一直在量这些，但只进 loguru：会轮转、没法聚合（教训 #5）。而 `[turn-timing]` 的 `setup_s` 只能说"setup 是一轮里最大的一块"，说不出是里面
+**哪一层**。
+
+四列的价值不在"叙事选择有多慢"，在**把成本和它买到的那个决策连起来**：短路的决策 vs
+叫了 judge 的决策，各自花多少。所以 `None` 表示**这一层没跑**，绝不用 0——短路的决策
+根本没调 judge，存 0 会把"仲裁有多贵"这个查询拽向零，恰好毁掉这几列存在的理由。
+
+实测（本地真机）：`continuity_detect` 均值 3941ms、`llm_unified_match` 4690ms，两者
+串行相加 ≈ 观测到的 setup p50 8.49s。**这两次 LLM 是串行的**——continuity 命中才跳过
+retrieve。要真正压 setup 只有三条路（投机并发跑 retrieve、放宽 gate 阈值少调一次 LLM、
+缓存 confirm），前者会在 continuity 命中时白烧一次用户的 LLM 调用，后两者被 PRD 明确
+划在范围外。此处只记录事实，不擅自决定。
 ## 2026-08-07 — select() 现在落一行路由审计（E1）
 
 `select()` 的决策证据以前只进 `ProgressMessage` 和 loguru，数据库里一个字节都没有

@@ -184,8 +184,16 @@ class DataLoader(Generic[K, V]):
         self._dispatch_scheduled = False
 
     def _schedule_dispatch(self) -> None:
-        """Schedule batch execution task"""
-        asyncio.create_task(self._dispatch_batch())
+        """Schedule batch execution task.
+
+        Tracked via ``spawn`` rather than a bare ``create_task``: every waiting
+        ``load()`` caller is parked on a Future that only this task completes,
+        so losing it (or losing its traceback) strands them silently — the worst
+        possible shape for the N+1 fix everything else in the data layer leans on.
+        """
+        from xyz_agent_context.utils.background_tasks import spawn
+
+        spawn(self._dispatch_batch(), name=f"dataloader.dispatch:{id(self):x}")
 
     async def _dispatch_batch(self) -> None:
         """Execute batch loading"""

@@ -14,6 +14,7 @@
  */
 import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { DRAWER_PINNED_KEY } from '@/components/layout/drawerLayout';
 
 const getTeamChatMock = vi.fn();
 const getEventLogMock = vi.fn();
@@ -132,6 +133,8 @@ async function renderRoom(
 }
 
 beforeEach(() => {
+  // The drawer's pin preference is a shared persisted key; isolate cases.
+  window.localStorage.clear();
   getTeamChatMock.mockReset();
   getEventLogMock.mockReset();
   getEventLogMock.mockResolvedValue({ success: true, timeline: [] });
@@ -144,8 +147,12 @@ describe('TeamChatPanel · two-pane room', () => {
   test('renders the roster panel with every member', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    // Both members have a standing row — the idle one is not hidden just
-    // because it has nothing in flight.
+    // The roster is the drawer's members panel; it opens by default only
+    // on non-mobile AND with the pinned preference on (the storage default
+    // — jsdom's matchMedia stub answers false to the max-width query, so
+    // useIsMobile is false, and no stored key means pinned).
+    // Both members have a row — the idle one is not hidden just because it
+    // has nothing in flight.
     expect(within(screen.getByTestId('roster-row-a1')).getByText('Ana')).toBeTruthy();
     expect(within(screen.getByTestId('roster-row-a2')).getByText('Bruno')).toBeTruthy();
   });
@@ -252,5 +259,30 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
     fireEvent.click(screen.getByText('chat.message.viewReasoning'));
     expect(await screen.findByText('weighing options')).toBeTruthy();
     expect(getEventLogMock).toHaveBeenCalledWith('a2', 'evt_9');
+  });
+
+
+});
+
+describe('TeamChatPanel · drawer defaults and switching', () => {
+  test('an unpinned preference means the drawer does NOT auto-open', async () => {
+    // Shared preference with single chat — an unpinned user must not be
+    // greeted by a transient drawer whose backdrop eats their first click.
+    window.localStorage.setItem(DRAWER_PINNED_KEY, '0');
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+  });
+
+  test('the drawer switches panels: members → artifacts via the title dropdown', async () => {
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+    // Open the title switcher and pick Artifacts.
+    fireEvent.click(screen.getByLabelText('bookmarks.drawer.switchPanel'));
+    fireEvent.click(screen.getByRole('button', { name: /chat.team.workspace.tabArtifacts/ }));
+    // The members rows are gone; the artifacts panel's empty state shows.
+    expect(screen.queryByTestId('roster-row-a1')).toBeNull();
+    expect(screen.getByText('chat.team.workspace.artifactsHint')).toBeTruthy();
+    // And back to members via the top-bar toggle.
+    fireEvent.click(screen.getAllByLabelText('chat.team.roster.title')[0]);
+    expect(screen.getByTestId('roster-row-a1')).toBeTruthy();
   });
 });

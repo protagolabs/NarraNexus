@@ -22,6 +22,8 @@ Pins the four facts the owner's stop depends on at this layer:
 from __future__ import annotations
 
 from types import SimpleNamespace
+
+from xyz_agent_context.agent_runtime.run_collector import RunCollection
 from unittest.mock import AsyncMock
 
 import pytest
@@ -195,9 +197,8 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
 
     async def _run_and_collect(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(
-            is_error=False, output_text="ok", event_id="evt_1", error=None,
-            tool_calls=[],
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
         )
 
     client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
@@ -219,3 +220,86 @@ async def test_invoke_runtime_forwards_cancellation_to_the_runtime(monkeypatch):
     )
 
     assert captured["cancellation"] is token
+
+
+@pytest.mark.asyncio
+async def test_invoke_runtime_forwards_the_team_safety_net(monkeypatch):
+    """The seam must carry what the team lane depends on, checked HERE.
+
+    RE-POINTED 2026-08-17. This used to check `on_plain_text_delivery`; that
+    parameter is gone with the auto-post. The hazard it was written for is not:
+    every other test in this area replaces `_invoke_runtime` wholesale, so the
+    real signature is never executed by them — which is how a rebase once dropped
+    a parameter while the call site kept passing it, leaving a `TypeError` on
+    every bus message that no test could see.
+
+    What rides the seam now and would fail SILENTLY rather than loudly:
+
+    * `turn_profile` — the team lane's in-turn nudge. If it stops being
+      forwarded, nothing raises; a mute team turn simply stops being steered.
+    * `include_monologue` — patrol's. Its absence makes patrol mute on NexusPower
+      and fine on claude_code, the shape of bug this repo has paid for twice.
+    """
+    captured: dict = {}
+
+    async def _run_and_collect(**kwargs):
+        captured.update(kwargs)
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
+        )
+
+    client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        lambda: client,
+    )
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+
+    await trigger._invoke_runtime(
+        agent_id="agent_a", sender_agent_id="usr_user_x", prompt="hello",
+        channel_id="ch_1", team_room=True,
+    )
+    profile = captured.get("turn_profile")
+    assert profile is not None, "the team lane lost its in-turn nudge"
+    assert profile.expression_nudge is True
+    assert profile.narrative_strategy == "full"
+    assert profile.framework_override is None
+
+    captured.clear()
+    await trigger._invoke_runtime(
+        agent_id="agent_a", sender_agent_id="agent_b", prompt="hello",
+        channel_id="ch_2",
+    )
+    assert captured.get("turn_profile") is None
+
+    captured.clear()
+    await trigger._invoke_runtime(
+        agent_id="agent_a", sender_agent_id="usr_user_x", prompt="hello",
+        channel_id="ch_1", team_room=True, include_monologue=True,
+    )
+    assert captured.get("include_monologue") is True
+
+@pytest.mark.asyncio
+async def test_invoke_runtime_works_without_a_deliverer(monkeypatch):
+    """Every non-team lane passes None for it, so the default has to hold."""
+    captured: dict = {}
+
+    async def _run_and_collect(**kwargs):
+        captured.update(kwargs)
+        return RunCollection(
+            output_text="ok", tool_calls=[], raw_items=[], event_id="evt_1",
+        )
+
+    client = SimpleNamespace(run_and_collect=AsyncMock(side_effect=_run_and_collect))
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        lambda: client,
+    )
+
+    trigger = MessageBusTrigger.__new__(MessageBusTrigger)
+    await trigger._invoke_runtime(
+        agent_id="agent_a", sender_agent_id="agent_b", prompt="hi", channel_id="ch_1",
+    )
+
+    assert captured.get("on_plain_text_delivery") is None

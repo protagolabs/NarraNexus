@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/module/chat_module/
-last_verified: 2026-04-10
+last_verified: 2026-08-20
 ---
 
 # chat_module/ — 对话与外部接入模块
@@ -20,9 +20,11 @@ ChatModule 承担两个职责：
 | 文件 | 职责 |
 |------|------|
 | `chat_module.py` | Module 主体：双轨记忆加载（hook_data_gathering）；对话历史写入（hook_after_event_execution）；MCP 委托给 `_chat_mcp_tools.py` |
-| `_chat_mcp_tools.py` | MCP 工具注册：`send_message_to_user_directly`（唯一的用户可见输出通道）；`get_chat_history`（查询历史） |
+| `_chat_mcp_tools.py` | MCP 工具注册：`reply_owner`（唯一的用户可见输出通道）；`get_chat_history`（查询历史） |
 | `chat_trigger.py` | A2A 协议 API Server：接收外部请求，调用 AgentRuntime，支持同步和 SSE 流式响应 |
 | `prompts.py` | 向 Agent 解释"思考 vs 说话"核心概念和消息发送纪律 |
+| `_chat_reads.py` | dialect-safe 的 `get_chat_history` 共享实现（AgentDataStore seam 的唯一真源，供 DirectStore + backend 孪生路由） |
+| `_chat_writes.py` | bootstrap 问候行的唯一写入方（2026-08-20）：`build_bootstrap_greeting_row` 定义行结构 + turn 起点时间戳约束，`seed_bootstrap_greeting` 幂等落库；`hook_persist_turn` 与 `step_1` 开局 seed 共用，见 [[_chat_writes]] |
 
 ## 和外部目录的协作
 

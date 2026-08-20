@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/prompts.py
-last_verified: 2026-08-04
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 来源声明排在回复规则前面
+
+`append_reply_reminder` 多收一个 `origin_declaration`，拼在提醒之前：「我在哪、在跟谁说话」
+必须落在「你该怎么回答他们」之前，否则规则到达时没有可依附的对象。它是**已经渲染好的**
+字符串（见 [[turn_input]]），本函数只负责拼装、不负责措辞。
+
+docstring 里「team 房间的回复面故意为空」那条例外删掉了：team 回复现在和其他表面一样是
+工具调用，所以「纯文本谁也到不了」在任何地方都不再有豁免。剩下的空声明只有一种情况
+——**回复面未知**，那时编一个工具名比沉默更糟。
+
 
 ## 2026-08-04 — 新增 append_reply_reminder（不再是纯常量文件）
 

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_context_builder.py
 stub: false
-last_verified: 2026-08-06
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 部署窗口回落读（存量记忆不丢）
+
+`get_conversation_history` 在新表 `inbox_thread_messages` 查空时，回落读一次旧 `bus_messages`（`channel_id=telegram_{chat_id}`）。**按 agent 隔离**：只认本 bot 的回复（`from_agent==agent_id`）与用户消息（`telegram_user_*`），另一个 bot 在同一共享 chat 的回复被排除。与 `wipe_service` 对齐（telegram DM 是单成员 channel，wipe 会删这些行）。回填 runbook 跑完后删除。没有它，部署当天每个存量 telegram bot 会失忆。
+
+## 2026-08-17 — 历史改读 inbox 记录
+
+Telegram Bot API 没有 history 端点，所以历史一直来自本地记录。那份记录 2026-08-17 从
+`bus_messages` 搬到了 `inbox_thread_messages`，**这个读取方必须跟着搬**——留在原地
+Telegram 会失忆（2026-05-13 那个「再试一下」被理解成重试渠道测试的 bug 会复发）。
+
+判别「这行是谁说的」从比对 `from_agent == agent_id` 改成读 `direction` 列：记录层直接
+陈述方向，不再把它编码进一个合成发送者 id。
+
+**这是 inbox 记录同时是 operational 的两处之一**（另一处是 wechat）——对没有历史 API 的
+渠道，它就是 agent 的对话记忆，不只是给人看的。见 [[inbox_recorder]]。
 
 ## 2026-08-06 — `room_type` 现在是行为开关
 

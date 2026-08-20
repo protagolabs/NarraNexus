@@ -29,7 +29,7 @@
  * This replaces a `${role}:${content}` exact-string key that silently
  * missed whenever the session-assembled content and the DB-persisted
  * content drifted by even one character — different code paths produce
- * them (session = `send_message_to_user_directly` args joined by `\n\n`;
+ * them (session = owner-facing tool args joined by `\n\n`;
  * history = whatever the backend persisted, which it sometimes rewrites,
  * e.g. owner-notify substitution). That drift made the latest reply
  * occasionally render twice. event_id is immune to it.

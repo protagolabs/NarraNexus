@@ -22,7 +22,66 @@ from typing import Annotated, Optional, List, Any, NotRequired, TypedDict
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field, TypeAdapter, WithJsonSchema
 
+from loguru import logger
+
 from xyz_agent_context.module.data_access import get_agent_data_store
+from xyz_agent_context.schema.job_schema import JobOrigin
+
+
+async def _caller_job_origin() -> tuple[Optional[str], Optional[str]]:
+    """``(origin_source, origin_channel_id)`` for the turn calling job_create.
+
+    Answers one question: is this turn happening in a TEAM ROOM, and which one.
+    A room-origin job reports back into that room; everything else keeps the
+    owner's chat, which is the surface that always exists.
+
+    Derived from the injected team id rather than a new bearer field. The
+    bearer's field list is positional and frozen — appending is legal but costs
+    a protocol change and every reader — while a team room is deterministically
+    the group channel whose ``created_by`` is the ``team_<id>`` marker, so the
+    fact is already on the wire.
+
+    Peer DMs are deliberately NOT an origin: an agent-to-agent channel has no
+    human reader, so a report delivered there is a report nobody sees.
+
+    Fails to ``(None, None)`` — a job that reports to the owner is the old
+    behaviour, and the old behaviour is never the wrong answer to "we could not
+    work out where this came from".
+    """
+    try:
+        from xyz_agent_context.module._mcp_identity import caller_team_id_from_request
+        from xyz_agent_context.message_bus.team_rooms import primary_room_of
+        from xyz_agent_context.utils.db.db_factory import get_db_client
+
+        team_id = caller_team_id_from_request()
+        if not team_id:
+            # A private-chat or peer-DM turn. The overwhelmingly common case
+            # and entirely normal, so it must stay silent — a warning here
+            # would fire on every owner-chat job and train everyone to ignore
+            # the log line that matters below.
+            return (None, None)
+        # One implementation of "where is this team's room" (see team_rooms):
+        # this resolver used to carry its own copy, which had already drifted
+        # from its sibling in the work-board tools.
+        channel_id = await primary_room_of(await get_db_client(), team_id)
+        # A team whose room does not exist yet resolves to nothing rather than
+        # to a source with no channel: recording half of the pair would send
+        # execution down the room branch with nowhere to post.
+        if not channel_id:
+            logger.warning(
+                f"[job.create] turn carries team={team_id} but its room could "
+                f"not be resolved; this job will report to the owner instead"
+            )
+            return (None, None)
+        return (JobOrigin.MESSAGE_BUS, channel_id)
+    except Exception as e:  # noqa: BLE001 — see docstring
+        # WARNING, not DEBUG. This except is what a future "the mcp container
+        # holds no DB credentials" migration would start hitting, and the
+        # symptom is silent: room origin disappears and jobs quietly fall back
+        # to the owner's private chat — i.e. the exact bug this feature fixed,
+        # returning with no trace. Whoever flips that switch needs to see it.
+        logger.warning(f"[job.create] could not resolve origin: {e}")
+        return (None, None)
 
 
 class TriggerConfigArg(TypedDict):
@@ -34,6 +93,11 @@ class TriggerConfigArg(TypedDict):
     interval_seconds: NotRequired[int]
     end_condition: NotRequired[str]
     max_iterations: NotRequired[int]
+    # Scheduling horizon for recurring ("scheduled"/"ongoing") jobs: naive
+    # local ISO 8601 (no "Z"/offset — same convention as run_at, interpreted
+    # in `timezone`). The platform completes the job once its next fire would
+    # land past it. Ignored for one_off.
+    end_at: NotRequired[str]
 
 
 # FastMCP asks pydantic for the containing function's schema. A named
@@ -115,9 +179,15 @@ def create_job_mcp_server(port: int) -> FastMCP:
                 - one_off: {"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"}
                   run_at MUST be naive ISO 8601 — no "Z"/offset suffix.
                 - scheduled: {"cron": "0 8 * * *", "timezone": ...} OR
-                  {"interval_seconds": 3600, "timezone": ...}
+                  {"interval_seconds": 3600, "timezone": ...}; optional
+                  "end_at" (naive local ISO 8601, like run_at) = run until
+                  that date, then the PLATFORM completes the job — use it
+                  whenever the user gives a bounded duration ("for two
+                  weeks", "until Friday") instead of asking yourself to
+                  remember to stop.
                 - ongoing: {"interval_seconds": 86400, "end_condition": "...",
-                  "timezone": ...}
+                  "timezone": ...}; also accepts optional "end_at" (same
+                  platform-enforced horizon as scheduled).
             payload: Instruction executed when the job runs
             notification_method: delivery method (use default)
             task_key: Optional dependency identifier
@@ -147,10 +217,18 @@ def create_job_mcp_server(port: int) -> FastMCP:
         # cloud). create_job_from_args owns the LLM-context setup + similar-title
         # embedding check + W1 structured-error handling, so it runs in whichever
         # process holds the DB (mcp locally, backend in cloud).
+        # WHERE this turn is running, taken from the server-injected identity
+        # and never from a tool parameter: a model asked "which room are you
+        # in" can only guess, and a guessed channel id routes someone else's
+        # reminder into someone else's room. Same rule the work-board tools
+        # follow for team_id (see _work_board_mcp_tools._resolve_team_room).
+        origin_source, origin_channel_id = await _caller_job_origin()
         return await get_agent_data_store().job_create(
             agent_id,
             {
                 "user_id": user_id,
+                "origin_source": origin_source,
+                "origin_channel_id": origin_channel_id,
                 "title": title,
                 "description": description,
                 "job_type": job_type,
@@ -327,9 +405,10 @@ def create_job_mcp_server(port: int) -> FastMCP:
             trigger_config: Same shapes/rules as job_create. EVERY shape
                 REQUIRES "timezone" (IANA name); run_at naive ISO 8601 (no
                 "Z"/offset). Shapes: one_off {"run_at","timezone"}; scheduled
-                {"cron" OR "interval_seconds","timezone"}; ongoing
+                {"cron" OR "interval_seconds","timezone", optional "end_at"
+                naive local = run until then, platform-completed}; ongoing
                 {"interval_seconds","end_condition","timezone", optional
-                "max_iterations"}
+                "max_iterations" and "end_at" (same horizon as scheduled)}
             job_type: "one_off" | "scheduled" | "ongoing". WARNING: also
                 update trigger_config to match the new type.
             next_run_time: Override next run, ISO8601 UTC ("...Z" or offset).
