@@ -131,6 +131,10 @@ function MdEditSurface({
   const rootRef = useRef<HTMLDivElement>(null);
   // null = probing (editor mounting), true = editable, false = guard fallback
   const [editable, setEditable] = useState<boolean | null>(null);
+  // The guard must gate the WRITE PATH, not just the UI (review #334 I6):
+  // markdownUpdated fires for programmatic changes too, and `hidden` is a
+  // layout property, not a business guard.
+  const editableRef = useRef<boolean | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The editor callbacks live for the Crepe instance's whole life; going
   // through refs keeps them reading CURRENT state without re-mounting Crepe.
@@ -150,9 +154,18 @@ function MdEditSurface({
 
     crepe.on((listener) => {
       listener.markdownUpdated((_ctx, markdown, prevMarkdown) => {
+        // Guard-disabled or still probing → nothing may reach the save
+        // pipeline. Probing can't even produce input (readonly below), so
+        // no keystroke is silently dropped by this gate.
+        if (editableRef.current !== true) return;
         if (markdown === prevMarkdown) return;
         const ed = editorRef.current;
-        ed.setText(frontmatterRef.current + markdown);
+        // Line-ending policy: an edited document saves as LF throughout.
+        // Crepe's body is always LF; keeping a CRLF frontmatter would write
+        // a mixed-eol file. Style-level normalization is within the loss
+        // contract (semantic content identical) and is declared in the
+        // mirror md.
+        ed.setText(frontmatterRef.current.replace(/\r\n/g, '\n') + markdown);
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
           const now = editorRef.current;
@@ -163,12 +176,20 @@ function MdEditSurface({
       });
     });
 
+    // Readonly until the probe verdict: the probe serializes the UNEDITED
+    // document, so user input during the (sub-second) probe would both skew
+    // the verdict and be typed into a surface that may get disabled. Locking
+    // input for that window loses nothing and removes the whole race.
+    crepe.setReadonly(true);
     void crepe.create().then(() => {
       if (destroyed) return;
       // Editability probe: what would the editor write back for the UNEDITED
       // document? Structure loss (html blocks, math, …) → guard fallback.
       const out = crepe.getMarkdown();
-      setEditable(mdAstEqual(body, out));
+      const verdict = mdAstEqual(body, out);
+      editableRef.current = verdict;
+      setEditable(verdict);
+      if (verdict) crepe.setReadonly(false);
     });
 
     return () => {

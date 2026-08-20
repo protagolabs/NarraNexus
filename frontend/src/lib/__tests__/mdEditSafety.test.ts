@@ -60,3 +60,22 @@ describe('mdAstEqual', () => {
     expect(mdAstEqual(doc, doc)).toBe(true);
   });
 });
+
+describe('extractFrontmatter — CRLF (review #334 I7)', () => {
+  it('splits CRLF frontmatter verbatim and reassembles byte-exact', () => {
+    const doc = '---\r\ntitle: x\r\n---\r\n\r\n# Doc\r\n\r\nbody\r\n';
+    const { frontmatter, body } = extractFrontmatter(doc);
+    expect(frontmatter).toBe('---\r\ntitle: x\r\n---\r\n');
+    expect(frontmatter + body).toBe(doc);
+  });
+
+  it('CRLF without frontmatter is all body', () => {
+    const doc = '# Doc\r\n\r\nbody\r\n';
+    expect(extractFrontmatter(doc)).toEqual({ frontmatter: '', body: doc });
+  });
+
+  it('a blank line inside a CRLF opener is not frontmatter', () => {
+    const doc = '---\r\ntitle: x\r\n\r\n# no closing fence\r\n';
+    expect(extractFrontmatter(doc).frontmatter).toBe('');
+  });
+});

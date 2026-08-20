@@ -89,3 +89,14 @@ scrollContainment 契约测试认它。
 根本没记上,本机靠 Node 向上解析侥幸能跑)——已正式装进
 frontend/package.json,根目录游离 node_modules 已删。新克隆/CI/DMG
 构建自此才真正可用。
+
+## 2026-08-20 — 守卫接管写路径 + CRLF + 行尾政策(review #334 I6/I7)
+
+①**写路径门**:markdownUpdated 回调开头 `editableRef.current !== true`
+即 return——`hidden` 只是布局属性,不再顶替业务守卫;②**探测期
+readonly**:crepe.setReadonly(true) 到判决出炉,探测窗内根本产生不了
+输入 ⇒「探测期击键落盘」「探测被用户输入污染」两个竞态整类消灭,
+判决通过才解锁;③**行尾政策(显式决定)**:被编辑过的文档保存后
+**全文 LF**——Crepe 的 body 恒 LF,frontmatter 保存时 CRLF→LF 归一,
+不写混合行尾文件。CRLF 文档的 frontmatter 切分见 [[mdEditSafety.ts]]
+(切分本身保字节,归一只发生在保存拼接)。风格级归一在损耗契约之内。

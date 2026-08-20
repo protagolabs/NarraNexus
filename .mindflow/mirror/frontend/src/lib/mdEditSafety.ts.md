@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/mdEditSafety.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -27,3 +27,9 @@ definition 被解成内联 link)——守卫测试用它当样本。守卫是探
 ## 坑
 
 parser 崩溃 → 返回不等价(不能担保就不放行),别改成放行。
+
+## 2026-08-20 — extractFrontmatter 行尾感知(#334 I7)
+
+按文档自己的 eol(含 \r\n)切围栏;切分结果**保原始字节**(frontmatter
++body 可逐字节重组)——保存时的 LF 归一政策在 MarkdownRenderer,不在
+这里。空行在闭合围栏前 → 仍判无 frontmatter(CommonMark 语义)。

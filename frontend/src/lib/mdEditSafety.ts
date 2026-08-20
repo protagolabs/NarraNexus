@@ -23,20 +23,27 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 
-/** Split a leading YAML frontmatter block off verbatim (no parsing). */
+/** Split a leading YAML frontmatter block off verbatim (no parsing).
+
+    Line-ending aware (review #334 I7): a CRLF document's fence lines are
+    `---\r\n`, and the LF-only version of this function classified the whole
+    block as body — Crepe then destroyed it. The split preserves the
+    ORIGINAL bytes (frontmatter + body reassemble exactly); the save-time
+    line-ending policy lives in MarkdownRenderer, not here. */
 export function extractFrontmatter(text: string): { frontmatter: string; body: string } {
   // Must be the very first line, `---` alone, closed by another `---` (or
   // `...`) alone. Anything else — including a fence that never closes — is
   // body text, not frontmatter.
-  if (!text.startsWith('---\n') && text !== '---') {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  if (!text.startsWith(`---${eol}`) && text !== '---') {
     return { frontmatter: '', body: text };
   }
-  const lines = text.split('\n');
+  const lines = text.split(eol);
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line === '---' || line === '...') {
-      const fm = lines.slice(0, i + 1).join('\n') + '\n';
-      const body = lines.slice(i + 1).join('\n');
+      const fm = lines.slice(0, i + 1).join(eol) + eol;
+      const body = lines.slice(i + 1).join(eol);
       return { frontmatter: fm, body };
     }
     if (line.trim() === '') {
