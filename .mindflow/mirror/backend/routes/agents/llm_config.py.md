@@ -93,3 +93,5 @@ Design decisions / gotchas:
 - **No hot-reload**: config is resolved per run from the DB, and
   ``set_user_config`` is ContextVar/task-scoped (can't reach a running loop), so a
   change here applies on the agent's NEXT run. The handler says so explicitly.
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。

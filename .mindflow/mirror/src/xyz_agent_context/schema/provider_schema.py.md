@@ -83,7 +83,7 @@ The entire configuration is serialized to `~/.nexusagent/llm_config.json` by `LL
 
 **`AuthType.OAUTH`**: this is the Claude Code Login path where the user authenticates via browser OAuth. No API key is stored. The `api_key` field is empty. This was added as a first-class auth type so the system does not need to special-case it in multiple places.
 
-**`SLOT_REQUIRED_PROTOCOLS` as a module-level dict rather than a method on `SlotName`**: this makes it easy to extend the list of protocols a slot accepts without touching the enum definition. The static `AGENT` entry is the Claude Code default, while `get_slot_required_protocols()` applies the active coding-agent framework: `claude_code` requires Anthropic protocol and `codex_cli` requires OpenAI protocol. `EMBEDDING` and `HELPER_LLM` accept OpenAI-compatible endpoints.
+**`SLOT_REQUIRED_PROTOCOLS` as a module-level dict rather than a method on `SlotName`**: this makes it easy to extend the list of protocols a slot accepts without touching the enum definition. The static `AGENT` entry’s framework-less fallback is the platform default `nexus_power` (Anthropic+OpenAI), while `get_slot_required_protocols()` applies the active coding-agent framework: `claude_code` requires Anthropic protocol and `codex_cli` requires OpenAI protocol. `EMBEDDING` and `HELPER_LLM` accept OpenAI-compatible endpoints.
 
 ## Gotchas
 

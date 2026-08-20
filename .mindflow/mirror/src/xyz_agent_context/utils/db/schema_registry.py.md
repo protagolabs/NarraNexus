@@ -860,3 +860,5 @@ agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份�
 
 纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
 后者是所有文本消费者读的东西，一个渲染需求不该改写它。
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
