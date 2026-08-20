@@ -378,6 +378,20 @@ class RoutingAudit(BaseModel):
     gate_top1_raw: Optional[float] = None
     gate_top2_raw: Optional[float] = None
     gate_margin: Optional[float] = None
+    # WHY the score gate needs its own column now that the anchor rule can
+    # override it: `gate_short_circuit` keeps its original meaning — "this turn
+    # skipped the judge" — so the two are NOT duplicates. `bypass_score_gate`
+    # is floor+margin ALONE, which is the series the next layer has to
+    # calibrate against. Without it, the day the anchor rule shipped would be
+    # the day the score-gate distribution stopped accumulating in prod, and the
+    # decision that needs it would have no data.
+    bypass_score_gate: Optional[bool] = None
+    # Which rule decided, as a stable code: anchor_match | anchor_miss |
+    # no_anchor | score_gate | participant_present | background_scope |
+    # no_candidates. Joined against `judge_category` this answers "what did the
+    # judge actually say about the turns the anchor rule refused to let
+    # through" — i.e. whether the rule is paying for itself.
+    bypass_reason: str = ""
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False

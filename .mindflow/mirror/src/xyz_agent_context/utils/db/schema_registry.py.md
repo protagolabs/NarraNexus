@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
+
+# schema_registry.py
+
+## 2026-08-20 — `narrative_routing_audit` 加两列(纯增量)
+
+`bypass_score_gate INTEGER/TINYINT(1)` + `bypass_reason TEXT/VARCHAR(32)`,
+两个 dialect 都填了,两列都可空。
+
+**可空是硬要求,不是风格**:prod 上这张表已有 26,922 行早于这两列,
+`ALTER TABLE ADD COLUMN ... NOT NULL`(无默认值)在活表上会失败。
+铁律 #6 的"只做增量"在这里的具体形态就是这个。
+`VARCHAR(32)` 对得上七个短码里最长的 `participant_present`(19 字符),
+测试里钉了这个宽度 —— MySQL 非严格 sql_mode 下超长是**静默截断**,
+而这一列正是下一轮标定的 GROUP BY 键。
 
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
@@ -625,7 +639,6 @@ the intended Part B retrieval surface for ChatModule history was
 never wired up. Letting the writer succeed silently lets embeddings
 accumulate for whatever surface gets built later.
 
-# schema_registry.py
 
 Single source of truth for every database table — define columns once, run on both SQLite and MySQL, migrate automatically.
 

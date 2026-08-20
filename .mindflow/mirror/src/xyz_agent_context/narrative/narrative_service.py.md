@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-16
+last_verified: 2026-08-20
 stub: false
 ---
+
+# narrative_service.py — Narrative 统一门面
+
+## 2026-08-20 — 会话锚点开始参与免审决策(Q 层)
+
+`select()` 现在把 `session.current_narrative_id` 与 `is_user_chat` 一起传进
+`retrieve_top_k`。**为什么在这一层读锚点**:Session 的所有权在这里,
+下面的检索层不该知道什么是 Session(那会把一个纯排序层绑到会话模型上)。
+
+调用点顺序上有一个必须记住的事实:走到 `retrieve_top_k` 时
+`is_continuous` 一定是 False(否则上面就 return 了)。所以"锚点存在但
+continuity 说不连续"是**结构性的**,不是两层打架 —— 引用审计数字时别把它
+读成缺陷,那是选择偏差。
+
+`is_user_chat=False` 的分支与本文件末尾那段"只有用户发起的轮次才写
+`current_narrative_id`"是**同一个设计的两端**:后台 trigger 没有锚点,
+所以锚点规则对它们不适用。改任何一端都要同时看另一端。
 
 ## 2026-08-16 — 无持久话题的落点：anchor-first（C-1 方案 ④-A′）
 
@@ -183,7 +200,6 @@ anchor, so it's the narrative the user is actually looking at.
 - 配套：[[step_4_persist_results.py]] 4.5 也加了同样的 source 判断，
   确保 `last_response` 同样只在 chat run 时被覆盖。
 
-# narrative_service.py — Narrative 统一门面
 
 ## 为什么存在
 

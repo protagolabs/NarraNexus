@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-16
+last_verified: 2026-08-20
 stub: false
 ---
+
+# models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-08-20 — `RoutingAudit` 多两列,而且它们不是重复列
+
+`bypass_score_gate` + `bypass_reason`。
+
+**为什么不复用 `gate_short_circuit` 一列了事**:那一列的语义从第一天就是
+"这一轮跳过了 judge",Q 上线后它仍然如实表达这件事(所以**没有**发生
+铁律 #6 禁止的"静默改变既有列语义")。但 floor+margin **单独**的判定
+从此不再等于它 —— 而那正是层 2 要标定的序列。
+少了 `bypass_score_gate`,Q 上线那天就是分数门分布停止积累的那天,
+下一个决策会没有数据。两列内容不同,不是冗余。
+
+`bypass_reason` 是**稳定机器码**(七个值,见 routing_gate 的 mirror),
+拿它 join `judge_category` 就能回答"被锚点规则拒掉的那些轮,judge 最后判了什么"
+—— 即这条规则值不值。所以它必须是枚举式短码,不是自由文本;
+自由文本在 `gate_reason` 里(那一列现在存 `BypassDecision.detail`)。
 
 ## 2026-08-16 — NarrativeSelectionResult.no_durable_topic（C-1）
 
@@ -87,7 +105,6 @@ prompt，但**判据不能用它**：`s/(s+1)` 压缩了候选之间的间距，
 > 2026-05-29：删除 `EpisodeResult`，并从 `NarrativeSearchResult` 去掉
 > `episode_summaries` / `episode_contents` 字段（EverMemOS 整体移除）。
 
-# models.py — Narrative 模块所有数据模型的唯一来源
 
 ## 为什么存在
 

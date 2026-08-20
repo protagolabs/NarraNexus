@@ -393,7 +393,20 @@ class NarrativeService:
                     query=query_text,
                     user_id=user_id,
                     agent_id=agent_id,
-                    top_k=max_narratives
+                    top_k=max_narratives,
+                    # The bypass rule needs to know what thread we are already
+                    # in: skipping the judge is only allowed for a turn that
+                    # STAYS there. Reading the anchor here rather than inside
+                    # the retrieval tier keeps Session ownership in one place —
+                    # the tier below has no business knowing what a Session is.
+                    anchor_narrative_id=(
+                        session.current_narrative_id if session else None
+                    ),
+                    # Background triggers deliberately never advance that
+                    # anchor (see the Session update block at the end of this
+                    # method), so they have none to match and the anchor rule
+                    # does not apply to them.
+                    is_user_chat=is_user_chat,
                 )
             _retrieve_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
             narratives = retrieval_result.narratives

@@ -46,7 +46,7 @@ point.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -133,4 +133,164 @@ def evaluate_gate(
         top1_raw=top1,
         top2_raw=top2,
         margin=margin,
+    )
+
+
+# ── the second decision: may this turn skip review at all? ──────────────────
+#
+# The gate above answers "is the BM25 evidence strong?". That question turned
+# out to be unanswerable with an absolute number: `bm25_rank` estimates IDF on
+# the candidate set, so on prod (26,922 audit rows, 2026-08-14..20, replayed
+# byte-exact) ONE query text — `[From Liam] 👊`, 99 turns, same agent — scored
+#
+#     pool 19 -> 5.66   26 -> 3.35   34 -> 2.41   67 -> 1.09   100 -> 0.02
+#
+# i.e. RAW_FLOOR=3.0 flips between pool 26 and 34 on identical evidence.
+# Gating on the strongest single term instead of the sum does not help: that
+# statistic swings 2.89 -> 0.01 across the same range, because it is built from
+# the same per-pool IDF. 51.8% of prod decisions are dominated by a term with
+# in-pool df = 1, which in a 9-document pool is noise, not rarity.
+#
+# The RISK, though, is not spread across those numbers. Classifying every prod
+# bypass by what it actually did to the conversation:
+#
+#     staying in the anchored thread   9,229   92.5%
+#     switching to another thread        353    3.5%
+#     no anchor at all (first turn)      392    3.9%
+#
+# Thread hijacking can only come from the last two — and B-7 p07 showed what it
+# costs: one wrong verdict held 20 of 22 turns in a stranger's thread while the
+# updater rewrote that thread's identity until the lexical evidence agreed.
+#
+# So the necessary condition is structural, not numeric: A BYPASS MAY ONLY KEEP
+# A TURN WHERE IT ALREADY WAS. It reads no score, so it cannot drift with pool
+# size or query length — of every design measured it is the only one with zero
+# cross-pool verdict flips.
+#
+# Full study: reference/self_notebook/specs/2026-08-20-bm25-gate-redesign-research.md
+
+
+@dataclass(frozen=True)
+class BypassDecision:
+    """Whether this turn may skip LLM arbitration, and on what grounds.
+
+    ``reason`` is a stable machine code written to
+    ``narrative_routing_audit.bypass_reason``; it is the column that will
+    answer "what did the judge decide on the turns Q refused to let through",
+    which is the calibration data the next layer needs. ``detail`` is the
+    human sentence for the selection log — keep the ids and the numbers in it,
+    because a routing complaint has to be diagnosable from one audit row.
+    """
+
+    granted: bool
+    reason: str
+    detail: str
+
+
+def evaluate_bypass(
+    gate: GateDecision,
+    *,
+    top1_narrative_id: Optional[str],
+    anchor_narrative_id: Optional[str],
+    is_user_chat: bool,
+    has_participant_narratives: bool,
+) -> BypassDecision:
+    """Decide whether to skip LLM arbitration, given the score gate's verdict.
+
+    Deliberately a SECOND function rather than more parameters on
+    ``evaluate_gate``: the score gate is a pure function of numbers with a
+    50-shape regression net pinned to it, and the anchor rule is a pure
+    function of identity. Keeping them apart means the strength question stays
+    independently tunable (that is the whole reason it was extracted in the
+    first place) while this rule can be reasoned about without a score in
+    sight.
+
+    Order matters — the reason recorded is the FIRST rule that refused, so a
+    turn denied for crowded scores is not filed under "switched threads".
+
+    Args:
+        gate: the floor/margin verdict. Still has veto: this rule ADDS a
+            necessary condition, it does not replace one. Dropping the margin
+            would LOOSEN the gate (a lone scoring candidate gets margin=inf by
+            construction — the weakest evidence scoring highest), and loosening
+            needs the real-pool arm, not a unit test.
+        top1_narrative_id: what BM25 wants to route to. ``None`` when nothing
+            scored.
+        anchor_narrative_id: ``session.current_narrative_id`` — the thread the
+            conversation is already in.
+        is_user_chat: False for background triggers (cron job, message bus, IM
+            webhook). ``narrative_service.select`` deliberately does not
+            advance the session anchor on those, so they have no anchor BY
+            DESIGN — on prod, 388 of the 392 anchorless bypasses are exactly
+            these. They keep the old rule; denying them would push a block of
+            correct broad-evidence routings (max-term share p50 0.03) into the
+            judge's ``no_topic`` exit, which is a known-unfixed residual dump.
+            The reason code is recorded so that arm can be decided from data.
+        has_participant_narratives: P0-4 — a BM25 hit on the user's own thread
+            must not outrank a task they were invited into.
+
+    Returns:
+        BypassDecision. ``granted=False`` routes to ``_llm_unified_match``,
+        which is a strictly stronger decider — not a fallback and not an error.
+    """
+    if has_participant_narratives:
+        return BypassDecision(
+            granted=False,
+            reason="participant_present",
+            detail=(
+                "user is a PARTICIPANT in another thread; forcing LLM "
+                "arbitration (P0-4)"
+            ),
+        )
+
+    if not top1_narrative_id:
+        return BypassDecision(
+            granted=False,
+            reason="no_candidates",
+            detail="no BM25 candidate scored; deferring to LLM arbitration",
+        )
+
+    if not gate.short_circuit:
+        return BypassDecision(
+            granted=False, reason="score_gate", detail=gate.reason
+        )
+
+    if not is_user_chat:
+        return BypassDecision(
+            granted=True,
+            reason="background_scope",
+            detail=(
+                "background trigger has no session anchor by design; "
+                f"score gate alone decides ({gate.reason})"
+            ),
+        )
+
+    if not anchor_narrative_id:
+        return BypassDecision(
+            granted=False,
+            reason="no_anchor",
+            detail=(
+                "no live thread to stay in, so there is nothing to confirm "
+                "without the judge; deferring to LLM arbitration"
+            ),
+        )
+
+    if top1_narrative_id != anchor_narrative_id:
+        return BypassDecision(
+            granted=False,
+            reason="anchor_miss",
+            detail=(
+                f"BM25 wants to switch threads (anchor={anchor_narrative_id}, "
+                f"top1={top1_narrative_id}); a switch is never taken without "
+                f"the judge ({gate.reason})"
+            ),
+        )
+
+    return BypassDecision(
+        granted=True,
+        reason="anchor_match",
+        detail=(
+            f"staying in the anchored thread {anchor_narrative_id}; "
+            f"{gate.reason}"
+        ),
     )

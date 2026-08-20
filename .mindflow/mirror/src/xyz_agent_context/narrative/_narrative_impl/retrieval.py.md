@@ -4,6 +4,21 @@ last_verified: 2026-08-20
 stub: false
 ---
 
+## 2026-08-20 — 免审改由锚点决定(Q 层)
+
+`_retrieve_top_k` 的 `if gate.short_circuit and not has_participant_narratives`
+换成 `evaluate_bypass(...)` 的一个决定。两个实现细节值得记:
+
+1. **`top1_narrative_id` 不是 `search_results[0]`。** participant 合并会在排序后
+   追加合成 0.5 分的条目并按 similarity 重排,所以 0 号位可能是一条**从未过
+   BM25**的线。锚点比对必须拿**关键词赢家**(`max(..., key=raw_score)`,
+   且 `raw_score > 0`),否则比的是噪声。
+2. **`gate_reason` 现在存 `BypassDecision.detail`**,分数门自己的句子被包在
+   里面(`score_gate` 分支直接透传 `gate.reason`)。要机器可分组的口径请用
+   新的 `bypass_reason` 列。
+
+范围与代价见 routing_gate 的 mirror。
+
 ## 2026-08-20 — BM25 的查询面清理(K 层)
 
 `rank_pool` 在喂给 `bm25_explain` 之前先 `strip_routing_prefix(query)`。

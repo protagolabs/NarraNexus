@@ -25,7 +25,7 @@ from ..models import (
     RoutingCandidate,
 )
 from .crud import NarrativeCRUD
-from .routing_gate import evaluate_gate
+from .routing_gate import evaluate_bypass, evaluate_gate
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -114,7 +114,10 @@ class NarrativeRetrieval:
         user_id: str,
         agent_id: str,
         top_k: int,
-        narrative_type: NarrativeType = NarrativeType.CHAT
+        narrative_type: NarrativeType = NarrativeType.CHAT,
+        *,
+        anchor_narrative_id: Optional[str] = None,
+        is_user_chat: bool = True,
     ) -> NarrativeSelectionResult:
         """Retrieve Top-K Narratives, and record the evidence behind the choice.
 
@@ -133,7 +136,9 @@ class NarrativeRetrieval:
         )
         snapshots: dict = {}
         result = await self._retrieve_top_k(
-            query, user_id, agent_id, top_k, narrative_type, audit, snapshots
+            query, user_id, agent_id, top_k, narrative_type, audit, snapshots,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
         )
         audit.selection_method = result.selection_method
         audit.retrieval_method = result.retrieval_method
@@ -152,6 +157,9 @@ class NarrativeRetrieval:
         narrative_type: NarrativeType,
         audit: "RoutingAudit",
         snapshots: dict,
+        *,
+        anchor_narrative_id: Optional[str],
+        is_user_chat: bool,
     ) -> NarrativeSelectionResult:
         """
         Retrieve Top-K Narratives (two-tier threshold + LLM unified judgment)
@@ -304,14 +312,45 @@ class NarrativeRetrieval:
             raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
             margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
         )
-        audit.gate_short_circuit = gate.short_circuit and not has_participant_narratives
-        audit.gate_reason = gate.reason
+        # Which narrative BM25 actually wants. NOT `search_results[0]`: the
+        # participant merge above appends entries with a synthetic 0.5
+        # similarity and re-sorts on that, so position 0 can be a narrative
+        # that never went through bm25 at all. The bypass rule has to compare
+        # the KEYWORD winner against the anchor or it would compare noise.
+        keyword_leader = max(
+            search_results, key=lambda r: r.raw_score, default=None
+        )
+        top1_narrative_id = (
+            keyword_leader.narrative_id
+            if keyword_leader is not None and keyword_leader.raw_score > 0
+            else None
+        )
+        # Second decision, separate from strength: may this turn skip review at
+        # all? A bypass is only ever allowed to KEEP a turn where it already
+        # was — see routing_gate.evaluate_bypass for the prod measurement
+        # behind that (92.5% of bypasses were already doing exactly that, and
+        # all of the hijack risk lives in the other 7.5%).
+        bypass = evaluate_bypass(
+            gate,
+            top1_narrative_id=top1_narrative_id,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+            has_participant_narratives=has_participant_narratives,
+        )
+        # `gate_short_circuit` keeps its original meaning — "this turn skipped
+        # the judge" — so it now reflects the bypass decision, not floor+margin.
+        # `bypass_score_gate` is what preserves the floor/margin series for the
+        # next calibration round.
+        audit.gate_short_circuit = bypass.granted
+        audit.bypass_score_gate = gate.short_circuit
+        audit.bypass_reason = bypass.reason
+        audit.gate_reason = bypass.detail
         audit.gate_top1_raw = gate.top1_raw
         audit.gate_top2_raw = gate.top2_raw
         # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
         audit.gate_margin = gate.margin if gate.margin != float("inf") else None
-        if gate.short_circuit and not has_participant_narratives:
-            logger.info(f"[NarrativeSelect] high confidence — {gate.reason}")
+        if bypass.granted:
+            logger.info(f"[NarrativeSelect] high confidence — {bypass.detail}")
             narratives = []
             for result in search_results[:top_k]:
                 narrative = await self._crud.load_by_id(result.narrative_id)
@@ -320,7 +359,7 @@ class NarrativeRetrieval:
 
             return NarrativeSelectionResult(
                 narratives=narratives,
-                selection_reason=f"High confidence match: {gate.reason}",
+                selection_reason=f"High confidence match: {bypass.detail}",
                 selection_method="high_confidence",
                 is_new=False,
                 best_score=best_score,
@@ -330,7 +369,10 @@ class NarrativeRetrieval:
             )
 
         if search_results:
-            logger.info(f"[NarrativeSelect] deferring to LLM — {gate.reason}")
+            logger.info(
+                f"[NarrativeSelect] deferring to LLM ({bypass.reason}) — "
+                f"{bypass.detail}"
+            )
 
         # P0-4: If user has PARTICIPANT Narratives, force LLM judgment
         if has_participant_narratives:

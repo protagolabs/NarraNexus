@@ -110,6 +110,11 @@ class NarrativeRoutingAuditRepository:
             "gate_top1_raw": audit.gate_top1_raw,
             "gate_top2_raw": audit.gate_top2_raw,
             "gate_margin": audit.gate_margin,
+            "bypass_score_gate": (
+                None if audit.bypass_score_gate is None
+                else int(audit.bypass_score_gate)
+            ),
+            "bypass_reason": audit.bypass_reason,
             "judge_ran": int(audit.judge_ran),
             "judge_category": audit.judge_category,
             "judge_matched_id": audit.judge_matched_id,
