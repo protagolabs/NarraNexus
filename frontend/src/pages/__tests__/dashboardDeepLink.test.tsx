@@ -34,7 +34,7 @@ vi.mock('@/stores', () => ({
 vi.mock('@/hooks', () => ({ useCreateAgent: () => ({ creating: false, createAgent: vi.fn() }) }));
 vi.mock('@/lib/api', () => ({ api: { getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: [] }), deleteAgent: vi.fn() } }));
 vi.mock('@/lib/tauri', () => ({ setTrayBadge: vi.fn().mockResolvedValue(undefined), listenTauri: vi.fn().mockResolvedValue(() => {}) }));
-vi.mock('../BundleExportPage', () => ({ default: () => <div>export-wizard-stub</div> }));
+vi.mock('@/pages/BundleExportPage', () => ({ default: () => <div>export-wizard-stub</div> }));
 
 import DashboardPage from '../DashboardPage';
 

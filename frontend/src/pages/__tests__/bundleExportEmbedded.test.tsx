@@ -1,14 +1,17 @@
 /**
  * @file_name: bundleExportEmbedded.test.tsx
- * @description: Req #1 — BundleExportPage embeds inside the Dashboard "Export"
- * tab. In `embedded` mode it must NOT render its own standalone back-to-settings
- * header arrow (the tab rail is the chrome); standalone mode keeps it. Reverting
- * the `embedded` gate turns one of these red.
+ * @description: BundleExportPage's two forms.
+ *  - embedded (Dashboard "Export" tab): no standalone title cluster (back arrow
+ *    + Package + h1) — the Dashboard header/tab already name the page.
+ *  - standalone (/app/bundle/export): keeps the chrome, and its back/cancel now
+ *    return to the ORIGIN (navigate(-1)), falling back to the dashboard export
+ *    tab when the route was opened cold (no history). Reverting any of these
+ *    turns a case red.
  */
 import type React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 vi.mock('@/stores', () => ({
   useConfigStore: () => ({ agents: [], userId: 'u1' }),
@@ -40,21 +43,44 @@ vi.mock('@/lib/api', () => ({
 
 import BundleExportPage from '../BundleExportPage';
 
-const renderPage = (embedded: boolean) =>
-  render(
-    <MemoryRouter initialEntries={['/app/dashboard?tab=export']}>
-      <BundleExportPage embedded={embedded} />
+// Renders the standalone route with markers for the two exit destinations so a
+// real navigate(-1) / navigate('/app/dashboard?tab=export') is observable.
+function renderStandalone(entries: string[], index?: number) {
+  return render(
+    <MemoryRouter initialEntries={entries} initialIndex={index}>
+      <Routes>
+        <Route path="/app/bundle/export" element={<BundleExportPage />} />
+        <Route path="/app/dashboard" element={<div>dashboard-marker</div>} />
+        <Route path="/app/teams/:id" element={<div>team-marker</div>} />
+      </Routes>
     </MemoryRouter>,
   );
+}
 
 describe('BundleExportPage embedded mode (#1)', () => {
-  it('standalone renders the back-to-settings header arrow', () => {
-    renderPage(false);
-    expect(screen.getByLabelText('Back to settings')).toBeInTheDocument();
+  it('standalone renders the title cluster (back arrow + h1)', () => {
+    render(<MemoryRouter><BundleExportPage /></MemoryRouter>);
+    expect(screen.getByLabelText('Back')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /export bundle/i })).toBeInTheDocument();
   });
 
-  it('embedded hides the standalone back-to-settings header arrow', () => {
-    renderPage(true);
-    expect(screen.queryByLabelText('Back to settings')).toBeNull();
+  it('embedded hides the whole standalone title cluster', () => {
+    render(<MemoryRouter><BundleExportPage embedded /></MemoryRouter>);
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    expect(screen.queryByRole('heading', { name: /export bundle/i })).toBeNull();
+  });
+});
+
+describe('BundleExportPage standalone exit (#4)', () => {
+  it('cold-opened (no history) → Cancel falls back to the dashboard export tab', () => {
+    renderStandalone(['/app/bundle/export']); // single entry → location.key === 'default'
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(screen.getByText('dashboard-marker')).toBeInTheDocument();
+  });
+
+  it('reached from an origin → Cancel returns there (navigate(-1))', () => {
+    renderStandalone(['/app/teams/t1', '/app/bundle/export'], 1);
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(screen.getByText('team-marker')).toBeInTheDocument();
   });
 });

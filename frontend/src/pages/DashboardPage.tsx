@@ -36,7 +36,21 @@ import {
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
-import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
+import { api } from '@/lib/api';
+import { setTrayBadge, listenTauri } from '@/lib/tauri';
+import { Button, ScrollArea, useConfirm } from '@/components/ui';
+import { BracketSectionLabel, BracketEmptyState, KPITile, RingAvatar } from '@/components/nm';
+import { AttentionBanners } from '@/components/dashboard/AttentionBanners';
+import { SessionSection } from '@/components/dashboard/SessionSection';
+import { JobsSection } from '@/components/dashboard/JobsSection';
+import { QueueBar } from '@/components/dashboard/QueueBar';
+import { Sparkline } from '@/components/dashboard/Sparkline';
+import { RecentFeed } from '@/components/dashboard/RecentFeed';
+import { MetricsRow } from '@/components/dashboard/MetricsRow';
+import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
+import { cn } from '@/lib/utils';
+import type { AgentStatus, OwnedAgentStatus } from '@/types';
+
 // The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
 // App.tsx's route-level split) so opening /app/dashboard doesn't drag the
 // ~1400-line wizard into the dashboard bundle — Export is the least-visited tab.
@@ -52,20 +66,6 @@ const TAB_ITEMS = [
 type TabId = (typeof TAB_ITEMS)[number]['id'];
 const parseTab = (v: string | null): TabId =>
   (TAB_ITEMS.some((it) => it.id === v) ? (v as TabId) : 'agents');
-import { api } from '@/lib/api';
-import { setTrayBadge, listenTauri } from '@/lib/tauri';
-import { Button, ScrollArea, useConfirm } from '@/components/ui';
-import { BracketSectionLabel, BracketEmptyState, KPITile, RingAvatar } from '@/components/nm';
-import { AttentionBanners } from '@/components/dashboard/AttentionBanners';
-import { SessionSection } from '@/components/dashboard/SessionSection';
-import { JobsSection } from '@/components/dashboard/JobsSection';
-import { QueueBar } from '@/components/dashboard/QueueBar';
-import { Sparkline } from '@/components/dashboard/Sparkline';
-import { RecentFeed } from '@/components/dashboard/RecentFeed';
-import { MetricsRow } from '@/components/dashboard/MetricsRow';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
-import { cn } from '@/lib/utils';
-import type { AgentStatus, OwnedAgentStatus } from '@/types';
 
 type StatusCell = {
   label: string;
@@ -96,6 +96,10 @@ export function DashboardPage() {
   // incrementally (preserving any other query params) so the URL and the
   // sidebar highlight always agree.
   const view: TabId = parseTab(searchParams.get('tab'));
+  // Boolean the polling effect keys off of — so switching agents↔teams (both
+  // want polling) does NOT restart the loop; only crossing the export boundary
+  // (which pauses polling) does.
+  const exportOpen = view === 'export';
   const selectTab = (id: TabId) => {
     const next = new URLSearchParams(searchParams);
     if (id === 'agents') next.delete('tab');
@@ -149,7 +153,7 @@ export function DashboardPage() {
   // off-screen — polling it would just spend /dashboard/status requests and
   // could surface an error banner the user can't see from inside the wizard.
   useEffect(() => {
-    if (view === 'export') return;
+    if (exportOpen) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -186,7 +190,7 @@ export function DashboardPage() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [view, onFetchSuccess, onFetchError, onRateLimited]);
+  }, [exportOpen, onFetchSuccess, onFetchError, onRateLimited]);
 
   // --- Roster ⨝ status join -------------------------------------------------
   const statusById = useMemo(() => {
@@ -501,7 +505,15 @@ export function DashboardPage() {
             so it renders outside the padded ScrollArea the other panes share. */}
         {view === 'export' ? (
           <div className="flex-1 min-w-0">
-            <Suspense fallback={<DashboardSkeleton />}>
+            {/* Neutral fallback — a dashboard-grid skeleton here would flash the
+                wrong shape before the wizard swaps in (layout shift). */}
+            <Suspense
+              fallback={
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--nm-ink30)]" />
+                </div>
+              }
+            >
               <BundleExportPage embedded />
             </Suspense>
           </div>

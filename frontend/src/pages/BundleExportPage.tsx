@@ -1002,20 +1002,21 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
     <div className="h-full flex flex-col" style={{ background: 'var(--nm-card)' }}>
       {/* Header — NM display title + bracket-section count line */}
       <div
-        className="px-6 py-4 border-b flex items-center justify-between gap-3"
+        className={cn(
+          'px-6 py-4 border-b flex items-center gap-3',
+          embedded ? 'justify-end' : 'justify-between',
+        )}
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
         {/* Standalone owns the page title. Embedded, the Dashboard header +
             the "导出" tab already name the page, so we drop this h1 (two stacked
             h1s otherwise) and keep only the summary line on the right. */}
-        {embedded ? (
-          <span />
-        ) : (
+        {!embedded && (
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={exitStandalone}
               className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
-              aria-label={t('pages.bundleExport.backToSettings')}
+              aria-label={t('pages.bundleExport.back')}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -1355,10 +1356,13 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
       </div>
 
       {/* Footer */}
-      <div className="px-6 py-3 border-t border-[var(--border-default)] flex items-center justify-between">
-        {embedded ? (
-          <span />
-        ) : (
+      <div
+        className={cn(
+          'px-6 py-3 border-t border-[var(--border-default)] flex items-center',
+          embedded ? 'justify-end' : 'justify-between',
+        )}
+      >
+        {!embedded && (
           <Button onClick={exitStandalone} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
         )}
         <Button

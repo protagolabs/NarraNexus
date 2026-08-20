@@ -1,16 +1,22 @@
 /**
  * @file_name: sidebarExportEntry.test.tsx
- * @description: Req #1 (导出融入智能体管理) — the sidebar "Export" nav row now
- * deep-links into the Dashboard's Export tab, not the standalone bundle page.
- * Reverting the target turns this red.
+ * @description: Req #1 (导出融入智能体管理) — the sidebar "Export" nav row
+ * deep-links into the Dashboard's Export tab, and the active-highlight is driven
+ * by a PARSED `?tab=` (not a substring `includes`), so exactly one of the
+ * Export / Manage-Agents rows lights up and `?tab=exportfoo` never false-matches.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
+const ACTIVE = 'bg-[var(--nm-row-active)]'; // NAV_ROW_ACTIVE token
+
+const { navigate, loc } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  loc: { current: { pathname: '/app/chat', search: '' } as { pathname: string; search: string } },
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return { ...actual, useNavigate: () => navigate, useLocation: () => ({ pathname: '/app/chat', search: '' }) };
+  return { ...actual, useNavigate: () => navigate, useLocation: () => loc.current };
 });
 
 const cfg = { userId: 'u1', displayName: 'U', logout: vi.fn(), netmindToken: null };
@@ -42,10 +48,30 @@ vi.mock('../ImportAgentModal', () => ({ ImportAgentModal: () => null }));
 
 import { Sidebar } from '../Sidebar';
 
+beforeEach(() => {
+  navigate.mockClear();
+  loc.current = { pathname: '/app/chat', search: '' };
+});
+
 describe('sidebar Export row (#1 融入)', () => {
   it('deep-links into the dashboard export tab', () => {
     render(<Sidebar />);
-    fireEvent.click(screen.getByRole('button', { name: /export/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^export$/i }));
     expect(navigate).toHaveBeenCalledWith('/app/dashboard?tab=export');
+  });
+
+  it('at ?tab=export exactly the Export row is active (Manage-Agents is not)', () => {
+    loc.current = { pathname: '/app/dashboard', search: '?tab=export' };
+    render(<Sidebar />);
+    expect(screen.getByRole('button', { name: /^export$/i }).className).toContain(ACTIVE);
+    expect(screen.getByRole('button', { name: /^dashboard$/i }).className).not.toContain(ACTIVE);
+  });
+
+  it('?tab=exportfoo does NOT false-match the Export row (parsed, not includes)', () => {
+    loc.current = { pathname: '/app/dashboard', search: '?tab=exportfoo' };
+    render(<Sidebar />);
+    expect(screen.getByRole('button', { name: /^export$/i }).className).not.toContain(ACTIVE);
+    // unknown tab → Manage-Agents (dashboard) row is the active one
+    expect(screen.getByRole('button', { name: /^dashboard$/i }).className).toContain(ACTIVE);
   });
 });

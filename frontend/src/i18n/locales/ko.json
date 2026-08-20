@@ -1507,7 +1507,7 @@
       "includeChannelCredentialsLabel": "자격 증명 포함 (IM 채널 + 스킬 시크릿)",
       "pickFirstHint": "먼저 위에서 내보낼 에이전트 또는 팀을 선택하세요. 선택하면 내러티브·스킬·채널 섹션이 나타납니다.",
       "title": "번들 내보내기",
-      "backToSettings": "설정으로 돌아가기",
+      "back": "뒤로",
       "summaryLine": "에이전트 {{agents}}개 · 스킬 {{skills}}개 · 엔티티 {{entities}}개 · 채널 {{channels}}개",
       "fileName": "파일 이름",
       "bundleNotesLabel": "번들 노트(선택, 받는 사람에게 표시됨)",

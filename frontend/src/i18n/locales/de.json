@@ -1508,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Zugangsdaten einschließen (IM-Kanäle + Skill-Secrets)",
       "pickFirstHint": "Wählen Sie zuerst oben den Agenten oder das Team aus — die Bereiche für Narrative, Skills und Kanäle erscheinen danach.",
       "title": "Bundle exportieren",
-      "backToSettings": "Zurück zu den Einstellungen",
+      "back": "Zurück",
       "summaryLine": "{{agents}} Agenten · {{skills}} Skills · {{entities}} Entitäten · {{channels}} Kanäle",
       "fileName": "Dateiname",
       "bundleNotesLabel": "Bundle-Notizen (optional, dem Empfänger angezeigt)",

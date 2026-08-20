@@ -6,7 +6,7 @@
  * and ?tab=export landing on the embedded export wizard. Reverting the tabbed
  * shell or a create button turns one of these red.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -56,12 +56,21 @@ vi.mock('@/lib/tauri', () => ({
   setTrayBadge: vi.fn().mockResolvedValue(undefined),
   listenTauri: vi.fn().mockResolvedValue(() => {}),
 }));
-vi.mock('../BundleExportPage', () => ({ default: () => <div>export-wizard-stub</div> }));
+// Same specifier the source imports, so the mock doesn't lean on alias-resolution
+// coincidence (the lazy import in DashboardPage is '@/pages/BundleExportPage').
+vi.mock('@/pages/BundleExportPage', () => ({ default: () => <div>export-wizard-stub</div> }));
 
 import DashboardPage from '../DashboardPage';
+import { api } from '@/lib/api';
 
 const renderAt = (path: string) =>
   render(<MemoryRouter initialEntries={[path]}><DashboardPage /></MemoryRouter>);
+
+beforeEach(() => {
+  navigate.mockClear();
+  createAgent.mockClear();
+  (api.getDashboardStatus as ReturnType<typeof vi.fn>).mockClear();
+});
 
 describe('Dashboard left-rail tabs (#1)', () => {
   it('renders three tabs, defaults to agents with a Create Agent button', () => {
@@ -70,6 +79,12 @@ describe('Dashboard left-rail tabs (#1)', () => {
     expect(screen.getByRole('button', { name: /team management/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^export$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create agent/i })).toBeInTheDocument();
+  });
+
+  it('the Create Agent button invokes useCreateAgent().createAgent', () => {
+    renderAt('/app/dashboard');
+    fireEvent.click(screen.getByRole('button', { name: /create agent/i }));
+    expect(createAgent).toHaveBeenCalled();
   });
 
   it('teams tab shows a Create Team button that opens the create page', () => {
@@ -82,5 +97,15 @@ describe('Dashboard left-rail tabs (#1)', () => {
   it('?tab=export lands on the embedded export wizard (lazy-loaded)', async () => {
     renderAt('/app/dashboard?tab=export');
     expect(await screen.findByText('export-wizard-stub')).toBeInTheDocument();
+  });
+
+  it('the Export tab pauses the status polling (no /dashboard/status fetch)', () => {
+    renderAt('/app/dashboard?tab=export');
+    expect(api.getDashboardStatus).not.toHaveBeenCalled();
+  });
+
+  it('a normal tab DOES poll (guards that the pause is export-only)', () => {
+    renderAt('/app/dashboard');
+    expect(api.getDashboardStatus).toHaveBeenCalled();
   });
 });

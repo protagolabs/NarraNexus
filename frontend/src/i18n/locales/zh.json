@@ -1891,7 +1891,7 @@
     },
     "bundleExport": {
       "title": "导出捆绑包",
-      "backToSettings": "返回设置",
+      "back": "返回",
       "summaryLine": "{{agents}} 个智能体 · {{skills}} 项技能 · {{entities}} 个实体 · {{channels}} 个频道",
       "fileName": "文件名",
       "bundleNotesLabel": "捆绑包说明（可选，将展示给接收方）",

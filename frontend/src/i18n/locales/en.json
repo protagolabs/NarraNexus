@@ -1891,7 +1891,7 @@
     },
     "bundleExport": {
       "title": "Export bundle",
-      "backToSettings": "Back to settings",
+      "back": "Back",
       "summaryLine": "{{agents}} agents · {{skills}} skills · {{entities}} entities · {{channels}} channels",
       "fileName": "File name",
       "bundleNotesLabel": "Bundle Notes (optional, shown to recipient)",

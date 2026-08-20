@@ -1508,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Incluir credenciales (canales de MI + secretos de habilidades)",
       "pickFirstHint": "Primero elige el agente o el equipo arriba: las secciones de narrativas, habilidades y canales aparecerán cuando haya algo que configurar.",
       "title": "Exportar paquete",
-      "backToSettings": "Volver a ajustes",
+      "back": "Atrás",
       "summaryLine": "{{agents}} agentes · {{skills}} habilidades · {{entities}} entidades · {{channels}} canales",
       "fileName": "Nombre del archivo",
       "bundleNotesLabel": "Notas del paquete (opcional, visibles para el destinatario)",

@@ -1507,7 +1507,7 @@
       "includeChannelCredentialsLabel": "認証情報を含める（IMチャンネル + スキルシークレット）",
       "pickFirstHint": "まず上でエージェントまたはチームを選択してください。選択すると、ナラティブ・スキル・チャンネルなどのセクションが表示されます。",
       "title": "バンドルをエクスポート",
-      "backToSettings": "設定に戻る",
+      "back": "戻る",
       "summaryLine": "{{agents}} エージェント · {{skills}} スキル · {{entities}} エンティティ · {{channels}} チャンネル",
       "fileName": "ファイル名",
       "bundleNotesLabel": "バンドルのメモ（任意、受信者に表示されます）",

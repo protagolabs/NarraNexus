@@ -15,7 +15,11 @@ summary),否则和 Dashboard 的「智能体管理」h1 叠成两级标题;页�
 移走,回那儿会把用户丢在一个没有导出入口的页)。改走 `exitStandalone()`:该路由
 现在唯一入口是 [[TeamDetailPage]] 的团队快捷导出,所以 `navigate(-1)` 回到来处;
 `location.key === 'default'`(直接粘 URL 打开、无 history)时兜底到
-`/app/dashboard?tab=export`。测试:bundleExportEmbedded.test.tsx。
+`/app/dashboard?tab=export`。返回箭头 aria-label 相应从 `backToSettings`
+换成中性的 `pages.bundleExport.back`(「返回/Back」,10 locale)——按钮不再去
+Settings,读屏名不能再说 back-to-settings。header/footer 的占位 `<span/>`
+换成容器 `justify-end`。测试:bundleExportEmbedded.test.tsx(标题簇有无 + 冷开/
+有来处两条 exit 分支)。
 
 
 ## 2026-08-11 — 渐进披露:选完才出现区块;打包信息进确认弹窗;全局开关上移

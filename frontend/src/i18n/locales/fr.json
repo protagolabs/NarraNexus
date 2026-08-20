@@ -1508,7 +1508,7 @@
       "includeChannelCredentialsLabel": "Inclure les identifiants (canaux IM + secrets des compétences)",
       "pickFirstHint": "Choisissez d'abord l'agent ou l'équipe ci-dessus — les sections narratifs, compétences et canaux apparaîtront ensuite.",
       "title": "Exporter le bundle",
-      "backToSettings": "Retour aux paramètres",
+      "back": "Retour",
       "summaryLine": "{{agents}} agents · {{skills}} compétences · {{entities}} entités · {{channels}} canaux",
       "fileName": "Nom du fichier",
       "bundleNotesLabel": "Notes du bundle (facultatif, visibles par le destinataire)",
