@@ -14,6 +14,68 @@ COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting
 窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
 指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
 
+## 2026-08-19 (九改·更正) — 不再有 `extra_updates` 这个参数
+
+四改那条只更正了 import 路径，把签名留在了旧样子。现在传的是**具名参数**：
+
+```python
+result = await apply_agent_profile_change(
+    db_client, agent_id,
+    new_name=..., new_description=...,
+    is_public=... ,          # None 表示"没传"；False 是值
+)
+```
+
+`extra_updates` 已经不是参数，只是事务**内部**拼出来的局部 dict。改成具名的理由
+见 [[profile_write]] 八改：开放 dict 让下一个人一句 `model_dump()` 就能顺带改 agent
+归属人，而这个函数的名字不会提示审查者去查鉴权。
+
+`identity_record_updated` 也不再在本路由推导——那是 `AgentProfileWrite` 上的
+property，两个路由各推一份就是同一条规则的两处漂移点（本次已经因此出过一次不对称）。
+
+## 2026-08-18 (四改) — import 改指领域包
+
+`apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
+`xyz_agent_context.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+Module——它 import 的是一个核心领域包。行为不变。
+
+## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
+
+`not_applied` 分支原来读 `result.updated_fields`，而那个字段在成功分支的含义是
+「写了哪些」。共享结果已拆出 `unapplied_fields`（见 [[_awareness_writes]] 二改），
+这里跟着改。这条分支**当时零测试覆盖**——读错字段只会让文案退化成没有字段名的
+`"The update did not persist: "`，不会红。已补
+`test_a_transaction_level_failure_names_the_fields_that_did_not_land`。
+
+## 2026-08-18 — `PUT /agents/{id}` 改走共享改名事务，不再自己拼
+
+深圳线下第二轮 P1 的**另一半**。#320（下一条）修的是"改成了却报失败"，本条修的是
+"改成了但 agent 不认"：本路由写列、刷名录，却**从不追加身份更正**，而
+[[_awareness_writes]] 的改名事务从 2026-08-04 起就把那条更正当作改名的必要组成。
+结果 profile 里停着上一次改名留下的、**方向相反**的平台记录（详见那份 md 的取证）。
+
+改法：整段内联写入换成一次
+`apply_agent_profile_change(db, agent_id, new_name=…, new_description=…,
+extra_updates={"is_public": …})`。原来那段做的每件事（归一、等值短路、回读而非
+rowcount、无条件刷名录）都在事务里，**行为不变**；多出来的是身份更正。
+
+- 失败按 `result.error_kind` 结构化映射成本路由的话术（`not_found` / `not_applied`
+  各自保留原文案），**不匹配英文散文**——那串是给模型读的，措辞会变。
+- `is_public` 作为 `extra_updates` 同行写入，保持单次行写。
+- **回读核对留在本路由**，且核对的是 `requested` **全部**字段，不是事务写过的那些。
+  两者问的不是同一件事：事务问「我写的落了没」，路由问「调用方要的状态成立没」。
+  一个在读时就相等的字段不会进事务的清单，但并发写入方（另一个标签页、或 agent
+  自己的 `update_agent_profile`）仍可能在读—写—回读的窗口里把它挪走。委托的第一版
+  把这条悄悄收窄成"只查写过的"，全量测试没红——因为它**当时没有测试钉住**。现已
+  补 `test_a_field_that_needed_no_write_is_still_verified_against_the_row`。
+- `sync_agent_discovery` 与 `agent_field_matches` 的 import：前者移除（本文件不再
+  直接持有），后者**保留**（上一条那个核对要用）。**测试打桩点也跟着搬**——
+  `test_a_no_op_re_save_still_refreshes_the_peer_directory` 原来 patch
+  `auth_mod.sync_agent_discovery`，路由不再 import 该名字后，那个 patch 会
+  **静默地什么都没监视到**并对任何行为放行。已改为 patch 定义模块
+  `message_bus.agent_discovery_sync`。凡是"路由不再直接 import 的符号"，
+  打桩点都必须跟着走，否则测试从守卫退化成装饰。
+
 ## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
 
 `PUT /agents/{agent_id}` 原来是 `affected_rows > 0` 才算成功，否则回

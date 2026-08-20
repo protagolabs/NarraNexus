@@ -4,6 +4,23 @@ last_verified: 2026-08-18
 stub: false
 ---
 
+## 2026-08-18 — `UpdateAgentResponse` 多两个字段
+
+改名事务（[[_overview]]）算出来的两件事，原来到了 HTTP 层就被丢掉：
+
+- **`name_clash_with`** —— 同 owner 下已经有别的 agent 叫这个名字。**不拦**：
+  把一个名字从一个 agent 转给另一个是 owner 会故意做的事，拦掉是错的；**静默**
+  才是错的——两个 agent 同时应一个名字正是 P1 段02 ① 的起点。agent 自己的工具
+  一直在报它，界面改名却是唯一会悄悄发生的入口。
+- **`identity_record_updated`** —— 本次改名有没有把 Awareness 身份记录也写成功。
+  `None` 表示这次没改名。改名本身**已经落地**（为一个确实存过的名字报失败是更糟的
+  谎），但「列改了、记忆没跟上」正是深圳那次事故的状态，它不该只存在于一条
+  `docker restart` 就会抹掉的容器日志里（CLAUDE.md 事故教训 #5）。
+
+两个都是**附加字段**，老客户端忽略即可。更强的形态是写一行 DB 审计事件（教训 #5
+的原话），那要建表、走迁移 SOP（铁律 #6），记在
+`reference/self_notebook/todo/` 待 Owner 定。
+
 ## 2026-08-17(补)— `_StrippedText` 迁到 entity_schema
 
 本文件原来自己定义 `_strip_if_text` / `_StrippedText`。manyfold 的两个写边模型

@@ -4,6 +4,19 @@ last_verified: 2026-08-19
 stub: false
 ---
 
+## 2026-08-19 — `UpdateAgentResponse` 补两个可选字段
+
+`name_clash_with?: string | null` 与 `identity_record_updated?: boolean | null`,
+对应后端 [[api_schema]] 的同名字段。
+
+**两个都必须是 optional + nullable**:它们是 additive 字段,老后端的响应里根本
+没有这两个 key,而 mock(`frontend/src/lib/mock/index.ts`)也不带——标成必填会让
+mock 和旧响应双双编译不过。
+
+`identity_record_updated` 是**三态**,不是布尔:`null` = 这次调用对身份记录无事
+可做(没改名、也没发现过期记录),`false` = **发现了但没修成**。把两者折成一个
+布尔,"这个 agent 没问题"和"这个 agent 还坏着"就分不开了,而后者是事故本体。
+
 ## 2026-08-19 — `SubscriptionStatus.payment_method` / `SubscriptionPlan.usd_monthly_price`
 
 `payment_method` 是**判别字段**，不是装饰：一次性订阅与已取消的卡订阅在其余每个字段

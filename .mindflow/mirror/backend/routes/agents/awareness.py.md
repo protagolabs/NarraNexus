@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/agents/awareness.py
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 云端路由同样保住平台身份记录
+
+`PUT /agents/{id}/awareness` 原来直接 upsert 模型给的整段文本，于是模型一次重写
+就把 `## Identity Changes (platform record)` 删掉了。与 [[store]] 的本地路径同一处
+理：先读旧值，`carry_over_platform_record` 接回那一段。
+
+这一半**更要紧**：深圳那次事故就发生在 prod，而 prod 的 `update_awareness` 走的正是
+HttpStore → 本路由。第一版只修了本地，等于保护了没出事的那个环境。
 
 ## 2026-08-11 — owner-only + GET 不再自动建实例（安全审计 IDOR/P0-1）
 

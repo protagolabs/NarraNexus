@@ -1048,6 +1048,29 @@ async def _confirm_inner(
                 await _ins("instance_awareness", new_ar)
                 written_summary["awareness_rows_created"] += 1
 
+        # An import that renamed is a rename, and this file copies the profile
+        # row for row — so the imported agent arrives declaring the name it had
+        # in the bundle while its own row holds the deduped/clamped one. That is
+        # Shenzhen round 2 reaching the same state through the import path.
+        #
+        # Reconciliation, not the rename transaction: that one's precondition is
+        # an existing row it may write, and here the row was just created with
+        # the final name already in it. Idempotent by construction — it returns
+        # None when the profile and the row already agree — so it is safe on
+        # every import, renamed or not. AFTER the awareness insert above: the
+        # correction has to land in a row that exists.
+        if renamed:
+            from xyz_agent_context.module.awareness_module import (
+                reconcile_identity_record,
+            )
+
+            if await reconcile_identity_record(db, new_aid, final_name) is False:
+                logger.warning(
+                    f"bundle_import.agent.identity_not_corrected new_id={new_aid} "
+                    f"renamed_from={original_name!r} to={final_name!r} — the "
+                    f"imported profile may still declare the previous name"
+                )
+
         # instance_jobs.
         #
         # Two correctness rules:

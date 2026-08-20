@@ -242,3 +242,59 @@ async def test_an_empty_bundle_name_gets_the_import_fallback(
         "an empty name reached the row — the fallback the other four creation "
         "paths have is missing here"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_dedupe_rename_corrects_the_imported_identity_memory(
+    db_client, tmp_workspace_root
+):
+    """Importing under a colliding name IS a rename, and the profile comes along
+    verbatim.
+
+    The importer clamps, appends a dedupe suffix and falls back on an empty
+    name — and copies `instance_awareness` row for row. So a bundle imported
+    beside an agent of the same name lands with `agents.agent_name` = "小绿 (1)"
+    while its own profile keeps declaring 小绿: exactly Shenzhen round 2, arriving
+    through the import path instead of a rename path.
+
+    The writer allowlist in tests/schema/test_only_one_writer_of_agent_name.py
+    justified this file as a creation path with "no previous name to correct" —
+    which was not true of it, and a gate is only worth its reasons.
+    """
+    from xyz_agent_context.module.awareness_module import IDENTITY_CHANGE_SECTION
+
+    await _seed_agent(db_client, "agent_idm0001src", "owner", "小绿")
+    await _seed_agent(db_client, "agent_idm0001own", "importer_idm", "小绿")
+
+    # The source agent's own profile declares the name it had.
+    await db_client.insert("module_instances", {
+        "instance_id": "aware_idm_src", "agent_id": "agent_idm0001src",
+        "user_id": "owner", "module_class": "AwarenessModule", "status": "active",
+    })
+    await db_client.insert("instance_awareness", {
+        "instance_id": "aware_idm_src",
+        "awareness": "# Agent Awareness Profile\n\n## 4. Role and Identity\n- 名称：小绿\n",
+    })
+
+    summary, rows = await _export_then_import(
+        db_client, tmp_workspace_root, "agent_idm0001src", "owner", "importer_idm"
+    )
+
+    imported = [r for r in rows if r["agent_id"] != "agent_idm0001own"]
+    assert len(imported) == 1
+    assert imported[0]["agent_name"] == "小绿 (1)", "precondition: the import renamed"
+
+    inst = await db_client.get(
+        "module_instances",
+        {"agent_id": imported[0]["agent_id"], "module_class": "AwarenessModule"},
+    )
+    assert inst, "the imported agent has no Awareness instance to correct"
+    profile = (await db_client.get_one(
+        "instance_awareness", {"instance_id": inst[0]["instance_id"]}
+    ))["awareness"]
+
+    assert IDENTITY_CHANGE_SECTION in profile, (
+        "the imported profile still declares the pre-import name with nothing "
+        "contradicting it"
+    )
+    assert "You are 「小绿 (1)」" in profile

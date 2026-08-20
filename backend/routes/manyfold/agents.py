@@ -34,6 +34,8 @@ from xyz_agent_context.schema import (
     normalize_agent_row_text,
     normalize_agent_text,
 )
+from xyz_agent_context.agent_profile import apply_agent_profile_change
+from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     NETMIND_SOURCE,
@@ -137,6 +139,31 @@ class ManyfoldCreateAgentRequest(BaseModel):
     )
 
 
+def _manyfold_failure(result) -> HTTPException:
+    """Turn a transaction refusal into this endpoint's own answer.
+
+    `result.error` is composed for a MODEL to read; forwarding it puts sentences
+    like "Error: the update did not apply; nothing was changed" into a
+    cross-service response body, where the other side has to pattern-match prose
+    to learn what happened. auth.py maps on error_kind for the same reason.
+
+    `not_found` keeps the documented 404. The rest are 400, and deliberately not
+    409 for `not_applied`: 409 invites a retry and this contract is that a
+    failure aborts the rename. Whether Manyfold retries a 409 is their policy.
+    """
+    detail = {
+        "not_found": "agent not found",
+        "not_applied": "the update did not persist (concurrent overwrite)",
+        "too_long": f"name and description are limited to {AGENT_TEXT_MAX_LENGTH} characters",
+        "empty_name": "agent name cannot be empty",
+        "nothing_to_update": "no fields to update",
+    }.get(result.error_kind or "", "the update could not be applied")
+    return HTTPException(
+        status_code=404 if result.error_kind == "not_found" else 400,
+        detail={"error_kind": result.error_kind, "message": detail},
+    )
+
+
 @router.post("/manyfold/agents")
 async def create_agent_for_manyfold(
     request: Request,
@@ -199,11 +226,38 @@ async def create_agent_for_manyfold(
     wanted_name = normalize_agent_text(body.agent_name)
     wanted_desc = normalize_agent_text(body.description)
     if agent_row:
-        await db.update("agents", {"agent_id": body.agent_id}, normalize_agent_row_text({
-            "agent_name": wanted_name or agent_row.get("agent_name") or body.agent_id,
-            "agent_description": wanted_desc or agent_row.get("agent_description"),
-            "created_by": nx_user_id,
-        }))
+        # An idempotent rerun on an EXISTING agent overwrites agent_name, which
+        # is a rename however it is spelled — so it owes the same two things the
+        # PATCH below does (identity correction + peer directory), and used to
+        # do neither. Manyfold can push a new name through either verb; covering
+        # only one leaves Shenzhen round 2 reproducible through the other.
+        #
+        # The `or` fallbacks stay HERE on purpose: this body defaults agent_name
+        # to "", and the shared transaction REFUSES an empty name rather than
+        # falling back, so passing "" through would fail provisioning outright.
+        # It resolves to a non-empty value first, then delegates.
+        #
+        # created_by rides along as an extra to keep the row write single. Note
+        # it is written in the same call whose name-clash check read the PREVIOUS
+        # owner — that note is advisory and this path discards it, so the stale
+        # scope has no consequence here.
+        result = await apply_agent_profile_change(
+            db,
+            body.agent_id,
+            new_name=(
+                wanted_name or agent_row.get("agent_name") or body.agent_id
+            ),
+            new_description=(
+                wanted_desc or agent_row.get("agent_description")
+            ),
+            created_by=nx_user_id,
+        )
+        if not result.ok:
+            # Same error_kind → same status code as the PATCH below, so the
+            # Manyfold side needs one mapping rather than one per verb. Not 409
+            # for not_applied for the reason spelled out there: 409 invites a
+            # retry and this contract is that a failure aborts the rename.
+            raise _manyfold_failure(result)
         agent_created = False
     else:
         await db.insert("agents", normalize_agent_row_text({
@@ -215,6 +269,35 @@ async def create_agent_for_manyfold(
             "is_public": 0,
         }))
         agent_created = True
+        # Publish it to the peer directory NOW. This branch reached neither
+        # `sync_agent_discovery` nor the shared transaction, so a
+        # Manyfold-provisioned agent nobody had talked to yet did not exist in
+        # `bus_agent_registry` at all — peers could
+        # neither list it nor send to it until its first turn created instances
+        # (InstanceFactory syncs there). "Its next turn will fix it" is exactly
+        # what P1 section 02 rejected: an idle agent is the case that cannot
+        # self-heal. Best-effort, like every other caller — provisioning must
+        # not fail because discovery metadata could not be refreshed.
+        #
+        # NOT the last such writer: `bundle/importer.py` raw-inserts agents and
+        # their instances without ever syncing, and renames on import (dedupe
+        # suffix / clamp / empty-name fallback) while copying instance_awareness
+        # verbatim. Tracked in
+        # reference/self_notebook/todo/2026-08-18-bundle-import-identity-gap.md
+        #
+        # Deliberately NOT routed through apply_agent_profile_change: that
+        # function's precondition is that the row already exists, and a brand
+        # new agent has no previous name, so it has no identity correction to
+        # record either.
+        if not await sync_agent_discovery(db, body.agent_id):
+            # sync swallows its own failures and returns False, so an unchecked
+            # call here fails in total silence — and this branch exists BECAUSE
+            # an idle agent has no second chance: nothing re-runs until its
+            # first turn. Same wording as the transaction's _refresh_peer_directory.
+            logger.warning(
+                f"[manyfold-create] peer-directory sync failed for "
+                f"{body.agent_id}; peers cannot discover it until its first turn"
+            )
 
     logger.info(
         f"[manyfold-create] agent {body.agent_id!r} "
@@ -321,10 +404,33 @@ async def update_agent_for_manyfold(
             "updated_fields": [],
         }
 
-    # Same invariant as every other writer of this row: stored text is
-    # normalized, or a later rename to the stripped form compares equal,
-    # issues no write, and reports success (see agent_field_matches).
-    await db.update("agents", {"agent_id": agent_id}, normalize_agent_row_text(patch))
+    # The shared rename transaction, not a raw column write. A rename owes the
+    # agent two more things than a row update: the identity correction inside
+    # its Awareness profile (which is injected into the system prompt verbatim,
+    # so a stale one makes the agent introduce itself by the old name — Shenzhen
+    # round 2, P1) and a refreshed peer-discovery row. This path had NEITHER: it
+    # was the only writer of agents.agent_name that never touched discovery at
+    # all, so a Manyfold rename left every peer looking at the previous name
+    # until the agent happened to take a turn. Normalization comes along with
+    # it — the transaction stores normalized text by construction.
+    result = await apply_agent_profile_change(
+        db,
+        agent_id,
+        new_name=patch.get("agent_name"),
+        new_description=patch.get("agent_description"),
+    )
+    if not result.ok:
+        # Manyfold commits its own DB update only after this call succeeds, so
+        # a refusal here must surface as a failure rather than a 200 whose body
+        # happens to hold the old values — otherwise the two sides drift.
+        #
+        # not_found keeps this endpoint's documented 404 (the row can be deleted
+        # between the check above and the write). Everything else is 400 —
+        # deliberately NOT 409 for `not_applied`, though a concurrent overwrite
+        # is what it means: 409 invites a retry, and this endpoint's contract is
+        # that a failure ABORTS the whole rename. Whether Manyfold retries a 409
+        # is that service's policy, not ours to assume from here.
+        raise _manyfold_failure(result)
 
     logger.info(
         f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"
@@ -332,6 +438,10 @@ async def update_agent_for_manyfold(
 
     updated = await db.get_one("agents", {"agent_id": agent_id})
     return {
+        # Same collision report the UI and the agent's own tool get: applied,
+        # never blocked, never silent.
+        "name_clash_with": result.name_clash_with,
+        "identity_record_updated": result.identity_record_updated,
         "agent_id": updated.get("agent_id") if updated else agent_id,
         "name": updated.get("agent_name") if updated else patch.get("agent_name"),
         "description": (
@@ -339,6 +449,15 @@ async def update_agent_for_manyfold(
             if updated
             else patch.get("agent_description")
         ),
+        # What the caller REQUESTED, unchanged. Reporting what was written
+        # instead reads better, and it was changed to that for one round — but
+        # it is a semantic change on a contract the other side owns half of, and
+        # its failure mode is the one this whole change exists to remove: an
+        # idempotent resend of the same name would come back as [], and a
+        # Manyfold that checks this field to confirm the rename landed would
+        # read "did not happen" and retry, forever. #320's loop, moved to the
+        # service boundary. Tidiness is not worth shipping that unilaterally;
+        # if the other side wants written-fields, that is a change they agree to.
         "updated_fields": list(patch.keys()),
     }
 
