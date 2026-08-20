@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Panel de agentes",
+      "tabAgents": "Gestionar agentes",
+      "tabTeams": "Gestión de equipos",
+      "tabExport": "Exportar",
+      "createAgent": "Crear agente",
+      "createTeam": "Crear equipo",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Aún no hay agentes",
       "emptyHint": "Crea un agente desde la barra lateral para llenar este panel.",

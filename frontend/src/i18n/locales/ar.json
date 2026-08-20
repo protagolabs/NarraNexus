@@ -1274,6 +1274,11 @@
     },
     "dashboard": {
       "title": "لوحة الوكلاء",
+      "tabAgents": "إدارة الوكلاء",
+      "tabTeams": "إدارة الفرق",
+      "tabExport": "تصدير",
+      "createAgent": "إنشاء وكيل",
+      "createTeam": "إنشاء فريق",
       "agentsCount": "{{count}} وكيل",
       "emptyLabel": "لا يوجد وكلاء بعد",
       "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة.",

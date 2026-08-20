@@ -83,6 +83,10 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
+  // Active dashboard tab (drives the Manage-Agents vs Export highlight). Parsed,
+  // not `search.includes('tab=export')`, so `?tab=exportfoo`/`?x=tab=export`
+  // can't false-match.
+  const dashboardTab = new URLSearchParams(location.search).get('tab');
 
   const { userId, displayName, logout } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
@@ -253,13 +257,13 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => navigate('/app/dashboard?tab=export')}
+          onMouseEnter={prefetchDashboard}
+          onFocus={prefetchDashboard}
           title={t('sidebar.exportTitle')}
           data-help-id="sidebar.export"
           className={cn(
             NAV_ROW,
-            location.pathname === '/app/dashboard' &&
-              location.search.includes('tab=export') &&
-              NAV_ROW_ACTIVE,
+            location.pathname === '/app/dashboard' && dashboardTab === 'export' && NAV_ROW_ACTIVE,
           )}
         >
           <Upload className="w-4 h-4 shrink-0" />
@@ -273,9 +277,7 @@ export function Sidebar() {
           data-help-id="sidebar.manage-agents"
           className={cn(
             NAV_ROW,
-            location.pathname === '/app/dashboard' &&
-              !location.search.includes('tab=export') &&
-              NAV_ROW_ACTIVE,
+            location.pathname === '/app/dashboard' && dashboardTab !== 'export' && NAV_ROW_ACTIVE,
           )}
         >
           <LayoutDashboard className="w-4 h-4 shrink-0" />

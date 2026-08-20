@@ -1265,6 +1265,11 @@
     },
     "dashboard": {
       "title": "エージェントダッシュボード",
+      "tabAgents": "エージェント管理",
+      "tabTeams": "チーム管理",
+      "tabExport": "エクスポート",
+      "createAgent": "エージェントを作成",
+      "createTeam": "チームを作成",
       "agentsCount": "{{count}} 件のエージェント",
       "emptyLabel": "エージェントはまだありません",
       "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。",

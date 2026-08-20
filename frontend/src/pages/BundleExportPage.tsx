@@ -19,7 +19,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -118,13 +118,25 @@ interface ChatHistoryNarrative {
 
 /**
  * @param embedded When true the wizard renders WITHOUT its own standalone
- *   back-to-settings header/cancel chrome and never navigates to /app/settings —
- *   used inside the Dashboard "Export" tab, where the left tab rail is the chrome.
- *   Default false = the standalone /app/bundle/export route.
+ *   header/cancel chrome and never leaves the page on cancel/success — used
+ *   inside the Dashboard "Export" tab, where the left tab rail is the chrome.
+ *   Default false = the standalone /app/bundle/export route, whose only entry
+ *   now is TeamDetailPage's quick-export (Settings no longer hosts export), so
+ *   its back/cancel return to that origin (see exitStandalone).
  */
 export default function BundleExportPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Standalone back/cancel/success exit. Export is no longer reachable from
+  // Settings, so returning there would strand the user; go back to wherever
+  // they came from (TeamDetail quick-export), falling back to the dashboard
+  // export tab when the route was opened cold (pasted URL — no history entry).
+  const exitStandalone = () => {
+    if (location.key === 'default') navigate('/app/dashboard?tab=export');
+    else navigate(-1);
+  };
   const [searchParams] = useSearchParams();
   const { agents, userId } = useConfigStore();
   const { teams, refresh: refreshTeams } = useTeamsStore();
@@ -965,8 +977,8 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
         message: parts.join(' '),
       });
       // Embedded in the Dashboard tab: stay put (the success alert already
-      // confirmed). Standalone: return to Settings where the wizard lives.
-      if (!embedded) navigate('/app/settings');
+      // confirmed). Standalone: return to the origin (TeamDetail quick-export).
+      if (!embedded) exitStandalone();
     } catch (e: any) {
       console.error(e);
       // B6: detect 409 SENSITIVE_FILES_IN_SKILL_ZIP and surface confirmation modal
@@ -993,24 +1005,29 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
         className="px-6 py-4 border-b flex items-center justify-between gap-3"
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          {!embedded && (
+        {/* Standalone owns the page title. Embedded, the Dashboard header +
+            the "导出" tab already name the page, so we drop this h1 (two stacked
+            h1s otherwise) and keep only the summary line on the right. */}
+        {embedded ? (
+          <span />
+        ) : (
+          <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => navigate('/app/settings')}
+              onClick={exitStandalone}
               className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
               aria-label={t('pages.bundleExport.backToSettings')}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-          )}
-          <Package className="w-5 h-5" style={{ color: 'var(--nm-ink50)' }} />
-          <h1
-            className="text-2xl font-bold tracking-tight"
-            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
-          >
-            {t('pages.bundleExport.title')}
-          </h1>
-        </div>
+            <Package className="w-5 h-5" style={{ color: 'var(--nm-ink50)' }} />
+            <h1
+              className="text-2xl font-bold tracking-tight"
+              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+            >
+              {t('pages.bundleExport.title')}
+            </h1>
+          </div>
+        )}
         <BracketSectionLabel>
           {t('pages.bundleExport.summaryLine', {
             agents: summary.agents,
@@ -1342,7 +1359,7 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
         {embedded ? (
           <span />
         ) : (
-          <Button onClick={() => navigate('/app/settings')} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
+          <Button onClick={exitStandalone} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
         )}
         <Button
           onClick={() => setReviewing(true)}

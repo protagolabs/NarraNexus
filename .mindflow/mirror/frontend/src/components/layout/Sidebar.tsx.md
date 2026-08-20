@@ -8,10 +8,12 @@ stub: false
 
 「导出功能融入智能体管理」:侧栏 Export 行不再去独立的 `/app/bundle/export`,
 改跳 `/app/dashboard?tab=export`(DashboardPage 首帧读 `?tab=` 落到内嵌导出向导)。
-active 高亮判据同步为 pathname=/app/dashboard 且 search 含 tab=export;Dashboard
-行(智能体管理)反过来要 `!search.includes('tab=export')` 才高亮,否则 `?tab=export`
-时两行同时点亮。独立 `/app/bundle/export` 路由仍在(TeamDetail 快捷导出等复用)。
-测试:sidebarExportEntry.test.tsx。
+active 高亮用 `dashboardTab = new URLSearchParams(location.search).get('tab')`
+(不是 `search.includes('tab=export')`,否则 `?tab=exportfoo` 会误命中):Export 行
+`pathname=/app/dashboard && dashboardTab==='export'`,Dashboard 行(智能体管理)
+反过来 `dashboardTab!=='export'`,避免 `?tab=export` 时两行同亮。Export 行也补了
+`prefetchDashboard`(它现在也是通往 dashboard chunk 的入口)。独立
+`/app/bundle/export` 路由仍在(TeamDetail 快捷导出复用)。测试:sidebarExportEntry.test.tsx。
 
 
 ## 2026-08-19 — 账户入口指向设置内 pane

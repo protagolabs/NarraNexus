@@ -30,7 +30,7 @@ const { navigate, createAgent, useDashboardStore } = vi.hoisted(() => {
   };
   store.getState = () => dashState;
   store.setState = () => {};
-  return { navigate: (() => {}) as unknown as ReturnType<typeof Object>, createAgent: () => {}, useDashboardStore: store };
+  return { navigate: vi.fn(), createAgent: vi.fn(), useDashboardStore: store };
 });
 
 vi.mock('react-router-dom', async () => {
@@ -72,14 +72,15 @@ describe('Dashboard left-rail tabs (#1)', () => {
     expect(screen.getByRole('button', { name: /create agent/i })).toBeInTheDocument();
   });
 
-  it('teams tab shows a Create Team button', () => {
+  it('teams tab shows a Create Team button that opens the create page', () => {
     renderAt('/app/dashboard');
     fireEvent.click(screen.getByRole('button', { name: /team management/i }));
-    expect(screen.getByRole('button', { name: /create team/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /create team/i }));
+    expect(navigate).toHaveBeenCalledWith('/app/teams/new');
   });
 
-  it('?tab=export lands on the embedded export wizard', () => {
+  it('?tab=export lands on the embedded export wizard (lazy-loaded)', async () => {
     renderAt('/app/dashboard?tab=export');
-    expect(screen.getByText('export-wizard-stub')).toBeInTheDocument();
+    expect(await screen.findByText('export-wizard-stub')).toBeInTheDocument();
   });
 });

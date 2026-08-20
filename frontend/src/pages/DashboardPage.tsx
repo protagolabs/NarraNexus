@@ -17,7 +17,7 @@
  * Paired with setTrayBadge for Tauri; web mode no-op. Handles 429 with
  * exponential backoff (store.onRateLimited).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -36,7 +36,22 @@ import {
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
-import BundleExportPage from './BundleExportPage';
+import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
+// The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
+// App.tsx's route-level split) so opening /app/dashboard doesn't drag the
+// ~1400-line wizard into the dashboard bundle — Export is the least-visited tab.
+const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
+
+// Left-rail tabs (master–detail, mirrors SettingsPage). Module-scope constant so
+// it isn't rebuilt per render and stays the single list of valid tab ids.
+const TAB_ITEMS = [
+  { id: 'agents', labelKey: 'pages.dashboard.tabAgents', icon: LayoutDashboard },
+  { id: 'teams', labelKey: 'pages.dashboard.tabTeams', icon: Users2 },
+  { id: 'export', labelKey: 'pages.dashboard.tabExport', icon: Package },
+] as const;
+type TabId = (typeof TAB_ITEMS)[number]['id'];
+const parseTab = (v: string | null): TabId =>
+  (TAB_ITEMS.some((it) => it.id === v) ? (v as TabId) : 'agents');
 import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
 import { Button, ScrollArea, useConfirm } from '@/components/ui';
@@ -74,23 +89,18 @@ export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { creating: creatingAgent, createAgent } = useCreateAgent();
 
-  // Left-rail tabs (master–detail, mirrors SettingsPage). `?tab=` is the single
-  // source of truth for the active tab so a deep-link works whether the page is
-  // freshly mounted OR already open (the sidebar "Export" row is a plain
-  // navigate to /app/dashboard?tab=export — no remount). Tab clicks write the
-  // param back (below), so the URL and the sidebar highlight always agree.
-  const [view, setView] = useState<'agents' | 'teams' | 'export'>(() => {
-    const requested = searchParams.get('tab');
-    return requested === 'teams' || requested === 'export' ? requested : 'agents';
-  });
-  useEffect(() => {
-    const requested = searchParams.get('tab');
-    setView(requested === 'teams' || requested === 'export' ? requested : 'agents');
-  }, [searchParams]);
-  const selectTab = (id: 'agents' | 'teams' | 'export') => {
-    setView(id);
-    // agents is the default → drop the param for a clean URL; teams/export keep it.
-    setSearchParams(id === 'agents' ? {} : { tab: id }, { replace: true });
+  // `?tab=` is the single source of truth for the active tab — DERIVED, not a
+  // mirrored useState. A deep-link works whether the page mounts fresh or is
+  // already open (the sidebar "Export" row is a plain navigate to
+  // /app/dashboard?tab=export — no remount). selectTab writes the param back
+  // incrementally (preserving any other query params) so the URL and the
+  // sidebar highlight always agree.
+  const view: TabId = parseTab(searchParams.get('tab'));
+  const selectTab = (id: TabId) => {
+    const next = new URLSearchParams(searchParams);
+    if (id === 'agents') next.delete('tab');
+    else next.set('tab', id);
+    setSearchParams(next, { replace: true });
   };
   // v4 table: multiple rows can be expanded at once (a Set, not the old
   // single expandedId — the mirror doc called this out explicitly).
@@ -135,7 +145,11 @@ export function DashboardPage() {
   }, [setTauriFocused]);
 
   // --- Polling loop (cadence owned by dashboardStore.computeInterval) ---
+  // Paused on the Export tab: its wizard fills the pane, so the status feed is
+  // off-screen — polling it would just spend /dashboard/status requests and
+  // could surface an error banner the user can't see from inside the wizard.
   useEffect(() => {
+    if (view === 'export') return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -172,7 +186,7 @@ export function DashboardPage() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [onFetchSuccess, onFetchError, onRateLimited]);
+  }, [view, onFetchSuccess, onFetchError, onRateLimited]);
 
   // --- Roster ⨝ status join -------------------------------------------------
   const statusById = useMemo(() => {
@@ -435,12 +449,6 @@ export function DashboardPage() {
   const inputBox =
     'flex items-center gap-2 h-[34px] px-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)]';
 
-  const TAB_ITEMS = [
-    { id: 'agents', labelKey: 'pages.dashboard.tabAgents', icon: LayoutDashboard },
-    { id: 'teams', labelKey: 'pages.dashboard.tabTeams', icon: Users2 },
-    { id: 'export', labelKey: 'pages.dashboard.tabExport', icon: Package },
-  ] as const;
-
   return (
     <div className="h-full flex flex-col">
       {dialog}
@@ -493,7 +501,9 @@ export function DashboardPage() {
             so it renders outside the padded ScrollArea the other panes share. */}
         {view === 'export' ? (
           <div className="flex-1 min-w-0">
-            <BundleExportPage embedded />
+            <Suspense fallback={<DashboardSkeleton />}>
+              <BundleExportPage embedded />
+            </Suspense>
           </div>
         ) : (
         <ScrollArea className="flex-1" viewportClassName="px-6 py-6">

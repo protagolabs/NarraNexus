@@ -7,7 +7,7 @@ stub: false
 ## 2026-07-30 — 原生 alert 换成应用内通知
 
 wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
-删除制品失败时只有「确认弹窗没关」这一个弱信号，没有原因。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
+删除可视化产物失败时只有「确认弹窗没关」这一个弱信号，没有原因。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
 
 **chrome 不在调用点重复**：标题 / OK 文案 / danger 由 `useNotice` 提供，调用点只写
 message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名），改文案要改 9 处。这同时把

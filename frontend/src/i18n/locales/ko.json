@@ -1265,6 +1265,11 @@
     },
     "dashboard": {
       "title": "에이전트 대시보드",
+      "tabAgents": "에이전트 관리",
+      "tabTeams": "팀 관리",
+      "tabExport": "내보내기",
+      "createAgent": "에이전트 만들기",
+      "createTeam": "팀 만들기",
       "agentsCount": "에이전트 {{count}}개",
       "emptyLabel": "아직 에이전트가 없습니다",
       "emptyHint": "사이드바에서 에이전트를 만들어 대시보드를 채워보세요.",

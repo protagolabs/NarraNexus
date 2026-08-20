@@ -7,10 +7,15 @@ stub: false
 ## 2026-08-20 — `embedded` 模式(内嵌进 Dashboard 导出标签页)
 
 新增 `embedded?: boolean` prop(默认 false=独立 /app/bundle/export 路由)。
-embedded=true 时:不渲染自带的返回设置头箭头、页脚 Cancel 换成占位 `<span/>`,
-且导出成功后不再 `navigate('/app/settings')`——因为它内嵌在 Dashboard 的「导出」
-标签页里,页面 chrome 由左侧标签栏承担。独立路由行为不变。测试:
-bundleExportEmbedded.test.tsx。
+embedded=true 时:**整个标题簇(返回箭头 + Package + h1)都不渲染**(只留右侧
+summary),否则和 Dashboard 的「智能体管理」h1 叠成两级标题;页脚 Cancel 换成占位
+`<span/>`;导出成功也不离页——页面 chrome 由左侧标签栏承担。
+
+独立路由的返回/取消/成功不再去 `/app/settings`(review 指出:导出入口已从 Settings
+移走,回那儿会把用户丢在一个没有导出入口的页)。改走 `exitStandalone()`:该路由
+现在唯一入口是 [[TeamDetailPage]] 的团队快捷导出,所以 `navigate(-1)` 回到来处;
+`location.key === 'default'`(直接粘 URL 打开、无 history)时兜底到
+`/app/dashboard?tab=export`。测试:bundleExportEmbedded.test.tsx。
 
 
 ## 2026-08-11 — 渐进披露:选完才出现区块;打包信息进确认弹窗;全局开关上移

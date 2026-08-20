@@ -44,7 +44,7 @@ function GoExport() {
 }
 
 describe('Dashboard deep-link while mounted (#1)', () => {
-  it('switches to the Export tab when ?tab=export arrives without a remount', () => {
+  it('switches to the Export tab when ?tab=export arrives without a remount', async () => {
     render(
       <MemoryRouter initialEntries={['/app/dashboard']}>
         <GoExport />
@@ -55,6 +55,20 @@ describe('Dashboard deep-link while mounted (#1)', () => {
     expect(screen.queryByText('export-wizard-stub')).toBeNull();
     // Simulate the sidebar Export row navigating while the page stays mounted.
     fireEvent.click(screen.getByText('go-export'));
-    expect(screen.getByText('export-wizard-stub')).toBeInTheDocument();
+    // Lazy chunk resolves under Suspense → findByText.
+    expect(await screen.findByText('export-wizard-stub')).toBeInTheDocument();
+  });
+
+  it('clicking the Export rail tab opens it — selectTab writes ?tab=, view derives from it', async () => {
+    render(
+      <MemoryRouter initialEntries={['/app/dashboard']}>
+        <DashboardPage />
+      </MemoryRouter>,
+    );
+    // No mocked navigate here: the tab click must go through selectTab →
+    // setSearchParams. If selectTab didn't write the URL, the derived view
+    // would never change and the stub would never appear.
+    fireEvent.click(screen.getByRole('button', { name: /^export$/i }));
+    expect(await screen.findByText('export-wizard-stub')).toBeInTheDocument();
   });
 });

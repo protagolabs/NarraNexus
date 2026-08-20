@@ -24,7 +24,7 @@ STRIP_CATEGORIES 经一次内部断言桥接。
 
 标题下拉的面板清单从写死 STRIP_CATEGORIES 变为 prop(默认仍是它);
 activeTab/onSelectTab 放宽为 string。团队房间以同一抽屉挂自己的
-成员/制品/文件三面板([[../chat/team/teamTabs]]),机制零分叉。
+成员/可视化产物/文件三面板([[../chat/team/teamTabs]]),机制零分叉。
 
 ## 2026-08-19 — 标题变面板切换器 + banner 插槽
 

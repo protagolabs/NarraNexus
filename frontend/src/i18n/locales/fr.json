@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Tableau de bord des agents",
+      "tabAgents": "Gérer les agents",
+      "tabTeams": "Gestion d'équipe",
+      "tabExport": "Exporter",
+      "createAgent": "Créer un agent",
+      "createTeam": "Créer une équipe",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "Aucun agent pour l'instant",
       "emptyHint": "Créez un agent depuis la barre latérale pour remplir ce tableau de bord.",

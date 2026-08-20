@@ -1266,6 +1266,11 @@
     },
     "dashboard": {
       "title": "Agent-Dashboard",
+      "tabAgents": "Agenten verwalten",
+      "tabTeams": "Teamverwaltung",
+      "tabExport": "Exportieren",
+      "createAgent": "Agent erstellen",
+      "createTeam": "Team erstellen",
       "agentsCount": "{{count}} Agenten",
       "emptyLabel": "Noch keine Agenten",
       "emptyHint": "Erstelle einen Agenten über die Seitenleiste, um dieses Dashboard zu füllen.",
