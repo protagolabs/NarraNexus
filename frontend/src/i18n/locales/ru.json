@@ -31,12 +31,12 @@
     "themeLight": "Светлая",
     "themeDark": "Тёмная",
     "themeSystem": "Системная",
-    "workspace": "Ваше рабочее пространство",
+    "workspace": "Мой мир",
     "accountTitle": "Аккаунт"
   },
   "chat": {
     "conversation": "Беседа",
-    "innerThoughts": "Внутренние мысли",
+    "innerThoughts": "Журнал активности",
     "composerPlaceholder": "Введите сообщение или / для навыков…",
     "selectAgent": "Выберите агента",
     "selectAgentHint": "Выберите агента на боковой панели, чтобы начать.",
@@ -1395,7 +1395,7 @@
       "noMembersHint": "Нажмите «Изменить», чтобы добавить."
     },
     "you": {
-      "you": "Вы",
+      "you": "Мой мир",
       "subtitle": "ваш мир, для всех ваших агентов",
       "viewsAriaLabel": "Виды рабочего пространства «Вы»",
       "tabMemory": "Память Narra",

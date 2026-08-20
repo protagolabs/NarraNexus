@@ -31,12 +31,12 @@
     "themeLight": "فاتح",
     "themeDark": "داكن",
     "themeSystem": "النظام",
-    "workspace": "مساحة عملك",
+    "workspace": "عالمي",
     "accountTitle": "الحساب"
   },
   "chat": {
     "conversation": "محادثة",
-    "innerThoughts": "أفكار داخلية",
+    "innerThoughts": "سجل النشاط",
     "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
     "selectAgent": "اختر وكيلاً",
     "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل.",
@@ -1399,7 +1399,7 @@
       "noMembersHint": "انقر تعديل لإضافة بعضهم."
     },
     "you": {
-      "you": "أنت",
+      "you": "عالمي",
       "subtitle": "عالمك، عبر كل وكلائك",
       "viewsAriaLabel": "عروض مساحة عملك",
       "tabMemory": "ذاكرة Narra",

@@ -31,12 +31,12 @@
     "themeLight": "ライト",
     "themeDark": "ダーク",
     "themeSystem": "システム",
-    "workspace": "あなたのワークスペース",
+    "workspace": "マイワールド",
     "accountTitle": "アカウント"
   },
   "chat": {
     "conversation": "会話",
-    "innerThoughts": "内なる思考",
+    "innerThoughts": "アクティビティログ",
     "composerPlaceholder": "メッセージを入力、または / でスキル…",
     "selectAgent": "エージェントを選択",
     "selectAgentHint": "サイドバーからエージェントを選んで対話を始めましょう。",
@@ -1390,7 +1390,7 @@
       "noMembersHint": "「編集」をクリックして追加しましょう。"
     },
     "you": {
-      "you": "あなた",
+      "you": "マイワールド",
       "subtitle": "すべてのエージェントにまたがる、あなたの世界",
       "viewsAriaLabel": "あなたのワークスペースビュー",
       "tabMemory": "Narra メモリ",

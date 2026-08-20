@@ -31,12 +31,12 @@
     "themeLight": "Hell",
     "themeDark": "Dunkel",
     "themeSystem": "System",
-    "workspace": "Dein Arbeitsbereich",
+    "workspace": "Meine Welt",
     "accountTitle": "Konto"
   },
   "chat": {
     "conversation": "Unterhaltung",
-    "innerThoughts": "Innere Gedanken",
+    "innerThoughts": "Aktivitätsprotokoll",
     "composerPlaceholder": "Nachricht eingeben oder / für Skills…",
     "selectAgent": "Agent auswählen",
     "selectAgentHint": "Wähle in der Seitenleiste einen Agenten, um zu beginnen.",
@@ -1391,7 +1391,7 @@
       "noMembersHint": "Klicke auf Bearbeiten, um welche hinzuzufügen."
     },
     "you": {
-      "you": "Du",
+      "you": "Meine Welt",
       "subtitle": "deine Welt, über all deine Agenten hinweg",
       "viewsAriaLabel": "Ansichten des Du-Arbeitsbereichs",
       "tabMemory": "Narra-Gedächtnis",

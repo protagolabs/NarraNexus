@@ -31,12 +31,12 @@
     "themeLight": "라이트",
     "themeDark": "다크",
     "themeSystem": "시스템",
-    "workspace": "내 워크스페이스",
+    "workspace": "내 세계",
     "accountTitle": "계정"
   },
   "chat": {
     "conversation": "대화",
-    "innerThoughts": "내면의 생각",
+    "innerThoughts": "활동 로그",
     "composerPlaceholder": "메시지를 입력하거나 /로 스킬 호출…",
     "selectAgent": "에이전트 선택",
     "selectAgentHint": "사이드바에서 에이전트를 선택해 대화를 시작하세요.",
@@ -1390,7 +1390,7 @@
       "noMembersHint": "편집을 클릭해 추가하세요."
     },
     "you": {
-      "you": "나",
+      "you": "내 세계",
       "subtitle": "모든 에이전트에 걸친 나의 세계",
       "viewsAriaLabel": "나의 작업공간 보기",
       "tabMemory": "Narra 메모리",

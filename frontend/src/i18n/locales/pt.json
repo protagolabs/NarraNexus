@@ -31,12 +31,12 @@
     "themeLight": "Claro",
     "themeDark": "Escuro",
     "themeSystem": "Sistema",
-    "workspace": "Seu espaço de trabalho",
+    "workspace": "Meu mundo",
     "accountTitle": "Conta"
   },
   "chat": {
     "conversation": "Conversa",
-    "innerThoughts": "Pensamentos internos",
+    "innerThoughts": "Registro de atividades",
     "composerPlaceholder": "Digite uma mensagem ou / para habilidades…",
     "selectAgent": "Selecione um agente",
     "selectAgentHint": "Escolha um agente na barra lateral para começar.",
@@ -1391,7 +1391,7 @@
       "noMembersHint": "Clique em Editar para adicionar alguns."
     },
     "you": {
-      "you": "Você",
+      "you": "Meu mundo",
       "subtitle": "seu mundo, em todos os seus agentes",
       "viewsAriaLabel": "Visualizações do espaço Você",
       "tabMemory": "Memória Narra",
