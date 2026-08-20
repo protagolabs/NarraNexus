@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/notify.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -37,3 +37,6 @@ spec 2026-08-18-artifact-events-inventory-pointer §3;action 语义见 ACTIONS �
 原「不带 file_path」在 PR-3 落地时被推翻:HTTP 列表路由本就把 file_path 返回
 给已认证属主(无秘密可藏),而排除它让 store 出现两种 Artifact 形状
 (HtmlRenderer 按 file_path 分支渲染模式)——一致性 > 无意义的排除。
+
+## 2026-08-20 — 插入经 ArtifactEventRepository(#334 I9);投递语义
+「至少一次」正本在该 repo 的 mirror。

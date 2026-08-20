@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -196,3 +196,5 @@ DB 查询。run 外staging 的行(HTTP 删除等)在下一次 run 的首个 tool
 迟到送达——刻意如此,前端 updated_at 单调守卫+打开全量拉兜底。
 **best-effort 契约**:drain 任何失败只 warning,run 循环永不因事件化而断
 (异常在此处被"精确且有声"地处理,合规事故教训 #2/#3)。
+
+## 2026-08-20 — 排水走 ArtifactEventRepository(缓存实例)(#334 I9)

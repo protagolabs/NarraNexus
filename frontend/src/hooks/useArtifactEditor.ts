@@ -24,11 +24,47 @@ import type { Artifact } from '@/types/artifact';
 import { artifactsApi, ArtifactEditConflictError } from '@/services/artifactsApi';
 import { sha256Hex } from '@/lib/sha256';
 
-const DRAFT_PREFIX = 'narra:artifact-draft:';
+export const DRAFT_PREFIX = 'narra:artifact-draft:';
+// localStorage quota is ~5 MB per origin while editable content caps at
+// 25 MB — the draft layer must DECLARE when it cannot hold the text instead
+// of failing silently under the "content safety" banner (review #334 I8).
+const DRAFT_MAX_BYTES = 512 * 1024;
 
 interface Draft {
   text: string;
   baseHash: string;
+  /** Written at save time; lets the stale sweep age drafts out. */
+  ts?: number;
+}
+
+// Age-based orphan sweep (review #334 I8): drafts are short-lived by nature —
+// anything older than this is a leftover from a deleted/abandoned artifact
+// and only eats the shared quota. Deliberately NOT keyed on any artifact
+// list: the store only knows the CURRENT agent's artifacts, and deleting by
+// that list would kill other agents' live drafts.
+const DRAFT_STALE_MS = 14 * 24 * 60 * 60 * 1000;
+let sweptThisSession = false;
+
+function sweepStaleDrafts(): void {
+  if (sweptThisSession) return;
+  sweptThisSession = true;
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(DRAFT_PREFIX)) continue;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? '');
+        const ts = typeof parsed?.ts === 'number' ? parsed.ts : 0;
+        if (Date.now() - ts > DRAFT_STALE_MS) stale.push(key);
+      } catch {
+        stale.push(key); // unparseable = junk
+      }
+    }
+    stale.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    /* storage disabled */
+  }
 }
 
 function readDraft(artifactId: string): Draft | null {
@@ -43,12 +79,19 @@ function readDraft(artifactId: string): Draft | null {
   }
 }
 
-function writeDraft(artifactId: string, draft: Draft | null): void {
+/** Returns false when the draft could NOT be persisted (too large / quota /
+    storage disabled) — the caller surfaces that, never swallows it. */
+function writeDraft(artifactId: string, draft: Draft | null): boolean {
   try {
-    if (draft === null) localStorage.removeItem(DRAFT_PREFIX + artifactId);
-    else localStorage.setItem(DRAFT_PREFIX + artifactId, JSON.stringify(draft));
+    if (draft === null) {
+      localStorage.removeItem(DRAFT_PREFIX + artifactId);
+      return true;
+    }
+    if (draft.text.length > DRAFT_MAX_BYTES) return false;
+    localStorage.setItem(DRAFT_PREFIX + artifactId, JSON.stringify(draft));
+    return true;
   } catch {
-    /* quota / disabled storage — the draft layer is best-effort by design */
+    return false;
   }
 }
 
@@ -62,6 +105,10 @@ export interface ArtifactEditorState {
   conflict: { currentHash: string } | null;
   /** True when this mount restored unsaved text from a local draft. */
   draftRestored: boolean;
+  /** True when unsaved text CANNOT be mirrored to localStorage (too large /
+      quota) — the surface must tell the user to save promptly instead of
+      letting the "draft protects you" promise silently lapse. */
+  draftUnavailable: boolean;
   setText: (t: string) => void;
   save: () => Promise<void>;
   /** Conflict choice A: my text wins — resend based on the on-disk hash. */
@@ -71,6 +118,7 @@ export interface ArtifactEditorState {
 }
 
 export function useArtifactEditor(artifact: Artifact, url: string | null): ArtifactEditorState {
+  useEffect(() => sweepStaleDrafts(), []);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [text, setTextState] = useState('');
@@ -78,6 +126,7 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<{ currentHash: string } | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
 
   // The lock base: hash of the bytes the editor loaded (or last saved).
   const baseHashRef = useRef<string>('');
@@ -142,7 +191,12 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
   const setText = useCallback((t: string) => {
     setTextState(t);
     setDirty(true);
-    writeDraft(artifact.artifact_id, { text: t, baseHash: baseHashRef.current });
+    const persisted = writeDraft(artifact.artifact_id, {
+      text: t,
+      baseHash: baseHashRef.current,
+      ts: Date.now(),
+    });
+    setDraftUnavailable(!persisted);
   }, [artifact.artifact_id]);
 
   // Keystrokes must survive a window close even before any save.
@@ -200,6 +254,7 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
     saving,
     conflict,
     draftRestored,
+    draftUnavailable,
     setText,
     save,
     overwriteConflict,

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/artifact_service.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -69,3 +69,5 @@ office user-edit-commit 将复用同一落点语义(hash/history/事件)。
 ## 2026-08-19(二)— refresh_external_state / commit_office_user_edit
 
 5① 侦测与 5② office 提交的薄桥,见 [[freshness.py]] 与 [[user_edit.py]]。
+
+## 2026-08-20 — service 自持 `_db`,impl 显式收 db(#334 I9)

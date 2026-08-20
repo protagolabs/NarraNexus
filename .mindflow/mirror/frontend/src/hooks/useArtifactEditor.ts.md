@@ -33,3 +33,12 @@ md 块编辑器 C3 复用):load(bytes→text+hash)→ dirty → save(锁)→
 TextDecoder fatal:true——解不动的文档不进编辑面(错误态=只读),
 有损解码在首存被写回的路径整个消灭。HtmlRenderer 的提交侧同改
 (解码失败=anchor-failed→交 AI 横幅,绝不 PUT)。
+
+## 2026-08-20 — 草稿层显式失效 + 陈旧清理(#334 I8)
+
+512KB 体积门:装不下→writeDraft 返回 false→`draftUnavailable` 状态→
+红横幅「文件过大,草稿不保,及时保存」——**静默降级是唯一不可接受的
+选项**;beforeunload 照拦。草稿带 ts,每会话一次清理 14 天陈旧项
+(刻意**不**按 artifact 列表删——store 只知当前 agent,按列表会误杀
+其他 agent 的活草稿);删除 artifact(本地或事件)在 store.remove 里
+顺手删对应草稿键。

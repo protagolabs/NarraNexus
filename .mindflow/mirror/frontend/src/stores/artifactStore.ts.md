@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -131,3 +131,5 @@ frames parsed in ChatPanel」已过时,发现机制=事件+全量拉。
 
 编辑面 dirty 集合,TabStrip 圆点消费。内容安全**不**依赖它
 (localStorage 草稿层才是兜底),纯视觉。
+
+## 2026-08-20 — remove() 顺删编辑草稿键(#334 I8)

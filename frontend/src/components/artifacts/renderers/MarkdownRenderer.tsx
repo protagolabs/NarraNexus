@@ -32,7 +32,7 @@ import { useArtifactEditor, type ArtifactEditorState } from '@/hooks/useArtifact
 import { useArtifactStore } from '@/stores/artifactStore';
 import { extractFrontmatter, mdAstEqual } from '@/lib/mdEditSafety';
 import ArtifactHealModal from '../ArtifactHealModal';
-import { ConflictBanner, DraftRestoredBanner } from './editorBanners';
+import { ConflictBanner, DraftRestoredBanner, DraftUnavailableBanner } from './editorBanners';
 
 const AUTOSAVE_IDLE_MS = 2000;
 
@@ -96,6 +96,7 @@ export default function MarkdownRenderer({ artifact }: Props) {
   return (
     <>
       {editor.draftRestored && <DraftRestoredBanner />}
+      {editor.draftUnavailable && <DraftUnavailableBanner />}
       {editor.conflict && (
         <ConflictBanner
           onOverwrite={() => void editor.overwriteConflict()}

@@ -2461,7 +2461,8 @@
       "mdGuardDisabled": "此文档含编辑器无法无损保留的语法,直接编辑已停用。请让 AI 代为修改。",
       "htmlAnchorFailed": "该处内容由页面脚本生成或无法在源码中唯一定位——请交给 AI 修改。",
       "htmlEditConflict": "编辑期间文件被修改,这处改动未保存。",
-      "editFailed": "编辑失败——此改动未保存。"
+      "editFailed": "编辑失败——此改动未保存。",
+      "draftUnavailable": "此文件过大,无法本地暂存草稿——未保存的修改在关窗后不会保留,请及时保存。"
     },
     "officeEdit": {
       "selected": "已选 {{count}} 项",

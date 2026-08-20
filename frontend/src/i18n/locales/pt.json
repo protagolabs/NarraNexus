@@ -2075,7 +2075,8 @@
       "mdGuardDisabled": "Este documento contém sintaxe que o editor não consegue preservar sem perdas — a edição direta está desativada. Peça à IA para fazer as alterações.",
       "htmlAnchorFailed": "Esse texto é gerado pelo script da página ou não pode ser localizado de forma única no código — peça à IA para alterá-lo.",
       "htmlEditConflict": "O arquivo mudou durante a edição — essa alteração não foi salva.",
-      "editFailed": "Falha na edição — a alteração não foi salva."
+      "editFailed": "Falha na edição — a alteração não foi salva.",
+      "draftUnavailable": "Este arquivo é grande demais para o rascunho local — alterações não salvas serão perdidas ao fechar a janela. Salve logo."
     },
     "officeEdit": {
       "selected": "{{count}} selecionado(s)",

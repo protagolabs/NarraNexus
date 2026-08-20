@@ -117,6 +117,7 @@ def _path_tail(rel_path: str, segments: int = 2) -> str:
 async def _repoint(
     *,
     repo: ArtifactRepository,
+    db,
     art: Artifact,
     agent_id: str,
     user_id: str,
@@ -136,6 +137,7 @@ async def _repoint(
     old_rel = art.file_path or ""
     result = await registration.register_artifact(
         repo=repo,
+        db=db,
         agent_id=agent_id,
         user_id=user_id,
         session_id=None,
@@ -151,7 +153,7 @@ async def _repoint(
     healed = await repo.get_by_id(result.artifact_id)
     if healed is not None:
         await stage_artifact_event(
-            repo.db,
+            db,
             action="repointed",
             artifact=healed,
             extra={
@@ -166,6 +168,7 @@ async def _repoint(
 async def heal_artifact(
     *,
     repo: ArtifactRepository,
+    db,
     agent_id: str,
     user_id: str,
     artifact_id: str,
@@ -238,7 +241,7 @@ async def heal_artifact(
     #    the pointer moved either way; only the chooser differs.
     if entry_path:
         healed = await _repoint(
-            repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+            repo=repo, db=db, art=art, agent_id=agent_id, user_id=user_id,
             entry_abs=_absolutise(entry_path, search_root),
             hash_matched=False,
         )
@@ -280,7 +283,7 @@ async def heal_artifact(
         hash_hits = await asyncio.to_thread(_match_by_hash)
         if len(hash_hits) == 1:
             healed = await _repoint(
-                repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+                repo=repo, db=db, art=art, agent_id=agent_id, user_id=user_id,
                 entry_abs=_absolutise(hash_hits[0].workspace_path, search_root),
                 hash_matched=True,
             )
@@ -304,7 +307,7 @@ async def heal_artifact(
         only = candidates[0]
         try:
             healed = await _repoint(
-                repo=repo, art=art, agent_id=agent_id, user_id=user_id,
+                repo=repo, db=db, art=art, agent_id=agent_id, user_id=user_id,
                 entry_abs=_absolutise(only.workspace_path, search_root),
                 hash_matched=False,
             )

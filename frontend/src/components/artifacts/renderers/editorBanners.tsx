@@ -37,6 +37,15 @@ export function ConflictBanner({
   );
 }
 
+export function DraftUnavailableBanner() {
+  const { t } = useTranslation();
+  return (
+    <div className="px-3 py-1.5 text-xs bg-red-500/10 border-b border-red-500/30 shrink-0">
+      {t('artifacts.editor.draftUnavailable')}
+    </div>
+  );
+}
+
 export function DraftRestoredBanner() {
   const { t } = useTranslation();
   return (

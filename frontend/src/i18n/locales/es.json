@@ -2075,7 +2075,8 @@
       "mdGuardDisabled": "Este documento contiene sintaxis que el editor no puede preservar sin pérdidas: la edición directa está deshabilitada. Pide a la IA que haga los cambios.",
       "htmlAnchorFailed": "Ese texto lo genera el script de la página o no se puede localizar de forma única en el código: pide a la IA que lo cambie.",
       "htmlEditConflict": "El archivo cambió mientras editabas: ese cambio no se guardó.",
-      "editFailed": "Error al editar: el cambio no se guardó."
+      "editFailed": "Error al editar: el cambio no se guardó.",
+      "draftUnavailable": "Este archivo es demasiado grande para el borrador local: los cambios sin guardar se perderán al cerrar la ventana. Guarda pronto."
     },
     "officeEdit": {
       "selected": "{{count}} seleccionado(s)",

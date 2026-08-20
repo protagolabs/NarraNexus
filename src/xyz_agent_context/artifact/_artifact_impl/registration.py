@@ -271,6 +271,7 @@ async def _record_history(
 async def register_artifact(
     *,
     repo: ArtifactRepository,
+    db,
     agent_id: str,
     user_id: str,
     session_id: Optional[str],
@@ -418,7 +419,7 @@ async def register_artifact(
         )
         refreshed = await repo.get_by_id(target_artifact_id)
         if refreshed is not None and not suppress_notify:
-            await stage_artifact_event(repo.db, action="updated", artifact=refreshed)
+            await stage_artifact_event(db, action="updated", artifact=refreshed)
         logger.debug("Re-registered artifact {} -> {}", target_artifact_id, rel_path)
         return CreateArtifactToolResult(
             artifact_id=target_artifact_id,
@@ -459,7 +460,7 @@ async def register_artifact(
                 refreshed = await repo.get_by_id(existing.artifact_id)
                 if refreshed is not None:
                     await stage_artifact_event(
-                        repo.db, action="updated", artifact=refreshed
+                        db, action="updated", artifact=refreshed
                     )
                 logger.debug(
                     "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
@@ -500,7 +501,7 @@ async def register_artifact(
     )
     created = await repo.get_by_id(artifact_id)
     if created is not None:
-        await stage_artifact_event(repo.db, action="registered", artifact=created)
+        await stage_artifact_event(db, action="registered", artifact=created)
     logger.debug("Registered artifact {} kind={} -> {}", artifact_id, kind, rel_path)
     return CreateArtifactToolResult(
         artifact_id=artifact_id,

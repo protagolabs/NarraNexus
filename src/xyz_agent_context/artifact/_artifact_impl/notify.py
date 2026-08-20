@@ -59,12 +59,13 @@ async def stage_artifact_event(
         }
         if extra:
             payload["extra"] = extra
-        await db.insert(
-            "instance_artifact_events",
-            {
-                "agent_id": artifact.agent_id,
-                "payload_json": json.dumps(payload, ensure_ascii=False),
-            },
+        from xyz_agent_context.repository.artifact_event_repository import (
+            ArtifactEventRepository,
+        )
+
+        await ArtifactEventRepository(db).stage(
+            agent_id=artifact.agent_id,
+            payload_json=json.dumps(payload, ensure_ascii=False),
         )
     except Exception as e:  # noqa: BLE001 — best-effort by contract (see module docstring)
         logger.warning(f"artifact event staging failed ({action}): {e}")

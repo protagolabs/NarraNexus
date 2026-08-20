@@ -19,7 +19,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactEditor } from '@/hooks/useArtifactEditor';
-import { ConflictBanner, DraftRestoredBanner } from './editorBanners';
+import { ConflictBanner, DraftRestoredBanner, DraftUnavailableBanner } from './editorBanners';
 
 interface Props {
   artifact: Artifact;
@@ -81,6 +81,7 @@ export default function ResidentTextEditor({ artifact, url, onLoadError }: Props
         </button>
       </div>
       {editor.draftRestored && <DraftRestoredBanner />}
+      {editor.draftUnavailable && <DraftUnavailableBanner />}
       {editor.conflict && (
         <ConflictBanner
           onOverwrite={() => void editor.overwriteConflict()}

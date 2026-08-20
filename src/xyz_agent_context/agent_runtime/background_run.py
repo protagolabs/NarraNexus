@@ -195,6 +195,9 @@ class BackgroundRun:
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
+        # Cached: the drain runs on every tool-output boundary; constructing
+        # the repo per drain would be needless churn (review #334 I9 trap).
+        self._artifact_event_repo = None
         self._active_runs = active_runs  # the app.state.active_runs map
         self.cancellation = cancellation or CancellationToken()
         # Broadcaster is run_id-tagged but only for logging. It works
@@ -297,12 +300,14 @@ class BackgroundRun:
         exception IS handled here, precisely and audibly)."""
         try:
             while True:
-                rows = await self.db.execute(
-                    "SELECT id, payload_json FROM instance_artifact_events "
-                    "WHERE agent_id = %s AND consumed_at IS NULL "
-                    "ORDER BY id LIMIT %s",
-                    params=(self.agent_id, self._ARTIFACT_DRAIN_BATCH),
-                    fetch=True,
+                if self._artifact_event_repo is None:
+                    from xyz_agent_context.repository.artifact_event_repository import (
+                        ArtifactEventRepository,
+                    )
+
+                    self._artifact_event_repo = ArtifactEventRepository(self.db)
+                rows = await self._artifact_event_repo.pending_for_agent(
+                    self.agent_id, self._ARTIFACT_DRAIN_BATCH
                 )
                 if not rows:
                     return
@@ -313,13 +318,7 @@ class BackgroundRun:
                         logger.warning(
                             f"artifact event emit failed (outbox id={row['id']}): {e}"
                         )
-                ids = [r["id"] for r in rows]
-                placeholders = ", ".join(["%s"] * len(ids))
-                await self.db.execute(
-                    f"UPDATE instance_artifact_events SET consumed_at = %s "
-                    f"WHERE id IN ({placeholders})",
-                    params=(datetime.now(timezone.utc).isoformat(), *ids),
-                )
+                await self._artifact_event_repo.mark_consumed([r["id"] for r in rows])
                 if len(rows) < self._ARTIFACT_DRAIN_BATCH:
                     return
         except Exception as e:  # noqa: BLE001 — best-effort by contract (docstring)

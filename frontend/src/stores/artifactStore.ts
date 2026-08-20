@@ -349,6 +349,15 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   },
 
   remove(artifactId) {
+    // A removed artifact's editor draft must not squat in localStorage
+    // forever (quota is shared; a full quota silently kills EVERY draft —
+    // review #334 I8). deleted-events funnel through remove(), so this one
+    // hook covers both the local delete and the pushed deletion.
+    try {
+      localStorage.removeItem(`narra:artifact-draft:${artifactId}`);
+    } catch {
+      /* storage disabled — nothing to clean */
+    }
     const list = get().artifacts.filter((a) => a.artifact_id !== artifactId);
     const cache = { ...get().artifactsByAgent };
     for (const aid of Object.keys(cache)) {

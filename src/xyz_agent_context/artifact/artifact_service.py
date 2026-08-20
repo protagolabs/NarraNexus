@@ -52,6 +52,7 @@ class ArtifactService:
     """
 
     def __init__(self, db: AsyncDatabaseClient):
+        self._db = db
         self._repo = ArtifactRepository(db)
 
     async def register(
@@ -76,6 +77,7 @@ class ArtifactService:
         """
         return await registration.register_artifact(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -116,7 +118,7 @@ class ArtifactService:
         deleted = await self._repo.bulk_delete([a.artifact_id for a in to_delete])
         for art in to_delete:
             await stage_artifact_event(
-                self._repo.db, action="deleted", artifact=art
+                self._db, action="deleted", artifact=art
             )
         return deleted, skipped
 
@@ -137,6 +139,7 @@ class ArtifactService:
         """
         return await heal.heal_artifact(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             artifact_id=artifact_id,
@@ -166,6 +169,7 @@ class ArtifactService:
         """
         return await url_artifact.open_url(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -227,7 +231,7 @@ class ArtifactService:
         base_hash with `.current_hash` for the editor's re-base flow.
         """
         return await user_edit.save_user_content(
-            self._repo.db,
+            self._db,
             agent_id=agent_id,
             artifact_id=artifact_id,
             content=content,
@@ -239,7 +243,7 @@ class ArtifactService:
         artifact (hash + history "user_edited" + event). Idempotent on an
         unchanged hash. See `_artifact_impl/user_edit.py`."""
         return await user_edit.commit_office_user_edit(
-            self._repo.db, agent_id=agent_id, artifact_id=artifact_id
+            self._db, agent_id=agent_id, artifact_id=artifact_id
         )
 
     async def refresh_external_state(self, artifact: Artifact) -> str:
@@ -247,4 +251,4 @@ class ArtifactService:
         file. Returns "fresh" / "external" / "missing" — see
         `_artifact_impl/freshness.py` for the two-stage detection and the
         commit-point contract."""
-        return await freshness.refresh_external_state(self._repo.db, artifact)
+        return await freshness.refresh_external_state(self._db, artifact)
