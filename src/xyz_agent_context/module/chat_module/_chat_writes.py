@@ -18,10 +18,18 @@ Load-bearing constraints, in one place:
       * turn-start - 1ms sorts strictly before the user's first message (stamped
         turn-start), so a timestamp-ascending render (chat-history API +
         frontend timeline) keeps the greeting on top.
-      * turn-start ≈ when the user pressed enter, so it stays inside the
-        frontend's (role, content) + 5-minute session-copy dedup window
-        (buildTimeline.ts) — anchoring further back (e.g. agent creation) would
-        break that window and render the greeting twice.
+      * turn-start ≈ when the user pressed enter, so it satisfies the TIME half
+        of the frontend's session-copy dedup — buildTimeline.ts dedups a
+        no-event_id session message against history by (role, content) AND a
+        5-minute window; anchoring further back (e.g. agent creation) would blow
+        the window. NOTE the window is only one half: dedup also needs the
+        content to MATCH, and the seeded row's content is the English
+        `bootstrap_greeting` metadata while the frontend session copy is the
+        localized text — so in a non-English UI the copy is NOT deduped and the
+        greeting renders twice. That is a pre-existing limitation (the lazy hook
+        wrote the same English content), tracked for a separate fix (give the
+        bootstrap row a stable identity the frontend can dedup on instead of
+        content); this anchor does not claim to close it.
   - The datetime is normalised to aware-UTC before isoformat(), so the emitted
     string carries a `+00:00`/`Z` offset and the browser's `new Date()` parses
     it as UTC rather than local time (the naive-datetime-on-MySQL trap).

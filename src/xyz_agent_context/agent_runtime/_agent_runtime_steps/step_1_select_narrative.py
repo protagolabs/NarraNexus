@@ -341,8 +341,10 @@ async def step_1_select_narrative(
     # the greeting lands even if the turn never reaches the persist hook.
     #
     # Timestamp is anchored to turn start (ctx.event.created_at) by the writer,
-    # so it sorts before the user's first message and stays in the frontend
-    # dedup window; the write is idempotent (skips a non-empty instance), so the
+    # so it sorts before the user's first message and satisfies the TIME half of
+    # the frontend session-copy dedup window (content-equality is the other half,
+    # which does not hold in non-English UIs — see _chat_writes docstring); the
+    # write is idempotent (skips a non-empty instance), so the
     # hook's own prepend — which then sees a non-empty history and skips — never
     # doubles it. resolve_bootstrap_greeting_to_seed gates on the SAME
     # bootstrap_active signal the hook uses (Bootstrap.md present + under the

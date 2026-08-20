@@ -7,9 +7,11 @@ last_verified: 2026-08-20
 
 `hook_persist_turn` 里首轮 prepend 问候语那段,行结构改成调用 [[_chat_writes]] 的
 `build_bootstrap_greeting_row(greeting, base_dt, instance_id, event_id=...)`,不再内联手写。
-行为不变(仍是 `event.created_at - 1ms`、`bootstrap:True`),但「问候行长什么样 + 时间戳规则」
-现在只有一处定义,和 `step_1` 的开局 seed 共用同一构造器,不会两处漂移。guard 仍是
-`len(messages)==0 and bootstrap_active`——seed 已经先写过时它自然跳过(不双写)。
+「问候行长什么样 + 时间戳规则」现在只有一处定义,和 `step_1` 的开局 seed 共用同一构造器,不会
+两处漂移。guard 仍是 `len(messages)==0 and bootstrap_active`——seed 已经先写过时它自然跳过(不双写)。
+顺带:hook 路径的时间戳也纳入了 `_chat_writes` 的 naive→aware-UTC 归一(今天 `event` 是进程内
+aware 对象、无可观察差异,但不再依赖这个前提);内联版用的 `from datetime import timedelta`
+随之成死 import,已删除。
 
 
 ## 2026-08-19 — plain-text（巡查）回合不声明 owner 工具

@@ -16,8 +16,10 @@ stub: false
 - `meta_data.bootstrap = True` 供前端 / auto-delete 识别。
 - 时间戳锚在 **turn 起点（`Event.created_at`）减 1ms**，不是 `utc_now()`、也不是 agent 创建时间：
   - turn 起点 -1ms 严格早于用户第一条消息（戳的是 turn 起点）→ 升序渲染时问候排最前；
-  - turn 起点 ≈ 用户按下回车的时刻 → 落在前端 `(role, content)+5min` session 副本去重窗口内
-    （`buildTimeline.ts`）。锚得更早（如 agent 创建时刻）会冲破这个窗口，问候渲染两次。
+  - turn 起点 ≈ 用户按下回车的时刻 → 满足前端 `(role, content)+5min` session 副本去重的**时间**
+    条件（`buildTimeline.ts`）。锚得更早（如 agent 创建时刻）会冲破这个窗口。**限制**:去重还需
+    content 相等,而落库是英文默认串、session 副本是本地化串 → 非英文 UI 下问候仍渲染两次(非本次
+    引入,根因修复留单独 PR,记 `reference/self_notebook/todo/`)。本锚点只负责时间条件。
 - 序列化前把 naive datetime 归一成 aware-UTC，输出串带 `+00:00`，浏览器 `new Date()` 按 UTC 解析
   而非本地时区（MySQL 返回 naive datetime 的坑）。
 

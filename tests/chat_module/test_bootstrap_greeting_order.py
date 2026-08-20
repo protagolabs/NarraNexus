@@ -194,11 +194,13 @@ async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_modu
     event_started_at = utc_now() - timedelta(seconds=30)
 
     # The REAL seed runs first (as step_1 does), anchored to this turn's start.
+    # ids come from the fixture so the test doesn't rely on the memory table
+    # being keyed by instance_id alone.
     wrote = await seed_bootstrap_greeting(
         chat_module.event_memory_module.db,
-        "a_boot",
-        "u_boot",
-        "chat_boot_instance",
+        chat_module.agent_id,
+        chat_module.user_id,
+        chat_module.instance_id,
         BOOTSTRAP_GREETING,
         event_started_at,
     )

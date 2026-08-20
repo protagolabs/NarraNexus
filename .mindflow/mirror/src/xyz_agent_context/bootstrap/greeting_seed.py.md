@@ -14,16 +14,10 @@ stub: false
 **门禁必须和 hook 一致，不能只看 metadata**：`agent_metadata["bootstrap_greeting"]` 在 provision
 时写一次、**永不清除**。若只用它当门禁，agent bootstrap 过期后每开一个**新 narrative** 都会得到
 一个全新的空 chat 实例，而写入方的幂等是**每实例**的 —— 于是过时问候语会被塞进此后每一个新
-narrative 的首条，永久重复。所以 `resolve_*` 复算了和 `context_runtime` 完全相同的
-`bootstrap_active`：
-- **owner-only**：`agent.created_by == user_id`（context_runtime 只在 owner 轮注入 Bootstrap）。
-- **Bootstrap.md 仍在**：用**读侧** `resolve_existing_workspace`（不是写侧 resolver —— 后者在
-  legacy flat workspace 上找不到文件会静默停 seed，还会和 hook 分歧）。
-- **未过阈值**：`event_count < auto_delete_threshold_from_meta(metadata)`（events 表 COUNT；
-  threshold=None 表示语义型 profile 永不自动删，恒 active）。
-
-`_bootstrap_active(db, agent_id, user_id, metadata)` 是这段逻辑的可测 helper（测试 patch 它 /
-patch `resolve_existing_workspace`，不用全局 patch `os.path.isfile`）。
+narrative 的首条，永久重复。所以 `resolve_*` 的门禁 = **owner-only**（`agent.created_by == user_id`，
+先短路，省掉不属于 owner 时的判定）**+** 共享的 [[lifecycle]]`.is_bootstrap_active`（Bootstrap.md
+存在 + 未过阈值）。判定收在 `lifecycle` 单一真源里，`context_runtime` 也调它 —— 两个写入方不会
+drift（早期版本各自复算 `bootstrap_active`，是 drift 源）。
 
 **上游**：`step_1_select_narrative`，选完 narrative 后仅对 **head（`narrative_list[0]`）** 实例调用
 一次（问候语作用域是 (agent, user)，不是 per-narrative）。fast-select / step_4 路径靠

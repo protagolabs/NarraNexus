@@ -12,6 +12,7 @@ seeding turns red.
 from __future__ import annotations
 
 import importlib
+import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -90,6 +91,17 @@ async def test_seeds_greeting_once_into_head_narrative(monkeypatch):
     assert seed_spy.await_count == 1, f"expected 1 seed, got {seed_spy.await_count}"
     seeded_instance = seed_spy.await_args.args[3]
     assert seeded_instance == "chat_n1", f"seeded non-head instance: {seeded_instance}"
+
+
+def test_seed_is_not_wired_into_per_narrative_ensure():
+    """Structural guard for round-1 Critical 1: the seed must NOT live inside
+    _ensure_user_chat_instance (which runs once PER narrative → 2-3 duplicate
+    greetings). The await_count assertion above mocks that function out, so this
+    source check is what actually catches a regression that moves the seed back
+    inside it."""
+    src = inspect.getsource(mod._ensure_user_chat_instance)
+    assert "seed_bootstrap_greeting" not in src
+    assert "resolve_bootstrap_greeting_to_seed" not in src
 
 
 @pytest.mark.asyncio
