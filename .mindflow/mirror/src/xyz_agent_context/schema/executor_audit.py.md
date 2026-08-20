@@ -8,11 +8,14 @@ stub: false
 
 `EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"`：空闲回收器选中了某用户，但
 跨进程活性检查发现**另一个进程里有 run 在跑**，于是放弃本次回收
-（[[executor_reaper.py]] `cross_process_busy_check`）。同样**无需迁移**
+（[[executor_reaper.py]] `live_run_elsewhere` / `_CullVeto`）。同样**无需迁移**
 （event_type 是 VARCHAR(32) 字符串约定），`counts_since()` 与
 /admin/runtime/status 自动纳入。
 
-每一行 = 一次「2026-08-19 之前的代码会当场掐死的在途 run」。所以它不是噪声
+行里带 `run_id`,且**按 (user_id, run_id) 去重**(见 [[executor_reaper.py]]):
+被否决的用户每轮都会被重新提名,逐次写行会让行数变成运行时长的函数——一条合法
+跑 10 小时的 run 会写出 ~300 行。去重后每一行 = 一次「2026-08-19 之前的代码会
+当场掐死的在途 run」。所以它不是噪声
 日志而是 L3 指标：非零说明这道护栏在承重；**突然掉到零要去查护栏是不是没跑**，
 而不是默认问题自己好了（incident lesson #4/#5）。
 

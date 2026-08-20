@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — ensure 时判"能不能替换容器",并把自己排除在外
+
+`ensure_executor` 多传一个 `allow_stale_replace`,值由
+[[executor_reaper]] 的 `stale_replacement_is_safe(user_id, active_run_id=...)`
+算出。判决落在**本文件**而不是 [[broker_client.py]],因为这是唯一同时握着
+"哪个用户"和"哪条 run 在问"的层——ensure 发生在 step 3,那时本 run 的 events
+行已经是 `running`,不把自己排除掉的话判决恒为"忙",stale 镜像永远滚不动。
+
+背景是 2026-07-31 prod 事故的第二个杀手(第一个是空闲回收器):broker 的懒
+替换会掐掉在途 run,而它原来的注释假设"部署刚重启过 orchestrator"。完整说明
+在 [[broker_client.py]] 与 [[executor_reaper]] 的同日条目。
+
 
 ## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
 

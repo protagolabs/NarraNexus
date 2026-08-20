@@ -35,9 +35,44 @@ reaper 把**正在干活**的容器停了。
 变成跨进程(`admission.py` 里预留的 Redis seam,铁律 #20)——那牵动并发闸门本身,
 风险面大一个量级,单独排期。本次事故不在这个窗口内。
 
-**可观测**:被否决的每一次都写一行
-`instance_executor_audit` / `cull_skipped_busy`。这是 L3 指标:每行 = 一次
-"老代码会杀掉的在途 run"。计数长期为 0 要去查护栏是不是没跑,而不是默认问题消失了。
+**可观测**:被否决的 run 写一行 `instance_executor_audit` / `cull_skipped_busy`
+(带 `run_id`)。这是 L3 指标:每行 = 一次"老代码会杀掉的在途 run"。计数长期
+为 0 要去查护栏是不是没跑,而不是默认问题消失了。
+
+**判决与 stop 之间还有一段路,所以停之前再问一次**:`claim_idle_users` 是一次性
+把整批候选都否决完的,而 stop 是逐个串行执行的,每个 `docker stop` 还要等 SIGTERM
+宽限期。批里第 N 个用户被停时,它的判决可能已经是几分钟前的了——足够一条总线触发
+的 run 起来并走到 step 3、拿到那个还热着的容器。所以 `reap_once` 在每次 stop 前
+按用户再查一次(一次带索引的读)。跳过的用户此时 idle 戳已被 claim 拿走,所以它
+落在"泄漏"方向而不是"误杀"方向——这是有意的取舍。
+
+**去重不是优化,是指标定义的一部分**:被否决的用户保留 idle 戳(见上),所以
+它每轮都会被重新提名、重新否决。逐次写行会让行数变成**运行时长的函数** ——
+一条合法跑 10 小时的 run(铁律 #14 说这正常)会写出 ~300 行,读起来像几百次
+险情。`_CullVeto` 因此按 **run_id** 去重:只在挡住我们的 run **变了**的时候写行。
+
+去重键**不能**按"这一轮有没有出现"来淘汰。用户一旦在本进程活跃起来
+(`acquire` 弹掉 idle 戳)就不再是候选,于是"忘掉本轮缺席的人"会把一条**仍然
+活着**的阻塞 run 忘掉,过一会儿再为同一条 run 写第二行——网页单聊 + 群聊混用的
+用户恰好就是这次事故的触发画像,指标会正好在目标人群上偏高。所以用
+`_blocked_by: user -> (run_id, 连续缺席轮数)`,连续缺席 `_FORGET_AFTER` 轮才丢弃,
+既不误淘汰也不无界增长。
+
+pass 生命周期用 `pass_()` 上下文管理器暴露在 `BusyCheck` 上,`reap_once` 无条件
+调用(没有这个方法就退化成 `nullcontext`)——不要在协调者里 `isinstance` 嗅探
+具体实现,那与本文件"纯协调者"的定位矛盾,而且异常路径会漏掉收尾。
+
+**判决函数放在本文件**:`live_run_elsewhere` / `stale_replacement_is_safe` 都在
+这里,`broker_client` 只是 transport,拿 `allow_stale_replace` 这个 bool。这跟
+reaper 侧的 `is_busy` 注入是同一种形状:决策在编排层,执行在传输层。
+
+**第三个残余:`NARRANEXUS_RUN_RECORDING_DISABLED` 会把护栏一起关掉**。这个开关
+只在 `client.py`(**trigger 路径**)被查,而 trigger 路径正是本护栏唯一要保护的
+那一类 run:开关一开 → 没有 recorder → `_bind_run_id` 不跑 → events 行停在建表
+默认的 `completed` → 判活答"不忙" → 照杀,且审计表里连 `cull_skipped_busy` 都
+不会有(根本没判成忙)。比"绑定前窄窗口"严重得多——它覆盖整个 run 生命周期。
+处理:`live_run_elsewhere` 开头查 `recording_enabled()`,关着就一律当忙(等于
+**回收整体停摆**),并打 warning。这是有意的保守,不要当 bug 修掉。
 
 **同一处不对称的另一半(未修,已记 todo)**:纯 workers 用户(只用群聊/定时任务)
 在 backend 的 `_idle_since` 里从来不出现,他们的容器**从来不会被回收**。

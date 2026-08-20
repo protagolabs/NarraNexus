@@ -1433,7 +1433,23 @@ async def step_3_agent_loop(
             wait_until_ready,
         )
 
-        ensured = await ensure_executor(ctx.user_id)
+        # Whether the broker may destroy this container to roll a stale
+        # executor image. Decided HERE because this is the layer that knows
+        # both the user and which run is asking: by now our own events row is
+        # already 'running', so the verdict has to discount us or the image
+        # would never roll. broker_client is a transport client and owns no
+        # part of this decision.
+        from xyz_agent_context.agent_runtime.executor_reaper import (
+            stale_replacement_is_safe,
+        )
+
+        ensured = await ensure_executor(
+            ctx.user_id,
+            allow_stale_replace=await stale_replacement_is_safe(
+                ctx.user_id,
+                active_run_id=str(ctx.event.id) if ctx.event else None,
+            ),
+        )
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a

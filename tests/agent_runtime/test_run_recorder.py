@@ -306,6 +306,12 @@ async def test_user_has_live_run(db_client):
     assert await user_has_live_run(db_client, "u_never_seen") is False
     assert await user_has_live_run(db_client, "") is False
 
+    # A run asking about its own user must be able to discount itself, or
+    # the answer is unconditionally "busy" (its row is already running).
+    assert await user_has_live_run(
+        db_client, "u_busy", exclude_run_id="evt_live"
+    ) is False
+
 
 @pytest.mark.asyncio
 async def test_user_has_live_run_fails_safe_on_db_error():

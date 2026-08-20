@@ -17,9 +17,10 @@ This module is the single source of truth for that contract:
 * ``run_is_live`` — the ONE read-side answer to "is this run actually
   alive?" (shared by the agents listing, the WS observe endpoint, and
   the stale-run sweep)
-* ``user_has_live_run`` — the same answer lifted to a user, and the ONE
-  cross-process source of truth for "is this user busy?" (the executor
-  reaper's guard; in-process admission state cannot answer it)
+* ``first_live_run_id`` / ``user_has_live_run`` — the same answer lifted to
+  a user, and the ONE cross-process source of truth for "is this user busy?"
+  (the executor reaper's guard and the broker's replacement verdict;
+  in-process admission state cannot answer it)
 * ``sweep_stale_runs`` — flips running rows whose heartbeat died
   (process killed mid-run without ``finalize``). Heartbeat-based, NOT
   process-based: a run may be alive in a different process/container
@@ -129,7 +130,50 @@ def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
     return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
 
 
-async def user_has_live_run(db: "AsyncDatabaseClient", user_id: str) -> bool:
+async def first_live_run_id(
+    db: "AsyncDatabaseClient",
+    user_id: str,
+    *,
+    exclude_run_id: Optional[str] = None,
+) -> Optional[str]:
+    """The id of a live run belonging to this user, in ANY process — or None.
+
+    THE cross-process query behind ``user_has_live_run``; returns the run's
+    identity rather than a bare bool so callers can name what stopped them
+    (the reaper's audit row) without anyone writing a second running-plus-
+    heartbeat query somewhere else. Which live run is returned is arbitrary
+    when several exist.
+
+    Raises nothing to say "unknown": that ambiguity belongs to the caller,
+    and every caller in this codebase resolves it as "busy" — see
+    ``user_has_live_run``.
+    """
+    if not user_id:
+        return None
+    # Projection, not SELECT *: the events row carries several MEDIUMTEXT
+    # columns (env_context / module_instances / event_log) and liveness needs
+    # exactly these three. Keep started_at — run_is_live falls back to it
+    # before the first heartbeat lands, and dropping it would make a
+    # just-started run read as dead.
+    rows = await db.get(
+        "events",
+        {"user_id": user_id, "state": STATE_RUNNING},
+        fields=["event_id", "last_event_at", "started_at"],
+    )
+    for row in rows or []:
+        if exclude_run_id and str(row.get("event_id")) == exclude_run_id:
+            continue
+        if run_is_live(row):
+            return str(row.get("event_id"))
+    return None
+
+
+async def user_has_live_run(
+    db: "AsyncDatabaseClient",
+    user_id: str,
+    *,
+    exclude_run_id: Optional[str] = None,
+) -> bool:
     """Whether this user has ANY live run right now, in ANY process.
 
     The cross-process answer to "is this user busy?". In-process bookkeeping
@@ -141,21 +185,28 @@ async def user_has_live_run(db: "AsyncDatabaseClient", user_id: str) -> bool:
     partial view and cut off a run that is alive in the other (2026-07-31 prod
     incident: a group-chat reply killed mid-flight by the idle cull).
 
+    ``exclude_run_id`` drops one run from the answer — the caller's OWN.
+    A run asks this question from inside itself (step 3 asking whether the
+    broker may replace its user's stale container), and by then its own
+    events row is already ``running``, so without the exclusion the answer is
+    unconditionally "busy" and the guard degenerates into "never do the
+    thing". Callers that are not themselves a run (the reaper, the
+    office-watch proxy) pass nothing and count every live run.
+
     Fails SAFE: an unreadable DB returns True (busy). A missed cull costs one
     idle container for one more pass; a wrong cull kills a working agent
     (binding rule #14 — the platform must not become the interruption source).
     """
-    if not user_id:
-        return False
     try:
-        rows = await db.get("events", {"user_id": user_id, "state": STATE_RUNNING})
+        return await first_live_run_id(
+            db, user_id, exclude_run_id=exclude_run_id
+        ) is not None
     except Exception as e:  # noqa: BLE001 — unreadable truth ⇒ assume busy
         logger.warning(
             f"[run-liveness] live-run lookup failed for user={user_id!r}: {e} "
             f"— treating as busy"
         )
         return True
-    return any(run_is_live(row) for row in rows or [])
 
 
 async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
@@ -643,6 +694,7 @@ __all__ = [
     "recording_enabled",
     "run_is_live",
     "sweep_stale_runs",
+    "first_live_run_id",
     "try_extract_event_id",
     "user_has_live_run",
 ]

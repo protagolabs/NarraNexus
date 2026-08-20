@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
+
+## 2026-08-20 — /health 报 `busy`:容器自己回答"能不能停我"
+
+`/health` 多两个字段:`busy` / `inflight_work`。消费方是 **broker 的 idle
+reaper**(deploy 仓 `broker._executor_busy_state`)——这是一条跨仓契约,改
+`/health` 的返回或挪动计数的位置,会静默地把 broker 的"别停正在干活的容器"
+护栏解除。
+
+**为什么必须有**:broker 只看得见 turn **START**(ensure() 每轮调一次),之后
+backend 直接对容器流式。所以它的 `_last_seen` 量的是"距这轮开始多久",一条
+比 idle TTL 更长的 turn 和一个被遗弃的容器长得一模一样。铁律 #14 说多小时的
+turn 是一等场景,所以"把 TTL 调大"不是答案。
+
+**为什么由容器回答,而不是查编排侧的 DB**:对"能不能停这个容器"来说,容器
+自己就是精确的问题和精确的答案——没有 Step-0 写入窗口,也不依赖 run recording
+有没有被关掉。(stale **镜像**替换反过来仍用编排侧判决,见
+[[broker_client.py]]:那里的容器按定义跑着旧镜像,可能根本没有这个字段,
+探它会永远答"说不准",镜像就永远滚不动。)
+
+**计数为什么在 ASGI 中间件里,不在 handler 里**:
+`StreamingResponse.stream_response` 先 `send(http.response.start)`,**之后**
+才碰 `body_iterator`。消费者已经断开时那个 send 抛异常,生成器**从未启动**,
+而关闭一个从未启动的 async generator 不执行任何代码——包括 `finally`。
+handler 里的计数在这条路径上**永久泄漏**:容器此后一直报 busy → reaper 永远
+拒绝回收 → 槽位再也回不来,且所有指标都看不见(已对 starlette 0.50 /
+uvicorn 0.38 实测复现)。中间件把计数括在 `await self.app(...)` 两侧,所有
+退出路径都经过它。用裸 ASGI 而不是 `@app.middleware("http")`:后者是
+`BaseHTTPMiddleware`,会把流式 body 再through 一层 anyio memory stream,
+等于给每个 NDJSON 帧多拷一份——而这条路径的帧能到几百 KiB。
+
+**`busy` 的定义是"这个容器在被使用",不只是"有 agent turn 在流"**:
+`_WORK_PATH_PREFIXES` 含 `/watch`,因为 office-watch 端点代理的是**跑在本
+容器内**的服务,在它下面回收会一并杀掉那个会话。`/health` 必须留在集合外,
+否则 broker 的探测会自我实现。
+
+**已知边界**:计的是**请求**,不是会话。一个空闲的 office-watch 会话(没有
+请求在飞)仍然报 not busy。今天被"每次 proxy 调用都会刷新 broker 的
+`_last_seen`"掩盖着,真要修需要容器内的会话注册表,不在本次范围。
+
 
 ## 2026-08-19 — 执行器侧读取并转发 origin_declaration
 

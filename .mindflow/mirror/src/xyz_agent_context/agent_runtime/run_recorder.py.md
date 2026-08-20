@@ -5,10 +5,21 @@ stub: false
 ---
 ## 2026-08-19 — `user_has_live_run`:判活口径升到"用户"这一层
 
-新增 `user_has_live_run(db, user_id)` —— 把 `run_is_live` 的答案聚到用户上,
+新增 `first_live_run_id(db, user_id)` + 薄封装 `user_has_live_run` —— 把
+`run_is_live` 的答案聚到用户上,
 成为**跨进程**"这个用户忙不忙"的唯一事实源。第一个消费者是
 [[executor_reaper.py]]:executor 容器按 user 共享,但准入账本是进程级的,
 backend 看不见 workers 里的 run,于是把在跑的容器当空闲停了(2026-07-31 事故)。
+
+返回 **run id** 而不是 bool,是为了让否决方能说出"被谁拦住的"(reaper 的审计
+行按 run 去重就靠它),同时避免任何人在别处再写一份 running+心跳 查询。查询走
+`fields=[event_id,last_event_at,started_at]` 投影:events 行有好几列 MEDIUMTEXT,
+判活只要这三列;`started_at` 不能省——首拍未落时 `run_is_live` 回退读它。
+
+第二个消费者是 [[broker_client.py]]:broker 的 stale 镜像懒替换是同一个根因长
+出来的第二个杀手,判决同样在编排侧算,靠 `exclude_run_id` 排除**提问者自己那条
+run**(ensure 发生在 step 3,那时自己的 events 行已经是 running,不排除的话判决
+恒为"忙",镜像永远滚不动)。
 
 放在这里而不是 reaper 里,是因为本文件已经是判活口径的 SSOT ——
 `run_is_live` 的注释写着"ONE answer",再在别处手搓一次 running+心跳 的查询

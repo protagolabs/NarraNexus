@@ -36,11 +36,40 @@ async def test_resolves_executor_url_from_broker(monkeypatch):
         httpx, "AsyncClient", lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 != "transport"})
     )
 
-    result = await bc.ensure_executor("alice")
+    result = await bc.ensure_executor("alice", allow_stale_replace=True)
     assert result.url == "http://nx-exec-alice:8020"
     assert result.cold_started is True   # status "started" → cold
     assert captured["url"] == "http://broker:8030/executors"
-    assert captured["body"] == {"user_id": "alice"}
+    assert captured["body"] == {"user_id": "alice", "allow_stale_replace": True}
+
+
+@pytest.mark.asyncio
+async def test_default_forbids_the_broker_from_replacing(monkeypatch):
+    """The second killer of in-flight runs is the broker's lazy stale-image
+    replacement. A caller that says nothing must not authorise it — the four
+    non-run callers (office-watch proxy, narramessenger prewarm) rely on this
+    default, and so does any caller added later."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(200, json={
+            "status": "reused",
+            "executor_url": "http://nx-exec-a:8020",
+            "stale_replace_deferred": True,
+        })
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 != "transport"})
+    )
+
+    result = await bc.ensure_executor("a")
+    assert captured["body"]["allow_stale_replace"] is False
+    assert result.cold_started is False
 
 
 @pytest.mark.asyncio

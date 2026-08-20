@@ -59,10 +59,84 @@ from xyz_agent_context.agent_runtime.executor_protocol import (
 
 app = FastAPI(title="NarraNexus Agent-Loop Executor")
 
+# Long-lived work in flight inside THIS container, reported on /health as
+# ``busy`` so the broker can refuse to stop a container that is working.
+#
+# Why the broker needs it: it only ever observes turn START (ensure() is
+# called once per turn; the backend then streams against the container
+# directly), so its idle timer measures "time since a turn began". A turn
+# outliving the idle TTL is indistinguishable from an abandoned container —
+# and binding rule #14 makes multi-hour turns first-class, so "keep the TTL
+# large" is not an available answer.
+#
+# Why the CONTAINER answers rather than the orchestrator's DB: for "may I
+# stop this container" this is the exact question and the exact answer — no
+# Step-0 write window, no dependence on run recording being enabled. (Stale
+# IMAGE replacement deliberately still uses the orchestrator's verdict: the
+# container there runs an old image that may predate this field, so probing
+# it would answer "cannot tell" forever and the image would never roll.)
+#
+# Plain int: this service is single-process asyncio, so += / -= are atomic.
+_inflight_work: int = 0
+
+# Request prefixes that mean "someone is using this container". /agent-loop
+# is a streaming turn; the office-watch endpoints proxy to a server running
+# INSIDE the container, and reaping under them destroys that session too.
+# Deliberately a prefix list rather than "any request": /health itself must
+# never mark the container busy, or the broker's probe would be self-
+# fulfilling.
+_WORK_PATH_PREFIXES = ("/agent-loop", "/watch")
+
+
+class InFlightWorkMiddleware:
+    """Count in-flight work as raw ASGI, NOT inside the route handler.
+
+    The handler cannot do this correctly. ``StreamingResponse.stream_response``
+    sends ``http.response.start`` BEFORE touching ``body_iterator``, so when
+    the consumer is already gone the generator is never started — and closing
+    a never-started async generator runs none of its code, including a
+    ``finally``. The counter would then never come back down and the container
+    would report ``busy`` for the rest of its life: never reapable, no
+    self-heal, and invisible to every metric (verified against starlette
+    0.50 / uvicorn 0.38).
+
+    At this layer the accounting brackets ``await self.app(...)``, which every
+    exit path passes through — normal completion, client disconnect,
+    cancellation, an exception raised before streaming ever begins.
+
+    Raw ASGI rather than ``@app.middleware("http")`` on purpose: that decorator
+    is ``BaseHTTPMiddleware``, which re-wraps streaming bodies through an anyio
+    memory stream — an extra copy of every NDJSON frame, on the one path whose
+    frames reach hundreds of KiB.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http" or not str(scope.get("path", "")).startswith(
+            _WORK_PATH_PREFIXES
+        ):
+            await self.app(scope, receive, send)
+            return
+        global _inflight_work
+        _inflight_work += 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _inflight_work -= 1
+
+
+app.add_middleware(InFlightWorkMiddleware)
+
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "busy": _inflight_work > 0,
+        "inflight_work": _inflight_work,
+    }
 
 
 @app.post("/watch/ensure")

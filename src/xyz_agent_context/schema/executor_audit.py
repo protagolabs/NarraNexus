@@ -28,7 +28,7 @@ EVENT_REUSED = "reused"
 EVENT_CULLED = "culled"
 EVENT_ORPHAN_REAPED = "orphan_reaped"
 # The idle cull picked a user, then backed off because a run was live in
-# ANOTHER process (executor_reaper.cross_process_busy_check). Each row is one
+# ANOTHER process (executor_reaper._CullVeto / live_run_elsewhere). Each row is one
 # agent run that the pre-2026-08-19 reaper would have killed mid-flight, so the
 # count is the L3 measure of the cross-process guard: a nonzero rate means the
 # guard is load-bearing, and a rate that suddenly drops to zero is a reason to

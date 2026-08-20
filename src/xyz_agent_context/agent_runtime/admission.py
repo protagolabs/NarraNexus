@@ -42,9 +42,17 @@ import time
 from contextlib import asynccontextmanager
 from typing import Awaitable, Callable, Optional
 
+from loguru import logger
+
 # Injected cross-process veto for idle claiming: user_id -> "is busy
 # somewhere else?". See ``claim_idle_users``.
 BusyCheck = Callable[[str], Awaitable[bool]]
+
+# Simultaneous in-flight vetoes per claim pass.
+_VETO_CONCURRENCY = 8
+# Whole-batch budget. Exceeding it yields NO claims (everyone reads as busy),
+# so a wedged DB stalls culling instead of stalling the reaper itself.
+_VETO_BATCH_TIMEOUT_S = 60.0
 
 
 def _free_mem_mb() -> float:
@@ -176,7 +184,8 @@ class AgentAdmissionController:
         ttl_seconds: float,
         is_busy: Optional[BusyCheck] = None,
     ) -> list[str]:
-        """Atomically return + un-track users idle for >= ttl_seconds.
+        """Return + un-track users idle for >= ttl_seconds. Claiming is
+        DESTRUCTIVE — a returned user loses its idle stamp.
 
         A user is "idle" once THIS PROCESS's active-loop count hits zero
         (stamped in release). Returned users are removed from idle tracking
@@ -214,9 +223,37 @@ class AgentAdmissionController:
 
         busy: set[str] = set()
         if is_busy is not None:
-            verdicts = await asyncio.gather(
-                *(is_busy(u) for u, _ in candidates), return_exceptions=True
-            )
+            # Bounded fan-out: one veto is one DB round-trip, and the candidate
+            # count is caller-driven (everyone who crossed the TTL since the
+            # last pass). Unbounded, a burst would contend with live requests
+            # for the same pool — the recurring shape in this codebase is
+            # "caller-controlled input with no cardinality bound".
+            gate = asyncio.Semaphore(_VETO_CONCURRENCY)
+
+            async def _judge(u: str) -> bool:
+                async with gate:
+                    return await is_busy(u)
+
+            try:
+                # A hung DB pool would otherwise park this gather forever, and
+                # with it reap_once and the whole reaper loop — silently, with
+                # no exception for the done-callback to report (incident
+                # lesson #4: liveness needs more than "the task still exists").
+                # A veto budget, not a cap on anything a user's agent does.
+                verdicts = await asyncio.wait_for(
+                    asyncio.gather(
+                        *(_judge(u) for u, _ in candidates),
+                        return_exceptions=True,
+                    ),
+                    timeout=_VETO_BATCH_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[admission] veto batch timed out after "
+                    f"{_VETO_BATCH_TIMEOUT_S}s for {len(candidates)} candidate(s) "
+                    f"— treating all as busy"
+                )
+                return []
             for (u, _), verdict in zip(candidates, verdicts):
                 # An unusable verdict means we do not know → do not reap.
                 if isinstance(verdict, BaseException) or verdict:

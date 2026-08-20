@@ -13,14 +13,22 @@ last_verified: 2026-08-19
 签名变成 `claim_idle_users(ttl_seconds, is_busy=None)`,`BusyCheck =
 Callable[[str], Awaitable[bool]]`。三条不能改的语义:
 
-1. **否决在锁外跑**。它会做 I/O(reaper 那个查 DB),握着 `_cond` 等 I/O 会让
-   所有 `acquire`/`release` 排在后面。
+1. **否决在锁外跑**,并用 `Semaphore(_VETO_CONCURRENCY=8)` 限流。它会做 I/O
+   (reaper 那个查 DB),握着 `_cond` 等 I/O 会让所有 `acquire`/`release` 排在
+   后面;而候选数是调用方可控的(这一轮跨过 TTL 的全部用户),不限流的话一轮
+   突发会和在线请求抢同一个连接池。
 2. **锁外跑就要二次校验**。第二段重新拿锁时比对
    `self._idle_since.get(u) != ts`:否决在飞的时候用户可能已经重新活跃
    (`acquire` 弹掉了戳)或又释放了一次(写了新戳),这两种都不认领。
 3. **被否决的用户保留原戳**。claim 是破坏性的,这是整个改动的要点——见
    [[executor_reaper.py]] 里"为什么否决必须在这里"。异常也算 busy:拿不到
    结论不构成回收许可(铁律 #14)。
+
+整批否决还包在 `wait_for(_VETO_BATCH_TIMEOUT_S=60)` 里:`is_busy` 做 DB I/O,
+连接池挂死会让 `gather` 永不返回 → `reap_once` 永不返回 → 整个 reaper 循环静默
+停摆,没有异常、没有日志、done-callback 也不会响(事故教训 #4:L1 只能发现"任务
+还在不在",发现不了"任务还醒不醒")。超时按"全部算忙"处理,即返回空 claim。
+这是给探测本身的预算,不是给任何 agent 行为的上限,与铁律 #14 无关。
 
 `is_busy=None` 保持原语义,只在"本进程是唯一跑 agent 的进程"时才安全(测试、
 单进程部署);生产装配一律注入。
