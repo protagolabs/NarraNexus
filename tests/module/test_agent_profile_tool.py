@@ -514,8 +514,11 @@ class TestSelfNameLine:
         profile = f"## 5. Owner observations\n{line}\n"
         assert retire_self_name(profile, "美食家", "小绿") == profile
 
-    @pytest.mark.parametrize("sep", ["；", ";", "，", ",", "、", "(", "（", "/", "-"])
-    def test_a_separator_still_opens_a_description(self, sep):
+    @pytest.mark.parametrize("sep", ["；", ";", "，", ",", "、", "(", "（"])
+    def test_a_description_opener_still_opens_a_description(self, sep):
+        """Openers only. `/` and `-` were in this list and are the reason three
+        rounds produced corrupted names: they live inside names, so the name now
+        runs through them to the first opener."""
         from xyz_agent_context.module.awareness_module import retire_self_name
 
         out = retire_self_name(f"- 名称：美食家{sep}精通各地美食\n", "美食家", "小绿")
@@ -660,7 +663,9 @@ class TestNamesContainingSeparators:
 
         profile = "## 4. Role and Identity\n- 名称：小绿-2\n"
         assert declared_self_name(profile, "小绿-2") == "小绿-2"
-        assert declared_self_name(profile, "美食家") == "小绿"  # stale: guess the tail off
+        # A hyphen is not a boundary, so the whole name comes back either way —
+        # which is what stops `小绿-2` from being read as `小绿` and re-prefixed.
+        assert declared_self_name(profile, "美食家") == "小绿-2"
 
     def test_the_description_tail_still_comes_off(self):
         from xyz_agent_context.module.awareness_module import declared_self_name

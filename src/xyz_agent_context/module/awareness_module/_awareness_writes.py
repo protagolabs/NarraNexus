@@ -271,7 +271,18 @@ _SELF_NAME_LINE = re.compile(
 # starts a description. A SPACE does not qualify — `- name: 美食家 是 owner 最近
 # 常去的那家店` is an owner observation that merely opens with the marker, and
 # rewriting it would be the content loss this whole area promises never to cause.
-_NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", ".", "|", "/", "-", "—", "(", "（")
+# Which characters may end a name, and the distinction is the whole fix. A
+# DESCRIPTION OPENER (`；，、。(`) starts the prose after a name — the shape the
+# prescribed template produces and the one prod actually held. A hyphen, slash or
+# dot is different: those live INSIDE names (小绿-2, netmind/ops, v1.2), so
+# treating one as a boundary is where every corruption came from —
+# `美食家-资深；…` cut at the hyphen, yielding the never-existing `小绿-2-资深`,
+# and `小绿-2` read as `小绿` and got re-prefixed on every call.
+#
+# Weak characters are therefore never boundaries: the name simply runs through
+# them to the first opener. Owner's call, 2026-08-20 — guessing is allowed, but
+# only at one kind of separator.
+_NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", "(", "（")
 
 # Only the agent's OWN section may be edited. Everything else in this profile
 # belongs to the owner: the prescribed template puts their preferences and
@@ -600,6 +611,16 @@ async def reconcile_identity_record(
             return False
         refused = False
         if stale_line and declared:
+            # The rename path knows the old name — it read it off the row before
+            # writing. HERE it was inferred from the line, and acting on an
+            # inference is what produced `小绿-2-资深` out of
+            # `美食家-资深；精通各地美食推荐`: a name that never existed, after
+            # which the profile was considered correct. Third variant of that
+            # same inference in three review rounds.
+            #
+            # So the repair only rewrites a declaration that IS a bare name. A
+            # line carrying more than the name keeps it, the record contradicts
+            # it, and the caller is told the memory is not fully correct.
             try:
                 profile = retire_self_name(profile, declared, current_name)
             except _AmbiguousSelfName as exc:

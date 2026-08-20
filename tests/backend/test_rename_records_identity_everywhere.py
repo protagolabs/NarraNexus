@@ -1142,3 +1142,37 @@ async def test_appending_to_a_name_reports_the_line_it_could_not_retire(
     )
     profile = await _profile(db_client)
     assert "You are 「小绿2」" in _identity_entries(profile)[0]
+
+
+@pytest.mark.asyncio
+async def test_a_hyphen_is_never_taken_for_the_end_of_a_name(db_client):
+    """Round 13: `- 名称：美食家-资深；精通各地美食推荐` on an agent called
+    `小绿-2` had its name inferred as `美食家` — the text before the first
+    separator, and that separator was a HYPHEN — so the rewrite produced
+    `- 名称：小绿-2-资深；…`, a name that never existed, after which the profile
+    was considered correct. Third corruption from the same inference in three
+    rounds; round 10's was `小绿-2` read as `小绿` and re-prefixed every call.
+
+    All of them needed a hyphen (or slash, or dot) to count as the end of a
+    name. Those live INSIDE names; only a description opener (；，、。() ends one.
+    The name runs through the weak characters to the first opener, so the
+    description survives and no name is invented.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+
+    await _seed(
+        db_client,
+        name="小绿-2",
+        profile=(
+            "# Agent Awareness Profile\n\n"
+            "## 4. Role and Identity\n"
+            "- 名称：美食家-资深；精通各地美食推荐\n"
+        ),
+    )
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿-2")
+
+    profile = await _profile(db_client)
+    assert "- 名称：小绿-2；精通各地美食推荐" in profile
+    assert "小绿-2-资深" not in profile, "invented a name that never existed"
+    assert result.identity_reconciled is True
