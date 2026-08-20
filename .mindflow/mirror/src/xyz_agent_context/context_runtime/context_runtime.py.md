@@ -4,6 +4,13 @@ last_verified: 2026-08-20
 stub: false
 ---
 
+## 2026-08-20 — 回复语言政策反转,详见 [[prompts.py]]
+
+build_reply_language_section 注入的指令改为三级优先:消息内显式语言
+要求 > 当次消息语言 > 配置偏好兜底(2026-08-11 条目记的「界面语言
+硬约束」当日准确,现已废——正本在 prompts.py 的策略条目,此处只留
+指针,不复述)。
+
 ## 2026-08-20 — bootstrap 注入的判定外包给共享 lifecycle
 
 Part 5（Bootstrap 注入）里「Bootstrap.md 在不在 + 有没有超阈值」这段判定不再内联,改调
