@@ -45,6 +45,9 @@ MAX_OFFICE_ASSET_BYTES = 10 * _MB
 #: JSON quoting/escaping margin on top of the artifact content cap — a
 #: 25 MB document's JSON-encoded body is legitimately larger than 25 MB.
 PUT_CONTENT_MARGIN = 2 * _MB
+#: multipart boundary/part-header overhead on top of the single-file cap —
+#: the declared Content-Length covers the whole multipart body, not the file.
+MULTIPART_FRAMING_MARGIN = _MB
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
@@ -56,7 +59,7 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
     (
         frozenset({"POST"}),
         re.compile(r"^/api/agents/[^/]+/artifacts/[^/]+/office-asset$"),
-        MAX_OFFICE_ASSET_BYTES + _MB,  # multipart framing margin
+        MAX_OFFICE_ASSET_BYTES + MULTIPART_FRAMING_MARGIN,
     ),
     (
         frozenset({"POST"}),

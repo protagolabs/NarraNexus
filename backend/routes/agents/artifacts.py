@@ -470,13 +470,14 @@ async def upload_office_asset(
     # signature the framework has ALREADY consumed the multipart stream
     # before this line — python-multipart spools big bodies to disk, so the
     # real pre-buffer bound is the declared-length middleware
-    # (backend/middleware/body_size.py) plus the container's disk. The
-    # checks below bound what we COPY out of the spool and what lands next
-    # to the entry; they are not, and cannot be, a memory gate.
+    # (backend/middleware/body_size.py, with a multipart framing margin)
+    # plus the container's disk. The streamed-copy check below bounds the
+    # FILE bytes we copy out of the spool; it is not, and cannot be, a
+    # memory gate. No declared-length check here (review #334 r5 M4): the
+    # header covers the whole multipart body incl. framing, so comparing it
+    # to the single-file cap 413s a just-under-10MB image the streamed
+    # check would rightly accept — the middleware owns the declared gate.
     max_bytes = MAX_OFFICE_ASSET_BYTES
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > max_bytes:
-        raise HTTPException(413, "asset too large (10 MB max)")
 
     # Unicode-category sanitize (review #334 I15): \w keeps letters/digits of
     # EVERY script (kana, hangul, cyrillic, arabic, CJK...), not a
@@ -497,7 +498,11 @@ async def upload_office_asset(
             while chunk := await file.read(1024 * 1024):
                 received += len(chunk)
                 if received > max_bytes:
-                    raise HTTPException(413, "asset too large (10 MB max)")
+                    raise HTTPException(
+                        413,
+                        "asset too large "
+                        f"({MAX_OFFICE_ASSET_BYTES // (1024 * 1024)} MB max)",
+                    )
                 out.write(chunk)
     except BaseException:
         # Never leave a partial file: the entry dir is served by the raw

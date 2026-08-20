@@ -221,3 +221,12 @@ office-asset 保留 UploadFile:框架已 spool 到磁盘,函数内检查约束�
 是「拷出 spool 的量与落盘物」,不是内存门——注释已改实话。
 文件名截断改 stem[:104]+ext[:16] **分开截**(一刀切 [:120] 会吃掉
 后缀;raw 路由按扩展名判 media_type,症状=「替换成功但没图」)。
+
+## 2026-08-20(三)— office-asset 路由侧声明长度快拒删除(#334 r5 M4)
+
+上两节提到的 office-asset「声明长度快拒」已删:Content-Length 覆盖
+**整个 multipart body**(boundary/part header 在内),拿它比单文件
+10MB 会把 9.99MB 的合法图片 413 掉;声明门归中间件(带
+MULTIPART_FRAMING_MARGIN),文件字节的真实 10MB 由流式拷贝那道执行
+(越界 413 且不留半个文件,那才是比文件字节的门)。413 文案改由
+常量算出,改上限不再产生说错数字的错误消息。

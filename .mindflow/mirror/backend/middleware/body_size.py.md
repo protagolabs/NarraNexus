@@ -30,3 +30,11 @@ MAX_OFFICE_EDIT_BYTES / MAX_OFFICE_ASSET_BYTES / PUT_CONTENT_MARGIN 的
 MAX_ARTIFACT_BYTES 从 xyz_agent_context.artifact 引入。「门还挂着吗」
 不再靠读注释:test_body_size_gate.py 遍历真实路由表验证每条 BODY_CAPS
 命中已注册路由 + 中间件确实挂载 + 顺序在 access_log 内。
+
+「**新写入口必须来这里加一行**」这条契约也有执行者了(#334 r5 I2):
+`test_every_write_route_has_a_cap_or_an_exemption` 反向遍历——每个已注册
+POST/PUT/PATCH 路由要么被某条 BODY_CAPS 命中,要么在测试内的显式豁免
+清单 `_NO_BODY_CAP_EXEMPT` 里(按路由模板逐条列,分组注明为何不设上限;
+失效豁免同样报红)。新增写端点时 CI 会强制做一次「体积故事」的显式决定。
+豁免清单里「小型定形 JSON」一组是否该有平台级默认上限,是一个尚未做的
+独立决策——豁免记录的是现状,不是永久背书。

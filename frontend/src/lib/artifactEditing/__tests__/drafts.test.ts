@@ -22,10 +22,13 @@ beforeEach(() => localStorage.clear());
 const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
 function installThrowingStorage(throwOnKeySubstring: string): Record<string, string> {
-  let store: Record<string, string> = {};
+  const store: Record<string, string> = {};
   const fake = {
     get length() { return Object.keys(store).length; },
-    clear() { store = {}; },
+    // In-place clear (r5 M6): rebinding `store` would strand the reference
+    // this function RETURNED — a later case seeding after a clear() would
+    // write into an object the fake no longer reads.
+    clear() { for (const k of Object.keys(store)) delete store[k]; },
     getItem(k: string) {
       return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null;
     },
@@ -47,6 +50,12 @@ function installThrowingStorage(throwOnKeySubstring: string): Record<string, str
 afterEach(() => {
   if (originalDescriptor) {
     Object.defineProperty(globalThis, 'localStorage', originalDescriptor);
+  } else {
+    // No descriptor to restore means localStorage was NOT an own property
+    // of globalThis in this environment (r5 M5) — explicitly remove the
+    // fake so lookups fall back to wherever the environment defines it,
+    // instead of the fake silently swallowing every later suite's storage.
+    delete (globalThis as unknown as Record<string, unknown>).localStorage;
   }
 });
 

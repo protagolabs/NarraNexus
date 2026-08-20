@@ -446,4 +446,6 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 access_log 内、routes 外**——外一层它的 413 从访问日志消失,内到
 routes 就退回假门。OPTIONS 复核结论:preflight 无 Content-Length,
 天然放行。顺序由 tests/backend/test_body_size_gate.py 断言钉住——
+含「CORS 在四层最外」(历史上唯一真被破过的那条,#334 r5 I1 补钉;
+断言是相对序而非 `names[0]`,将来在最外再加 tracing 层是合法改动)——
 注释顺序契约本仓已破过一次,不再只靠注释。
