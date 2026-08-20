@@ -446,16 +446,25 @@ app = FastAPI(
 # Middleware order is LIFO: the LAST registration is the OUTERMOST layer
 # and runs FIRST per request. Registration order below therefore yields
 #
-#     CORS  ->  access_log  ->  auth  ->  routes
+#     CORS  ->  access_log  ->  body_size  ->  auth  ->  routes
 #
 # and every response, including ones short-circuited deep inside, unwinds
-# back out through all three.
+# back out through all four.
 #
-# Two constraints are encoded here, both learned the hard way:
+# Three constraints are encoded here, all learned the hard way:
 #
 # 1. access_log must wrap auth, so a 401/402 that never reaches a route
 #    still produces an access line.
-# 2. CORS must wrap EVERYTHING. It used to be registered first, which made
+#
+# 1b. body_size must sit INSIDE access_log and OUTSIDE the routes
+#    (review #334 r4 I1): one layer further out and its 413s vanish from
+#    the access log (an on-call can't even confirm the request happened);
+#    pushed into the routes it becomes the fake after-the-fact gate the
+#    middleware exists to replace (FastAPI buffers the body before route
+#    dependencies run). It is header-only, so OPTIONS preflights (no
+#    Content-Length) pass through untouched.
+# 2. CORS must wrap EVERYTHING (including body_size's 413s — a cross-
+#    origin 413 without ACAO is invisible to the caller). It used to be registered first, which made
 #    it the innermost layer — so when auth_middleware returned a 401
 #    directly, CORSMiddleware never ran and that response carried no
 #    Access-Control-Allow-Origin header. Cross-origin callers (any
@@ -470,8 +479,8 @@ from backend.middleware.access_log import access_log_middleware
 from backend.middleware.body_size import body_size_middleware
 
 app.middleware("http")(auth_middleware)
-app.middleware("http")(access_log_middleware)
 app.middleware("http")(body_size_middleware)
+app.middleware("http")(access_log_middleware)
 
 app.add_middleware(
     CORSMiddleware,

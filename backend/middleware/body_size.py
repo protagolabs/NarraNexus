@@ -31,29 +31,42 @@ from typing import List, Tuple
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from xyz_agent_context.artifact import MAX_ARTIFACT_BYTES
+
 _MB = 1024 * 1024
+
+# Authoritative per-entrance limits (review #334 r4 I2): the routes import
+# THESE (routes → middleware is the safe direction; the middleware must
+# never import routes), so a cap and its gate can only move together.
+#: officecli edit commands are small JSON; anything bigger is not an edit.
+MAX_OFFICE_EDIT_BYTES = 64 * 1024
+#: one uploaded image for a T2 replace.
+MAX_OFFICE_ASSET_BYTES = 10 * _MB
+#: JSON quoting/escaping margin on top of the artifact content cap — a
+#: 25 MB document's JSON-encoded body is legitimately larger than 25 MB.
+PUT_CONTENT_MARGIN = 2 * _MB
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
     (
         frozenset({"PUT"}),
         re.compile(r"^/api/agents/[^/]+/artifacts/[^/]+/content$"),
-        27 * _MB,  # MAX_ARTIFACT_BYTES + JSON quoting margin
+        MAX_ARTIFACT_BYTES + PUT_CONTENT_MARGIN,
     ),
     (
         frozenset({"POST"}),
         re.compile(r"^/api/agents/[^/]+/artifacts/[^/]+/office-asset$"),
-        11 * _MB,  # 10 MB asset + multipart framing margin
+        MAX_OFFICE_ASSET_BYTES + _MB,  # multipart framing margin
     ),
     (
         frozenset({"POST"}),
         re.compile(r"^/api/office-watch/edit$"),
-        64 * 1024,
+        MAX_OFFICE_EDIT_BYTES,
     ),
     (
         frozenset({"POST"}),
         re.compile(r"^/api/public/office-watch-proxy/"),
-        64 * 1024,
+        MAX_OFFICE_EDIT_BYTES,
     ),
 ]
 

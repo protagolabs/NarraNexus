@@ -51,6 +51,7 @@ from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
+from backend.middleware.body_size import MAX_OFFICE_EDIT_BYTES
 from backend.routes.office_watch import _token as office_watch_token
 from backend.routes.artifacts._token import TokenError
 from xyz_agent_context.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
@@ -329,8 +330,9 @@ async def office_watch_open(request: Request, artifact_id: str) -> dict:
 # logs / history / Referer, and leaking one used to mean "can rewrite the
 # document for 2 hours".
 EDIT_POST_ALLOWLIST = frozenset({"api/selection"})
-# officecli commands are small JSON; anything bigger is not an edit.
-MAX_EDIT_POST_BYTES = 64 * 1024
+# Single-sourced with the middleware gate (r4 I2): the cap and the
+# declared-length door can only move together.
+MAX_EDIT_POST_BYTES = MAX_OFFICE_EDIT_BYTES
 
 
 async def _reject_oversized_edit(request: Request) -> None:

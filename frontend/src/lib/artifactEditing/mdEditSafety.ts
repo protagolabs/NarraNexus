@@ -37,8 +37,12 @@ export function extractFrontmatter(text: string): { frontmatter: string; body: s
   // inferred eol at all: split on '\n' unconditionally (each line keeps its
   // own trailing '\r'), compare fence lines with ONE trailing '\r'
   // stripped, and rejoin with '\n' — byte-identical reassembly for every
-  // eol combination. A pathological '\r\r\n' fence stays non-frontmatter
-  // on purpose (strip removes exactly one '\r').
+  // eol combination, with ONE declared exception: a document whose closing
+  // fence is the last line WITHOUT a trailing newline gains one (the
+  // frontmatter always ends in '\n'); harmless to YAML consumers and
+  // unchanged from every earlier shape of this function. A pathological
+  // '\r\r\n' fence stays non-frontmatter on purpose (strip removes
+  // exactly one '\r').
   const strip = (s: string) => (s.endsWith('\r') ? s.slice(0, -1) : s);
   const lines = text.split('\n');
   if (strip(lines[0]) !== '---') return { frontmatter: '', body: text };

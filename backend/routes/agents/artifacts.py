@@ -34,7 +34,7 @@ import re
 import uuid
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -49,6 +49,7 @@ from xyz_agent_context.settings import settings
 from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
+from backend.middleware.body_size import MAX_OFFICE_ASSET_BYTES, PUT_CONTENT_MARGIN
 from backend.routes.artifacts import _token as _artifact_token
 
 
@@ -379,9 +380,13 @@ async def put_artifact_content(request: Request, agent_id: str, artifact_id: str
     409 carries {current_hash} in the detail so the editor can offer the
     re-base choice ("overwrite anyway" resends with it; "discard mine"
     reloads). Session-authed only — view tokens stay read-only.
+
+    Request body: {"content": str, "base_hash": str} — hand-parsed, so this
+    endpoint has no OpenAPI requestBody schema and its 422 detail is a plain
+    string, not FastAPI's [{loc, msg, type}] shape.
     """
     await _verify_agent_ownership(request, agent_id)
-    cap = MAX_ARTIFACT_BYTES + 2 * 1024 * 1024  # JSON quoting margin
+    cap = MAX_ARTIFACT_BYTES + PUT_CONTENT_MARGIN
     chunks: list[bytes] = []
     received = 0
     async for chunk in request.stream():
@@ -468,7 +473,7 @@ async def upload_office_asset(
     # (backend/middleware/body_size.py) plus the container's disk. The
     # checks below bound what we COPY out of the spool and what lands next
     # to the entry; they are not, and cannot be, a memory gate.
-    max_bytes = 10 * 1024 * 1024
+    max_bytes = MAX_OFFICE_ASSET_BYTES
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > max_bytes:
         raise HTTPException(413, "asset too large (10 MB max)")

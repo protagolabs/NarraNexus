@@ -358,7 +358,7 @@ def test_asset_long_filename_truncates_but_keeps_extension(commit_env):
 # ── review #334 r3 I4: the ONLY structurally sound gate gets its pins ────────
 
 
-def _edit_app(monkeypatch, proxy_client):
+def _edit_app(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -374,7 +374,7 @@ def _edit_app(monkeypatch, proxy_client):
 
 
 def test_edit_endpoint_declared_oversize_is_413_upstream_untouched(monkeypatch, proxy_client):
-    client = _edit_app(monkeypatch, proxy_client)
+    client = _edit_app(monkeypatch)
     r = client.post(
         "/api/office-watch/edit?artifact_id=art_deck0001",
         content=b"[]",
@@ -387,7 +387,7 @@ def test_edit_endpoint_declared_oversize_is_413_upstream_untouched(monkeypatch, 
 def test_edit_endpoint_chunked_oversize_is_413_upstream_untouched(monkeypatch, proxy_client):
     """Chunked (no Content-Length): only the streamed accumulation can catch
     it — this is the whole point of the second gate."""
-    client = _edit_app(monkeypatch, proxy_client)
+    client = _edit_app(monkeypatch)
 
     def gen():
         for _ in range(65):
@@ -403,7 +403,7 @@ def test_edit_endpoint_chunked_oversize_is_413_upstream_untouched(monkeypatch, p
 
 
 def test_edit_endpoint_non_json_body_is_422(monkeypatch, proxy_client):
-    client = _edit_app(monkeypatch, proxy_client)
+    client = _edit_app(monkeypatch)
     r = client.post(
         "/api/office-watch/edit?artifact_id=art_deck0001",
         content=b"not json",
@@ -414,7 +414,7 @@ def test_edit_endpoint_non_json_body_is_422(monkeypatch, proxy_client):
 
 
 def test_edit_endpoint_non_array_body_is_422(monkeypatch, proxy_client):
-    client = _edit_app(monkeypatch, proxy_client)
+    client = _edit_app(monkeypatch)
     r = client.post(
         "/api/office-watch/edit?artifact_id=art_deck0001",
         json={"a": 1},
