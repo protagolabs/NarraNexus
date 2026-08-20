@@ -96,3 +96,14 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
 
 Content-Length 快拒(零字节入内存)+ 流式累计上限(header 可撒谎/缺失)
 ——两道缺一不可。
+
+## 2026-08-20 — 写路径升格 session-authed(#334 I14)
+
+公开代理的 POST 白名单收窄到**只剩 api/selection**(页面自己的选区
+上报,无写能力)——2 小时 view token 回归纯只读凭据:路径 token 会进
+access log/历史/Referer,泄露一个绝不能等于「可改写文档 2 小时」。
+编辑动词走新的 `POST /api/office-watch/edit`(authed router):
+session 鉴权 + _lookup_office_file 归属确权 + ensure watch + 转发
+/api/batch。**附带红利:桌面 WKWebView 混合内容拦截被同源后端一跳
+绕过**(原手动清单风险项消灭)。EDIT_POST_ALLOWLIST 语义(绝不放宽成
+通用隧道)与 64KB 上限保留。

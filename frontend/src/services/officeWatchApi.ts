@@ -49,16 +49,16 @@ export const officeWatchApi = {
   },
 
   /**
-   * Run edit commands on the watch server through the proxy's POST
-   * allowlist (spec B §3.2). `watchBase` is the ORIGINAL http open() URL
-   * (token+port in the path) — never the desktop officewatch:// variant.
-   * Returns the parsed per-item results.
+   * Run edit commands via the SESSION-AUTHED backend endpoint (review #334
+   * I14): the view token stays a pure read credential, and the same-origin
+   * hop sidesteps the desktop WKWebView mixed-content block. The backend
+   * ensures the watch and forwards to its /api/batch.
    */
-  async sendBatch(watchBase: string, commands: unknown[]): Promise<{ ok: boolean; raw: unknown }> {
-    const base = watchBase.endsWith('/') ? watchBase : `${watchBase}/`;
-    const r = await fetch(`${base}api/batch`, {
+  async sendBatch(artifactId: string, commands: unknown[]): Promise<{ ok: boolean; raw: unknown }> {
+    const q = `artifact_id=${encodeURIComponent(artifactId)}`;
+    const r = await fetch(`${getApiBaseUrl()}/api/office-watch/edit?${q}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(commands),
     });
     if (!r.ok) throw new Error(`watch batch failed: ${r.status}`);
@@ -74,19 +74,11 @@ export const officeWatchApi = {
   },
 
   /** Read one element (path → {text, ...}) for pre-filling the text editor. */
-  async getElement(watchBase: string, path: string): Promise<{ text?: string } | null> {
-    const base = watchBase.endsWith('/') ? watchBase : `${watchBase}/`;
-    const r = await fetch(`${base}api/batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([{ command: 'get', path }]),
-    });
-    if (!r.ok) return null;
+  async getElement(artifactId: string, path: string): Promise<{ text?: string } | null> {
     try {
-      const outer = (await r.json()) as { message?: string };
-      const inner = JSON.parse(outer.message ?? '{}');
-      const first = inner?.data?.results?.[0]?.output?.results?.[0];
-      return first ?? null;
+      const res = await officeWatchApi.sendBatch(artifactId, [{ command: 'get', path }]);
+      const inner = res.raw as { data?: { results?: Array<{ output?: { results?: Array<{ text?: string }> } }> } };
+      return inner?.data?.results?.[0]?.output?.results?.[0] ?? null;
     } catch {
       return null;
     }

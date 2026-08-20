@@ -105,9 +105,6 @@ export default function OfficeWatchViewer({ artifact }: Props) {
   // watch failure (still coming up, mid-restart) is user-recoverable.
   const [retryNonce, setRetryNonce] = useState(0);
   // ── T1 direct-edit bar state (spec B §3.3) ──
-  // The ORIGINAL http open() URL — POSTs must use it even on desktop, where
-  // the iframe itself loads via the officewatch:// scheme.
-  const postBaseRef = useRef<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [editText, setEditText] = useState<string | null>(null);
   const [editBusy, setEditBusy] = useState(false);
@@ -154,7 +151,6 @@ export default function OfficeWatchViewer({ artifact }: Props) {
         return;
       }
       if (cancelled) return;
-      postBaseRef.current = base; // http URL — POSTs always use this
       // Desktop loads the watch page through the officewatch:// custom scheme
       // (mixed-content dodge); browser uses the http URL directly.
       if (isTauri()) base = toDesktopScheme(base);
@@ -213,12 +209,11 @@ export default function OfficeWatchViewer({ artifact }: Props) {
   // Run a T1 op batch: proxy POST → registry commit point → clear selection.
   // The preview refresh rides the watch's own SSE; no iframe reload here.
   const runEdit = async (commands: unknown[]) => {
-    const base = postBaseRef.current;
-    if (!base || editBusy) return;
+    if (editBusy) return;
     setEditBusy(true);
     setEditNotice(null);
     try {
-      const res = await officeWatchApi.sendBatch(base, commands);
+      const res = await officeWatchApi.sendBatch(artifact.artifact_id, commands);
       if (!res.ok) {
         setEditNotice(t('artifacts.officeEdit.opFailed', { defaultValue: 'Edit failed.' }));
         return;
@@ -235,9 +230,8 @@ export default function OfficeWatchViewer({ artifact }: Props) {
   };
 
   const startTextEdit = async () => {
-    const base = postBaseRef.current;
-    if (!base || selection.length !== 1) return;
-    const el = await officeWatchApi.getElement(base, selection[0]);
+    if (selection.length !== 1) return;
+    const el = await officeWatchApi.getElement(artifact.artifact_id, selection[0]);
     setEditText(el?.text ?? '');
   };
 

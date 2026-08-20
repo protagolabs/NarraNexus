@@ -57,16 +57,29 @@ def proxy_client(monkeypatch):
     return {"client": TestClient(app), "calls": calls}
 
 
-def test_post_allowed_path_forwards(proxy_client):
+def test_post_selection_forwards(proxy_client):
+    """The one public POST left: the watch page's own selection report."""
     token = mint(user_id="user_y", port=26320)
     r = proxy_client["client"].post(
-        f"/api/public/office-watch-proxy/{token}/26320/api/batch",
-        json=[{"command": "set", "path": "/body/p[1]", "props": {"text": "x"}}],
+        f"/api/public/office-watch-proxy/{token}/26320/api/selection",
+        json={"paths": ["/body/p[1]"]},
     )
     assert r.status_code == 200
-    assert r.json() == {"success": True}
-    assert proxy_client["calls"][0]["path"] == "api/batch"
-    assert b'"command"' in proxy_client["calls"][0]["body"]
+    assert proxy_client["calls"][0]["path"] == "api/selection"
+
+
+def test_post_edit_verbs_are_no_longer_public(proxy_client):
+    """review #334 I14: the 2h view token must never grant writes — api/send
+    and api/batch left the public allowlist for the session-authed
+    /office-watch/edit endpoint."""
+    token = mint(user_id="user_y", port=26320)
+    for path in ("api/batch", "api/send"):
+        r = proxy_client["client"].post(
+            f"/api/public/office-watch-proxy/{token}/26320/{path}",
+            json=[],
+        )
+        assert r.status_code == 405, path
+    assert proxy_client["calls"] == []
 
 
 def test_post_disallowed_path_is_405(proxy_client):
@@ -77,6 +90,30 @@ def test_post_disallowed_path_is_405(proxy_client):
     )
     assert r.status_code == 405
     assert proxy_client["calls"] == []
+
+
+def test_authed_edit_endpoint_forwards_batch(monkeypatch, proxy_client):
+    """/office-watch/edit: session-authed, ensures the watch, forwards to
+    the watch server's /api/batch."""
+    async def fake_lookup(request, artifact_id):
+        return ("user_y", "agent_x", "/abs/deck.pptx", "deck.pptx")
+
+    monkeypatch.setattr(owp, "_lookup_office_file", fake_lookup)
+    monkeypatch.setattr(owp, "is_cloud_mode", lambda: False)
+    monkeypatch.setattr(owp, "ensure_watch", lambda *a: 26320)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    app.include_router(owp.router, prefix="/api")
+    client = TestClient(app)
+    r = client.post(
+        "/api/office-watch/edit?artifact_id=art_deck0001",
+        json=[{"command": "remove", "path": "/slide[2]"}],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"success": True}
+    assert proxy_client["calls"][-1]["path"] == "api/batch"
+    assert b'"remove"' in proxy_client["calls"][-1]["body"]
 
 
 def test_post_port_mismatch_is_403(proxy_client):
@@ -92,7 +129,7 @@ def test_post_port_mismatch_is_403(proxy_client):
 def test_post_oversize_body_is_413(proxy_client):
     token = mint(user_id="user_y", port=26320)
     r = proxy_client["client"].post(
-        f"/api/public/office-watch-proxy/{token}/26320/api/batch",
+        f"/api/public/office-watch-proxy/{token}/26320/api/selection",
         content=b"x" * (64 * 1024 + 1),
         headers={"Content-Type": "application/json"},
     )

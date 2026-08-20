@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/OfficeWatchViewer.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -82,3 +82,8 @@ officewatch:// 变体;DMG 上 https://tauri.localhost→http://localhost
 单元格→+行(index=行号,插当前行后)/+列(追加);图片→替换(uploadAsset
 落 entry 同目录取绝对路径→set src);编辑框里 '=' 开头且是单元格→
 formula prop 而非 text。全部走同一 runEdit(batch→commit)管线。
+
+## 2026-08-20 — 编辑走 authed 端点,postBaseRef 退役(#334 I14)
+
+原「POST 永远用 http open URL」的坑随之消灭——编辑请求打同源后端,
+DMG 混合内容风险不复存在。

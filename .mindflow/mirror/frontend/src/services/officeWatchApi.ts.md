@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/services/officeWatchApi.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -38,3 +38,6 @@ watch server 双层包裹(外层 {success,message},message 才是真结果
 JSON)——解析集中在这里,别在组件里再拆一遍。
 
 ## 2026-08-19(二)— uploadAsset(office-asset multipart)
+
+## 2026-08-20 — sendBatch/getElement 改走 authed /office-watch/edit
+(#334 I14);签名从 watchBase 改为 artifactId。

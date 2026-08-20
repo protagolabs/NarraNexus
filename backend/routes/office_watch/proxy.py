@@ -39,13 +39,14 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import os
 import re
 import time
 from urllib.parse import quote
 
 import aiohttp
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
@@ -320,6 +321,44 @@ async def office_watch_open(request: Request, artifact_id: str) -> dict:
     return {"raw_url": raw_url, "port": port}
 
 
+@router.post("/office-watch/edit")
+async def office_watch_edit(
+    request: Request, artifact_id: str, commands: list = Body(...)
+) -> dict:
+    """Run officecli edit commands on an office artifact's watch server.
+
+    Session-authed (same auth as /office-watch/open — the SPA calls this from
+    inside the app, so unlike the iframe there is no reason to ride the
+    path-token): resolves the artifact to ITS user's watch (ensuring one is
+    running), POSTs the batch to the watch server's /api/batch, and returns
+    the upstream verdict. The view token stays a pure READ credential.
+
+    A same-origin backend hop also sidesteps the desktop WKWebView
+    mixed-content block that a direct browser→watch POST would hit.
+    """
+    body = json.dumps(commands).encode("utf-8")
+    if len(body) > MAX_EDIT_POST_BYTES:
+        raise HTTPException(status_code=413, detail="edit payload too large")
+    user_id, agent_id, _abs, rel = await _lookup_office_file(request, artifact_id)
+    if is_cloud_mode():
+        port = await _ensure_watch_in_executor(user_id, agent_id, rel)
+    else:
+        port = await asyncio.get_running_loop().run_in_executor(
+            None, ensure_watch, agent_id, user_id, rel
+        )
+    if port is None:
+        raise HTTPException(status_code=503, detail="could not start preview server")
+    status, media_type, payload = await _post_upstream(
+        user_id, port, "api/batch", "", body, "application/json"
+    )
+    if status != 200:
+        raise HTTPException(status_code=502, detail="watch server rejected the edit")
+    try:
+        return json.loads(payload)
+    except ValueError:
+        raise HTTPException(status_code=502, detail="watch server returned non-JSON")
+
+
 async def _file_version_in_executor(user_id: str, agent_id: str, rel: str) -> dict:
     """Cloud: ask the user's executor for the office file's mtime+size."""
     ensured = await ensure_executor(user_id)
@@ -416,10 +455,14 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
     return StreamingResponse(_body(), status_code=resp.status, media_type=media_type, headers=headers)
 
 
-# Browser-driven edit endpoints (office T1 direct editing, spec B §3.2).
-# EXACT paths only — the watch server exposes more (shutdown, file ops); the
-# proxy must never become a generic POST tunnel into it.
-EDIT_POST_ALLOWLIST = frozenset({"api/send", "api/batch", "api/selection"})
+# The ONLY public POST the proxy forwards: the watch PAGE's own selection
+# report (benign server-side selection state, no document writes). The edit
+# verbs (api/send / api/batch) moved to the session-authed
+# /office-watch/edit endpoint (review #334 I14) — the 2-hour view token in
+# the URL path must never grant write capability: path tokens land in access
+# logs / history / Referer, and leaking one used to mean "can rewrite the
+# document for 2 hours".
+EDIT_POST_ALLOWLIST = frozenset({"api/selection"})
 # officecli commands are small JSON; anything bigger is not an edit.
 MAX_EDIT_POST_BYTES = 64 * 1024
 
