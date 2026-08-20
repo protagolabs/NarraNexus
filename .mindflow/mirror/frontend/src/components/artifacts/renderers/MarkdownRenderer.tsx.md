@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/MarkdownRenderer.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -76,3 +76,16 @@ react-hooks/refs)。`.markdown-content` 类保留在两种面外壳上——
 scrollContainment 契约测试认它。
 **字节级往返已被 spike 证伪**(remark 系必然规范化风格),守卫从
 「字节无损」改判「语义无损」——此偏离已记录待 Owner 复核。
+
+## 2026-08-20 — 窄列排版修复 + 依赖归位
+
+①Crepe 主题 reset 写死 `.ProseMirror{padding:60px 120px}`(整页编辑器
+尺寸),artifact 列 ~340px 下内容区只剩 ~100px → 一行挤一两个字(zoom
+弹窗宽,故看着正常)。修复=index.css 里 `.markdown-content .milkdown
+.ProseMirror{padding:16px 16px 16px 48px}` 作用域覆盖——**左侧 48px 是
+给 Crepe 块拖拽手柄(+/⋮⋮)的**,它渲染在左 padding 带,压小会盖字;
+宿主 div 的 p-4 同步移除(padding 单一归属)。
+②`@milkdown/crepe` 当时 npm i 跑错目录装到了 worktree 根(package.json
+根本没记上,本机靠 Node 向上解析侥幸能跑)——已正式装进
+frontend/package.json,根目录游离 node_modules 已删。新克隆/CI/DMG
+构建自此才真正可用。

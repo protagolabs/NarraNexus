@@ -188,8 +188,10 @@ function MdEditSurface({
         </div>
       )}
       {/* Crepe mounts into this div; kept in the tree during probing so the
-          probe and the editable surface are the same instance. */}
-      <div ref={rootRef} className={editable === false ? 'hidden' : 'p-4'} />
+          probe and the editable surface are the same instance. Padding lives
+          on the ProseMirror override in index.css (narrow-column fix) — no
+          wrapper padding on top of it. */}
+      <div ref={rootRef} className={editable === false ? 'hidden' : ''} />
       {editable === false && (
         <div className="p-4">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
