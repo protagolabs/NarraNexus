@@ -28,8 +28,12 @@ definition 被解成内联 link)——守卫测试用它当样本。守卫是探
 
 parser 崩溃 → 返回不等价(不能担保就不放行),别改成放行。
 
-## 2026-08-20 — extractFrontmatter 行尾感知(#334 I7)
+## 2026-08-20 — extractFrontmatter 行尾**免疫**(#334 I7→r2 I2→r3 I2 终态)
 
-按文档自己的 eol(含 \r\n)切围栏;切分结果**保原始字节**(frontmatter
-+body 可逐字节重组)——保存时的 LF 归一政策在 MarkdownRenderer,不在
-这里。空行在闭合围栏前 → 仍判无 frontmatter(CommonMark 语义)。
+三轮演化史,防有人写回旧版:①「按文档 eol 推断」= r2 判死刑的形态
+(正文一行 CRLF 就翻转围栏比较,LF frontmatter 静默进 Crepe);
+②「按开场行推断」= r3 判死刑(围栏块**内部**混行尾仍崩)。终态=
+**不推断 eol**:恒按 `\n` 切(各行保留自己的 `\r`),围栏行剥**一个**
+尾随 `\r` 后比较,`join('\n')` 重组——任意行尾组合下字节恒等,
+这一类不再有第四个反例。`\r\r\n` 病态围栏刻意判非 frontmatter
+(strip 只削一个)。保存时的 LF 归一政策仍归 MarkdownRenderer。

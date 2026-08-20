@@ -42,17 +42,32 @@ export function readDraft(artifactId: string): Draft | null {
 }
 
 /** Returns false when the draft could NOT be persisted (too large / quota /
-    storage disabled) — the caller surfaces that, never swallows it. */
+    storage disabled) — the caller surfaces that, never swallows it.
+
+    Every failure path also INVALIDATES the previous draft under the key
+    (review #334 r3 I3): a stale smaller draft with a still-matching
+    baseHash would otherwise be restored on the next mount as "your unsaved
+    changes" — silently handing the user an OLDER text is worse than
+    honestly having nothing. */
 export function writeDraft(artifactId: string, draft: Draft | null): boolean {
+  const key = DRAFT_PREFIX + artifactId;
   try {
     if (draft === null) {
-      localStorage.removeItem(DRAFT_PREFIX + artifactId);
+      localStorage.removeItem(key);
       return true;
     }
-    if (draft.text.length > DRAFT_MAX_CHARS) return false;
-    localStorage.setItem(DRAFT_PREFIX + artifactId, JSON.stringify(draft));
+    if (draft.text.length > DRAFT_MAX_CHARS) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    localStorage.setItem(key, JSON.stringify(draft));
     return true;
   } catch {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* storage disabled */
+    }
     return false;
   }
 }

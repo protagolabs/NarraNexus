@@ -116,3 +116,58 @@ def test_put_content_gone_entry_is_410(setup):
         json={"content": "# new\n", "base_hash": _sha("# old\n")},
     )
     assert r.status_code == 410
+
+
+def test_put_content_lying_content_length_streamed_cap_fires(setup):
+    """review #334 r3 I1: the header can lie (declare 1KB, stream 30MB) —
+    the in-handler streamed accumulation must 413 without the body ever
+    being framework-buffered (no Pydantic body field on this route)."""
+    big = b'{"content":"' + b"x" * (30 * 1024 * 1024) + b'","base_hash":"h"}'
+
+    def gen():
+        for i in range(0, len(big), 1024 * 1024):
+            yield big[i:i + 1024 * 1024]
+
+    r = setup["client"].put(
+        "/api/agents/agent_x/artifacts/art_put00001/content",
+        content=gen(),  # chunked: no Content-Length at all
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert setup["entry"].read_text(encoding="utf-8") == "# old\n"
+
+
+def test_put_content_malformed_body_is_422(setup):
+    r = setup["client"].put(
+        "/api/agents/agent_x/artifacts/art_put00001/content",
+        content=b"not json at all",
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+def test_body_size_middleware_rejects_declared_oversize_before_route():
+    """The ONLY layer that runs before FastAPI buffers a body is HTTP
+    middleware — pin that the declared-length gate fires there with the
+    route never entered."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.middleware.body_size import body_size_middleware
+
+    hits = []
+    app = FastAPI()
+    app.middleware("http")(body_size_middleware)
+
+    @app.put("/api/agents/a/artifacts/b/content")
+    async def _route():  # pragma: no cover - must not run
+        hits.append(1)
+        return {}
+
+    client = TestClient(app)
+    r = client.put(
+        "/api/agents/a/artifacts/b/content",
+        content=b"tiny",
+        headers={"Content-Length": str(28 * 1024 * 1024), "Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert hits == []

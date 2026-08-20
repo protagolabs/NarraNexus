@@ -95,3 +95,24 @@ describe('extractFrontmatter — mixed line endings (review #334 r2 I2)', () => 
     expect(frontmatter + body).toBe(doc);
   });
 });
+
+describe('extractFrontmatter — mixed eol INSIDE the fence block (review #334 r3 I2)', () => {
+  it('an LF opener with a CRLF closing fence still splits, byte-exact', () => {
+    const doc = '---\ntitle: x\r\n---\r\nbody\n';
+    const { frontmatter, body } = extractFrontmatter(doc);
+    expect(frontmatter).toBe('---\ntitle: x\r\n---\r\n');
+    expect(frontmatter + body).toBe(doc);
+  });
+
+  it('a CRLF opener with an LF closing fence splits too', () => {
+    const doc = '---\r\ntitle: x\n---\n\n# Doc\n';
+    const { frontmatter, body } = extractFrontmatter(doc);
+    expect(frontmatter).toBe('---\r\ntitle: x\n---\n');
+    expect(frontmatter + body).toBe(doc);
+  });
+
+  it('a pathological \\r\\r\\n fence is NOT frontmatter (strip removes one \\r)', () => {
+    const doc = '---\r\r\ntitle: x\r\r\n---\r\r\nbody\n';
+    expect(extractFrontmatter(doc).frontmatter).toBe('');
+  });
+});

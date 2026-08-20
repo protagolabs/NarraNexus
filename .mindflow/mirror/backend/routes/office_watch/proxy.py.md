@@ -107,3 +107,13 @@ session 鉴权 + _lookup_office_file 归属确权 + ensure watch + 转发
 /api/batch。**附带红利:桌面 WKWebView 混合内容拦截被同源后端一跳
 绕过**(原手动清单风险项消灭)。EDIT_POST_ALLOWLIST 语义(绝不放宽成
 通用隧道)与 64KB 上限保留。
+
+## 2026-08-20(二)— /office-watch/edit 的门与错误映射(#334 r3 C1-3/I4)
+
+此端点**不得加 body field**:它是三个写入口里唯一「依赖真的先于
+body」的(无 body field ⇒ FastAPI 不预缓冲),两道门(declared-length
+依赖 + request.stream() 累计 64KB)的有效性建立在这上面——加回
+`Body(...)` 门当场变事后检查且没有测试会红(四个钉子只钉行为,
+这句钉意图)。上游错误映射:4xx 透传 status、5xx 收敛 502,
+**payload 只进 logger.warning、绝不回客户端**(watch server 错误里
+带 workspace 绝对路径,回传即泄露)。

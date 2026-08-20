@@ -42,3 +42,10 @@ TextDecoder fatal:true——解不动的文档不进编辑面(错误态=只读),
 (刻意**不**按 artifact 列表删——store 只知当前 agent,按列表会误杀
 其他 agent 的活草稿);删除 artifact(本地或事件)在 store.remove 里
 顺手删对应草稿键。
+
+## 2026-08-20(二)— 草稿实现驻地移交 [[drafts]](#334 r2 I5/r3 M6)
+
+键模板/512K 门(code unit 语义)/删除/陈旧清理的单一 owner 在
+lib/artifactEditing/drafts.ts(无 React);hook 只消费。**清理先于
+恢复由控制流保证**:loadFrom 在 readDraft 前调 sweepStaleDrafts
+(幂等),不再依赖 effect 声明顺序(r3 M2)。

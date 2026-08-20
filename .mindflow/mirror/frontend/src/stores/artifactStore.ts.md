@@ -132,4 +132,9 @@ frames parsed in ChatPanel」已过时,发现机制=事件+全量拉。
 编辑面 dirty 集合,TabStrip 圆点消费。内容安全**不**依赖它
 (localStorage 草稿层才是兜底),纯视觉。
 
-## 2026-08-20 — remove() 顺删编辑草稿键(#334 I8)
+## 2026-08-20 — remove() 顺删编辑草稿键(#334 I8/r2 I5)
+
+本地删除与 `applyEvent('deleted')` 都经 remove(),一处覆盖两路。
+键模板/体积门的 owner 是 [[drafts]](lib/artifactEditing),store 只
+消费 `removeDraft`——**不 import hooks**(否则 React 进 zustand 模块
+图,store 纯函数测试变重)。

@@ -197,4 +197,9 @@ DB 查询。run 外staging 的行(HTTP 删除等)在下一次 run 的首个 tool
 **best-effort 契约**:drain 任何失败只 warning,run 循环永不因事件化而断
 (异常在此处被"精确且有声"地处理,合规事故教训 #2/#3)。
 
-## 2026-08-20 — 排水走 ArtifactEventRepository(缓存实例)(#334 I9)
+## 2026-08-20 — 排水走 ArtifactEventRepository(__init__ 一次构造)(#334 I9/r2 M1)
+
+两条手写 SQL 收编进 [[artifact_event_repository.py]];repo 在
+`__init__` 一次构造——不再「循环内懒构造 + None 哨兵」:排水在每个
+tool-output 边界跑,且懒构造会把 ImportError 藏进 best-effort try
+里降级成一行 warning,本该启动即炸的错误被消音。

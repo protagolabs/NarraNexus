@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import pathlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -237,7 +239,6 @@ def test_asset_upload_lands_next_to_entry(commit_env):
     assert body["path"].startswith(str(commit_env["entry"].parent))
     assert body["path"].endswith(".png")
     assert "logo" in body["path"]
-    import pathlib
     assert pathlib.Path(body["path"]).read_bytes() == b"\x89PNG fake bytes"
 
 
@@ -247,7 +248,6 @@ def test_asset_upload_sanitizes_hostile_filename(commit_env):
         files={"file": ("../../escape.png", b"x", "image/png")},
     )
     assert r.status_code == 200
-    import pathlib
     p = pathlib.Path(r.json()["path"])
     assert p.parent == commit_env["entry"].parent  # never escapes the entry dir
 
@@ -291,7 +291,6 @@ def test_asset_upload_chunked_oversize_leaves_no_partial_file(commit_env):
     """No Content-Length (chunked): the STREAMED cap must fire, and the entry
     directory must be byte-for-byte what it was — a partial file would be
     served by the raw route and counted by _dir_size."""
-    import os
     entry_dir = commit_env["entry"].parent
     before = sorted(os.listdir(entry_dir))
 
@@ -321,10 +320,7 @@ def test_asset_upload_chunked_oversize_leaves_no_partial_file(commit_env):
     assert sorted(os.listdir(entry_dir)) == before
 
 
-import pytest as _pytest
-
-
-@_pytest.mark.parametrize(
+@pytest.mark.parametrize(
     "name,expect",
     [
         ("../../etc/passwd", "passwd"),          # traversal reduced to basename
@@ -334,7 +330,6 @@ import pytest as _pytest
     ],
 )
 def test_asset_filename_sanitize_keeps_every_script(commit_env, name, expect):
-    import pathlib
     r = commit_env["client"].post(
         "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
         files={"file": (name, b"data", "image/png")},
@@ -349,7 +344,6 @@ def test_asset_filename_sanitize_keeps_every_script(commit_env, name, expect):
 def test_asset_long_filename_truncates_but_keeps_extension(commit_env):
     """review #334 r2 M2: truncation must not eat the extension — the raw
     route serves by extension and a suffixless image renders as nothing."""
-    import pathlib
     r = commit_env["client"].post(
         "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
         files={"file": ("a" * 300 + ".png", b"data", "image/png")},
@@ -359,3 +353,71 @@ def test_asset_long_filename_truncates_but_keeps_extension(commit_env):
     assert p.name.endswith(".png")
     assert len(p.name) <= 140
     p.unlink()
+
+
+# ── review #334 r3 I4: the ONLY structurally sound gate gets its pins ────────
+
+
+def _edit_app(monkeypatch, proxy_client):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    async def fake_lookup(request, artifact_id):
+        return ("user_y", "agent_x", "/abs/deck.pptx", "deck.pptx")
+
+    monkeypatch.setattr(owp, "_lookup_office_file", fake_lookup)
+    monkeypatch.setattr(owp, "is_cloud_mode", lambda: False)
+    monkeypatch.setattr(owp, "ensure_watch", lambda *a: 26320)
+    app = FastAPI()
+    app.include_router(owp.router, prefix="/api")
+    return TestClient(app)
+
+
+def test_edit_endpoint_declared_oversize_is_413_upstream_untouched(monkeypatch, proxy_client):
+    client = _edit_app(monkeypatch, proxy_client)
+    r = client.post(
+        "/api/office-watch/edit?artifact_id=art_deck0001",
+        content=b"[]",
+        headers={"Content-Length": str(65 * 1024), "Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert proxy_client["calls"] == []
+
+
+def test_edit_endpoint_chunked_oversize_is_413_upstream_untouched(monkeypatch, proxy_client):
+    """Chunked (no Content-Length): only the streamed accumulation can catch
+    it — this is the whole point of the second gate."""
+    client = _edit_app(monkeypatch, proxy_client)
+
+    def gen():
+        for _ in range(65):
+            yield b"[" * 1024  # not valid JSON, but the 413 must fire FIRST
+
+    r = client.post(
+        "/api/office-watch/edit?artifact_id=art_deck0001",
+        content=gen(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert proxy_client["calls"] == []
+
+
+def test_edit_endpoint_non_json_body_is_422(monkeypatch, proxy_client):
+    client = _edit_app(monkeypatch, proxy_client)
+    r = client.post(
+        "/api/office-watch/edit?artifact_id=art_deck0001",
+        content=b"not json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+    assert proxy_client["calls"] == []
+
+
+def test_edit_endpoint_non_array_body_is_422(monkeypatch, proxy_client):
+    client = _edit_app(monkeypatch, proxy_client)
+    r = client.post(
+        "/api/office-watch/edit?artifact_id=art_deck0001",
+        json={"a": 1},
+    )
+    assert r.status_code == 422
+    assert proxy_client["calls"] == []

@@ -24,6 +24,7 @@ Enable with NARRANEXUS_MYSQL_TEST_URL (same convention as the other
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -76,9 +77,6 @@ async def mysql_client():
     await client.close()
 
 
-from datetime import datetime, timezone  # noqa: E402
-
-
 def _artifact(aid: str, title: str) -> Artifact:
     now = datetime.now(timezone.utc)
     return Artifact(
@@ -115,6 +113,8 @@ async def test_context_search_like_escape_parses_and_matches_literally(mysql_cli
     await repo.create(_artifact("art_mtwin_03", "a_b literal"))
     await repo.create(_artifact("art_mtwin_04", "axb not literal"))
     await repo.create(_artifact("art_mtwin_05", "bang! title"))
+    await repo.create(_artifact("art_mtwin_06", "back\\slash"))
+    await repo.create(_artifact("art_mtwin_07", "backxslash"))
 
     # '%' must match literally, not wildcard
     hits = await repo.search_agent_context(AGENT, title_contains="100%")
@@ -129,6 +129,11 @@ async def test_context_search_like_escape_parses_and_matches_literally(mysql_cli
     hits = await repo.search_agent_context(AGENT, title_contains="bang!")
     assert [a.artifact_id for a in hits] == ["art_mtwin_05"]
 
+    # backslash: the char whose ESCAPE role was REMOVED this round — it must
+    # now match literally through both dialects' literal/param layers
+    hits = await repo.search_agent_context(AGENT, title_contains="back\\slash")
+    assert [a.artifact_id for a in hits] == ["art_mtwin_06"]
+
 
 @pytest.mark.asyncio
 async def test_latest_actions_double_inlist_at_twenty_ids(mysql_client):
@@ -139,7 +144,7 @@ async def test_latest_actions_double_inlist_at_twenty_ids(mysql_client):
         await repo.create(_artifact(aid, aid))
         await hist.append(
             artifact_id=aid, agent_id=AGENT, file_path="x", size_bytes=1,
-            action="registered",
+            action="created",
         )
     # newest action wins for one of them
     await hist.append(
@@ -148,5 +153,5 @@ async def test_latest_actions_double_inlist_at_twenty_ids(mysql_client):
     )
     latest = await hist.latest_actions(ids)
     assert latest[ids[7]] == "user_edited"
-    assert latest[ids[0]] == "registered"
+    assert latest[ids[0]] == "created"
     assert len(latest) == 20

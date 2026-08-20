@@ -206,5 +206,18 @@ office-asset:声明长度快拒 + 1MB 分块流式写(越界 413 且**不留半�
 文件**——entry 目录会被 raw 路由端出去);PUT /content:路由级依赖按
 Content-Length 快拒(service 的 MAX_ARTIFACT_BYTES 仍是第二道,防
 伪造 header)。文件名净化改 `\w`(UNICODE)——全语种字母数字放行,
-分隔符/控制符打下划线,120 字符截断(防 ENAMETOOLONG 变 500);
+分隔符/控制符打下划线,截断(防 ENAMETOOLONG 变 500;r3 起 stem/ext 分截,见下节);
 原 CJK-only 白名单是「只想到中文」的物证,已除。
+
+## 2026-08-20(二)— 体积门真相版 + 截断保后缀(#334 r3 C1/I1)
+
+**r3 更正**:FastAPI 在解依赖**之前**就读完 body,路由依赖做不成
+「快拒」。真门=`backend/middleware/body_size.py`(HTTP 中间件,按
+方法+路径前缀查 Content-Length,唯一先于框架缓冲的层)。
+PUT /content **无 Pydantic body 形参**(有则框架预缓冲复活)——
+`request.stream()` 累计 25MB+2MB 上限后自行 model_validate_json,
+409 结构化 detail 形状不变;**给它加回 body field = 重开无界缓冲洞**。
+office-asset 保留 UploadFile:框架已 spool 到磁盘,函数内检查约束的
+是「拷出 spool 的量与落盘物」,不是内存门——注释已改实话。
+文件名截断改 stem[:104]+ext[:16] **分开截**(一刀切 [:120] 会吃掉
+后缀;raw 路由按扩展名判 media_type,症状=「替换成功但没图」)。

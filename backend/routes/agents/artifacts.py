@@ -100,17 +100,6 @@ class PatchArtifact(BaseModel):
     title: Optional[str] = None
 
 
-async def _reject_oversized_put(request: Request) -> None:
-    """Declared-length fast reject BEFORE the JSON body is parsed into
-    memory (review #334 I3). Content-Length can lie, so the service's
-    MAX_ARTIFACT_BYTES check on the decoded bytes stays as the second gate;
-    this one just refuses to buffer an honest oversized body at all. The
-    margin covers JSON quoting/escaping overhead."""
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_ARTIFACT_BYTES + 2 * 1024 * 1024:
-        raise HTTPException(413, "content too large")
-
-
 class PutContentRequest(BaseModel):
     """A user edit from an editing surface: the FULL new file content plus the
     sha256 the editor's copy was based on (optimistic lock)."""
@@ -370,16 +359,18 @@ async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     return await _get_owned_artifact(repo, agent_id, artifact_id)
 
 
-@router.put(
-    "/{agent_id}/artifacts/{artifact_id}/content",
-    response_model=Artifact,
-    dependencies=[Depends(_reject_oversized_put)],
-)
-async def put_artifact_content(
-    request: Request, agent_id: str, artifact_id: str, body: PutContentRequest
-):
+@router.put("/{agent_id}/artifacts/{artifact_id}/content", response_model=Artifact)
+async def put_artifact_content(request: Request, agent_id: str, artifact_id: str):
     """
     Persist a user edit onto the artifact's entry file (spec A §3.1).
+
+    NO Pydantic body field, deliberately (review #334 r3 I1): FastAPI reads
+    and parses any declared body BEFORE dependencies run, so a body field
+    would turn every size gate into an after-the-fact check. The body is
+    read STREAMED here with an accumulation cap; the declared-length fast
+    reject lives in backend/middleware/body_size.py (the only layer that
+    truly runs first). Adding a body field back re-opens the unbounded
+    buffering hole.
 
     The service commits it as one atomic edit: optimistic lock against the
     on-disk content, temp-file + atomic-rename write, hash/size/updated_at
@@ -390,14 +381,26 @@ async def put_artifact_content(
     reloads). Session-authed only — view tokens stay read-only.
     """
     await _verify_agent_ownership(request, agent_id)
+    cap = MAX_ARTIFACT_BYTES + 2 * 1024 * 1024  # JSON quoting margin
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > cap:
+            raise HTTPException(413, "content too large")
+        chunks.append(chunk)
+    try:
+        parsed = PutContentRequest.model_validate_json(b"".join(chunks))
+    except ValueError:
+        raise HTTPException(422, "body must be JSON with content and base_hash")
     db = await get_db_client()
     service = ArtifactService(db)
     try:
         return await service.save_user_content(
             agent_id=agent_id,
             artifact_id=artifact_id,
-            content=body.content,
-            base_hash=body.base_hash,
+            content=parsed.content,
+            base_hash=parsed.base_hash,
         )
     except ArtifactEditConflict as e:
         # Structured detail, not a plain string: current_hash is data the
@@ -458,9 +461,13 @@ async def upload_office_asset(
     if not os.path.isdir(entry_dir):
         raise HTTPException(410, "entry directory is gone")
 
-    # Two size gates (review #334 I3): declared-length fast reject, then a
-    # streamed cap — read in chunks so a lying/absent Content-Length can
-    # never park 1 GB in memory before the 413.
+    # Honest bounds (review #334 r3 I1): with an UploadFile in the
+    # signature the framework has ALREADY consumed the multipart stream
+    # before this line — python-multipart spools big bodies to disk, so the
+    # real pre-buffer bound is the declared-length middleware
+    # (backend/middleware/body_size.py) plus the container's disk. The
+    # checks below bound what we COPY out of the spool and what lands next
+    # to the entry; they are not, and cannot be, a memory gate.
     max_bytes = 10 * 1024 * 1024
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > max_bytes:

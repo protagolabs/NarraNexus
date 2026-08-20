@@ -48,7 +48,6 @@ export interface ArtifactEditorState {
 }
 
 export function useArtifactEditor(artifact: Artifact, url: string | null): ArtifactEditorState {
-  useEffect(() => sweepStaleDrafts(), []);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [text, setTextState] = useState('');
@@ -82,6 +81,9 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
     const loaded = new TextDecoder('utf-8', { fatal: true }).decode(buf);
     baseHashRef.current = hash;
 
+    // Sweep BEFORE restore — ordered by control flow, not by effect
+    // declaration order (review #334 r3 M2). Idempotent per session.
+    sweepStaleDrafts();
     const draft = readDraft(artifact.artifact_id);
     if (draft && draft.baseHash === hash) {
       // Unsaved work from a previous mount over the SAME base: restore it.

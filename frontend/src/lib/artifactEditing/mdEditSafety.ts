@@ -31,25 +31,24 @@ import remarkGfm from 'remark-gfm';
     ORIGINAL bytes (frontmatter + body reassemble exactly); the save-time
     line-ending policy lives in MarkdownRenderer, not here. */
 export function extractFrontmatter(text: string): { frontmatter: string; body: string } {
-  // Must be the very first line, `---` alone, closed by another `---` (or
-  // `...`) alone. Anything else — including a fence that never closes — is
-  // body text, not frontmatter.
-  // The eol is inferred from the OPENING LINE ITSELF, not the whole
-  // document: a document-wide includes('\r\n') let one pasted CRLF line in
-  // the body flip the fence comparison and silently drop an LF frontmatter
-  // into Crepe (review #334 r2 I2 — the I7 hole, relocated). Mixed-eol
-  // bodies pass through untouched either way.
-  const eol = text.startsWith('---\r\n') ? '\r\n' : '\n';
-  if (!text.startsWith(`---${eol}`) && text !== '---') {
-    return { frontmatter: '', body: text };
-  }
-  const lines = text.split(eol);
+  // Line-ending IMMUNE, third and final shape (review #334 r3 I2): both a
+  // document-level eol sniff (r2) and an opening-line sniff (r3) still
+  // break when line endings differ WITHIN the fence block. So there is no
+  // inferred eol at all: split on '\n' unconditionally (each line keeps its
+  // own trailing '\r'), compare fence lines with ONE trailing '\r'
+  // stripped, and rejoin with '\n' — byte-identical reassembly for every
+  // eol combination. A pathological '\r\r\n' fence stays non-frontmatter
+  // on purpose (strip removes exactly one '\r').
+  const strip = (s: string) => (s.endsWith('\r') ? s.slice(0, -1) : s);
+  const lines = text.split('\n');
+  if (strip(lines[0]) !== '---') return { frontmatter: '', body: text };
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
+    const line = strip(lines[i]);
     if (line === '---' || line === '...') {
-      const fm = lines.slice(0, i + 1).join(eol) + eol;
-      const body = lines.slice(i + 1).join(eol);
-      return { frontmatter: fm, body };
+      return {
+        frontmatter: lines.slice(0, i + 1).join('\n') + '\n',
+        body: lines.slice(i + 1).join('\n'),
+      };
     }
     if (line.trim() === '') {
       // A blank line before the closing fence means CommonMark reads the

@@ -321,6 +321,18 @@ async def office_watch_open(request: Request, artifact_id: str) -> dict:
     return {"raw_url": raw_url, "port": port}
 
 
+# The ONLY public POST the proxy forwards: the watch PAGE's own selection
+# report (benign server-side selection state, no document writes). The edit
+# verbs (api/send / api/batch) moved to the session-authed
+# /office-watch/edit endpoint (review #334 I14) — the 2-hour view token in
+# the URL path must never grant write capability: path tokens land in access
+# logs / history / Referer, and leaking one used to mean "can rewrite the
+# document for 2 hours".
+EDIT_POST_ALLOWLIST = frozenset({"api/selection"})
+# officecli commands are small JSON; anything bigger is not an edit.
+MAX_EDIT_POST_BYTES = 64 * 1024
+
+
 async def _reject_oversized_edit(request: Request) -> None:
     """Declared-length fast reject BEFORE Starlette buffers the JSON body —
     the same dual-gate shape as every other write entrance (review #334 r2
@@ -488,18 +500,6 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
     return StreamingResponse(_body(), status_code=resp.status, media_type=media_type, headers=headers)
 
 
-# (constants moved above /office-watch/edit which needs them — forward
-# reference trap flagged in review #334 r2 I1 修改陷阱①)
-# The ONLY public POST the proxy forwards: the watch PAGE's own selection
-# report (benign server-side selection state, no document writes). The edit
-# verbs (api/send / api/batch) moved to the session-authed
-# /office-watch/edit endpoint (review #334 I14) — the 2-hour view token in
-# the URL path must never grant write capability: path tokens land in access
-# logs / history / Referer, and leaking one used to mean "can rewrite the
-# document for 2 hours".
-EDIT_POST_ALLOWLIST = frozenset({"api/selection"})
-# officecli commands are small JSON; anything bigger is not an edit.
-MAX_EDIT_POST_BYTES = 64 * 1024
 
 
 async def _post_upstream(

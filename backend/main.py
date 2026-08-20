@@ -467,9 +467,11 @@ app = FastAPI(
 #    noticing the 401 at all — was silently dead code there.
 from backend.auth import auth_middleware
 from backend.middleware.access_log import access_log_middleware
+from backend.middleware.body_size import body_size_middleware
 
 app.middleware("http")(auth_middleware)
 app.middleware("http")(access_log_middleware)
+app.middleware("http")(body_size_middleware)
 
 app.add_middleware(
     CORSMiddleware,
