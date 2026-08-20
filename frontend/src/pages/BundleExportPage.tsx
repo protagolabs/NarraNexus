@@ -116,7 +116,13 @@ interface ChatHistoryNarrative {
   created_at?: string;
 }
 
-export default function BundleExportPage() {
+/**
+ * @param embedded When true the wizard renders WITHOUT its own standalone
+ *   back-to-settings header/cancel chrome and never navigates to /app/settings —
+ *   used inside the Dashboard "Export" tab, where the left tab rail is the chrome.
+ *   Default false = the standalone /app/bundle/export route.
+ */
+export default function BundleExportPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -958,7 +964,9 @@ export default function BundleExportPage() {
         title: t('pages.bundleExport.toast.createdTitle'),
         message: parts.join(' '),
       });
-      navigate('/app/settings');
+      // Embedded in the Dashboard tab: stay put (the success alert already
+      // confirmed). Standalone: return to Settings where the wizard lives.
+      if (!embedded) navigate('/app/settings');
     } catch (e: any) {
       console.error(e);
       // B6: detect 409 SENSITIVE_FILES_IN_SKILL_ZIP and surface confirmation modal
@@ -986,13 +994,15 @@ export default function BundleExportPage() {
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate('/app/settings')}
-            className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
-            aria-label={t('pages.bundleExport.backToSettings')}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
+          {!embedded && (
+            <button
+              onClick={() => navigate('/app/settings')}
+              className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
+              aria-label={t('pages.bundleExport.backToSettings')}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
           <Package className="w-5 h-5" style={{ color: 'var(--nm-ink50)' }} />
           <h1
             className="text-2xl font-bold tracking-tight"
@@ -1329,7 +1339,11 @@ export default function BundleExportPage() {
 
       {/* Footer */}
       <div className="px-6 py-3 border-t border-[var(--border-default)] flex items-center justify-between">
-        <Button onClick={() => navigate('/app/settings')} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
+        {embedded ? (
+          <span />
+        ) : (
+          <Button onClick={() => navigate('/app/settings')} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
+        )}
         <Button
           onClick={() => setReviewing(true)}
           disabled={selectedAgents.size === 0}

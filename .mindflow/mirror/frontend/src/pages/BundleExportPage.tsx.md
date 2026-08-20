@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — `embedded` 模式(内嵌进 Dashboard 导出标签页)
+
+新增 `embedded?: boolean` prop(默认 false=独立 /app/bundle/export 路由)。
+embedded=true 时:不渲染自带的返回设置头箭头、页脚 Cancel 换成占位 `<span/>`,
+且导出成功后不再 `navigate('/app/settings')`——因为它内嵌在 Dashboard 的「导出」
+标签页里,页面 chrome 由左侧标签栏承担。独立路由行为不变。测试:
+bundleExportEmbedded.test.tsx。
+
 
 ## 2026-08-11 — 渐进披露:选完才出现区块;打包信息进确认弹窗;全局开关上移
 
