@@ -28,7 +28,7 @@ user's one-click delete on any entry is the other half of the bargain: write
 access is safe to grant because it is trivially revocable.
 
 **Where team_id comes from.** The SERVER-SIDE identity of the turn, never a
-tool argument. `bus_share_to_team` takes it from the model and validates three
+tool argument. `team_share_file` takes it from the model and validates three
 ways; the stronger option exists here because the turn already knows its team.
 Naming a different team is therefore not an attack to catch — it is not
 expressible. A private turn has no team identity and so no bulletin to write
@@ -195,21 +195,19 @@ async def post_bulletin_notice(db, team_id: str, action: str, actor: str = "") -
     """
     try:
         from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+        from xyz_agent_context.message_bus.team_rooms import primary_room_of
 
-        channel = await db.get_one(
-            "bus_channels",
-            {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{team_id}", "channel_type": "group"},
-        )
+        channel_id = await primary_room_of(db, team_id)
         # No room means nobody to notify. Creating one here would be the tail
         # wagging the dog: a bulletin edit should not conjure a chat channel.
-        if not channel:
+        if not channel_id:
             return
         team = await db.get_one("teams", {"team_id": team_id})
         sender = actor or f"{USER_SENDER_PREFIX}{(team or {}).get('owner_user_id', '')}"
         bus = LocalMessageBus(backend=db._backend)
         await bus.send_message(
             from_agent=sender,
-            to_channel=channel["channel_id"],
+            to_channel=channel_id,
             content=f"Team bulletin {action}.",
             msg_type=BULLETIN_NOTICE_MSG_TYPE,
             mentions=None,

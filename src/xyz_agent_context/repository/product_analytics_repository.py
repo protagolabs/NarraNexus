@@ -15,6 +15,7 @@ import uuid
 from typing import Any
 
 from xyz_agent_context.utils import AsyncDatabaseClient
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
 
 
 class ProductAnalyticsRepository:
@@ -75,11 +76,6 @@ class ProductAnalyticsRepository:
         try:
             await self.db.insert(self.table_name, row)
         except Exception as exc:
-            message = str(exc)
-            if (
-                "UNIQUE constraint failed" in message
-                or "Duplicate entry" in message
-                or "1062" in message
-            ):
+            if is_unique_violation(exc):
                 return
             raise

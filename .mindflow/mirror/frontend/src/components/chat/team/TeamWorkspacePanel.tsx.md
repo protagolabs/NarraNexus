@@ -1,8 +1,55 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19(二)— 列表让位查看器
+
+master 列表 w-64 shrink-0 → w-40 min-w-[7rem] shrink:抽屉默认 400px
+(与单聊共享的偏好)时查看器只剩 ~143px。列表是选择器不是主角,让位后
+默认宽度下查看器 ~239px 起步,拖宽随用户。**不许**为 artifacts 单独放大
+pinnedWidth——宽度偏好与单聊共享,写回会拽动单聊。
+
+## 2026-08-19 — 纯内容化:壳归抽屉
+
+外层定位/宽度、内部 tab 条、关闭钮全部移除——壳(标题切换/钉选/关闭/
+宽度)归共享 BookmarkDrawer,本组件收 `tab: 'artifacts'|'files'` 受控 prop
+只渲染列表+查看器。onClose prop 删除。
+
+## 2026-08-19 — 残余英文清零 + 相对时间共享化
+
+- Artifacts/Files 两个 tab 标签、两句空态 hint、Download title、Loading
+  全部改走 `chat.team.workspace.*`(10 locale)——上一批只覆盖了
+  close/zoom/viewer 空态,这批把面板内最后的硬编码英文清零。
+- 本地 `formatWhen`(英文写死)删除,改用 [[utils]] 的 `formatMessageAge`
+  (Intl.RelativeTimeFormat,全语种免费)。[[ArtifactsSection]] 的同款
+  本地副本同批清除。
+- **xl+ 从 absolute 悬浮改 in-flow 列**(聊天让位不被盖),宽度
+  `min(50vw, 760px, 100vw−928px)`——928 = 侧栏 272 + 聊天最小 400 +
+  roster 静息 256,与 [[../../layout/drawerLayout]] 同一 reserve 思路,
+  否则 shrink-0 列在笔记本宽度把聊天挤到 0。xl 以下没有可分的空间,
+  保持 overlay(手机全宽)。tab 与列表行挂 row-hover/row-active 选择台阶
+  (design_system.md §2.5——hairline 是线色,不再当填充用)。
+
+## 2026-08-19 — 6 处硬编码英文接入 i18n
+
+close/zoom 的 title+aria、两句空态文案全部改走 `chat.team.workspace.*`
+(10 locale 同步);zoom 文案复用各语言 `artifacts.zoom` 的既有译法,不另造。
+组件顶层加 `useTranslation`(它被 TeamChatPanel 条件渲染,hook 在顶层即可)。
+
+## 2026-08-18 (二次) — 常驻窄列 → 顶栏开合的大抽屉
+
+第一版修法(角落盒 + zoom 钮)Owner 否了:速览盒根本起不到预览作用。现在
+与单聊 artifacts 完全同构:入口是房间顶栏的 ArtifactsGlyph 按钮(带计数,
+消息下的 artifact 芯片点开也会弹出),面板是 `min(50vw,760px)` 的右侧覆盖
+抽屉——左列表(w-64)+ 右满高 ArtifactRenderer 查看器,Maximize2 仍可进
+全屏 zoom。常驻 w-72 列和 h-64 角落预览删除;`onClose` 归抽屉。
+
+## 2026-08-18 — 选中 artifact 可全屏查看(复用 ArtifactZoomModal)
+
+右下角 288×256 预览盒装不下一个真 artifact(Owner 对照实屏)。角落盒保留
+作速览,预览头部新增 Maximize2 放大钮 → 单聊同款全屏查看器。
 
 ## 2026-08-10 (review 修正) — Files 页可下载（验收 #5 的缺口）
 
@@ -66,3 +113,11 @@ agent 侧 view-token。而 agent 路由的鉴权是「JWT 用户是否拥有该 
 
 **挂在 transcript 旁边而非独立路由**：「我们做了什么」是**边读对话边问**的问题。
 `refreshKey` 取消息数，使得产出 artifact 的那一轮无需用户手动刷新即可显现。
+
+
+## 2026-08-18 — 已退役工具名的跟随
+
+`bus_share_to_team` → `team_share_file`（用户可见的提示文案，此前指向一个不存在的工具名）、
+`send_message_to_user_directly` → `reply_owner` / `notify_owner`。后者在前端不只是措辞：
+按工具名挑气泡内容的三处只匹配旧名字时，回复是真的、内容在那儿、气泡就是不渲染 —— 同一条
+规则现在收在 `lib/ownerTools.ts`，镜像见 [[ownerTools.ts]]。

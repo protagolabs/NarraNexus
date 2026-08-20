@@ -14,15 +14,29 @@
     "logout": "Cerrar sesión",
     "poweredBy": "NetMind AI Research",
     "online": "En línea",
-    "you": "Tú",
     "cloud": "Nube",
     "localMode": "Modo local",
-    "cloudMode": "Modo nube"
+    "cloudMode": "Modo nube",
+    "collapseTitle": "Contraer barra lateral",
+    "expandTitle": "Expandir barra lateral",
+    "export": "Exportar",
+    "exportTitle": "Exportar bundle — agente o equipo",
+    "settingsTitle": "Ajustes — modelos y proveedores",
+    "searchChatsTitle": "Buscar agentes y equipos",
+    "account": "Cuenta",
+    "billing": "Facturación",
+    "subscription": "Suscripción",
+    "theme": "Tema",
+    "language": "Idioma",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "themeSystem": "Sistema",
+    "workspace": "Mi mundo",
+    "accountTitle": "Cuenta"
   },
   "chat": {
     "conversation": "Conversación",
-    "innerThoughts": "Pensamientos internos",
-    "interaction": "Interacción",
+    "innerThoughts": "Registro de actividad",
     "composerPlaceholder": "Escribe un mensaje o / para habilidades…",
     "selectAgent": "Selecciona un agente",
     "selectAgentHint": "Elige un agente en la barra lateral para empezar.",
@@ -75,20 +89,13 @@
       "recoveredAfterErrorTip": "Un paso de este turno falló; la respuesta se escribió a partir del trabajo completado y lo que sabemos del error."
     },
     "onboarding": {
-      "eyebrow": "Nueva conversación",
-      "heading": "Una página en blanco.",
-      "framing": "Aún no hay nada aquí — y ese es el punto. Cuanto más trabajen tú y {{name}} juntos, más recordará, conectará y llevará adelante.",
       "defaultAgentName": "tu agente",
-      "narraBrand": "Narra · Memoria",
-      "narraCaption": "recuerda",
-      "nexusBrand": "Nexus · Red",
-      "nexusCaption": "conecta",
-      "teamBrand": "Tu equipo",
-      "teamCaption": "entrega",
-      "tryAsking": "Prueba a preguntar",
       "prompt1": "Resume para mí las actualizaciones más importantes de esta semana",
       "prompt2": "Conecta un canal y vigílalo por si surge algo urgente",
-      "prompt3": "Configura un resumen del lunes por la mañana con lo importante"
+      "prompt3": "Configura un resumen del lunes por la mañana con lo importante",
+      "readyTitle": "{{name}} está listo",
+      "readyBody": "Prueba una de estas sugerencias, o simplemente di lo que necesitas.",
+      "dismiss": "Cerrar"
     },
     "team": {
       "notFound": "Equipo no encontrado.",
@@ -173,7 +180,28 @@
         },
         "turnOff": "Desactivar",
         "turnOn": "Activar"
-      }
+      },
+      "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
+      "uploadFailed": "No se pudo subir «{{name}}».",
+      "uploadFailedGeneric": "No se pudo subir el archivo.",
+      "loadingOlder": "Cargando mensajes anteriores…",
+      "leadBadge": "líder",
+      "expand": "Ver más",
+      "collapse": "Ver menos",
+      "today": "Hoy",
+      "agentPaused": "Este agente está en pausa ({{reason}}). Usa «Reanudar» en el aviso de arriba cuando se resuelva la causa.",
+      "workspace": {
+        "zoom": "Ampliar artefacto",
+        "emptyArtifacts": "Selecciona un artefacto para verlo aquí.",
+        "emptyFiles": "Los archivos se descargan directamente — haz clic en uno a la izquierda.",
+        "tabArtifacts": "Artefactos",
+        "tabFiles": "Archivos",
+        "artifactsHint": "Los artefactos que los agentes de tu equipo registran en esta sala aparecen aquí.",
+        "filesHint": "Los archivos compartidos con team_share_file aparecen aquí.",
+        "download": "Descargar {{name}}",
+        "loading": "Cargando…"
+      },
+      "drawerCategory": "Sala del equipo"
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -245,7 +273,14 @@
       "plan": "Plan",
       "title": "agente · proceso",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "sessionLabel": "sesión · {{time}}",
+      "detailMenuTitle": "Detalle del agente — paneles",
+      "modelFramework": "Modelo y framework",
+      "switchAgent": "Cambiar de agente"
+    },
+    "composerPrivacyHint": "Evita compartir información personal sensible."
   },
   "awareness": {
     "common": {
@@ -650,7 +685,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefactos",
       "tabArtifactsCount": "Artefactos ({{count}})"
     },
@@ -659,7 +693,6 @@
       "closeAriaLabel": "Cerrar y volver al chat"
     },
     "sidebar": {
-      "openWorkspace": "Abrir tu espacio de trabajo",
       "logoutConfirmTitle": "Cerrar sesión",
       "logoutConfirmMessage": "¿Seguro que quieres cerrar sesión?",
       "logoutConfirmAction": "Cerrar sesión",
@@ -681,10 +714,6 @@
       "createAgentOrTeam": "Crear agente o equipo",
       "createAgent": "Crear agente",
       "createTeam": "Crear equipo",
-      "manageAgents": "Gestionar agentes",
-      "manageAgentsTitle": "Gestionar agentes (por lotes · añadir / editar / eliminar)",
-      "teamGroupChatTitle": "{{name}} — chat grupal",
-      "teamGroupChatAria": "Chat grupal de {{name}}",
       "refreshAgents": "Actualizar agentes",
       "emptyLabel": "Aún no hay agentes",
       "emptyHint": "Crea tu primer agente para iniciar una conversación.",
@@ -698,8 +727,10 @@
     "agentRowMenu": {
       "options": "Opciones del agente",
       "rename": "Renombrar",
+      "edit": "Editar…",
       "setPrivate": "Hacer privado",
       "setPublic": "Hacer público",
+      "clearData": "Limpiar datos",
       "delete": "Eliminar"
     },
     "agentsHeaderMenu": {
@@ -709,26 +740,34 @@
       "manageTeams": "Gestionar equipos"
     },
     "createMenu": {
-      "create": "Crear",
       "createAgentOrTeam": "Crear agente o equipo",
       "createAgent": "Crear agente",
-      "createTeam": "Crear equipo"
+      "createTeam": "Crear equipo",
+      "new": "Nuevo",
+      "newTitle": "Nuevo — agente, equipo, importar…",
+      "importBundle": "Importar .nxbundle",
+      "importAgent": "Importar desde otra fuente"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — chat grupal",
       "agentCount_one": "{{count}} agente",
-      "agentCount_other": "{{count}} agentes"
+      "agentCount_other": "{{count}} agentes",
+      "toggleMembers": "Mostrar miembros",
+      "noMembers": "Aún sin miembros",
+      "unread": "Mensajes no leídos"
     },
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
       "rename": "Renombrar",
-      "delete": "Eliminar"
+      "clearData": "Limpiar datos",
+      "delete": "Eliminar",
+      "addAgent": "Añadir agente",
+      "addingAgent": "Añadiendo…"
     },
     "topBar": {
       "crumbDashboard": "Panel",
       "crumbSettings": "Ajustes",
       "crumbSystem": "Sistema",
-      "crumbManageAgents": "Gestionar agentes",
       "crumbTeam": "Equipo",
       "crumbBundle": "Paquete",
       "crumbChat": "Chat",
@@ -953,7 +992,11 @@
       "cancelConfirmKeep": "Mantener la suscripción",
       "reactivateConfirmTitle": "¿Reanudar la renovación automática?",
       "reactivateConfirmAction": "Reanudar",
-      "reactivateConfirmDismiss": "Ahora no"
+      "reactivateConfirmDismiss": "Ahora no",
+      "balanceScope": "Saldo de la cuenta NetMind — todo lo que ejecutes con esta cuenta NetMind lo consume, incluso fuera de NarraNexus.",
+      "narraUsageTitle": "Usado por NarraNexus · últimos {{days}} días",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimado con precios públicos de lista, por lo que no coincidirá exactamente con tu factura de NetMind."
     }
   },
   "system": {
@@ -1029,7 +1072,14 @@
     "drawer": {
       "unpin": "Desanclar panel",
       "pin": "Anclar panel",
-      "close": "Cerrar panel"
+      "close": "Cerrar panel",
+      "switchPanel": "Cambiar panel"
+    },
+    "coach": {
+      "title": "Tus artefactos aparecen aquí",
+      "unpinHint": "Desancla para convertirlo en una ventana emergente que se cierra sola.",
+      "closeHint": "Cierra el panel — reábrelo cuando quieras desde la cabecera del chat.",
+      "gotIt": "Entendido"
     }
   },
   "inbox": {
@@ -1216,9 +1266,29 @@
     },
     "dashboard": {
       "title": "Panel de agentes",
+      "tabAgents": "Gestionar agentes",
+      "tabTeams": "Gestión de equipos",
+      "tabExport": "Exportar",
+      "createAgent": "Crear agente",
+      "createTeam": "Crear equipo",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Aún no hay agentes",
-      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel."
+      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel.",
+      "statRunning": "En ejecución",
+      "statQueued": "En cola",
+      "statErrors": "Errores",
+      "statCostToday": "Costo de hoy",
+      "colStatus": "Estado",
+      "colTeam": "Equipo",
+      "colMembers": "Miembros",
+      "teamsCount": "{{count}} equipos",
+      "membersCount": "{{count}} agentes",
+      "noStatusYet": "Aún no hay estado en vivo — el próximo sondeo lo completará.",
+      "publicAgent": "público",
+      "noTeamsLabel": "Aún no hay equipos",
+      "noTeamsHint": "Crea uno desde el menú Nuevo de la barra lateral.",
+      "manageTeam": "Gestionar",
+      "teamsTip": "Crea equipos desde el menú Nuevo; renombra, cambia el color y edita miembros aquí."
     },
     "createUser": {
       "title": "Crear nuevo usuario",
@@ -1244,27 +1314,21 @@
     },
     "settings": {
       "title": "Ajustes",
-      "headerSections": "Proveedores · Paquete · Artefactos · Agentes",
       "nav": {
-        "privacy": "Privacidad"
+        "privacy": "Privacidad",
+        "personalization": "Personalización",
+        "account": "Cuenta y facturación",
+        "providers": "Proveedores LLM",
+        "modelDefaults": "Modelos predeterminados",
+        "artifacts": "Artefactos",
+        "updates": "Actualizaciones"
       },
       "providers": {
         "label": "Proveedores de LLM"
       },
-      "bundle": {
-        "label": "Paquete · Exportar / Importar",
-        "hint": "Empaqueta tus agentes (y opcionalmente un equipo) en un archivo .nxbundle portátil para compartir, o importa un archivo .nxbundle que te hayan compartido.",
-        "exportButton": "Exportar paquete…",
-        "importButton": "Importar paquete…"
-      },
       "artifacts": {
         "label": "Artefactos",
         "hint": "Gestiona cada gráfico, informe y archivo que tus agentes han producido para ti. Selecciona en bloque para liberar tu cuota cuando un agente indique que ha alcanzado el límite."
-      },
-      "manageAgents": {
-        "label": "Gestionar agentes · en bloque",
-        "hint": "Selecciona agentes en bloque para eliminarlos, o agrégalos/quítalos de equipos por lotes. Útil tras importar un paquete que no quieres conservar — filtra por 'De paquetes' para encontrarlos.",
-        "openButton": "Abrir gestor por lotes…"
       },
       "updates": {
         "label": "Actualizaciones de la app",
@@ -1300,6 +1364,10 @@
         "telemetryManagedCloud": "Tu administrador controla la telemetría de diagnóstico de esta instalación.",
         "telemetryUnavailable": "No se pudo cargar el estado de la telemetría: el interruptor se oculta en lugar de adivinarlo. Recarga para reintentar.",
         "telemetryError": "No se pudo guardar el cambio. El interruptor muestra el estado actual real."
+      },
+      "personalization": {
+        "label": "Personalización",
+        "hint": "Tema e idioma. Habrá más."
       }
     },
     "system": {
@@ -1328,7 +1396,7 @@
       "noMembersHint": "Haz clic en Editar para añadir algunos."
     },
     "you": {
-      "you": "Tú",
+      "you": "Mi mundo",
       "subtitle": "tu mundo, en todos tus agentes",
       "viewsAriaLabel": "Vistas del espacio de trabajo Tú",
       "tabMemory": "Memoria Narra",
@@ -1371,7 +1439,11 @@
       "bulkDeleteResult": "{{success}} eliminados.",
       "bulkDeleteResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}}).",
       "addedToTeamTitle": "Añadidos al equipo",
-      "addedToTeamMessage": "{{count}} agentes añadidos al equipo seleccionado."
+      "addedToTeamMessage": "{{count}} agentes añadidos al equipo seleccionado.",
+      "addedToTeamResultWithFailures": "{{success}} añadidos, {{failedCount}} fallidos ({{failedIds}}).",
+      "removedFromTeamTitle": "Eliminados del equipo",
+      "removedFromTeamMessage": "Se eliminaron {{count}} agentes del equipo.",
+      "removedFromTeamResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "Instalar plantilla",
@@ -1387,7 +1459,7 @@
       "orSeparator": "— o —",
       "chooseFile": "Elegir archivo",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Vista previa",
+      "preview": "Ejecutar comprobación →",
       "preflightFailed": "Falló la comprobación previa",
       "waitingForBackend": "Esperando al backend (intento {{attempt}}/{{total}})…",
       "fetchFailed": "No se pudo obtener la plantilla",
@@ -1429,11 +1501,14 @@
         "skillsTip": "Consejo: las habilidades marcadas como \"copia completa\" ya tienen credenciales. Las habilidades de URL/Zip necesitan reestudio o nuevas credenciales — habla con los agentes importados para completar la configuración.",
         "viewTeamIntro": "Ver introducción del equipo",
         "doneButton": "Listo"
-      }
+      },
+      "uploadInfoNote": "Un bundle puede contener un solo agente o un equipo completo (agentes, memoria, habilidades, canales). A continuación revisarás conflictos de nombres y advertencias antes de que se escriba nada."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Incluir credenciales (canales de MI + secretos de habilidades)",
+      "pickFirstHint": "Primero elige el agente o el equipo arriba: las secciones de narrativas, habilidades y canales aparecerán cuando haya algo que configurar.",
       "title": "Exportar paquete",
-      "backToSettings": "Volver a ajustes",
+      "back": "Atrás",
       "summaryLine": "{{agents}} agentes · {{skills}} habilidades · {{entities}} entidades · {{channels}} canales",
       "fileName": "Nombre del archivo",
       "bundleNotesLabel": "Notas del paquete (opcional, visibles para el destinatario)",
@@ -1476,19 +1551,11 @@
         "freeText": "El texto libre (conciencia / eventos / mensajes) NO se analiza automáticamente en busca de secretos en línea — verifícalo tú mismo."
       },
       "agents": {
-        "whatYouPick": "Lo que eliges aquí:",
-        "intro1": "el conjunto de agentes que contendrá este paquete. Todo lo demás del asistente (narrativas, habilidades, MCPs, archivos…) se filtra a este cierre.",
-        "intro2": "Elegir un equipo añade a todos sus miembros existentes con un solo clic; aún puedes desmarcar a individuos después. Las referencias externas (p. ej. una entidad social que apunta a un agente fuera de este cierre) se descartan automáticamente al exportar.",
         "bundleTeamLabel": "Incluir este equipo (opcional)",
         "noTeamOption": "— Sin equipo / agentes individuales —",
-        "quickAddByTeam": "Añadir rápido por equipo",
-        "deselectTeamTitle": "Deseleccionar a todos los miembros de \"{{name}}\"",
-        "addTeamTitle": "Añadir a todos los miembros de \"{{name}}\"",
-        "replaceTeamTitle": "Reemplazar la selección por los miembros de \"{{name}}\"",
-        "only": "solo",
-        "allAgents": "todos los agentes ({{count}})",
-        "clear": "limpiar",
-        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}"
+        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}",
+        "pickTeamFirst": "Elige un equipo arriba — sus miembros se incluyen automáticamente.",
+        "pickOne": "Elige el agente a exportar"
       },
       "skills": {
         "emptySelectAgents": "Selecciona agentes en la pestaña anterior — sus habilidades aparecerán aquí.",
@@ -1674,6 +1741,13 @@
         "noArtifacts": "Este agente no tiene artefactos.",
         "pinned": "fijado",
         "fullModeNote": "El modo de instantánea completa incluye automáticamente cada artefacto. Cambia a Personalizado para elegir."
+      },
+      "kind": {
+        "label": "Tipo",
+        "agentTitle": "Bundle de agentes",
+        "agentDesc": "Exporta un agente — sus narrativas, habilidades y archivos de workspace viajan con él.",
+        "teamTitle": "Bundle de equipo",
+        "teamDesc": "Exporta un equipo completo — sus agentes, introducción y canales compartidos viajan juntos."
       }
     },
     "signup": {
@@ -1701,6 +1775,27 @@
         "special": "Un carácter especial"
       },
       "codePlaceholder": "Código de 6 caracteres"
+    },
+    "createTeam": {
+      "title": "Crear equipo",
+      "back": "Atrás",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "p. ej. Research",
+      "descLabel": "Descripción",
+      "descPlaceholder": "¿Para qué es este equipo?",
+      "colorLabel": "Color",
+      "membersLabel": "Añadir agentes",
+      "selectedCount": "{{count}} seleccionados",
+      "noAgents": "Aún no hay agentes — crea uno desde el menú Nuevo.",
+      "createButton": "Crear equipo",
+      "manageHint": "Gestiona los equipos existentes en el Dashboard.",
+      "membersFailed": "Equipo creado, pero no se pudieron añadir {{count}} miembro(s): {{ids}}",
+      "searchPlaceholder": "Buscar agentes por nombre / id…",
+      "noMatch": "Ningún agente coincide",
+      "cancel": "Cancelar"
+    },
+    "account": {
+      "powerOnlyHint": "Cuenta, facturación y suscripción son funciones de la cuenta NetMind — inicia sesión con una cuenta NetMind para verlas aquí."
     }
   },
   "rail": {
@@ -1726,7 +1821,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Artefactos",
+    "desc": {
+      "awareness": "Quién es tu agente — identidad, personalidad e instrucciones permanentes. Edita aquí o díselo en el chat: se mantiene actualizado solo.",
+      "workspace": "El espacio de archivos del agente: sube documentos para que lea; sus productos también quedan aquí.",
+      "channels": "Conecta este agente a plataformas de IM (Lark, Slack, Telegram…) para contactarlo fuera de la app.",
+      "smarthome": "Vincula dispositivos de domótica (Home Assistant) para que el agente pueda verlos y controlarlos.",
+      "jobs": "Trabajo programado y en segundo plano. Pídelo en el chat — «envíame un resumen cada mañana» — y el agente lo crea.",
+      "inbox": "Mensajes que llegan de canales y otros agentes; lo que requiere tu atención muestra una insignia.",
+      "artifacts": "Informes, páginas y archivos producidos por el agente — ábrelos aquí.",
+      "skills": "Habilidades instaladas del agente. Añade más desde el Marketplace o instala desde GitHub / zip.",
+      "mcp": "Servidores de herramientas MCP externos que el agente puede llamar — conecta capacidades de terceros.",
+      "memory": "La memoria a largo plazo del agente, organizada en narrativas — lo que recuerda entre conversaciones.",
+      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes."
+    }
   },
   "jobs": {
     "title": "Trabajos",
@@ -1816,6 +1925,7 @@
       "trigger": "Disparador:",
       "cron": "Cron:",
       "interval": "Intervalo:",
+      "endAt": "Se ejecuta hasta:",
       "runAt": "Ejecutar a las:",
       "endCondition": "Condición de fin:",
       "maxIter": "Iter. máx.:",
@@ -1896,24 +2006,12 @@
     "refresh": "Actualizar artefactos",
     "zoom": "Ampliar artefacto",
     "zoomFullscreen": "Ampliar artefacto (abrir en pantalla completa)",
-    "collapse": "Contraer panel",
-    "collapseAria": "Contraer panel de artefactos",
     "selectArtifact": "Selecciona un artefacto",
     "minimized": "Minimizado:",
     "restore": "Restaurar \"{{title}}\"",
     "openBadge": "Abrir {{title}} ({{kind}})",
     "unsupportedKind": "Tipo de artefacto no admitido: {{kind}}",
     "loadingRenderer": "Cargando renderizador…",
-    "sliver": {
-      "expandTitle": "Haz clic para expandir · {{count}} artefacto",
-      "expandTitle_other": "Haz clic para expandir · {{count}} artefactos",
-      "emptyTitle": "Los artefactos aparecerán aquí cuando el agente cree uno",
-      "expandAria": "Expandir panel de artefactos ({{count}} elemento)",
-      "expandAria_other": "Expandir panel de artefactos ({{count}} elementos)",
-      "emptyAria": "Panel de artefactos (vacío)",
-      "label": "Artefactos ({{count}})",
-      "labelEmpty": "Artefactos"
-    },
     "emptyState": {
       "title": "Aún no hay artefactos",
       "hint": "Aparecerán aquí a medida que el agente los cree."
@@ -1968,6 +2066,37 @@
     },
     "url": {
       "toggleFailed": "No se pudo cambiar de modo: {{error}}"
+    },
+    "editor": {
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "saved": "Guardado",
+      "unsavedChanges": "Cambios sin guardar",
+      "draftRestored": "Se restauraron las ediciones sin guardar de este dispositivo.",
+      "conflictBody": "El archivo cambió mientras editabas. ¿Conservar tu versión o recargar la suya?",
+      "overwriteMine": "Conservar la mía",
+      "discardMine": "Recargar",
+      "loadError": "Error al cargar: {{error}}",
+      "mdGuardDisabled": "Este documento contiene sintaxis que el editor no puede preservar sin pérdidas: la edición directa está deshabilitada. Pide a la IA que haga los cambios.",
+      "htmlAnchorFailed": "Ese texto lo genera el script de la página o no se puede localizar de forma única en el código: pide a la IA que lo cambie.",
+      "htmlEditConflict": "El archivo cambió mientras editabas: ese cambio no se guardó.",
+      "editFailed": "Error al editar: el cambio no se guardó.",
+      "draftUnavailable": "Este archivo es demasiado grande para el borrador local: los cambios sin guardar se perderán al cerrar la ventana. Guarda pronto."
+    },
+    "officeEdit": {
+      "selected": "{{count}} seleccionado(s)",
+      "editText": "Editar texto",
+      "apply": "Aplicar",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "color": "Color del texto",
+      "opFailed": "Error al editar.",
+      "lockNotice": "Abierto en una app de Office de escritorio: edición directa en pausa.",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "addRow": "+ Fila",
+      "addCol": "+ Columna",
+      "replaceImage": "Reemplazar imagen"
     }
   },
   "skills": {
@@ -2093,6 +2222,15 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "toast": {
+    "view": "Ver",
+    "completed": "Completado",
+    "roomSpoke": "Nueva actividad en la sala",
+    "agent": "Agente",
+    "room": "Sala",
+    "artifactRepointedVerified": "Reenlazado: {{oldPath}} → {{newPath}} (contenido verificado)",
+    "artifactRepointedUnverified": "Reenlazado: {{oldPath}} → {{newPath}} (coincidencia sin verificar — revísalo)"
   },
   "webAnalyticsNotice": {
     "body": "Esta es la versión web en la nube de NarraNexus. Utiliza Google Tag Manager, un servicio de análisis de terceros, para recopilar datos anónimos de interacción con la página (vistas, clics, referente). No se recopila ningún contenido de las conversaciones. Puedes desactivarlo en cualquier momento en Configuración → Privacidad.",

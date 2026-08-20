@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_service.py
-last_verified: 2026-08-04
+last_verified: 2026-08-14
 ---
+
+## 2026-08-14 — origin 透传
+
+`create_job_with_instance` 接 `origin_source` / `origin_channel_id` 并原样交给
+[[job_repository]]。本层不解释它们，也不猜——来源由 MCP 工具从**服务器注入的身
+份**解析（[[_job_mcp_tools]]），模型碰不到。
 
 ## 2026-08-04 — 相似标题从「静默吞掉」改为「要求确认」（W1）
 

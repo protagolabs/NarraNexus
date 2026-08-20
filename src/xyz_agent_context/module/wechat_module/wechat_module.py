@@ -21,6 +21,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel import ChannelModuleBase
+from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
@@ -40,7 +41,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a WeChat agent tool call.
 
     Recognises ``wechat_send(text=...)`` (the canonical reply path) and the
-    generic ``send_message_to_user_directly(content=...)``. Returns None when
+    generic ``notify_owner(content=...)``. Returns None when
     the call isn't a user reply (so it isn't logged as "Background activity").
     """
     args = arguments
@@ -51,7 +52,7 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
             args = {}
     if not isinstance(args, dict):
         return None
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if is_owner_tool(tool_name):
         return args.get("content", "") or None
     if "wechat_send" in (tool_name or ""):
         return args.get("text", "") or "(sent via wechat_send)"
@@ -62,7 +63,8 @@ def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="wechat",
-        user_reply_tool_names=("wechat_send", "send_message_to_user_directly"),
+        display_label="WeChat",
+        user_reply_tool_names=("wechat_send", "notify_owner"),
         row_prefix_template="[WeChat · {sender_name} · {sender_id}]",
         extract_reply_fn=_extract_wechat_reply,
         dedicated_trigger=True,

@@ -116,6 +116,13 @@ export const useConfigStore = create<ConfigState>()(
           const res = await api.getAgents();
           if (res.success) {
             set({ agents: res.agents });
+          } else {
+            // Keeping the previous list is deliberate (a backend hiccup must
+            // not blank the sidebar) — being SILENT about it was not. The
+            // endpoint answers 200 + {success:false} for any unhandled
+            // handler exception, so this branch is the one where the UI goes
+            // on confidently showing names that may already be wrong. Say so.
+            console.error('Agent list refresh refused by server:', res.error);
           }
         } catch (err) {
           console.error('Failed to refresh agents:', err);

@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 取消/恢复改为显式带 channel（本条不是 08-18 就定下的）
+
+原来这里写着「卡订阅的取消/恢复由上游路由到它所属的那个账号」。那句话来自接入文档、
+**从未实测**，而且与 [[netmind_billing_client]] 自己的注释（「不传 channel = 上游按
+power 处理」）**直接矛盾** —— 评审读出来的。
+
+两个端点现在显式带 `channel`：悲观假设下这是必需的（不带 = nexus 上新建的卡订阅
+取消不掉，用户下个月照扣），乐观假设下是惰性字段。**单独开一节而不是改写 08-18 那段**，
+因为这是评审推动的当日改动，混进旧小节会让人以为它是一开始就想清楚的。
+
+
+## 2026-08-18 — `billing_channel`（默认 `"nexus"`）
+
+选哪个 Stripe 账号收款。NarraNexus 本身就是接入文档里说的 "nexus 场景"，而且
+**只有这个账号开了支付宝和微信**，所以它是默认值而不是可选项。上游把"不传"读作
+原来的共享 "power" 账号；我们总是显式发出去，让 body 表达它真正的意思。
+
+做成 setting 而不是常量只有一个理由：nexus 账号出事时，切回 `"power"` 一个 deploy
+就能恢复原来的付款链路。**绝不能从客户端输入到达** —— 见 [[billing]]。
+
+已知代价（写在这里，省得日后在客服工单里重新发现一遍）：之前走 "power" 付过款的
+用户在这里是**另一个 Stripe customer**，第一次走 nexus 结账时不会出现已保存的卡。
+免费额度和订阅状态两边落同一个 NetMind 账本；卡订阅的取消/恢复见下方 2026-08-19 条目。
+
 
 ## 2026-08-14 — `bus_max_workers`（默认 8，原为 trigger 里写死的 3）
 
@@ -322,7 +347,7 @@ Before this file, configuration was loaded through scattered `load_dotenv()` + `
 
 **Reads from:** the `.env` file at `_PROJECT_ROOT/.env` (three levels up from the file itself) and system environment variables. For API key fields, `.env` values are injected into `os.environ` before pydantic-settings reads them, overriding any pre-existing shell variables.
 
-**Consumed by:** `database.py` (`load_db_config`, `_ensure_pool`), `db_factory.py` (`get_db_client`), `agent_framework/` (LLM API keys), `narrative/`, `module/`, and the FastAPI backend. Essentially every module that needs an API key, database URL, or path configuration imports `settings`.
+**Consumed by:** `database.py` (`load_db_config`, `_ensure_backend`), `db_factory.py` (`get_db_client`), `agent_framework/` (LLM API keys), `narrative/`, `module/`, and the FastAPI backend. Essentially every module that needs an API key, database URL, or path configuration imports `settings`.
 
 **Also writes to `os.environ`** at the bottom of the file for `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_BASE_URL`, so that third-party SDKs (like OpenAI Agents SDK) that read `os.environ` directly also see the correct values.
 

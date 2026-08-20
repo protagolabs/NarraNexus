@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-10
+last_verified: 2026-08-17
 stub: false
 ---
 
@@ -127,7 +127,7 @@ SSE chunk 流，让外部平台无侵入地驱动 agent。
 复用 BackgroundRun + Broadcaster：创建 run 后 subscribe broadcaster，
 把事件按 `_classify_event` 映射到四个 OpenAI 通道——agent_thinking /
 agent_response → `delta.reasoning_content`；
-`send_message_to_user_directly` 的 args.content → `delta.content`；
+`reply_owner` 的 args.content → `delta.content`；
 其他 tool → `delta.tool_calls`；tool output → 非标准
 `delta.tool_results` 扩展（Manyfold 端 openclaw.adapter.ts 配对消费）。
 终结帧（`_TERMINAL_TYPES`）→ finish_reason="stop" + `data: [DONE]`。

@@ -65,7 +65,7 @@ async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional
     running agents in team rooms: patrol wakes the lead outside message
     dispatch, wrote no activity row, and so every board tool answered "no room"
     / "not found" in precisely the turn whose prompt tells the lead to call
-    ``work_complete_item``. Deriving from identity removes the dependency on
+    ``team_work_complete``. Deriving from identity removes the dependency on
     another lane remembering to mirror its turn.
 
     When the two disagree, identity wins: the activity row says where the agent
@@ -81,15 +81,12 @@ async def _resolve_team_room(db, agent_id: str) -> Tuple[Optional[str], Optional
     try:
         injected = caller_team_id_from_request()
         if injected:
-            channel = await db.get_one(
-                "bus_channels",
-                {"created_by": f"{TEAM_ROOM_OWNER_PREFIX}{injected}",
-                 "channel_type": "group"},
-            )
-            channel_id = (channel or {}).get("channel_id") or ""
+            from xyz_agent_context.message_bus.team_rooms import primary_room_of
+
             # A team whose room does not exist yet resolves to nothing rather
             # than to a team with no channel: every write needs a channel_id,
             # and half an answer would land items in an empty string.
+            channel_id = await primary_room_of(db, injected)
             return (injected, channel_id) if channel_id else (None, None)
 
         row = await db.get_one(
@@ -164,7 +161,7 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         return TeamWorkItemRepository(await _get_db())
 
     @mcp.tool()
-    async def work_add_item(
+    async def team_work_add(
         agent_id: str,
         title: str,
         assignee_id: str = "",
@@ -201,7 +198,7 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         return {"success": True, "item_id": item.item_id, "status": item.status}
 
     @mcp.tool()
-    async def work_list_items(agent_id: str) -> dict:
+    async def team_work_list(agent_id: str) -> dict:
         """
         Read the team's unfinished work.
 
@@ -235,7 +232,7 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         }
 
     @mcp.tool()
-    async def work_claim_item(agent_id: str, item_id: str) -> dict:
+    async def team_work_claim(agent_id: str, item_id: str) -> dict:
         """
         Take an unclaimed task and mark it started.
 
@@ -255,7 +252,7 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         return {"success": True, "item_id": item_id, "status": WorkItemStatus.IN_PROGRESS}
 
     @mcp.tool()
-    async def work_complete_item(agent_id: str, item_id: str) -> dict:
+    async def team_work_complete(agent_id: str, item_id: str) -> dict:
         """
         Mark a task finished.
 
@@ -278,7 +275,7 @@ def register_work_board_mcp_tools(mcp: Any, get_repo_fn: Callable = None) -> Non
         return {"success": True, "item_id": item_id, "status": WorkItemStatus.DONE}
 
     @mcp.tool()
-    async def work_update_status(agent_id: str, item_id: str, status: str) -> dict:
+    async def team_work_update_status(agent_id: str, item_id: str, status: str) -> dict:
         """
         Move a task between open and in-progress (or back).
 

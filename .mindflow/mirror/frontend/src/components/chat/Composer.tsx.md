@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-06-20
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 输入框随内容增高
+
+此前 `rows=1` + max-h-160 但**没有任何增高机制**,多行输入永远挤在一行高度
+里滚。现在 `resizeToContent`(唯一实现)= 塌回 auto → 无条件写回
+scrollHeight+边框(border-box 下 height 含边框而 scrollHeight 不含,
+差值取 offsetHeight−clientHeight,必须在塌回 auto 之后读)。防自激在
+**观察侧**:RO 回调只在 `contentRect.width` 变化时才重算——本回调只写
+高度,按宽度过滤天然阻断回环(lastWidth 初值 −1 保证 observe 的首次投递
+必跑)。两个触发面:useLayoutEffect 跟 `text`(程序性 setText/clear/
+草稿恢复同路),ResizeObserver 跟宽度(拖抽屉/钉选/折叠侧栏/窗口 resize
+都会改折行数)。CSS `max-h-[min(320px,35vh)]` 封顶,
+超过后内滚。测试:composerAutosize.test.tsx。
+
+## 2026-08-06 — 输入框浅底 + focus 边框加深
+
+Owner 确认输入栏惯例:字段是卡面上**最浅**的面,focus 用边框加深表达。
+composer 的 Textarea 覆盖 bg 为 --nm-card(白),并**移除**原先把
+hover/focus 边框钉回 hairline 的覆盖 — 恢复 Textarea 基类行为
+(hover→border-strong,focus→nm-ink)。nx-composer-input 的 outline
+抑制不变(焦点信号只走边框)。渲染隔离契约不动。
 
 ## 2026-06-20 — ComposerHandle gained setText (suggested-prompt fill)
 

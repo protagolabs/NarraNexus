@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+## 2026-08-14 — BusMessage.segments
+
+`Optional[List[dict]]`，每项是 `{kind: "monologue"|"reply", text}`：agent 自己的思考和
+它的回答之间的分界，`content` 因为拼接而丢掉、下游谁也恢复不了的那个信息。
+
+**`content` 一个字节都没变**，这是刻意的：它是所有**文本**消费者读的东西——记忆索引、
+其他 agent 的 scrollback。一个渲染特性不能改写系统其余部分读的那份内容。
+
+`None` 表示"没有记录过分界"，包括这个字段存在之前写的每一条消息（铁律 #2：不回填、不做
+兼容垫片），读者把它们渲染成一整块——也就是此前的行为。空列表也存成 NULL：它不携带任何
+读者能用的信息，而一个看起来像数据的值会引诱读者去相信"这一轮确实没有分界"。
+
 ## 2026-08-07 — BusMessage.root_run_id
 
 发送方那一轮所属的触发树。被唤起的 run 从这里继承,级联停止才能越过
@@ -79,3 +91,24 @@ rooms」现在只说对了一半。agent 自己调 `bus_send_message` / `bus_sen
 「发的时候知道自己在哪一轮」。为 None 的三种情形:用户消息、列存在之前的旧行、以及
 发送方确实说不出轮次(头缺失时按设计静默降级,消费方一律按「说不准」处理,绝不按
 「发生过」)。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

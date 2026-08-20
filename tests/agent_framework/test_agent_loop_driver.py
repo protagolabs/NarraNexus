@@ -22,9 +22,9 @@ def test_claude_is_registered_by_default():
     assert "claude_code" in available_agent_loop_frameworks()
 
 
-def test_default_resolves_to_claude_code(monkeypatch):
+def test_default_resolves_to_nexus_power(monkeypatch):
     monkeypatch.delenv("AGENT_LOOP_FRAMEWORK", raising=False)
-    assert resolve_framework_name() == "claude_code"
+    assert resolve_framework_name() == "nexus_power"
 
 
 def test_env_overrides_default(monkeypatch):

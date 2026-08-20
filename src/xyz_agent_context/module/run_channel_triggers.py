@@ -155,10 +155,16 @@ async def main(only: Optional[set[str]] = None) -> None:
             # leaves it pending and the socket only closes on process exit.
             health_task.cancel()
             await asyncio.gather(health_task, return_exceptions=True)
-        # Close the shared DB client. We opened it, so we close it — the
-        # aiosqlite backend runs its single connection on a background thread
-        # that otherwise keeps the process alive after main() returns, turning
-        # a clean SIGINT/SIGTERM into a hang.
+        # Close the shared DB client. We opened it, so we close it.
+        #
+        # 2026-08-17: this used to say the aiosqlite background thread "keeps
+        # the process alive after main() returns, turning a clean
+        # SIGINT/SIGTERM into a hang". That worker is a daemon thread now
+        # (see db_backend_sqlite's aiosqlite hardening), so it no longer
+        # blocks exit — and it is exactly why this call still matters: a
+        # daemon thread is KILLED at interpreter exit, wherever it is. This
+        # is the only point at which pending writes are drained and SQLite
+        # locks released deliberately instead of by process death.
         try:
             await close_db_client()
         except Exception as e:  # noqa: BLE001 — best-effort shutdown

@@ -44,7 +44,7 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """MessageSourceRegistry extractor for `working_source="lark"`.
 
     Lark agents reply via `lark_cli im +messages-send` / `+messages-reply`,
-    not via `send_message_to_user_directly`. The reply payload sits inside
+    not via `notify_owner`. The reply payload sits inside
     `arguments.command` as the value of `--text` or `--markdown`. Without
     this extractor, ChatModule.hook_after_event_execution treats every Lark
     turn as is_no_response=True and writes an activity row that loses the
@@ -66,10 +66,10 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
     if not isinstance(args, dict):
         return None
 
-    # Default chat path: agents may still call send_message_to_user_directly
+    # Default chat path: agents may still call notify_owner
     # on Lark turns (e.g. when also writing to the NarraNexus UI). Honour
     # the chat-style content arg first.
-    if "send_message_to_user_directly" in (tool_name or ""):
+    if "notify_owner" in (tool_name or ""):
         content = args.get("content", "")
         return content or None
 
@@ -106,7 +106,8 @@ def _extract_lark_reply(tool_name: str, arguments: dict) -> Optional[str]:
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="lark",
-        user_reply_tool_names=("lark_cli", "send_message_to_user_directly"),
+        display_label="Lark",
+        user_reply_tool_names=("lark_cli", "notify_owner"),
         row_prefix_template="[Lark · {sender_name} in {room_name}]",
         extract_reply_fn=_extract_lark_reply,
         dedicated_trigger=True,

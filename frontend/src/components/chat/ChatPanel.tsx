@@ -14,31 +14,30 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic, SlidersHorizontal } from 'lucide-react';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
-import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
+import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn } from '@/lib/utils';
+import { cn, formatChatTimestamp } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { chatDayInfo } from '@/lib/chatDays';
+import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
-import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
 import { ProcessPanel } from './ProcessPanel';
 import { SegmentedReply } from './SegmentedReply';
 import { segmentTurn } from '@/lib/segmentTurn';
-import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -48,59 +47,21 @@ import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
 // Artifact tool names that produce an artifact_id in tool_output.
 //
-// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
-// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name.
-// An exact-match Set silently never matched, so artifact tool calls were
-// never recognised and the artifact panel only updated on an unrelated
-// reload (agent switch). Match the bare suffix instead so both the
-// qualified and unqualified forms are recognised.
+// DISPLAY-ONLY since 2026-08-18 (spec artifact-events §3.3): discovery moved
+// to backend-pushed `artifact_changed` events (useRunObservation → store's
+// applyEvent), so this matching no longer feeds the artifact panel. It only
+// anchors the inline badge chip to the tool call that produced the artifact —
+// a rename here costs a missing chip in old transcripts, never a missing tab.
 //
-// Pointer model (2026-05-14): the single tool is `register_artifact`; the
-// older `create_artifact` / `upload_artifact_file` names are gone — see the
-// artifact_runner + artifact_tool mirror md files.
+// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
+// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name,
+// so match the bare suffix.
 const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
 
 function isArtifactToolName(toolName: string): boolean {
   return ARTIFACT_TOOL_BASE_NAMES.some(
     (base) => toolName === base || toolName.endsWith(`__${base}`),
   );
-}
-
-/**
- * Fetch the latest Artifact metadata and upsert into the store, deduped by
- * tool_call_id so we run at most once per emitted tool call.
- *
- * Why always refetch (not just "if missing"): a `register_artifact` call
- * with `target_artifact_id=<existing>` is the agent's refresh signal — same
- * `artifact_id` returns but with a bumped `updated_at`. If we short-circuit
- * on "already in store" the renderers never see the new timestamp and the
- * iframe doesn't reload. Refetching every NEW tool call ensures the
- * downstream `useArtifactRawUrl(refreshKey=updated_at)` keys re-mint and
- * the artifact's iframe / blob reloads with the latest bytes.
- *
- * The seen-Set lives at module scope so the React render loop (which fires
- * this from inside the timeline map) doesn't re-trigger fetches that would
- * race with the upsert and cause an infinite re-render. A tool_call_id is
- * globally unique within an agent session, so collisions across panels
- * don't happen.
- */
-const _seenArtifactToolCallIds = new Set<string>();
-
-function refreshArtifactFromToolCall(
-  agentId: string,
-  artifactId: string,
-  toolCallId: string,
-): void {
-  if (_seenArtifactToolCallIds.has(toolCallId)) return;
-  _seenArtifactToolCallIds.add(toolCallId);
-  artifactsApi
-    .getDetail(agentId, artifactId)
-    // focus: a register_artifact success must bring the doc to front even
-    // if a list refresh already inserted it (or it is a re-register) —
-    // otherwise the panel stays on the previous tab and the user reads
-    // the successful generation as a failure.
-    .then((d) => useArtifactStore.getState().upsert(d, { focus: true }))
-    .catch(() => undefined);
 }
 
 /**
@@ -116,17 +77,17 @@ function refreshArtifactFromToolCall(
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
-  agentId: string;
   allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
 }
 
 const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
-  toolCalls, agentId, allArtifacts,
+  toolCalls, allArtifacts,
 }: ArtifactToolCallCardsProps) {
-  // Collect unique artifact_ids in first-seen order across the turn's
-  // tool calls. Re-register on the same artifact yields the same id; we
-  // still refresh its metadata (via refreshArtifactFromToolCall) but
-  // render one badge.
+  // Collect unique artifact_ids in first-seen order across the turn's tool
+  // calls — PURELY for badge placement. The store is fed by backend
+  // artifact_changed events (and the full pull on open/switch/reconnect);
+  // this render path issues no fetches and mutates nothing, so it is safe
+  // inside the timeline map and a parse miss costs a chip, never a tab.
   const seenIds = new Set<string>();
   const orderedIds: string[] = [];
 
@@ -146,13 +107,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     }
 
     if (!artifactId) continue;
-
-    // Refetch fresh metadata for this tool call (deduped per call). Same
-    // `artifact_id` from a re-register lands here with a new tool_output
-    // string (new token+timestamp), so the dedup key naturally distinguishes
-    // first-register vs. subsequent refresh signals.
-    const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
-    refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
 
     if (!seenIds.has(artifactId)) {
       seenIds.add(artifactId);
@@ -190,7 +144,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   // sufficient. allArtifacts swaps when the artifact store updates (exactly
   // when we want to re-render to upgrade a placeholder chip to a real badge).
   return (
-    prev.agentId === next.agentId &&
     prev.toolCalls === next.toolCalls &&
     prev.allArtifacts === next.allArtifacts
   );
@@ -394,24 +347,30 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsLoadingMore(true);
     shouldAutoScrollRef.current = false;
     const container = scrollContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight ?? 0;
 
     try {
       const response = await api.getSimpleChatHistory(
         agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
       );
       if (response.success && response.messages.length > 0) {
-        // Use flushSync to ensure DOM updates synchronously before measuring scroll
+        // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for
+        // why scrollHeight arithmetic alone lands the user on the new
+        // chunk). Captured HERE — after the await, so the loading row has
+        // already committed and its height is out of the correction — and
+        // immediately before flushSync commits the prepended rows.
+        const captured = container
+          ? capturePrependAnchor(
+              container,
+              container.querySelector<HTMLElement>('[data-timeline-item]'),
+            )
+          : null;
+        // flushSync so the DOM holds the prepended rows before measuring.
         flushSync(() => {
           setHistoryMessages((prev) => [...response.messages, ...prev]);
           setHistoryTotalCount(response.total_count);
         });
 
-        // Now DOM is updated, restore scroll position
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          container.scrollTop = newScrollHeight - prevScrollHeight;
-        }
+        if (container && captured) restorePrependAnchor(container, captured);
       }
     } catch (error) {
       console.error('Failed to load more chat history:', error);
@@ -504,6 +463,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }),
     [timeline, chatTab],
   );
+
+  // The newest visible full message keeps its meta row (time) always
+  // visible; older rows reveal it on hover (claude.ai convention).
+  const lastMessageId = useMemo(() => {
+    for (let i = visibleTimeline.length - 1; i >= 0; i--) {
+      if (visibleTimeline[i].messageType !== 'activity') return visibleTimeline[i].id;
+    }
+    return null;
+  }, [visibleTimeline]);
+
+  // v4 header side label: "session · <last activity time>" — the most recent
+  // visible message anchors the label; empty until history lands.
+  const sessionLabel = useMemo(() => {
+    const last = visibleTimeline.length
+      ? visibleTimeline[visibleTimeline.length - 1]
+      : null;
+    if (!last?.timestamp) return '';
+    return t('chat.header.sessionLabel', { time: formatChatTimestamp(last.timestamp) });
+  }, [visibleTimeline, t]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -836,58 +814,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       // itself (see onDragOver/onDrop there) because <textarea> processes
       // drop synchronously into its value before bubbling.
       className={cn(
-        'chat-frosted flex flex-col h-full overflow-hidden transition-colors',
+        'flex flex-col h-full overflow-hidden transition-colors',
         isDragging && 'ring-2 ring-inset ring-[var(--accent-primary)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — carbon·silicon binding-dot brand motif + NM mono label.
-          Hidden on mobile: the top bar shows the breadcrumb, and the activity
-          icon moves into the Chat/Artifacts tab row (see MainLayout). */}
-      <div className="px-5 hidden md:flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
-        {/* min-w-0 + overflow-hidden: when the artifact column squeezes
-            the chat, the label/agent-id side TRUNCATES — it must never
-            run under the Processing/cost cluster on the right. */}
-        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <BindingDot size={7} pulse={isStreaming} className="shrink-0" />
-          <BracketSectionLabel
-            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
-          >
-            {t('chat.interaction')}
-          </BracketSectionLabel>
-        </div>
+      {/* v4 header — agent-name protagonist + session label; Chat / Inner
+          Thoughts segmented toggle; Jobs / Inbox / Artifacts / Cost entries
+          and the ⋯ detail menu (doors only — panels unchanged). Hidden on
+          mobile: the top strip shows the breadcrumb there and the tab pair
+          below stands in. */}
+      <ChatHeader
+        agentId={agentId}
+        agentName={currentAgent?.name || agentId || 'AI'}
+        sessionLabel={sessionLabel}
+        isStreaming={isStreaming}
+        currentSteps={currentSteps}
+        chatTab={chatTab}
+        onChatTabChange={setChatTab}
+        onOpenAgentConfig={() => setAgentCfgOpen(true)}
+      />
 
-        <div className="flex items-center gap-3 shrink-0">
-          {isStreaming && <ExecutionPopover steps={currentSteps} />}
-          {/* Per-agent model & framework settings — sits left of the cost
-              chip in the header icon cluster. Opens the detailed panel;
-              the composer chip stays the quick model switch. */}
-          {agentId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              title="Model & framework (this agent)"
-              onClick={() => setAgentCfgOpen(true)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-          )}
-          {/* Cost chip — a proper header member (it used to float
-              absolutely over this corner and collided with the
-              Processing indicator during runs). */}
-          <span data-help-id="chat.cost">
-            <CostPopover />
-          </span>
-        </div>
-      </div>
-
-      {/* Chat tabs — Conversation (owner↔agent direct chat) vs Inner Thoughts
-          (the agent's background activity + cross-channel narrations). */}
+      {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
+          in the header, which doesn't render on < md. */}
       <div
-        className="px-5 max-md:px-3 flex items-center gap-1 border-b"
+        className="px-3 flex md:hidden items-center gap-1 border-b"
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
         {(['conversation', 'inner'] as const).map((tab) => (
@@ -906,22 +859,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         ))}
       </div>
 
-      {/* Security reminder banner — persistent, non-dismissible. Warns
-          users not to paste sensitive personal data into chat (it would be
-          stored in trajectories + sent to the LLM provider). Added as part
-          of the 2026-06-17 security hardening. */}
-      <div
-        className="px-5 py-1.5 flex items-center gap-1.5 text-[11px] leading-snug border-b"
-        style={{
-          borderColor: 'var(--nm-hairline)',
-          background: 'var(--bg-tertiary)',
-          color: 'var(--color-warning, var(--text-tertiary))',
-        }}
-      >
-        <span aria-hidden="true">⚠</span>
-        <span>{t('chat.securityReminder')}</span>
-      </div>
-
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
           cannot be hijacked by macOS's "always show scrollbars" AppKit
@@ -933,7 +870,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="flex-1 min-h-0"
         data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
-        viewportClassName="p-5 max-md:p-3"
+        viewportClassName="py-6 px-6 max-md:p-3"
         onViewportScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop < 50 && !isLoadingMore && historyMessages.length < historyTotalCount) {
@@ -944,7 +881,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           shouldAutoScrollRef.current = isAtBottom;
         }}
       >
-      <div className="space-y-4">
+      {/* v4: the conversation reads in a centered 820px measure regardless
+          of how wide the (now full-bleed) chat column gets. */}
+      <div className="mx-auto w-full max-w-[820px] space-y-4">
         {/* Loading more (top) — NM bracket-loading placeholder */}
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2">
@@ -959,13 +898,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Empty state. With an agent selected → the JourneyBand onboarding
-            (binding-dot eyebrow, memory→network→team stations, suggested
-            prompts that fill the composer). With no agent → the plain
-            bracket prompt to pick one from the sidebar. */}
+        {/* Empty state. With an agent selected → the v4 in-stream onboarding
+            card ("<Agent> is ready" + suggested prompts that fill the
+            composer; dismissible, persisted per agent). With no agent → the
+            plain bracket prompt to pick one from the sidebar. */}
         {showEmptyState && (
           agentId ? (
             <OnboardingJourney
+              // dismissed is read from localStorage once per mount; without
+              // the key, switching agents reuses the instance and agent A's
+              // dismissal leaks onto agent B (and vice versa).
+              key={agentId}
+              agentId={agentId}
               agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
@@ -987,6 +931,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
+              agentId={agentId}
+              agentName={currentAgent?.name || agentId}
+              isLatest
             />
           </div>
         )}
@@ -997,7 +944,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             are the ONLY thing routed to Inner Thoughts; everything the agent
             actually *says* is owner-facing and stays in Conversation,
             including its cross-channel "I replied / notified you" narrations
-            (send_message_to_user_directly targets the owner regardless of
+            (the owner-facing tool targets the owner regardless of
             which channel triggered the turn). Session items (the owner's
             live in-app turn) are conversation too.
 
@@ -1027,7 +974,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (item.messageType === 'activity') {
             return (
-              <div key={item.id}>
+              <div key={item.id} data-timeline-item>
                 {separator}
                 <InnerThoughtCard item={item} agentId={agentId} />
               </div>
@@ -1045,6 +992,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           return (
             <div
               key={item.id}
+              data-timeline-item
               className={isNewSession ? 'animate-slide-up' : undefined}
             >
               {separator}
@@ -1068,13 +1016,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 eventId={item.eventId}
                 agentId={agentId}
                 agentName={currentAgent?.name || agentId}
+                isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
               {hasArtifactTools && agentId && item.toolCalls && (
                 <ArtifactToolCallCards
                   toolCalls={item.toolCalls}
-                  agentId={agentId}
                   allArtifacts={allArtifacts}
                 />
               )}
@@ -1117,11 +1065,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 if (!liveSegments.some((s) => s.reply?.content)) return null;
                 return (
                   <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
+                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)]"
                     style={{
-                      background: 'var(--color-silicon-soft)',
+                      background: 'var(--nm-paper)',
                       color: 'var(--nm-ink)',
-                      border: '1px solid var(--color-silicon-hair)',
+                      border: '1px solid var(--nm-hairline)',
                       borderLeft: '3px solid var(--color-silicon)',
                     }}
                   >
@@ -1138,7 +1086,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {agentId && currentToolCalls.length > 0 && (
                 <ArtifactToolCallCards
                   toolCalls={currentToolCalls}
-                  agentId={agentId}
                   allArtifacts={allArtifacts}
                 />
               )}
@@ -1172,17 +1119,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </ScrollArea>
 
       {/* Input area — drop is handled at the Card root, so this wrapper
-          no longer needs its own onDragOver/onDragLeave/onDrop. */}
-      <div className="px-5 py-4 border-t border-[var(--rule)]">
+          no longer needs its own onDragOver/onDragLeave/onDrop. Inner
+          wrapper mirrors the 820px stream measure (v4). */}
+      <div className="border-t border-[var(--rule)]">
+      <div className="mx-auto w-full max-w-[820px] px-6 max-md:px-3 pt-3.5 pb-3">
         {/* Audio transcription unavailable notice — only shown when an
             audio upload returned transcription_available=false. */}
         {transcriptionNotice && (
-          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+          <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
             <span className="flex-1">{transcriptionNotice}</span>
             <button
               type="button"
               onClick={() => setTranscriptionNotice(null)}
-              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
               title="Dismiss"
             >
               <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1200,7 +1149,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                  className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
                   {isVoiceMemo ? (
                     <VoiceTranscript compact transcript={att.transcript} />
@@ -1234,7 +1183,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
-                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                     title="Remove"
                   >
                     <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1243,7 +1192,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               );
             })}
             {uploadingCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Uploading {uploadingCount}
               </div>
@@ -1331,11 +1280,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           )}
         </div>
 
-        {/* Tools row — attach (+) and voice on the left; fast-mode toggle
-            (ComposerFastToggle) and model badge (ComposerModelBadge) on the
-            right. */}
+        {/* Tools row — attach (+) and voice on the left, followed by the
+            always-visible privacy reminder (v4: the old banner folded into
+            this row — permanent, non-dismissible, full text via the title
+            tooltip); fast-mode toggle (ComposerFastToggle) and model badge
+            (ComposerModelBadge) on the right. */}
         <div className="mt-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 min-w-0">
           <Button
             variant="ghost"
             size="icon"
@@ -1378,6 +1329,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
+          {/* Security notice (2026-06-17 hardening): demoted from the banner
+              to the tools row, but it must stay readable — no truncation, and
+              at least the mid ink step. The title carries the long-form text
+              (and zh-localization.test.ts asserts on it). */}
+          <span
+            className="ml-2 min-w-0 line-clamp-2 text-[11px] leading-tight text-[var(--nm-ink50)]"
+            title={t('chat.securityReminder')}
+          >
+            {t('chat.composerPrivacyHint')}
+          </span>
           </div>
           <div className="flex items-center gap-1.5">
             <ComposerFastToggle
@@ -1388,6 +1349,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
           </div>
         </div>
+      </div>
       </div>
 
       {/* Per-agent model & framework panel (opened from the header). */}

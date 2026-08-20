@@ -51,6 +51,25 @@ class WorkItemStatus:
     MODEL_SETTABLE = (OPEN, IN_PROGRESS, DONE)
 
 
+class WorkItemOrigin:
+    """Which of the two layers put this row on the board.
+
+    The layers were kept separate by owner decision (2026-08-07) and this
+    column is where that decision is enforced at runtime:
+
+    * ``TOOL`` — a TASK the Leader maintains explicitly through
+      ``team_work_add`` / ``team_work_complete``. One task routinely spans
+      several errands, so nothing may close it automatically.
+    * ``AUTO`` — a message-level ERRAND recorded by the platform when one
+      agent @mentions another (``message_bus/errand.py``). It closes itself
+      when the assignee delivers, which is what makes automatic opening safe
+      to do at all.
+    """
+
+    TOOL = "tool"
+    AUTO = "auto"
+
+
 class WorkItem(BaseModel):
     id: Optional[int] = None
     item_id: str
@@ -63,6 +82,10 @@ class WorkItem(BaseModel):
     status: str = WorkItemStatus.OPEN
     created_by: str = ""
     source_message_id: Optional[str] = None
+    #: Which layer created this row — see :class:`WorkItemOrigin`. Defaults to
+    #: ``tool`` so every row written before the errand layer existed reads as
+    #: what it actually was: something a model asked for explicitly.
+    origin: str = WorkItemOrigin.TOOL
     #: The trigger tree running when this item was created, so a cascade stop
     #: can pause what it silenced (shipped by #252).
     root_run_id: Optional[str] = None

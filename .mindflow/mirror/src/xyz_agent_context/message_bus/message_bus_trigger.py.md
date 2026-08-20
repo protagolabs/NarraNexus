@@ -1,8 +1,112 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
+
+`has_message_from_turn` 的判据是 `event_id` 身份 join，而 event_id 来自 MCP 请求头、合法地会缺失（identity 从不是 flow control）。改为：`can_judge = bool(turn.event_id)`；判不了时**假定已投递**（`posted = spoke or not can_judge`），只有 event_id 在场且 join 为空才 `_announce_failed_room_post`。此前缺 header → `spoke=False` → 在一条已在房间里的回复下贴假「never sent it」通告 + `_hop_done` 低估投递率。由 `test_team_delivery_e2e.py::...without_an_event_id` 钉住。
+
+## 2026-08-17 — 板子进 prompt 加上限（review 🔴3 的第三项）
+
+`TEAM_BOARD_MAX_ITEMS = 15`。板子此前全量渲染进**每个成员每一轮**的 prompt，而
+在 [[errand]] 之前每一行都要 Leader 一次显式工具调用，稀少是天然的；现在行数跟
+着房间流量走。
+
+溢出**明说**（`+N more not shown`）而不是悄悄截断：读起来完整的截断会让 lead 以
+为剩下的已经关掉了——铁律 #16 对用户可见流的要求，同样适用于模型看自己团队的那
+一眼。保持 oldest-first：最可能卡住的就是开得最久的，那正是这一段存在的理由。
+
+## 2026-08-15（二）— 交接自己上板子 + 团队房禁止承诺
+
+两处改动服务同一件事：**工作板的入口不再压在模型服从上**。
+
+**`_record_errands`**：团队回帖**投递落地后**，先结清本人在这个房间欠的差事，
+再把这条帖子 @ 到的人开成新差事（[[errand]]）。顺序固定 close → open：在敦煌那
+条消息（「收到，开始处理……完成后交付 @A4」）上 close 是空操作——它是承诺不是交
+付——而 open 补上下一棒，于是**两跳都还被盯着**。反过来会让一次交接把自己刚创建
+的差事关掉。
+
+在此之前板子的唯一入口是 `work_add_item`，Leader 忘了调板子就是空的，巡查无事
+可扫——断链那一轮正是如此。
+
+**挂在 `_deliver_reply` 里，且在它的 `try` 之外**。同批 rebase 上来的 #291 把投
+递搬进了 turn 内部，所以钩子跟着搬。放在 try 外面是必须的：那个 try 回答的是
+「这一轮有没有够到房间」，记账绝不能让一次已经送达的回帖把自己报成丢失。
+`_record_errands` 自己也吞掉全部异常，同一个理由。
+
+**用的是 cap 之后的 `mentions`**：被级联上限剥掉的 @ 从没到达那个队友，给它开差
+事等于让一个没被问过的人欠着账。
+
+**`_post_to_room` 改为返回 message_id**：差事的去重键是**消息**，而重读房间去找
+刚写的那行会和这个方法刚唤醒的轮询循环打架。
+
+**团队 prompt 增「禁止承诺未来交付」**：把 IM 1:1 早就有的那条（
+[[channel_prompts]] 的 DIRECT 协议）补进团队房——在此之前敦煌那句话在团队房里
+**完全合规**。措辞带上三个出口（这一轮干完 / 说清进展 / `job_create`）而不是光
+禁止：0802 微信那次证明了只说「不要」会让沉默成为合规答案，而沉默正是这个房间
+最付不起的。它**降低**平台护栏被触发的频率，**不是**护栏本身（铁律 #15）。
+
+## 2026-08-15 (三) — 宽 `except` 会把测试桩的契约偏差吞成"绿"
+
+删掉 `TurnResult.segments` 时漏了一个测试桩，它还在传 `segments=`。frozen dataclass 必然
+抛 `TypeError`——而这个异常落进 `_handle_channel_batch` 的宽 `except`，被记成一次
+`record_failure`，**测试仍然是绿的**。
+
+绿得还很有欺骗性：桩的执行顺序是「填 sink → 调 deliverer（房间行已经落库）→ 才 return」，
+所以断言"行存在且 segments 正确"在崩溃之前就已经满足。`_invoke_runtime` 之后的整段——游标
+推进、`post_state` 三分支、fatal 播报、hop 观测——在那条测试里一步都没走过，而它的 docstring
+还写着自己是"唯一一条会自己变红的测试"。
+
+结构性的教训：**只要一个 turn 被宽 `except` 包着，任何 stub 与真实签名的偏差都会静默降级
+成"这一轮失败了"，而断言可能早就满足了**。所以驱动真 turn 的测试现在都加一条
+`_assert_turn_survived`（这一轮没有被记成失败），断言落在 `_invoke_runtime` **之后**的代码
+上。把这条加回去之后，重新引入那个多余参数会让 5 条测试红。
+
+## 2026-08-15 (二) — `TurnResult.segments` 删掉：一条只有写、没有读的通道
+
+发帖搬进 turn 内之后，边界改从 `segments_sink` 读（见 [[run_collector.py]]），
+`turn.segments` 的最后一个读者就消失了——只剩 `_invoke_runtime` 里那一行写入，和一条用
+源码文本把这行写入钉住的测试。
+
+留着的代价不是那几个字节：下一个人会看到一个"看起来是数据来源"的字段，据此写出一个永远
+读到 None 的分支；而那条源码断言会让"删掉死代码"这件事红。所以先删通道、再补 sink 的测试，
+顺序反过来的话，新测试会顺手把死字段一起钉进去。
+
+## 2026-08-15 — 和 #291 的和解：cap 与 segments 搬进 turn 内
+
+#291 把房间回复搬进了 turn 内部（`_deliver_reply`），而 @mention 解析和 hop cap 也跟着搬了
+进去——这条分支的两样东西恰好都长在那里。
+
+**segments**：`turn.segments` 在 deliverer 被调用时还不存在。改成从 `segments_sink` 读
+（见 [[run_collector.py]]），deliverer 在发帖那一刻 join 一次。
+
+**cap 通知**：capping 在 turn 内发生，通知必须在 turn **之后**发——房间要读成"agent 先说话，
+然后平台解释它拒绝了什么"，反过来会让平台的注解压在它所注解的那句话上面。所以 cap 的结果
+（具名的人 + 是不是 `@all`）用一个 holder 带出来，和 dev 用 `room_post` 带出投递状态是同一
+个手法。
+
+通知只在 `post_state == POST_OK` 时发：在一条谁也看不见的回复旁边解释"我没把人拉进来"，
+解释的是错误的那个缺席。
+
+## 2026-08-14 (三) — `_post_to_room` 少了 `segments`，一次合并干掉了所有团队回复
+
+`_post_to_room`（#303 引入的"本进程唯一的发房间入口"）**显式列出参数**，理由写在它自己的
+注释里：`**kwargs` 会把拼错的关键字藏起来，只在运行时炸成 TypeError。
+
+而 segments 是在另一条分支上加到回复里的。两者并行落地，git 干净地合上了，结果是**每一次
+团队 turn 都在这里抛 TypeError**——被调用方那个"回复存在但房间永远看不到"的处理器接住，
+于是房间收到的是一条投递失败通知，而不是回复本身。生产环境里响亮，测试里隐形：segments 的
+测试要么直接调 `send_message`，要么断言 trigger 的源码，两类都是绿的。
+
+**真正报警的是上一轮加的四个 cascade 端到端测试**，因为它们跑的是真 turn——而它们失败的
+原因和 cascade 毫无关系。
+
+显式参数列表的代价就是它落后时的代价：凡是 `send_message` 接受、且房间调用方会传的东西，
+这里必须同时出现。现在 `tests/message_bus/test_team_message_segments.py` 里有一条**通过
+trigger 发一条团队回复再把行读回来**的测试；把修复的任意一半撤掉它就红，而那个文件里其余
+所有测试都察觉不到。
 
 ## 2026-08-14（二次）— 饥饿判定改用墙钟，因为周期在饥饿时会变稀
 
@@ -21,6 +125,73 @@ stub: false
 真机复验通过：`service_audit` 落到
 `{"stage": "worker_starvation", "starved_for_s": 27, "running": 1, "waiting": 1,
 "max_workers": 1, "longest_running_agent": ...}`。
+
+## 2026-08-17 — team 回复改成工具调用，投递不再是 trigger 的事
+
+`_deliver_reply` / `include_monologue=is_team` / `on_plain_text_delivery` /
+`live_segments` / `POST_OK|FAILED|NOT_ATTEMPTED` 全部删除。房间收
+`message_team`，落点在 [[team_posting]]。
+
+**事后记账从「平台投递成功了吗」变成「agent 这一轮在房间里说过话吗」**，而这个问题
+`has_message_from_turn` 本来就能答（它此前只在 `POST_NOT_ATTEMPTED` 那一支被用到）。
+于是整块三态状态机塌成一个布尔。**刻意不用 `turn.delivered`**：那会把
+`notify_owner` 也算进去，而只通知了 owner 的 agent 把房间留在沉默里
+——正是通知存在的理由。
+
+**级联上限的叙述从这里移走**（搬到 team_posting，因为施加上限的是它）；两处都留会说两次。
+
+**fatal 通知保持不变**，仍以房间自己的标记发、且不问 agent 有没有说过话：这条通知声称的是
+**这一轮失败了**，不论如何都为真。
+
+### `include_monologue` 只剩 patrol，而它必须剩下
+
+patrol 是**另一件事**：平台请 lead 撰写房间的状态行，然后以**房间自己的标记** +
+`msg_type=patrol` 发出去。工具做不到这件事（工具以 agent 身份发，那条线会被算成 agent
+一跳、并读作 lead 在闲聊）。而 NexusPower 把 agent 的纯文本走 AGENT_THINKING，**去掉这个
+开关会让 patrol 在 nexus_power 上静默失效、在 claude_code 上看起来正常**——本仓吃过两次的
+那个形状。守卫从「team 批次必须开」翻转成「team 批次不许开 + patrol 必须开」
+（`test_team_monologue_wiring`）。
+
+patrol 的 prompt 现在**自己说明**这条例外（P1：surface 特有的事实由该 surface 自己讲）：
+「这一轮你在撰写房间的状态行，不是以自己的身份说话：写成纯文本、不要调 message_team」。
+
+### 安全网（与投递变更同批，不可拆）
+
+briefing-squad 那个 P0 重新进入射程——纯文本自动上墙时它结构上不可能发生。三层网：
+
+1. **`message_team` 是本轮声明的默认回复工具** → 两个框架的 reply reminder 都会渲染它。
+   **这是主网**，且两个框架都覆盖。
+2. **哑轮通知**：turn 产出了文本但房间里什么都没有 → `_announce_failed_room_post`
+   （措辞改为「产出了回复但从未发给房间」）。平台**不**替它写（铁律 #15），但损失不再静默。
+3. **`expression_nudge`**：team 轮次传一个最小 `TurnProfile`（只开这一项，其余全默认；
+   `narrative_persistence` 只在 `bm25_top1` 快路上被读，本 profile 不走那条）。仅
+   NexusPower 有。
+
+**刻意没用 IM DM 那条 helper-LLM 兜底。** 那条路让 helper 写回复、平台投递——在 1:1 里
+可以接受，在 team 房间里是**平台冒充一个 agent 在它的队友和 owner 面前发言**。spec §5.2
+建议把 team 从兜底排除名单里摘出来，这里没有照做，理由就是这一句。
+
+## 2026-08-17 — 唤醒终于跨进程了（`_wait_cross_process_wake`）
+
+2026-08-14 那条的末尾写着「要跨进程就得上 DB 信号 + 读取方，**等 peer DM 延迟真成为
+抱怨再说**」。现在必须做了，原因不是抱怨，是**契约变了**：team 回复改成 MCP 工具
+（`message_team`）之后，房间自己的接力**搬到了进程内 Event 从来覆盖不到的那条路上**。
+不做的话，把 team 投递改成工具会把 `c7739ad1` 量出来的延迟收益吐回去一部分——而且是以
+「房间安静了」的形式被用户感知到，正是铁律 #16 禁止的那类退步。
+
+`_sleep_until_due` 现在同时等三个：stop、进程内 `_wake_event`、以及
+`_wait_cross_process_wake()`。第三个每 `WAKE_SIGNAL_SLICE`（0.5s）读一次
+[[wake_signal]] 的单行信号，变了就返回。
+
+**为什么读信号而不是直接跑 pending 扫描**：那个扫描正是这套东西要调度的昂贵查询，每
+0.5s 跑一遍就把目的抵消了。单行读，每秒两次。
+
+**fail open 且安静**：信号读不到 = 没有新消息，退回调用方的 timeout。为一个延迟优化把
+poll 循环搞崩是本末倒置。但「安静」不等于「不可观测」——能发现信号失效的是
+`[bus-timing]` 里的 `queue_wait`（铁律教训 #4：只有 L1 存活检查是僵尸的后门）。
+
+**连带**：`_post_to_room` 与那条结构性守卫测试的立论消失了（见 [[local_bus]] 同日条）。
+唤醒现在在 `send_message` 里面，调用方无从遗漏。该测试待随 team 投递契约改动一并处理。
 
 ## 2026-08-14 — 投递即唤醒（`_wake`）+ 槽位饥饿告警 + `MAX_WORKERS` 配置化
 
@@ -68,6 +239,19 @@ owner inbox**（槽位不够是平台侧的事，owner 动不了，塞进去只�
 一度加过「同时写 `bus_hop_timing` 表」，已撤回；理由见
 `mirror/scripts/diag_collector/latency_report.py.md`。本文件因此回到只打日志行，
 `[bus-timing]` 的格式与「失败的 turn 不算一跳」（`_hop_done`）的约定均未变。
+
+## 2026-08-14 — cap 住 `@all` 的那一路要带着标记走
+
+cap 触发时除了收集被拦下的**具名**队友，还要记住"被拦下的是 @all"（`capped_everyone`），
+并传给 [[team_notices.py]] 的 `post_cascade_capped`。少了它，房间里最常见的那种被拦
+（`@all`）是完全静默的。
+
+这条路径此前**没有任何行为测试能到达**：唯一驱动它的测试把 `_invoke_runtime` 假成了
+tuple，而生产代码读 `turn.text`，于是 `AttributeError` 被批处理的 `except` 吞掉，
+`turn.text` 之后的所有逻辑一行都没跑过（游标在更早几行就已经 ack 了，所以断言照样绿）。
+修好那个假对象之后，`tests/message_bus/test_team_cascade_notice_e2e.py` 真跑
+`_handle_channel_batch`，三条读源码字符串的断言随之删掉——其中一条
+（`assert 'm != "@everyone"' in src`）正好把这个 bug 钉成了验收标准。
 
 ## 2026-08-13 — 投递为空不再是静默：`TurnResult` 与三处兜底
 
@@ -798,6 +982,7 @@ inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢�
 同时在 prompt 里点名 `bus_pin_team_rule`（没人告知的工具就是没人用的工具），
 并在同一句里劝阻把公告栏当记事本——预算很小且与用户的规则共享，
 一个往里钉「发现」的 agent 会挤掉它本该遵守的规则。
+
 ## 2026-08-10 — 巡查 lane 补齐:身份、闸门、事实与说话权的先后
 
 **巡查轮次现在和消息轮次一样开 `_bus_activity.turn`**。上线时漏掉了,后果不是
@@ -1253,3 +1438,37 @@ worker 池是**进程级、跨用户共享**的,所以后果不局限在这个�
 后强制结束 turn」是铁律 #14/#15 明令禁止的方向,也正是本 PR 通篇在维护的前提。按 channel
 轮转的公平派发是正解,但它是独立的一条,已记进 followup。
 
+## 2026-08-12 — 把 segments 交给 bus
+
+`_invoke_runtime` 返回值追加第三个元素 `segments`。
+
+**第一版我写的是 `getattr(collection, "segments", None)`——而那个作用域里根本没有 `collection`。**
+`getattr` 的默认值会把这个错误吞成一个永久的 `None`：功能死掉、不报错、不记日志、测试全绿。
+改成真正的返回值后，契约变化立刻炸出 11 个既有测试——那才是它该有的响亮失败。
+
+## 2026-08-12 — 级联封顶落墙
+
+此前只有 `logger.info`。通知发在**回复之后**，让房间按事情发生的顺序读：
+agent 先说话，然后平台解释它没做什么。名字用 `member_map` 解析成显示名——
+「agent_b 没被拉进来」不是用户能行动的句子。
+
+## 2026-08-18 — 删除 `_record_errands`（合并残留的死代码）
+
+与 dev 的 PR #310 合并后，trigger 侧这份差事记账已无调用者：它原本由 `_deliver_reply` 调用，
+而该方法随「房间改为工具调用」一并移除。活的实现在 [[team_posting.py]]，理由同级联上限——
+这是「把消息放进团队房间」的属性，不是「恰好触发了本轮的循环」的属性。
+
+## 2026-08-18 — 删掉级联上限的三个重复符号与死常量
+
+`MAX_TEAM_AGENT_HOPS`、`_extract_team_mentions`、`_team_cascade_depth` 在
+[[team_posting.py]] 落地后是**复制**而非移动，trigger 侧仍留着一份；`_team_cascade_depth`
+已无生产调用者，而「平台行必须在 SQL 的 WHERE 里排除、不能取回后再过滤」这条上限真正依赖
+的不变量，测试只钉在这份死代码上 —— 从活的查询里删掉排除子句，整个测试套照样全绿。
+
+删除前先把断言搬到活实现上，并发现搬过去的断言本身也钉不住：`depth >= MAX_TEAM_AGENT_HOPS`
+在两种读法下都成立（平台行自己就把计数凑满了）。改成精确值构造 —— 一条用户发言 + 三个真实
+hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确），取回后再过滤得 6，且用户那条
+「重置点」被挤出窗口从此不可见，于是刚被用户重启的三跳链会被误判超限、@ 被剥掉。两条测试
+均做过变异验证。
+
+顺带删除三态 `POST_OK`/`POST_FAILED`/`POST_NOT_ATTEMPTED`（铁律 #2）。

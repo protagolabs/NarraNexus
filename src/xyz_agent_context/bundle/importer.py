@@ -38,9 +38,17 @@ from xyz_agent_context.bundle.team_bulletin_transfer import (
 )
 
 from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.utils.url_safety import is_obviously_non_public_url
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from xyz_agent_context.utils.file_safety import (
+    sanitize_filename,
+    validate_zip_member_path,
+)
+from xyz_agent_context.schema.entity_schema import (
+    AGENT_TEXT_MAX_LENGTH,
+    normalize_agent_text,
+)
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .id_schema import build_all_id_regex, ID_KINDS
@@ -231,6 +239,26 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
+    # Every manifest string that later becomes a path segment is validated
+    # HERE, once, before anything reads with it — the same lesson the export
+    # side learned the hard way (`skill_dir` was gated per-branch, so the branch
+    # nobody looked at stayed open). `agents` entries become
+    # `work_dir/agents/{aid}/agent.json` and `.../channel_credentials.json`; a
+    # traversing id reads those two filenames from outside the unpack dir, and
+    # a hit on `channel_credentials.json` is imported as the caller's own
+    # credentials. The most reachable target is a concurrent import's
+    # `bundle_preflight/nx-import-*` dir, not a random host path.
+    #
+    # Rejecting the WHOLE bundle rather than skipping the offending agent is
+    # deliberate: `aid` is also the id_map key and appears in the summary, so a
+    # partially-filtered list would desync id_map from the per-agent writes.
+    for aid in manifest.get("agents", []) or []:
+        try:
+            sanitize_filename(str(aid), label="agent id in manifest")
+        except ValueError as e:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise ValueError(f"manifest contains an unusable agent id ({e})")
+
     # Legacy bundle compatibility: pre-3d7e089 exports put every
     # `skipped_external_edge` line into manifest.warnings (one per row).
     # That floods the preflight UI with hundreds of "Bundle warnings"
@@ -353,6 +381,37 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         },
     )
     return summary
+
+
+def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[Path]:
+    """Resolve a manifest `archive_ref` to a path inside the unpacked bundle.
+
+    `archive_ref` is written by whoever produced the `.nxbundle` — as untrusted
+    as any request field, and it used to be joined onto `work_dir` verbatim.
+    `"../../../root/.nexusagent/.../x.zip"` would read outside the unpack dir,
+    and the zip branch then copies whatever it read into the importing user's
+    own `skill_archives` (from where a later export ships it out). Mirror image
+    of the export-side `skill_dir` hole.
+
+    Uses `validate_zip_member_path` rather than `ensure_within_directory`
+    because a ref is legitimately multi-segment (`skills/<agent_id>/<name>.zip`)
+    and `ensure_within_directory` accepts only a single segment.
+
+    Returns None when the ref is missing or unsafe; callers already treat None
+    as "archive missing in bundle" and record a per-skill failure.
+    """
+    if not archive_ref:
+        return None
+    try:
+        member = validate_zip_member_path(archive_ref)
+    except ValueError as e:
+        logger.warning(f"bundle_import.archive_ref.rejected ref={archive_ref!r}: {e}")
+        return None
+    candidate = (work_dir / member).resolve(strict=False)
+    if not candidate.is_relative_to(work_dir.resolve(strict=False)):
+        logger.warning(f"bundle_import.archive_ref.escapes ref={archive_ref!r}")
+        return None
+    return candidate
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
@@ -769,22 +828,48 @@ async def _confirm_inner(
         # that model, so an unclamped value would strand the agent as
         # "insertable but unreadable" — every later edit/delete deserializes the
         # row and fails Pydantic validation.
-        original_name = agent_record["agent_name"]
+        # Normalized FIRST — before dedupe and before the clamp. This insert
+        # bypasses AgentRepository, so nothing else will strip it, and a row
+        # holding " name " can never be renamed afterwards: the update path
+        # compares normalized values, so saving the stripped form is judged a
+        # no-op and never written (see agent_field_matches). Ahead of dedupe
+        # for a second reason — an unstripped name would not match the
+        # already-normalized rows it is supposed to be deduped against.
+        original_name = normalize_agent_text(agent_record["agent_name"])
         clamped_name, name_trimmed = _clamp_agent_text(original_name)
-        clamped_desc, desc_trimmed = _clamp_agent_text(agent_record.get("agent_description"))
+        clamped_desc, desc_trimmed = _clamp_agent_text(
+            normalize_agent_text(agent_record.get("agent_description"))
+        )
         agent_record["agent_description"] = clamped_desc
 
-        # Dedupe against existing (already-clamped) names, THEN clamp again:
-        # dedupe_name appends a " (n)" suffix with no length budget of its own,
-        # so on a clash a clamped 255-char name becomes "…255… (1)" = 259 and
-        # would land back over the ceiling. Re-clamping the FINAL name is what
-        # actually guarantees the raw insert never stores an unreadable value.
-        # agent_name has no UNIQUE constraint, so a rare post-clamp collision is
-        # harmless — two same-named agents, exactly as manual creation allows.
+        # Dedupe against existing (already-normalized, already-clamped) names,
+        # THEN normalize and clamp again. dedupe_name appends a " (n)" suffix
+        # that has neither a length budget nor a whitespace budget of its own:
+        # on a clash a clamped 255-char name becomes "…255… (1)" = 259 and lands
+        # back over the ceiling, and an EMPTY candidate becomes " (1)" with a
+        # leading space — an unnormalized value, i.e. a row that can never be
+        # renamed afterwards (see agent_field_matches). Re-running both on the
+        # FINAL name is what actually guarantees the raw insert stores a
+        # normalized, readable value. agent_name has no UNIQUE constraint, so a
+        # rare post-clamp collision is harmless — two same-named agents,
+        # exactly as manual creation allows.
         deduped_name = await dedupe_name(
             "agents", "agent_name", {"created_by": user_id}, clamped_name
         )
-        final_name, dedupe_overflow = _clamp_agent_text(deduped_name)
+        final_name, dedupe_overflow = _clamp_agent_text(
+            normalize_agent_text(deduped_name)
+        )
+        # Last of the five creation paths to get a non-empty-name fallback (the
+        # auth route uses "New Agent", the migration applier "Imported Agent",
+        # and both create_agent legs refuse outright). A bundle is user-supplied
+        # input, so an empty or whitespace-only agent_name in agent.json is
+        # ordinary; stored empty it renders as a bare agent_id everywhere.
+        #
+        # AFTER dedupe on purpose: before it, every empty-named bundle would be
+        # deduped against the existing "Imported Agent" rows and collect a
+        # " (n)" suffix. After it, a duplicate name is simply allowed —
+        # agent_name has no UNIQUE constraint, as the comment above says.
+        final_name = final_name or "Imported Agent"
         name_trimmed = name_trimmed or dedupe_overflow
 
         renamed = (final_name != clamped_name)
@@ -963,6 +1048,29 @@ async def _confirm_inner(
                 await _ins("instance_awareness", new_ar)
                 written_summary["awareness_rows_created"] += 1
 
+        # An import that renamed is a rename, and this file copies the profile
+        # row for row — so the imported agent arrives declaring the name it had
+        # in the bundle while its own row holds the deduped/clamped one. That is
+        # Shenzhen round 2 reaching the same state through the import path.
+        #
+        # Reconciliation, not the rename transaction: that one's precondition is
+        # an existing row it may write, and here the row was just created with
+        # the final name already in it. Idempotent by construction — it returns
+        # None when the profile and the row already agree — so it is safe on
+        # every import, renamed or not. AFTER the awareness insert above: the
+        # correction has to land in a row that exists.
+        if renamed:
+            from xyz_agent_context.module.awareness_module import (
+                reconcile_identity_record,
+            )
+
+            if await reconcile_identity_record(db, new_aid, final_name) is False:
+                logger.warning(
+                    f"bundle_import.agent.identity_not_corrected new_id={new_aid} "
+                    f"renamed_from={original_name!r} to={final_name!r} — the "
+                    f"imported profile may still declare the previous name"
+                )
+
         # instance_jobs.
         #
         # Two correctness rules:
@@ -1032,8 +1140,7 @@ async def _confirm_inner(
                     # type differs by backend (pymysql.IntegrityError on MySQL,
                     # sqlite3.IntegrityError via aiosqlite on SQLite). Re-raise
                     # anything that doesn't smell like a unique-constraint hit.
-                    msg = str(ex).lower()
-                    if "duplicate" in msg or "unique" in msg or "1062" in msg:
+                    if is_unique_violation(ex):
                         nl_dups += 1
                     else:
                         raise
@@ -1289,13 +1396,15 @@ async def _confirm_inner(
     )
 
     # -- Skills (auto-install per-(agent, skill)) --
-    skill_archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
-    skill_archives_dir.mkdir(parents=True, exist_ok=True)
+    # SEC-07: `skill_name` here comes from the imported bundle's manifest, i.e.
+    # from whoever authored the `.nxbundle` — as untrusted as a form field.
+    # Archive paths are built via `prepare_archive_target`, never by f-string.
     skill_install_failures: List[Dict[str, str]] = []
 
     from xyz_agent_context.module.skill_module.skill_module import SkillModule
     from xyz_agent_context.bundle.skill_backup import (
         backup_after_api_install,
+        prepare_archive_target,
         register_archive,
     )
 
@@ -1307,7 +1416,7 @@ async def _confirm_inner(
     # subprocess.git invocations under the naive impl).
     # full_copy is excluded — each agent's archive zip carries that agent's
     # own .skill_meta.json / credentials, so they're distinct payloads.
-    from xyz_agent_context.utils.file_safety import sanitize_filename, ensure_within_directory
+    from xyz_agent_context.utils.file_safety import ensure_within_directory
     from xyz_agent_context.settings import settings as core_settings
 
     def install_cache_key(s_entry: dict) -> Optional[str]:
@@ -1392,13 +1501,13 @@ async def _confirm_inner(
 
             elif method == "zip":
                 archive_ref = s.get("archive_ref")
-                zip_path = work_dir / archive_ref if archive_ref else None
+                zip_path = _bundle_member_path(work_dir, archive_ref)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
                     )
                     continue
-                tgt = skill_archives_dir / f"{skill_name}.zip"
+                tgt = prepare_archive_target(user_id, skill_name)
                 if not tgt.exists():
                     await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 key = install_cache_key(s)
@@ -1422,12 +1531,32 @@ async def _confirm_inner(
                     await asyncio.to_thread(
                         _copy_skill_to_agent, cached_dir, new_aid, skill_name
                     )
-                await backup_after_api_install(
+                # `tgt` is ALREADY the archive location (we copied the bundle's
+                # zip there above), so register it directly — same shape as the
+                # full_copy branch below. Routing this through
+                # `backup_after_api_install` was a latent bug: that helper is
+                # for "copy an incoming zip INTO the registry", so it recomputed
+                # the same `archive_target` and did `copy2(tgt, tgt)` →
+                # `SameFileError` → swallowed by its broad `except` → the
+                # `skill_archives` row was never written. Effect: an imported
+                # zip-method skill could never be re-exported as `zip` (it
+                # silently degraded to full_copy, which ships secrets under full
+                # mode). Verified by `test_imported_zip_skill_registers_archive`.
+                # sha256 is computed from the file on disk, NOT taken from the
+                # manifest. The manifest value is unreliable in two ways: it is
+                # the de-dup sentinel `"shared"` for entries 2..N when several
+                # agents reference one skill (see builder's copied_zip_ref), and
+                # when `tgt` already existed we kept the old bytes above and
+                # never copied, so the manifest digest describes a different
+                # file. This column's only job is integrity — a value that is
+                # sometimes a literal word is worse than an extra hash.
+                await register_archive(
                     user_id=user_id,
                     skill_name=skill_name,
                     source_type="zip",
                     source_url=None,
-                    original_zip_path=tgt,
+                    archive_path=str(tgt),
+                    sha256=await asyncio.to_thread(file_sha256, tgt),
                 )
                 written_summary["skills_imported"] += 1
 
@@ -1436,14 +1565,14 @@ async def _confirm_inner(
                 # skills/<agent_id>/<skill>-full.zip with that agent's own
                 # .skill_meta.json + wallets.
                 archive_ref = s.get("archive_ref")
-                zip_path = work_dir / archive_ref if archive_ref else None
+                zip_path = _bundle_member_path(work_dir, archive_ref)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "full_copy archive missing in bundle"}
                     )
                     continue
                 # Stash a copy in skill_archives for re-export (uses last-seen).
-                tgt = skill_archives_dir / f"{skill_name}_full.zip"
+                tgt = prepare_archive_target(user_id, skill_name, suffix="_full.zip")
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)

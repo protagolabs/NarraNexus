@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-14
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — create_team 做实（不再是 bus_create_channel 改名）
+
+`create_team` 现在建**真 team**：经 `TeamRepository.create_team(owner=agents.created_by)` 写 `teams` 行 + `TeamMemberRepository.add_member` 写 `team_members`，再调 `team_rooms.get_or_create_team_room`（写非-agent `team_<id>` marker、同步成员），**返回 `team_id`**（不再是 `channel_id`）。跨用户成员在任何写入前先被拒（镜像 `LocalMessageBus.create_channel` 的同用户边界），避免留下孤儿 team 行。此前只调 `bus.create_channel`：不写 teams/team_members、`created_by`=创建者、返回值 agent 无动词可用（`message_team` 查 `teams` 得 None）。端到端由 `tests/message_bus/test_create_team_tool.py` 钉住（create_team → message_team 必成功）。
+
+## 2026-08-17 — 工具按 agent 的社交处境重命名，新增 `message_team`
+
+`bus_*` 这个前缀命名的是一个 agent 不该知道存在的子系统。改名后名字说的是**处境**：
+`message_agent` / `message_team` / `create_team` / `find_agent` / `read_history` /
+`team_share_file` / `team_list_files` / `team_pin_rule` / `team_unpin_rule` /
+`team_work_*`。
+
+**删除**：`bus_get_unread`（未读已注入，且说明书写着"别调"——而 prod 上 165 次调用证明
+散文劝阻不起作用，所以解法是拿走工具而不是继续劝）、`bus_get_channel_members`（team 花名册
+已注入 prompt，DM 只有两人）、`bus_get_agent_profile`（Known Agents 已注入）、
+`bus_leave_channel` / `bus_kick_member`（成员关系归用户管；后者在 team 房间里
+**结构上永远失败**——creator-only，而 creator 是合成标记）。
+
+**`message_agent` 合并了旧的两个 peer 发送工具（`bus_send_to_agent` / `bus_reply_to_channel`）。** 回话与主动找人是同一个动作，所以是同一个
+工具；`to` 必填，因为一轮里可能有多个 peer，平台不猜（决策 ⑥）。
+
+**`message_team` 是补上的动词**，落点 [[team_posting]]。`team_id` 必填：agent 可同时在多个
+team。三道门与其它 team 工具同序：agent 存在、team 属于其 owner、agent 是成员。
+
+**`_describe_agent` 永不抛。** 它跑在发送成功之后、在工具的 `try` 里；抛了会把**已投递**的
+消息报成 `{"success": false}`，agent 会重发。一个装饰性的回显不该能反转它所描述的动作的结果。
+（它此前根本不存在——`message_agent` 一被调用就 `NameError`，被 except 吞成失败。pyright 抓到。）
+
+**`create_team` 的 docstring 原来写着「Create a new MessageBus channel」并推荐
+`message_agent`。** 按词表，`MessageBus` 不得出现在任何 agent 可见文本里。
 ## 2026-08-14 — bus_list_team_files 补上漏掉的 get_db_client 导入
 
 该工具自 2026-08-07 落地起就引用了未导入的 `get_db_client`（本文件的 db 导入全是**函数内局部**——82/396/463/498 各在别的函数作用域，闭包解析不到），每次调用必炸 `NameError`，而 [[test_list_team_files_tool]] 原有测试只测 impl 不过 wrapper，全绿假象。修复=补函数内导入（与兄弟工具同款，保持模块加载期不引 db_factory 的循环导入规避）+ 按兄弟工具惯例整体包 try/except（review Minor-4：此前它是这批 bus_* 里唯一裸抛的——连接池懒构建失败会把原始异常甩给模型；except 只回 `{"success": False, "error": ...}`，**不补 `files: []`**，拒绝≠空文件夹）。新增走 `register_message_bus_mcp_tools` 注册面的 wrapper 回归测试。教训：MCP 工具的测试必须打到注册的 wrapper，不能只打 impl。
@@ -134,3 +164,59 @@ agent 说话",平台自己代发的那条消息盖了 turn id、agent 用本工�
 断掉都不会有测试变红,症状却是团队房里偶发的假 ⚠️。
 `test_bus_send_event_id_stamp.py` 走注册后的真工具函数 + 伪造 ambient request 头,
 并把「无头 → None」这条降级契约也钉住(实测过去掉盖章四条全红)。
+
+## 2026-08-18 — `read_history` 改按会话把手；错误文案不再点名子系统
+
+签名从 `(agent_id, channel_id, limit)` 改为 `(agent_id, with_agent, team_id, limit)`：
+agent 的世界里是私聊和团队，一个收 channel_id 的工具是它唯一必须知道别的东西的地方 ——
+而为了能调用它，那个 id 就得被印进上下文，词汇于是又回来了（见 [[message_bus_module.py]]
+同日条目）。恰好给一个，两个都不给或都给都是明确报错。
+
+新增 `_resolve_conversation`：**成员资格由查询本身保证**，不是查完再检查 —— 私聊那条
+join 以调用者自己的 id 为连接条件之一，团队那条要求 `team_members` 行。先找频道后授权的
+形状，离「漏一个分支就能读到别人的会话」只有一步，而那种分支往往是修别的东西时顺手加的。
+`%s` 而非 `db.placeholder`（调用者持 AsyncDatabaseClient，见 [[team_posting.py]] 的教训）。
+
+`"MessageBus not available"`（5 处，返回给 agent）改成不点名子系统的文案：让模型对一个它
+没有心智模型的组件做推理没有意义，而唯一有用的下一步（本轮别再试着发）两种写法都一样。
+`find_agent` 的 docstring（模型会读的工具描述）同改。
+
+MySQL twin：`tests/message_bus/test_team_posting_mysql.py` 覆盖这条三表 join 与团队分支。
+
+## 2026-08-18 (二) — 两个发送动词都补上内容校验
+
+路由参数（`to` / `team_id`）从一开始就校验，`text` 从来没有 —— 而后者是更要紧的一半。空白
+文本会把空气泡张贴进一个人在读的界面，随后 `has_message_from_turn` 对这一轮答 True，于是
+「什么都没说」的通知被抑制、整轮被记为**已投递**。一个看起来被回答了、实际什么都没说的房间，
+比它取代的沉默更糟 —— 沉默至少还会产出一条通知。私聊那边更糟：空消息会给收件人起一整轮 LLM。
+
+返回**错误**而不是静默 no-op：一个对 no-op 返回 success 的工具，会教模型它已经回复过了。
+同一条纪律 `inbox_recorder.record_turn` 早就对空 outbound 行用了，只是没被用到「现在每个团队
+轮次的回复」这个工具上。[[team_posting.py]] 侧另有一道 raise 作为内层保险，专门拦绕过工具的
+调用方（测试 helper `speak_in_room` 就是一个）。
+
+## 2026-08-18 (三) — `read_history` 三处：原语、上限、自我私聊
+
+**原语选错了。** 它调 `bus.get_messages`，那是 `ORDER BY created_at ASC LIMIT n` ——
+房间**最旧**的 n 条。于是在任何超过 limit 条的会话里，agent 问「我看到的这些之前发生了什么」，
+拿到的是开场消息，中间有一个无界的静默空洞，而它读起来像当前上下文。`get_recent_messages`
+的 docstring 自己就写着 `get_messages`「对 recent scrollback 是错的」—— 而那正是这个工具
+docstring 的承诺。改用最近 n 条：agent 拿到的窗口是尾部，最近 n 条严格包含它并向前延伸，
+没有空洞。（`get_messages_before` 是更精确的原语，但它要一个时间戳游标，而「时间戳」正是
+agent 世界里没有的词汇。）
+
+**`limit` 没有上限。** 调用方可控且无界，`limit=100000` 会把 10 万行塞进工具结果、撑爆上下文
+窗口、让这一轮在半途死掉。本模块其他每一个 agent 可见的读都有上限
+（MAX_UNREAD_IN_CONTEXT / MAX_KNOWN_AGENTS_IN_CONTEXT / TEAM_HISTORY_LIMIT）——
+这是唯一一个把上限交给模型的。新增 `READ_HISTORY_MAX`。
+
+**`with_agent == 自己` 匹配任意私聊。** 两个 join 都被同一个 id 满足，于是返回一条**任意**的
+无关会话 —— 静默地，且读起来像一份可信的记录。现在明确拒绝。
+
+**私聊查询与 [[local_bus.py]] 的那份重复。** 逐字节相同的三表 join，只差 `%s` 与 `{ph}`，
+而「什么算一条私聊」正是那种会只在一处被改的事实（archived 标记、去重、跨 owner 规则）。
+现在共享的是 **SQL 文本**（`direct_channel_sql(ph)`），各调用方带自己的占位符 —— 共享
+execute() 会强迫其中一方用错占位符，而那正是 `_room_labels` 在 SQLite 上静默返回空的成因。
+同时加了 `ORDER BY created_at ASC`：`send_to_agent` 在查不到时会建频道，两个并发首发可以
+都查不到、都建，此后无序的 `rows[0]` 依赖引擎，发送方与历史读取方会对「这段会话是哪个频道」
+产生分歧。

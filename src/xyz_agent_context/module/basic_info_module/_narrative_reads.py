@@ -28,12 +28,54 @@ from typing import Any, Dict, List, Tuple
 
 from loguru import logger
 
+from xyz_agent_context.utils.timezone import (
+    DEFAULT_TIMEZONE,
+    format_timestamp_for_agent,
+    resolve_timezone,
+)
+
 # Distinct bounds — same value today, unrelated meanings (a shared literal
 # invites changing one and breaking the other).
 _MAX_NARRATIVE_LINKS = 500   # link ROWS fetched (a narrative links many non-chat
                              # instances too, so this sits well above the cap below)
 _MAX_CHAT_INSTANCES = 100    # ChatModule instances actually fanned out to
 _MAX_MESSAGES = 200          # messages returned (most recent)
+
+
+async def _agent_owner_timezone(db, agent_id: str) -> str:
+    """The timezone the agent's owner reads times in.
+
+    Needed because these functions back the `view_narrative` / `view_event`
+    MCP tools, and the history timeline explicitly points the agent at them
+    ("pass it to view_event() to fetch that turn's full detail"). Once the
+    timeline started rendering in the user's frame with an explicit offset
+    (2026-08-18), leaving these on a raw `[:19]` UTC slice would have handed
+    the model two different dates for one event and told it to walk from the
+    framed one to the bare one.
+
+    The owner comes from `agents.created_by`. For the narrative path that is
+    the only option — `narratives` has no user column. For the EVENT path it
+    is a deliberate choice: `events` DOES carry `user_id`, and reading it
+    would save two queries, but then `view_event` and `view_narrative` could
+    resolve different zones for the same conversation and report dates a day
+    apart for the same message. Both views must share the frame the history
+    timeline uses, and the timeline keys off the turn owner. Please do not
+    "optimise" the event path onto `row["user_id"]`.
+
+    Fail-open to UTC — a view that renders beats a view that raises, and
+    these helpers promise never to raise.
+    """
+    try:
+        from xyz_agent_context.repository import UserRepository
+
+        row = await db.get_one("agents", filters={"agent_id": agent_id})
+        owner = (row or {}).get("created_by")
+        if not owner:
+            return DEFAULT_TIMEZONE
+        return resolve_timezone(await UserRepository(db).get_user_timezone(owner))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[narrative_reads] timezone lookup failed for {agent_id}: {e}")
+        return DEFAULT_TIMEZONE
 
 
 def _parse_info(raw: Any) -> Any:
@@ -50,7 +92,10 @@ def _parse_info(raw: Any) -> Any:
 
 
 async def narrative_chat_history(
-    db, narrative_id: str, limit: int = _MAX_MESSAGES
+    db,
+    narrative_id: str,
+    limit: int = _MAX_MESSAGES,
+    user_tz: str = DEFAULT_TIMEZONE,
 ) -> Tuple[List[Dict[str, Any]], bool]:
     """Recent chat history of a narrative from its ChatModule instances.
 
@@ -89,13 +134,24 @@ async def narrative_chat_history(
         mem = _parse_info(mrow.get("memory"))
         for m in mem.get("messages", []):
             meta = m.get("meta_data", {}) or {}
+            raw_ts = str(meta.get("timestamp", ""))
             messages.append({
-                "time": str(meta.get("timestamp", ""))[:19],
+                # Rendered in the owner's frame with an explicit offset, so a
+                # date read off view_narrative matches the one on the history
+                # timeline for the same message.
+                "time": format_timestamp_for_agent(raw_ts, user_tz),
                 "role": m.get("role"),
                 "content": (m.get("content") or "")[:2000],
                 "event_id": meta.get("event_id"),
+                # Sort key only — stripped below. Ordering must key off the
+                # STORED UTC value: the rendered string starts with "??" for an
+                # unparseable timestamp, which would sort such rows to the front
+                # of the history instead of leaving them where they belong.
+                "_sort_ts": raw_ts,
             })
-    messages.sort(key=lambda x: x.get("time", ""))
+    messages.sort(key=lambda x: x.get("_sort_ts", ""))
+    for m in messages:
+        m.pop("_sort_ts", None)
     # truncated must also cover the MESSAGE cap, not just the instance fan-out —
     # otherwise a narrative under the instance cap but over _MAX_MESSAGES would
     # silently drop the older tail with truncated=False (rule #16).
@@ -112,7 +168,10 @@ async def fetch_narrative_view(db, agent_id: str, narrative_id: str) -> dict:
         info = _parse_info(row.get("narrative_info"))
         kws = row.get("topic_keywords")
         keywords = kws if isinstance(kws, list) else (_parse_info(kws) or [])
-        history, truncated = await narrative_chat_history(db, narrative_id)
+        user_tz = await _agent_owner_timezone(db, agent_id)
+        history, truncated = await narrative_chat_history(
+            db, narrative_id, user_tz=user_tz
+        )
         return {
             "success": True,
             "narrative_id": narrative_id,
@@ -146,7 +205,12 @@ async def fetch_event_view(db, agent_id: str, event_id: str) -> dict:
             "narrative_id": row.get("narrative_id"),
             "trigger": row.get("trigger"),
             "trigger_source": row.get("trigger_source"),
-            "time": str(row.get("created_at", ""))[:19],
+            # Same frame as the history timeline: the timeline tag tells the
+            # agent to call view_event for this very event, so the two must
+            # not disagree about which day it happened.
+            "time": format_timestamp_for_agent(
+                row.get("created_at"), await _agent_owner_timezone(db, agent_id)
+            ),
             "input": _parse_info(row.get("env_context")).get("input"),
             "final_output": (row.get("final_output") or "")[:8000],
             "event_log": (log_raw or "")[:20000],

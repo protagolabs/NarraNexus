@@ -15,25 +15,42 @@
  * GET /api/teams/{id}/chat/messages for the live transcript.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
-import { Button, Textarea, Markdown } from '@/components/ui';
+import { Button, Textarea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BusAttachmentList } from '../BusAttachmentList';
 import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
-import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamRosterPanel } from './TeamRosterPanel';
+import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
+import { ResizableDivider } from '@/components/layout/ResizableDivider';
+import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
+import { useIsMobile } from '@/hooks/useMediaQuery';
+import { TeamTranscript } from './TeamTranscript';
+import { beforeCursor, mergeTeamMessages, sinceCursor } from './mergeTeamMessages';
+import { isNearBottom, isNearTop } from '@/lib/scrollStickiness';
+import { latestTeamMessageMs, markTeamRead } from '@/lib/unread';
+import { getTeamDraft, setTeamDraft } from '@/lib/chatDrafts';
+import { matchMembers, mentionTokens } from './mentionPattern';
+import { TeamSystemLine } from './TeamSystemLine';
+import { TeamMessageFooter } from './TeamMessageFooter';
+import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
+import { ArtifactsGlyph } from '@/components/bookmarks';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
-import { cn, formatTime } from '@/lib/utils';
+// No `formatTime` here on purpose: it arrived with the liveness work, which
+// used it in the inline message loop this file replaced with <TeamTranscript>.
+// The per-message timestamp now lives in TeamMessageFooter, which imports it
+// itself.
+import { cn } from '@/lib/utils';
 import { STATUS_TONES, elapsedSince } from '@/lib/teamActivity';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin, TeamChatMessage, TeamMemberActivity } from '@/types/teams';
@@ -47,6 +64,10 @@ interface TeamChatPanelProps {
 type MentionOption = { kind: 'all' } | { kind: 'agent'; agent: AgentInfo };
 
 const POLL_MS = 3000;
+
+/** Same as the private chat's composer: long enough to coalesce a burst of
+ *  keystrokes, short enough that a crash loses at most a word. */
+const DRAFT_PERSIST_DEBOUNCE_MS = 400;
 
 /**
  * IM-style sign-of-life bubble — no stats, gone the moment the member goes
@@ -117,6 +138,7 @@ function LivenessIndicator({
         <button
           type="button"
           onClick={onClick}
+          title={label}
           aria-label={label}
           className="nm-bubble-ai inline-flex items-center gap-2 rounded-[var(--radius-lg)] px-3.5 py-2.5"
           style={{
@@ -206,8 +228,104 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       .filter((a): a is NonNullable<typeof a> => !!a);
   }, [team, agents]);
 
-  const [text, setText] = useState('');
+  // agent_id → display name, memoised ONCE and shared by every consumer.
+  //
+  // Built inline in the JSX until 2026-08-14, which quietly defeated a memo
+  // three components down: a fresh object each render → a fresh `nameSet` in
+  // every bubble → a fresh rehype plugin array → `Markdown`'s shallow-equality
+  // memo misses → remark/rehype re-parse the whole body. This panel renders at
+  // least once a second (the 1s ticker for live durations) and once per
+  // keystroke (the composer's text lives here), so a 200-message room was
+  // re-parsing 200 markdown bodies every second, and again on every character
+  // typed. Before mentions moved from a string rewrite into a plugin, the memo
+  // matched on VALUE and held; the move swapped that for reference equality
+  // without anyone making the reference stable.
+  const memberNameMap = useMemo(
+    () => Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id])),
+    [members],
+  );
+
+  // Seeded from the stored draft: the room is a place you leave, so what was
+  // half-typed has to still be here when you come back.
+  const [text, setText] = useState(() => getTeamDraft(teamId));
+  const textRef = useRef(text);
+  textRef.current = text;
+  // What just went wrong in the composer. A failed send used to restore the
+  // text and say nothing, which is indistinguishable from the Enter key not
+  // registering — so the user retypes, or sends twice.
+  const [composerError, setComposerError] = useState<string | null>(null);
+  // IME state. Enter is how a Pinyin/Kana candidate is ACCEPTED; sending on it
+  // makes the composer unusable for the languages this project is written in.
+  // Some IMEs fire compositionend before that final keydown, hence the grace
+  // window as well as the flag — the private chat's Composer learned both.
+  const isComposingRef = useRef(false);
+  const compositionEndTimeRef = useRef(0);
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
+  // Read by the poll without making `refresh` depend on the transcript: a
+  // changing dependency would tear down and recreate the interval on every
+  // message, which is how a 3s poll becomes a much faster one.
+  // useLayoutEffect, NOT useEffect: passive effects flush asynchronously —
+  // possibly after paint AND after user events — so a scroll landing in
+  // that window read a stale (empty) ref, loadOlder's !cursor guard bailed
+  // silently, and the top-of-history fetch simply didn't happen (no retry;
+  // the user has to scroll again). Layout effects commit synchronously,
+  // before any event can observe the DOM of this render.
+  const messagesRef = useRef<TeamChatMessage[]>([]);
+  useLayoutEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Everything on screen has been seen — including the platform's own lines,
+  // which the SERVER excludes when deciding whether a room is worth returning
+  // to. The two rules differ on purpose: the server answers "is this worth a
+  // mark", this answers "what has the user looked at", and a line rendered in
+  // front of them has been looked at whoever wrote it. Marking less than what is
+  // displayed would leave a room that only narrated itself permanently marked.
+  //
+  // Monotonic, so it composes with the sidebar's own marking (which can only see
+  // the list response) without either being able to undo the other.
+  useEffect(() => {
+    if (!teamId) return;
+    markTeamRead(teamId, latestTeamMessageMs(messages));
+  }, [teamId, messages]);
+
+  // Which room the text in the composer BELONGS to. `teamId` and `text` update
+  // on different commits — a route change re-renders with the new room and the
+  // old text still in state — so anything that persists the draft has to know
+  // which of the two it is currently holding. Without this the first save after
+  // a room switch files the previous room's words under the new room's name.
+  const draftRoomRef = useRef(teamId);
+
+  // Debounced persistence.
+  //
+  // On the one commit where the room has changed and the text has not yet
+  // caught up, this schedules a write of the OLD text under the NEW room. It
+  // cannot land: the switch effect below sets the text in the same commit, and
+  // the resulting re-render clears the timer first. The single case where React
+  // skips that re-render is when the two strings are already equal — and then
+  // the write is a no-op by definition. A guard stood here until a mutation
+  // showed nothing could observe it.
+  useEffect(() => {
+    const id = window.setTimeout(() => setTeamDraft(teamId, text), DRAFT_PERSIST_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [teamId, text]);
+
+  // Switching rooms: flush what was typed into the room being LEFT (textRef
+  // still holds it here), then load the room being entered.
+  useEffect(() => {
+    const leaving = draftRoomRef.current;
+    if (leaving === teamId) return;
+    setTeamDraft(leaving, textRef.current);
+    draftRoomRef.current = teamId;
+    setText(getTeamDraft(teamId));
+  }, [teamId]);
+
+  // Unmounting: same flush, for navigating away rather than sideways. Text
+  // typed inside the debounce window would otherwise be lost by exactly the
+  // action that makes a draft worth having.
+  useEffect(() => {
+    return () => setTeamDraft(draftRoomRef.current, textRef.current);
+  }, []);
 
   // Workspace data lives HERE, not in the panel: a chip under a message and
   // the panel's own list must agree on what is open, so one component owns the
@@ -218,6 +336,30 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [wsLoading, setWsLoading] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsSelected, setWsSelected] = useState<string | null>(null);
+  // The room's right side IS the single-chat right side: one shared drawer
+  // (same pin/width preferences, same title switcher) hosting the team's
+  // panels — members, artifacts, shared files. Which panel is open lives
+  // in drawerTab below; its default is decided there.
+  const isMobile = useIsMobile();
+  const {
+    pinned: drawerPinned,
+    setPinned: setDrawerPinned,
+    effectiveWidth: drawerWidth,
+    colRef: drawerColRef,
+    handleResize: handleDrawerResize,
+    handleResizeEnd: handleDrawerResizeEnd,
+  } = usePinnedDrawer();
+  // One-shot initializer, deliberately: the members panel opens by default
+  // only where it is a pinned column (desktop + the user's shared pin
+  // preference ON). Auto-opening a TRANSIENT drawer would greet an
+  // unpinned user with a full-viewport dismiss backdrop that eats their
+  // first click. Do not derive from `pinned` or sync in an effect — an
+  // unpin inside the room must not close/reopen the panel.
+  const [drawerTab, setDrawerTab] = useState<TeamTabId | null>(() =>
+    !isMobile && drawerPinned ? 'members' : null,
+  );
+  const toggleDrawerTab = (id: TeamTabId) =>
+    setDrawerTab((prev) => (prev === id ? null : id));
   const workspaceRefreshTick = useChatStore((s) => s.workspaceRefreshTick);
   // The bulletin lives here, like the workspace: a change posts a system line
   // into the transcript, so the transcript and the panel must agree on when
@@ -234,9 +376,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // transcript's typing bubble highlights the same selection — two owners of
   // one selection is how the two surfaces drift apart.
   const [rosterExpandedId, setRosterExpandedId] = useState<string | null>(null);
-  // Narrow screens have no room for a standing column, so the roster becomes a
-  // drawer over the transcript.
-  const [mobileRosterOpen, setMobileRosterOpen] = useState(false);
   // The addressing rules on demand. They fill the empty room's hero; once the
   // transcript owns the space this popover is the only way back to them.
   const [guideOpen, setGuideOpen] = useState(false);
@@ -276,9 +415,18 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // --- Live transcript: poll the room while the panel is open. -------------
   const refresh = useCallback(async () => {
     try {
-      const r = await api.getTeamChat(teamId);
+      // Incremental: `since` has existed end to end for a long time and the
+      // panel simply never sent it, refetching all 200 messages every 3s. The
+      // full refetch was idempotent by construction (`setMessages(all)`), so
+      // the merge has to earn that back — see `mergeTeamMessages`, which is
+      // append-only-with-dedup because `bus_messages` is never updated in place
+      // (asserted in tests/message_bus/test_team_message_segments.py).
+      const cursor = sinceCursor(messagesRef.current);
+      const r = await api.getTeamChat(teamId, cursor);
       if (r.success) {
-        setMessages(r.messages);
+        setMessages((prev) =>
+          cursor ? mergeTeamMessages(prev, r.messages) : r.messages,
+        );
         setActivity(r.activity ?? []);
         setLeadAgentId(r.lead_agent_id ?? null);
       }
@@ -287,9 +435,72 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     }
   }, [teamId]);
 
+  // Paging BACK. `hasMoreRef` is a ref, not state: the scroll handler reads it
+  // on every scroll event, and a state read there would be a render behind.
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  // The same fact as the ref, for the reader rather than the guard: scrolling
+  // to the top and seeing nothing happen looks exactly like having reached the
+  // beginning of the room.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  /**
+   * Fetch the page above the transcript and prepend it.
+   *
+   * The scroll position is restored by hand. Prepending moves everything the
+   * reader is looking at DOWN by exactly the height of what was added, so
+   * leaving `scrollTop` alone teleports them away from the message that made
+   * them scroll up — the one thing a "load more" must not do.
+   */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMoreRef.current) return;
+    const cursor = beforeCursor(messagesRef.current);
+    // Nothing on screen means no page above it. Asking anyway would refetch the
+    // newest page under a cursor and merge it into itself.
+    if (!cursor) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = scrollRef.current;
+    const heightBefore = el?.scrollHeight ?? 0;
+    const topBefore = el?.scrollTop ?? 0;
+    try {
+      const r = await api.getTeamChat(teamId, undefined, cursor);
+      if (!r.success) return;
+      if (!r.messages.length) {
+        // The top of the history. Without latching this the room re-asks on
+        // every scroll event for the rest of the session.
+        hasMoreRef.current = false;
+        return;
+      }
+      setMessages((prev) => mergeTeamMessages(prev, r.messages));
+      requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node) return;
+        node.scrollTop = topBefore + (node.scrollHeight - heightBefore);
+      });
+    } catch {
+      // transient — the next scroll to the top retries
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [teamId]);
+
   useEffect(() => {
     let alive = true;
     setMessages([]);
+    // Cleared HERE as well, not just through the state: `refresh` and
+    // `loadOlder` read the transcript through this ref, and it is synced by an
+    // effect that has not run yet. Leaving it would fetch the new room with a
+    // cursor taken from the PREVIOUS room's conversation — everything older
+    // than that timestamp would never arrive, and if the old room's last
+    // message was the newer of the two, the new room would render empty.
+    messagesRef.current = [];
+    // A new room has its own history; inheriting "the top was reached" would
+    // make the second room silently refuse to page back at all.
+    hasMoreRef.current = true;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     setActivity([]);
     setLeadAgentId(null);
     refresh();
@@ -331,8 +542,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     setRosterExpandedId((cur) => (cur === agentId ? null : agentId));
   }, []);
 
-  // Keep the latest message in view as the transcript grows.
+  // Follow the transcript only while the reader is already at the bottom.
+  // Unconditional scrolling meant a user scrolled up to read something from two
+  // minutes ago was yanked down every few seconds — the room was least readable
+  // exactly when it was busiest.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
   useEffect(() => {
+    if (!stickRef.current) return;
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages.length]);
 
@@ -398,36 +615,60 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     inputRef.current?.focus();
   };
 
-  /** Resolve the @tokens in the composed text to agent_ids and/or "@all". */
+  /** Resolve the @tokens in the composed text to agent_ids and/or "@all".
+   *
+   *  Tokenised by the shared `mentionTokens` — the third hand-copied regex in
+   *  this folder lived here, and it is the one that decides who is actually
+   *  WOKEN. Highlighting and waking disagreeing is the worst version of this
+   *  bug: the reader sees three names lit and two teammates answer, with no way
+   *  to tell which half is wrong.
+   *
+   *  The resolution is loose — first names and prefixes count, because someone
+   *  typing `@ana` for "Ana Silva" means her — and the renderers now use the
+   *  same rule through `matchMembers`. They used to be stricter, which meant a
+   *  teammate could be woken while the room drew their name as ordinary text. */
   const resolveMentions = (value: string): string[] => {
-    const tokens = new Set(
-      (value.match(/@([\w一-鿿]+)/g) || []).map((s) => s.slice(1).toLowerCase()),
-    );
+    const tokens = mentionTokens(value);
     if (tokens.size === 0) return [];
     if (tokens.has('all') || tokens.has('everyone')) return ['@all'];
-    const ids: string[] = [];
+    // Matched by name through the shared rule, then mapped back to ids. The
+    // matching itself is NOT reimplemented here: this decides who is woken and
+    // `isAddressed` decides who is highlighted, and the two disagreeing is the
+    // failure this folder repeatedly calls worse than no highlight at all.
+    // A display name can belong to more than one member — two clones of an
+    // agent, or two that kept a default name. Keying a Map by name would drop
+    // all but the last, so `@Researcher` would wake one of them while the room
+    // highlighted the word for both: a highlight promising a wake that does not
+    // happen, which is the failure this whole rule was unified to prevent. The
+    // server iterates members, not names, and so does this.
+    const byName = new Map<string, string[]>();
     for (const m of members) {
-      const nm = (m.name || m.agent_id).toLowerCase();
-      const first = nm.split(/\s+/)[0];
-      if (tokens.has(nm) || tokens.has(first) || [...tokens].some((t) => t.length >= 2 && nm.startsWith(t))) {
-        ids.push(m.agent_id);
-      }
+      const nm = m.name || m.agent_id;
+      const ids = byName.get(nm);
+      if (ids) ids.push(m.agent_id);
+      else byName.set(nm, [m.agent_id]);
     }
-    return ids;
+    return matchMembers(tokens, byName.keys()).flatMap((name) => byName.get(name) ?? []);
   };
 
   const handlePickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
+    setComposerError(null);
     try {
       for (const file of Array.from(files)) {
         const res = await api.uploadTeamChatAttachment(teamId, file);
         if (res.success && res.attachment) {
           setPending((prev) => [...prev, res.attachment!]);
+        } else {
+          // A refusal is not an exception, and "no chip appeared" looks exactly
+          // like an upload still in flight. Name the file: with several
+          // selected, which one failed is the whole question.
+          setComposerError(t('chat.team.uploadFailed', { name: file.name }));
         }
       }
     } catch {
-      // Silent — a failed upload just doesn't add a chip; the user can retry.
+      setComposerError(t('chat.team.uploadFailedGeneric'));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -445,7 +686,11 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         );
       }
     } catch {
-      // Silent — the AudioRecorder's own onError surfaces capture failures.
+      // Capture failures are the AudioRecorder's own onError; this is the
+      // UPLOAD failing, which nothing else reports — and a voice memo that
+      // vanishes with no message is the worst version of this bug, because the
+      // recording cannot be retyped.
+      setComposerError(t('chat.team.uploadFailedGeneric'));
     } finally {
       setUploading(false);
     }
@@ -457,16 +702,23 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     const mentions = resolveMentions(body);
     const attachments = pending;
     setText('');
+    setTeamDraft(teamId, '');
     setPending([]);
     closeMention();
+    // A stale error sitting next to a message that did send is its own lie.
+    setComposerError(null);
     setSending(true);
     try {
       await api.sendTeamChat(teamId, body, mentions, attachments);
       await refresh();
     } catch {
-      // Restore the draft + attachments so nothing is lost on a failed send.
+      // Restore the draft + attachments so nothing is lost — and SAY SO.
+      // Restoring silently is indistinguishable from the Enter key never
+      // having registered, so the user retypes it or sends it twice.
       setText(body);
+      setTeamDraft(teamId, body);
       setPending(attachments);
+      setComposerError(t('chat.team.sendFailed'));
     } finally {
       setSending(false);
     }
@@ -611,13 +863,19 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </div>
 
-        {/* Roster drawer toggle — narrow screens have no standing column. */}
+        {/* Members panel toggle — the roster is a drawer panel now, on
+            every viewport (the standing column it replaces opened by
+            default; the drawer starts on 'members' on desktop). */}
         <button
           type="button"
-          onClick={() => setMobileRosterOpen((v) => !v)}
+          onClick={() => toggleDrawerTab('members')}
+          aria-pressed={drawerTab === 'members'}
           title={t('chat.team.roster.title')}
           aria-label={t('chat.team.roster.title')}
-          className="ml-auto shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)] md:hidden"
+          className={cn(
+            'shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            drawerTab === 'members' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
         >
           <Users2 className="w-3.5 h-3.5" />
         </button>
@@ -629,6 +887,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             type="button"
             onClick={() => setGuideOpen((v) => !v)}
             aria-expanded={guideOpen}
+            title={t('chat.team.guide.title')}
             aria-label={t('chat.team.guide.title')}
             className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
           >
@@ -640,6 +899,26 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             </div>
           )}
         </div>
+
+        {/* Workspace drawer (artifacts + shared files) — same entry pattern as
+            the single-chat header's artifacts button; the standing w-72 column
+            it replaces couldn't actually display an artifact. */}
+        <button
+          type="button"
+          onClick={() => toggleDrawerTab('artifacts')}
+          aria-pressed={drawerTab === 'artifacts'}
+          title={t('rail.artifacts')}
+          aria-label={t('rail.artifacts')}
+          className={cn(
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            drawerTab === 'artifacts' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
+        >
+          <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
+          {wsArtifacts.length > 0 && (
+            <span className="text-[10px] font-mono">{wsArtifacts.length}</span>
+          )}
+        </button>
 
         {/* Team settings (detail page). */}
         <button
@@ -683,7 +962,27 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
       <div className="relative flex flex-1 min-h-0">
         <div className="flex min-w-0 flex-1 flex-col min-h-0">
           {/* Timeline */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+          <div
+            ref={scrollRef}
+            data-testid="team-transcript-scroll"
+            onScroll={(e) => {
+              // The reader's position decides whether new messages may move it.
+              stickRef.current = isNearBottom(e.currentTarget);
+              // ...and reaching the top is the request for older ones. Scroll
+              // events arrive in bursts; loadOlder is idempotent under that.
+              if (isNearTop(e.currentTarget)) void loadOlder();
+            }}
+            className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
+          >
+            {loadingOlder && (
+              <div
+                data-testid="loading-older"
+                className="flex items-center justify-center gap-2 py-2 text-xs text-[var(--text-tertiary)]"
+              >
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t('chat.team.loadingOlder')}
+              </div>
+            )}
             {messages.length === 0 ? (
               <TeamRoomHero
                 teamName={team.team.name}
@@ -692,231 +991,31 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 accent={accent}
               />
             ) : (
+              /* Not redundant with TeamTranscript's own `space-y-5`: that one
+                 spaces MESSAGES, this one spaces the transcript from the typing
+                 indicators and the scroll anchor below it. Collapsing them into
+                 a fragment closes that gap. */
               <div className="space-y-5">
-                {messages.map((m) => {
-                  const mine = m.is_user;
-                  const avatarLabel = (mine ? userLabel : m.author_name) || '?';
-                  const ts = Date.parse(m.created_at);
-                  // A stop notice is the ROOM speaking, not the agent: a task
-                  // that ran in public should visibly stop in public, but
-                  // dressing it as the agent's own reply would read as the agent
-                  // announcing its own death.
-                  // A bulletin change is the room speaking, exactly like a stop
-                  // notice: dressing it as a member's message would attribute a
-                  // platform event to whoever happened to trigger it.
-                  if (m.msg_type === 'system_bulletin') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`bulletin-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <span
-                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
-                          style={{ color: 'var(--nm-ink50)' }}
-                        >
-                          {t(
-                            m.content?.includes('cleared')
-                              ? 'chat.team.bulletin.clearedNotice'
-                              : 'chat.team.bulletin.updatedNotice',
-                          )}
-                        </span>
-                      </div>
-                    );
+                <TeamTranscript
+                  messages={messages}
+                  userLabel={userLabel}
+                  leadAgentId={leadAgentId ?? ''}
+                  memberNames={memberNameMap}
+                  renderSystem={(m) => <TeamSystemLine key={m.message_id} message={m} />}
+                  renderHeader={(m) =>
+                    !m.is_user && m.event_id ? (
+                      <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
+                    ) : null
                   }
-                  if (m.msg_type === 'system_stop') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`stop-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <span
-                          className="rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[10px] font-mono"
-                          style={{ color: 'var(--nm-ink50)' }}
-                        >
-                          {t('chat.team.stoppedNotice', { name: m.author_name })}
-                        </span>
-                      </div>
-                    );
-                  }
-                  // Two ways a turn can leave the room empty, and the room now
-                  // says which: the agent delivered nothing, or it delivered
-                  // something we then failed to post. Rendered as room-level
-                  // lines for the same reason as the stop notice — the
-                  // platform is the one speaking. The failure keeps its reason
-                  // in `title`: the chip stays quiet in the transcript, and the
-                  // detail is one hover away for whoever is debugging.
-                  if (
-                    m.msg_type === 'system_undelivered' ||
-                    m.msg_type === 'system_delivery_failed'
-                  ) {
-                    const failed = m.msg_type === 'system_delivery_failed';
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`${failed ? 'delivery-failed' : 'undelivered'}-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <span
-                          title={m.content}
-                          className="rounded-full border px-2.5 py-0.5 text-[10px] font-mono"
-                          style={{
-                            // A failed post is OUR fault and actionable, so it
-                            // carries warning weight; a silent turn is merely
-                            // information and stays as quiet as the other
-                            // platform lines.
-                            color: failed ? 'var(--color-warning)' : 'var(--nm-ink50)',
-                            borderColor: failed
-                              ? 'var(--color-warning)'
-                              : 'var(--border-subtle)',
-                          }}
-                        >
-                          {t(
-                            failed
-                              ? 'chat.team.deliveryFailedNotice'
-                              : 'chat.team.undeliveredNotice',
-                            { name: m.author_name },
-                          )}
-                        </span>
-                      </div>
-                    );
-                  }
-                  // A patrol line is the platform taking stock, not a member
-                  // talking. It is posted under the room's own marker, so
-                  // `author_name` would resolve to a raw `team_<id>` — and more
-                  // importantly, rendering it as a bubble would make the Leader
-                  // look like it keeps interrupting the room on its own.
-                  if (m.msg_type === 'patrol') {
-                    return (
-                      <div
-                        key={m.message_id}
-                        data-testid={`patrol-notice-${m.message_id}`}
-                        className="flex justify-center py-1"
-                      >
-                        <div
-                          className="max-w-[85%] rounded-lg border border-dashed border-[var(--border-subtle)] px-3 py-1.5"
-                          style={{ background: 'var(--nm-paper-warm)' }}
-                        >
-                          <div
-                            className="mb-0.5 font-mono text-[10px] uppercase tracking-[0.18em]"
-                            style={{ color: 'var(--nm-ink50)' }}
-                          >
-                            {t('chat.team.patrolNotice')}
-                          </div>
-                          <div className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-                            <Markdown content={m.content.trim()} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={m.message_id} className={cn('flex gap-3', mine && 'flex-row-reverse')}>
-                      {/* Carbon ring for the human, silicon for an agent — matching
-                          the single-agent MessageBubble. Hidden on mobile. */}
-                      <RingAvatar
-                        species={mine ? 'carbon' : 'silicon'}
-                        label={avatarLabel.slice(0, 2)}
-                        size="sm"
-                        className="shrink-0 hidden md:inline-flex"
-                      />
-                      <div className={cn('flex-1 min-w-0', mine && 'text-right')}>
-                        {/* Author name above an agent bubble — a group chat has
-                            multiple speakers, so name them (single-agent doesn't). */}
-                        {!mine && (
-                          <div className="mb-0.5 px-0.5 text-[10px] font-mono text-[var(--text-tertiary)]">
-                            {m.author_name}
-                          </div>
-                        )}
-                        <div
-                          className={cn(
-                            'relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] transition-colors duration-150',
-                            !mine && 'nm-bubble-ai',
-                          )}
-                          style={
-                            mine
-                              ? {
-                                  background: 'var(--color-carbon-soft)',
-                                  color: 'var(--nm-ink)',
-                                  border: '1px solid var(--color-carbon-hair)',
-                                  borderRight: '3px solid var(--color-carbon)',
-                                }
-                              : {
-                                  background: 'var(--color-silicon-soft)',
-                                  color: 'var(--nm-ink)',
-                                  border: '1px solid var(--color-silicon-hair)',
-                                  borderLeft: '3px solid var(--color-silicon)',
-                                }
-                          }
-                        >
-                          <div className="text-sm break-words leading-relaxed">
-                            {mine ? (
-                              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">
-                                {m.content}
-                              </span>
-                            ) : (
-                              // Agent replies are markdown (bold, lists, code) —
-                              // render them like the single-agent bubble; this also
-                              // collapses the stray leading whitespace agents emit.
-                              <Markdown content={m.content.trim()} />
-                            )}
-                          </div>
-                          <BusAttachmentList attachments={m.attachments} />
-                          {/* This turn's full process — single-chat parity.
-                              Only agent replies whose turn was recorded carry
-                              an event_id (legacy rows degrade to no button). */}
-                          {!mine && m.event_id && (
-                            <TeamMessageProcess agentId={m.from_agent} eventId={m.event_id} />
-                          )}
-                          {/* What THIS turn produced. Joined on event_id, which
-                              both the transcript and the artifact history
-                              carry — not on timestamps, which would mis-attribute
-                              the ordinary cases (two artifacts in one turn, two
-                              agents replying at once). */}
-                          {m.event_id && (wsTurns[m.event_id] ?? []).length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {(wsTurns[m.event_id] ?? []).map((aid) => {
-                                const art = wsArtifacts.find((x) => x.artifact_id === aid);
-                                return (
-                                  <button
-                                    key={aid}
-                                    type="button"
-                                    onClick={() => setWsSelected(aid)}
-                                    title="Open in the team workspace"
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono border border-[var(--nm-hairline)] text-[var(--text-tertiary)] hover:text-[var(--nm-ink)] max-w-full"
-                                  >
-                                    <span className="truncate">{art?.title ?? aid}</span>
-                                    <span className="opacity-50">↗</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        {/* Meta row outside the bubble, aligned to its side. */}
-                        <div
-                          className={cn(
-                            'mt-1 flex items-center gap-1.5 px-0.5',
-                            mine ? 'justify-end' : 'justify-start',
-                          )}
-                        >
-                          <span
-                            className="font-mono tracking-wide"
-                            style={{
-                              color: 'var(--nm-subtle)',
-                              fontSize: '9.5px',
-                              letterSpacing: '0.05em',
-                              fontVariantNumeric: 'tabular-nums',
-                            }}
-                          >
-                            {Number.isFinite(ts) ? formatTime(ts) : ''}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                  renderFooter={(m) => (
+                    <TeamMessageFooter
+                      message={m}
+                      turnArtifacts={m.event_id ? (wsTurns[m.event_id] ?? []) : []}
+                      artifacts={wsArtifacts}
+                      onOpenArtifact={(id) => { setWsSelected(id); setDrawerTab('artifacts'); }}
+                    />
+                  )}
+                />
 
                 {/* A sign of life for anyone who is NOT idle — the transcript
                     says who is up and nothing more. Everything measurable about
@@ -940,7 +1039,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                       highlighted={rosterExpandedId === a.agent_id}
                       onClick={() => {
                         toggleRoster(a.agent_id);
-                        setMobileRosterOpen(true);
+                        setDrawerTab('members');
                       }}
                     />
                   ))}
@@ -954,14 +1053,32 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               inside it (carbon-soft when there's content, neutral when empty). */}
           <div className="shrink-0 px-5 py-4 border-t border-[var(--rule)]">
             {/* Transcription-unavailable notice (post-record). */}
+            {composerError && (
+              <div
+                data-testid="composer-error"
+                role="alert"
+                className="mb-2 flex items-start gap-2 rounded-md border border-[var(--color-red-500)]/40 bg-[var(--color-red-500)]/10 px-2.5 py-1.5 text-xs text-[var(--nm-ink)]"
+              >
+                <span className="flex-1">{composerError}</span>
+                <button
+                  type="button"
+                  onClick={() => setComposerError(null)}
+                  className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  title={t('common.close')}
+                  aria-label={t('common.close')}
+                >
+                  <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+                </button>
+              </div>
+            )}
             {transcriptionNotice && (
-              <div className="mb-2 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+              <div className="mb-2 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
                 <Mic className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[var(--text-tertiary)]" />
                 <span className="flex-1">{transcriptionNotice}</span>
                 <button
                   type="button"
                   onClick={() => setTranscriptionNotice(null)}
-                  className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                  className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                 >
                   <X className="w-3 h-3 text-[var(--text-tertiary)]" />
                 </button>
@@ -974,7 +1091,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                 {pending.map((att) => (
                   <div
                     key={att.file_id}
-                    className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                    className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                   >
                     {att.source === 'recording' ? (
                       <VoiceTranscript compact transcript={att.transcript} />
@@ -998,7 +1115,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                     <button
                       type="button"
                       onClick={() => setPending((prev) => prev.filter((a) => a.file_id !== att.file_id))}
-                      className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                      className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                       title={t('chat.team.removeAttachment')}
                     >
                       <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1006,7 +1123,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                   </div>
                 ))}
                 {uploading && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     {t('chat.team.uploading')}
                   </div>
@@ -1086,13 +1203,32 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
                     }
                   }
                   if (e.key === 'Enter' && !e.shiftKey) {
+                    // Enter is how an IME candidate is ACCEPTED. Some IMEs fire
+                    // compositionend before that final keydown, so the flag
+                    // alone is not enough — hence the short grace window, the
+                    // same pair the private chat's Composer settled on.
+                    const composing =
+                      e.nativeEvent.isComposing || isComposingRef.current;
+                    if (composing || Date.now() - compositionEndTimeRef.current < 100) return;
                     e.preventDefault();
                     handleSend();
                   }
                 }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionUpdate={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  compositionEndTimeRef.current = Date.now();
+                  setTimeout(() => {
+                    isComposingRef.current = false;
+                  }, 0);
+                }}
                 rows={1}
                 placeholder={t('chat.team.placeholder')}
-                className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
+                className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)] hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
               />
               <Button
                 variant="ghost"
@@ -1149,36 +1285,65 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           </div>
         </div>
 
-        <TeamRosterPanel
-          teamId={teamId}
-          members={members}
-          activity={activity}
-          leadAgentId={leadAgentId}
-          now={now}
-          expandedId={rosterExpandedId}
-          onToggle={toggleRoster}
-          accent={accent}
-          onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-          className="hidden md:flex"
-        />
-
-        {/* Narrow screens: the same rows, over the transcript. The drawer
-            keeps the roster's own breathing width (256px ↔ 430px capped
-            at 92vw) — a fixed width here would undo the expansion. */}
-        {mobileRosterOpen && (
-          <TeamRosterPanel
-            teamId={teamId}
-            members={members}
-            activity={activity}
-            leadAgentId={leadAgentId}
-            now={now}
-            expandedId={rosterExpandedId}
-            onToggle={toggleRoster}
-            accent={accent}
-            onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
-            className="absolute inset-y-0 right-0 z-20 flex border-l border-[var(--rule)] bg-[var(--nm-paper)] shadow-lg md:hidden"
+        {/* The room's right side — the SAME drawer as single chat (shared
+            pin/width preferences, title-dropdown switching), hosting the
+            team's panels: members / artifacts / shared files. Pinned it is
+            a static resizable column; unpinned an in-flow transient on
+            desktop and an overlay on phones — identical semantics to the
+            single-chat panels. */}
+        {drawerPinned && drawerTab && !isMobile && (
+          <ResizableDivider
+            onResize={handleDrawerResize}
+            onResizeEnd={handleDrawerResizeEnd}
+            label={t('layout.resizableDivider.drawerAriaLabel')}
+            title={t('layout.resizableDivider.drawerTitle')}
           />
         )}
+        <BookmarkDrawer
+          open={drawerTab !== null}
+          pinned={drawerPinned && !isMobile}
+          onPinnedChange={setDrawerPinned}
+          onClose={() => setDrawerTab(null)}
+          title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
+          activeTab={drawerTab}
+          onSelectTab={(id) => setDrawerTab(id)}
+          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
+          edgeReservePx={0}
+          pinnedWidth={drawerWidth}
+          inset={!isMobile}
+          insetWidth={
+            drawerTab === 'artifacts'
+              ? 'min(max(440px, 50vw), max(320px, calc(100vw - 672px)))'
+              : 'min(440px, max(320px, calc(100vw - 672px)))'
+          }
+          columnRef={drawerColRef}
+        >
+          {drawerTab === 'members' && (
+            <TeamRosterPanel
+              teamId={teamId}
+              members={members}
+              activity={activity}
+              leadAgentId={leadAgentId}
+              now={now}
+              expandedId={rosterExpandedId}
+              onToggle={toggleRoster}
+              accent={accent}
+              onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+              className="flex h-full w-full"
+            />
+          )}
+          {(drawerTab === 'artifacts' || drawerTab === 'files') && (
+            <TeamWorkspacePanel
+              tab={drawerTab}
+              artifacts={wsArtifacts}
+              files={wsFiles}
+              loading={wsLoading}
+              error={wsError}
+              selectedId={wsSelected}
+              onSelect={setWsSelected}
+            />
+          )}
+        </BookmarkDrawer>
       </div>
 
       {/* Voice-input unavailable dialog — mirrors the single-agent ChatPanel. */}
@@ -1231,6 +1396,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             </h3>
             <button
               type="button"
+              title={t('common.close')}
               aria-label={t('common.close')}
               onClick={() => setBulletinOpen(false)}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
@@ -1242,7 +1408,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             bulletin={bulletin}
             loading={bulletinLoading}
             error={bulletinError}
-            memberNames={Object.fromEntries(members.map((m) => [m.agent_id, m.name || m.agent_id]))}
+            memberNames={memberNameMap}
             onAdd={(content, tier) =>
               bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
             }
@@ -1258,14 +1424,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           />
         </div>
       )}
-      <TeamWorkspacePanel
-        artifacts={wsArtifacts}
-        files={wsFiles}
-        loading={wsLoading}
-        error={wsError}
-        selectedId={wsSelected}
-        onSelect={setWsSelected}
-      />
     </div>
   );
 }

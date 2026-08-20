@@ -4,7 +4,7 @@
 @date: 2026-08-10
 @description: Real-MySQL coverage for the work board's hand-written SQL.
 
-`TeamWorkItemRepository` carries four raw statements, and the SQLite suite
+`TeamWorkItemRepository` carries five raw statements, and the SQLite suite
 structurally cannot see a dialect error in them: `AsyncDatabaseClient.execute`
 translates `%s` only on the sqlite branch, so SQLite runs the rewritten text
 while MySQL runs the original. `test_trigger_reserved_word_sql.py` records
@@ -27,7 +27,7 @@ import pytest
 import pytest_asyncio
 
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
-from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
 from xyz_agent_context.utils.db.schema_registry import auto_migrate
@@ -121,6 +121,77 @@ async def test_list_visible_runs_on_mysql(mysql_client):
     visible = await repo.list_visible(team)
 
     assert [i.item_id for i in visible] == [live.item_id, parked.item_id]
+
+
+@pytest.mark.asyncio
+async def test_list_open_errands_runs_on_mysql(mysql_client):
+    """The errand layer's close-side read — the fifth raw statement.
+
+    Two extra parameters ahead of the generated IN-list (`channel_id`,
+    `origin`), so it is a new placeholder shape, not a copy of `list_active`.
+
+    Worth real-MySQL coverage more than the others: it runs on the delivery
+    path of EVERY team-room message, and `errand.close_delivered_errands`
+    swallows its failure into a warning. A 1064 here would not surface as an
+    error anywhere — it would present as the board opening errands and never
+    closing them, which is the one outcome `errand.py` documents as strictly
+    worse than not having the feature.
+    """
+    repo = TeamWorkItemRepository(mysql_client)
+    team = f"{_PREFIX}_t4"
+    mine = await repo.create_item(
+        team_id=team, channel_id="ch_here", title="mine", created_by="agent_lead",
+        assignee_id="agent_b", origin=WorkItemOrigin.AUTO,
+    )
+    # Same agent, same team, DIFFERENT room: speaking here must not settle
+    # what it owes there.
+    await repo.create_item(
+        team_id=team, channel_id="ch_elsewhere", title="other room",
+        created_by="agent_lead", assignee_id="agent_b",
+        origin=WorkItemOrigin.AUTO,
+    )
+    # Same room and agent, but a TASK — the Leader's to close, never ours.
+    await repo.create_item(
+        team_id=team, channel_id="ch_here", title="a task", created_by="agent_lead",
+        assignee_id="agent_b", origin=WorkItemOrigin.TOOL,
+    )
+    # Already delivered: terminal states are outside ACTIVE.
+    settled = await repo.create_item(
+        team_id=team, channel_id="ch_here", title="settled",
+        created_by="agent_lead", assignee_id="agent_b",
+        origin=WorkItemOrigin.AUTO,
+    )
+    await repo.set_status(settled.item_id, WorkItemStatus.DONE)
+
+    open_errands = await repo.list_open_errands("ch_here", "agent_b")
+
+    assert [i.item_id for i in open_errands] == [mine.item_id]
+
+
+@pytest.mark.asyncio
+async def test_open_errands_come_back_oldest_first_on_mysql(mysql_client):
+    """`close_delivered_errands` settles `open_errands[:1]`, so the ORDER BY is
+    load-bearing, not cosmetic — it decides WHICH errand a delivery closes.
+
+    Both rows are inserted in the same second on purpose: `created_at` alone
+    cannot separate them, which is exactly why the statement's tiebreak is
+    `id` (insertion order). Dropping that half would make the choice depend on
+    whatever order the engine felt like returning.
+    """
+    repo = TeamWorkItemRepository(mysql_client)
+    team = f"{_PREFIX}_t5"
+    first = await repo.create_item(
+        team_id=team, channel_id="ch_o", title="first", created_by="agent_lead",
+        assignee_id="agent_c", origin=WorkItemOrigin.AUTO,
+    )
+    second = await repo.create_item(
+        team_id=team, channel_id="ch_o", title="second", created_by="agent_lead",
+        assignee_id="agent_c", origin=WorkItemOrigin.AUTO,
+    )
+
+    open_errands = await repo.list_open_errands("ch_o", "agent_c")
+
+    assert [i.item_id for i in open_errands] == [first.item_id, second.item_id]
 
 
 @pytest.mark.asyncio

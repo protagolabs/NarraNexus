@@ -232,3 +232,32 @@ async def test_the_instruction_explains_the_absolute_form(env, db_client):
 
     block = await env["mod"]._render_artifact_state_block()
     assert "absolute" in block.lower()
+
+
+# ---------------------------------------------------------------------------
+# Truthful footer (2026-08-18, spec artifact-events §4): the cap must never be
+# silent — past the limit the block says how many more exist and names the
+# tool that lists them, so the agent knows it is looking at a window and
+# queries before concluding an artifact does not exist.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_block_under_cap_has_no_footer(env):
+    for i in range(3):
+        await _seed(env["repo"], f"art_{i:03d}", age_minutes=i)
+
+    block = await env["mod"]._render_artifact_state_block()
+    assert "list_artifacts" not in block
+    assert "more" not in block
+
+
+@pytest.mark.asyncio
+async def test_block_over_cap_says_how_many_more_and_names_the_tool(env):
+    over = ARTIFACT_STATE_BLOCK_LIMIT + 5
+    for i in range(over):
+        await _seed(env["repo"], f"art_{i:03d}", age_minutes=i)
+
+    block = await env["mod"]._render_artifact_state_block()
+    # The exact copy may evolve; the contract is: total count + tool name.
+    assert f"{over}" in block
+    assert "list_artifacts" in block

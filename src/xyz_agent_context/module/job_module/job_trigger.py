@@ -69,6 +69,7 @@ from loguru import logger
 # Schema
 from xyz_agent_context.schema.job_schema import (
     JobModel,
+    JobOrigin,
     JobStatus,
     JobType,
     TriggerConfig,
@@ -93,7 +94,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
-from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
+from xyz_agent_context.module.job_module._job_scheduling import (
+    compute_next_run,
+    past_schedule_horizon,
+)
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
 
@@ -222,6 +226,19 @@ def _is_auth_failure(result: Dict[str, Any]) -> bool:
 _BACKOFF_BASE_SECONDS = 60
 _BACKOFF_CAP_SECONDS = 3600
 _MAX_CONSECUTIVE_FAILURES = 8
+
+# Statuses an in-flight run (agent job_update / user Jobs-panel action) may
+# have moved a job to while it executed. The SCHEDULED finalize branch
+# respects these instead of overwriting them with ACTIVE + a fresh next_run
+# (the guide agent's "stop reaching out" self-pause rides this). Module-level
+# so future branches (ONGOING, recovery paths) reuse ONE definition.
+_IN_RUN_STOPS = (
+    JobStatus.PAUSED,
+    JobStatus.PAUSED_NO_QUOTA,
+    JobStatus.CANCELLED,
+    JobStatus.COMPLETED,
+    JobStatus.FAILED,
+)
 
 # PAUSED_NO_QUOTA recovery is edge-triggered (login / quota grant / preference
 # toggle / provider save call rearm_user_no_quota_jobs). The poll scan is only a
@@ -625,6 +642,33 @@ class JobTrigger:
                         cu = cu.replace(tzinfo=timezone.utc)
                     if cu > now:
                         continue  # still cooling
+                # A retry that would fire past the job's end_at horizon is a
+                # fire the schedule no longer owes — complete instead of
+                # re-arming (otherwise "runs until date X" leaks one extra
+                # run through the failure-backoff door). Recurring types only:
+                # a ONE_OFF has no "next fire" for a horizon to bound — its
+                # single run hasn't succeeded yet, and completing it here
+                # would mark a never-delivered reminder as done. The actual
+                # retry instant is max(cu, now): cu is already <= now here,
+                # and after long downtime the re-armed job fires immediately
+                # (now), not at the stale cooldown time — using cu alone
+                # would leak the very extra fire this branch exists to stop.
+                retry_at = max(cu, now) if cu else now
+                if job.job_type != JobType.ONE_OFF and past_schedule_horizon(
+                    job.trigger_config, retry_at
+                ):
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.COMPLETED.value,
+                        "cooldown_until": None,
+                    })
+                    await repo.clear_next_run(job.job_id)
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id} completed instead of re-armed "
+                        f"(COOLING retry past end_at horizon)"
+                    )
+                    continue
                 await repo.update_job(job.job_id, {
                     "status": JobStatus.ACTIVE.value,
                     "cooldown_until": None,
@@ -661,6 +705,17 @@ class JobTrigger:
                     last_run_utc=utc_now(),
                 )
                 if next_run:
+                    # Don't heal a zombie back to life past its end_at horizon
+                    # — the schedule it would resume no longer owes any fires.
+                    if past_schedule_horizon(job.trigger_config, next_run.utc):
+                        await repo.update_job_status(job.job_id, JobStatus.COMPLETED)
+                        if job.instance_id:
+                            await self._update_instance_completed(job.instance_id)
+                        logger.warning(
+                            f"Job {job.job_id} completed instead of healed "
+                            f"(ACTIVE zombie past end_at horizon)"
+                        )
+                        continue
                     await repo.update_next_run(job.job_id, next_run)
                     healed += 1
                     logger.warning(
@@ -835,7 +890,7 @@ class JobTrigger:
             logger.debug(f"Built prompt for job {job.job_id}: {prompt[:100]}...")
 
             # 3. Call AgentRuntime
-            # Agent will send report to user via send_message_to_user_directly
+            # Agent will send report to user via notify_owner
             result = await self._run_agent(job, prompt)
 
             # 4. Update Job status
@@ -853,7 +908,7 @@ class JobTrigger:
 
         Creates an AgentRuntime instance and runs the prompt,
         collecting all output. The agent sends the final report
-        to the user via send_message_to_user_directly.
+        to the user via notify_owner.
 
         Args:
             job: JobModel instance
@@ -907,11 +962,25 @@ class JobTrigger:
                     f"[JobTrigger] Job {job.job_id} failed: "
                     f"{collection.error.error_type}: {collection.error.error_message}"
                 )
+                failure_note = (
+                    f"⚠️ Scheduled task failed: {collection.error.error_message}"
+                )
+                # A room-origin job that fails must not leave the room silent.
+                #
+                # The owner-chat path has somewhere to surface this (the job
+                # row, the Jobs panel, `job.last_error`); a room has nothing —
+                # four people watched someone ask for a reminder and would
+                # simply never hear about it again. That is the same broken
+                # hand-off this whole change is about, one surface over, and
+                # the team room already answers it for a fatal turn (see
+                # `message_bus_trigger`'s `turn.fatal` notice: a teammate
+                # cannot tell "not interested" from "broken").
+                await self._deliver_to_origin(
+                    job, failure_note, run_event_id=collection.event_id
+                )
                 return {
                     "event_id": event_id,
-                    "content": (
-                        f"⚠️ Scheduled task failed: {collection.error.error_message}"
-                    ),
+                    "content": failure_note,
                     "success": False,
                     "error": collection.error.error_message,
                     "error_type": collection.error.error_type,
@@ -920,6 +989,20 @@ class JobTrigger:
 
             content = collection.output_text
             tool_calls = collection.tool_calls
+
+            # Delivered BEFORE the empty-output boilerplate below is synthesised.
+            #
+            # That boilerplate ("## Task Completed … Job ID … Tools used: None")
+            # is written for the owner's inbox, where an operational record is
+            # the right thing to leave. A room is not an inbox: the prompt this
+            # job ran under told it "your reply IS the report, it is posted to
+            # the room", so posting a metadata block on its behalf puts a
+            # platform-shaped notice in front of four people and reads as a bug
+            # rather than as "the job had nothing to say".
+            #
+            # The owner path keeps the boilerplate untouched — PRD acceptance
+            # #8 requires the private-chat behaviour to be unchanged.
+            room_content = content
 
             # Add execution metadata if content is empty
             if not content.strip():
@@ -942,6 +1025,10 @@ The task was executed but produced no text output.
 
             logger.info(f"[JobTrigger] AgentRuntime completed for job {job.job_id}, output length: {len(content)}")
 
+            await self._deliver_to_origin(
+                job, room_content, run_event_id=collection.event_id
+            )
+
             return {
                 "event_id": event_id,
                 "content": content,
@@ -962,6 +1049,100 @@ The task was executed but produced no text output.
     # =========================================================================
     # Result Processing
     # =========================================================================
+
+    async def _deliver_to_origin(
+        self, job: JobModel, content: str, *, run_event_id: Optional[str] = None
+    ) -> None:
+        """FALLBACK: post a room-origin job's report if the run did not.
+
+        The other half of the origin pair: `_job_context_builder` picked the
+        prompt from `job.origin_source`, and this picks the delivery from the
+        same field, so the two can never describe different surfaces. An
+        owner-chat job (empty origin) returns immediately and keeps the
+        historical path — the agent's own owner-facing call during the run
+        (PRD acceptance #8).
+
+        Why this became a fallback (2026-08-17). It used to be the ONLY path:
+        the room's contract was that a job's plain text auto-posts, and the
+        prompt said so. That contract is gone — the team room was the single
+        surface in the platform where "your plain text reaches nobody" was
+        false, and every layer that states the general rule was contradicting
+        the one layer that carved it out. A team post is a tool call now, so
+        the room prompt tells the job to call `message_team` and the primary
+        path is the same one every other surface uses.
+
+        What did NOT change is the guarantee that motivated the original: the
+        room that asked always hears back. `has_message_from_turn` answers
+        "did this run put anything in that room" exactly (event id, not a
+        timestamp window), so the platform copy goes out only when the answer
+        is no. A job that posted its own report is not double-posted; a job
+        that produced a report and delivered it nowhere still reaches the four
+        people waiting on it.
+
+        Never raises. The job itself SUCCEEDED — its status, its narrative and
+        its next_run_time are all correct — so a failed post must not turn a
+        completed job into a failed one. It is logged loudly instead: an
+        undeliverable report is a real problem, just not this job's failure.
+        """
+        source = (job.origin_source or "").strip()
+        channel_id = (job.origin_channel_id or "").strip()
+        if source not in JobOrigin.DELIVERABLE or not channel_id or not content.strip():
+            return
+        try:
+            # Imported here: the job process builds its bus service lazily, and
+            # a module-level import would tie job startup to the bus package.
+            from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            db = await get_db_client()
+            bus = LocalMessageBus(backend=db._backend)
+            # The run's own post, if it made one, carries this same event id —
+            # so this is an identity check, not a "was something posted around
+            # then" guess. No event id means we cannot tell, and the safe
+            # answer there is to deliver: a duplicate report is noise, a
+            # missing one is the bug this fallback exists for.
+            if run_event_id and await bus.has_message_from_turn(
+                channel_id, job.agent_id, run_event_id
+            ):
+                logger.info(
+                    f"[job-origin] {job.job_id} posted its own report to "
+                    f"{channel_id}; platform copy skipped"
+                )
+                return
+            await bus.send_message(
+                from_agent=job.agent_id,
+                to_channel=channel_id,
+                content=content,
+                # Recorded so the room can tell a scheduled report from a live
+                # reply, and so the recipient's turn-source logic does not read
+                # it as a peer asking a question.
+                sender_turn_source=WorkingSource.JOB,
+                # A job report is the THIRD way an agent's words enter a room,
+                # after a live reply and a patrol line. Both of the others
+                # stamp these, and the room's transcript reads `event_id` to
+                # offer "view reasoning & tools" — without it this line has no
+                # visible provenance, which is worse here than elsewhere
+                # because nobody in the room saw the turn happen.
+                event_id=run_event_id or None,
+                # Lineage. A job execution has no parent run — a timer woke it,
+                # not another agent — so it is the ROOT of its own tree, and
+                # `schema_registry` defines a root as storing its own event id.
+                # Whoever this report wakes next inherits that label and stays
+                # reachable by a cascade stop.
+                root_run_id=run_event_id or None,
+                # Deliberately no `mentions`: a report is a notice, not a
+                # request. An @ would wake a team turn immediately AND open a
+                # fresh errand for a hand-off nobody made.
+            )
+            logger.info(
+                f"[JobTrigger] job {job.job_id} reported into {channel_id} "
+                f"(origin={source})"
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            logger.error(
+                f"[JobTrigger] job {job.job_id} produced a report but could not "
+                f"post it to {channel_id}: {type(e).__name__}: {e}"
+            )
 
     async def _finalize_job_execution(
         self,
@@ -1118,11 +1299,69 @@ The task was executed but produced no text output.
                 last_run_local = now.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
                 await repo.update_last_run(job.job_id, now, last_run_local, tz_name)
 
+                # Respect an in-run STOP (same re-read the ONGOING branch
+                # has always done): the agent may have paused THIS job mid-run
+                # via job_update (e.g. the onboarding guide's "stop reaching
+                # out" self-pause), or the user paused/cancelled it from the
+                # Jobs panel while it ran. `job` is a pre-execution snapshot;
+                # blindly writing ACTIVE + next_run here used to resurrect the
+                # schedule right after the agent promised to stop. Only the
+                # explicit stop states are respected — anything else (RUNNING,
+                # and the pending/active a test harness or an odd caller may
+                # hold) reschedules exactly as before. last_run above is a
+                # fact record and stays; everything from here down is
+                # scheduling, which an in-run stop owns. This also keeps the
+                # horizon path below from stamping COMPLETED over a mid-run
+                # CANCELLED.
+                current_job = await repo.get_job(job.job_id)
+                current_status = current_job.status if current_job else job.status
+                if current_status in _IN_RUN_STOPS:
+                    # Terminal/paused ⇒ no next fire: every other terminal
+                    # path in this file clears next_run, and try_acquire_job
+                    # doesn't — without this, a job cancelled mid-run keeps a
+                    # stale past next_run_time on its row (harmless to the
+                    # poller, which filters on status, but dirty for the Jobs
+                    # panel and any next_run-based queries). A user resume
+                    # recomputes it (job_service re-derives next_run on
+                    # status→active without an explicit one).
+                    await repo.clear_next_run(job.job_id)
+                    # The RUN still finished — instance completion (which
+                    # feeds ModulePoller's post-run processing) is a per-run
+                    # fact for scheduled jobs and is not the schedule's
+                    # business, so it happens on every path.
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    logger.info(
+                        f"Job {job.job_id}: status={current_status.value} changed "
+                        f"in-run, respecting it (no reschedule)"
+                    )
+                    return
+
                 next_run = compute_next_run(
                     job_type=job.job_type,
                     trigger_config=job.trigger_config,
                     last_run_utc=now,
                 )
+                # Scheduling horizon (trigger_config.end_at): a recurring job
+                # whose NEXT fire would land past its horizon is done — the
+                # platform completes it here, no model cooperation needed.
+                # Only the horizon path completes; a None next_run keeps the
+                # historical semantics (ACTIVE with NULL next_run) untouched.
+                if next_run and past_schedule_horizon(job.trigger_config, next_run.utc):
+                    await repo.clear_next_run(job.job_id)
+                    await repo.update_job_status(
+                        job_id=job.job_id,
+                        status=JobStatus.COMPLETED
+                    )
+                    if job.instance_id:
+                        await self._update_instance_completed(job.instance_id)
+                    end_at = job.trigger_config.end_at if job.trigger_config else None
+                    logger.info(
+                        f"Job {job.job_id} completed (scheduled, end_at horizon "
+                        f"{end_at} {tz_name} reached)"
+                    )
+                    return
+
                 if next_run:
                     await repo.update_next_run(job.job_id, next_run)
                 else:
@@ -1195,6 +1434,25 @@ The task was executed but produced no text output.
                             trigger_config=job.trigger_config,
                             last_run_utc=now,
                         )
+                        # end_at horizon, same semantics as the SCHEDULED
+                        # branch — the primitive is generic to recurring jobs,
+                        # and ONGOING is the type that most needs a platform
+                        # brake (its end_condition is model-judged). Both arms
+                        # honor it: this one when the hook failed (mechanical
+                        # fallback), and the else-branch below when the hook
+                        # rescheduled past the horizon.
+                        if next_run and past_schedule_horizon(job.trigger_config, next_run.utc):
+                            await repo.update_job(job.job_id, {
+                                "status": JobStatus.COMPLETED.value,
+                            })
+                            await repo.clear_next_run(job.job_id)
+                            if job.instance_id:
+                                await self._update_instance_completed(job.instance_id)
+                            logger.info(
+                                f"Job {job.job_id} completed (ongoing, end_at "
+                                f"horizon reached)"
+                            )
+                            return
                         if next_run:
                             await repo.update_next_run(job.job_id, next_run)
                             next_run_str = f"{next_run.local} ({next_run.tz})"
@@ -1203,6 +1461,46 @@ The task was executed but produced no text output.
                             next_run_str = "N/A"
                         await repo.update_job_status(job.job_id, JobStatus.ACTIVE)
                     else:
+                        # Hook (entry point 1) owns the schedule decision now
+                        # — EXCEPT the end_at horizon. The horizon is not a
+                        # call the LLM makes (it decides end_condition; whether
+                        # the schedule still owes a next fire is declared
+                        # platform-side, _job_lifecycle.py), so if the hook
+                        # rescheduled a fire that lands past end_at, complete
+                        # instead of respecting it. This is the NORMAL ongoing
+                        # path (the mechanical-fallback arm above only runs
+                        # when the hook failed). A hook that already finished
+                        # the job (COMPLETED/FAILED) cleared next_run →
+                        # next_run_time is None → we skip and never
+                        # double-complete (which would re-fire instance
+                        # completion). next_run_time may round-trip naive from
+                        # the DB, so normalize to aware-UTC before comparing
+                        # (same as _rearm_cooled_jobs).
+                        #
+                        # _IN_RUN_STOPS guard (same as the SCHEDULED branch):
+                        # an in-run stop — a user pause/cancel from the Jobs
+                        # panel, or the hook writing a terminal/paused status —
+                        # owns the outcome. Without this, a stale or hook-set
+                        # crossed next_run below would stamp COMPLETED over a
+                        # mid-run CANCELLED/PAUSED. No per-run instance
+                        # completion on this respect path (unlike SCHEDULED) —
+                        # that difference is intentional for ONGOING.
+                        hook_next = current_job.next_run_time if current_job else None
+                        if current_status not in _IN_RUN_STOPS and hook_next is not None:
+                            if hook_next.tzinfo is None:
+                                hook_next = hook_next.replace(tzinfo=timezone.utc)
+                            if past_schedule_horizon(job.trigger_config, hook_next):
+                                await repo.update_job(job.job_id, {
+                                    "status": JobStatus.COMPLETED.value,
+                                })
+                                await repo.clear_next_run(job.job_id)
+                                if job.instance_id:
+                                    await self._update_instance_completed(job.instance_id)
+                                logger.info(
+                                    f"Job {job.job_id} completed (ongoing, end_at "
+                                    f"horizon reached; hook had rescheduled past it)"
+                                )
+                                return
                         logger.info(
                             f"Job {job.job_id}: status={current_status.value} (updated by hook), "
                             f"respecting hook's decision."

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-13
+last_verified: 2026-08-17
 stub: false
 ---
+
+## 2026-08-17 — 动态尾巴里，来源声明领在回复提醒之前
+
+`_tail()` 从 `(plan, reminder)` 变成 `(plan, origin_declaration, reminder)`。两者都放
+动态尾巴，因为都是每轮的事实；来源声明在一轮之内不变，但它必须和它所修饰的那条规则同行，
+两者才不会被分开读到。
+
+声明本身由 step 层渲染并经 `TurnOptions.origin_declaration` 传入——本框架**不合成**它，
+所以它和 CLI adapter 发出的是同一串字符。
+
 
 ## 2026-08-13（五审）— is_expressive 接入 ToolDispatcher
 

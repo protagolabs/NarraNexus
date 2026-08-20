@@ -14,15 +14,29 @@
     "logout": "로그아웃",
     "poweredBy": "NetMind AI Research",
     "online": "온라인",
-    "you": "나",
     "cloud": "클라우드",
     "localMode": "로컬 모드",
-    "cloudMode": "클라우드 모드"
+    "cloudMode": "클라우드 모드",
+    "collapseTitle": "사이드바 접기",
+    "expandTitle": "사이드바 펼치기",
+    "export": "내보내기",
+    "exportTitle": "번들 내보내기 — 에이전트 또는 팀",
+    "settingsTitle": "설정 — 모델 및 프로바이더",
+    "searchChatsTitle": "에이전트·팀 검색",
+    "account": "계정",
+    "billing": "결제",
+    "subscription": "구독",
+    "theme": "테마",
+    "language": "언어",
+    "themeLight": "라이트",
+    "themeDark": "다크",
+    "themeSystem": "시스템",
+    "workspace": "내 세계",
+    "accountTitle": "계정"
   },
   "chat": {
     "conversation": "대화",
-    "innerThoughts": "내면의 생각",
-    "interaction": "상호작용",
+    "innerThoughts": "활동 로그",
     "composerPlaceholder": "메시지를 입력하거나 /로 스킬 호출…",
     "selectAgent": "에이전트 선택",
     "selectAgentHint": "사이드바에서 에이전트를 선택해 대화를 시작하세요.",
@@ -75,20 +89,13 @@
       "recoveredAfterErrorTip": "이번 턴의 한 단계가 실패했습니다. 답변은 완료된 작업과 알려진 오류 정보를 바탕으로 작성되었습니다."
     },
     "onboarding": {
-      "eyebrow": "새 대화",
-      "heading": "새하얀 페이지.",
-      "framing": "아직 아무것도 없습니다 — 바로 그게 핵심입니다. 당신과 {{name}}이(가) 함께 일할수록 더 많이 기억하고 연결하고 이어갑니다.",
       "defaultAgentName": "당신의 에이전트",
-      "narraBrand": "Narra · 메모리",
-      "narraCaption": "기억합니다",
-      "nexusBrand": "Nexus · 네트워크",
-      "nexusCaption": "연결합니다",
-      "teamBrand": "당신의 팀",
-      "teamCaption": "완수합니다",
-      "tryAsking": "이렇게 물어보세요",
       "prompt1": "이번 주 가장 중요한 업데이트를 요약해 줘",
       "prompt2": "채널을 연결하고 긴급한 내용을 주시해 줘",
-      "prompt3": "월요일 아침에 중요한 내용 요약을 설정해 줘"
+      "prompt3": "월요일 아침에 중요한 내용 요약을 설정해 줘",
+      "readyTitle": "{{name}} 준비 완료",
+      "readyBody": "아래 제안으로 시작하거나 필요한 것을 바로 말해 보세요.",
+      "dismiss": "닫기"
     },
     "team": {
       "notFound": "팀을 찾을 수 없습니다.",
@@ -173,7 +180,28 @@
         },
         "turnOff": "끄기",
         "turnOn": "켜기"
-      }
+      },
+      "sendFailed": "보내지 못했습니다. 입력한 내용은 그대로 있습니다 — 다시 시도하세요.",
+      "uploadFailed": "'{{name}}'을(를) 업로드하지 못했습니다.",
+      "uploadFailedGeneric": "파일을 업로드하지 못했습니다.",
+      "loadingOlder": "이전 메시지를 불러오는 중…",
+      "leadBadge": "리드",
+      "expand": "더 보기",
+      "collapse": "접기",
+      "today": "오늘",
+      "agentPaused": "이 에이전트는 일시 중지 상태입니다({{reason}}). 원인을 해결한 뒤 위 배너의 '재개'를 사용하세요.",
+      "workspace": {
+        "zoom": "아티팩트 확대",
+        "emptyArtifacts": "여기에서 볼 아티팩트를 선택하세요.",
+        "emptyFiles": "파일은 바로 다운로드됩니다 — 왼쪽에서 파일을 클릭하세요.",
+        "tabArtifacts": "아티팩트",
+        "tabFiles": "파일",
+        "artifactsHint": "팀 에이전트가 이 룸에 등록한 아티팩트가 여기에 표시됩니다.",
+        "filesHint": "team_share_file로 공유된 파일이 여기에 표시됩니다.",
+        "download": "{{name}} 다운로드",
+        "loading": "불러오는 중…"
+      },
+      "drawerCategory": "팀 룸"
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -245,7 +273,14 @@
       "plan": "플랜",
       "title": "에이전트 · 프로세스",
       "ops": "회 작업"
-    }
+    },
+    "header": {
+      "sessionLabel": "세션 · {{time}}",
+      "detailMenuTitle": "에이전트 상세 — 패널",
+      "modelFramework": "모델 및 프레임워크",
+      "switchAgent": "에이전트 전환"
+    },
+    "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요."
   },
   "awareness": {
     "common": {
@@ -650,7 +685,6 @@
   },
   "layout": {
     "chatView": {
-      "tabChat": "채팅",
       "tabArtifacts": "아티팩트",
       "tabArtifactsCount": "아티팩트 ({{count}})"
     },
@@ -659,7 +693,6 @@
       "closeAriaLabel": "닫고 채팅으로 돌아가기"
     },
     "sidebar": {
-      "openWorkspace": "내 워크스페이스 열기",
       "logoutConfirmTitle": "로그아웃",
       "logoutConfirmMessage": "정말 로그아웃하시겠습니까?",
       "logoutConfirmAction": "로그아웃",
@@ -681,10 +714,6 @@
       "createAgentOrTeam": "에이전트 또는 팀 생성",
       "createAgent": "에이전트 생성",
       "createTeam": "팀 생성",
-      "manageAgents": "에이전트 관리",
-      "manageAgentsTitle": "에이전트 관리 (일괄 · 추가 / 편집 / 삭제)",
-      "teamGroupChatTitle": "{{name}} — 그룹 채팅",
-      "teamGroupChatAria": "{{name}} 그룹 채팅",
       "refreshAgents": "에이전트 새로고침",
       "emptyLabel": "아직 에이전트가 없습니다",
       "emptyHint": "첫 에이전트를 만들어 대화를 시작하세요.",
@@ -698,8 +727,10 @@
     "agentRowMenu": {
       "options": "에이전트 옵션",
       "rename": "이름 변경",
+      "edit": "편집…",
       "setPrivate": "비공개로 설정",
       "setPublic": "공개로 설정",
+      "clearData": "데이터 지우기",
       "delete": "삭제"
     },
     "agentsHeaderMenu": {
@@ -709,25 +740,33 @@
       "manageTeams": "팀 관리"
     },
     "createMenu": {
-      "create": "생성",
       "createAgentOrTeam": "에이전트 또는 팀 생성",
       "createAgent": "에이전트 생성",
-      "createTeam": "팀 생성"
+      "createTeam": "팀 생성",
+      "new": "새로 만들기",
+      "newTitle": "새로 만들기 — 에이전트, 팀, 가져오기…",
+      "importBundle": ".nxbundle 가져오기",
+      "importAgent": "다른 소스에서 가져오기"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 그룹 채팅",
-      "agentCount_other": "에이전트 {{count}}명"
+      "agentCount_other": "에이전트 {{count}}명",
+      "toggleMembers": "멤버 표시",
+      "noMembers": "아직 멤버가 없습니다",
+      "unread": "읽지 않은 메시지"
     },
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
       "rename": "이름 변경",
-      "delete": "삭제"
+      "clearData": "데이터 지우기",
+      "delete": "삭제",
+      "addAgent": "에이전트 추가",
+      "addingAgent": "추가 중…"
     },
     "topBar": {
       "crumbDashboard": "대시보드",
       "crumbSettings": "설정",
       "crumbSystem": "시스템",
-      "crumbManageAgents": "에이전트 관리",
       "crumbTeam": "팀",
       "crumbBundle": "번들",
       "crumbChat": "채팅",
@@ -952,7 +991,11 @@
       "cancelConfirmKeep": "구독 유지",
       "reactivateConfirmTitle": "자동 갱신을 재개할까요?",
       "reactivateConfirmAction": "재개",
-      "reactivateConfirmDismiss": "나중에"
+      "reactivateConfirmDismiss": "나중에",
+      "balanceScope": "NetMind 계정 잔액 — 이 NetMind 계정으로 실행하는 모든 것이(NarraNexus 밖 사용 포함) 잔액을 차감합니다.",
+      "narraUsageTitle": "NarraNexus 사용량 · 최근 {{days}}일",
+      "narraUsageTokens": "토큰",
+      "narraUsageEstimate": "≈ {{cost}} — 공개 정가 기준 추정치이므로 NetMind 명세서와 정확히 일치하지 않습니다."
     }
   },
   "system": {
@@ -1028,7 +1071,14 @@
     "drawer": {
       "unpin": "패널 고정 해제",
       "pin": "패널 고정",
-      "close": "패널 닫기"
+      "close": "패널 닫기",
+      "switchPanel": "패널 전환"
+    },
+    "coach": {
+      "title": "아티팩트가 여기에 표시됩니다",
+      "unpinHint": "고정을 해제하면 자동으로 닫히는 오버레이가 됩니다.",
+      "closeHint": "패널 닫기 — 채팅 헤더에서 언제든 다시 열 수 있습니다.",
+      "gotIt": "확인"
     }
   },
   "inbox": {
@@ -1215,9 +1265,29 @@
     },
     "dashboard": {
       "title": "에이전트 대시보드",
+      "tabAgents": "에이전트 관리",
+      "tabTeams": "팀 관리",
+      "tabExport": "내보내기",
+      "createAgent": "에이전트 만들기",
+      "createTeam": "팀 만들기",
       "agentsCount": "에이전트 {{count}}개",
       "emptyLabel": "아직 에이전트가 없습니다",
-      "emptyHint": "사이드바에서 에이전트를 만들어 대시보드를 채워보세요."
+      "emptyHint": "사이드바에서 에이전트를 만들어 대시보드를 채워보세요.",
+      "statRunning": "실행 중",
+      "statQueued": "대기 중",
+      "statErrors": "오류",
+      "statCostToday": "오늘 비용",
+      "colStatus": "상태",
+      "colTeam": "팀",
+      "colMembers": "멤버",
+      "teamsCount": "팀 {{count}}개",
+      "membersCount": "에이전트 {{count}}개",
+      "noStatusYet": "아직 실시간 상태가 없습니다 — 다음 폴링에서 채워집니다.",
+      "publicAgent": "공개",
+      "noTeamsLabel": "아직 팀이 없습니다",
+      "noTeamsHint": "사이드바의 새로 만들기 메뉴에서 만드세요.",
+      "manageTeam": "관리",
+      "teamsTip": "팀은 사이드바 새로 만들기 메뉴에서 생성하고, 여기서 이름·색상·멤버를 편집합니다."
     },
     "createUser": {
       "title": "새 사용자 만들기",
@@ -1243,27 +1313,21 @@
     },
     "settings": {
       "title": "설정",
-      "headerSections": "제공자 · 번들 · 아티팩트 · 에이전트",
       "nav": {
-        "privacy": "개인정보 보호"
+        "privacy": "개인정보 보호",
+        "personalization": "개인화",
+        "account": "계정 및 결제",
+        "providers": "LLM 제공자",
+        "modelDefaults": "기본 모델",
+        "artifacts": "아티팩트",
+        "updates": "앱 업데이트"
       },
       "providers": {
         "label": "LLM 제공자"
       },
-      "bundle": {
-        "label": "번들 · 내보내기 / 가져오기",
-        "hint": "에이전트(및 선택적으로 팀)를 휴대 가능한 .nxbundle 파일로 패키징해 공유하거나, 공유받은 .nxbundle 파일을 가져옵니다.",
-        "exportButton": "번들 내보내기…",
-        "importButton": "번들 가져오기…"
-      },
       "artifacts": {
         "label": "아티팩트",
         "hint": "에이전트가 만든 모든 차트, 보고서, 파일을 관리합니다. 에이전트가 한도 초과를 알리면 일괄 선택해 할당량을 확보하세요."
-      },
-      "manageAgents": {
-        "label": "에이전트 관리 · 일괄",
-        "hint": "에이전트를 일괄 선택해 삭제하거나, 팀에 일괄 추가/제거합니다. 보관하지 않을 번들을 가져온 뒤에 유용합니다 — '번들에서'로 필터링해 찾으세요.",
-        "openButton": "일괄 관리자 열기…"
       },
       "updates": {
         "label": "앱 업데이트",
@@ -1299,6 +1363,10 @@
         "telemetryManagedCloud": "이 설치본의 진단 원격 측정은 관리자가 제어합니다.",
         "telemetryUnavailable": "원격 측정 상태를 불러오지 못했습니다. 추측해서 표시하는 대신 스위치를 숨겼습니다. 새로고침하여 다시 시도하세요.",
         "telemetryError": "변경 사항을 저장하지 못했습니다. 스위치는 실제 현재 상태를 표시합니다."
+      },
+      "personalization": {
+        "label": "개인화",
+        "hint": "테마와 언어. 더 추가될 예정입니다."
       }
     },
     "system": {
@@ -1327,7 +1395,7 @@
       "noMembersHint": "편집을 클릭해 추가하세요."
     },
     "you": {
-      "you": "나",
+      "you": "내 세계",
       "subtitle": "모든 에이전트에 걸친 나의 세계",
       "viewsAriaLabel": "나의 작업공간 보기",
       "tabMemory": "Narra 메모리",
@@ -1370,7 +1438,11 @@
       "bulkDeleteResult": "{{success}}개 삭제됨.",
       "bulkDeleteResultWithFailures": "{{success}}개 삭제됨, {{failedCount}}개 실패 ({{failedIds}}).",
       "addedToTeamTitle": "팀에 추가됨",
-      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다."
+      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다.",
+      "addedToTeamResultWithFailures": "{{success}}개 추가됨, {{failedCount}}개 실패 ({{failedIds}}).",
+      "removedFromTeamTitle": "팀에서 제거됨",
+      "removedFromTeamMessage": "팀에서 에이전트 {{count}}개를 제거했습니다.",
+      "removedFromTeamResultWithFailures": "{{success}}개 제거됨, {{failedCount}}개 실패 ({{failedIds}})."
     },
     "bundleImport": {
       "installTemplate": "템플릿 설치",
@@ -1386,7 +1458,7 @@
       "orSeparator": "— 또는 —",
       "chooseFile": "파일 선택",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "미리보기",
+      "preview": "프리플라이트 실행 →",
       "preflightFailed": "사전 검사 실패",
       "waitingForBackend": "백엔드 대기 중 ({{attempt}}/{{total}} 시도)…",
       "fetchFailed": "템플릿 가져오기 실패",
@@ -1428,11 +1500,14 @@
         "skillsTip": "팁: \"전체 복사\"로 표시된 스킬은 이미 자격 증명을 포함합니다. URL/Zip 스킬은 재학습이나 새 자격 증명이 필요합니다 — 가져온 에이전트와 대화해 설정을 완료하세요.",
         "viewTeamIntro": "팀 소개 보기",
         "doneButton": "완료"
-      }
+      },
+      "uploadInfoNote": "번들에는 단일 에이전트 또는 전체 팀(에이전트, 메모리, 스킬, 채널)이 포함될 수 있습니다. 다음 단계에서 이름 충돌과 경고를 검토한 후에만 기록됩니다."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "자격 증명 포함 (IM 채널 + 스킬 시크릿)",
+      "pickFirstHint": "먼저 위에서 내보낼 에이전트 또는 팀을 선택하세요. 선택하면 내러티브·스킬·채널 섹션이 나타납니다.",
       "title": "번들 내보내기",
-      "backToSettings": "설정으로 돌아가기",
+      "back": "뒤로",
       "summaryLine": "에이전트 {{agents}}개 · 스킬 {{skills}}개 · 엔티티 {{entities}}개 · 채널 {{channels}}개",
       "fileName": "파일 이름",
       "bundleNotesLabel": "번들 노트(선택, 받는 사람에게 표시됨)",
@@ -1475,19 +1550,11 @@
         "freeText": "자유 텍스트(인식 / 이벤트 / 메시지)는 인라인 비밀에 대해 자동 검사되지 않습니다 — 직접 확인하세요."
       },
       "agents": {
-        "whatYouPick": "여기서 선택하는 것:",
-        "intro1": "이 번들에 포함될 에이전트 집합. 마법사의 나머지 모든 것(내러티브, 스킬, MCP, 파일…)이 이 클로저로 필터링됩니다.",
-        "intro2": "팀을 선택하면 기존 멤버 전체가 한 번에 추가되며, 이후 개별적으로 해제할 수 있습니다. 외부 참조(예: 이 클로저 밖의 에이전트를 가리키는 소셜 엔티티)는 내보낼 때 자동으로 제거됩니다.",
         "bundleTeamLabel": "이 팀을 번들에 포함(선택)",
         "noTeamOption": "— 팀 없음 / 개별 에이전트 —",
-        "quickAddByTeam": "팀별 빠른 추가",
-        "deselectTeamTitle": "\"{{name}}\"의 모든 멤버 선택 해제",
-        "addTeamTitle": "\"{{name}}\"의 모든 멤버 추가",
-        "replaceTeamTitle": "선택을 \"{{name}}\" 멤버로 교체",
-        "only": "만",
-        "allAgents": "모든 에이전트 ({{count}})",
-        "clear": "지우기",
-        "agentsToInclude": "포함할 에이전트 · {{selected}}/{{total}}"
+        "agentsToInclude": "포함할 에이전트 · {{selected}}/{{total}}",
+        "pickTeamFirst": "위에서 팀을 선택하세요 — 멤버는 자동으로 포함됩니다.",
+        "pickOne": "내보낼 에이전트 선택"
       },
       "skills": {
         "emptySelectAgents": "이전 탭에서 에이전트를 선택하세요 — 해당 스킬이 여기에 표시됩니다.",
@@ -1673,6 +1740,13 @@
         "noArtifacts": "이 에이전트에는 아티팩트가 없습니다.",
         "pinned": "고정됨",
         "fullModeNote": "전체 스냅샷 모드는 모든 아티팩트를 자동 포함합니다. 선택하려면 사용자 지정으로 전환하세요."
+      },
+      "kind": {
+        "label": "유형",
+        "agentTitle": "에이전트 번들",
+        "agentDesc": "에이전트 하나를 내보냅니다 — 내러티브·스킬·워크스페이스 파일이 함께 포함됩니다.",
+        "teamTitle": "팀 번들",
+        "teamDesc": "팀 전체를 내보냅니다 — 소속 에이전트, 소개, 공유 채널이 함께 포함됩니다."
       }
     },
     "signup": {
@@ -1700,6 +1774,27 @@
         "special": "특수문자 포함"
       },
       "codePlaceholder": "6자리 코드"
+    },
+    "createTeam": {
+      "title": "팀 만들기",
+      "back": "뒤로",
+      "nameLabel": "이름",
+      "namePlaceholder": "예: Research",
+      "descLabel": "설명",
+      "descPlaceholder": "이 팀의 용도는 무엇인가요?",
+      "colorLabel": "색상",
+      "membersLabel": "에이전트 추가",
+      "selectedCount": "{{count}}개 선택됨",
+      "noAgents": "아직 에이전트가 없습니다 — 먼저 새로 만들기 메뉴에서 생성하세요.",
+      "createButton": "팀 만들기",
+      "manageHint": "기존 팀은 대시보드에서 관리합니다.",
+      "membersFailed": "팀은 생성되었지만 멤버 {{count}}명을 추가하지 못했습니다: {{ids}}",
+      "searchPlaceholder": "이름 / ID로 에이전트 검색…",
+      "noMatch": "일치하는 에이전트가 없습니다",
+      "cancel": "취소"
+    },
+    "account": {
+      "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."
     }
   },
   "rail": {
@@ -1725,7 +1820,21 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "아티팩트",
+    "desc": {
+      "awareness": "에이전트의 자기 인식 — 정체성, 성격, 상시 지침. 여기서 편집하거나 채팅으로 알려주면 스스로 갱신합니다.",
+      "workspace": "에이전트의 파일 공간: 읽힐 문서를 업로드하고, 에이전트가 만든 파일도 여기에 저장됩니다.",
+      "channels": "이 에이전트를 IM 플랫폼(Lark, Slack, Telegram…)에 연결해 앱 밖에서도 연락할 수 있게 합니다.",
+      "smarthome": "스마트홈 기기(Home Assistant)를 연결해 에이전트가 확인하고 제어할 수 있게 합니다.",
+      "jobs": "예약·백그라운드 작업. 채팅에서 “매일 아침 브리핑 보내줘”라고 말하면 에이전트가 만듭니다.",
+      "inbox": "채널과 다른 에이전트에게서 오는 메시지. 확인이 필요한 항목은 배지로 표시됩니다.",
+      "artifacts": "에이전트가 만든 보고서·페이지·파일을 여기서 열어볼 수 있습니다.",
+      "skills": "설치된 스킬 목록. Marketplace에서 추가하거나 GitHub / zip으로 설치할 수 있습니다.",
+      "mcp": "에이전트가 호출할 수 있는 외부 MCP 도구 서버 — 서드파티 기능을 연결합니다.",
+      "memory": "내러티브로 정리된 에이전트의 장기 기억 — 대화를 넘어 유지되는 내용입니다.",
+      "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다."
+    }
   },
   "jobs": {
     "title": "작업",
@@ -1815,6 +1924,7 @@
       "trigger": "트리거:",
       "cron": "Cron:",
       "interval": "간격:",
+      "endAt": "실행 기한:",
       "runAt": "실행 시각:",
       "endCondition": "종료 조건:",
       "maxIter": "최대 반복:",
@@ -1895,24 +2005,12 @@
     "refresh": "아티팩트 새로고침",
     "zoom": "아티팩트 확대",
     "zoomFullscreen": "아티팩트 확대 (전체화면 열기)",
-    "collapse": "패널 접기",
-    "collapseAria": "아티팩트 패널 접기",
     "selectArtifact": "아티팩트 선택",
     "minimized": "최소화됨:",
     "restore": "\"{{title}}\" 복원",
     "openBadge": "{{title}} 열기 ({{kind}})",
     "unsupportedKind": "지원되지 않는 아티팩트 종류: {{kind}}",
     "loadingRenderer": "렌더러 로딩 중…",
-    "sliver": {
-      "expandTitle": "클릭하여 펼치기 · 아티팩트 {{count}}개",
-      "expandTitle_other": "클릭하여 펼치기 · 아티팩트 {{count}}개",
-      "emptyTitle": "에이전트가 아티팩트를 생성하면 여기에 표시됩니다",
-      "expandAria": "아티팩트 패널 펼치기 (항목 {{count}}개)",
-      "expandAria_other": "아티팩트 패널 펼치기 (항목 {{count}}개)",
-      "emptyAria": "아티팩트 패널 (비어 있음)",
-      "label": "아티팩트 ({{count}})",
-      "labelEmpty": "아티팩트"
-    },
     "emptyState": {
       "title": "아직 아티팩트 없음",
       "hint": "에이전트가 생성하면 여기에 표시됩니다."
@@ -1967,6 +2065,37 @@
     },
     "url": {
       "toggleFailed": "모드를 변경할 수 없습니다: {{error}}"
+    },
+    "editor": {
+      "save": "저장",
+      "saving": "저장 중…",
+      "saved": "저장됨",
+      "unsavedChanges": "저장되지 않은 변경 사항",
+      "draftRestored": "이 기기의 저장되지 않은 편집을 복원했습니다.",
+      "conflictBody": "편집 중에 파일이 변경되었습니다. 내 버전을 유지할까요, 아니면 다시 불러올까요?",
+      "overwriteMine": "내 버전 유지",
+      "discardMine": "다시 불러오기",
+      "loadError": "불러오기 실패: {{error}}",
+      "mdGuardDisabled": "이 문서에는 편집기가 무손실로 보존할 수 없는 구문이 포함되어 있어 직접 편집이 비활성화되었습니다. AI에게 수정을 요청하세요.",
+      "htmlAnchorFailed": "이 텍스트는 페이지 스크립트가 생성했거나 소스에서 고유하게 찾을 수 없습니다. AI에게 수정을 요청하세요.",
+      "htmlEditConflict": "편집 중에 파일이 변경되어 이 변경 사항이 저장되지 않았습니다.",
+      "editFailed": "편집 실패 — 변경 사항이 저장되지 않았습니다.",
+      "draftUnavailable": "이 파일은 너무 커서 로컬 초안 백업이 불가합니다. 창을 닫으면 저장되지 않은 변경 사항이 사라집니다. 바로 저장하세요."
+    },
+    "officeEdit": {
+      "selected": "{{count}}개 선택됨",
+      "editText": "텍스트 편집",
+      "apply": "적용",
+      "cancel": "취소",
+      "delete": "삭제",
+      "color": "글자 색",
+      "opFailed": "편집 실패.",
+      "lockNotice": "데스크톱 Office에서 열려 있음 — 직접 편집이 일시 중지되었습니다.",
+      "moveUp": "위로",
+      "moveDown": "아래로",
+      "addRow": "+ 행",
+      "addCol": "+ 열",
+      "replaceImage": "이미지 교체"
     }
   },
   "skills": {
@@ -2092,6 +2221,15 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료"
+  },
+  "toast": {
+    "view": "보기",
+    "completed": "완료",
+    "roomSpoke": "룸에 새 활동",
+    "agent": "에이전트",
+    "room": "룸",
+    "artifactRepointedVerified": "다시 연결됨: {{oldPath}} → {{newPath}} (내용 검증됨)",
+    "artifactRepointedUnverified": "다시 연결됨: {{oldPath}} → {{newPath}} (미검증 일치 — 확인 필요)"
   },
   "webAnalyticsNotice": {
     "body": "이것은 NarraNexus의 클라우드 웹 버전입니다. 제3자 분석 서비스인 Google Tag Manager를 사용하여 익명의 페이지 상호작용 데이터(페이지뷰, 클릭, 리퍼러)를 수집합니다. 대화 내용은 수집되지 않습니다. 설정 → 개인정보 보호에서 언제든지 끌 수 있습니다.",

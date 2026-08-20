@@ -53,16 +53,29 @@ REPLY_REMINDER_TEMPLATE = (
 
 
 def append_reply_reminder(
-    user_message: str, expressive_tools: "Sequence[str] | None"
+    user_message: str,
+    expressive_tools: "Sequence[str] | None",
+    origin_declaration: str = "",
 ) -> str:
-    """Append the reply-surface reminder to the turn's user message.
+    """Append the origin declaration + reply-surface reminder to the turn's
+    user message.
 
-    No declaration → message untouched. That covers both "unknown reply
-    surface" (never invent one) and team rooms, whose surface is
-    deliberately empty (plain text auto-posts there; any reminder would
-    contradict the team prompt).
+    No declaration → message untouched. That covers the one case left:
+    "unknown reply surface", where inventing a tool name is worse than
+    silence. Team rooms USED to land here too — their surface was
+    deliberately empty because plain text auto-posted — and that exception
+    is gone: a team reply is a tool call like every other, so the rule
+    "plain text reaches nobody" now holds with no carve-out anywhere.
+
+    ``origin_declaration`` is pre-rendered by the step layer
+    (``render_origin_declaration``) so this function composes, never phrases.
     """
     tools = tuple(expressive_tools or ())
     if not tools:
         return user_message
-    return user_message + REPLY_REMINDER_TEMPLATE.format(tools=", ".join(tools))
+    prefix = f"\n\n{origin_declaration}" if origin_declaration else ""
+    return (
+        user_message
+        + prefix
+        + REPLY_REMINDER_TEMPLATE.format(tools=", ".join(tools))
+    )

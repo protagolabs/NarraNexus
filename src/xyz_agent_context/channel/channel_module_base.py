@@ -312,7 +312,7 @@ class ChannelModuleBase(XYZBaseModule):
                 self._bound_cache = True
         return self._bound_cache
 
-    async def get_disallowed_tools(self) -> list[str]:
+    async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
         """Unbound → suppress every tool except the setup surface."""
         if await self.is_bound():
             return []
@@ -336,6 +336,13 @@ class ChannelModuleBase(XYZBaseModule):
         Subclasses may consult ``ctx_data`` to drop tools that cannot
         deliver on this turn's origin."""
         if not await self.is_bound():
+            return []
+        # A plain-text (patrol) turn delivers by SPEAKING — no reply tool applies,
+        # and declaring one makes both frameworks' reply reminders name it against
+        # the "write plain text, do NOT call a tool" patrol prompt (I1). Withdraw
+        # the DECLARATION only; the schema stays on the desk.
+        from xyz_agent_context.schema.hook_schema import is_plain_text_turn
+        if is_plain_text_turn(ctx_data):
             return []
         return [
             f"mcp__{self.mcp_server_name}__{name}"

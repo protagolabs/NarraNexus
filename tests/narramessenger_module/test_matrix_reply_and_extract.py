@@ -11,7 +11,7 @@ Locks:
   loop's next tick to disable.
 - Transient exception: raised on room_send → exponential backoff and
   retry; audits after SEND_MAX_ATTEMPTS.
-- extract_output: reads narra_reply text (NOT send_message_to_user_directly,
+- extract_output: reads narra_reply text (NOT notify_owner,
   which is the owner channel); returns
   "" when the tool is absent (silent-not-reply); DOES NOT fall back
   to output_text (agent thinking must not spill into the room).
@@ -222,14 +222,14 @@ def test_extract_output_returns_empty_when_no_narra_reply():
     assert text == ""
 
 
-def test_extract_output_ignores_send_message_to_user_directly():
-    """send_message_to_user_directly is the OWNER channel, not the room —
+def test_extract_output_ignores_notify_owner():
+    """notify_owner is the OWNER channel, not the room —
     it must NOT be treated as a NarraMessenger reply."""
     t = MatrixTrigger()
     result = SimpleNamespace(
         raw_items=[
             _tool_call_item(
-                "mcp__chat_module__send_message_to_user_directly",
+                "mcp__chat_module__notify_owner",
                 {"content": "note to my owner"},
             )
         ],
@@ -268,8 +268,8 @@ def test_memory_extractor_ignores_owner_and_others():
     from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
         _extract_narramessenger_reply,
     )
-    # send_message_to_user_directly is the OWNER channel — not a room reply.
+    # notify_owner is the OWNER channel — not a room reply.
     assert _extract_narramessenger_reply(
-        "send_message_to_user_directly", {"content": "to owner"}
+        "notify_owner", {"content": "to owner"}
     ) is None
     assert _extract_narramessenger_reply("web_search", {"query": "x"}) is None

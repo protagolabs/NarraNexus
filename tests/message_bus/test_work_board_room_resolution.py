@@ -9,7 +9,7 @@ tools' own logic is what it tests. Nothing then covered the resolver itself —
 which is how the patrol lane shipped with every board tool dead on it: patrol
 opened no `bus_agent_activity` row, the resolver's only source at the time, so
 all five tools returned "no room" / "not found" in the one turn the prompt
-explicitly asks the lead to call `work_complete_item`.
+explicitly asks the lead to call `team_work_complete`.
 
 Pinned here:
   * the server-injected team identity is the FIRST source, so a lane that does

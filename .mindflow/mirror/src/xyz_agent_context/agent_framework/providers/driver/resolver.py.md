@@ -108,7 +108,7 @@ This whitelist **must** stay in sync with
 ``agent_framework/__init__.py`` registrations and with
 ``providers.user_service._SUPPORTED_AGENT_FRAMEWORKS``. If a slot row
 carries an unknown framework name, ``_agent_framework_from_slot``
-falls back to ``"claude_code"`` (the historical default) rather than
+falls back to ``"nexus_power"`` (the platform default since 2026-08-20; claude_code was the historical one) rather than
 let an unrecognised value pass through silently — typo-resistance at
 the resolver boundary.
 

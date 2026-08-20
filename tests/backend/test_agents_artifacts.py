@@ -435,3 +435,34 @@ def test_unpin_agent_scoped_artifact_returns_400(setup):
     )
     assert r.status_code == 400
     assert "agent-scoped" in r.text or "DELETE" in r.text
+
+
+# ---------------------------------------------------------------------------
+# scope=context (2026-08-18, spec artifact-events §3.3): the frontend's
+# full-pull surface — own pinned ∪ every team the agent belongs to, i.e. the
+# same union the agent's state block draws from. Session scope stays for the
+# session panel; pinned stays for callers that want the private working set.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("setup")
+def test_list_context_includes_team_artifacts(setup, db_client_sync=None):
+    client = setup["client"]
+    import asyncio
+
+    async def _seed():
+        db = setup["db"]
+        await db.insert("team_members", {"team_id": "team_ctx", "agent_id": "agent_x"})
+        await db.insert("instance_artifacts", {
+            "artifact_id": "art_teamctx1", "agent_id": "agent_teammate",
+            "user_id": "user_y", "title": "teammate work", "kind": "text/markdown",
+            "pinned": 0, "team_id": "team_ctx",
+            "file_path": "user_y/_shared/teams/team_ctx/notes.md", "size_bytes": 1,
+            "created_at": "2026-08-18T00:00:00+00:00",
+            "updated_at": "2026-08-18T00:00:00+00:00",
+        })
+    asyncio.get_event_loop().run_until_complete(_seed())
+
+    r = client.get("/api/agents/agent_x/artifacts", params={"scope": "context"})
+    assert r.status_code == 200
+    ids = {a["artifact_id"] for a in r.json()}
+    assert "art_teamctx1" in ids

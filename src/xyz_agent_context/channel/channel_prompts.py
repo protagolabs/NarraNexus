@@ -6,6 +6,26 @@
 
 These templates live in the channel/ shared layer and are reused by all IM channel
 modules. Channel-specific templates are defined in each module's own directory.
+
+Deliberately NOT here (design §6.2): any restatement of "how to reply".
+
+This prompt used to say it three times — a "two communication targets" block, a
+⚠️ under the reply step, and a "Remember" footer — alongside the same rule in
+each per-channel trigger, in the ChatModule instruction, and in the reply
+reminder. Six copies of one rule is six chances to drift, and they did: a copy
+would keep naming a tool the turn's desk no longer carried, leaving the agent
+two instructions and no way to break the tie.
+
+The rule now lives in exactly two places, both of which are generated rather
+than written: the turn's origin declaration
+(`message_source_handler.render_origin_declaration`), rendered from the same
+tuple `get_expressive_tools` produced; and each owner-facing tool's own
+docstring, which travels attached to the tool it describes and therefore cannot
+be present when the tool is not.
+
+What belongs here is what ONLY this channel knows: room type, the sender's
+profile, the exact reply invocation for this platform, its file/path delivery
+rules, and the group-room silence protocol.
 """
 
 # === Room types ===
@@ -27,9 +47,6 @@ CHANNEL_MESSAGE_EXECUTION_TEMPLATE = """\
 - **How to reply**: To respond to this message, you MUST reply through {channel_display_name} using the channel reply tool (see step 4 in Instructions). This is the ONLY way the sender will see your response
 - The conversation history shown below is from the **{channel_display_name} room** (between you and other agents/users on {channel_display_name})
 - Your owner's chat history is loaded separately — it is the context you share with your owner, not with the {channel_display_name} participants
-- **Two different communication targets** (do NOT confuse them):
-  - the channel reply tool (see step 4 in Instructions) → replies on **{channel_display_name}** (the sender and room participants will see it)
-  - `send_message_to_user_directly` → sends to your **owner's chat window** (only the owner sees it, the {channel_display_name} sender will NOT see it)
 
 ## Message Information
 - **Channel**: {channel_display_name}
@@ -53,15 +70,12 @@ CHANNEL_MESSAGE_EXECUTION_TEMPLATE = """\
 2. Consider the conversation history above (if any) to maintain coherence
 3. **FIRST decide whether to reply at all** — read the "Communication Protocol" section below BEFORE taking any action
 4. **If you decide to reply, you MUST reply via {channel_display_name}**: {reply_instruction}
-   - ⚠️ This is the ONLY way the sender will see your response. Do NOT use `send_message_to_user_directly` to reply — that goes to your owner, not to the {channel_display_name} sender
    - Call the tool DIRECTLY yourself. Do NOT delegate to a subagent/Task — subagents cannot access your MCP tools
 5. If you learn new information about the sender, use `extract_entity_info` to update your Social Network
    → Store channel contact info under contact_info.channels.{channel_key}
-6. **Owner notification discipline**: Do NOT routinely forward channel conversations to your owner via `send_message_to_user_directly`. Only notify when: (a) the owner is explicitly mentioned, (b) an urgent decision/action is needed from the owner, or (c) critical information the owner specifically cares about was shared. Routine chatter stays in the channel
 
-Remember:
-- This message came from **{channel_display_name}** — if you want the sender to see your reply, you MUST use the {channel_display_name} reply tool (step 4), not `send_message_to_user_directly`
-- Your reply will be sent as a {channel_display_name} message, visible to room participants
+Remember: your reply is sent as a {channel_display_name} message, visible to
+the room participants — write it for that audience.
 
 ## File & Path Rules for IM Delivery
 
@@ -115,7 +129,8 @@ Only reply when ALL of the following are true:
 - **Be brief.** Say what you need to say in as few words as possible. No preamble, no filler, no ceremonial greetings.
 - **One message, one purpose.** Don't combine status updates, opinions, and questions into one sprawling message. Pick the most important thing.
 - **No performative reporting.** Don't "report in" or "check in" unless asked. Don't announce that you received a message or that you're working on something.
-- **If you notice the conversation is becoming too frequent** (multiple back-and-forth exchanges in a short time), explicitly say so: tell the other party that you should pause the discussion, summarize the key points, and only resume when there's real progress to share. For example: "We've exchanged enough on this topic. Let me work on it and share results when ready."
+- **Do not promise future work.** Sending this message ends your turn — nothing of yours keeps running after it, so "I'll get back to you when it's done" is a promise nothing will keep. Either finish the work now and reply with the result, or say how far you got and what you need.
+- **If you notice the conversation is becoming too frequent** (multiple back-and-forth exchanges in a short time), explicitly say so: tell the other party that you should pause the discussion, and summarize where things stand. For example: "We've exchanged enough on this topic — here's where it stands: <one line>. Nothing more from me until there's something concrete."
 
 ### Group Chat Rules
 In group conversations with multiple participants:

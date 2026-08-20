@@ -127,7 +127,7 @@ export function JobExpandedDetail({
       onClick={(e) => e.stopPropagation()}
     >
       {/* 1. IDs & Metadata */}
-      <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+      <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
         <SectionLabel>{t('jobs.expanded.ids')}</SectionLabel>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
@@ -144,7 +144,7 @@ export function JobExpandedDetail({
       </div>
 
       {/* 2. Configuration */}
-      <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+      <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
         <SectionLabel>{t('jobs.expanded.configuration')}</SectionLabel>
         <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
           <div>
@@ -161,6 +161,21 @@ export function JobExpandedDetail({
             <div>
               <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.interval')} </span>
               <span className="text-[var(--text-secondary)]">{triggerConfig.interval_seconds}s</span>
+            </div>
+          )}
+          {/* Scheduling horizon — without it a bounded routine ("daily for
+              two weeks") looks identical to an unbounded one and the user
+              can't tell it will stop on its own. Rendered whenever present:
+              the platform enforces end_at for both recurring types
+              (scheduled AND ongoing — see job_trigger.py). The MCP
+              schema/instructions don't teach end_at for one_off and the
+              trigger ignores it there, so a one_off shouldn't carry it — but
+              nothing rejects one if a caller sets it, in which case this just
+              shows a harmless extra row. */}
+          {typeof triggerConfig?.end_at === 'string' && (
+            <div>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.endAt')} </span>
+              <span className="text-[var(--text-secondary)]">{triggerConfig.end_at.slice(0, 10)}</span>
             </div>
           )}
           {runAt && (
@@ -186,7 +201,7 @@ export function JobExpandedDetail({
 
       {/* 3. Payload */}
       {payloadText && (
-        <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+        <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
           <SectionLabel>{t('jobs.expanded.payload')}</SectionLabel>
           <pre className="text-[10px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-relaxed">
             {payloadPreview}
@@ -214,7 +229,7 @@ export function JobExpandedDetail({
       )}
 
       {/* 4. Timing */}
-      <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+      <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
         <SectionLabel>{t('jobs.expanded.timing')}</SectionLabel>
         <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
           {job.created_at && (
@@ -250,7 +265,7 @@ export function JobExpandedDetail({
 
       {/* 5. Dependencies */}
       {job.depends_on && job.depends_on.length > 0 && (
-        <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+        <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
           <SectionLabel>{t('jobs.expanded.dependencies')}</SectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {job.depends_on.map((dep) => (
@@ -264,14 +279,14 @@ export function JobExpandedDetail({
 
       {/* 6. Process Log */}
       {job.process && job.process.length > 0 && (
-        <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+        <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
           <SectionLabel>{t('jobs.expanded.processLog', { count: job.process.length })}</SectionLabel>
           <ScrollArea className="max-h-32">
             <div className="space-y-0.5">
             {job.process.map((entry, idx) => (
               <div
                 key={idx}
-                className="font-mono text-[10px] text-[var(--text-secondary)] px-1.5 py-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="font-mono text-[10px] text-[var(--text-secondary)] px-1.5 py-0.5 rounded hover:bg-[var(--nm-paper-warm)] transition-colors"
               >
                 <span className="text-[var(--text-tertiary)] mr-1.5 select-none">{idx + 1}.</span>
                 {entry}
@@ -284,13 +299,13 @@ export function JobExpandedDetail({
 
       {/* 7. Context — Target User & Linked Narrative */}
       {job.related_entity_id && (
-        <div className="p-3 bg-[var(--accent-primary)]/5 rounded-lg border border-[var(--accent-primary)]/20">
+        <div className="p-3 bg-[var(--accent-primary)]/5 rounded-[var(--radius-lg)] border border-[var(--accent-primary)]/20">
           <div className="text-[9px] text-[var(--accent-primary)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
             <Users className="w-3 h-3" />
             {t('jobs.expanded.targetUser')}
           </div>
           <span
-            className="inline-flex items-center px-2 py-1 text-[9px] rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 font-mono"
+            className="inline-flex items-center px-2 py-1 text-[9px] rounded-[var(--radius-lg)] bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 font-mono"
             title={job.related_entity_id}
           >
             {job.related_entity_id.length > 20 ? `${job.related_entity_id.slice(0, 20)}...` : job.related_entity_id}
@@ -299,7 +314,7 @@ export function JobExpandedDetail({
       )}
 
       {job.narrative_id && (
-        <div className="p-3 bg-[var(--accent-secondary)]/5 rounded-lg border border-[var(--accent-secondary)]/20">
+        <div className="p-3 bg-[var(--accent-secondary)]/5 rounded-[var(--radius-lg)] border border-[var(--accent-secondary)]/20">
           <div className="text-[9px] text-[var(--accent-secondary)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
             <FileText className="w-3 h-3" />
             {t('jobs.expanded.linkedNarrative')}
@@ -312,7 +327,7 @@ export function JobExpandedDetail({
 
       {/* 8. Error */}
       {job.last_error && (
-        <div className="p-3 bg-[var(--color-error)]/10 rounded-lg border border-[var(--color-error)]/20">
+        <div className="p-3 bg-[var(--color-error)]/10 rounded-[var(--radius-lg)] border border-[var(--color-error)]/20">
           <SectionLabel>
             <span className="text-[var(--color-error)]">{t('jobs.expanded.error')}</span>
           </SectionLabel>
@@ -330,7 +345,7 @@ export function JobExpandedDetail({
               variant="ghost"
               size="sm"
               onClick={(e) => onEdit(e, job)}
-              className="text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+              className="text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]"
             >
               <CalendarClock className="w-3 h-3 mr-1.5" />
               {t('jobs.action.editSchedule')}

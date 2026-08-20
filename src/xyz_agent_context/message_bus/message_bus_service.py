@@ -41,6 +41,10 @@ class MessageBusService(ABC):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
+        segments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -109,6 +113,36 @@ class MessageBusService(ABC):
 
         Returns:
             List of BusMessage — the newest ``limit``, reordered ASC.
+        """
+        ...
+
+    @abstractmethod
+    async def get_messages_before(
+        self,
+        channel_id: str,
+        before: str,
+        limit: int = 50,
+    ) -> List[BusMessage]:
+        """
+        Get the page immediately ABOVE ``before``, oldest→newest.
+
+        The mirror image of ``get_messages(since=…)``, and deliberately not
+        symmetrical with it: ``since`` returns the OLDEST after the cursor
+        (catching up must never skip a message), while this returns the NEWEST
+        before it (scrolling up wants the page directly above what is on
+        screen). Either one implemented in the other direction produces a
+        transcript with a silent hole rather than an error.
+
+        Args:
+            channel_id: The channel to fetch messages from.
+            before: ISO timestamp string; EXCLUSIVE, so the caller passes the
+                timestamp of the oldest message it already holds.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            at the top of the history — which is how a caller knows to stop
+            offering "load more" rather than inferring it from a short page.
         """
         ...
 
@@ -230,6 +264,18 @@ class MessageBusService(ABC):
 
         Returns:
             The generated message_id.
+
+        Raises:
+            ValueError: when ``from_agent == to_agent``. Not a nicety: the DM
+                channel lookup joins the channel against two member rows, so the
+                same id twice is satisfied by the SAME row and every direct
+                channel the agent belongs to matches — the send lands in an
+                arbitrary peer's conversation and wakes them. Declared HERE
+                because `CloudMessageBus.send_to_agent` will be written against
+                this protocol, and `LocalMessageBus` is where the guard currently
+                lives; an implementation that skips it reproduces the bug rather
+                than inheriting the fix. See `local_bus.direct_channel_sql`.
+            PermissionError: cross-user messaging (different owners).
         """
         ...
 

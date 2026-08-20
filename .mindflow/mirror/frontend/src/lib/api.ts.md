@@ -1,23 +1,28 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-12
+last_verified: 2026-08-18
 stub: false
 ---
 
-## 2026-08-12 — reply_language
+## 2026-08-18 — 支付宝 / 微信：recharge 带 payment_method，新增 fxRate
 
-新增 `getReplyLanguage`/`setReplyLanguage`(GET/PUT settings/reply-language;'' 清除)。读半边供 [[replyLanguageSync.ts]] boot 对账回填。
+- `recharge(amount, paymentMethod)` —— **第二个参数不再是 currency**。币种由后端
+  按支付方式派生（上游校验这一对、错配 400），所以前端连这个自由度都不该有。
+  ⚠ **作废下方 2026-07-05 条目里的 `recharge(amount, currency?)`**。
+- `amount` **永远是 USD**，即使微信按人民币扣款 —— 它是"到账多少额度"，不是
+  "这次划走多少钱"。
+- `fxRate(amount?)` 是新方法，只为**展示**服务：让微信付款者在掏钱前看到
+  "$10 ≈ ¥73"。**绝不能拿它的结果去决定金额** —— 真正的扣款由上游按它自己的
+  实时汇率定价，我们这边算出来的任何数字都只是个预览。
+- `subscribe(paymentMethod?, months?)` —— `months` 只在支付宝/微信时进 body。
+  后端对"卡 + months"是**拒绝**而不是忽略，所以这里必须省略而不是给默认值。
 
-## 2026-08-12 — `AuthFunnelStage` 编译期契约（复审三轮 Important）
+## 2026-08-14 — `getTeamChat` 有三种模式
 
-`reportAuthFunnel(stage: AuthFunnelStage, …)` 的 stage 从自由 `string` 收成**闭合联合类型**,镜像后端 `_FUNNEL_STAGES`([[auth]])白名单。端点对白名单外 stage 返 400、而 `reportAuthFunnel` fire-and-forget `.catch` 吞掉——自由字符串等于「加了上报点但报进黑洞」。联合类型让加新 stage 不先改这里就 `tsc` 不过,逼作者同时去后端白名单。与后端硬编码列表测试互补(前端加/后端删各兜一头)。
+无游标 = 最新一页（房间打开时），`since` = 往后追（3 秒轮询），`before` = 往上翻历史。
+两个游标**互斥**，在这里就地判掉：同时带上去，服务端只会看其中一个，而调用方会以为自己
+拿到了两者的交集。
 
-## 2026-08-11 — telemetry consent 客户端方法
-
-`getTelemetryConsent` / `setTelemetryOptOut`(+ 导出
-`TelemetryConsentState` 类型)。与 analytics 对相邻;极性约定沿用:
-线上契约说 `opted_out`(否定),UI 持 `enabled`(肯定),翻转发生在
-组件边界。
 ## 2026-08-10 — 工作板三个方法
 
 `getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
@@ -97,6 +102,7 @@ PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
+
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
@@ -169,6 +175,7 @@ per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
 user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
 
  
+
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 
 `recharge(amount, currency?)` POSTs the top-up and returns
@@ -385,3 +392,17 @@ void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正
 
 `getTeamBulletin` 返回 entries **加** usage/limits：面板要在用户打字**之前**就能禁用
 「添加」，而不是写完才被拒。
+## 2026-08-19 — 登录响应接线 guide coachmark；getOnboarding 退役
+
+`netmindLogin` / `createUser` 成功后调 `markGuideCoachmarkPending()`——
+但都以响应里的 `guide_agent_provisioning`（服务端 kill-switch 的回显）为
+门：服务端关掉供给时，UI 不会承诺一个永远不出现的 Agent。
+（lib/guideCoachmark.ts）：放在 api 层而非各消费方，是因为云端三条登录流
+（登录页 / ?token= 直通 / OAuth 回调）全部收敛在 `api.netmindLogin` 这一处，
+这里是唯一可靠看到 `is_new_user` 的地方（该字段自 2026-06 起返回但一直无
+前端消费方）。本地 create-user 成功即视为新用户。
+
+`getOnboarding` 删除：唯一读方 OnboardingChecklist 卡片已退役（自动供给的
+引导 Agent 接替新手引导）。`markOnboardingStep`（写方）保留——
+useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
+幂等标记与之共用同一 metadata blob。

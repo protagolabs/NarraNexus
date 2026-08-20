@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — /app/account 路由降级为别名
+
+路由本体保留,但语义变了:账户面板住进 Settings 的 ?tab=account pane
+(左侧 nav 常驻),本路由只把旧链接带查询参数转发过去
+(见 [[pages/AccountPage]]/[[pages/SettingsPage]] 08-19 条)。本文件仅
+注释同步,无行为改动。
+
+## 2026-08-06 (3) — /app/account 路由
+
+用户级设置页(account/billing/subscription)懒加载路由;Settings 对
+?tab=account 的重定向指向这里。
+
+## 2026-08-06 (2) — /app/teams/new 路由
+
+新增 CreateTeamPage 懒加载路由,列在 teams/:teamId 之前(静态段本就
+优先于动态段,列前只为可读性)。
+
+## 2026-08-06 — /app/manage-agents 路由移除
+
+Chat UI v4 把批量管理并入 Dashboard;ManageAgentsPage 的 lazy import 与
+路由删除。其余路由结构(element={null} 的 chat/team-chat 技巧、懒加载、
+ProtectedRoute)不变。
 
 ## 2026-08-12 — ChunkErrorBoundary 包住路由（防部署期白屏，Mark item 10）
 
@@ -225,3 +248,6 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 **`PublicRoute` redirects to `/mode-select` if `mode=null`.** A user who navigates directly to `/login` or `/register` with no stored mode (cleared localStorage) will be bounced to `/mode-select`. This is correct but unexpected if the developer clears storage during testing.
 
 **`ProtectedRoute` shows `PageFallback` during session validation.** The `validating` state delays rendering protected content by one async round-trip (`api.getAgents`). On a slow connection this can show the spinner for 1-2 seconds even for logged-in users with valid sessions.
+
+2026-08-19：needsSetup 段注释更新——"onboarding checklist" 改指 balance
+panel + 自动供给的引导 Agent（checklist 卡片已退役，纯注释同步，无行为变化）。

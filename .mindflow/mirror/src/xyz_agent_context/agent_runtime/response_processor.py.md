@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — record_tool_call 持久化不再发明 "unknown"
+
+state_update 的 args 里 tool_name 改为 `item.get("tool_name") or ""`:
+写成 "unknown" 是不可逆信息丢失(「名字没到」与「工具真叫 unknown」从此
+无法区分),且所有下游(/event-log、UI 披露)会永远回显占位符。展示路径
+的 fallback 不动;`_looks_like_user_reply_tool("")` 恒 False,pending
+reply 帧丢弃判定不受影响。`pending` 单次读取归一(告警守卫与丢帧判定同一口径)。缺名的已完成调用现在落一条 logger.warning——
+空名会让 history_projection 把 call+output 整对丢出回放(静默上下文
+丢失必须可观测);output_transfer 里描述该后果的注释同步改准。读侧同批治理见 [[../../../backend/routes/agents/chat_history]]。
 
 ## 2026-07-30 — 独白子集同时上到 AgentThinking 消息本体
 
@@ -203,3 +213,9 @@ processor.process(...):` 而不是 `result = processor.process(...)`。Stream �
 
 - `process()` 是无副作用的纯函数，不修改任何状态。需要通过 `apply_state_update()` 才能让 state 变化生效。忘记调用 `apply_state_update` 的话 state 永远是初始状态，工具调用序号会永远是 1。
 - `_handle_run_item_stream_event` 里的 `format_tool_call_for_display()` 调用：前端只看到格式化后的展示数据（icon、desc），`tool_name` 原始值也在 `details` 里保留，但 `arguments` 可能因为 `desc_template` 格式化失败而显示为 raw 参数。
+
+## 2026-08-18 — 「没有调用任何回复工具」不再点名单一工具
+
+判定一轮是否交付过的注释此前写 `send_message_to_user_directly`，那个工具已拆成
+`reply_owner`/`notify_owner`；且团队房间此前是例外（纯文本自动张贴）。现在两处都不成立 ——
+「没有调用任何回复工具」对每个面无条件成立，注释也就不需要点名了。

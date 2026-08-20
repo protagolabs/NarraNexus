@@ -1,7 +1,60 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-30
+last_verified: 2026-08-18
 ---
+
+## 2026-08-17 — `_deliver_to_origin` 降为**兜底**，主路径是 job 自己调 `message_team`
+
+此前它是唯一路径：房间的契约是 job 的纯文本自动上墙，prompt 也这么写。那个契约没了
+（见 [[step_3_agent_loop]]），所以房间版 prompt 改成让 job 调 `message_team`，主路径
+和其他所有表面一致。
+
+**当初的保证没有变**：问过的房间一定收得到回音。`has_message_from_turn` 用 event id
+（不是时间窗）精确回答「这一轮有没有往那个房间放过东西」，只有答案是否时平台副本才发出。
+自己发过报告的 job 不会被发第二遍；产出了报告却哪里都没送的 job，等它的四个人仍然收得到。
+
+没有 event id 时选择投递：重复是噪音，缺失才是这个兜底存在的理由。
+
+
+## 2026-08-17 — review 三条：失败也投、不投运维样板、带上溯源
+
+**失败也要投回房间**。错误分支此前在 `_deliver_to_origin` 之前就 return 了，于
+是房间**永远沉默**：没人知道它跑过、更没人知道它挂了。owner 私聊那条路有 Jobs
+面板和 `job.last_error` 兜着，房间什么都没有——四个人看着有人要了个提醒，然后再
+没下文。这就是本功能要治的断链，换到了 job 面；团队房自己已经为 `turn.fatal` 发
+失败通知，理由同源（队友分不清「不感兴趣」和「坏了」）。
+
+**空输出不投运维样板**。`## Task Completed … Job ID … Tools used: None` 是给
+owner inbox 写的运维记录；房间不是 inbox，而且这次 run 用的提示词明确告诉模型
+「你的回复就是报告，会自动上墙」。所以投的是 `room_content`（合成之前的真实产
+出），owner 那条路的样板**一字未动**（PRD 验收 #8）。
+
+**报告带 `event_id` / `root_run_id`**。job 报告是 agent 的话进入房间的**第三条**
+路径，另外两条（实时回帖、巡查行）都盖了这两个戳。房间 transcript 靠 `event_id`
+提供「view reasoning & tools」，而这条线**没人看见它发生**，缺了溯源就是一段没有
+来路的文字。
+
+用的是 `collection.event_id` 而不是本函数开头 `uuid4()` 生成的那个局部
+`event_id`——后者不是 events 行的 id，挂上去是个悬空引用，比不挂更糟。
+`root_run_id` 同值：job 执行没有父 run（叫醒它的是定时器），按
+[[schema_registry]] 的定义，根 run 存自己的 event_id。
+
+刻意不带 `mentions`：报告是通报不是请求，一个 @ 会立刻唤起一轮团队房 turn，还会
+被 [[errand]] 再开一条没人交接过的差事。
+
+## 2026-08-14 — `_deliver_to_origin`：房间来源的 job 回房间
+
+origin 那一对的另一半：[[_job_context_builder]] 按 `job.origin_source` 选提示词，
+这里按**同一个字段**选投递。空 origin 直接返回，保持历史路径（agent 在 run 内自
+己调 `send_message_to_user_directly`）——PRD 验收 #8 要求私聊行为逐字不变。
+
+**由平台以 agent 名义投**，而不是交给模型调工具：房间的契约就是明文自动上墙，
+这次 run 用的提示词也正是这么说的。让模型来投等于把「它记不记得调工具」这个依
+赖又请回来，而这次改动整体就是在拆掉这个依赖（铁律 #15）。
+
+**永不抛**：job 本身**成功了**——状态、narrative、next_run_time 全都是对的——投递
+失败绝不能把一个完成的 job 改写成失败并重新排期，让同一份活再跑一遍。改为大声
+记 ERROR：投不出去的报告是真问题，只是不是这个 job 的失败。
 
 ## 2026-07-30 — `_EDGE_ONLY_RESUME_REASONS` 并入 `OUT_OF_CREDIT_REASONS`
 
@@ -288,3 +341,99 @@ real failure reason on the job row.
 
 - 在 SQLite 环境下运行多个 JobTrigger 进程（不应该，但可能误操作）会因 SQLite 单写锁导致 `try_acquire_job()` 的 UPDATE 语句死锁。
 - `AgentRuntime` 是懒加载（`from xyz_agent_context.agent_runtime import AgentRuntime`），这是避免循环导入的必要措施——不要改成模块顶部导入。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-08-19 — SCHEDULED finalize：end_at 地平线完结 + in-run 状态重读
+
+`_finalize_job_execution` 的 SCHEDULED 分支在 update_last_run 之后、任何
+调度写之前做两件事（顺序承重）：
+
+1. **重读当前 status（对齐 ONGOING 分支的既有做法）**：`job` 是执行前快照；
+   agent 可能在本次运行中 `job_update(status='paused')` 自暂停（onboarding
+   引导的"别再找我"就靠这条），用户也可能在运行期间从 Jobs 面板暂停/取消。
+   命中显式终止集（PAUSED / PAUSED_NO_QUOTA / CANCELLED / COMPLETED /
+   FAILED）→ 只补 instance completed（run 完成是每次运行的事实，与调度
+   无关）+ return，不写 ACTIVE、不写 next_run；**其余状态（RUNNING，以及
+   测试 harness 直调时的 pending/active）照旧重排**——用"!= RUNNING"当
+   判据会把 harness 直调的 pending 行也 respect 掉（S2b 时区测试实证）。
+   这也保证地平线分支不会拿 COMPLETED 盖掉运行中的 CANCELLED。last_run 在
+   重读之前写——它是事实记录，任何状态下都该落。
+2. **end_at 地平线**：`past_schedule_horizon(trigger_config, next_run.utc)`
+   越线 → clear next_run + COMPLETED + instance completed + return——平台
+   强制"这个日程排到 X 日为止"，不依赖模型自觉。**只有地平线路径会完结**：
+   next_run 为 None 的历史语义（ACTIVE + NULL next_run）原样保留。
+
+重武装侧门同样接了地平线（否则"排到 X 日"会从失败重试/僵尸自愈漏一次
+fire）：`_rearm_cooled_jobs` 对退火完成但重试时刻已越线的 COOLING job 直接
+完结；`_heal_unscheduled_active_jobs` 对重算 next_run 已越线的僵尸完结而非
+复活。**已知有界缺口（有意保留，round-5 review B 补全枚举）**：4 个恢复路径
+写 next_run 但不查地平线——`job_recovery.rearm_user_no_quota_jobs`（登录/额度
+恢复边缘）、`resume_job`（用户手动恢复）、`reschedule_job`（用户改执行时间）、
+`_resume_eligible_no_quota_jobs`（15min backstop）。都是复活 PAUSED 态 job 的
+恢复路径，最坏多跑一次，随后 finalize 越线完结（finalize 是权威兜底）；不给
+它们加守卫是因为完结一个从未在本轮运行的 PAUSED 态 job 与 finalize 的 instance
+完结语义不同（PAUSED 态 instance 非 in_progress），加守卫是另一个设计决定、需
+各配测试。恢复面核对过：job_recovery 只复活 PAUSED_NO_QUOTA，不会把 COMPLETED
+拉回来。
+
+测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线照常 /
+无地平线逐字不变 / 自暂停不被复活 / CANCELLED 不被 COMPLETED 覆盖 /
+COOLING 与僵尸两条侧门的越线+无地平线对照）。
+
+## 2026-08-19（三轮）— 地平线推广到 ONGOING；in-run stop 清 next_run
+
+- **ONGOING 两条路径都接地平线**：end_at 随 MCP schema 开放给模型后，
+  三种 job_type 必须一句话说清语义——"recurring（scheduled/ongoing）认
+  地平线，one_off 忽略"。ONGOING 有两支：①hook 失败的机械回退支（status
+  仍 RUNNING）自算 next_run 后查越线；②hook 接管的 else 支——**四轮 review
+  补**，因为 hook 正常接管才是常走路径，只补机械回退支等于只在 hook 失败
+  时才刹车。else 支不覆盖 hook 的语义决策（end_condition 由 LLM 判），只查
+  hook 重排的 `current_job.next_run_time` 是否越线：非空且越线 → COMPLETED
+  + clear_next_run + instance completed；hook 已完结（COMPLETED/FAILED）时
+  next_run 已清空为 None → 跳过、绝不二次完结（防重复触发 instance
+  completion）。next_run_time 从 DB 回来可能 naive，先补 tzinfo=utc 再比
+  （同 _rearm_cooled_jobs）。iteration_count 只在机械回退支前写一次，else
+  支不重写。**`_IN_RUN_STOPS` 守卫（round-5 review 🟢2）**：越线判断前先看
+  `current_status not in _IN_RUN_STOPS`——in-run stop（用户 Jobs 面板暂停/
+  取消，或 hook 写了 PAUSED/CANCELLED 等终止态）拥有结局，否则残留/hook 重排
+  的越线 next_run 会把运行中被 cancel 的 job 盖成 COMPLETED（SCHEDULED 分支
+  一直有同款守卫）。这条 respect 路径**不**补 per-run instance completed（与
+  SCHEDULED 不同，ONGOING 有意如此）。测试：test_schedule_horizon.py 的
+  hook_reschedule_past_horizon_completes（越线完结，删 else 支判断必红）/
+  hook_reschedule_before_horizon_is_respected（未越线保持 active）/
+  hook_completed_is_not_double_completed（None next_run 跳过，spy
+  _update_instance_completed 断言零调用，不再空断言）/
+  hook_reschedule_respects_inrun_cancel（in-run CANCELLED 不被 COMPLETED 覆盖，
+  删 _IN_RUN_STOPS 守卫必红）。
+- **`_rearm_cooled_jobs` 两处收口**：加 `job_type != ONE_OFF` 守卫（one_off
+  没有"下一次 fire"可bound，越线完结会把一个从未送达的一次性提醒标成
+  completed）；重试时刻用 `max(cu, now)`——停机数天后 cu 早于地平线而 now
+  已越线时，用 cu 判会把本要堵的"多一次 fire"从停机恢复路径漏回去。
+- **in-run stop 分支补 `clear_next_run`**：本文件其余四条终态路径都清
+  next_run，try_acquire_job 不清——不补的话运行中被 cancel/pause 的 job
+  行上留着过期 next_run_time（poller 按 status 过滤不受影响，纯脏数据）。
+  测试 fixture 先种一个非空 next_run 再断言清空，避免对 NULL 空断言。
+- `_IN_RUN_STOPS` 提到模块级（_MAX_CONSECUTIVE_FAILURES 先例），供后续
+  分支复用同一份判据。
+- 测试：test_schedule_horizon.py 增 ONGOING 越线完结 / ONGOING 无地平线
+  照旧 / ONE_OFF 在 COOLING 忽略地平线三条对照。

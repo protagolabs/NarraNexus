@@ -1,8 +1,46 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-14
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 (二) — sink 接缝有测试了
+
+`segments_sink` 之前**零覆盖**：`collect_run` 的测试一次都没传过 sink，而这正是团队房间
+现在唯一拿到边界的路径。这种接缝的失效方式是**空**——发帖时 `segments=None`，前端退回单块
+渲染，也就是这个特性存在之前的样子：没有报错、没有日志、没有可 grep 的东西。
+
+四条测试分别钉住：run 进行中读得到（deliverer 的位置）、sink 与最终返回不可能分歧、
+sink 里是 `{kind, parts}` 而不是契约的 `{kind, text}`（直接读的人必须过 `joined_segments`，
+否则每段都会 post 成 None）、以及不传 sink 的那条路径照常返回 segments。
+
+## 2026-08-15 — `segments_sink`：房间要在 run 结束前读到边界
+
+`collect_run` 增加可选的 `segments_sink`：传进来的话，它**就是**累积用的那个列表，所以持有
+同一个引用的调用方能在 run 返回之前看到 segments。
+
+为什么需要：#291 之后团队房间的回复**在 turn 内部发出**（chat 行由 `hook_persist_turn` 在
+`run()` 返回前写，之后再发的帖子不会被记成一次回复）。而 `RunCollection` 那时还不存在，
+`turn.segments` 拿不到。deliverer 被调用时，这一轮回复的 delta 已经全部流过，所以 sink 里
+就是它正在发的那段文字的边界。
+
+`joined_segments()` 导出成公共函数：**在途读取**和**最终返回**共用同一个 join，两者不可能
+对形状产生分歧，而 `parts` 形态也不会从任何一条路径泄漏出去。
+
+## 2026-08-14 — segment 累积改成 parts，docstring 改成实话
+
+`_add_segment` 原本是 `segments[-1]["text"] += text`。那个字符串同时被 dict 引用着，
+CPython 的原地拼接优化用不上，于是**每个 delta 都要复制一遍已积累的全文**——一条长回复
+在自己的长度上是二次的。旁边的 `text_parts.append(delta)` + 最后 `"".join(...)` 才是这个
+项目已有的正确写法，现在 segments 也走同一条：内部存 `parts` 列表，返回前 join 一次。
+
+这条路径在**每一次** agent run 上，不是团队房间专属；铁律 #14 把几万个 delta 的长跑当成
+一等场景，那正是最不该有二次拷贝的地方。
+
+同时把 docstring 的假话改掉：它写着 "Empty unless ``include_monologue``"，而
+`AGENT_RESPONSE` 分支根本不看这个开关——每一次私聊、job、Lark 回复都会有一个 `reply` 段。
+真话是：**只有 monologue 段**依赖那个开关，所以"`segments` 非空"**不能**用来推断"这是
+团队消息"。下一个人会照 docstring 写出一个只在测试里成立的分支。
 
 # run_collector.py — 统一的 AgentRuntime 消息收集器
 
@@ -187,3 +225,21 @@ fatal —— 而它们恰恰表示**这一轮产出了用户该看到的回复**
 
 收尾改写则**豁免 `""`**,理由与豁免裁决帧不同:未标注本来就被读成 fatal,改写它唯一的
 效果是抹掉空串携带的那一个信息 —— runtime 没说。
+
+## 2026-08-12 — `segments`：保住独白与回复的边界
+
+team turn 开着 `include_monologue`，于是 agent 自己的思考（`AGENT_THINKING.monologue`）和
+它的回答（`AGENT_RESPONSE.delta`）**按到达顺序 append 进同一个列表再 join**——落到墙上的是
+一团 markdown，边界没了。
+
+**这就是「复用私聊的 segmentTurn」走不通的原因**：`segmentTurn` 是从**事件流**切的，
+而房间消息存在时事件流已经被拍平。前端无法还原，只能猜，而猜错就是把深思渲染成结论。
+
+所以边界在**唯一还持有它的地方**被保存下来。
+
+- `output_text` **一字未改**——它是纯文本消费者（记忆索引、其他 agent 的 scrollback）读的东西，
+  一个渲染问题不该改写它。`"".join(s["text"] for s in segments) == output_text` 恒成立。
+- 连续同类片段合并：delta 是碎片到达的，不合并的话一个想法会渲染成六个气泡。
+- 整轮空白 → 空列表，与上游 `if response_text:` 的丢弃一致，不会复活出一个空气泡。
+- **最重要的一条测试是「非 team 逐字节无影响」**：产品里每一个 turn 都走这个函数。
+  这条做过变异验证。

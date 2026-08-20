@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-13
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — warmup() + _schedule_pool_prewarm()：启动时预填 warm-runner 池
+
+新增 `NexusAgent.warmup()`（executor 启动 lifespan 调用）提前填充 warm-runner 池，
+让**进程首个** nexus_power turn 也能拿到已预导入的 runner。此前池只在首个 turn 构造
+`NexusAgent`（`__init__`）时才开始填充，首个 turn 的 acquire 赶不上、自己 spawn 冷
+runner（dev 实测 ~12s vs warm ~2s）。
+
+`__init__`（本地/桌面每 turn 构造的路径，也是它唯一的预热点——铁律 #7）与 `warmup()`
+（executor 启动）**共用一个门控** `_schedule_pool_prewarm()`：`NEXUS_POWER_INPROCESS=1`
+或 `pool` 未 enabled 时 no-op；且因 `schedule_refill` 的 `create_task` 需要 running
+loop，**无 loop 时静默返回**——所以同步/import 期的 `__init__` 与 async 的 startup 共用
+一份判断、都不抛（best-effort 契约，抽方法前 `warmup` 少了 loop 守卫会抛，与 docstring
+矛盾）。配套 deploy 侧 `Dockerfile.executor` 的 `compileall`（bake app .pyc）。
 
 ## 2026-08-13 — 平台来源绑定：nexus 腿发 identity 头
 
@@ -55,3 +69,7 @@ _WarmRunnerPool:预 spawn 已完成全部导入(含 litellm 1.8s/215MB)的 runne
 闲置待命;acquire 即用即耗(单回合单进程,隔离不变),取用后后台补位;
 NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 内存的显式取舍)。driver 构造即预热(首回合与导入重叠)。atexit 收割闲置。
+
+## 2026-08-18 — 透传 origin_declaration
+
+与 claude 适配层同理：只透传，不重新措辞。见 [[sdk.py]] 同日条目。

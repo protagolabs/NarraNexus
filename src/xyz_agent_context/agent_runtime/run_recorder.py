@@ -218,7 +218,7 @@ def try_extract_event_id(event: dict) -> Optional[str]:
     return str(eid) if eid else None
 
 
-def _classify_event(event: dict) -> str:
+def classify_event(event: dict) -> str:
     """Return one of: thinking / tool_call / tool_output / progress /
     text_delta / error / other."""
     t = event.get("type", "")
@@ -371,7 +371,7 @@ class RunRecorder:
             if new_run_id:
                 await self._bind_run_id(new_run_id)
 
-        kind = _classify_event(event)
+        kind = classify_event(event)
 
         if kind == "thinking":
             self._append_to_segment(_extract_thinking_content(event))
@@ -596,6 +596,7 @@ class RunRecorder:
 
 
 __all__ = [
+    "classify_event",
     "HEARTBEAT_INTERVAL_S",
     "RECORDING_DISABLED_ENV",
     "RUN_STALE_AFTER_S",

@@ -336,6 +336,57 @@ async def step_1_select_narrative(
     # Store in ctx for subsequent steps
     ctx.user_chat_instances = user_chat_instances
 
+    # Seed the bootstrap greeting into the HEAD narrative's chat instance, ONCE
+    # per turn. The greeting's scope is (agent, user) — not per-narrative — so it
+    # goes only to narrative_list[0], the authored/primary thread and the very
+    # instance ChatModule.hook_persist_turn persists into (the rest are BM25
+    # read-side neighbours). Doing it here, at the start of the first turn, means
+    # the greeting lands even if the turn never reaches the persist hook.
+    #
+    # Timestamp is anchored to turn start (ctx.event.created_at) by the writer,
+    # so it sorts before the user's first message and satisfies the TIME half of
+    # the frontend session-copy dedup window (content-equality is the other half,
+    # which does not hold in non-English UIs — see _chat_writes docstring); the
+    # write is idempotent (skips a non-empty instance), so the
+    # hook's own prepend — which then sees a non-empty history and skips — never
+    # doubles it. resolve_bootstrap_greeting_to_seed gates on the SAME
+    # bootstrap_active signal the hook uses (Bootstrap.md present + under the
+    # auto-delete threshold), so an agent past its bootstrap phase is never
+    # re-greeted on a freshly-opened narrative. Only this main step_1 path seeds;
+    # the fast-select and step_4 paths rely on the hook prepend as the fallback.
+    #
+    # Known edge (accepted): if the agent ROUTES to a different narrative on this
+    # same bootstrapping turn (step_4 create/switch_narrative rebinds the persist
+    # instance), the hook then greets the routed instance too — a greeting-only
+    # orphan in narrative_list[0]. The standard bootstrap flow (set name/awareness,
+    # no topic creation) does not route on turn 1, so this stays rare.
+    # Best-effort.
+    if narrative_list and ctx.event is not None:
+        head_instance = user_chat_instances.get(narrative_list[0].id)
+        if head_instance:
+            try:
+                from xyz_agent_context.bootstrap.greeting_seed import (
+                    resolve_bootstrap_greeting_to_seed,
+                )
+                from xyz_agent_context.module.chat_module import seed_bootstrap_greeting
+                from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                seed_db = await get_db_client()
+                greeting = await resolve_bootstrap_greeting_to_seed(
+                    seed_db, ctx.agent_id, ctx.user_id
+                )
+                if greeting:
+                    await seed_bootstrap_greeting(
+                        seed_db,
+                        ctx.agent_id,
+                        ctx.user_id,
+                        head_instance,
+                        greeting,
+                        ctx.event.created_at,
+                    )
+            except Exception as e:  # noqa: BLE001 — best-effort; hook is the fallback
+                logger.warning(f"[bootstrap] greeting seed skipped: {e}")
+
     # Persist Session update
     await session_service.save_session(ctx.session)
     logger.debug(f"Session persisted: {ctx.session.session_id}")

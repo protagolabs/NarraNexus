@@ -18,6 +18,126 @@ stub: false
 测试里钉了这个宽度 —— MySQL 非严格 sql_mode 下超长是**静默截断**,
 而这一列正是下一轮标定的 GROUP BY 键。
 
+## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
+
+- **列宽 128→64（I2，武装前必改）**：`user_id` 原为 `VARCHAR(128)`，与全仓 id 规范不符
+  （`users.user_id` = `VARCHAR(64) UNIQUE`，`ban_audit` / `user_notifications` 也都是 64）。
+  128 会让端点「超宽→反解失败落 NULL alert-only」的兜底阈值也变 128，于是 65~128 字符的
+  值被当**权威归因**落库、伪造出下游查不到的可处置 id。收窄到 64 让「太长以致不可能是真
+  id」的判定与列宽一致。**趁表尚未在 dev auto_migrate 建过收窄**（铁律 #6：建过就不能再窄）。
+- **`key_hash` 保持 256**：那是 hash 不是 id，不收窄。
+- **新增 `varchar_width(table, column)`**：解析列的 `VARCHAR(N)` 宽度，作为**单一真相源**。
+  gateway-key-misuse 端点的逐字段截断宽度与 `user_id` 阈值都从它取，不再各写一份硬编码
+  数字（会与 DDL 漂移）；非 `VARCHAR(N)` 列会在 import 期就抛错而不是静默截断到错误宽度。
+
+## 2026-08-19 — gateway_key_misuse 新表（网关 key 异常使用事件的权威落库）
+
+注册 `gateway_key_misuse`：网关 key 的异常/越权使用事件的结构化记录表，供安全监控消费。
+归因 100% 走权威结构化信号，绝不 grep 日志文本。
+
+**单一写方 = backend 内部 admin gateway-key-misuse 端点**（[[gateway_key_misuse.py]]，与
+[[suspend.py]] 同一把 `X-Admin-Secret` 锁）。写入的 `user_id` 是调用方（网关是「这把 key
+绑定了哪个身份」的权威）**权威反解**出来的结果，端点本身**不解析任何文本**、只记录被交给
+它的字段。executor/agent 无 admin-secret 凭据 → 无法写这张表。**读方是安全监控（只读）**，
+据此驱动响应梯子。
+
+列：`id`(BIGINT UNSIGNED 自增主键，兼作监控的 watermark PK)、
+`user_id`(VARCHAR(64)，**可空**，对齐 `users.user_id`)、`run_id`(VARCHAR(128))、`key_hash`
+(VARCHAR(256))、`caller_ip`(VARCHAR(64))、`caller_ua`(VARCHAR(256))、
+`model`(VARCHAR(128))、`hit_at`(DATETIME(6) NOT NULL，sqlite 侧
+`(datetime('now'))` → MySQL `CURRENT_TIMESTAMP(6)`)、`disposition_status`
+(VARCHAR(32) NOT NULL DEFAULT `'pending'`)、`created_at`(同 hit_at 形制)。
+索引 `idx_gateway_key_misuse_user(user_id)`、
+`idx_gateway_key_misuse_status(disposition_status, created_at)`，以及**唯一**索引
+`idx_gateway_key_misuse_dedup(key_hash, hit_at)`——幂等键：调用方传权威事件时间时，
+「写成功但响应超时」的重试携带同一 `(key_hash, hit_at)`，落回同一行而非重复行（硬信号
+一次即处置，重复行会重复处置）。`key_hash` 为 NULL 的未解析事件不参与去重（SQL 唯一性
+视 NULL 互不相等，alert-only 行永不误去重）。
+
+**`user_id` 可空是刻意的**：上游反解失败（网关抖动 / key 已被删）时，端点仍落一行
+**alert-only** 记录、`user_id=NULL`，由人工分诊；响应梯子**绝不**在 NULL id 上触发，因此
+永不伪造一个可处置的归因 id。设成 NOT NULL 会逼写入方编造哨兵值，把「未解析」和「解析为
+某人」两件正交的事混为一列。
+
+纯新增表（铁律 #6），`auto_migrate` 幂等建它。双方言由同一份 TableDef 生成，
+`tests/utils/db/test_gateway_key_misuse_schema.py` 直接对 `generate_sqlite_ddl` /
+`generate_mysql_ddl` 断言两方言 DDL 均成立（含 DATETIME 默认值的 MySQL 翻译）。
+
+## 2026-08-18 — TYPE_CHECKING 导入 `DatabaseBackend`（F821 配套，零行为变化）
+
+`auto_migrate` / `_self_heal_missing_tables` / `_verify_all_tables_present`
+的字符串注解 `"DatabaseBackend"` 此前没有任何导入支撑；本 PR 启用 ruff F821
+（注解里的未定义名会被拦）后补了 `if TYPE_CHECKING:` 导入。这些注解在
+`from __future__ import annotations` 下是纯字符串、运行时从不求值，所以导入
+只需 type-only。顺手删掉了 `auto_migrate` 函数体内那个遗留的延迟导入
+（原 `# noqa: F811` 行）——函数体内对该名字零使用，是死代码。行为零变化。
+
+## 2026-08-17 — inbox 拿到自己的两张表（记录层，与 bus 解耦）
+
+`inbox_threads` + `inbox_thread_messages`。inbox 此前住在 `bus_messages` /
+`bus_channel_members` 里，prod 实测两笔代价：
+
+- **`bus_messages` 里 86% 不是 bus 消息**（28,605 / 33,164 行是 IM inbox）。表名描述的
+  是它的少数派。
+- 写入方为了让面板找得到 thread，**给 agent 建了 `bus_channel_members` 成员行**，而
+  **没有任何人推进它的 `last_read_at`**（172 个 IM 成员行里 159 个游标为 NULL，92%）。
+  bus 的未读判据是 `created_at > COALESCE(last_read_at, epoch)`，于是 **1,364 条 IM
+  历史永久「未读」**，以伪 agent `lark_user_<id>` 的名义灌进 **90 个 agent** 每一轮的
+  上下文。
+
+**分表让新写入的行结构性地到不了**：agent 的未读注入读的是
+`bus_messages JOIN bus_channel_members`，而记录层写的是这两张表，所以新行不在那里。
+
+**但旧行还在。** 每个已部署的库里都留着旧写入器写进 `bus_messages` 的 IM 历史，搬表对它们
+无效，未读谓词照样会把它们交给模型 —— 上面那 1,364 条说的就是这些行。所以
+[[local_bus.py]] `_unread_predicate` 加了一道按 dedicated-trigger 前缀的过滤，注入才在部署当天
+停下；清理是回填 runbook 里的手动步骤，清完这道过滤才能退休。
+
+本节原先写的是「**不是过滤器**——过滤器正是 2026-07-03 事故的成因」。（订正于 2026-08-18，
+第三轮预审。）那句话把读者引向删掉那道过滤，而它是唯一挡住投毒的东西、删掉不报错。
+2026-07-03 的教训没作废，但它针对的是**手维护**的列表：现在这张由 registry 推导，且带一个
+退休条件。
+
+**分界线是 operational vs observational**：bus 表承载投递机制（游标、待处理、路由），
+这两张承载「人要读的记录」。因此 `inbox_threads.last_read_at` 是**用户的**阅读状态，
+对 agent 拿到什么**毫无影响**——这两件事此前是同一列，所以用户在面板上点一下「已读」
+就改变了 agent 下一轮的上下文。
+
+### `source_message_id` 是回填的幂等保证，不是备注
+
+Owner 决策（2026-08-17）：历史**回填**，且**由 Owner 在部署后手动执行**。于是新写入
+路径在脚本开始前就已经在写这张表了，重叠窗口会让其中每条消息**重复出现在用户看得见的
+界面上**。
+
+这一列**是幂等键该待的地方** —— 放进脚本就是放在一个会被忘记的地方。列可空：只有回填行有值，
+live 写入没有对应的 bus 行，NOT NULL 会逼写入方编一个 id，而那个 id 迟早和真的撞上。
+
+**两件本节原先说错、必须写清的事**（订正于 2026-08-18，第三轮预审；源码注释已同步）：
+
+1. **唯一索引不会把重复插入变成 no-op —— 它会抛错。** 原文写的是「无论脚本跑几遍、时间窗
+   猜得多离谱都是 no-op」。没有 `INSERT IGNORE`、也没有 `ON CONFLICT`。脚本必须自己捕获重复键
+   后重读（与 `InboxRecorder._ensure_thread` 处理建会话竞态同形，且要**用重读判断而不是匹配
+   驱动异常类型** —— aiosqlite 与 aiomysql 的异常类不同）。照原文写脚本，会在第一个重叠处
+   中途抛错、把一个用户可见的界面回填到一半。
+2. **现在没有任何调用方写这一列。** `_insert_message` 的参数默认 `None`，所以唯一索引目前盖在
+   一个全 NULL 的列上（两个方言都允许多个 NULL，所以不报错，也就没人发现）。填它是回填脚本
+   的职责，而脚本按 owner 决定是部署后手动写的、尚不存在。
+
+→ 完整回填步骤与验证清单：`reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md`
+→ 设计全文：`reference/self_notebook/specs/2026-08-17-conversation-harness-redesign-design.md`
+
+## 2026-08-14 — 差事层与 job 来源面：三列两索引
+
+`team_work_items.origin`（tool|auto）：owner 2026-08-07 的分层决定第一次可执行，
+语义见 [[team_work_schema]]。默认 `tool`，让历史行保持它本来的含义。同批两条索
+引服务 [[errand]] 仅有的两个热读。
+
+`instance_jobs.origin_source` / `origin_channel_id`：job 记住**它是在哪儿被要求
+的**，好让结果回到那儿——PR #230「回复面跟随来源」在 job 面的延伸。空 = owner 私
+聊，既是历史行为、也是**唯一永远存在**的投递面，所以兜底不需要特例。
+
+拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
+合成一个字段会让每个读者各自再解析一遍。
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：
@@ -319,6 +439,7 @@ agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审�
 provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
 错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
 `scripts/data_migrations/backfill_cost_records_user_id.py`。
+
 ## 2026-07-21 — team_catalog 表(Team Marketplace)
 
 additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
@@ -747,3 +868,24 @@ agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份�
 同样带 id。所以它**不是**「平台代发」的标记,`event_id IS NOT NULL` 当那个用会多算。
 完整口径与三种 NULL 情形见 [[schemas]] 的 08-14 节;列注释本身已同批改过。
 
+## 2026-08-12 — `bus_messages.segments`
+
+纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
+后者是所有文本消费者读的东西，一个渲染需求不该改写它。
+
+## 2026-08-18 — `instance_artifacts.content_hash` + 新表 `instance_artifact_events`
+
+**content_hash(可空,additive)**:注册时对 entry 文件算 sha256 存这里。heal 用它给
+候选**验明正身**——「改名但内容未动」从按扩展名猜升级成确定性认领。可空的两层含义:
+存量行 NULL(heal 跳过 hash 层),以及哈希失败绝不阻塞注册(best-effort 契约)。类型
+与 `team_files.content_hash` 同款(TEXT/VARCHAR(64)),将来 7′ 存档层直接复用同一指纹。
+
+**instance_artifact_events(跨进程 outbox)**:artifact_changed 事件的staging 表。
+为什么需要它:register_artifact 跑在 MCP 工具进程,而通往前端 WS 的 Broadcaster 在
+backend 进程——写入方把自包含 payload 落成一行,BackgroundRun 在每个 tool-output
+事件后 drain 本 agent 的未消费行并经 `self.emit()` 重发(录制+广播一次拿齐)。
+run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 updated_at 单调守卫
+中和迟到事件,打开时全量拉是自愈地板,所以无 TTL 无跨进程锁。`consumed_at` 不删行,
+近期尾部兼作投递审计。设计出处:spec 2026-08-18-artifact-events-inventory-pointer §3。
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。

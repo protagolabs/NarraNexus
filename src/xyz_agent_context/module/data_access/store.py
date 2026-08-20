@@ -303,11 +303,24 @@ class DirectStore:
     async def update_awareness(self, agent_id: str, awareness: str) -> str:
         from xyz_agent_context.repository import InstanceAwarenessRepository
 
+        from xyz_agent_context.module.awareness_module import (
+            carry_over_platform_record,
+        )
+
         db = await self._db()
         instance_id = await self._awareness_instance_id(db, agent_id)
         if not instance_id:
             return _no_instance_msg(agent_id)
-        await InstanceAwarenessRepository(db).upsert(instance_id, awareness)
+        repo = InstanceAwarenessRepository(db)
+        # The model rewrites the WHOLE profile here, and the format it is given
+        # does not include the platform's identity record — so a rewrite silently
+        # deleted the rename correction. Re-attached in code, because asking the
+        # model to keep it would make prompt text the mechanism (rule #15).
+        current = await repo.get_by_instance(instance_id)
+        awareness = carry_over_platform_record(
+            (current.awareness if current else "") or "", awareness
+        )
+        await repo.upsert(instance_id, awareness)
         return _AWARENESS_OK
 
     async def update_agent_profile(
@@ -539,19 +552,36 @@ class DirectStore:
         from xyz_agent_context.module.social_network_module import (
             format_create_agent_success,
             CREATE_AGENT_NO_OWNER_MSG,
+            create_agent_text_reject,
+            default_created_by_description,
         )
+        from xyz_agent_context.schema import normalize_agent_text
 
         try:
             db = await self._db()
             caller = await AgentRepository(db).get_agent(creator_agent_id)
             if not caller or not caller.created_by:
                 return {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
+            # Normalize BEFORE the checks below: the row is stored normalized
+            # (AgentRepository.add_agent), so an unnormalized name here would
+            # make the success echo disagree with what was written, and the
+            # `or` fallback would be skipped by a whitespace-only description.
+            agent_name = normalize_agent_text(agent_name)
+            agent_description = normalize_agent_text(agent_description)
+            # Same rule as the Http twin because it IS the same function — see
+            # create_agent_text_reject for why the order lives there.
+            refusal = create_agent_text_reject(agent_name, agent_description)
+            if refusal:
+                return {"success": False, "message": refusal}
             result = await provision_new_agent(
                 db,
                 agent_id=new_agent_id,
                 user_id=caller.created_by,
                 agent_name=agent_name,
-                agent_description=agent_description or f"Agent created by {caller.agent_name or creator_agent_id}",
+                agent_description=agent_description
+                or default_created_by_description(
+                    caller.agent_name or creator_agent_id
+                ),
                 awareness=awareness,
             )
             # Match the route's create log so local-mode 'who created which agent

@@ -25,7 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
-import { cn, formatDate, formatTime } from '@/lib/utils';
+import { cn, formatDate, formatMessageAge, formatTime } from '@/lib/utils';
 import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
@@ -42,10 +42,14 @@ interface MessageBubbleProps {
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
   agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
+  /** Latest message in the visible stream — its meta row (time) stays
+   *  visible; every other row reveals meta on hover only (claude.ai
+   *  convention, Owner 2026-08-06). */
+  isLatest?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
-  const { t } = useTranslation();
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName, isLatest = false }: MessageBubbleProps) {
+  const { t, i18n } = useTranslation();
   // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
   const navigate = useNavigate();
   const [showDetails, setShowDetails] = useState(false);
@@ -64,10 +68,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
-  // Build a unified TurnEvent[] for inline rendering. We deliberately
-  // skip "reply" events here — the user-facing reply text lives in
-  // message.content and is already rendered as Markdown below, so
-  // duplicating it inside the timeline would print the reply twice.
+  // Build a unified TurnEvent[] for inline rendering. All three source
+  // paths deliberately carry NO "reply" events — the user-facing reply
+  // text lives in message.content and is already rendered as Markdown
+  // below, so duplicating it inside the timeline would print it twice.
   const inlineEvents: TurnEvent[] = useMemo(() => {
     if (isUser) return [];
 
@@ -83,36 +87,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     const events: TurnEvent[] = [];
 
     // Path 1 — historical: the backend gave us a time-ordered timeline.
+    // ONE conversion implementation (segmentTurn.timelineToEvents); the
+    // collapsed disclosure keeps reply-tool calls as ordinary process rows,
+    // hence convertOwnerReplyTool: false.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
-      eventLogTimeline.forEach((entry, idx) => {
-        const id = `tl-${idx}`;
-        const ts = idx;
-        switch (entry.type) {
-          case 'thinking':
-            if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
-            break;
-          case 'tool_call':
-            events.push({
-              id, ts, type: 'tool_call',
-              tool_name: entry.tool_name || 'unknown',
-              tool_input: entry.tool_input || {},
-              reply_via: entry.reply_via,
-            });
-            break;
-          case 'tool_output':
-            events.push({
-              id, ts, type: 'tool_output',
-              tool_name: entry.tool_name || 'unknown',
-              output: entry.tool_output || '',
-            });
-            break;
-          case 'native_output':
-            if (entry.content) events.push({ id, ts, type: 'native_output', content: entry.content });
-            break;
-          // 'reply' intentionally skipped — see comment above.
-        }
-      });
-      return events;
+      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false })
+        .filter((e) => e.type !== 'reply');
     }
 
     // Path 2 — live stream: message.thinking + message.toolCalls came
@@ -249,7 +229,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   return (
     <div
       className={cn(
-        'flex gap-3',
+        'group flex gap-3',
         isUser && 'flex-row-reverse'
       )}
     >
@@ -268,26 +248,25 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         <div
           className={cn(
             'relative inline-block max-w-[85%] text-left',
+            // Bubbles shrink to their content on BOTH sides — a w-full
+            // reading-column variant was tried 2026-08-18 and reverted the
+            // same day: short replies stranded a field of empty paper on
+            // the right. Keep shrink-to-fit.
             'px-3.5 py-2.5',
             'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',
-            // AI (silicon) bubble: rebind markdown code/table fills to a blue
-            // tint so they don't read as muddy gray on the blue surface.
-            !isUser && !message.isError && 'nm-bubble-ai',
           )}
           style={
             isUser
               ? {
-                  // Own bubble — Carbon (human) species variant, matching
-                  // the Narra Agent App design ref: carbon-soft coral fill,
-                  // carbon-hair border, and a 3px solid carbon stripe on the
-                  // RIGHT (the "own" side). This mirrors the AI bubble's
-                  // silicon-on-the-LEFT treatment, so a conversation reads as
-                  // a clear human(carbon)·AI(silicon) dialogue. Both tints
-                  // flip automatically in dark mode via token redefinition.
-                  background: 'var(--color-carbon-soft)',
+                  // Own bubble — v4 paper treatment: warm-paper fill with a
+                  // hairline border; the human(carbon) species now reads
+                  // entirely from the 3px carbon stripe on the RIGHT (the
+                  // "own" side) + the carbon avatar ring, instead of a coral
+                  // fill. Mirrors the AI bubble's silicon-on-the-LEFT.
+                  background: 'var(--nm-paper-warm)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--color-carbon-hair)',
+                  border: '1px solid var(--nm-hairline)',
                   borderRight: '3px solid var(--color-carbon)',
                 }
               : message.isError
@@ -297,14 +276,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                     border: '1px solid var(--color-error)',
                   }
                 : {
-                    // AI bubble — NM canonical FinBubble: silicon-soft fill,
-                    // silicon-hair border, 3px silicon stripe on the LEFT
-                    // edge. Light mode lands on light-blue bg + dark-blue
-                    // stripe; dark mode flips to grayish-blue bg + light-blue
-                    // stripe (driven entirely by token redefinition).
-                    background: 'var(--color-silicon-soft)',
+                    // AI bubble — v4 paper treatment: plain paper fill,
+                    // hairline border, 3px silicon stripe on the LEFT edge.
+                    // Species signal = stripe + avatar ring; markdown code /
+                    // table fills keep their default paper-warm surfaces
+                    // (the old silicon-soft fill + nm-bubble-ai rebinding
+                    // are retired with it).
+                    background: 'var(--nm-paper)',
                     color: 'var(--nm-ink)',
-                    border: '1px solid var(--color-silicon-hair)',
+                    border: '1px solid var(--nm-hairline)',
                     borderLeft: '3px solid var(--color-silicon)',
                   }
           }
@@ -457,7 +437,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 return (
                   <div
                     key={att.file_id}
-                    className="flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
+                    className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
                   >
                     <div className="w-8 h-8 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
                       {att.category === 'image' ? (
@@ -503,7 +483,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // would inherit the parent .text-sm (0.85rem) and look smaller.
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
-              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">{message.content}</span>
+              <span className="whitespace-pre-wrap text-sm">{message.content}</span>
             ) : message.actionReason ? (
               // Self-serviceable failure: show a clean, localized "what you
               // can do" line in the body. The full (English) provider detail
@@ -527,7 +507,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           {message.warnings && message.warnings.length > 0 && (
             <div className="mt-2 pt-2 border-t border-[var(--rule)]">
               {message.warnings.map((warning, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-yellow-500)]">
+                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-warning)]">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                   <span>{warning}</span>
                 </div>
@@ -623,17 +603,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         )}
 
         {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
-            (no internal footer padding/whitespace). Time + copy/download sit
-            just below the bubble, aligned to the bubble's side: right for own
-            (carbon) messages, left for agent (silicon) messages. Mono 9.5px
-            in the subtle token. */}
+            (no internal footer padding/whitespace). claude.ai convention
+            (Owner 2026-08-06): hidden by default, revealed on row hover;
+            only the LATEST message keeps its time always visible. Copy is
+            offered on BOTH sides (download stays assistant-only — user
+            messages aren't markdown documents). Time reads as a relative
+            "x days ago"; the exact date+time lives in the hover tooltip. */}
         <div
           className={cn(
-            'mt-1 flex items-center gap-1.5 px-0.5',
-            isUser ? 'justify-end' : 'justify-start'
+            'mt-1 flex items-center gap-1.5 px-0.5 transition-opacity duration-150',
+            isUser ? 'justify-end' : 'justify-start',
+            isLatest ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
           )}
         >
-          {!isUser && !isStreaming && message.content && (
+          {!isStreaming && message.content && (
             <>
               <button
                 onClick={handleCopy}
@@ -646,28 +629,30 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Copy className="w-3 h-3" />
                 )}
               </button>
-              <button
-                onClick={handleDownload}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                title={t('chat.message.downloadMd')}
-              >
-                <Download className="w-3 h-3" />
-              </button>
+              {!isUser && (
+                <button
+                  onClick={handleDownload}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title={t('chat.message.downloadMd')}
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              )}
             </>
           )}
           <span
-            className="font-mono tracking-wide"
-            // Hovering the HH:mm:ss reveals the full date — day context for
-            // a single message without waiting for a day separator.
+            className="font-mono tracking-wide cursor-default"
+            // The relative label carries no calendar context — hovering
+            // reveals the full year-month-day + time.
             title={`${formatDate(message.timestamp)} ${formatTime(message.timestamp)}`}
             style={{
               color: 'var(--nm-subtle)',
-              fontSize: '9.5px',
+              fontSize: '10px',
               letterSpacing: '0.05em',
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {formatTime(message.timestamp)}
+            {formatMessageAge(message.timestamp, i18n.language)}
           </span>
         </div>
       </div>

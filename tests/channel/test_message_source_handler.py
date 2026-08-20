@@ -12,8 +12,8 @@ Behaviour pinned:
    without explicit registration.
 5. `format_row_prefix` substitutes meta_data + channel_tag fields into the template.
 6. `is_user_reply_tool` matches tool names by `<pattern> in tool_name` so the
-   MCP-prefixed form (`mcp__chat_module__send_message_to_user_directly`)
-   still matches the pattern `send_message_to_user_directly`.
+   MCP-prefixed form (`mcp__chat_module__notify_owner`)
+   still matches the pattern `notify_owner`.
 7. Registry dump returns a JSON-serializable snapshot for debugging.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ def test_register_and_get_returns_handler():
 
     h = MessageSourceHandler(
         name="lark",
-        user_reply_tool_names=("send_message_to_user_directly", "lark_cli +messages-send"),
+        user_reply_tool_names=("notify_owner", "lark_cli +messages-send"),
         row_prefix_template="[Lark · {sender_name}]",
     )
     MessageSourceRegistry.register(h)
@@ -57,9 +57,9 @@ def test_get_unknown_source_returns_default_handler():
     from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
 
     default = MessageSourceRegistry.get("definitely_not_registered_xyz")
-    # Default handler always recognises send_message_to_user_directly so
+    # Default handler always recognises notify_owner so
     # chat/a2a/callback/skill_study don't need explicit registration.
-    assert "send_message_to_user_directly" in default.user_reply_tool_names
+    assert "notify_owner" in default.user_reply_tool_names
 
 
 def test_duplicate_registration_raises():
@@ -77,17 +77,17 @@ def test_duplicate_registration_raises():
 
 def test_is_user_reply_tool_matches_mcp_prefixed_names():
     """Tool names from MCP arrive as e.g.
-    `mcp__chat_module__send_message_to_user_directly`. The handler must
+    `mcp__chat_module__notify_owner`. The handler must
     match its registered short name as a substring so we don't have to
     enumerate every MCP-prefixed variant."""
     from xyz_agent_context.channel.message_source_handler import MessageSourceHandler
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
-    assert h.is_user_reply_tool("mcp__chat_module__send_message_to_user_directly")
-    assert h.is_user_reply_tool("send_message_to_user_directly")
+    assert h.is_user_reply_tool("mcp__chat_module__notify_owner")
+    assert h.is_user_reply_tool("notify_owner")
     assert not h.is_user_reply_tool("get_chat_history")
     assert not h.is_user_reply_tool("")
 
@@ -98,12 +98,12 @@ def test_is_user_reply_tool_matches_multiple_patterns():
     h = MessageSourceHandler(
         name="lark",
         user_reply_tool_names=(
-            "send_message_to_user_directly",
+            "notify_owner",
             "lark_cli +messages-send",
             "lark_cli +messages-reply",
         ),
     )
-    assert h.is_user_reply_tool("mcp__chat_module__send_message_to_user_directly")
+    assert h.is_user_reply_tool("mcp__chat_module__notify_owner")
     assert h.is_user_reply_tool("mcp__lark_module__lark_cli +messages-send")
     assert h.is_user_reply_tool("lark_cli +messages-reply")
     assert not h.is_user_reply_tool("lark_cli +messages-list")
@@ -114,7 +114,7 @@ def test_format_row_prefix_substitutes_meta_and_channel_tag():
 
     h = MessageSourceHandler(
         name="lark",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
         row_prefix_template="[Lark · {sender_name} in {room_name}]",
     )
     msg = {
@@ -142,7 +142,7 @@ def test_format_row_prefix_missing_fields_falls_back_gracefully():
 
     h = MessageSourceHandler(
         name="lark",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
         row_prefix_template="[Lark · {sender_name}]",
     )
     msg = {"role": "user", "content": "hi", "meta_data": {"working_source": "lark"}}
@@ -172,10 +172,10 @@ def test_extract_reply_text_default_returns_content_arg():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": "Hello user"},
     )
     assert out == "Hello user"
@@ -186,7 +186,7 @@ def test_extract_reply_text_default_returns_none_for_unmatched_tool():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     assert h.extract_reply_text("get_chat_history", {"x": 1}) is None
     assert h.extract_reply_text("", {}) is None
@@ -240,11 +240,11 @@ def test_extract_reply_text_strips_citeturn_tokens():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     raw = "6月7日全国高考开考，今年报名人数1290万人。citeturn6view1"
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": raw},
     )
     assert out == "6月7日全国高考开考，今年报名人数1290万人。"
@@ -259,11 +259,11 @@ def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     raw = "新华社/央视消息称习近平抵达平壤。citeturn6view0 citeturn2news12"
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": raw},
     )
     # Both tokens gone; the whitespace between them collapses and the
@@ -281,11 +281,11 @@ def test_extract_reply_text_preserves_text_without_tokens():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     raw = "Hi there!  Multiple spaces  stay  intact."
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": raw},
     )
     assert out == raw  # NOT modified — fast-path kept doubled spaces
@@ -301,11 +301,11 @@ def test_extract_reply_text_does_not_match_word_cite():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     raw = "Please cite the relevant section in your write-up."
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": raw},
     )
     assert out == raw
@@ -367,11 +367,11 @@ def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     raw = "citeturn6view1\nciteturn6news2"
     out = h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": raw},
     )
     assert out == ""
@@ -386,13 +386,13 @@ def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     assert h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly", {"content": "\n"}
+        "mcp__chat_module__notify_owner", {"content": "\n"}
     ) == ""
     assert h.extract_reply_text(
-        "mcp__chat_module__send_message_to_user_directly", {"content": "   "}
+        "mcp__chat_module__notify_owner", {"content": "   "}
     ) == ""
 
 
@@ -405,8 +405,8 @@ def test_extract_owner_visible_text_inherits_blank_guard():
 
     h = MessageSourceHandler(
         name="chat",
-        user_reply_tool_names=("send_message_to_user_directly",),
+        user_reply_tool_names=("notify_owner",),
     )
     assert h.extract_owner_visible_text(
-        "mcp__chat_module__send_message_to_user_directly", {"content": "\n"}
+        "mcp__chat_module__notify_owner", {"content": "\n"}
     ) == ""

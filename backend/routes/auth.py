@@ -37,7 +37,10 @@ from xyz_agent_context.repository import (
     UserRepository,
 )
 from xyz_agent_context.schema import (
+    AGENT_TEXT_MAX_LENGTH,
     NON_TRANSACTING_USER_STATUSES,
+    agent_field_matches,
+    normalize_agent_text,
     LoginRequest,
     LoginResponse,
     NetmindLoginRequest,
@@ -71,7 +74,7 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
-from xyz_agent_context.message_bus.agent_discovery_sync import sync_agent_discovery
+from xyz_agent_context.agent_profile import apply_agent_profile_change
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -79,7 +82,7 @@ from xyz_agent_context.settings import settings as app_settings
 
 from pydantic import BaseModel
 from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
-from typing import Optional
+from typing import Iterable, Optional
 
 
 router = APIRouter()
@@ -138,6 +141,9 @@ async def login(request: LoginRequest):
         await user_repo.update_last_login(request.user_id)
         logger.info(f"User {request.user_id} logged in (local)")
         _schedule_login_rearm(request.user_id)
+        # A local login is never a signup (create-user is); is_new=False routes
+        # it through the backfill brake.
+        _schedule_guide_agent_provisioning(request.user_id, is_new=False)
         return LoginResponse(
             success=True,
             user_id=request.user_id,
@@ -469,6 +475,59 @@ def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
     )
 
 
+def _guide_agent_feature_on() -> bool:
+    """Whether this deployment auto-provisions the onboarding guide agent.
+
+    Returned to the frontend on login/create-user so the "your first agent is
+    already here" coachmark obeys the SAME kill-switch as the provisioning —
+    otherwise pulling the server-side switch would leave the UI promising an
+    agent that never appears.
+    """
+    from backend.onboarding.provisioning import is_guide_agent_enabled
+
+    return is_guide_agent_enabled()
+
+
+def _schedule_guide_agent_provisioning(user_id: str, *, is_new: bool) -> None:
+    """Run the onboarding guide-agent provisioning off the login path.
+
+    Fire-and-forget like :func:`_schedule_provider_provisioning`: a login must
+    never block on, or fail from, it. `ensure_guide_agent` is idempotent
+    (user-level write-once marker) and cheap on the warm path, so calling it
+    on every login is fine — that is what lets existing zero-agent users pick
+    up their guide on their next login, not just brand-new signups.
+
+    ``is_new`` distinguishes a brand-new signup from a returning login: the
+    backfill population (existing zero-agent users) has its own env brake
+    (NARRANEXUS_ONBOARDING_GUIDE_BACKFILL) so a prod rollout can start with
+    new signups only.
+    """
+    import asyncio
+
+    from backend.onboarding.provisioning import (
+        ensure_guide_agent,
+        is_guide_agent_enabled,
+    )
+
+    if not is_guide_agent_enabled():
+        return  # kill-switch: schedule nothing at all
+
+    async def _run() -> None:
+        db_client = await get_db_client()
+        await ensure_guide_agent(db_client, user_id, is_new_user=is_new)
+
+    try:
+        task = asyncio.get_running_loop().create_task(_run())
+    except RuntimeError:
+        return  # no loop (not the request path) — nothing to schedule
+    # Incident lesson #2: a bare create_task swallows its exception at GC.
+    task.add_done_callback(
+        lambda t: t.cancelled() or t.exception() and logger.error(
+            f"[login] guide-agent provisioning died for {user_id}: {t.exception()!r}"
+        )
+    )
+
+
 @router.post("/netmind-login", response_model=NetmindLoginResponse)
 async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     """Log in with a NetMind account token ("passport for visa" exchange).
@@ -596,12 +655,18 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     # complete config, which after chaining it actually does.
     _schedule_provider_provisioning(user.user_id, request.netmind_token)
 
+    # Onboarding guide agent — new users and existing zero-agent users get
+    # their first companion. Behind the suspended-account gate above, so a
+    # suspended login never provisions anything.
+    _schedule_guide_agent_provisioning(user.user_id, is_new=is_new)
+
     return NetmindLoginResponse(
         success=True,
         user_id=user.user_id,
         token=token,
         role=role,
         is_new_user=is_new,
+        guide_agent_provisioning=_guide_agent_feature_on(),
         display_name=user.display_name,
         email=user.email,
     )
@@ -732,7 +797,14 @@ async def get_agents(request: Request):
         agents = []
         for row in rows:
             description = row.get('agent_description')
-            # Check if Bootstrap.md exists for this agent (first-run setup pending)
+            # Check if Bootstrap.md exists for this agent (first-run setup pending).
+            # NOTE: this is the FRONTEND-facing bootstrap_active — deliberately a
+            # looser isfile-only rule (no event-count threshold), because a list
+            # endpoint can't afford a per-agent COUNT query. It diverges from
+            # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the two
+            # greeting writers' gate, which DOES apply the threshold) in the
+            # narrow "over threshold but Bootstrap.md not yet auto-deleted"
+            # window. Keep the two in mind together when touching either.
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
@@ -860,15 +932,18 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         # Generate unique agent_id
         agent_id = f"agent_{uuid4().hex[:12]}"
 
-        # Set default name if not provided
-        agent_name = request.agent_name or "New Agent"
+        # Set default name if not provided. Normalized FIRST: "   " is truthy,
+        # so an `or` on the raw value lets whitespace through as the name and
+        # the default never fires — the row then renders a blank sidebar title
+        # (worse than the agent_id fallback, which at least identifies it).
+        agent_name = normalize_agent_text(request.agent_name) or "New Agent"
         # No placeholder: an agent with nothing said about it yet has an EMPTY
         # description. The old filler ("A new agent ready for configuration")
         # was snapshotted into the bus registry and reported to peers as fact,
         # so a configured agent looked unconfigured and askers refused to send
         # (P1 section 02). Peers now see the name + machine-derived capabilities, and
         # the agent records a real description during bootstrap.
-        agent_description = request.agent_description or ""
+        agent_description = normalize_agent_text(request.agent_description)
 
         # Provisioning (agent row + default instances + peer-discovery
         # registration + bootstrap profile + default skills) is the
@@ -945,6 +1020,21 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         )
 
 
+def _not_persisted(fields: Iterable[str]) -> str:
+    """The one wording for "the row is not what you asked for".
+
+    Two checks reach it — the shared transaction's "did my write land" and this
+    route's "is the row what the caller requested" (they are different
+    questions; see update_agent). The user-facing sentence is the same one, and
+    duplicating the literal is how the two drift into two phrasings for one
+    failure.
+    """
+    # Sorts here rather than trusting each caller to: the helper exists so the
+    # two checks cannot drift into two sentences, and ordering is part of the
+    # sentence.
+    return f"The update did not persist: {', '.join(sorted(fields))}"
+
+
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
 async def update_agent(
     agent_id: str,
@@ -985,62 +1075,168 @@ async def update_agent(
 
         request = body  # preserve old local var name in body below
 
-        # Build update data
-        update_data = {}
+        # What the caller asked for, in the form it will be STORED in —
+        # `normalize_agent_text` on the way in, so "already equal" below and
+        # "what the row holds" afterwards can never mean different things.
+        requested: dict = {}
         if request.agent_name is not None:
-            update_data["agent_name"] = request.agent_name
+            requested["agent_name"] = normalize_agent_text(request.agent_name)
         if request.agent_description is not None:
-            update_data["agent_description"] = request.agent_description
+            requested["agent_description"] = normalize_agent_text(
+                request.agent_description
+            )
         if request.is_public is not None:
-            update_data["is_public"] = int(request.is_public)
+            requested["is_public"] = int(request.is_public)
 
-        if not update_data:
+        if not requested:
             return UpdateAgentResponse(
                 success=False,
                 error="No fields to update"
             )
 
-        # Execute update
-        affected_rows = await repo.update_agent(agent_id, update_data)
-
-        if affected_rows > 0:
-            # Peers must learn the new name / description / visibility now.
-            # Before this the discovery row was only rewritten when the agent
-            # next took a turn, so an agent edited and left idle stayed
-            # undiscoverable — and its row still carried the creation
-            # placeholder (P1 section 02). Best-effort: the edit itself has landed.
-            await sync_agent_discovery(db_client, agent_id)
-            # Get the updated agent info
-            updated_agent = await repo.get_agent(agent_id)
-            # Check bootstrap_active (Bootstrap.md exists in workspace)
-            from xyz_agent_context.settings import settings
-            from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
-            workspace_path = str(resolve_existing_workspace(
-                agent_id, updated_agent.created_by, settings.base_working_path
-            ))
-            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
-
-            agent_info = AgentInfo(
-                agent_id=updated_agent.agent_id,
-                name=updated_agent.agent_name,
-                description=updated_agent.agent_description,
-                status='active',
-                created_at=format_for_api(updated_agent.agent_create_time),
-                is_public=updated_agent.is_public,
-                created_by=updated_agent.created_by,
-                bootstrap_active=bootstrap_active,
-            )
-            logger.info(f"Agent {agent_id} updated successfully")
-
-            return UpdateAgentResponse(
-                success=True,
-                agent=agent_info,
-            )
-        else:
+        # An agent with no name falls back to rendering its raw agent_id in
+        # every surface. The awareness tool has always refused this; the HTTP
+        # route accepted it, so the same input was rejected on one path and
+        # stored on the other. Whitespace-only is the same request — it is
+        # caught here rather than by a schema `min_length`, which "  " passes.
+        if "agent_name" in requested and not requested["agent_name"]:
             return UpdateAgentResponse(
                 success=False,
-                error="No changes made"
+                error="Agent name cannot be empty",
             )
+
+        # One shared rename transaction, not a hand-rolled column write.
+        # Setting agents.agent_name is only a THIRD of a rename: the Awareness
+        # profile carries a platform-voiced record of the agent's identity, and
+        # the peer directory carries the name other agents see. This route used
+        # to do the first and the third and skip the second, so a UI rename left
+        # a correction behind that still named the PREVIOUS name — and the agent
+        # read it and kept introducing itself that way (Shenzhen round 2, P1,
+        # prod agent_4a0ae5f40af2: the row said 「小绿」, the profile said "You
+        # are 「美食家」", and it answered 美食家 twice). Everything the old inline
+        # block did — normalize, value-equality short-circuit, re-read instead
+        # of rowcount, unconditional directory refresh — now lives in
+        # apply_agent_profile_change, shared with the agent's own tool and the
+        # Manyfold route, so no writer can be one step out of date again.
+        #
+        # is_public rides along as an extra: it carries no identity meaning, but
+        # putting it in the same call keeps the row write single rather than
+        # opening a window where the row is half-updated.
+        result = await apply_agent_profile_change(
+            db_client,
+            agent_id,
+            new_name=requested.get("agent_name"),
+            new_description=requested.get("agent_description"),
+            # None means "not passed"; False is a value, so read the presence of
+            # the key rather than its truthiness.
+            is_public=(
+                bool(requested["is_public"]) if "is_public" in requested else None
+            ),
+        )
+
+        if not result.ok:
+            # The shared transaction speaks to models; this route speaks to a
+            # UI. Map on the structural reason, never on the sentence.
+            if result.error_kind == "not_found":
+                return UpdateAgentResponse(
+                    success=False,
+                    error=f"Agent {agent_id} not found",
+                )
+            if result.error_kind == "not_applied":
+                return UpdateAgentResponse(
+                    success=False,
+                    error=_not_persisted(result.unapplied_fields),
+                )
+            # Every remaining kind gets a sentence written for this route's
+            # reader. `result.error` is composed for a MODEL — "Error: new_name
+            # is too long (max 255 characters)" reads as a leaked internal
+            # string in a dialog — and the two audiences drift the moment either
+            # is reworded. `empty_name` and `too_long` are unreachable through
+            # this route's own validation above and the schema's max_length, but
+            # a mapping that depends on a caller's other guards is a mapping
+            # that breaks when one is relaxed.
+            return UpdateAgentResponse(
+                success=False,
+                error={
+                    "empty_name": "Agent name cannot be empty",
+                    "too_long": (
+                        f"Name and description are limited to "
+                        f"{AGENT_TEXT_MAX_LENGTH} characters"
+                    ),
+                    "nothing_to_update": "No fields to update",
+                }.get(result.error_kind or "", "The update could not be applied"),
+            )
+
+        # The row is the response. Whether it needed a write ("updated") or
+        # already held the values ("unchanged"), the state the caller asked for
+        # is the state that exists — both are success.
+        updated_agent = await repo.get_agent(agent_id)
+        if not updated_agent:
+            return UpdateAgentResponse(
+                success=False,
+                error=f"Agent {agent_id} disappeared while being updated",
+            )
+
+        # The transaction verified that what it WROTE landed. That is not the
+        # same question this route owes its caller, which is whether the row is
+        # now in the state they asked for — a field that compared equal at read
+        # time issued no write and so was never on the transaction's list, yet a
+        # concurrent writer (a second tab, or the agent's own
+        # update_agent_profile) can have moved it inside the window. Benign
+        # last-write-wins, but the caller is still told no, because the row
+        # genuinely is not what they requested. WARNING, not ERROR: there is no
+        # CAS across read-write-reread, so this must not page anyone.
+        unapplied = [
+            field
+            for field, wanted in requested.items()
+            if not agent_field_matches(updated_agent, field, wanted)
+        ]
+        if unapplied:
+            logger.warning(
+                f"Agent {agent_id} does not hold the requested values for "
+                f"{unapplied} after the write — concurrent overwrite, or the "
+                f"write did not land"
+            )
+            return UpdateAgentResponse(
+                success=False,
+                error=_not_persisted(unapplied),
+            )
+
+        # Check bootstrap_active (Bootstrap.md exists in workspace). Frontend-facing,
+        # isfile-only rule (no threshold) — see the /api/auth/agents note above and
+        # xyz_agent_context.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
+        from xyz_agent_context.settings import settings
+        from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+        workspace_path = str(resolve_existing_workspace(
+            agent_id, updated_agent.created_by, settings.base_working_path
+        ))
+        bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+
+        agent_info = AgentInfo(
+            agent_id=updated_agent.agent_id,
+            name=updated_agent.agent_name,
+            description=updated_agent.agent_description,
+            status='active',
+            created_at=format_for_api(updated_agent.agent_create_time),
+            is_public=updated_agent.is_public,
+            created_by=updated_agent.created_by,
+            bootstrap_active=bootstrap_active,
+        )
+        logger.info(
+            f"Agent {agent_id} now holds the requested values "
+            f"({'written' if result.status == 'updated' else 'already stored'})"
+        )
+
+        return UpdateAgentResponse(
+            success=True,
+            agent=agent_info,
+            # Surfaced, not swallowed: the shared transaction computes it and
+            # the agent-facing tool has always reported it, but this route used
+            # to drop it — leaving the UI as the one rename path where handing
+            # a name to a second agent happens silently.
+            name_clash_with=result.name_clash_with,
+            identity_record_updated=result.identity_record_updated,
+        )
 
     except Exception as e:
         logger.exception(f"Error updating agent: {e}")
@@ -1554,9 +1750,11 @@ async def create_user(request: CreateUserRequest):
             event=EVENT_SIGNED_UP,
             properties={PROP_METHOD: "create_user"},
         )
+        _schedule_guide_agent_provisioning(request.user_id, is_new=True)
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
+            guide_agent_provisioning=_guide_agent_feature_on(),
         )
 
     except Exception as e:
@@ -1702,9 +1900,12 @@ async def get_session(http_request: Request):
 async def get_onboarding(http_request: Request):
     """Return the authenticated user's onboarding checklist state.
 
-    The frontend calls this on chat-page mount to decide whether to show
-    the checklist card and which rows are already checked. Identity comes
-    from auth_middleware (was a client-supplied query param).
+    2026-08-19: the checklist card that read this on chat-page mount is
+    retired (the auto-provisioned guide agent carries onboarding now), so
+    this GET currently has no frontend caller. Kept deliberately: the POST
+    below still writes this state (useCreateAgent / bundle import), and this
+    is its only read API — for ops queries and any future progress surface.
+    Identity comes from auth_middleware (was a client-supplied query param).
     """
     user_id = await resolve_current_user_id(http_request)
     try:

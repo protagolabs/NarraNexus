@@ -103,6 +103,9 @@ import type {
   FeeInfoResponse,
   RecordsResponse,
   RechargeResponse,
+  RechargePaymentMethod,
+  SubscribePaymentMethod,
+  FxQuoteResponse,
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
@@ -116,6 +119,7 @@ import type {
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
 
@@ -615,10 +619,21 @@ class ApiClient {
   }
 
   async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
-    return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
+    const res = await this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
       method: 'POST',
       body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
     });
+    // Every cloud login flow (login page, ?token= pass-through, OAuth
+    // callback) converges HERE, so this is the one place that reliably sees
+    // is_new_user — the flag that arms the one-shot "create your own agent"
+    // coachmark for users whose first agent was auto-provisioned server-side.
+    // guide_agent_provisioning gates it on the SERVER's kill-switch: with
+    // provisioning disabled, the coachmark would promise an agent that never
+    // appears.
+    if (res.success && res.is_new_user && res.guide_agent_provisioning) {
+      markGuideCoachmarkPending();
+    }
+    return res;
   }
 
   /**
@@ -641,13 +656,18 @@ class ApiClient {
   }
 
   async createUser(userId: string, displayName?: string): Promise<CreateUserResponse> {
-    return this.request<CreateUserResponse>('/api/auth/create-user', {
+    const res = await this.request<CreateUserResponse>('/api/auth/create-user', {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
         display_name: displayName,
       }),
     });
+    // Local-mode signup is by definition a brand-new user — arm the same
+    // "create your own agent" coachmark the cloud path arms via is_new_user,
+    // under the same server-side kill-switch gate.
+    if (res.success && res.guide_agent_provisioning) markGuideCoachmarkPending();
+    return res;
   }
 
   async updateTimezone(userId: string, timezone: string): Promise<UpdateTimezoneResponse> {
@@ -660,18 +680,17 @@ class ApiClient {
     });
   }
 
-  /** New-user onboarding checklist state (cloud version). */
-  async getOnboarding(userId: string): Promise<OnboardingResponse> {
-    return this.request<OnboardingResponse>(
-      `/api/auth/onboarding?user_id=${encodeURIComponent(userId)}`,
-    );
-  }
-
   /** Mark a single onboarding step complete. Write-once-true on the
-   *  backend — passing a step here can only ever set it, never clear it. */
+   *  backend — passing a step here can only ever set it, never clear it.
+   *  The checklist card that used to READ this state is retired (the
+   *  auto-provisioned guide agent replaced it); the write stays because the
+   *  progress metadata still feeds analytics and the server-side
+   *  guide-agent marker shares the same metadata blob. */
   async markOnboardingStep(
     userId: string,
-    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+    // 'dismissed' left the union with the checklist card (its only setter);
+    // the backend still accepts it, so re-adding is a one-line change.
+    step: 'first_agent_created' | 'template_applied',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',
@@ -1806,8 +1825,24 @@ class ApiClient {
   }
 
   // Start a Pro subscription — returns Stripe checkout_url to redirect to.
-  async subscribe(): Promise<SubscribeResponse> {
-    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  //
+  // `months` applies to the one-time products (alipay / wechat) ONLY. The
+  // backend REJECTS it on a card subscription rather than ignoring it, so it is
+  // omitted here instead of defaulted: sending "card, 6 months" would describe
+  // a purchase that cannot happen.
+  async subscribe(
+    paymentMethod: SubscribePaymentMethod = 'stripe',
+    months?: number,
+  ): Promise<SubscribeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const body: Record<string, unknown> = { payment_method: paymentMethod };
+    if (paymentMethod !== 'stripe') body.months = months ?? 1;
+    return this.request<SubscribeResponse>('/api/billing/subscribe', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify(body),
+    });
   }
 
   // Cancel = turn off auto-renew (stays Pro until period end).
@@ -1823,13 +1858,31 @@ class ApiClient {
   // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
   // default) and return checkout_url to open externally, then poll
   // rechargeStatus(session_id) until succeeded/failed.
-  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+  // `amount` is ALWAYS the USD credit being bought, even when the payer is
+  // charged in CNY — the backend derives the charge currency from the method,
+  // because upstream 400s when the two disagree.
+  async recharge(
+    amount: number,
+    paymentMethod: RechargePaymentMethod = 'default',
+  ): Promise<RechargeResponse> {
     const token = this.getNetmindToken();
     if (!token) throw new Error('NetMind account not linked (no loginToken)');
     return this.request<RechargeResponse>('/api/billing/recharge', {
       method: 'POST',
       headers: { 'X-Netmind-Token': token },
-      body: JSON.stringify({ amount, currency }),
+      body: JSON.stringify({ amount, payment_method: paymentMethod }),
+    });
+  }
+
+  // What a CNY charge costs right now, for showing "$10 ≈ ¥73" BEFORE the user
+  // commits. Quote-only: never call this to decide an amount, only to display
+  // one — the charge is priced upstream at its own live rate.
+  async fxRate(amount?: number): Promise<FxQuoteResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = amount !== undefined ? `?amount=${encodeURIComponent(amount)}` : '';
+    return this.request<FxQuoteResponse>(`/api/billing/fx-rate${qs}`, {
+      headers: { 'X-Netmind-Token': token },
     });
   }
 
@@ -1998,8 +2051,22 @@ class ApiClient {
 
   // --- Team group chat (over the message bus) ---
 
-  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
-    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+  /**
+   * A page of a team room's transcript.
+   *
+   * Three modes, and the cursors are mutually exclusive: no cursor is the
+   * NEWEST page (what the room opens on), `since` walks forward from what is on
+   * screen (the poll), `before` walks back into history (load more).
+   */
+  async getTeamChat(
+    teamId: string,
+    since?: string,
+    before?: string,
+  ): Promise<TeamChatHistoryResponse> {
+    const params = new URLSearchParams();
+    if (before) params.set('before', before);
+    else if (since) params.set('since', since);
+    const q = params.toString() ? `?${params}` : '';
     return this.request<TeamChatHistoryResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
     );

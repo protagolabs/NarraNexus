@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -184,3 +184,22 @@ review R2 指出的读数纪律缺口：admission slot 的排队在 run() 之外
 云端 chat（admission 仅云端启用）。slot() 前后打点,等待 ≥1s 才落
 `[admission-timing] agent= user= admit_wait_s=`（无竞争的秒下毫秒级等待是
 噪音,不记）。与 bus 路径的 queue_wait_s 对应。
+
+## 2026-08-18 — `on_event` = emit + artifact outbox drain
+
+drive 循环从直调 `emit` 改为 `on_event`:先照常 emit,若事件被
+`_classify_event` 判为 tool_output,再 drain 本 agent 在
+`instance_artifact_events` 里的未消费行,逐条经 `emit` 重发——录制
+(event_stream)+广播(WS)一次拿齐。为什么门禁在 tool output:那是注册表
+写入的提交边界(改表的工具刚返回),且 text delta 高频,不允许每条背一次
+DB 查询。run 外staging 的行(HTTP 删除等)在下一次 run 的首个 tool output
+迟到送达——刻意如此,前端 updated_at 单调守卫+打开全量拉兜底。
+**best-effort 契约**:drain 任何失败只 warning,run 循环永不因事件化而断
+(异常在此处被"精确且有声"地处理,合规事故教训 #2/#3)。
+
+## 2026-08-20 — 排水走 ArtifactEventRepository(__init__ 一次构造)(#334 I9/r2 M1)
+
+两条手写 SQL 收编进 [[artifact_event_repository.py]];repo 在
+`__init__` 一次构造——不再「循环内懒构造 + None 哨兵」:排水在每个
+tool-output 边界跑,且懒构造会把 ImportError 藏进 best-effort try
+里降级成一行 warning,本该启动即炸的错误被消音。

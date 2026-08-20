@@ -79,15 +79,6 @@ class RunContext:
     # ===== Cancellation =====
     cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token
 
-    # ===== Platform delivery (team rooms) =====
-    # Posts a team room's plain-text reply and returns whether the room took it.
-    # Supplied by MessageBusTrigger for team-room turns only; None everywhere
-    # else. It lives on the turn rather than after `run()` because the chat rows
-    # are written inside the run — a post that happens later cannot be recorded
-    # as a reply, and recording it optimistically would be the lie this exists
-    # to remove.
-    on_plain_text_delivery: Optional[Any] = None
-
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None
     event: Optional["Event"] = None

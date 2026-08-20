@@ -1,8 +1,186 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-08-11
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 改名的导入现在会纠正身份记忆
+
+本文件**会改名**:`unique_value` 加去重后缀、clamp 截长、空名兜到
+`"Imported Agent"`,`renamed = (final_name != clamped_name)` 就是这个判据。而
+`instance_awareness` 是**逐行复制**的,于是导入进来的 agent 行里是
+`小绿 (1)`、自己的 profile 却继续声明 `小绿` —— 深圳第二轮那个状态,从导入路径进来。
+
+已在 awareness 行插入**之后**接一次 `reconcile_identity_record(db, new_aid,
+final_name)`。三个要点:
+
+- **顺序要紧**:必须在 `_ins("instance_awareness", ...)` 之后,否则更正写进一个还
+  不存在的行。
+- **用对账,不用改名事务**:那个事务的前置是「行已存在且可写」,这里行刚被创建、
+  且里面已经是最终名字。
+- **天然幂等**:profile 与行一致时返回 `None`,所以每次导入都调是安全的。
+
+返回 `False`(发现了不一致但没修成)时打 warning —— 那正是事故本体的状态,不该只留在
+一条会被轮转掉的日志里以外什么都没有。
+
+⚠ `tests/schema/test_only_one_writer_of_agent_name.py` 的 allowlist 里,本文件那条
+理由**曾经写的是「创建路径无需纠正旧名」——对本文件是假的**。已改成陈述真实情况。
+闸门的价值等于它理由的可信度:下一个扩那个列表的人会照抄上一条的说辞。
+
+## 2026-08-19 — PR#327 I1:唯一冲突判定收敛到共享谓词(六处里唯一被收紧的一处)
+
+`instance_narrative_links` case 2 那个 `except` 分支的判定从本文件的裸字符串匹配换成
+共享 [[dialect_errors.py]] 的 `is_unique_violation`。六处收敛里,**只有这一处是被收紧的**:
+原判定含裸 `unique` / `duplicate` 子串,新谓词要求**完整短语**。收紧安全,因为两方言的真实
+冲突文本都含完整短语——sqlite 抛 `UNIQUE constraint failed: ...`、mysql 抛
+`Duplicate entry ... 1062`(SQLite Proxy 只是**前缀**包装、不是替换,`... error (/insert):
+UNIQUE constraint failed` 仍命中)。
+
+判**错**方向也随之翻转:旧的裸子串会把文本恰好含 `unique`/`duplicate` 的**无关**失败
+误判成冲突 → 悄悄吞掉当成"已去重";新谓词更严,漏判方向变成把**真冲突**误当无关错误
+`raise` 出去 → `confirm()` 中途 abort、触发回滚、部分导入失败。所以这一处必须有真库真冲突
+的测试兜住(见 `tests/bundle/test_narrative_link_dedup.py`:两个 agent 共享同一 instance
+的 bundle,断言 case 2 走 dedup 而非抛)。
+
+## 2026-08-18(补)— 空名兜底,五条创建路径就此闭环
+
+`final_name = final_name or "Imported Agent"`,放在 dedupe **之后**。
+
+本文件是五条创建路径里最后一条还能把**空名**存进库的:auth 路由回退
+`"New Agent"`、[[applier.py]] 回退 `"Imported Agent"`、两条 `create_agent` 腿直接拒,
+而这里归一出 `""` 之后没有兜底,`dedupe_name` 无冲突时原样返回就落库了。
+bundle 是用户上传的 zip,`agent.json` 里名字为空或纯空格是很正常的输入;
+存成空名的 agent 在侧栏、peer 名录里都只能显示裸 `agent_id`。
+
+**放在 dedupe 之后**:放之前,每一个空名 bundle 都会去和库里已有的
+`"Imported Agent"` 撞名、被加 `" (n)"` 后缀;放之后同名重复是允许的
+(`agent_name` 无 UNIQUE,上面的注释已说明)。
+
+测试:`tests/bundle/test_agent_field_normalization.py`
+`test_an_empty_bundle_name_gets_the_import_fallback`,用「删掉这行再跑」验证过会红。
+
+## 2026-08-18 五审 — manifest 的 `agents` 一并收口
+
+四审给 `archive_ref` 加了闸，但 `manifest["agents"]` 的每一项同样会变成
+`work_dir/agents/{aid}/agent.json` / `.../channel_credentials.json` 的路径段，
+仍然裸着——**同一份 manifest、同一类字符串，只收了一个字段**，正是四审刚写下
+的"逐字段补闸"教训的又一次现场。
+
+现在闸在 **manifest 入口**（preflight 读完 manifest、任何人用它拼路径之前），
+每一项过 `sanitize_filename`，不合格 **整份 bundle 拒掉**。
+
+拒整份而不是跳过该 agent 是有意的：`aid` 同时是 `id_map` 的键、也出现在 summary
+里，过滤一半会让 id_map 与 per-agent 写入对不上（`id_map[old_aid]` 直接
+KeyError）。legacy bundle 的 agent id 形状不保证是 `agent_*`，所以判据用
+`sanitize_filename`（单段 / 无分隔符 / 非 `..`），不是前缀断言。
+
+最现实的命中面不是宿主机随机路径，而是**另一个用户同时在做导入**时的
+`bundle_preflight/nx-import-*`（前缀固定，只有 mkdtemp 后缀要猜）。
+
+## 2026-08-18 四审 — `archive_ref` 也是不受信字符串
+
+`zip_path = work_dir / archive_ref` 两处（zip / full_copy 分支）。`archive_ref`
+来自**被导入 bundle 的 manifest**，即由 bundle 作者完全控制，却被原样 join。
+`"../../../root/.nexusagent/.../x.zip"` 让导入流程读 work_dir 之外的文件，zip
+分支随后把它 `copy2` 进导入者自己的 `skill_archives` 并装成 skill——之后这个用
+户导出时，这份"战利品"会正常随包走出去。
+
+这是导出侧 `skill_dir` 的**镜像面**：同一个 bug 类，只是不受信字符串来自
+manifest 而不是请求体。收进 `_bundle_member_path(work_dir, archive_ref)`：
+`validate_zip_member_path` 校验段序列 → resolve 后判前缀 → 不安全返回 `None`。
+返回 `None` 而不是抛：调用方本来就把 `None` 当"包里没有这个归档"处理、记进
+`skill_install_failures`，形状不变。
+
+⚠️ 用 `validate_zip_member_path` 而**不是** `ensure_within_directory`：合法
+`archive_ref` 是多段路径（`skills/{agent_id}/{name}-full.zip`），后者只接单段，
+直接套会把所有正常 bundle 打死。
+
+## 2026-08-17 — SEC-07：manifest 里的 `skill_name` 也是不可信输入
+
+skills 段原先自己拼 `skill_archives_dir / f"{skill_name}.zip"` 和
+`_full.zip` 两处。这个 `skill_name` 来自**导入的 bundle manifest**，也就是
+谁做的 `.nxbundle` 谁写的——和一个表单字段同级的不可信度。同一个文件里
+1328 行给 skills 目录做了 `sanitize_filename`，唯独归档这两处漏了。
+
+两处改走 [[skill_backup.py]] 的 `prepare_archive_target()`，`skill_archives_dir`
+局部变量随之删除。恶意 manifest 名现在抛 `ValueError`，被 skills 循环既
+有的 `except Exception` 记成**单个 skill 的 install failure**（进
+`skill_install_failures` / warnings），不会中断整份 import——和其他
+per-skill 失败一致。
+
+### 同批修掉的既有缺陷：zip 分支的归档行从来没写进去过
+
+zip 分支把已经就位的 `tgt` 交给 `backup_after_api_install`，而那个 helper
+是为"把外面的 zip 拷进登记处"设计的——它自己又算一次
+`archive_target`，得到同一个路径，`shutil.copy2(tgt, tgt)` 必抛
+`SameFileError`，被它那个宽 `except Exception` 吞成一条 warning，于是
+`register_archive` 永远不执行。**导入含 zip 方式 skill 的 bundle 后，该
+用户的 `skill_archives` 里没有对应行。**
+
+后果不是"导出少一个 skill"（前端在没有归档行时默认走 full_copy，改动前后
+都一样），而是**导入来的 skill 永远无法以 zip 方式再导出，只能 full_copy
+——包更大，且 full 模式会把 secrets 一起带走**。
+
+现在 zip 分支直接 `register_archive(archive_path=str(tgt))`，形状照抄
+full_copy 分支。回归测试 `test_imported_zip_skill_registers_archive` 钉住这
+条，改回旧写法会红。
+
+**sha256 一律由落盘文件现算，不取 manifest 的值**（2026-08-17 二审修正）。
+初版写的是"优先用 manifest 的，因为包内 zip 与落盘文件逐字节相同"——这句
+有两个反例：
+
+1. **de-dup 哨兵**：[[builder.py]] 对同一个 skill 的第 2..N 条 entry 写的是
+   `sha256: "shared"`（它们共用一个 `archive_ref`）。importer 对每条 entry
+   都 upsert 一次、后写覆盖先写，于是"两个 agent 共用一个 zip skill"的
+   bundle 导入后，`skill_archives.sha256` 就是字面量 `"shared"`。`or` 只兜
+   `None` / 空串，兜不住哨兵。
+2. **`tgt` 已存在时不拷贝**：上面那句 `if not tgt.exists()` 意味着用户此前
+   自己传过同名归档时保留旧字节，而 manifest 的 digest 描述的是新 zip。
+
+这一列的唯一用途就是完整性，写进一个已知有时为假的值比多算一次 hash 差得
+多。`test_shared_skill_import_records_a_real_sha` 用**两个 agent**的 bundle
+钉住它（单 agent 复现不出来），断言 `re.fullmatch(r"[0-9a-f]{64}", ...)`，
+并先断言 manifest 里确实带了 `"shared"` 哨兵——否则用例会因为错误的理由变
+绿。
+
+> `full_copy` 分支的 `s.get("sha256", "imported")` 是同一类哨兵，但不在本次
+> 改动面上，要改单独一条 commit + 自己的用例。
+
+> 这个缺陷藏了这么久的直接原因是 `skill_backup.py` 那个宽
+> `except Exception`（铁律"不要为了日志干净吞异常"）。收窄它是紧跟其后的
+> 独立 commit，不和本条混在一起，否则说不清哪个修复对应哪条测试。
+
+## 2026-08-17(补)— dedupe 之后要**重新归一**,不只是重新 clamp
+
+原来的注释论证了「clamp 必须在 dedupe 之后再来一次,因为 ` (n)` 自己没有长度预算」
+—— 同一个论证对**归一**同样成立,当时只做了 clamp。`dedupe_name` 在候选名为空串时
+返回 `" (1)"`,**带前导空格**,而这个值不再经过任何归一就进了 `_ins`,于是成了本 PR
+之后唯一还能产出未归一 `agents` 行的路径(命中很窄:bundle 里名字为空/纯空格,且
+该 owner 名下已有一行空名 —— 现实中只能由上一次同样的导入产生)。
+
+现在是 `_clamp_agent_text(normalize_agent_text(deduped_name))`。顺序契约完整表述:
+**归一在 dedupe 前**(否则带空白的名字匹配不上库里已归一的同名行,该去重的没去重),
+**dedupe 后归一 + clamp 各再来一次**(` (n)` 既没有长度预算也没有空白预算)。
+
+测试:`tests/bundle/test_agent_field_normalization.py`(5 条)。其中区分「归一在
+dedupe 前」与「在后」的**只有一条输入**:库里已有归一的同名行 + bundle 带空白的同名,
+断言最终值是 `小绿 (1)`。注意 `agents_renamed == 1` **不是**判别式 —— 错误顺序下
+它也为真(post-dedupe 归一让 `final_name != clamped_name`),测试里就地注明了。
+两条都用「移动那行代码再跑」验证过确实会红。
+
+## 2026-08-17 — 导入的 agent 名字/描述先归一,再 dedupe、再 clamp
+
+`_ins("agents", …)` 是绕过 [[agent_repository]] 的直写,所以归一必须在这里自己做:
+库里存着 `" 小绿 "` 的行**永远改不了名** —— 改名路径([[auth.py]])比较归一后的值,
+owner 存去掉空白的同名会被判「已相等」,一次写都不发而接口答成功。
+装一个名字带空白的 bundle 就会落下这样一行(team marketplace 安装走同一条路)。
+
+**顺序是三步,不能换**:`normalize_agent_text` → `dedupe_name` → `_clamp_agent_text`。
+
+- 归一在 dedupe **之前**:带空白的名字不会与库里已归一的同名行匹配上,
+  该去重的没去重。
+- clamp 仍在 dedupe **之后**再来一次(原有理由不变):`dedupe_name` 追加的
+  " (n)" 自己没有长度预算,255 + " (1)" = 259 会重新越过上限。
 
 ## 2026-08-11 — bundle 导入 MCP URL 加 SSRF 筛（安全审计 P0-3）
 

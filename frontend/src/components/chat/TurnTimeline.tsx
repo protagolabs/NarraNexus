@@ -167,9 +167,12 @@ const ToolCallBlock = memo(function ToolCallBlock({
           >
             {t('chat.timeline.toolLabel')}
           </span>
-          <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
-            {friendlyName}
-          </span>
+          {/* Same rule as the output row: no name recovered → label alone. */}
+          {friendlyName && (
+            <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
+              {friendlyName}
+            </span>
+          )}
           {!expanded && argsPreview && (
             <span className="ml-2 truncate" style={{ color: 'var(--nm-ink50)' }}>
               {argsPreview}
@@ -216,7 +219,9 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
         <span style={{ color: 'var(--nm-ink30)' }} className="uppercase tracking-[0.12em]">
           {t('chat.timeline.outputLabel')}
         </span>
-        <span>{toolName.split('__').pop()}</span>
+        {/* No name recovered → label alone; a literal placeholder word next
+            to every output row reads as a bug, not as information. */}
+        {toolName && <span>{toolName.split('__').pop()}</span>}
       </button>
       {expanded && (
         // No max-h / overflow — single parent scroll surface only.

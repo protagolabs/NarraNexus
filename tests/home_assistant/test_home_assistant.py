@@ -12,6 +12,8 @@ cover the pure logic + the "not connected yet" path a fresh agent hits.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import socket
 
 import pytest
 
@@ -25,6 +27,34 @@ from xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_clie
     validate_base_url,
 )
 from xyz_agent_context.schema.home_assistant_schema import HAConfig
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch):
+    """Keep the URL guard off the network.
+
+    `validate_base_url` resolves every host through `socket.getaddrinfo`, so a
+    test that passes a NAME does a live lookup: `homeassistant.local` is mDNS
+    and `x.ui.nabu.casa` is a real domain. That was 5 seconds of the suite on
+    this machine, and worse than slow — the verdict depended on whatever the
+    runner's resolver happened to answer, including "nothing" in a sandbox.
+
+    Numeric hosts echo themselves, because the SSRF cases are asserting on the
+    exact address they passed in; names resolve to a fixed public address,
+    which is what those tests mean by "a normal host".
+    """
+    def _fake_getaddrinfo(host, port, *_args, **_kwargs):
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            # A genuinely global address. The documentation ranges
+            # (203.0.113.0/24 and friends) read as `is_private` to Python's
+            # ipaddress, which is exactly what the cloud SSRF guard rejects —
+            # the obvious "fake public IP" is not one.
+            host = "93.184.215.14"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
 
 
 def test_validate_base_url_accepts_lan_and_https():

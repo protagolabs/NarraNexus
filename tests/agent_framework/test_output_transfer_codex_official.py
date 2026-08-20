@@ -469,7 +469,7 @@ def test_item_started_websearch_hoists_queries_list():
 def test_item_completed_camelcase_mcp_tool_call_normalized():
     """Same normalization for ``mcpToolCall`` — needs to surface as a
     tool_call_output_item so the no_reply detector matches
-    send_message_to_user_directly."""
+    reply_owner."""
     evs = _t({
         "method": "item/completed",
         "payload": {
@@ -477,7 +477,7 @@ def test_item_completed_camelcase_mcp_tool_call_normalized():
                 "type": "mcpToolCall",  # <-- camelCase from SDK
                 "id": "m1",
                 "server": "chat_module",
-                "tool": "send_message_to_user_directly",
+                "tool": "reply_owner",
                 "result": {"success": True},
             },
         },
@@ -485,7 +485,7 @@ def test_item_completed_camelcase_mcp_tool_call_normalized():
     assert len(evs) == 1
     item = evs[0]["item"]
     assert item["type"] == "tool_call_output_item"
-    assert item["tool_name"] == "mcp__chat_module__send_message_to_user_directly"
+    assert item["tool_name"] == "mcp__chat_module__reply_owner"
 
 
 def test_item_started_mcp_tool_call_emits_tool_call_item():

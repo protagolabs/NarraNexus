@@ -11,11 +11,13 @@ Usage:
     uvicorn backend.main:app --reload --port 8000
 """
 
+import asyncio
+import time
 import os
 import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
@@ -24,6 +26,50 @@ from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode, assert_jwt_secret_safe
+
+
+# Budget for /health's database round-trip. Must stay comfortably under the
+# container healthcheck's own `timeout: 5s` (stacks/narranexus-app/compose.yml)
+# — if the probe outlives the healthcheck, docker records a timeout instead of
+# our "unhealthy + reason" body and the reason is lost.
+_HEALTH_DB_TIMEOUT_SEC = 3.0
+
+# How long a probe result is reused. `/health` is public and unauthenticated
+# (backend.auth's allowlist; nginx passes it straight through), so without this
+# anyone can make the backend spend a pooled connection per request — and the
+# pool is 10. A few hundred requests a second would hold every connection while
+# real traffic queued on `pool.acquire()`: an endpoint added to make failure
+# visible, turned into a way to cause it. Worse, that is most available exactly
+# during an incident, when the endpoint is most likely to be probed.
+#
+# The value is chosen against the container healthcheck's `interval: 30s`: at
+# 5s, any single prober still gets a fresh round-trip on every one of its own
+# polls, while a flood arriving after a result is published collapses onto one
+# query. Two probers landing within 5s
+# of each other will have the later one served from cache — acceptable, and the
+# reason the window is far smaller than the poll interval rather than merely
+# smaller. Its relationship to `_HEALTH_DB_TIMEOUT_SEC` is NOT load-bearing:
+# the deadline below is computed when a probe PUBLISHES, so no caller can be
+# handed an entry that expired while it was being produced.
+#
+# KNOWN LIMIT: this closes the amplification for a healthy database, where a
+# probe returns in milliseconds. While the database is slow, requests arriving
+# before the in-flight probe publishes still each run their own. Single-flight
+# would close that too; it was tried and pulled back out of this PR — the
+# machinery (a per-loop lock, a shared budget across queueing and probing, a
+# degrade path) failed review three rounds running and produced a false
+# "unhealthy" of its own. It belongs in its own change, not riding along with
+# an outage fix.
+_HEALTH_CACHE_TTL_SEC = 5.0
+
+# (probe_started_at, monotonic_deadline, ok, detail).
+#
+# The write is guarded by when the probe STARTED, not when it finished. Probes
+# can overlap (see the known limit above), and without the guard a slow failing
+# probe that began before a fast succeeding one would overwrite the good result
+# on arrival and keep reporting unhealthy for a further TTL after the database
+# had recovered — and the reverse, hiding a fresh failure.
+_health_cache: "tuple[float, float, bool, str] | None" = None
 
 
 def _detect_bind_host() -> str:
@@ -400,16 +446,25 @@ app = FastAPI(
 # Middleware order is LIFO: the LAST registration is the OUTERMOST layer
 # and runs FIRST per request. Registration order below therefore yields
 #
-#     CORS  ->  access_log  ->  auth  ->  routes
+#     CORS  ->  access_log  ->  body_size  ->  auth  ->  routes
 #
 # and every response, including ones short-circuited deep inside, unwinds
-# back out through all three.
+# back out through all four.
 #
-# Two constraints are encoded here, both learned the hard way:
+# Three constraints are encoded here, all learned the hard way:
 #
 # 1. access_log must wrap auth, so a 401/402 that never reaches a route
 #    still produces an access line.
-# 2. CORS must wrap EVERYTHING. It used to be registered first, which made
+#
+# 1b. body_size must sit INSIDE access_log and OUTSIDE the routes
+#    (review #334 r4 I1): one layer further out and its 413s vanish from
+#    the access log (an on-call can't even confirm the request happened);
+#    pushed into the routes it becomes the fake after-the-fact gate the
+#    middleware exists to replace (FastAPI buffers the body before route
+#    dependencies run). It is header-only, so OPTIONS preflights (no
+#    Content-Length) pass through untouched.
+# 2. CORS must wrap EVERYTHING (including body_size's 413s — a cross-
+#    origin 413 without ACAO is invisible to the caller). It used to be registered first, which made
 #    it the innermost layer — so when auth_middleware returned a 401
 #    directly, CORSMiddleware never ran and that response carried no
 #    Access-Control-Allow-Origin header. Cross-origin callers (any
@@ -421,8 +476,10 @@ app = FastAPI(
 #    noticing the 401 at all — was silently dead code there.
 from backend.auth import auth_middleware
 from backend.middleware.access_log import access_log_middleware
+from backend.middleware.body_size import body_size_middleware
 
 app.middleware("http")(auth_middleware)
+app.middleware("http")(body_size_middleware)
 app.middleware("http")(access_log_middleware)
 
 app.add_middleware(
@@ -470,6 +527,8 @@ from backend.routes.notifications import router as notifications_router
 from backend.routes.admin.logs import router as admin_logs_router
 from backend.routes.admin.migration import router as admin_migration_router
 from backend.routes.admin.suspend import router as admin_suspend_router
+from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router
+from backend.routes.admin.warn import router as admin_warn_router
 from backend.routes.admin.runtime import router as admin_runtime_router
 from backend.routes.transcription.routes import router as transcription_router
 from backend.routes.transcription.public import router as transcription_public_router
@@ -528,6 +587,8 @@ app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
 app.include_router(admin_migration_router, tags=["AdminMigration"])
 app.include_router(admin_suspend_router, tags=["AdminSuspend"])
+app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])
+app.include_router(admin_warn_router, tags=["AdminWarn"])
 app.include_router(admin_runtime_router, tags=["AdminRuntime"])
 app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
@@ -552,6 +613,22 @@ app.include_router(
 async def health():
     """Detailed health check.
 
+    ``database`` is a real round-trip, not an assertion, and reports only a
+    coarse classification — this endpoint is public and unauthenticated, so the
+    driver's own message (which names the database host and user) stays in the
+    log. It used to be the
+    literal string "connected", which meant the probe reported a healthy
+    database while every request in the process was failing with
+    ``InterfaceError: (0, 'Not connected')`` — the container stayed green for
+    the whole 2026-08-17 outage and the monitoring built on top of it saw
+    nothing. A health field that cannot fail carries no information.
+
+    The probe deliberately goes through the ordinary client path (the same
+    pool and the same task-scoped transaction lookup real handlers use) so it
+    exercises what it claims to cover. It is bounded by a timeout well under
+    the container healthcheck's own 5s, so a hung database surfaces as
+    unhealthy rather than as a hung probe.
+
     Carries the team-summary worker's last pass so its liveness is observable
     from outside the process. Recording the counters and never exposing them
     would leave the same blind spot they were added for: "every room is quiet"
@@ -559,11 +636,117 @@ async def health():
 
     Reported, never judged — a non-zero ``failed`` is not an unhealthy service
     (a single team with a bad provider key must not fail the container's probe),
-    so ``status`` does not depend on it.
+    so ``status`` does not depend on it. The database check is the exception:
+    it *does* decide the status, because a backend that cannot reach its
+    database cannot serve any authenticated request.
+
+    DEPLOYMENT COUPLING — read before changing the 503.
+    The container healthcheck (deploy repo, ``stacks/narranexus-app/compose.yml``)
+    fetches this endpoint with ``urllib.request.urlopen``, which raises on 5xx,
+    so a 503 turns the container unhealthy. That is the point: it is what lets
+    container-state monitoring see a database outage at all, which it could not
+    on 2026-08-17.
+
+    What that costs, stated in full because half of it is easy to miss: **four**
+    services declare ``depends_on: backend: condition: service_healthy`` —
+    ``frontend``, plus ``mcp``, ``workers`` and ``model-sync`` through the
+    ``x-python-common`` anchor. So running ``docker compose up`` *while the
+    database is unreachable* does not degrade partially; compose **fails the
+    whole command** with "dependency failed to start: container
+    narranexus-backend is unhealthy". Nothing new starts: no frontend (the ops
+    Caddy loses its upstream and the public entrypoint returns 502 — the
+    frontend has no host port binding of its own), and no workers, which is
+    every channel trigger, the module poller, the job trigger and the message
+    bus.
+
+    Recovery order is therefore constrained to "fix the database first, then
+    deploy". Cold start already required the database (lifespan builds the
+    pool), so this changes redeploy-during-an-outage, not first boot; a stack
+    that is already running keeps serving until the probe flips after
+    ``retries: 5 x interval: 30s``.
+
+    Accepted deliberately: the alternative — pointing the healthcheck at the
+    shallow ``/healthz`` — restores the exact blind spot this endpoint was fixed
+    to close. Do not "fix" the coupling by making this return 200 with an
+    unhealthy body; a health field that cannot fail carries no information,
+    which is how the original bug survived.
+    """
+    cached = _health_cache
+    if cached is not None and time.monotonic() < cached[1]:
+        return _health_body(cached[2], cached[3])
+
+    return await _run_health_probe()
+
+
+async def _run_health_probe():
+    """Probe the database once and publish the result."""
+    global _health_cache
+
+    # Ordered by start time — see the note on `_health_cache`.
+    started = time.monotonic()
+    db_ok = False
+    db_detail = "unknown"
+    try:
+        # `get_db_client()` is inside the budget too: it can build a pool, and
+        # aiomysql's connect_timeout defaults to None, so a black-holed database
+        # would hang here — past the container healthcheck's own timeout, which
+        # would replace our reason with docker's "timed out" and reopen the very
+        # blind spot this probe closes.
+        async def _probe():
+            db = await get_db_client()
+            await db.probe()
+
+        await asyncio.wait_for(_probe(), timeout=_HEALTH_DB_TIMEOUT_SEC)
+        db_ok = True
+        db_detail = "connected"
+    except asyncio.TimeoutError:
+        db_detail = "timeout"
+        logger.error(
+            f"/health: database probe timed out after {_HEALTH_DB_TIMEOUT_SEC}s"
+        )
+    except Exception as exc:
+        # Exception TYPE only. This endpoint is public and unauthenticated
+        # (`/health` is on backend.auth's allowlist, reachable at
+        # https://<app domain>/health), and driver messages carry
+        # infrastructure detail: pymysql renders connect failures as
+        # "Can't connect to MySQL server on '<rds endpoint>'" and auth failures
+        # as "Access denied for user '<user>'@'<internal ip>'". Handing that to
+        # anyone who curls during an incident — exactly when it is most likely
+        # to be probed — is free reconnaissance. The class name still separates
+        # "can't connect" from "auth failed" from "pool dead", which is the
+        # distinction the on-call actually needs; the full message goes to the
+        # log below.
+        db_detail = type(exc).__name__
+        # Logged HERE, inside the except block. `logger.exception` outside one
+        # has no active exception to render — it prints a literal
+        # "NoneType: None" and the driver's message, the only place the real
+        # cause survives, is lost. That would leave the on-call with strictly
+        # less than before this endpoint was made truthful.
+        logger.opt(exception=exc).error(f"/health: database probe failed — {exc}")
+
+    # Cached whether it succeeded or FAILED, for the same duration. Caching
+    # only successes would leave the amplification wide open in exactly the
+    # situation it is dangerous — a database that is down or slow, with every
+    # request paying the full timeout. The cost is that recovery shows up up to
+    # 5s late, against a 30s probe interval.
+    # Only if no newer probe has already published — see the note on the cache.
+    current = _health_cache
+    if current is None or started >= current[0]:
+        _health_cache = (started, time.monotonic() + _HEALTH_CACHE_TTL_SEC, db_ok, db_detail)
+
+    return _health_body(db_ok, db_detail)
+
+
+def _health_body(db_ok: bool, db_detail: str):
+    """Render the response from a probe result, cached or fresh.
+
+    Split out so the cached path and the fresh path cannot drift — the worker
+    counters below are read at RESPONSE time, not probe time, so a cache hit
+    still reports the worker's current state.
     """
     body = {
-        "status": "healthy",
-        "database": "connected",
+        "status": "healthy" if db_ok else "unhealthy",
+        "database": db_detail,
     }
     summary_worker = getattr(app.state, "team_summary_worker", None)
     if summary_worker is not None:
@@ -571,6 +754,9 @@ async def health():
             "running": summary_worker.running,
             **summary_worker.last_pass,
         }
+
+    if not db_ok:
+        return JSONResponse(status_code=503, content=body)
     return body
 
 

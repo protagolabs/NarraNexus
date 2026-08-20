@@ -1,8 +1,55 @@
 ---
 code_file: src/xyz_agent_context/message_bus/patrol.py
-last_verified: 2026-08-11
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17（三）— 板子只读一次；docstring 承认它会写库
+
+**三次读降到两次**：`teams_due_for_patrol` 自己读一次板子，传给
+`expire_stale_errands`（新增 `candidates` 参数），再用它返回的 expired id 在内存里
+过滤出回收后的 items。上一版这里每个 team 每个 poll cycle 读两次
+`list_active`——而这条循环是消息派发的串行前缀，团队数是会长的。
+
+顺序仍是硬约束：`has_stalled` 与 `items[0].channel_id` 必须来自**回收之后**的板
+子。在内存里滤而不是重读，因为回收本来就告诉了我们它退休了哪些 id。变异检验：把
+`items` 换成回收前的 `board`，`test_the_recycle_happens_before_the_cadence_is_
+judged` 必红。
+
+**docstring 补「Not a pure query」**：这个函数现在会写库，而且那次写对**不在返回值
+里**的团队也生效（没有 lead 的团队被回收了却不会出现在 `due` 里）。此前这件事只写
+在函数体注释和 mirror 里，光读签名的人不会知道调它会取消工作项。
+
+## 2026-08-17（二）— 差事回收挂在候选循环里，而不是 stalled 判定里
+
+`expire_stale_errands` 的调用点从 `detect_stalled_items` 移到
+`teams_due_for_patrol` 的循环内，**且在 `patrol_is_on` 之前**。
+
+第一版挂错了位置：它落在整条「这个团队值不值得烧一次 LLM turn」判定链的下游，而
+那条链里有两道**永久性的门**而非节流——`patrol_is_on` 要求团队已指定 lead，而
+`lead_agent_id` 默认是 `None`。开项那一侧一道门都没有。于是「开」和「回收」的触发
+条件不对称：**任何团队都能开，只有指定了 lead 的团队才会回收**，而从没指定 lead
+的团队恰恰是最不可能有人手工清板子的那批。
+
+`teams_with_active_work()` 是正确的作用域：它既不看 lead 也不看 `patrol_enabled`，
+所以一处调用同时覆盖巡查团队和非巡查团队，也不用为一次清扫再养一个调度器。
+
+**顺序是硬约束**：`list_active` 必须在 expire **之后**读。`has_stalled` 决定 600s
+还是 180s 节奏，`items[0].channel_id` 决定巡查瞄准哪个房间——先读板子会让一条已经
+不存在的行同时驱动这两件事。
+
+`expire_stale_errands` 内部全吞异常，在新位置上更要紧：本循环的 per-team `except`
+会让一次清扫失败把**这个团队整轮巡查**都跳过，用一次 stall 检测换一个记账错误不
+划算。
+
+## 2026-08-14 — stalled 按状态迁移记一行日志
+
+`detect_stalled_items` 在写入 `status=stalled` 的**那一次**打一条 `[work-item]
+action=stall`。刻意放在 if 里而不是循环里：stalled 每轮巡查都会重新推导，按轮
+记会让一次断链在闭环率报告里读成几百次。
+
+消费端是 `scripts/diag_collector/work_item_report.py`——PR #230 要求的「上更强兜
+底前先测量」，量的就是这条和 [[errand]] 的 open/close 行。
 
 # patrol.py — 让流程有人负责的那一半(平台侧)
 
@@ -133,3 +180,20 @@ lead 换成 B。此后每轮都跳过。
 一处来自「这行对巡查者无信息」的论证)。方向不同,写入相同,原则也相同:
 **stalled 是推导出来的事实,它只应该活到支持它的证据消失为止**。抽成一处之后,
 「跳过巡查者」那个分支只剩它真正想表达的 `continue`。
+
+## 2026-08-18 — patrol 轮的表达面：声明为空、两个发送动词都撤下桌、不装静音催促
+
+patrol 提示要求 lead 把房间状态行写成**纯文本**并明确禁止 `message_team`（平台会以房间
+自己的 marker 张贴，lead 调用就变成它在房间里聊天、并计入级联跳数）。但 patrol 走的是
+`_invoke_runtime(team_room=True)`，于是同一轮里 `message_team` 被宣告为默认回复工具、被
+两个框架的回复提醒点名 —— 和三行之上的提示直接冲突。NexusPower 上更糟：`expression_nudge`
+在「本轮没调任何回复工具就收尾」时触发静音修复，而这**正是** patrol 的正确结局，催促文案
+则让 lead 去做被禁止的事。
+
+新增 `BUS_PLAIN_TEXT_TURN_EXTRA_KEY`（见 [[hook_schema.py]]）：本轮的回复就是它的纯文本。
+带这个标记时 [[message_bus_module.py]] 声明为空、并把两个发送动词一起撤下桌 —— 用散文禁止
+一个可见工具正是这次改造要终结的争论方式（615 次调用打在两个写着「Do NOT call」的工具上）。
+`expression_nudge` 收窄为 `team_room and not patrol`。
+
+守卫：`test_expressive_collection.py` 两条（桌面形态 + 源码钉住 nudge 收窄与 `patrol=True`
+自我声明）。

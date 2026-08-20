@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactDownloadMenu.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 关闭语义并入 useDismissOnOutside
+
+本地 `mousedown`+`keydown` 关闭段删除,交给
+[[../../hooks/useDismissOnOutside]](trigger/menu 两个 ref 走 extraRefs)。
+与全仓弹层同一时机:capture pointerdown(pen/touch 同样命中,中途
+stopPropagation 拦不住)。原 effect 只剩 scroll/resize 的 recompute
+(capture window scroll 保留——内层 overflow 容器滚动时面板要跟位)。
 
 ## 2026-08-12 — 注册表数组化后取「最后挂载」的实例
 
@@ -90,3 +98,8 @@ and does not suffer from cross-origin or mixed-content issues.
 - `right` is computed as `window.innerWidth - rect.right`; if the trigger ever
   sits near the right viewport edge with a >200px menu, the menu stays pinned to
   the trigger's right edge (acceptable — the menu has room to the left).
+
+## 2026-08-19 — KIND_TO_EXT/isChart 改查注册表
+
+私有 ext 映射删除,`downloadExt` 与 `chartImageExport` 从
+[[kindRegistry.ts]] 查;'bin' 兜底语义不变。

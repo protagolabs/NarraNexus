@@ -135,7 +135,9 @@ def main() -> None:
         },
 
         # message_bus trigger — another agent talked to 阿良 via bus,
-        # and 阿良 used send_message_to_user_directly to relay back.
+        # and 阿良 relayed back via the owner-chat tool (which was
+        # `send_message_to_user_directly` when this fixture was written;
+        # it is `reply_owner` / `notify_owner` since 2026-08-17).
         {
             "role": "user",
             "content": "[Message Bus - Incoming Messages]\nFrom: agent_X\n请帮忙把 Q3 营销报告发我。",

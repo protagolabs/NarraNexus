@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/__init__.py
-last_verified: 2026-07-21
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -23,3 +23,9 @@ Everything a consumer may touch is re-exported here: `ArtifactService`, the
 Consumers: `artifact_tool.py` (MCP tool), `backend/routes/agents/artifacts.py`,
 `backend/routes/artifacts/public.py`, `bootstrap/profiles.py` (welcome
 artifact). All import from this package, never from `_artifact_impl`.
+
+## 2026-08-20 — 公共口新增三个出口
+
+ArtifactEditConflict(409 编辑冲突)、inject_edit_bridge(raw 路由的
+html 编辑桥注入)、office_lock_present(~$ 桌面锁检测)——路由层一律
+经包公共口取,不直捅 _artifact_impl。

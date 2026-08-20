@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-14
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
+
+**删除** `_team_room_delivery_phase` / `_should_deliver_team_reply` /
+`_post_team_room_reply` / `_team_room_reply_frame`（共 155 行）及其调用点，
+`AgentRuntime.run` 的 `on_plain_text_delivery` 参数与 `StepContext` 上的同名字段一并删除。
+
+team 房间此前是**唯一**「agent 的纯文本就是回复、由平台代发」的表面。这个例外关不住：
+框架 constitution、ChatModule instruction、bus module 规则都在陈述通则，而三者里每轮
+只能关掉一个——PR #311 被评审打了六轮，打的全是由此长出来的矛盾。房间现在收工具调用
+（`message_team`），本步骤因此无事可判：agent 有没有在房间里说话是 bus 里的一个事实，
+由 trigger 直接读（`has_message_from_turn`）。原来这里权衡的 @mention 解析、级联上限
+及其播报、errand 记账，全部搬到 [[team_posting]]——它们是「往房间发帖」的属性，而不是
+「恰好拥有投递权的那一步」的属性。
+
+**新增**：`origin_declaration=render_origin_declaration(ctx.working_source, ...)`。
+
+`_im_reply_tool_name` 的过滤改用 `is_owner_tool`：它此前只写死排除 `notify_owner`，
+默认 handler 开始同时列出两个名字的那一刻 `reply_owner` 就溜了过去。
+
 
 ## 2026-08-13 — 平台来源绑定：stamp identity 上 provider 配置
 
@@ -730,3 +750,26 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 **`_team_room_delivery_phase` 改成返回 `Optional[frame]`。** async generator 的问题是
 **没人迭代它就什么都不做,而且是静默的** —— 对"决定这一轮记不记得住"的唯一路径,这是
 最不能接受的失败形状。
+
+## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
+
+本文件上方带日期的条目里出现的是**当时**的工具名，故意保持原样 —— 镜像的价值就在于它记的是
+那一天发生了什么，在带日期的条目里改名会让「什么时候变的、从什么变的」不可考。第三轮预审在
+23 个文件里查出 68 处这种改写，已全部还原。
+
+现行名字与旧名字的对应：
+
+| 旧 | 新 |
+|---|---|
+| `send_message_to_user_directly` | `reply_owner`（回答刚说话的 owner）/ `notify_owner`（未被问就主动告知） |
+| `bus_send_message` | `message_team` |
+| `bus_send_to_agent` | `message_agent` |
+| `bus_get_messages` | `read_history`（且改为按会话把手取，不再收 channel_id） |
+| `bus_create_channel` | `create_team` |
+| `bus_share_to_team` | `team_share_file` |
+| `work_add_item` / `work_complete_item` / `work_update_status` … | `team_work_add` / `team_work_complete` / `team_work_update_status` … |
+| `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
+
+规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+> **2026-08-20**: `_resolve_agent_framework_name` 的缺行/空列/DB 故障兜底由 `claude_code` 改为 `nexus_power`（平台默认框架变更；仅注释同步，逻辑走 model_identity._DEFAULT_FRAMEWORK）。

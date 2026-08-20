@@ -1,8 +1,74 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-13
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-19 — 更正一处措辞
+
+上一条把 `normalize_agent_text` 说成「strip + 截长」。它**不截长**，只有
+`(value or "").strip()`；长度上限是 pydantic 在写入边缘卡的。结论（标识符不该走
+归一化）不变，理由少一条。
+
+## 2026-08-18 — `agent_field_matches` 新增 `created_by` 分支
+
+Manyfold 的 provisioning 重跑现在走共享改名事务，并把 `created_by` 作为
+`extra_updates` 一起写（[[agents]] 二改），于是它要经过等值短路——而本谓词对
+未登记字段**故意抛 ValueError**，正确地拦下了这次新增。
+
+比较方式是**逐字节相等**，**不**走 `normalize_agent_text`。理由不是省事：那个
+助手为展示文本做 strip + 截长，而 `created_by` 是当查找键用的标识符；把它悄悄
+改形会让写入被判"已相等"从而跳过，留下一个谁也解析不出来的 owner。id 要么就是
+同一个 id，要么不是。`""` 与 `None` 视为同一种"没有"。
+测试：`tests/schema/test_agent_field_matches.py::TestCreatedBy`。
+
+## 2026-08-17 — `normalize_agent_text` / `agent_field_matches`:「这次写会不会改变什么」的唯一定义
+
+新增两个函数,放在 `Agent` 实体旁边,因为它们编码的是**实体字段的等价规则**,
+不属于任何一个调用方。
+
+起因:`agents` 行有两个写入方,它们对同一个输入给出**相反**的答案 ——
+[[_awareness_writes]] 比较 strip 过的值(写入的也是 strip 后的),而
+`PUT /api/auth/agents`([[auth.py]])比较原样值。同一个「名字末尾多个空格」
+的请求,一边判「没变化」,另一边判「要写」。2026-08-17 修 rowcount 那条时
+route 里本来又写了第三份比较 —— review 指出这正是它自己 docstring 警告的事,
+于是上提合一。
+
+- `normalize_agent_text(v)`:**存储形态**。`None`/`""` 都是「没有文字」
+  (老行可能是 NULL,清空字段的调用方发 `""`);首尾空白不是内容 ——
+  `build_discovery_description`([[agent_discovery_sync]])对外本来就再 strip
+  一次,那就在**入口**归一,别把差异留给「哪个读者记得 strip」。
+- `agent_field_matches(agent, field, wanted)`:比较。**调用方必须写归一后的值**,
+  否则「相等」和「行里是什么」会分家 —— 一个 compare-then-verify 的写入方会
+  自己跟自己矛盾(这恰是本轮在修的形态)。
+
+`is_public` 单独一支:列在 MySQL 是 TINYINT、SQLite 是 INTEGER,
+`_row_to_entity` 可能给回 bool 也可能给回 int,所以两边都 `bool()`。
+
+文本字段是**闭集** `_AGENT_TEXT_FIELDS`,不在集合里的字段直接 `raise`。这不是
+洁癖:`getattr` 兜底会让一个拼错的/未登记的字段(尤其是默认 None 的那些)
+比较成「已经相等」,于是**既不写、又判定已落库**,返回成功且不留任何错误 ——
+回读校验对谓词自身的错误是结构性失明的,只有闭集能挡。测试
+`tests/schema/test_agent_field_matches.py` 就是钉这一条的。
+
+两点补记(同日 review 第二轮):
+
+- **契约方向反了过来,但第一次改得太满**。原来写「调用方必须写归一后的值」——
+  一条只有部分写入方遵守的承诺。改成「由 [[agent_repository]] 强制」之后仍然是
+  假的:`agents` 行有 4 个绕过 repository 的直写点(manyfold 三处 + bundle
+  importer,见那两份 md)。现在的写法既不推给调用方也不假装只有一个入口:
+  **谓词只在行里存的是归一文本时才成立**,而维持这一点是**每一个写入方**的性质;
+  docstring 里附了那条 `git grep` 命令,读者可以自己重验清单,而不是相信一句话。
+- 新增 `normalize_agent_row_text(values)` + 导出 `AGENT_TEXT_FIELDS`(原
+  `_AGENT_TEXT_FIELDS`)。此前「哪些列是文本」在三处各写一份(谓词的闭集、
+  `update_agent` 的元组、`add_agent` 的逐字段调用)——给 agents 加第三个文本列时
+  只改一处,该列就会「比较归一值、存原样值」,又回到不可观测的那种失败。
+  `is_public` **不进**这个 helper:它不是文本,谓词对它单独分派。
+- **文本分支拿到非 str 也 raise**(TypeError)。闭集挡住了「字段名写错」,却没挡住
+  「值类型写错」:`None` 被 coerce 成 `""` 会对一个空描述的行答「已相等」——与字段名
+  写错完全同一种不可观测的失败。两者现在同样被拒。今天不可达(两个调用方都只传
+  归一后的 str),纯粹是把防御面补齐。`wanted` 的标注保持 `object`:`is_public` 要收
+  bool/int,收紧成 `str` 会打断那一支。
 
 ## 2026-08-13 — `UserStatus.BANNED` + `NON_TRANSACTING_USER_STATUSES`（账户停用）
 

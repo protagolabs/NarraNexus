@@ -20,6 +20,11 @@ import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from loguru import logger
+
+from xyz_agent_context.channel.message_source_handler import (
+    im_channel_prefixes,
+)
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
 from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 from xyz_agent_context.utils.db.db_backend import DatabaseBackend
@@ -72,6 +77,46 @@ def _as_utc(value) -> Optional[datetime]:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def direct_channel_sql(ph: str) -> str:
+    """The one definition of "the DM channel between these two agents".
+
+    Two callers with two different placeholder dialects — `send_to_agent` holds
+    the RAW backend (`self._db.placeholder`), while the `read_history` resolver
+    holds an `AsyncDatabaseClient` (`%s`) — so what is shared is the SQL TEXT and
+    each caller supplies its own `ph`. Sharing an execute() instead would force
+    one of them onto the wrong placeholder, which is the bug that made
+    `_room_labels` silently return nothing on SQLite.
+
+    It is shared at all because it was copied: the same three-way join lived in
+    two files, and "what identifies a DM" is exactly the kind of fact that then
+    gets changed in one of them (archived flags, dedupe, cross-owner rules). Four
+    copies of the team-room lookup is how `team_rooms.py` came to exist.
+
+    **Callers MUST reject `a == b` before calling.** Both joins are satisfied by
+    the same member row when the two parameters are equal, so every direct channel
+    the caller belongs to matches and `rows[0]` is arbitrary. The invariant lives
+    here rather than only in each caller because there are two callers now and the
+    third will otherwise get it wrong too — `send_to_agent` was the one that did.
+
+    `ORDER BY created_at ASC` is not cosmetic. `send_to_agent` creates a channel
+    when the lookup misses, so two concurrent first-sends to the same peer can
+    both miss and both create — after which an unordered `rows[0]` is
+    engine-dependent, and the sender and the history reader can disagree about
+    which channel the conversation is. Ordered, they at least agree on the older
+    one.
+    """
+    return (
+        f"SELECT c.channel_id FROM bus_channels c "
+        f"JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id "
+        f"AND m1.agent_id = {ph} "
+        f"JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id "
+        f"AND m2.agent_id = {ph} "
+        f"WHERE c.channel_type = 'direct' "
+        # Both callers take `rows[0]`; fetching the rest to discard them is waste.
+        f"ORDER BY c.created_at ASC LIMIT 1"
+    )
+
+
 class LocalMessageBus(MessageBusService):
     """
     SQLite-backed MessageBus implementation.
@@ -95,6 +140,19 @@ class LocalMessageBus(MessageBusService):
         mentions = json.loads(mentions_raw) if mentions_raw else None
         attachments_raw = row.get("attachments")
         attachments = json.loads(attachments_raw) if attachments_raw else None
+        # A half-written or hand-edited row must not take the whole transcript
+        # down: losing one message's layout is a degradation, losing the room
+        # is an outage.
+        segments = None
+        segments_raw = row.get("segments")
+        if segments_raw:
+            try:
+                segments = json.loads(segments_raw)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"[bus] message {row.get('message_id')} has unreadable "
+                    f"segments; rendering as one block"
+                )
         return BusMessage(
             message_id=row["message_id"],
             channel_id=row["channel_id"],
@@ -103,6 +161,7 @@ class LocalMessageBus(MessageBusService):
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
             attachments=attachments,
+            segments=segments,
             event_id=row.get("event_id"),
             sender_turn_source=row.get("sender_turn_source"),
             routed_by=row.get("routed_by"),
@@ -124,6 +183,10 @@ class LocalMessageBus(MessageBusService):
         sender_turn_source: Optional[str] = None,
         root_run_id: Optional[str] = None,
         routed_by: Optional[str] = None,
+        # Appended LAST and kept there: `send_message` has positional callers,
+        # and a parameter added in the middle silently rebinds every one of
+        # them. Pinned by test_team_message_segments.
+        segments: Optional[List[dict]] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id.
 
@@ -158,12 +221,30 @@ class LocalMessageBus(MessageBusService):
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
+            # Empty list stores as NULL: it carries nothing a reader could act
+            # on, and a value that looks like data invites the reader to trust
+            # it as "this turn genuinely had no segments".
+            "segments": json.dumps(segments) if segments else None,
             "event_id": event_id,
             "sender_turn_source": sender_turn_source,
             "root_run_id": root_run_id,
             "routed_by": routed_by,
             "created_at": _now_iso(),
         })
+        # Nudge the poll loop — the ONE place this can live.
+        #
+        # `MessageBusTrigger._wake` only reaches posts made by the trigger's own
+        # process, and a team reply is now a tool call made on the MCP server.
+        # Bumping here, right after the insert, makes "posted without waking"
+        # impossible instead of merely discouraged: there is no second insert
+        # site to forget (this is the only `bus_messages` insert in the repo).
+        #
+        # AFTER the insert, deliberately: the signal means work exists, so a
+        # send that raised must leave it untouched.
+        from xyz_agent_context.message_bus import wake_signal
+
+        await wake_signal.bump(self._db)
+
         # Index the message into the unified search layer (memory_bus), under the
         # sender, pointing back to the message. Append-only — bus is objective
         # message history (like chat); no update/dedup (design §10-C). Recipient-
@@ -221,21 +302,137 @@ class LocalMessageBus(MessageBusService):
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
-    def _unread_where(self, ph: str) -> str:
-        """The unread predicate, shared by the fetch and the count.
+    async def get_messages_before(
+        self, channel_id: str, before: str, limit: int = 50
+    ) -> List[BusMessage]:
+        """The page immediately ABOVE ``before``, returned oldest→newest.
 
-        ``from_agent != agent`` matches ``get_pending_messages``, which has
-        always had it. Its absence here meant an agent read its own posts back
-        as unanswered items — loudest exactly where it hurts, a room the agent
-        talks in a lot.
+        The mirror image of ``get_messages(since=…)``, and the two directions
+        are deliberately not symmetrical:
+
+          * ``since`` returns the OLDEST after the cursor — catching up must
+            never skip a message, so it walks forward from where the reader is.
+          * ``before`` returns the NEWEST before it — scrolling up wants the
+            page directly above what is on screen, not the start of the room's
+            history.
+
+        Either one implemented in the other direction produces a transcript
+        with a silent hole in it rather than an error.
+
+        EXCLUSIVE on the cursor: the caller passes the timestamp of the oldest
+        message it already has. Inclusive would re-send that message on every
+        page, which the frontend's merge would then dedup away — leaving each
+        page one message shorter than asked for, for no visible reason.
+
+        Args:
+            channel_id: Channel to read.
+            before: ISO timestamp string, as handed out by the API.
+            limit: Page size.
+
+        Returns:
+            Up to ``limit`` messages older than ``before``, oldest first. Empty
+            when the top of the history has been reached — which is how a caller
+            knows to stop offering "load more" without inferring it from a short
+            page (a short page also just means a sparse window).
         """
-        return (
+        ph = self._db.placeholder
+        rows = await self._db.execute(
+            f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+            f"AND created_at < {ph} ORDER BY created_at DESC LIMIT {int(limit)}",
+            (channel_id, before),
+        )
+        return [self._row_to_message(row) for row in reversed(rows)]
+
+    def _unread_predicate(self, ph: str) -> tuple[str, tuple]:
+        """The unread predicate AND its parameters, from ONE construction.
+
+        Shared by the fetch, the probe and the count deliberately: `get_unread`,
+        `has_unread_before` and `count_unread` must agree, or "N unread (showing
+        M)" starts lying about its own list.
+
+        ``from_agent != agent`` matches ``get_pending_messages``, which has always
+        had it. Its absence here meant an agent read its own posts back as
+        unanswered items — loudest exactly where it hurts, a room the agent talks
+        in a lot.
+
+        **Legacy IM channels are excluded.** Until 2026-08-17 `ChannelInboxWriter`
+        mirrored every IM turn into `bus_messages` for the Inbox to display, under
+        a channel nobody ever marked read — so 1,364 messages were permanently
+        unread and rode into 90 agents' context every turn, attributed to
+        pseudo-agents like `lark_user_<id>`. Moving the inbox to its own tables
+        stops NEW rows being written; the deployed rows are still there and this
+        predicate is what feeds them to the model. Filtering the read is what ends
+        the injection, on the deploy rather than on the day someone runs the purge.
+
+        Not "structural containment" — honestly a filter over rows a retired writer
+        left behind. It retires when those rows are purged;
+        `reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md` owns
+        that step.
+
+        SUBSTR, not LIKE. `_` is a single-character LIKE wildcard and every one of
+        these prefixes ENDS in `_`, so `NOT LIKE 'lark_%'` also excluded
+        `larkX_…` and `larky_…` — any channel whose id starts with "lark" plus any
+        one character. Verified on SQLite: with ids (lark_oc_1, larkX_oc_2,
+        larky_room, ch_team_1, lark), the unescaped pattern kept only (ch_team_1,
+        lark). Current id formats make the over-match unreachable, which is exactly
+        why it would have survived to bite whoever changes an id format later — and
+        this filter decides what reaches the model, so over-matching is silent
+        context loss, not an error. (A literal `%` would also have been fatal on
+        MySQL: pymysql mogrifies with `query % args`, so every unread query would
+        have raised `TypeError` and been swallowed by the caller's `except`.)
+
+        SUBSTR also lets the prefix be a BOUND parameter rather than interpolated
+        text; only its LENGTH goes into the SQL, and that is an int derived from a
+        registry key. Two verified properties, on SQLite: an id SHORTER than the
+        prefix yields the whole shorter string, which correctly compares unequal
+        and is kept; an exact-prefix id is excluded. One recorded dialect
+        difference: our MySQL DDL uses a `_ci` collation, so `<>` there is
+        case-INSENSITIVE while SQLite's is not — unreachable, since ids are built
+        from lowercase registry names, and both readings only ever exclude a
+        channel that does not exist. `test_unread_cursor_mysql.py` exercises this
+        predicate on real MySQL.
+
+        **Returns the SQL and the params together, and that is the point.** They
+        were two methods reading `im_channel_prefixes()` separately, with nothing
+        tying the number of emitted placeholders to the length of the returned
+        tuple — the exact shape `message_bus_module._room_labels`' own comment
+        condemns ("two independent constructions feeding a count and its tuple is
+        the shape that breaks when someone edits one line"), built two files away
+        from that comment. Add any condition to the generator — skip a prefix,
+        dedupe, `if len(pfx) > 1` — and `has_unread_before` shifts by one:
+        `m.channel_id = ?` receives a prefix string and `m.created_at < ?` receives
+        a channel id. The query returns nothing, `has_unread_before` says False,
+        and `ack_read` discards unread messages. No exception, and no test failure
+        unless the fixture happens to hold the right number of prefixes.
+        """
+        # Clause and parameter appended TOGETHER, in one loop. Returning
+        # `tuple(prefixes)` alongside a generator over the same list is not enough:
+        # a condition added to the generator (skip a prefix, dedupe,
+        # `if len(pfx) > 1`) would leave the params unfiltered and shift every
+        # subsequent placeholder. Verified — that mutation passed the suite when
+        # the two were separate expressions. Paired, a `continue` here drops both
+        # and they cannot desynchronise.
+        clauses: list[str] = []
+        params: list[str] = []
+        for pfx in im_channel_prefixes():
+            clauses.append(f" AND SUBSTR(m.channel_id, 1, {len(pfx)}) <> {ph}")
+            params.append(pfx)
+
+        sql = (
             f"FROM bus_messages m "
             f"JOIN bus_channel_members cm ON m.channel_id = cm.channel_id "
             f"WHERE cm.agent_id = {ph} "
             f"AND m.from_agent != {ph} "
             f"AND m.created_at > COALESCE(cm.last_read_at, '1970-01-01')"
+            f"{''.join(clauses)}"
         )
+        # Documentation, not the guard: the paired loop above already makes this
+        # unfalsifiable, and `assert` is stripped under `-O`. The real guard is
+        # `test_legacy_im_rows_not_injected.py`'s placeholder-vs-param count, which
+        # runs with assertions on and fails on a mutation. Left in because it states
+        # the invariant where someone editing the loop will read it.
+        assert len(clauses) == len(params)
+        return sql, tuple(params)
 
     async def get_unread(
         self, agent_id: str, limit: Optional[int] = None
@@ -255,16 +452,16 @@ class LocalMessageBus(MessageBusService):
         stays unread forever.
         """
         ph = self._db.placeholder
-        where = self._unread_where(ph)
+        where, pfx = self._unread_predicate(ph)
         if limit is None:
             rows = await self._db.execute(
                 f"SELECT m.* {where} ORDER BY m.created_at ASC",
-                (agent_id, agent_id),
+                (agent_id, agent_id, *pfx),
             )
             return [self._row_to_message(row) for row in rows]
         rows = await self._db.execute(
             f"SELECT m.* {where} ORDER BY m.created_at DESC LIMIT {int(limit)}",
-            (agent_id, agent_id),
+            (agent_id, agent_id, *pfx),
         )
         return [self._row_to_message(row) for row in reversed(rows)]
 
@@ -287,10 +484,15 @@ class LocalMessageBus(MessageBusService):
         if not agent_id or not channel_id or not before:
             return False
         ph = self._db.placeholder
+        where, pfx = self._unread_predicate(ph)
         rows = await self._db.execute(
-            f"SELECT 1 AS hit {self._unread_where(ph)} "
+            f"SELECT 1 AS hit {where} "
             f"AND m.channel_id = {ph} AND m.created_at < {ph} LIMIT 1",
-            (agent_id, agent_id, channel_id, canonical_ts(before)),
+            # Prefix params sit BETWEEN the predicate's own and this query's
+            # extras, because that is the order the placeholders appear in. This
+            # is the one caller that interleaves, so it is the one a shifted
+            # parameter count breaks first.
+            (agent_id, agent_id, *pfx, channel_id, canonical_ts(before)),
         )
         return bool(rows)
 
@@ -300,7 +502,7 @@ class LocalMessageBus(MessageBusService):
         """Did this agent put anything into this channel during that turn?
 
         The turn's own id is the join: both the platform's team-room post and
-        the agent's own ``bus_send_message`` stamp ``event_id``, so one query
+        the agent's own ``message_team`` stamp ``event_id``, so one query
         covers a reply however it was sent. A timestamp window would answer a
         near-enough question with a comparison this codebase has already been
         bitten by once; an identity is exact.
@@ -309,11 +511,12 @@ class LocalMessageBus(MessageBusService):
         failure, and the message body has no bearing on that.
 
         No dedicated index, on purpose: ``idx_bus_msg_channel_time`` already
-        makes this one channel's rows the scan, and the one caller runs it at
-        most once per turn on a branch that needs a provider failure to be
-        reached at all. A third index on the busiest table in the bus would be
-        paid for by every insert, forever, to speed up a query that rarely
-        runs. Revisit if a second, hotter caller appears.
+        makes this one channel's rows the scan. Two callers, both cold: the bus
+        trigger runs it on a branch that needs a provider failure to be reached
+        at all, and the job trigger once per room-origin job run. A third index
+        on the busiest table in the bus would be paid for by every insert,
+        forever, to speed up a query that rarely runs. Revisit if a HOT caller
+        appears — per-turn on the delivery path would be one.
         """
         if not channel_id or not from_agent or not event_id:
             return False
@@ -333,9 +536,10 @@ class LocalMessageBus(MessageBusService):
         the reader would never learn there was a backlog at all.
         """
         ph = self._db.placeholder
+        where, pfx = self._unread_predicate(ph)
         rows = await self._db.execute(
-            f"SELECT COUNT(*) AS n {self._unread_where(ph)}",
-            (agent_id, agent_id),
+            f"SELECT COUNT(*) AS n {where}",
+            (agent_id, agent_id, *pfx),
         )
         return int(rows[0].get("n") or 0) if rows else 0
 
@@ -382,6 +586,26 @@ class LocalMessageBus(MessageBusService):
         # Same-user boundary: an agent may only DM agents owned by the same
         # user. Cross-user direct messaging is intentionally disabled — never
         # let an agent message another user's agent.
+        if from_agent == to_agent:
+            # `direct_channel_sql` joins the channel against two member rows; with
+            # the same id twice BOTH joins are satisfied by the SAME row, so any
+            # direct channel this agent belongs to matches and `rows[0]` is an
+            # arbitrary unrelated conversation. Proven: with a seeded `a↔b`
+            # channel, `send_to_agent(from="a", to="a")` landed the row in a↔b.
+            #
+            # So a note-to-self reached peer b AND — via the wake signal — started
+            # a full LLM turn for b. An agent naming itself is an ordinary model
+            # error (self-note, "reply to myself", a copied id), and `message_agent`
+            # now advertises "the same action whether you are answering someone or
+            # starting a conversation of your own", which invites it.
+            #
+            # The read path (`_resolve_conversation`) already rejected this. The
+            # write path shares the SQL and did not, which is what sharing SQL
+            # without sharing its invariant looks like.
+            raise ValueError(
+                f"cannot message yourself: {from_agent} — name the peer you mean"
+            )
+
         from_owner = await self._agent_owner(from_agent)
         to_owner = await self._agent_owner(to_agent)
         if from_owner and to_owner and from_owner != to_owner:
@@ -390,13 +614,10 @@ class LocalMessageBus(MessageBusService):
                 f"message {to_agent} (different owners)"
             )
 
-        # Find existing direct channel between these two agents
+        # Find existing direct channel between these two agents. Shared text with
+        # the `read_history` resolver — see `direct_channel_sql`.
         rows = await self._db.execute(
-            f"SELECT c.channel_id FROM bus_channels c "
-            f"JOIN bus_channel_members m1 ON c.channel_id = m1.channel_id AND m1.agent_id = {ph} "
-            f"JOIN bus_channel_members m2 ON c.channel_id = m2.channel_id AND m2.agent_id = {ph} "
-            f"WHERE c.channel_type = 'direct'",
-            (from_agent, to_agent),
+            direct_channel_sql(ph), (from_agent, to_agent)
         )
 
         if rows:

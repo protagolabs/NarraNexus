@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — owner 工具判定改用 is_owner_tool
+
+`_extract_wechat_reply` 的「是不是回 owner」从硬写 `"notify_owner" in tool_name` 改为 `is_owner_tool(tool_name)`（认 `reply_owner`/`notify_owner`，裸名或 MCP 前缀）。与 step_3 同一反模式的修复：硬写单名在 register 规则再动时必然半更新。narramessenger 故意不认 owner 工具，不动。
 
 ## 2026-08-10 — send_to_agent 改走 wechat_outbound 路由
 
@@ -84,10 +88,10 @@ Telegram:
 - **Registers a ``MessageSourceRegistry`` handler at import time.** This
   is load-bearing: without a registered handler named ``"wechat"`` whose
   ``user_reply_tool_names`` include ``("wechat_send",
-  "send_message_to_user_directly")``, the agent's replies would be
+  "reply_owner")``, the agent's replies would be
   logged as generic **"Background activity"** rather than recorded as
   real user replies. ``_extract_wechat_reply`` pulls the user-visible
-  text (``wechat_send.text`` / ``send_message_to_user_directly.content``)
+  text (``wechat_send.text`` / ``reply_owner.content``)
   and returns ``None`` for any other tool call so non-replies don't
   pollute the inbox. The registration is wrapped in
   ``try/except ValueError`` so the import-time call is idempotent across

@@ -43,6 +43,10 @@ class BusMessage(BaseModel):
     # rel_path). Populated when the sender attaches files; None for text-only.
     # The trigger renders these into Read-tool markers at delivery time.
     attachments: Optional[List[dict]] = None
+    # Monologue/reply boundary, when the producing run had one. None means
+    # "no boundary recorded" — a legacy message or a path without monologue —
+    # and the renderer treats that as one block.
+    segments: Optional[List[dict]] = None
     # events row id of the turn that produced this message. Stamped by the
     # trigger's in-turn room post AND by the agent's own bus sends (identity
     # header, 2026-08-14), so a present id does not mean "the platform posted

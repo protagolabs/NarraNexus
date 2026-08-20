@@ -1,8 +1,62 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/store.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — `update_awareness` 现在先读后写：保住平台身份记录
+
+这个工具把**整份 profile** 交给模型重写并原样收回，而它规定的格式只列 4 节，
+**不含** `## Identity Changes (platform record)`——同时 §5 和它自己的 When to
+Update 都在鼓励模型经常重写。于是改名事务刚写好的身份更正，撑到模型下一次整理
+profile 就整段没了：agent 回到"自述旧名、无任何平台更正"，而且这个状态连修都检测
+不到（对账正是靠那条记录或自述行发现不一致的）。
+
+改成先 `get_by_instance` 读旧值，用 [[_awareness_writes]] 的
+`carry_over_platform_record` 把那一段接回去。**不是**在提示词里请模型保留它——
+铁律 #15：机器可知的事实要推导，提示词是补充不是机制。
+
+⚠ 云端那一半在 [[awareness]] 路由里（`PUT /agents/{id}/awareness`）。第一版只改了
+本地 DirectStore，**而事故发生在 prod**——两条路径只修一条，是这次改动反复犯的那个错。
+
+连带：`tests/module/test_data_access.py` 与 `tests/backend/test_awareness_create_missing.py`
+的假 repo 要实现 `get_by_instance`，因为这个接缝现在真的会读。
+
+## 2026-08-18(补)— 判断改调共享规则
+
+`DirectStore.create_agent` 的空名/长度判改调 [[social_network_module.py]] 的
+`create_agent_text_reject`,兜底串改调 `default_created_by_description` ——
+与 Http 孪生**同一个函数**,不再是两份逐字复制的代码 + 两句「保持一致」的注释。
+理由见那份 md。`AGENT_TEXT_MAX_LENGTH` 的深引随之不再需要。
+
+## 2026-08-18 — 长度也由两条腿共用一处判,兜底串走截断
+
+`DirectStore.create_agent` 在空名检查之后加同一顺序的长度检查
+(`CREATE_AGENT_TEXT_TOO_LONG_MSG`,共享串),与 [[social_network.py]] 逐字同形。
+
+为什么长度不放在 Http 那边的请求模型上:那会让云端在 handler 之前 422,同一次
+工具调用云端读到 `invalid arguments (…)`、本地读到 pydantic 串 —— 详见
+[[social_network.py]] 2026-08-18 修正条。顺序也是契约:归一 → 空名 → 长度,
+反了 `" " * 300` 会被报成超长而不是空名。
+
+描述为空时的兜底串 `f"Agent created by {name}"` 改为**截断**到
+`AGENT_TEXT_MAX_LENGTH`:它是这条路径上唯一在所有检查之后才拼出来的值
+(17 + 创建者名字),而拒绝一个调用方从没输入过的串没法解释。
+
+## 2026-08-17 — create_agent 归一名字/描述,并拒绝空名
+
+`DirectStore.create_agent` 在 owner 校验之后、`provision_new_agent` 之前:
+`normalize_agent_text` 名字与描述,空名回 `CREATE_AGENT_EMPTY_NAME_MSG`
+(共享串,见 [[social_network_module.py]])。
+
+三个理由,都不是洁癖:
+1. 行是归一后存的([[agent_repository]]),不先归一的话回执里 echo 给 agent 的
+   名字与库里那行**不同形** —— 又一个"一边说存好了一边不一致"。
+2. `agent_description or f"Agent created by …"` 这个兜底必须在 strip **之后**判,
+   否则 `"  "` 绕过兜底存成空描述。
+3. 空名在改名路径一直被拒,创建侧收 —— 同一个值可以创建、不可以改成。
+
+[[social_network.py]] 路由那半边逐行同构(byte-parity 孪生),两边一起改。
 
 ## 2026-08-11 — job_create / job_pause / job_cancel 迁入 seam（job 写收尾）
 

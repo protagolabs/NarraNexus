@@ -1,3 +1,8 @@
+---
+code_file: src/xyz_agent_context/utils/db/dataloader.py
+stub: false
+---
+
 # dataloader.py
 
 GraphQL-DataLoader-style automatic batcher — coalesces scattered `load(id)` calls within the same event loop tick into a single `SELECT ... WHERE id IN (...)` query.

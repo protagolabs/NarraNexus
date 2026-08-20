@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-06-11
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
+
+`ArtifactColumn` 的 sliver/collapse 逻辑整体删除后,`forceExpanded` 只剩
+这里一个恒 true 的调用点,prop 已删——现在直接
+`<ArtifactColumn agentId={agentId} />`,可见性仍归 drawer 壳
+(见 [[../artifacts/ArtifactColumn.tsx]] / [[../../stores/artifactStore.ts]]
+08-19 条)。08-06 条里「forceExpanded:跳过其自身 sliver/collapse 逻辑」的
+描述随之失效;「侧边 Artifact 栏随之退役」仍成立。
+
+## 2026-08-06 — artifacts 面板
+
+`artifacts` tab → lazy ArtifactColumn(forceExpanded:跳过其自身
+sliver/collapse 逻辑,可见性归 drawer 壳)。侧边 Artifact 栏随之退役
+(见 [[../layout/MainLayout.tsx]])。
 
 # BookmarkPanelHost.tsx — One lazy panel per atomic tab
 

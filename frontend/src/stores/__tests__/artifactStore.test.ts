@@ -12,10 +12,15 @@ import { describe, expect, test, vi, beforeEach } from 'vitest';
 
 const listSessionMock = vi.fn();
 const listPinnedMock = vi.fn();
+// loadPinned pulls scope=context since 2026-08-18 (own pinned ∪ team) — the
+// mock keeps the old variable name because every existing test's intent
+// ("what the panel refresh returns") is unchanged.
+const listContextMock = listPinnedMock;
 vi.mock('@/services/artifactsApi', () => ({
   artifactsApi: {
     listSession: (...args: unknown[]) => listSessionMock(...args),
     listPinned: (...args: unknown[]) => listPinnedMock(...args),
+    listContext: (...args: unknown[]) => listContextMock(...args),
   },
 }));
 
@@ -345,5 +350,91 @@ describe('chart instance registry is a per-id list (0802 ②)', () => {
     const inst = { getDataURL: () => '' };
     useArtifactStore.getState().unregisterChartInstance('a', inst);
     expect(useArtifactStore.getState().chartInstances.a).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyEvent (2026-08-18, spec artifact-events §3.3): the store's entry point
+// for backend-pushed artifact_changed events. Replaces the chat-stream
+// string-matching discovery path entirely.
+// ---------------------------------------------------------------------------
+
+function makeEvent(
+  action: 'registered' | 'updated' | 'deleted' | 'repointed',
+  artifact: Artifact,
+  extra?: Record<string, unknown>,
+) {
+  return { type: 'artifact_changed', action, external: false, artifact, ...(extra ? { extra } : {}) };
+}
+
+describe('applyEvent', () => {
+  test('registered upserts and focuses for the active agent', () => {
+    useArtifactStore.getState().applyEvent(makeEvent('registered', makeArtifact('art_ev1')));
+
+    const s = useArtifactStore.getState();
+    expect(s.artifacts.map((a) => a.artifact_id)).toEqual(['art_ev1']);
+    expect(s.activeArtifactId).toBe('art_ev1');
+  });
+
+  test('updated with an OLDER updated_at than the store copy is ignored', () => {
+    useArtifactStore.getState().upsert(
+      makeArtifact('art_ev2', { title: 'fresh', updated_at: '2026-08-18T10:00:00Z' }),
+    );
+    useArtifactStore.getState().applyEvent(
+      makeEvent('updated', makeArtifact('art_ev2', { title: 'stale', updated_at: '2026-08-18T09:00:00Z' })),
+    );
+
+    const row = useArtifactStore.getState().artifacts.find((a) => a.artifact_id === 'art_ev2');
+    expect(row?.title).toBe('fresh'); // monotonic guard: late events never regress state
+  });
+
+  test('updated with a newer updated_at replaces the store copy', () => {
+    useArtifactStore.getState().upsert(
+      makeArtifact('art_ev3', { title: 'old', updated_at: '2026-08-18T09:00:00Z' }),
+    );
+    useArtifactStore.getState().applyEvent(
+      makeEvent('updated', makeArtifact('art_ev3', { title: 'new', updated_at: '2026-08-18T10:00:00Z' })),
+    );
+
+    const row = useArtifactStore.getState().artifacts.find((a) => a.artifact_id === 'art_ev3');
+    expect(row?.title).toBe('new');
+  });
+
+  test('deleted removes the artifact and clears its minimized entry', () => {
+    useArtifactStore.getState().upsert(makeArtifact('art_ev4'));
+    useArtifactStore.getState().minimizeTab('art_ev4');
+
+    useArtifactStore.getState().applyEvent(makeEvent('deleted', makeArtifact('art_ev4')));
+
+    const s = useArtifactStore.getState();
+    expect(s.artifacts.find((a) => a.artifact_id === 'art_ev4')).toBeUndefined();
+    expect(s.minimizedTabIds.has('art_ev4')).toBe(false);
+  });
+
+  test('repointed upserts without stealing focus from another tab', () => {
+    useArtifactStore.getState().upsert(makeArtifact('art_ev5', { updated_at: '2026-08-18T09:00:00Z' }));
+    useArtifactStore.getState().upsert(makeArtifact('art_ev6'));
+    expect(useArtifactStore.getState().activeArtifactId).toBe('art_ev6');
+
+    useArtifactStore.getState().applyEvent(
+      makeEvent(
+        'repointed',
+        makeArtifact('art_ev5', { updated_at: '2026-08-18T10:00:00Z' }),
+        { old: 'report/a.html', new: 'report/b.html', hash_matched: true },
+      ),
+    );
+
+    const s = useArtifactStore.getState();
+    // Content refresh rides updated_at; the user's current tab stays put.
+    expect(s.activeArtifactId).toBe('art_ev6');
+    expect(s.artifacts.find((a) => a.artifact_id === 'art_ev5')?.updated_at).toBe('2026-08-18T10:00:00Z');
+  });
+
+  test('malformed events are swallowed loudly, never thrown', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() =>
+      useArtifactStore.getState().applyEvent({ type: 'artifact_changed' } as never),
+    ).not.toThrow();
+    spy.mockRestore();
   });
 });

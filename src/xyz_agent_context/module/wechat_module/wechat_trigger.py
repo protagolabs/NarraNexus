@@ -78,9 +78,11 @@ class WeChatTrigger(ChannelTriggerBase):
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
-            # iLink has no server-side history API; ChannelInboxWriter persists
-            # every turn to bus_messages under channel_id=f"wechat_{to_user_id}",
-            # which WeChatContextBuilder reads. Same contract as Telegram.
+            # iLink has no server-side history API, so the record we keep IS the
+            # history: `InboxRecorder` writes every turn to
+            # `inbox_thread_messages` (it was `bus_messages` under
+            # channel_id=f"wechat_{to_user_id}" before 2026-08-17), which
+            # WeChatContextBuilder reads. Same contract as Telegram.
             history_config=ChannelHistoryConfig(
                 load_conversation_history=True,
                 history_limit=20,

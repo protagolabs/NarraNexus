@@ -28,18 +28,20 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlencode, urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
     EVENT_CHECKOUT_CREATED,
     EVENT_SUBSCRIPTION_ACTIVATED,
+    PROP_MONTHS,
+    PROP_PAYMENT_METHOD,
     PROP_SESSION_ID,
 )
 from xyz_agent_context.settings import settings
@@ -373,16 +375,18 @@ async def get_records(request: Request, direction: str | None = None):
 async def _write_action(
     request: Request,
     action: Literal["subscribe", "cancel", "reactivate"],
-    extra: dict[str, str] | None = None,
+    extra: dict[str, Any] | None = None,
 ):
     """Shared harness for the subscription write routes (subscribe / cancel /
     reactivate): Power-account gate + NetMind token, then dispatch to the client
     method, mapping the three error kinds consistently.
 
-    ``extra`` carries per-action keyword arguments — today only subscribe's
-    return URLs. cancel/reactivate open no Stripe checkout, so they must never
-    receive them; keeping this a parameter rather than resolving it inside the
-    harness is what keeps that true.
+    ``extra`` carries per-action keyword arguments, and now has two kinds of
+    payload: ``channel`` (all three actions) and subscribe's return URLs (only
+    subscribe). Only the second is excluded from cancel/reactivate — they open
+    no Stripe checkout, so they have nowhere to redirect to. Keeping this a
+    parameter rather than resolving it inside the harness is what keeps that
+    exclusion true, and there is a test named for it.
 
     BillingBusinessError -> 400 (surface the user-safe message, e.g. "Already
     subscribed"); BillingAuthError -> 401; BillingUpstreamError -> 502.
@@ -403,10 +407,48 @@ async def _write_action(
     return {"success": True, "data": data}
 
 
+class SubscribeRequest(BaseModel):
+    """Body for POST /subscribe — which of the two Pro products to start.
+
+    ``stripe`` is a real card subscription that renews itself. ``alipay`` /
+    ``wechat`` cannot pay a Stripe subscription at all, so they are a ONE-TIME
+    purchase of ``months`` months that simply ends when the period does.
+
+    ``months`` therefore belongs to the one-time mode only, and passing it with
+    a card is REJECTED rather than ignored: someone who sends "card, 6 months"
+    believes they are buying six months on a card, and quietly charging them
+    for one is the worst of the three available outcomes. ``model_fields_set``
+    (rather than a sentinel default) is what separates "explicitly asked for
+    1 month" from "never mentioned months".
+    """
+
+    payment_method: Literal["stripe", "alipay", "wechat"] = "stripe"
+    months: int = Field(1, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def _months_only_for_one_time(self) -> "SubscribeRequest":
+        if self.payment_method == "stripe" and "months" in self.model_fields_set:
+            raise ValueError("months does not apply to a card subscription")
+        return self
+
+
 @router.post("/subscribe")
-async def subscribe(request: Request):
-    """Start a Pro subscription — returns Stripe {session_id, checkout_url}."""
-    result = await _write_action(request, "subscribe", _return_urls("subscription"))
+async def subscribe(request: Request, req: SubscribeRequest | None = None):
+    """Start a Pro subscription — returns Stripe {session_id, checkout_url}.
+
+    The body is optional: a caller that just wants the card subscription can
+    keep posting nothing at all.
+    """
+    req = req or SubscribeRequest()
+    extra: dict[str, Any] = {
+        "payment_method": req.payment_method,
+        "channel": settings.billing_channel,
+        **_return_urls("subscription"),
+    }
+    # Only the one-time products have a month count; see SubscribeRequest.
+    if req.payment_method != "stripe":
+        extra["months"] = req.months
+    result = await _write_action(request, "subscribe", extra)
     _validate_checkout_url((result.get("data") or {}).get("checkout_url"))
     user_id = await resolve_current_user_id(request)
     session_id = (result.get("data") or {}).get("session_id")
@@ -414,21 +456,77 @@ async def subscribe(request: Request):
         user_id=user_id,
         event=EVENT_CHECKOUT_CREATED,
         event_id=f"checkout_created:{session_id}" if session_id else None,
-        properties={PROP_SESSION_ID: session_id},
+        properties={
+            PROP_SESSION_ID: session_id,
+            # Which product was bought. `months` only for the one-time rails —
+            # a card subscription has no month count, and sending 1 would read
+            # as "someone bought one month on a card", a thing that cannot
+            # happen.
+            PROP_PAYMENT_METHOD: req.payment_method,
+            **({} if req.payment_method == "stripe" else {PROP_MONTHS: req.months}),
+        },
     )
     return result
 
 
+@router.get("/fx-rate")
+async def fx_rate(request: Request, amount: float | None = Query(None, gt=0)):
+    """Quote what a CNY charge would actually cost, before the user commits.
+
+    WeChat Pay settles in CNY on this account while everything being bought is
+    denominated in USD, so "$10" and "¥73" have to appear together — an
+    unexplained number next to the QR code is where a payment gets abandoned.
+
+    ``currency`` is pinned to CNY rather than read from the query: CNY is the
+    only non-USD currency this account charges in, and an open parameter would
+    just be a way to ask the upstream questions we have no screen for.
+
+    ``amount`` is optional — omitted asks for the bare rate, present also
+    returns the converted total. The reply carries the WeChat minimum too, so
+    the caller can stop an under-minimum payment before creating a checkout the
+    upstream would only 400.
+    """
+    await _require_power_account(request)
+    token = _require_netmind_token(request)
+    try:
+        body = await _client().fx_rate(token, "CNY", amount=amount)
+    except BillingAuthError:
+        raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")
+    except (BillingUpstreamError, BillingBusinessError) as exc:
+        # Business 4xx on a read endpoint = upstream contract violation -> 502,
+        # same as /plans and /subscription.
+        logger.error(f"[billing] fx_rate upstream failure: {exc}")
+        raise HTTPException(status_code=502, detail="Billing service unavailable")
+    # Upstream returns the quote flat; unwrap if it ever arrives enveloped so
+    # the frontend only ever reads one shape.
+    inner = body.get("data") if isinstance(body, dict) else None
+    if isinstance(inner, dict):
+        return {"success": True, "data": inner}
+    return {"success": True, "data": body if isinstance(body, dict) else {}}
+
+
 @router.post("/cancel")
 async def cancel(request: Request):
-    """Cancel = turn off auto-renew; stays Pro until period end."""
-    return await _write_action(request, "cancel")
+    """Cancel = turn off auto-renew; stays Pro until period end.
+
+    Carries `channel` but NOT the return URLs — this opens no Stripe checkout,
+    which is the whole reason `extra` is a parameter rather than something the
+    harness resolves. See the client for why the channel is sent.
+    """
+    return await _write_action(request, "cancel", {"channel": settings.billing_channel})
 
 
 @router.post("/reactivate")
 async def reactivate(request: Request):
-    """Re-enable auto-renew on a cancelled-but-in-period subscription."""
-    return await _write_action(request, "reactivate")
+    """Re-enable auto-renew on a cancelled-but-in-period subscription.
+
+    Card subscriptions only — on a one-time purchase this genuinely flips
+    auto_renew on something that cannot renew (measured 2026-08-19). The panel
+    never offers it there.
+    """
+    return await _write_action(
+        request, "reactivate", {"channel": settings.billing_channel}
+    )
 
 
 # --- Phase 4: recharge / top-up (module E) ---------------------------------
@@ -448,10 +546,22 @@ _STRIPE_SESSION_ID_RE = re.compile(r"^cs_[A-Za-z0-9_]+$")
 
 class RechargeRequest(BaseModel):
     """Body for POST /recharge. Preset tiers are a frontend convenience; any
-    positive amount (<= ceiling) is accepted."""
+    positive amount (<= ceiling) is accepted.
+
+    ``amount`` is ALWAYS the USD figure — the credit the user ends up with.
+    A WeChat payer is charged an equivalent in CNY that upstream computes at
+    its own live rate; see GET /fx-rate for showing them that number first.
+
+    There is deliberately no ``currency`` field. It is a function of
+    ``payment_method`` (upstream 400s when the two disagree), so it is derived
+    in the client where the upstream contract is modelled. A body that still
+    carries one from an older frontend is ignored, not rejected — during a
+    rolling deploy that is the difference between "the field does nothing" and
+    "nobody can pay".
+    """
 
     amount: float = Field(gt=0, le=_MAX_RECHARGE_AMOUNT)
-    currency: str = "USD"
+    payment_method: Literal["default", "alipay", "wechat"] = "default"
 
 
 @router.post("/recharge")
@@ -465,7 +575,11 @@ async def recharge(req: RechargeRequest, request: Request):
     token = _require_netmind_token(request)
     try:
         body = await _client().recharge(
-            token, req.amount, req.currency, **_return_urls("topup")
+            token,
+            req.amount,
+            payment_method=req.payment_method,
+            channel=settings.billing_channel,
+            **_return_urls("topup"),
         )
     except BillingAuthError:
         raise AuthError(NETMIND_TOKEN_INVALID, "NetMind token invalid or expired")

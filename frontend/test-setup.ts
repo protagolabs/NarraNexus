@@ -39,6 +39,34 @@ if (typeof localStorage === 'undefined' || typeof localStorage.clear !== 'functi
   if (typeof window !== 'undefined') Object.defineProperty(window, 'localStorage', def);
 }
 
+// jsdom does not implement scrollIntoView. Any test that renders a transcript
+// with at least one message hits the follow-the-bottom effect and throws inside
+// a passive effect — which vitest reports as an unhandled error AFTER the test
+// has already passed, so the suite is green and noisy at the same time. A no-op
+// is the honest stub: what the effect does is unobservable in jsdom either way,
+// and the stickiness DECISION (whether it should scroll at all) is unit-tested
+// in lib/__tests__/scrollStickiness.test.ts.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
+// jsdom implements neither IntersectionObserver nor ResizeObserver; the md
+// block editor (Milkdown/Crepe) constructs both at mount for code blocks and
+// toolbar placement. Observing nothing is honest in jsdom — layout callbacks
+// are unobservable there anyway.
+class _NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return []; }
+}
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  (globalThis as Record<string, unknown>).IntersectionObserver = _NoopObserver;
+}
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  (globalThis as Record<string, unknown>).ResizeObserver = _NoopObserver;
+}
+
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({

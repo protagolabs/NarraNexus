@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-08-10
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 — `JobOrigin` + 两个 origin 字段
+
+job 记住它是在哪儿被要求的。此前 job 只记得**做什么**，忘了**在哪被问**——于是
+在团队房里当着四个人要的「明早提醒我们」，投进了 owner 的私聊，问的那个房间再
+没收到过回音。
+
+`JobOrigin` 刻意是**小的闭集**而不是「任意 WorkingSource」：每个值都需要真实存在
+的投递代码，一个能记录却投不出去的来源比不记录更糟——执行时会把答案路由进一个
+静默什么都不做的分支。
+
+`MESSAGE_BUS` 目前特指**团队房**。peer DM 不在内：agent 对 agent 的频道没有人类
+读者，往那儿投的报告等于没人看见，owner 私聊才是它诚实的归宿。
 
 ## 2026-08-10 (PR-8b r2) — `JobUpdateFields`：job_update 可变字段的单一来源
 
@@ -83,3 +96,34 @@ Background tasks (Jobs) are a first-class concept in NexusAgent — they allow t
 - `JobModel.limit` is a field with default `10` that appears to be a pagination hint for the repository. It is stored in the database alongside business data. This field was probably intended for API responses and should not have been on the persistence model.
 - `OngoingExecutionResult.should_notify` defaults to `False` for ONGOING jobs. Only the final "completed" execution should notify the user. The LLM is responsible for setting `should_notify=True` only when `should_continue=False`.
 - Comparing `job.status == JobStatus.ACTIVE` works because `JobStatus` is `str, Enum`. The string `"active"` and `JobStatus.ACTIVE` are equal.
+
+## 2026-08-19 — TriggerConfig.end_at（recurring 调度地平线）
+
+新增可选字段 `end_at: Optional[datetime]`：recurring（scheduled）job 的
+平台级"排到哪天为止"。约定与 `run_at` 完全一致——naive 本地时间 + 由
+`timezone` 字段声明时区（同一 validator 拒绝 aware 值；`end_at` 也计入
+"time-bearing 字段必须带 timezone"的 model validator）。执行方在
+`job_trigger.py`（谓词 `_job_scheduling.past_schedule_horizon`）——下次
+fire 落在地平线之后 → COMPLETED 而非重排；one_off 忽略该字段（单次运行
+没有"下一次 fire"，_rearm_cooled_jobs 对 one_off 有显式守卫）。语义一句
+话：recurring 认、one_off 不认。**写 next_run 的点分两类，别当成"全部一致"
+（round-5 review B）：认地平线的 5 个** = SCHEDULED finalize、ONGOING
+finalize 的两支（hook 失败的机械回退支 + hook 接管后的 else 支，后者查 hook
+重排的 next_run 是否越线，四轮 review 补，因为 hook 正常接管才是常走路径）、
+两个重武装侧门（`_rearm_cooled_jobs` / `_heal_unscheduled_active_jobs`）；
+**有意不认地平线的 4 个（已知有界缺口）** = `job_recovery.rearm_user_no_quota_jobs`
+（登录/额度恢复边缘）/ `resume_job`（用户手动恢复）/ `reschedule_job`（用户
+改执行时间）/ `_resume_eligible_no_quota_jobs`（15min backstop）——都是复活
+PAUSED 态 job 的恢复路径，最坏多跑一次，随后 finalize 越线完结（finalize 是
+权威兜底）；不给它们加守卫是因为完结一个从未在本轮运行的 PAUSED 态 job 与
+finalize 的 instance 完结语义不同（PAUSED 态 instance 非 in_progress）。默认
+None = 老 job 逐字不变（铁律 #6）。首个消费方是
+onboarding 引导 Agent 的每日 check-in；试用期提醒/倒计时/N 天课程是同一
+原语的后续候选。**暴露面已同批接线**（否则原语只有 Python 直调可达）：
+MCP 工具 schema（`_job_mcp_tools.TriggerConfigArg.end_at: NotRequired[str]`
++ job_create/job_update docstring）、`JOB_MODULE_INSTRUCTIONS`（SCHEDULED
+行 + 第 4 节可选字段，教模型"用户给了有界时长就用 end_at，别指望自己记得
+暂停"）、agent 侧 job 摘要（`until {end_at}`）、前端 `TriggerConfig` 类型
+与 Jobs 详情（`jobs.expanded.endAt`）。JobScheduleEditDialog 有意不加——
+`reschedule_job` 的 `_TIME_FIELDS` 不含 end_at，传了会被静默忽略。这是调度语义（"日程排到何时"），不是 agent_loop 上限，
+不触碰铁律 #14——ONGOING 的 max_iterations 是既有先例。

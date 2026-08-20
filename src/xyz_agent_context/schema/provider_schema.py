@@ -199,10 +199,10 @@ def get_slot_required_protocols(
 ) -> list[ProviderProtocol]:
     """Return the protocols allowed for a slot in the current framework."""
     if slot_name == SlotName.AGENT.value:
-        framework = agent_framework or "claude_code"
+        framework = agent_framework or "nexus_power"
         return AGENT_FRAMEWORK_REQUIRED_PROTOCOLS.get(
             framework,
-            AGENT_FRAMEWORK_REQUIRED_PROTOCOLS["claude_code"],
+            AGENT_FRAMEWORK_REQUIRED_PROTOCOLS["nexus_power"],
         )
     return SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
 

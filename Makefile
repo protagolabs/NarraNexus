@@ -26,7 +26,7 @@ help:
 	@echo "    make lint-frontend      ESLint on frontend"
 	@echo "    make typecheck          Run all type checkers"
 	@echo "    make typecheck-backend  Pyright on Python code"
-	@echo "    make typecheck-frontend tsc --noEmit on frontend"
+	@echo "    make typecheck-frontend tsc -b on frontend (same as the build)"
 	@echo ""
 	@echo "  Test:"
 	@echo "    make test               Run all tests"
@@ -71,7 +71,13 @@ typecheck-backend:
 	uv run pyright
 
 typecheck-frontend:
-	cd frontend && npx tsc --noEmit
+	# `tsc -b`, NOT `tsc --noEmit`: the two do not check the same thing, and the
+	# build uses -b (package.json "build" = `tsc -b && vite build`). A bare
+	# global `JSX.Element` passed --noEmit and failed -b under @types/react 19,
+	# so this gate reported green while the cloud image and the DMG would both
+	# have failed to build. A typecheck that a build can disagree with is not a
+	# gate. (2026-08-19)
+	cd frontend && npx tsc -b
 
 # ── Test ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +117,9 @@ db-doctor: ## Verify schema integrity + print row counts (no side-effects unless
 
 latency-report: ## Bus-hop + turn-phase percentiles, parsed from ~/.narranexus/logs (PRD acceptance #1 evidence). Args: HOURS=24 CHANNEL=ch_xxx
 	uv run python scripts/diag_collector/latency_report.py --hours $(or $(HOURS),24) $(if $(CHANNEL),--channel $(CHANNEL),)
+
+work-item-report: ## Hand-off closure + stall rates, parsed from ~/.narranexus/logs (evidence for "is a stronger fallback needed"). Args: HOURS=168 TEAM=t_xxx
+	uv run python scripts/diag_collector/work_item_report.py --hours $(or $(HOURS),168) $(if $(TEAM),--team $(TEAM),)
 
 # ── Release ─────────────────────────────────────────────────────────────────
 

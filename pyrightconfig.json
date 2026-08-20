@@ -18,8 +18,7 @@
         "src/xyz_agent_context/module/job_module/job_module.py",
         "src/xyz_agent_context/module/run_channel_triggers.py",
         "src/xyz_agent_context/module/slack_module/slack_sdk_client.py",
-        "src/xyz_agent_context/module/social_network_module/social_network_module.py",
-        "src/xyz_agent_context/module/social_network_module/test_persona.py"
+        "src/xyz_agent_context/module/social_network_module/social_network_module.py"
     ],
     "typeCheckingMode": "off",
     "reportAttributeAccessIssue": "error",

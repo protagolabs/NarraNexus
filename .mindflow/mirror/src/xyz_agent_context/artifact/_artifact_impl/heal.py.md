@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/heal.py
-last_verified: 2026-08-10
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -73,3 +73,20 @@ This was cited in [[teams]] as a reason `clear_files` must cascade to
 artifacts. The cascade is still right, but for the other reason given there:
 heal only ever RECONNECTS a pointer to a file that still exists, and a wipe
 deletes the files.
+
+## 2026-08-18 — hash 认亲层 + 两道护栏 + 重指诚实化
+
+候选流水线变为:扫描 → **排除其他活 artifact 的当前指向**(绝对 realpath 比较;
+否则两个 artifact 收敛到同一文件,改一个动两个)→ **hash 层**(表里有 content_hash
+时逐候选验 sha256:恰 1 命中=验明正身确定性重指;≥2 命中=复制品意图不明,交弹窗;
+0 命中=改名且改了内容,退扩展名层)→ 扩展名层(现状:1 自动/0 失败/N 弹窗)。
+
+**一切重指走 `_repoint` 单一出口**(含用户弹窗选定):history action="healed"
+(register 的 history_action 参数)+ suppress_notify 抑制普通 updated 事件 +
+自己 stage 更富的 "repointed"(extra: old/new 路径尾+hash_matched)。语义:
+猜测/验证永不伪装成有意更新;前端据 repointed 弹 toast 并立即重载。
+声明边界:hash 验内容不验意图(可能命中用户备份,toast 的路径是最后防线)。
+
+## 2026-08-20 — 候选哈希下线程(#334 I12)
+
+hash 认亲一次可能连读十几个候选文件,整段 to_thread;语义不变。

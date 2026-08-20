@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@milkdown/crepe": "^7.22.1",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.4",
@@ -19,6 +20,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/vite": "^4.1.17",
     "@tanstack/react-query": "^5.90.21",
+    "@uiw/react-codemirror": "^4.25.11",
     "autoprefixer": "^10.4.22",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -37,8 +39,11 @@
     "reactflow": "^11.11.4",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.17",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
@@ -49,6 +54,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/unist": "^3.0.3",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

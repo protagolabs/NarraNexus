@@ -264,7 +264,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         <button
           onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -272,7 +272,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -293,7 +293,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <div className="border border-[var(--border-default)] rounded">
               <button
                 onClick={() => setSetupOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--nm-paper-warm)] transition-colors"
                 aria-expanded={setupOpen}
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
@@ -357,12 +357,12 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                       <span className="text-[var(--text-primary)] font-medium">{t('awareness.slack.manifestTitle')}</span>
                       <button
                         onClick={handleCopyManifest}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         title={t('awareness.slack.copyYamlTitle')}
                       >
                         {manifestCopied ? (
                           <>
-                            <CheckCircle className="w-3 h-3 text-[var(--color-green-500)]" />
+                            <CheckCircle className="w-3 h-3 text-[var(--color-success)]" />
                             <span>{t('awareness.common.copied')}</span>
                           </>
                         ) : (
@@ -443,7 +443,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.bot_user_id})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
@@ -453,7 +453,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 {t('awareness.slack.noOwner')}
               </div>
             )}
@@ -468,7 +468,7 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {testLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : testPassed ? (
-                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
+                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-success)]" />
                 ) : null}
                 {testPassed ? t('awareness.common.connected') : t('awareness.common.test')}
               </Button>

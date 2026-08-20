@@ -1,8 +1,154 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-13
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
+
+`/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
+`os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
+COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/xyz_agent_context/bootstrap/lifecycle]]
+`.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
+窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
+指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
+
+## 2026-08-19 (九改·更正) — 不再有 `extra_updates` 这个参数
+
+四改那条只更正了 import 路径，把签名留在了旧样子。现在传的是**具名参数**：
+
+```python
+result = await apply_agent_profile_change(
+    db_client, agent_id,
+    new_name=..., new_description=...,
+    is_public=... ,          # None 表示"没传"；False 是值
+)
+```
+
+`extra_updates` 已经不是参数，只是事务**内部**拼出来的局部 dict。改成具名的理由
+见 [[profile_write]] 八改：开放 dict 让下一个人一句 `model_dump()` 就能顺带改 agent
+归属人，而这个函数的名字不会提示审查者去查鉴权。
+
+`identity_record_updated` 也不再在本路由推导——那是 `AgentProfileWrite` 上的
+property，两个路由各推一份就是同一条规则的两处漂移点（本次已经因此出过一次不对称）。
+
+## 2026-08-18 (四改) — import 改指领域包
+
+`apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
+`xyz_agent_context.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+Module——它 import 的是一个核心领域包。行为不变。
+
+## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
+
+`not_applied` 分支原来读 `result.updated_fields`，而那个字段在成功分支的含义是
+「写了哪些」。共享结果已拆出 `unapplied_fields`（见 [[_awareness_writes]] 二改），
+这里跟着改。这条分支**当时零测试覆盖**——读错字段只会让文案退化成没有字段名的
+`"The update did not persist: "`，不会红。已补
+`test_a_transaction_level_failure_names_the_fields_that_did_not_land`。
+
+## 2026-08-18 — `PUT /agents/{id}` 改走共享改名事务，不再自己拼
+
+深圳线下第二轮 P1 的**另一半**。#320（下一条）修的是"改成了却报失败"，本条修的是
+"改成了但 agent 不认"：本路由写列、刷名录，却**从不追加身份更正**，而
+[[_awareness_writes]] 的改名事务从 2026-08-04 起就把那条更正当作改名的必要组成。
+结果 profile 里停着上一次改名留下的、**方向相反**的平台记录（详见那份 md 的取证）。
+
+改法：整段内联写入换成一次
+`apply_agent_profile_change(db, agent_id, new_name=…, new_description=…,
+extra_updates={"is_public": …})`。原来那段做的每件事（归一、等值短路、回读而非
+rowcount、无条件刷名录）都在事务里，**行为不变**；多出来的是身份更正。
+
+- 失败按 `result.error_kind` 结构化映射成本路由的话术（`not_found` / `not_applied`
+  各自保留原文案），**不匹配英文散文**——那串是给模型读的，措辞会变。
+- `is_public` 作为 `extra_updates` 同行写入，保持单次行写。
+- **回读核对留在本路由**，且核对的是 `requested` **全部**字段，不是事务写过的那些。
+  两者问的不是同一件事：事务问「我写的落了没」，路由问「调用方要的状态成立没」。
+  一个在读时就相等的字段不会进事务的清单，但并发写入方（另一个标签页、或 agent
+  自己的 `update_agent_profile`）仍可能在读—写—回读的窗口里把它挪走。委托的第一版
+  把这条悄悄收窄成"只查写过的"，全量测试没红——因为它**当时没有测试钉住**。现已
+  补 `test_a_field_that_needed_no_write_is_still_verified_against_the_row`。
+- `sync_agent_discovery` 与 `agent_field_matches` 的 import：前者移除（本文件不再
+  直接持有），后者**保留**（上一条那个核对要用）。**测试打桩点也跟着搬**——
+  `test_a_no_op_re_save_still_refreshes_the_peer_directory` 原来 patch
+  `auth_mod.sync_agent_discovery`，路由不再 import 该名字后，那个 patch 会
+  **静默地什么都没监视到**并对任何行为放行。已改为 patch 定义模块
+  `message_bus.agent_discovery_sync`。凡是"路由不再直接 import 的符号"，
+  打桩点都必须跟着走，否则测试从守卫退化成装饰。
+
+## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
+
+`PUT /agents/{agent_id}` 原来是 `affected_rows > 0` 才算成功，否则回
+`success=False, error="No changes made"`。而 `AgentRepository.update_agent`
+返回的是 `cursor.rowcount`——**SQLite 数 MATCHED 行，MySQL 数 CHANGED 行**。
+于是「把值改成它已经是的那个值」在 SQLite 上返 1（成功），在 MySQL 上返 0
+（被判失败）：**只在 cloud 上错**。用户看到「保存失败」，重试，每次都失败，
+而库里一直就是他要的新名字。深圳线下第二轮 P1 就是这个形态（取证：
+`agents.agent_name` 已是「小绿」，前端却说没保存成，测试者反复重试）。
+
+同一个陷阱 [[_awareness_writes]] 在 2026-08-05 已经为 agent 侧的
+`update_agent_profile` 拆过（写前做值相等短路）；本次是**用户侧 HTTP 那一半**，
+当时漏了。两边现在在这个 trap 上同语义——但这是**本次同时改了 agent 侧**才
+成立的：那边当时只拆了 no-op 一支，「真有改动而驱动报 0」仍会答失败，本次一并
+换成回读判定（见 [[_awareness_writes]] 2026-08-17 条）。
+
+修法（不是给 rowcount 打补丁，是把它从判据里拿掉）：
+
+1. `requested` = 调用方要的字段，**并且已经是入库形态**（`normalize_agent_text`）。
+   `update_data` = 其中与当前行真的不同的那些（谓词见下）。全都相同 →
+   **一次写都不发**。
+   > 更正（2026-08-18）：原文这里还写着「`sync_agent_discovery` 也不发（没有
+   > 变化要广播）」。已改成**每个被接受的请求都发一次**。理由是这个调用存在的
+   > 初衷：2026-08-04 那条写着「此前注册是『跑过一轮』的副作用，所以刚创建、
+   > 或改完名字/描述后**闲着**的 agent 对同伴不存在」——「下一轮会自己重写」
+   > 当初就被判定为不够。而 sync 自己吞失败只返回 False（所以本轮给它加了
+   > warning），一旦某次失败让同伴目录停在旧名，**原值重存是用户最自然的重试
+   > 方式**，它不该恰好是唯一跳过修复的那条路。代价是 no-op 重存多一次
+   > discovery 写——而 no-op 重存本身很罕见。测试：
+   > `test_a_no_op_re_save_still_refreshes_the_peer_directory`。
+2. 发过写之后**回读**，再用同一个谓词核对 `requested` 是否都落到行上。
+   rowcount 只进 debug 日志，注明 dialect-dependent、仅供参考。
+3. 回读后仍不符 → `success=False`（错误串点名哪些字段没落）。日志级别是
+   **WARNING 不是 ERROR**：读—写—回读之间没有 CAS，另一个标签页或 agent 自己的
+   `update_agent_profile` 在窗口内写入，就会在这里表现为「不是我要的值」——
+   良性的 last-write-wins 不该长得像持久化故障。
+
+谓词 `agent_field_matches` **不在本文件**，在 [[entity_schema]]：它编码的是
+Agent 实体的字段等价规则，而 `agents` 行有两个写入方（本路由 +
+[[_awareness_writes]]），各写一份比较迟早分歧——事实上分歧当时已经存在
+（那边比较 strip 过的值，这边比较原样值）。**决定要不要写**和**核对写没写成**
+共用同一个函数，两者不可能各说各话。
+
+归一化连带的一条：入库前 strip，所以「比较说相等」和「行里是什么」永远同形。
+另外空名（`""` 或纯空格）现在**被拒**，与 agent 侧 `update_agent_profile` 的
+拒绝语义对齐——没有名字的 agent 在所有界面上退回显示裸 `agent_id`，而同一个
+输入原来在一条路径被拒、在另一条被存。不放在 schema 的 `min_length`：`"  "`
+过得去，得在归一之后判。
+
+`sync_agent_discovery` 的返回值现在接住了：它内部吞掉自己的失败并返回 False，
+不接的话「同伴目录还是旧名」与「接口答成功」这两件事事后对不上。
+
+测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`(路由级) +
+`tests/schema/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
+rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op 写返回 1，
+照原样测会在「本来就不会出这个 bug 的方言」上空过。覆盖：no-op 重存=成功且
+**不发写**、真改动但驱动报 0=成功（回读为准）、真的没落库=仍然失败（防止修成
+「永远成功」）、可见性开关在同样条件下**必须真的发写**（断言写调用本身而不是
+`success`——见下）、空名被拒、首尾空格入库前被 strip、改名后 list 端点能看到新名。
+
+⚠ 回读校验对**谓词自身**的错误是结构性失明的：谓词若错判「已经相等」，则既不
+发写、又由同一套逻辑判定「已落库」→ 返回成功、日志无异常。所以谓词必须有自己的
+单测，且路由级用例要断言**写调用**（`calls == [...]`）而不是返回的 `success`。
+
+**创建路径同日补齐(review 第二轮)**:`create_agent` 的默认值改成在归一**之后**
+判 —— `agent_name = normalize_agent_text(request.agent_name) or "New Agent"`。
+`"   "` 是 truthy,先 `or` 会漏过默认串把纯空格存成名字,侧栏行标题直接空白
+(比空名退回显示 `agent_id` 还难认)。描述同理走 `normalize_agent_text`。
+
+长度上限**不在本文件判**:它在 [[api_schema]] 的 `_StrippedText` 上,归一之后量,
+所以本路由与 agent 侧对同一输入的验收集合一致,且 422 契约不变。中途试过把 cap
+搬进路由,打破了「四个写边模型统一 422」那条既有契约,被
+`tests/backend/test_agent_request_length.py` 当场抓住 —— 别再往这个方向走。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 
@@ -524,3 +670,36 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
   就是①的 order guard——重排会红,红的是重排不是测试。
 - 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
   仓单独 commit,本仓注释已互指并标明该文件不在本仓）。
+
+## 2026-08-19 — 登录路径挂载 onboarding 引导 Agent 供给
+
+`_schedule_guide_agent_provisioning(user_id, *, is_new)`：三个登录入口
+（`netmind_login`、本地 `login`、本地 `create_user`）在成功路径尾部
+fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
+（create_task + done_callback，incident lesson #2 模式；铁律 #21：消费方
+只有登录路由，子包住 backend 侧）。要点：
+
+- **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
+  ensure 内部有用户级 write-once 幂等标记——**顶层键**
+  `users.metadata.guide_agent_provisioned`，不嵌在 `onboarding_progress`
+  里，因为本文件的 `POST /api/auth/onboarding` 会整块替换那个子 dict，
+  嵌套标记会被第一次 UI 建 Agent 清掉（→ 永久重复供给 + 用户删掉引导
+  Agent 后复活）。回归测试：
+  test_onboarding.py::test_post_never_clobbers_the_guide_agent_marker。
+  热路径只是一次用户读；"每次都调"是存量零 Agent 用户补领的通道。
+- **is_new 贯穿**：netmind_login 传 upsert 的 is_new，本地 login 恒
+  False，create_user 恒 True——`backend/onboarding` 的 BACKFILL 刹车
+  （`NARRANEXUS_ONBOARDING_GUIDE_BACKFILL`，**默认关**）用它把"存量零
+  Agent 回访补领"做成 ops 显式开启的动作，新注册不受该刹车影响。
+- **调度前先查 kill-switch**（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`，默认
+  开）：关掉时连 task 都不建。测试套件在 tests/conftest.py 全局置 0，
+  避免无关登录测试背后真跑 provisioning；guide 测试自行 setenv 开启。
+- **前端同门**：netmind_login / create_user 响应带
+  `guide_agent_provisioning=_guide_agent_feature_on()`——前端的"你的第一
+  个 Agent 已就位"coachmark 以它为门，拉下服务端 kill-switch 时 UI 不会
+  承诺一个永远不出现的 Agent。
+- **必须排在 suspended 门禁之后**（netmind_login 里在
+  `_schedule_provider_provisioning` 之后）：被停号的登录 403 早退，
+  永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
+- 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
+  取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。
