@@ -4,15 +4,19 @@ last_verified: 2026-08-20
 stub: false
 ---
 
-## 2026-08-20 — warmup()：启动时预填 warm-runner 池
+## 2026-08-20 — warmup() + _schedule_pool_prewarm()：启动时预填 warm-runner 池
 
-新增 `NexusAgent.warmup()`：executor 启动 lifespan 调用，提前触发
-`_WarmRunnerPool.shared().schedule_refill()`，让**进程首个** nexus_power turn
-也能拿到已预导入的 runner。此前池只在首个 turn 构造 `NexusAgent`（`__init__`）时才开始
-填充，首个 turn 的 acquire 赶不上、自己 spawn 冷 runner（dev 实测 ~12s vs warm ~2s）。
-门控：`NEXUS_POWER_INPROCESS=1` 或 `NEXUS_POWER_POOL_SIZE=0` 时 no-op。best-effort，
-调用方（executor lifespan）绝不被阻塞或抛入。配套 deploy 侧 `Dockerfile.executor`
-的 `compileall`（bake app .pyc，缩短冷 runner 自身 prewarm import）。
+新增 `NexusAgent.warmup()`（executor 启动 lifespan 调用）提前填充 warm-runner 池，
+让**进程首个** nexus_power turn 也能拿到已预导入的 runner。此前池只在首个 turn 构造
+`NexusAgent`（`__init__`）时才开始填充，首个 turn 的 acquire 赶不上、自己 spawn 冷
+runner（dev 实测 ~12s vs warm ~2s）。
+
+`__init__`（本地/桌面每 turn 构造的路径，也是它唯一的预热点——铁律 #7）与 `warmup()`
+（executor 启动）**共用一个门控** `_schedule_pool_prewarm()`：`NEXUS_POWER_INPROCESS=1`
+或 `pool` 未 enabled 时 no-op；且因 `schedule_refill` 的 `create_task` 需要 running
+loop，**无 loop 时静默返回**——所以同步/import 期的 `__init__` 与 async 的 startup 共用
+一份判断、都不抛（best-effort 契约，抽方法前 `warmup` 少了 loop 守卫会抛，与 docstring
+矛盾）。配套 deploy 侧 `Dockerfile.executor` 的 `compileall`（bake app .pyc）。
 
 ## 2026-08-13 — 平台来源绑定：nexus 腿发 identity 头
 

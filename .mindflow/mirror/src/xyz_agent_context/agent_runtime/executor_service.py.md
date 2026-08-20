@@ -4,13 +4,20 @@ stub: false
 last_verified: 2026-08-20
 ---
 
-## 2026-08-20 — 启动 lifespan 预热 nexus_power runner 池
+## 2026-08-20 — 启动 lifespan 预热 runner 池（EXECUTOR_PREWARM_FRAMEWORKS 门控）
 
-`app` 挂 `_lifespan`：接受请求前调 `get_agent_loop_driver("nexus_power").warmup()`
-预填 warm-runner 池，消除进程首个 nexus_power turn 的冷启动（dev 实测 ~12s→~3s）。
-warmup 失败只 `logger.warning`、绝不阻塞 executor 启动；driver 无 `warmup`（如
-`remote_driver`）则跳过。claude_code/codex 天生 eager import（启动即 `import
-agent_framework` 已付），无需预热。详见 [[nexus_agent.py]]。
+`app` 挂 `_lifespan`：接受请求前对 `EXECUTOR_PREWARM_FRAMEWORKS`（默认 `nexus_power`）
+里的每个 framework 调 `get_agent_loop_driver(name).warmup()` 预填 warm-runner 池，消除
+进程首个 turn 的冷启动（dev 实测 ~12s→~3s）。claude_code/codex 天生 eager import，
+无需预热。
+
+门控让 ops 能在内存吃紧时设空关掉：每个容器一个 idle warm runner ~350MB，撞
+`EXECUTOR_MEM_MB=1536` 硬上限与 admission `MIN_FREE_MEM_MB`（6144）准入水位；`broker`
+只有 `NEXUS_POWER_POOL_SIZE` 这个全有全无开关，本 env 提供细粒度关停。更彻底的“按容器
+实际 framework 预热”（零浪费）需 broker 透传容器 framework，记为 follow-up。warmup 失败
+只 `logger.warning`、driver 无 `warmup`（如 `remote_driver`）打 `debug` 跳过——都不阻塞
+启动。接缝由 `test_executor_service_warmup.py::test_real_nexus_power_driver_exposes_warmup`
+（不 mock）钉住,防重命名/代理静默取消优化。详见 [[nexus_agent.py]]。
 
 ## 2026-08-19 — 执行器侧读取并转发 origin_declaration
 

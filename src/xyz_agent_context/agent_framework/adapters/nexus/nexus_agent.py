@@ -12,10 +12,11 @@ Three jobs only:
      per-turn provider configs the resolver populated: NexusPower drives
      the provider API itself, so BOTH anthropic- and openai-protocol
      providers work (unlike the CLI-backed drivers, each locked to one);
-  2. run the turn in its OWN PROCESS by default (the runner; in-process
-     mode via ``NEXUS_POWER_INPROCESS=1`` for the executor container and
-     tests) and relay its NDJSON — with manual line buffering, never a
-     line-length assumption;
+  2. run the turn in its OWN PROCESS by default (the runner subprocess,
+     fed from a warm pool — this is the path the executor container takes,
+     since the broker never sets ``NEXUS_POWER_INPROCESS``; that flag =1
+     is opt-in for tests / callers wanting no subprocess) and relay its
+     NDJSON — with manual line buffering, never a line-length assumption;
   3. guarantee the legacy stream ends with exactly one
      ``response.done`` on every path (the billing chain's sole source).
 
@@ -146,17 +147,30 @@ class NexusAgent:
 
     def __init__(self, working_path: str = "./"):
         self.working_path = working_path
-        # Start warming immediately so even the process's FIRST turn
-        # overlaps imports with request preparation (no-op when pooling
-        # is disabled or no event loop is running yet).
-        if os.getenv("NEXUS_POWER_INPROCESS") != "1":
-            pool = _WarmRunnerPool.shared()
-            if pool.enabled:
-                try:
-                    asyncio.get_running_loop()
-                    pool.schedule_refill()
-                except RuntimeError:
-                    pass
+        # Start warming immediately so even the process's FIRST turn overlaps
+        # imports with request preparation. Local/desktop (no AGENT_EXECUTOR_URL)
+        # constructs a NexusAgent per turn in step_3, so this __init__ call is
+        # that path's only prewarm point — do not remove it (binding rule #7).
+        self._schedule_pool_prewarm()
+
+    def _schedule_pool_prewarm(self) -> None:
+        """Single source of truth for "should we prewarm the runner pool, and
+        can we right now". Shared by ``__init__`` (per-turn / local path) and
+        ``warmup()`` (executor startup). No-op in in-process mode or when
+        pooling is disabled; and — because ``schedule_refill``'s ``create_task``
+        needs a running loop — silently returns when there is none, so the
+        sync/import-time ``__init__`` path and the async startup path share ONE
+        gate and NEITHER raises."""
+        if os.getenv("NEXUS_POWER_INPROCESS") == "1":
+            return
+        pool = _WarmRunnerPool.shared()
+        if not pool.enabled:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no loop yet → create_task would raise; caller unharmed
+        pool.schedule_refill()
 
     def warmup(self) -> None:
         """Eagerly fill the warm-runner pool NOW (called from the executor's
@@ -165,12 +179,9 @@ class NexusAgent:
         pays the cold ~1.4s+1.8s import inline (measured ~12s vs ~2s warm on
         dev). Priming at startup lets the first real turn draw a pre-imported
         runner too. No-op in in-process mode or when pooling is disabled;
-        best-effort — the caller must never be blocked or raised into."""
-        if os.getenv("NEXUS_POWER_INPROCESS") == "1":
-            return
-        pool = _WarmRunnerPool.shared()
-        if pool.enabled:
-            pool.schedule_refill()
+        best-effort — the caller is never blocked or raised into (see
+        ``_schedule_pool_prewarm``)."""
+        self._schedule_pool_prewarm()
 
     def capabilities(self) -> set[str]:
         """Shipped beyond the base contract: the two-track event log

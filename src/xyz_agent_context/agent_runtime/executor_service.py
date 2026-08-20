@@ -60,19 +60,32 @@ from xyz_agent_context.agent_runtime.executor_protocol import (
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    # Prime the nexus_power warm-runner pool BEFORE serving requests, so the
-    # FIRST turn on this process draws a pre-imported runner instead of paying
-    # the cold subprocess import inline (measured ~12s cold vs ~2s warm on dev;
-    # see NexusAgent.warmup). Without this the pool only starts filling when the
-    # first turn constructs a NexusAgent — too late for that turn. Best-effort:
-    # a warmup failure must NEVER stop the executor from booting.
-    try:
-        driver = get_agent_loop_driver("nexus_power")
-        _warmup = getattr(driver, "warmup", None)
-        if callable(_warmup):
-            _warmup()
-    except Exception as e:  # noqa: BLE001 - warmup is best-effort, never fatal
-        logger.warning(f"[Executor] nexus_power warmup skipped: {e}")
+    # Prime warm-runner pools for the frameworks in EXECUTOR_PREWARM_FRAMEWORKS
+    # (default: nexus_power) BEFORE serving, so the process's first turn on those
+    # frameworks draws a pre-imported runner instead of paying the cold
+    # subprocess import inline (measured ~12s cold vs ~2s warm on dev; see
+    # NexusAgent.warmup). Gated so ops can drop the per-container ~350MB idle-
+    # runner cost on a memory-pressured host by setting the var empty; a
+    # follow-up can make the broker pass the container's actual framework so
+    # only the ones a user really uses are primed. Best-effort: a warmup failure
+    # only logs and NEVER stops the executor from booting.
+    frameworks = [
+        f.strip()
+        for f in os.getenv("EXECUTOR_PREWARM_FRAMEWORKS", "nexus_power").split(",")
+        if f.strip()
+    ]
+    for name in frameworks:
+        try:
+            driver = get_agent_loop_driver(name)
+            _warmup = getattr(driver, "warmup", None)
+            if callable(_warmup):
+                _warmup()
+            else:
+                # Not an error: local/desktop drivers (and remote_driver) may
+                # have no warmup; make the skip visible instead of silent.
+                logger.debug(f"[Executor] driver for {name!r} has no warmup(); skipped")
+        except Exception as e:  # noqa: BLE001 - warmup is best-effort, never fatal
+            logger.warning(f"[Executor] {name} warmup skipped: {e}")
     yield
 
 
