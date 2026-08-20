@@ -38,14 +38,14 @@
     "themeLight": "浅色",
     "themeDark": "深色",
     "themeSystem": "跟随系统",
-    "workspace": "你的工作台",
+    "workspace": "我的世界",
     "accountTitle": "账户"
   },
   "chat": {
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
-    "innerThoughts": "内心活动",
+    "innerThoughts": "后台运行记录",
     "composerPlaceholder": "输入消息，或输入 / 调用技能…",
     "selectAgent": "选择一个智能体",
     "selectAgentHint": "从侧边栏选择一个智能体，开始交互。",
@@ -1767,7 +1767,7 @@
       "noMembersHint": "点击“编辑”添加一些。"
     },
     "you": {
-      "you": "你",
+      "you": "我的世界",
       "subtitle": "你的世界，贯穿你的所有智能体",
       "viewsAriaLabel": "你的工作区视图",
       "tabMemory": "Narra 记忆",
