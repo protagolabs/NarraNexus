@@ -2370,7 +2370,9 @@ _register(
             # after the artifact is later re-pointed somewhere else.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
-            # "created" | "updated" | "healed" — lets a reader tell the first
+            # "created" | "updated" | "healed" | "user_edited" | "external_edited"
+        #  (VARCHAR(16): longest current value is external_edited at 15 chars —
+        #   a longer action needs the column widened FIRST or MySQL strict 1406s) — lets a reader tell the first
             # registration from later overwrites, and an intentional update
             # from a heal repoint (a guess/verification is never disguised as
             # an intentional update).

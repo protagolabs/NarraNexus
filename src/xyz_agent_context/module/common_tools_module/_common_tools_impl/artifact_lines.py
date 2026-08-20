@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 import posixpath
-from typing import List
+from typing import List, Tuple
 
 from xyz_agent_context.schema.artifact_schema import (
     URL_ARTIFACT_KIND,
@@ -33,15 +33,21 @@ from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
 
-def format_artifact_lines(artifacts, *, agent_id: str, user_id: str) -> List[str]:
-    """Render one `- `art_id` [kind] 'title' → path` line per artifact."""
+def format_artifact_lines(
+    artifacts, *, agent_id: str, user_id: str
+) -> List[Tuple[str, str]]:
+    """Render one (artifact_id, line) pair per artifact.
+
+    EXPLICIT pairing (review #334 I11): the state block attaches per-artifact
+    markers to these lines, and a positional zip would silently misalign the
+    moment any kind ever renders two lines — the id travels with its line."""
     workspace_prefixes = (
         f"{agent_workspace_relpath(agent_id, user_id or '')}/",
         f"{agent_id}_{user_id or ''}/",  # legacy flat layout
     )
     base = os.path.realpath(settings.base_working_path)
 
-    lines: List[str] = []
+    lines: List[Tuple[str, str]] = []
     for a in artifacts:
         rel = a.file_path
         outside_own_workspace = True
@@ -60,10 +66,13 @@ def format_artifact_lines(artifacts, *, agent_id: str, user_id: str) -> List[str
             ):
                 content_rel = candidate
         if content_rel is not None:
-            lines.append(
+            lines.append((
+                a.artifact_id,
                 f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → web page; "
-                f"Read `{content_rel}` to see its text content"
-            )
+                f"Read `{content_rel}` to see its text content",
+            ))
         else:
-            lines.append(f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`")
+            lines.append(
+                (a.artifact_id, f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`")
+            )
     return lines

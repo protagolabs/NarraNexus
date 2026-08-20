@@ -211,3 +211,15 @@ async def test_atomic_write_leaves_no_temp_droppings(env):
     )
     siblings = sorted(os.listdir(env["workspace"]))
     assert siblings == ["notes.md"]
+
+
+def test_editable_kinds_pinned_to_frontend_registry():
+    """Cross-language consistency pin (review #334 I18): the frontend's
+    kindRegistry declares which kinds get an editing surface
+    (editSurface not none/office-watch) and pins the SAME literal set in
+    kindRegistry.test.ts. A kind added on one side without the other shows
+    as an editor whose saves always 400 — this test and that one must move
+    together."""
+    from xyz_agent_context.artifact._artifact_impl.user_edit import EDITABLE_KINDS
+
+    assert set(EDITABLE_KINDS) == {"text/markdown", "text/csv", "text/html"}

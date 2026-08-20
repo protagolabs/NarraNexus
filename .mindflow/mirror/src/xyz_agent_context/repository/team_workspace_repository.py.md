@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_workspace_repository.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -39,3 +39,8 @@ stub: false
 
 artifact_id→最后动作 映射(状态块标记的数据源)。仅限有界调用方
 (状态块传≤展示上限)。
+
+## 2026-08-20 — latest_actions 只取 MAX(id) 行(#334 I10)
+
+800 条 history 不再整段拉回取尾;双 IN-list 双倍 placeholder,状态块
+≤20 上限内安全——更大的调用方要先想 placeholder 上限。

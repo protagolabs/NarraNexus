@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -128,3 +128,12 @@ file_path 集合,候选凡命中即排除。scope 口径刻意镜像 heal 的 se
 ## 2026-08-18 — `count_for_agent_context`
 
 状态块尾注的 COUNT 版可见面查询(同 union 语义),不为拿总数付整行代价。
+
+## 2026-08-20 — 可见性谓词单一定义 + 过滤下推(#334 I10)
+
+`_AGENT_CONTEXT_WHERE` 模块常量:list/search/count 三个口拼同一段
+(参数恒 (agent_id, agent_id))——安全谓词的第二份手抄消灭。新增
+search_agent_context / count_agent_context_filtered:list_artifacts
+工具的过滤与分页下推进 SQL,LIKE 转义 %/_(字面 "a_b" 不再匹配
+"axb");大小写按 DB collation(SQLite 仅 ASCII ci,较旧 .lower()
+对非 ASCII 略窄——如实声明)。

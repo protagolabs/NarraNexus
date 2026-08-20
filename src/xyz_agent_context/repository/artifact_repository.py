@@ -34,6 +34,17 @@ def _parse_bool(v: Any) -> bool:
     return bool(v)
 
 
+# The agent-context visibility predicate — own pinned ∪ every team the agent
+# belongs to (membership from team_members, NOT the owning user; see
+# list_for_agent_context's docstring for why keying on the user is the
+# cross-team leak). ONE definition consumed by list / search / count so the
+# copies cannot drift (review #334 I10); params are always (agent_id, agent_id).
+_AGENT_CONTEXT_WHERE = (
+    "((agent_id = %s AND pinned = 1 AND team_id IS NULL) "
+    "OR team_id IN (SELECT team_id FROM team_members WHERE agent_id = %s))"
+)
+
+
 class ArtifactRepository(BaseRepository[Artifact]):
     """
     Repository for the instance_artifacts table.
@@ -320,17 +331,88 @@ class ArtifactRepository(BaseRepository[Artifact]):
         Returns:
             Private-pinned ∪ team artifacts, most recently updated first.
         """
-        sql = """
-        SELECT * FROM instance_artifacts
-        WHERE (agent_id = %s AND pinned = 1 AND team_id IS NULL)
-           OR team_id IN (SELECT team_id FROM team_members WHERE agent_id = %s)
-        ORDER BY updated_at DESC
-        """
+        sql = (
+            "SELECT * FROM instance_artifacts WHERE "
+            + _AGENT_CONTEXT_WHERE
+            + " ORDER BY updated_at DESC"
+        )
         params: tuple = (agent_id, agent_id)
         if limit is not None:
             sql += " LIMIT %s"
             params = (agent_id, agent_id, int(limit))
         rows = await self._db.execute(sql, params=params, fetch=True)
+        return [self._row_to_entity(row) for row in rows]
+
+    @staticmethod
+    def _context_filters(
+        kind: str, team_id: str, title_contains: str
+    ) -> tuple:
+        """Filter SQL + params shared by search/count so the two can never
+        disagree about what "matching" means."""
+        sql = ""
+        params: list = []
+        if kind:
+            sql += " AND kind = %s"
+            params.append(kind)
+        if team_id:
+            sql += " AND team_id = %s"
+            params.append(team_id)
+        if title_contains:
+            escaped = (
+                title_contains.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            sql += " AND title LIKE %s ESCAPE '\\'"
+            params.append(f"%{escaped}%")
+        return sql, params
+
+    async def count_agent_context_filtered(
+        self,
+        agent_id: str,
+        *,
+        kind: str = "",
+        team_id: str = "",
+        title_contains: str = "",
+    ) -> int:
+        """COUNT of `search_agent_context`'s result set (for page math)."""
+        fsql, fparams = self._context_filters(kind, team_id, title_contains)
+        rows = await self._db.execute(
+            "SELECT COUNT(*) AS n FROM instance_artifacts WHERE "
+            + _AGENT_CONTEXT_WHERE + fsql,
+            params=(agent_id, agent_id, *fparams),
+            fetch=True,
+        )
+        return int(rows[0]["n"]) if rows else 0
+
+    async def search_agent_context(
+        self,
+        agent_id: str,
+        *,
+        kind: str = "",
+        team_id: str = "",
+        title_contains: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Artifact]:
+        """The list_artifacts tool surface: the SAME visibility predicate as
+        list_for_agent_context with filters and paging pushed into SQL —
+        page size must mean something to the DB, not be a Python slice over
+        a full pull (review #334 I10). Filters only NARROW.
+
+        `title_contains` is matched with LIKE; `%`/`_` metacharacters in the
+        needle are escaped so a literal "a_b" cannot match "axb"."""
+        fsql, fparams = self._context_filters(kind, team_id, title_contains)
+        sql = (
+            "SELECT * FROM instance_artifacts WHERE "
+            + _AGENT_CONTEXT_WHERE + fsql
+            + " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
+        )
+        rows = await self._db.execute(
+            sql,
+            params=(agent_id, agent_id, *fparams, int(limit), int(offset)),
+            fetch=True,
+        )
         return [self._row_to_entity(row) for row in rows]
 
     async def list_file_paths_for_heal_scope(
@@ -363,11 +445,7 @@ class ArtifactRepository(BaseRepository[Artifact]):
     async def count_for_agent_context(self, agent_id: str) -> int:
         """COUNT of the `list_for_agent_context` surface — the state block's
         truthful footer needs the total without paying for the rows."""
-        sql = """
-        SELECT COUNT(*) AS n FROM instance_artifacts
-        WHERE (agent_id = %s AND pinned = 1 AND team_id IS NULL)
-           OR team_id IN (SELECT team_id FROM team_members WHERE agent_id = %s)
-        """
+        sql = "SELECT COUNT(*) AS n FROM instance_artifacts WHERE " + _AGENT_CONTEXT_WHERE
         rows = await self._db.execute(sql, params=(agent_id, agent_id), fetch=True)
         return int(rows[0]["n"]) if rows else 0
 

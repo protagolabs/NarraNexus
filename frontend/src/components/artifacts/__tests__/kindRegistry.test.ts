@@ -144,4 +144,15 @@ describe('KIND_REGISTRY', () => {
       'application/x-url': false,
     });
   });
+  it('pins the PUT-editable kind set to the backend (review #334 I18)', () => {
+    // Backend twin: tests/artifact/test_user_edit.py
+    // ::test_editable_kinds_pinned_to_frontend_registry — both sides pin the
+    // SAME literal set; a kind added on one side without the other shows as
+    // an editor whose saves always 400.
+    const putEditable = ALL_KINDS.filter((k) => {
+      const surface = KIND_REGISTRY[k].editSurface;
+      return surface !== 'none' && surface !== 'office-watch';
+    });
+    expect(putEditable.sort()).toEqual(['text/csv', 'text/html', 'text/markdown']);
+  });
 });

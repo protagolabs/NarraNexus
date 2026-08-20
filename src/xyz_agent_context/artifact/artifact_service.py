@@ -106,10 +106,14 @@ class ArtifactService:
             (deleted_count, skipped_not_owned_ids) — unowned or unknown ids
             are reported, never silently deleted.
         """
+        # One IN query, not N round-trips (review #334 I10); the route caps
+        # the id cardinality (BulkDeleteRequest max_length).
+        fetched = await self._repo.get_by_ids(artifact_ids)
+        by_id = {a.artifact_id: a for a in fetched if a is not None}
         to_delete: List[Artifact] = []
         skipped: List[str] = []
         for aid in artifact_ids:
-            art = await self._repo.get_by_id(aid)
+            art = by_id.get(aid)
             if art is None or art.user_id != user_id:
                 skipped.append(aid)
                 continue

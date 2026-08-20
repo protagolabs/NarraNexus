@@ -427,13 +427,10 @@ class CommonToolsModule(XYZBaseModule):
             logger.warning(f"artifact-state block: freshness pass failed: {e}")
 
         lines = [header]
-        for line, a in zip(
-            format_artifact_lines(
-                artifacts, agent_id=self.agent_id, user_id=self.user_id or ""
-            ),
-            artifacts,
+        for aid, line in format_artifact_lines(
+            artifacts, agent_id=self.agent_id, user_id=self.user_id or ""
         ):
-            lines.append(line + markers.get(a.artifact_id, ""))
+            lines.append(line + markers.get(aid, ""))
         # Truthful footer: the cap must never be silent. Past the limit the
         # agent is told it is looking at a window and which tool lists the
         # rest — otherwise older artifacts read as nonexistent and get

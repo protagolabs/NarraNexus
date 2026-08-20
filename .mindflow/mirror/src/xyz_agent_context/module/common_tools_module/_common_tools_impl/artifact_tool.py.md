@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -202,3 +202,5 @@ title_contains 过滤,50/页。impl 为纯函数(直接测试),@mcp.tool 薄包�
 可选参数用 str=""(FastMCP 把 Optional 渲染成 anyOf null,严格 schema 供应商
 整请求 400——scope 参数的旧教训)。**听众隔离预留**:将来按 #309 落时,过滤加在
 impl 内、取服务端身份头(caller_team_id_from_request),签名不变。
+
+## 2026-08-20 — 过滤分页下推 SQL(#334 I10);行渲染消费 (id, line) 对

@@ -283,21 +283,23 @@ async def list_artifacts_impl(
     from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 
     repo = ArtifactRepository(db)
-    artifacts = await repo.list_for_agent_context(agent_id, limit=None)
-
-    if kind:
-        artifacts = [a for a in artifacts if a.kind == kind]
-    if team_id:
-        artifacts = [a for a in artifacts if a.team_id == team_id]
-    if title_contains:
-        needle = title_contains.lower()
-        artifacts = [a for a in artifacts if needle in a.title.lower()]
-
-    total = len(artifacts)
+    # Filters and paging live in SQL (review #334 I10): the page size must
+    # mean something to the DB, not be a Python slice over a full pull.
+    # title matching moved to LIKE — case-insensitive per DB collation (ASCII
+    # ci on SQLite), a hair narrower than the old .lower() for non-ASCII.
+    total = await repo.count_agent_context_filtered(
+        agent_id, kind=kind, team_id=team_id, title_contains=title_contains
+    )
     pages = max(1, (total + LIST_ARTIFACTS_PAGE_SIZE - 1) // LIST_ARTIFACTS_PAGE_SIZE)
     page = max(1, min(int(page or 1), pages))
-    start = (page - 1) * LIST_ARTIFACTS_PAGE_SIZE
-    window = artifacts[start:start + LIST_ARTIFACTS_PAGE_SIZE]
+    window = await repo.search_agent_context(
+        agent_id,
+        kind=kind,
+        team_id=team_id,
+        title_contains=title_contains,
+        limit=LIST_ARTIFACTS_PAGE_SIZE,
+        offset=(page - 1) * LIST_ARTIFACTS_PAGE_SIZE,
+    )
 
     filters = []
     if kind:
@@ -316,7 +318,9 @@ async def list_artifacts_impl(
         return f"{header}\n(no artifacts match — drop a filter or check the spelling)"
 
     lines = [header]
-    lines.extend(format_artifact_lines(window, agent_id=agent_id, user_id=user_id))
+    lines.extend(
+        line for _aid, line in format_artifact_lines(window, agent_id=agent_id, user_id=user_id)
+    )
     if pages > page:
         lines.append(f"(call again with page={page + 1} for the next {LIST_ARTIFACTS_PAGE_SIZE})")
     return "\n".join(lines)
