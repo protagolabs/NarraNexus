@@ -68,7 +68,7 @@ ALLOWED = {
 def _writes_found() -> set[tuple[str, str]]:
     out = subprocess.run(
         ["git", "grep", "-nE", WRITE_PATTERN, "--", "backend", "src"],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8",
     ).stdout
     found = set()
     for line in out.splitlines():
@@ -140,7 +140,7 @@ def _sets_agent_name_in_a_write(path: str) -> bool:
     """
     import ast
 
-    tree = ast.parse((REPO / path).read_text())
+    tree = ast.parse((REPO / path).read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue

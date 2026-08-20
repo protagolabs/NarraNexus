@@ -53,7 +53,8 @@ warning，其余照常——这才是热插拔该有的含义。
 
 ## 边界
 
-- 全平台**只有本包**写 `agents.agent_name`。护栏命令与允许清单见
-  [[_awareness_writes]]（那张 8 行表随本次搬迁更新）。
+- 全平台**只有本包**写 `agents.agent_name`。护栏与允许清单在
+  `tests/schema/test_only_one_writer_of_agent_name.py` —— **可执行的那一份**。
+  mirror 只指过去,不再自带一份会漂的拷贝(那份测试的 docstring 自己也这么主张)。
 - 建 agent **不走**这里：本函数的前置是**行已存在**（读不到即 `not_found`）。
   新建 agent 也没有"旧名"可更正。

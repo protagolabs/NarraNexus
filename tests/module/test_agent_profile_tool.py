@@ -737,3 +737,136 @@ class TestAppendingToAName:
 
         profile = "## Role and Identity\n- 名称：小绿-3\n"
         assert retire_self_name(profile, "小绿", "小绿2") == profile
+
+
+class TestInferredNameIsNeverTrusted:
+    """The repair path infers the old name from the line; the rename path is
+    told it by the row. Only the second may drive a rewrite unconditionally.
+
+    Fourth corruption from the same inference, and the worst: absent a strong
+    opener, `_name_part` returns the WHOLE value, which then satisfies
+    `startswith(old)` and an empty remainder — so the entire text after the name
+    was replaced by the current name. Everything after 名称： was deleted, on a
+    plain same-name save, with `identity_record_updated: true` and no warning.
+
+    The rule now: an inferred old name may drive a rewrite only when the
+    inference actually found a boundary (a strong opener) or the value is a bare
+    name. Otherwise refuse — loudly, so the caller reports it.
+    """
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "- 名称：美食家 是 owner 最近常去的那家店",
+            "- 名称：小绿 - 美食推荐专家",
+            "- 名称：小绿 Xiao Lv",
+        ],
+    )
+    def test_a_value_whose_boundary_was_not_found_is_refused(self, line):
+        from xyz_agent_context.module.awareness_module._awareness_writes import (
+            _AmbiguousSelfName,
+        )
+        from xyz_agent_context.module.awareness_module import (
+            declared_self_name, retire_self_name,
+        )
+
+        profile = f"## 4. Role and Identity\n{line}\n"
+        declared = declared_self_name(profile, "小绿")
+        with pytest.raises(_AmbiguousSelfName) as caught:
+            retire_self_name(profile, declared, "小绿", inferred=True)
+        assert caught.value.profile == profile, "the text must survive untouched"
+
+    def test_an_opener_boundary_is_still_trusted(self):
+        """The shape the template produces and prod held — unchanged."""
+        from xyz_agent_context.module.awareness_module import (
+            declared_self_name, retire_self_name,
+        )
+
+        profile = "## 4. Role and Identity\n- 名称：美食家；精通各地美食推荐\n"
+        declared = declared_self_name(profile, "小绿")
+        out = retire_self_name(profile, declared, "小绿", inferred=True)
+        assert "- 名称：小绿；精通各地美食推荐" in out
+
+    def test_the_rename_path_is_unaffected(self):
+        """Told the old name by the row, a rewrite needs no inference — and a
+        line that merely starts with it is still not a declaration."""
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        exact = "## 4. Role and Identity\n- 名称：美食家\n"
+        assert "- 名称：小绿" in retire_self_name(exact, "美食家", "小绿")
+
+        prose = "## 4. Role and Identity\n- 名称：美食家 是 owner 常去那家店\n"
+        assert retire_self_name(prose, "美食家", "小绿") == prose
+
+
+class TestMarkerOnlyLinesInsideTheIdentitySection:
+    """The same invariant, inside the EDITABLE region.
+
+    `test_a_line_that_only_starts_with_the_marker_is_not_a_declaration` used
+    `## 5. Owner observations`, so it was protected by the section scope as well
+    and could not see a failure of the predicate itself.
+    """
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "- name: 美食家 是 owner 最近常去的那家店",
+            "- 名称：美食家上个月换了老板",
+            "- Name: 美食家的推荐一向很准",
+        ],
+    )
+    def test_prose_in_the_identity_section_is_still_not_a_declaration(self, line):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = f"## 4. Role and Identity\n{line}\n"
+        assert retire_self_name(profile, "美食家", "小绿") == profile
+
+
+class TestHeadingLevels:
+    """Scope must track any heading level, but only reset at the same level or
+    higher.
+
+    `_ANY_H2` matched `## ` only, so a profile the model organised with H1 or H3
+    never left the "preamble" — where editable defaults to True. The positive
+    identity match, whose whole purpose is "default to not touching the owner's
+    text", was inert on that entire class of document, and every test but one
+    used bare fragments or all-`##` profiles.
+    """
+
+    def test_an_h1_owner_section_is_not_editable(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = (
+            "# 1. Owner preferences\n- 姓名：美食家\n\n"
+            "# 4. Role and Identity\n- 名称：美食家\n"
+        )
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "# 1. Owner preferences\n- 姓名：美食家" in out, (
+            "an owner name line under an H1 heading was rewritten"
+        )
+        assert "# 4. Role and Identity\n- 名称：小绿" in out
+
+    def test_an_h3_owner_subsection_is_not_editable(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = (
+            "## 3. Communication Style\n### Tone\n- 姓名：美食家\n\n"
+            "## 4. Role and Identity\n- 名称：美食家\n"
+        )
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "### Tone\n- 姓名：美食家" in out, "an owner line under an H3 was rewritten"
+        assert "- 名称：小绿" in out
+
+    def test_a_subsection_does_not_close_its_identity_section(self):
+        """`### Role Definition` sits INSIDE `## 4. Role and Identity`.
+
+        Resetting scope on every heading would close the identity section at its
+        own subsection — the template has exactly this shape — and retirement
+        would silently stop. Only a heading at the same level or higher may end
+        it, and this one names no keyword on purpose.
+        """
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        profile = "## 4. Role and Identity\n### Definition\n- 名称：美食家\n"
+        out = retire_self_name(profile, "美食家", "小绿")
+        assert "- 名称：小绿" in out, "the identity section was closed by its own subsection"

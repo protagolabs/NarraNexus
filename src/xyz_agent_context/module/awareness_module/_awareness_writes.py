@@ -306,9 +306,13 @@ _NAME_ENDERS = ("", "；", ";", "，", ",", "、", "。", "(", "（")
 # model invented — including the `## 5. Owner observations` this change's own
 # fixtures use — inside the editable region.
 _IDENTITY_SECTION = re.compile(
-    r"^\s*##\s.*(?:role|identity|身份|角色|自我认知)", re.IGNORECASE
+    r"^\s*#{1,6}\s.*(?:role|identity|身份|角色|自我认知)", re.IGNORECASE
 )
-_ANY_H2 = re.compile(r"^\s*##\s+")
+# Any ATX heading, with its level captured. `##` alone was matched before, so a
+# profile the model organised with H1 or H3 never left the preamble — where
+# `editable` defaults to True — and the positive identity match was inert on that
+# whole class of document.
+_ANY_HEADING = re.compile(r"^\s*(?P<hashes>#{1,6})\s+")
 
 
 class _AmbiguousSelfName(Exception):
@@ -337,16 +341,58 @@ def _scan(profile: str):
     claimed otherwise, which is how the two answers start to differ and one of
     them begins editing the owner's text.
     """
-    editable = True
+    # Only a heading at the SAME level or higher may end a section. The template
+    # puts `### Role Definition` inside `## 4. Role and Identity`, so resetting on
+    # every heading would close the identity section at its own subsection and
+    # retirement would silently stop — the failure this whole area is built to
+    # avoid. A deeper heading stays inside whatever it is under.
+    editable, level = True, 0
     for line in (profile or "").splitlines():
-        if _ANY_H2.match(line):
-            editable = bool(_IDENTITY_SECTION.match(line))
+        m = _ANY_HEADING.match(line)
+        if m:
+            depth = len(m.group("hashes"))
+            if depth <= level or level == 0:
+                editable = bool(_IDENTITY_SECTION.match(line))
+                level = depth
+            elif _IDENTITY_SECTION.match(line):
+                # A deeper heading may OPEN an identity subsection inside a
+                # section that was not one, but never close one.
+                editable = True
         yield line, editable
 
 
 def _identity_section_lines(profile: str):
     """Just the agent's own lines."""
     return (line for line, editable in _scan(profile) if editable)
+
+
+def _declares(value: str, name: str) -> bool:
+    """Does ``value`` declare exactly ``name`` (optionally opening a description)?
+
+    One definition. The same test was spelled two ways — `A or (B and C)` in the
+    reader and `C and B` in the writer — and this is thecore predicate of the
+    whole area, so a reader's first job should not be confirming the two agree.
+    """
+    return value == name or (
+        value.startswith(name) and _ends_the_name(value[len(name):])
+    )
+
+
+def _boundary_was_found(profile: str, inferred: str) -> bool:
+    """Did the inference actually delimit ``inferred`` inside the line?
+
+    True when the line's value is longer than the inferred name — i.e. a strong
+    opener cut it. ``_name_part`` returns the WHOLE value when it finds no
+    opener, and that value, fed back as a "known" old name, trivially satisfies
+    every check the rewrite makes: the entire text after 名称： was replaced by
+    the current name. Fourth corruption from this inference and the only one
+    that deleted the agent's own words rather than mangling a name.
+    """
+    for line in _identity_section_lines(profile):
+        m = _SELF_NAME_LINE.match(line)
+        if m:
+            return len(m.group("value").strip()) > len(inferred)
+    return False
 
 
 def _name_part(value: str) -> str:
@@ -380,16 +426,39 @@ def declared_self_name(profile: str, current_name: str = "") -> Optional[str]:
         # Compared in the stored (escaped) form, because that is what the
         # profile holds — see retire_self_name.
         current = _for_note((current_name or "").strip())
-        if current and (
-            value == current or _ends_the_name(value[len(current):])
-            and value.startswith(current)
-        ):
+        if current and _declares(value, current):
             return current  # already the current name; nothing to guess
         return _name_part(value)
     return None
 
 
-def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
+def _has_weak_separator(value: str) -> bool:
+    """Does ``value`` contain whitespace or a character that lives inside names?
+
+    A bare-name declaration reached without finding an opener is only really a
+    name if it looks like one. `美食家 是 owner 最近常去的那家店` is the whole
+    line, not a name, and its spaces are what say so.
+    """
+    return any(ch.isspace() for ch in value) or any(
+        ch in value for ch in ("-", "—", "/", "|", ".")
+    )
+
+
+def _declares_bare_name(profile: str, name: str) -> bool:
+    """Is the identity section's declaration exactly ``name`` and nothing more?
+
+    Then no boundary had to be inferred to obtain it, and a rewrite is exact.
+    """
+    for line in _identity_section_lines(profile):
+        m = _SELF_NAME_LINE.match(line)
+        if m:
+            return m.group("value").strip() == name
+    return False
+
+
+def retire_self_name(
+    profile: str, old_name: str, new_name: str, *, inferred: bool = False
+) -> str:
     """Rewrite the agent's own "my name is X" line to the name it now has.
 
     Why the platform touches agent-authored text at all, when 2026-08-04
@@ -428,6 +497,30 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
     if not old or old == new:
         return profile or ""
 
+    # An old name the caller INFERRED from the line may only drive a rewrite when
+    # the inference actually found a boundary — a strong opener — or the value is
+    # a bare name. Without one, `_name_part` hands back the whole value, which
+    # then matches everything the loop below tests and replaces the agent's own
+    # words with its name. The rename path passes `inferred=False`: there the old
+    # name is read off the row, and a line that merely starts with it is filtered
+    # out by the declaration test as before.
+    #
+    # Refusing RAISES so no caller can read the untouched profile as a completed
+    # retirement — that silence is what round 12 rejected and what let this one
+    # report `identity_record_updated: true` while deleting text.
+    # A bare-name declaration is only safe when the value IS a name — and when no
+    # opener was found, the "inferred name" IS the whole value, so
+    # _declares_bare_name is trivially true and cannot be the escape hatch.
+    boundary = _boundary_was_found(profile or "", old)
+    bare = _declares_bare_name(profile, old) and not _has_weak_separator(old)
+    if inferred and not boundary and not bare:
+        logger.warning(
+            f"[identity] refusing to retire from an inferred name with no "
+            f"boundary ({old!r}); the line keeps its text and the record "
+            f"contradicts it instead"
+        )
+        raise _AmbiguousSelfName(profile or "")
+
     # Before the first `##`, there is no section to be wrong about: that is the
     # preamble, the default profile, and every bare fragment. Editable.
     profile = profile or ""
@@ -446,9 +539,7 @@ def retire_self_name(profile: str, old_name: str, new_name: str) -> str:
         value = m.group("value").strip() if m else ""
         # One predicate, asked once: "is this line a declaration of the old
         # name". Where it applies is the separate question below.
-        is_old_name_decl = bool(
-            m and value.startswith(old) and _ends_the_name(value[len(old):])
-        )
+        is_old_name_decl = bool(m and _declares(value, old))
         if is_old_name_decl and not editable:
             # A declaration of the old name outside the agent's own section. Not
             # touched — but said out loud, so "the heading drifted and retirement
@@ -609,7 +700,9 @@ async def reconcile_identity_record(
             # line carrying more than the name keeps it, the record contradicts
             # it, and the caller is told the memory is not fully correct.
             try:
-                profile = retire_self_name(profile, declared, current_name)
+                profile = retire_self_name(
+                    profile, declared, current_name, inferred=True
+                )
             except _AmbiguousSelfName as exc:
                 profile, refused = exc.profile, True
         if stale_record:

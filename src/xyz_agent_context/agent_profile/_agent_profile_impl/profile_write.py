@@ -38,35 +38,25 @@ from xyz_agent_context.schema import (
 
 
 def _awareness_identity_writers():
-    """Awareness's two identity-record writers, or None when it is not loaded.
+    """Awareness's two identity-record writers.
 
-    Returns the module rather than dispatching by name: a typo in a dispatch key
-    is a runtime KeyError on a path with no try/except around it, and callers
-    keep their real signatures and types.
+    Imported inside the function, not at module scope, and be precise about what
+    that buys: not isolation. Python imports parent packages, so this loads the
+    whole MODULE_MAP — measured, 22 sibling module packages. What it buys is that
+    neither this package nor the routes above it hold a module-scope dependency
+    on the Module layer, which is what made unregistering AwarenessModule stop
+    the backend from starting.
 
-    Be precise about what deferring buys, because the first version of this
-    docstring claimed more than it delivers. Python imports parent packages, so
-    this import runs ``xyz_agent_context.module.__init__`` and with it the whole
-    MODULE_MAP — measured: 22 sibling module packages. What deferring achieves
-    is that *this package* and the routes above it hold no module-scope
-    dependency on the Module layer, so the import graph says who owns the
-    transaction. It is not import-time isolation, and claiming it was would be
-    the third overstated claim in this change.
-
-    Nor does the ImportError branch carry the hot-plug story. Unregistering
-    AwarenessModule from MODULE_MAP leaves the package on disk and the import
-    still succeeds; the degradation that actually happens is that the agent has
-    no AwarenessModule instance, which both writers already answer with False.
-    This guard is only for a deployment shipping without the package at all.
+    No ImportError guard. The earlier one covered only a deployment shipping
+    without the package at all — while three other call points added by the same
+    change (the two awareness write seams and the bundle importer) import it
+    bare, so the "degrades gracefully" contract held at one call site in four.
+    A contract that is true a quarter of the time misleads either way. The real
+    degradation is an agent with no AwarenessModule instance, and both writers
+    already answer that with None.
     """
-    try:
-        from xyz_agent_context.module import awareness_module
-    except ImportError:
-        logger.warning(
-            "[agent-profile-write] AwarenessModule unavailable; the identity "
-            "record was not touched"
-        )
-        return None
+    from xyz_agent_context.module import awareness_module
+
     return awareness_module
 
 
@@ -74,15 +64,11 @@ async def _record_identity(
     db, agent_id: str, old_name: str, new_name: str
 ) -> Optional[bool]:
     aw = _awareness_identity_writers()
-    if aw is None:
-        return None
     return await aw.record_identity_change(db, agent_id, old_name, new_name)
 
 
 async def _reconcile_identity(db, agent_id: str, current_name: str) -> Optional[bool]:
     aw = _awareness_identity_writers()
-    if aw is None:
-        return None
     return await aw.reconcile_identity_record(db, agent_id, current_name)
 
 
@@ -198,7 +184,21 @@ async def _same_owner_name_holder(
     thing is not a conflict and must never be reported across accounts.
     """
     try:
-        rows = await db.get("agents", {"created_by": owner_user_id})
+        # Projected: `agents` carries agent_metadata as MEDIUMTEXT, and this
+        # only ever compares names. The facade's `fields` exists because dropping
+        # it once forced full-row reads on exactly such a table — and this used
+        # to be reached by one caller (the MCP tool) and is now reached by four,
+        # including manyfold's idempotent provisioning rerun.
+        #
+        # Projection only. NOT a `get_one` filtered on agent_name: legacy rows can
+        # hold unnormalized text ("  小绿  "), an equality filter would miss them,
+        # and the Python-side strip comparison below is what covers them —
+        # _stored_text_is_unnormalized exists because those rows are real.
+        rows = await db.get(
+            "agents",
+            {"created_by": owner_user_id},
+            fields=["agent_id", "agent_name"],
+        )
         for row in rows or []:
             if row.get("agent_id") == exclude_agent_id:
                 continue

@@ -1175,3 +1175,72 @@ async def test_a_hyphen_is_never_taken_for_the_end_of_a_name(db_client):
     assert "- 名称：小绿-2；精通各地美食推荐" in profile
     assert "小绿-2-资深" not in profile, "invented a name that never existed"
     assert result.identity_reconciled is True
+
+
+@pytest.mark.asyncio
+async def test_a_same_name_save_never_deletes_what_follows_the_name(
+    db_client, ui_client
+):
+    """The fourth corruption, at the layer a user would meet it.
+
+    `- 名称：小绿 - 美食推荐专家` on an agent already called 小绿: the repair path
+    inferred the old name, found no opener, got the WHOLE value back, and
+    replaced it with the current name — deleting `- 美食推荐专家` on a save that
+    renamed nothing. instance_awareness is overwritten, so the words were gone
+    for good, and the response said identity_record_updated: true so the UI
+    warned about nothing.
+    """
+    line = "- 名称：小绿 - 美食推荐专家"
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=f"# Agent Awareness Profile\n\n## 4. Role and Identity\n{line}\n",
+    )
+
+    body = ui_client.put(
+        f"/api/auth/agents/{AGENT_ID}",
+        json={"agent_name": "小绿"},  # already the stored value
+        headers={"X-User-Id": OWNER},
+    ).json()
+
+    assert body["success"] is True
+    profile = await _profile(db_client)
+    assert line in profile, f"text after the name was deleted: {profile!r}"
+    assert body["identity_record_updated"] is False, (
+        "the line could not be retired and nothing said so"
+    )
+
+
+@pytest.mark.asyncio
+async def test_manyfold_refusals_are_structured_not_model_prose(
+    db_client, manyfold_client, monkeypatch
+):
+    """A cross-service body must not carry a sentence written for a model.
+
+    Forwarding `result.error` put "Error: the update did not apply; nothing was
+    changed" into Manyfold's response, leaving the other side to pattern-match
+    English to learn what happened — while auth.py maps on error_kind for
+    exactly that reason. The kind travels; the prose does not.
+    """
+    import backend.routes.manyfold.agents as mf_mod
+    from xyz_agent_context.agent_profile import AgentProfileWrite
+
+    await _seed(db_client, name="美食家", profile=STALE_PROFILE)
+
+    async def _overwritten(_db, _agent_id, **_kwargs):  # noqa: ANN001
+        return AgentProfileWrite(
+            status="error",
+            error_kind="not_applied",
+            error="Error: the update did not apply; nothing was changed",
+        )
+
+    monkeypatch.setattr(mf_mod, "apply_agent_profile_change", _overwritten)
+
+    resp = manyfold_client.patch(
+        f"/manyfold/agents/{AGENT_ID}", json={"agent_name": "小绿"}
+    )
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["error_kind"] == "not_applied"
+    assert not detail["message"].startswith("Error:"), detail["message"]

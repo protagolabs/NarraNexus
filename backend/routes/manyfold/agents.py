@@ -139,6 +139,31 @@ class ManyfoldCreateAgentRequest(BaseModel):
     )
 
 
+def _manyfold_failure(result) -> HTTPException:
+    """Turn a transaction refusal into this endpoint's own answer.
+
+    `result.error` is composed for a MODEL to read; forwarding it puts sentences
+    like "Error: the update did not apply; nothing was changed" into a
+    cross-service response body, where the other side has to pattern-match prose
+    to learn what happened. auth.py maps on error_kind for the same reason.
+
+    `not_found` keeps the documented 404. The rest are 400, and deliberately not
+    409 for `not_applied`: 409 invites a retry and this contract is that a
+    failure aborts the rename. Whether Manyfold retries a 409 is their policy.
+    """
+    detail = {
+        "not_found": "agent not found",
+        "not_applied": "the update did not persist (concurrent overwrite)",
+        "too_long": f"name and description are limited to {AGENT_TEXT_MAX_LENGTH} characters",
+        "empty_name": "agent name cannot be empty",
+        "nothing_to_update": "no fields to update",
+    }.get(result.error_kind or "", "the update could not be applied")
+    return HTTPException(
+        status_code=404 if result.error_kind == "not_found" else 400,
+        detail={"error_kind": result.error_kind, "message": detail},
+    )
+
+
 @router.post("/manyfold/agents")
 async def create_agent_for_manyfold(
     request: Request,
@@ -232,10 +257,7 @@ async def create_agent_for_manyfold(
             # Manyfold side needs one mapping rather than one per verb. Not 409
             # for not_applied for the reason spelled out there: 409 invites a
             # retry and this contract is that a failure aborts the rename.
-            raise HTTPException(
-                status_code=404 if result.error_kind == "not_found" else 400,
-                detail=result.error,
-            )
+            raise _manyfold_failure(result)
         agent_created = False
     else:
         await db.insert("agents", normalize_agent_row_text({
@@ -408,10 +430,7 @@ async def update_agent_for_manyfold(
         # is what it means: 409 invites a retry, and this endpoint's contract is
         # that a failure ABORTS the whole rename. Whether Manyfold retries a 409
         # is that service's policy, not ours to assume from here.
-        raise HTTPException(
-            status_code=404 if result.error_kind == "not_found" else 400,
-            detail=result.error,
-        )
+        raise _manyfold_failure(result)
 
     logger.info(
         f"[manyfold-update] {agent_id} patched fields={list(patch.keys())}"
