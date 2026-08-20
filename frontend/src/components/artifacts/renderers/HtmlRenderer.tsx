@@ -41,7 +41,7 @@ import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
 import { artifactsApi, fetchArtifactBlobUrl, ArtifactEditConflictError } from '@/services/artifactsApi';
 import { isTauri, fetchArtifactViaTauri } from '@/lib/tauri';
-import { applyBridgeEdit, type BridgeEdit } from '@/lib/htmlAnchorReplace';
+import { applyBridgeEdit, type BridgeEdit } from '@/lib/artifactEditing/htmlAnchorReplace';
 import { sha256Hex } from '@/lib/sha256';
 import ArtifactHealModal from '../ArtifactHealModal';
 

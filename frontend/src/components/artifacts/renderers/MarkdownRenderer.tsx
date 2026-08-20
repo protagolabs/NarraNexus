@@ -30,7 +30,7 @@ import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
 import { useArtifactEditor, type ArtifactEditorState } from '@/hooks/useArtifactEditor';
 import { useArtifactStore } from '@/stores/artifactStore';
-import { extractFrontmatter, mdAstEqual } from '@/lib/mdEditSafety';
+import { extractFrontmatter, mdAstEqual } from '@/lib/artifactEditing/mdEditSafety';
 import ArtifactHealModal from '../ArtifactHealModal';
 import { ConflictBanner, DraftRestoredBanner, DraftUnavailableBanner } from './editorBanners';
 

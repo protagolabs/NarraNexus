@@ -1,5 +1,5 @@
 ---
-code_file: frontend/src/lib/htmlAnchorReplace.ts
+code_file: frontend/src/lib/artifactEditing/htmlAnchorReplace.ts
 last_verified: 2026-08-20
 stub: false
 ---

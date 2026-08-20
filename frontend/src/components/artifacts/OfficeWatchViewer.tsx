@@ -48,7 +48,7 @@ import {
   isPicturePath,
   parseSelectionMessage,
   slideIndexFromPath,
-} from '@/lib/officeEditCommands';
+} from '@/lib/artifactEditing/officeEditCommands';
 import type { Artifact } from '@/types/artifact';
 
 interface Props {

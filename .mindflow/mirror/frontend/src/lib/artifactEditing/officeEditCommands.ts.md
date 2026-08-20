@@ -1,5 +1,5 @@
 ---
-code_file: frontend/src/lib/officeEditCommands.ts
+code_file: frontend/src/lib/artifactEditing/officeEditCommands.ts
 last_verified: 2026-08-19
 stub: false
 ---
