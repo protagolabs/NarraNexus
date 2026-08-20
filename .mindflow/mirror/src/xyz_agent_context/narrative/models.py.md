@@ -6,6 +6,40 @@ stub: false
 
 # models.py — Narrative 模块所有数据模型的唯一来源
 
+## 2026-08-20 — description 是出生证,不是病历(墓碑字段修复)
+
+新增 `Narrative.description_if_unsummarised()`,`searchable_text()` 只经它读
+description。规则:**summary 是真病历时,出生证完全退出读取**(不是截断后继续读)。
+
+**病**:description 创建时抄触发输入原文写一次、updater 永不重写,却在 BM25 索引里。
+全表实测(1,381 条非 default):**291 条(21.1%)超 1500 字符,max 198,398**,
+索引里 description 文本合计 2.5 MB。BM25 的 IDF/avgdl 在候选池自身上算,
+一条 6KB 脏文档同时抬 avgdl(压死所有正常文档的长度归一化)并给自己灌进
+大量可匹配 token —— 630 条真实判决离线重算:含化石的池免审率 **41.0%**
+vs 不含 **14.5%**,3.7 倍,把它本该服务的臂级测量整个盖住。
+
+**为什么是"退休"而不是"截断"**:截断后的化石仍是化石 —— 它仍在用现在时断言
+一个可能几个月前就离开的话题。干跑对照(见
+`data/replay_runs/2026-08-20/DESCRIPTION_RETIREMENT_DRYRUN.md`):
+退休把 bloat 组压到 8.8% / max top1 152.6,截断 512 只到 15.3% / 252.1。
+
+**条件为什么是"summary 非空"而不是"updater 跑过一次"**:updater 异步且会失败
+(D-9 helper 哑火期出生的线永远拿不到 summary)。条件式规则自愈 ——
+病历写出来→出生证退休;病历难产→出生证继续顶着,线不隐形。
+
+### `PROVISIONAL_SUMMARY_PREFIXES` 是这条规则的地雷区
+
+`NarrativeCRUD.create` **不留空** `current_summary`,它写
+`"Newly created Narrative: {title}"`;default 桶写 `"This is a default …"`。
+所以"summary 非空"**不等于**"这条线有病历"。按字面实现的话,出生证会
+**在出生瞬间退休**,而自愈分支一次都不会触发 —— 恰好在它被设计来保护的
+那个场景上失效。这个坑是读代码发现的,干跑测不到(干跑用的是跑批结束时的
+字段状态,全是真 summary)。
+
+前缀只有一处定义,写方(crud)与读方(本文件)同一份;两份字面量会静默漂开,
+而唯一症状是**新线悄悄变得找不到**。
+
+
 ## 2026-08-20 — `RoutingAudit` 多两列,而且它们不是重复列
 
 `bypass_score_gate` + `bypass_reason`。

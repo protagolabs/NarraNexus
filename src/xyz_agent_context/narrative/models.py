@@ -155,6 +155,26 @@ class DynamicSummaryEntry(BaseModel):
     references: List[str] = []  # Referenced other event_ids
 
 
+# Summaries that mean "the updater has not written one yet". `NarrativeCRUD.create`
+# pre-fills `current_summary` rather than leaving it empty, and
+# `default_narratives` does the same for the eight buckets, so "the summary is
+# non-empty" is NOT the same question as "this thread has a real record".
+#
+# This matters precisely for the case the retirement rule exists to protect: the
+# async updater can fail (D-9 helper outage), and a thread whose summary is still
+# the creation placeholder has nothing but its description to describe itself. A
+# naive non-empty test would retire the birth certificate at the instant of
+# birth and that thread would score zero against the very query that created it.
+#
+# ONE definition, imported by both the writer and this reader — two copies of
+# the literal would rot apart silently, and the only symptom would be new
+# threads quietly becoming unfindable.
+PROVISIONAL_SUMMARY_PREFIXES = (
+    "Newly created Narrative: ",
+    "This is a default ",
+)
+
+
 class Narrative(BaseModel):
     """
     Narrative = Routing Metadata for a storyline
@@ -219,6 +239,47 @@ class Narrative(BaseModel):
     # ===== Special Markers =====
     is_special: str = "other"  # Special marker field, default value is "other"
 
+    def description_if_unsummarised(self) -> str:
+        """The birth certificate — readable ONLY until the medical record exists.
+
+        `description` is written once at creation from the raw triggering input
+        and is never rewritten by the updater, yet it sits in the BM25 index and
+        in the continuity prompt. Measured on all 1,381 non-default prod
+        narratives (2026-08-20): **291 (21.1%) are over 1,500 characters and the
+        longest is 198,398** — a thread born on a 5KB scheduled-task prompt has
+        that 5KB welded into its retrieval surface forever. BM25 computes IDF and
+        avgdl over the candidate pool itself, so one such document both crushes
+        every normal candidate's length normalisation and hands itself a large
+        pool of matchable tokens: offline re-scoring of 630 real decisions put
+        the bypass rate at 41.0% for pools containing one against 14.5% without.
+
+        FULL RETIREMENT, not truncate-and-keep-reading. A truncated fossil is
+        still a fossil: it still asserts, in the present tense, a topic the
+        thread may have left months ago.
+
+        The condition is "the thread has a REAL summary", NOT "the updater has
+        run": the updater is async and can fail, so a thread born during a
+        helper outage never gets one. Keying on the record rather than on the
+        writer makes the rule self-healing — record written, birth certificate
+        retires; record stillborn, birth certificate keeps standing in and the
+        thread does not go invisible.
+
+        "Real" excludes the creation placeholders (see
+        `PROVISIONAL_SUMMARY_PREFIXES`): `NarrativeCRUD.create` pre-fills
+        `current_summary`, so a literal non-empty test would retire the birth
+        certificate at the instant of birth and defeat the self-healing branch
+        entirely.
+
+        Every read of the raw field is on an allow-list pinned by
+        `tests/narrative/test_description_retirement.py`, so a fourth read site
+        cannot quietly bypass this.
+        """
+        info = self.narrative_info
+        summary = (getattr(info, "current_summary", "") or "").strip()
+        if summary and not summary.startswith(PROVISIONAL_SUMMARY_PREFIXES):
+            return ""
+        return getattr(info, "description", "") or ""
+
     def searchable_text(self) -> str:
         """The text that represents this narrative to search — the ONE definition.
 
@@ -235,13 +296,20 @@ class Narrative(BaseModel):
 
         It lives on the model because retrieval imports crud; a shared helper in
         either of them would be a circular import.
+
+        `description` enters only through `description_if_unsummarised()`, which
+        retires it once the thread has a real summary. Before 2026-08-20 the raw
+        field went in unconditionally and a 198KB creation-time prompt could own
+        an entire pool's IDF table.
         """
         info = self.narrative_info
         return " ".join(
             p for p in (
                 getattr(info, "name", "") or "",
                 getattr(info, "current_summary", "") or "",
-                getattr(info, "description", "") or "",
+                # Retires as soon as there is a summary — see
+                # `description_if_unsummarised`.
+                self.description_if_unsummarised(),
                 " ".join(self.topic_keywords or []),
             ) if p
         )

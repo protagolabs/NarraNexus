@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-06-10
+last_verified: 2026-08-20
 stub: false
 ---
 ## 2026-06-10 — helper obtained via get_helper_sdk()
@@ -12,6 +12,20 @@ see AnthropicHelperSDK._resolve_model.
 
 
 # continuity.py — LLM-based "does this query continue the current Narrative?"
+
+## 2026-08-20 — 连续性 prompt 不再展示化石 description
+
+`- Description:` 这一行改走 `description_if_unsummarised()`,
+**并且出生证退休时整行消失**,不是留一个空标签。
+
+理由:空的 `- Description:` 在 LLM 眼里读作"这条线没有描述",
+而那与"不提这件事"是两个不同的断言。
+
+被摘掉的是什么:创建时抄下的触发输入原文,prod 上最长 198,398 字符,
+updater 永不重写。它曾经每一轮都进 continuity 的 user_input。
+细节与规模见 models 的 mirror 与
+`data/replay_runs/2026-08-20/DESCRIPTION_RETIREMENT_DRYRUN.md`。
+
 
 ## Why it exists
 

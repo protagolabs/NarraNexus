@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-08-16
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -74,6 +74,19 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 > 检索现在无条件走本地 VectorStore，没有外部检索后端开关。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
+
+## 2026-08-20 — 新增 `DESCRIPTION_MAX_LENGTH = 512`
+
+在 `NarrativeCRUD.create` 里给 `narrative_info.description` 封顶。
+
+**为什么是 512 而不是 `SUMMARY_MAX_LENGTH`(200)**:八条 default 桶的
+description 是人工撰写的、会进 judge 的候选清单,而 `GreetingAndCourtesy`
+是 **206 字符** —— 200 会静默截断被 P1 冻结的 prompt 内容。
+512 越过每一条桶,同时仍然只夹住病理长尾(prod 非 default:55% 在 200 字以内,
+21% 超过 1500,max 198,398)。
+"以后有人把这两个常数对齐"这件事由测试钉住
+(`test_the_bound_does_not_clip_a_curated_default_bucket`)。
+
 
 ## 为什么存在
 

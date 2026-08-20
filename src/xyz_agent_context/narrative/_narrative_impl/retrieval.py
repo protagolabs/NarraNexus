@@ -1004,16 +1004,30 @@ class NarrativeRetrieval:
         # Generate title
         title = truncate_text(naming_text, 30)
 
+        # And the description. Its two siblings above were truncated and it was
+        # not, which is how prod ended up with a 198,398-character description
+        # welded into a BM25 index that the updater never rewrites. Bounded here
+        # AND clamped again in `_crud.create` — the call site states the intent,
+        # the funnel covers the other two writers (the LLM's create_narrative
+        # signal and the HTTP route).
+        description = truncate_text(
+            f"Created based on query: {naming_text}", config.DESCRIPTION_MAX_LENGTH
+        )
+
         # Create Narrative
         narrative = await self._crud.create(
             agent_id=agent_id,
             user_id=user_id,
             narrative_type=narrative_type,
             title=title,
-            description=f"Created based on query: {naming_text}"
+            description=description
         )
 
-        # BM25 routing surface (name + summary + topic_keywords). Embedding
+        # BM25 routing surface. `searchable_text()` is the one definition:
+        # name + current_summary + (description, only while unsummarised) +
+        # topic_keywords. The old comment here listed three fields and omitted
+        # description, which is how it stayed a tombstone in the index for two
+        # months without anyone noticing. Embedding
         # fields (routing_embedding / embedding_updated_at / VectorStore /
         # embeddings_store) are retired — narrative routing is vector-free.
         narrative.topic_keywords = topic_keywords

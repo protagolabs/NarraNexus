@@ -227,6 +227,22 @@ class NarrativeConfig:
     # Recommended: 200
     SUMMARY_MAX_LENGTH = 200
 
+    # Hard cap on a stored `narrative_info.description`, applied in
+    # `NarrativeCRUD.create` — the ONE funnel all three writers pass through
+    # (routing's `create_from_query`, the LLM's `create_narrative` signal in
+    # `step_4_persist_results`, and the HTTP route). Fixing only the routing
+    # door would leave two open, and the LLM one takes its text straight from
+    # tool arguments.
+    #
+    # 512, deliberately NOT SUMMARY_MAX_LENGTH: the eight curated default-bucket
+    # descriptions reach the LLM judge, and `GreetingAndCourtesy` is 206
+    # characters — a 200 cap would silently truncate frozen prompt content.
+    # 512 clears every bucket and still clamps only the pathological tail
+    # (prod non-default: 55% are under 200 chars, 21% are over 1,500,
+    # max 198,398). A test pins the "does not clip a bucket" property so a
+    # later "let's align these two constants" cannot quietly break it.
+    DESCRIPTION_MAX_LENGTH = 512
+
     # ==================== Hierarchical Structure (Reserved for Phase 2) ====================
 
     # Whether to enable hierarchical tree structure
