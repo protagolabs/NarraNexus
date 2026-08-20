@@ -46,7 +46,7 @@ import time
 from urllib.parse import quote
 
 import aiohttp
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 
@@ -321,10 +321,17 @@ async def office_watch_open(request: Request, artifact_id: str) -> dict:
     return {"raw_url": raw_url, "port": port}
 
 
-@router.post("/office-watch/edit")
-async def office_watch_edit(
-    request: Request, artifact_id: str, commands: list = Body(...)
-) -> dict:
+async def _reject_oversized_edit(request: Request) -> None:
+    """Declared-length fast reject BEFORE Starlette buffers the JSON body —
+    the same dual-gate shape as every other write entrance (review #334 r2
+    I1: the I14 endpoint was the one place the I3 invariant didn't hold)."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_EDIT_POST_BYTES:
+        raise HTTPException(status_code=413, detail="edit payload too large")
+
+
+@router.post("/office-watch/edit", dependencies=[Depends(_reject_oversized_edit)])
+async def office_watch_edit(request: Request, artifact_id: str) -> dict:
     """Run officecli edit commands on an office artifact's watch server.
 
     Session-authed (same auth as /office-watch/open — the SPA calls this from
@@ -335,10 +342,25 @@ async def office_watch_edit(
 
     A same-origin backend hop also sidesteps the desktop WKWebView
     mixed-content block that a direct browser→watch POST would hit.
+
+    The body is read STREAMED with an accumulation cap (Content-Length can
+    lie or be absent), then parsed here — never pre-buffered by the
+    framework.
     """
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > MAX_EDIT_POST_BYTES:
+            raise HTTPException(status_code=413, detail="edit payload too large")
+        chunks.append(chunk)
+    try:
+        commands = json.loads(b"".join(chunks))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="body must be a JSON array")
+    if not isinstance(commands, list):
+        raise HTTPException(status_code=422, detail="body must be a JSON array")
     body = json.dumps(commands).encode("utf-8")
-    if len(body) > MAX_EDIT_POST_BYTES:
-        raise HTTPException(status_code=413, detail="edit payload too large")
     user_id, agent_id, _abs, rel = await _lookup_office_file(request, artifact_id)
     if is_cloud_mode():
         port = await _ensure_watch_in_executor(user_id, agent_id, rel)
@@ -352,7 +374,18 @@ async def office_watch_edit(
         user_id, port, "api/batch", "", body, "application/json"
     )
     if status != 200:
-        raise HTTPException(status_code=502, detail="watch server rejected the edit")
+        # Log the upstream evidence server-side, pass only the STATUS class
+        # through (r2 M7): "officecli doesn't know this verb" (4xx) and
+        # "watch server is down" (5xx→502) must be distinguishable in
+        # incident triage, but the upstream body can carry absolute
+        # workspace paths and stays out of the client response.
+        logger.warning(
+            f"office-watch edit rejected upstream (status={status}): "
+            f"{payload[:200]!r}"
+        )
+        if 400 <= status < 500:
+            raise HTTPException(status_code=status, detail="watch server rejected the edit")
+        raise HTTPException(status_code=502, detail="watch server unavailable")
     try:
         return json.loads(payload)
     except ValueError:
@@ -455,6 +488,8 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
     return StreamingResponse(_body(), status_code=resp.status, media_type=media_type, headers=headers)
 
 
+# (constants moved above /office-watch/edit which needs them — forward
+# reference trap flagged in review #334 r2 I1 修改陷阱①)
 # The ONLY public POST the proxy forwards: the watch PAGE's own selection
 # report (benign server-side selection state, no document writes). The edit
 # verbs (api/send / api/batch) moved to the session-authed

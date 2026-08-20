@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -132,3 +132,8 @@ postMessage 跨 blob origin 可达);②message 监听:只认**自己 iframe**
 (render 期状态调整)——自己提交引发的 updated_at bump(content_hash
 与 selfHash 相等)不换 url seed、不重挂 iframe,滚动与光标不丢;agent
 的真更新照常重挂。iframe key 从 updated_at 改为 seed——回退时注意。
+
+## 2026-08-20 — 非 UTF-8 源的严格拒绝分支(#334 r2 C3 补记)
+
+提交侧 TextDecoder fatal:true——解码失败按 anchor-failed 走「交给 AI」
+横幅,**绝不 PUT**(I4 的第四个落点,此前三处已记本处漏记)。

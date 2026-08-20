@@ -358,12 +358,19 @@ class ArtifactRepository(BaseRepository[Artifact]):
             sql += " AND team_id = %s"
             params.append(team_id)
         if title_contains:
+            # ESCAPE '!' — NOT backslash: in a MySQL string literal backslash
+            # is itself an escape, so ESCAPE '\' arrives as an unterminated
+            # string → 1064 on every call, while SQLite (no backslash
+            # handling) accepts it — the exact class of bug the local suite
+            # can never see (review #334 r2 C1). '!' reads identically on
+            # both dialects. Escape the escape char FIRST, then the LIKE
+            # metacharacters, or 'a!b' double-escapes.
             escaped = (
-                title_contains.replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
+                title_contains.replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_")
             )
-            sql += " AND title LIKE %s ESCAPE '\\'"
+            sql += " AND title LIKE %s ESCAPE '!'"
             params.append(f"%{escaped}%")
         return sql, params
 

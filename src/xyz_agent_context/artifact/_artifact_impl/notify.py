@@ -28,6 +28,9 @@ from typing import Optional
 
 from loguru import logger
 
+from xyz_agent_context.repository.artifact_event_repository import (
+    ArtifactEventRepository,
+)
 from xyz_agent_context.schema.artifact_schema import Artifact
 
 ARTIFACT_EVENT_TYPE = "artifact_changed"
@@ -59,10 +62,6 @@ async def stage_artifact_event(
         }
         if extra:
             payload["extra"] = extra
-        from xyz_agent_context.repository.artifact_event_repository import (
-            ArtifactEventRepository,
-        )
-
         await ArtifactEventRepository(db).stage(
             agent_id=artifact.agent_id,
             payload_json=json.dumps(payload, ensure_ascii=False),

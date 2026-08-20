@@ -79,3 +79,19 @@ describe('extractFrontmatter — CRLF (review #334 I7)', () => {
     expect(extractFrontmatter(doc).frontmatter).toBe('');
   });
 });
+
+describe('extractFrontmatter — mixed line endings (review #334 r2 I2)', () => {
+  it('an LF frontmatter survives a CRLF line pasted into the body', () => {
+    const doc = '---\ntitle: x\n---\n\n# Doc\r\n\r\npasted crlf body\r\n';
+    const { frontmatter, body } = extractFrontmatter(doc);
+    expect(frontmatter).toBe('---\ntitle: x\n---\n');
+    expect(frontmatter + body).toBe(doc);
+  });
+
+  it('a CRLF frontmatter survives an LF line in the body', () => {
+    const doc = '---\r\ntitle: x\r\n---\r\nlf body line\nmore\n';
+    const { frontmatter, body } = extractFrontmatter(doc);
+    expect(frontmatter).toBe('---\r\ntitle: x\r\n---\r\n');
+    expect(frontmatter + body).toBe(doc);
+  });
+});

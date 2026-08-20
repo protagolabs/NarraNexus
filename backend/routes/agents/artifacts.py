@@ -471,7 +471,13 @@ async def upload_office_asset(
     # we-only-thought-of-Chinese whitelist; separators/控制 chars become _.
     # Length-capped — a 500-char name would ENAMETOOLONG as an opaque 500.
     raw_name = os.path.basename(file.filename or "asset")
-    safe = re.sub(r"[^\w.\-]", "_", raw_name, flags=re.UNICODE).lstrip(".")[:120] or "asset"
+    safe = re.sub(r"[^\w.\-]", "_", raw_name, flags=re.UNICODE).lstrip(".") or "asset"
+    # Truncate stem and extension SEPARATELY (review #334 r2 M2): a plain
+    # [:120] on a long name eats the extension, and the raw route serves by
+    # extension — a suffixless image "replaces successfully" and renders
+    # nothing. lstrip(".") above already handled leading-dot names.
+    stem, ext = os.path.splitext(safe)
+    safe = stem[:104] + ext[:16]
     dest = os.path.join(entry_dir, f"{uuid.uuid4().hex[:8]}_{safe}")
     received = 0
     try:

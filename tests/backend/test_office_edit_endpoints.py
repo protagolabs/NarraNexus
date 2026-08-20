@@ -258,3 +258,104 @@ def test_asset_upload_rejects_non_office_artifact(commit_env):
         files={"file": ("x.png", b"x", "image/png")},
     )
     assert r.status_code in (400, 404)
+
+
+# ── review #334 r2 I6: the gates and the sanitizer get their own pins ────────
+
+
+def test_put_content_oversized_declared_length_is_413(commit_env, monkeypatch, tmp_path):
+    """The route-level fast reject fires on the DECLARED length before the
+    service is ever reached."""
+    import backend.routes.agents.artifacts as agents_mod
+
+    called = []
+
+    class _Svc:
+        def __init__(self, db):
+            pass
+
+        async def save_user_content(self, **kw):
+            called.append(kw)
+
+    monkeypatch.setattr(agents_mod, "ArtifactService", _Svc)
+    big = "x" * (28 * 1024 * 1024)
+    r = commit_env["client"].put(
+        "/api/agents/agent_x/artifacts/art_deck0001/content",
+        json={"content": big, "base_hash": "h"},
+    )
+    assert r.status_code == 413
+    assert called == []
+
+
+def test_asset_upload_chunked_oversize_leaves_no_partial_file(commit_env):
+    """No Content-Length (chunked): the STREAMED cap must fire, and the entry
+    directory must be byte-for-byte what it was — a partial file would be
+    served by the raw route and counted by _dir_size."""
+    import os
+    entry_dir = commit_env["entry"].parent
+    before = sorted(os.listdir(entry_dir))
+
+    def gen():
+        for _ in range(11):
+            yield b"x" * (1024 * 1024)
+
+    boundary = "testboundary123"
+    head = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="big.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+    ).encode()
+    tail = f"\r\n--{boundary}--\r\n".encode()
+
+    def body():
+        yield head
+        yield from gen()
+        yield tail
+
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
+        content=body(),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert r.status_code == 413
+    assert sorted(os.listdir(entry_dir)) == before
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize(
+    "name,expect",
+    [
+        ("../../etc/passwd", "passwd"),          # traversal reduced to basename
+        ("グラフ図.png", "グラフ図.png"),          # kana survives \w
+        ("диаграмма.png", "диаграмма.png"),      # cyrillic survives
+        ("한글차트.png", "한글차트.png"),          # hangul survives
+    ],
+)
+def test_asset_filename_sanitize_keeps_every_script(commit_env, name, expect):
+    import pathlib
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
+        files={"file": (name, b"data", "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    p = pathlib.Path(r.json()["path"])
+    assert p.parent == commit_env["entry"].parent
+    assert p.name.split("_", 1)[1] == expect
+    p.unlink()
+
+
+def test_asset_long_filename_truncates_but_keeps_extension(commit_env):
+    """review #334 r2 M2: truncation must not eat the extension — the raw
+    route serves by extension and a suffixless image renders as nothing."""
+    import pathlib
+    r = commit_env["client"].post(
+        "/api/agents/agent_x/artifacts/art_deck0001/office-asset",
+        files={"file": ("a" * 300 + ".png", b"data", "image/png")},
+    )
+    assert r.status_code == 200
+    p = pathlib.Path(r.json()["path"])
+    assert p.name.endswith(".png")
+    assert len(p.name) <= 140
+    p.unlink()

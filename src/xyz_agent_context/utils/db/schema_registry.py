@@ -2370,12 +2370,13 @@ _register(
             # after the artifact is later re-pointed somewhere else.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
-            # "created" | "updated" | "healed" | "user_edited" | "external_edited"
-        #  (VARCHAR(16): longest current value is external_edited at 15 chars —
-        #   a longer action needs the column widened FIRST or MySQL strict 1406s) — lets a reader tell the first
-            # registration from later overwrites, and an intentional update
-            # from a heal repoint (a guess/verification is never disguised as
-            # an intentional update).
+            # "created" | "updated" | "healed" | "user_edited" |
+            # "external_edited" — lets a reader tell the first registration
+            # from later overwrites, an intentional update from a heal
+            # repoint, and an agent commit from a user/external one.
+            # VARCHAR(16): the longest current value (external_edited) is 15
+            # chars; a longer action needs the column widened FIRST or MySQL
+            # strict mode 1406s the insert.
             Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

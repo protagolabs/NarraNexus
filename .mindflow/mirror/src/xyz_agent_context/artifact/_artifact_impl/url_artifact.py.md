@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/url_artifact.py
-last_verified: 2026-07-22
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -72,3 +72,8 @@ a reader always sees the old or the new complete doc.
 The doc is written to `registration.workspace_root(agent_id, user_id)` joined
 with the relative entry — NOT to `base_working_path` directly. It MUST match
 where `registration._resolve_entry` looks, or register fails "file not found".
+
+## 2026-08-20 — open_url 增必填 `db` 形参(#334 r2 C3)
+
+事件 staging 不再经 `repo.db`(逃生口已删,见 [[base.py]]):调用方
+(service)显式传 db。照旧写 `repo.db` 会 AttributeError。

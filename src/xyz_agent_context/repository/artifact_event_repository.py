@@ -20,7 +20,12 @@ from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 class ArtifactEventRepository:
     """CRUD for the artifact_changed outbox (see notify.py for the payload
-    contract and background_run for the drain discipline)."""
+    contract and background_run for the drain discipline).
+
+    Deliberately NOT a BaseRepository subclass: the table's id is an
+    auto-increment integer with no entity model, and every consumer reads
+    plain dicts — entity plumbing here would be ceremony without a reader
+    (same reasoning as team_workspace_repository)."""
 
     def __init__(self, db: AsyncDatabaseClient):
         self._db = db

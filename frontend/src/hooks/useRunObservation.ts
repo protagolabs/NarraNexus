@@ -368,12 +368,15 @@ export function useRunObservation(
         // refresh just leaves the panel one open/switch away from healing.
         const activeAgentId = useArtifactStore.getState().activeAgentId;
         if (activeAgentId) {
-          void useArtifactStore.getState().loadPinned(activeAgentId).catch((e) => {
-        // Loud, never fatal (same discipline as applyEvent's catch): a
-        // failed full-pull means the panel may lag — worth a trace, not an
-        // unhandled rejection on every reconnect blip (review #334 I13).
-        console.warn('artifact panel refresh on reconnect failed', e);
-      });
+          void useArtifactStore
+        .getState()
+        .loadPinned(activeAgentId)
+        .catch((e) => {
+          // Loud, never fatal (same discipline as applyEvent's catch): a
+          // failed full-pull means the panel may lag — worth a trace, not an
+          // unhandled rejection on every reconnect blip (review #334 I13).
+          console.warn('artifact panel refresh on reconnect failed', e);
+        });
         }
       };
       ws.onmessage = (event) => {

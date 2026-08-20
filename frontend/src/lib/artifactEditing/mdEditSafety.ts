@@ -34,7 +34,12 @@ export function extractFrontmatter(text: string): { frontmatter: string; body: s
   // Must be the very first line, `---` alone, closed by another `---` (or
   // `...`) alone. Anything else — including a fence that never closes — is
   // body text, not frontmatter.
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  // The eol is inferred from the OPENING LINE ITSELF, not the whole
+  // document: a document-wide includes('\r\n') let one pasted CRLF line in
+  // the body flip the fence comparison and silently drop an LF frontmatter
+  // into Crepe (review #334 r2 I2 — the I7 hole, relocated). Mixed-eol
+  // bodies pass through untouched either way.
+  const eol = text.startsWith('---\r\n') ? '\r\n' : '\n';
   if (!text.startsWith(`---${eol}`) && text !== '---') {
     return { frontmatter: '', body: text };
   }

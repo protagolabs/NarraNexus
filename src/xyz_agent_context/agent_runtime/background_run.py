@@ -65,6 +65,9 @@ from xyz_agent_context.agent_runtime.cancellation import (
     CancellationToken,
     CancelledByUser,
 )
+from xyz_agent_context.repository.artifact_event_repository import (
+    ArtifactEventRepository,
+)
 from xyz_agent_context.agent_runtime.run_recorder import (
     HEARTBEAT_INTERVAL_S,
     RUN_STALE_AFTER_S,
@@ -195,9 +198,10 @@ class BackgroundRun:
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
-        # Cached: the drain runs on every tool-output boundary; constructing
-        # the repo per drain would be needless churn (review #334 I9 trap).
-        self._artifact_event_repo = None
+        # Constructed once here (r2 M1): the drain runs on every tool-output
+        # boundary, and a lazy in-loop construction hid ImportErrors inside
+        # the drain's best-effort try.
+        self._artifact_event_repo = ArtifactEventRepository(db)
         self._active_runs = active_runs  # the app.state.active_runs map
         self.cancellation = cancellation or CancellationToken()
         # Broadcaster is run_id-tagged but only for logging. It works
@@ -300,12 +304,6 @@ class BackgroundRun:
         exception IS handled here, precisely and audibly)."""
         try:
             while True:
-                if self._artifact_event_repo is None:
-                    from xyz_agent_context.repository.artifact_event_repository import (
-                        ArtifactEventRepository,
-                    )
-
-                    self._artifact_event_repo = ArtifactEventRepository(self.db)
                 rows = await self._artifact_event_repo.pending_for_agent(
                     self.agent_id, self._ARTIFACT_DRAIN_BATCH
                 )

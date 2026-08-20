@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -223,3 +223,9 @@ target 重注册两条路径都盖;重注册直写新值(哈希失败时写 NULL
 
 仅作用于 target 重注册分支,heal 专用:healed 入史 + 抑制 updated 事件(heal 自己
 stage repointed,避免双事件)。新建/去重分支不受影响。
+
+## 2026-08-20 — register_artifact 增必填 `db` 形参(#334 r2 C3)
+
+与 [[base.py]] 的「`db` property 删除」是同一契约的两端:事件 staging
+的 db 由调用方显式传入(service/heal/open_url 均已改)。三处
+stage_artifact_event 全部改用形参 db。
