@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
+
+Owner 要求「智能体管理」(=本页,zh title 就叫智能体管理)的视图切换改成
+**和 SettingsPage 一样的左侧竖排标签栏**,并拆出第三个「导出」标签:
+- `view` 类型扩到 `'agents' | 'teams' | 'export'`,首帧从 `?tab=` 播种
+  (侧栏 Export 行深链 `?tab=export`,之后用户点击说了算——同 SettingsPage 规则)。
+- 外层从居中 `ScrollArea>max-w-960` 改成 `h-full flex flex-col`:标题 header +
+  `flex flex-1 min-h-0`(左 `w-56 border-r` nav 三项 + 右 detail)。agents/teams
+  两个 pane 仍走 padded ScrollArea+max-w-960;**export pane 直接内嵌
+  `<BundleExportPage embedded />`**(它自带 h-full 滚动/页脚,不能再套一层)。
+- agents pane 顶部加「创建智能体」按钮(复用 [[../../hooks/useCreateAgent]]);
+  teams pane 加「创建团队」按钮(→ `/app/teams/new` CreateTeamPage)。summary
+  BracketSectionLabel 从旧 header 移进各 pane。
+测试:dashboardTabs.test.tsx。
+
 
 ## 2026-08-19 — review 轮:筛选统一、shift 区间防崩、批量结果如实上报、Manage 带行上下文
 

@@ -1592,6 +1592,11 @@
     },
     "dashboard": {
       "title": "Agent Dashboard",
+      "tabAgents": "Manage Agents",
+      "tabTeams": "Team Management",
+      "tabExport": "Export",
+      "createAgent": "Create Agent",
+      "createTeam": "Create Team",
       "agentsCount": "{{count}} agents",
       "emptyLabel": "No agents yet",
       "emptyHint": "Create an agent from the sidebar to populate this dashboard.",

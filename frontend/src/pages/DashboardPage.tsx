@@ -19,6 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronRight,
   Loader2,
@@ -28,9 +29,14 @@ import {
   UserMinus,
   AlertTriangle,
   Users2,
+  Package,
+  Plus,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useConfigStore, useTeamsStore } from '@/stores';
+import { useCreateAgent } from '@/hooks';
+import BundleExportPage from './BundleExportPage';
 import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
 import { Button, ScrollArea, useConfirm } from '@/components/ui';
@@ -64,8 +70,17 @@ export function DashboardPage() {
   const { agents: rosterAgents, refreshAgents } = useConfigStore();
   const { teams, refresh: refreshTeams, addMember, removeMember } = useTeamsStore();
   const { confirm, alert, dialog } = useConfirm();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { creating: creatingAgent, createAgent } = useCreateAgent();
 
-  const [view, setView] = useState<'agents' | 'teams'>('agents');
+  // Left-rail tabs (master–detail, mirrors SettingsPage). `?tab=` seeds the
+  // FIRST render only — the sidebar's "Export" row deep-links ?tab=export;
+  // afterwards the user's tab clicks own the selection.
+  const [view, setView] = useState<'agents' | 'teams' | 'export'>(() => {
+    const requested = searchParams.get('tab');
+    return requested === 'teams' || requested === 'export' ? requested : 'agents';
+  });
   // v4 table: multiple rows can be expanded at once (a Set, not the old
   // single expandedId — the mirror doc called this out explicitly).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -409,54 +424,92 @@ export function DashboardPage() {
   const inputBox =
     'flex items-center gap-2 h-[34px] px-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)]';
 
-  return (
-    <ScrollArea className="h-full" viewportClassName="px-6 py-6">
-      <div className="max-w-[960px] mx-auto space-y-4">
-        {dialog}
-        <TeamManagementModal
-          open={teamsMgmt.open}
-          initialTeamId={teamsMgmt.teamId}
-          onClose={() => setTeamsMgmt({ open: false, teamId: null })}
-        />
+  const TAB_ITEMS = [
+    { id: 'agents', labelKey: 'pages.dashboard.tabAgents', icon: LayoutDashboard },
+    { id: 'teams', labelKey: 'pages.dashboard.tabTeams', icon: Users2 },
+    { id: 'export', labelKey: 'pages.dashboard.tabExport', icon: Package },
+  ] as const;
 
-        {/* Header — title + Agents/Teams toggle + meta. pr-10 reserves the
-            top-right corner for MainLayout's close (X). */}
-        <div className="flex items-center justify-between gap-3 pr-10">
-          <div className="flex items-center gap-4 min-w-0">
-            <h1
-              className="text-xl font-bold tracking-tight"
-              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
-            >
-              {t('pages.dashboard.title')}
-            </h1>
-            <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] p-0.5">
-              {(['agents', 'teams'] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setView(v)}
-                  className={cn(
-                    'rounded-[var(--radius-sm)] px-3.5 py-1 text-[12px] transition-colors',
-                    view === v
-                      ? 'bg-[var(--nm-raised)] font-semibold text-[var(--nm-ink)]'
-                      : 'font-medium text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
-                  )}
-                >
-                  {v === 'agents' ? t('sidebar.agents') : t('sidebar.teams')}
-                </button>
-              ))}
-            </div>
+  return (
+    <div className="h-full flex flex-col">
+      {dialog}
+      <TeamManagementModal
+        open={teamsMgmt.open}
+        initialTeamId={teamsMgmt.teamId}
+        onClose={() => setTeamsMgmt({ open: false, teamId: null })}
+      />
+
+      {/* Title — pr-10 reserves the top-right corner for MainLayout's close (X). */}
+      <header className="px-6 pt-6 pb-4 shrink-0 pr-10">
+        <h1
+          className="text-xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          {t('pages.dashboard.title')}
+        </h1>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Left rail (master) — Manage Agents / Team Management / Export,
+            mirroring SettingsPage's master–detail nav. */}
+        <nav
+          className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
+          style={{ borderColor: 'var(--nm-line)' }}
+        >
+          {TAB_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = view === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setView(item.id)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm text-left transition-colors',
+                  isActive
+                    ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
+                    : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-line)]/40 hover:text-[var(--nm-ink)]',
+                )}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {t(item.labelKey)}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Detail pane. Export embeds the full wizard (its own scroll/footer),
+            so it renders outside the padded ScrollArea the other panes share. */}
+        {view === 'export' ? (
+          <div className="flex-1 min-w-0">
+            <BundleExportPage embedded />
           </div>
-          <BracketSectionLabel>
-            {view === 'agents'
-              ? t('pages.manageAgents.summary', {
-                  shown: filteredAgents.length,
-                  selected: selected.size,
-                  total: rosterAgents.length,
-                })
-              : t('pages.dashboard.teamsCount', { count: teams.length })}
-          </BracketSectionLabel>
-        </div>
+        ) : (
+        <ScrollArea className="flex-1" viewportClassName="px-6 py-6">
+          <div className="max-w-[960px] mx-auto space-y-4">
+            {/* Per-tab summary + primary create action */}
+            <div className="flex items-center justify-between gap-3">
+              <BracketSectionLabel>
+                {view === 'agents'
+                  ? t('pages.manageAgents.summary', {
+                      shown: filteredAgents.length,
+                      selected: selected.size,
+                      total: rosterAgents.length,
+                    })
+                  : t('pages.dashboard.teamsCount', { count: teams.length })}
+              </BracketSectionLabel>
+              {view === 'agents' ? (
+                <Button onClick={() => void createAgent()} disabled={creatingAgent} size="sm" className="gap-1">
+                  {creatingAgent ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  {t('pages.dashboard.createAgent')}
+                </Button>
+              ) : (
+                <Button onClick={() => navigate('/app/teams/new')} size="sm" className="gap-1">
+                  <Plus className="w-3.5 h-3.5" />
+                  {t('pages.dashboard.createTeam')}
+                </Button>
+              )}
+            </div>
 
         {error && (
           <div
@@ -809,8 +862,11 @@ export function DashboardPage() {
             </p>
           </>
         )}
+          </div>
+        </ScrollArea>
+        )}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 

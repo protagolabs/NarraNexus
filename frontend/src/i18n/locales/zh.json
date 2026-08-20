@@ -1592,6 +1592,11 @@
     },
     "dashboard": {
       "title": "智能体管理",
+      "tabAgents": "智能体管理",
+      "tabTeams": "智能体团队管理",
+      "tabExport": "导出",
+      "createAgent": "创建智能体",
+      "createTeam": "创建团队",
       "agentsCount": "{{count}} 个智能体",
       "emptyLabel": "暂无智能体",
       "emptyHint": "从侧边栏创建一个智能体,它会出现在这里。",
