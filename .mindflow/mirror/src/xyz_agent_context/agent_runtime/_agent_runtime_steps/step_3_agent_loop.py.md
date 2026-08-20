@@ -771,3 +771,5 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+> **2026-08-20**: `_resolve_agent_framework_name` 的缺行/空列/DB 故障兜底由 `claude_code` 改为 `nexus_power`（平台默认框架变更；仅注释同步，逻辑走 model_identity._DEFAULT_FRAMEWORK）。

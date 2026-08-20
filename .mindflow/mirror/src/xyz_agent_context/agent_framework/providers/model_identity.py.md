@@ -33,7 +33,7 @@ stub: false
     落到 owner 框架真跑 Codex，重新制造错误身份。收敛成单一实现后此类不一致从根上消除
     （方向也纠正了：`agent_runtime → agent_framework` 本就是合法 import 方向，step_3
     早已 `from xyz_agent_context.agent_framework import ...`）。
-- **绝不抛异常**：任何缺行/空列/DB 故障都降级到 `(claude_code, "")`，因为它喂的是
+- **绝不抛异常**：任何缺行/空列/DB 故障都降级到 `(nexus_power, "")`，因为它喂的是
   system-prompt 构建路径，炸了会废掉整轮。降级值仍走同一 display 映射，宁可回退成
   一个"次真实"的默认，也不输出错误品牌。
 - **未知 framework 名原样展示**（不塞进 `FRAMEWORK_DISPLAY_NAMES` 的名字直接回显），
@@ -50,6 +50,6 @@ stub: false
 
 `tests/agent_framework/test_agent_model_identity.py`：覆盖胜出 / 无覆盖回退
 user_slots / 缺 provider_id 不夺权 / **有 provider 但 framework NULL 不夺权**（PR #84
-回归）/ 缺行→claude_code+空 model / DB 故障兜底 / 未知名原样。
+回归）/ 缺行→nexus_power+空 model / DB 故障兜底 / 未知名原样。
 `test_resolve_agent_framework_per_agent.py` 走委托后的 `_resolve_agent_framework_name`，
 同样锁 dispatch 端行为——两个测试测的是同一份 overlay 的两个出口。

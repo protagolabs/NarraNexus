@@ -891,8 +891,8 @@ class UserProviderService:
     # ---- agent_framework: per-user coding-agent SDK choice ---------
     # The ``user_slots[slot_name='agent'].agent_framework`` column is
     # read by step_3_agent_loop._resolve_agent_framework_sdk to pick
-    # ClaudeAgentSDK vs CodexSDK. Reading defaults to "claude_code"
-    # for any null/missing row so existing users are untouched.
+    # ClaudeAgentSDK vs CodexSDK. Reading defaults to "nexus_power" (platform
+    # default since 2026-08-20) for any null/missing row.
 
     # Coding-agent framework names ``set_user_agent_framework`` accepts.
     # MUST stay in sync with ``agent_framework/__init__.py``
@@ -907,19 +907,19 @@ class UserProviderService:
     async def get_user_agent_framework(self, user_id: str) -> str:
         """Return the user's chosen coding-agent framework.
 
-        Returns ``"claude_code"`` when:
+        Returns ``"nexus_power"`` (platform default) when:
           - The user has no agent slot row yet (new user)
           - The column is null (rows from before the column was added)
         Anything other than the supported set still returns the raw
         value; the caller (step_3 resolver) is responsible for
-        falling back to claude_code on unknown values.
+        falling back to nexus_power on unknown/null values.
         """
         row = await self.db.get_one(
             "user_slots", {"user_id": user_id, "slot_name": "agent"}
         )
         if not row:
-            return "claude_code"
-        return (row.get("agent_framework") or "claude_code")
+            return "nexus_power"
+        return (row.get("agent_framework") or "nexus_power")
 
     async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
         """Persist the user's coding-agent framework choice.

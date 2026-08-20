@@ -44,9 +44,10 @@ from loguru import logger
 FRAMEWORK_DISPLAY_NAMES: dict[str, str] = {
     "codex_cli": "Codex CLI",
     "claude_code": "Claude Agent SDK",
+    "nexus_power": "NexusPower-beta",
 }
 
-_DEFAULT_FRAMEWORK = "claude_code"
+_DEFAULT_FRAMEWORK = "nexus_power"
 
 
 @dataclass(frozen=True)

@@ -875,3 +875,5 @@ backend 进程——写入方把自包含 payload 落成一行,BackgroundRun 在
 run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 updated_at 单调守卫
 中和迟到事件,打开时全量拉是自愈地板,所以无 TTL 无跨进程锁。`consumed_at` 不删行,
 近期尾部兼作投递审计。设计出处:spec 2026-08-18-artifact-events-inventory-pointer §3。
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。

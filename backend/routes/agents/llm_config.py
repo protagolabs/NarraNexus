@@ -87,7 +87,7 @@ def _slot_view(slot_name: str, row: Optional[dict]) -> Optional[dict]:
         "reasoning_effort": reasoning_effort,
     }
     if slot_name == SlotName.AGENT.value:
-        view["agent_framework"] = row.get("agent_framework") or "claude_code"
+        view["agent_framework"] = row.get("agent_framework") or "nexus_power"
     return view
 
 
