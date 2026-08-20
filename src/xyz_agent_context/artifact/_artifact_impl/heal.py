@@ -16,6 +16,7 @@ an HTTP handler.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import List, Optional
 
@@ -266,12 +267,17 @@ async def heal_artifact(
     # content (rename detection) instead of guessing by extension. Multiple
     # hash hits mean copies exist — ambiguous intent, so the user picks.
     if art.content_hash and candidates:
-        hash_hits = [
-            c for c in candidates
-            if registration.compute_entry_hash(
-                _absolutise(c.workspace_path, search_root)
-            ) == art.content_hash
-        ]
+        # Hashing a dozen candidates is synchronous chunked IO — run it in a
+        # worker thread so the loop keeps serving other requests (#334 I12).
+        def _match_by_hash() -> list:
+            return [
+                c for c in candidates
+                if registration.compute_entry_hash(
+                    _absolutise(c.workspace_path, search_root)
+                ) == art.content_hash
+            ]
+
+        hash_hits = await asyncio.to_thread(_match_by_hash)
         if len(hash_hits) == 1:
             healed = await _repoint(
                 repo=repo, art=art, agent_id=agent_id, user_id=user_id,

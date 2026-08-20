@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/heal.py
-last_verified: 2026-08-10
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -86,3 +86,7 @@ deletes the files.
 自己 stage 更富的 "repointed"(extra: old/new 路径尾+hash_matched)。语义:
 猜测/验证永不伪装成有意更新;前端据 repointed 弹 toast 并立即重载。
 声明边界:hash 验内容不验意图(可能命中用户备份,toast 的路径是最后防线)。
+
+## 2026-08-20 — 候选哈希下线程(#334 I12)
+
+hash 认亲一次可能连读十几个候选文件,整段 to_thread;语义不变。

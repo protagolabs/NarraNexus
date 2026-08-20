@@ -21,11 +21,16 @@ external=True → the outbox → WS → every open surface.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Literal
 
-from xyz_agent_context.artifact._artifact_impl.commit import commit_content_refresh
+from xyz_agent_context.artifact._artifact_impl.commit import (
+    commit_content_refresh,
+    entry_size_bytes,
+)
 from xyz_agent_context.artifact._artifact_impl.registration import compute_entry_hash
+from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import Artifact
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
@@ -69,9 +74,30 @@ async def refresh_external_state(
         if stat.st_mtime <= artifact.updated_at.timestamp():
             return "fresh"
 
-    new_hash = compute_entry_hash(abs_entry)
+    # Hashing is synchronous chunked IO — off the event loop (review #334
+    # I12): a state-block render may verify several MB-scale entries and the
+    # MCP server's loop must keep serving every other agent meanwhile.
+    new_hash = await asyncio.to_thread(compute_entry_hash, abs_entry)
     if new_hash is None:
         return "missing"
+
+    if artifact.content_hash is None:
+        # Legacy row (the column shipped 2026-08-19): there is NO baseline,
+        # so a differing byte can't support the claim "externally edited" —
+        # we never knew the old content. First sight CLAIMS the fingerprint:
+        # hash written back (updated_at bumps, arming the fast screen), no
+        # history row, no event — deliberately NOT commit_content_refresh,
+        # which packages exactly the two side effects this branch must avoid
+        # (review #334 I2).
+        repo = ArtifactRepository(db)
+        await repo.update_pointer(
+            artifact.artifact_id,
+            file_path=artifact.file_path,
+            size_bytes=entry_size_bytes(abs_entry, artifact.file_path),
+            content_hash=new_hash,
+        )
+        return "fresh"
+
     if new_hash == artifact.content_hash:
         return "fresh"  # touch/backup noise — not a commit point
 

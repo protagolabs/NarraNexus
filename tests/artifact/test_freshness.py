@@ -125,3 +125,40 @@ def test_office_lock_present(tmp_path):
     assert office_lock_present(str(doc)) is False
     (tmp_path / "~$Q3 deck.pptx").write_bytes(b"lock")
     assert office_lock_present(str(doc)) is True
+
+
+async def test_null_hash_row_claims_fingerprint_without_commit(env):
+    """Legacy rows (column added 2026-08-19) have content_hash NULL. A moved
+    mtime on them must NOT be declared an external edit — there is no
+    baseline to compare against. First sight claims the fingerprint
+    (hash written back, updated_at bumped) with NO history row, NO event."""
+    await env["db"].update(
+        "instance_artifacts", {"artifact_id": "art_fresh001"}, {"content_hash": None}
+    )
+    art = await env["repo"].get_by_id("art_fresh001")
+    assert art.content_hash is None
+
+    verdict = await env["svc"].refresh_external_state(art)
+    assert verdict == "fresh"
+    row = await env["repo"].get_by_id("art_fresh001")
+    assert row.content_hash == _sha("# v1\n")  # fingerprint claimed
+    assert await _history(env["db"], "art_fresh001") == []
+    assert await _events(env["db"]) == []
+
+
+async def test_null_hash_row_with_changed_bytes_is_still_fresh(env):
+    """Even when the bytes differ from what was once registered, a NULL-hash
+    row cannot support the claim 'externally edited' — we never knew the
+    old content. Claim, don't accuse."""
+    await env["db"].update(
+        "instance_artifacts", {"artifact_id": "art_fresh001"}, {"content_hash": None}
+    )
+    env["entry"].write_text("# rewritten while unfingerprinted\n", encoding="utf-8")
+    art = await env["repo"].get_by_id("art_fresh001")
+
+    verdict = await env["svc"].refresh_external_state(art)
+    assert verdict == "fresh"
+    row = await env["repo"].get_by_id("art_fresh001")
+    assert row.content_hash == _sha("# rewritten while unfingerprinted\n")
+    assert await _history(env["db"], "art_fresh001") == []
+    assert await _events(env["db"]) == []

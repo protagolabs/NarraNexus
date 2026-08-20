@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -256,3 +256,8 @@ external_edited→EXTERNALLY MODIFIED 行;user_edited→modified by the
 user 行;agent 重注册(updated/registered)自动清标。office kind 另查
 ~$ 锁附「desktop Office」提示。整段 best-effort——侦测失败只降标记
 不降块。
+
+## 2026-08-20 — 侦测循环改有界并发(#334 I12)
+
+串行 await 链改 Semaphore(4)+gather;单行失败仅降该行标记,不再
+杀整个 pass。并发只针对不同 artifact_id 行,写侧天然不冲突。

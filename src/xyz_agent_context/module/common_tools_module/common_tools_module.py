@@ -387,8 +387,24 @@ class CommonToolsModule(XYZBaseModule):
             from xyz_agent_context.settings import settings as _settings
 
             service = ArtifactService(self.db)
-            for a in artifacts:
-                await service.refresh_external_state(a)
+            # Bounded concurrency, not a serial await chain: each check may
+            # stat + (rarely) hash; four in flight keeps a 20-line block fast
+            # without stampeding the DB pool (review #334 I12). Failures are
+            # per-artifact best-effort — one bad row must not kill the pass.
+            import asyncio as _asyncio
+
+            sem = _asyncio.Semaphore(4)
+
+            async def _check(a):
+                async with sem:
+                    try:
+                        await service.refresh_external_state(a)
+                    except Exception as e:  # noqa: BLE001 — detector is best-effort
+                        logger.warning(
+                            f"artifact-state block: freshness check failed for {a.artifact_id}: {e}"
+                        )
+
+            await _asyncio.gather(*(_check(a) for a in artifacts))
             latest = await ArtifactHistoryRepository(self.db).latest_actions(
                 [a.artifact_id for a in artifacts]
             )

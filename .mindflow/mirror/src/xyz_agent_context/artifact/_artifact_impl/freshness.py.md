@@ -35,3 +35,13 @@ watch version 轮询(带 ~$ lock 旗标)。**没有 watcher**——3′/3″/3�
   标 deleted。
 
 ## 2026-08-20 — 提交尾巴移交 [[commit.py]]
+
+## 2026-08-20 — 存量行首次认领 + 哈希下线程(review #334 I2/I12)
+
+`content_hash IS NULL`(列发布前的存量行)不再走「不同即外部编辑」——
+**没有基线就不能指控**,首见改为认领指纹:回写 hash(updated_at 随之
+bump,快筛下轮起效),**零 history、零事件**;故意不走
+commit_content_refresh(它打包的正是要避开的两个副作用)。字节与
+当年注册时不同也一样只认领——test_null_hash_row_with_changed_bytes
+钉死。哈希计算 to_thread 下线程(检测链本为 best-effort,TOCTOU 窗口
+放大可接受;真正的写保护在 user_edit 的乐观锁)。
