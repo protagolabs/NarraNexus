@@ -35,6 +35,19 @@ MAX_ARTIFACT_BYTES 从 xyz_agent_context.artifact 引入。「门还挂着吗」
 `test_every_write_route_has_a_cap_or_an_exemption` 反向遍历——每个已注册
 POST/PUT/PATCH 路由要么被某条 BODY_CAPS 命中,要么在测试内的显式豁免
 清单 `_NO_BODY_CAP_EXEMPT` 里(按路由模板逐条列,分组注明为何不设上限;
-失效豁免同样报红)。新增写端点时 CI 会强制做一次「体积故事」的显式决定。
+失效豁免**双向**报红:路由消失了报,路由后来拿到 cap 而豁免没删也报,
+r6 M2)。新增写端点时 CI 会强制做一次「体积故事」的显式决定。
 豁免清单里「小型定形 JSON」一组是否该有平台级默认上限,是一个尚未做的
 独立决策——豁免记录的是现状,不是永久背书。
+
+**env-gated 写入口是这道钉的盲区,单独建模**(#334 r6 I1):manyfold 的
+4 个写路由只在 `ENABLE_MANYFOLD_API` 置位时注册,CI 不设该 flag,反向钉
+看不见它们。测试里分两组显式声明:`_ENV_GATED_EXEMPT`(3 条 manyfold
+路由,不进 stale 断言——CI 里无对应活路由)与 `_ENV_GATED_CAPPED`
+(`/v1/chat/completions`,body field + 无界 messages 数组,吃真 cap
+`MAX_CHAT_COMPLETIONS_BYTES` 8MB;pattern 无条件挂在 BODY_CAPS 里,
+flag 关闭时该路径反正 404,条目惰性无害)。两侧各有锚:cap 允许命中
+env-gated 模板采样,而 `test_every_env_gated_capped_template_has_a_cap`
+反向保证每条声明的模板真有 cap(静态对静态,与 flag 无关)。
+2026-08-20 实核:dev 与 prod 容器均未设 `ENABLE_MANYFOLD_API`,
+该无上界入口不是现网敞口。

@@ -21,16 +21,27 @@ any other test.
 """
 from __future__ import annotations
 
+import re
+
 from backend.main import app
 from backend.middleware.body_size import BODY_CAPS, body_size_middleware
 
-_SAMPLE = {
-    "{agent_id}": "a",
-    "{artifact_id}": "b",
-    "{token}": "t",
-    "{port}": "1",
-    "{path:path}": "x",
-}
+# Registered ONLY when ENABLE_MANYFOLD_API is set (backend/main.py env
+# gate) — CI runs without the flag, so app.routes lacks them and neither
+# the live-route assertion nor the stale check may demand them (review
+# #334 r6 I1: the reverse pin covered only the env-happened-to-be-off
+# half). Split by size story:
+#   - _ENV_GATED_EXEMPT: no middleware cap needed, reasons per line;
+#   - _ENV_GATED_CAPPED: carries a real BODY_CAPS entry (the pattern is
+#     registered unconditionally; with the flag off the path 404s anyway).
+_ENV_GATED_EXEMPT = frozenset({
+    "/manyfold/agents",                         # small fixed-shape JSON
+    "/manyfold/agents/{agent_id}",              # small fixed-shape JSON
+    "/manyfold/agents/{agent_id}/files/write",  # own streamed _MAX_WRITE_BYTES gate
+})
+_ENV_GATED_CAPPED = frozenset({
+    "/v1/chat/completions",  # MAX_CHAT_COMPLETIONS_BYTES — body field + unbounded messages
+})
 
 # Write routes with NO BODY_CAPS entry, by ROUTE TEMPLATE (r.path verbatim —
 # sampled paths would silently detach when a path-parameter name changes).
@@ -192,9 +203,12 @@ _NO_BODY_CAP_EXEMPT = frozenset({
 
 
 def _sampled(path: str) -> str:
-    for k, v in _SAMPLE.items():
-        path = path.replace(k, v)
-    return path
+    # Wildcard every placeholder instead of maintaining a hand-copied table
+    # (r6 M4): a new {param_name} costs nothing, and a future stricter cap
+    # regex can't silently miss an unsampled placeholder. NOTE: {path:path}
+    # collapses to a single segment — fine for the current prefix cap; a cap
+    # asserting multi-segment content there would need a real sample.
+    return re.sub(r"\{[^}]+\}", "x", path)
 
 
 def _sampled_routes():
@@ -207,10 +221,28 @@ def _sampled_routes():
 
 def test_every_body_cap_matches_a_registered_route():
     routes = _sampled_routes()
+    # env-gated routes are absent from app.routes when the flag is off —
+    # their caps are anchored to the declared template list instead.
+    env_gated_samples = {_sampled(t) for t in _ENV_GATED_CAPPED}
     for methods, pattern, _cap in BODY_CAPS:
         assert any(
             (m & methods) and pattern.match(p) for m, p in routes
-        ), f"BODY_CAPS pattern matches no registered route: {pattern.pattern}"
+        ) or any(pattern.match(s) for s in env_gated_samples), (
+            f"BODY_CAPS pattern matches no registered route: {pattern.pattern}"
+        )
+
+
+def test_every_env_gated_capped_template_has_a_cap():
+    """The other half of the anchor above: each template in
+    _ENV_GATED_CAPPED must actually be covered by a BODY_CAPS entry —
+    otherwise deleting the cap line would leave the template silently
+    vouching for a gate that no longer exists. Static vs static, so this
+    holds regardless of the env flag."""
+    for template in _ENV_GATED_CAPPED:
+        sampled = _sampled(template)
+        assert any(
+            pat.match(sampled) for _m, pat, _c in BODY_CAPS
+        ), f"env-gated template has no BODY_CAPS entry: {template}"
 
 
 def test_every_write_route_has_a_cap_or_an_exemption():
@@ -219,26 +251,73 @@ def test_every_write_route_has_a_cap_or_an_exemption():
     executable. Uncovered AND unexempted write routes fail here, turning
     'forgot to think about the size story' into an explicit review decision."""
     write = {"POST", "PUT", "PATCH"}
+    exempt = _NO_BODY_CAP_EXEMPT | _ENV_GATED_EXEMPT
     missing = []
-    stale = set(_NO_BODY_CAP_EXEMPT)
+    redundant = set()
+    stale = set(_NO_BODY_CAP_EXEMPT)  # env-gated entries can't demand a live route
     for r in app.routes:
         methods = (getattr(r, "methods", set()) or set()) & write
         if not methods:
             continue  # GET/WS/Mount rows carry no request body to cap
         template = getattr(r, "path", "")
-        stale.discard(template)
         sampled = _sampled(template)
         capped = any(
             (m & methods) and pat.match(sampled) for m, pat, _cap in BODY_CAPS
         )
-        if not capped and template not in _NO_BODY_CAP_EXEMPT:
+        if capped:
+            # a capped route makes its exemption dead weight (r6 M2: the
+            # stale check must see BOTH rot directions, not just
+            # route-disappeared)
+            if template in exempt:
+                redundant.add(template)
+            continue
+        stale.discard(template)
+        if template not in exempt:
             missing.append(f"{sorted(methods)} {template}")
     assert not missing, (
         "write route(s) with neither a BODY_CAPS entry nor an explicit "
         f"exemption — decide their size story: {missing}"
     )
-    # an exemption whose route disappeared is dead weight — prune it
-    assert not stale, f"exemptions matching no registered route: {sorted(stale)}"
+    assert not redundant, (
+        f"exemptions for routes that now carry a BODY_CAPS entry — prune: "
+        f"{sorted(redundant)}"
+    )
+    # an exemption with no matching UNCAPPED write route is dead weight —
+    # the route disappeared, was renamed, or gained a cap above
+    assert not stale, (
+        f"exemptions matching no uncapped registered route: {sorted(stale)}"
+    )
+
+
+def test_chat_completions_declared_oversize_is_413_before_route():
+    """Behavior pin for the env-gated cap (r6 I1): the /v1/chat/completions
+    BODY_CAPS entry must fire in the middleware, before any route code —
+    exercised on a bare app so it holds regardless of ENABLE_MANYFOLD_API."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.middleware.body_size import MAX_CHAT_COMPLETIONS_BYTES
+
+    hits = []
+    bare = FastAPI()
+    bare.middleware("http")(body_size_middleware)
+
+    @bare.post("/v1/chat/completions")
+    async def _route():  # pragma: no cover - must not run
+        hits.append(1)
+        return {}
+
+    client = TestClient(bare)
+    r = client.post(
+        "/v1/chat/completions",
+        content=b"tiny",
+        headers={
+            "Content-Length": str(MAX_CHAT_COMPLETIONS_BYTES + 1),
+            "Content-Type": "application/json",
+        },
+    )
+    assert r.status_code == 413
+    assert hits == []
 
 
 def test_middleware_order_cors_outermost_body_size_inside_access_log():
@@ -246,7 +325,15 @@ def test_middleware_order_cors_outermost_body_size_inside_access_log():
         getattr(m.kwargs.get("dispatch"), "__name__", getattr(m.cls, "__name__", ""))
         for m in app.user_middleware
     ]
-    assert "body_size_middleware" in names, names
+    # Existence first, all four (r6 M3): a missing layer must fail with the
+    # actual stack in the message, not an opaque ValueError from .index.
+    for n in (
+        "CORSMiddleware",
+        "access_log_middleware",
+        "body_size_middleware",
+        "auth_middleware",
+    ):
+        assert n in names, names
     # user_middleware is outermost-first. CORS must be outermost of the
     # four (constraint 2 in main.py — the one that WAS broken once: an
     # inner CORS never runs on early 401/413 returns, so cross-origin

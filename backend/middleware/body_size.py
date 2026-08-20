@@ -48,6 +48,12 @@ PUT_CONTENT_MARGIN = 2 * _MB
 #: multipart boundary/part-header overhead on top of the single-file cap —
 #: the declared Content-Length covers the whole multipart body, not the file.
 MULTIPART_FRAMING_MARGIN = _MB
+#: OpenAI-compat chat body (env-gated route: ENABLE_MANYFOLD_API). The
+#: messages array is caller-supplied and unbounded — the one body-field
+#: route whose payload legitimately grows without limit, i.e. exactly what
+#: this middleware exists for. 8 MB of text is far beyond any real model
+#: context; a bigger body is not a conversation (review #334 r6 I1).
+MAX_CHAT_COMPLETIONS_BYTES = 8 * _MB
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
@@ -70,6 +76,14 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
         frozenset({"POST"}),
         re.compile(r"^/api/public/office-watch-proxy/"),
         MAX_OFFICE_EDIT_BYTES,
+    ),
+    # env-gated route (registered only under ENABLE_MANYFOLD_API): the
+    # pattern sits here unconditionally — with the flag off the path 404s
+    # anyway, and a middleware entry for a nonexistent route is inert.
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/v1/chat/completions$"),
+        MAX_CHAT_COMPLETIONS_BYTES,
     ),
 ]
 

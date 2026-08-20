@@ -477,11 +477,10 @@ async def upload_office_asset(
     # header covers the whole multipart body incl. framing, so comparing it
     # to the single-file cap 413s a just-under-10MB image the streamed
     # check would rightly accept — the middleware owns the declared gate.
-    max_bytes = MAX_OFFICE_ASSET_BYTES
 
     # Unicode-category sanitize (review #334 I15): \w keeps letters/digits of
     # EVERY script (kana, hangul, cyrillic, arabic, CJK...), not a
-    # we-only-thought-of-Chinese whitelist; separators/控制 chars become _.
+    # we-only-thought-of-Chinese whitelist; separators/control chars become _.
     # Length-capped — a 500-char name would ENAMETOOLONG as an opaque 500.
     raw_name = os.path.basename(file.filename or "asset")
     safe = re.sub(r"[^\w.\-]", "_", raw_name, flags=re.UNICODE).lstrip(".") or "asset"
@@ -497,7 +496,7 @@ async def upload_office_asset(
         with open(dest, "wb") as out:
             while chunk := await file.read(1024 * 1024):
                 received += len(chunk)
-                if received > max_bytes:
+                if received > MAX_OFFICE_ASSET_BYTES:
                     raise HTTPException(
                         413,
                         "asset too large "
