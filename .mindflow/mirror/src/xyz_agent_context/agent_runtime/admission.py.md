@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/admission.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
+## 2026-08-20 — `restamp_idle` + `BusyCheck` 拆成两个 Protocol
+
+**`restamp_idle(user_id)` —— 与 `claim_idle_users` 破坏性语义的配对。**
+claim 会把 idle 戳拿走,所以"claim 了但最终没停"的调用方必须能把戳放回去,
+否则就是本文档 2026-08-19 段反复强调的那种永久泄漏(主要在别的进程里跑的用户
+在本进程永远等不到下一次 `release`)。唯一调用方是 [[executor_reaper.py]] 在
+stop 前二次判活发现"又忙起来了"的那条 `continue`。
+
+- **必须是 `setdefault` 而不是赋值**:覆盖会把一个更早的真实戳往后推,等于白送
+  该用户一整个 TTL。
+- **活跃用户不写戳**:`user_id in self._per_user` 时直接返回——正在跑的用户不是
+  "空闲于此刻",给它打戳会让下一轮把它当候选。
+- 戳被 claim 拿走后放回去的值是"此刻":它刚才确实在忙,所以再等一个完整 TTL 是
+  诚实的,不是 bug。这条取舍在 [[executor_reaper.py]] 那侧也写了,两处口径一致。
+
+**`BusyCheck` 从类型别名变成 `Protocol`,并拆成两个。**
+`BusyCheck` 只有 `__call__`(裸 async 函数即可满足,测试与单进程部署都靠这个);
+`AgingBusyCheck(BusyCheck, Protocol)` 才加 `pass_()`,给需要跨调用保存状态、
+因而需要知道"一轮到此为止"的实现用(reaper 的 `_CullVeto` 用它 age 审计去重)。
+
+拆成两个而不是"一个 Protocol + 一个可选成员":**Protocol 的成员在结构上是必填
+的**,写 `# optional` 注释不改变类型含义——单个 Protocol 会把明确受支持的裸函数
+形式排除在外。
+
+**注意它买到了什么、没买到什么**:契约现在可表达、编辑器和手跑 pyright 能查,
+但**不是 CI 门禁**——`pyrightconfig.json` 的 include 只有
+`src/xyz_agent_context/module` 且 `typeCheckingMode: "off"`。所以真正防住"忘记
+调 `pass_` → 状态永不老化 → 无界增长"的,不是类型,而是 `_CullVeto` 自己给
+`_blocked_by` 加了硬上限(`_MAX_TRACKED`):忘记的代价降级成几行重复审计,不是内存。
+
+
 
 ## 2026-08-19 — `claim_idle_users` 接受跨进程 `is_busy` 否决
 
@@ -10,8 +41,8 @@ last_verified: 2026-08-19
 致命:`_idle_since` 只反映本进程的 run,而 executor 容器是按 user 共享的。
 详细事故经过见 [[executor_reaper.py]]。
 
-签名变成 `claim_idle_users(ttl_seconds, is_busy=None)`,`BusyCheck =
-Callable[[str], Awaitable[bool]]`。三条不能改的语义:
+签名变成 `claim_idle_users(ttl_seconds, is_busy=None)`。(`BusyCheck` 的形状
+在 2026-08-20 段又变了一次,见下。)三条不能改的语义:
 
 1. **否决在锁外跑**,并用 `Semaphore(_VETO_CONCURRENCY=8)` 限流。它会做 I/O
    (reaper 那个查 DB),握着 `_cond` 等 I/O 会让所有 `acquire`/`release` 排在
@@ -84,8 +115,9 @@ The controller also tracks WHEN each user dropped to zero active loops
 (`_idle_since`, stamped in `release`, cleared in `acquire`), using an
 injected `clock` (default `time.monotonic`, swappable for deterministic
 tests). `claim_idle_users(ttl)` atomically returns + un-tracks users idle
-≥ ttl. This is the controller's ONLY outward knowledge of culling — it
-stays ignorant of brokers/executors. The reaper
+≥ ttl, and `restamp_idle(user)` puts a stamp back when a claim is not acted
+on (2026-08-20 段). Those two are the controller's whole outward knowledge of
+culling — it stays ignorant of brokers/executors. The reaper
 ([[executor_reaper.py]]) is the coordinator that consumes this and calls
 the broker to stop them. Single-responsibility: controller = state,
 reaper = WHEN, broker_client = HOW.

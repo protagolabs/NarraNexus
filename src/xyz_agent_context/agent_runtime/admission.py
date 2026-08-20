@@ -41,7 +41,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from contextlib import AbstractContextManager
-from typing import Callable, Optional, Protocol
+from typing import Callable, Optional, Protocol, runtime_checkable
 
 from loguru import logger
 
@@ -49,16 +49,32 @@ class BusyCheck(Protocol):
     """Injected cross-process veto for idle claiming: "is this user busy
     somewhere else?". See ``claim_idle_users``.
 
-    ``pass_`` is optional and lets a stateful veto bracket one claim pass
-    (the reaper's uses it to age its audit de-duplication). Declared here
-    rather than sniffed at the call site with ``hasattr`` so a typo degrades
-    into a type error instead of silently skipping the aging — and the thing
-    that stops being aged grows without bound.
+    A plain async function satisfies this — and must keep satisfying it (the
+    tests and single-process deployments inject one).
     """
 
     async def __call__(self, user_id: str) -> bool: ...
 
-    def pass_(self) -> AbstractContextManager: ...  # optional
+
+@runtime_checkable
+class AgingBusyCheck(BusyCheck, Protocol):
+    """A veto that carries state across calls and needs to know where one
+    claim pass ends — the reaper's uses it to age its audit de-duplication.
+
+    Two protocols rather than one with an "optional" member: Protocol members
+    are structurally REQUIRED, so a single protocol with ``pass_`` would
+    exclude the bare-function form that is explicitly supported. A comment
+    saying "optional" does not change what the type means.
+
+    Note what this does and does not buy. It makes the contract expressible
+    and checkable by an editor or an ad-hoc pyright run; it is NOT a CI gate —
+    ``pyrightconfig.json`` includes only ``src/xyz_agent_context/module`` and
+    runs with ``typeCheckingMode: "off"``, so nothing here is enforced on
+    merge. The actual protection against a veto that silently loses its
+    aging is that the state it ages is bounded anyway (see ``_CullVeto``).
+    """
+
+    def pass_(self) -> AbstractContextManager: ...
 
 # Simultaneous in-flight vetoes per claim pass.
 _VETO_CONCURRENCY = 8

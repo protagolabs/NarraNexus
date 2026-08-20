@@ -374,3 +374,76 @@ async def test_restamp_never_pushes_an_existing_stamp_forward():
     await c.acquire("v")
     await c.restamp_idle("v")
     assert "v" not in c._idle_since
+
+
+@pytest.mark.asyncio
+async def test_db_outage_writes_no_audit_row(monkeypatch, db_client):
+    """The row would need the client that just failed, so attempting it is a
+    guaranteed second dead round-trip. What must NOT happen is the metric's
+    documented reading promising a signal that cannot exist."""
+    import xyz_agent_context.utils.db.db_factory as db_factory
+    from xyz_agent_context.agent_runtime import executor_reaper as er
+    from xyz_agent_context.schema.executor_audit import EVENT_CULL_SKIPPED_BUSY
+
+    calls = []
+
+    async def _client():
+        calls.append(1)
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr(db_factory, "get_db_client", _client)
+    veto = er._CullVeto()
+    with veto.pass_():
+        assert await veto("u") is True          # unknown ⇒ hands off
+    assert calls == [1], "audit retried the client that had just failed"
+
+    monkeypatch.undo()
+    rows = await db_client.get(
+        "instance_executor_audit", {"event_type": EVENT_CULL_SKIPPED_BUSY}
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_second_pull_of_the_switch_warns_again(monkeypatch):
+    """The dedup set must not silently make the switch a one-time-only log:
+    for the stale-replace half this log is the ONLY signal (that path writes
+    no audit row), and these processes live for weeks."""
+    from xyz_agent_context.agent_runtime import executor_reaper as er
+    from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+    import xyz_agent_context.utils.db.db_factory as db_factory
+
+    monkeypatch.setattr(er, "_recording_off_warned", set())
+    monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
+    assert await er.live_run_elsewhere("u") == er._UNKNOWN_RECORDING_OFF
+    assert ("reaper", "u") in er._recording_off_warned
+
+    async def _no_runs():
+        class _DB:
+            async def get(self, *a, **kw):
+                return []
+        return _DB()
+
+    monkeypatch.setenv(RECORDING_DISABLED_ENV, "0")
+    monkeypatch.setattr(db_factory, "get_db_client", _no_runs)
+    assert await er.live_run_elsewhere("u") is None
+    assert er._recording_off_warned == set()      # forgotten → next pull warns
+
+
+@pytest.mark.asyncio
+async def test_dedup_map_is_bounded_even_if_the_pass_is_never_bracketed():
+    """Aging only runs if the caller brackets each pass with pass_(), and
+    nothing enforces that at merge time (AgingBusyCheck is documentation, not
+    a CI gate). Forgetting must therefore cost duplicate audit rows, not a
+    dict that grows with the user base inside a weeks-long process."""
+    from xyz_agent_context.agent_runtime.executor_reaper import _CullVeto
+
+    async def _always_blocked(user_id):
+        return f"evt_{user_id}"
+
+    veto = _CullVeto(check=_always_blocked)
+    # Never call pass_() — simulate the caller that forgot.
+    for i in range(_CullVeto._MAX_TRACKED + 500):
+        assert await veto(f"u{i}") is True
+
+    assert len(veto._blocked_by) <= _CullVeto._MAX_TRACKED

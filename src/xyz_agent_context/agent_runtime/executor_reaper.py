@@ -40,6 +40,7 @@ from loguru import logger
 
 from xyz_agent_context.agent_runtime.admission import (
     AgentAdmissionController,
+    AgingBusyCheck,
     BusyCheck,
     get_admission_controller,
 )
@@ -113,6 +114,12 @@ async def live_run_elsewhere(
                 f"NOT roll while it stays disabled."
             )
         return _UNKNOWN_RECORDING_OFF
+    # Switch is back on: forget, so a SECOND pull warns again. Recording is
+    # toggled precisely when somebody is debugging, these processes live for
+    # weeks, and for the stale-replace half this log is the only signal there
+    # is (that path writes no audit row). Also keeps the set from growing with
+    # the user base.
+    _recording_off_warned.discard((caller, user_id))
     try:
         from xyz_agent_context.utils.db.db_factory import get_db_client
 
@@ -178,6 +185,15 @@ class _CullVeto:
     # user that merely went active here for a moment keeps its entry.
     _FORGET_AFTER = 10
 
+    # Hard ceiling on the dedup map, independent of the aging above. Aging
+    # only runs if the caller brackets each pass with pass_(); nothing in CI
+    # enforces that it does (see AgingBusyCheck), and the failure mode of
+    # forgetting would otherwise be a dict that grows with the user base in a
+    # process that lives for weeks. With the cap, forgetting costs a few
+    # duplicate audit rows instead of memory. Sized well above any plausible
+    # number of simultaneously-vetoed users.
+    _MAX_TRACKED = 4096
+
     def __init__(self, check=live_run_elsewhere) -> None:
         self._check = check
         # user_id -> (run_id that blocked us, passes since we last saw it)
@@ -208,13 +224,26 @@ class _CullVeto:
             return False
         self._seen_this_pass.add(user_id)
         previous = self._blocked_by.get(user_id)
+        if previous is None and len(self._blocked_by) >= self._MAX_TRACKED:
+            # Drop the entry that has gone unseen longest; it is the one whose
+            # run is most likely already over.
+            stalest = max(self._blocked_by, key=lambda u: self._blocked_by[u][1])
+            del self._blocked_by[stalest]
         self._blocked_by[user_id] = (run_id, 0)
         if previous is None or previous[0] != run_id:
             logger.info(
                 f"[reaper] skipping user={user_id}: run {run_id} is live in "
                 f"another process (idle here, busy elsewhere)"
             )
-            await _audit_cull_skipped(user_id, run_id)
+            if run_id != _UNKNOWN_DB_UNAVAILABLE:
+                # Writing this row needs the very DB client that just failed,
+                # so the attempt is guaranteed to fail too — a second dead
+                # round-trip per user per pass, and a warning that says
+                # nothing the first one did not. During a DB outage the
+                # authoritative signals are the busy-check log line and the
+                # fact that culling stopped; see executor_audit.py on how to
+                # read (and not over-read) this metric.
+                await _audit_cull_skipped(user_id, run_id)
         return True
 
 
@@ -265,12 +294,12 @@ class ExecutorReaper:
         label-based reaper backstops orphans); it never aborts the pass.
         """
         veto = self._is_busy
-        # getattr, not hasattr-branching on a concrete class: pass_ is an
-        # optional part of the BusyCheck protocol (a plain async function is a
-        # valid veto and simply has none), so the default keeps injection open
-        # while pyright still checks the name on anything that declares it.
-        open_pass = getattr(veto, "pass_", None)
-        with (open_pass() if open_pass is not None else nullcontext()):
+        # A veto may or may not carry state across calls; only the stateful
+        # kind has a pass to bracket. Narrowed against the declared protocol
+        # rather than sniffed with hasattr, so the contract is written down —
+        # though see AgingBusyCheck: nothing enforces it at merge time, which
+        # is why _CullVeto bounds its own state instead of trusting this call.
+        with (veto.pass_() if isinstance(veto, AgingBusyCheck) else nullcontext()):
             users = await self._controller.claim_idle_users(
                 self.ttl_seconds, is_busy=veto,
             )

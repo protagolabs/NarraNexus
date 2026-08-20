@@ -35,10 +35,18 @@ EVENT_ORPHAN_REAPED = "orphan_reaped"
 # agent run that the pre-2026-08-19 reaper would have killed mid-flight — that
 # count is the L3 measure of the cross-process guard. Rows whose run_id starts
 # with "unknown:" mean the opposite kind of thing: we declined to cull because
-# we could not see (":recording-off" = the switch is pulled, ":db-unavailable"
-# = an outage). Filter them apart; a nonzero "unknown:" rate is its own alert.
-# A rate that suddenly drops to zero is a reason to check the guard still runs,
-# not to assume the problem went away.
+# we could not see. Filter them apart before reading either number.
+#
+# In practice the only "unknown:" value that reaches this table is
+# ":recording-off" (the switch is pulled; the DB is fine, so the row lands).
+# ":db-unavailable" is defined for the log line and deliberately NOT written
+# here: persisting it would need the very client that just failed. So a DB
+# outage leaves no trace in this table — during one, the authoritative signals
+# are the reaper's log and the fact that culling stopped. Do not read a zero
+# here as "the guard was unaffected".
+#
+# A rate that suddenly drops to zero is likewise a reason to check the guard
+# still runs, not to assume the problem went away.
 EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"
 EVENT_OOM_KILLED = "oom_killed"
 EVENT_OOM_RETRY_OK = "oom_retry_ok"

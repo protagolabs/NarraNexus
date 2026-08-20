@@ -1,9 +1,9 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
-## 2026-08-19 — `user_has_live_run`:判活口径升到"用户"这一层
+## 2026-08-19 — 判活口径升到"用户"这一层(`first_live_run_id`)
 
 新增 `first_live_run_id(db, user_id)` —— 把 `run_is_live` 的答案聚到用户上,
 成为**跨进程**"这个用户忙不忙"的唯一事实源。第一个消费者是

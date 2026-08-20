@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
 
 ## 2026-08-19 — ensure 携带 `allow_stale_replace`:谁有权毁掉一个容器
@@ -28,7 +28,7 @@ orchestrator 是 backend + workers **两个进程**,重启 API server 掐不断 
 **必须排除自己那条 run**:ensure 发生在 step 3,那时本 run 的 events 行早就是
 `running` 了。不排除的话判决恒为"忙",镜像**永远滚不动** —— 那就是把一种静默
 故障换成另一种(2026-07 mcp_servers 改名那次,旧 executor 拿到空 MCP 集,不报错)。
-`user_has_live_run(exclude_run_id=...)` 就是为这个加的。
+`first_live_run_id(..., exclude_run_id=...)` 就是为这个加的——由 [[step_3_agent_loop.py]] 把 `active_run_id` 传给 `executor_reaper.stale_replacement_is_safe`,再一路传到那里。
 
 **判决可以偏保守**:同用户的另一条 live run 未必真在用 executor(可能还没走到
 step 3,或是压根不碰 executor 的 direct trigger)。多等一轮的代价是这一轮跑在旧

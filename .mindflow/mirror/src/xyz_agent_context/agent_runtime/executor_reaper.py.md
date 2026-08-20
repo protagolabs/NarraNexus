@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 ---
 
 ## 2026-08-19 — 空闲回收加跨进程活性否决(prod 事故修复)
@@ -20,7 +20,7 @@ reaper 把**正在干活**的容器停了。
 
 **修法**:`claim_idle_users(ttl, is_busy=...)` 加一个跨进程否决,数据源是
 `events` 表(每个进程都往里写,事故教训 #5:DB 痕迹比日志可靠),判活复用
-[[run_recorder.py]] 的 `user_has_live_run` / `run_is_live`(30s 心跳、3 拍判死)。
+[[run_recorder.py]] 的 `first_live_run_id` / `run_is_live`(30s 心跳、3 拍判死)。
 不需要新表、不需要 Redis。
 
 **为什么否决必须在 `claim_idle_users` 里,而不是在 `reap_once` 里过滤**:claim 是

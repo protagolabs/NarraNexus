@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+## 2026-08-20 — `cull_skipped_busy` 的 `run_id` 会出现 `unknown:` 前缀
+
+判活拿不到结论时也会否决回收(不确定就别动它),此时 `run_id` 是哨兵而不是真的
+run。**读这个指标前先按前缀分开**:
+
+- `evt_*` —— 真的救回了一条在途 run。这是护栏承重与否的 L3 度量。
+- `unknown:recording-off` —— `NARRANEXUS_RUN_RECORDING_DISABLED` 被拉下,我们
+  什么都看不见,所以不敢动。含义与上一类**相反**,把它算进"救回的 run 数"会把
+  "开关忘了放回去"读成"护栏工作良好"。
+
+**`unknown:db-unavailable` 不会出现在这张表里**,这是有意的:写这一行要用的正是
+刚刚失败的那个 DB client,尝试必然也失败。所以 DB 故障期间本表**留不下痕迹**,
+权威信号是 reaper 的日志 + 回收停摆本身。**不要把这里的 0 读成"那段时间护栏没
+受影响"** ——这条限制写在 `executor_audit.py` 的注释里,两处口径一致。
+
+
 
 ## 2026-08-19 — 新增 event_type `cull_skipped_busy`（跨进程回收护栏的度量）
 
@@ -14,8 +30,9 @@ stub: false
 
 行里带 `run_id`,且**按 (user_id, run_id) 去重**(见 [[executor_reaper.py]]):
 被否决的用户每轮都会被重新提名,逐次写行会让行数变成运行时长的函数——一条合法
-跑 10 小时的 run 会写出 ~300 行。去重后每一行 = 一次「2026-08-19 之前的代码会
-当场掐死的在途 run」。所以它不是噪声
+跑 10 小时的 run 会写出 ~300 行。去重后 **`run_id` 形如 `evt_*` 的**每一行 =
+一次「2026-08-19 之前的代码会当场掐死的在途 run」。`unknown:` 前缀的行含义相反,
+读法见 2026-08-20 段。所以它不是噪声
 日志而是 L3 指标：非零说明这道护栏在承重；**突然掉到零要去查护栏是不是没跑**，
 而不是默认问题自己好了（incident lesson #4/#5）。
 
