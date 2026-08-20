@@ -142,18 +142,18 @@ async def test_dispatch_per_agent_override_wins():
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_row_missing():
-    """Owner with no user_slots agent row → claude_code default."""
+    """Owner with no user_slots agent row → nexus_power default."""
     db = _FakeDB(owner_framework=None)
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_owner_missing():
-    """Agent with no owner row → defensive claude_code."""
+    """Agent with no owner row → defensive nexus_power."""
     db = _FakeDB(owner=None)
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 @pytest.mark.asyncio
@@ -171,9 +171,9 @@ async def test_dispatch_passes_unknown_framework_through():
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_on_db_error():
-    """Any DB error (connection lost, etc) → defensive claude_code."""
+    """Any DB error (connection lost, etc) → defensive nexus_power."""
     name = await _resolve_agent_framework_name("ag1", _DeadDB())
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 # ----- DB query shape ----------------------------------------------

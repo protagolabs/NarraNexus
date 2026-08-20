@@ -8,7 +8,7 @@
 Mirrors the overlay contract of ``_resolve_agent_framework_name``:
   1. per-agent agent_slots override wins ONLY with a provider_id;
   2. else the OWNER's user_slots default (keyed by agents.created_by);
-  3. degrades to (claude_code, "") on missing rows / DB hiccup.
+  3. degrades to (nexus_power, "") on missing rows / DB hiccup.
 
 Both framework AND model come from the winning slot row, and the
 framework maps to a human display label.
@@ -116,19 +116,19 @@ async def test_override_with_provider_but_null_framework_does_not_win():
 
 
 @pytest.mark.asyncio
-async def test_missing_rows_default_to_claude_code_empty_model():
+async def test_missing_rows_default_to_nexus_power_empty_model():
     db = _FakeDB()
     db.tables["agents"].append({"agent_id": "ag1", "created_by": ""})
     ident = await resolve_agent_model_identity("ag1", db)
-    assert ident.framework == "claude_code"
-    assert ident.framework_display == "Claude Agent SDK"
+    assert ident.framework == "nexus_power"
+    assert ident.framework_display == "NexusPower-beta"
     assert ident.model == ""
 
 
 @pytest.mark.asyncio
 async def test_db_hiccup_degrades_gracefully():
     ident = await resolve_agent_model_identity("ag1", _BoomDB())
-    assert ident.framework == "claude_code"
+    assert ident.framework == "nexus_power"
     assert ident.model == ""
 
 

@@ -132,7 +132,7 @@ class AgentSlotService:
                 "user_slots", {"user_id": owner, "slot_name": "agent"}
             )
             owner_framework = (
-                (owner_agent_slot or {}).get("agent_framework") or "claude_code"
+                (owner_agent_slot or {}).get("agent_framework") or "nexus_power"
             )
             eff_framework = agent_framework or owner_framework
             # A per-agent pin is the same choice as the user-level switch,

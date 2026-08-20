@@ -62,3 +62,5 @@ Gotchas:
   reset to inherit); a specific ``slot_name`` resets just that slot.
 - Only the own-provider resolution path honours overrides; the cloud SYSTEM
   free-tier pool ignores them (fixed one-model config).
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
