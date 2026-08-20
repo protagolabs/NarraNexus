@@ -356,7 +356,17 @@ def _scan(profile: str):
                 level = depth
             elif _IDENTITY_SECTION.match(line):
                 # A deeper heading may OPEN an identity subsection inside a
-                # section that was not one, but never close one.
+                # section that was not one, but never close one. When it does
+                # open one, record ITS level — the first version left `level`
+                # pinned at the document's first heading, so under
+                # `# Agent Awareness Profile` an `## 4` opened here could never
+                # be closed by `## 5` (2 <= 1 is never true) and everything
+                # after the identity section became editable. Only when opening
+                # from a non-editable state: `### Role Definition` inside an
+                # already-editable `## 4` must not raise the bar, or its sibling
+                # `### Background` (no keyword, 3 <= 3) would close the section.
+                if not editable:
+                    level = depth
                 editable = True
         yield line, editable
 
@@ -370,7 +380,7 @@ def _declares(value: str, name: str) -> bool:
     """Does ``value`` declare exactly ``name`` (optionally opening a description)?
 
     One definition. The same test was spelled two ways — `A or (B and C)` in the
-    reader and `C and B` in the writer — and this is thecore predicate of the
+    reader and `C and B` in the writer — and this is the core predicate of the
     whole area, so a reader's first job should not be confirming the two agree.
     """
     return value == name or (
@@ -508,18 +518,23 @@ def retire_self_name(
     # Refusing RAISES so no caller can read the untouched profile as a completed
     # retirement — that silence is what round 12 rejected and what let this one
     # report `identity_record_updated: true` while deleting text.
-    # A bare-name declaration is only safe when the value IS a name — and when no
-    # opener was found, the "inferred name" IS the whole value, so
-    # _declares_bare_name is trivially true and cannot be the escape hatch.
-    boundary = _boundary_was_found(profile or "", old)
-    bare = _declares_bare_name(profile, old) and not _has_weak_separator(old)
-    if inferred and not boundary and not bare:
-        logger.warning(
-            f"[identity] refusing to retire from an inferred name with no "
-            f"boundary ({old!r}); the line keeps its text and the record "
-            f"contradicts it instead"
-        )
-        raise _AmbiguousSelfName(profile or "")
+    if inferred:
+        # A bare-name declaration is only safe when the value IS a name — and
+        # when no opener was found, the "inferred name" IS the whole value, so
+        # _declares_bare_name is trivially true and cannot be the escape hatch.
+        # Computed here and not above: both predicates walk the whole profile,
+        # and the rename path (inferred=False, the common one) never reads them
+        # — two dead scans there also read as if they mattered to both paths,
+        # which is the misreading that kept a dead except alive for a round.
+        boundary = _boundary_was_found(profile or "", old)
+        bare = _declares_bare_name(profile or "", old) and not _has_weak_separator(old)
+        if not boundary and not bare:
+            logger.warning(
+                f"[identity] refusing to retire from an inferred name with no "
+                f"boundary ({old!r}); the line keeps its text and the record "
+                f"contradicts it instead"
+            )
+            raise _AmbiguousSelfName(profile or "")
 
     # Before the first `##`, there is no section to be wrong about: that is the
     # preamble, the default profile, and every bare fragment. Editable.
@@ -601,16 +616,15 @@ async def record_identity_change(
         # record, so the profile is never left with one section naming the old
         # name and another the new one — which is precisely the state a real
         # two-turn run answered the old name from (2026-08-19).
-        try:
-            profile = retire_self_name(profile, old_name, new_name)
-        except _AmbiguousSelfName as refused:
-            # The record still lands — it is what tells the agent which name is
-            # current — but the caller is told the memory is NOT fully correct,
-            # because a line above it still names the old one.
-            await awareness_repo.upsert(
-                instance_id, merge_identity_change_note(refused.profile, note)
-            )
-            return False
+        #
+        # No try/except here, on purpose: the rename path's old name comes off
+        # the ROW, not from an inference, so `inferred` stays False and
+        # retire_self_name cannot refuse — its only raise is gated on
+        # `inferred`. An except branch here sat unreachable for one round while
+        # the mirror claimed it was live; do not add it back unless this call
+        # starts passing inferred=True (it must not: 小绿 → 小绿2 is an exact
+        # rename and refusing it is what round 12 was rejected for).
+        profile = retire_self_name(profile, old_name, new_name)
         await awareness_repo.upsert(
             instance_id, merge_identity_change_note(profile, note)
         )

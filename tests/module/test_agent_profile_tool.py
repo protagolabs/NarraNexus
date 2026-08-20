@@ -870,3 +870,48 @@ class TestHeadingLevels:
         profile = "## 4. Role and Identity\n### Definition\n- 名称：美食家\n"
         out = retire_self_name(profile, "美食家", "小绿")
         assert "- 名称：小绿" in out, "the identity section was closed by its own subsection"
+
+
+class TestScopeAfterAShallowerFirstHeading:
+    """`level` was pinned by the document's FIRST heading.
+
+    `# Agent Awareness Profile` set level=1; `## 4. Role and Identity` opened
+    the identity section through the deeper-heading branch WITHOUT updating
+    level, so `## 5. Owner observations` needed depth <= 1 to close it — never
+    true. The identity section, once opened by a deeper heading, could not be
+    closed, and everything after it became editable. On dev the H1 was simply
+    ignored, so this was a regression introduced by the H1/H3 fix.
+
+    FULL_PROFILE could not see it: its owner sections sit BEFORE the identity
+    section, and the leak only affects what comes after.
+    """
+
+    HEADED = (
+        "# Agent Awareness Profile\n"
+        "\n## 4. Role and Identity\n- 名称：美食家\n"
+        "\n## 5. Owner observations\n- 姓名：美食家\n"
+    )
+
+    def test_an_owner_section_after_the_identity_section_stays_closed(self):
+        from xyz_agent_context.module.awareness_module import retire_self_name
+
+        out = retire_self_name(self.HEADED, "美食家", "小绿")
+        assert "## 5. Owner observations\n- 姓名：美食家" in out, (
+            "the owner's own name line after the identity section was rewritten"
+        )
+        assert "- 名称：小绿" in out
+
+    def test_declared_self_name_cannot_read_from_a_leaked_owner_section(self):
+        """The repair-path half: the identity section has no name line, so the
+        first declaration the scan finds comes from the leaked `## 5` — and the
+        owner's name (bare, no separator) passes every inferred-name check."""
+        from xyz_agent_context.module.awareness_module import declared_self_name
+
+        profile = (
+            "# Agent Awareness Profile\n"
+            "\n## 4. Role and Identity\n### Role Definition\n- 负责美食推荐\n"
+            "\n## 5. Owner observations\n- 姓名：张三\n"
+        )
+        assert declared_self_name(profile, "小绿") is None, (
+            "the owner's name was read as the agent's declaration"
+        )

@@ -1,8 +1,26 @@
 ---
 code_file: backend/routes/manyfold/agents.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 失败响应体换形状:`detail` 从 string 变 `{error_kind, message}`
+
+`_manyfold_failure()` 统一两个端点的拒绝:**不再转发** `result.error`(那是写给
+模型读的句子),`detail` 现在是 `{"error_kind": ..., "message": ...}`。
+
+**对 Manyfold 侧这是破坏性变更,不是附加**:任何 `str(detail)` / 正则匹配 / 直接
+展示 detail 的代码都会拿到对象。连同三种**此前不存在**的 400 一起,要在对齐清单里:
+
+| 新失败 | 何时 | 旧行为 |
+|---|---|---|
+| `too_long` → 400 | name/description > 255 | 静默写入(会让行读不出来,原本就是 bug) |
+| `empty_name` → 400 | 归一化后为空(POST 侧有兜底实际不可达;PATCH 可达) | 写空名 |
+| `not_applied` → 400 | 写后回读不一致(并发覆盖) | 200 |
+
+`not_applied` 在幂等重跑下是否该按 200+当前行返回,**需要 Owner / Manyfold 拍板**,
+不单方面改。另:新增 `error_kind` 取值时,`auth.py` 与本文件**两张映射表都要改**,
+兜底只会退化成通用文案、不会报错。
 
 ## 2026-08-19 (十二改) — `updated_fields` 撤回改动,维持原语义
 

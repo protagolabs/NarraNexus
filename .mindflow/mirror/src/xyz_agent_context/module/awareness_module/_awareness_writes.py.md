@@ -4,6 +4,34 @@ last_verified: 2026-08-20
 stub: false
 ---
 
+## 2026-08-20 (十六改) — level 钉死回归;十五改那句「两处 except 复活」是错的
+
+**C1(回归)**:十五改的 `_scan` 只在「同级或更高」那一支更新 `level`,于是文档**首个
+标题**把它钉死。`# Agent Awareness Profile` 之后,`## 4` 经 elif 开启身份节但
+level 停在 1,`## 5` 要 `2 <= 1` 才能关——永假。**身份节之后的 owner 小节全部
+可编辑**;修复路径还会从泄漏的 `## 5` 里把 owner 的名字(裸名,无分隔符,过全部
+inferred 检查)读成 agent 的自述。dev 上 H1 被忽略、同一文档是安全的——严格回归。
+
+修法:elif 开启身份节时**若此前不可编辑**则 `level = depth`;已可编辑不更新(否则
+`### Role Definition` 抬高 level 后,its sibling `### Background` 会关掉身份节)。
+`TestScopeAfterAShallowerFirstHeading` 两格钉住,含 `declared_self_name` 越界取值。
+
+**十五改的更正**:那节末尾写「两处 except 复活」——**错了,只活了一处**(reconcile)。
+改名路径的旧名来自行、不推断,`retire_self_name` 对它永不 raise,所以
+`record_identity_change` 那处 except 是结构上永远不可达的,已删,原地留注释说明
+为什么不要加回来。这是「doc claim 超前于 code」第六次,方向教训同前:**凡是写
+「已修/已活」,先跑一遍再写**。
+
+**十五改的代价,记下而不是让人推导**:裸名声明含空白或 `- — / | .` 者(含十改损坏
+产出的 `小绿-2-2-2`,以及 `John Smith` 类多词拉丁名)**永不自动修复**——每次对账
+只留行、写矛盾记录、报 `False`。要自动修复这批需要一个不靠猜的输入(比如行上落一个
+last-known name),单独的活。测试
+`test_a_name_containing_a_separator_is_never_auto_repaired_only_reported` 钉住。
+
+**已知残留(定界,非漏判)**:不含空白与弱字符的连续 CJK 值(`- 名称：美食家的助手`)
+与裸名**不可区分**,仍按裸名处理、会被替换成行上的名字。`美食家的助手`完全可能就是
+名字,任何启发式分不出这格——这是判据的下界。
+
 ## 2026-08-20 (十五改) — 推断来的旧名不再可信;十二改的 raise 复活
 
 **C1(数据丢失)**:没有强开启符时 `_name_part` 返回**整行值**,而修复路径把它当

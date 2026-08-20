@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -30,26 +30,16 @@ agent_profile/
 
 ## Awareness 那一步怎么处理
 
-**延迟 + 容错导入**（`profile_write._identity`），不是模块级 import。理由不是
-怕循环引用（那只是顺带），而是：如果核心事务在 import 期就硬依赖一个 Module，
-"可热插拔"就只是纸面上的。现在 Awareness 不在时，改名的**其中一步**降级并打
-warning，其余照常——这才是热插拔该有的含义。
+**延迟导入,在函数体内**(`_awareness_identity_writers` / `_record_identity` /
+`_reconcile_identity`)。买到的是**归属**:本包与其上的路由都没有对 Module 层的
+模块作用域依赖——那才是「摘掉 AwarenessModule 后端起不来」的成因。**不是隔离**:
+Python 必然先导入父包,实测连带拉进 22 个兄弟模块。
 
-反过来 [[_awareness_writes]] 的 `update_agent_profile_from_args`（MCP 工具的
-渲染器）**调用**本包。Module 依赖核心领域包，方向是对的。
-
-**这里有一个双向的延迟导入,说清楚**:本包在改名时按名字 import
-`module.awareness_module`(取那两个身份记录写入器),而 [[_awareness_writes]] 的 MCP
-渲染器又 import 本包(取事务)。两边都在函数体内,所以 import 期不成环、运行正常;
-但**"核心不依赖 Module"这句话不成立**,第十四轮审查指出来的。真实情况是:路由不再在
-模块作用域 import Module(那才是"摘掉 AwarenessModule 后端起不来"的成因),而本包在
-调用时确实会伸手进 Module 层。
-
-**另外"核心不依赖 Module"要说准**：本包在改名时会按名字 import
-`module.awareness_module`，而 Python 必然先导入父包——实测连带拉进 22 个兄弟模块。
-延迟导入买到的是**归属**（本包与其上的路由都没有模块作用域的依赖，import 图说明谁
-拥有这个事务），**不是 import 期隔离**。[[profile_write]] 的 docstring 写的是准的
-版本；这里曾经写得更强，是本次第三次把断言写在验证之前。
+**没有容错分支**(十五改)。早先版本带一个 `except ImportError` 降级,但同一次改动
+新增的另外三处调用点(两个 awareness 写 seam、bundle importer)都是裸 import——
+一个只在四分之一调用点成立的契约,读者要么以为它成立、要么以为它没意义。真实的
+降级是「agent 没有 AwarenessModule 实例」,两个写入器对此本来就返回 `None`。
+缺**包**的部署会在调用时直接抛——四处一致地抛,而不是一处 warning 三处抛。
 
 ## 边界
 

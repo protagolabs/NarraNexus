@@ -1244,3 +1244,39 @@ async def test_manyfold_refusals_are_structured_not_model_prose(
     detail = resp.json()["detail"]
     assert detail["error_kind"] == "not_applied"
     assert not detail["message"].startswith("Error:"), detail["message"]
+
+
+@pytest.mark.asyncio
+async def test_a_name_containing_a_separator_is_never_auto_repaired_only_reported(
+    db_client,
+):
+    """The deliberate cost of distrusting inferred names, written down.
+
+    A bare declaration containing whitespace or a name-internal character
+    (`小绿-2-2-2` — the very shape round 10's corruption produced, or
+    `John Smith`) cannot be told apart from prose, so the repair path refuses to
+    rewrite it. Forever: each reconcile leaves the line, files the contradicting
+    record, and reports False. That is the safe side — visible, recoverable —
+    but it means this population is REPORTED, not repaired, and anyone who wants
+    them auto-repaired needs an input that is not a guess (e.g. a last-known
+    name stored on the row), which is a separate piece of work.
+
+    NOT a shape with `；` — that walks the boundary branch and would test
+    nothing here.
+    """
+    from xyz_agent_context.agent_profile import apply_agent_profile_change
+    from xyz_agent_context.module.awareness_module import IDENTITY_CHANGE_SECTION
+
+    line = "- 名称：小绿-2-2-2"
+    await _seed(
+        db_client,
+        name="小绿",
+        profile=f"# Agent Awareness Profile\n\n## 4. Role and Identity\n{line}\n",
+    )
+
+    result = await apply_agent_profile_change(db_client, AGENT_ID, new_name="小绿")
+
+    profile = await _profile(db_client)
+    assert line in profile, "the undecidable line must be left exactly as written"
+    assert IDENTITY_CHANGE_SECTION in profile, "the contradicting record must land"
+    assert result.identity_reconciled is False

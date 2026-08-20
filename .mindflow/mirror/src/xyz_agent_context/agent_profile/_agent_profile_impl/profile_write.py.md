@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_profile/_agent_profile_impl/profile_write.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -56,7 +56,7 @@ profile 的读—改—写现在跨进程可达，`merge_identity_change_note` �
 ## 事务包含什么（缺一件就退回事故）
 
 1. 写 `agents` 行（name / description / `extra_updates`），**一次**行写
-2. **身份更正**写进 Awareness profile —— 延迟导入，Awareness 不在时降级
+2. **身份更正**写进 Awareness profile —— 延迟导入（买到的是归属，不是隔离；**无容错分支**，缺包即抛——十五改删掉了只在四分之一调用点成立的 ImportError 守卫）
 3. 刷 `bus_agent_registry`
 
 ## 三个反复咬人的区分
