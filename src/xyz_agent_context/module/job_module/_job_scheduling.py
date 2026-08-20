@@ -112,3 +112,23 @@ def compute_next_run(
             )
 
     return None
+
+
+def past_schedule_horizon(
+    trigger_config: Optional[TriggerConfig],
+    next_fire_utc: datetime,
+) -> bool:
+    """
+    True when a recurring job's next fire would land past its `end_at`
+    horizon — the platform-enforced "this schedule runs until date X".
+
+    `end_at` is naive local time in `trigger_config.timezone` (the run_at
+    convention); `next_fire_utc` is the aware-UTC instant compute_next_run
+    produced. No horizon configured (or no config at all) → False, so every
+    pre-existing job behaves exactly as before.
+    """
+    if trigger_config is None or trigger_config.end_at is None:
+        return False
+    zi = ZoneInfo(trigger_config.timezone or "UTC")
+    end_utc = trigger_config.end_at.replace(tzinfo=zi).astimezone(dt_timezone.utc)
+    return next_fire_utc > end_utc

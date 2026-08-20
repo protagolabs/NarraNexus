@@ -1527,27 +1527,15 @@
     }
   },
   "onboarding": {
-    "checklist": {
-      "gettingStarted": "Getting started",
-      "dismissAria": "Dismiss getting-started checklist",
-      "providerLabel": "Configure an LLM provider",
-      "providerHint": "NetMind Power is the one-key default — or bring your own API key.",
-      "openSettings": "Open Settings",
-      "agentLabel": "Create your first agent",
-      "agentHint": "Start a blank agent and chat to shape who it is.",
-      "creating": "Creating…",
-      "createAgent": "Create agent",
-      "templateLabel": "Or start from a template",
-      "templateHint": "Browse ready-made agent teams on the templates marketplace.",
-      "browseTemplates": "Browse templates",
-      "bookmarksLabel": "Meet your bookmark strip",
-      "bookmarksHint": "Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes."
-    },
     "migrationGuide": {
       "title": "Import an existing agent",
       "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
       "import": "Import",
       "later": "Later"
+    },
+    "guideCoachmark": {
+      "text": "Your first agent is already here — and you can create more of your own anytime with this button.",
+      "gotIt": "Got it"
     },
     "migrationCoachmark": {
       "text": "Want to import later? Use the “+” → {{action}}.",
@@ -2318,6 +2306,7 @@
       "trigger": "Trigger:",
       "cron": "Cron:",
       "interval": "Interval:",
+      "endAt": "Runs until:",
       "runAt": "Run at:",
       "endCondition": "End condition:",
       "maxIter": "Max iter:",

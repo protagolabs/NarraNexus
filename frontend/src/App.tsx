@@ -208,8 +208,8 @@ function RootRedirect() {
   // login. On cloud, first login provisions a free-tier provider card
   // (a $10 gateway wallet), so a fresh account can chat immediately — the
   // provider screen confused users who had no key to enter. They can still
-  // add their own provider later from Settings; the onboarding checklist +
-  // balance panel surface that path.
+  // add their own provider later from Settings; the balance panel (and the
+  // auto-provisioned guide agent) surface that path.
   if (needsSetup && mode === 'local') {
     return <Navigate to="/setup" replace />;
   }

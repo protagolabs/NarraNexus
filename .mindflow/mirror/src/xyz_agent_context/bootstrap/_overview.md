@@ -1,22 +1,34 @@
 ---
 code_dir: src/xyz_agent_context/bootstrap/
-last_verified: 2026-04-10
+last_verified: 2026-08-19
 stub: false
 ---
 
-# bootstrap/ — Agent 首次启动引导模板
+# bootstrap/ — Agent 首次启动引导（provisioning + profile 体系）
 
 ## 目录角色
 
-`bootstrap/` 是一个极简的初始化辅助包，目前只有一个文件 `template.py`，提供两个字符串常量：`BOOTSTRAP_GREETING`（第一条显示给用户的问候语）和 `BOOTSTRAP_MD_TEMPLATE`（写入 Agent 工作区的引导文档内容）。
+`bootstrap/` 早已不止 `template.py`：它是"一个全新 Agent 如何变得可用"的
+domain 包——`provision.py` 是唯一的新建 Agent 供给 seam（三个创建入口都汇
+聚于此），`profiles.py` 把首跑体验做成可插拔 profile（default / none /
+arena / onboarding），`welcome_templates.py` 提供双语欢迎 artifact 的
+HTML 骨架，`template.py` 保留 default profile 的问候语与引导文档常量。
 
-它的存在解决了一个具体问题：新建的 Agent 没有名字、没有 Awareness、没有任何 Narrative，如果直接进入普通对话模式，LLM 不知道该如何开展第一次对话。Bootstrap 模板提供了一段"首次醒来"的剧本，引导 Agent 通过对话建立身份（名字、称呼用户的方式）。
+它解决的问题不变：新建的 Agent 没有名字、没有 Awareness、没有 Narrative，
+需要一段"首次醒来"的剧本引导第一次对话；profile 体系让不同场景（Arena
+选手、onboarding 引导 Agent）各自拥有整套首跑体验。
 
 ## 关键文件索引
 
 | 文件 | 职责 |
 |------|------|
-| `template.py` | 两个字符串常量：前端即时展示的问候语 + ContextRuntime 读取的引导文档 |
+| `provision.py` | 新建 Agent 的唯一供给序列 seam（行、instances、发现、bootstrap、默认 skill、awareness；2026-08-19 起支持 `bootstrap_ctx_extra` 透传 profile 渲染参数） |
+| `profiles.py` | BootstrapProfile 基类 + 注册表 + `apply_bootstrap`（render-then-store） |
+| `welcome_templates.py` | 双语欢迎 artifact HTML 骨架与 default 文案 |
+| `template.py` | default profile 的问候语 + 引导文档常量 |
+
+场景 profile 的注册方在各自的消费侧（铁律 #21）：arena profile 在
+`backend/integrations/arena/`，onboarding profile 在 `backend/onboarding/`。
 
 ## 和外部目录的协作
 

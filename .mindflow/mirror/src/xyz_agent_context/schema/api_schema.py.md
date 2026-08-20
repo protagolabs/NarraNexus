@@ -171,3 +171,12 @@ The route handlers in `backend/routes/` (agents, users, chat, jobs, mcp, files, 
 
 `test_wipe_result_fields_reach_the_api` 现在断言每个 `*_count` 都出现在本模型里**并且**被路由
 真的填上 —— 有位置放却没人填会静默默认 0，与根本没有那个字段一样瞎。
+
+## 2026-08-19 — guide_agent_provisioning 回显字段
+
+`NetmindLoginResponse` / `CreateUserResponse` 增 `guide_agent_provisioning:
+bool = False`：登录/建号响应回显服务端 onboarding 引导 Agent 供给开关
+（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`）。前端的"你的第一个 Agent 已就位"
+coachmark 以它为门——没有这个回显，拉下服务端 kill-switch 后 UI 仍会向
+100% 新注册承诺一个永远不出现的 Agent（唯一的关停手段变成发前端版本）。
+默认 False 保证老后端/测试构造不受影响。

@@ -1920,6 +1920,7 @@
       "trigger": "Disparador:",
       "cron": "Cron:",
       "interval": "Intervalo:",
+      "endAt": "Se ejecuta hasta:",
       "runAt": "Ejecutar a las:",
       "endCondition": "Condición de fin:",
       "maxIter": "Iter. máx.:",

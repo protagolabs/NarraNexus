@@ -1919,6 +1919,7 @@
       "trigger": "トリガー:",
       "cron": "Cron:",
       "interval": "間隔:",
+      "endAt": "実行期限:",
       "runAt": "実行日時:",
       "endCondition": "終了条件:",
       "maxIter": "最大反復:",

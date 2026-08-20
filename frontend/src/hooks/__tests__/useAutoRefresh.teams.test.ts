@@ -67,14 +67,70 @@ describe('background refresh keeps the team rows current', () => {
     expect(teamsRefresh).toHaveBeenCalled();
   });
 
-  test('teams refresh even with no agent selected', () => {
-    // A user whose window is on a team room. Every agent-scoped poll below still
-    // guards on an agent id of its own.
+  test('teams and the agent list refresh even with no agent selected', () => {
+    // A user whose window is on a team room — or a brand-new user whose guide
+    // agent is being provisioned server-side. Teams AND the agent list sit
+    // ahead of the agent guard (2026-08-19: before that, a zero-agent user's
+    // sidebar never refreshed and the auto-provisioned guide agent only
+    // appeared on a manual reload); the agent-scoped polls below still guard
+    // on an agent id of their own.
     renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_1' }));
 
     vi.advanceTimersByTime(MID_WINDOW_MS);
 
     expect(teamsRefresh).toHaveBeenCalled();
+    expect(refreshAgents).toHaveBeenCalled();
+  });
+
+  test('the first-login fast poll fetches agents while the guide coachmark is armed', () => {
+    // A brand-new user: the server is provisioning their guide agent in the
+    // background, the coachmark is armed, and the sidebar is empty. The 30s
+    // tick is too slow for a first impression — a 2s bounded poll covers it.
+    window.localStorage.setItem('nx-guide-coachmark', 'pending');
+    try {
+      renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_new' }));
+
+      vi.advanceTimersByTime(2_000);
+      expect(refreshAgents).toHaveBeenCalledTimes(1);
+
+      // Bounded: /api/auth/agents is enriched and must not be fast-polled
+      // forever — the poll gives up after ~20s.
+      vi.advanceTimersByTime(60_000);
+      const callsAfterCap = refreshAgents.mock.calls.length;
+      vi.advanceTimersByTime(10_000);
+      expect(refreshAgents.mock.calls.length).toBe(callsAfterCap);
+    } finally {
+      window.localStorage.removeItem('nx-guide-coachmark');
+    }
+  });
+
+  test('the fast-poll cap is wall-clock — a hidden tab exhausts it silently', () => {
+    // attempts count BEFORE the hidden skip on purpose: a backgrounded tab
+    // makes zero requests AND burns the ~20s budget, so the interval is gone
+    // by the time the tab returns (the 30s tick covers late returns). Moving
+    // the count after the hidden check turns the cap into "foreground time"
+    // and leaves the interval armed for the whole session.
+    window.localStorage.setItem('nx-guide-coachmark', 'pending');
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_new' }));
+
+      vi.advanceTimersByTime(22_000); // 11 ticks, all hidden → budget spent
+      expect(refreshAgents).not.toHaveBeenCalled();
+
+      hidden.mockReturnValue(false);
+      vi.advanceTimersByTime(6_000); // still under the 30s mid tick
+      expect(refreshAgents).not.toHaveBeenCalled(); // interval already cleared
+    } finally {
+      hidden.mockRestore();
+      window.localStorage.removeItem('nx-guide-coachmark');
+    }
+  });
+
+  test('no fast poll without the coachmark armed', () => {
+    renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_1' }));
+
+    vi.advanceTimersByTime(4_000); // under the 30s mid tick
     expect(refreshAgents).not.toHaveBeenCalled();
   });
 

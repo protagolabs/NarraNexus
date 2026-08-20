@@ -88,6 +88,7 @@ async def provision_new_agent(
     agent_description: str = "",
     awareness: Optional[str] = None,
     bootstrap_profile: str = "default",
+    bootstrap_ctx_extra: Optional[dict[str, Any]] = None,
 ) -> ProvisionResult:
     """
     Provision a brand-new agent: insert its `agents` row, create its default
@@ -108,6 +109,13 @@ async def provision_new_agent(
             require the caller to always supply one; others may not)
         bootstrap_profile: Bootstrap profile name (see
             `xyz_agent_context.bootstrap.profiles.get_profile`)
+        bootstrap_ctx_extra: Scenario params forwarded as
+            `BootstrapContext.extra` to the profile's render methods (e.g.
+            the onboarding profile's persona_key/topic_index/is_local).
+            None = empty extra. Added so scenario callers don't have to
+            provision with profile "none" and re-apply their real profile
+            afterwards (which briefly persisted a blank greeting and turned
+            a failed re-apply into a permanently mute agent).
 
     Returns:
         ProvisionResult — bootstrap_active plus any non-fatal warnings
@@ -178,7 +186,12 @@ async def provision_new_agent(
             agent_id=agent_id,
             user_id=user_id,
             profile=profile,
-            ctx=BootstrapContext(agent_id=agent_id, user_id=user_id, agent_name=agent_name),
+            ctx=BootstrapContext(
+                agent_id=agent_id,
+                user_id=user_id,
+                agent_name=agent_name,
+                extra=dict(bootstrap_ctx_extra or {}),
+            ),
         )
         workspace_path = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
         bootstrap_active = os.path.isfile(str(workspace_path / "Bootstrap.md"))

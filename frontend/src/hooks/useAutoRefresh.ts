@@ -19,6 +19,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
+import { isGuideCoachmarkPending } from '@/lib/guideCoachmark';
 import { teamHasUnread } from '@/lib/unread';
 import type { ToastItem } from '@/stores/chatStore';
 
@@ -92,6 +93,34 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
     ]);
   }, [refreshAgentInbox, refreshJobs, refreshAwareness, refreshChatHistory, refreshSocialNetwork, loadPinnedArtifacts]);
 
+  // ── First-login fast poll ──
+  // A brand-new user's guide agent is provisioned server-side, fire-and-
+  // forget, AFTER the login response — so the login page's one-shot
+  // getAgents usually races it and loses, and the 30s tick below is a long
+  // time to stare at an empty sidebar next to a coachmark saying "your
+  // first agent is already here". While the coachmark is armed and the
+  // sidebar is empty, poll every 2s, capped at ~20s; the cap matters
+  // because /api/auth/agents is enriched (active-run + last-message
+  // preview) and must not be fast-polled indefinitely.
+  useEffect(() => {
+    if (!userId || !isGuideCoachmarkPending()) return;
+    if (useConfigStore.getState().agents.length > 0) return;
+    let attempts = 0;
+    const id = window.setInterval(() => {
+      // Count BEFORE the hidden skip so the ~20s cap is wall-clock time, not
+      // foreground time — a backgrounded tab must not keep this interval
+      // armed indefinitely (the 30s tick covers late returns).
+      attempts += 1;
+      if (attempts > 10 || useConfigStore.getState().agents.length > 0) {
+        window.clearInterval(id);
+        return;
+      }
+      if (document.hidden) return; // same zero-requests-in-background rule as the ticks
+      void useConfigStore.getState().refreshAgents();
+    }, 2_000);
+    return () => window.clearInterval(id);
+  }, [userId]);
+
   // ── Polling scheduler (all polls are silent) ──
 
   useEffect(() => {
@@ -162,12 +191,17 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
         .getState()
         .refresh()
         .then(() => notifyWokenRooms());
+      // Agent list ahead of the agent guard ON PURPOSE: a user with zero
+      // agents has no agentId, and before this moved up their sidebar never
+      // refreshed at all — the server-provisioned onboarding guide agent
+      // (created fire-and-forget AFTER login returns) only appeared on a
+      // manual reload. This costs one /api/auth/agents call per tick for
+      // logged-in users with nothing selected; that is intended.
+      useConfigStore.getState().refreshAgents();
       if (!aid) return;
       refreshJobs(aid, undefined, undefined, true);
       refreshAwareness(aid, true);
       refreshSocialNetwork(aid, true);
-      // Refresh agent list so newly created agents appear
-      useConfigStore.getState().refreshAgents();
     };
 
     // Background message detection: check all agents for new chat messages

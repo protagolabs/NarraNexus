@@ -166,3 +166,8 @@ last_run_timezone?: string;
 
 - 不要"为了方便前端排序"悄悄加回 `next_run_time: string`。β 之间不可比较（跨时区 job 无全序），排序/筛选的"时间 cursor"只存在于后端 α 里
 - 如果后端 response 新增时间字段，**必须**同步配 `_timezone` 字段，不能只有时间主体
+
+2026-08-19：`TriggerConfig` 增 `end_at?: string`（scheduled 地平线，镜像后端
+`job_schema.TriggerConfig.end_at`）；`NetmindLoginResponse`/`CreateUserResponse`
+增 `guide_agent_provisioning?: boolean`（服务端 kill-switch 回显，见
+api.ts.md 的 coachmark 门控段）。
