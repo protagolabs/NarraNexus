@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-08-07
+last_verified: 2026-08-20
 stub: false
 ---
+## 2026-08-20 — 开局把 bootstrap 问候语 seed 进 head narrative 实例（只一次）
+
+选完 narrative、`_ensure_user_chat_instance` 建好每个 narrative 的 chat 实例后，对
+**`narrative_list[0]`（head）** 的实例调用一次 seed：经 [[greeting_seed]] 判定问候文本，再交
+[[_chat_writes]] 幂等落库，时间戳锚在 `ctx.event.created_at`（turn 起点）。
+
+**为什么只 seed head、且放在循环外**：问候语的作用域是 (agent, user) 一次，不是 per-narrative。
+首轮（非连续轮）`select()` 走 BM25 取 top-k（`MAX_NARRATIVES_IN_CONTEXT`，常规 2–3），新 agent 的
+每个 narrative 都没有 chat 实例 → 循环里一次性建 2–3 个。若把 seed 放进 `_ensure_user_chat_instance`
+就会写 2–3 条一样的问候语（首屏重复）。head 是 authored/primary thread，也正是
+`ChatModule.hook_persist_turn` 落库用的那个实例，其余是读侧 BM25 邻居。
+
+`_ensure_user_chat_instance` 因此**不再** seed（回退了 per-narrative 的写法）。fast-select
+(`step_1_fast_select`) 和 `step_4_persist_results` 这两个 `_ensure_user_chat_instance` 调用点也不
+seed —— 它们靠 hook prepend 兜底（可接受，hook 仍会在首轮补上）。全程 best-effort。
+
 ## 2026-08-07 — 向 select() 传 trigger（E1 审计维度）
 
 新增 `_trigger_label(ctx)`，把 `ctx.working_source` 转成字符串传给

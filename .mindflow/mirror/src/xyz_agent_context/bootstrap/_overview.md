@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/bootstrap/
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -26,6 +26,8 @@ HTML 骨架，`template.py` 保留 default profile 的问候语与引导文档�
 | `profiles.py` | BootstrapProfile 基类 + 注册表 + `apply_bootstrap`（render-then-store） |
 | `welcome_templates.py` | 双语欢迎 artifact HTML 骨架与 default 文案 |
 | `template.py` | default profile 的问候语 + 引导文档常量 |
+| `greeting_seed.py` | 「该不该 seed bootstrap 问候语」的判定（返回 greeting 文本或 None）；写入交 [[../module/chat_module/_chat_writes]] 单写入方，由 `step_1` 对 head narrative 实例调用（2026-08-20） |
+| `lifecycle.py` | `is_bootstrap_active` —— 「agent 还在不在引导期」的唯一判定源（Bootstrap.md 存在 + 未过阈值），`greeting_seed` 与 `context_runtime` 共用，防两个写入方 drift（2026-08-20） |
 
 场景 profile 的注册方在各自的消费侧（铁律 #21）：arena profile 在
 `backend/integrations/arena/`，onboarding profile 在 `backend/onboarding/`。
