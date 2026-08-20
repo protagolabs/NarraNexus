@@ -38,14 +38,14 @@
     "themeLight": "浅色",
     "themeDark": "深色",
     "themeSystem": "跟随系统",
-    "workspace": "你的工作台",
+    "workspace": "我的世界",
     "accountTitle": "账户"
   },
   "chat": {
     "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
     "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
-    "innerThoughts": "内心活动",
+    "innerThoughts": "后台运行记录",
     "composerPlaceholder": "输入消息，或输入 / 调用技能…",
     "selectAgent": "选择一个智能体",
     "selectAgentHint": "从侧边栏选择一个智能体，开始交互。",
@@ -246,12 +246,12 @@
       "uploadFailedGeneric": "文件没能上传。",
       "loadingOlder": "正在加载更早的消息…",
       "workspace": {
-        "zoom": "放大制品",
-        "emptyArtifacts": "选择一个制品在此查看。",
+        "zoom": "放大可视化产物",
+        "emptyArtifacts": "选择一个可视化产物在此查看。",
         "emptyFiles": "文件为直接下载——点击左侧任意文件。",
-        "tabArtifacts": "制品",
+        "tabArtifacts": "可视化产物",
         "tabFiles": "文件",
-        "artifactsHint": "团队成员在本房间注册的制品会出现在这里。",
+        "artifactsHint": "团队成员在本房间注册的可视化产物会出现在这里。",
         "filesHint": "通过 team_share_file 共享的文件会出现在这里。",
         "download": "下载 {{name}}",
         "loading": "加载中…"
@@ -569,7 +569,7 @@
       "expandFolder": "展开文件夹",
       "download": "下载",
       "preview": "预览",
-      "registerArtifact": "注册为制品",
+      "registerArtifact": "注册为可视化产物",
       "delete": "删除",
       "deleteFolderRecursive": "删除文件夹（递归）",
       "truncated": "（已截断，文件大小为 {{size}}）",
@@ -752,8 +752,8 @@
   },
   "layout": {
     "chatView": {
-      "tabArtifacts": "制品",
-      "tabArtifactsCount": "制品（{{count}}）"
+      "tabArtifacts": "可视化产物",
+      "tabArtifactsCount": "可视化产物（{{count}}）"
     },
     "subPage": {
       "closeTitle": "关闭（返回对话）",
@@ -885,7 +885,7 @@
     },
     "resizableDivider": {
       "ariaLabel": "调整面板大小",
-      "title": "拖动以调整对话／制品大小",
+      "title": "拖动以调整对话／可视化产物大小",
       "drawerAriaLabel": "调整面板宽度",
       "drawerTitle": "拖动以调整面板宽度"
     },
@@ -933,20 +933,20 @@
   },
   "settings": {
     "artifacts": {
-      "signIn": "登录以管理制品。",
+      "signIn": "登录以管理可视化产物。",
       "selectAll": "全选（{{count}}）",
       "refresh": "刷新",
       "deleteSelected": "删除选中的 {{count}} 项",
-      "deleteDialogTitle": "删除 {{count}} 个制品",
-      "deleteDialogTitlePlural": "删除 {{count}} 个制品",
-      "removeOne": "移除选中的制品标签页？",
-      "removeMany": "移除选中的 {{count}} 个制品标签页？",
+      "deleteDialogTitle": "删除 {{count}} 个可视化产物",
+      "deleteDialogTitlePlural": "删除 {{count}} 个可视化产物",
+      "removeOne": "移除选中的可视化产物标签页？",
+      "removeMany": "移除选中的 {{count}} 个可视化产物标签页？",
       "removeNote": "仅移除注册表记录。每个智能体的工作区文件仍保留在原处——如需释放磁盘空间，请在各智能体配置面板的工作区部分清理。",
       "cancel": "取消",
       "deleting": "正在删除…",
       "deleteN": "删除 {{count}} 项",
       "failedToLoad": "加载失败：{{error}}",
-      "empty": "你还没有任何制品。智能体创建后会显示在这里。",
+      "empty": "你还没有任何可视化产物。智能体创建后会显示在这里。",
       "agentPrefix": "智能体：{{id}}",
       "bulkDeleteFailed": "批量删除失败：{{error}}"
     },
@@ -1373,7 +1373,7 @@
       "switchPanel": "切换面板"
     },
     "coach": {
-      "title": "制品会显示在这里",
+      "title": "可视化产物会显示在这里",
       "unpinHint": "取消钉选后，这里会变成点开即用、自动收起的浮层。",
       "closeHint": "点关闭可收起面板——随时从聊天顶栏重新打开任意面板。",
       "gotIt": "知道了"
@@ -1592,6 +1592,11 @@
     },
     "dashboard": {
       "title": "智能体管理",
+      "tabAgents": "智能体管理",
+      "tabTeams": "智能体团队管理",
+      "tabExport": "导出",
+      "createAgent": "创建智能体",
+      "createTeam": "创建团队",
       "agentsCount": "{{count}} 个智能体",
       "emptyLabel": "暂无智能体",
       "emptyHint": "从侧边栏创建一个智能体,它会出现在这里。",
@@ -1642,7 +1647,7 @@
         "account": "账户与账单",
         "providers": "LLM 服务商",
         "modelDefaults": "模型配置",
-        "artifacts": "制品",
+        "artifacts": "可视化产物",
         "updates": "应用更新",
         "privacy": "隐私",
         "personalization": "个性化"
@@ -1651,7 +1656,7 @@
         "label": "LLM 服务商"
       },
       "artifacts": {
-        "label": "制品",
+        "label": "可视化产物",
         "hint": "管理智能体为你生成的所有图表、报告和文件。当智能体提示已达上限时，可批量选择以释放配额。"
       },
       "modelDefaults": {
@@ -1767,7 +1772,7 @@
       "noMembersHint": "点击“编辑”添加一些。"
     },
     "you": {
-      "you": "你",
+      "you": "我的世界",
       "subtitle": "你的世界，贯穿你的所有智能体",
       "viewsAriaLabel": "你的工作区视图",
       "tabMemory": "Narra 记忆",
@@ -1886,7 +1891,7 @@
     },
     "bundleExport": {
       "title": "导出捆绑包",
-      "backToSettings": "返回设置",
+      "back": "返回",
       "summaryLine": "{{agents}} 个智能体 · {{skills}} 项技能 · {{entities}} 个实体 · {{channels}} 个频道",
       "fileName": "文件名",
       "bundleNotesLabel": "捆绑包说明（可选，将展示给接收方）",
@@ -1904,7 +1909,7 @@
         "skills": "技能与 MCP",
         "social": "社交网络",
         "bus": "消息总线",
-        "artifacts": "制品",
+        "artifacts": "可视化产物",
         "workspace": "工作区文件"
       },
       "mode": {
@@ -2054,7 +2059,7 @@
         "intro1Prefix": "每个智能体工作区中的哪些文件随捆绑包一起发出，位于",
         "intro1Mid": "敏感路径",
         "intro1Suffix": "默认被排除；只有当你确实要发出密钥时才勾选它们。",
-        "intro2": "非敏感文件默认包含；取消选择任何你不想让接收方看到的文档。被其他标签页引用的智能体制品已在此随之传递，因此请保留它们的源文件。",
+        "intro2": "非敏感文件默认包含；取消选择任何你不想让接收方看到的文档。被其他标签页引用的智能体可视化产物已在此随之传递，因此请保留它们的源文件。",
         "agentLoading": "{{name}} —— 正在加载工作区文件…",
         "filesIncluded": "已包含 {{included}} / {{total}} 个文件",
         "sensitiveSuffix": "· {{count}} 个敏感",
@@ -2111,17 +2116,17 @@
       "artifacts": {
         "pickAgentFirst": "请先至少选择一个智能体。",
         "whatYouPick": "你在这里选择的：",
-        "intro1": "随捆绑包发出哪些制品指针行。制品就是你在聊天预览卡片中看到的“此智能体生成了一个 HTML 页面 / 图表 / 图片 / PDF”的记录。",
+        "intro1": "随捆绑包发出哪些可视化产物指针行。可视化产物就是你在聊天预览卡片中看到的“此智能体生成了一个 HTML 页面 / 图表 / 图片 / PDF”的记录。",
         "intro2Prefix": "文件本身始终随之一起传递，位于",
-        "intro2Suffix": "——此标签页仅控制是否发出数据库指针行。取消勾选某个制品会将其从接收方的“设置 → 制品”表中隐藏，但不会删除底层文件。导入时，每个发出的制品都会被自动固定，其 session_id 被清除。",
-        "agentCount": "· {{count}} 个制品 · 已选 {{selected}} 个",
+        "intro2Suffix": "——此标签页仅控制是否发出数据库指针行。取消勾选某个可视化产物会将其从接收方的“设置 → 可视化产物”表中隐藏，但不会删除底层文件。导入时，每个发出的可视化产物都会被自动固定，其 session_id 被清除。",
+        "agentCount": "· {{count}} 个可视化产物 · 已选 {{selected}} 个",
         "agentLoading": "· 加载中…",
         "selectAll": "全选",
         "clear": "清空",
         "loadingShort": "加载中",
-        "noArtifacts": "此智能体没有制品。",
+        "noArtifacts": "此智能体没有可视化产物。",
         "pinned": "已固定",
-        "fullModeNote": "完整快照模式自动包含所有制品。切换到自定义以手动选择。"
+        "fullModeNote": "完整快照模式自动包含所有可视化产物。切换到自定义以手动选择。"
       },
       "kind": {
         "label": "类型",
@@ -2203,7 +2208,7 @@
       "nexus": "Nexus"
     },
     "smarthome": "智能家居",
-    "artifacts": "制品",
+    "artifacts": "可视化产物",
     "desc": {
       "awareness": "Agent 的自我认知 — 身份、性格与长期指令。可以在这里手动编辑，也可以在聊天里直接告诉它，它会自己更新。",
       "workspace": "Agent 的文件空间：上传文档给它阅读，它产出的文件也会放在这里。",
@@ -2384,18 +2389,18 @@
     }
   },
   "artifacts": {
-    "refresh": "刷新制品",
-    "zoom": "放大制品",
-    "zoomFullscreen": "放大制品（全屏打开）",
-    "selectArtifact": "选择一个制品",
+    "refresh": "刷新可视化产物",
+    "zoom": "放大可视化产物",
+    "zoomFullscreen": "放大可视化产物（全屏打开）",
+    "selectArtifact": "选择一个可视化产物",
     "minimized": "已最小化：",
     "restore": "恢复“{{title}}”",
     "openBadge": "打开 {{title}}（{{kind}}）",
-    "unsupportedKind": "不支持的制品类型：{{kind}}",
+    "unsupportedKind": "不支持的可视化产物类型：{{kind}}",
     "loadingRenderer": "正在加载渲染器…",
     "emptyState": {
-      "title": "暂无制品",
-      "hint": "智能体创建制品后将在此处显示。"
+      "title": "暂无可视化产物",
+      "hint": "智能体创建可视化产物后将在此处显示。"
     },
     "download": {
       "title": "下载 / 导出",
@@ -2406,7 +2411,7 @@
       "preparing": "正在准备下载…"
     },
     "heal": {
-      "title": "恢复制品：{{title}}",
+      "title": "恢复可视化产物：{{title}}",
       "dismiss": "忽略",
       "registering": "正在注册…",
       "registerSelected": "注册所选项"
@@ -2419,9 +2424,9 @@
       "open": "打开 →"
     },
     "tabStrip": {
-      "noArtifacts": "暂无制品",
+      "noArtifacts": "暂无可视化产物",
       "deleteFailed": "删除失败：{{error}}",
-      "deleteTitle": "删除制品",
+      "deleteTitle": "删除可视化产物",
       "deletePrompt": "移除该标签页：",
       "deleteNote": "仅移除注册条目。你的工作区文件将保留在原处——如需释放磁盘空间，请在配置面板的工作区部分进行清理。",
       "cancel": "取消",
@@ -2432,10 +2437,10 @@
       "minimizeTitle": "最小化（不会删除；可从上方栏恢复）",
       "minimizeAria": "最小化标签页",
       "deleteTabTitle": "删除标签页（工作区文件保留在原处）",
-      "deleteAria": "删除制品标签页"
+      "deleteAria": "删除可视化产物标签页"
     },
     "zoomModal": {
-      "aria": "已放大的制品：{{title}}",
+      "aria": "已放大的可视化产物：{{title}}",
       "zoomOut": "缩小（Ctrl/Cmd -）",
       "zoomOutAria": "缩小",
       "reset": "重置为 100%（Ctrl/Cmd 0）",

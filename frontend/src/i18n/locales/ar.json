@@ -31,12 +31,12 @@
     "themeLight": "فاتح",
     "themeDark": "داكن",
     "themeSystem": "النظام",
-    "workspace": "مساحة عملك",
+    "workspace": "عالمي",
     "accountTitle": "الحساب"
   },
   "chat": {
     "conversation": "محادثة",
-    "innerThoughts": "أفكار داخلية",
+    "innerThoughts": "سجل النشاط",
     "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
     "selectAgent": "اختر وكيلاً",
     "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل.",
@@ -1274,6 +1274,11 @@
     },
     "dashboard": {
       "title": "لوحة الوكلاء",
+      "tabAgents": "إدارة الوكلاء",
+      "tabTeams": "إدارة الفرق",
+      "tabExport": "تصدير",
+      "createAgent": "إنشاء وكيل",
+      "createTeam": "إنشاء فريق",
       "agentsCount": "{{count}} وكيل",
       "emptyLabel": "لا يوجد وكلاء بعد",
       "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة.",
@@ -1399,7 +1404,7 @@
       "noMembersHint": "انقر تعديل لإضافة بعضهم."
     },
     "you": {
-      "you": "أنت",
+      "you": "عالمي",
       "subtitle": "عالمك، عبر كل وكلائك",
       "viewsAriaLabel": "عروض مساحة عملك",
       "tabMemory": "ذاكرة Narra",
@@ -1511,7 +1516,7 @@
       "includeChannelCredentialsLabel": "تضمين بيانات الاعتماد (قنوات المراسلة + أسرار المهارات)",
       "pickFirstHint": "اختر أولاً الوكيل أو الفريق أعلاه — ستظهر أقسام السرديات والمهارات والقنوات بعد الاختيار.",
       "title": "تصدير حزمة",
-      "backToSettings": "العودة إلى الإعدادات",
+      "back": "رجوع",
       "summaryLine": "{{agents}} وكيل · {{skills}} مهارة · {{entities}} كيان · {{channels}} قناة",
       "fileName": "اسم الملف",
       "bundleNotesLabel": "ملاحظات الحزمة (اختياري، تُعرض للمستلم)",

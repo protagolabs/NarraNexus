@@ -1,8 +1,40 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
+
+Owner 要求「智能体管理」(=本页,zh title 就叫智能体管理)的视图切换改成
+**和 SettingsPage 一样的左侧竖排标签栏**,并拆出第三个「导出」标签:
+- `view` 类型扩到 `'agents' | 'teams' | 'export'`。**`?tab=` 是唯一真相源,
+  `view` 直接 DERIVE(`parseTab(searchParams.get('tab'))`),没有 useState 副本**
+  ——本页是单一 `<Route path="dashboard">`,侧栏 Export 行只是
+  `navigate('/app/dashboard?tab=export')` 不会重挂载,派生态天然覆盖「已在
+  Dashboard 时深链」。合法 id 只有 `TAB_ITEMS`(模块级常量)一份,不再散成四份。
+  `selectTab` 用 `new URLSearchParams(searchParams)` **增量**写回(agents 删 tab,
+  teams/export set tab),保留其它参数、URL/侧栏高亮始终一致。
+- 外层从居中 `ScrollArea>max-w-960` 改成 `h-full flex flex-col`:标题 header +
+  `flex flex-1 min-h-0`(左 `w-56 border-r` nav 三项 + 右 detail)。agents/teams
+  两个 pane 仍走 padded ScrollArea+max-w-960;**export pane 内嵌
+  `<Suspense fallback={居中 spinner}><BundleExportPage embedded /></Suspense>`**
+  ——BundleExportPage 保持 `lazy()` 独立 chunk(与 App.tsx 路由级分包一致),否则
+  进 dashboard 就连带下载整个导出向导。fallback 用中性 spinner 不用
+  DashboardSkeleton(后者是 dashboard 网格形状,进导出会闪成 layout shift)。它
+  自带 h-full 滚动/页脚,故渲染在 padded ScrollArea 之外。`lazy`/`TAB_ITEMS`/
+  `parseTab` 等模块级声明放最后一条 import 之后(不夹在 import 里)。
+- agents pane 顶部加「创建智能体」按钮(复用 [[../../hooks/useCreateAgent]]);
+  teams pane 加「创建团队」按钮(→ `/app/teams/new` CreateTeamPage)。summary
+  BracketSectionLabel 从旧 header 移进各 pane。
+- 轮询 effect 在 export tab 早退,**依赖是布尔量 `exportOpen = view==='export'`
+  而非三值 `view`**:agents↔teams 切换 `exportOpen` 恒 false、依赖不变、轮询循环
+  不受打扰(否则每切一次就重启并立刻多打一次 `/dashboard/status`,能自伤成 429);
+  只有跨 export 边界才真正停/起。轮询节奏仍归 dashboardStore 所有。
+- 待办:三个 pane 仍在同一函数里(~900 行),抽 AgentsPane/TeamsPane 是独立重构,
+  记于 `reference/self_notebook/todo/2026-08-20-extract-dashboard-panes.md`。
+测试:dashboardTabs.test.tsx、dashboardDeepLink.test.tsx(已挂载深链 + 点 tab 写 URL)。
+
 
 ## 2026-08-19 — review 轮:筛选统一、shift 区间防崩、批量结果如实上报、Manage 带行上下文
 

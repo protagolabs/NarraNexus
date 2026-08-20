@@ -931,6 +931,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
+              agentId={agentId}
+              agentName={currentAgent?.name || agentId}
               isLatest
             />
           </div>
