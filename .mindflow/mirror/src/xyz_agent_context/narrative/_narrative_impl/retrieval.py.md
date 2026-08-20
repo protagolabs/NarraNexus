@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-16
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — BM25 的查询面清理(K 层)
+
+`rank_pool` 在喂给 `bm25_explain` 之前先 `strip_routing_prefix(query)`。
+
+**为什么剥在 `rank_pool` 里、不在调用点**:这里是 narrative 路由**唯一**的 BM25
+入口,`retrieve_top_k` / `keyword_search` / `select_fast` 全部经过它,一处生效
+三处受益;而且这个方法的既有契约是"重放与实时判决跑逐位相同的代码",把剥离放在
+函数内部,重放依然逐位可复现。**审计行仍存原始 `query_text`** —— 用户说了什么是
+记录,BM25 打的是什么由同一个函数从记录推导得出。
+
+`create_from_query` 的 name / description 也改用剥离后的文本(见 updater 的
+mirror:磁铁线的另一半来自建线命名)。`topic_keywords` 那一行**没动**,A-kw 未定。
+
+实测依据:`specs/2026-08-20-bm25-gate-redesign-research.md` §2.8 / §R2.1。
 
 ## 2026-08-16 — default 桶退出路由（C-1 方案 ④）
 

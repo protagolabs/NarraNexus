@@ -34,6 +34,7 @@ from ..models import (
 )
 from .crud import NarrativeCRUD
 from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
+from xyz_agent_context.utils.text import strip_routing_prefix
 
 # Use common utilities from utils
 
@@ -628,8 +629,17 @@ class NarrativeUpdater:
             logger.warning(f"Narrative {narrative.id} not found in database, skipping LLM update")
             return
 
-        # Update narrative_info (only update name and current_summary, preserve actors)
-        latest_narrative.narrative_info.name = update_output.name
+        # Update narrative_info (only update name and current_summary, preserve actors).
+        # The helper LLM is handed raw event text and copies it into the name,
+        # channel label included — prod carries lines called
+        # "[From Liam] * 👊 刚甩过去..." and "[From U082541Q6AX] stop gre...".
+        # Once the label is in the name it is in the retrieval surface, and the
+        # next message from that channel matches its own thread on the sender
+        # at a low in-pool df (audit 1492: margin 357.79, judge never ran).
+        # Strip it on the way in; keep the raw name if that is all there was.
+        latest_narrative.narrative_info.name = (
+            strip_routing_prefix(update_output.name).strip() or update_output.name
+        )
         latest_narrative.narrative_info.current_summary = update_output.current_summary
         # Note: Do not update actors, preserve the latest actors from database (including PARTICIPANT)
 

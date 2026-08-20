@@ -1,10 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-14
-
-last_verified: 2026-08-12
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 线名不再带频道标签(K 层)
+
+`_apply_llm_update` 把 `update_output.name` 直接写进 `narrative_info.name`。
+helper LLM 拿到的是事件原文,于是它会把 `[From <sender>]` 一起抄进名字。
+prod 现存至少四条这样的线:`[From Liam] * 👊 刚甩过去...`、
+`[From U082541Q6AX] stop gre...`、`[From o9cq8001z5NQ4n4H2VdvK...`。
+
+**为什么这不只是难看**:名字进了检索面,于是该频道的下一条消息会在**自己这条线**
+上以很低的池内 df 命中发送者 token —— 审计 1492 行由此拿到 margin **357.79**,
+judge 完全没参与。**前缀先建起磁铁,然后自己飞进去。**
+
+现在写入前过一遍 `utils.text.strip_routing_prefix`;剥完为空则保留原名
+(无名线比略带噪声的名字更糟)。`topic_keywords` 这一行**没动** ——
+该字段的两支笔叠加设计(A-kw)未定,本次只读不写。
+
+存量四条线归 Owner 的 9080 清理批次,代码侧只保证不再新增。
 
 ## 2026-08-14 — `_async_llm_update` 改走 `spawn`
 

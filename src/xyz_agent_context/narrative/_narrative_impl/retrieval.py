@@ -34,7 +34,11 @@ from .default_narratives import (
 from xyz_agent_context.utils.logging import timed
 
 # Use common utilities from utils
-from xyz_agent_context.utils.text import extract_keywords, truncate_text
+from xyz_agent_context.utils.text import (
+    extract_keywords,
+    strip_routing_prefix,
+    truncate_text,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from ._retrieval_llm import llm_judge_unified
 
@@ -556,13 +560,28 @@ class NarrativeRetrieval:
         (`_llm_unified_match`), and this is the only moment it is free — the
         scored text is in hand here, and reconstructing it later is impossible
         because the async updater rewrites it wholesale with no history.
+
+        The routing prefix is stripped HERE, not at the call sites, so every
+        BM25 consumer inherits it — `retrieve_top_k`, `keyword_search`, and
+        `select_fast` through it — and so a replay that goes through this
+        method still reproduces the live decision byte for byte. The audit row
+        keeps the ORIGINAL query text: what the user said is the record, and
+        what BM25 scored is derivable from it by this same function.
         """
         from xyz_agent_context.memory._memory_impl.retrieval import (
             bm25_explain,
             bm25_snippet,
         )
 
-        explained = bm25_explain(query, [(nid, text) for nid, text, _ in pool])
+        # "[From <sender>] " is routing metadata, not topic evidence: it is
+        # present on 96% of prod queries and carries 100% of the score on the
+        # worst of them (audit 768, `[From Liam] 👊` -> 5.66 from `from`+`liam`
+        # alone, the emoji tokenising to nothing). The judge and the continuity
+        # tier still read the untouched text — they can tell a name from a
+        # topic, BM25 cannot. See utils.text.strip_routing_prefix.
+        explained = bm25_explain(
+            strip_routing_prefix(query), [(nid, text) for nid, text, _ in pool]
+        )
         texts = {nid: text for nid, text, _ in pool}
         ranked = sorted(
             explained.items(), key=lambda kv: kv[1][0], reverse=True
@@ -917,15 +936,31 @@ class NarrativeRetrieval:
         agent_id: str,
         narrative_type: NarrativeType
     ) -> Narrative:
-        """Create a new Narrative from the query (BM25 routing surface only)."""
+        """Create a new Narrative from the query (BM25 routing surface only).
+
+        NAME and DESCRIPTION are built from the query with the channel routing
+        prefix removed. Naming a thread "[From <sender>] ..." turns it into a
+        magnet for every later message from that channel: the sender tokens
+        then sit in the thread's OWN retrieval surface at a low in-pool df, so
+        the next message matches its own line and skips the judge (prod audit
+        1492 reached margin 357.79 exactly this way; four such lines exist in
+        prod today). `topic_keywords` is deliberately left on the raw query —
+        that field has an undecided two-writer design (A-kw) and is read-only
+        for this change.
+        """
         # Extract keywords (the BM25 routing surface)
         topic_keywords = extract_keywords(query)
 
+        # The naming surface, without the channel label. Falls back to the raw
+        # query when a message is nothing BUT a prefix — an unnamed thread is
+        # worse than a slightly noisy name.
+        naming_text = strip_routing_prefix(query).strip() or query
+
         # Generate topic hint
-        topic_hint = truncate_text(query, config.SUMMARY_MAX_LENGTH)
+        topic_hint = truncate_text(naming_text, config.SUMMARY_MAX_LENGTH)
 
         # Generate title
-        title = truncate_text(query, 30)
+        title = truncate_text(naming_text, 30)
 
         # Create Narrative
         narrative = await self._crud.create(
@@ -933,7 +968,7 @@ class NarrativeRetrieval:
             user_id=user_id,
             narrative_type=narrative_type,
             title=title,
-            description=f"Created based on query: {query}"
+            description=f"Created based on query: {naming_text}"
         )
 
         # BM25 routing surface (name + summary + topic_keywords). Embedding

@@ -11,6 +11,7 @@ General text processing utilities
 Features:
 1. extract_keywords - Extract keywords from text (supports Chinese and English)
 2. truncate_text - Smart text truncation
+3. strip_routing_prefix - Drop the "[From <sender>]" channel label before BM25
 """
 
 from __future__ import annotations
@@ -55,6 +56,43 @@ ALL_STOPWORDS: Set[str] = CHINESE_STOPWORDS | ENGLISH_STOPWORDS
 # =============================================================================
 # Keyword Extraction
 # =============================================================================
+
+# Channel routing prefix, as built by
+# ``channel.channel_context_builder_base.build_channel_anchor`` and by
+# ``message_bus.message_bus_trigger`` ("[From agent <id>] <body>"). The two
+# must stay a matched pair — the round-trip is pinned in
+# tests/narrative/test_routing_prefix_strip.py.
+#
+# Deliberately anchored at the very start and bounded to one bracket: the
+# sender label is only metadata when it PREFIXES the turn. `message_bus`
+# joins several messages, each line carrying its own label, and those
+# interior labels are ~1% of the terms in a 250-term bus query whose
+# evidence is broad and healthy. Widening this would lower correct scores
+# for no measured gain.
+_ROUTING_PREFIX_RE = re.compile(r"^\[From (?:[^\]\n]{0,160})\]\s*")
+
+
+def strip_routing_prefix(text: Optional[str]) -> str:
+    """Drop the leading "[From <sender>] " label from a retrieval query.
+
+    WHY this is not cosmetic: `tokenize` turns ``[From Liam] 👊`` into
+    ``['from', 'liam']`` — the emoji contributes nothing — so BM25 scored a
+    fist-bump at 5.66 and cleared RAW_FLOOR=3.0 on sender name alone (prod
+    audit 768). Measured over the 2026-08-14..20 audit table, 96% of queries
+    carry such a prefix and **30.5% of prefix-carrying decisions fall to a
+    top1 of zero once it is removed**: the metadata was the whole match.
+
+    The sender still reaches the tiers that should see it — the judge and the
+    continuity detector read the untouched query text. Only the BM25 surface
+    is cleaned, because BM25 is the one tier that cannot tell a name from a
+    topic.
+
+    Returns "" for None/empty. A prefix-only message legitimately strips to
+    nothing: the honest BM25 score for "a sender said an emoji" is no score,
+    which routes the turn to the judge.
+    """
+    return _ROUTING_PREFIX_RE.sub("", text or "", count=1)
+
 
 def extract_keywords(
     text: str,
