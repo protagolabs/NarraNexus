@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 面板入口按钮换 Radix 悬停 tooltip
+
+Jobs/Inbox/Artifacts 三个图标入口原来只有原生 `title`(慢、无障碍名缺失)。
+改为 `@/components/ui/tooltip` 的 Radix Tooltip(整簇一个 `TooltipProvider
+delayDuration=200`),按钮补 `aria-label`、去掉 `title`——悬停即出样式化提示,
+且图标有了可访问名(getByLabelText 可查)。⋯ 详情按钮保留原生 title+aria
+(菜单开合与 tooltip 叠加有风险,不动)。测试:chatHeaderTooltips.test.tsx。
 
 ## 2026-08-19(二)— 身份组真的可收缩
 
