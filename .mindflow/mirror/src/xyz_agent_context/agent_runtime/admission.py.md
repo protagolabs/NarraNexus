@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/admission.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-08-10
 ---
+
+## 2026-08-10 — #2 executor abuse blocklist (immediate-reject gate)
+
+新增 `AccessDeniedError` + 黑名单加载器(`_load_blocklist`/`is_user_blocked`)。
+`acquire()` 在进入 condition wait 之前先查黑名单,命中即 **raise
+`AccessDeniedError`(立即拒绝,绝不排队)**——与并发闸(只延迟)语义不同。这是
+被封用户的 clean-UX 层:因为在 run 真正开始前抛出,step_3 的 helper-LLM 兜底
+根本没机会执行,异常干净上抛;broker 侧读同一份文件做物理硬停(不起 executor)。
+名单来源 = env `EXECUTOR_BLOCKLIST_FILE` 指向的文件(每行一个 user_id,`#` 注释),
+与 broker/backend/workers 共用、按 mtime 热加载。**本地默认 unset → 谁都不封**
+(守 rule #7,`run.sh`/DMG 不受影响)。文件缺失 = fail-open(保留上次已知空集)。
 
 ## 2026-06-18 — snapshot() + queue-depth observability
 
