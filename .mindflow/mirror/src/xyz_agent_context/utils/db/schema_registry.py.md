@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — events 增 `(user_id, state)` 复合索引
+
+`Index("idx_events_user_state", ["user_id", "state"])`。判活查询
+(`run_recorder.first_live_run_id`,过滤 `{user_id, state}`)从这版起落在
+**每轮 turn 的热路径**上——step 3 每轮算一次 stale 替换判决——外加回收器每轮
+每候选一次。只有单列 `idx_events_user_id` 的话,MySQL 取该用户全部历史行再逐行
+过滤 `state`,代价随用户 tenure 线性增长,而 `events` 从不清理:最活跃的账号
+受损最重。兄弟条目见 `idx_events_root_state`(下方 2026-08-07 段),同样是
+"写/读必定同时过滤这两列"才做成复合。
+
+**与本文档 2026-08-14 段那条相反立场的关系**:那段说的是 `cost_records` 新列
+"deliberately reuses the existing `created_at` range index instead of building
+a composite index during startup",理由是 cost ledger 是**每次调用一行**的量级,
+启动期建索引可能拖住 `/health`。那条**仍然有效,不要改写或删除**——它管的是
+cost ledger,不是通则放行。
+
+`events` 与它不同量级:**每个 run 一行**,不是每次调用/每条消息一行。所以启动期
+`auto_migrate` 建这条索引是可接受的。⚠️ **待补**:合并前需要一个可核对的量级依据
+(prod `SELECT COUNT(*) FROM events` 的数量级),把数字补在这里。如果量级超出
+"秒级可建"的预期,应当改走 `backend/migrations/`(那是 heavy/one-time 的通道)
+而不是挂在每个进程的启动路径上——注意该目录同样在 lifespan 里跑,所以真正的
+区别是"能不能只跑一次并记账",不是"能不能不阻塞启动"。
+
+不要为了绕开这个问题就把索引删掉:去掉换来的是每轮 turn 一次按 user_id 的行
+过滤,代价随历史线性增长,比启动建一次更糟。也不要做成"只在某个 env 下建",
+那会让 SQLite 与 MySQL 的 schema 口径分叉。
+
 
 ## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
 

@@ -16,6 +16,7 @@ back down when the consumer disconnects before the first byte.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -67,14 +68,15 @@ async def _run_asgi(path: str, *, body: dict | None = None, stop_after: int | No
 
 @pytest.fixture(autouse=True)
 def _reset_counter():
-    svc._inflight_work = 0
+    svc._inflight_started.clear()
     yield
-    svc._inflight_work = 0
+    svc._inflight_started.clear()
 
 
 def test_idle_executor_reports_not_busy():
     assert svc.health() == {
         "status": "healthy", "busy": False, "inflight_work": 0,
+        "inflight_oldest_s": None,
     }
 
 
@@ -94,8 +96,16 @@ async def test_busy_for_the_whole_turn_and_clear_afterwards(monkeypatch):
 
     await _run_asgi("/agent-loop", body=_TURN)
 
-    assert mid_turn == [{"status": "healthy", "busy": True, "inflight_work": 1}]
+    assert len(mid_turn) == 1
+    assert mid_turn[0]["busy"] is True
+    assert mid_turn[0]["inflight_work"] == 1
+    # Age, not just a count: a bare count cannot tell a legitimate 10-hour
+    # turn from a request pinned open forever, and the broker now refuses to
+    # reap either. This makes "something has been in flight for 8 hours" an
+    # observable fact rather than an assumption.
+    assert mid_turn[0]["inflight_oldest_s"] >= 0
     assert svc.health()["busy"] is False
+    assert svc.health()["inflight_oldest_s"] is None
 
 
 @pytest.mark.asyncio
@@ -119,7 +129,7 @@ async def test_counter_clears_when_the_consumer_disconnects_before_the_first_byt
 
     await _run_asgi("/agent-loop", body=_TURN, stop_after=0)   # dies on start
 
-    assert svc._inflight_work == 0
+    assert svc._inflight_started == {}
     assert svc.health()["busy"] is False
 
 
@@ -134,7 +144,7 @@ async def test_counter_clears_when_the_consumer_disconnects_mid_stream(monkeypat
 
     await _run_asgi("/agent-loop", body=_TURN, stop_after=2)
 
-    assert svc._inflight_work == 0
+    assert svc._inflight_started == {}
 
 
 @pytest.mark.asyncio
@@ -153,7 +163,7 @@ async def test_counter_clears_when_the_turn_raises(monkeypatch):
     assert "driver exploded" in b"".join(
         m.get("body", b"") for m in sent if m["type"] == "http.response.body"
     ).decode()
-    assert svc._inflight_work == 0
+    assert svc._inflight_started == {}
 
 
 @pytest.mark.asyncio
@@ -194,10 +204,34 @@ def test_work_path_contract():
 
 def test_concurrent_work_is_counted():
     """One user can drive several agents at once; the container stays busy
-    until the LAST of them finishes."""
-    svc._inflight_work = 2
-    assert svc.health() == {
-        "status": "healthy", "busy": True, "inflight_work": 2,
-    }
-    svc._inflight_work = 0
+    until the LAST of them finishes, and the reported age is the OLDEST."""
+    from time import monotonic
+    svc._inflight_started.update({1: monotonic() - 30.0, 2: monotonic()})
+    body = svc.health()
+    assert (body["busy"], body["inflight_work"]) == (True, 2)
+    assert body["inflight_oldest_s"] >= 30.0
+    svc._inflight_started.clear()
     assert svc.health()["busy"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_body_that_never_arrives_cannot_pin_the_container(monkeypatch):
+    """/agent-loop is unauthenticated and reachable from INSIDE this
+    container — the agent's own Bash can POST a chunked body and never close
+    it. Without a parse budget request.json() waits forever while the
+    container stays marked busy, i.e. never reapable: the untrusted sandbox
+    would be deciding whether the broker may reclaim its own slot.
+
+    Bounding the BODY read is not a ceiling on the turn (rule #14): once the
+    body is in, the loop runs as long as it likes.
+    """
+    monkeypatch.setattr(svc, "_BODY_READ_TIMEOUT_S", 0.05)
+
+    class _NeverEndingBody:
+        async def json(self):
+            await asyncio.sleep(3600)
+
+    resp = await svc.agent_loop(_NeverEndingBody())
+
+    assert resp.status_code == 408
+    assert svc._inflight_started == {}

@@ -263,3 +263,114 @@ async def test_verdict_defers_when_it_cannot_be_computed(monkeypatch):
 def test_maybe_start_is_noop_without_broker(monkeypatch):
     monkeypatch.delenv("BROKER_URL", raising=False)
     assert maybe_start_executor_reaper() is None
+
+
+@pytest.mark.asyncio
+async def test_recording_switch_freezes_image_rolls_too(monkeypatch):
+    """The kill switch has TWO consequences, and the log must name the right
+    one for whoever is reading it.
+
+    Idle culling stops (correct — we cannot see in-flight runs), and so does
+    stale-image replacement, because the same unknowable answer feeds both.
+    Letting replacement through instead would mean destroying containers with
+    no view of in-flight runs at all — this whole change in reverse.
+    """
+    from xyz_agent_context.agent_runtime import executor_reaper as er
+    from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+
+    monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
+    monkeypatch.setattr(er, "_recording_off_warned", set())
+
+    assert await er.live_run_elsewhere("u") == er._UNKNOWN_RECORDING_OFF
+    assert await er.stale_replacement_is_safe("u") is False   # image frozen too
+
+    # ...and the warning is emitted once per (caller, user), not once per turn:
+    # step 3 calls this on EVERY turn, and the switch is pulled precisely when
+    # somebody is reading the logs for something else.
+    assert er._recording_off_warned == {("reaper", "u"), ("stale-replace", "u")}
+
+
+@pytest.mark.asyncio
+async def test_unknown_causes_stay_distinguishable(monkeypatch):
+    """'We could not tell' is not 'we saved a run'. The two causes need
+    different responses, so they must not collapse into one sentinel."""
+    import xyz_agent_context.utils.db.db_factory as db_factory
+    from xyz_agent_context.agent_runtime import executor_reaper as er
+
+    async def _boom():
+        raise RuntimeError("no pool")
+
+    monkeypatch.setattr(db_factory, "get_db_client", _boom)
+    assert await er.live_run_elsewhere("u") == er._UNKNOWN_DB_UNAVAILABLE
+    assert er._UNKNOWN_DB_UNAVAILABLE != er._UNKNOWN_RECORDING_OFF
+    for sentinel in (er._UNKNOWN_DB_UNAVAILABLE, er._UNKNOWN_RECORDING_OFF):
+        assert sentinel.startswith("unknown:")   # the filter the metric needs
+        assert len(sentinel) <= 128              # events/audit run_id column
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_stop_puts_the_idle_stamp_back():
+    """The pre-stop re-check must not reintroduce the leak the whole design
+    avoids: claiming is destructive, so a claimed-then-skipped user would
+    never be reconsidered until it next goes idle IN THIS PROCESS — which for
+    a user driven from workers is never."""
+    from xyz_agent_context.agent_runtime.admission import AgentAdmissionController
+
+    now = {"t": 0.0}
+    controller = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await controller.release(await controller.acquire("u"))
+    now["t"] = 9999.0
+    busy = {"v": False}
+
+    async def is_busy(user_id):
+        return busy["v"]
+
+    stopped = []
+
+    async def stop_fn(user_id):
+        stopped.append(user_id)
+
+    reaper = ExecutorReaper(controller, stop_fn, is_busy=is_busy, ttl_seconds=60)
+
+    # Claim says idle; the run starts in the window before the stop lands.
+    original_claim = controller.claim_idle_users
+
+    async def claim_then_go_busy(*a, **kw):
+        users = await original_claim(*a, **kw)
+        busy["v"] = True
+        return users
+
+    controller.claim_idle_users = claim_then_go_busy      # type: ignore[assignment]
+    assert await reaper.reap_once() == []
+    assert stopped == []
+    assert "u" in controller._idle_since                  # stamp restored
+
+    # The restored stamp reads "idle as of now" — the claim consumed the
+    # original and the user genuinely was busy a moment ago — so it waits one
+    # more TTL rather than being reaped immediately. Then it IS reaped: the
+    # container is reclaimable again, which is the whole point of restoring.
+    assert controller._idle_since["u"] == 9999.0
+    controller.claim_idle_users = original_claim          # type: ignore[assignment]
+    busy["v"] = False
+    assert await reaper.reap_once() == []                 # inside the new TTL
+    now["t"] = 20000.0
+    assert await reaper.reap_once() == ["u"]
+
+
+@pytest.mark.asyncio
+async def test_restamp_never_pushes_an_existing_stamp_forward():
+    """setdefault, not assignment — overwriting would hand the user a free
+    extra TTL every time a stop is skipped."""
+    from xyz_agent_context.agent_runtime.admission import AgentAdmissionController
+
+    now = {"t": 100.0}
+    c = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await c.release(await c.acquire("u"))          # idle @ 100
+    now["t"] = 500.0
+    await c.restamp_idle("u")
+    assert c._idle_since["u"] == 100.0
+
+    # An ACTIVE user is not idle at all and must not gain a stamp.
+    await c.acquire("v")
+    await c.restamp_idle("v")
+    assert "v" not in c._idle_since

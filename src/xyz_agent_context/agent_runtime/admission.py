@@ -40,13 +40,25 @@ import math
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Awaitable, Callable, Optional
+from contextlib import AbstractContextManager
+from typing import Callable, Optional, Protocol
 
 from loguru import logger
 
-# Injected cross-process veto for idle claiming: user_id -> "is busy
-# somewhere else?". See ``claim_idle_users``.
-BusyCheck = Callable[[str], Awaitable[bool]]
+class BusyCheck(Protocol):
+    """Injected cross-process veto for idle claiming: "is this user busy
+    somewhere else?". See ``claim_idle_users``.
+
+    ``pass_`` is optional and lets a stateful veto bracket one claim pass
+    (the reaper's uses it to age its audit de-duplication). Declared here
+    rather than sniffed at the call site with ``hasattr`` so a typo degrades
+    into a type error instead of silently skipping the aging — and the thing
+    that stops being aged grows without bound.
+    """
+
+    async def __call__(self, user_id: str) -> bool: ...
+
+    def pass_(self) -> AbstractContextManager: ...  # optional
 
 # Simultaneous in-flight vetoes per claim pass.
 _VETO_CONCURRENCY = 8
@@ -152,6 +164,19 @@ class AgentAdmissionController:
             "enabled": self.enabled,
         }
 
+    async def restamp_idle(self, user_id: str) -> None:
+        """Re-mark a user idle after a claim that was not acted on.
+
+        ``claim_idle_users`` is destructive; a caller that claims and then
+        decides not to stop the executor would otherwise drop the stamp for
+        good (see that method's docstring for why that leaks). setdefault, not
+        assignment: an existing, older stamp is the truthful one, and
+        overwriting it would grant the user a free extra TTL.
+        """
+        async with self._cond:
+            if user_id not in self._per_user:
+                self._idle_since.setdefault(user_id, self._clock())
+
     async def acquire(self, user_id: str) -> str:
         """Wait (queue) until this run may start, then reserve a slot.
 
@@ -198,7 +223,7 @@ class AgentAdmissionController:
         per-process singleton, so "zero active loops here" does not mean the
         user is idle — backend cannot see runs alive in workers and vice
         versa. The caller injects an out-of-process truth source (the reaper
-        passes ``run_recorder.user_has_live_run``); any user it vetoes is
+        passes ``executor_reaper.live_run_elsewhere``); any user it vetoes is
         skipped.
 
         A vetoed user KEEPS its idle stamp, which is why the check lives in

@@ -5,8 +5,7 @@ stub: false
 ---
 ## 2026-08-19 — `user_has_live_run`:判活口径升到"用户"这一层
 
-新增 `first_live_run_id(db, user_id)` + 薄封装 `user_has_live_run` —— 把
-`run_is_live` 的答案聚到用户上,
+新增 `first_live_run_id(db, user_id)` —— 把 `run_is_live` 的答案聚到用户上,
 成为**跨进程**"这个用户忙不忙"的唯一事实源。第一个消费者是
 [[executor_reaper.py]]:executor 容器按 user 共享,但准入账本是进程级的,
 backend 看不见 workers 里的 run,于是把在跑的容器当空闲停了(2026-07-31 事故)。
@@ -25,10 +24,16 @@ run**(ensure 发生在 step 3,那时自己的 events 行已经是 running,不排
 `run_is_live` 的注释写着"ONE answer",再在别处手搓一次 running+心跳 的查询
 就是第二个口径。broker 侧(另一仓)的懒替换护栏也要查同一个口径。
 
-**fail-safe 方向与 `run_is_live` 相反且必须相反**:`run_is_live` 读不出时间戳
-时 fail-open 当作"活着";`user_has_live_run` 在 DB 读不出来时返回
-**True(忙)**。两者其实是同一个原则——**不确定就别动它**:漏收一轮只多留一个
-闲置容器,误收会打断正在干活的 agent(铁律 #14)。
+**只留一个入口,而且它会抛**。中途曾经有过一个吞异常的薄封装
+`user_has_live_run`,评审第二轮指出它已经零生产调用者,却被模块头指成"唯一
+真相源"——同一个问题三个入口、三种失败语义,而文档指向最没用的那个。已删除。
+现在 `first_live_run_id` 在 DB 读不出来时**抛**:那个歧义属于调用方,而做破坏性
+动作的调用方绝不该继承别人的猜测。所有调用方都把它解成"忙",统一收在
+[[executor_reaper.py]] 的 `live_run_elsewhere` 里。
+
+方向上与 `run_is_live` 相反且必须相反(后者读不出时间戳时 fail-open 当"活着"),
+两者其实是同一个原则——**不确定就别动它**:漏收一轮只多留一个闲置容器,误收会
+打断正在干活的 agent(铁律 #14)。
 
 ## 2026-08-10 — retain normalized action reason
 

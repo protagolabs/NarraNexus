@@ -28,11 +28,17 @@ EVENT_REUSED = "reused"
 EVENT_CULLED = "culled"
 EVENT_ORPHAN_REAPED = "orphan_reaped"
 # The idle cull picked a user, then backed off because a run was live in
-# ANOTHER process (executor_reaper._CullVeto / live_run_elsewhere). Each row is one
-# agent run that the pre-2026-08-19 reaper would have killed mid-flight, so the
-# count is the L3 measure of the cross-process guard: a nonzero rate means the
-# guard is load-bearing, and a rate that suddenly drops to zero is a reason to
-# check the guard still runs, not to assume the problem went away.
+# ANOTHER process, or because liveness could not be determined at all
+# (executor_reaper._CullVeto / live_run_elsewhere).
+#
+# Reading the metric: rows whose run_id is a real id (evt_*) each represent one
+# agent run that the pre-2026-08-19 reaper would have killed mid-flight — that
+# count is the L3 measure of the cross-process guard. Rows whose run_id starts
+# with "unknown:" mean the opposite kind of thing: we declined to cull because
+# we could not see (":recording-off" = the switch is pulled, ":db-unavailable"
+# = an outage). Filter them apart; a nonzero "unknown:" rate is its own alert.
+# A rate that suddenly drops to zero is a reason to check the guard still runs,
+# not to assume the problem went away.
 EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"
 EVENT_OOM_KILLED = "oom_killed"
 EVENT_OOM_RETRY_OK = "oom_retry_ok"

@@ -33,7 +33,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_RUNNING,
     recording_enabled,
     sweep_stale_runs,
-    user_has_live_run,
+    first_live_run_id,
 )
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -281,10 +281,10 @@ async def test_sweep_settles_a_cancel_in_flight_as_cancelled(db_client):
 
 
 @pytest.mark.asyncio
-async def test_user_has_live_run(db_client):
-    """The cross-process "is this user busy?" answer the executor reaper
-    culls on. Only a running row with a fresh heartbeat counts, and only
-    for the user asked about."""
+async def test_first_live_run_id(db_client):
+    """The cross-process "is this user busy?" answer the executor reaper and
+    the broker's replacement verdict both cull on. Only a running row with a
+    fresh heartbeat counts, and only for the user asked about."""
     fresh = utc_now()
     stale = utc_now() - timedelta(seconds=600)
     await _seed_events_row(
@@ -300,28 +300,31 @@ async def test_user_has_live_run(db_client):
         started_at=fresh, last_event_at=fresh,
     )
 
-    assert await user_has_live_run(db_client, "u_busy") is True
-    assert await user_has_live_run(db_client, "u_zombie") is False   # heartbeat died
-    assert await user_has_live_run(db_client, "u_done") is False
-    assert await user_has_live_run(db_client, "u_never_seen") is False
-    assert await user_has_live_run(db_client, "") is False
+    assert await first_live_run_id(db_client, "u_busy") == "evt_live"
+    assert await first_live_run_id(db_client, "u_zombie") is None   # heartbeat died
+    assert await first_live_run_id(db_client, "u_done") is None
+    assert await first_live_run_id(db_client, "u_never_seen") is None
+    assert await first_live_run_id(db_client, "") is None
 
     # A run asking about its own user must be able to discount itself, or
     # the answer is unconditionally "busy" (its row is already running).
-    assert await user_has_live_run(
+    assert await first_live_run_id(
         db_client, "u_busy", exclude_run_id="evt_live"
-    ) is False
+    ) is None
 
 
 @pytest.mark.asyncio
-async def test_user_has_live_run_fails_safe_on_db_error():
-    """An unreadable DB must read as BUSY: a missed cull costs one idle
-    container, a wrong cull kills a working agent (rule #14)."""
+async def test_first_live_run_id_raises_rather_than_guessing():
+    """One entry point, one semantics. Resolving an unreadable DB into a
+    bool here would give the same question two fail-safe behaviours and let
+    a destructive caller inherit a guess it never made — the caller decides,
+    and every caller decides "busy" (executor_reaper.live_run_elsewhere)."""
     class _BrokenDB:
         async def get(self, *a, **kw):
             raise RuntimeError("connection reset")
 
-    assert await user_has_live_run(_BrokenDB(), "u") is True
+    with pytest.raises(RuntimeError):
+        await first_live_run_id(_BrokenDB(), "u")
 
 
 def test_recording_kill_switch(monkeypatch):

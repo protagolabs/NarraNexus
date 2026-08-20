@@ -17,10 +17,13 @@ This module is the single source of truth for that contract:
 * ``run_is_live`` — the ONE read-side answer to "is this run actually
   alive?" (shared by the agents listing, the WS observe endpoint, and
   the stale-run sweep)
-* ``first_live_run_id`` / ``user_has_live_run`` — the same answer lifted to
-  a user, and the ONE cross-process source of truth for "is this user busy?"
-  (the executor reaper's guard and the broker's replacement verdict;
-  in-process admission state cannot answer it)
+* ``first_live_run_id`` — the same answer lifted to a user, and the ONE
+  cross-process source of truth for "is this user busy?" (the executor
+  reaper's guard and the broker's replacement verdict; in-process admission
+  state cannot answer it). It RAISES on an unreadable DB rather than
+  guessing — callers that act destructively on the answer must resolve that
+  ambiguity themselves, and every one of them resolves it as "busy"
+  (``executor_reaper.live_run_elsewhere``).
 * ``sweep_stale_runs`` — flips running rows whose heartbeat died
   (process killed mid-run without ``finalize``). Heartbeat-based, NOT
   process-based: a run may be alive in a different process/container
@@ -138,15 +141,26 @@ async def first_live_run_id(
 ) -> Optional[str]:
     """The id of a live run belonging to this user, in ANY process — or None.
 
-    THE cross-process query behind ``user_has_live_run``; returns the run's
-    identity rather than a bare bool so callers can name what stopped them
-    (the reaper's audit row) without anyone writing a second running-plus-
-    heartbeat query somewhere else. Which live run is returned is arbitrary
-    when several exist.
+    The ONE cross-process answer to "is this user busy?". In-process
+    bookkeeping (``AgentAdmissionController``) cannot give it: the
+    orchestrator runs as backend + workers, each with its own singleton, so
+    backend sees only its own WS-chat runs and workers only its own
+    bus/job/channel runs. Anything that ACTS on "this user is idle" — the
+    executor reaper, the broker's stale-image replacement — must ask here, or
+    it acts on one process's partial view and cuts off a run alive in the
+    other (2026-07-31 prod: a group-chat reply killed mid-flight).
 
-    Raises nothing to say "unknown": that ambiguity belongs to the caller,
-    and every caller in this codebase resolves it as "busy" — see
-    ``user_has_live_run``.
+    Returns the run's IDENTITY rather than a bare bool so callers can name
+    what stopped them (the reaper's audit row) without anyone writing a
+    second running-plus-heartbeat query elsewhere. Which live run is returned
+    is arbitrary when several exist.
+
+    RAISES on an unreadable DB — deliberately, and this is the only entry
+    point. A convenience wrapper that swallowed the error would be a second
+    fail-safe semantics for the same question, and the destructive callers
+    are exactly the ones that must not inherit someone else's guess. They
+    resolve it themselves, all of them as "busy": see
+    ``executor_reaper.live_run_elsewhere``.
     """
     if not user_id:
         return None
@@ -161,52 +175,12 @@ async def first_live_run_id(
         fields=["event_id", "last_event_at", "started_at"],
     )
     for row in rows or []:
-        if exclude_run_id and str(row.get("event_id")) == exclude_run_id:
+        eid = row.get("event_id")
+        if not eid or (exclude_run_id and str(eid) == exclude_run_id):
             continue
         if run_is_live(row):
-            return str(row.get("event_id"))
+            return str(eid)
     return None
-
-
-async def user_has_live_run(
-    db: "AsyncDatabaseClient",
-    user_id: str,
-    *,
-    exclude_run_id: Optional[str] = None,
-) -> bool:
-    """Whether this user has ANY live run right now, in ANY process.
-
-    The cross-process answer to "is this user busy?". In-process bookkeeping
-    (``AgentAdmissionController``) cannot answer it: the orchestrator runs as
-    backend + workers, each with its own singleton, so backend sees only its
-    own WS-chat runs and workers only its own bus/job/channel runs. Anything
-    that ACTS on "this user is idle" — the executor reaper, the broker's stale
-    image replacement — must ask here instead, or it will act on one process's
-    partial view and cut off a run that is alive in the other (2026-07-31 prod
-    incident: a group-chat reply killed mid-flight by the idle cull).
-
-    ``exclude_run_id`` drops one run from the answer — the caller's OWN.
-    A run asks this question from inside itself (step 3 asking whether the
-    broker may replace its user's stale container), and by then its own
-    events row is already ``running``, so without the exclusion the answer is
-    unconditionally "busy" and the guard degenerates into "never do the
-    thing". Callers that are not themselves a run (the reaper, the
-    office-watch proxy) pass nothing and count every live run.
-
-    Fails SAFE: an unreadable DB returns True (busy). A missed cull costs one
-    idle container for one more pass; a wrong cull kills a working agent
-    (binding rule #14 — the platform must not become the interruption source).
-    """
-    try:
-        return await first_live_run_id(
-            db, user_id, exclude_run_id=exclude_run_id
-        ) is not None
-    except Exception as e:  # noqa: BLE001 — unreadable truth ⇒ assume busy
-        logger.warning(
-            f"[run-liveness] live-run lookup failed for user={user_id!r}: {e} "
-            f"— treating as busy"
-        )
-        return True
 
 
 async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
@@ -691,10 +665,9 @@ __all__ = [
     "event_to_wire",
     "normalise_event",
     "parse_db_utc",
+    "first_live_run_id",
     "recording_enabled",
     "run_is_live",
     "sweep_stale_runs",
-    "first_live_run_id",
     "try_extract_event_id",
-    "user_has_live_run",
 ]

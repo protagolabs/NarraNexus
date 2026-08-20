@@ -50,14 +50,26 @@ StopFn = Callable[[str], Awaitable[None]]
 DEFAULT_IDLE_TTL_SEC = 1200   # 20 min (locked decision)
 DEFAULT_INTERVAL_SEC = 120
 
-# Stand-in run id for "we could not find out". Not a real run, but the answer
-# is the same one a real run gives — hands off — and giving it an identity
-# keeps the audit trail honest about WHY a cull was skipped.
-_UNKNOWABLE = "unknown"
+# Stand-in run ids for "we could not find out". Not real runs, but the answer
+# is the one a real run gives — hands off. Two distinct values because the two
+# causes need different responses from whoever reads the audit trail: one is a
+# switch somebody deliberately pulled, the other is an outage. A single
+# "unknown" would leave the WHY the comment claims to preserve unrecoverable.
+_UNKNOWN_RECORDING_OFF = "unknown:recording-off"
+_UNKNOWN_DB_UNAVAILABLE = "unknown:db-unavailable"
+
+
+# (caller, user) pairs already warned about while the recording switch is on.
+# Without this, step 3's per-turn call reprints the same line every turn, on
+# the one occasion somebody is reading these logs to debug something else.
+_recording_off_warned: set[tuple[str, str]] = set()
 
 
 async def live_run_elsewhere(
-    user_id: str, *, exclude_run_id: Optional[str] = None
+    user_id: str,
+    *,
+    exclude_run_id: Optional[str] = None,
+    caller: str = "reaper",
 ) -> Optional[str]:
     """The id of a run live in ANY process for this user, or None.
 
@@ -70,6 +82,11 @@ async def live_run_elsewhere(
     Never raises. Every failure path answers "busy" — with a SENTINEL id, so
     callers that log or audit the answer can say which kind of busy it was.
     Not knowing must never authorise destroying anything (binding rule #14).
+
+    ``caller`` only labels the logs: the two consumers suffer DIFFERENT
+    consequences when the answer is unknowable (culling stops vs. executor
+    images stop rolling), and a line that names the wrong one sends the next
+    person debugging in the wrong direction.
     """
     from xyz_agent_context.agent_runtime.run_recorder import (
         first_live_run_id,
@@ -80,23 +97,30 @@ async def live_run_elsewhere(
         # The kill switch that turns off trigger-path run recording turns off
         # exactly the runs this guard exists to protect: without a recorder
         # their events row never flips to 'running', so the DB would report
-        # them idle and we would go right back to culling live group-chat /
-        # scheduled / channel runs. An observability switch must not silently
-        # become a safety switch, so while it is on, nothing is reapable.
-        logger.warning(
-            f"[reaper] run recording is disabled ({RECORDING_DISABLED_ENV}) — "
-            f"cross-process liveness is unknowable, treating user={user_id} as "
-            f"busy. Executor idle-culling is effectively OFF."
-        )
-        return _UNKNOWABLE
+        # them idle. An observability switch must not silently become a
+        # licence to destroy containers, so while it is on nothing is
+        # reapable and no stale image is replaced.
+        #
+        # Both costs are real and neither may be traded away: allowing
+        # replacement here would mean destroying containers with NO view of
+        # in-flight runs at all, which is this whole change in reverse.
+        if (caller, user_id) not in _recording_off_warned:
+            _recording_off_warned.add((caller, user_id))
+            logger.warning(
+                f"[{caller}] run recording is disabled ({RECORDING_DISABLED_ENV}) "
+                f"— cross-process liveness is unknowable for user={user_id}. "
+                f"Executor idle-culling is OFF and stale executor images will "
+                f"NOT roll while it stays disabled."
+            )
+        return _UNKNOWN_RECORDING_OFF
     try:
         from xyz_agent_context.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
         return await first_live_run_id(db, user_id, exclude_run_id=exclude_run_id)
     except Exception as e:  # noqa: BLE001 — no verdict ⇒ assume busy
-        logger.warning(f"[reaper] busy check unavailable for user={user_id}: {e}")
-        return _UNKNOWABLE
+        logger.warning(f"[{caller}] busy check unavailable for user={user_id}: {e}")
+        return _UNKNOWN_DB_UNAVAILABLE
 
 
 async def stale_replacement_is_safe(
@@ -122,7 +146,9 @@ async def stale_replacement_is_safe(
     never does). Deferring costs one more turn on old code and self-corrects
     at the next ensure; replacing under a live run kills it (rule #14).
     """
-    return await live_run_elsewhere(user_id, exclude_run_id=active_run_id) is None
+    return await live_run_elsewhere(
+        user_id, exclude_run_id=active_run_id, caller="stale-replace",
+    ) is None
 
 
 class _CullVeto:
@@ -239,7 +265,12 @@ class ExecutorReaper:
         label-based reaper backstops orphans); it never aborts the pass.
         """
         veto = self._is_busy
-        with (veto.pass_() if hasattr(veto, "pass_") else nullcontext()):
+        # getattr, not hasattr-branching on a concrete class: pass_ is an
+        # optional part of the BusyCheck protocol (a plain async function is a
+        # valid veto and simply has none), so the default keeps injection open
+        # while pyright still checks the name on anything that declares it.
+        open_pass = getattr(veto, "pass_", None)
+        with (open_pass() if open_pass is not None else nullcontext()):
             users = await self._controller.claim_idle_users(
                 self.ttl_seconds, is_busy=veto,
             )
@@ -258,6 +289,13 @@ class ExecutorReaper:
                         f"[reaper] user={user_id} became busy between the claim "
                         f"and the stop; leaving its executor alone"
                     )
+                    # The claim already took its idle stamp, and skipping here
+                    # would be the very "claimed-then-skipped" leak that
+                    # claim_idle_users' docstring warns about: a user driven
+                    # mostly from another process never gets a new stamp in
+                    # THIS one, so its container would never be reconsidered.
+                    # setdefault, so a genuinely older stamp is not pushed back.
+                    await self._controller.restamp_idle(user_id)
                     continue
                 await self._stop_fn(user_id)
                 reaped.append(user_id)

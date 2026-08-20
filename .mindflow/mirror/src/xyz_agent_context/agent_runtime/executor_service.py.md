@@ -38,6 +38,23 @@ uvicorn 0.38 实测复现)。中间件把计数括在 `await self.app(...)` 两�
 容器内**的服务,在它下面回收会一并杀掉那个会话。`/health` 必须留在集合外,
 否则 broker 的探测会自我实现。
 
+**谁能把容器钉成永久 busy,以及怎么防**:中间件的正确性建立在
+"`await self.app(...)` 一定会返回"上,而有两条路径可以永不返回,后果都跟它要防的
+那个 bug 一模一样(容器永远报 busy → broker 永远拒绝回收 → 槽位再也回不来):
+- **意外**:office-watch 直通原来 `sock_read=None`,客户端半开(笔记本休眠 /
+  NAT 掉表,没有 FIN)时 uvicorn 不投递 `http.disconnect`,上游又没有帧要发,
+  请求就挂着。已给它(**且只给它**)加 `_WATCH_READ_TIMEOUT_S`:上游是
+  127.0.0.1 的本地进程,读间隔超时是"卡死"而不是网络天气。agent-loop 的流
+  **必须**保持无界(铁律 #14,一次工具调用可以几小时不出帧)。
+- **主动**:`/agent-loop` 无鉴权(internal-trust),而 agent 的 Bash 就跑在**同一个
+  容器**里,`127.0.0.1:8020` 触手可及——POST 一个 chunked body 不关就行,
+  `request.json()` 会永远等。这会把"broker 能不能停这个容器"的唯一输入交给
+  **不可信 sandbox 自己**计算。已给 body 读取加 `_BODY_READ_TIMEOUT_S`:这是
+  **解析预算**,不是 turn 的上限——body 收完之后循环爱跑多久跑多久。
+- `/health` 另报 `inflight_oldest_s`。裸计数分不出"一条合法的 10 小时 turn"
+  (必须继续报 busy)和"被钉住了";年龄让后者成为可观测事实。加字段属于跨仓
+  契约变更,deploy 侧读取方要同批看。
+
 **已知边界**:计的是**请求**,不是会话。一个空闲的 office-watch 会话(没有
 请求在飞)仍然报 not busy。今天被"每次 proxy 调用都会刷新 broker 的
 `_last_seen`"掩盖着,真要修需要容器内的会话注册表,不在本次范围。

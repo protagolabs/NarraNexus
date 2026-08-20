@@ -43,8 +43,12 @@ reaper 把**正在干活**的容器停了。
 把整批候选都否决完的,而 stop 是逐个串行执行的,每个 `docker stop` 还要等 SIGTERM
 宽限期。批里第 N 个用户被停时,它的判决可能已经是几分钟前的了——足够一条总线触发
 的 run 起来并走到 step 3、拿到那个还热着的容器。所以 `reap_once` 在每次 stop 前
-按用户再查一次(一次带索引的读)。跳过的用户此时 idle 戳已被 claim 拿走,所以它
-落在"泄漏"方向而不是"误杀"方向——这是有意的取舍。
+按用户再查一次(一次带索引的读)。跳过时调
+`controller.restamp_idle(user_id)` 把 idle 戳放回去(`setdefault`,不覆盖更早的
+真实戳),否则就成了 `claim_idle_users` docstring 里警告的那种
+"claimed-then-skipped":戳被 claim 破坏性拿走,而主要在别的进程里跑的用户在本
+进程永远等不到下一次 release,容器就永久泄漏。放回去的戳读作"此刻起空闲"——它
+刚才确实在忙——所以要再等一个完整 TTL,这是诚实的,不是 bug。
 
 **去重不是优化,是指标定义的一部分**:被否决的用户保留 idle 戳(见上),所以
 它每轮都会被重新提名、重新否决。逐次写行会让行数变成**运行时长的函数** ——
@@ -71,8 +75,18 @@ reaper 侧的 `is_busy` 注入是同一种形状:决策在编排层,执行在传
 那一类 run:开关一开 → 没有 recorder → `_bind_run_id` 不跑 → events 行停在建表
 默认的 `completed` → 判活答"不忙" → 照杀,且审计表里连 `cull_skipped_busy` 都
 不会有(根本没判成忙)。比"绑定前窄窗口"严重得多——它覆盖整个 run 生命周期。
-处理:`live_run_elsewhere` 开头查 `recording_enabled()`,关着就一律当忙(等于
-**回收整体停摆**),并打 warning。这是有意的保守,不要当 bug 修掉。
+处理:`live_run_elsewhere` 开头查 `recording_enabled()`,关着就一律当忙。
+**两个后果,都要认**:回收整体停摆,**且 stale 镜像永远不滚**(同一个函数给
+`stale_replacement_is_safe` 供判决)。不要为了让镜像能滚就在这时放行替换——那
+等于在完全看不见在途 run 的情况下销毁容器,是本次改动的反面。日志按 `caller`
+分标签(reaper / stale-replace)且按 (caller, user) 去重:step 3 每轮 turn 都会
+问一次,而开关被拉下的时刻恰好是有人在读日志排别的障。这是有意的保守,不要当
+bug 修掉。
+
+**两个 unknown 哨兵是分开的**(`unknown:recording-off` /
+`unknown:db-unavailable`):一个是有人主动拉的闸,一个是故障,读审计表的人要给出
+不同反应。也因此 `cull_skipped_busy` 的行不再全是"救回了一条 run"——按 run_id
+前缀过滤,详见 [[executor_audit.py]]。
 
 **同一处不对称的另一半(未修,已记 todo)**:纯 workers 用户(只用群聊/定时任务)
 在 backend 的 `_idle_since` 里从来不出现,他们的容器**从来不会被回收**。

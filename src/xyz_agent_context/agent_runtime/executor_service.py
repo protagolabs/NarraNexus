@@ -39,9 +39,11 @@ scope for this module, which just runs the loop it is handed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from time import monotonic
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -111,8 +113,15 @@ app = FastAPI(title="NarraNexus Agent-Loop Executor", lifespan=_lifespan)
 # container there runs an old image that may predate this field, so probing
 # it would answer "cannot tell" forever and the image would never roll.)
 #
-# Plain int: this service is single-process asyncio, so += / -= are atomic.
-_inflight_work: int = 0
+# Plain dict: this service is single-process asyncio, so mutation is atomic.
+# Values are monotonic start times, so /health can report the OLDEST in-flight
+# request's age. A bare count cannot distinguish "a legitimate 10-hour turn"
+# (binding rule #14 — must keep reporting busy) from "something is pinned":
+# a request that never ends holds this container busy forever, which the
+# broker now honours, so the container stops being reapable. Age makes that
+# state a visible fact instead of an assumption.
+_inflight_started: dict[int, float] = {}
+_next_work_id: int = 0
 
 # Request prefixes that mean "someone is using this container". /agent-loop
 # is a streaming turn; the office-watch endpoints proxy to a server running
@@ -121,6 +130,15 @@ _inflight_work: int = 0
 # never mark the container busy, or the broker's probe would be self-
 # fulfilling.
 _WORK_PATH_PREFIXES = ("/agent-loop", "/watch")
+
+# Budget for reading a request body. Generous next to any real payload, and
+# unrelated to how long the turn itself may run.
+_BODY_READ_TIMEOUT_S = 60.0
+
+# Read-gap budget for the office-watch passthrough. Applies ONLY there: the
+# agent-loop stream must stay unbounded (binding rule #14 — a tool call can
+# think for hours with nothing to send).
+_WATCH_READ_TIMEOUT_S = 300.0
 
 
 class InFlightWorkMiddleware:
@@ -154,12 +172,14 @@ class InFlightWorkMiddleware:
         ):
             await self.app(scope, receive, send)
             return
-        global _inflight_work
-        _inflight_work += 1
+        global _next_work_id
+        _next_work_id += 1
+        work_id = _next_work_id
+        _inflight_started[work_id] = monotonic()
         try:
             await self.app(scope, receive, send)
         finally:
-            _inflight_work -= 1
+            _inflight_started.pop(work_id, None)
 
 
 app.add_middleware(InFlightWorkMiddleware)
@@ -167,10 +187,14 @@ app.add_middleware(InFlightWorkMiddleware)
 
 @app.get("/health")
 def health() -> dict:
+    oldest = min(_inflight_started.values(), default=None)
     return {
         "status": "healthy",
-        "busy": _inflight_work > 0,
-        "inflight_work": _inflight_work,
+        "busy": bool(_inflight_started),
+        "inflight_work": len(_inflight_started),
+        "inflight_oldest_s": (
+            None if oldest is None else round(monotonic() - oldest, 1)
+        ),
     }
 
 
@@ -256,7 +280,16 @@ async def watch_passthrough(port: int, path: str, request: Request) -> Response:
     if request.url.query:
         upstream += f"?{request.url.query}"
     fwd = {k: v for k, v in request.headers.items() if k.lower() in ("accept", "cache-control", "last-event-id")}
-    timeout = aiohttp.ClientTimeout(total=None, sock_read=None, sock_connect=10)
+    # sock_read is bounded, unlike the agent-loop stream's. Upstream here is a
+    # LOCAL process on 127.0.0.1, so a long read gap is a wedge, not network
+    # weather — and an unbounded one pins this request open forever when the
+    # client half-closes (laptop sleeps, NAT drops the mapping: no FIN, so no
+    # http.disconnect ever arrives). That would hold the container marked busy
+    # for good, and the broker now honours busy. SSE keep-alives are well
+    # inside this window.
+    timeout = aiohttp.ClientTimeout(
+        total=None, sock_read=_WATCH_READ_TIMEOUT_S, sock_connect=10,
+    )
     session = aiohttp.ClientSession(timeout=timeout)
     try:
         resp = await session.get(upstream, headers=fwd)
@@ -283,14 +316,25 @@ async def watch_passthrough(port: int, path: str, request: Request) -> Response:
 
 
 @app.post("/agent-loop")
-async def agent_loop(request: Request) -> StreamingResponse:
+async def agent_loop(request: Request) -> Response:
     """Run one agent turn and stream raw event dicts back as NDJSON.
 
     One JSON object per line:
       {"event": {...}}            a raw agent-loop event
       {"error": {"type","message"}}  the loop raised
     """
-    body = await request.json()
+    # Bound the BODY read, and only the body read. An unauthenticated
+    # /agent-loop is reachable from inside this very container — the agent's
+    # own Bash can POST a chunked request and never close it, and
+    # request.json() would then wait forever while the middleware above holds
+    # the container marked busy, i.e. never reapable. This is a parse budget,
+    # NOT a ceiling on the turn: once the body is in, the loop below runs as
+    # long as it likes (binding rule #14).
+    try:
+        body = await asyncio.wait_for(request.json(), timeout=_BODY_READ_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("[Executor] agent-loop request body never completed")
+        return JSONResponse({"error": "request body timed out"}, status_code=408)
     framework = body["framework"]
     working_path = body["working_path"]
 
