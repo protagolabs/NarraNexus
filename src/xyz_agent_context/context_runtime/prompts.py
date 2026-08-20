@@ -168,18 +168,26 @@ turn's full detail (tools used, reasoning, output).
 
 # Reply-language directive. Policy history matters here: the 2026-08-11
 # version made the UI language a HARD constraint ("write every reply in
-# {name}") — Shenzhen round-2 retest (手册 B4) showed the inversion that
-# causes: UI set to Chinese, English questions answered in Chinese. Owner
-# decision 2026-08-20: the CURRENT message's language wins; the configured
-# preference only decides when the message's language is undeterminable.
-# Filled by context_runtime.build_reply_language_section; still byte-stable
-# per user, so the cacheable prompt region stays intact (R4).
+# {name}") — the Shenzhen round-2 retest (manual checklist B4) showed the
+# inversion that causes: UI set to Chinese, English questions answered in
+# Chinese. Owner decision 2026-08-20: three-level priority — an explicit
+# language request in the message wins, then the CURRENT message's own
+# language, then the configured preference as the undeterminable-language
+# fallback. The separator reference reuses USER_MESSAGE_SEPARATOR (one
+# spelling; relocation may be off, hence "when present"). Filled by
+# context_runtime.build_reply_language_section; still byte-stable per user,
+# so the cacheable prompt region stays intact (R4).
 REPLY_LANGUAGE_SECTION = (
     "## Reply language\n"
-    "Reply in the language of the user's CURRENT message: an English "
+    "Reply in the language of the user's CURRENT message — when a '"
+    + USER_MESSAGE_SEPARATOR
+    + "' separator is present, that means the text AFTER it; the "
+    "turn-context block above it is not the user's words. An English "
     "question gets an English answer, a Chinese question a Chinese one — "
     "matching each message even when the conversation switches languages. "
-    "The user's configured preference is {name} ({code}); use it ONLY as "
-    "the fallback when the message has no determinable language (bare "
-    "code, links, numbers, emoji, or an even mix)."
+    "If that message explicitly asks for a specific language, that request "
+    "wins over everything else. The user's configured preference is {name} "
+    "({code}); use it only as the fallback when the message has no "
+    "determinable language (bare code, links, numbers, emoji, or an even "
+    "mix)."
 )
