@@ -166,12 +166,20 @@ turn's full detail (tools used, reasoning, output).
 """
 
 
-# Reply-language directive (2026-08-11 fix: UI language never reached the
-# model). Filled by context_runtime.build_reply_language_section; byte-
-# stable per user, so the cacheable prompt region stays intact (R4).
+# Reply-language directive. Policy history matters here: the 2026-08-11
+# version made the UI language a HARD constraint ("write every reply in
+# {name}") — Shenzhen round-2 retest (手册 B4) showed the inversion that
+# causes: UI set to Chinese, English questions answered in Chinese. Owner
+# decision 2026-08-20: the CURRENT message's language wins; the configured
+# preference only decides when the message's language is undeterminable.
+# Filled by context_runtime.build_reply_language_section; still byte-stable
+# per user, so the cacheable prompt region stays intact (R4).
 REPLY_LANGUAGE_SECTION = (
     "## Reply language\n"
-    "The user's preferred language is {name} ({code}). Write every "
-    "user-facing reply in {name}, unless the user explicitly asks for "
-    "another language in their message."
+    "Reply in the language of the user's CURRENT message: an English "
+    "question gets an English answer, a Chinese question a Chinese one — "
+    "matching each message even when the conversation switches languages. "
+    "The user's configured preference is {name} ({code}); use it ONLY as "
+    "the fallback when the message has no determinable language (bare "
+    "code, links, numbers, emoji, or an even mix)."
 )

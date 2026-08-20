@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -120,3 +120,11 @@ that each line carries an event id for view_event drill-down.
 ## 新人易踩的坑
 
 Adding a new structural section to the system prompt requires two coordinated changes: a new constant here, and a corresponding insertion point in `context_runtime.py`. Defining the constant without wiring it in, or wiring it in with an inline string literal rather than a constant, both compile without errors and produce a broken or non-auditable prompt. The convention is: if text appears literally in a `build_*` method, it belongs in this file instead.
+
+## 2026-08-20 — 回复语言:当次消息优先,偏好只做兜底(深圳复测 B4)
+
+2026-08-11 版把界面语言写成硬约束(「write every reply in {name}」),
+复测实锤方向反转:界面中文时英文提问也回中文。Owner 拍板:**当次
+消息的语言赢**,配置偏好只在消息语言不可判定(纯代码/链接/数字/
+emoji/均匀混合)时兜底。模板仍 byte-stable per user(R4 缓存区纪律
+不变)。验收=同一会话中文问中文答、英文问英文答,切界面语言不改变。
