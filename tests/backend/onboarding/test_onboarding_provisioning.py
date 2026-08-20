@@ -331,11 +331,18 @@ def test_safe_timezone_falls_back_on_garbage():
     assert ob._safe_timezone("") == "UTC"
 
 
-def _simulate_last_fire_and_goodbye_day(drift):
+def _simulate_last_fire_and_goodbye_day(drift, provision_utc=None, tz="UTC"):
     """Run the real fire sequence (compute_next_run schedules each fire from
     the previous run's ACTUAL completion time, so it drifts later each round)
-    and return (last_un_crossed_fire_local_date, quoted_goodbye_day)."""
+    and return (last_un_crossed_fire_LOCAL_date, quoted_goodbye_day).
+
+    Both dates live on the JOB'S timezone axis: `end_local` is derived from
+    `end_at` the same way provisioning does (astimezone(tz)), and the fire date
+    is the fire instant converted to `tz` — the day the agent actually reads as
+    "today". No UTC-date-vs-local-date mixing, so a non-UTC tz can't introduce a
+    spurious off-by-one."""
     from datetime import datetime, timedelta, timezone as dt_tz
+    from zoneinfo import ZoneInfo
 
     from xyz_agent_context.module.job_module._job_scheduling import (
         compute_next_run,
@@ -343,10 +350,18 @@ def _simulate_last_fire_and_goodbye_day(drift):
     )
     from xyz_agent_context.schema.job_schema import JobType, TriggerConfig
 
-    provision_utc = datetime(2026, 8, 19, 10, 0, 0, tzinfo=dt_tz.utc)
-    end_local = (provision_utc + timedelta(days=ob.CHECKIN_END_AFTER_DAYS)).replace(tzinfo=None)
+    if provision_utc is None:
+        provision_utc = datetime(2026, 8, 19, 10, 0, 0, tzinfo=dt_tz.utc)
+    zi = ZoneInfo(tz)
+    # Production semantics (provisioning._create_checkin_job): end_local is end_at in
+    # local time, and the payload quotes the day BEFORE it.
+    end_local = (
+        (provision_utc + timedelta(days=ob.CHECKIN_END_AFTER_DAYS))
+        .astimezone(zi)
+        .replace(tzinfo=None)
+    )
     goodbye_day = (end_local - timedelta(days=1)).date()  # what provisioning quotes
-    tc = TriggerConfig(interval_seconds=86400, timezone="UTC", end_at=end_local)
+    tc = TriggerConfig(interval_seconds=86400, timezone=tz, end_at=end_local)
 
     next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=provision_utc).utc
     last_fire_date = None
@@ -354,9 +369,8 @@ def _simulate_last_fire_and_goodbye_day(drift):
         if past_schedule_horizon(tc, next_fire):
             break
         # The FIRE instant is when the poller runs the job and the agent reads
-        # "today" — NOT fire + runtime. next_fire.date() is the day the goodbye
-        # would be evaluated against end_date.
-        last_fire_date = next_fire.date()
+        # "today" (in the job's tz) — NOT fire + runtime.
+        last_fire_date = next_fire.astimezone(zi).date()
         completion = next_fire + drift  # drift = poller delay + agent_loop runtime
         next_fire = compute_next_run(JobType.SCHEDULED, tc, last_run_utc=completion).utc
     else:
@@ -365,32 +379,67 @@ def _simulate_last_fire_and_goodbye_day(drift):
     return last_fire_date, goodbye_day
 
 
-def test_goodbye_day_is_reachable_by_the_drifting_fire_sequence():
-    """Normal drift (a check-in is one short message, seconds of runtime): the
-    quoted goodbye day must actually get a fire — last un-crossed fire's local
-    date >= the quoted day. Protects anyone who later changes
-    CHECKIN_END_AFTER_DAYS, the interval, or the end_date arithmetic. (Equality
-    is the normal case; a later date means drift crossed a midnight — still
-    covered by the payload's "or later" wording.)"""
-    from datetime import timedelta
+def test_goodbye_day_is_reachable_under_realistic_drift():
+    """Realistic drift (a check-in is one short message — seconds of runtime):
+    the quoted goodbye day MUST get a fire, across several provision times AND
+    timezones (the reference is local-date, not UTC-date). Equality is normal;
+    a later date means drift crossed a midnight — still covered by the payload's
+    "or later" wording. Protects anyone who later changes CHECKIN_END_AFTER_DAYS,
+    the interval, or the end_date arithmetic."""
+    from datetime import datetime, timedelta, timezone as dt_tz
+
+    provisions = [
+        datetime(2026, 8, 19, 0, 30, tzinfo=dt_tz.utc),
+        datetime(2026, 8, 19, 10, 0, tzinfo=dt_tz.utc),
+        datetime(2026, 8, 19, 15, 0, tzinfo=dt_tz.utc),
+        datetime(2026, 8, 19, 23, 30, tzinfo=dt_tz.utc),
+    ]
+    for tz in ("UTC", "Asia/Shanghai", "America/Los_Angeles"):
+        for prov in provisions:
+            for drift in (timedelta(seconds=90), timedelta(minutes=20)):
+                last_fire_date, goodbye_day = _simulate_last_fire_and_goodbye_day(
+                    drift, provision_utc=prov, tz=tz
+                )
+                assert last_fire_date >= goodbye_day, (
+                    f"tz={tz} provision={prov} drift={drift}: "
+                    f"last fire {last_fire_date} < goodbye {goodbye_day}"
+                )
+
+
+def test_large_drift_slips_the_goodbye_earlier_accepted_degradation():
+    """The "minus one day" budget is NOT stable under arbitrary drift (the
+    round-4 "any magnitude" claim was wrong). Once per-run drift grows past the
+    provision's local time-of-day, the last un-crossed fire slips a calendar day
+    earlier than the quoted goodbye day, so the farewell line is skipped. This
+    is an ACCEPTED degradation — pathological for a real check-in (this is ~21h
+    of drift per round) and the platform brake completes the job on schedule
+    regardless (see test_horizon_always_completes_regardless_of_drift). Pinned
+    so the boundary is documented, not hidden behind two lucky drift values."""
+    from datetime import datetime, timedelta, timezone as dt_tz
 
     last_fire_date, goodbye_day = _simulate_last_fire_and_goodbye_day(
-        timedelta(seconds=90)
+        timedelta(hours=21, minutes=36),
+        provision_utc=datetime(2026, 8, 19, 10, 0, tzinfo=dt_tz.utc),
+        tz="UTC",
     )
-    assert last_fire_date >= goodbye_day
+    # Goodbye skipped — accepted. The brake is unaffected (test below).
+    assert last_fire_date < goodbye_day
 
 
-def test_goodbye_day_holds_even_under_large_drift():
-    """The "minus one day" budget is more robust than one naive interval:
-    drift delays the FIRE instant by the same amount it advances the horizon
-    crossing, so the two cancel and the last fire's DATE stays on the goodbye
-    day regardless of drift magnitude (verified at 3h AND 12h per round — an
-    order of magnitude past any real check-in). This documents that the
-    round-4-review Minor-1 worry ("large drift slips the last fire to day 12,
-    missing the goodbye") does NOT materialise: the earlier miss came from
-    measuring the wrong instant (fire + runtime instead of the fire itself)."""
-    from datetime import timedelta
+def test_horizon_always_completes_regardless_of_drift():
+    """Whatever the drift, the platform brake fires: the fire sequence always
+    crosses the horizon (the helper raises if it never does), i.e. the job is
+    guaranteed to complete. The goodbye is best-effort; the brake is not."""
+    from datetime import datetime, timedelta, timezone as dt_tz
 
-    for drift in (timedelta(hours=3), timedelta(hours=12)):
-        last_fire_date, goodbye_day = _simulate_last_fire_and_goodbye_day(drift)
-        assert last_fire_date >= goodbye_day, f"drift={drift} missed the goodbye day"
+    for drift in (
+        timedelta(seconds=90),
+        timedelta(hours=3),
+        timedelta(hours=21, minutes=36),
+    ):
+        # Does not raise ⇒ the horizon was crossed and the job completes.
+        _simulate_last_fire_and_goodbye_day(
+            drift,
+            provision_utc=datetime(2026, 8, 19, 10, 0, tzinfo=dt_tz.utc),
+            tz="UTC",
+        )

@@ -386,10 +386,15 @@ real failure reason on the job row.
 重武装侧门同样接了地平线（否则"排到 X 日"会从失败重试/僵尸自愈漏一次
 fire）：`_rearm_cooled_jobs` 对退火完成但重试时刻已越线的 COOLING job 直接
 完结；`_heal_unscheduled_active_jobs` 对重算 next_run 已越线的僵尸完结而非
-复活。**已知有界缺口（有意保留）**：`job_recovery.reschedule_job`（用户改
-执行时间的路径）不查地平线——最坏多跑一次，随后 finalize 越线完结；改它
-要动用户可见的 reschedule 契约，留待真实需求。恢复面核对过：job_recovery
-只复活 PAUSED_NO_QUOTA，不会把 COMPLETED 拉回来。
+复活。**已知有界缺口（有意保留，round-5 review B 补全枚举）**：4 个恢复路径
+写 next_run 但不查地平线——`job_recovery.rearm_user_no_quota_jobs`（登录/额度
+恢复边缘）、`resume_job`（用户手动恢复）、`reschedule_job`（用户改执行时间）、
+`_resume_eligible_no_quota_jobs`（15min backstop）。都是复活 PAUSED 态 job 的
+恢复路径，最坏多跑一次，随后 finalize 越线完结（finalize 是权威兜底）；不给
+它们加守卫是因为完结一个从未在本轮运行的 PAUSED 态 job 与 finalize 的 instance
+完结语义不同（PAUSED 态 instance 非 in_progress），加守卫是另一个设计决定、需
+各配测试。恢复面核对过：job_recovery 只复活 PAUSED_NO_QUOTA，不会把 COMPLETED
+拉回来。
 
 测试：tests/job_module/test_schedule_horizon.py（越线完结 / 未越线照常 /
 无地平线逐字不变 / 自暂停不被复活 / CANCELLED 不被 COMPLETED 覆盖 /
@@ -408,10 +413,18 @@ COOLING 与僵尸两条侧门的越线+无地平线对照）。
   next_run 已清空为 None → 跳过、绝不二次完结（防重复触发 instance
   completion）。next_run_time 从 DB 回来可能 naive，先补 tzinfo=utc 再比
   （同 _rearm_cooled_jobs）。iteration_count 只在机械回退支前写一次，else
-  支不重写。测试：test_schedule_horizon.py 的
+  支不重写。**`_IN_RUN_STOPS` 守卫（round-5 review 🟢2）**：越线判断前先看
+  `current_status not in _IN_RUN_STOPS`——in-run stop（用户 Jobs 面板暂停/
+  取消，或 hook 写了 PAUSED/CANCELLED 等终止态）拥有结局，否则残留/hook 重排
+  的越线 next_run 会把运行中被 cancel 的 job 盖成 COMPLETED（SCHEDULED 分支
+  一直有同款守卫）。这条 respect 路径**不**补 per-run instance completed（与
+  SCHEDULED 不同，ONGOING 有意如此）。测试：test_schedule_horizon.py 的
   hook_reschedule_past_horizon_completes（越线完结，删 else 支判断必红）/
   hook_reschedule_before_horizon_is_respected（未越线保持 active）/
-  hook_completed_is_not_double_completed（None next_run 跳过）。
+  hook_completed_is_not_double_completed（None next_run 跳过，spy
+  _update_instance_completed 断言零调用，不再空断言）/
+  hook_reschedule_respects_inrun_cancel（in-run CANCELLED 不被 COMPLETED 覆盖，
+  删 _IN_RUN_STOPS 守卫必红）。
 - **`_rearm_cooled_jobs` 两处收口**：加 `job_type != ONE_OFF` 守卫（one_off
   没有"下一次 fire"可bound，越线完结会把一个从未送达的一次性提醒标成
   completed）；重试时刻用 `max(cu, now)`——停机数天后 cu 早于地平线而 now

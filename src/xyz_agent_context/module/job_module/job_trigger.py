@@ -1476,8 +1476,17 @@ The task was executed but produced no text output.
                         # completion). next_run_time may round-trip naive from
                         # the DB, so normalize to aware-UTC before comparing
                         # (same as _rearm_cooled_jobs).
+                        #
+                        # _IN_RUN_STOPS guard (same as the SCHEDULED branch):
+                        # an in-run stop — a user pause/cancel from the Jobs
+                        # panel, or the hook writing a terminal/paused status —
+                        # owns the outcome. Without this, a stale or hook-set
+                        # crossed next_run below would stamp COMPLETED over a
+                        # mid-run CANCELLED/PAUSED. No per-run instance
+                        # completion on this respect path (unlike SCHEDULED) —
+                        # that difference is intentional for ONGOING.
                         hook_next = current_job.next_run_time if current_job else None
-                        if hook_next is not None:
+                        if current_status not in _IN_RUN_STOPS and hook_next is not None:
                             if hook_next.tzinfo is None:
                                 hook_next = hook_next.replace(tzinfo=timezone.utc)
                             if past_schedule_horizon(job.trigger_config, hook_next):

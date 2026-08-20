@@ -414,8 +414,14 @@ async def test_ongoing_hook_reschedule_before_horizon_is_respected(db_client):
 @pytest.mark.asyncio
 async def test_ongoing_hook_completed_is_not_double_completed(db_client):
     # Hook already finished the job (COMPLETED, next_run cleared): finalize
-    # must NOT re-complete it (would re-fire instance completion). The cleared
-    # next_run (None) is the skip signal.
+    # must NOT re-complete it — re-firing instance completion would push the
+    # ModulePoller dependency chain a second time. The cleared next_run (None)
+    # is the skip signal. Asserting only status==COMPLETED was vacuous (the row
+    # is COMPLETED either way); spy the instance-completion call so a
+    # regression that treats a None next_run as "horizon reached → complete"
+    # (or otherwise re-completes here) turns red.
+    from unittest.mock import AsyncMock
+
     await _insert_job_of_type(
         db_client, "job_o5", "ongoing",
         '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00","end_condition":"x"}',
@@ -426,6 +432,8 @@ async def test_ongoing_hook_completed_is_not_double_completed(db_client):
         "instance_jobs", {"job_id": "job_o5"},
         {"status": "completed", "next_run_time": None},
     )
+    spy = AsyncMock()
+    trigger._update_instance_completed = spy  # type: ignore[method-assign]
 
     await trigger._finalize_job_execution(
         job, {"success": True, "event_id": None, "content": "ok"}
@@ -433,3 +441,36 @@ async def test_ongoing_hook_completed_is_not_double_completed(db_client):
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_o5"})
     assert row["status"] == JobStatus.COMPLETED.value  # unchanged, no error
+    spy.assert_not_called()  # no SECOND instance completion
+
+
+@pytest.mark.asyncio
+async def test_ongoing_hook_reschedule_respects_inrun_cancel(db_client):
+    # A user cancelled the ONGOING job mid-run while a stale/hook-set
+    # next_run_time still points past the horizon. The else (hook-owned) branch
+    # must NOT stamp COMPLETED over CANCELLED — same _IN_RUN_STOPS guard the
+    # SCHEDULED branch has — and must not fire instance completion. Deleting the
+    # guard turns this red (status becomes COMPLETED, spy called once).
+    from unittest.mock import AsyncMock
+
+    await _insert_job_of_type(
+        db_client, "job_o6", "ongoing",
+        '{"interval_seconds":86400,"timezone":"UTC","end_at":"2026-01-01T00:00:00","end_condition":"x"}',
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await JobRepository(db_client).get_job("job_o6")  # snapshot: running
+    # Simulate the user cancelling mid-run; a crossed next_run lingers on the row.
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_o6"},
+        {"status": "cancelled", "next_run_time": "2026-08-20T00:00:00Z"},
+    )
+    spy = AsyncMock()
+    trigger._update_instance_completed = spy  # type: ignore[method-assign]
+
+    await trigger._finalize_job_execution(
+        job, {"success": True, "event_id": None, "content": "ok"}
+    )
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_o6"})
+    assert row["status"] == "cancelled"  # in-run stop wins, NOT COMPLETED
+    spy.assert_not_called()

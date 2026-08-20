@@ -86,11 +86,22 @@ marker. Zero raw SQL.
   "after" wording and the round-2 "or later" fix) put the goodbye on a day
   with no fire — the guide vanished mid-smalltalk (round-3 review finding
   A, second round on the same defect). "or later" stays so a drift that
-  crosses a midnight still triggers the goodbye. Behavioral guard:
-  test_goodbye_day_is_reachable_by_the_drifting_fire_sequence simulates the
-  drifting fire sequence and asserts the quoted day actually gets a fire —
-  it protects any future change to CHECKIN_END_AFTER_DAYS, the interval, or
-  the end_date arithmetic.
+  crosses a midnight still triggers the goodbye. **Robustness bound (round-5
+  review A):** "minus one day" is NOT stable under arbitrary drift — an
+  earlier note claimed the fire instant and the horizon crossing "cancel",
+  they don't. They leave the last allowed fire in a window of width ~drift,
+  so once per-run drift grows past the provision's local time-of-day the last
+  fire can slip one calendar day earlier than the quoted day and the goodbye
+  is skipped. That only costs the farewell line; the platform brake completes
+  on schedule regardless. For a real check-in (one short message, seconds of
+  runtime) drift is negligible and the goodbye always lands. Behavioral
+  guards in test_onboarding_provisioning.py:
+  test_goodbye_day_is_reachable_under_realistic_drift (grid of provision
+  times × timezones × small drifts, all reach the quoted day),
+  test_large_drift_slips_the_goodbye_earlier_accepted_degradation (the ~21h
+  case, pinned as accepted), and test_horizon_always_completes_regardless_of_drift
+  (the brake fires no matter the drift). They protect any future change to
+  CHECKIN_END_AFTER_DAYS, the interval, or the end_date arithmetic.
 - **has-agents users get the marker, not an agent**: someone already using
   the product doesn't need a stranger pinging them; the marker makes later
   logins skip before the agents query (`find_one`, not a full find).
