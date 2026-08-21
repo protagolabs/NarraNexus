@@ -864,3 +864,55 @@ async def test_prefill_rejection_keeps_retrying_after_the_repair():
     assert len(model.requests) == 3          # repair + one real retry
     assert not [e for e in events if e.type == TYPE_ERROR]
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+@pytest.mark.asyncio
+async def test_queued_steering_reaches_the_next_model_request():
+    """The P4 live-steering path, end to end through the real loop.
+
+    A message queued on a QueueSteeringInlet is drained at the step
+    boundary (DRAIN_STEERING), recorded on the ledger, and rides the NEXT
+    model request — so a mid-turn interjection reaches the agent on its
+    next LLM step without a fresh turn. Delete DRAIN_STEERING or the
+    concrete inlet and this goes red.
+    """
+    import asyncio
+
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+        QueueSteeringInlet,
+    )
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put({"role": "user", "content": "STEERED: stop and reconsider"})
+
+    model = FakeModel([
+        # Step 1: no tool calls. Queue is non-empty, so the step-boundary
+        # drain injects and forces another step instead of stopping.
+        [_text("working on it"), _done(stop="end_turn")],
+        # Step 2: queue now empty -> drain empty -> normal stop.
+        [_text("reconsidered"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(
+        _assembly(model, FakeTools(), steering=QueueSteeringInlet(queue)),
+    )
+
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    # The injection forced a second step rather than closing on step 1.
+    assert len(model.requests) == 2
+    injected = [
+        m for m in model.requests[1].messages
+        if "STEERED" in str(m.get("content", ""))
+    ]
+    assert injected, "the queued steering message must ride the next request"
+
+
+@pytest.mark.asyncio
+async def test_no_steering_closes_on_the_first_stoppable_step():
+    """Guard the negative: with the default (null) inlet, a mute step
+    with no queued input closes immediately — the second-step behaviour
+    above is caused by the injection, not by the harness always looping."""
+    model = FakeModel([[_text("done"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    assert len(model.requests) == 1
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
