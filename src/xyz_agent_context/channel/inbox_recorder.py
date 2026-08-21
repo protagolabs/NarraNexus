@@ -130,6 +130,7 @@ class InboxRecorder:
         outbound_text: str = "",
         inbound_attachments: Optional[Sequence[dict]] = None,
         outbound_attachments: Optional[Sequence[dict]] = None,
+        chat_id: str = "",
     ) -> None:
         """Record one turn: what arrived, and what the agent said back.
 
@@ -195,6 +196,43 @@ class InboxRecorder:
             },
         )
         logger.info(f"InboxRecorder[{self._source}]: recorded turn in {thread_id}")
+
+        # Reachability, recorded automatically. An inbound turn is proof this
+        # agent CAN reach this counterpart on this channel, in this exact
+        # conversation — so remember it on the counterpart's social entity, the
+        # single home for "who I know and how to reach them" (Owner: no parallel
+        # per-surface rosters). Kept out of the inbox write's own re-raise: a
+        # failure to record reach must never lose the inbox row.
+        await self._record_reach(agent_id=agent_id, counterpart_id=counterpart_id, chat_id=chat_id)
+
+    async def _record_reach(self, *, agent_id: str, counterpart_id: str, chat_id: str) -> None:
+        """Write "agent_id reaches counterpart_id on <source> via <chat_id>" onto
+        the counterpart's social entity (`contact_info.channels`), through the
+        social data store — no direct module import (binding rule #3), no LLM.
+
+        Best-effort: an address book is not worth a turn (same posture as the
+        bus address book). Skips when there is no conversation to point at.
+        """
+        if not chat_id or not counterpart_id or not agent_id:
+            return
+        try:
+            from xyz_agent_context.channel.channel_contact_utils import set_channel_info
+            from xyz_agent_context.module.data_access import get_agent_data_store
+
+            contact = set_channel_info(
+                {}, self._source, {"id": counterpart_id, "rooms": {agent_id: chat_id}}
+            )
+            await get_agent_data_store().extract_entity_info(
+                agent_id=agent_id,
+                entity_id=counterpart_id,
+                updates={"contact_info": contact},
+                update_mode="merge",
+            )
+        except Exception as e:  # noqa: BLE001 — reach is never worth a turn
+            logger.warning(
+                f"InboxRecorder[{self._source}]: reach recording failed "
+                f"(agent={agent_id}, counterpart={counterpart_id}): {e}"
+            )
 
     async def record_peer_message(
         self,

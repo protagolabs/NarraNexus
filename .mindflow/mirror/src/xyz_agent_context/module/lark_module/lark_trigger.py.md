@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — record_turn 接线 chat_id（PR-2 自动 reach 记录）
+
+两处 `record_turn(...)` 调用各加 `chat_id=`(site1 `message.chat_id`,site2 局部 `chat_id`)。让 [[inbox_recorder.py]] 把「本 agent 在 Lark 会话 X 能触达发件人」自动写进 social graph。纯传参,无控制流变化。
 
 ## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
 

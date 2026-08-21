@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — record_turn 接线 chat_id（PR-2 自动 reach 记录）
+
+两处 `self._inbox_recorder.record_turn(...)` 调用各加 `chat_id=message.chat_id,`。`record_turn` 用它把「本 agent 在这个渠道/会话能触达发件人」自动写进 social graph(见 [[inbox_recorder.py]] 同日条目)。纯传参,无控制流变化;不传时 `record_turn` 的 `chat_id` 默认 `""` → 不记 reach。
 
 ## 2026-08-17 — inbox 写入换成 InboxRecorder
 

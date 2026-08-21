@@ -4,6 +4,16 @@ last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 — 自动记录「怎么回联」到 social graph（PR-2 可达性）
+
+**背景**:reach 记录此前是手动/不可靠——channel prompt 指令 #5 让 agent「若学到新信息就调 extract_entity_info 存到 contact_info.channels」,`_on_event_executed` 是 no-op,`set_channel_info` 无自动调用者。于是通讯录基本是空的,agent 在别的 surface 无从知道自己能在 Lark/微信 触达某人。
+
+**改动**:`record_turn` 加 `chat_id` 参数,尾部(inbox 写入之后)调新私有方法 `_record_reach`:把「agent 在 <source> 渠道、会话 <chat_id> 能触达 counterpart」写进 counterpart 社交实体的 `contact_info.channels`(`set_channel_info({}, source, {"id": counterpart, "rooms": {agent_id: chat_id}})` → `get_agent_data_store().extract_entity_info(...)`)。**best-effort/fail-open**:reach 记录失败绝不能丢 inbox 行(inbox 写入自己 re-raise,reach 单独 try 吞掉 + warning)。**无跨模块 import**(走 `data_access` seam,铁律 #3),**无 LLM**。`chat_id` 空 / counterpart 空 → 跳过(如 agent_dm 无会话坐标)。
+
+调用点接线:`channel_trigger_base.py`(2 处)传 `message.chat_id`;`lark_trigger.py`(2 处)传 `message.chat_id`/`chat_id`。守卫 `test_inbox_reach_recording.py`(真 db:记下→读回、无 chat_id 不记、reach 失败 monkeypatch 让 store 抛异常仍不丢 inbox 行——删 try/except 即变红,非假绿)。
+
+**已知 Minor(接受,预审记录)**:① reach 首次遇见陌生发件人会建**无名**实体(只传 contact_info,没传 counterpart_name)——同轮 LLM 抽取路径通常随即命名,exact-id 查得到,name-search 短暂查不到;不在此处传 name 是刻意:merge 分支会用原始渠道显示名**覆盖** LLM 定的规范名,要修得「仅 create 时设名」,超出本 PR。② `_record_reach` 不在 MCP 请求上下文里,`get_agent_data_store()` 无 identity headers——env 未设时全是 DirectStore 无碍;P2 翻 `NARRANEXUS_BACKEND_URL` 后 trigger 非请求 → HttpStore 401 → reach 静默停(fail-open 掩盖),P2 runbook 需给 trigger 一条 service-identity 路径。③ reach 按裸 `counterpart_id` 写、绕过 dedup,靠 `merge_entities` 事后合并。
+
 ## 2026-08-20 — `record_peer_message`：A2A DM 的双线程写入
 
 新增 `record_peer_message`（+ 私有 `_record_one_way`），补 08-17 迁移漏掉的

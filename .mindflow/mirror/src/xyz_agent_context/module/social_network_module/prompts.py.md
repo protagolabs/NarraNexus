@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/prompts.py
-last_verified: 2026-07-28
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — 新增「跨渠道触达」流程指令(PR-2 WS-D)
+
+`SOCIAL_NETWORK_MODULE_INSTRUCTIONS` 的第 3 节后加子节 **§3b「Reaching someone on a channel you are NOT currently in」**。教 agent:你不被困在触发会话;要触达别处的人/agent(你已连接且此前触达过的渠道)——① `search_social_network` 结果已含 `contact_info`;② 读 `contact_info.channels`,每个 key 是一个渠道,`rooms[你的agent_id]` = 该用哪个会话 id,`preferred_channel` 是对方偏好;③ 调那个渠道自己的 send 工具(`*_send(room_id, text)`,绑定后每轮在桌上)。没有对应 channels 条目 = 没有已记录的触达方式,**明说,别猜 id**。
+
+配套事实:reach 由 [[inbox_recorder.py]] 自动记录(prompt 里点明「automatically」),所以 `contact_info.channels` 随交互自动填充;send 工具跨 surface 可用(绑定即在桌,`ChannelModuleBase.get_disallowed_tools` 只按未绑定压制、不按触发渠道——`test_setup_residency.py` 新增 cross-surface 锁)。守卫 `tests/social_network_module/test_reach_flow.py`(措辞锁 + `format_contact_result` 返回 channels)。这是「能力跟着 agent 走」从内部 bus(PR-1)扩到外部 IM 的用户可见落点。
 
 ## 2026-07-28 — R4b：新增 SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE
 
