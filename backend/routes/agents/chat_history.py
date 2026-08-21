@@ -25,7 +25,7 @@ from backend.routes._ownership import assert_owned
 from xyz_agent_context.module.chat_module import fetch_chat_history
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import InstanceRepository
+from xyz_agent_context.repository import InstanceRepository, AgentRepository
 from xyz_agent_context.narrative.wipe_service import wipe_agent_data
 from xyz_agent_context.schema import (
     EventInfo,
@@ -43,6 +43,11 @@ from xyz_agent_context.schema.api_schema import InstanceInfo
 
 
 router = APIRouter()
+
+#: working_source values produced by MessageBusTrigger for peer-agent (A2A)
+#: and team turns. The Activity Log surfaces these — and ONLY these — from a
+#: peer-scoped instance (see get_simple_chat_history).
+_A2A_TEAM_SOURCES = ("a2a", "message_bus")
 
 
 def _parse_timestamp(ts: str) -> datetime:
@@ -478,20 +483,49 @@ async def get_simple_chat_history(
 
         all_messages: List[Dict[str, Any]] = []
 
+        owner = await AgentRepository(db_client).resolve_owner(agent_id)
+        is_owner = bool(owner) and owner == user_id
+
         all_instances = await instance_repo.get_by_agent_and_user(
             agent_id=agent_id,
             user_id=user_id,
             include_public=False
         )
-        chat_instances = [
-            inst for inst in all_instances
+        # (instance, peer_scoped) — owner-scoped instances carry the full
+        # conversation; peer-scoped ones contribute A2A/team ACTIVITY only.
+        scoped_instances = [
+            (inst, False)
+            for inst in all_instances
             if inst.module_class == "ChatModule"
             and inst.status not in ("cancelled", "archived")
         ]
 
-        logger.debug(f"Found {len(chat_instances)} active ChatModule instances for agent={agent_id}, user={user_id}")
+        # Activity Log visibility for A2A / team turns. MessageBusTrigger runs
+        # those turns with user_id = sender_agent_id (the peer / team id, not
+        # the owner — message_bus_trigger.py), so they live in ChatModule
+        # instances the owner-scoped query above never returns. Pull the
+        # agent's other ChatModule instances too, but ONLY for the owner; the
+        # message loop below then surfaces ONLY their background a2a /
+        # message_bus rows. A non-owner sharing a public agent must not see the
+        # agent's peer traffic, and no user-facing chat row from another scope
+        # may leak into this view.
+        if is_owner:
+            agent_instances = await instance_repo.get_by_agent(
+                agent_id=agent_id, module_class="ChatModule"
+            )
+            scoped_instances.extend(
+                (inst, True)
+                for inst in agent_instances
+                if inst.user_id != user_id
+                and inst.status not in ("cancelled", "archived")
+            )
 
-        for instance in chat_instances:
+        logger.debug(
+            f"Assembling chat history for agent={agent_id}, user={user_id}: "
+            f"{len(scoped_instances)} instances (owner={is_owner})"
+        )
+
+        for instance, peer_scoped in scoped_instances:
             try:
                 memory_row = await db_client.get_one(
                     "instance_json_format_memory_chat",
@@ -527,6 +561,14 @@ async def get_simple_chat_history(
                         meta_data = msg.get("meta_data", {})
                         working_source = meta_data.get("working_source", "chat")
                         role = msg.get("role", "unknown")
+
+                        # Peer-scoped (A2A / team) instances contribute
+                        # ACTIVITY only: their a2a / message_bus rows, which the
+                        # block below collapses to a compact marker. Any other
+                        # source (a user-facing chat, an IM channel) belonging
+                        # to a non-owner scope is dropped here, never surfaced.
+                        if peer_scoped and working_source not in _A2A_TEAM_SOURCES:
+                            continue
 
                         # For non-user-facing sources (job/lark/slack/
                         # telegram/message_bus/etc), only show assistant

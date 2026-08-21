@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — Activity Log 纳入 A2A/team 活动(owner-only, 仅后台行)
+
+`get_simple_chat_history` 同时喂前端的对话页与 Activity Log(前端按 `working_source` /
+`message_type` 分流)。A2A 与 team 的 turn 经 `MessageBusTrigger` 以
+`user_id = sender_agent_id`(对端 agent id / `TEAM_ROOM_OWNER_PREFIX+team_id`,**非 owner**)
+跑 runtime,落在 peer-scoped 的 ChatModule 实例里;原来只查 `get_by_agent_and_user(agent_id, owner)`,
+这些实例永远匹配不上 owner,Activity Log 里一条 A2A/team 活动都看不到。
+
+修法(读侧,最小面):除 owner-scoped 实例外,**仅当 caller 是 owner**(`resolve_owner`==caller)
+再用 `get_by_agent(agent_id, module_class="ChatModule")` 取该 agent 其余实例(`user_id != caller`),
+标记为 `peer_scoped`。循环里对 peer 实例只放行 `working_source ∈ ("a2a","message_bus")` 的行
+(`_A2A_TEAM_SOURCES`),其余(用户面 chat、IM 频道等他 scope 的行)一律丢弃;放行的行仍走既有
+非用户面折叠逻辑 → 收敛成 `message_type="activity"` 的紧凑标记,对端正文从不逐字外泄。
+隐私边界:`simple-chat-history` 无 `assert_owned`、靠 `user_id` 隐式限定,故非 owner
+(如与公共 agent 聊过的用户)完全不受影响,只看自己那份;owner 才多看到 agent 的 peer/team 活动。
+夹具:`tests/backend/test_activity_log_a2a_visibility.py`(owner 可见折叠行 + 非 owner 零泄漏)。
 
 ## 2026-08-19 — tool_output 配名走 tool_call_id;"unknown" 两个源头都治
 
