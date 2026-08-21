@@ -25,6 +25,7 @@ agent was told not to use.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -36,10 +37,59 @@ from xyz_agent_context.message_bus.system_messages import (
 )
 from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
 
-#: How many consecutive agent hops may pass with no human message before
-#: @mentions stop being delivered. A dead flow IS a long unbroken run of agent
-#: messages, so this is the number that decides when the room stops relaying.
-MAX_TEAM_AGENT_HOPS = 4
+#: Default number of consecutive agent hops that may pass with no human message
+#: before @mentions stop being delivered. A dead flow IS a long unbroken run of
+#: agent messages, so this is the number that decides when the room stops
+#: relaying. 4 (the original) was too small: an ordinary team task needs more
+#: than four uninterrupted agent exchanges to finish, so the room kept stalling
+#: and waiting for a human. It is still a FINITE loop-breaker — a runaway
+#: agent-to-agent @storm is a real incident class — so overrides that are
+#: non-positive or unparseable fall back to the default rather than disabling it.
+_DEFAULT_MAX_TEAM_AGENT_HOPS = 30
+_MAX_HOPS_ENV = "TEAM_MAX_AGENT_HOPS"
+#: Hard upper bound on the resolved cap. The value feeds a `LIMIT` on
+#: `bus_messages` (the bus's busiest table) on every team post, so a fat-finger
+#: `TEAM_MAX_AGENT_HOPS=100000` would turn a few-row scan into a six-figure one
+#: and read as a global slowdown, not an error. Clamp it.
+_MAX_TEAM_AGENT_HOPS_CEILING = 500
+
+
+def _resolve_hop_cap() -> int:
+    """Resolve the agent-to-agent hop cap, honoring the env override.
+
+    A blank, unparseable, or non-positive ``TEAM_MAX_AGENT_HOPS`` falls back to
+    the default: the cap is a loop-breaker and must never be silently disabled.
+    A value above the ceiling is clamped (it lands in a SQL ``LIMIT``).
+    """
+    raw = os.environ.get(_MAX_HOPS_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_MAX_TEAM_AGENT_HOPS
+    try:
+        val = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "[team-post] ignoring unparseable %s=%r; using default %d",
+            _MAX_HOPS_ENV, raw, _DEFAULT_MAX_TEAM_AGENT_HOPS,
+        )
+        return _DEFAULT_MAX_TEAM_AGENT_HOPS
+    if val <= 0:
+        logger.warning(
+            "[team-post] ignoring non-positive %s=%r; the hop cap is a "
+            "loop-breaker and cannot be disabled; using default %d",
+            _MAX_HOPS_ENV, raw, _DEFAULT_MAX_TEAM_AGENT_HOPS,
+        )
+        return _DEFAULT_MAX_TEAM_AGENT_HOPS
+    if val > _MAX_TEAM_AGENT_HOPS_CEILING:
+        logger.warning(
+            "[team-post] clamping %s=%d to ceiling %d (it feeds a SQL LIMIT "
+            "on bus_messages)",
+            _MAX_HOPS_ENV, val, _MAX_TEAM_AGENT_HOPS_CEILING,
+        )
+        return _MAX_TEAM_AGENT_HOPS_CEILING
+    return val
+
+
+MAX_TEAM_AGENT_HOPS = _resolve_hop_cap()
 
 
 def extract_team_mentions(text: str, member_map: Dict[str, str]) -> List[str]:

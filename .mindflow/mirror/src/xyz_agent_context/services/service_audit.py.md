@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/services/service_audit.py
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 公开 `event(event_type, detail)`
+
+之前公开面只有 `started/stopped/error/heartbeat`,任意事件名要调私有 `_emit`。
+[[_message_bus_mcp_tools.py]] 记 `inbox_write_failed` 需要一个生命周期之外的事件名,
+故加公开 `event()` 一行委托 `_emit`,让调用方别再碰私有符号(私有符号可被合法重命名,
+调用方会静默失去审计行)。与其余入口一样**永不抛**。
 
 ## 2026-08-17 — `_last_heartbeat_at` 初值改为 `-inf`
 
