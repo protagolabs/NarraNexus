@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — `_ensure_executor_for_run`：判决在这一层算
+
+新增模块级 `_ensure_executor_for_run(user_id, run_id)`，替掉原来直接调
+`ensure_executor(ctx.user_id)` 的那一行。
+
+**为什么判决在这一层**：这里是唯一同时知道"哪个用户"和"哪个 run 在问"的地方。
+到 step 3 的时候，**提问者自己的 events 行已经是 running**，不把自己排除掉判决就
+恒为"忙"，stale 镜像永远滚不动 —— 那是把一种静默故障（掐 run）换成另一种（旧
+executor 拿到空 MCP 集还不报错）。[[broker_client.py]] 是传输客户端，不拥有这个
+决定的任何一部分。
+
+**为什么抽成一个有名字的函数而不是三行内联**：这个关键字参数的性质是"漏掉它，本
+进程行为一模一样，而 broker 那侧静默回到 2026-07-31 的行为"。内联的话没有任何测试
+会因为它消失而变红；抽成 seam 就能钉住（`test_step3_hands_the_stale_replace_verdict_to_ensure`）。
 
 ## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
 

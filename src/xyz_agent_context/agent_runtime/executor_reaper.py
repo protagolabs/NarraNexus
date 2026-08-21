@@ -28,6 +28,12 @@ container out from under a live group-chat reply, surfacing to the user
 as ``infra_transient``. The idle claim is therefore vetoed by a
 cross-process liveness check against the ``events`` table, which every
 process writes to (incident lesson #5).
+
+That check has a second consumer, which is why it is a module-level
+function here rather than a private of the reaper: the broker's stale-image
+replacement destroys the same container for a different reason, and asking
+the same question two ways is how the two answers drift apart. See
+``stale_replacement_is_safe``.
 """
 from __future__ import annotations
 
@@ -221,6 +227,39 @@ async def live_run_elsewhere(
     except Exception as e:  # noqa: BLE001 — no verdict ⇒ assume busy
         logger.warning(f"[{caller}] busy check unavailable for user={user_id}: {e}")
         return UNKNOWN_RUN
+
+
+async def stale_replacement_is_safe(
+    user_id: str, *, active_run_id: Optional[str] = None
+) -> bool:
+    """Whether the broker may destroy this user's container to roll a stale
+    executor image — the verdict step 3 hands to ``ensure_executor``.
+
+    Second consumer of the liveness answer above, and it lives here so there
+    is ONE place that asks "is anyone using this container?". The alternative
+    is a second running-plus-heartbeat query elsewhere, whose staleness rule
+    drifts from this one the first time either is touched.
+
+    The broker cannot answer this itself and should not learn how: it is the
+    one component with docker access, and its threat model rests on having
+    exactly one caller-controlled input (a user_id it validates). Handing it
+    DB credentials to look up run state would widen that surface for a fact
+    the orchestrator already holds.
+
+    ``active_run_id`` is the asking run's own id, excluded from the answer:
+    at ensure() time the caller's events row is already ``running`` but it
+    has not connected to the container yet, so counting itself would mean
+    "never replace" — and a stale executor after a wire-protocol change
+    degrades runs silently (2026-07: an old executor got an EMPTY MCP set).
+
+    Deliberately conservative: a live run of the same user may not be using
+    the executor at all (not yet at step 3, or a direct-trigger run that
+    never does). Deferring costs one more turn on old code and self-corrects
+    at the next ensure; replacing under a live run kills it (rule #14).
+    """
+    return await live_run_elsewhere(
+        user_id, exclude_run_id=active_run_id, caller="stale-replace",
+    ) is None
 
 
 class _CullVeto:

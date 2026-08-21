@@ -17,6 +17,7 @@ from xyz_agent_context.agent_runtime.executor_reaper import (
     _CullVeto,
     live_run_elsewhere,
     maybe_start_executor_reaper,
+    stale_replacement_is_safe,
 )
 
 
@@ -913,3 +914,67 @@ async def test_a_lost_cull_disabled_row_is_retried_next_pass(monkeypatch):
     # Passes 1-3 retry (1 and 2 failed), pass 4 is silent — the row landed on
     # pass 3, so the slow tick resumes.
     assert attempts == ["cull_disabled"] * 3
+
+
+# --------------------------------------------------------------------------
+# The broker's stale-image replacement verdict (second consumer)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
+    """Same container, same rule as the cull: a live run means hands off."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    async def live(user_id, *, exclude_run_id=None, caller="reaper"):
+        return "evt_live"
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", live)
+    assert await mod.stale_replacement_is_safe("u") is False
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_allowed_when_nothing_is_live(monkeypatch):
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    async def idle(user_id, *, exclude_run_id=None, caller="reaper"):
+        return None
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", idle)
+    assert await mod.stale_replacement_is_safe("u") is True
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_excludes_the_asking_run(monkeypatch):
+    """Step 3's own events row is already 'running' when it asks. Counting
+    itself would mean "never replace", and a stale executor after a
+    wire-protocol change degrades runs silently."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    seen = {}
+
+    async def spy(user_id, *, exclude_run_id=None, caller="reaper"):
+        seen["exclude"] = exclude_run_id
+        seen["caller"] = caller
+        return None
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", spy)
+    assert await mod.stale_replacement_is_safe("u", active_run_id="evt_me") is True
+    assert seen["exclude"] == "evt_me"
+    # Labelled distinctly: the two consumers suffer different consequences
+    # when liveness is unreadable (culling stops vs images stop rolling).
+    assert seen["caller"] == "stale-replace"
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_refused_when_liveness_is_unreadable(monkeypatch):
+    """Not knowing must never authorise destroying a container (rule #14) —
+    here the cost of being wrong is a killed turn, the benefit a faster image
+    roll that self-corrects at the next ensure anyway."""
+    async def boom():
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", boom
+    )
+    assert await stale_replacement_is_safe("u") is False

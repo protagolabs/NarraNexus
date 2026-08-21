@@ -314,3 +314,82 @@ async def test_remote_driver_yields_trailing_line_without_newline(monkeypatch):
         {"type": "text", "delta": "first"},
         {"type": "text", "delta": "tail (no newline)"},
     ]
+
+
+# --------------------------------------------------------------------------
+# Stale-image replacement verdict reaches the broker (P2 wiring)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_step3_hands_the_stale_replace_verdict_to_ensure(monkeypatch):
+    """Wiring, not behaviour: drop the keyword and this process behaves
+    identically while the broker silently returns to destroying containers
+    under live runs (2026-07-31). Nothing else here would go red."""
+    # The package rebinds this name to the FUNCTION it re-exports, so plain
+    # `import ... as` hands back the function, not the module.
+    import importlib
+
+    step3 = importlib.import_module(
+        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+    captured = {}
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        captured["user_id"] = user_id
+        captured["allow"] = allow_stale_replace
+        return None
+
+    async def safe(user_id, *, active_run_id=None):
+        captured["active_run_id"] = active_run_id
+        return True
+
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_framework.loop.broker_client.ensure_executor",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.executor_reaper.stale_replacement_is_safe",
+        safe,
+    )
+
+    await step3._ensure_executor_for_run("u1", "evt_me")
+
+    assert captured["user_id"] == "u1"
+    assert captured["allow"] is True
+    # The asking run is excluded, or the verdict is "busy" forever and the
+    # image never rolls.
+    assert captured["active_run_id"] == "evt_me"
+
+
+@pytest.mark.asyncio
+async def test_step3_refuses_replacement_while_a_run_is_live(monkeypatch):
+    # The package rebinds this name to the FUNCTION it re-exports, so plain
+    # `import ... as` hands back the function, not the module.
+    import importlib
+
+    step3 = importlib.import_module(
+        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+    captured = {}
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        captured["allow"] = allow_stale_replace
+        return None
+
+    async def unsafe(user_id, *, active_run_id=None):
+        return False
+
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_framework.loop.broker_client.ensure_executor",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.executor_reaper.stale_replacement_is_safe",
+        unsafe,
+    )
+
+    await step3._ensure_executor_for_run("u1", None)
+    assert captured["allow"] is False

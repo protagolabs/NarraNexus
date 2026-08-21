@@ -1201,6 +1201,34 @@ async def _record_executor_infra_event(
 
 @timed("step.3_agent_loop")
 
+async def _ensure_executor_for_run(user_id: str, run_id: Optional[str]):
+    """Ensure this run's executor, carrying the stale-image replacement
+    verdict to the broker.
+
+    A named seam rather than three inline lines, because the verdict is the
+    kind of argument whose omission changes nothing here and everything at
+    the broker: drop it and this process behaves identically while the broker
+    silently returns to destroying containers under live runs. A seam can be
+    tested; an inline keyword argument can only be re-read.
+
+    The verdict is computed at THIS layer because it is the one that knows
+    both the user and which run is asking — our own events row is already
+    'running' by now, so it has to discount us or the image would never roll.
+    broker_client is a transport client and owns no part of the decision.
+    """
+    from xyz_agent_context.agent_framework.loop.broker_client import ensure_executor
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        stale_replacement_is_safe,
+    )
+
+    return await ensure_executor(
+        user_id,
+        allow_stale_replace=await stale_replacement_is_safe(
+            user_id, active_run_id=run_id
+        ),
+    )
+
+
 async def step_3_agent_loop(
     ctx: "RunContext",
     db_client,
@@ -1429,11 +1457,12 @@ async def step_3_agent_loop(
         # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
         # so get_agent_loop_driver falls back. This is the cold-start point.
         from xyz_agent_context.agent_framework.loop.broker_client import (
-            ensure_executor,
             wait_until_ready,
         )
 
-        ensured = await ensure_executor(ctx.user_id)
+        ensured = await _ensure_executor_for_run(
+            ctx.user_id, str(ctx.event.id) if ctx.event else None
+        )
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a

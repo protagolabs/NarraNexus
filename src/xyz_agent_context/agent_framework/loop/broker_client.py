@@ -74,9 +74,27 @@ def executor_seam_active() -> bool:
 
 
 async def ensure_executor(
-    user_id: str, *, timeout: float = 120.0
+    user_id: str,
+    *,
+    allow_stale_replace: bool = False,
+    timeout: float = 120.0,
 ) -> Optional[ExecutorEnsureResult]:
     """Ensure this user's executor via the broker; return url + cold-start.
+
+    ``allow_stale_replace`` is the CALLER's verdict on whether the broker may
+    destroy this user's container to roll a stale executor image — i.e.
+    whether anyone is using it right now. This module cannot compute that and
+    deliberately does not: it is a transport client, the fact lives in the
+    orchestrator's DB, and the decision belongs to whoever holds run context
+    (step 3 passes ``executor_reaper.stale_replacement_is_safe``'s answer;
+    callers that are not a run leave it False).
+
+    False is the safe default in both directions — it can only ever DELAY an
+    image roll, never kill a run — so an omission degrades rather than
+    breaks. Named for the one replacement reason it gates: the broker has
+    others (an unreachable container, capacity churn) and those must stay
+    unconditional, because a container nobody can reach has no run on it to
+    protect.
 
     Returns ``None`` when no broker is configured (caller falls back).
     Raises on broker/transport error — in cloud we must NOT silently fall
@@ -93,7 +111,13 @@ async def ensure_executor(
     endpoint = f"{base.rstrip('/')}/executors"
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(endpoint, json={"user_id": user_id})
+            resp = await client.post(
+                endpoint,
+                json={
+                    "user_id": user_id,
+                    "allow_stale_replace": allow_stale_replace,
+                },
+            )
             resp.raise_for_status()
             data = resp.json()
     except httpx.TransportError as e:
@@ -106,6 +130,17 @@ async def ensure_executor(
     logger.info(
         f"[broker] ensured executor user={user_id} status={status} url={executor_url}"
     )
+    if data.get("stale_replace_deferred"):
+        # Loud on purpose: this user runs last deploy's executor code for at
+        # least one more turn. Deferring is correct (a run was live on the
+        # container) but it must never be silent — a stale executor after a
+        # wire-protocol change degrades runs without raising anything
+        # (2026-07 mcp_servers rename handed an old executor an EMPTY MCP
+        # set). It self-corrects at the next ensure with no live run.
+        logger.warning(
+            f"[broker] user={user_id} kept a STALE-image executor: a run was "
+            f"live on it. It rolls at the next ensure with no live run."
+        )
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
     return ExecutorEnsureResult(

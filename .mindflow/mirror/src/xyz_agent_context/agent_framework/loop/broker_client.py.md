@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — `ensure_executor` 带上 `allow_stale_replace`
+
+同一根因（2026-07-31 prod 误杀在途 run）的**第二个杀手**：broker 的 stale 镜像
+替换。本模块只负责**运**这个判决，不产生它 —— 它是传输客户端，"这个用户此刻忙
+不忙"是编排侧 DB 里的事实，判决由握着 run 上下文的那一层给（step 3，见
+[[step_3_agent_loop.py]] 的 `_ensure_executor_for_run`）；不是 run 的调用方
+（如 narramessenger prewarm）保持默认 `False`。
+
+**默认 `False` 是两个方向上都安全的那一侧**：它只可能**推迟**镜像滚动，绝不会
+杀 run。所以漏传只会降级不会出事，两仓部署顺序反了也不掉 run（新 broker + 老
+编排 = 镜像暂时不滚；老 broker + 新编排 = 多一个它不认识的字段，pydantic 忽略）。
+
+**命名只 gate 这一个理由**：broker 还有别的替换理由（容器拨不通、容量周转），
+那些必须保持无条件 —— 拨不通的容器上没有可被打断的 run，拒绝替换只会把用户钉死
+在一个死容器上。
+
+响应里的 `stale_replace_deferred` **必须响**（`logger.warning`）：推迟是对的，但
+不能是静默的 —— 用户会在旧 executor 代码上多跑至少一轮，而 wire-protocol 变更后
+的旧 executor 是**不报错地**降级（2026-07 mcp_servers 改名让旧 executor 拿到空
+MCP 集）。它在下一次"没有在途 run"的 ensure 上自愈。
 
 ## 2026-08-11 — `executor_healthy` 转公开（去重健康探测）
 
