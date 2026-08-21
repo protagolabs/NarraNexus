@@ -102,12 +102,15 @@ def test_judge_instructions_dropped_the_eight_category_names():
     taxonomy and maps category-hit to no_topic (3/7 turns dumped, and one
     dump seeded the identity-wash hijack in
     todo/2026-08-21-frozen-anchor-identity-wash-hijack.md). The list was
-    teaching the disease, so it goes — from BOTH judge prompts, so the
-    participant variant cannot quietly keep a copy.
+    teaching the disease, so it goes — from BOTH judge prompts AND the
+    continuity prompt (agent_846942113533 turn 3: continuity saw the agent's
+    own answer being followed up and still switched, steered by the
+    taxonomy's "switch once specific content is involved").
     """
     for prompt_name in (
         "NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS",
         "NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS",
+        "CONTINUITY_DETECTION_INSTRUCTIONS",
     ):
         text = getattr(prompts, prompt_name)
         for name in (

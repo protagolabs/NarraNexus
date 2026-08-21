@@ -60,47 +60,14 @@ CONTINUITY_DETECTION_INSTRUCTIONS = """You are a Narrative attribution analysis 
 - Conversation continuity ≠ Same Narrative
 - Users may switch to different topics/tasks during a continuous conversation, which requires creating a new Narrative
 
-**8 Special Default Narratives (Important)**:
-The system has 8 special default Narratives with simplified names and descriptions that require special handling:
-
-1. **GreetingAndCourtesy**
-   - Scope: Greetings, small talk, thanks, farewells, ending conversations - purely courteous exchanges
-   - Characteristic: Does not carry any substantive topic; should switch once specific content is involved
-
-2. **CasualChatOrEmotion**
-   - Scope: Casual chat, emotional expression, not directed at specific objects or events
-   - Characteristic: Must switch once specific references appear (e.g., "Python", "project")
-
-3. **JokeAndEntertainment**
-   - Scope: Pure entertainment requests, not involving any entities or ongoing topics
-   - Characteristic: Entertainment-oriented, one-time interactions
-
-4. **AgentHelpAndCapability**
-   - Scope: Asking about the agent's features, usage, capability boundaries
-   - Characteristic: Not related to specific business; meta-questions about the agent itself
-
-5. **AgentPersonaConfiguration**
-   - Scope: Setting the agent's identity, personality, speaking style, etc.
-   - Characteristic: Configuration interactions that affect global behavior
-
-6. **TaskLookup**
-   - Scope: Viewing, searching, filtering task lists
-   - Characteristic: Does not involve discussion of a specific task
-
-7. **GeneralOneShotQuestion**
-   - Scope: Independent, one-time questions (e.g., unit conversion, date lookup)
-   - Characteristic: Will not generate ongoing discussion
-
-8. **UnclassifiedOrGarbage**
-   - Scope: Unclassifiable or meaningless input
-   - Characteristic: Fallback container
-
-**Rules for Special Default Narratives**:
-- Judge these the same way you judge any other Narrative: **does the current query continue the same business goal?**
-- Their names describe a SHAPE of message, not a subject, so there is usually little for a substantive query to continue — but that is a conclusion you reach from the content, never a rule you apply because of the container's type
-- If the user is plainly carrying on from the previous turn (a follow-up, a correction, a pronoun referring back, an answer to what the Agent just asked), that is **is_continuous = true** even when the current Narrative is one of these
-- Example: Currently in "GreetingAndCourtesy", user says "help me write code" → a new subject with nothing to continue → false
-- Example: Currently in "UnclassifiedOrGarbage" after the Agent asked "which file?", user says "the layout one" → plainly continuing → true
+**Legacy shape-container Narratives**:
+If the current Narrative is labeled [Special Default Narrative], it is a legacy
+container whose name describes a SHAPE of message, not a subject — so there is
+usually little for a substantive query to continue. But reach that conclusion
+from the content, never as a rule applied because of the container's type: if
+the user is plainly carrying on from the previous turn (a follow-up, a
+correction, a pronoun referring back, an answer to what the Agent just asked),
+that is **is_continuous = true** even here.
 
 **Judgment Granularity — Business Intent Level**:
 - Judge at the **business intent / goal** level, NOT at the message-detail level
@@ -117,20 +84,18 @@ The system has 8 special default Narratives with simplified names and descriptio
    - User gives follow-up instructions that serve the same business objective
    - User uses pronouns ("it", "this", "that") clearly referring to content in the current Narrative
    - User's new question is a continuation or extension of content within the current Narrative's scope
-   - **Note**: The 8 default Narratives describe a shape of message rather than a subject, so they rarely have much to continue — but a plain follow-up to the previous turn still belongs
 
 2. **Does Not Belong to Current Narrative** → is_continuous = false
    - User raised a **completely different** new topic from the current Narrative's theme
    - User started a new, independent task/question that serves a different business goal
    - User explicitly indicates wanting to switch topics (e.g., "let's change the subject", "talk about something else")
    - Although conversation is continuous, the topic has jumped to another domain/task
-   - **Note**: A specific topic raised while in one of the 8 default Narratives is usually a new subject — decide that from the content, not from the fact that the current Narrative is a default one
 
 3. **Consider the Narrative's Core Theme** (if provided)
    - First, identify the Narrative's **core business goal** from its name and summary
    - Then ask: does the current query serve this goal? If yes → belongs
    - The Narrative's summary reflects the conversation focus so far
-   - **For the 8 default Narratives**: their name describes a message shape and their summary is a fixed template, so neither states a business goal — fall back to the previous turn to decide whether the user is continuing something
+   - **For a [Special Default Narrative]**: its name describes a message shape and its summary is a fixed template, so neither states a business goal — fall back to the previous turn to decide whether the user is continuing something
 
 4. **Consider the Agent's Response**
    - If the Agent's response introduced a new sub-topic and the user is following up, this still belongs to the same Narrative

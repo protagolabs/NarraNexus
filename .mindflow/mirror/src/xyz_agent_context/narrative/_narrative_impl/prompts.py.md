@@ -27,6 +27,18 @@ taxonomy_based`。已知风险(如实):真寒暄误翻(P1 跷跷板)与琐碎问
 建线增多(G3/G4),换来的是倾倒入口收窄+夺舍燃料减少;考卷复验待跑,
 本次先真机验证。
 
+**同日第二刀:CONTINUITY_DETECTION_INSTRUCTIONS 的词表也删了**(第一刀
+扫尾不彻底,铁律 #8 的教训再+1)。真机 agent_846942113533 轮 3:连续性
+输入里明明有上一轮问答("你能做什么"+ agent 的回答),"如何连接im平台"
+是对回答的直接追问,判据 4 本该命中,却被词表的"AgentHelpAndCapability…
+一旦涉及具体内容就该切走"压过 → 判不续 → 三问三线碎片化。改动:
+"8 Special Default Narratives" 整块 + 判据 1/2/3 里三处"the 8 default
+Narratives"引用移除;存量迁移语义保留为一段不含类目名的
+"[Special Default Narrative] = legacy shape-container"说明(prod 9080
+条存量桶的老会话仍会遇到该标签,行为与 C-2 修复一致:按内容判,
+明显续接上一轮即 true)。绝对锚点:全 prompts.py 八类目名出现次数 = 0,
+由同一条翻转测试对三个 prompt 常量断言。
+
 ## 2026-08-16 — 两条 prompt：judge 的词表化，连续性的去容器化（C-1 + C-2）
 
 **`NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS`**：八个类目从"可选中的目标"降为**识别用
