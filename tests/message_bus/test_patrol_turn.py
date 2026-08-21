@@ -222,26 +222,30 @@ async def test_patrol_lines_do_not_eat_the_depth_window(db_client):
     stopped applying — precisely in the rooms patrol frequents, since it only
     speaks where a chain is already looping.
     """
+    from xyz_agent_context.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
+
     await _seed_room(db_client)
     bus = LocalMessageBus(backend=db_client._backend)
-    # Interleave so the newest 6 rows hold 3 patrol lines + 3 agent messages,
-    # while 4 real hops exist just outside that window.
-    for i in range(4):
+    # `MAX_TEAM_AGENT_HOPS` real hops (oldest), then 5 patrol lines (newest).
+    # The depth query reads a fixed `LIMIT MAX_TEAM_AGENT_HOPS + 2`, so those 5
+    # newest patrol rows are 3 more than the window's slack: if patrol rows were
+    # counted, they would push 3 real hops OUT of the window and the count could
+    # never reach the cap. With the SQL exclusion, patrol rows never occupy a
+    # slot, so all `MAX_TEAM_AGENT_HOPS` real hops are seen.
+    for i in range(MAX_TEAM_AGENT_HOPS):
         await bus.send_message(from_agent="agent_worker", to_channel=CHANNEL,
                                content=f"hop{i}")
-    for i in range(3):
+    for i in range(5):
         await bus.send_message(
             from_agent=f"{TEAM_ROOM_OWNER_PREFIX}{TEAM}", to_channel=CHANNEL,
             content=f"sweep{i}", msg_type=PATROL_MSG_TYPE,
         )
     trigger = MessageBusTrigger(bus=bus)
 
-    from xyz_agent_context.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
-
-    # EXACTLY four: `>=` was satisfied by counting the patrol rows themselves,
-    # so it passed with the SQL exclusion deleted. The reading that distinguishes
-    # them is the count, not a threshold — 3 patrol + 3 hops also clears any
-    # bound the four real hops clear.
+    # EXACTLY the cap: counting the patrol rows themselves (SQL exclusion
+    # deleted) would return `MAX_TEAM_AGENT_HOPS + 2` here, not the cap, because
+    # the window then fills with 5 patrol + (cap - 3) hops. The reading that
+    # distinguishes the two is the count, not a threshold.
     assert await team_cascade_depth(db_client, CHANNEL) == MAX_TEAM_AGENT_HOPS
 
 
