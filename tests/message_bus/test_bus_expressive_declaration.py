@@ -84,10 +84,12 @@ async def test_a_team_turn_declares_the_room_send_verb():
 
 @pytest.mark.asyncio
 async def test_exactly_one_verb_per_surface():
-    """The invariant the whole redesign rests on.
+    """Exactly one DEFAULT reply reminder per turn.
 
-    Two send verbs on one turn is a choice the model should never have had, and
-    the wrong branch posts into the wrong conversation.
+    The reminder points at a single verb — the one for the conversation that
+    woke the turn — so the model is never nudged two ways at once. This is about
+    the DEFAULT, not about what is reachable: the other verbs stay on the desk
+    (see the desk tests below), the reminder just does not name them.
     """
     module = _module()
 
@@ -128,56 +130,100 @@ async def test_declared_short_names_are_actually_registered():
     assert {"message_agent", "message_team"} <= registered
 
 
-# ── the desk: declaration ∪ suppression ─────────────────────────────────────
+# ── the desk: the reminder defaults, the desk keeps every verb ──────────────
+#
+# 2026-08-20 — capability follows the agent, not the trigger channel. The
+# trigger channel decides ONLY which verb the reply reminder defaults to
+# (get_expressive_tools). It no longer removes the other verb: every internal
+# send verb stays reachable on every bus turn, so an agent woken in a DM can
+# still post in a team room it belongs to. The one turn that still clears both
+# verbs is patrol, which delivers by speaking and calls no send tool.
+
 
 @pytest.mark.asyncio
-async def test_the_desk_holds_exactly_the_verb_for_this_turn():
-    """Declaration and suppression have to agree, or the invariant is a slogan.
+async def test_a_bus_turn_suppresses_neither_internal_send_verb():
+    """The trigger-channel drop is gone.
 
-    Declaring one verb while both schemas stay in the model's context is how a
-    rule ends up arguing with a tool the agent can still see — and prose loses
-    that argument: 615 prod calls landed on two tools whose docstrings said "Do
-    NOT call".
-
-    **Called in the runtime's order, on a fresh instance, deliberately.**
-    `context_runtime` asks for suppression BEFORE declaration. An earlier draft
-    read the turn from state the declaration left on the instance, and this test
-    called declaration first — so it passed while every team turn shipped with
-    `message_team` declared AND suppressed, i.e. a room nobody could speak in.
-    A guard that calls the two hooks in the reverse of production order certifies
-    the bug it exists to catch.
+    On a DM turn `message_team` stays on the desk; on a team turn
+    `message_agent` does. Re-introducing the drop — keying suppression on the
+    trigger channel — turns this red, which is exactly the regression the
+    redesign removes: an agent asked in one conversation to act in another
+    could not reach the tool for it.
     """
-    for extra, kept, dropped in (
-        ({}, "message_agent", "message_team"),
-        ({"bus_team_room": True}, "message_team", "message_agent"),
-    ):
+    for extra in ({}, {"bus_team_room": True}):
         module = _module()  # fresh per case: no state may carry between turns
         config = await module.get_mcp_config()
         q = f"mcp__{config.server_name}__"
         ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
 
         suppressed = await module.get_disallowed_tools(ctx)
-        declared = await module.get_expressive_tools(ctx)
 
-        assert declared == [q + kept]
-        assert suppressed == [q + dropped]
-        assert q + kept not in suppressed, "the turn's own verb was taken away"
-        assert q + dropped not in declared
+        assert q + "message_agent" not in suppressed
+        assert q + "message_team" not in suppressed
+        assert suppressed == []
 
 
 @pytest.mark.asyncio
-async def test_suppression_reads_the_turn_it_is_given():
-    """One instance, two turns of different kinds, suppression asked first each
-    time — the shape a long-lived module instance actually sees."""
+async def test_the_reminder_still_defaults_to_the_turns_own_verb():
+    """Reachability widened; the default did not.
+
+    The reply reminder still names exactly the verb for the conversation that
+    woke the turn, so the path of least resistance stays 'answer where you were
+    spoken to'. Reaching another conversation costs a deliberate search + an
+    explicit target — the intent gradient that replaces the old hard drop.
+
+    ONE instance, three turns of different kinds, in the runtime's order
+    (suppression asked BEFORE declaration). `get_disallowed_tools` no longer
+    branches on the turn, but `get_expressive_tools` still reads
+    `_is_team_turn(ctx_data)` — so it is now the one hook a `self`-cached turn
+    kind (a natural "save a getattr" optimisation) would break. The final
+    turn returns to `team` so an implementation that answers with the PREVIOUS
+    turn's verb cannot slip through by matching the last turn asked. The old
+    fresh-instance-per-case shape (deleted here) walked straight past that
+    class of bug, which had really shipped.
+    """
     module = _module()
     config = await module.get_mcp_config()
     q = f"mcp__{config.server_name}__"
 
-    team = _ctx(WorkingSource.MESSAGE_BUS, bus_team_room=True)
-    assert await module.get_disallowed_tools(team) == [q + "message_agent"]
+    for extra, default in (
+        ({"bus_team_room": True}, "message_team"),
+        ({}, "message_agent"),
+        ({"bus_team_room": True}, "message_team"),
+    ):
+        ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
+        # Runtime order: suppression first, declaration second.
+        await module.get_disallowed_tools(ctx)
+        assert await module.get_expressive_tools(ctx) == [q + default]
 
-    peer = _ctx(WorkingSource.MESSAGE_BUS)
-    assert await module.get_disallowed_tools(peer) == [q + "message_team"]
 
-    # And back, so a stale answer cannot pass by matching the last turn asked.
-    assert await module.get_disallowed_tools(team) == [q + "message_agent"]
+@pytest.mark.asyncio
+async def test_a_chat_turn_also_suppresses_neither_send_verb():
+    """The suppression removal is unconditional, by design (capability follows
+    the agent on every surface, bus or not). On an owner-chat turn the module
+    is not the reply origin, so it declares no reminder — but it also removes
+    nothing, so `message_team` is reachable if the owner asks the agent to post
+    in a room. Re-adding an owner-chat drop turns this red."""
+    module = _module()
+
+    ctx = _ctx(WorkingSource.CHAT)
+
+    assert await module.get_disallowed_tools(ctx) == []
+    # And it is not declared as the reply reminder on a turn it does not own.
+    assert await module.get_expressive_tools(ctx) == []
+
+
+@pytest.mark.asyncio
+async def test_a_patrol_turn_still_clears_both_send_verbs():
+    """Patrol delivers by speaking — the platform posts its composed line and it
+    calls no send tool — so both verbs come off the desk. This invariant is
+    unchanged by the redesign and must not regress."""
+    module = _module()
+    config = await module.get_mcp_config()
+    q = f"mcp__{config.server_name}__"
+    ctx = _ctx(WorkingSource.MESSAGE_BUS, bus_plain_text_turn=True)
+
+    suppressed = await module.get_disallowed_tools(ctx)
+
+    assert q + "message_agent" in suppressed
+    assert q + "message_team" in suppressed

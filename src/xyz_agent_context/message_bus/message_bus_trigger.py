@@ -1356,13 +1356,14 @@ class MessageBusTrigger:
                     # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
                     # The team-room marker for this turn. It rides
-                    # trigger_extra_data so MessageBusModule can gate on it:
-                    # get_expressive_tools declares `message_team` (not the peer
-                    # `message_agent`) and get_disallowed_tools drops
-                    # `message_agent` off the desk. A team reply is a tool call
-                    # like every other surface now, so dropping this marker does
-                    # not silence the room — it makes the turn advertise the peer
-                    # verb and post team replies into the wrong conversation.
+                    # trigger_extra_data so MessageBusModule can read it:
+                    # get_expressive_tools points the reply reminder at
+                    # `message_team` (not the peer `message_agent`). It no longer
+                    # drops the peer verb — every internal send verb stays
+                    # reachable on every turn (capability follows the agent). So
+                    # dropping this marker only flips the reminder's default to
+                    # the peer verb; it changes what a plain reply targets, not
+                    # what the agent can reach.
                     team_room=is_team,
                 )
 
@@ -2624,13 +2625,12 @@ class MessageBusTrigger:
             # Reduces how often the platform's guard is consulted; it is NOT
             # the guard (iron rule #15). `message_bus/errand.py` keeps the
             # hand-off on the board whether or not the model obeys this line.
-            "- **Do not promise future delivery.** Sending this message ENDS "
-            "your turn — nothing of yours keeps running afterwards, so "
-            "\"完成后交给你\" / \"I'll report back when it's done\" is a "
-            "promise nothing will keep. Instead: finish the work in THIS turn "
-            "and reply with the result, or say plainly how far you got and "
-            "what you need, or schedule the follow-up explicitly with "
-            "`job_create` if you have it.",
+            "- **Do not promise future delivery.** Nothing of yours keeps "
+            "running once this turn ends, so \"完成后交给你\" / \"I'll report "
+            "back when it's done\" is a promise nothing will keep. Instead: "
+            "finish the work in THIS turn and reply with the result, or say "
+            "plainly how far you got and what you need, or schedule the "
+            "follow-up explicitly with `job_create` if you have it.",
         ]
         return "\n".join(lines)
 
@@ -2888,7 +2888,10 @@ class MessageBusTrigger:
             lines.append(
                 "1. If you can answer → reply to the asker with "
                 "`message_agent(to=<the sender above>, "
-                "text=<your answer>)`. This is the point of the turn."
+                "text=<your answer>)`. That is usually the point of the turn. "
+                "If what they ask means acting elsewhere — posting in a team "
+                "room you belong to, messaging someone else — you can do that "
+                "this turn too; your teams and peers are listed in your context."
             )
             lines.append(
                 "2. If you need something clarified before you can answer → ask "
@@ -3097,15 +3100,15 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                # Delivery-contract marker: on a team-room turn the send verb
-                # is `message_team`, not the peer `message_agent`.
-                # MessageBusModule reads it (get_expressive_tools /
-                # get_disallowed_tools) to declare message_team and drop
-                # message_agent off the desk. Plain-text auto-post is retired, so
-                # this marker no longer empties the whole expressive surface —
-                # that is the patrol marker below. Deleting it does not silence
-                # the room; it makes the turn advertise the peer verb and post
-                # team replies into the wrong conversation.
+                # Default-reply marker: on a team-room turn the DEFAULT reply
+                # verb is `message_team`, not the peer `message_agent`.
+                # MessageBusModule reads it (get_expressive_tools) to point the
+                # reply reminder at message_team. It no longer removes the peer
+                # verb: every internal send verb stays reachable on every turn
+                # (capability follows the agent, not the trigger channel).
+                # Deleting this marker only flips which verb the reminder
+                # defaults to — it does not change what the agent can reach, and
+                # the patrol marker below is what still clears the desk.
                 BUS_TEAM_ROOM_EXTRA_KEY: team_room,
                 # Patrol delivers by speaking: the platform posts the composed
                 # line under the room's own marker. The module reads this to

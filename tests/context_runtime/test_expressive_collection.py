@@ -281,6 +281,13 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
     `disallowed_tools` strips the schema on both frameworks, so an overlap means
     the reply reminder names a tool the model cannot see: nothing reaches the
     room, every turn, silently.
+
+    NB (2026-08-20): the historical bug above was a MessageBusModule team turn.
+    That module no longer drops a send verb by trigger channel — on an ordinary
+    bus turn it suppresses nothing, so the overlap it could produce is trivially
+    empty. The guard still bites where suppression is real: patrol (both verbs
+    off) and ChatModule (the inapplicable owner register off). It is the
+    coherence invariant that is asserted, not the old message_bus drop.
     """
     from unittest.mock import MagicMock
 

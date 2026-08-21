@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 通信能力跟着 agent 走：文案跟随 module 改动
+
+配合 `message_bus_module` 删掉 trigger-channel 的发送动词 drop（详见该文件 mirror 同日条目）。本文件两处改动，均无控制流变化；其中「## Answer the peer」是**发给 agent 的 prompt 正文**，措辞改了 = agent 收到的指令随之变（属提示面变化，非纯注释）：
+
+- **`BUS_TEAM_ROOM_EXTRA_KEY` 注释**（trigger_extra_data 组装处）：从「get_disallowed_tools drops message_agent off the desk / 否则 post team replies into the wrong conversation」改为「这只是**默认 reply reminder** 的标记；不再删 peer 动词，每个内部发送动词每轮都可达；删掉这个标记只是把 reminder 默认翻成 peer 动词」。`team_room=is_team` 传参不变。
+- **「## Answer the peer — REQUIRED」注入** 第 1 点：从「reply to the asker … This is the point of the turn」软化为「usually the point；如果对方要求的事需要去别处行动（发团队群、私聊别人），你这一轮也能做——你的 teams 和 peers 都在 context 里」。不再把 `message_agent(to=sender)` 锁成唯一出口。
+
+`is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)` 与 patrol 标记逻辑不变。
+
+**Dunhuang 那条（`_build_team_prompt` 的「Do not promise future delivery」）措辞解耦**（review 第 8 条）：旧句「Sending this message ENDS your turn」字面读作「发一条就结束」,和新授予的「同一轮可发去别的会话」矛盾。改为「Nothing of yours keeps running once this turn ends」——只否定它真正要否定的（turn 结束后没有你的东西在跑,所以「完成后交给你」是空头承诺）,**Dunhuang 禁令本身与三个出口(本轮做完/说清进度/`job_create`)一字不动**（铁律 #15,errand.py 看板兜底不是替代品）。`test_errand_auto_board.py::test_the_team_prompt_names_the_alternatives_to_a_promise` 同步改断言。
 
 ## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
 

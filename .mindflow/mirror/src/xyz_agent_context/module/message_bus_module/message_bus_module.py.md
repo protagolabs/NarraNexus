@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 通信能力跟着 agent 走，不再被触发渠道绑死
+
+**背景（实锤事故）**：老板让 Loki 转达「以后回执发到 Arena 群，别只私聊回我」。Loki 逐个私聊群发，四个成员全都懂这条指令，却没一个发进群——两个退回 `message_agent(to=Loki)` 私聊回，一个 `tool_search("message team room send")` 搜不到 `message_team` 直接空手结束（`system_undelivered`）。根因：`get_disallowed_tools` 按**触发渠道**把非默认的发送动词塞进 `disallowed_tools`，而 dispatcher `visible = 频道工具 − disallowed`，于是那个动词**既不能调也搜不到**。「不是本轮默认」被实现成了「本轮禁止」。
+
+**改动**：把「触发渠道 = 能力边界」拆成三件独立的事——①你在哪被叫醒（context 线索，不变）②你能触达谁（standing，各模块各报）③你桌上有啥（默认只有触发渠道对应的那一个 reminder）。
+
+- `get_disallowed_tools`：**删掉 trigger-channel drop**。**非 patrol 轮次一律不 suppress（`return []`）——bus / owner-chat / job / IM 皆然**（无条件,不检查 `owns_working_source`;这与「能力跟着 agent 走」一致:owner 私聊里也能让 agent 发团队群。owner-chat 的旧防御靠的是 `get_expressive_tools` 不声明 reminder,那半仍在)。`message_agent`/`message_team` 双双留在桌上/可搜。唯一仍清空两者的是 **patrol**（靠说话投递、不调发送工具），保留。静态指令那句「你能跨渠道」带 **"unless this turn's own prompt says otherwise"** 对冲,才在 patrol 面（两个动词确实被摘）上不为假——byte-stable 不许按房间分叉。
+- `get_expressive_tools`：**行为不变**——仍只声明触发渠道对应的那一个默认 reminder（省力路径 = 在被问的地方回答）。改用 `_is_team_turn` 保持 DRY。反误发不靠删工具，靠「默认省力 / 跨渠道要 search+显式 target」的意图梯度（Owner 定：误发是 agent 智能问题，随水位自愈，不加硬闸）。
+- **通讯录**：新增 standing `bus_teams`。取数抽成 producer `_team_address_book(db, team_ids)`（对标 `_room_labels`：producer 与 renderer 分开，好单测），hook 传入 known-agents 已解析的 `my_team_ids`——**成员关系不二次查询**，producer 只多读一次 team 名称。`_volatile_context_parts` 渲染「### Your teams」带 `team_id`。补掉第二个盲区：DM 轮次里 `bus_room_labels` 只给触发窗口内的房间，`message_team(team_id=…)` 之前没地址。cap `MAX_TEAMS_IN_CONTEXT=30` **在 fetch 侧就截**，且 `sorted(team_ids)` 后再截（超 cap 时哪些团队存活可复现，不看查询行序）。地址簿放在**自己的 try（步骤 2b）**、`my_team_ids` 提到 known-agents try 外：known-agents 段末尾的 `agents` 全表扫描抛异常也不会连带丢掉通讯录。测试 `test_bus_address_book.py` 覆盖三层：producer（真 db，删 producer body 变红；含 except→`[]`、cap）、hook 装填（membership→producer→extra_data，删 hook 调用变红）、renderer（含 cap 与 heading 一致）。
+
+**文案扫一类（本文件三处 + 兄弟文件）**：静态指令「exactly ONE of these two calls per turn / a fresh one will have that call」改成「The conversation that woke you is only where a plain reply goes by default … you are not confined to it. Unless this turn's own prompt says otherwise …」（`unless…otherwise` 对冲让它在 patrol 面也为真）；`get_disallowed_tools`/`get_expressive_tools` docstring、`BUS_TEAM_ROOM_EXTRA_KEY` 注释（在 trigger）、「## Answer the peer」注入（在 trigger）、被删 channel-list 的注释一并改。测试锁：`test_visibility_wording.py::test_the_block_says_cross_channel_calls_are_available_this_turn`、`test_bus_expressive_declaration.py`（desk 系列重写）、新 `test_bus_address_book.py`。删掉任一处代码 → 对应测试变红。
+
+**ChatModule 未动**：它的 reply_owner/notify_owner drop 是同一个 party（owner）的两种 register（同步 chat vs 异步 inbox），是模式相关而非「另一个会话」，且 bus 轮次本就保留 `notify_owner`——留待后续统一时再评估。
 
 ## 2026-08-19 — hook_after_event_execution 复用 primary_room_of
 

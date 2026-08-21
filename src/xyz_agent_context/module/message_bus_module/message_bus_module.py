@@ -62,6 +62,10 @@ MESSAGE_BUS_MCP_PORT = 7820
 # Context-injection caps to prevent pollution
 MAX_UNREAD_IN_CONTEXT = 20
 MAX_KNOWN_AGENTS_IN_CONTEXT = 50
+# The standing "your teams" address book. An agent's team count is small (a
+# team is a deliberately-created room, not an auto-grouping), so this cap is a
+# guard against a pathological owner, not an expected trim.
+MAX_TEAMS_IN_CONTEXT = 30
 
 
 def _render_sender(from_agent: Any, msg_type: Any = None) -> str:
@@ -239,13 +243,16 @@ class MessageBusModule(XYZBaseModule):
         return is_plain_text_turn(ctx_data)
 
     async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
-        """The peer/room tools this turn can deliver through.
+        """The ONE verb the reply reminder defaults to this turn.
 
-        Declared only on a bus turn — advertising them on an owner-chat turn
-        invites replying to the owner over the bus (2026-08-04). The team-room
-        carve-out that used to sit here is GONE: a team reply is now a tool call
-        like every other surface, so there is no longer a turn whose delivery
-        happens without one.
+        Declared only on a bus turn — advertising it on an owner-chat turn
+        invites replying to the owner over the bus (2026-08-04). This names the
+        DEFAULT reply target (`message_team` in a room, `message_agent` in a
+        DM), so the path of least resistance is "answer where you were spoken
+        to". It does NOT bound what the agent can reach: the other send verbs
+        stay on the desk (`get_disallowed_tools` no longer removes them), the
+        reminder just does not name them. Reaching another conversation is a
+        deliberate act, one `tool_search` away.
         """
         if not self.owns_working_source(getattr(ctx_data, "working_source", None)):
             return []
@@ -256,39 +263,40 @@ class MessageBusModule(XYZBaseModule):
             # the mute-turn nudge then told a correctly-silent lead to call it.
             return []
         config = await self.get_mcp_config()
-        extra = getattr(ctx_data, "extra_data", None) or {}
-        name = "message_team" if extra.get(BUS_TEAM_ROOM_EXTRA_KEY) else "message_agent"
+        name = "message_team" if self._is_team_turn(ctx_data) else "message_agent"
         return [f"mcp__{config.server_name}__{name}"]
 
     async def get_disallowed_tools(self, ctx_data: Any = None) -> list[str]:
-        """Take the send verb that does NOT apply this turn off the desk.
+        """Take off the desk only the verbs no turn of this KIND can deliver
+        through — never the ones the trigger channel simply is not the default
+        for.
 
-        The declaration above only decides what the reply REMINDER names. The
-        schemas reach the model separately, so without this the agent sees both
-        `message_agent` and `message_team` and has to choose — and the wrong
-        branch posts into the wrong conversation, which is the one mistake this
-        redesign is built to make impossible.
+        Capability follows the agent, not the trigger channel. The declaration
+        above decides which verb the reply REMINDER defaults to; it does NOT
+        decide what the agent can reach. An agent woken in a DM that is asked to
+        post in a team room it belongs to must find `message_team` on its desk
+        (or one `tool_search` away) — removing it because "this turn came in
+        through a DM" is the exact defect that left a whole squad unable to
+        follow "post your receipts in the room, not in my DMs". So the
+        trigger-channel drop is gone: both internal send verbs stay reachable on
+        every ordinary bus turn.
 
-        Prose cannot do this job. On prod the two tools whose own docstrings said
-        "Do NOT call" were the second and fourth most-called in this family: 615
-        calls. What decides whether a tool is used is whether its schema is in the
-        context.
+        The one turn that still clears both is patrol: it delivers by SPEAKING —
+        the platform posts its composed line and it calls no send tool — so a
+        send schema on that desk is a tool the patrol prompt forbids. Leaving it
+        there is precisely how a prose prohibition loses, which is why the
+        suppression, not the prose, carries it.
 
         Reads the turn from its own ``ctx_data``, not from state the
         declaration left behind: the runtime calls THIS hook first.
         """
         config = await self.get_mcp_config()
         if self._is_plain_text_turn(ctx_data):
-            # Both. The prompt says "write it as plain text, do NOT call
-            # message_team", and leaving the schema on the desk is precisely how
-            # a prose prohibition loses: the two tools whose docstrings said "Do
-            # NOT call" took 615 prod calls.
             return [
                 f"mcp__{config.server_name}__message_agent",
                 f"mcp__{config.server_name}__message_team",
             ]
-        drop = "message_agent" if self._is_team_turn(ctx_data) else "message_team"
-        return [f"mcp__{config.server_name}__{drop}"]
+        return []
 
     def _static_instruction_parts(self) -> list:
         """The usage-rules half of the instruction — constant for a given agent,
@@ -351,21 +359,24 @@ class MessageBusModule(XYZBaseModule):
             "everything in it.",
             "",
             "- `message_team(team_id=..., text=...)` — say something in a room.",
-            # The desk holds ONE send verb per turn: `get_disallowed_tools`
-            # removes the other one's schema, so an agent that reads this
-            # section and reaches for the wrong verb finds nothing there. Saying
-            # so is the only option that keeps the block byte-stable AND true —
-            # documenting both while promising both would be the "prompt names a
-            # tool that isn't there" failure, one layer up from where it usually
-            # happens.
-            "- You get exactly ONE of these two calls per turn: the one that "
-            "matches the conversation you are in. The other is not on your "
-            "list, so there is nothing to weigh up — answer where you were "
-            "spoken to. To reach the OTHER kind of conversation, finish this "
-            "turn; a fresh one will have that call.",
+            # Capability follows the agent, not the trigger channel: the trigger
+            # channel decides only where a plain reply goes by default, never
+            # what the agent can reach. Byte-stable and surface-blind (R4): the
+            # "unless this turn's own prompt says otherwise" clause is what keeps
+            # the sentence TRUE on the one surface that does take the send verbs
+            # off the desk — patrol — without this block branching on room type
+            # (which its own docstring forbids). Do not drop that clause.
+            "- The conversation that woke you is only where a plain reply goes "
+            "by default (the top of the turn names it) — you are not confined "
+            "to it. Unless this turn's own prompt says otherwise, you can reach "
+            "any team or peer in your context: `message_team` for a room you "
+            "belong to, `message_agent` for a peer. Reaching a conversation "
+            "other than the one that woke you is a deliberate act — name the "
+            "target.",
             "- `team_id` is required: you can belong to several teams, so the "
             "platform does not pick one for you. The room a turn is about is "
-            "named at the top of it.",
+            "named at the top of it, and every team you belong to is listed with "
+            "its id below.",
             "- `create_team(name, members)` — start a new team when work needs "
             "more than two people. It becomes a real room your owner can see, "
             "not a private side-channel.",
@@ -468,11 +479,11 @@ class MessageBusModule(XYZBaseModule):
             # their turns with the results as plain text. Nothing was delivered.
             "- **Finished work is never ping-pong — deliver it.** When you "
             "complete something someone asked for (research, an answer, a "
-            "document), it has to REACH them — and it only does so through the "
-            "send call this turn offers you, which the top of the turn names. A "
-            "turn that ends with the work sitting in your own reasoning "
-            "delivered nothing. (No tool name is given here on purpose: which "
-            "one delivers depends on where you are, and only the turn knows.)",
+            "document), it has to REACH them — plain text sitting in your own "
+            "reasoning reaches nobody. Send it through the call for the "
+            "conversation it belongs to; the top of the turn names the default "
+            "one. (No tool name is given here on purpose: which call fits "
+            "depends on the conversation, and only the turn knows.)",
             "- **Do NOT repeat yourself.** If you have already said X, do not "
             "rephrase X to fill space.",
             "- **Substance only.** Write when you have new information, a "
@@ -554,12 +565,29 @@ class MessageBusModule(XYZBaseModule):
                     line += " (teammate)"
                 parts.append(line)
 
+        # Your teams — the standing address book for `message_team`. Printed
+        # with `team_id` (the argument the tool needs), so an agent woken in a
+        # DM can still post into a room it belongs to: the id is here regardless
+        # of whether that room has recent unread traffic. This is the vocabulary
+        # the removed channel list should have used — a team handle the agent
+        # can actually pass — not a raw `channel_id`.
+        teams = ctx_data.extra_data.get("bus_teams", [])
+        if teams:
+            parts.append("")
+            shown = min(len(teams), MAX_TEAMS_IN_CONTEXT)
+            parts.append(f"### Your teams (top {shown})")
+            for t in teams[:MAX_TEAMS_IN_CONTEXT]:
+                tid = t.get("team_id", "")
+                name = t.get("name") or "Team"
+                parts.append(f"- `{tid}` — {name}")
+
         # The channel list that used to sit here is gone on purpose. It printed
         # raw `channel_id`s and a `channel_type` into the agent's context, which
         # is the vocabulary this redesign removes: an agent has private
-        # conversations and teams, and both are already named above by handles
-        # it can actually use. The list existed to make `read_history` callable
-        # — that tool now takes `with_agent` / `team_id`, so nothing needs it.
+        # conversations (Known Agents, above) and teams (Your teams, above), and
+        # both are already named by handles it can actually use. The list existed
+        # to make `read_history` callable — that tool now takes `with_agent` /
+        # `team_id`, so nothing needs it.
         # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
@@ -687,6 +715,43 @@ class MessageBusModule(XYZBaseModule):
             logger.debug(f"Failed to label team rooms: {e}")
             return {}
 
+    async def _team_address_book(self, db: Any, team_ids: list) -> list[dict]:
+        """`[{"team_id", "name"}]` for the teams the agent belongs to — the
+        standing address book `message_team(team_id=...)` needs.
+
+        The PRODUCER, kept separate from `_volatile_context_parts` (the renderer)
+        for the reason `_room_labels` is: a renderer test that supplies its own
+        `bus_teams` proves the renderer and says nothing about the fetch, and it
+        is the fetch that decides whether a DM turn can reach a room at all.
+
+        Takes the ``team_ids`` the caller already resolved for peer scoping, so
+        membership is not re-queried — only the team NAMES are read. The cap is
+        applied HERE, on the fetch, not only at render time, so a pathological
+        owner's team count never rides into ``extra_data`` in full. The ids are
+        SORTED before the cap, so which teams survive the truncation is stable
+        and reproducible rather than a function of the membership query's row
+        order (only matters above the cap, which normal team counts never hit).
+        A row whose ``team_id`` went missing is dropped; a row with no name keeps
+        its id (the id is the address; the name is only a label).
+
+        Never raises: an address book is not worth a turn (same posture as
+        `_room_labels`).
+        """
+        if not team_ids:
+            return []
+        try:
+            rows = await db.get_by_ids(
+                "teams", "team_id", sorted(team_ids)[:MAX_TEAMS_IN_CONTEXT]
+            )
+            return [
+                {"team_id": r.get("team_id", ""), "name": r.get("name") or "Team"}
+                for r in (rows or [])
+                if r.get("team_id")
+            ]
+        except Exception as e:  # noqa: BLE001 — an address book is never worth a turn
+            logger.debug(f"Failed to build team address book: {e}")
+            return []
+
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """
         Inject MessageBus context into agent data.
@@ -743,6 +808,11 @@ class MessageBusModule(XYZBaseModule):
             # the bus; users who don't use teams keep the old "everyone I own"
             # behavior unchanged.
             known_agents = []
+            # Resolved inside the known-agents block, but declared out here so
+            # the address book below can reuse it without a second membership
+            # query — and can still run if the known-agents block fails past
+            # this point (see step 2b).
+            my_team_ids: list = []
             try:
                 db = await _get_shared_db()
                 if db:
@@ -793,6 +863,26 @@ class MessageBusModule(XYZBaseModule):
                     ctx_data.extra_data["bus_known_agents"] = known_agents
             except Exception as e:
                 logger.debug(f"Failed to fetch known agents: {e}")
+
+            # --- 2b. Standing "your teams" address book ---
+            #
+            # Its OWN failure domain, kept out of the known-agents try above:
+            # that block ends in a full-table `agents` scan, and a failure there
+            # must not also cost the address book — which is the very thing this
+            # change relies on to let a DM turn reach a team room. Reuses the
+            # `my_team_ids` resolved above (membership is not re-queried); the
+            # producer reads only the team NAMES. Gives `message_team(team_id=)`
+            # a target on every turn, not only when a team room sits in the
+            # unread window (`bus_room_labels` is windowed and keyed on
+            # channel_id).
+            try:
+                db = await _get_shared_db()
+                if db and my_team_ids:
+                    bus_teams = await self._team_address_book(db, my_team_ids)
+                    if bus_teams:
+                        ctx_data.extra_data["bus_teams"] = bus_teams
+            except Exception as e:
+                logger.debug(f"Failed to build team address book: {e}")
 
             # --- 3. Fetch unread messages (capped) ---
             # The cap is pushed into the query, and it selects the NEWEST ones.
