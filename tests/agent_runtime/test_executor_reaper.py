@@ -7,6 +7,8 @@ process. Pure coordinator, tested via DI fakes.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from xyz_agent_context.agent_runtime.executor_reaper import (
@@ -351,11 +353,16 @@ async def _noop_stop(user_id):
 @pytest.fixture(autouse=True)
 def _reset_reaper_module_state():
     import xyz_agent_context.agent_runtime.executor_reaper as mod
-    mod._LAST_PASS = None
-    mod._recording_off_warned.clear()
+
+    def _clear():
+        mod._LAST_PASS = None
+        mod._LAST_PASS_AT = None
+        mod._TASK_ERROR = None
+        mod._recording_off_warned.clear()
+
+    _clear()
     yield
-    mod._LAST_PASS = None
-    mod._recording_off_warned.clear()
+    _clear()
 
 
 @pytest.fixture
@@ -374,7 +381,9 @@ def audit_rows(monkeypatch):
 def test_status_reports_not_running_before_any_pass():
     from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
 
-    assert reaper_status() == {"running": False}
+    assert reaper_status() == {
+        "running": False, "stale": None, "task_error": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -458,3 +467,198 @@ async def test_an_empty_pass_is_not_blind(audit_rows):
     await reaper.reap_once()
     assert reaper_status()["blind_passes"] == 0
     assert audit_rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_slow_liveness_lookup_counts_as_blind(audit_rows, monkeypatch):
+    """The common DB degradation is SLOW, not dead. Bounding the lookup only
+    at the admission layer cancels the veto mid-await, so nothing is tallied
+    and the pass reports the same zeros as a healthy empty one — the exact
+    blind spot the blind-pass alarm exists to close."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    monkeypatch.setattr(mod, "_PER_CANDIDATE_S", 0.02)
+
+    async def wedged(user_id):
+        await asyncio.sleep(5)          # never returns within the budget
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop,
+        is_busy=_CullVeto(check=wedged), ttl_seconds=1,
+    )
+    assert await reaper.reap_once() == []
+
+    status = reaper_status()
+    assert status["judged"] == 1 and status["blind"] == 1
+    assert status["blind_passes"] == 1
+    assert [r[0] for r in audit_rows] == ["cull_disabled"]
+
+
+@pytest.mark.asyncio
+async def test_a_pass_with_no_candidates_does_not_reset_blind_passes(audit_rows):
+    """The kill switch stays on for hours; an idle minute in the middle must
+    not punch the counter back to zero and defeat a threshold alert."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def blind(user_id):
+        return UNKNOWN_RUN
+
+    veto = _CullVeto(check=blind)
+    controller = _FakeController(["a"])
+    reaper = ExecutorReaper(controller, _noop_stop, is_busy=veto, ttl_seconds=1)
+
+    await reaper.reap_once()
+    assert reaper_status()["blind_passes"] == 1
+    controller._idle = []                    # nobody due this pass
+    await reaper.reap_once()
+    assert reaper_status()["blind_passes"] == 1   # unchanged, not reset
+
+
+@pytest.mark.asyncio
+async def test_claim_and_recheck_are_counted_separately(audit_rows):
+    """One healthy pass asks twice per survivor. Merged, `judged: 10,
+    reaped: 5` sends the reader hunting for 5 users that do not exist."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def idle(user_id):
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController(["a", "b"]), _noop_stop,
+        is_busy=_CullVeto(check=idle), ttl_seconds=1,
+    )
+    assert await reaper.reap_once() == ["a", "b"]
+
+    status = reaper_status()
+    assert status["judged"] == 2            # candidates, not questions
+    assert status["recheck_judged"] == 2
+    assert status["reaped"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_blind_recheck_is_not_a_blind_pass(audit_rows):
+    """Claim phase read the DB fine; a hiccup during the recheck is a hiccup,
+    not a reaper that has gone blind."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    seen = {"n": 0}
+
+    async def check(user_id):
+        seen["n"] += 1
+        return None if seen["n"] == 1 else UNKNOWN_RUN
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop,
+        is_busy=_CullVeto(check=check), ttl_seconds=1,
+    )
+    assert await reaper.reap_once() == []          # recheck withheld the stop
+    status = reaper_status()
+    assert status["blind_passes"] == 0
+    assert status["recheck_vetoed"] == 1
+    assert [r[0] for r in audit_rows] == []        # no cull_disabled
+
+
+@pytest.mark.asyncio
+async def test_a_reaper_without_the_veto_is_reported_not_hidden(audit_rows):
+    """is_busy=None is the pre-2026-07-31 configuration: it culls on this
+    process's local view alone. Reporting it as "not running" would send the
+    reader looking for a leak while runs are being cut off."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop, is_busy=None, ttl_seconds=1
+    )
+    await reaper.reap_once()
+
+    status = reaper_status()
+    assert status["running"] is True
+    assert status["veto_installed"] is False
+    # Explicit zeros, not absent keys — a watcher reading body["judged"]
+    # should get a number, not a KeyError.
+    for key in ("judged", "vetoed", "blind", "recheck_judged", "recheck_vetoed"):
+        assert status[key] == 0
+
+
+@pytest.mark.asyncio
+async def test_status_goes_stale_when_no_pass_completes(audit_rows):
+    """"The task exists" is L1 and proves nothing (incident lesson #4): a
+    wedged reaper keeps reporting its last good pass forever."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def idle(user_id):
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController([]), _noop_stop,
+        is_busy=_CullVeto(check=idle), ttl_seconds=1, interval_seconds=10,
+    )
+    await reaper.reap_once()
+    assert reaper_status()["stale"] is False
+
+    mod._LAST_PASS_AT -= 31        # > 3 intervals with no completed pass
+    status = reaper_status()
+    assert status["stale"] is True
+    assert status["age_seconds"] >= 31
+
+
+def test_a_dead_background_task_is_visible_in_status():
+    """Its only other trace is one log line the next rotation eats."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def _boom():
+        raise RuntimeError("reap loop exploded")
+
+    async def _run():
+        task = asyncio.get_running_loop().create_task(_boom())
+        task.add_done_callback(mod._on_reaper_done)
+        with pytest.raises(RuntimeError):
+            await task
+
+    asyncio.run(_run())
+    assert "reap loop exploded" in (reaper_status()["task_error"] or "")
+
+
+@pytest.mark.asyncio
+async def test_cull_disabled_rows_are_rate_limited_like_the_warning(
+    audit_rows, monkeypatch
+):
+    """One row per pass would make the row count a function of outage
+    duration — the shape this file already avoids for run duration."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    monkeypatch.setattr(mod, "_BLIND_WARN_EVERY", 3)
+
+    async def blind(user_id):
+        return UNKNOWN_RUN
+
+    veto = _CullVeto(check=blind)
+    controller = _FakeController(["a"])
+    reaper = ExecutorReaper(controller, _noop_stop, is_busy=veto, ttl_seconds=1)
+
+    for _ in range(6):
+        controller._idle = ["a"]
+        await reaper.reap_once()
+
+    # Passes 1 and 4 write; 2/3/5/6 ride the same tick as the warning.
+    assert [r[0] for r in audit_rows] == ["cull_disabled", "cull_disabled"]
+    # The cause travels in the row so the reader does not have to guess.
+    assert audit_rows[0][1]["recording_disabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_cull_disabled_names_the_kill_switch_when_that_is_the_cause(
+    audit_rows, monkeypatch
+):
+    from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+
+    monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
+    controller = _FakeController(["a"])
+    reaper = ExecutorReaper(
+        controller, _noop_stop, is_busy=_CullVeto(), ttl_seconds=1
+    )
+    await reaper.reap_once()
+    assert audit_rows[0][1]["recording_disabled"] is True

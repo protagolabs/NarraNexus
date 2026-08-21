@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from time import monotonic
 from typing import Awaitable, Callable, Optional
 
 from loguru import logger
@@ -64,11 +65,22 @@ UNKNOWN_RUN = "unknown"
 # and reset when the switch goes back on so a second pull warns again.
 _recording_off_warned: set[str] = set()
 
+# Budget for ONE liveness lookup. Separate from the admission layer's
+# whole-batch budget, and the important one: a timeout here is answered
+# "busy" AND counted as blind, so the pass-level alarm below trips. Without
+# it, a DB that is SLOW rather than dead cancels the lookup mid-await, the
+# tally never runs, and a pass in which nothing could be judged reports the
+# same zeros as a healthy pass with nothing to do.
+_PER_CANDIDATE_S = 15.0
+
 # Last pass's outcome, for the L2 read-side (see reaper_status). Module level
 # because the reaper is one background task per process and the admin route
-# has no handle on the instance; a dict, so a process that never started one
-# reports "not running" rather than lying with zeros.
+# has no handle on the instance; None until a pass completes, so a process
+# that never started one says so instead of lying with zeros.
 _LAST_PASS: Optional[dict] = None
+_LAST_PASS_AT: Optional[float] = None      # monotonic; drives age/staleness
+_STALE_AFTER_S: float = DEFAULT_INTERVAL_SEC * 3
+_TASK_ERROR: Optional[str] = None          # set by the done-callback
 
 # Passes between repeats of the "culling is blind" warning. The first blind
 # pass warns immediately; at the 120s default this then repeats hourly.
@@ -88,12 +100,34 @@ def reaper_status() -> dict:
     indistinguishable from a healthy idle system — until executors pile up to
     the broker's cap and new users start getting refused.
 
-    ``blind_passes`` is the field to alert on: non-zero and climbing means
-    nothing is reclaiming executors in this process.
+    Read it in this order — the first two are L2, the counts are only
+    meaningful once they pass (incident lesson #4: "the task still exists" is
+    L1 and proves nothing):
+
+    * ``stale`` — no pass completed in 3 intervals. The counts below are
+      frozen at whatever the last good pass saw, so a wedged reaper otherwise
+      reports healthy numbers forever.
+    * ``task_error`` — the background task died. Its only other trace is one
+      log line at death, which the next log rotation eats.
+    * ``veto_installed`` — false means this process is culling on its local
+      view alone, i.e. the 2026-07-31 configuration. Reported even then,
+      which is why the stats default to zero rather than being absent.
+    * ``blind_passes`` — consecutive passes in which nothing could be judged.
+      Non-zero and climbing means nothing is reclaiming executors here.
+
+    Never raises: it is one section of an endpoint whose contract is that no
+    single section can 500 it.
     """
     if _LAST_PASS is None:
-        return {"running": False}
-    return {"running": True, **_LAST_PASS}
+        return {"running": False, "stale": None, "task_error": _TASK_ERROR}
+    age = monotonic() - _LAST_PASS_AT if _LAST_PASS_AT is not None else None
+    return {
+        "running": True,
+        "age_seconds": None if age is None else round(age, 1),
+        "stale": age is not None and age > _STALE_AFTER_S,
+        "task_error": _TASK_ERROR,
+        **_LAST_PASS,
+    }
 
 
 async def live_run_elsewhere(
@@ -180,7 +214,22 @@ class _CullVeto:
         return stats
 
     async def __call__(self, user_id: str) -> bool:
-        run_id = await self._check(user_id)
+        try:
+            run_id = await asyncio.wait_for(
+                self._check(user_id), _PER_CANDIDATE_S
+            )
+        except TimeoutError:
+            # The lookup cannot time itself out — it would still be waiting on
+            # the connection pool. Bounding it HERE keeps the tally below on
+            # the fast path of a slow DB; bounding it only at the admission
+            # layer cancels this coroutine mid-await, so nothing is counted
+            # and the pass reports the same zeros as a healthy empty one.
+            # asyncio.CancelledError is a BaseException and still propagates.
+            logger.warning(
+                f"[reaper] liveness lookup for user={user_id} exceeded "
+                f"{_PER_CANDIDATE_S}s — treating as busy"
+            )
+            run_id = UNKNOWN_RUN
         self._judged += 1
         if run_id is None:
             self._blocked_by.pop(user_id, None)
@@ -251,24 +300,55 @@ class ExecutorReaper:
         # "could not tell". Drives the repeat warning and the L2 field.
         self._blind_passes = 0
 
-    async def _report_pass(self, stats: dict, reaped: int) -> None:
-        """Publish one pass's outcome to the L2 surfaces. Never raises."""
-        global _LAST_PASS
-        blind = stats.get("blind", 0)
-        judged = stats.get("judged", 0)
+    async def _report_pass(
+        self, claim: dict, recheck: dict, reaped: int
+    ) -> None:
+        """Publish one pass's outcome to the L2 surfaces. Never raises.
+
+        ``claim`` is the veto's tally from the claim phase — one question per
+        candidate — and ``recheck`` the second round of questions the
+        survivors get before their stop. They are reported separately because
+        a merged count answers no question anyone asks: a healthy pass that
+        culls 5 idle users asks 10 times, and a reader seeing ``judged: 10,
+        reaped: 5`` goes looking for 5 users that do not exist.
+        """
+        global _LAST_PASS, _LAST_PASS_AT, _STALE_AFTER_S
+        judged, blind = claim.get("judged", 0), claim.get("blind", 0)
+        # Claim-phase numbers only. A recheck that goes blind while the claim
+        # phase read the DB fine is a hiccup, not a blind pass, and folding it
+        # in here would raise the alarm on it.
         wholly_blind = judged > 0 and blind == judged
-        self._blind_passes = self._blind_passes + 1 if wholly_blind else 0
+        if judged == 0:
+            # No candidates ⇒ no information either way. Resetting here would
+            # let an idle minute in an otherwise blind hour punch the counter
+            # back to zero and defeat any threshold alert built on it.
+            pass
+        elif wholly_blind:
+            self._blind_passes += 1
+        else:
+            self._blind_passes = 0
+        _STALE_AFTER_S = self.interval_seconds * 3
         _LAST_PASS = {
             "reaped": reaped,
+            # Reported unconditionally, including the None case: a reaper
+            # culling on this process's local view alone is the 2026-07-31
+            # configuration, and it must not read as "not running".
             "veto_installed": self._is_busy is not None,
             "blind_passes": self._blind_passes,
-            **stats,
+            "judged": judged,
+            "vetoed": claim.get("vetoed", 0),
+            "blind": blind,
+            "recheck_judged": recheck.get("judged", 0),
+            "recheck_vetoed": recheck.get("vetoed", 0),
         }
+        _LAST_PASS_AT = monotonic()
         if not wholly_blind:
             return
-        # Every candidate unreadable ⇒ nothing will EVER be culled while this
-        # lasts. Repeated on a schedule so the state outlives a log rotation,
-        # and mirrored into the audit table so it outlives the container.
+        # Every candidate unreadable ⇒ nothing will be culled while this
+        # lasts. Rate-limited so the state outlives a log rotation without
+        # becoming noise, and the audit row rides the SAME tick — one row per
+        # pass would make the row count a function of outage duration, the
+        # shape this file already avoids for run duration.
         if (self._blind_passes - 1) % _BLIND_WARN_EVERY == 0:
             logger.warning(
                 f"[reaper] liveness unreadable for all {judged} candidate(s) — "
@@ -276,12 +356,19 @@ class ExecutorReaper:
                 f"Check {RECORDING_DISABLED_ENV} and DB reachability; idle "
                 f"executors accumulate until the broker refuses new ones."
             )
-        # Only the kill-switch cause can land this row — when the DB is the
-        # thing that is unreadable, the write needs the client that just
-        # failed. That asymmetry is why the warning above exists too.
-        await _audit(EVENT_CULL_DISABLED, detail={
-            "judged": judged, "blind_passes": self._blind_passes,
-        })
+            # The cause travels in the row: a failed events read lands here
+            # just fine (only a DB that cannot be reached AT ALL cannot, since
+            # that write needs the client that just failed), so the reader
+            # must not have to guess which of the two it was.
+            from xyz_agent_context.agent_runtime.run_recorder import (
+                recording_enabled,
+            )
+
+            await _audit(EVENT_CULL_DISABLED, detail={
+                "judged": judged,
+                "blind_passes": self._blind_passes,
+                "recording_disabled": not recording_enabled(),
+            })
 
     async def reap_once(self) -> list[str]:
         """One cull pass. Returns the users whose executors were stopped.
@@ -296,6 +383,11 @@ class ExecutorReaper:
         users = await self._controller.claim_idle_users(
             self.ttl_seconds, is_busy=self._is_busy,
         )
+        # Drained HERE, before the rechecks below add a second question per
+        # survivor — that split is what keeps "judged" equal to the candidate
+        # count (see _report_pass).
+        veto = self._is_busy if isinstance(self._is_busy, _CullVeto) else None
+        claim_stats = veto.take_pass_stats() if veto else {}
         reaped: list[str] = []
         for user_id in users:
             try:
@@ -306,6 +398,11 @@ class ExecutorReaper:
                 # bus-triggered run to have started and reached step 3 on that
                 # very container. One indexed read against the whole bug
                 # recurring at a lower rate.
+                # Bounded like the claim phase, and by the same budget: both
+                # go through _CullVeto.__call__, which wraps the lookup. Not
+                # wrapped a second time here — two timeouts on the same value
+                # race, and the loser's TimeoutError would land in the stop
+                # handler below and read as "the broker failed".
                 if self._is_busy is not None and await self._is_busy(user_id):
                     logger.info(
                         f"[reaper] user={user_id} became busy between the claim "
@@ -333,14 +430,18 @@ class ExecutorReaper:
                 # collaborator does later.
                 try:
                     await self._controller.restamp_idle(user_id)
-                except Exception as re:  # noqa: BLE001
-                    logger.warning(f"[reaper] restamp failed user={user_id}: {re}")
+                except Exception as restamp_err:  # noqa: BLE001
+                    logger.warning(
+                        f"[reaper] restamp failed user={user_id}: {restamp_err}"
+                    )
         if reaped:
             logger.info(f"[reaper] reaped {len(reaped)} idle executor(s): {reaped}")
-        # Only the veto sees the candidates; the claim hands back survivors
-        # only, so an empty pass is ambiguous without this.
-        if isinstance(self._is_busy, _CullVeto):
-            await self._report_pass(self._is_busy.take_pass_stats(), len(reaped))
+        # Unconditional: a reaper running WITHOUT the veto is the one
+        # configuration most worth seeing on the admin surface, and skipping
+        # the report there would show it as "not running".
+        await self._report_pass(
+            claim_stats, veto.take_pass_stats() if veto else {}, len(reaped),
+        )
         return reaped
 
     async def run_forever(self) -> None:
@@ -359,10 +460,15 @@ class ExecutorReaper:
 
 def _on_reaper_done(task: "asyncio.Task") -> None:
     # Incident lesson #2: a fire-and-forget task must surface its death.
+    global _TASK_ERROR
     if task.cancelled():
         return
     exc = task.exception()
     if exc is not None:
+        # Also parked for reaper_status: a single log line at death is L1 and
+        # gets eaten by the next rotation, while the consequence (nothing
+        # reclaims executors any more) lasts until someone restarts backend.
+        _TASK_ERROR = repr(exc)
         logger.error(f"[reaper] background task died: {exc!r}")
 
 

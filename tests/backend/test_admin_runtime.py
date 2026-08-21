@@ -177,6 +177,11 @@ async def test_status_has_required_top_level_keys(db_client, monkeypatch):
         assert "admission" in body
         assert "executors" in body
         assert "audit_counts" in body
+        # The idle reaper's L2 section. Asserted for PRESENCE only — it reads
+        # module-level state that another test file's reaper may have written,
+        # so pinning values here would make this flaky on test ordering.
+        assert isinstance(body["executor_reaper"], dict)
+        assert "stale" in body["executor_reaper"]
     finally:
         reset_admission_controller_for_test(None)
 

@@ -68,8 +68,37 @@ orphan；而且 `EXECUTOR_IDLE_TTL_SECONDS` 在 compose 里没配，broker 自�
   `docker restart` 一起消失，而开关状态还留在 `.env` 里（事故教训 #5）
 - 写一行 `cull_disabled` 审计（**按轮**不按候选）。只有 kill-switch 那种成因
   写得进去，DB 拨不通那种要用的正是刚失败的 client
-- `reaper_status()` 挂进 `/api/admin/runtime/status`，`blind_passes` 是该告警
-  的那个字段
+- `reaper_status()` 挂进 `/api/admin/runtime/status`（见
+  [[runtime.py]]），**无条件上报** —— 包括 `is_busy=None` 那种"没装护栏"的
+  配置：把它报成 `running: false` 会让读的人担心"没人回收要泄漏"，而真实风险
+  恰恰相反（回收器正在按事故前的逻辑掐 run）
+
+**判活必须有自己的每候选预算（`_PER_CANDIDATE_S`）**：DB 最常见的降级形态是
+**慢**而不是死。只在 admission 那层用整批预算的话，`asyncio.wait_for` 会在
+`await` 处**取消**否决协程，`_judged += 1` 永远不执行 —— 于是"这一轮什么都判
+不了"和"这一轮本来就没人该回收"导出完全相同的零，本 PR 三个观测面同时报健康。
+预算下沉进 `_CullVeto.__call__` 后，超时走既有的 blind 记账，警报照常响；
+admission 那层的整批预算退化为 backstop（保护的是 admission 延迟，两层职责不同，
+都要留）。停之前那次复查也走同一个 `__call__`，所以**不再**单独包一层
+`wait_for` —— 两层超时会 race，输的那个的 `TimeoutError` 会掉进停容器的
+`except` 里，读起来像"broker 挂了"。
+
+**计数分两段**：一轮里 `is_busy` 被问的次数是 `候选数 + 幸存者数`。合并导出会
+让健康轮显示 `judged: 10 / reaped: 5`，读的人去查另外 5 个不存在的用户，"否决率"
+这个最自然的派生指标也系统性偏低。所以 claim 阶段的账在 `claim_idle_users` 返回
+后**立刻** drain，复查阶段单独记 `recheck_*`。**`wholly_blind` 只能用 claim 阶段
+那对数字算** —— 把复查的 blind 混进去，会把"claim 正常、复查时 DB 抖了一下"误报
+成整轮全瞎。
+
+**没有候选的那一轮不动 `blind_passes`**：既不加也不清零。kill switch 开着的几
+小时里夹一分钟没人到期，清零会把任何基于阈值的告警打穿。
+
+**新鲜度是 L2 的前提**（事故教训 #4）：`running: true` 原本只意味着"这个进程里
+曾经跑完过至少一轮"。之后无论卡死、逐轮抛异常、还是 task 已经死了，
+`reaper_status()` 都会**永久冻结在最后一次好轮的数字上**，读起来和健康系统一模
+一样。所以加 `age_seconds` / `stale`（3 个 interval，沿用本仓"3 拍判死"那把尺）
+和 `task_error`（`_on_reaper_done` 落下来的，否则 task 之死只有一行会被轮转吃掉
+的日志）。
 
 不修的代价是具体的：泄漏累积到 broker 的 `MAX_EXECUTORS` 之后，ensure() 开始
 对**新用户** 403，现象是"点了没反应/起不了 agent"，而 on-call 手里没有任何指标
