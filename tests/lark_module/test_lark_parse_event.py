@@ -407,3 +407,25 @@ def test_create_time_non_numeric_falls_back_to_zero() -> None:
     parsed = _make_trigger().parse_event(raw)
     assert parsed is not None
     assert parsed.timestamp_ms == 0
+
+
+def test_parse_event_reads_group_vs_private_as_a_positive_whitelist():
+    """Lark's group/1:1 truth is in ``raw['chat_type']`` ('group' / 'p2p'). It
+    was never read before, so every turn defaulted to PRIVATE — a group looked
+    1:1 and (post reach-recording) got the group id recorded as a way to reach
+    one person.
+
+    This is a SAFETY gate (a misread posts a private message into a group), so
+    the safe direction is "rather not record": ONLY the literal 'p2p' is 1:1.
+    A missing field, a future value, or a topic group is GROUP → not recorded.
+    """
+    from xyz_agent_context.schema.parsed_message import ChatType
+
+    t = _make_trigger()
+    base = dict(message_type="text", content_payload={"text": "hi"})
+
+    assert t.parse_event(dict(_raw(**base), chat_type="p2p")).chat_type == ChatType.PRIVATE
+    assert t.parse_event(dict(_raw(**base), chat_type="group")).chat_type == ChatType.GROUP
+    # Unknown / future / missing all fall to the safe (non-1:1) side.
+    assert t.parse_event(dict(_raw(**base), chat_type="topic_group")).chat_type != ChatType.PRIVATE
+    assert t.parse_event(_raw(**base)).chat_type != ChatType.PRIVATE

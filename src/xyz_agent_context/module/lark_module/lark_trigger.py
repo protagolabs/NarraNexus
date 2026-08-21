@@ -61,7 +61,11 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from xyz_agent_context.schema.parsed_message import (
+    UNKNOWN_SENDER_NAME,
+    ChatType,
+    ParsedMessage,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -463,7 +467,7 @@ class LarkTrigger(ChannelTriggerBase):
         msg_id = raw.get("message_id", raw.get("id", ""))
         chat_id = raw.get("chat_id", "")
         sender_id = raw.get("sender_id", "")
-        sender_name = raw.get("sender_name", "Unknown")
+        sender_name = raw.get("sender_name", UNKNOWN_SENDER_NAME)
         content_str = raw.get("content", "") or ""
         message_type = raw.get("message_type", "") or ""
 
@@ -483,6 +487,13 @@ class LarkTrigger(ChannelTriggerBase):
         except (ValueError, TypeError):
             create_time_ms = 0
 
+        # Lark's group/1:1 truth is in `raw["chat_type"]` ("group" / "p2p") —
+        # NOT set on ParsedMessage before, so it defaulted to PRIVATE and every
+        # group turn looked 1:1. Reach recording (which only records 1:1) is a
+        # SAFETY gate (a misread posts a private message into a group), so this
+        # is a POSITIVE whitelist: only the literal "p2p" is 1:1; a missing
+        # field, a topic group, or any future value is treated as GROUP and
+        # therefore not recorded as a way to reach one person.
         return ParsedMessage(
             message_id=msg_id,
             chat_id=chat_id,
@@ -490,6 +501,9 @@ class LarkTrigger(ChannelTriggerBase):
             sender_name=sender_name,
             content=content.strip(),
             timestamp_ms=create_time_ms,
+            chat_type=(
+                ChatType.PRIVATE if raw.get("chat_type") == "p2p" else ChatType.GROUP
+            ),
             raw=raw,
         )
 
@@ -902,7 +916,7 @@ class LarkTrigger(ChannelTriggerBase):
         only fail.
         """
         if not credential.user_oauth_ok():
-            return "Unknown"
+            return UNKNOWN_SENDER_NAME
         try:
             user_info = await self._cli.get_user(
                 credential.agent_id, user_id=sender_id, identity="user"
@@ -918,11 +932,11 @@ class LarkTrigger(ChannelTriggerBase):
                     .split("@")[0]
                     .replace(".", " ")
                     .title()
-                    or "Unknown"
+                    or UNKNOWN_SENDER_NAME
                 )
         except Exception:
             logger.debug(f"Failed to resolve sender name for {sender_id}")
-        return "Unknown"
+        return UNKNOWN_SENDER_NAME
 
     def create_context_builder(
         self,
@@ -1796,7 +1810,7 @@ class LarkTrigger(ChannelTriggerBase):
 
         # Resolve sender name + sanitize
         sender_name = message.sender_name
-        if (not sender_name or sender_name == "Unknown") and message.sender_id:
+        if (not sender_name or sender_name == UNKNOWN_SENDER_NAME) and message.sender_id:
             sender_name = await self.resolve_sender_name(message.sender_id, cred)
         sender_name = self.sanitize_display_name(sender_name)
         message.sender_name = sender_name
@@ -1841,6 +1855,8 @@ class LarkTrigger(ChannelTriggerBase):
             await self._inbox_recorder.record_turn(
                 db=self._db,
                 thread_id=im_thread_id(self.channel_name, cred.agent_id, message.chat_id),
+                chat_id=message.chat_id,
+                chat_type=message.chat_type,
                 owner_user_id=await resolve_owner_for_agent(self._db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=message.sender_id,
@@ -2120,6 +2136,11 @@ class LarkTrigger(ChannelTriggerBase):
             await recorder.record_turn(
                 db=db,
                 thread_id=im_thread_id(self.channel_name, cred.agent_id, chat_id),
+                chat_id=chat_id,
+                # Shim keeps production's shape: a 1:1 records reach. The
+                # production path passes message.chat_type; this shim is only
+                # reached by tests, which drive 1:1.
+                chat_type=ChatType.PRIVATE,
                 owner_user_id=await resolve_owner_for_agent(db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=sender_id,

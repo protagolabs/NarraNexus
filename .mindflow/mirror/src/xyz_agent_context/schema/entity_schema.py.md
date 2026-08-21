@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — `ENTITY_NAME_MAX_LEN` 常量（PR-2 增量审 Minor）
+
+新增模块级常量 `ENTITY_NAME_MAX_LEN = 255`(= `social_network_entities.entity_name` 的 MySQL `VARCHAR(255)` 列宽,SQLite 是 TEXT)。持久写入 caller-可控名字的写入方(见 [[inbox_recorder.py]] 的 reach 记录)截断到它,防超长值在 MySQL 触发 1406 把整条写入弄挂。取代 `inbox_recorder.py` 里散落的裸 `255` 字面量。
 
 ## 2026-08-19 — 更正一处措辞
 

@@ -49,6 +49,12 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
         are given to you in the message context). ``text`` is your reply —
         plain text only (WeChat renders no markdown). Send exactly ONE message.
 
+        Deployment note: on the managed path the platform delivers by
+        ``to_user_id`` alone and ``context_token`` is unused (it may be empty);
+        only the direct-iLink fallback requires the inbound ``context_token``.
+        So a managed deployment CAN start a message to a known ``to_user_id``,
+        while direct-iLink is reply-only within the active inbound.
+
         Returns ``{"ok": bool, "error"?: str}``.
         """
         if not text or not text.strip():

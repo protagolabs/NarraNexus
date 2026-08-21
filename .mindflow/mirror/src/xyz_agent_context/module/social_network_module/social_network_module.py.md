@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — `extract_and_update_entity_info` 支持 create-only 名字键(PR-2 预审 Important)
+
+新增 `entity_name_if_new` 键:**create 分支**用它作 `entity_name` 兜底(`entity_name` 显式优先);**merge/existing 分支**是 **fill-if-empty**——`_name=updates.pop("entity_name_if_new"); if _name and not (existing.entity_name or "").strip(): updates["entity_name"]=_name`(增量审 Minor:也给「别的路径建出来的无名实体」补名,但非空名**绝不覆盖**)。用途:[[inbox_recorder.py]] 自动记 reach 时给陌生发件人命名(否则无名,§3b 按名字搜不到),又不覆盖 LLM 规范名。守卫 `test_inbox_reach_recording.py`(create 带名 / 已存在无名被填 / 非空名不覆盖三面)。
 
 ## 2026-08-18 — create_agent 的拒绝**规则**也上提了,不只是那两句话
 
