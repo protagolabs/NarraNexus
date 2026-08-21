@@ -355,6 +355,9 @@ def _reset_reaper_module_state():
     import xyz_agent_context.agent_runtime.executor_reaper as mod
 
     def _clear():
+        # Every mutable module-level name this file can write. _STALE_AFTER_S
+        # used to belong here too; it is now carried inside _LAST_PASS, which
+        # is one fewer way for a test to leak into the next one.
         mod._LAST_PASS = None
         mod._LAST_PASS_AT = None
         mod._TASK_ERROR = None
@@ -381,9 +384,17 @@ def audit_rows(monkeypatch):
 def test_status_reports_not_running_before_any_pass():
     from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
 
-    assert reaper_status() == {
-        "running": False, "stale": None, "task_error": None,
-    }
+    status = reaper_status()
+    assert status["running"] is False
+    assert status["stale"] is None
+    assert status["veto_installed"] is None   # unknown, NOT "no guard"
+    assert status["task_error"] is None
+    # Same key set as a reported pass. This branch covers every process's
+    # first interval after a deploy — precisely when someone is watching —
+    # so a consumer indexing these must not KeyError.
+    for key in ("age_seconds", "reaped", "blind_passes", "judged", "vetoed",
+                "blind", "recheck_judged", "recheck_vetoed"):
+        assert key in status
 
 
 @pytest.mark.asyncio
@@ -662,3 +673,66 @@ async def test_cull_disabled_names_the_kill_switch_when_that_is_the_cause(
     )
     await reaper.reap_once()
     assert audit_rows[0][1]["recording_disabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_key_set_is_identical_before_and_after_a_pass(audit_rows):
+    """Two shapes for one endpoint section is how a watcher breaks in the
+    window it is most needed."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    before = set(reaper_status())
+
+    async def idle(user_id):
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop,
+        is_busy=_CullVeto(check=idle), ttl_seconds=1,
+    )
+    await reaper.reap_once()
+    assert set(reaper_status()) == before
+
+
+@pytest.mark.asyncio
+async def test_the_two_timeout_layers_together_still_record_a_blind_pass(
+    audit_rows, monkeypatch
+):
+    """The bug this guards was a LAYER bug: admission's batch wait_for
+    cancelled the veto mid-await, so nothing was tallied and a wedged DB read
+    as a healthy idle system. Every other test here runs against a fake
+    controller with no outer budget at all, so the fix's actual precondition
+    — the inner budget fires FIRST — is never exercised. Drive the real
+    controller so a regression in either constant fails here.
+    """
+    import xyz_agent_context.agent_runtime.admission as adm
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    assert mod._PER_CANDIDATE_S < adm._VETO_BUDGET_S   # the invariant itself
+
+    monkeypatch.setattr(mod, "_PER_CANDIDATE_S", 0.05)
+    monkeypatch.setattr(adm, "_VETO_BUDGET_S", 5.0)
+
+    now = {"t": 0.0}
+    controller = adm.AgentAdmissionController(
+        None, None, None, 0, clock=lambda: now["t"]
+    )
+    await controller.release(await controller.acquire("u"))
+    now["t"] = 100.0                                   # idle past the TTL
+
+    async def wedged(user_id):
+        await asyncio.sleep(30)                        # DB is slow, not dead
+        return None
+
+    reaper = ExecutorReaper(
+        controller, _noop_stop, is_busy=_CullVeto(check=wedged), ttl_seconds=1
+    )
+    assert await reaper.reap_once() == []
+
+    status = reaper_status()
+    assert status["judged"] == 1 and status["blind"] == 1
+    assert status["blind_passes"] == 1
+    assert [r[0] for r in audit_rows] == ["cull_disabled"]
+    # ...and the user keeps its stamp, so it is reconsidered next pass.
+    assert await controller.claim_idle_users(1) == ["u"]

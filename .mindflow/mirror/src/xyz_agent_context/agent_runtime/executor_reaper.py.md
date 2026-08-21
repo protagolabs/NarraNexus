@@ -66,12 +66,20 @@ orphan；而且 `EXECUTOR_IDLE_TTL_SECONDS` 在 compose 里没配，broker 自�
   `claim_idle_users` 只回幸存者）
 - 整轮全 blind 时按 `_BLIND_WARN_EVERY` 周期重发警告 —— 只打一次会随
   `docker restart` 一起消失，而开关状态还留在 `.env` 里（事故教训 #5）
-- 写一行 `cull_disabled` 审计（**按轮**不按候选）。只有 kill-switch 那种成因
-  写得进去，DB 拨不通那种要用的正是刚失败的 client
+- 写一行 `cull_disabled` 审计，与上面那条警告**共用 `_BLIND_WARN_EVERY` 这一个
+  节拍**（第一个全瞎轮立刻落一行）—— 每轮一行会让行数变成**停摆时长**的函数。
+  注意与 `_CullVeto` 的按 run 去重是**两件事**：那里避的是 run 时长，这里避的是
+  停摆时长。成因写进 `detail.recording_disabled`，行本身自证；**能落行的成因
+  不止 kill switch**，只有 DB 完全拨不通那种确实落不进来 —— 展开见
+  [[executor_audit.py]]
 - `reaper_status()` 挂进 `/api/admin/runtime/status`（见
-  [[runtime.py]]），**无条件上报** —— 包括 `is_busy=None` 那种"没装护栏"的
-  配置：把它报成 `running: false` 会让读的人担心"没人回收要泄漏"，而真实风险
-  恰恰相反（回收器正在按事故前的逻辑掐 run）
+  [[runtime.py]]），**无条件上报**，且**两条路径的键集合完全相同**：
+  - `is_busy=None` 那种"没装护栏"的配置照报。把它藏成 `running: false` 会让读的
+    人担心"没人回收要泄漏"，而真实风险恰恰相反（回收器正在按事故前的逻辑掐 run）
+  - "还没跑完第一轮"那条路径也给全套键（未知量为 `None`，计数为 `0`）。它覆盖
+    **每个进程部署后的头一个 interval**，正是有人盯着看的那两分钟；消费方在那里
+    KeyError 会像端点坏了。`veto_installed` 在这条路径上是 `None` 而**不是**
+    `False` —— "不知道"和"没有护栏"要的是相反的反应
 
 **判活必须有自己的每候选预算（`_PER_CANDIDATE_S`）**：DB 最常见的降级形态是
 **慢**而不是死。只在 admission 那层用整批预算的话，`asyncio.wait_for` 会在
@@ -81,7 +89,20 @@ orphan；而且 `EXECUTOR_IDLE_TTL_SECONDS` 在 compose 里没配，broker 自�
 admission 那层的整批预算退化为 backstop（保护的是 admission 延迟，两层职责不同，
 都要留）。停之前那次复查也走同一个 `__call__`，所以**不再**单独包一层
 `wait_for` —— 两层超时会 race，输的那个的 `TimeoutError` 会掉进停容器的
-`except` 里，读起来像"broker 挂了"。
+`except` 里，读起来像"broker 挂了"。同理 `_audit()` 的预算加在**函数内部**：
+它是 cull 路径上的一次 DB **写**，而复查那条路经由否决器也会走到它，不设预算时
+一个卡住的连接池会把整轮 park 住 —— 而跑不完的轮不会上报，于是卡死的 reaper
+对外显示成"从没跑过"。
+
+**两个预算的关系是本次修复成立的唯一前提**：`_PER_CANDIDATE_S <
+admission._VETO_BUDGET_S`，否则外层先取消、记账被绕开，护栏静默失效。它由
+`test_the_two_timeout_layers_together_still_record_a_blind_pass` 用**真实**
+controller 守住（其余测试用的假 controller 没有外层预算，证明不了"内层先响"）。
+比值同时决定了一个**残余**：DB 完全卡住时，一轮最多 `批预算 ÷ 每候选预算` 个
+候选能被判到，其余被无判决扣留，所以 `judged` 会偏小、警告文案里的候选数也偏小。
+**告警不受影响**（判到的那几个全 blind ⇒ 整轮判定为瞎）。每候选预算取 12s 而不是
+15s，就是为了不整除批预算 —— 否则某个候选的两个 deadline 会落在同一瞬间，记不
+记得上账变成两个定时器之间的抛硬币。
 
 **计数分两段**：一轮里 `is_busy` 被问的次数是 `候选数 + 幸存者数`。合并导出会
 让健康轮显示 `judged: 10 / reaped: 5`，读的人去查另外 5 个不存在的用户，"否决率"

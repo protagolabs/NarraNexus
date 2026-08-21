@@ -71,7 +71,18 @@ _recording_off_warned: set[str] = set()
 # it, a DB that is SLOW rather than dead cancels the lookup mid-await, the
 # tally never runs, and a pass in which nothing could be judged reports the
 # same zeros as a healthy pass with nothing to do.
-_PER_CANDIDATE_S = 15.0
+#
+# INVARIANT: this must stay well below admission._VETO_BUDGET_S, or the outer
+# budget cancels the lookup first and the accounting above is bypassed —
+# which is the whole failure this constant exists to prevent. Deliberately
+# not a divisor of it, so no candidate's two deadlines land on the same
+# instant and let a coin-flip between timers decide whether it is counted.
+#
+# The ratio also bounds the tally: with the batch budget exhausted, at most
+# budget/this many candidates get judged in one pass and the rest are held
+# back unjudged, so `judged` under-reports on a fully wedged DB. The ALARM is
+# unaffected (everyone judged came back blind ⇒ the pass reads as blind).
+_PER_CANDIDATE_S = 12.0
 
 # Last pass's outcome, for the L2 read-side (see reaper_status). Module level
 # because the reaper is one background task per process and the admin route
@@ -79,7 +90,6 @@ _PER_CANDIDATE_S = 15.0
 # that never started one says so instead of lying with zeros.
 _LAST_PASS: Optional[dict] = None
 _LAST_PASS_AT: Optional[float] = None      # monotonic; drives age/staleness
-_STALE_AFTER_S: float = DEFAULT_INTERVAL_SEC * 3
 _TASK_ERROR: Optional[str] = None          # set by the done-callback
 
 # Passes between repeats of the "culling is blind" warning. The first blind
@@ -110,23 +120,49 @@ def reaper_status() -> dict:
     * ``task_error`` — the background task died. Its only other trace is one
       log line at death, which the next log rotation eats.
     * ``veto_installed`` — false means this process is culling on its local
-      view alone, i.e. the 2026-07-31 configuration. Reported even then,
-      which is why the stats default to zero rather than being absent.
+      view alone, i.e. the 2026-07-31 configuration, and it is reported
+      rather than hidden. None means no pass has reported yet — distinct from
+      false on purpose, since "we do not know" and "there is no guard" call
+      for opposite reactions.
     * ``blind_passes`` — consecutive passes in which nothing could be judged.
       Non-zero and climbing means nothing is reclaiming executors here.
+      EDGE-cleared, not level-cleared: only a pass that judges someone
+      successfully resets it, because a pass with no candidates carries no
+      information either way. Read it together with ``stale`` — the counter
+      standing still can mean "recovered and nobody is due" or "no pass has
+      run at all", and only ``stale`` separates those.
+
+    The key set is the SAME on every path, including before the first pass
+    has completed — which is every process's first ``interval_seconds`` after
+    a deploy, and forever in a process with no broker. A consumer indexing
+    ``blind_passes`` must not get a KeyError in exactly the window someone is
+    watching a deploy. Unknowns are None (``stale``, ``veto_installed``);
+    counts that are genuinely zero are 0.
 
     Never raises: it is one section of an endpoint whose contract is that no
     single section can 500 it.
     """
-    if _LAST_PASS is None:
-        return {"running": False, "stale": None, "task_error": _TASK_ERROR}
-    age = monotonic() - _LAST_PASS_AT if _LAST_PASS_AT is not None else None
+    age = None if _LAST_PASS_AT is None else monotonic() - _LAST_PASS_AT
+    stale_after = (_LAST_PASS or {}).get("interval_seconds", DEFAULT_INTERVAL_SEC) * 3
     return {
-        "running": True,
+        "running": _LAST_PASS is not None,
         "age_seconds": None if age is None else round(age, 1),
-        "stale": age is not None and age > _STALE_AFTER_S,
+        "stale": None if age is None else age > stale_after,
         "task_error": _TASK_ERROR,
-        **_LAST_PASS,
+        # Defaults for the pre-first-pass path. veto_installed is None, NOT
+        # False: claiming "no cross-process guard" about a reaper that simply
+        # has not reported yet would re-run the 2026-07-31 confusion in
+        # reverse, telling the reader runs are being cut off when they are not.
+        "veto_installed": None,
+        "interval_seconds": None,
+        "reaped": 0,
+        "blind_passes": 0,
+        "judged": 0,
+        "vetoed": 0,
+        "blind": 0,
+        "recheck_judged": 0,
+        "recheck_vetoed": 0,
+        **(_LAST_PASS or {}),
     }
 
 
@@ -260,16 +296,28 @@ async def _audit(
     detail: Optional[dict] = None,
 ) -> None:
     """Best-effort audit row. Never raises — the observer must not break the
-    pass it is observing."""
+    pass it is observing.
+
+    Bounded, because this is a DB WRITE on the cull path and the recheck
+    branch reaches it through the veto: unbounded, a wedged pool parks the
+    whole pass, and a pass that never finishes never reports, so the reaper
+    reads as "never ran" while it is in fact stuck. The budget lives in here
+    rather than around the call sites — wrapping those would put a second
+    timeout on values that already have one.
+    """
     try:
         from xyz_agent_context.repository.executor_audit_repository import (
             ExecutorAuditRepository,
         )
         from xyz_agent_context.utils.db.db_factory import get_db_client
 
-        await ExecutorAuditRepository(await get_db_client()).record(
-            event_type=event_type, user_id=user_id, run_id=run_id, detail=detail,
-        )
+        async def _write() -> None:
+            await ExecutorAuditRepository(await get_db_client()).record(
+                event_type=event_type, user_id=user_id, run_id=run_id,
+                detail=detail,
+            )
+
+        await asyncio.wait_for(_write(), _PER_CANDIDATE_S)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[reaper] audit {event_type} failed user={user_id}: {e}")
 
@@ -312,7 +360,7 @@ class ExecutorReaper:
         culls 5 idle users asks 10 times, and a reader seeing ``judged: 10,
         reaped: 5`` goes looking for 5 users that do not exist.
         """
-        global _LAST_PASS, _LAST_PASS_AT, _STALE_AFTER_S
+        global _LAST_PASS, _LAST_PASS_AT
         judged, blind = claim.get("judged", 0), claim.get("blind", 0)
         # Claim-phase numbers only. A recheck that goes blind while the claim
         # phase read the DB fine is a hiccup, not a blind pass, and folding it
@@ -327,9 +375,12 @@ class ExecutorReaper:
             self._blind_passes += 1
         else:
             self._blind_passes = 0
-        _STALE_AFTER_S = self.interval_seconds * 3
         _LAST_PASS = {
             "reaped": reaped,
+            # Carried, not kept in a module global: staleness is judged
+            # against it, and one fewer piece of resettable module state is
+            # one fewer way for a test to leak into the next one.
+            "interval_seconds": self.interval_seconds,
             # Reported unconditionally, including the None case: a reaper
             # culling on this process's local view alone is the 2026-07-31
             # configuration, and it must not read as "not running".
