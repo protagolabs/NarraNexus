@@ -1,8 +1,31 @@
 ---
 code_file: backend/routes/admin/runtime.py
 stub: false
-last_verified: 2026-08-13
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — /status 新增第四段 `executor_reaper`
+
+空闲回收器的 L2 出口。回答 `audit_counts` 回答不了的那个问题：**回收器整个
+停摆，和"本来就没人该回收"，在外面看是同一个现象**（都是 reap 0 行、
+`cull_skipped_busy` 恒 0）。见 [[executor_reaper.py]] 2026-08-21 条目。
+
+**为什么是并列的第四段，而不是塞进 `admission.snapshot()`**：那份快照是
+admission 控制器自己的状态，且 docstring 明说是**不持锁**的 best-effort 读；
+回收器的账是另一个对象的、按轮更新的诊断，混进去会让两种不同保证的数字看起来
+是一回事。
+
+**这一段与前三段的容错性质不同**：`reaper_status()` 读的是
+`executor_reaper` 的模块级 dict（per-process，纯内存），**不可能抛**，所以
+handler 里没有、也不需要 try/except —— 前三段各自要兜的是 DB / broker HTTP。
+这也是它为什么能在 reaper 从没跑过时诚实地报 `running: false`，而不是编一组零。
+
+**要告警的字段**：`stale`（3 个 interval 没跑完一轮 —— 卡死的 reaper 会把上一次
+好轮的数字永久冻在那儿）、`task_error`（后台 task 死了；否则只有一行会被日志
+轮转吃掉的 error）、`veto_installed: false`（该进程正在按 2026-07-31 事故前的
+逻辑回收）、`blind_passes`（连续多少轮判不出活性）。
+
+`503 == 功能关闭` 那条语义**没动**，deploy 侧 watcher 不受影响。
 
 ## 2026-08-13 — admin-secret 校验改用共享 helper
 
@@ -33,11 +56,13 @@ is exactly (and only) where the Workers card renders.
 `GET /api/admin/runtime/status` — 只读 L2 可观测端点,给 executor 调度/资源系统
 一个"分钟级发现问题"的窗口(scheduling-resource 设计 §9)。
 
-三段拼装,每段独立容错,**任何单段失败都不让端点 500**:
+四段拼装,每段独立容错,**任何单段失败都不让端点 500**:
 - `admission`: `get_admission_controller().snapshot()`(活跃用户/loop、各 cap、
   排队深度、free_mem vs 内存阀)。
 - `executors`: 经 broker `GET /executors` 取活容器列表;无 `BROKER_URL` 或 broker
   不可达 → `[]`(handler 层 try/except 兜底,`_get_executor_list` 可抛)。
+- `executor_reaper`: 空闲回收器上一轮的结果 + 新鲜度(2026-08-21 条目)。纯内存
+  读,是四段里唯一不需要 try/except 的一段。
 - `audit_counts`: `ExecutorAuditRepository.counts_since(近1h)`,看 OOM/cull/
   orphan-reap 速率。
 

@@ -22,7 +22,12 @@ fair round-robin out-queue is a future refinement.
 
 State lives behind this controller instance (a seam) so it can move to
 Redis when the orchestrator scales to >1 replica (binding rule #20). For
-now it is an in-process asyncio controller.
+now it is an in-process asyncio controller — which means its view is
+PARTIAL: the cloud orchestrator runs as backend + workers, so neither
+process's counters know about the other's runs. Harmless for admission
+(each process caps its own share) but NOT for the idle bookkeeping the
+reaper consumes, which is why ``claim_idle_users`` takes an
+out-of-process ``is_busy`` veto.
 
 Disabled (all caps unlimited, no mem guard) in local/desktop so
 ``bash run.sh`` and the DMG behave exactly as before (binding rule #7);
@@ -35,7 +40,21 @@ import math
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Callable, Optional
+from typing import Awaitable, Callable, Optional
+
+from loguru import logger
+
+# Injected cross-process veto for idle claiming: "is this user busy
+# somewhere else?". See claim_idle_users.
+BusyCheck = Callable[[str], Awaitable[bool]]
+
+# Whole-batch budget for the veto. A hung DB pool would otherwise park
+# claim_idle_users forever, and with it the reaper loop — silently, with no
+# exception for its done-callback to report (incident lesson #4). Candidates
+# left unjudged when it runs out read as busy, so a wedged DB stalls culling
+# rather than the reaper. A budget for the CHECK, never a ceiling on anything
+# a user's agent does.
+_VETO_BUDGET_S = 60.0
 
 
 def _free_mem_mb() -> float:
@@ -135,6 +154,23 @@ class AgentAdmissionController:
             "enabled": self.enabled,
         }
 
+    async def restamp_idle(self, user_id: str) -> None:
+        """Re-mark a user idle after a claim that was not acted on.
+
+        ``claim_idle_users`` is destructive; a caller that claims and then
+        decides not to stop the executor would otherwise drop the stamp for
+        good (see that method's docstring for why that leaks). The user waits
+        a fresh TTL, which is truthful — it was busy a moment ago.
+
+        setdefault, not assignment: a release may have landed while the caller
+        was backing off, and that stamp is both older and truthful. Nothing to
+        preserve after a claim (the claim deleted it), everything to preserve
+        after a concurrent release.
+        """
+        async with self._cond:
+            if user_id not in self._per_user:
+                self._idle_since.setdefault(user_id, self._clock())
+
     async def acquire(self, user_id: str) -> str:
         """Wait (queue) until this run may start, then reserve a slot.
 
@@ -162,22 +198,95 @@ class AgentAdmissionController:
                     self._idle_since[token] = self._clock()  # went idle now
             self._cond.notify_all()
 
-    async def claim_idle_users(self, ttl_seconds: float) -> list[str]:
-        """Atomically return + un-track users idle for >= ttl_seconds.
+    async def claim_idle_users(
+        self,
+        ttl_seconds: float,
+        is_busy: Optional[BusyCheck] = None,
+        per_check_budget: float = 0.0,
+    ) -> list[str]:
+        """Return + un-track users idle for >= ttl_seconds. Claiming is
+        DESTRUCTIVE — a returned user loses its idle stamp.
 
-        A user is "idle" once its active-loop count hits zero (stamped in
-        release). Returned users are removed from idle tracking under the
-        lock so the reaper can stop their executor without double-reaping;
-        if a new run arrives afterwards the broker just cold-starts a fresh
-        container. Users with active loops are never returned (rule #14 —
-        we never reap a running loop).
+        A user is "idle" once THIS PROCESS's active-loop count hits zero
+        (stamped in release). Returned users are removed from idle tracking
+        under the lock so the reaper can stop their executor without
+        double-reaping; if a new run arrives afterwards the broker just
+        cold-starts a fresh container. Users with active loops are never
+        returned (rule #14 — we never reap a running loop).
+
+        ``is_busy`` is the CROSS-PROCESS veto. This controller is a
+        per-process singleton, so "zero active loops here" does not mean the
+        user is idle — backend cannot see runs alive in workers and vice
+        versa. The caller injects an out-of-process truth source (the reaper
+        passes ``executor_reaper._CullVeto``, which wraps the DB lookup, folds
+        the blocking run id down to a bool and de-duplicates its audit rows
+        per run); any user it vetoes is skipped and KEEPS its idle stamp.
+
+        Keeping the stamp is why the veto lives in here rather than in the
+        caller's filter: claiming is destructive, so a caller that
+        claimed-then-skipped would drop the stamp and the user would not be
+        reconsidered until its next release in THIS process — for a user
+        driven mostly from another process that is never, and its container
+        leaks forever. Trading one silent failure for another is not a fix.
+
+        ``per_check_budget`` is the caller's own per-check timeout, if it has
+        one. Passing it stops this batch from ever cutting a check short: a
+        check is simply not started unless the whole budget still fits. That
+        matters because the caller's timeout is where the ACCOUNTING lives
+        (the reaper counts a timed-out check as "could not tell"), so a check
+        killed by the outer budget instead is one that vanishes from the
+        tally. Told, not imported: this layer must not depend on the reaper.
+
+        The veto runs OUTSIDE the lock (it does I/O — the reaper's hits the
+        DB) so admission never stalls behind it; the second pass re-checks
+        that each candidate's stamp is still the one we saw, so a user that
+        became active meanwhile is not claimed.
         """
         async with self._cond:
             now = self._clock()
-            ready = [u for u, ts in self._idle_since.items() if now - ts >= ttl_seconds]
-            for u in ready:
-                del self._idle_since[u]
-            return ready
+            candidates = [
+                (u, ts) for u, ts in self._idle_since.items() if now - ts >= ttl_seconds
+            ]
+        if not candidates:
+            return []
+
+        busy: set[str] = set()
+        if is_busy is not None:
+            # Sequential on purpose: one veto is one indexed read, and the
+            # candidates are only those who crossed the TTL since the last
+            # pass. A fan-out here would contend with live requests for the
+            # same pool to save milliseconds nobody is waiting on.
+            deadline = self._clock() + _VETO_BUDGET_S
+            for user_id, _ in candidates:
+                remaining = deadline - self._clock()
+                try:
+                    # Never start a check this batch cannot see through. The
+                    # alternative — starting it and letting the outer wait_for
+                    # cancel it — silently drops it from the caller's tally,
+                    # and does so for the LAST candidate of every wedged pass,
+                    # not occasionally. Held-back candidates keep their stamp
+                    # and are reconsidered next pass.
+                    if remaining <= 0 or remaining < per_check_budget:
+                        raise TimeoutError("veto budget exhausted")
+                    verdict = await asyncio.wait_for(is_busy(user_id), remaining)
+                except Exception as e:  # noqa: BLE001 — no verdict ⇒ assume busy
+                    logger.warning(f"[admission] busy veto failed user={user_id}: {e}")
+                    verdict = True
+                if verdict:
+                    busy.add(user_id)
+
+        async with self._cond:
+            claimed: list[str] = []
+            for user_id, stamp in candidates:
+                if user_id in busy:
+                    continue
+                # Re-activated (acquire popped the stamp) or re-released
+                # (release wrote a new one) while the veto was in flight.
+                if self._idle_since.get(user_id) != stamp:
+                    continue
+                del self._idle_since[user_id]
+                claimed.append(user_id)
+            return claimed
 
     @asynccontextmanager
     async def slot(self, user_id: str):

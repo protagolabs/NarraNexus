@@ -179,7 +179,9 @@
           "paused": "pausiert"
         },
         "turnOff": "Aus",
-        "turnOn": "An"
+        "turnOn": "An",
+        "awaitingReply": "wartet auf Antwort",
+        "nameSep": ", "
       },
       "sendFailed": "Senden fehlgeschlagen. Dein Text ist noch da — versuch es erneut.",
       "uploadFailed": "„{{name}}“ konnte nicht hochgeladen werden.",

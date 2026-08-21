@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — record_turn 接线 chat_id + chat_type（PR-2 自动 reach 记录）
+
+两处 `self._inbox_recorder.record_turn(...)`(`_process_message` 与 `managed_after_run`)各加 `chat_id=message.chat_id, chat_type=message.chat_type,`。`record_turn` 用它把「本 agent 在这个渠道/会话能触达发件人」自动写进 social graph——但**只在 `chat_type==PRIVATE`(1:1)时记**(群 `chat_id` 是房间,记成个人 reach 会把私信投进群;见 [[inbox_recorder.py]] 同日 Critical 修复)。共享路径覆盖 slack/telegram/discord/wechat/narramessenger。
+
+**`managed_after_run` 的 `counterpart_name` 补 `sanitize_display_name`**(预审 Important):它是三个 record_turn 站点里唯一没过清洗的,而 reach 现在把该名**持久**写进 `entity_name`(每次社交搜索渲染回上下文)——不清洗就成了持久化的 prompt-injection seam(换行 + 伪 `SYSTEM:`)。另两条路本就 sanitize。守卫 `test_mock_channel_trigger_integration.py::test_managed_after_run_sanitizes_...`。
+
+reach 路径上的 `"Unknown"` 哨兵(`sanitize_display_name` 空串兜底 + `_process_message` 的「名字为 Unknown 就 resolve」比较点)改用 `UNKNOWN_SENDER_NAME` 常量(增量审 Minor:生产者与比较点**同步**改,否则常量日后变值时「解析不出就 resolve」分支会静默失效)。非 reach 的展示默认值(`:1739` 等)按「不必一次扫完」留。
 
 ## 2026-08-17 — inbox 写入换成 InboxRecorder
 

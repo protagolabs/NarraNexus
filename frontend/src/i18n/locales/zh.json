@@ -212,7 +212,9 @@
           "paused": "已暂停"
         },
         "turnOff": "关闭",
-        "turnOn": "开启"
+        "turnOn": "开启",
+        "awaitingReply": "待回复",
+        "nameSep": "、"
       },
       "bulletin": {
         "title": "公告栏",

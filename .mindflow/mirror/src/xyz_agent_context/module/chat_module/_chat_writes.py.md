@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_writes.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 问候幂等域升为 per-(agent,user)(深圳复测 B2)
+
+prod 取证实锤:两个测试 agent 的早期 run 各有两条同 event_id 的
+assistant——bootstrap 问候 + 真实回复。机制:每开新 narrative 就生成
+新空 chat instance,per-instance 空表守卫在每个新 instance 上**重新种**
+问候,12s 历史轮询把它拉下来、在提问旁弹出「第二条回复」。
+
+修法:新增 `agent_chat_has_history(db, agent_id, user_id)`——该
+(agent,user) 的**任一** ChatModule instance 已有消息即 True(status
+刻意不过滤:archived 里的历史同样证明「已首次接触」)。
+`seed_bootstrap_greeting` 在自身 instance 检查(便宜、不依赖
+module_instances 注册,放前面)之后加这道跨 instance 守卫;hook 兜底
+prepend 用同一 helper。出生问候从此只属于第一段对话。
+钉在 test_chat_writes.py(sibling 抑制/真首契仍种/按 agent+user 域)
+与 test_bootstrap_greeting_order.py(hook 侧 sibling 抑制)。
 
 ## 2026-08-20 — bootstrap 问候行的唯一写入方
 

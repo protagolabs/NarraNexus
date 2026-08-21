@@ -32,7 +32,16 @@ import json
 import os
 import signal
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Type-only: the real class is never imported at module top — runner's
+    # imports stay lazy so the cold path pays them only on demand (the
+    # warm-pool / _prewarm contract). Annotating the seam still lets the
+    # transport callers be checked against the Protocol.
+    from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+        SteeringInlet,
+    )
 
 # litellm fetches its price map from GitHub AT IMPORT TIME unless told
 # otherwise (5s timeout, then a bundled fallback). That call sits on the
@@ -58,12 +67,19 @@ class _SignalCancellation:
         return self._flag
 
 
-async def serve_turn(raw_request: str, write_line: Any) -> int:
+async def serve_turn(
+    raw_request: str, write_line: Any, *, steering: "SteeringInlet | None" = None
+) -> int:
     """Run one turn from a serialized TurnRequest; stream lines out.
 
     Returns the process exit code (0 = the turn closed itself — even an
     ERROR end-reason is a *successful* serve; non-zero = the request
     never became a running turn).
+
+    ``steering`` is an optional live-injection inlet forwarded to the
+    loop; ``None`` keeps today's behaviour (no mid-turn injection). The
+    process host is what feeds it — the inlet object never crosses the
+    serialization boundary.
     """
     from xyz_agent_context.agent_framework.nexus_power.assembly import (
         TurnRequest,
@@ -105,7 +121,7 @@ async def serve_turn(raw_request: str, write_line: Any) -> int:
     adapter = LegacyEventAdapter()
     legacy = options.output_mode == "legacy_dict"
     try:
-        async for event in run_turn_events(request, cancellation, log=log):
+        async for event in run_turn_events(request, cancellation, log=log, steering=steering):
             if legacy:
                 for translated in adapter.translate(event):
                     await write_line({"event": translated})

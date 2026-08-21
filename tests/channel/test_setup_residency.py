@@ -123,6 +123,28 @@ async def test_bound_disallows_nothing(cls, monkeypatch):
     assert await module.get_disallowed_tools() == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cls", CHANNEL_MODULES, ids=lambda c: c.__name__)
+async def test_a_bound_channel_tool_stays_reachable_on_a_foreign_turn(cls, monkeypatch):
+    """Capability follows the agent (PR-2): a bound channel's tools are NOT gated
+    to turns that originated on that channel. An agent woken on the bus — a
+    foreign surface for every IM channel here — keeps its Lark/WeChat/… tools on
+    the desk, so it can reach a contact there using a conversation id from the
+    social graph. Re-introducing a working_source gate on get_disallowed_tools
+    turns this red; it is the guarantee the reachability flow relies on.
+    """
+    from xyz_agent_context.schema import ContextData
+    from xyz_agent_context.schema.hook_schema import WorkingSource
+
+    module = _make_module(cls)
+    monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=object()))
+
+    ctx = ContextData(agent_id="agent_a", user_id=None, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS  # foreign to every channel here
+
+    assert await module.get_disallowed_tools(ctx) == []
+
+
 # ── 4. Credential lookup failure → fail-open ───────────────────────────
 
 

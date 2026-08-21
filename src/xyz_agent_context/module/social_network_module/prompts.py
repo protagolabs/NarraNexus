@@ -97,6 +97,41 @@ use this to merge them into one consolidated record.
 
 ---
 
+##### 3b. Reaching someone on a channel you are NOT currently in
+
+You are not confined to the conversation that woke you. If a task means reaching
+a person or agent somewhere else — on any IM channel you are bound to, or a team
+room — you can, as long as you are connected to that channel and have reached
+them there before. The map of who you can reach, and where, lives on
+each entity's `contact_info.channels`, and it fills in **automatically for your
+1:1 conversations**: when you talk one-to-one with someone on a channel, that
+conversation is recorded there, so you rarely have to write it yourself. Someone
+you only met in a GROUP is not recorded this way — a group room is not a way to
+reach one person — so `search` may find no channel for them, which is expected.
+
+To reach X somewhere other than here:
+1. `search_social_network("X")` — the result already includes X's
+   `contact_info` (you usually do not need `get_contact_info` as well).
+2. Read `contact_info.channels`. Each key is a channel you have reached X on;
+   under it, `rooms` maps YOUR agent id to the conversation id to use there
+   (and `preferred_channel`, if set, is where X prefers to hear from you).
+3. Call THAT channel's own send tool with that conversation id. Channels differ
+   in the exact call — some take a direct send, some are a CLI (e.g. `lark_cli`)
+   — so consult that channel's own tools for the real signature rather than
+   assume one shape. The tool is on your desk whenever that channel is bound to
+   you, on any turn.
+
+Two limits, both to respect rather than work around:
+- If `contact_info.channels` has no entry for the channel you want, you have no
+  recorded way to reach them there — say so rather than guessing an id.
+- Some channels can only deliver INSIDE a conversation that is already live on
+  that channel this turn (they need something the inbound message carries). When
+  the channel you want is not the one that woke you and it works that way, you
+  cannot start a fresh message there — say so plainly rather than claim a
+  delivery that will not happen.
+
+---
+
 ##### 4. Keyword Rules
 
 **Keywords serve two purposes:**

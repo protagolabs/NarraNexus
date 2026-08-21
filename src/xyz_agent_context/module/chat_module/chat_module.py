@@ -1197,23 +1197,41 @@ class ChatModule(XYZBaseModule):
         # so we subtract 1ms; the fallback (no event) uses now()-1ms which
         # also stays below the user message stamped a moment later.
         if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
-            greeting = await self._resolve_bootstrap_greeting()
-            base_dt = (
-                params.event.created_at
-                if params.event is not None and params.event.created_at is not None
-                else utc_now()
-            )
-            # Shared row builder (chat_module owns the shape + timestamp rule) so
-            # this lazy prepend and the step_1 provision-time seed stay identical.
+            # First-contact scope is per-(agent, user), NOT per-instance
+            # (Shenzhen-r2 B2): every new narrative brings a fresh empty
+            # instance, and prepending here on each one re-greeted mid-
+            # conversation — the extra assistant row rendered as a second
+            # reply to the user's question. Sibling history = already
+            # greeted; skip.
             from xyz_agent_context.module.chat_module._chat_writes import (
+                agent_chat_has_history,
                 build_bootstrap_greeting_row,
             )
-            messages.append(
-                build_bootstrap_greeting_row(
-                    greeting, base_dt, instance_id, event_id=params.event_id
+            already_greeted = False
+            if self.db is not None:
+                try:
+                    already_greeted = await agent_chat_has_history(
+                        self.db, self.agent_id, self.user_id
+                    )
+                except Exception as e:  # noqa: BLE001 — best-effort; worst case is a re-greet
+                    logger.warning(f"ChatModule: sibling-history check failed: {e}")
+            if not already_greeted:
+                greeting = await self._resolve_bootstrap_greeting()
+                base_dt = (
+                    params.event.created_at
+                    if params.event is not None and params.event.created_at is not None
+                    else utc_now()
                 )
-            )
-            logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
+                # Shared row builder (chat_module owns the shape + timestamp
+                # rule) so this lazy prepend and the step_1 provision-time
+                # seed stay identical. NO event_id: the greeting belongs to no
+                # run — stamping the current run's id made it share the
+                # (role, event_id) identity the frontend timeline dedups on
+                # with the turn's REAL reply (the other half of B2).
+                messages.append(
+                    build_bootstrap_greeting_row(greeting, base_dt, instance_id)
+                )
+                logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
 
         # Append this conversation
         # Get working_source (execution source: chat/job/a2a)

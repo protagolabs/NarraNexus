@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — `first_live_run_id`：跨进程"这个用户忙不忙"的唯一口径
+
+`run_is_live` 是**单条 run** 的判活口径；本次把同一口径抬到**用户**这一层。
+动机是 2026-07-31 prod 事故：任何"据此销毁容器"的动作（[[executor_reaper.py]]
+的空闲回收）都不能用进程内记账回答"这个用户还在不在跑" —— 编排是 backend +
+workers 两个进程，各自只看得见自己那一半。`events` 表是它们唯一的交汇点
+（事故教训 #5：DB 痕迹比日志 grep 可靠，"该在的行不在"本身就是证据）。
+
+三个决定：
+- **返回 run id 而不是 bool**：调用方要能说出"是谁挡住了我"（reaper 的审计
+  行），否则别处会再写一遍 running+心跳的查询。
+- **`exclude_run_id`**：提问者自己的 events 行在问的时候已经是 running，不
+  排除的话判决恒为"忙"。
+- **失败就抛，不吞**：这是唯一入口。包一层"出错返回 None"的便利函数等于给
+  同一个问题定义了第二套 fail-safe 语义，而破坏性调用方恰恰是最不能继承别人
+  猜测的那批。它们各自解决歧义，且**全部**解决成"忙"。
+
+投影查询（只取 `event_id / last_event_at / started_at`）：events 行带着好几个
+MEDIUMTEXT 列。`started_at` 必须留 —— 第一次心跳落地前 `run_is_live` 靠它兜底，
+丢了会把刚起跑的 run 读成死的。
 ## 2026-08-10 — retain normalized action reason
 
 Fatal capture retains `action_reason` beside error type/message so analytics

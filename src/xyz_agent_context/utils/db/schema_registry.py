@@ -237,6 +237,13 @@ _register(
             # Phase C: filter running rows for reconcile + active_run lookup
             Index("idx_events_state", ["state"]),
             Index("idx_events_agent_state", ["agent_id", "state"]),
+            # "does this user have a live run?" — the reaper's cross-process
+            # veto, asked once per candidate per pass. Without the composite,
+            # MySQL picks idx_events_user_id and row-filters on state, so a
+            # long-tenured user pays for their whole history — worst for the
+            # heaviest accounts, and growing forever since events is never
+            # pruned.
+            Index("idx_events_user_state", ["user_id", "state"]),
             # Cascade stop's only hot path: "every still-running run in this
             # tree". Composite because the flag write always filters on both.
             Index("idx_events_root_state", ["root_run_id", "state"]),
@@ -804,6 +811,43 @@ _register(
         columns=[
             Column("id", "INTEGER", "INT", nullable=False, primary_key=True),
             Column("bumped_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+    )
+)
+
+# 21c. steer_inbox — live-steering injections destined for a running turn
+#
+# One uniform inbox behind "append to the running loop": a producer (team room
+# post — already in bus_messages; owner-chat interjection — NOT a bus message)
+# writes one row keyed by an OPAQUE run handle; the transport drains a run's
+# unconsumed rows into its SteeringInlet at the next step boundary. The table
+# earns its place by DECOUPLING (the feeder drains one store, not each
+# producer's native home — same outbox pattern as instance_artifact_events),
+# NOT by re-persisting team messages the bus already keeps.
+#
+# `id` is the arrival order AND the consume cursor's unit. `(run_id, msg_id)` is
+# unique so a re-delivered message injects at most once. `consumed_at` is a
+# per-RUN cursor the bus's per-(agent,channel) cursor cannot lend (it is the
+# trigger's, and one agent may have several concurrent runs).
+# `(run_id, consumed_at)` is the pull-unconsumed access path. See
+# `schema/steer_schema.py` and `repository/steer_inbox_repository.py`.
+_register(
+    TableDef(
+        name="steer_inbox",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("run_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("msg_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("role", "TEXT", "VARCHAR(16)", nullable=False, default="'user'"),
+            Column("content", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("sender_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("consumed_at", "TEXT", "DATETIME(6)", nullable=True),
+        ],
+        indexes=[
+            Index("idx_steer_inbox_run_msg", ["run_id", "msg_id"], unique=True),
+            Index("idx_steer_inbox_run_consumed", ["run_id", "consumed_at"]),
         ],
     )
 )

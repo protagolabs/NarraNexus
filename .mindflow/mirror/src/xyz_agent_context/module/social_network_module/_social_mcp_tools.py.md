@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 ---
 
+## 2026-08-21 — `extract_entity_info` 的 `updates` 参数说明补 `entity_name_if_new`（PR-2 增量审 Minor）
+
+工具 docstring 的 `updates` 说明加一行:`entity_name_if_new` 是**内部调用方**用的键——仅在实体是新的或仍无名时命名,绝不覆盖已有名,不供常规使用。防止日后有人给 `updates` 加键白名单时静默过滤掉它(会让 [[inbox_recorder.py]] 首触实体又变无名)。纯文档,行为不变。
 ## 2026-08-10 (PR-6) — create_agent 迁走 seam，社交模块全部迁完
 
 最后一个工具。工具只保留「铸造 `new_agent_id`（uuid4）」这一步，其余（owner 解析 +

@@ -1053,6 +1053,15 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             )
 
             if existing_entity:
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # overwriting a real name. On an existing entity it is FILL-IF-
+                # EMPTY: it names an entity some other path created nameless (an
+                # LLM extraction that only had contact_info), but a non-blank
+                # existing name always wins — so a channel display name never
+                # clobbers a canonical one.
+                _name_if_new = updates.pop("entity_name_if_new", None)
+                if _name_if_new and not (existing_entity.entity_name or "").strip():
+                    updates["entity_name"] = _name_if_new
                 # Merge update
                 if update_mode == "merge":
                     # Merge identity_info
@@ -1109,7 +1118,13 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             else:
                 # Create new entity
                 entity_type = updates.pop("entity_type", "user")
-                entity_name = updates.pop("entity_name", None)
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # clobbering an existing name (the merge branch above is
+                # fill-if-empty: it names a nameless existing entity but keeps a
+                # non-blank one). An explicit `entity_name` still wins here.
+                entity_name = updates.pop("entity_name", None) or updates.pop(
+                    "entity_name_if_new", None
+                )
                 # Ignore entity_description, managed only by hook
                 if "entity_description" in updates:
                     logger.warning(
