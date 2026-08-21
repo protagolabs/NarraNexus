@@ -66,6 +66,9 @@ def create_social_network_mcp_server(port: int) -> FastMCP:
             entity_id: The user_id or agent_id of the person
             updates: Information to update (entity_name, identity_info, contact_info, tags)
                  DO NOT include entity_description - it's auto-managed by conversation summaries
+                 (`entity_name_if_new` is an internal-caller key: it names an
+                 entity only if it is new or still nameless, never overwriting an
+                 existing name; not for normal use.)
             update_mode: How to update: 'merge' combines with existing info, 'replace' overwrites (default: 'merge')
 
         Returns:

@@ -46,7 +46,7 @@ from typing import Any, Optional, Sequence
 
 from loguru import logger
 
-from xyz_agent_context.schema.parsed_message import ChatType
+from xyz_agent_context.schema.parsed_message import UNKNOWN_SENDER_NAME, ChatType
 from xyz_agent_context.utils import utc_now
 
 #: Thread-id family prefixes. The family comes first so the namespace says WHAT
@@ -148,7 +148,7 @@ class InboxRecorder:
         empty bubble in the user's panel.
         """
         now = utc_now()
-        display = counterpart_name if counterpart_name and counterpart_name != "Unknown" else counterpart_id
+        display = counterpart_name if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME else counterpart_id
 
         await self._ensure_thread(
             db,
@@ -232,9 +232,12 @@ class InboxRecorder:
         ONLY records a 1:1 (``ChatType.PRIVATE``) conversation. A group's
         ``chat_id`` is the room, not a way to reach one person: recording it as
         "reach counterpart X" and then delivering a message meant for X to that
-        id would post it to the whole group. Anything that is not PRIVATE — a
-        group, a topic thread, or an unstated type — is skipped (safe default:
-        an unwired caller records nothing rather than leaking).
+        id would post it to the whole group. So anything not PRIVATE is skipped,
+        and the parsers make that a POSITIVE decision — they whitelist the one
+        literal that means 1:1 and treat a group / topic / unknown type as GROUP
+        — while ``record_turn``'s own ``chat_type`` defaults to ``None`` (also
+        skipped). Both directions fail safe: an unconfirmed type records nothing
+        rather than leaking.
 
         Best-effort: an address book is not worth a turn (same posture as the
         bus address book), so failure is logged, never raised. But the store's
@@ -256,7 +259,7 @@ class InboxRecorder:
             # and §3b's first step searches by name. The store's create branch
             # consumes `entity_name_if_new`; the merge branch ignores it, so a
             # channel display name never overwrites a canonical name the LLM set.
-            if counterpart_name and counterpart_name != "Unknown":
+            if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME:
                 updates["entity_name_if_new"] = counterpart_name
             res = await get_agent_data_store().extract_entity_info(
                 agent_id=agent_id,

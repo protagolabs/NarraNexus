@@ -65,11 +65,17 @@ def test_the_prompt_teaches_reaching_across_channels():
     assert "rooms" in text
 
 
-def test_the_prompt_says_reach_is_recorded_automatically():
-    """Reach recording is now automatic (InboxRecorder). The prompt must say so,
-    or agents keep being told to record it by hand — the redundant, unreliable
-    path this PR replaces."""
-    assert "it fills in **automatically**" in SOCIAL_NETWORK_MODULE_INSTRUCTIONS
+def test_the_prompt_says_reach_is_recorded_automatically_for_1to1_only():
+    """Reach recording is automatic (InboxRecorder), but ONLY for 1:1 chats —
+    the prompt must say both, or it over-promises: someone met only in a group
+    is not recorded, and an agent told "it all fills in automatically" would
+    then trust a `search` that legitimately finds no channel for them."""
+    text = SOCIAL_NETWORK_MODULE_INSTRUCTIONS
+
+    assert "automatically for your" in text
+    assert "1:1 conversations" in text
+    # The group carve-out must be stated, not left implicit.
+    assert "only met in a GROUP is not recorded" in text
 
 
 def test_the_prompt_forbids_guessing_an_unrecorded_id():

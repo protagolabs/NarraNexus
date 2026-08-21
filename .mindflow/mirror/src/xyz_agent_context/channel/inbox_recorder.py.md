@@ -10,7 +10,7 @@ stub: false
 
 **改动**:`record_turn` 加 `chat_id` + `chat_type` 参数,尾部(inbox 写入之后)调新私有方法 `_record_reach`:把「agent 在 <source> 渠道、会话 <chat_id> 能触达 counterpart」写进 counterpart 社交实体的 `contact_info.channels`(`set_channel_info({}, source, {"id": counterpart, "rooms": {agent_id: chat_id}})` → `get_agent_data_store().extract_entity_info(...)`)。
 
-- **⚠️ 只记 1:1(`ChatType.PRIVATE`)**(预审 Critical):群聊里 `chat_id` 是**房间**不是「单独找某人的方式」,记成个人 reach 后 §3b 会把「发给 X 的私信」投到整个群。非 PRIVATE(group/topic/未知)一律跳过——**安全默认**:调用方没接线 → 不记,不泄露。
+- **⚠️ 只记 1:1(`ChatType.PRIVATE`)**(预审 Critical):群聊里 `chat_id` 是**房间**不是「单独找某人的方式」,记成个人 reach 后 §3b 会把「发给 X 的私信」投到整个群。非 PRIVATE(group/topic/未知)一律跳过。docstring 讲清这是**正向决策**:各 parser **白名单**唯一表示 1:1 的字面值、其余判 GROUP;`record_turn` 的 `chat_type` 默认 `None` 也跳过。两向都 fail-safe(未确认类型 → 不记而非泄露)。`counterpart_name` 与 `UNKNOWN_SENDER_NAME`(`schema/parsed_message.py` 常量,取代三处硬编码 `"Unknown"`)比较,占位名不当真名。
 - **首次接触建实体带名**(预审 Important):传 `counterpart_name` 作 `entity_name_if_new`——[[social_network_module.py]] create 分支消费、merge 分支丢弃,所以**绝不覆盖** LLM 定的规范名;§3b 第一步按名字搜才成立。
 - **in-band 失败也要发声**(预审 Important):data_access seam **从不 raise**,失败以 `{"success": False}` 返回(无 instance / id 超长 / P2 后 401)——只有 try/except 会漏掉全部真实失败。故**接住返回值**判 `success is False` → warning。
 - **best-effort/fail-open**:reach 失败绝不丢 inbox 行(inbox 写入自己 re-raise,reach 单独 try 吞 + warning)。**无跨模块 import**(走 `data_access` seam,binding rule #3),**无 LLM**。类 docstring 已订正:inbox 写用注入句柄,reach 写走 seam 自己的句柄(P2 后是一次出站调用)。

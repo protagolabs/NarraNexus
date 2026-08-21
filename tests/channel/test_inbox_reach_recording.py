@@ -10,10 +10,11 @@ book was effectively empty, and an agent on another surface had no way to learn
 it could reach a contact on Lark/Slack/etc.
 
 `InboxRecorder.record_turn` fires on every inbound channel turn and knows the
-channel, the agent, the counterpart, and the conversation id. It now writes
-"agent reaches counterpart on <channel> via <chat_id>" onto the counterpart's
-social entity — the single home for reach (no parallel per-surface rosters).
-Best-effort: it must never break the inbox write.
+channel, the agent, the counterpart, and the conversation id. On a **1:1**
+(``ChatType.PRIVATE``) turn it writes "agent reaches counterpart on <channel>
+via <chat_id>" onto the counterpart's social entity — the single home for reach
+(no parallel per-surface rosters). A group turn records nothing (a room is not a
+way to reach one person). Best-effort: it must never break the inbox write.
 """
 from __future__ import annotations
 
@@ -143,6 +144,29 @@ async def test_a_later_channel_name_never_overwrites_an_existing_name(db_client)
         entity_id=COUNTERPART, instance_id=INSTANCE
     )
     assert entity.entity_name == "Dr. Alice Zhang"
+
+
+@pytest.mark.asyncio
+async def test_a_reach_turn_fills_an_existing_nameless_entity(db_client):
+    """`entity_name_if_new` is fill-if-empty on merge, not create-only: an
+    entity some other path made nameless (an LLM extraction that only had
+    contact_info) gets named by a later 1:1 reach turn — otherwise §3b's
+    name-search never finds it."""
+    from xyz_agent_context.module.data_access import get_agent_data_store
+
+    await _seed_social_instance(db_client)
+    # A nameless entity created elsewhere (contact_info only, no name).
+    await get_agent_data_store().extract_entity_info(
+        agent_id=AGENT, entity_id=COUNTERPART,
+        updates={"contact_info": {"email": "a@x.com"}}, update_mode="merge",
+    )
+
+    await _record(db_client, counterpart_name="Alice Zhang")
+
+    entity = await SocialNetworkRepository(db_client).get_entity(
+        entity_id=COUNTERPART, instance_id=INSTANCE
+    )
+    assert entity.entity_name == "Alice Zhang"
 
 
 @pytest.mark.asyncio

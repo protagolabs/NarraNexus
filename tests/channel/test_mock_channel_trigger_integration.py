@@ -266,3 +266,61 @@ async def test_echo_messages_are_dropped(db_client, monkeypatch):
         "channel_trigger_audit", {"channel": "fake", "event_type": EVENT_INGRESS_DROPPED_ECHO}
     )
     assert len(audits) >= 1
+
+
+@pytest.mark.asyncio
+async def test_the_trigger_passes_chat_type_to_record_turn(db_client, monkeypatch):
+    """Locks the reach wiring: the shared trigger path must pass `chat_type`
+    (and `chat_id`) into `record_turn`. Deleting `chat_type=message.chat_type`
+    at the call site → the kwarg is absent here → red, and (silently, in prod)
+    reach recording turns off for every channel."""
+    from xyz_agent_context.channel import inbox_recorder as ir_mod
+    from xyz_agent_context.schema.parsed_message import ChatType
+
+    await db_client.insert("agents", {
+        "agent_id": "agent_a", "agent_name": "FakeAgent",
+        "created_by": "user_owner", "is_public": 0,
+    })
+
+    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
+    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+
+    @dataclass
+    class _StubResult:
+        output_text: str = "reply"
+        is_error: bool = False
+        error: object = None
+        raw_items: list = None
+        def __post_init__(self):
+            if self.raw_items is None:
+                self.raw_items = []
+
+    monkeypatch.setattr(ar_mod, "AgentRuntime", type("_R", (), {"__init__": lambda self, *a, **k: None}))
+    monkeypatch.setattr(rc_mod, "collect_run", lambda *a, **k: _await(_StubResult()))
+
+    seen: dict = {}
+    real = ir_mod.InboxRecorder.record_turn
+
+    async def _spy(self, **kwargs):
+        seen.update(kwargs)
+        return await real(self, **kwargs)
+
+    monkeypatch.setattr(ir_mod.InboxRecorder, "record_turn", _spy)
+
+    cred = _FakeCredential(agent_id="agent_a", app_id="fake_bot_1")
+    trigger = _FakeTrigger(
+        [{"id": "m1", "from": "u_alice", "content": "hi", "ts_ms": 9_999_999_999_999, "chat": "C7"}],
+        cred,
+    )
+    await trigger.start(db_client)
+    try:
+        await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C7"), count=1, timeout=5.0)
+    finally:
+        await trigger.stop()
+
+    assert seen.get("chat_id") == "C7"
+    assert seen.get("chat_type") == ChatType.PRIVATE  # the fake's default; must be PASSED, not absent
+
+
+async def _await(v):
+    return v

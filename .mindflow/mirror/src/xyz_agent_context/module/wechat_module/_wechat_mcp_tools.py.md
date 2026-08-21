@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/_wechat_mcp_tools.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — `wechat_send` docstring 说明 `context_token` 仅 direct 路径需要（PR-2 增量审 Minor）
+
+补 deployment note:managed 路径只按 `to_user_id` 投递、`context_token` 不用(可空),只有 direct-iLink 回退才需要 inbound 的 `context_token`。即 managed 部署**能**向已知 `to_user_id` 主动发起,direct-iLink 是本轮活跃会话内 reply-only。让约束写在真正要调用它的地方(配合社交模块 §3b surface-blind 的「有些渠道只能在活跃会话内投递」)。纯文档。
 ## 2026-08-11 (PR-H) — unbind 迁入 seam
 
 wechat_unbind→`seam.unbind("wechat")`，删本地 `_get_manager`。无 bind 工具(扫码后端专属)。tool 文件 get_mcp_db_client==0。

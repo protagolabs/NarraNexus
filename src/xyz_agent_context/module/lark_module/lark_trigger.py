@@ -485,8 +485,11 @@ class LarkTrigger(ChannelTriggerBase):
 
         # Lark's group/1:1 truth is in `raw["chat_type"]` ("group" / "p2p") —
         # NOT set on ParsedMessage before, so it defaulted to PRIVATE and every
-        # group turn looked 1:1. Reach recording (which only records 1:1) relies
-        # on this being right, so it is set here.
+        # group turn looked 1:1. Reach recording (which only records 1:1) is a
+        # SAFETY gate (a misread posts a private message into a group), so this
+        # is a POSITIVE whitelist: only the literal "p2p" is 1:1; a missing
+        # field, a topic group, or any future value is treated as GROUP and
+        # therefore not recorded as a way to reach one person.
         return ParsedMessage(
             message_id=msg_id,
             chat_id=chat_id,
@@ -495,9 +498,7 @@ class LarkTrigger(ChannelTriggerBase):
             content=content.strip(),
             timestamp_ms=create_time_ms,
             chat_type=(
-                ChatType.GROUP
-                if (raw.get("chat_type") or "p2p") == "group"
-                else ChatType.PRIVATE
+                ChatType.PRIVATE if raw.get("chat_type") == "p2p" else ChatType.GROUP
             ),
             raw=raw,
         )
@@ -2131,6 +2132,11 @@ class LarkTrigger(ChannelTriggerBase):
             await recorder.record_turn(
                 db=db,
                 thread_id=im_thread_id(self.channel_name, cred.agent_id, chat_id),
+                chat_id=chat_id,
+                # Shim keeps production's shape: a 1:1 records reach. The
+                # production path passes message.chat_type; this shim is only
+                # reached by tests, which drive 1:1.
+                chat_type=ChatType.PRIVATE,
                 owner_user_id=await resolve_owner_for_agent(db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=sender_id,

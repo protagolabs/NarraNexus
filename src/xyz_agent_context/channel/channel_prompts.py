@@ -72,8 +72,8 @@ CHANNEL_MESSAGE_EXECUTION_TEMPLATE = """\
 4. **If you decide to reply, you MUST reply via {channel_display_name}**: {reply_instruction}
    - Call the tool DIRECTLY yourself. Do NOT delegate to a subagent/Task — subagents cannot access your MCP tools
 5. If you learn new information about the sender (their name, role, preferences),
-   use `extract_entity_info` to update your Social Network. You do NOT need to
-   record how to reach them on this channel — that is captured automatically.
+   use `extract_entity_info` to update your Social Network. For a 1:1 chat, how
+   to reach them here is captured automatically — you do not need to record it.
 
 Remember: your reply is sent as a {channel_display_name} message, visible to
 the room participants — write it for that audience.

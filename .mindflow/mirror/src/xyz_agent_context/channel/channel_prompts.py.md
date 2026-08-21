@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-08-21 — 指令 #5 收窄:不再让 agent 手写渠道 reach(PR-2 预审 Important)
 
-reach 现由 [[inbox_recorder.py]] 自动记录,指令 #5 里「→ Store channel contact info under contact_info.channels.{channel_key}」删掉,保留「学到发件人的新信息(姓名/职务/偏好)就调 `extract_entity_info`」并明说「怎么在本渠道触达对方不用你记,自动捕获」。不删的话两份 prompt 对同一份数据给相反指令,且 LLM 手写会走同一 merge 路径、可能用猜的会话 id **覆盖**自动写对的那条(`rooms[agent_id]` 单值槽)。`{channel_key}` 占位删除后 `.format(channel_key=...)` 仍安全(忽略多余 kwarg)。
+reach 现由 [[inbox_recorder.py]] 自动记录,指令 #5 里「→ Store channel contact info under contact_info.channels.{channel_key}」删掉,保留「学到发件人的新信息(姓名/职务/偏好)就调 `extract_entity_info`」并明说「**1:1 才**自动捕获怎么在本渠道触达对方,不用你记」(增量审:限定 1:1,群不自动记,与 [[prompts.py]] §3b 一致)。不删的话两份 prompt 对同一份数据给相反指令,且 LLM 手写会走同一 merge 路径、可能用猜的会话 id **覆盖**自动写对的那条(`rooms[agent_id]` 单值槽)。`{channel_key}` 占位删除后 `.format(channel_key=...)` 仍安全(忽略多余 kwarg)。
 
 ## 2026-08-17 — 删掉三处对「怎么回复」的重述（设计 §6.2）
 

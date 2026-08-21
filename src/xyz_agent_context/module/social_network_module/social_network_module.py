@@ -1053,11 +1053,15 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             )
 
             if existing_entity:
-                # `entity_name_if_new` is a CREATE-only hint (see the create
-                # branch): a caller that wants to name a first-contact entity
-                # without ever overwriting an existing, possibly-canonical name.
-                # On an existing entity it is dropped, never written.
-                updates.pop("entity_name_if_new", None)
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # overwriting a real name. On an existing entity it is FILL-IF-
+                # EMPTY: it names an entity some other path created nameless (an
+                # LLM extraction that only had contact_info), but a non-blank
+                # existing name always wins — so a channel display name never
+                # clobbers a canonical one.
+                _name_if_new = updates.pop("entity_name_if_new", None)
+                if _name_if_new and not (existing_entity.entity_name or "").strip():
+                    updates["entity_name"] = _name_if_new
                 # Merge update
                 if update_mode == "merge":
                     # Merge identity_info
