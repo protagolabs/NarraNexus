@@ -46,6 +46,7 @@ from typing import Any, Optional, Sequence
 
 from loguru import logger
 
+from xyz_agent_context.schema.entity_schema import ENTITY_NAME_MAX_LEN
 from xyz_agent_context.schema.parsed_message import UNKNOWN_SENDER_NAME, ChatType
 from xyz_agent_context.utils import utc_now
 
@@ -262,9 +263,9 @@ class InboxRecorder:
             # nameless), but a non-blank existing name is NEVER overwritten — so
             # a channel display name cannot clobber a canonical one. Truncated to
             # the column width (`entity_name` is VARCHAR(255) on MySQL); an
-            # over-long name would else fail the whole reach write with a 1406.
+            # over-long name would otherwise fail the whole reach write with a 1406.
             if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME:
-                updates["entity_name_if_new"] = counterpart_name[:255]
+                updates["entity_name_if_new"] = counterpart_name[:ENTITY_NAME_MAX_LEN]
             res = await get_agent_data_store().extract_entity_info(
                 agent_id=agent_id,
                 entity_id=counterpart_id,

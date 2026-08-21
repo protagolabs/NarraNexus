@@ -916,7 +916,7 @@ class LarkTrigger(ChannelTriggerBase):
         only fail.
         """
         if not credential.user_oauth_ok():
-            return "Unknown"
+            return UNKNOWN_SENDER_NAME
         try:
             user_info = await self._cli.get_user(
                 credential.agent_id, user_id=sender_id, identity="user"
@@ -932,11 +932,11 @@ class LarkTrigger(ChannelTriggerBase):
                     .split("@")[0]
                     .replace(".", " ")
                     .title()
-                    or "Unknown"
+                    or UNKNOWN_SENDER_NAME
                 )
         except Exception:
             logger.debug(f"Failed to resolve sender name for {sender_id}")
-        return "Unknown"
+        return UNKNOWN_SENDER_NAME
 
     def create_context_builder(
         self,
@@ -1810,7 +1810,7 @@ class LarkTrigger(ChannelTriggerBase):
 
         # Resolve sender name + sanitize
         sender_name = message.sender_name
-        if (not sender_name or sender_name == "Unknown") and message.sender_id:
+        if (not sender_name or sender_name == UNKNOWN_SENDER_NAME) and message.sender_id:
             sender_name = await self.resolve_sender_name(message.sender_id, cred)
         sender_name = self.sanitize_display_name(sender_name)
         message.sender_name = sender_name

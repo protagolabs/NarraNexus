@@ -113,7 +113,7 @@ from xyz_agent_context.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
 )
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from xyz_agent_context.schema.parsed_message import UNKNOWN_SENDER_NAME, ParsedMessage
 from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
 
 
@@ -1390,7 +1390,7 @@ class ChannelTriggerBase(ABC):
 
         # Name resolution + sanitization
         sender_name = message.sender_name
-        if (not sender_name or sender_name == "Unknown") and message.sender_id:
+        if (not sender_name or sender_name == UNKNOWN_SENDER_NAME) and message.sender_id:
             sender_name = await self.resolve_sender_name(message.sender_id, credential)
         sender_name = self.sanitize_display_name(sender_name)
 
@@ -2105,7 +2105,12 @@ class ChannelTriggerBase(ABC):
                 owner_user_id=await resolve_owner_for_agent(db, agent_id),
                 agent_id=agent_id,
                 counterpart_id=message.sender_id,
-                counterpart_name=message.sender_name,
+                # Sanitized like the other two record_turn sites: a display name
+                # is a counterpart-controlled string, and reach recording now
+                # PERSISTS it into `entity_name` (rendered into context on every
+                # future social search) — so the prompt-injection seam
+                # `sanitize_display_name` guards must not be bypassed here.
+                counterpart_name=self.sanitize_display_name(message.sender_name),
                 inbound_text=message.content,
                 # As-is, NOT `or CHANNEL_SILENT_SENTINEL`. The recorder's
                 # contract is that an empty outbound writes no outbound row —
@@ -2273,7 +2278,7 @@ class ChannelTriggerBase(ABC):
         ``_sanitize_display_name``.
         """
         if not name:
-            return "Unknown"
+            return UNKNOWN_SENDER_NAME
         cleaned = _CONTROL_CHARS_RE.sub(" ", name)
         cleaned = " ".join(cleaned.split())
-        return cleaned[:128] or "Unknown"
+        return cleaned[:128] or UNKNOWN_SENDER_NAME
