@@ -9,6 +9,8 @@ last_verified: 2026-08-21
 
 配套事实:reach 由 [[inbox_recorder.py]] 自动记录(prompt 里点明「automatically」),所以 `contact_info.channels` 随交互自动填充;send 工具跨 surface 可用(绑定即在桌,`ChannelModuleBase.get_disallowed_tools` 只按未绑定压制、不按触发渠道——`test_setup_residency.py` 新增 cross-surface 锁)。守卫 `tests/social_network_module/test_reach_flow.py`(措辞锁 + `format_contact_result` 返回 channels)。这是「能力跟着 agent 走」从内部 bus(PR-1)扩到外部 IM 的用户可见落点。
 
+**预审收敛**:①step3 原举例 `*_send(room_id, text)` 与真实工具不符(lark/slack/tg 是 `*_cli`、微信要 per-inbound `context_token`)→ 改成「渠道各有各的调用形态,有的是 CLI(如 `lark_cli`),查渠道自己的工具」;加第二条限制「有些渠道只能在本轮活跃会话内投递,做不到就明说别猜」(surface-blind,不点名 WeChat,binding rule #4)。②不再逐个点名渠道(`on any IM channel you are bound to`)——避免社交模块持有第三份渠道名册。
+
 ## 2026-07-28 — R4b：新增 SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE
 
 （本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）

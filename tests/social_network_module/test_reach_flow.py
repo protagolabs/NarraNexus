@@ -69,7 +69,7 @@ def test_the_prompt_says_reach_is_recorded_automatically():
     """Reach recording is now automatic (InboxRecorder). The prompt must say so,
     or agents keep being told to record it by hand — the redundant, unreliable
     path this PR replaces."""
-    assert "automatically" in SOCIAL_NETWORK_MODULE_INSTRUCTIONS
+    assert "it fills in **automatically**" in SOCIAL_NETWORK_MODULE_INSTRUCTIONS
 
 
 def test_the_prompt_forbids_guessing_an_unrecorded_id():

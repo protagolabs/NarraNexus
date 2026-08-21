@@ -1053,6 +1053,11 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             )
 
             if existing_entity:
+                # `entity_name_if_new` is a CREATE-only hint (see the create
+                # branch): a caller that wants to name a first-contact entity
+                # without ever overwriting an existing, possibly-canonical name.
+                # On an existing entity it is dropped, never written.
+                updates.pop("entity_name_if_new", None)
                 # Merge update
                 if update_mode == "merge":
                     # Merge identity_info
@@ -1109,7 +1114,12 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             else:
                 # Create new entity
                 entity_type = updates.pop("entity_type", "user")
-                entity_name = updates.pop("entity_name", None)
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # clobbering an existing name (the merge branch drops it). An
+                # explicit `entity_name` still wins when both are present.
+                entity_name = updates.pop("entity_name", None) or updates.pop(
+                    "entity_name_if_new", None
+                )
                 # Ignore entity_description, managed only by hook
                 if "entity_description" in updates:
                     logger.warning(

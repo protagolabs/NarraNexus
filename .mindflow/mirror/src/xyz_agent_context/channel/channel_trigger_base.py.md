@@ -4,9 +4,9 @@ stub: false
 last_verified: 2026-08-21
 ---
 
-## 2026-08-21 — record_turn 接线 chat_id（PR-2 自动 reach 记录）
+## 2026-08-21 — record_turn 接线 chat_id + chat_type（PR-2 自动 reach 记录）
 
-两处 `self._inbox_recorder.record_turn(...)` 调用各加 `chat_id=message.chat_id,`。`record_turn` 用它把「本 agent 在这个渠道/会话能触达发件人」自动写进 social graph(见 [[inbox_recorder.py]] 同日条目)。纯传参,无控制流变化;不传时 `record_turn` 的 `chat_id` 默认 `""` → 不记 reach。
+两处 `self._inbox_recorder.record_turn(...)` 调用各加 `chat_id=message.chat_id, chat_type=message.chat_type,`。`record_turn` 用它把「本 agent 在这个渠道/会话能触达发件人」自动写进 social graph——但**只在 `chat_type==PRIVATE`(1:1)时记**(群 `chat_id` 是房间,记成个人 reach 会把私信投进群;见 [[inbox_recorder.py]] 同日 Critical 修复)。这条共享路径覆盖 slack/telegram/discord/wechat/narramessenger,它们的 trigger 各自已正确填 `chat_type`(WeChat 恒 PRIVATE 合理)。纯传参,无控制流变化。
 
 ## 2026-08-17 — inbox 写入换成 InboxRecorder
 

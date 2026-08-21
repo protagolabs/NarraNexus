@@ -8,11 +8,16 @@ stub: false
 
 **背景**:reach 记录此前是手动/不可靠——channel prompt 指令 #5 让 agent「若学到新信息就调 extract_entity_info 存到 contact_info.channels」,`_on_event_executed` 是 no-op,`set_channel_info` 无自动调用者。于是通讯录基本是空的,agent 在别的 surface 无从知道自己能在 Lark/微信 触达某人。
 
-**改动**:`record_turn` 加 `chat_id` 参数,尾部(inbox 写入之后)调新私有方法 `_record_reach`:把「agent 在 <source> 渠道、会话 <chat_id> 能触达 counterpart」写进 counterpart 社交实体的 `contact_info.channels`(`set_channel_info({}, source, {"id": counterpart, "rooms": {agent_id: chat_id}})` → `get_agent_data_store().extract_entity_info(...)`)。**best-effort/fail-open**:reach 记录失败绝不能丢 inbox 行(inbox 写入自己 re-raise,reach 单独 try 吞掉 + warning)。**无跨模块 import**(走 `data_access` seam,铁律 #3),**无 LLM**。`chat_id` 空 / counterpart 空 → 跳过(如 agent_dm 无会话坐标)。
+**改动**:`record_turn` 加 `chat_id` + `chat_type` 参数,尾部(inbox 写入之后)调新私有方法 `_record_reach`:把「agent 在 <source> 渠道、会话 <chat_id> 能触达 counterpart」写进 counterpart 社交实体的 `contact_info.channels`(`set_channel_info({}, source, {"id": counterpart, "rooms": {agent_id: chat_id}})` → `get_agent_data_store().extract_entity_info(...)`)。
 
-调用点接线:`channel_trigger_base.py`(2 处)传 `message.chat_id`;`lark_trigger.py`(2 处)传 `message.chat_id`/`chat_id`。守卫 `test_inbox_reach_recording.py`(真 db:记下→读回、无 chat_id 不记、reach 失败 monkeypatch 让 store 抛异常仍不丢 inbox 行——删 try/except 即变红,非假绿)。
+- **⚠️ 只记 1:1(`ChatType.PRIVATE`)**(预审 Critical):群聊里 `chat_id` 是**房间**不是「单独找某人的方式」,记成个人 reach 后 §3b 会把「发给 X 的私信」投到整个群。非 PRIVATE(group/topic/未知)一律跳过——**安全默认**:调用方没接线 → 不记,不泄露。
+- **首次接触建实体带名**(预审 Important):传 `counterpart_name` 作 `entity_name_if_new`——[[social_network_module.py]] create 分支消费、merge 分支丢弃,所以**绝不覆盖** LLM 定的规范名;§3b 第一步按名字搜才成立。
+- **in-band 失败也要发声**(预审 Important):data_access seam **从不 raise**,失败以 `{"success": False}` 返回(无 instance / id 超长 / P2 后 401)——只有 try/except 会漏掉全部真实失败。故**接住返回值**判 `success is False` → warning。
+- **best-effort/fail-open**:reach 失败绝不丢 inbox 行(inbox 写入自己 re-raise,reach 单独 try 吞 + warning)。**无跨模块 import**(走 `data_access` seam,binding rule #3),**无 LLM**。类 docstring 已订正:inbox 写用注入句柄,reach 写走 seam 自己的句柄(P2 后是一次出站调用)。
 
-**已知 Minor(接受,预审记录)**:① reach 首次遇见陌生发件人会建**无名**实体(只传 contact_info,没传 counterpart_name)——同轮 LLM 抽取路径通常随即命名,exact-id 查得到,name-search 短暂查不到;不在此处传 name 是刻意:merge 分支会用原始渠道显示名**覆盖** LLM 定的规范名,要修得「仅 create 时设名」,超出本 PR。② `_record_reach` 不在 MCP 请求上下文里,`get_agent_data_store()` 无 identity headers——env 未设时全是 DirectStore 无碍;P2 翻 `NARRANEXUS_BACKEND_URL` 后 trigger 非请求 → HttpStore 401 → reach 静默停(fail-open 掩盖),P2 runbook 需给 trigger 一条 service-identity 路径。③ reach 按裸 `counterpart_id` 写、绕过 dedup,靠 `merge_entities` 事后合并。
+调用点接线:`channel_trigger_base.py`(2 处生产)+ `lark_trigger.py:_process_message`(1 处生产)传 `chat_id=message.chat_id, chat_type=message.chat_type`;`_write_to_inbox`(lark 测试 shim)不传 → 不记 reach。**⚠️ Lark 陷阱**:`parse_event` 此前从不设 `chat_type`,恒 PRIVATE,群会被误记——同 commit 补 `chat_type=GROUP if raw["chat_type"]=="group" else PRIVATE`(见 [[lark_trigger.py]])。守卫 `test_inbox_reach_recording.py`(真 db:1:1 记下→读回、group/topic 不记、无 chat_id 不记、首触带名、后来渠道名不覆盖规范名、in-band 失败打 warning 且不丢 inbox 行——删 try/except 或删 success 检查即变红)+ `test_lark_parse_event.py`(group/p2p/缺失→chat_type)。
+
+**残留 Minor(P2 runbook)**:P2 翻 `NARRANEXUS_BACKEND_URL` 后 trigger 非 MCP 请求 → HttpStore 无 identity headers → 401(现在会 warning,不再静默);需给 trigger 一条 service-identity 路径。reach 按裸 `counterpart_id` 写、绕过 dedup,靠 `merge_entities` 事后合并。
 
 ## 2026-08-20 — `record_peer_message`：A2A DM 的双线程写入
 

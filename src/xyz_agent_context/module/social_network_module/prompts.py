@@ -100,9 +100,9 @@ use this to merge them into one consolidated record.
 ##### 3b. Reaching someone on a channel you are NOT currently in
 
 You are not confined to the conversation that woke you. If a task means reaching
-a person or agent somewhere else — on Lark, WeChat, Telegram, Slack, Discord, a
-team room — you can, as long as you are connected to that channel and have
-reached them there before. The map of who you can reach, and where, lives on
+a person or agent somewhere else — on any IM channel you are bound to, or a team
+room — you can, as long as you are connected to that channel and have reached
+them there before. The map of who you can reach, and where, lives on
 each entity's `contact_info.channels`, and it fills in **automatically**: every
 time someone messages you on a channel, the conversation is recorded there, so
 you rarely have to write it yourself.

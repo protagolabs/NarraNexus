@@ -61,7 +61,7 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -483,6 +483,10 @@ class LarkTrigger(ChannelTriggerBase):
         except (ValueError, TypeError):
             create_time_ms = 0
 
+        # Lark's group/1:1 truth is in `raw["chat_type"]` ("group" / "p2p") —
+        # NOT set on ParsedMessage before, so it defaulted to PRIVATE and every
+        # group turn looked 1:1. Reach recording (which only records 1:1) relies
+        # on this being right, so it is set here.
         return ParsedMessage(
             message_id=msg_id,
             chat_id=chat_id,
@@ -490,6 +494,11 @@ class LarkTrigger(ChannelTriggerBase):
             sender_name=sender_name,
             content=content.strip(),
             timestamp_ms=create_time_ms,
+            chat_type=(
+                ChatType.GROUP
+                if (raw.get("chat_type") or "p2p") == "group"
+                else ChatType.PRIVATE
+            ),
             raw=raw,
         )
 
@@ -1842,6 +1851,7 @@ class LarkTrigger(ChannelTriggerBase):
                 db=self._db,
                 thread_id=im_thread_id(self.channel_name, cred.agent_id, message.chat_id),
                 chat_id=message.chat_id,
+                chat_type=message.chat_type,
                 owner_user_id=await resolve_owner_for_agent(self._db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=message.sender_id,
@@ -2121,7 +2131,6 @@ class LarkTrigger(ChannelTriggerBase):
             await recorder.record_turn(
                 db=db,
                 thread_id=im_thread_id(self.channel_name, cred.agent_id, chat_id),
-                chat_id=chat_id,
                 owner_user_id=await resolve_owner_for_agent(db, cred.agent_id),
                 agent_id=cred.agent_id,
                 counterpart_id=sender_id,

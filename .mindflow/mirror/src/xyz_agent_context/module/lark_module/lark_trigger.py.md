@@ -4,9 +4,10 @@ stub: false
 last_verified: 2026-08-21
 ---
 
-## 2026-08-21 — record_turn 接线 chat_id（PR-2 自动 reach 记录）
+## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
 
-两处 `record_turn(...)` 调用各加 `chat_id=`(site1 `message.chat_id`,site2 局部 `chat_id`)。让 [[inbox_recorder.py]] 把「本 agent 在 Lark 会话 X 能触达发件人」自动写进 social graph。纯传参,无控制流变化。
+- **`parse_event` 补 `chat_type`**（预审 Critical 陷阱):此前构造 `ParsedMessage` 从不传 `chat_type`,恒取 dataclass 默认 `PRIVATE`——群/1:1 真相只在 `raw["chat_type"]`(`"group"`/`"p2p"`)。改为 `chat_type=ChatType.GROUP if (raw.get("chat_type") or "p2p")=="group" else ChatType.PRIVATE`。不补的话 [[inbox_recorder.py]] 的「只记 1:1」判据在 Lark 上永远为真,群 reach 会被误记(私信投进群)。守卫 `test_lark_parse_event.py`。**注意不要顺手改 `_should_respond_in_group`**(它读原始 event dict,是「回不回」的决策,和「记不记」无关)。
+- **生产路径 `_process_message` 的 `record_turn`** 加 `chat_id=message.chat_id, chat_type=message.chat_type`;测试 shim `_write_to_inbox` 不传(不记 reach)。让 [[inbox_recorder.py]] 只在 1:1 时把 Lark 会话写进 social graph。
 
 ## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
 
