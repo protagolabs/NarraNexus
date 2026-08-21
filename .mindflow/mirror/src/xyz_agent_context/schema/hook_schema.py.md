@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — BUS_PRODUCED_SOURCES:bus 产出 working_source 的单一来源
+
+新增模块级常量 `BUS_PRODUCED_SOURCES = (WorkingSource.A2A.value, WorkingSource.MESSAGE_BUS.value)`
+=MessageBusTrigger 为 A2A / team turn 写的那批 `working_source`。此前这对字符串在 `chat_module`
+的活动摘要、以及 Activity Log 路由里各硬编码一份;提为共享常量后,加一个新 bus transport 一处改
+全生效。用 `.value`(而非枚举成员)因为落库 memory 里的 `working_source` 是 JSON 字符串,消费方
+按字符串比较。
 
 ## 2026-08-04 — BUS_TEAM_ROOM_EXTRA_KEY 常量
 

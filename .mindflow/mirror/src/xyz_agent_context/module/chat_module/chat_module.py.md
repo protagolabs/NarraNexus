@@ -1,7 +1,14 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — 活动摘要的 bus-source 判定改用共享常量
+
+`_working_source_summary` 里 `if working_source in ("message_bus", "a2a")` 的硬编码字面量
+换成 `hook_schema.BUS_PRODUCED_SOURCES`(值不变,纯去重)。此前这对字符串在枚举本体、这里、
+以及 Activity Log 路由三处各写一份;统一到单一来源后,新增一个 bus 侧 transport 只改一处、
+所有消费方一起生效,避免"漏改一处 → 活动静默不显示"这类无声 bug。行为无变化。
 
 ## 2026-08-20 — bootstrap 问候 prepend 改用共享行构造器
 

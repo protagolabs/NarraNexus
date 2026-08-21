@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — tickBgMessages「有新回复」信号只订阅 chat 流
+
+`tickBgMessages` 用 `getSimpleChatHistory(aid, 5)` 尾条时间戳前进当作"该 agent 有新回复"→ 弹 toast +
+点亮侧边栏 badge。后端把 A2A/team 活动纳入 simple-chat-history 后,这条流尾部几乎总是活动行,每次
+peer/team turn 都会被误判成"回复了你",制造通知疲劳。改成 `getSimpleChatHistory(aid, 5, 0, 'chat')`,
+只看真实对话流;活动去 `ChatPanel` 的 inner tab 自己展示。首轮"只记录不通知"语义不变。
 
 # useAutoRefresh.ts — Tiered background polling with Visibility API pause
 

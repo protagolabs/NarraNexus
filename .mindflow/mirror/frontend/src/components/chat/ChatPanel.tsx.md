@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 对话/Activity 两个 tab 各取各的流
+
+原来 `loadChatHistory` / `loadMoreHistory` / 轮询都调 `getSimpleChatHistory(agentId, 20)` 拿**一份**
+`historyMessages`,`visibleTimeline` 再按 `messageType === 'activity'` 客户端拆两个 tab —— 两个 tab
+抢同一个 20 行预算。后端把 A2A/team 活动纳入后这条流变得无上限,繁忙 agent 会把「对话」tab 顶空、
+轮询还顶掉已渲染的聊天气泡、把翻旧页的用户拽回底部。改为按 `chatTab` 派生
+`historyInclude = chatTab === 'inner' ? 'activity' : 'chat'`,三处 fetch 都带上并进各自 deps —— 切 tab
+经 `loadChatHistory` 重建触发 reload effect 自动重取正确的流,每个 tab 独享 `limit`/`offset`/`total_count`。
+`visibleTimeline` 的客户端过滤保留:live session `messages` 仍需按 tab 过滤(历史侧已是分好的流)。
 
 ## 2026-08-20 — bootstrap 问候气泡传 agentName（修「AI」头像）
 

@@ -4,22 +4,35 @@ last_verified: 2026-08-21
 stub: false
 ---
 
-## 2026-08-21 — Activity Log 纳入 A2A/team 活动(owner-only, 仅后台行)
+## 2026-08-21 — Activity Log 纳入 A2A/team 活动:owner-only + 前缀收口 + 两条流各自分页
 
-`get_simple_chat_history` 同时喂前端的对话页与 Activity Log(前端按 `working_source` /
-`message_type` 分流)。A2A 与 team 的 turn 经 `MessageBusTrigger` 以
+`get_simple_chat_history` 同时喂前端的「对话」tab 与「Activity Log」tab(`ChatPanel` 按
+`message_type === 'activity'` 客户端分流)。A2A 与 team 的 turn 经 `MessageBusTrigger` 以
 `user_id = sender_agent_id`(对端 agent id / `TEAM_ROOM_OWNER_PREFIX+team_id`,**非 owner**)
 跑 runtime,落在 peer-scoped 的 ChatModule 实例里;原来只查 `get_by_agent_and_user(agent_id, owner)`,
-这些实例永远匹配不上 owner,Activity Log 里一条 A2A/team 活动都看不到。
+这些实例永远匹配不上 owner,Activity Log 一条 A2A/team 活动都看不到。
 
-修法(读侧,最小面):除 owner-scoped 实例外,**仅当 caller 是 owner**(`resolve_owner`==caller)
-再用 `get_by_agent(agent_id, module_class="ChatModule")` 取该 agent 其余实例(`user_id != caller`),
-标记为 `peer_scoped`。循环里对 peer 实例只放行 `working_source ∈ ("a2a","message_bus")` 的行
-(`_A2A_TEAM_SOURCES`),其余(用户面 chat、IM 频道等他 scope 的行)一律丢弃;放行的行仍走既有
-非用户面折叠逻辑 → 收敛成 `message_type="activity"` 的紧凑标记,对端正文从不逐字外泄。
-隐私边界:`simple-chat-history` 无 `assert_owned`、靠 `user_id` 隐式限定,故非 owner
-(如与公共 agent 聊过的用户)完全不受影响,只看自己那份;owner 才多看到 agent 的 peer/team 活动。
-夹具:`tests/backend/test_activity_log_a2a_visibility.py`(owner 可见折叠行 + 非 owner 零泄漏)。
+三层设计:
+
+1. **owner-only 拉取。** 仅当 `want_activity` 且 caller 是 owner(`resolve_owner`==caller,
+   `None`/`""` 皆 fail-closed 退回旧行为)才用 `get_by_agent(agent_id, module_class="ChatModule")`
+   补 peer 实例;`resolve_owner` 也只在需要活动流时才查,`include=chat` 的热轮询不多付一次。
+2. **数据面前缀收口(不是逐行丢)。** peer 实例集只取 `user_id.startswith(_PEER_SCOPE_PREFIXES)`
+   =`("agent_", TEAM_ROOM_OWNER_PREFIX)`——只有 A2A/team scope,**其他真实用户与该 agent 的私聊
+   连 memory 都不会被读**(此前"其余全拿、逐行 continue"会 2N+1 次查询读别人私聊)。循环里
+   `if peer_scoped and working_source not in _A2A_TEAM_SOURCES: continue` 保留为第二道 fail-closed 闸。
+3. **两条流各自分页(C1)。** 对话行与活动行原来挤在同一个 `all_messages`、共用一个 `limit` 尾切,
+   前端拿到 20 条后才拆两个 tab。peer/team 是**无上限**的流,灌进来会把 owner 的「对话」tab 顶空、
+   轮询还把已渲染的聊天行换掉。改为端点新增 `include=chat|activity|all`:按 `message_type` 是否
+   `activity` 先分流、各自 `limit`/`offset`/`total_count`。`ChatPanel` 的对话 tab 请求 `chat`、
+   inner tab 请求 `activity`;`useAutoRefresh.tickBgMessages` 只订阅 `chat`,peer 活动不再误触发
+   "有新回复"toast/滚动。`all` 保留旧语义给其他调用方。
+
+`_A2A_TEAM_SOURCES` 引用 `hook_schema.BUS_PRODUCED_SOURCES`(与 `chat_module` 同一来源,新增 bus
+传输一处改全生效);`_USER_FACING_SOURCES` 一并提到模块级。对端正文从不逐字外泄(仍走既有折叠成
+`Background activity (...)` / `owner_notify` 放行)。夹具:`tests/backend/test_activity_log_a2a_visibility.py`
+(owner 见 message_bus+a2a 折叠行、`include=all` 钉住前缀+行级两道隔离、非 owner 零泄漏、活动洪流下
+`include=chat` 对话不被饿死)。
 
 ## 2026-08-19 — tool_output 配名走 tool_call_id;"unknown" 两个源头都治
 

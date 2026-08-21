@@ -314,11 +314,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
 
+  // Conversation and Activity Log are two independently-paginated streams
+  // (backend `include`): the inner tab IS the Activity Log, everything else is
+  // the conversation. Fetching per-tab keeps a busy agent's activity flood from
+  // eating the conversation tab's page budget, and keeps peer/team activity off
+  // the "new reply" scroll/notify path on the conversation tab.
+  const historyInclude: 'chat' | 'activity' =
+    chatTab === 'inner' ? 'activity' : 'chat';
+
   const loadChatHistory = useCallback(async () => {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
     try {
-      const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+      const response = await api.getSimpleChatHistory(
+        agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+      );
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
@@ -334,7 +344,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       setIsLoadingHistory(false);
       setHistoryLoaded(true);
     }
-  }, [agentId, userId]);
+  }, [agentId, userId, historyInclude]);
 
   // Use ref for historyMessages length to avoid recreating loadMoreHistory on every poll
   const historyLengthRef = useRef(0);
@@ -350,7 +360,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const response = await api.getSimpleChatHistory(
-        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
+        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current, historyInclude,
       );
       if (response.success && response.messages.length > 0) {
         // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for
@@ -377,7 +387,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agentId, userId, historyTotalCount, isLoadingMore]);
+  }, [agentId, userId, historyTotalCount, isLoadingMore, historyInclude]);
 
   // Reload when the agent changes OR a data wipe bumps historyRefreshTick.
   const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
@@ -406,7 +416,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     const poll = async () => {
       if (document.hidden) return;
       try {
-        const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+        const response = await api.getSimpleChatHistory(
+          agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+        );
         if (!response.success || response.messages.length === 0) return;
 
         const latestMsg = response.messages[response.messages.length - 1];
@@ -439,7 +451,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     const timer = setInterval(poll, 12_000);
     return () => clearInterval(timer);
-  }, [agentId, userId, historyLoaded]);
+  }, [agentId, userId, historyLoaded, historyInclude]);
 
   // ── Build unified timeline ──────────────────────────
   // History (DB) + session (chatStore) merged + de-duplicated. The dedup
