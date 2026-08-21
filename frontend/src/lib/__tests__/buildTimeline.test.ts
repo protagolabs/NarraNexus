@@ -219,3 +219,30 @@ describe('blank history rows', () => {
     expect(out[0].attachments).toHaveLength(1);
   });
 });
+
+// ── Activity Log rows must survive the merge (2026-08-21) ──────────────
+// A history filter used to drop `activity + message_bus` rows outright, which
+// silently made ALL peer/team activity invisible (every bus turn is
+// working_source=message_bus). The inner tab renders these; buildTimeline must
+// pass them through and the ChatPanel tab filter keeps them out of the 1:1 chat.
+describe('message-bus activity rows', () => {
+  it('keeps a message_bus activity history row (Activity Log source)', () => {
+    const out = buildUnifiedTimeline(
+      [
+        hist({
+          role: 'assistant',
+          content: 'Background activity (message_bus)',
+          timestamp: '2026-08-21T08:00:00Z',
+          message_type: 'activity',
+          working_source: 'message_bus',
+        }),
+      ],
+      [],
+    );
+    // Non-vacuous: re-adding the old `message_type==='activity' &&
+    // working_source==='message_bus'` skip drops this to length 0.
+    expect(out).toHaveLength(1);
+    expect(out[0].messageType).toBe('activity');
+    expect(out[0].workingSource).toBe('message_bus');
+  });
+});

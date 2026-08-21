@@ -29,7 +29,10 @@ from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
-from xyz_agent_context.schema.hook_schema import is_plain_text_turn
+from xyz_agent_context.schema.hook_schema import (
+    BUS_PRODUCED_SOURCES,
+    is_plain_text_turn,
+)
 
 # Schema
 from xyz_agent_context.schema import (
@@ -539,7 +542,7 @@ class ChatModule(XYZBaseModule):
 
         if working_source == "job":
             return "Ran a scheduled job"
-        if working_source in ("message_bus", "a2a"):
+        if working_source in BUS_PRODUCED_SOURCES:
             # No "Replied to X" arm: a turn that delivered anything recovers its
             # text upstream and is written as a real assistant row, so it never
             # reaches this summary. Keeping a branch that cannot run would leave

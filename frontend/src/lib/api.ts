@@ -511,10 +511,16 @@ class ApiClient {
     );
   }
 
-  async getSimpleChatHistory(agentId: string, limit: number = 20, offset: number = 0): Promise<SimpleChatHistoryResponse> {
+  async getSimpleChatHistory(
+    agentId: string,
+    limit: number = 20,
+    offset: number = 0,
+    include: 'chat' | 'activity' | 'all' = 'all',
+  ): Promise<SimpleChatHistoryResponse> {
     const params = new URLSearchParams({
       limit: limit.toString(),
       offset: offset.toString(),
+      include,
     });
     return this.request<SimpleChatHistoryResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/simple-chat-history?${params}`

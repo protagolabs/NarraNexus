@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
+
+上一版把 `historyInclude` 塞进 `loadChatHistory` deps + reload effect 清空历史 →
+**每次切 tab 都清空重取、滚动跳底**(纯客户端过滤退化成两次网络往返)。改为按 `include` 键控三份
+state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 active 变量(`historyMessages`
+等)与键控 setter,下游(loadMore/poll/timeline)读法不变。reload 拆两个 effect:agent 变/wipe → 重置双流 +
+载入活动流;切 tab → 仅当该流未加载才 fetch(已加载则瞬时、无清空、无滚动重置)。`lastHistoryTimestampRef`
+也按 `include` 键控,避免切 tab 后拿另一条流的高水位比较(轮询误判)。
+
+第三轮 review polish:①(N3)reload 与 tab-switch 合并成**单个 loader effect** + `historyIdentityRef`
+(`agentId|userId|tick`)——身份变→重置双流+载入活动流;身份未变(切 tab)→未加载才载入,消除挂载时的
+双请求。②(N4)轮询 effect 建立时先 `void poll()` 一次,切回已加载 tab 立即刷新而非等满 12s(poll 自带
+高水位/`document.hidden` 守卫,无新则空转)。③ tab→流的判定抽到纯函数 `streamForTab`([[chatStreams]]),
+三个 fetch 点统一引用、可单测,防漂移。
+
+## 2026-08-21 — 对话/Activity 两个 tab 各取各的流
+
+原来 `loadChatHistory` / `loadMoreHistory` / 轮询都调 `getSimpleChatHistory(agentId, 20)` 拿**一份**
+`historyMessages`,`visibleTimeline` 再按 `messageType === 'activity'` 客户端拆两个 tab —— 两个 tab
+抢同一个 20 行预算。后端把 A2A/team 活动纳入后这条流变得无上限,繁忙 agent 会把「对话」tab 顶空、
+轮询还顶掉已渲染的聊天气泡、把翻旧页的用户拽回底部。改为按 `chatTab` 派生
+`historyInclude = chatTab === 'inner' ? 'activity' : 'chat'`,三处 fetch 都带上并进各自 deps —— 切 tab
+经 `loadChatHistory` 重建触发 reload effect 自动重取正确的流,每个 tab 独享 `limit`/`offset`/`total_count`。
+`visibleTimeline` 的客户端过滤保留:live session `messages` 仍需按 tab 过滤(历史侧已是分好的流)。
 
 ## 2026-08-20 — bootstrap 问候气泡传 agentName（修「AI」头像）
 

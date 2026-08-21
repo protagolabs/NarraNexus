@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 消息卡 outbound `sender_name` 用解析出的显示名
+
+08-19 把 `members[0].agent_name` 修成解析出的 `agents.agent_name`,但每条消息卡的
+`sender_name` 仍是「写入时存好」。问题在:agent 自己的 **OUTBOUND** 行由 `inbox_recorder`
+写入时 `sender_name` 存的是**空串**(记录时它没有显示名),于是这里的 `or` 兜底掉到
+`sender_id`,卡片显示裸 `agent_<hex>` id;对方(INBOUND)行落库时带了真实名字,故一直正确。
+现在 outbound 复用整请求已解析一次的 `agent_display`(和 `members[0]` 同一个值),inbound
+仍走落库的 `sender_name`。响应**结构**不变;因为是读时解析,历史空名行也一并自愈,且随改名即时反映。
 
 ## 2026-08-19 — members[0] 显示名 + mark_room_read 裸 naive UTC
 

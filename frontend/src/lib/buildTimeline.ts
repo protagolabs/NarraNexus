@@ -133,12 +133,12 @@ export function buildUnifiedTimeline(
     // live session — but keep it in mind if a blank producer returns.
     if (isBlankText(msg.content) && !msg.attachments?.length) continue;
 
-    // Hide message-bus background-activity markers from the agent's 1:1 chat.
-    // A team group-chat turn (the agent was @mentioned) lives in the team room,
-    // not here — surfacing it as "Background activity (message_bus)" just
-    // confuses the owner looking at their direct conversation.
-    if (msg.message_type === 'activity' && msg.working_source === 'message_bus') continue;
-
+    // NOTE: message_bus activity markers are intentionally NOT dropped here.
+    // Keeping the owner's 1:1 chat clean of them is now handled upstream — the
+    // conversation tab fetches `include=chat` (backend drops activity rows) and
+    // ChatPanel's `visibleTimeline` filters `messageType === 'activity'` out of
+    // it — so this loop must PASS these rows through for the Activity Log
+    // (inner) tab to render peer/team activity at all.
     items.push({
       id: `h-${i}`,
       role: msg.role,
