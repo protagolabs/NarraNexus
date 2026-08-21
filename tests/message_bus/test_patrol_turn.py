@@ -169,6 +169,22 @@ async def test_the_patrol_prompt_carries_the_board_and_the_stalled_facts(db_clie
     assert "stalled" in prompt.lower()
     assert "reassign" not in prompt.lower() or "do not reassign" in prompt.lower()
 
+    # The KEEP side of the delivery-block split: the surface-independent writing
+    # rules patrol also needs must STAY on a patrol prompt (the gate only removes
+    # the message_team delivery mechanism). Without these, patrol could promise
+    # future delivery (the Dunhuang P0) or @mention a non-member.
+    assert "Do not promise future delivery" in prompt
+    assert "You may ONLY @mention a current channel member" in prompt
+    # And those rules must not orphan onto the message history: the split pulled
+    # their blank line + header out of the gated block, so the rule bullets keep
+    # a paragraph head on a patrol turn (where the gated block is absent).
+    plines = prompt.splitlines()
+    narrate_idx = next(
+        i for i, ln in enumerate(plines) if ln.startswith("- Do NOT narrate")
+    )
+    assert plines[narrate_idx - 1] == "When you write for this room:"
+    assert plines[narrate_idx - 2] == ""
+
 
 @pytest.mark.asyncio
 async def test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team(

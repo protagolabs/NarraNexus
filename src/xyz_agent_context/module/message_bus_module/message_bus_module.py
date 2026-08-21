@@ -797,7 +797,11 @@ class MessageBusModule(XYZBaseModule):
                     )
                     await sync_agent_discovery(db, self.agent_id)
             except Exception as e:
-                logger.debug(f"Failed to sync agent discovery row: {e}")
+                # Warning, not debug: this is the per-turn backstop for the P1
+                # (section 02, 488 prod rows) where discovery went stale and
+                # peers were reported as unconfigured. A silent failure lets that
+                # P1 recur with only a debug line to show for it.
+                logger.warning(f"agent discovery sync failed: {e}")
 
             # --- 2. Fetch known agents ---
             #
@@ -1135,5 +1139,10 @@ async def _get_shared_db():
         from xyz_agent_context.utils.db.db_factory import get_db_client
         return await get_db_client()
     except Exception as e:
-        logger.debug(f"Failed to get shared DB client: {e}")
+        # Warning, not debug: returning None here is the ONE way the callers'
+        # `if db:` guards fall through silently (they never reach their own
+        # except), so this is where a lost db handle must become visible — the
+        # address book / discovery / known-agents that ride on it all go dark
+        # otherwise, and the static block still promises them.
+        logger.warning(f"shared DB client unavailable: {e}")
         return None

@@ -2615,8 +2615,14 @@ class MessageBusTrigger:
         # Writing + mention rules that hold WHATEVER the delivery surface —
         # a `message_team` reply or a patrol status line. Unconditional, so
         # patrol keeps the no-narration / mention / no-promise disciplines it
-        # also needs (it @mentions stalled owners, it must not promise).
+        # also needs (it @mentions stalled owners, it must not promise). Its OWN
+        # blank line + header: the separator is NOT borrowed from the gated block
+        # above (which patrol does not get), or on patrol these bullets orphan
+        # onto the message history. The header is surface-neutral — "write" holds
+        # for both a message and a status line; no delivery-specific word.
         lines += [
+            "",
+            "When you write for this room:",
             "- Do NOT narrate your process or thinking in the message. No "
             "\"Let me…\", no \"I need to find…\", no tool/function names, no "
             "step-by-step. Just talk.",
