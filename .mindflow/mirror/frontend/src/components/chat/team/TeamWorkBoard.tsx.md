@@ -73,10 +73,14 @@ if (items.length === 0 && patrolEnabled) return null;
   钉在收件人名下会被读成收件人说的。i18n 新增 `awaitingReply`、`nameSep`(名字
   之间的分隔符,zh/ja 用「、」、ar 用「، 」、其余「, 」)。
 
-**恢复(resume)对交接卡是逐行的**:一张交接卡背后是多行(`item_ids`),paused
-时逐个调 `resumeTeamWorkItem`。task 卡的 `item_ids` 也是它自己那一个 id,所以
-`resume(item)` 一条路径同时服务两种卡。改这里时别把循环退回成单 id —— 那会让
-被停的交接卡只恢复第一个人。
+**恢复(resume)对交接卡是「只恢复 paused 子集」**:一张交接卡背后是多行,但可能
+只有一部分被 paused。`parked` 由 `status==='paused' || paused_item_ids 非空` 决定
+(handoff 聚合成 `in_progress` 时仍可能有 parked 行);resume 只对 `paused_item_ids`
+发请求,用 `Promise.allSettled` 而非串行 `for await` —— 一行失败不能把其余行搁在
+半恢复态。失败的行下一轮轮询会重新出现在 `paused_item_ids` 里,按钮因此不消失。
+task 卡的 `paused_item_ids`/`item_ids` 也覆盖到,所以一条 `resume(item)` 同时服务
+两种卡。改这里时别退回「按 status 单值判 parked」或「串行 for await」—— 那会让
+被停的交接卡在部分失败后永久失去恢复入口。
 
 这条改动**只动看板显示**:巡查/stalled 走 `list_active`、errand 开关单走
 `list_open_errands`,都不经过 `list_visible`,不受影响。

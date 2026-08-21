@@ -257,6 +257,51 @@ async def test_handoff_status_is_stalled_when_any_member_stalled(db_client, monk
 
 
 @pytest.mark.asyncio
+async def test_a_users_own_handoff_shows_a_name_not_a_raw_id(db_client, monkeypatch):
+    """The most common multi-@ path is a person naming agents, so the sender is
+    `usr_<id>` — which `name_by_agent` (agents only) cannot resolve. The board
+    must render the viewer's display name, never the opaque id."""
+    repo = await _seed_room(db_client)
+    await db_client.insert("users", {
+        "user_id": "usr_owner", "display_name": "Ada Owner", "user_type": "local",
+    })
+    await repo.create_item(
+        team_id="t1", channel_id="ch", title="@Bruno pull the numbers",
+        created_by="usr_owner", assignee_id="agent_b",
+        source_message_id="msg_u", origin=WorkItemOrigin.AUTO,
+    )
+
+    items = _client(db_client, monkeypatch).get("/api/teams/t1/work-items").json()["items"]
+
+    assert len(items) == 1
+    assert items[0]["source_name"] == "Ada Owner"
+    assert "usr_" not in json.dumps(items[0], ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_a_paused_row_in_a_handoff_stays_reachable(db_client, monkeypatch):
+    """Half-paused group: the card aggregates to in_progress, but the paused
+    row must still be exposed so its resume affordance does not vanish."""
+    repo = await _seed_room(db_client)
+    live = await repo.create_item(team_id="t1", channel_id="ch", title="ask",
+                                  created_by="agent_lead", assignee_id="agent_b",
+                                  source_message_id="msg_x", origin=WorkItemOrigin.AUTO)
+    parked = await repo.create_item(team_id="t1", channel_id="ch", title="ask",
+                                    created_by="agent_lead", assignee_id="agent_c",
+                                    source_message_id="msg_x", origin=WorkItemOrigin.AUTO)
+    await repo.set_status(parked.item_id, WorkItemStatus.PAUSED)
+
+    items = _client(db_client, monkeypatch).get("/api/teams/t1/work-items").json()["items"]
+
+    assert len(items) == 1
+    # One row still active, so the card as a whole is in progress...
+    assert items[0]["status"] == WorkItemStatus.IN_PROGRESS
+    # ...but the parked row is called out so the panel can still resume it.
+    assert items[0]["paused_item_ids"] == [parked.item_id]
+    assert live.item_id not in items[0]["paused_item_ids"]
+
+
+@pytest.mark.asyncio
 async def test_two_different_messages_stay_two_cards(db_client, monkeypatch):
     """Collapse is per message — a genuine second hand-off is its own card."""
     repo = await _seed_room(db_client)

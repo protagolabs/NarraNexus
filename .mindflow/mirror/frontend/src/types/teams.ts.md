@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -39,11 +39,16 @@ stub: false
 
 ## 2026-08-21 — TeamWorkItem 增 `kind` 及交接卡字段
 
-`TeamWorkItem` 现在是两种卡的联合(靠 `kind` 区分):`'task'` 是显式任务
-(沿用 `title`/`assignee_name`);`'handoff'` 是一条 @ 消息的 auto 交接单合并后
-的卡,带 `source_name`(发件人)、`assignee_names`(仍欠回复的人)、`item_ids`
-(底层多行,供 paused 逐行恢复),**不带 title**(消息正文是发件人的话,上板会
-被误读成收件人说的)。渲染分支见 [[TeamWorkBoard]]。
+`TeamWorkItem` 现在是两种卡的联合(靠**必填** `kind` 区分,用 discriminated
+union 让 TS 收窄):`'task'` 是显式任务(沿用 `title`/`assignee_name`);
+`'handoff'` 是一条 @ 消息的 auto 交接单合并后的卡,带 `source_name`(发件人,
+可能是队友也可能是用户自己)、`assignee_names`(仍欠回复的人)、`item_ids`
+(底层多行),**不带 title**(消息正文是发件人的话,上板会被误读成收件人说的)。
+
+`status` 在 handoff 上是**聚合值**,可能是 `in_progress` 而 `paused_item_ids`
+仍非空(一次 resume 只成功了一半)。`paused_item_ids` 是独立维度、不塞进
+`status`,前端据它决定是否给 resume 按钮、并只对这些行发恢复请求。渲染与恢复
+逻辑见 [[TeamWorkBoard]]。
 
 ## 2026-08-07 — TeamChatMessage.msg_type
 

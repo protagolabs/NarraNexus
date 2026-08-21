@@ -83,17 +83,20 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
   };
 
   const resume = async (item: TeamWorkItem) => {
-    // A hand-off card stands for several rows; resuming it un-parks each. A
-    // task carries its own single id in `item_ids` too, so one path serves both.
-    const ids = item.item_ids?.length ? item.item_ids : [item.item_id];
+    // Resume exactly the parked rows — a hand-off card stands for several, and
+    // only some may be paused. `allSettled`, not a serial `for await`: one row's
+    // failure must not strand the rest half-resumed with no way back. Whatever
+    // stays paused reappears in `paused_item_ids` on the next poll, so a failed
+    // row keeps its resume affordance rather than vanishing.
+    const ids = item.paused_item_ids?.length
+      ? item.paused_item_ids
+      : item.item_ids?.length
+        ? item.item_ids
+        : [item.item_id];
     setResuming(item.item_id);
     try {
-      for (const id of ids) {
-        await api.resumeTeamWorkItem(teamId, id);
-      }
+      await Promise.allSettled(ids.map((id) => api.resumeTeamWorkItem(teamId, id)));
       await refresh();
-    } catch {
-      // Leave the row parked; the user can try again.
     } finally {
       setResuming(null);
     }
@@ -122,7 +125,11 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
 
       <div className="space-y-1">
         {items.map((item) => {
-          const parked = item.status === 'paused';
+          // A hand-off can aggregate to `in_progress` while some of its rows are
+          // still parked, so the paused subset — not just the card status —
+          // decides whether resume is offered.
+          const parked =
+            item.status === 'paused' || (item.paused_item_ids?.length ?? 0) > 0;
           return (
             <div
               key={item.item_id}

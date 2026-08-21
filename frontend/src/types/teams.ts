@@ -129,21 +129,27 @@ export interface TeamMemberActivity {
  *                 that title was the sender's words, not the assignee's. */
 export interface TeamWorkItem {
   item_id: string;
-  kind?: 'task' | 'handoff';
+  kind: 'task' | 'handoff';
   title: string;
   assignee_id?: string | null;
   assignee_name?: string | null;
   /** open | in_progress | stalled | done | paused | cancelled.
-   *  The user's view only ever receives the first three plus `paused`. */
+   *  The user's view only ever receives the first three plus `paused`.
+   *  On a hand-off this is the AGGREGATE across its rows, so it can read
+   *  `in_progress` while `paused_item_ids` is still non-empty. */
   status: string;
   created_at?: string | null;
-  /** Hand-off only: who sent the @message. */
+  /** Hand-off only: who sent the @message (a teammate, or the user). */
   source_name?: string | null;
   /** Hand-off only: everyone the card still tracks, resolved to names. */
   assignee_names?: string[];
   /** The underlying rows this card stands for — one for a task, several for a
    *  collapsed hand-off, so a paused group resumes row by row. */
   item_ids?: string[];
+  /** Which of those rows are currently `paused`. Drives the resume affordance:
+   *  a hand-off whose aggregate `status` is `in_progress` can still have parked
+   *  rows here (a resume that failed halfway), and resume acts on exactly these. */
+  paused_item_ids?: string[];
 }
 
 export interface TeamWorkBoardResponse {

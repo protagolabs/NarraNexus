@@ -18,7 +18,7 @@ Endpoints (all under /api/teams):
 
 import mimetypes
 import shutil
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
@@ -1325,19 +1325,27 @@ class WorkItemView(BaseModel):
     #: differently: a task shows its title + one assignee, a hand-off shows
     #: "sender → the people still owing a reply" and drops the message text,
     #: which is the sender's words and never the assignee's.
-    kind: str = "task"
+    kind: Literal["task", "handoff"] = "task"
     title: str
     assignee_id: Optional[str] = None
     assignee_name: Optional[str] = None
     status: str
     created_at: Optional[str] = None
-    #: Hand-off cards only: the agent who sent the @message.
+    #: Hand-off cards only: who sent the @message (a teammate, or the user).
     source_name: Optional[str] = None
     #: Hand-off cards only: everyone the card still tracks, resolved to names.
     assignee_names: List[str] = []
     #: The underlying rows this card stands for. One for a task; several for a
     #: collapsed hand-off, so a paused group can be resumed row by row.
     item_ids: List[str] = []
+    #: Which of those rows are currently `paused`. Collapsing N rows into one
+    #: card also collapsed N resume buttons into one; without the paused subset
+    #: a group where only some rows are parked (a resume that failed halfway,
+    #: say) aggregates to `in_progress` and the resume affordance vanishes,
+    #: stranding the still-paused rows where neither patrol nor the user can
+    #: reach them. The frontend offers resume whenever this is non-empty and
+    #: acts on exactly these ids.
+    paused_item_ids: List[str] = []
 
 
 class WorkBoardResponse(BaseModel):
@@ -1370,7 +1378,9 @@ def _handoff_status(states: List[str]) -> str:
     return WorkItemStatus.PAUSED
 
 
-def _assemble_work_board(visible, name_by_agent: dict) -> List["WorkItemView"]:
+def _assemble_work_board(
+    visible, name_by_agent: dict, *, user_name: Optional[str] = None
+) -> List["WorkItemView"]:
     """Turn the raw visible rows into the cards the user sees.
 
     `tool` rows pass through one-to-one — those are the explicit tasks. `auto`
@@ -1380,13 +1390,38 @@ def _assemble_work_board(visible, name_by_agent: dict) -> List["WorkItemView"]:
     to people who never said it. Here they collapse to one card per source
     message: sender → the people still owing a reply, the sentence dropped.
 
+    `user_name` resolves the one sender `name_by_agent` cannot: a user's own
+    hand-off carries `created_by = "usr_<id>"` (the most common multi-@ path is
+    a person naming several agents), and without it the board would render the
+    opaque id as the sender's name.
+
     Order follows first appearance in `visible` (already `created_at, id`
     ascending), so a hand-off sits where its earliest errand would have.
     """
-    from xyz_agent_context.schema.team_work_schema import WorkItemOrigin
+    from xyz_agent_context.schema.team_work_schema import (
+        WorkItemOrigin,
+        WorkItemStatus,
+    )
+    from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
+
+    def _agent_name(agent_id: Optional[str]) -> Optional[str]:
+        # One fallback rule for both card kinds: a left member keeps its id
+        # (matching the message list's `name_by_agent.get(x, x)`), an unclaimed
+        # slot (no id) stays None so the panel renders it as "unclaimed".
+        if not agent_id:
+            return None
+        return name_by_agent.get(agent_id) or agent_id
+
+    def _sender_name(created_by: str) -> Optional[str]:
+        if created_by.startswith(USER_SENDER_PREFIX):
+            # Always the viewer — `get_work_board` gates on `_owned_team` — so
+            # their display name, or the same "You" the transcript falls back to.
+            return user_name or "You"
+        return name_by_agent.get(created_by) or created_by or None
 
     cards: List[WorkItemView] = []
-    groups: dict = {}  # source_message_id -> index into `cards`
+    groups: dict = {}          # group key -> the group's card
+    member_status: dict = {}   # group key -> [each member row's status]
 
     for i in visible:
         if i.origin != WorkItemOrigin.AUTO:
@@ -1395,10 +1430,11 @@ def _assemble_work_board(visible, name_by_agent: dict) -> List["WorkItemView"]:
                 kind="task",
                 title=i.title,
                 assignee_id=i.assignee_id,
-                assignee_name=name_by_agent.get(i.assignee_id or ""),
+                assignee_name=_agent_name(i.assignee_id),
                 status=i.status,
                 created_at=format_for_api(i.created_at),
                 item_ids=[i.item_id],
+                paused_item_ids=[i.item_id] if i.status == WorkItemStatus.PAUSED else [],
             ))
             continue
 
@@ -1406,34 +1442,36 @@ def _assemble_work_board(visible, name_by_agent: dict) -> List["WorkItemView"]:
         # happen for an auto errand) keys on its own id, so it still collapses
         # to a single, un-merged hand-off rather than vanishing.
         key = i.source_message_id or i.item_id
-        assignee_name = name_by_agent.get(i.assignee_id or "") or i.assignee_id
-        if key not in groups:
-            groups[key] = len(cards)
-            cards.append(WorkItemView(
+        assignee_name = _agent_name(i.assignee_id)
+        card = groups.get(key)
+        if card is None:
+            card = WorkItemView(
                 item_id=key,
                 kind="handoff",
                 title="",
-                status=i.status,
+                status=i.status,  # recomputed below once the group is whole
                 created_at=format_for_api(i.created_at),
-                source_name=name_by_agent.get(i.created_by) or i.created_by or None,
+                source_name=_sender_name(i.created_by),
                 assignee_names=[assignee_name] if assignee_name else [],
                 item_ids=[i.item_id],
-            ))
+                paused_item_ids=[],  # explicit fresh list; appended to below
+            )
+            groups[key] = card
+            member_status[key] = []
+            cards.append(card)
         else:
-            card = cards[groups[key]]
             card.item_ids.append(i.item_id)
             if assignee_name and assignee_name not in card.assignee_names:
                 card.assignee_names.append(assignee_name)
+        if i.status == WorkItemStatus.PAUSED:
+            card.paused_item_ids.append(i.item_id)
+        member_status[key].append(i.status)
 
-    # Aggregate hand-off status once every member is known — a single stalled
-    # recipient has to win over the in_progress siblings it shares a card with.
-    status_by_key: dict = {}
-    for i in visible:
-        if i.origin == WorkItemOrigin.AUTO:
-            status_by_key.setdefault(i.source_message_id or i.item_id, []).append(i.status)
+    # A single stalled recipient has to win over the in_progress siblings it
+    # shares a card with — done once the whole group is known.
     for card in cards:
         if card.kind == "handoff":
-            card.status = _handoff_status(status_by_key.get(card.item_id, [card.status]))
+            card.status = _handoff_status(member_status[card.item_id])
     return cards
 
 
@@ -1479,7 +1517,17 @@ async def get_work_board(team_id: str, request: Request):
     # `WorkItem`s, and round-tripping them through `model_dump()` would trade
     # that away for string keys a typo only breaks at request time. Auto
     # errands collapse per source message here — see `_assemble_work_board`.
-    items = _assemble_work_board(visible, name_by_agent)
+    # The viewer is the owner (`_owned_team` above), so their display name is
+    # the one sender name `name_by_agent` (agents only) cannot resolve — looked
+    # up only when the board actually carries a user-sent hand-off, so an
+    # agent-only team does not pay a users-table read on every 5s poll.
+    has_user_handoff = any(
+        (i.created_by or "").startswith(USER_SENDER_PREFIX) for i in visible
+    )
+    user_name = (
+        await UserRepository(db).get_display_name(user_id) if has_user_handoff else None
+    )
+    items = _assemble_work_board(visible, name_by_agent, user_name=user_name)
     return WorkBoardResponse(
         success=True,
         items=items,

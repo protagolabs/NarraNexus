@@ -170,6 +170,21 @@ tuple 存在的全部理由就是这类过滤器各写各的会漂移。方向�
 - 顺序仍按 `visible` 的首次出现(即 `created_at, id` 升序),交接卡落在它最早那行
   的位置。
 
+**发件人名字**:handoff 的 `source_name` 有两种来源。队友(agent)走
+`name_by_agent`;**用户自己发的 @** 走 `created_by="usr_<user_id>"`(见本文件
+`POST /messages` 的「用户自己的交接也上板」),`name_by_agent`(只含 agent)解析
+不到 —— 必须用 `UserRepository.get_display_name(user_id)`(与消息列表 `author_name`
+的 `(user_name or "You")` 同一先例)。因为端点入口 `_owned_team` 已保证看到的
+`usr_*` 就是发请求的 owner 本人,不用再查第二个人。**多 @ 最常见的正是人 @ 一群
+agent,漏了这条会把 `usr_<uuid>` 原样当名字摊在板上。**
+
+**paused 子集**:handoff 的 `status` 是聚合值(stalled>active>paused),但把 N 行
+压成一张卡也把 N 个 resume 按钮压成一个。若只 resume 成功一半,卡片聚合成
+`in_progress`、resume 入口就消失,剩下的 paused 行既不被 patrol 捞(`list_active`
+不含 paused)也不被用户看见 —— 永久搁死。故 `WorkItemView.paused_item_ids` 把仍
+paused 的行**显式列出**(task 卡则是它自己或空),前端据此决定 resume 可见性并只
+恢复这些行。paused 是独立维度,不能挤进单值 `status`。
+
 **边界**:只改看板这一条读路径。patrol/stalled 走 `list_active`、errand 开/关单
 走 `list_open_errands`,都不经过 `list_visible`(唯一调用方就是本端点),所以折叠
 显示不影响开单/关单/巡查。改 `_assemble_work_board` 时别把 origin 过滤下沉到
