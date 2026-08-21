@@ -1,9 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 — events 加复合索引 `idx_events_user_state`
+
+服务 [[run_recorder.py]] `first_live_run_id` 的 `(user_id, state)` 查询
+（回收器每轮每个候选问一次）。没有复合索引时 MySQL 会选 `idx_events_user_id`
+再逐行过滤 state，长期用户等于每次都为自己的全部历史买单 —— 越重度的账号越
+吃亏，而 events 从不清理，只会越来越长。纯新增索引，`auto_migrate()` 幂等
+补上，不触铁律 #6。
 ## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
 
 - **列宽 128→64（I2，武装前必改）**：`user_id` 原为 `VARCHAR(128)`，与全仓 id 规范不符
