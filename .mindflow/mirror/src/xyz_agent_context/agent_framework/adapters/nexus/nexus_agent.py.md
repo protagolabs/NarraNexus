@@ -73,3 +73,10 @@ NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 ## 2026-08-18 — 透传 origin_declaration
 
 与 claude 适配层同理：只透传，不重新措辞。见 [[sdk.py]] 同日条目。
+
+## 2026-08-21 — live steering:接 SteerChannel
+
+`agent_loop` 从 kwargs 取 `steering`(orchestrator 的 SteerChannel)。**in-process**:用
+`QueueSteeringInlet(channel.queue)` 挂到 `serve_turn(steering=inlet)`——loop 直接 drain channel 的
+queue,push 即到,无 pump 无拷贝。**subprocess**:目前只接参数不动行为(保持 stdin 写一行即 close);
+真正的"keep stdin open + pump 下 stdin 行、runner 读"随 runner-side reader 一起加。见 [[steer_channel.py]]。

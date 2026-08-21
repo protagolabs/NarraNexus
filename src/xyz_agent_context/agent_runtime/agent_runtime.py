@@ -290,6 +290,7 @@ class AgentRuntime:
         silent: bool = False,
         fast_mode: bool = False,
         turn_profile: Optional["TurnProfile"] = None,
+        steering: Optional[Any] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -446,6 +447,7 @@ class AgentRuntime:
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
                 turn_profile=turn_profile,
+                steering=steering,
             )
 
             # Second timing stamp: Steps 0-2.5 start here (see _t_run_start

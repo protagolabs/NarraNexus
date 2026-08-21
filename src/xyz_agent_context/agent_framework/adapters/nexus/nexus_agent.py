@@ -205,10 +205,14 @@ class NexusAgent:
             request_payload = self._build_request_payload(
                 messages, mcp_servers, extra_env, kwargs
             )
+            # Live steering (opt-in): the orchestrator's SteerChannel for this
+            # run, or None. In-process the loop drains its queue directly; the
+            # subprocess path pumps it down stdin (added with the runner reader).
+            steer_channel = kwargs.get("steering")
             if os.getenv("NEXUS_POWER_INPROCESS") == "1":
-                events = self._run_inprocess(request_payload, cancel)
+                events = self._run_inprocess(request_payload, cancel, steer_channel)
             else:
-                events = self._run_subprocess(request_payload, cancel)
+                events = self._run_subprocess(request_payload, cancel, steer_channel)
             async for event in events:
                 if _is_done(event):
                     done_seen = True
@@ -330,20 +334,32 @@ class NexusAgent:
         }
 
     async def _run_inprocess(
-        self, payload: dict[str, Any], cancel: CancellationView
+        self, payload: dict[str, Any], cancel: CancellationView,
+        steer_channel: Any = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Same code path as the runner, minus the process boundary
         (executor containers and tests — already isolated)."""
         from xyz_agent_context.agent_framework.nexus_power.runner import serve_turn
+        from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+            QueueSteeringInlet,
+        )
 
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+        # In-process the loop's inlet drains the SteerChannel's own queue, so a
+        # push from the orchestrator lands where the loop reads — no pump, no
+        # copy. None channel → no steering inlet (today's behaviour).
+        inlet = QueueSteeringInlet(steer_channel.queue) if steer_channel is not None else None
 
         async def write_line(obj: dict[str, Any]) -> None:
             await queue.put(obj)
 
         async def _serve() -> None:
             try:
-                await serve_turn(json.dumps(payload, default=_json_default), write_line)
+                await serve_turn(
+                    json.dumps(payload, default=_json_default), write_line,
+                    steering=inlet,
+                )
             finally:
                 await queue.put(None)
 
@@ -373,8 +389,15 @@ class NexusAgent:
             runner_module._SignalCancellation = original  # type: ignore[assignment]
 
     async def _run_subprocess(
-        self, payload: dict[str, Any], cancel: CancellationView
+        self, payload: dict[str, Any], cancel: CancellationView,
+        steer_channel: Any = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        # steer_channel is accepted here so the in-process and subprocess paths
+        # share agent_loop's call shape; the subprocess steer transport (keep
+        # stdin open + pump the channel down it, runner reads it) lands with the
+        # runner-side stdin reader. Until then a subprocess run is not steerable
+        # and the channel is simply not drained (no behaviour change).
+        _ = steer_channel
         pool = _WarmRunnerPool.shared()
         if pool.enabled:
             process = await pool.acquire()
