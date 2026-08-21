@@ -32,7 +32,16 @@ import json
 import os
 import signal
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Type-only: the real class is never imported at module top — runner's
+    # imports stay lazy so the cold path pays them only on demand (the
+    # warm-pool / _prewarm contract). Annotating the seam still lets the
+    # transport callers be checked against the Protocol.
+    from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+        SteeringInlet,
+    )
 
 # litellm fetches its price map from GitHub AT IMPORT TIME unless told
 # otherwise (5s timeout, then a bundled fallback). That call sits on the
@@ -58,7 +67,9 @@ class _SignalCancellation:
         return self._flag
 
 
-async def serve_turn(raw_request: str, write_line: Any, *, steering: Any = None) -> int:
+async def serve_turn(
+    raw_request: str, write_line: Any, *, steering: "SteeringInlet | None" = None
+) -> int:
     """Run one turn from a serialized TurnRequest; stream lines out.
 
     Returns the process exit code (0 = the turn closed itself — even an

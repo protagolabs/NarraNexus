@@ -36,7 +36,13 @@ class _NeverCancelled:
 def _install_capturing_loop(monkeypatch) -> dict:
     """Replace the real loop + model client with light fakes so the test
     exercises run_turn_events' wiring without a provider call. Returns a
-    dict the fake loop writes the mounted inlet into."""
+    dict the fake loop writes the mounted inlet into.
+
+    Depends on run_turn_events importing NexusPowerLoop / LiteLLMModelClient
+    lazily inside the function: patching the source modules works only
+    because the names are re-read per call. Hoisting those imports to
+    module top in assembly.py would defeat this fixture (see assembly.py's
+    docstring)."""
     captured: dict = {}
 
     class _CapturingLoop:
@@ -58,6 +64,10 @@ def _install_capturing_loop(monkeypatch) -> dict:
 
 
 def _request() -> TurnRequest:
+    # cwd here is inert: both callers run through run_turn_events with
+    # log=None (NullEventLogWriter, no disk). The serve_turn test, which
+    # does construct a real log file, drives serve_turn from its own JSON
+    # payload with a tmp_path cwd instead.
     return TurnRequest(
         thread_id="t1",
         messages=[{"role": "user", "content": "hi"}],
@@ -92,7 +102,7 @@ async def test_run_turn_events_defaults_to_the_null_inlet(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_serve_turn_forwards_steering_to_run_turn_events(monkeypatch):
+async def test_serve_turn_forwards_steering_to_run_turn_events(monkeypatch, tmp_path):
     captured = _install_capturing_loop(monkeypatch)
     inlet = QueueSteeringInlet(asyncio.Queue())
 
@@ -101,9 +111,19 @@ async def test_serve_turn_forwards_steering_to_run_turn_events(monkeypatch):
     payload = json.dumps({
         "thread_id": "t1",
         "messages": [{"role": "user", "content": "hi"}],
-        "options": {"cwd": "/tmp", "agent_id": "a", "model": "fake-model", "provider": "anthropic"},
+        # tmp_path keeps the turn's .nexus_power/ log file out of a shared dir.
+        "options": {"cwd": str(tmp_path), "agent_id": "a", "model": "fake-model", "provider": "anthropic"},
     })
     lines: list = []
-    await serve_turn(payload, lambda obj: lines.append(obj) or asyncio.sleep(0), steering=inlet)
+
+    async def _collect(obj) -> None:
+        lines.append(obj)
+
+    rc = await serve_turn(payload, _collect, steering=inlet)
 
     assert captured["steering"] is inlet
+    # The forward reached the loop AND the serve completed cleanly — the
+    # exit line is output_mode-independent, so it pins success without
+    # depending on the event-row shape.
+    assert rc == 0
+    assert lines[-1] == {"exit": {"ok": True}}

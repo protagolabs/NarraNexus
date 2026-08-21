@@ -65,4 +65,4 @@ expansions 之后取值,起跑展开授予的回复工具也算),装配时冻结
 
 # assembly — 唯一装配点:TurnRequest 进、类型化事件流出
 
-LoopAssembly 是循环的全部依赖(硬组件无默认、策略缝带默认,R1:装配复杂度有意集中于此文件);run_turn_events 是框架顶层入口:装配→初始展开→跑循环。TurnRequest 整包可 JSON 序列化,这是 runner 跨进程传输的前提。测试用 dataclasses.replace 换件,永不 patch。坑:harness system 消息插在平台前导 system 段末尾(_insert_harness),不能追加在 user 之后;output_schema v1 显式 fail loud(schema 诚实)。
+LoopAssembly 是循环的全部依赖(硬组件无默认、策略缝带默认,R1:装配复杂度有意集中于此文件);run_turn_events 是框架顶层入口:装配→初始展开→跑循环。TurnRequest 整包可 JSON 序列化,这是 runner 跨进程传输的前提。测试换件分两档:loop 层用 dataclasses.replace(assembly 可注入);**顶层 run_turn_events 自己造 assembly、调用方注入不进去,入口测试改为 patch 它函数体内的懒导入符号——因此这些函数内导入必须保持懒加载**(谁把 NexusPowerLoop/LiteLLMModelClient 提到模块顶层,入口测试的 patch 就拦不住,真 loop 会去打真 provider)。坑:harness system 消息插在平台前导 system 段末尾(_insert_harness),不能追加在 user 之后;output_schema v1 显式 fail loud(schema 诚实)。

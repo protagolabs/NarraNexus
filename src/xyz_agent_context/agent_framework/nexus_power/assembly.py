@@ -8,9 +8,13 @@ stream out.
 ``LoopAssembly`` is the loop's complete dependency set ("adding a
 component = adding a field with a default"); ``build_assembly`` is the
 only default construction site — every wiring decision lives here and
-nowhere else. Tests replace any component with ``dataclasses.replace``;
-nothing is ever monkey-patched. The whole request is JSON-serializable
-(the standalone-process runner's transport precondition).
+nowhere else. Loop-level tests swap any component via
+``dataclasses.replace`` (the assembly is injectable there). The
+top-level ``run_turn_events`` builds its own assembly, so its caller
+cannot inject one; entry tests instead patch the symbols it imports
+lazily inside the function — which is why those in-function imports must
+stay lazy. The whole request is JSON-serializable (the standalone-process
+runner's transport precondition).
 
 R1 decision on growth: assembly complexity is deliberately concentrated
 in this one file; strategy seams default, hard components are wired

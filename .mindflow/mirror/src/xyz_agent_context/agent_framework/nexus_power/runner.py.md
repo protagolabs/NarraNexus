@@ -7,8 +7,10 @@ stub: false
 ## 2026-08-21 — serve_turn 转发 steering inlet
 
 `serve_turn` 新增 `steering` 关键字参,原样转给 `run_turn_events`;`None` 时行为不变。
-进程宿主负责构造并喂这个 inlet——inlet 是活对象,**不跨序列化边界**(见 [[assembly.py]]
-同日条目)。本 PR 只加转发;真正让 stdin 续读 steer 行喂进 inlet 的 transport 是后续改动。
+类型标 `SteeringInlet | None`,经 `TYPE_CHECKING` 懒导入(不进模块顶层,守 `_prewarm` 冷启动
+契约)——这样 transport 调用方能被 Protocol 静态校验,不至于误传裸 `asyncio.Queue`。进程宿主
+负责构造并喂这个 inlet——inlet 是活对象,**不跨序列化边界**(见 [[assembly.py]] 同日条目)。
+本 PR 只加转发;真正让 stdin 续读 steer 行喂进 inlet 的 transport 是后续改动。
 
 # runner — 独立进程宿主(一个协议两种传输)
 
