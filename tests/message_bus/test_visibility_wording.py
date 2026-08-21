@@ -177,28 +177,36 @@ def test_the_delivery_rule_names_no_surface_specific_tool():
             f"block is the P1 violation this file exists to catch"
         )
 
-def test_the_block_admits_that_only_one_send_verb_is_on_the_desk():
-    """The block teaches both verbs; the turn holds one. It has to say so.
+def test_the_block_says_cross_channel_calls_are_available_this_turn():
+    """The block teaches both verbs; the turn can call either. It has to say so.
 
-    `get_disallowed_tools` removes the other verb's SCHEMA, so an agent that
-    reads the team-rooms section on an owner-chat turn and reaches for
-    `message_team` finds nothing there. Teaching both while implying both are
-    callable is "the prompt names a tool that isn't there" — the failure this
-    redesign exists to remove — occurring in the redesign's own introduction.
+    2026-08-20 — capability follows the agent, not the trigger channel.
+    `get_disallowed_tools` no longer removes the non-default verb's schema, so
+    the block must tell the agent it can reach its other conversations THIS
+    turn — not defer them to a future one. The old dead-end wording ("finish
+    this turn; a fresh one will have that call") was the prose face of the drop
+    the redesign removed; asserting it is gone stops the reflex-arc framing from
+    being quietly restored.
 
-    Byte-stability (R4) rules out branching, so the only fix available is a true
-    sentence, and this pins that the sentence is present. Without it the block is
-    silently wrong on every turn.
+    Byte-stability (R4) still rules out branching, so the sentence must be true
+    on every surface: 'a plain reply goes where you were spoken to; you may also
+    reach any team or peer you belong to.'
     """
     text = _static_text()
+    low = text.lower()
 
-    assert "exactly ONE of these two calls per turn" in text, (
-        "the block documents both send verbs without saying that only one is "
-        "ever on the desk"
+    assert "both calls are available every turn" in low, (
+        "the block documents both send verbs without saying either can be "
+        "called this turn"
     )
-    # And it must say what to do about the other one, or the agent is left with
-    # a dead end instead of a next step.
-    assert "finish this turn" in text.lower()
+    assert "you are not limited to it" in low, (
+        "the block must state the agent is not confined to the conversation "
+        "that woke it"
+    )
+    # The reflex-arc dead-ends must be gone, or the new capability is contradicted
+    # a few lines from where it is granted.
+    assert "exactly one of these two calls per turn" not in low
+    assert "a fresh one will have that call" not in low
 
 
 def test_no_rule_flatly_calls_the_counterparty_a_machine():
