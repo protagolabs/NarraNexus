@@ -542,8 +542,16 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   // shown — the setter used to live only in the buried "default responder"
   // select of the Edit-Team modal. Optimistic: reflect it immediately, roll
   // back if the PATCH fails. A later activity poll reconciles either way.
+  //
+  // The in-flight ref rejects a second click before the first PATCH resolves:
+  // without it the second call's `prev` snapshot would be the first click's
+  // optimistic value, so a failure would roll back to the wrong (intermediate)
+  // lead instead of the original.
+  const settingLeadRef = useRef(false);
   const handleSetLead = useCallback(
     async (agentId: string) => {
+      if (settingLeadRef.current) return;
+      settingLeadRef.current = true;
       const prev = leadAgentId;
       setLeadAgentId(agentId);
       try {
@@ -551,6 +559,8 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         if (!res.success) setLeadAgentId(prev);
       } catch {
         setLeadAgentId(prev);
+      } finally {
+        settingLeadRef.current = false;
       }
     },
     [teamId, leadAgentId],
@@ -897,7 +907,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <Users2 className="w-3.5 h-3.5" />
-          <span className="text-[11px]">{t('chat.team.roster.title')}</span>
+          <span className="hidden text-[11px] sm:inline">{t('chat.team.roster.title')}</span>
         </button>
 
         {/* The addressing rules, on demand. The empty room's hero states them
@@ -927,6 +937,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           type="button"
           onClick={() => toggleDrawerTab('artifacts')}
           aria-pressed={drawerTab === 'artifacts'}
+          data-testid="artifacts-toggle"
           title={t('rail.artifacts')}
           aria-label={t('rail.artifacts')}
           className={cn(
@@ -935,6 +946,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
+          <span className="hidden text-[11px] sm:inline">{t('rail.artifacts')}</span>
           {wsArtifacts.length > 0 && (
             <span className="text-[10px] font-mono">{wsArtifacts.length}</span>
           )}
@@ -967,7 +979,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ClipboardList className="w-3.5 h-3.5" />
-          <span className="text-[11px]">{t('chat.team.bulletin.title')}</span>
+          <span className="hidden text-[11px] sm:inline">{t('chat.team.bulletin.title')}</span>
           {(bulletin?.usage.entry_count ?? 0) > 0 && (
             <span className="text-[10px] font-mono" data-testid="bulletin-count">
               {bulletin?.usage.entry_count}

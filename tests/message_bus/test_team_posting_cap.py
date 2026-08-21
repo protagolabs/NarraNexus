@@ -199,9 +199,13 @@ async def test_blank_text_is_refused_rather_than_posted(db_client):
 
 
 def test_hop_cap_default_is_large_enough_for_real_tasks():
-    from xyz_agent_context.message_bus.team_posting import MAX_TEAM_AGENT_HOPS
+    # Assert the DEFAULT constant, not the env-resolved module value — the
+    # latter would go red on any host that happens to set TEAM_MAX_AGENT_HOPS.
+    from xyz_agent_context.message_bus.team_posting import (
+        _DEFAULT_MAX_TEAM_AGENT_HOPS,
+    )
 
-    assert MAX_TEAM_AGENT_HOPS == 30, (
+    assert _DEFAULT_MAX_TEAM_AGENT_HOPS == 30, (
         "the default autonomous-hop budget should be raised well above the old 4"
     )
 
@@ -211,6 +215,18 @@ def test_hop_cap_reads_env_override(monkeypatch):
 
     monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", "50")
     assert _resolve_hop_cap() == 50
+
+
+def test_hop_cap_clamps_absurd_values(monkeypatch):
+    from xyz_agent_context.message_bus.team_posting import (
+        _MAX_TEAM_AGENT_HOPS_CEILING,
+        _resolve_hop_cap,
+    )
+
+    monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", "100000")
+    assert _resolve_hop_cap() == _MAX_TEAM_AGENT_HOPS_CEILING, (
+        "an over-ceiling value feeds a SQL LIMIT and must be clamped"
+    )
 
 
 def test_hop_cap_falls_back_on_bad_env(monkeypatch):

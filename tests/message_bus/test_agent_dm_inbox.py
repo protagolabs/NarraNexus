@@ -1,147 +1,169 @@
 """
 @file_name: test_agent_dm_inbox.py
 @date: 2026-08-20
-@description: An agent-to-agent DM has to reach the recipient's Agent Inbox.
+@description: An agent-to-agent DM has to reach BOTH agents' Agent Inbox.
 
 The 2026-08-17 refactor re-pointed the inbox panel to `inbox_threads` /
 `inbox_thread_messages` and rewired the IM triggers to write them, but the
-agent-to-agent (peer DM) delivery path was never given a writer for those
-tables. A2A messages landed only in `bus_messages` (+ the separate owner
-`inbox_table` notification), so `GET /api/agent-inbox?agent_id=` found no thread
-and the panel rendered empty every time — even after agents actually talked.
+agent-to-agent (peer DM) path was never given a writer. A2A messages landed
+only in `bus_messages` (+ the separate owner-notification `inbox_table`), so
+`GET /api/agent-inbox?agent_id=` found no thread and the panel was empty even
+after agents talked.
 
-These tests drive a real peer-DM turn through the trigger and assert the
-recipient's inbox thread + messages exist. Delete the recording hook and they
-go red.
+The recording lives at the SEND site (`message_agent` tool), not the delivery
+side, because that is the only place holding the text the peer actually
+received: on a peer DM the sender's `turn.text` is a monologue to its OWNER, and
+the peer is reached exclusively by the bus send tool. So the send records the
+sender's OUTBOUND (its own thread) and the recipient's INBOUND (their thread) in
+one shot — each thread shows the full round-trip.
 """
 from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.channel.inbox_recorder import agent_dm_thread_id
+from xyz_agent_context.channel.inbox_recorder import (
+    InboxRecorder,
+    agent_dm_thread_id,
+)
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
-    MessageBusTrigger,
-    TurnResult,
+from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+    register_message_bus_mcp_tools,
 )
 
+OWNER = "usr_dm"
 A, B = "agent_alice", "agent_bob"
-USER = "usr_dm"
 
 
-async def _seed_agents(db):
-    for aid, name in ((A, "Alice"), (B, "Bob")):
-        await db.insert(
-            "agents",
-            {"agent_id": aid, "agent_name": name, "created_by": USER},
-        )
+async def _agent(db, agent_id, name, owner=OWNER):
+    await db.insert(
+        "agents", {"agent_id": agent_id, "agent_name": name, "created_by": owner}
+    )
 
 
-@pytest.fixture(autouse=True)
-def _db_factory(db_client, monkeypatch):
-    async def _get_db():
+def _patch_db(monkeypatch, db_client):
+    async def _async_db():
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
     )
 
 
-def _trigger(db, reply_text: str) -> MessageBusTrigger:
-    t = MessageBusTrigger(bus=LocalMessageBus(backend=db._backend))
+def _tools(db_client):
+    bus = LocalMessageBus(backend=db_client._backend)
+    captured: dict = {}
 
-    async def _invoke(**kwargs):
-        # A peer DM turn: the agent's reply is plain text (no team_room path).
-        return TurnResult(text=reply_text, event_id="evt_bob", delivered=False)
+    class _Stub:
+        def tool(self, *_a, **_k):
+            def _wrap(fn):
+                captured[fn.__name__] = fn
+                return fn
 
-    t._invoke_runtime = _invoke  # type: ignore[method-assign]
-    return t
+            return _wrap
+
+    async def _bus():
+        return bus
+
+    register_message_bus_mcp_tools(_Stub(), _bus)
+    return captured, bus
+
+
+# ── the recorder itself ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_record_peer_message_writes_both_threads(db_client):
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+
+    await InboxRecorder("agent_dm", "Agent").record_peer_message(
+        db=db_client, owner_user_id=OWNER,
+        from_agent=A, from_name="Alice",
+        to_agent=B, to_name="Bob",
+        content="hey Bob, can you help?",
+    )
+
+    # Sender's thread: an OUTBOUND row.
+    a_thread = agent_dm_thread_id(A, B)
+    a_row = await db_client.get_one("inbox_threads", {"thread_id": a_thread})
+    assert a_row is not None and a_row["agent_id"] == A
+    assert a_row["source"] == "agent_dm" and a_row["counterpart_id"] == B
+    a_msgs = await db_client.get("inbox_thread_messages", {"thread_id": a_thread})
+    assert [(m["direction"], m["content"]) for m in a_msgs] == [
+        ("out", "hey Bob, can you help?")
+    ]
+
+    # Recipient's thread: an INBOUND row from the sender.
+    b_thread = agent_dm_thread_id(B, A)
+    b_row = await db_client.get_one("inbox_threads", {"thread_id": b_thread})
+    assert b_row is not None and b_row["agent_id"] == B
+    assert b_row["counterpart_id"] == A
+    b_msgs = await db_client.get("inbox_thread_messages", {"thread_id": b_thread})
+    assert [(m["direction"], m["content"]) for m in b_msgs] == [
+        ("in", "hey Bob, can you help?")
+    ]
 
 
 @pytest.mark.asyncio
-async def test_peer_dm_lands_in_recipient_agent_inbox(db_client):
-    await _seed_agents(db_client)
-    trig = _trigger(db_client, "got it, Alice")
+async def test_record_peer_message_skips_empty(db_client):
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+    await InboxRecorder("agent_dm", "Agent").record_peer_message(
+        db=db_client, owner_user_id=OWNER,
+        from_agent=A, from_name="Alice", to_agent=B, to_name="Bob",
+        content="   ",
+    )
+    assert await db_client.get("inbox_threads", {}) == []
 
-    # Alice DMs Bob; the trigger runs Bob's turn.
-    await trig._bus.send_to_agent(
-        from_agent=A, to_agent=B, content="hey Bob, can you help?"
-    )
-    await trig._process_agent(B)
 
-    thread_id = agent_dm_thread_id(B, A)
-    thread = await db_client.get_one("inbox_threads", {"thread_id": thread_id})
-    assert thread is not None, (
-        "Bob's Agent Inbox has no thread for the DM Alice just sent — the A2A "
-        "path is not writing inbox_threads"
-    )
-    assert thread["agent_id"] == B
-    assert thread["source"] == "agent_dm"
-    assert thread["counterpart_id"] == A
+# ── the wired path: the message_agent tool records on send ──────────────────
 
-    msgs = await db_client.get(
-        "inbox_thread_messages", {"thread_id": thread_id}
+@pytest.mark.asyncio
+async def test_message_agent_tool_fills_both_inboxes(db_client, monkeypatch):
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+    captured, _ = _tools(db_client)
+
+    res = await captured["message_agent"](agent_id=A, to=B, text="ping from Alice")
+    assert res["success"], res
+
+    # A's outbox and B's inbox both carry the actually-sent text.
+    a_msgs = await db_client.get(
+        "inbox_thread_messages", {"thread_id": agent_dm_thread_id(A, B)}
     )
-    contents = {m["direction"]: m["content"] for m in msgs}
-    assert contents.get("in") == "hey Bob, can you help?", (
-        "the inbound peer message is missing from Bob's inbox thread"
+    assert [(m["direction"], m["content"]) for m in a_msgs] == [
+        ("out", "ping from Alice")
+    ]
+    b_msgs = await db_client.get(
+        "inbox_thread_messages", {"thread_id": agent_dm_thread_id(B, A)}
     )
-    assert contents.get("out") == "got it, Alice", (
-        "Bob's reply is missing from his inbox thread"
-    )
+    assert [(m["direction"], m["content"]) for m in b_msgs] == [
+        ("in", "ping from Alice")
+    ]
 
 
 @pytest.mark.asyncio
-async def test_fatal_turn_does_not_record_the_failure_notice_as_a_reply(db_client):
-    """On a fatal turn `turn.text` is the platform's error notice, not the
-    agent's words — it must not land in the conversation as the agent's reply.
-    The inbound is still recorded: the peer's message did arrive.
-    """
-    await _seed_agents(db_client)
-    t = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+async def test_round_trip_gives_each_thread_both_directions(db_client, monkeypatch):
+    """A→B then B→A: each agent's own thread shows out AND in — the full DM."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+    captured, _ = _tools(db_client)
 
-    async def _invoke(**kwargs):
-        return TurnResult(
-            text="⚠️ the agent hit an error and could not continue",
-            event_id="evt_bob",
-            delivered=False,
-            fatal=True,
+    await captured["message_agent"](agent_id=A, to=B, text="hi Bob")
+    await captured["message_agent"](agent_id=B, to=A, text="hi Alice")
+
+    a_dirs = {
+        m["direction"]
+        for m in await db_client.get(
+            "inbox_thread_messages", {"thread_id": agent_dm_thread_id(A, B)}
         )
-
-    t._invoke_runtime = _invoke  # type: ignore[method-assign]
-
-    await t._bus.send_to_agent(from_agent=A, to_agent=B, content="you there?")
-    await t._process_agent(B)
-
-    thread_id = agent_dm_thread_id(B, A)
-    msgs = await db_client.get(
-        "inbox_thread_messages", {"thread_id": thread_id}
-    )
-    dirs = {m["direction"] for m in msgs}
-    assert "in" in dirs, "the peer's message must still be recorded"
-    assert "out" not in dirs, (
-        "a fatal turn's failure notice was recorded as the agent's reply"
-    )
-
-
-@pytest.mark.asyncio
-async def test_silent_recipient_still_records_the_inbound(db_client):
-    """Bob receives a DM but stays silent — the inbound must still show."""
-    await _seed_agents(db_client)
-    trig = _trigger(db_client, "")  # empty reply: silent turn
-
-    await trig._bus.send_to_agent(
-        from_agent=A, to_agent=B, content="ping"
-    )
-    await trig._process_agent(B)
-
-    thread_id = agent_dm_thread_id(B, A)
-    thread = await db_client.get_one("inbox_threads", {"thread_id": thread_id})
-    assert thread is not None, "a silent turn dropped the inbound entirely"
-
-    msgs = await db_client.get(
-        "inbox_thread_messages", {"thread_id": thread_id}
-    )
-    dirs = {m["direction"] for m in msgs}
-    assert "in" in dirs, "the peer's message was not recorded"
-    assert "out" not in dirs, "a silent turn must not leave an empty reply bubble"
+    }
+    assert a_dirs == {"out", "in"}, "Alice's thread should show both halves"
+    b_dirs = {
+        m["direction"]
+        for m in await db_client.get(
+            "inbox_thread_messages", {"thread_id": agent_dm_thread_id(B, A)}
+        )
+    }
+    assert b_dirs == {"out", "in"}, "Bob's thread should show both halves"

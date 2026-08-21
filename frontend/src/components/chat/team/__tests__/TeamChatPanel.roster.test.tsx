@@ -18,11 +18,13 @@ import { DRAWER_PINNED_KEY } from '@/components/layout/drawerLayout';
 
 const getTeamChatMock = vi.fn();
 const getEventLogMock = vi.fn();
+const updateTeamMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     getTeamChat: (...a: unknown[]) => getTeamChatMock(...a),
     getEventLog: (...a: unknown[]) => getEventLogMock(...a),
+    updateTeam: (...a: unknown[]) => updateTeamMock(...a),
     getTranscriptionAvailability: () => Promise.resolve({ available: true, reason: '' }),
   },
 }));
@@ -137,6 +139,7 @@ beforeEach(() => {
   window.localStorage.clear();
   getTeamChatMock.mockReset();
   getEventLogMock.mockReset();
+  updateTeamMock.mockReset();
   getEventLogMock.mockResolvedValue({ success: true, timeline: [] });
   // jsdom has no layout, so the transcript's "keep the tail in view" call would
   // throw before anything renders.
@@ -208,7 +211,33 @@ describe('TeamChatPanel · discoverable panel chrome', () => {
   test('the members (roster/work-board) toggle shows a visible label', async () => {
     await renderRoom([RUNNING]);
     const toggle = screen.getByTestId('members-toggle');
+    // jsdom has no CSS breakpoints, so the `hidden sm:inline` label text node is
+    // present here — this covers the desktop rendering the label targets.
     expect(within(toggle).getByText('chat.team.roster.title')).toBeTruthy();
+  });
+
+  test('the workspace (artifacts/work board) toggle shows a visible label', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('artifacts-toggle');
+    expect(within(toggle).getByText('rail.artifacts')).toBeTruthy();
+  });
+});
+
+describe('TeamChatPanel · set lead from the roster', () => {
+  test('a failed set-lead PATCH rolls the lead back', async () => {
+    updateTeamMock.mockResolvedValue({ success: false });
+    // lead starts as a1 (renderRoom stubs lead_agent_id: 'a1').
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+
+    // Expand a2's roster row; it is not the lead, so it offers "set lead".
+    fireEvent.click(screen.getByTestId('roster-row-a2'));
+    const btn = await screen.findByTestId('set-lead-a2');
+    fireEvent.click(btn);
+
+    // The PATCH failed, so a2 must NOT stay lead — the affordance (only shown
+    // for a NON-lead member) has to come back after the optimistic rollback.
+    await waitFor(() => expect(screen.getByTestId('set-lead-a2')).toBeTruthy());
+    expect(updateTeamMock).toHaveBeenCalledWith('t1', { lead_agent_id: 'a2' });
   });
 });
 

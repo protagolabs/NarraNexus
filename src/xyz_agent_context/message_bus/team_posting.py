@@ -47,6 +47,11 @@ from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
 #: non-positive or unparseable fall back to the default rather than disabling it.
 _DEFAULT_MAX_TEAM_AGENT_HOPS = 30
 _MAX_HOPS_ENV = "TEAM_MAX_AGENT_HOPS"
+#: Hard upper bound on the resolved cap. The value feeds a `LIMIT` on
+#: `bus_messages` (the bus's busiest table) on every team post, so a fat-finger
+#: `TEAM_MAX_AGENT_HOPS=100000` would turn a few-row scan into a six-figure one
+#: and read as a global slowdown, not an error. Clamp it.
+_MAX_TEAM_AGENT_HOPS_CEILING = 500
 
 
 def _resolve_hop_cap() -> int:
@@ -54,6 +59,7 @@ def _resolve_hop_cap() -> int:
 
     A blank, unparseable, or non-positive ``TEAM_MAX_AGENT_HOPS`` falls back to
     the default: the cap is a loop-breaker and must never be silently disabled.
+    A value above the ceiling is clamped (it lands in a SQL ``LIMIT``).
     """
     raw = os.environ.get(_MAX_HOPS_ENV)
     if raw is None or not raw.strip():
@@ -73,6 +79,13 @@ def _resolve_hop_cap() -> int:
             _MAX_HOPS_ENV, raw, _DEFAULT_MAX_TEAM_AGENT_HOPS,
         )
         return _DEFAULT_MAX_TEAM_AGENT_HOPS
+    if val > _MAX_TEAM_AGENT_HOPS_CEILING:
+        logger.warning(
+            "[team-post] clamping %s=%d to ceiling %d (it feeds a SQL LIMIT "
+            "on bus_messages)",
+            _MAX_HOPS_ENV, val, _MAX_TEAM_AGENT_HOPS_CEILING,
+        )
+        return _MAX_TEAM_AGENT_HOPS_CEILING
     return val
 
 

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — `message_agent` 发送即写 Agent 收件箱
+
+`message_agent` 成功发送后调 `_record_peer_dm_inbox`，把这条 DM 写进收发双方的
+[[inbox_recorder.py]] `record_peer_message`（发送方 OUTBOUND + 收件方 INBOUND）。**为什么在
+这里而不是投递侧**：peer DM 里 agent 的 `turn.text` 是对自己 owner 的独白、不是发给 peer 的
+话，只有发送工具这一处同时握有「发给谁 + 发了什么」。放这里还顺带避开了投递侧的两个坑——
+批次里混入的平台通告行（会被当成「peer 说的话」）、以及 turn 抛异常/poison 时 inbound 永久
+丢失——因为工具只承载 agent 自己写的正文、且早于收件方任何一轮。
+
+**永不反转已成功的发送**（同 `_describe_agent` 的契约）：记录失败只 `logger.warning` +
+落一条 `inbox_write_failed` 审计行（CLAUDE.md 教训 #5：DB 痕迹比会 rotate 的 log 可靠），
+绝不把已投递的消息报成 `success:false`。owner 解析不到就跳过、不拿空 owner 建线程。守卫见
+`tests/message_bus/test_agent_dm_inbox.py::test_message_agent_tool_fills_both_inboxes`。
 
 ## 2026-08-19 — create_team 做实（不再是 bus_create_channel 改名）
 

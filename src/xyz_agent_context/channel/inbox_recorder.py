@@ -196,6 +196,121 @@ class InboxRecorder:
         )
         logger.info(f"InboxRecorder[{self._source}]: recorded turn in {thread_id}")
 
+    async def record_peer_message(
+        self,
+        *,
+        db,
+        owner_user_id: str,
+        from_agent: str,
+        from_name: str,
+        to_agent: str,
+        to_name: str,
+        content: str,
+        attachments: Optional[Sequence[dict]] = None,
+    ) -> None:
+        """Record ONE agent-to-agent message into BOTH agents' inbox threads.
+
+        Recorded at SEND time, from the ``message_agent`` tool — the single
+        place that holds "who sent what to whom". This is deliberate: on a peer
+        DM the sender's ``turn.text`` is its monologue to its OWNER, never the
+        text it sent the peer (a peer is reached only by the bus send tool), so
+        the recipient's turn cannot supply the outbound. The tool call can.
+
+        A2A messaging is same-owner only, so both threads share one owner. The
+        sender's thread (``nx_dm_<from>_<to>``) gets an OUTBOUND row; the
+        recipient's thread (``nx_dm_<to>_<from>``) gets an INBOUND row. Each
+        agent's inbox thus shows the full round-trip: its own sends plus what
+        the peer sent it.
+
+        Re-raises on failure (like ``record_turn``): the caller decides whether
+        an inbox miss is worth an audit row, and must not let it invert the
+        outcome of the send that already succeeded.
+        """
+        if not (content and content.strip()) and not attachments:
+            return
+        now = utc_now()
+        # Sender's own thread: what it said to the peer.
+        await self._record_one_way(
+            db,
+            thread_id=agent_dm_thread_id(from_agent, to_agent),
+            owner_user_id=owner_user_id,
+            agent_id=from_agent,
+            counterpart_id=to_agent,
+            counterpart_name=to_name or to_agent,
+            direction=OUTBOUND,
+            sender_id=from_agent,
+            sender_name="",
+            content=content,
+            attachments=attachments,
+            now=now,
+        )
+        # Recipient's thread: the peer's message arriving.
+        await self._record_one_way(
+            db,
+            thread_id=agent_dm_thread_id(to_agent, from_agent),
+            owner_user_id=owner_user_id,
+            agent_id=to_agent,
+            counterpart_id=from_agent,
+            counterpart_name=from_name or from_agent,
+            direction=INBOUND,
+            sender_id=from_agent,
+            sender_name=from_name or from_agent,
+            content=content,
+            attachments=attachments,
+            now=now,
+        )
+
+    async def _record_one_way(
+        self,
+        db,
+        *,
+        thread_id: str,
+        owner_user_id: str,
+        agent_id: str,
+        counterpart_id: str,
+        counterpart_name: str,
+        direction: str,
+        sender_id: str,
+        sender_name: str,
+        content: str,
+        attachments: Optional[Sequence[dict]],
+        now,
+    ) -> None:
+        """Ensure the thread exists and append one directional message.
+
+        Shares ``_ensure_thread`` / ``_insert_message`` with ``record_turn``;
+        the difference is that a turn writes an inbound+reply pair while this
+        writes a single message (each half of a peer DM is recorded at its own
+        source, not as one turn)."""
+        await self._ensure_thread(
+            db,
+            thread_id=thread_id,
+            owner_user_id=owner_user_id,
+            agent_id=agent_id,
+            counterpart_id=counterpart_id,
+            counterpart_name=counterpart_name,
+            now=now,
+        )
+        await self._insert_message(
+            db,
+            thread_id=thread_id,
+            direction=direction,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=content,
+            attachments=attachments,
+            at=now,
+        )
+        await db.update(
+            "inbox_threads",
+            {"thread_id": thread_id},
+            {
+                "last_message_at": now,
+                "last_message_preview": (content or "")[:200],
+                "updated_at": now,
+            },
+        )
+
     async def _ensure_thread(
         self,
         db,

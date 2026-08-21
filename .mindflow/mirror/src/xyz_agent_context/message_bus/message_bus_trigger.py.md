@@ -1,32 +1,8 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-20
+last_verified: 2026-08-19
 stub: false
 ---
-
-## 2026-08-20 — peer DM 也要写进 Agent 收件箱（补 A2A 写入侧）
-
-2026-08-17 收件箱重构把面板读侧改到 `inbox_threads` / `inbox_thread_messages`，
-IM trigger 改用 [[inbox_recorder.py]] `record_turn` 写这两张表，**但 agent-to-agent
-（peer DM）投递路径没给对应 writer**——A2A 消息只落 `bus_messages`（外加另一个功能
-`inbox_table` 的 owner 通知），面板按 `agent_id` 查 `inbox_threads` 永远空。用户「让
-agent 互动了但收件箱一直空」就是这个洞。
-
-修复：`_handle_channel_batch` 新增 `channel_type` 形参（调用点已有该值），在
-`_hop_done = posted` 之后、仅当 `not is_team and channel_type == "direct"` 时调
-新的 `_record_agent_dm_turn`，用 [[inbox_recorder.py]] `record_turn(source="agent_dm",
-thread_id=agent_dm_thread_id(recipient, peer))` 写收件人一侧的线程。要点：
-
-* **只记 1:1 direct**：team 房间是群 surface、没有单一 peer，`agent_dm_thread_id`
-  按 (agent, peer) 建键，只适配 DM。团队消息不进 Agent 收件箱。
-* **与 `_write_to_inbox` 是两扇门**：后者写 owner 通知 `inbox_table`（另一个功能），
-  这里写面板真正读的 `inbox_threads`。两者并存、互不替代。
-* **静默轮也记**：`turn.text` 为空只写 inbound，不留空回复气泡（record_turn 的既有
-  约定）。收件人收到就该在收件箱看到，哪怕没回。
-* **best-effort**：回复已经过 bus 到达对端，收件箱写失败只 log 不抛——一次 inbox
-  失手不能把已投递的 hop 变成失败。
-* **对称自然成立**：A→B 触发 B 的 turn 记进 B 的收件箱；B 回 A 时同一路径记进 A 的
-  收件箱。只需在投递路径挂一次。守卫见 `tests/message_bus/test_agent_dm_inbox.py`。
 
 ## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
 

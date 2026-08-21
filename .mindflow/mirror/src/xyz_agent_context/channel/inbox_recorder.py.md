@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/channel/inbox_recorder.py
-last_verified: 2026-08-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — `record_peer_message`：A2A DM 的双线程写入
+
+新增 `record_peer_message`（+ 私有 `_record_one_way`），补 08-17 迁移漏掉的
+agent-to-agent 写侧。IM 用 `record_turn`（一轮 = inbound+可选 reply 两行）；A2A **不能**
+这么记，因为 peer DM 里发送方的 `turn.text` 是对**自己 owner** 的独白，不是发给 peer 的
+话（peer 只能被 bus send 工具触达）。所以真正发出去的内容只有**发送时**在
+[[_message_bus_mcp_tools.py]] `message_agent` 工具里拿得到——那里调本方法，一次写两条：
+发送方线程 `nx_dm_<from>_<to>` 记 OUTBOUND，收件方线程 `nx_dm_<to>_<from>` 记 INBOUND。
+A2A 同 owner，两个线程共用一个 owner。每个 agent 的收件箱线程因此显示完整往返（自己发的
++ 对方发来的）。`_record_one_way` 复用 `_ensure_thread`/`_insert_message`，只是写单条而非
+一轮两行。空正文且无附件直接跳过。守卫见 `tests/message_bus/test_agent_dm_inbox.py`。
 
 # inbox_recorder.py — 把一轮对话记进 inbox 自己的表
 

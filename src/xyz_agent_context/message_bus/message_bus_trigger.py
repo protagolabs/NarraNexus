@@ -1029,8 +1029,7 @@ class MessageBusTrigger:
 
                     trigger_msg = relevant[-1]
                     await self._handle_channel_batch(
-                        agent_id, channel_id, relevant, trigger_msg,
-                        channel_owner, channel_type,
+                        agent_id, channel_id, relevant, trigger_msg, channel_owner
                     )
                     handled_any = True
 
@@ -1143,7 +1142,6 @@ class MessageBusTrigger:
         messages: List[BusMessage],
         trigger_message: BusMessage,
         channel_owner: str = "",
-        channel_type: str = "group",
     ) -> None:
         """
         Handle a batch of messages from a single channel for an agent.
@@ -1494,32 +1492,6 @@ class MessageBusTrigger:
             # measures delivery, and counting a lost or never-attempted one
             # would flatter the series.
             _hop_done = posted
-
-            # A peer DM (1:1 "direct" channel) is a conversation the owner is
-            # not in, so it belongs in the recipient's Agent Inbox — the same
-            # surface IM turns write via `InboxRecorder`. The 2026-08-17 inbox
-            # refactor gave IM triggers that writer but left the A2A path with
-            # none, so `inbox_threads` had no peer rows and the panel was always
-            # empty. Recorded here (not on the team branch: a team room is a
-            # group surface with no single peer, and `_write_to_inbox` above is
-            # the SEPARATE owner-notification store). Runs for silent turns too:
-            # `turn.text` empty records the inbound only, never an empty reply.
-            if not is_team and channel_type == "direct":
-                # On a fatal turn `turn.text` is the platform's failure notice,
-                # not the agent's words (same guard the team branch applies
-                # above) — it must not be recorded as the agent's reply to the
-                # peer, or the inbox conversation shows the agent "saying" an
-                # error. The inbound is still recorded: the peer's message did
-                # arrive.
-                await self._record_agent_dm_turn(
-                    agent_id=agent_id,
-                    peer_agent_id=trigger_message.from_agent,
-                    owner_user_id=owner_user_id,
-                    inbound_text="\n".join(
-                        m.content for m in messages if m.content
-                    ),
-                    outbound_text="" if turn.fatal else (turn.text or ""),
-                )
 
         except CancelledByUser as e:
             # `_hop_done` deliberately stays False: a stopped turn is not a
@@ -3362,56 +3334,6 @@ class MessageBusTrigger:
             message_id_prefix="busnorep_",
             cooldown_key=f"{agent_id}:no_reply",
         )
-
-    async def _record_agent_dm_turn(
-        self,
-        *,
-        agent_id: str,
-        peer_agent_id: str,
-        owner_user_id: str,
-        inbound_text: str,
-        outbound_text: str,
-    ) -> None:
-        """Record one peer-DM turn into the recipient's Agent Inbox.
-
-        Mirrors what the IM triggers do via ``InboxRecorder.record_turn`` on the
-        channel path, for the agent-to-agent path. Writes the dedicated
-        ``inbox_threads`` / ``inbox_thread_messages`` tables the inbox panel
-        reads — NOT the owner-notification ``inbox_table`` that ``_write_to_inbox``
-        uses (a different feature that shares the word).
-
-        Best-effort: the reply has already reached the peer over the bus, so a
-        failed inbox write logs and returns rather than raising — an inbox miss
-        must not turn a delivered hop into a failure.
-        """
-        try:
-            from xyz_agent_context.channel.inbox_recorder import (
-                InboxRecorder,
-                agent_dm_thread_id,
-                resolve_owner_for_agent,
-            )
-            from xyz_agent_context.utils.db.db_factory import get_db_client
-
-            db = await get_db_client()
-            owner = owner_user_id or await resolve_owner_for_agent(db, agent_id)
-            peer_row = await db.get_one("agents", {"agent_id": peer_agent_id})
-            peer_name = (peer_row or {}).get("agent_name") or peer_agent_id
-            recorder = InboxRecorder("agent_dm", "Agent")
-            await recorder.record_turn(
-                db=db,
-                thread_id=agent_dm_thread_id(agent_id, peer_agent_id),
-                owner_user_id=owner,
-                agent_id=agent_id,
-                counterpart_id=peer_agent_id,
-                counterpart_name=peer_name,
-                inbound_text=inbound_text,
-                outbound_text=outbound_text,
-            )
-        except Exception as e:  # noqa: BLE001 — inbox write is best-effort
-            logger.warning(
-                f"Failed to record agent-DM inbox turn for {agent_id} "
-                f"<- {peer_agent_id}: {e}"
-            )
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

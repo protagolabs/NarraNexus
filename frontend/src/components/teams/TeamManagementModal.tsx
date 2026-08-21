@@ -336,20 +336,20 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                 {/* Default responder — the agent that answers a team message
                     with no @mention. "Auto" = the earliest-joined member. */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.defaultResponderLabel')}</label>
+                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
                   <select
                     value={selected.member_agent_ids.includes(editLead) ? editLead : ''}
                     onChange={(e) => setEditLead(e.target.value)}
                     className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
                   >
-                    <option value="">{t('teams.defaultResponderAuto')}</option>
+                    <option value="">{t('teams.leadAuto')}</option>
                     {selected.member_agent_ids.map((mid) => (
                       <option key={mid} value={mid}>
                         {agents.find((a) => a.agent_id === mid)?.name || mid}
                       </option>
                     ))}
                   </select>
-                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.defaultResponderHint')}</p>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
                   <Button onClick={handleSaveMeta} disabled={savingMeta} size="sm" variant="ghost" className="gap-1">
                     {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     {t('teams.saveChanges')}
