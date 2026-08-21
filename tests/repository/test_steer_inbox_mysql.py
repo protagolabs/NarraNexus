@@ -12,6 +12,8 @@ would hide. Enable with NARRANEXUS_MYSQL_TEST_URL; skipped otherwise.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 import pytest_asyncio
 
@@ -20,6 +22,7 @@ from xyz_agent_context.schema.steer_schema import SteerInjection
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
 from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from xyz_agent_context.utils.timezone import to_datetime6_literal, utc_now
 from tests.mysql_dialect import mysql_configured, mysql_url, parse_mysql_url, skip_reason
 
 pytestmark = pytest.mark.skipif(
@@ -45,7 +48,8 @@ async def mysql_client():
     async def _cleanup():
         for run in (RUN_A, RUN_B):
             await client.execute(
-                "DELETE FROM steer_inbox WHERE run_id = %s", params=(run,)
+                "DELETE FROM steer_inbox WHERE run_id = %s", params=(run,),
+                fetch=False,  # a DELETE belongs on the write path, not the read path
             )
 
     await _cleanup()
@@ -79,3 +83,24 @@ async def test_append_dedup_pull_and_scoped_consume_roundtrip(mysql_client):
 
     # consuming RUN_A left RUN_B untouched
     assert len(await repo.pull_unconsumed(RUN_B)) == 1
+
+
+@pytest.mark.asyncio
+async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeypatch):
+    # The COUNT-unconsumed backlog guard and the retention DELETE are both raw
+    # SQL — exercise them on the real dialect (IS NULL / IS NOT NULL / < cutoff).
+    import xyz_agent_context.repository.steer_inbox_repository as sir
+
+    repo = SteerInboxRepository(mysql_client)
+    monkeypatch.setattr(sir, "MAX_UNCONSUMED_PER_RUN", 2)
+    assert await repo.append(_inj(RUN_A, "m1")) is True
+    assert await repo.append(_inj(RUN_A, "m2")) is True
+    with pytest.raises(sir.SteerInboxFull):
+        await repo.append(_inj(RUN_A, "m3"))
+
+    old = to_datetime6_literal(utc_now() - timedelta(days=30))
+    base = {"run_id": RUN_B, "role": "user", "sender_id": "s", "source": "team"}
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_done", "content": "a", "created_at": old, "consumed_at": old})
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_pending", "content": "b", "created_at": old})
+    assert await repo.cleanup_older_than_days(7) == 1
+    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["old_pending"]

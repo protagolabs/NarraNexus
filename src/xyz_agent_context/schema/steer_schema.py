@@ -37,26 +37,33 @@ row's content.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-
-class SteerSource:
-    """Which producer wrote an injection. Not the model's to set."""
-
-    TEAM = "team"          # a message posted to the run's team room
-    OWNER_CHAT = "owner_chat"  # the owner interjecting in a 1:1 chat
+#: Which producer wrote an injection. A closed set, not a free string: the
+#: prompt layer branches on it (a teammate's room message reads differently
+#: from the owner interjecting), so a typo must fail at the boundary, not fall
+#: through to a wrong-wording fallback. Module-level Literal per the schema/
+#: convention (ArtifactKind, EmbedMode, ExecutorEventType). Extend the set here
+#: when a real new producer ships.
+SteerSource = Literal["team", "owner_chat"]
 
 
 class SteerInjection(BaseModel):
     """One message to fold into a running turn's context.
 
-    ``id`` is the arrival order and the consume cursor's unit; it is
-    assigned by the store, so it is ``None`` until persisted.
-    ``consumed_at`` is ``None`` while the row is still pending; it is
-    stamped when the run has drained the row, which is what keeps a
-    message from being injected twice.
+    Store-assigned fields — a producer does not set these; whatever it passes
+    is overwritten:
+    * ``id`` — the arrival order and the consume cursor's unit; ``None`` until
+      persisted.
+    * ``created_at`` — the DB default stamps it (so it is never the producer's
+      idea of "when the source sent it"; if that ever matters, add a distinct
+      column rather than repurposing this one).
+    * ``consumed_at`` — ``None`` while pending; stamped when a run has drained
+      the row. Under one drainer per run (the design) that gives at-most-once
+      injection; it is NOT a lock, so concurrent drainers of one run are not
+      guarded by it (see the repository's delivery-semantics note).
     """
 
     id: Optional[int] = None
@@ -65,6 +72,6 @@ class SteerInjection(BaseModel):
     role: str = "user"
     content: str
     sender_id: str
-    source: str
+    source: SteerSource
     created_at: Optional[datetime] = None
     consumed_at: Optional[datetime] = None

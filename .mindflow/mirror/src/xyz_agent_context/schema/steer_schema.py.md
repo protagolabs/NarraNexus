@@ -13,6 +13,15 @@ producer。统一 inbox 让 feeder 只 drain 一处(同 instance_artifact_events
 `consumed_at` 是 bus 给不了的**per-run 游标**(bus 的 (agent,channel) 游标是 trigger 的,
 且一个 agent 可能多 run 并发)。
 
+- `source` 是**闭集 `Literal["team","owner_chat"]`**(模块级别名,同 schema/ 的 ArtifactKind/EmbedMode),
+  不是自由 str——prompt 层按它 branch 措辞,打错字必须在边界炸,不能落 fallback。加新 producer 在这里扩集。
+- **三个 store-assigned 字段**(producer 传了也被覆盖):`id`(到达序+游标单位)、`created_at`(DB 默认盖章,
+  不是"源发送时间";要那个另开列)、`consumed_at`(drain 时盖)。
+- `consumed_at` 只在**单 drainer** 下给 at-most-once,**不是锁**;并发 drainer 不受它保护(见
+  [[steer_inbox_repository.py]] 投递语义)。
+- 收紧成 `Literal` 后,`SteerInjection(**row)` 读路径遇脏行会**整批** ValidationError——现在表空,收紧零成本;
+  有数据后再收就得先设计脏行降级。
+
 - `run_id` **不透明**:本 schema 不知道 orchestrator 怎么标识一个 live run(那是 RunRegistry 的事),
   只要 producer 与 drainer 认同一个句柄——存储层与路由设计解耦。
 - `source`(team / owner_chat)记哪个 producer 写的,供 prompt 层措辞(队友房间消息 vs 主人插话,

@@ -2,8 +2,8 @@
 @file_name: steer_inbox_repository.py
 @author: Bin Liang
 @date: 2026-08-21
-@description: The owner of `steer_inbox` — the durable store for
-live-steering injections destined for a running turn.
+@description: The owner of `steer_inbox` — the store for live-steering
+injections destined for a running turn.
 
 A producer appends one injection keyed by an OPAQUE ``run_id`` (the
 RunRegistry's handle for a live run — this layer never interprets it);
@@ -16,15 +16,26 @@ is a bus message, an owner-chat interjection is not), and ``consumed_at``
 is a per-RUN cursor the bus's per-(agent,channel) cursor cannot serve —
 see ``schema/steer_schema.py`` for the full argument.
 
-Plain class rather than a ``BaseRepository`` subclass: the id is an
-auto-increment integer and every access is a scoped range query, so
-entity plumbing would be ceremony (same reasoning as
-``ArtifactEventRepository``). Reads still return ``SteerInjection`` so
-callers get provenance (source/sender) typed, not raw dicts.
+**Delivery semantics (single drainer).** ``consumed_at`` gives at-most-once
+delivery UNDER ONE DRAINER PER RUN, which is the design (one live loop, one
+transport). ``pull_unconsumed`` then ``mark_consumed`` are two statements
+with no claim between them, so two drainers of the same ``run_id`` would
+each inject the batch once (the family's ``ArtifactEventRepository`` makes
+the same at-least-once trade). If a future path can run two drainers on one
+run (e.g. an executor reaped mid-turn and its replacement resuming the same
+run), switch to claim-then-read (a conditional UPDATE whose affected rows
+are the claim — see ``job_repository.try_acquire_job``); do not rely on
+``consumed_at`` alone there.
+
+This is the family's plain-class shape (not a ``BaseRepository`` subclass:
+auto-increment id, scoped range queries — same reasoning as
+``ArtifactEventRepository``); reads still return ``SteerInjection`` so
+callers get provenance typed.
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import List
 
 from loguru import logger
@@ -32,7 +43,34 @@ from loguru import logger
 from xyz_agent_context.schema.steer_schema import SteerInjection
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.dialect_errors import is_unique_violation
-from xyz_agent_context.utils.timezone import utc_now
+from xyz_agent_context.utils.db.schema_registry import varchar_width
+from xyz_agent_context.utils.timezone import to_datetime6_literal, utc_now
+
+#: One injection's content ceiling, in UTF-8 bytes. A steer injection is a
+#: single chat/room message; anything past this is a producer bug or abuse.
+MAX_CONTENT_BYTES = 128 * 1024
+
+#: How many UNCONSUMED rows one run may accumulate before the write edge
+#: pushes back. The bound lives HERE (the bounded-queue write edge), never in
+#: ``pull_unconsumed`` / the loop's ``drain()`` — those take the whole batch
+#: and must never drop or truncate (iron rule #16, matching steering.py's
+#: contract). Over the limit, ``append`` raises so the producer backs off.
+MAX_UNCONSUMED_PER_RUN = 500
+
+#: Caller-controllable VARCHAR columns that must fit their declared width.
+#: SQLite (TEXT) accepts any length silently; MySQL strict mode raises 1406 —
+#: so an unclamped value passes every local test and fails 100% on dev/prod.
+#: All are REJECTED over-width, never truncated: for the id columns, clipping
+#: two distinct values to the same one would silently break dedup; ``role`` is
+#: a short tag with no reason to be clipped either. (``source`` is a Literal,
+#: bounded by the type; ``content`` is MEDIUMTEXT, bounded by MAX_CONTENT_BYTES.)
+_WIDTH_CHECKED_COLUMNS = ("run_id", "msg_id", "sender_id", "role")
+
+
+class SteerInboxFull(Exception):
+    """A run's unconsumed backlog is at ``MAX_UNCONSUMED_PER_RUN``. The
+    producer must back off (queue upstream / retry) — the write edge never
+    drops a message to make room (iron rule #16)."""
 
 
 class SteerInboxRepository:
@@ -43,21 +81,42 @@ class SteerInboxRepository:
         """Persist one injection. Returns True if inserted, False if a row
         with the same ``(run_id, msg_id)`` already exists.
 
-        Idempotent so a re-delivered message injects at most once. The
-        unique index is the hard guarantee; the pre-check handles the
-        common case cleanly, and a lost insert race (two producers, same
-        message) surfaces as a unique-key violation which is reported as
-        the duplicate it is — never a false new-row. Only that specific
-        violation is swallowed: any other insert failure (a real bug) still
-        raises rather than masquerading as a duplicate.
+        Idempotent so a re-delivered message injects at most once — an atomic
+        INSERT-or-detect-UNIQUE (the ``channel_seen_message`` shape): only a
+        unique-key violation is swallowed as the duplicate it is; any other
+        insert failure (a real bug) re-raises rather than masquerading as a
+        duplicate.
+
+        Bounds the write edge before inserting (iron rule #16 — reject, never
+        drop/truncate): identity columns must fit their width, content must be
+        under ``MAX_CONTENT_BYTES``, and the run's backlog under
+        ``MAX_UNCONSUMED_PER_RUN``.
+
+        Raises:
+            ValueError: an identity column overflows its width, or content
+                exceeds ``MAX_CONTENT_BYTES``.
+            SteerInboxFull: the run's unconsumed backlog is at the cap.
+            Exception: any non-unique insert failure (caller fails open).
         """
-        existing = await self._db.execute(
-            "SELECT id FROM steer_inbox WHERE run_id = %s AND msg_id = %s LIMIT 1",
-            params=(inj.run_id, inj.msg_id),
-            fetch=True,
-        )
-        if existing:
-            return False
+        for col in _WIDTH_CHECKED_COLUMNS:
+            value = getattr(inj, col)
+            width = varchar_width("steer_inbox", col)
+            if len(value) > width:
+                raise ValueError(
+                    f"steer_inbox.{col} is {len(value)} chars, over its {width} "
+                    f"width — reject rather than clip an identity column"
+                )
+        if len(inj.content.encode("utf-8")) > MAX_CONTENT_BYTES:
+            raise ValueError(
+                f"steer injection content is {len(inj.content.encode('utf-8'))} "
+                f"bytes, over the {MAX_CONTENT_BYTES}-byte write-edge cap"
+            )
+        if await self._unconsumed_count(inj.run_id) >= MAX_UNCONSUMED_PER_RUN:
+            raise SteerInboxFull(
+                f"run {inj.run_id} has {MAX_UNCONSUMED_PER_RUN}+ unconsumed "
+                f"injections — producer must back off"
+            )
+
         try:
             await self._db.insert(
                 "steer_inbox",
@@ -70,18 +129,31 @@ class SteerInboxRepository:
                     "source": inj.source,
                 },
             )
-        except Exception as e:  # noqa: BLE001 — narrowed to the unique pair below
+        except Exception as e:  # noqa: BLE001 — unique = duplicate; else re-raise
             if is_unique_violation(e):
                 logger.debug(
-                    f"[steer-inbox] append lost the insert race for "
+                    f"[steer-inbox] duplicate append for "
                     f"{inj.run_id}/{inj.msg_id}: {e}"
                 )
                 return False
             raise
         return True
 
+    async def _unconsumed_count(self, run_id: str) -> int:
+        rows = await self._db.execute(
+            "SELECT COUNT(*) AS n FROM steer_inbox "
+            "WHERE run_id = %s AND consumed_at IS NULL",
+            params=(run_id,),
+            fetch=True,
+        )
+        return int(rows[0]["n"]) if rows else 0
+
     async def pull_unconsumed(self, run_id: str) -> List[SteerInjection]:
-        """The run's still-pending injections, oldest first (arrival order)."""
+        """The run's still-pending injections, oldest first (arrival order).
+
+        Takes the whole backlog, never a ``LIMIT`` — the loop's ``drain()``
+        must not drop or truncate (iron rule #16); the cap lives at the write
+        edge (``append``), not here."""
         rows = await self._db.execute(
             "SELECT id, run_id, msg_id, role, content, sender_id, source, "
             "created_at, consumed_at FROM steer_inbox "
@@ -98,11 +170,41 @@ class SteerInboxRepository:
         Scoped to ``run_id`` and to ``consumed_at IS NULL`` so it never
         touches another run's backlog and re-consuming is a no-op. The id
         ceiling is what lets a drain consume exactly the window it saw and
-        leave anything that arrived after it pending (no silent loss)."""
+        leave anything that arrived after it pending (no silent loss). The
+        stamp goes through ``to_datetime6_literal`` so it lands in the same
+        byte format as ``created_at``'s ``datetime('now')`` default (a raw-SQL
+        param bypasses the dict serializer)."""
         result = await self._db.execute(
             "UPDATE steer_inbox SET consumed_at = %s "
             "WHERE run_id = %s AND id <= %s AND consumed_at IS NULL",
-            params=(utc_now(), run_id, up_to_id),
+            params=(to_datetime6_literal(utc_now()), run_id, up_to_id),
             fetch=False,
         )
         return result if isinstance(result, int) else 0
+
+    async def cleanup_older_than_days(self, days: int) -> int:
+        """Delete CONSUMED rows older than ``days``. Returns rows deleted
+        (best-effort; 0 on driver error).
+
+        The family's retention contract (``channel_seen_message``,
+        ``lark_seen_message``, ``channel_trigger_audit``) — hooked to a daily
+        cleanup tick by a later PR. Two guards: ``consumed_at IS NOT NULL`` so
+        a long-running turn's not-yet-injected messages are never deleted (iron
+        rule #16); and pruning by ``created_at`` (whose format is uniform via
+        the DB default) rather than ``consumed_at``, which a raw param could
+        write in a second SQLite format."""
+        cutoff = to_datetime6_literal(utc_now() - timedelta(days=days))
+        try:
+            result = await self._db.execute(
+                "DELETE FROM steer_inbox "
+                "WHERE created_at < %s AND consumed_at IS NOT NULL",
+                params=(cutoff,),
+                fetch=False,
+            )
+            return int(result) if isinstance(result, (int, float)) else 0
+        except Exception as e:  # noqa: BLE001 — retention is best-effort
+            logger.warning(
+                f"[steer-inbox] cleanup_older_than_days({days}): "
+                f"{type(e).__name__}: {e}"
+            )
+            return 0
