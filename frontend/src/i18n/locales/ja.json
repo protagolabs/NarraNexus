@@ -179,7 +179,9 @@
           "paused": "一時停止"
         },
         "turnOff": "オフ",
-        "turnOn": "オン"
+        "turnOn": "オン",
+        "awaitingReply": "返信待ち",
+        "nameSep": "、"
       },
       "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
       "uploadFailed": "「{{name}}」をアップロードできませんでした。",

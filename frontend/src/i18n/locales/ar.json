@@ -183,7 +183,9 @@
           "paused": "مُعلَّقة"
         },
         "turnOff": "إيقاف",
-        "turnOn": "تشغيل"
+        "turnOn": "تشغيل",
+        "awaitingReply": "بانتظار الرد",
+        "nameSep": "، "
       },
       "sendFailed": "تعذّر الإرسال. نصّك لا يزال هنا — حاول مرة أخرى.",
       "uploadFailed": "تعذّر رفع «{{name}}».",

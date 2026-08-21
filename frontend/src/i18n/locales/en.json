@@ -212,7 +212,9 @@
           "paused": "paused"
         },
         "turnOff": "Turn off",
-        "turnOn": "Turn on"
+        "turnOn": "Turn on",
+        "awaitingReply": "awaiting reply",
+        "nameSep": ", "
       },
       "bulletin": {
         "title": "Bulletin",

@@ -82,13 +82,21 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
     }
   };
 
-  const resume = async (itemId: string) => {
-    setResuming(itemId);
+  const resume = async (item: TeamWorkItem) => {
+    // Resume exactly the parked rows — a hand-off card stands for several, and
+    // only some may be paused. `allSettled`, not a serial `for await`: one row's
+    // failure must not strand the rest half-resumed with no way back. Whatever
+    // stays paused reappears in `paused_item_ids` on the next poll, so a failed
+    // row keeps its resume affordance rather than vanishing.
+    const ids = item.paused_item_ids?.length
+      ? item.paused_item_ids
+      : item.item_ids?.length
+        ? item.item_ids
+        : [item.item_id];
+    setResuming(item.item_id);
     try {
-      await api.resumeTeamWorkItem(teamId, itemId);
+      await Promise.allSettled(ids.map((id) => api.resumeTeamWorkItem(teamId, id)));
       await refresh();
-    } catch {
-      // Leave the row parked; the user can try again.
     } finally {
       setResuming(null);
     }
@@ -117,7 +125,11 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
 
       <div className="space-y-1">
         {items.map((item) => {
-          const parked = item.status === 'paused';
+          // A hand-off can aggregate to `in_progress` while some of its rows are
+          // still parked, so the paused subset — not just the card status —
+          // decides whether resume is offered.
+          const parked =
+            item.status === 'paused' || (item.paused_item_ids?.length ?? 0) > 0;
           return (
             <div
               key={item.item_id}
@@ -130,21 +142,42 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
                 style={{ background: STATUS_TONE[item.status] || 'var(--nm-ink30)' }}
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
-                  {item.title}
-                </div>
-                <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
-                  {item.assignee_name || t('chat.team.board.unclaimed')}
-                  {' · '}
-                  {t(`chat.team.board.status.${item.status}`)}
-                </div>
+                {item.kind === 'handoff' ? (
+                  <>
+                    {/* Sender → the people still owing a reply. The message
+                        text is deliberately absent: it was the sender's words,
+                        and pinning it under a recipient's name misread as
+                        something the recipient said. */}
+                    <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
+                      {item.source_name || t('chat.team.board.unclaimed')}
+                      {' → '}
+                      {(item.assignee_names ?? []).join(t('chat.team.board.nameSep'))}
+                    </div>
+                    <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
+                      {t('chat.team.board.awaitingReply')}
+                      {' · '}
+                      {t(`chat.team.board.status.${item.status}`)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
+                      {item.title}
+                    </div>
+                    <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
+                      {item.assignee_name || t('chat.team.board.unclaimed')}
+                      {' · '}
+                      {t(`chat.team.board.status.${item.status}`)}
+                    </div>
+                  </>
+                )}
               </div>
               {/* Only the user resumes a parked task — patrol deliberately will
                   not, or stopping would undo itself on the next sweep. */}
               {parked && (
                 <button
                   type="button"
-                  onClick={() => resume(item.item_id)}
+                  onClick={() => resume(item)}
                   disabled={resuming === item.item_id}
                   data-testid={`work-resume-${item.item_id}`}
                   title={t('chat.team.board.resume')}
