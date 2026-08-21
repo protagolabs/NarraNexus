@@ -160,13 +160,35 @@ def _prewarm() -> None:
     LitellmClient._litellm()  # the 1.8s / 215MB import, paid while idle
 
 
+def parse_steer_line(line: str) -> "dict[str, Any] | None":
+    """A post-request stdin line → the provider message to inject, or None.
+
+    The steer transport frames each injection as ``{"steer": {provider msg}}``.
+    Anything else (a blank keep-alive, a malformed line, a non-steer object) is
+    ignored — a bad line must never take the turn down."""
+    try:
+        obj = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    msg = obj.get("steer") if isinstance(obj, dict) else None
+    return msg if isinstance(msg, dict) else None
+
+
 def main() -> None:
     """``python -m xyz_agent_context.agent_framework.nexus_power.runner``:
-    read one request line from stdin, stream NDJSON to stdout."""
+    read one request line from stdin, stream NDJSON to stdout. Subsequent
+    stdin lines are live-steering injections (``{"steer": …}``)."""
+    import threading
+
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+        QueueSteeringInlet,
+    )
 
     async def _run() -> int:
         if os.getenv("NEXUS_POWER_PREWARM") == "1":
             _prewarm()
+        # The request line read is UNCHANGED (blocking, load-bearing): every
+        # turn depends on it, so live steering never touches it.
         raw = sys.stdin.readline()
         if not raw.strip():
             return 2
@@ -177,7 +199,26 @@ def main() -> None:
                 sys.stdout.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
                 sys.stdout.flush()
 
-        return await serve_turn(raw, write_line)
+        # Live steering: a daemon thread does the blocking reads of any FURTHER
+        # stdin lines and hands each parsed injection to this loop's queue.
+        # asyncio.Queue is not thread-safe, so the cross-thread put goes through
+        # call_soon_threadsafe (the writer contract in steering.py). For a
+        # non-steerable run the driver writes one line then closes stdin, so the
+        # thread hits EOF at once and exits — zero behaviour change.
+        loop = asyncio.get_running_loop()
+        steer_queue: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
+        inlet = QueueSteeringInlet(steer_queue)
+
+        def _read_steer_lines() -> None:
+            for line in sys.stdin:  # blocking; EOF (stdin closed) ends it
+                msg = parse_steer_line(line)
+                if msg is not None:
+                    loop.call_soon_threadsafe(steer_queue.put_nowait, msg)
+
+        reader = threading.Thread(target=_read_steer_lines, daemon=True)
+        reader.start()
+
+        return await serve_turn(raw, write_line, steering=inlet)
 
     sys.exit(asyncio.run(_run()))
 

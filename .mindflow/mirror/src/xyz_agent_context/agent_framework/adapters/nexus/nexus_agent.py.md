@@ -80,3 +80,10 @@ NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 `QueueSteeringInlet(channel.queue)` 挂到 `serve_turn(steering=inlet)`——loop 直接 drain channel 的
 queue,push 即到,无 pump 无拷贝。**subprocess**:目前只接参数不动行为(保持 stdin 写一行即 close);
 真正的"keep stdin open + pump 下 stdin 行、runner 读"随 runner-side reader 一起加。见 [[steer_channel.py]]。
+
+## 2026-08-21(补)— subprocess steer 传输
+
+`_run_subprocess`:steer 可能的 run(steer_channel 非 None)**不 close stdin**,起 `_pump_steer_to_stdin`
+抽干 channel、把每条写成 `{"steer": …}` 行喂给 runner;回合结束(finally)cancel pump + close stdin。
+非 steer 的 run 照旧写完即 close(**零行为变化**)。pump 用 `_CANCEL_POLL_S` 轮询 channel.queue,管道断
+(ConnectionReset/BrokenPipe)即退,由 read loop 的 EOF 收尾。

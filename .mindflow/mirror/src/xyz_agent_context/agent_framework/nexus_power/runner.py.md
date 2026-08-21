@@ -20,3 +20,10 @@ Owner 拍板:agent 回合独立进程跑。云端=executor 容器 HTTP;本地=dr
 
 池化契约:PREWARM=1 时在阻塞读 stdin 之前吃掉全部导入(assembly 图 +
 litellm),温进程的首 token 不含任何导入成本。
+
+## 2026-08-21 — live steering:stdin 续读
+
+首行请求读取**完全不动**(阻塞、load-bearing)。之后一个 daemon 线程阻塞式续读 stdin,`parse_steer_line`
+解析 `{"steer": <provider msg>}` 行,经 `loop.call_soon_threadsafe(queue.put_nowait, msg)` 跨线程喂进
+`QueueSteeringInlet`(asyncio.Queue 非线程安全,这是 steering.py 契约里的写入路径)。非 steer 的 run:
+driver 写完即 close stdin → 线程立刻 EOF 退出,**零行为变化**。坏行/空行被忽略,绝不掀翻回合。

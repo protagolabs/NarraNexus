@@ -392,12 +392,6 @@ class NexusAgent:
         self, payload: dict[str, Any], cancel: CancellationView,
         steer_channel: Any = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        # steer_channel is accepted here so the in-process and subprocess paths
-        # share agent_loop's call shape; the subprocess steer transport (keep
-        # stdin open + pump the channel down it, runner reads it) lands with the
-        # runner-side stdin reader. Until then a subprocess run is not steerable
-        # and the channel is simply not drained (no behaviour change).
-        _ = steer_channel
         pool = _WarmRunnerPool.shared()
         if pool.enabled:
             process = await pool.acquire()
@@ -408,7 +402,22 @@ class NexusAgent:
             (json.dumps(payload, default=_json_default) + "\n").encode("utf-8")
         )
         await process.stdin.drain()
-        process.stdin.close()
+
+        # Steer transport: a steerable run keeps stdin OPEN and a pump writes
+        # each pushed injection as a `{"steer": …}` line the runner reads. A
+        # non-steerable run closes stdin exactly as before (the runner's reader
+        # then hits EOF at once) — zero behaviour change on the default path.
+        steer_pump: "asyncio.Task[None] | None" = None
+        if steer_channel is None:
+            process.stdin.close()
+        else:
+            steer_pump = asyncio.create_task(
+                self._pump_steer_to_stdin(process, steer_channel, cancel)
+            )
+            steer_pump.add_done_callback(
+                lambda t: t.cancelled() or t.exception() and
+                logger.warning(f"[nexus_power] steer pump ended: {t.exception()}")
+            )
 
         signalled = False
         try:
@@ -438,9 +447,34 @@ class NexusAgent:
                 if stderr_tail.strip():
                     logger.warning(f"[nexus_power] runner stderr tail: {stderr_tail}")
         finally:
+            if steer_pump is not None:
+                steer_pump.cancel()
+                if not process.stdin.is_closing():
+                    process.stdin.close()
             if process.returncode is None:
                 _terminate_group(process.pid)
                 await process.wait()
+
+    async def _pump_steer_to_stdin(
+        self, process: "asyncio.subprocess.Process", steer_channel: Any,
+        cancel: CancellationView,
+    ) -> None:
+        """Drain the run's SteerChannel and write each injection as a
+        ``{"steer": …}`` line to the runner's stdin, until the turn ends
+        (cancelled by the caller) or the pipe closes."""
+        assert process.stdin is not None
+        while not cancel.requested():
+            try:
+                msg = await asyncio.wait_for(steer_channel.queue.get(), timeout=_CANCEL_POLL_S)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                process.stdin.write(
+                    (json.dumps({"steer": msg}, default=_json_default) + "\n").encode("utf-8")
+                )
+                await process.stdin.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                return  # runner gone; the read loop's EOF handles the turn
 
     @staticmethod
     def _line_to_event(line: dict[str, Any]) -> dict[str, Any] | None:
