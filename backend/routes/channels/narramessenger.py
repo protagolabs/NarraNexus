@@ -38,6 +38,7 @@ from xyz_agent_context.agent_framework.loop.broker_client import (
     executor_healthy,
     wait_until_ready,
 )
+from xyz_agent_context.agent_runtime.executor_reaper import no_live_recorded_run_for
 from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
@@ -191,7 +192,22 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
     entirely — the next POST re-warms either way.
     """
     try:
-        result = await ensure_executor(user_id)
+        # Prewarm is the RIGHT place to roll a stale executor image: it is
+        # not a run, nobody is on the container, and its whole purpose is to
+        # move cold-start out of the user's turn. Leaving the default False
+        # here would defer the replacement to this user's next turn — so the
+        # first interaction after every image rebuild would warm the OLD
+        # image, then pay a full stop + await-gone + run + wait_until_ready
+        # inline, with the prewarm wasted.
+        #
+        # No run to exclude: this is not one. That also makes the verdict
+        # sound for this caller — it covers recorded runs only, and prewarm
+        # holds nothing else on the container (see no_live_recorded_run_for;
+        # office-watch proxy sessions are the counter-example and keep the
+        # default).
+        result = await ensure_executor(
+            user_id, allow_stale_replace=await no_live_recorded_run_for(user_id)
+        )
         if result is None:  # broker vanished between guard and call
             if _owns_ledger_entry(user_id, gen):
                 _PREWARM_STATE.pop(user_id, None)
