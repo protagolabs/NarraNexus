@@ -359,7 +359,7 @@ async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeyp
     on that marker alone `message_team` is declared as the turn's default reply
     tool and named by both frameworks' reply reminders. The patrol prompt, three
     lines up, says "write it as plain text (do NOT call message_team or
-    message_agent)". On
+    message_agent — neither of those two calls is available on this turn)". On
     NexusPower it got worse than a contradiction: the mute-turn nudge fires when
     a turn closes with no reply-tool call, which for patrol is the SPECIFIED
     outcome, and the nudge's text tells the lead to call the forbidden tool. If

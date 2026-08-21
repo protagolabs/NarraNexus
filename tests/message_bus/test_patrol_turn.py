@@ -171,6 +171,40 @@ async def test_the_patrol_prompt_carries_the_board_and_the_stalled_facts(db_clie
 
 
 @pytest.mark.asyncio
+async def test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team(
+    db_client,
+):
+    """A patrol turn has BOTH bus send verbs off the desk (`get_disallowed_tools`
+    returns `[message_agent, message_team]`), so the prompt must (a) forbid both,
+    not just `message_team`, and (b) NOT also carry the ordinary-turn instruction
+    "Speak in this room by calling message_team(...)". Ordering the very tool it
+    just forbade is the self-contradiction that made a patrol turn search-miss
+    exactly as the 2026-08-20 incident did — plus the "nothing outside the call
+    reaches the room" line is literally false on patrol, where the platform posts
+    the plain text as the room.
+    """
+    await _seed_room(db_client)
+    repo = TeamWorkItemRepository(db_client)
+    await repo.create_item(team_id=TEAM, channel_id=CHANNEL, title="OCR the scans",
+                           created_by="agent_lead", assignee_id="agent_worker")
+    trigger, seen = _trigger(db_client, "")
+
+    await trigger._run_patrol(TEAM, "agent_lead", CHANNEL)
+    prompt = seen["prompt"]
+
+    # (a) the forbidding line names BOTH verbs. Extract the line — a whole-prompt
+    # `in` would pass on a non-patrol prompt too, where `message_team(` appears
+    # in the delivery instruction; here that instruction must be absent (b).
+    forbid_line = next(ln for ln in prompt.splitlines() if "do NOT call" in ln)
+    assert "message_team" in forbid_line
+    assert "message_agent" in forbid_line
+
+    # (b) the ordinary-turn message_team delivery instruction is gated out.
+    assert "Speak in this room by calling message_team" not in prompt
+    assert "Nothing you write outside that call reaches the room" not in prompt
+
+
+@pytest.mark.asyncio
 async def test_a_patrol_message_does_not_raise_the_cascade_depth(db_client):
     """The exemption that makes patrol work at all.
 

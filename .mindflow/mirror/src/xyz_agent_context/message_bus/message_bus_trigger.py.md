@@ -6,7 +6,11 @@ stub: false
 
 ## 2026-08-21 — patrol 注入的「别调发送工具」对齐 suppression 实际范围（🟢 review 收尾）
 
-PR#339 合并后 🟢 收尾:patrol 状态行注入原来只写 `do NOT call message_team`,但 patrol 轮 `get_disallowed_tools` 把 **message_team 和 message_agent 两个都摘**。改为 `do NOT call message_team or message_agent — no bus send tool is on the desk this turn`,让 [[message_bus_module.py]] 静态块那句 `unless this turn's own prompt says otherwise` 的对冲在两个动词上都由「本轮 prompt 显式否定」兜住,不再靠「write it as plain text」隐式覆盖 message_agent。**只点这两个 bus 动词**——`reply_owner`/`notify_owner` 在 patrol 不被摘（ChatModule patrol `return []`），写进去就成假声明。`test_expressive_collection.py:361` 的 docstring 引文同步。
+PR#339 合并后 🟢 收尾 + PR#341 增量审的 3 Important 深修——**`_build_team_prompt` 内部的 patrol 自相矛盾这次修到根**:
+
+- **patrol 注入点名两个动词**：原只写 `do NOT call message_team`,但 patrol 轮 `get_disallowed_tools` 把 message_team + message_agent **两个都摘**。改为 `do NOT call message_team or message_agent — neither of those two calls is available on this turn`(措辞去掉 agent 面不该出现的内部词 `bus`/`desk`,Minor)。让 [[message_bus_module.py]] 静态块那句 `unless this turn's own prompt says otherwise` 的对冲在两个动词上都由本轮 prompt 显式否定兜住。**只点这两个 bus 动词**——`reply_owner`/`notify_owner` 在 patrol 不被摘（ChatModule patrol `return []`），写进去成假声明。
+- **⚠️ 交付机制块下放非 patrol 分支（Important）**：同函数 165 行后那段 `Speak in this room by calling message_team(...). Rules:` + `Nothing you write outside that call reaches the room` + `make no call at all` + `Put ONLY the message in text` + action-tools,原来**无条件**执行——patrol 轮也拿到,于是同一 prompt 既禁 message_team 又命令调 message_team,且「outside the call 到不了房间」在 patrol 上字面为假（平台就是把纯文本贴成房间）。**用 `if patrol_stalled is None:` 把这几条 delivery-mechanism 收进非 patrol**;surface-无关的写作/@mention/Dunhuang 规则保持无条件(patrol 也 @ stalled owner、也不许承诺)。判别式复用现成的 `patrol_stalled is not None`,不新引第二个 flag。
+- **测试锁**：`test_patrol_turn.py::test_the_patrol_prompt_forbids_both_bus_verbs_and_never_orders_message_team`——断言 patrol prompt 的「do NOT call」行同时含两个动词,且**不含**「Speak in this room by calling message_team」「Nothing you write outside that call reaches the room」。非 patrol 的团队-prompt 契约测试(`test_visibility_wording.py` 里那几个)都不传 `patrol_stalled`、走非 patrol 分支,不受影响。`test_expressive_collection.py:361` docstring 引文同步补全。
 
 ## 2026-08-20 — 通信能力跟着 agent 走：文案跟随 module 改动
 

@@ -712,7 +712,10 @@ class MessageBusModule(XYZBaseModule):
             names = {r["team_id"]: r["name"] for r in (team_rows or []) if r.get("name")}
             return {cid: names[tid] for cid, tid in rooms.items() if tid in names}
         except Exception as e:  # noqa: BLE001 — a label is never worth a turn
-            logger.debug(f"Failed to label team rooms: {e}")
+            # Warning, not debug: the static block tells the agent its unread
+            # queue is tagged by room, so a silently-empty label map mislabels
+            # every team-room message as a private one (the disciplines differ).
+            logger.warning(f"team room labels failed: {e}")
             return {}
 
     async def _team_address_book(self, db: Any, team_ids: list) -> list[dict]:
@@ -867,7 +870,11 @@ class MessageBusModule(XYZBaseModule):
                 if known_agents:
                     ctx_data.extra_data["bus_known_agents"] = known_agents
             except Exception as e:
-                logger.debug(f"Failed to fetch known agents: {e}")
+                # Warning, not debug: the static block promises "everyone else
+                # you can reach is in your Known Agents list" and builds the
+                # "ask another agent" errand on it (the 2026-08-02 P1). A silent
+                # empty list reruns that P1 with only a debug line to show for it.
+                logger.warning(f"known agents fetch failed (agents scan): {e}")
 
             # --- 2b. Standing "your teams" address book ---
             #
@@ -916,7 +923,11 @@ class MessageBusModule(XYZBaseModule):
                         {m.channel_id for m in unread if m.channel_id}
                     )
             except Exception as e:
-                logger.debug(f"Failed to fetch unread messages: {e}")
+                # Warning, not debug: the static block tells the agent its
+                # unread messages "are already in this turn's context. You do
+                # not need to fetch them." A silent failure drops the inbox while
+                # the prompt still says not to go looking for it.
+                logger.warning(f"unread fetch failed: {e}")
 
             # --- 4. (removed) channel list ---
             #
