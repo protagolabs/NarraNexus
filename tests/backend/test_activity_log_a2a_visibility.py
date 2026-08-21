@@ -34,10 +34,12 @@ PEER_REPLY = "SECRET peer-to-peer content"
 TEAM_REPLY = "SECRET team-room content"
 
 
-def _msg(role, content, ts, source=None):
+def _msg(role, content, ts, source=None, eid=None):
     meta = {"timestamp": ts}
     if source:
         meta["working_source"] = source
+    if eid:
+        meta["event_id"] = eid
     return {"role": role, "content": content, "meta_data": meta}
 
 
@@ -99,6 +101,15 @@ async def client(monkeypatch):
     await _instance("chat_team", "team_room1",
                     _msg("assistant", TEAM_REPLY, "2026-08-21T08:00:00", "a2a"))
 
+    # A HUMAN speaking in a team room: teams.py sends from_agent="usr_<uid>",
+    # so the turn lands in an instance keyed to a usr_ id (NOT the owner). This
+    # is the most common team path; the peer-scope prefix set must include it.
+    # Tagged with a unique event_id so the test can assert THIS instance made it
+    # through (content collapses to the generic activity marker).
+    await _instance("chat_user_room", "usr_teamspeaker",
+                    _msg("assistant", "human-room reply", "2026-08-21T08:30:00",
+                         "message_bus", eid="evt_userroom"))
+
     # An unrelated third HUMAN user's private chat with the same agent. Its
     # user_id is not a peer/team prefix, so it must never be pulled at all.
     await _instance("chat_intruder", "intruder_u2",
@@ -140,6 +151,10 @@ def test_owner_activity_stream_shows_peer_and_team(client):
     # Non-vacuous: without the peer pull neither appears. Both bus sources land.
     assert "message_bus" in sources, "A2A peer activity missing"
     assert "a2a" in sources, "team-room (a2a) activity missing"
+    # The human-in-team-room turn (usr_ scope) must be surfaced — this is the
+    # most common team path and the prefix whitelist must include usr_.
+    assert any(m.get("event_id") == "evt_userroom" for m in msgs), \
+        "human team-room (usr_) activity missing — prefix whitelist too narrow"
     assert all(m.get("message_type") == "activity" for m in msgs)
     # Raw peer/team reply text is collapsed, never surfaced verbatim.
     assert PEER_REPLY not in raw and TEAM_REPLY not in raw

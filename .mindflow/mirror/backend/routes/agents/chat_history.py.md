@@ -4,6 +4,19 @@ last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 (review) — 前缀补 usr_、扇出加上限、include 用 Literal
+
+- **C2 前缀补 `usr_`**:`_PEER_SCOPE_PREFIXES` 原为 `("agent_", TEAM_ROOM_OWNER_PREFIX)`,漏了人在
+  team 房间发言这条**最主流**路径——`teams.py` 以 `from_agent="usr_<uid>"` 发,turn 落在 `usr_<uid>`
+  实例里,被前缀过滤整条滤掉(相对上一轮是功能回退)。补 `USER_SENDER_PREFIX`(=`usr_`)。`usr_` 是 bus
+  **sender** 前缀、不是真实 user_id 前缀(真实 user_id 裸值),故加它不会把别人私聊拉回来;行级
+  `working_source` 闸保留作 fail-closed 第二道(覆盖 local 模式 X-User-Id 恰以 `usr_` 开头的边角)。
+- **I3 扇出上限**:peer 实例集按 `_MAX_PEER_ACTIVITY_INSTANCES=200`(get_by_agent 是 created_at DESC,取切片)
+  截断并 `logger.info`,不静默丢。上限远大于任何现实翻页深度,正常 owner 的 `total_count` 不受影响。长期
+  正解(改读 events 索引而非扫 memory JSON)记在 `reference/self_notebook/todo`。
+- **M1 include 用 Literal**:`include: Literal["chat","activity","all"]` 交给 FastAPI 校验(非法值 422、大小写敏感),
+  删掉手写 normalize;`want_activity = include != "chat"`。
+
 ## 2026-08-21 — Activity Log 纳入 A2A/team 活动:owner-only + 前缀收口 + 两条流各自分页
 
 `get_simple_chat_history` 同时喂前端的「对话」tab 与「Activity Log」tab(`ChatPanel` 按

@@ -10,7 +10,9 @@ stub: false
 =MessageBusTrigger 为 A2A / team turn 写的那批 `working_source`。此前这对字符串在 `chat_module`
 的活动摘要、以及 Activity Log 路由里各硬编码一份;提为共享常量后,加一个新 bus transport 一处改
 全生效。用 `.value`(而非枚举成员)因为落库 memory 里的 `working_source` 是 JSON 字符串,消费方
-按字符串比较。
+按字符串比较。注:生产中 `_invoke_runtime` 对**所有** bus turn(A2A/team/patrol)都写
+`MESSAGE_BUS`,从不产出 `a2a`;`A2A` 成员是给未来独立传输保留的槽位,常量里带上它是让消费方
+预先兼容,测试里对 `a2a` 的断言是**契约测试**而非活路径测试。
 
 ## 2026-08-04 — BUS_TEAM_ROOM_EXTRA_KEY 常量
 

@@ -4,6 +4,15 @@ last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
+
+上一版把 `historyInclude` 塞进 `loadChatHistory` deps + reload effect 清空历史 →
+**每次切 tab 都清空重取、滚动跳底**(纯客户端过滤退化成两次网络往返)。改为按 `include` 键控三份
+state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 active 变量(`historyMessages`
+等)与键控 setter,下游(loadMore/poll/timeline)读法不变。reload 拆两个 effect:agent 变/wipe → 重置双流 +
+载入活动流;切 tab → 仅当该流未加载才 fetch(已加载则瞬时、无清空、无滚动重置)。`lastHistoryTimestampRef`
+也按 `include` 键控,避免切 tab 后拿另一条流的高水位比较(轮询误判)。
+
 ## 2026-08-21 — 对话/Activity 两个 tab 各取各的流
 
 原来 `loadChatHistory` / `loadMoreHistory` / 轮询都调 `getSimpleChatHistory(agentId, 20)` 拿**一份**

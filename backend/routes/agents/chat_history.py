@@ -13,7 +13,7 @@ Provides endpoints for:
 """
 
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -28,7 +28,10 @@ from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository, AgentRepository
 from xyz_agent_context.narrative.wipe_service import wipe_agent_data
 from xyz_agent_context.schema.hook_schema import BUS_PRODUCED_SOURCES
-from xyz_agent_context.schema.team_schema import TEAM_ROOM_OWNER_PREFIX
+from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+)
 from xyz_agent_context.schema import (
     EventInfo,
     NarrativeInfo,
@@ -60,12 +63,24 @@ _A2A_TEAM_SOURCES = BUS_PRODUCED_SOURCES
 #: 2026-05-26 symptom was the native UI showing only the agent's replies).
 _USER_FACING_SOURCES = ("chat", "manyfold")
 
-#: user_id prefixes MessageBusTrigger writes for peer/team turns — the peer
-#: agent id (A2A) or TEAM_ROOM_OWNER_PREFIX + team_id (team). Real users never
-#: match, so filtering the peer instance set on these prefixes keeps other
-#: users' private chats out of the read ENTIRELY (data-plane defence, before
-#: the row-level working_source gate that stays as the second net).
-_PEER_SCOPE_PREFIXES = ("agent_", TEAM_ROOM_OWNER_PREFIX)
+#: user_id prefixes MessageBusTrigger writes as the SENDER of a peer/team turn:
+#: the peer agent id (A2A, ``agent_``), a team room's own platform posts
+#: (``team_``, patrol/notice), and a HUMAN speaking in a team room
+#: (``usr_``, teams.py bus.send_message). All three land the turn in a
+#: ChatModule instance keyed to that sender id. A real user's own user_id is
+#: bare (no ``usr_`` prefix — cloud is a 32-hex NetMind code), so ``usr_`` here
+#: matches only the bus-sender form and does NOT pull other users' private
+#: chats. Filtering the peer set on these prefixes keeps other users' private
+#: chats out of the read ENTIRELY; the row-level working_source gate below
+#: stays as the second, fail-closed net (covers the local-mode edge where an
+#: externally-supplied X-User-Id could itself start with ``usr_``).
+_PEER_SCOPE_PREFIXES = ("agent_", TEAM_ROOM_OWNER_PREFIX, USER_SENDER_PREFIX)
+
+#: Upper bound on peer/team ChatModule instances the Activity Log fans out to
+#: per request (owner-only path, polled every 12s). Generous vs any realistic
+#: paging depth so a normal owner is never truncated; a hard ceiling so cost
+#: cannot grow without bound with the agent's social surface.
+_MAX_PEER_ACTIVITY_INSTANCES = 200
 
 
 def _parse_timestamp(ts: str) -> datetime:
@@ -485,10 +500,11 @@ async def get_simple_chat_history(
     request: Request,
     limit: int = Query(default=20, description="Maximum number of messages to return"),
     offset: int = Query(default=0, description="Number of recent messages to skip (for pagination from newest)"),
-    include: str = Query(
+    include: Literal["chat", "activity", "all"] = Query(
         default="all",
         description="Which stream to return: 'chat' (conversation only), "
-                    "'activity' (Activity Log only), or 'all' (both merged).",
+                    "'activity' (Activity Log only), or 'all' (both merged). "
+                    "Case-sensitive (FastAPI-validated).",
     ),
 ):
     """
@@ -504,10 +520,7 @@ async def get_simple_chat_history(
     stream so each tab gets its own ``limit`` / ``offset`` / ``total_count``.
     """
     user_id = await resolve_current_user_id(request)
-    include = (include or "all").lower()
-    if include not in ("chat", "activity", "all"):
-        include = "all"
-    want_activity = include in ("activity", "all")
+    want_activity = include != "chat"
     logger.debug(
         f"Getting simple chat history for agent: {agent_id}, user: {user_id}, "
         f"limit: {limit}, include: {include}"
@@ -560,14 +573,30 @@ async def get_simple_chat_history(
             agent_instances = await instance_repo.get_by_agent(
                 agent_id=agent_id, module_class="ChatModule"
             )
-            scoped_instances.extend(
-                (inst, True)
+            peer_instances = [
+                inst
                 for inst in agent_instances
                 if inst.user_id != user_id
                 and inst.user_id
                 and inst.user_id.startswith(_PEER_SCOPE_PREFIXES)
                 and inst.status not in ("cancelled", "archived")
-            )
+            ]
+            # Bound the fan-out: this runs under a 12s poll while the inner tab
+            # is open, and reads + parses each instance's whole memory. Cap at
+            # the most-recent N (get_by_agent is created_at DESC) and LOG when
+            # truncated rather than silently dropping older activity. The cap is
+            # well above HISTORY_PAGE_SIZE * any realistic paging depth, so it
+            # does not change total_count for a normal owner. The real long-term
+            # fix is an indexed activity source (events) instead of scanning
+            # memory JSON — tracked in reference/self_notebook/todo.
+            if len(peer_instances) > _MAX_PEER_ACTIVITY_INSTANCES:
+                logger.info(
+                    f"Activity Log fan-out capped for agent={agent_id}: "
+                    f"{len(peer_instances)} peer/team instances → newest "
+                    f"{_MAX_PEER_ACTIVITY_INSTANCES}"
+                )
+                peer_instances = peer_instances[:_MAX_PEER_ACTIVITY_INSTANCES]
+            scoped_instances.extend((inst, True) for inst in peer_instances)
 
         logger.debug(
             f"Assembling chat history for agent={agent_id}, user={user_id}: "

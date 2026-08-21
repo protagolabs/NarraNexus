@@ -199,11 +199,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Chat history state (from DB)
-  const [historyMessages, setHistoryMessages] = useState<SimpleChatMessage[]>([]);
+  // Chat history state (from DB). The conversation and the Activity Log are two
+  // independently-paginated streams; each keeps its OWN rows / total / loaded
+  // flag keyed by include, so switching tabs neither clears the other stream
+  // nor refetches one already loaded (the active stream is `historyInclude`).
+  const [historyByStream, setHistoryByStream] =
+    useState<Record<'chat' | 'activity', SimpleChatMessage[]>>({ chat: [], activity: [] });
+  const [loadedByStream, setLoadedByStream] =
+    useState<Record<'chat' | 'activity', boolean>>({ chat: false, activity: false });
+  const [totalByStream, setTotalByStream] =
+    useState<Record<'chat' | 'activity', number>>({ chat: 0, activity: 0 });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [historyTotalCount, setHistoryTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -322,6 +328,32 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const historyInclude: 'chat' | 'activity' =
     chatTab === 'inner' ? 'activity' : 'chat';
 
+  // Active-stream views + writers. Downstream code (loadMore, poll, timeline,
+  // loadMore-trigger) reads these unchanged; the writers target the active
+  // stream's slot so a tab switch touches only that stream.
+  const historyMessages = historyByStream[historyInclude];
+  const historyLoaded = loadedByStream[historyInclude];
+  const historyTotalCount = totalByStream[historyInclude];
+  const setHistoryMessages = useCallback(
+    (v: SimpleChatMessage[] | ((prev: SimpleChatMessage[]) => SimpleChatMessage[])) =>
+      setHistoryByStream((p) => ({
+        ...p,
+        [historyInclude]:
+          typeof v === 'function'
+            ? (v as (prev: SimpleChatMessage[]) => SimpleChatMessage[])(p[historyInclude])
+            : v,
+      })),
+    [historyInclude],
+  );
+  const setHistoryTotalCount = useCallback(
+    (n: number) => setTotalByStream((p) => ({ ...p, [historyInclude]: n })),
+    [historyInclude],
+  );
+  const setHistoryLoaded = useCallback(
+    (b: boolean) => setLoadedByStream((p) => ({ ...p, [historyInclude]: b })),
+    [historyInclude],
+  );
+
   const loadChatHistory = useCallback(async () => {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
@@ -349,6 +381,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Use ref for historyMessages length to avoid recreating loadMoreHistory on every poll
   const historyLengthRef = useRef(0);
   historyLengthRef.current = historyMessages.length;
+
+  // Per-stream high-water timestamp for the "new messages arrived" poll check.
+  // Keyed by include so switching tabs never compares against the other
+  // stream's latest (which would suppress or spuriously fire the poll).
+  const lastHistoryTimestampRef =
+    useRef<Record<'chat' | 'activity', string>>({ chat: '', activity: '' });
 
   const loadMoreHistory = useCallback(async () => {
     if (!agentId || !userId || isLoadingMore) return;
@@ -389,27 +427,40 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
   }, [agentId, userId, historyTotalCount, isLoadingMore, historyInclude]);
 
-  // Reload when the agent changes OR a data wipe bumps historyRefreshTick.
+  // Agent change / data wipe: reset BOTH streams and load the active one. The
+  // inactive stream loads lazily when its tab is first opened (effect below).
   const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
   useEffect(() => {
-    if (agentId && userId) {
-      setHistoryMessages([]);
-      setHistoryLoaded(false);
-      setHistoryTotalCount(0);
-      shouldAutoScrollRef.current = true;
-      loadChatHistory();
-    }
-  }, [agentId, userId, loadChatHistory, historyRefreshTick]);
+    if (!agentId || !userId) return;
+    setHistoryByStream({ chat: [], activity: [] });
+    setLoadedByStream({ chat: false, activity: false });
+    setTotalByStream({ chat: 0, activity: 0 });
+    lastHistoryTimestampRef.current = { chat: '', activity: '' };
+    shouldAutoScrollRef.current = true;
+    loadChatHistory();
+    // loadChatHistory intentionally excluded: it re-identifies with
+    // historyInclude, and a tab switch must NOT reset both streams (the very
+    // regression this split fixes). The tab-switch loader below handles that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, historyRefreshTick]);
+
+  // Tab switch: load the newly-active stream only if it hasn't loaded yet. An
+  // already-loaded stream shows instantly — no clear, no refetch, no scroll
+  // reset (the friction the per-stream split removes).
+  useEffect(() => {
+    if (!agentId || !userId) return;
+    if (!loadedByStream[historyInclude]) loadChatHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyInclude]);
 
   // ── Poll for new background messages ────────────────
-  const lastHistoryTimestampRef = useRef<string>('');
   useEffect(() => {
     if (!agentId || !userId || !historyLoaded) return;
 
     if (historyMessages.length > 0) {
       const last = historyMessages[historyMessages.length - 1];
-      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current) {
-        lastHistoryTimestampRef.current = last.timestamp;
+      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current[historyInclude]) {
+        lastHistoryTimestampRef.current[historyInclude] = last.timestamp;
       }
     }
 
@@ -424,8 +475,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         const latestMsg = response.messages[response.messages.length - 1];
         const latestTs = latestMsg.timestamp || '';
 
-        if (latestTs > lastHistoryTimestampRef.current) {
-          lastHistoryTimestampRef.current = latestTs;
+        if (latestTs > lastHistoryTimestampRef.current[historyInclude]) {
+          lastHistoryTimestampRef.current[historyInclude] = latestTs;
           // Merge: keep older loaded history, replace only the tail (latest page)
           setHistoryMessages((prev) => {
             if (prev.length <= HISTORY_PAGE_SIZE) {

@@ -236,6 +236,12 @@ BUS_ERRAND_TURN_SOURCE = "message_bus_errand"
 #: activity summary) import this instead of re-hardcoding the pair, so adding a
 #: new bus transport updates every consumer at once. Values (not enum members)
 #: because the stored working_source is a JSON string.
+#:
+#: NOTE: today ``_invoke_runtime`` writes MESSAGE_BUS for EVERY bus turn
+#: (A2A DM, team room, team patrol) — production never emits ``"a2a"``. The
+#: A2A member is kept as a reserved slot for a future dedicated transport, so
+#: any consumer already handles it. Tests that assert on ``"a2a"`` are pinning
+#: this contract, not exercising a live path.
 BUS_PRODUCED_SOURCES = (WorkingSource.A2A.value, WorkingSource.MESSAGE_BUS.value)
 
 
