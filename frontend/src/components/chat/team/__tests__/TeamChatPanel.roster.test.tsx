@@ -18,11 +18,13 @@ import { DRAWER_PINNED_KEY } from '@/components/layout/drawerLayout';
 
 const getTeamChatMock = vi.fn();
 const getEventLogMock = vi.fn();
+const updateTeamMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     getTeamChat: (...a: unknown[]) => getTeamChatMock(...a),
     getEventLog: (...a: unknown[]) => getEventLogMock(...a),
+    updateTeam: (...a: unknown[]) => updateTeamMock(...a),
     getTranscriptionAvailability: () => Promise.resolve({ available: true, reason: '' }),
   },
 }));
@@ -53,12 +55,13 @@ import { TeamChatPanel } from '../TeamChatPanel';
 const AGENTS = [
   { agent_id: 'a1', name: 'Ana' },
   { agent_id: 'a2', name: 'Bruno' },
+  { agent_id: 'a3', name: 'Cy' },
 ];
 
 const TEAMS = [
   {
     team: { team_id: 't1', name: 'Desk', owner_user_id: 'usr_1', source: 'local' },
-    member_agent_ids: ['a1', 'a2'],
+    member_agent_ids: ['a1', 'a2', 'a3'],
   },
 ];
 
@@ -137,6 +140,7 @@ beforeEach(() => {
   window.localStorage.clear();
   getTeamChatMock.mockReset();
   getEventLogMock.mockReset();
+  updateTeamMock.mockReset();
   getEventLogMock.mockResolvedValue({ success: true, timeline: [] });
   // jsdom has no layout, so the transcript's "keep the tail in view" call would
   // throw before anything renders.
@@ -193,6 +197,100 @@ describe('TeamChatPanel · two-pane room', () => {
  * They now live in two on-demand places: the empty room's hero, and a `?`
  * popover in the member bar that works for the whole life of the room.
  */
+describe('TeamChatPanel · discoverable panel chrome', () => {
+  // The team-room redesign left the roster/work-board and the bulletin behind
+  // bare, unlabeled icons — the reason users reported the bulletin / work board
+  // as "gone". The toggles must carry a VISIBLE text label, not just a tooltip.
+  test('the bulletin toggle shows a visible label, not just an icon', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('bulletin-toggle');
+    // getByText finds a rendered text node — a `title`/`aria-label` would not
+    // satisfy it, so this distinguishes a visible label from a tooltip.
+    expect(within(toggle).getByText('chat.team.bulletin.title')).toBeTruthy();
+  });
+
+  test('the members (roster/work-board) toggle shows a visible label', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('members-toggle');
+    // This only asserts the label text NODE renders — jsdom has no layout, so
+    // it cannot see clipping or wrapping. That the labels stay reachable on a
+    // phone (the member bar is flex-wrap) is a real-device check, not this one.
+    expect(within(toggle).getByText('chat.team.roster.title')).toBeTruthy();
+  });
+
+  test('the workspace (artifacts/work board) toggle shows a visible label', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('artifacts-toggle');
+    expect(within(toggle).getByText('rail.artifacts')).toBeTruthy();
+  });
+});
+
+describe('TeamChatPanel · set lead from the roster', () => {
+  // The observable is that `set-lead-<id>` only renders for a NON-lead member,
+  // so the optimistic write must first make the affordance DISAPPEAR (a2 became
+  // lead) and the rollback must bring it BACK (a2 is not lead again). A deferred
+  // promise separates the two so the intermediate state actually renders — a
+  // plain resolved mock batches both sets into one render and would let an
+  // empty handler pass.
+  test('optimistic set then rollback on a failed PATCH', async () => {
+    let resolvePatch!: (v: unknown) => void;
+    updateTeamMock.mockReturnValue(
+      new Promise((r) => {
+        resolvePatch = r;
+      }),
+    );
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]); // lead starts as a1
+
+    fireEvent.click(screen.getByTestId('roster-row-a2'));
+    fireEvent.click(await screen.findByTestId('set-lead-a2'));
+
+    // Optimistic: a2 is now lead, so its set-lead affordance is gone.
+    await waitFor(() =>
+      expect(screen.queryByTestId('set-lead-a2')).toBeNull(),
+    );
+    expect(updateTeamMock).toHaveBeenCalledWith('t1', { lead_agent_id: 'a2' });
+
+    // The PATCH fails → rollback → a2 is not lead again → affordance returns.
+    resolvePatch({ success: false });
+    await waitFor(() =>
+      expect(screen.getByTestId('set-lead-a2')).toBeTruthy(),
+    );
+  });
+
+  test('a second click while the first PATCH is in flight is ignored', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    updateTeamMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveFirst = r;
+      }),
+    );
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]);
+
+    fireEvent.click(screen.getByTestId('roster-row-a2'));
+    fireEvent.click(await screen.findByTestId('set-lead-a2'));
+    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(1));
+
+    // While a2's PATCH is unresolved, try to set a different member as lead.
+    fireEvent.click(screen.getByTestId('roster-row-a3'));
+    fireEvent.click(await screen.findByTestId('set-lead-a3'));
+
+    // The in-flight guard rejects it: still exactly one PATCH. (a3's row is
+    // expanded and still not lead, so its set-lead affordance is on screen.)
+    expect(updateTeamMock).toHaveBeenCalledTimes(1);
+
+    // ...and the guard RELEASES once the first PATCH settles: a3's set-lead now
+    // goes through. Without the `finally { settingLeadRef = false }`, set-lead
+    // would be usable exactly once per mount. The first PATCH succeeds (a2 stays
+    // lead → no state change, so no act warning); `findByTestId` awaits the
+    // microtask that clears the guard.
+    updateTeamMock.mockResolvedValue({ success: true });
+    resolveFirst({ success: true });
+    fireEvent.click(await screen.findByTestId('set-lead-a3'));
+    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(2));
+    expect(updateTeamMock).toHaveBeenLastCalledWith('t1', { lead_agent_id: 'a3' });
+  });
+});
+
 describe('TeamChatPanel · addressing help', () => {
   test('help button toggles the guide popover', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
