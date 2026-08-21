@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -151,6 +151,29 @@ tuple 存在的全部理由就是这类过滤器各写各的会漂移。方向�
 
 `Team` schema 相应增加 `patrol_enabled` / `last_patrol_at` 两个**只读**字段:
 `_entity_to_row` 不写它们,否则一次无关的 team 编辑会把巡查游标清掉。
+
+## 2026-08-21 — `get_work_board` 把 auto 交接折叠成交接卡
+
+`_assemble_work_board(visible, name_by_agent)` 取代了原来「一行 = 一个
+`WorkItemView`」的直映射。动机:一条 @ 了多个 agent 的消息在 `errand.py` 会扇出
+成**每人一行**的 `origin=auto` 单,每行复用**发件人首行**当 title。逐行返回就让
+同一句话在板上出现一次每个收件人,且挂在**没说这话的人**名下。
+
+新规则:
+
+- `origin=tool` 行 → `kind="task"` 卡,一对一,`title`/`assignee_name` 不变。
+- `origin=auto` 行 → 按 `source_message_id` **合并成一张** `kind="handoff"` 卡:
+  `source_name`(取 `created_by` 解析出的名字)、`assignee_names`(仍欠回复的人)、
+  `item_ids`(底层所有行,供 paused 时逐行恢复)。`title` 置空 —— 发件人的话不再
+  上板(那是错配的根源)。状态用 `_handoff_status` 聚合:任一 `stalled` 则整卡
+  stalled,否则任一 ACTIVE 则 in_progress,全 paused 才 paused。
+- 顺序仍按 `visible` 的首次出现(即 `created_at, id` 升序),交接卡落在它最早那行
+  的位置。
+
+**边界**:只改看板这一条读路径。patrol/stalled 走 `list_active`、errand 开/关单
+走 `list_open_errands`,都不经过 `list_visible`(唯一调用方就是本端点),所以折叠
+显示不影响开单/关单/巡查。改 `_assemble_work_board` 时别把 origin 过滤下沉到
+`list_visible`/`_list_by_status` —— 那些方法被 patrol 共用,过滤会误伤停滞检测。
 
 ## 2026-08-10 (方案 B 的后果修正) — `clear_files` 级联删除团队 artifact
 

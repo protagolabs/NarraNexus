@@ -37,6 +37,14 @@ stub: false
 工作板的类型。`status` 在用户侧只会收到 ACTIVE 三态 + `paused`;`msg_type`
 的取值增加 `'patrol'`(与 `'system_stop'` 同属房间级系统行)。
 
+## 2026-08-21 — TeamWorkItem 增 `kind` 及交接卡字段
+
+`TeamWorkItem` 现在是两种卡的联合(靠 `kind` 区分):`'task'` 是显式任务
+(沿用 `title`/`assignee_name`);`'handoff'` 是一条 @ 消息的 auto 交接单合并后
+的卡,带 `source_name`(发件人)、`assignee_names`(仍欠回复的人)、`item_ids`
+(底层多行,供 paused 逐行恢复),**不带 title**(消息正文是发件人的话,上板会
+被误读成收件人说的)。渲染分支见 [[TeamWorkBoard]]。
+
 ## 2026-08-07 — TeamChatMessage.msg_type
 
 `'text' | 'multimodal' | 'system_stop'`。见 [[TeamChatPanel]] 的系统行分支。

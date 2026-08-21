@@ -82,10 +82,15 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
     }
   };
 
-  const resume = async (itemId: string) => {
-    setResuming(itemId);
+  const resume = async (item: TeamWorkItem) => {
+    // A hand-off card stands for several rows; resuming it un-parks each. A
+    // task carries its own single id in `item_ids` too, so one path serves both.
+    const ids = item.item_ids?.length ? item.item_ids : [item.item_id];
+    setResuming(item.item_id);
     try {
-      await api.resumeTeamWorkItem(teamId, itemId);
+      for (const id of ids) {
+        await api.resumeTeamWorkItem(teamId, id);
+      }
       await refresh();
     } catch {
       // Leave the row parked; the user can try again.
@@ -130,21 +135,42 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
                 style={{ background: STATUS_TONE[item.status] || 'var(--nm-ink30)' }}
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
-                  {item.title}
-                </div>
-                <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
-                  {item.assignee_name || t('chat.team.board.unclaimed')}
-                  {' · '}
-                  {t(`chat.team.board.status.${item.status}`)}
-                </div>
+                {item.kind === 'handoff' ? (
+                  <>
+                    {/* Sender → the people still owing a reply. The message
+                        text is deliberately absent: it was the sender's words,
+                        and pinning it under a recipient's name misread as
+                        something the recipient said. */}
+                    <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
+                      {item.source_name || t('chat.team.board.unclaimed')}
+                      {' → '}
+                      {(item.assignee_names ?? []).join(t('chat.team.board.nameSep'))}
+                    </div>
+                    <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
+                      {t('chat.team.board.awaitingReply')}
+                      {' · '}
+                      {t(`chat.team.board.status.${item.status}`)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="truncate text-xs" style={{ color: 'var(--nm-ink70)' }}>
+                      {item.title}
+                    </div>
+                    <div className="font-mono text-[10px]" style={{ color: 'var(--nm-ink50)' }}>
+                      {item.assignee_name || t('chat.team.board.unclaimed')}
+                      {' · '}
+                      {t(`chat.team.board.status.${item.status}`)}
+                    </div>
+                  </>
+                )}
               </div>
               {/* Only the user resumes a parked task — patrol deliberately will
                   not, or stopping would undo itself on the next sweep. */}
               {parked && (
                 <button
                   type="button"
-                  onClick={() => resume(item.item_id)}
+                  onClick={() => resume(item)}
                   disabled={resuming === item.item_id}
                   data-testid={`work-resume-${item.item_id}`}
                   title={t('chat.team.board.resume')}

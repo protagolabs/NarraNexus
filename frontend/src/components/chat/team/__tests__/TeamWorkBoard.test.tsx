@@ -116,6 +116,39 @@ describe('TeamWorkBoard', () => {
     await waitFor(() => expect(getBoardMock.mock.calls.length).toBeGreaterThan(1));
   });
 
+  test('a hand-off card shows sender → recipients, not the message text', async () => {
+    const HANDOFF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'in_progress',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [HANDOFF] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    // Sender and both recipients are on one card.
+    const card = await screen.findByTestId('work-item-msg_x');
+    expect(card.textContent).toContain('Ada');
+    expect(card.textContent).toContain('Bruno');
+    expect(card.textContent).toContain('Cara');
+    // The "awaiting reply" label, not a status pretending someone spoke.
+    expect(card.textContent).toContain('chat.team.board.awaitingReply');
+  });
+
+  test('resuming a paused hand-off resumes every underlying row', async () => {
+    const PARKED_HANDOFF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'paused',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [PARKED_HANDOFF] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('work-resume-msg_x'));
+
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_1'));
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_2'));
+  });
+
   test('patrol trace: never swept', async () => {
     getBoardMock.mockResolvedValue(board({ items: [LIVE], last_patrol_at: null }));
     render(<TeamWorkBoard teamId="t1" now={NOW} />);

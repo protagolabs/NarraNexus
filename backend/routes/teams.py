@@ -1317,12 +1317,27 @@ async def remove_member(team_id: str, agent_id: str, request: Request):
 
 
 class WorkItemView(BaseModel):
+    #: Task rows carry the real `item_id`; a hand-off card is keyed by the
+    #: message that opened it, so it stays the same row across the 5s polls.
     item_id: str
+    #: "task" = an explicit, Leader-maintained item, rendered as before.
+    #: "handoff" = one @message's auto errands, collapsed. The two render
+    #: differently: a task shows its title + one assignee, a hand-off shows
+    #: "sender → the people still owing a reply" and drops the message text,
+    #: which is the sender's words and never the assignee's.
+    kind: str = "task"
     title: str
     assignee_id: Optional[str] = None
     assignee_name: Optional[str] = None
     status: str
     created_at: Optional[str] = None
+    #: Hand-off cards only: the agent who sent the @message.
+    source_name: Optional[str] = None
+    #: Hand-off cards only: everyone the card still tracks, resolved to names.
+    assignee_names: List[str] = []
+    #: The underlying rows this card stands for. One for a task; several for a
+    #: collapsed hand-off, so a paused group can be resumed row by row.
+    item_ids: List[str] = []
 
 
 class WorkBoardResponse(BaseModel):
@@ -1335,6 +1350,91 @@ class WorkBoardResponse(BaseModel):
 
 class PatrolToggleRequest(BaseModel):
     enabled: bool
+
+
+def _handoff_status(states: List[str]) -> str:
+    """One status for a collapsed hand-off group.
+
+    `stalled` is platform-derived and the whole reason the card is worth a
+    glance, so any stalled member makes the card stalled. Otherwise any member
+    still active keeps it in progress; a group survives on the board only while
+    at least one row is unfinished, so the fall-through (everything paused) is
+    the parked case the user resumes.
+    """
+    from xyz_agent_context.schema.team_work_schema import WorkItemStatus
+
+    if WorkItemStatus.STALLED in states:
+        return WorkItemStatus.STALLED
+    if any(s in WorkItemStatus.ACTIVE for s in states):
+        return WorkItemStatus.IN_PROGRESS
+    return WorkItemStatus.PAUSED
+
+
+def _assemble_work_board(visible, name_by_agent: dict) -> List["WorkItemView"]:
+    """Turn the raw visible rows into the cards the user sees.
+
+    `tool` rows pass through one-to-one — those are the explicit tasks. `auto`
+    rows are message-level errands: one @message that named N agents opened N
+    rows, each reusing the SENDER's first line as its title. Rendered one per
+    row, that put the same sentence on the board once per recipient, credited
+    to people who never said it. Here they collapse to one card per source
+    message: sender → the people still owing a reply, the sentence dropped.
+
+    Order follows first appearance in `visible` (already `created_at, id`
+    ascending), so a hand-off sits where its earliest errand would have.
+    """
+    from xyz_agent_context.schema.team_work_schema import WorkItemOrigin
+
+    cards: List[WorkItemView] = []
+    groups: dict = {}  # source_message_id -> index into `cards`
+
+    for i in visible:
+        if i.origin != WorkItemOrigin.AUTO:
+            cards.append(WorkItemView(
+                item_id=i.item_id,
+                kind="task",
+                title=i.title,
+                assignee_id=i.assignee_id,
+                assignee_name=name_by_agent.get(i.assignee_id or ""),
+                status=i.status,
+                created_at=format_for_api(i.created_at),
+                item_ids=[i.item_id],
+            ))
+            continue
+
+        # One card per source message. A row missing its source id (should not
+        # happen for an auto errand) keys on its own id, so it still collapses
+        # to a single, un-merged hand-off rather than vanishing.
+        key = i.source_message_id or i.item_id
+        assignee_name = name_by_agent.get(i.assignee_id or "") or i.assignee_id
+        if key not in groups:
+            groups[key] = len(cards)
+            cards.append(WorkItemView(
+                item_id=key,
+                kind="handoff",
+                title="",
+                status=i.status,
+                created_at=format_for_api(i.created_at),
+                source_name=name_by_agent.get(i.created_by) or i.created_by or None,
+                assignee_names=[assignee_name] if assignee_name else [],
+                item_ids=[i.item_id],
+            ))
+        else:
+            card = cards[groups[key]]
+            card.item_ids.append(i.item_id)
+            if assignee_name and assignee_name not in card.assignee_names:
+                card.assignee_names.append(assignee_name)
+
+    # Aggregate hand-off status once every member is known — a single stalled
+    # recipient has to win over the in_progress siblings it shares a card with.
+    status_by_key: dict = {}
+    for i in visible:
+        if i.origin == WorkItemOrigin.AUTO:
+            status_by_key.setdefault(i.source_message_id or i.item_id, []).append(i.status)
+    for card in cards:
+        if card.kind == "handoff":
+            card.status = _handoff_status(status_by_key.get(card.item_id, [card.status]))
+    return cards
 
 
 async def _owned_team(db, team_id: str, user_id: str):
@@ -1377,18 +1477,9 @@ async def get_work_board(team_id: str, request: Request):
     }
     # Straight off the entity: the repository already returned typed
     # `WorkItem`s, and round-tripping them through `model_dump()` would trade
-    # that away for string keys a typo only breaks at request time.
-    items = [
-        WorkItemView(
-            item_id=i.item_id,
-            title=i.title,
-            assignee_id=i.assignee_id,
-            assignee_name=name_by_agent.get(i.assignee_id or ""),
-            status=i.status,
-            created_at=format_for_api(i.created_at),
-        )
-        for i in visible
-    ]
+    # that away for string keys a typo only breaks at request time. Auto
+    # errands collapse per source message here — see `_assemble_work_board`.
+    items = _assemble_work_board(visible, name_by_agent)
     return WorkBoardResponse(
         success=True,
         items=items,

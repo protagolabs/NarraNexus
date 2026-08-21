@@ -120,9 +120,16 @@ export interface TeamMemberActivity {
   event_id?: string | null;
 }
 
-/** One task on the team's work board. */
+/** One card on the team's work board.
+ *
+ *  `kind` splits two things the board used to render identically:
+ *   - `task`    — an explicit, Leader-maintained item: `title` + one assignee.
+ *   - `handoff` — one @message's auto errands, collapsed. It shows
+ *                 `source_name → assignee_names` and carries no title, because
+ *                 that title was the sender's words, not the assignee's. */
 export interface TeamWorkItem {
   item_id: string;
+  kind?: 'task' | 'handoff';
   title: string;
   assignee_id?: string | null;
   assignee_name?: string | null;
@@ -130,6 +137,13 @@ export interface TeamWorkItem {
    *  The user's view only ever receives the first three plus `paused`. */
   status: string;
   created_at?: string | null;
+  /** Hand-off only: who sent the @message. */
+  source_name?: string | null;
+  /** Hand-off only: everyone the card still tracks, resolved to names. */
+  assignee_names?: string[];
+  /** The underlying rows this card stands for — one for a task, several for a
+   *  collapsed hand-off, so a paused group resumes row by row. */
+  item_ids?: string[];
 }
 
 export interface TeamWorkBoardResponse {
