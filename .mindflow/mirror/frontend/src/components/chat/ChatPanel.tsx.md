@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 直播块顶部渲染 [[ResumedRunChip]](深圳复测 B1)
+
+`resumedRun`(来自 chatStore flat fields)非空时,在直播回复气泡上方
+渲染「已续接进行中的任务 · 已运行 N 分」chip——刷新后重连的全量重放
+从此有了身份标识,不再被读成从零重新生成。重放渲染路径零改动。
 
 ## 2026-08-20 — bootstrap 问候气泡传 agentName（修「AI」头像）
 

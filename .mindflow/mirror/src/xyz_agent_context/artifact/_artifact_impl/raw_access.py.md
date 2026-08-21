@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/raw_access.py
-last_verified: 2026-08-10
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 渲染标记 kind 不再当传输 MIME(深圳复测 .bin bug 后端面)
+
+entry 的 `media_type` 原来无条件 = `art.kind`,但
+`application/vnd.officecli-live` 是内部渲染标记不是 MIME——直开 raw URL
+时浏览器只能按未知二进制处理。`_RENDER_MARKER_KINDS` 里的 kind 改按
+entry 扩展名给真实类型;office 三种扩展名用**显式映射**
+`_OFFICE_MIME_BY_EXT` 而非 `mimetypes.guess_type`——stdlib 对
+pptx/docx/xlsx 的认知来自平台 mime.types 文件,开发机上对、slim 容器里
+就是 octet-stream(环境轴假绿)。前端下载文件名是该 bug 的决定性一层,
+见 [[../../../../frontend/src/components/artifacts/kindRegistry.ts]]。
 
 ## 2026-08-10 (方案 B 的后果修正) — 团队根纳入单文件守卫
 

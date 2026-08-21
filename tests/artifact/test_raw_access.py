@@ -73,6 +73,56 @@ async def test_resolve_entry_serves_kind_as_media_type(env):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("deck.pptx",
+         "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        ("report.docx",
+         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        ("budget.xlsx",
+         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ],
+)
+async def test_office_live_entry_serves_real_mime_not_the_render_kind(
+    env, filename, expected
+):
+    """Shenzhen-r2 .bin bug, backend half: 'application/vnd.officecli-live'
+    is an internal render marker, not a transport MIME — serving it as
+    Content-Type makes a directly-opened URL download as unknown binary.
+    The entry's real type is derivable from its extension."""
+    entry = env["workspace"] / "office" / filename
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_bytes(b"PK\x03\x04officefile")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/vnd.officecli-live", entry_path=str(entry),
+        title=filename, description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == expected
+    assert resolved.kind == "application/vnd.officecli-live"
+
+
+@pytest.mark.asyncio
+async def test_office_live_entry_without_extension_falls_back_to_octet_stream(env):
+    entry = env["workspace"] / "office2" / "deck"
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_bytes(b"PK\x03\x04officefile")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/vnd.officecli-live", entry_path=str(entry),
+        title="deck", description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == "application/octet-stream"
+
+
+@pytest.mark.asyncio
 async def test_resolve_sibling_asset_guesses_mime(env):
     resolved = await env["service"].resolve_raw_file(
         agent_id="agent_x", artifact_id=env["artifact_id"], file_path="style.css",

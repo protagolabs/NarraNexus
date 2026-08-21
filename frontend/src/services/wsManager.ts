@@ -414,6 +414,21 @@ class WebSocketManager {
           // reconnect protocol absorbs `run_reconnect` before processMessage
           // (translateReconnectFrame returns null), so we set it here.
           store().setCurrentRunId(agentId, runId);
+          // Resume badge (Shenzhen-r2 B1): the replay that follows renders
+          // the whole run from seq 0 — without an anchor to the run's REAL
+          // start, a refresh mid-run reads as "it started generating again
+          // from scratch". started_at is the backend's NAIVE-UTC datetime
+          // (no offset suffix) — Date.parse alone would read it as local
+          // time and skew the elapsed display by the viewer's UTC offset,
+          // so an offset-less string gets an explicit 'Z'.
+          const startedRaw = raw.started_at as string | null | undefined;
+          if (startedRaw) {
+            const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(startedRaw);
+            const startedMs = Date.parse(hasOffset ? startedRaw : `${startedRaw}Z`);
+            if (Number.isFinite(startedMs)) {
+              store().markResumedRun(agentId, runId, startedMs);
+            }
+          }
         }
 
         // Honor terminal lifecycle frames BEFORE the translate/early-return

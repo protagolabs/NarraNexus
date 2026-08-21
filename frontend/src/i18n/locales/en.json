@@ -277,7 +277,8 @@
       "preparingWorkspace": "Preparing workspace…",
       "buildingContext": "Building context…",
       "thinking": "Thinking…",
-      "acting": "Acting…"
+      "acting": "Acting…",
+      "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {
       "viewLoop": "view what it did",

@@ -39,6 +39,26 @@ from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.workspace_paths import team_shared_dir
 
 
+# Kinds that are internal render markers, not transport MIMEs — serving them
+# as Content-Type makes a directly-opened URL an unknown binary (the
+# Shenzhen-r2 ".bin download" bug). The entry's real type comes from its
+# extension instead.
+_RENDER_MARKER_KINDS = frozenset({"application/vnd.officecli-live"})
+
+# Explicit map for the office extensions, NOT mimetypes.guess_type: the
+# stdlib's knowledge of pptx/docx/xlsx comes from the platform's mime.types
+# file, so guess_type is right on a dev laptop and octet-stream in a slim
+# container — an environment-axis false green.
+_OFFICE_MIME_BY_EXT = {
+    ".pptx": "application/vnd.openxmlformats-officedocument"
+             ".presentationml.presentation",
+    ".docx": "application/vnd.openxmlformats-officedocument"
+             ".wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument"
+             ".spreadsheetml.sheet",
+}
+
+
 @dataclass(frozen=True)
 class ResolvedRawFile:
     """A raw-route resolution: which file to serve and how to label it."""
@@ -71,8 +91,10 @@ async def resolve_raw_file(
       entry's own basename is tolerated as an alias).
     - Sub-paths are confined to the artifact root.
 
-    Media type: the entry serves as the artifact's `kind`; assets are guessed
-    via `mimetypes` (the kind describes the entry, not a sibling style.css).
+    Media type: the entry serves as the artifact's `kind`, EXCEPT for
+    render-marker kinds (`_RENDER_MARKER_KINDS`) whose real transport type
+    comes from the entry's extension; assets are guessed via `mimetypes`
+    (the kind describes the entry, not a sibling style.css).
 
     Raises:
         ArtifactNotFound / ArtifactContentGone — see module docstring.
@@ -138,7 +160,14 @@ async def resolve_raw_file(
         raise ArtifactContentGone("artifact file missing on disk")
 
     is_entry = target == entry_abs
-    if is_entry:
+    if is_entry and art.kind in _RENDER_MARKER_KINDS:
+        ext = os.path.splitext(target)[1].lower()
+        media_type = (
+            _OFFICE_MIME_BY_EXT.get(ext)
+            or mimetypes.guess_type(target)[0]
+            or "application/octet-stream"
+        )
+    elif is_entry:
         media_type = art.kind
     else:
         media_type = mimetypes.guess_type(target)[0] or "application/octet-stream"
