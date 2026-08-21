@@ -63,10 +63,10 @@ VALID_EVENT_TYPES = frozenset(
 class Phase(Enum):
     """The five phases of one turn's state machine.
 
-    DRAIN_STEERING and STOP_CHECK call sites exist from day one; v1
-    mounts ``NullSteeringInlet`` (always empty) and ``NoMoreActionsStop``
-    (stop when the model takes no action). Upgrading either is an
-    assembly swap — ``loop.py`` never changes.
+    DRAIN_STEERING and STOP_CHECK call sites exist from day one; the
+    default mounts are ``NullSteeringInlet`` (always empty) and
+    ``NoMoreActionsStop`` (stop when the model takes no action). Swapping
+    either mount is an assembly change — ``loop.py`` never changes.
 
     Deliberate decision (R4): the phase set is framework anatomy, not an
     extension point. Pseudo-phase needs (e.g. a pre-execution preview)

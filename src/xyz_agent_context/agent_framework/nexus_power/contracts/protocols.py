@@ -118,8 +118,10 @@ class StopPolicy(Protocol):
 
 @runtime_checkable
 class SteeringInlet(Protocol):
-    """Step-boundary injection point. v1: always empty; P4 mounts the
-    TriggerInbox. Injection is append-only — never mutate the prefix."""
+    """Step-boundary injection point. The default mount is
+    ``NullSteeringInlet`` (always empty); ``QueueSteeringInlet`` is the
+    concrete queue-backed inlet a transport layer feeds. Injection is
+    append-only — never mutate the prefix."""
 
     async def drain(self) -> list[ProviderMessage]: ...
 
