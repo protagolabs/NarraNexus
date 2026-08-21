@@ -160,6 +160,18 @@ def _prewarm() -> None:
     LitellmClient._litellm()  # the 1.8s / 215MB import, paid while idle
 
 
+def forward_steer_lines(lines: Any, deliver: Any) -> None:
+    """Parse steer lines from a blocking ``lines`` iterable (the runner passes
+    ``sys.stdin``) and hand each valid injection to ``deliver``. Extracted from
+    the daemon-thread body so the parse-and-dispatch logic is unit-tested; the
+    thread wrapper that supplies ``sys.stdin`` and a cross-thread ``deliver`` is
+    the only untested glue. Stops at EOF (stdin closed)."""
+    for line in lines:
+        msg = parse_steer_line(line)
+        if msg is not None:
+            deliver(msg)
+
+
 def parse_steer_line(line: str) -> "dict[str, Any] | None":
     """A post-request stdin line → the provider message to inject, or None.
 
@@ -209,13 +221,17 @@ def main() -> None:
         steer_queue: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
         inlet = QueueSteeringInlet(steer_queue)
 
-        def _read_steer_lines() -> None:
-            for line in sys.stdin:  # blocking; EOF (stdin closed) ends it
-                msg = parse_steer_line(line)
-                if msg is not None:
-                    loop.call_soon_threadsafe(steer_queue.put_nowait, msg)
+        def _deliver(msg: dict[str, Any]) -> None:
+            try:
+                loop.call_soon_threadsafe(steer_queue.put_nowait, msg)
+            except RuntimeError:
+                # The loop is closing (turn already ended) — a late steer line
+                # has nowhere to go and is dropped silently, like a bad line.
+                return
 
-        reader = threading.Thread(target=_read_steer_lines, daemon=True)
+        reader = threading.Thread(
+            target=lambda: forward_steer_lines(sys.stdin, _deliver), daemon=True,
+        )
         reader.start()
 
         return await serve_turn(raw, write_line, steering=inlet)

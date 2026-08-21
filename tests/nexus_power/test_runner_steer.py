@@ -7,7 +7,10 @@ live-steering injections as {"steer": {provider msg}}; a malformed or
 non-steer line must be ignored (never take the turn down).
 """
 
-from xyz_agent_context.agent_framework.nexus_power.runner import parse_steer_line
+from xyz_agent_context.agent_framework.nexus_power.runner import (
+    forward_steer_lines,
+    parse_steer_line,
+)
 
 
 def test_valid_steer_line_returns_the_message():
@@ -27,3 +30,20 @@ def test_malformed_json_is_ignored():
 def test_steer_that_is_not_an_object_is_ignored():
     assert parse_steer_line('{"steer": "just a string"}') is None
     assert parse_steer_line('{"steer": null}') is None
+
+
+def test_forward_steer_lines_delivers_valid_and_skips_bad():
+    # The daemon-thread body, tested directly: valid steer lines reach
+    # `deliver`, malformed / non-steer lines are dropped, EOF ends it.
+    delivered: list = []
+    lines = [
+        '{"steer": {"role": "user", "content": "a"}}\n',
+        "garbage not json\n",
+        '{"not_steer": 1}\n',
+        '{"steer": {"role": "user", "content": "b"}}\n',
+    ]
+    forward_steer_lines(iter(lines), delivered.append)
+    assert delivered == [
+        {"role": "user", "content": "a"},
+        {"role": "user", "content": "b"},
+    ]

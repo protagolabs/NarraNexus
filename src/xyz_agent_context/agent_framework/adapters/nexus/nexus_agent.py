@@ -28,6 +28,7 @@ optional): ``expressive_tools``, ``marker_tools``, ``expandables``,
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -449,6 +450,10 @@ class NexusAgent:
         finally:
             if steer_pump is not None:
                 steer_pump.cancel()
+                # Await the cancellation so the task settles here rather than
+                # surfacing a "Task was destroyed but it is pending" warning.
+                with contextlib.suppress(asyncio.CancelledError):
+                    await steer_pump
                 if not process.stdin.is_closing():
                     process.stdin.close()
             if process.returncode is None:

@@ -55,14 +55,17 @@ class QueueSteeringInlet:
       queue.put_nowait, msg)`` (or ``run_coroutine_threadsafe``) — a bare
       cross-thread ``put_nowait`` is a latent lost-wakeup the moment any
       awaiting getter is added.
-    * **Bounded queue, back-pressure not drop.** The transport owns the
-      queue and must give it a ``maxsize``, back-pressuring the producer
-      when full (await / queue upstream) — never dropping. Capacity is the
-      transport's call (local stdin and cloud ``/steer`` differ), so it is
-      NOT hardcoded here. ``drain()`` deliberately takes the whole backlog
-      and never truncates: dropping queued messages would lose user input
-      (iron rule #16), so any bounding belongs at the bounded-queue write
-      edge, never in this read.
+    * **Back-pressure at the durable write edge, not this queue.** This
+      queue is an in-flight hand-off of already-admitted messages, so the
+      transport (``agent_runtime.steer_channel.SteerChannel``) leaves it
+      unbounded and ``put_nowait`` never blocks. The bound lives one layer
+      up, at the ``steer_inbox`` write edge, where a producer that outruns
+      the run is back-pressured (``SteerInboxFull``) — never dropped (iron
+      rule #16). ``drain()`` likewise takes the whole backlog and never
+      truncates. The invariant that keeps this in-flight queue from growing
+      is the ORCHESTRATOR's: it must push into the channel at the loop's
+      drain rate (one step-boundary's worth), not empty the whole inbox
+      backlog at once — that pacing is the steer-routing PR's to guarantee.
     """
 
     def __init__(self, queue: asyncio.Queue[ProviderMessage]) -> None:

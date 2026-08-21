@@ -27,3 +27,10 @@ litellm),温进程的首 token 不含任何导入成本。
 解析 `{"steer": <provider msg>}` 行,经 `loop.call_soon_threadsafe(queue.put_nowait, msg)` 跨线程喂进
 `QueueSteeringInlet`(asyncio.Queue 非线程安全,这是 steering.py 契约里的写入路径)。非 steer 的 run:
 driver 写完即 close stdin → 线程立刻 EOF 退出,**零行为变化**。坏行/空行被忽略,绝不掀翻回合。
+
+## 2026-08-21(补)— steer reader 抽成可测函数 + loop 关闭守卫
+
+daemon 线程体抽成模块级 `forward_steer_lines(lines, deliver)`(纯解析+分发,单测覆盖;删它变红,铁律 #4),
+线程 wrapper 只供 `sys.stdin` + 跨线程 `deliver`。`_deliver` 用 `call_soon_threadsafe` 且 `try/except
+RuntimeError`——turn 已结束、loop 正在关时的迟到 steer 行无处可去,静默丢弃(同"坏行绝不掀翻回合")。
+**子进程完整 steer 回合无 fake-model e2e**(跨进程模型墙),靠 dev EC2 手验;in-process e2e 已证 loop 投递半程。

@@ -26,3 +26,9 @@ v1 两个 producer 都与目标 run 同进程——team 消息与 team run 都�
   误踢掉顶替它的新 run。
 - `run_id` 不透明(同 steer_inbox):谁 register 谁铸句柄,不必是 late-bind 的 events.event_id;registry 不解释它。
 - 同步方法、单事件循环:dict 读改写间无 await 故原子;`get_run_registry()` 进程单例,天然按 owner 分区。
+
+## 放置说明
+
+`run_registry.py` / `steer_channel.py` 平铺进 `agent_runtime/` 而非开 `steering/` 子包:`RunRegistry` 是
+通用的"活 run 路由"原语(不止 steering 用),`agent_runtime/` 本就偏平(admission/background_run/client 等
+平铺)。若将来 steering 相关文件增多再收成子包。

@@ -50,14 +50,3 @@ async def test_push_lands_on_the_shared_queue_the_inlet_drains():
         render_injection(_inj("first"))["content"],
         render_injection(_inj("second"))["content"],
     ]
-
-
-@pytest.mark.asyncio
-async def test_drain_pending_snapshots_and_empties():
-    chan = SteerChannel()
-    await chan.push(_inj("a"))
-    await chan.push(_inj("b"))
-
-    pending = chan.drain_pending()
-    assert len(pending) == 2
-    assert chan.drain_pending() == []

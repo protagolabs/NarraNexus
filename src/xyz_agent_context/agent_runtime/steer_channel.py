@@ -28,7 +28,7 @@ different wording — while the injected message stays a plain ``user`` message
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from xyz_agent_context.schema.steer_schema import SteerInjection
 
@@ -60,17 +60,10 @@ class SteerChannel:
     async def push(self, inj: SteerInjection) -> None:
         # put_nowait on the run's own event loop — the queue is unbounded here
         # because the bounded, back-pressured edge is steer_inbox (the write
-        # edge); this queue is the already-admitted in-flight hand-off.
+        # edge); this queue is the already-admitted in-flight hand-off. The
+        # subprocess pump consumes it with `queue.get()`; the in-process inlet
+        # drains it directly.
         self.queue.put_nowait(render_injection(inj))
-
-    def drain_pending(self) -> List[ProviderMessage]:
-        """Snapshot-and-empty, non-blocking — the subprocess pump's read side."""
-        out: List[ProviderMessage] = []
-        while True:
-            try:
-                out.append(self.queue.get_nowait())
-            except asyncio.QueueEmpty:
-                return out
 
 
 __all__ = ["SteerChannel", "render_injection", "ProviderMessage"]
