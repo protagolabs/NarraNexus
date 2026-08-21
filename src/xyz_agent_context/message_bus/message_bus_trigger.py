@@ -2418,8 +2418,9 @@ class MessageBusTrigger:
                 # ROOM — so the line must not be written as the Leader chatting.
                 "On THIS turn you are composing the room's status line, not "
                 "speaking as yourself: write it as plain text (do NOT call "
-                "message_team) and the platform posts it as the room. Write "
-                "nothing at all to stay silent.",
+                "message_team or message_agent — neither of those two calls is "
+                "available on this turn) and the platform posts it as the room. "
+                "Write nothing at all to stay silent.",
             ]
             if patrol_stalled:
                 lines.append(
@@ -2581,27 +2582,47 @@ class MessageBusTrigger:
                     )
                     lines.append(f"- {_who(tm)}: {tm.content}{mark}")
                 lines.append(tail)
+        # Delivery mechanism — how words get INTO the room. TRUE ONLY when the
+        # reply is a `message_team` call, i.e. NOT on a patrol turn: there the
+        # platform posts the plain-text status line AS the room (the patrol block
+        # above says so), so "nothing outside the call reaches the room" is false
+        # and there is no call to make. Gating this is what stops the prompt from
+        # ordering `message_team` a hundred lines after forbidding it on patrol.
+        if patrol_stalled is None:
+            lines += [
+                "",
+                f"Speak in this room by calling message_team(team_id=\"{team_id}\", "
+                "text=...). Rules:",
+                "- Put ONLY the message in `text` — natural, conversational text "
+                "(markdown is fine). It goes to the group as-is; everyone sees it.",
+                # The room is a tool call now (2026-08-17). It used to be the
+                # agent's plain text, auto-posted by the trigger — which made
+                # this the one surface where "plain text reaches nobody" was
+                # false, and every layer that states the general rule
+                # contradicted this one. What replaced that ban is a positive
+                # instruction: nothing is forbidden here, there is simply one
+                # verb that puts words in the room.
+                "- Nothing you write outside that call reaches the room. Thinking "
+                "it through in plain text first is fine and private — but the "
+                "turn only speaks when you make the call.",
+                "- If you have nothing worth saying, make no call at all. Silence "
+                "is a legitimate answer here; a routine acknowledgement is not.",
+                "- You MAY use action tools alongside it: the built-in Read tool "
+                "to open a file path shown above, and team_share_file to publish "
+                "a file YOU produced to the team folder (then mention the returned "
+                "path in your message). Do the action, then say what you found.",
+            ]
+        # Writing + mention rules that hold WHATEVER the delivery surface —
+        # a `message_team` reply or a patrol status line. Unconditional, so
+        # patrol keeps the no-narration / mention / no-promise disciplines it
+        # also needs (it @mentions stalled owners, it must not promise). Its OWN
+        # blank line + header: the separator is NOT borrowed from the gated block
+        # above (which patrol does not get), or on patrol these bullets orphan
+        # onto the message history. The header is surface-neutral — "write" holds
+        # for both a message and a status line; no delivery-specific word.
         lines += [
             "",
-            f"Speak in this room by calling message_team(team_id=\"{team_id}\", "
-            "text=...). Rules:",
-            "- Put ONLY the message in `text` — natural, conversational text "
-            "(markdown is fine). It goes to the group as-is; everyone sees it.",
-            # The room is a tool call now (2026-08-17). It used to be the agent's
-            # plain text, auto-posted by the trigger — which made this the one
-            # surface where "plain text reaches nobody" was false, and every layer
-            # that states the general rule contradicted this one. What replaced
-            # that ban is a positive instruction: nothing is forbidden here, there
-            # is simply one verb that puts words in the room.
-            "- Nothing you write outside that call reaches the room. Thinking it "
-            "through in plain text first is fine and private — but the turn only "
-            "speaks when you make the call.",
-            "- If you have nothing worth saying, make no call at all. Silence is a "
-            "legitimate answer here; a routine acknowledgement is not.",
-            "- You MAY use action tools alongside it: the built-in Read tool to "
-            "open a file path shown above, and team_share_file to publish a file "
-            "YOU produced to the team folder (then mention the returned path in "
-            "your message). Do the action, then say what you found.",
+            "When you write for this room:",
             "- Do NOT narrate your process or thinking in the message. No "
             "\"Let me…\", no \"I need to find…\", no tool/function names, no "
             "step-by-step. Just talk.",

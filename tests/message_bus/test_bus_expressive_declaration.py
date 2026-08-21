@@ -227,3 +227,28 @@ async def test_a_patrol_turn_still_clears_both_send_verbs():
 
     assert q + "message_agent" in suppressed
     assert q + "message_team" in suppressed
+
+
+@pytest.mark.asyncio
+async def test_suppression_reads_each_turn_on_a_reused_instance():
+    """`get_disallowed_tools` still branches — patrol clears both, otherwise
+    nothing — so a long-lived instance that cached the turn kind on `self`
+    would answer a later turn with an earlier turn's suppression.
+
+    One instance, patrol -> bus -> patrol, the final return to patrol chosen so
+    an implementation that replays the previous (bus) answer `[]` cannot pass.
+    This is the suppression-side twin of the reminder guard above; the deleted
+    desk tests carried it, and dropping it would retire a guard for a class of
+    bug that actually shipped.
+    """
+    module = _module()
+    config = await module.get_mcp_config()
+    q = f"mcp__{config.server_name}__"
+    both = [q + "message_agent", q + "message_team"]
+
+    patrol = _ctx(WorkingSource.MESSAGE_BUS, bus_plain_text_turn=True)
+    bus = _ctx(WorkingSource.MESSAGE_BUS)
+
+    assert await module.get_disallowed_tools(patrol) == both
+    assert await module.get_disallowed_tools(bus) == []
+    assert await module.get_disallowed_tools(patrol) == both

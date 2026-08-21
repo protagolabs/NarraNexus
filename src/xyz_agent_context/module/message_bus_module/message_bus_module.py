@@ -712,7 +712,10 @@ class MessageBusModule(XYZBaseModule):
             names = {r["team_id"]: r["name"] for r in (team_rows or []) if r.get("name")}
             return {cid: names[tid] for cid, tid in rooms.items() if tid in names}
         except Exception as e:  # noqa: BLE001 — a label is never worth a turn
-            logger.debug(f"Failed to label team rooms: {e}")
+            # Warning, not debug: the static block tells the agent its unread
+            # queue is tagged by room, so a silently-empty label map mislabels
+            # every team-room message as a private one (the disciplines differ).
+            logger.warning(f"team room labels failed: {e}")
             return {}
 
     async def _team_address_book(self, db: Any, team_ids: list) -> list[dict]:
@@ -749,7 +752,12 @@ class MessageBusModule(XYZBaseModule):
                 if r.get("team_id")
             ]
         except Exception as e:  # noqa: BLE001 — an address book is never worth a turn
-            logger.debug(f"Failed to build team address book: {e}")
+            # Warning, not debug, and distinct from the wiring failure below:
+            # this carries a context PROMISE (the static block says every team
+            # is listed), so its silent failure is the core remedy going dark,
+            # not optional decoration. Fail-open stays — a book is not worth a
+            # turn — but it must be visible.
+            logger.warning(f"team address book fetch failed (names query): {e}")
             return []
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
@@ -789,7 +797,11 @@ class MessageBusModule(XYZBaseModule):
                     )
                     await sync_agent_discovery(db, self.agent_id)
             except Exception as e:
-                logger.debug(f"Failed to sync agent discovery row: {e}")
+                # Warning, not debug: this is the per-turn backstop for the P1
+                # (section 02, 488 prod rows) where discovery went stale and
+                # peers were reported as unconfigured. A silent failure lets that
+                # P1 recur with only a debug line to show for it.
+                logger.warning(f"agent discovery sync failed: {e}")
 
             # --- 2. Fetch known agents ---
             #
@@ -862,7 +874,11 @@ class MessageBusModule(XYZBaseModule):
                 if known_agents:
                     ctx_data.extra_data["bus_known_agents"] = known_agents
             except Exception as e:
-                logger.debug(f"Failed to fetch known agents: {e}")
+                # Warning, not debug: the static block promises "everyone else
+                # you can reach is in your Known Agents list" and builds the
+                # "ask another agent" errand on it (the 2026-08-02 P1). A silent
+                # empty list reruns that P1 with only a debug line to show for it.
+                logger.warning(f"known agents fetch failed (agents scan): {e}")
 
             # --- 2b. Standing "your teams" address book ---
             #
@@ -882,7 +898,10 @@ class MessageBusModule(XYZBaseModule):
                     if bus_teams:
                         ctx_data.extra_data["bus_teams"] = bus_teams
             except Exception as e:
-                logger.debug(f"Failed to build team address book: {e}")
+                # Distinct from the producer's own fetch failure above: this is
+                # the wiring around it (getting the shared db). Warning for the
+                # same reason — the address book is this change's core remedy.
+                logger.warning(f"team address book wiring failed (db handle): {e}")
 
             # --- 3. Fetch unread messages (capped) ---
             # The cap is pushed into the query, and it selects the NEWEST ones.
@@ -908,7 +927,11 @@ class MessageBusModule(XYZBaseModule):
                         {m.channel_id for m in unread if m.channel_id}
                     )
             except Exception as e:
-                logger.debug(f"Failed to fetch unread messages: {e}")
+                # Warning, not debug: the static block tells the agent its
+                # unread messages "are already in this turn's context. You do
+                # not need to fetch them." A silent failure drops the inbox while
+                # the prompt still says not to go looking for it.
+                logger.warning(f"unread fetch failed: {e}")
 
             # --- 4. (removed) channel list ---
             #
@@ -1116,5 +1139,10 @@ async def _get_shared_db():
         from xyz_agent_context.utils.db.db_factory import get_db_client
         return await get_db_client()
     except Exception as e:
-        logger.debug(f"Failed to get shared DB client: {e}")
+        # Warning, not debug: returning None here is the ONE way the callers'
+        # `if db:` guards fall through silently (they never reach their own
+        # except), so this is where a lost db handle must become visible — the
+        # address book / discovery / known-agents that ride on it all go dark
+        # otherwise, and the static block still promises them.
+        logger.warning(f"shared DB client unavailable: {e}")
         return None
