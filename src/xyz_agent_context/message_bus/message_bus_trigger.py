@@ -785,11 +785,13 @@ class MessageBusTrigger:
 
         dispatched = 0
         for agent_id, channel_id in candidates:
-            # This lane's previous turn is still going; the per-lane lock would
-            # make a second dispatch wait, but not spawning it at all is cheaper
-            # and keeps `_in_flight` one entry per lane. A DIFFERENT lane of the
-            # same agent is not skipped — that is the concurrency this enables.
+            # This lane's previous turn is still going. Rather than wait for it
+            # to end (the old `continue`), STEER: push the new messages into the
+            # running loop so the agent sees them this turn. Only works if the
+            # run registered a SteerChannel (team runs do); otherwise the
+            # messages stay queued for the next turn.
             if (agent_id, channel_id) in self._in_flight:
+                await self._route_steer(agent_id, channel_id)
                 continue
             self._dispatch(agent_id, channel_id)
             dispatched += 1
@@ -1081,6 +1083,67 @@ class MessageBusTrigger:
                 handled_any = True
         return handled_any
 
+    async def _route_steer(self, agent_id: str, channel_id: str) -> None:
+        """Steer a running lane's new messages into its live run instead of
+        dispatching a fresh turn.
+
+        No-op if the lane's run is not steerable — no registered SteerChannel
+        (a peer DM, or the tiny window before the run's id binds). Those
+        messages stay queued and dispatch as a fresh turn once the lane frees.
+
+        Never loses a message and never breaks the poll cycle: the processing
+        cursor advances ONLY for messages actually delivered (or deliberately
+        un-addressed), and any failure leaves the batch queued and is swallowed.
+        """
+        from xyz_agent_context.agent_runtime.run_registry import get_run_registry
+
+        run = get_run_registry().live_run(agent_id, channel_id)
+        if run is None:
+            return
+        try:
+            pending = await self._bus.get_pending_messages(agent_id)
+            messages = [m for m in pending if m.channel_id == channel_id]
+            if not messages:
+                return
+            channel_type, channel_owner = await self._get_channel_info(channel_id)
+            relevant = [
+                m for m in messages
+                if self._should_process_message(m, agent_id, channel_type, channel_owner)
+            ]
+            if not relevant:
+                # Un-addressed: advance the cursor so they do not re-scan every
+                # cycle — the same ack the dispatch path does for a mute batch.
+                latest = max(messages, key=lambda m: str(m.created_at))
+                await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
+                return
+
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.schema.steer_schema import SteerInjection
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            inbox = SteerInboxRepository(await get_db_client())
+            for m in relevant:
+                inj = SteerInjection(
+                    run_id=run.run_id, msg_id=m.message_id, role="user",
+                    content=m.content, sender_id=m.from_agent, source="team",
+                )
+                # steer_inbox is the durable record AND the dedup: push into the
+                # loop only on a NEW row, so a message re-seen before its ack
+                # never double-injects.
+                if await inbox.append(inj):
+                    await run.steer.push(inj)
+            # Delivered — advance the processing cursor so these do not also
+            # start a fresh turn.
+            latest = max(relevant, key=lambda m: str(m.created_at))
+            await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
+        except Exception as e:  # noqa: BLE001 — a steer failure must not break the loop
+            logger.warning(
+                f"[steer] route into live run for {(agent_id, channel_id)} "
+                f"failed, messages left queued: {type(e).__name__}: {e}"
+            )
+
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent
         is unknown and None when the LOOKUP failed (resolve_owner's split) —
@@ -1345,9 +1408,32 @@ class MessageBusTrigger:
                 # keeps the poll loop alive for a run that is gone.
                 stack.callback(lambda: watcher.unregister(watched_run_id[0]))
 
+                # Live steering: a team run is steerable — a message that arrives
+                # while it runs is pushed into its loop instead of waiting for a
+                # fresh turn. The SteerChannel is created now (so `_invoke_runtime`
+                # hands it to the loop) and registered in the RunRegistry once the
+                # run has an id (mirroring the cancel watcher). Released however
+                # the body exits, so the poll loop never steers into a gone run.
+                from xyz_agent_context.agent_runtime.run_registry import (
+                    get_run_registry,
+                )
+                from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
+
+                steer_channel = SteerChannel() if is_team else None
+                steer_run_id: list[str] = [""]
+                stack.callback(
+                    lambda: steer_channel is not None
+                    and get_run_registry().release(steer_run_id[0])
+                )
+
                 async def on_event_id(run_id: str) -> None:
                     watched_run_id[0] = run_id
                     watcher.register(run_id, cancellation)
+                    if steer_channel is not None:
+                        steer_run_id[0] = run_id
+                        get_run_registry().register(
+                            agent_id, channel_id, run_id, steer_channel
+                        )
                     if note_event_id is not None:
                         await note_event_id(run_id)
 
@@ -1383,6 +1469,7 @@ class MessageBusTrigger:
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     cancellation=cancellation,
+                    steering=steer_channel,
                     # No monologue harvest on a reply turn: a team reply is a
                     # tool call (`message_team`) now, so `include_monologue`
                     # stays False here and is passed only by the patrol path.
@@ -3036,6 +3123,7 @@ class MessageBusTrigger:
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
+        steering=None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -3154,6 +3242,10 @@ class MessageBusTrigger:
             # this was always the runtime's own no-op token, which is why a
             # bus run could not be stopped from anywhere.
             cancellation=cancellation,
+            # Same explicit seam as cancellation: a live SteerChannel this run
+            # drains at each step boundary. None on non-steerable runs (no
+            # mid-turn injection). See run_registry / steer_channel.
+            steering=steering,
             # Same seam. A team room's reply has to be POSTED inside the turn:
             # the chat rows are written by hook_persist_turn before run()
             # returns, so a post that lands after it cannot be recorded as a

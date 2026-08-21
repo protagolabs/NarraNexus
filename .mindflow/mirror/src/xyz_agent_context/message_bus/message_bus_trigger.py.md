@@ -1505,3 +1505,14 @@ hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确�
 
 `_process_agent(agent)` 保留为**跨 lane 集约**(委托 `_process_lane` per channel + 同一 circuit-breaker 门),
 不含独立逻辑——供按 agent 思考的调用方/测试;生产走 per-lane 并发 dispatch。
+
+## 2026-08-21(补)— steer 路由:in-flight lane 的新消息注入活 run
+
+`_poll_cycle` 里 lane 在飞时不再干等,调 `_route_steer`。**起可 steer 的 run**:team turn 在
+`_handle_channel_batch` 建 `SteerChannel`,`on_event_id`(run id 绑定处,同 cancel watcher)登
+`RunRegistry(agent, channel, run_id, channel)`,`stack.callback` 无论怎么退出都 release;`_invoke_runtime`
+把 channel 当 `steering=` 传 run_and_collect(→ loop drain)。**steer 决定**(`_route_steer`):查
+`RunRegistry.live_run(agent, channel)`,没有(peer DM / id 未绑的小窗口)→ 消息留队列走新 turn;有 →
+取该 lane 新消息、@mention 过滤,每条写 `steer_inbox`(持久+去重,`append` 返 True 才 push 进 channel,
+防跨 cycle 二次注入)、push,最后 `ack_processed` 推进 processing 游标(不再触发新 turn)。**绝不丢消息、
+绝不掀翻 poll 循环**:只对已投递/已明确无关的消息推游标,任何异常吞掉、消息留队列。
