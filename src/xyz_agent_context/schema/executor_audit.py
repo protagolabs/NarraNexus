@@ -27,6 +27,14 @@ EVENT_CONTAINER_STARTED = "container_started"
 EVENT_REUSED = "reused"
 EVENT_CULLED = "culled"
 EVENT_ORPHAN_REAPED = "orphan_reaped"
+# The idle cull picked a user, then backed off because a run was live in
+# ANOTHER process (executor_reaper._CullVeto). Every row is one agent run the
+# pre-fix reaper would have killed mid-flight — the L3 measure of the
+# cross-process guard. Only real run ids land here: "we could not tell"
+# (recording switch pulled, DB unreachable) is logged, not audited, so a zero
+# here does NOT mean the guard was unaffected. A rate that suddenly drops to
+# zero is a reason to check the guard still runs.
+EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"
 EVENT_OOM_KILLED = "oom_killed"
 EVENT_OOM_RETRY_OK = "oom_retry_ok"
 EVENT_OOM_GAVE_UP = "oom_gave_up"
@@ -55,6 +63,7 @@ ExecutorEventType = Literal[
     "reused",
     "culled",
     "orphan_reaped",
+    "cull_skipped_busy",
     "oom_killed",
     "oom_retry_ok",
     "oom_gave_up",

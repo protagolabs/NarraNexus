@@ -1,9 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-08-10
+last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 — 新增 event_type `cull_skipped_busy`
+
+空闲回收器选中了一个用户，又因为**别的进程里有 run 活着**而退让时写入
+（[[executor_reaper.py]]）。**无需迁移**（event_type 是 VARCHAR(32) 字符串
+约定）。
+
+怎么读这个指标：每一行 = 一个 2026-08-21 之前的回收器**会当场掐死的在途
+run**，是跨进程护栏的 L3 度量。只有**真实 run id** 会落这张表 —— "判不出来"
+（recording 开关被拉、DB 拨不通）只打日志不写行，其中 DB 拨不通那种本来也
+写不进去（要用的正是刚失败的那个 client）。所以**这里是零不等于护栏没事**；
+突然掉到零要去查护栏是不是没跑，而不是当成问题消失了（事故教训 #4/#5）。
 ## 2026-08-10 — 新增 event_type `mcp_auth_denied` + `mcp_auth_tokenless`（MCP caller auth）
 
 `mcp_auth_denied`：验签身份对不属于自己的 agent_id 发起工具调用时写入

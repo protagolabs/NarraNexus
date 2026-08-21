@@ -237,6 +237,13 @@ _register(
             # Phase C: filter running rows for reconcile + active_run lookup
             Index("idx_events_state", ["state"]),
             Index("idx_events_agent_state", ["agent_id", "state"]),
+            # "does this user have a live run?" — the reaper's cross-process
+            # veto, asked once per candidate per pass. Without the composite,
+            # MySQL picks idx_events_user_id and row-filters on state, so a
+            # long-tenured user pays for their whole history — worst for the
+            # heaviest accounts, and growing forever since events is never
+            # pruned.
+            Index("idx_events_user_state", ["user_id", "state"]),
             # Cascade stop's only hot path: "every still-running run in this
             # tree". Composite because the flag write always filters on both.
             Index("idx_events_root_state", ["root_run_id", "state"]),
