@@ -178,20 +178,20 @@ def test_the_delivery_rule_names_no_surface_specific_tool():
             f"block is the P1 violation this file exists to catch"
         )
 
-def test_the_block_says_cross_channel_calls_are_available_this_turn():
-    """The block teaches both verbs; the turn can call either. It has to say so.
+def test_the_block_does_not_confine_the_agent_to_the_trigger_channel():
+    """The block teaches both verbs; the turn is not confined to one. It says so.
 
     2026-08-20 — capability follows the agent, not the trigger channel.
     `get_disallowed_tools` no longer removes the non-default verb's schema, so
-    the block must tell the agent it can reach its other conversations THIS
-    turn — not defer them to a future one. The old dead-end wording ("finish
-    this turn; a fresh one will have that call") was the prose face of the drop
-    the redesign removed; asserting it is gone stops the reflex-arc framing from
-    being quietly restored.
+    the block must tell the agent it is not confined to the conversation that
+    woke it. The old dead-end wording ("finish this turn; a fresh one will have
+    that call") was the prose face of the drop the redesign removed; asserting
+    it is gone stops the reflex-arc framing from being quietly restored.
 
-    Byte-stability (R4) still rules out branching, so the sentence must be true
-    on every surface: 'a plain reply goes where you were spoken to; you may also
-    reach any team or peer you belong to.'
+    Byte-stability (R4) still rules out branching, so the sentence carries a
+    surface-blind hedge — 'unless this turn's own prompt says otherwise' — which
+    is what keeps it TRUE on patrol (where both verbs are genuinely off the
+    desk) without naming that surface. That hedge is asserted, not optional.
     """
     text = _static_text()
     low = text.lower()

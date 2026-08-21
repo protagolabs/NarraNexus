@@ -2418,7 +2418,8 @@ class MessageBusTrigger:
                 # ROOM — so the line must not be written as the Leader chatting.
                 "On THIS turn you are composing the room's status line, not "
                 "speaking as yourself: write it as plain text (do NOT call "
-                "message_team) and the platform posts it as the room. Write "
+                "message_team or message_agent — no bus send tool is on the "
+                "desk this turn) and the platform posts it as the room. Write "
                 "nothing at all to stay silent.",
             ]
             if patrol_stalled:

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — patrol 注入的「别调发送工具」对齐 suppression 实际范围（🟢 review 收尾）
+
+PR#339 合并后 🟢 收尾:patrol 状态行注入原来只写 `do NOT call message_team`,但 patrol 轮 `get_disallowed_tools` 把 **message_team 和 message_agent 两个都摘**。改为 `do NOT call message_team or message_agent — no bus send tool is on the desk this turn`,让 [[message_bus_module.py]] 静态块那句 `unless this turn's own prompt says otherwise` 的对冲在两个动词上都由「本轮 prompt 显式否定」兜住,不再靠「write it as plain text」隐式覆盖 message_agent。**只点这两个 bus 动词**——`reply_owner`/`notify_owner` 在 patrol 不被摘（ChatModule patrol `return []`），写进去就成假声明。`test_expressive_collection.py:361` 的 docstring 引文同步。
 
 ## 2026-08-20 — 通信能力跟着 agent 走：文案跟随 module 改动
 

@@ -749,7 +749,12 @@ class MessageBusModule(XYZBaseModule):
                 if r.get("team_id")
             ]
         except Exception as e:  # noqa: BLE001 — an address book is never worth a turn
-            logger.debug(f"Failed to build team address book: {e}")
+            # Warning, not debug, and distinct from the wiring failure below:
+            # this carries a context PROMISE (the static block says every team
+            # is listed), so its silent failure is the core remedy going dark,
+            # not optional decoration. Fail-open stays — a book is not worth a
+            # turn — but it must be visible.
+            logger.warning(f"team address book fetch failed (names query): {e}")
             return []
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
@@ -882,7 +887,10 @@ class MessageBusModule(XYZBaseModule):
                     if bus_teams:
                         ctx_data.extra_data["bus_teams"] = bus_teams
             except Exception as e:
-                logger.debug(f"Failed to build team address book: {e}")
+                # Distinct from the producer's own fetch failure above: this is
+                # the wiring around it (getting the shared db). Warning for the
+                # same reason — the address book is this change's core remedy.
+                logger.warning(f"team address book wiring failed (db handle): {e}")
 
             # --- 3. Fetch unread messages (capped) ---
             # The cap is pushed into the query, and it selects the NEWEST ones.
