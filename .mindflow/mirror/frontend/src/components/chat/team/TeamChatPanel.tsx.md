@@ -9,8 +9,10 @@ stub: false
 **公告栏/工作板「没了」的真因是发现性**：v4 改版后房间右侧的成员/工作区/公告栏三个
 toggle 都是**只有 icon 的裸按钮**（只有 title/aria-label，没有可见文字），用户认不出
 哪枚图标是公告栏。修复：三个 toggle（`members-toggle` / `artifacts-toggle` / bulletin）
-各加可见文字标签（成员 / 工作区 / 公告栏），标签用 `hidden sm:inline` 在窄屏降级避免
-挤压头像条。**没动共享抽屉的 pin 设计**——`usePinnedDrawer`
+各加**始终可见**的文字标签（成员 / 工作区 / 公告栏）。第一版用 `hidden sm:inline` 降级,但
+<640px 上又变回裸 icon、病因原样保留(移动端是被支持的 surface,member bar 无替代布局);
+改成让空间从可收缩处来——头像条(`overflow-x-auto`)补 `min-w-0` 才真能让宽,三个 shrink-0
+的 toggle 就能全断点保持带字。**没动共享抽屉的 pin 设计**——`usePinnedDrawer`
 刻意让单聊与 team 房间共用 pin 键，强行解耦会跟既有架构对着干，且自动展开未 pin 的
 瞬态抽屉会用整屏背板吃掉用户第一次点击（见 `drawerTab` 初始化注释）。标签化是既完整
 又不违背架构的修法。

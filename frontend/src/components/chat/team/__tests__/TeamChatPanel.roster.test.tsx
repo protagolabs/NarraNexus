@@ -55,12 +55,13 @@ import { TeamChatPanel } from '../TeamChatPanel';
 const AGENTS = [
   { agent_id: 'a1', name: 'Ana' },
   { agent_id: 'a2', name: 'Bruno' },
+  { agent_id: 'a3', name: 'Cy' },
 ];
 
 const TEAMS = [
   {
     team: { team_id: 't1', name: 'Desk', owner_user_id: 'usr_1', source: 'local' },
-    member_agent_ids: ['a1', 'a2'],
+    member_agent_ids: ['a1', 'a2', 'a3'],
   },
 ];
 
@@ -211,8 +212,8 @@ describe('TeamChatPanel · discoverable panel chrome', () => {
   test('the members (roster/work-board) toggle shows a visible label', async () => {
     await renderRoom([RUNNING]);
     const toggle = screen.getByTestId('members-toggle');
-    // jsdom has no CSS breakpoints, so the `hidden sm:inline` label text node is
-    // present here — this covers the desktop rendering the label targets.
+    // Labels are always visible (the avatar bar yields width via min-w-0), so
+    // this holds on every breakpoint, not just desktop.
     expect(within(toggle).getByText('chat.team.roster.title')).toBeTruthy();
   });
 
@@ -224,20 +225,58 @@ describe('TeamChatPanel · discoverable panel chrome', () => {
 });
 
 describe('TeamChatPanel · set lead from the roster', () => {
-  test('a failed set-lead PATCH rolls the lead back', async () => {
-    updateTeamMock.mockResolvedValue({ success: false });
-    // lead starts as a1 (renderRoom stubs lead_agent_id: 'a1').
+  // The observable is that `set-lead-<id>` only renders for a NON-lead member,
+  // so the optimistic write must first make the affordance DISAPPEAR (a2 became
+  // lead) and the rollback must bring it BACK (a2 is not lead again). A deferred
+  // promise separates the two so the intermediate state actually renders — a
+  // plain resolved mock batches both sets into one render and would let an
+  // empty handler pass.
+  test('optimistic set then rollback on a failed PATCH', async () => {
+    let resolvePatch!: (v: unknown) => void;
+    updateTeamMock.mockReturnValue(
+      new Promise((r) => {
+        resolvePatch = r;
+      }),
+    );
+    await renderRoom([RUNNING, IDLE_WITH_TRACE]); // lead starts as a1
+
+    fireEvent.click(screen.getByTestId('roster-row-a2'));
+    fireEvent.click(await screen.findByTestId('set-lead-a2'));
+
+    // Optimistic: a2 is now lead, so its set-lead affordance is gone.
+    await waitFor(() =>
+      expect(screen.queryByTestId('set-lead-a2')).toBeNull(),
+    );
+    expect(updateTeamMock).toHaveBeenCalledWith('t1', { lead_agent_id: 'a2' });
+
+    // The PATCH fails → rollback → a2 is not lead again → affordance returns.
+    resolvePatch({ success: false });
+    await waitFor(() =>
+      expect(screen.getByTestId('set-lead-a2')).toBeTruthy(),
+    );
+  });
+
+  test('a second click while the first PATCH is in flight is ignored', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    updateTeamMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveFirst = r;
+      }),
+    );
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);
 
-    // Expand a2's roster row; it is not the lead, so it offers "set lead".
     fireEvent.click(screen.getByTestId('roster-row-a2'));
-    const btn = await screen.findByTestId('set-lead-a2');
-    fireEvent.click(btn);
+    fireEvent.click(await screen.findByTestId('set-lead-a2'));
+    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(1));
 
-    // The PATCH failed, so a2 must NOT stay lead — the affordance (only shown
-    // for a NON-lead member) has to come back after the optimistic rollback.
-    await waitFor(() => expect(screen.getByTestId('set-lead-a2')).toBeTruthy());
-    expect(updateTeamMock).toHaveBeenCalledWith('t1', { lead_agent_id: 'a2' });
+    // While a2's PATCH is unresolved, try to set a different member as lead.
+    fireEvent.click(screen.getByTestId('roster-row-a3'));
+    fireEvent.click(await screen.findByTestId('set-lead-a3'));
+
+    // The in-flight guard rejects it: still exactly one PATCH.
+    expect(updateTeamMock).toHaveBeenCalledTimes(1);
+    resolveFirst({ success: true }); // flush so settingLeadRef clears
+    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(1));
   });
 });
 

@@ -14,12 +14,13 @@ dependency injection in MCP tool modules.
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any, Callable, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_audit_events import EVENT_INBOX_WRITE_FAILED
 from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
+from xyz_agent_context.services.service_audit import ServiceAuditor
 
 # Both send tools stamp WHICH KIND of turn is sending: an owner-facing turn
 # means this is an errand question (the recipient must answer US), a
@@ -131,7 +132,9 @@ async def _record_peer_dm_inbox(
     On failure it books an ``inbox_write_failed`` audit ROW (CLAUDE.md lesson
     #5: a DB trace outlives a rotated log) plus a stable log line, so
     "the inbox dropped a peer message" is diagnosable from the database — the
-    same contract the IM triggers honor.
+    same contract the IM triggers honor. The audit path uses the public
+    ``ServiceAuditor.event`` and its imports are module-level, so nothing in the
+    ``except`` body can itself raise and invert the delivered send.
     """
     try:
         from xyz_agent_context.channel.inbox_recorder import InboxRecorder
@@ -142,10 +145,15 @@ async def _record_peer_dm_inbox(
         if not owner:
             # No resolvable owner: skip rather than pin a thread to owner="".
             return
-        from_row = await db.get_one("agents", {"agent_id": from_agent})
         to_row = await db.get_one("agents", {"agent_id": to_agent})
+        if to_row is None:
+            # The recipient id does not name a real agent (the cross-user guard
+            # only blocks a KNOWN other-owner agent, so an invented id sends and
+            # would otherwise create a thread for a peer that does not exist).
+            return
+        from_row = await db.get_one("agents", {"agent_id": from_agent})
         from_name = (from_row or {}).get("agent_name") or from_agent
-        to_name = (to_row or {}).get("agent_name") or to_agent
+        to_name = to_row.get("agent_name") or to_agent
         await InboxRecorder("agent_dm", "Agent").record_peer_message(
             db=db,
             owner_user_id=owner,
@@ -161,13 +169,13 @@ async def _record_peer_dm_inbox(
             f"[agent-dm-inbox] write failed {from_agent} -> {to_agent}: "
             f"{type(e).__name__}: {e}"
         )
-        with contextlib.suppress(Exception):
-            from xyz_agent_context.channel.channel_audit_events import (
-                EVENT_INBOX_WRITE_FAILED,
-            )
-            from xyz_agent_context.services.service_audit import ServiceAuditor
-
-            await ServiceAuditor("message_bus_mcp")._emit(
+        # Book the failure as a DB audit row (public `event`, not the private
+        # `_emit`). Guarded on its own — a NARROW try around only the audit
+        # write, not a blanket suppress over the block — so that even if the
+        # audit path itself raised it could never escape and turn an
+        # already-delivered send into `success: false`.
+        try:
+            await ServiceAuditor("message_bus_mcp").event(
                 EVENT_INBOX_WRITE_FAILED,
                 {
                     "from_agent": from_agent,
@@ -175,6 +183,8 @@ async def _record_peer_dm_inbox(
                     "error": f"{type(e).__name__}: {e}",
                 },
             )
+        except Exception:  # noqa: BLE001 — audit is best-effort
+            logger.warning("[agent-dm-inbox] audit write failed too")
 
 
 async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:

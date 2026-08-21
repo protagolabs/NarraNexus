@@ -851,7 +851,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         {/* Roster — the user (carbon/human) sits first, then the team's agents
             (silicon). The user is a participant in this room, so their avatar
             belongs in the bar alongside the agents. */}
-        <div className="flex items-center gap-1.5 ml-2 overflow-x-auto">
+        <div className="flex min-w-0 items-center gap-1.5 ml-2 overflow-x-auto">
           <span title={t('chat.team.youTitle', { name: userLabel })} className="shrink-0">
             <RingAvatar species="carbon" label={(userLabel || '?').slice(0, 2)} size="sm" />
           </span>
@@ -859,7 +859,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             <span className="w-px h-5 bg-[var(--nm-hairline)] mx-0.5 shrink-0" aria-hidden />
           )}
           {members.map((m) => {
-            // The default responder wears a dot: "who answers when I address
+            // The team lead wears a dot: "who answers when I address
             // nobody" is otherwise invisible, and it is the single most useful
             // thing to know about a room you just opened.
             const isLead = m.agent_id === leadAgentId;
@@ -907,7 +907,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <Users2 className="w-3.5 h-3.5" />
-          <span className="hidden text-[11px] sm:inline">{t('chat.team.roster.title')}</span>
+          <span className="text-[11px]">{t('chat.team.roster.title')}</span>
         </button>
 
         {/* The addressing rules, on demand. The empty room's hero states them
@@ -946,7 +946,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
-          <span className="hidden text-[11px] sm:inline">{t('rail.artifacts')}</span>
+          <span className="text-[11px]">{t('rail.artifacts')}</span>
           {wsArtifacts.length > 0 && (
             <span className="text-[10px] font-mono">{wsArtifacts.length}</span>
           )}
@@ -979,7 +979,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ClipboardList className="w-3.5 h-3.5" />
-          <span className="hidden text-[11px] sm:inline">{t('chat.team.bulletin.title')}</span>
+          <span className="text-[11px]">{t('chat.team.bulletin.title')}</span>
           {(bulletin?.usage.entry_count ?? 0) > 0 && (
             <span className="text-[10px] font-mono" data-testid="bulletin-count">
               {bulletin?.usage.entry_count}

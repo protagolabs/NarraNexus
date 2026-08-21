@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/inbox_recorder.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -15,6 +15,11 @@ agent-to-agent 写侧。IM 用 `record_turn`（一轮 = inbound+可选 reply 两
 A2A 同 owner，两个线程共用一个 owner。每个 agent 的收件箱线程因此显示完整往返（自己发的
 + 对方发来的）。`_record_one_way` 复用 `_ensure_thread`/`_insert_message`，只是写单条而非
 一轮两行。空正文且无附件直接跳过。守卫见 `tests/message_bus/test_agent_dm_inbox.py`。
+
+**`source_message_id` 有意留 NULL**：该列带 UNIQUE 索引（一条源消息对一行），适配 IM 的
+1:1 inbound→row，却**不适配** A2A——一条 bus 消息落成两行（发送方 out + 收件方 in），两行
+都写同一个 bus id 会撞唯一约束（实测 IntegrityError）。A2A 若要回连 `bus_messages` 需另设键，
+超出本次范围。
 
 # inbox_recorder.py — 把一轮对话记进 inbox 自己的表
 

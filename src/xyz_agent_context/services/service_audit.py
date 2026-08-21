@@ -66,6 +66,16 @@ class ServiceAuditor:
         except Exception as e:  # noqa: BLE001 — observer never breaks observed
             logger.warning(f"[ServiceAudit] {self.service}/{event_type} failed: {e}")
 
+    async def event(self, event_type: str, detail: Any = None) -> None:
+        """Emit an arbitrary named audit event.
+
+        The public door onto ``_emit`` for callers that need an event name
+        outside the started/stopped/error/heartbeat lifecycle (e.g. a tool
+        booking ``inbox_write_failed``). Like the rest, it never raises —
+        an observer must not break the observed.
+        """
+        await self._emit(event_type, detail)
+
     async def started(self, detail: Any = None) -> None:
         await self._emit(EVENT_STARTED, detail)
 

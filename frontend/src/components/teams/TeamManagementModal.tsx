@@ -333,7 +333,7 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                   </div>
                 </div>
 
-                {/* Default responder — the agent that answers a team message
+                {/* Team lead — the agent that answers a team message
                     with no @mention. "Auto" = the earliest-joined member. */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
                   <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>

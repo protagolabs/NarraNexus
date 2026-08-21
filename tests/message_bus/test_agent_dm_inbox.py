@@ -47,6 +47,10 @@ def _patch_db(monkeypatch, db_client):
     monkeypatch.setattr(
         "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
     )
+    # ServiceAuditor resolves its db via `xyz_agent_context.utils.get_db_client`
+    # (a separate binding from the db_factory one), so patch it too or the audit
+    # rows would land in the real DB instead of the test one.
+    monkeypatch.setattr("xyz_agent_context.utils.get_db_client", _async_db)
 
 
 def _tools(db_client):
@@ -140,6 +144,79 @@ async def test_message_agent_tool_fills_both_inboxes(db_client, monkeypatch):
     assert [(m["direction"], m["content"]) for m in b_msgs] == [
         ("in", "ping from Alice")
     ]
+
+
+@pytest.mark.asyncio
+async def test_send_succeeds_and_audits_when_recording_fails(db_client, monkeypatch):
+    """A recorder failure must NOT invert an already-delivered send, and it must
+    leave a DB audit row (not just a log that rotates away)."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+    captured, _ = _tools(db_client)
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("inbox table gone")
+
+    monkeypatch.setattr(InboxRecorder, "record_peer_message", _boom)
+
+    res = await captured["message_agent"](agent_id=A, to=B, text="still delivered")
+    assert res["success"] is True, "a recorder failure inverted a delivered send"
+
+    audit = await db_client.get(
+        "service_audit",
+        {"service": "message_bus_mcp", "event_type": "inbox_write_failed"},
+    )
+    assert len(audit) == 1, "the inbox write failure left no audit row"
+
+
+@pytest.mark.asyncio
+async def test_send_succeeds_even_if_audit_write_also_raises(db_client, monkeypatch):
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A, "Alice")
+    await _agent(db_client, B, "Bob")
+    captured, _ = _tools(db_client)
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("inbox down")
+
+    async def _audit_boom(*_a, **_k):
+        raise RuntimeError("audit down too")
+
+    monkeypatch.setattr(InboxRecorder, "record_peer_message", _boom)
+    monkeypatch.setattr(
+        "xyz_agent_context.services.service_audit.ServiceAuditor.event", _audit_boom
+    )
+
+    res = await captured["message_agent"](agent_id=A, to=B, text="delivered anyway")
+    assert res["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_no_thread_when_owner_unresolved(db_client, monkeypatch):
+    """An agent whose owner cannot be resolved must not pin a thread to owner=''."""
+    _patch_db(monkeypatch, db_client)
+    # created_by="" -> _resolve_owner_user_id returns "" -> skip recording.
+    await _agent(db_client, A, "Alice", owner="")
+    await _agent(db_client, B, "Bob", owner="")
+    captured, _ = _tools(db_client)
+
+    res = await captured["message_agent"](agent_id=A, to=B, text="no owner")
+    assert res["success"] is True
+    assert await db_client.get("inbox_threads", {}) == []
+
+
+@pytest.mark.asyncio
+async def test_no_thread_when_recipient_agent_missing(db_client, monkeypatch):
+    """Sending to an invented id (not a real agent) must not create a phantom
+    thread — the cross-user guard only blocks a KNOWN other-owner agent."""
+    _patch_db(monkeypatch, db_client)
+    await _agent(db_client, A, "Alice")
+    captured, _ = _tools(db_client)
+
+    res = await captured["message_agent"](agent_id=A, to="agent_ghost", text="hi?")
+    assert res["success"] is True
+    assert await db_client.get("inbox_threads", {}) == []
 
 
 @pytest.mark.asyncio

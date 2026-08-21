@@ -15,8 +15,12 @@ stub: false
 
 **永不反转已成功的发送**（同 `_describe_agent` 的契约）：记录失败只 `logger.warning` +
 落一条 `inbox_write_failed` 审计行（CLAUDE.md 教训 #5：DB 痕迹比会 rotate 的 log 可靠），
-绝不把已投递的消息报成 `success:false`。owner 解析不到就跳过、不拿空 owner 建线程。守卫见
-`tests/message_bus/test_agent_dm_inbox.py::test_message_agent_tool_fills_both_inboxes`。
+绝不把已投递的消息报成 `success:false`。审计走 [[service_audit.py]] 的**公开** `event()`
+(不碰私有 `_emit`),且外套一层**只包审计写入本身**的窄 try——连审计自己抛也吞掉,决不
+逃逸。owner 解析不到、或收件人 id 不是真 agent(`to_row is None`,跨用户闸只挡已知的
+他人 agent、挡不住编造的 id)都直接跳过,不建空 owner / 幽灵线程。守卫见
+`tests/message_bus/test_agent_dm_inbox.py`(填双收件箱 / 失败仍 success+审计行 / 审计自身
+抛仍 success / 空 owner 不建线程 / 收件人不存在不建线程)。
 
 ## 2026-08-19 — create_team 做实（不再是 bus_create_channel 改名）
 

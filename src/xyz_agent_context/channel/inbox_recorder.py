@@ -225,6 +225,13 @@ class InboxRecorder:
         Re-raises on failure (like ``record_turn``): the caller decides whether
         an inbox miss is worth an audit row, and must not let it invert the
         outcome of the send that already succeeded.
+
+        ``source_message_id`` is left NULL here on purpose. The column carries a
+        UNIQUE index (one inbox row per source message), which fits IM's 1:1
+        inbound→row mapping but NOT A2A's shape: one bus message becomes TWO
+        rows (the sender's outbound and the recipient's inbound), so stamping
+        both with the same bus id violates the constraint. A join back to
+        ``bus_messages`` for A2A would need a different key; that is out of scope.
         """
         if not (content and content.strip()) and not attachments:
             return
