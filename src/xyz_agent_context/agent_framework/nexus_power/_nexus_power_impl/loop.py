@@ -11,7 +11,9 @@ gate is sustainable).
 Phases per step: PROJECT (compaction check + context projection) →
 MODEL_STREAM (typed events out of the model client; argument-field
 streaming for declared tools) → DISPATCH (policy-checked execution) →
-DRAIN_STEERING (v1: always empty) → STOP_CHECK (v1: no actions = stop).
+DRAIN_STEERING (default NullSteeringInlet is empty; QueueSteeringInlet
+is the live source, transport not yet wired) → STOP_CHECK (v1: no
+actions = stop).
 
 Hard guarantees:
   - cancellation lands at safe boundaries and NEVER splits a
