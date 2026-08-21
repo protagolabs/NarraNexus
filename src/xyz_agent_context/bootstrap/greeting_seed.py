@@ -14,12 +14,18 @@ chat table: `chat_module.seed_bootstrap_greeting`.
 
 The gate MUST match the hook's `bootstrap_active`, not merely "has a greeting in
 metadata". `agent_metadata["bootstrap_greeting"]` is written once at provision
-and never cleared, so gating on it alone would re-greet EVERY new narrative the
-agent opens for its whole life (each new narrative gets a fresh empty chat
-instance, and the writer's idempotency guard is per-instance). `bootstrap_active`
-expires: Bootstrap.md is auto-deleted once the agent has ≥ its threshold events.
-The judgment is shared with context_runtime via [[lifecycle]].is_bootstrap_active
-(single source of truth) so the two writers cannot drift.
+and never cleared, so gating on it alone would keep this seed candidate alive
+for the agent's whole life. `bootstrap_active` expires: Bootstrap.md is
+auto-deleted once the agent has ≥ its threshold events. The judgment is shared
+with context_runtime via [[lifecycle]].is_bootstrap_active (single source of
+truth) so the two writers cannot drift.
+
+Note the writer below this gate carries its own, stronger idempotency
+(2026-08-21, Shenzhen-r2 B2): `chat_module.seed_bootstrap_greeting` refuses to
+seed once the agent has ANY chat history with this user in ANY instance —
+first contact is per-(agent, user), so a new narrative's fresh empty instance
+is never re-greeted even while bootstrap is still active. This module's gate
+remains the cheap outer filter; the per-agent scope is the writer's contract.
 """
 from __future__ import annotations
 
