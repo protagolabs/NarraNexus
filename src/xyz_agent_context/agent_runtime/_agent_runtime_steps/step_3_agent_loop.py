@@ -60,6 +60,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        ExecutorEnsureResult,
+    )
+
     from .context import RunContext
 
 
@@ -1199,9 +1203,9 @@ async def _record_executor_infra_event(
         )
 
 
-@timed("step.3_agent_loop")
-
-async def _ensure_executor_for_run(user_id: str, run_id: Optional[str]):
+async def _ensure_executor_for_run(
+    user_id: str, run_id: Optional[str]
+) -> Optional["ExecutorEnsureResult"]:
     """Ensure this run's executor, carrying the stale-image replacement
     verdict to the broker.
 
@@ -1216,19 +1220,37 @@ async def _ensure_executor_for_run(user_id: str, run_id: Optional[str]):
     'running' by now, so it has to discount us or the image would never roll.
     broker_client is a transport client and owns no part of the decision.
     """
-    from xyz_agent_context.agent_framework.loop.broker_client import ensure_executor
-    from xyz_agent_context.agent_runtime.executor_reaper import (
-        stale_replacement_is_safe,
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        broker_url,
+        ensure_executor,
     )
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        no_live_recorded_run_for,
+    )
+
+    if broker_url() is None:
+        # No broker, no one to hand a verdict to — and ensure_executor would
+        # return None on the next line anyway. Short-circuited HERE because
+        # the verdict is an ARGUMENT, so it is computed first: without this,
+        # local / desktop / static-AGENT_EXECUTOR_URL deployments pay a DB
+        # round-trip on every turn's hot path for a bool that is discarded
+        # (rule #7 — the two run modes must not tax each other). Returning
+        # None, not raising: the call site reads `ensured is None` to fall
+        # back to the in-process driver, exactly as ensure_executor does.
+        #
+        # broker_url(), not executor_seam_active(): the latter also counts a
+        # static AGENT_EXECUTOR_URL, and that path never calls the broker.
+        return None
 
     return await ensure_executor(
         user_id,
-        allow_stale_replace=await stale_replacement_is_safe(
+        allow_stale_replace=await no_live_recorded_run_for(
             user_id, active_run_id=run_id
         ),
     )
 
 
+@timed("step.3_agent_loop")
 async def step_3_agent_loop(
     ctx: "RunContext",
     db_client,

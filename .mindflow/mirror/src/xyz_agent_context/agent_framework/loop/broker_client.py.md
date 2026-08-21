@@ -8,9 +8,15 @@ last_verified: 2026-08-21
 
 同一根因（2026-07-31 prod 误杀在途 run）的**第二个杀手**：broker 的 stale 镜像
 替换。本模块只负责**运**这个判决，不产生它 —— 它是传输客户端，"这个用户此刻忙
-不忙"是编排侧 DB 里的事实，判决由握着 run 上下文的那一层给（step 3，见
-[[step_3_agent_loop.py]] 的 `_ensure_executor_for_run`）；不是 run 的调用方
-（如 narramessenger prewarm）保持默认 `False`。
+不忙"是编排侧 DB 里的事实，判决由掌握上下文的那一层给：step 3 见
+[[step_3_agent_loop.py]] 的 `_ensure_executor_for_run`（排除提问者自己），
+**prewarm 也传** —— 它不是 run、容器上没人、而且它整个存在的理由就是把冷启动搬到
+用户等待之外，留默认 `False` 会让镜像替换被推迟到用户的这一轮里全额付掉。
+
+真正必须保持默认 `False` 的是 office_watch 代理（[[proxy.py]]）：那是活着的会话，
+但**不是 recorded run**，判决函数看不见它 —— 传 `True` 等于授权 broker 把用户正在
+用的容器拆掉。判决函数因此叫 `no_live_recorded_run_for`（说证据）而不是
+"…is_safe"（说结论）。
 
 **默认 `False` 是两个方向上都安全的那一侧**：它只可能**推迟**镜像滚动，绝不会
 杀 run。所以漏传只会降级不会出事，两仓部署顺序反了也不掉 run（新 broker + 老

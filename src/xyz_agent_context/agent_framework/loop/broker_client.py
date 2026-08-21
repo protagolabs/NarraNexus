@@ -86,7 +86,7 @@ async def ensure_executor(
     whether anyone is using it right now. This module cannot compute that and
     deliberately does not: it is a transport client, the fact lives in the
     orchestrator's DB, and the decision belongs to whoever holds run context
-    (step 3 passes ``executor_reaper.stale_replacement_is_safe``'s answer;
+    (step 3 passes ``executor_reaper.no_live_recorded_run_for``'s answer;
     callers that are not a run leave it False).
 
     False is the safe default in both directions — it can only ever DELAY an

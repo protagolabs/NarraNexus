@@ -6,7 +6,7 @@ last_verified: 2026-08-21
 
 ## 2026-08-21 — 判活多了第二个消费方：broker 的 stale 镜像替换判决
 
-`stale_replacement_is_safe(user_id, active_run_id=...)` 落在本文件，因为它和空闲
+`no_live_recorded_run_for(user_id, active_run_id=...)` 落在本文件，因为它和空闲
 回收问的是**同一个问题**（"现在有人在用这个容器吗"）、销毁的是**同一个容器**，只是
 理由不同。分成两处问会让两边的判活口径在第一次改动时就开始漂移。
 
@@ -22,8 +22,16 @@ running，不排除的话判决恒为"忙"，镜像永远滚不动 —— 把掐
 或者是根本不碰 executor 的 direct-trigger run）。推迟的代价是多跑一轮旧代码、下次
 ensure 自愈；替换的代价是杀掉一个在跑的 run（铁律 #14）。
 
-`caller="stale-replace"` 只用于日志：两个消费方在"判不出来"时的后果不同（回收停摆
-vs 镜像不滚），日志里认错人会把下一个排查的人带偏。
+**函数名说的是证据，不是结论**：叫 `no_live_recorded_run_for` 而不是
+"…is_safe"。它能看见的只有 `events` 表里的 run；容器上别的东西它一个都看不见 ——
+office_watch 的代理会话不是 run，`backend/routes/office_watch/proxy.py` 那几处
+**必须**继续吃默认 `allow_stale_replace=False`。名字写成"safe"就是在邀请下一个人
+把它传给那些调用方，而那么做在用户视角就是代理会话突然断开。
+
+`caller` 和 `consequence` 都只用于日志，而且**两个都得传**：两个消费方在"判不
+出来"时的后果不同（回收停摆 vs 镜像永不滚动），把其中一方的后果硬编码进共享函数，
+就是让另一方的告警去指错方向。`NARRANEXUS_RUN_RECORDING_DISABLED` 打开时
+stale-replace 恒判 `False`（所有用户被钉在旧镜像上），那条日志必须说的是镜像的事。
 
 ## 2026-08-21 — 回收器不再掐掉活在别的进程里的 run（prod 事故修复）
 

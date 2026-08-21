@@ -19,6 +19,18 @@ executor 拿到空 MCP 集还不报错）。[[broker_client.py]] 是传输客户
 进程行为一模一样，而 broker 那侧静默回到 2026-07-31 的行为"。内联的话没有任何测试
 会因为它消失而变红；抽成 seam 就能钉住（`test_step3_hands_the_stale_replace_verdict_to_ensure`）。
 
+**没有 broker 时先短路返回 None**：判决是**实参**，会先于 `ensure_executor` 内部的
+`if not base: return None` 求值。不短路的话，local / desktop / 静态
+`AGENT_EXECUTOR_URL` 这三种形态每一轮都会白查一次 `events`，拿到的布尔值立刻被丢掉
+（铁律 #7：两种运行模式不能互相加税）。判据用 `broker_url()` 而不是
+`executor_seam_active()` —— 后者把静态 URL 也算作 active，而那条路根本不调 broker。
+
+**这个 helper 必须放在 `@timed("step.3_agent_loop")` 之前**：它一度被插在装饰器和
+`async def step_3_agent_loop` 之间，于是装饰器绑到了它身上 —— 整条 pipeline 最重的
+一步静默失去计时，而那个指标名开始上报 ensure 的耗时（几十 ms），下一个查"step 3
+慢"的人会得出"step 3 不是瓶颈"的结论。
+`test_step_3_keeps_its_timing_decorator` 用 `__wrapped__` 钉住。
+
 ## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
 
 **删除** `_team_room_delivery_phase` / `_should_deliver_team_reply` /

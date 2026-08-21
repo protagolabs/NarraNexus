@@ -17,7 +17,7 @@ from xyz_agent_context.agent_runtime.executor_reaper import (
     _CullVeto,
     live_run_elsewhere,
     maybe_start_executor_reaper,
-    stale_replacement_is_safe,
+    no_live_recorded_run_for,
 )
 
 
@@ -926,22 +926,22 @@ async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
     """Same container, same rule as the cull: a live run means hands off."""
     import xyz_agent_context.agent_runtime.executor_reaper as mod
 
-    async def live(user_id, *, exclude_run_id=None, caller="reaper"):
+    async def live(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
         return "evt_live"
 
     monkeypatch.setattr(mod, "live_run_elsewhere", live)
-    assert await mod.stale_replacement_is_safe("u") is False
+    assert await mod.no_live_recorded_run_for("u") is False
 
 
 @pytest.mark.asyncio
 async def test_stale_replacement_is_allowed_when_nothing_is_live(monkeypatch):
     import xyz_agent_context.agent_runtime.executor_reaper as mod
 
-    async def idle(user_id, *, exclude_run_id=None, caller="reaper"):
+    async def idle(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
         return None
 
     monkeypatch.setattr(mod, "live_run_elsewhere", idle)
-    assert await mod.stale_replacement_is_safe("u") is True
+    assert await mod.no_live_recorded_run_for("u") is True
 
 
 @pytest.mark.asyncio
@@ -953,17 +953,22 @@ async def test_stale_replacement_excludes_the_asking_run(monkeypatch):
 
     seen = {}
 
-    async def spy(user_id, *, exclude_run_id=None, caller="reaper"):
+    async def spy(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
         seen["exclude"] = exclude_run_id
         seen["caller"] = caller
+        seen["consequence"] = consequence
         return None
 
     monkeypatch.setattr(mod, "live_run_elsewhere", spy)
-    assert await mod.stale_replacement_is_safe("u", active_run_id="evt_me") is True
+    assert await mod.no_live_recorded_run_for("u", active_run_id="evt_me") is True
     assert seen["exclude"] == "evt_me"
     # Labelled distinctly: the two consumers suffer different consequences
     # when liveness is unreadable (culling stops vs images stop rolling).
     assert seen["caller"] == "stale-replace"
+    # ...and the consequence half of the "cannot tell" warning is this
+    # consumer's, not the reaper's: unknowable liveness stops images rolling,
+    # it does not stop culling.
+    assert "images will NOT roll" in seen["consequence"]
 
 
 @pytest.mark.asyncio
@@ -977,4 +982,4 @@ async def test_stale_replacement_is_refused_when_liveness_is_unreadable(monkeypa
     monkeypatch.setattr(
         "xyz_agent_context.utils.db.db_factory.get_db_client", boom
     )
-    assert await stale_replacement_is_safe("u") is False
+    assert await no_live_recorded_run_for("u") is False

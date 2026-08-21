@@ -33,7 +33,7 @@ That check has a second consumer, which is why it is a module-level
 function here rather than a private of the reaper: the broker's stale-image
 replacement destroys the same container for a different reason, and asking
 the same question two ways is how the two answers drift apart. See
-``stale_replacement_is_safe``.
+``no_live_recorded_run_for``.
 """
 from __future__ import annotations
 
@@ -188,6 +188,7 @@ async def live_run_elsewhere(
     *,
     exclude_run_id: Optional[str] = None,
     caller: str = "reaper",
+    consequence: str = "executor idle-culling is OFF",
 ) -> Optional[str]:
     """The id of a run live in ANY process for this user, or None.
 
@@ -198,6 +199,13 @@ async def live_run_elsewhere(
     Never raises. Every failure path answers "busy", with ``UNKNOWN_RUN`` as
     the id so callers can tell a real blocker from an unknowable one. Not
     knowing must never authorise destroying anything (binding rule #14).
+
+    ``caller`` and ``consequence`` only shape the logs, and both have to be
+    passed for the same reason: the consumers suffer DIFFERENT outcomes when
+    the answer is unknowable (culling stops vs. executor images stop
+    rolling). A line that names the wrong one sends the next person
+    debugging in the wrong direction — and hard-coding one consumer's
+    outcome into a shared function is how that happens.
     """
     from xyz_agent_context.agent_runtime.run_recorder import (
         first_live_run_id,
@@ -214,8 +222,8 @@ async def live_run_elsewhere(
             _recording_off_warned.add(caller)
             logger.warning(
                 f"[{caller}] run recording is disabled ({RECORDING_DISABLED_ENV}) "
-                f"— cross-process liveness is unknowable, so executor "
-                f"idle-culling is OFF while it stays disabled."
+                f"— cross-process liveness is unknowable, so {consequence} "
+                f"while it stays disabled."
             )
         return UNKNOWN_RUN
     _recording_off_warned.discard(caller)
@@ -229,11 +237,24 @@ async def live_run_elsewhere(
         return UNKNOWN_RUN
 
 
-async def stale_replacement_is_safe(
+async def no_live_recorded_run_for(
     user_id: str, *, active_run_id: Optional[str] = None
 ) -> bool:
-    """Whether the broker may destroy this user's container to roll a stale
-    executor image — the verdict step 3 hands to ``ensure_executor``.
+    """True when this user has no live RECORDED run — the verdict callers
+    hand to ``ensure_executor`` as ``allow_stale_replace``.
+
+    Named for the evidence, not for the conclusion. An earlier name said
+    "replacement is safe", which promises more than this can see: it knows
+    about runs in the ``events`` table and nothing else. Anything else living
+    on that container is invisible here —
+
+      * office-watch proxy sessions (``backend/routes/office_watch/proxy.py``)
+        are not runs; they must keep passing ``allow_stale_replace=False``
+      * anything future that holds the container without recording a run
+
+    so a caller may only turn this into "safe to destroy" when it knows those
+    do not apply to it. Getting that wrong looks exactly like the incident
+    below, from the user's side.
 
     Second consumer of the liveness answer above, and it lives here so there
     is ONE place that asks "is anyone using this container?". The alternative
@@ -257,9 +278,13 @@ async def stale_replacement_is_safe(
     never does). Deferring costs one more turn on old code and self-corrects
     at the next ensure; replacing under a live run kills it (rule #14).
     """
-    return await live_run_elsewhere(
-        user_id, exclude_run_id=active_run_id, caller="stale-replace",
-    ) is None
+    live = await live_run_elsewhere(
+        user_id,
+        exclude_run_id=active_run_id,
+        caller="stale-replace",
+        consequence="stale executor images will NOT roll",
+    )
+    return live is None
 
 
 class _CullVeto:
