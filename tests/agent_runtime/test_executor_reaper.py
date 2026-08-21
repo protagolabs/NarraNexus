@@ -30,9 +30,11 @@ class _FakeController:
     def __init__(self, idle):
         self._idle = list(idle)
         self.restamped: list[str] = []
+        self.per_check_budget: float = 0.0
 
     async def claim_idle_users(self, ttl_seconds, is_busy=None,
                                per_check_budget=0.0):
+        self.per_check_budget = per_check_budget
         users, self._idle = self._idle, []
         if is_busy is None:
             return users
@@ -53,6 +55,7 @@ def audited(monkeypatch):
 
     async def fake_audit(event_type, **kw):
         rows.append((kw.get("user_id"), kw.get("run_id")))
+        return True          # the row landed; a falsy return means "retry"
 
     monkeypatch.setattr(
         "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
@@ -375,6 +378,7 @@ def audit_rows(monkeypatch):
 
     async def fake_audit(event_type, **kw):
         rows.append((event_type, kw.get("detail")))
+        return True          # the row landed; a falsy return means "retry"
 
     monkeypatch.setattr(
         "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
@@ -713,9 +717,13 @@ async def test_the_two_timeout_layers_together_still_record_a_blind_pass(
     # With room for a whole check, not merely "smaller": a per-check budget
     # of 59 against a batch of 60 would satisfy `<` and still let the batch
     # cancel every candidate after the first.
-    assert adm._VETO_BUDGET_S >= mod._PER_CANDIDATE_S * 2
+    assert adm._VETO_BUDGET_S >= (mod._PER_CANDIDATE_S + mod._AUDIT_WRITE_S) * 2
 
     monkeypatch.setattr(mod, "_PER_CANDIDATE_S", 0.05)
+    # Part of what reap_once reserves per call, so it has to shrink with it —
+    # otherwise the reservation (0.05 + 5.0) exceeds the batch and the single
+    # candidate is held back before any of this is exercised.
+    monkeypatch.setattr(mod, "_AUDIT_WRITE_S", 0.05)
     monkeypatch.setattr(adm, "_VETO_BUDGET_S", 5.0)
 
     now = {"t": 0.0}
@@ -825,3 +833,83 @@ async def test_a_wedged_audit_write_still_lets_the_pass_report(monkeypatch):
     status = reaper_status()
     assert status["running"] is True          # NOT "never ran"
     assert status["blind_passes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_reap_once_hands_its_per_call_budget_to_the_batch(audit_rows):
+    """A wiring test, like test_production_wiring_...: delete that one keyword
+    argument and every behavioural test here still passes, because the guard
+    test calls claim_idle_users directly and the fake controller swallows the
+    parameter. Its default is 0.0 — i.e. "guard off" — so a lost line brings
+    back "the last candidate of every wedged pass goes uncounted"."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    controller = _FakeController([])
+    reaper = ExecutorReaper(
+        controller, _noop_stop, is_busy=_CullVeto(), ttl_seconds=1
+    )
+    await reaper.reap_once()
+
+    # Read off the module, not a literal: retuning either constant must not
+    # turn this into noise.
+    assert controller.per_check_budget == mod._PER_CANDIDATE_S + mod._AUDIT_WRITE_S
+
+
+@pytest.mark.asyncio
+async def test_a_lost_audit_row_is_retried_next_pass(monkeypatch):
+    """These rows are the guard's only durable evidence — one per run saved.
+    Noting "already audited" before the write means a pool stall drops that
+    row forever: the next pass sees the same (user, run) and never retries."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    attempts = []
+
+    async def flaky_audit(event_type, **kw):
+        attempts.append(kw.get("run_id"))
+        return len(attempts) > 1        # first write fails, second lands
+
+    monkeypatch.setattr(mod, "_audit", flaky_audit)
+
+    async def busy(user_id):
+        return "evt_live"
+
+    veto = _CullVeto(check=busy)
+    await veto("u")
+    await veto("u")
+    await veto("u")
+
+    # Two attempts for one (user, run): the failure retried, the success did
+    # not repeat. Not three — that would make rows a function of run duration.
+    assert attempts == ["evt_live", "evt_live"]
+
+
+@pytest.mark.asyncio
+async def test_a_lost_cull_disabled_row_is_retried_next_pass(monkeypatch):
+    """Same for the pass-level row, and it matters more: keyed off the pass
+    number alone, a first row lost to a stalled pool leaves the whole first
+    hour of an outage with no trace — during exactly the outage it reports."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    monkeypatch.setattr(mod, "_BLIND_WARN_EVERY", 30)
+    attempts = []
+
+    async def flaky_audit(event_type, **kw):
+        attempts.append(event_type)
+        return len(attempts) > 2        # first two passes fail to land
+
+    monkeypatch.setattr(mod, "_audit", flaky_audit)
+
+    async def blind(user_id):
+        return UNKNOWN_RUN
+
+    veto = _CullVeto(check=blind)
+    controller = _FakeController(["a"])
+    reaper = ExecutorReaper(controller, _noop_stop, is_busy=veto, ttl_seconds=1)
+
+    for _ in range(4):
+        controller._idle = ["a"]
+        await reaper.reap_once()
+
+    # Passes 1-3 retry (1 and 2 failed), pass 4 is silent — the row landed on
+    # pass 3, so the slow tick resumes.
+    assert attempts == ["cull_disabled"] * 3

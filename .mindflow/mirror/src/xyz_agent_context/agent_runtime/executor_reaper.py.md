@@ -109,8 +109,18 @@ controller 端到端，其余测试的假 controller 没有外层预算，证明
 
 **审计写有自己的预算 `_AUDIT_WRITE_S`**，不复用判活预算：一次写 + 拿连接的合理
 量级和一次索引读本来就不同，焊在同一个名字上意味着以后每次调其中一个都会悄悄调
-另一个 —— 而这两行审计正是本次交付的全部可观测性，静默丢行是最不能接受的失败
-形态。
+另一个。
+
+因此 reaper 预留给一次判活的是 **`_PER_CANDIDATE_S + _AUDIT_WRITE_S`** —— 一次
+`__call__` 的最坏开销包含它可能跟着做的那次审计写。只预留判活的话，取消点只是从
+判活挪到了写上：记账仍在（`_judged` 在写之前就加了），但**那一行审计丢了**。
+
+**丢了要能重来**：这两行是本次交付的全部可观测性（`cull_skipped_busy` 每行 = 一个
+被救下的 run），所以 `_audit()` 返回是否落行，`_blocked_by` 备忘**只在落行后**记，
+`cull_disabled` 的限频节拍也按**上次成功落行**算而不是按轮次。写失败 → 下一轮重试；
+写成功 → 立刻回到 `_BLIND_WARN_EVERY` 的慢节拍，行数不会变成停摆时长的函数。
+备忘记在写之前的话，一次池卡顿就让那一行**永久**消失：下一轮看到同一个
+(user, run)，`!=` 判假，再也不试。
 
 **计数分两段**：一轮里 `is_busy` 被问的次数是 `候选数 + 幸存者数`。合并导出会
 让健康轮显示 `judged: 10 / reaped: 5`，读的人去查另外 5 个不存在的用户，"否决率"
@@ -165,8 +175,10 @@ reaper 通过构造注入 `controller` + `stop_fn`,可用 fake 完整单测,无�
 - **竞态**:认领后、停止前若有新 run 到达并复用了那个容器 → 极小窗口内 run 可能
   连到被停容器;`broker.ensure` 幂等会冷启动一个新的,最坏只是一次冷启动(唤醒
   UX 覆盖)。20 分钟 TTL 下碰撞概率极低。
-- **stop 失败**:记录并跳过该用户,不中断整趟;broker 自带的 label-based reaper
-  兜底清孤儿。
+- **stop 失败**:见 2026-08-21 条目 —— 记录、**还戳**、跳过,不中断整趟。
+  (此处原写"broker 自带的 label-based reaper 兜底清孤儿",两句都不成立:行为已经
+  不是"记录并跳过",而 broker 那个 reaper 清的是 orphan,一个已知 user 的容器不是
+  orphan。)
 - **fire-and-forget**:`maybe_start_executor_reaper` 起的后台 task 挂了 done-callback
   上报异常(事故教训 #2:裸 create_task 是地雷)。
 - **门控**:`maybe_start_executor_reaper` 仅在配置了 `BROKER_URL`(云端)时启动;

@@ -287,15 +287,26 @@ class _CullVeto:
         if self._blocked_by.get(user_id) != run_id:
             if len(self._blocked_by) >= self._MAX_TRACKED:
                 self._blocked_by.pop(next(iter(self._blocked_by)))
-            self._blocked_by[user_id] = run_id
             logger.info(
                 f"[reaper] skipping user={user_id}: run {run_id} is live in "
                 f"another process (idle here, busy elsewhere)"
             )
-            if run_id != UNKNOWN_RUN:
-                await _audit(
-                    EVENT_CULL_SKIPPED_BUSY, user_id=user_id, run_id=run_id,
-                )
+            if run_id == UNKNOWN_RUN:
+                # Nothing to audit ("could not tell" is not a run saved), so
+                # the memo lands unconditionally — otherwise an unreadable
+                # user would reprint the line above every single pass.
+                self._blocked_by[user_id] = run_id
+            elif await _audit(
+                EVENT_CULL_SKIPPED_BUSY, user_id=user_id, run_id=run_id,
+            ):
+                # Memo only on a row that actually landed. Recorded before the
+                # write, a pool that stalls past the write budget would lose
+                # that row FOREVER: the next pass sees the same (user, run),
+                # takes the `!=` branch as false and never tries again — and
+                # each row is one run this guard saved, the whole point of the
+                # metric. Failure leaves the memo unset, so the next pass
+                # retries; success returns to one row per (user, run).
+                self._blocked_by[user_id] = run_id
         return True
 
 
@@ -305,9 +316,13 @@ async def _audit(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     detail: Optional[dict] = None,
-) -> None:
-    """Best-effort audit row. Never raises — the observer must not break the
-    pass it is observing.
+) -> bool:
+    """Best-effort audit row; True when it landed. Never raises — the
+    observer must not break the pass it is observing.
+
+    The bool is what lets callers retry: these rows are this guard's only
+    durable evidence, and a caller that noted "already audited" before the
+    write would drop a row permanently every time the pool stalled.
 
     Bounded, because this is a DB WRITE on the cull path and the recheck
     branch reaches it through the veto: unbounded, a wedged pool parks the
@@ -329,8 +344,10 @@ async def _audit(
             )
 
         await asyncio.wait_for(_write(), _AUDIT_WRITE_S)
+        return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[reaper] audit {event_type} failed user={user_id}: {e}")
+        return False
 
 
 class ExecutorReaper:
@@ -358,6 +375,15 @@ class ExecutorReaper:
         # Consecutive passes in which every judged candidate came back
         # "could not tell". Drives the repeat warning and the L2 field.
         self._blind_passes = 0
+        # Blind passes since a cull_disabled row last LANDED. Counted
+        # separately from _blind_passes so the rate limit tracks successful
+        # writes: keyed off the pass number alone, a first row lost to a
+        # stalled pool would leave the whole first hour of an outage with no
+        # trace at all — during the outage that trace is the thing being
+        # reported on. Retries only while writes fail; one success returns to
+        # the _BLIND_WARN_EVERY tick, so rows never become a function of
+        # outage duration.
+        self._passes_since_audit = 0
 
     async def _report_pass(
         self, claim: dict, recheck: dict, reaped: int
@@ -386,6 +412,7 @@ class ExecutorReaper:
             self._blind_passes += 1
         else:
             self._blind_passes = 0
+            self._passes_since_audit = 0
         _LAST_PASS = {
             "reaped": reaped,
             # Carried, not kept in a module global: staleness is judged
@@ -411,9 +438,15 @@ class ExecutorReaper:
         # becoming noise, and the audit row rides the SAME tick — one row per
         # pass would make the row count a function of outage duration, the
         # shape this file already avoids for run duration.
-        if (self._blind_passes - 1) % _BLIND_WARN_EVERY == 0:
+        due = self._passes_since_audit == 0 or (
+            self._passes_since_audit >= _BLIND_WARN_EVERY
+        )
+        if not due:
+            self._passes_since_audit += 1
+        else:
             logger.warning(
-                f"[reaper] liveness unreadable for all {judged} candidate(s) — "
+                f"[reaper] liveness unreadable for all {judged} judged "
+                f"candidate(s) — "
                 f"NO executor has been culled for {self._blind_passes} pass(es). "
                 f"Check {RECORDING_DISABLED_ENV} and DB reachability; idle "
                 f"executors accumulate until the broker refuses new ones."
@@ -426,11 +459,14 @@ class ExecutorReaper:
                 recording_enabled,
             )
 
-            await _audit(EVENT_CULL_DISABLED, detail={
+            # Landed → back to the slow tick. Failed → the counter stays put,
+            # so the next pass is due again and the row is retried.
+            if await _audit(EVENT_CULL_DISABLED, detail={
                 "judged": judged,
                 "blind_passes": self._blind_passes,
                 "recording_disabled": not recording_enabled(),
-            })
+            }):
+                self._passes_since_audit = 1
 
     async def reap_once(self) -> list[str]:
         """One cull pass. Returns the users whose executors were stopped.
@@ -444,9 +480,12 @@ class ExecutorReaper:
         """
         users = await self._controller.claim_idle_users(
             self.ttl_seconds, is_busy=self._is_busy,
-            # So the batch budget never cancels a check mid-flight: one
-            # cancelled that way is one missing from the tally below.
-            per_check_budget=_PER_CANDIDATE_S,
+            # The worst case of ONE call, not just its lookup: __call__ can
+            # follow the lookup with an audit write, and reserving only the
+            # lookup leaves a window where the batch cancels the call on that
+            # write instead — the tally survives (it is incremented before)
+            # but the row is lost.
+            per_check_budget=_PER_CANDIDATE_S + _AUDIT_WRITE_S,
         )
         # Drained HERE, before the rechecks below add a second question per
         # survivor — that split is what keeps "judged" equal to the candidate
