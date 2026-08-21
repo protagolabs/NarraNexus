@@ -13,6 +13,12 @@ state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 a
 载入活动流;切 tab → 仅当该流未加载才 fetch(已加载则瞬时、无清空、无滚动重置)。`lastHistoryTimestampRef`
 也按 `include` 键控,避免切 tab 后拿另一条流的高水位比较(轮询误判)。
 
+第三轮 review polish:①(N3)reload 与 tab-switch 合并成**单个 loader effect** + `historyIdentityRef`
+(`agentId|userId|tick`)——身份变→重置双流+载入活动流;身份未变(切 tab)→未加载才载入,消除挂载时的
+双请求。②(N4)轮询 effect 建立时先 `void poll()` 一次,切回已加载 tab 立即刷新而非等满 12s(poll 自带
+高水位/`document.hidden` 守卫,无新则空转)。③ tab→流的判定抽到纯函数 `streamForTab`([[chatStreams]]),
+三个 fetch 点统一引用、可单测,防漂移。
+
 ## 2026-08-21 — 对话/Activity 两个 tab 各取各的流
 
 原来 `loadChatHistory` / `loadMoreHistory` / 轮询都调 `getSimpleChatHistory(agentId, 20)` 拿**一份**

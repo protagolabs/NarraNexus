@@ -29,6 +29,7 @@ import { useAgentWebSocket, useFastMode } from '@/hooks';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { streamForTab } from '@/lib/chatStreams';
 import { chatDayInfo } from '@/lib/chatDays';
 import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
@@ -325,8 +326,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // the conversation. Fetching per-tab keeps a busy agent's activity flood from
   // eating the conversation tab's page budget, and keeps peer/team activity off
   // the "new reply" scroll/notify path on the conversation tab.
-  const historyInclude: 'chat' | 'activity' =
-    chatTab === 'inner' ? 'activity' : 'chat';
+  const historyInclude = streamForTab(chatTab);
 
   // Active-stream views + writers. Downstream code (loadMore, poll, timeline,
   // loadMore-trigger) reads these unchanged; the writers target the active
@@ -427,31 +427,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
   }, [agentId, userId, historyTotalCount, isLoadingMore, historyInclude]);
 
-  // Agent change / data wipe: reset BOTH streams and load the active one. The
-  // inactive stream loads lazily when its tab is first opened (effect below).
+  // One loader effect, two jobs, no double-fetch on mount (N3):
+  //  • agent change / data wipe (the identity key moves) → reset BOTH streams
+  //    and load the active one; the inactive stream loads lazily on tab switch.
+  //  • same agent, tab switched → load the newly-active stream only if it has
+  //    not loaded yet (already-loaded → instant, no clear / refetch / scroll
+  //    reset — the friction the per-stream split removes).
   const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
+  const historyIdentityRef = useRef('');
   useEffect(() => {
     if (!agentId || !userId) return;
-    setHistoryByStream({ chat: [], activity: [] });
-    setLoadedByStream({ chat: false, activity: false });
-    setTotalByStream({ chat: 0, activity: 0 });
-    lastHistoryTimestampRef.current = { chat: '', activity: '' };
-    shouldAutoScrollRef.current = true;
-    loadChatHistory();
-    // loadChatHistory intentionally excluded: it re-identifies with
-    // historyInclude, and a tab switch must NOT reset both streams (the very
-    // regression this split fixes). The tab-switch loader below handles that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, userId, historyRefreshTick]);
-
-  // Tab switch: load the newly-active stream only if it hasn't loaded yet. An
-  // already-loaded stream shows instantly — no clear, no refetch, no scroll
-  // reset (the friction the per-stream split removes).
-  useEffect(() => {
-    if (!agentId || !userId) return;
+    const identity = `${agentId}|${userId}|${historyRefreshTick}`;
+    if (historyIdentityRef.current !== identity) {
+      historyIdentityRef.current = identity;
+      setHistoryByStream({ chat: [], activity: [] });
+      setLoadedByStream({ chat: false, activity: false });
+      setTotalByStream({ chat: 0, activity: 0 });
+      lastHistoryTimestampRef.current = { chat: '', activity: '' };
+      shouldAutoScrollRef.current = true;
+      loadChatHistory();
+      return;
+    }
     if (!loadedByStream[historyInclude]) loadChatHistory();
+    // loadChatHistory intentionally excluded: it re-identifies with
+    // historyInclude and is captured fresh each render; listing it would just
+    // re-run this effect without changing what it does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyInclude]);
+  }, [agentId, userId, historyRefreshTick, historyInclude]);
 
   // ── Poll for new background messages ────────────────
   useEffect(() => {
@@ -500,6 +502,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     };
 
+    // Poll once immediately so switching back to an already-loaded stream
+    // refreshes right away instead of showing data up to 12s stale (N4). The
+    // high-water + document.hidden guards inside `poll` make this a no-op when
+    // nothing new arrived.
+    void poll();
     const timer = setInterval(poll, 12_000);
     return () => clearInterval(timer);
   }, [agentId, userId, historyLoaded, historyInclude]);

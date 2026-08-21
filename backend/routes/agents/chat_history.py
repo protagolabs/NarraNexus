@@ -588,7 +588,7 @@ async def get_simple_chat_history(
             # well above HISTORY_PAGE_SIZE * any realistic paging depth, so it
             # does not change total_count for a normal owner. The real long-term
             # fix is an indexed activity source (events) instead of scanning
-            # memory JSON — tracked in reference/self_notebook/todo.
+            # each instance's memory JSON.
             if len(peer_instances) > _MAX_PEER_ACTIVITY_INSTANCES:
                 logger.info(
                     f"Activity Log fan-out capped for agent={agent_id}: "
@@ -667,15 +667,14 @@ async def get_simple_chat_history(
                         # 'activity'`` branch.
                         #
                         # Carve-out: when the agent explicitly called
-                        # ``notify_owner`` during the IM
-                        # turn (the "tell owner about this important
-                        # thing" path the iron rules carve out), the
-                        # writer stashes that content on
-                        # ``meta_data.owner_notify_content``. We surface
-                        # it verbatim as a real reply (message_type left
-                        # untouched) so the owner DOES see the
-                        # important notification while routine IM
-                        # chatter stays hidden.
+                        # ``send_message_to_user_directly`` / ``notify_owner``
+                        # during the turn (the "tell owner about this important
+                        # thing" path the iron rules carve out), the writer
+                        # stashes that content on
+                        # ``meta_data.owner_notify_content``. We surface it
+                        # VERBATIM so the owner DOES see the notification while
+                        # routine IM/peer chatter stays hidden. Which tab it
+                        # lands in depends on scope — see the branch below.
                         content = msg.get("content", "")
                         # Privacy-collapse rule applies only to truly-IM
                         # / background sources where the assistant reply
@@ -690,6 +689,18 @@ async def get_simple_chat_history(
                             owner_notify = meta_data.get("owner_notify_content", "")
                             if owner_notify:
                                 content = owner_notify
+                                # Owner scope: the agent's own IM turn notifying
+                                # its owner — keep it in the conversation tab
+                                # (message_type stays 'chat'), the long-standing
+                                # behaviour. Peer scope (A2A/team): the
+                                # conversation tab never reads peer instances and
+                                # the activity stream keeps only
+                                # message_type=='activity', so a 'chat'-typed row
+                                # would vanish from BOTH tabs. Mark it 'activity'
+                                # (content stays verbatim, NOT collapsed) so the
+                                # Activity Log shows the agent's report.
+                                if peer_scoped:
+                                    message_type = "activity"
                             else:
                                 content = f"Background activity ({working_source})"
                                 # Force compact rendering on the frontend.

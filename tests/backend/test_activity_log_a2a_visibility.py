@@ -32,14 +32,17 @@ OWNER_ID = "owner_u1"
 AGENT_ID = "agent_mine"
 PEER_REPLY = "SECRET peer-to-peer content"
 TEAM_REPLY = "SECRET team-room content"
+OWNER_NOTIFY_TEXT = "IMPORTANT the deploy finished, owner should see this"
 
 
-def _msg(role, content, ts, source=None, eid=None):
+def _msg(role, content, ts, source=None, eid=None, notify=None):
     meta = {"timestamp": ts}
     if source:
         meta["working_source"] = source
     if eid:
         meta["event_id"] = eid
+    if notify is not None:
+        meta["owner_notify_content"] = notify
     return {"role": role, "content": content, "meta_data": meta}
 
 
@@ -110,6 +113,16 @@ async def client(monkeypatch):
                     _msg("assistant", "human-room reply", "2026-08-21T08:30:00",
                          "message_bus", eid="evt_userroom"))
 
+    # A peer/team turn where the agent explicitly called
+    # send_message_to_user_directly (owner-notify carve-out): the row carries
+    # owner_notify_content. It must reach the OWNER — verbatim — in the Activity
+    # Log (peer scope → marked activity, NOT collapsed), and must NOT appear in
+    # the conversation tab (which never reads peer instances).
+    await _instance("chat_notify", "agent_notifier",
+                    _msg("assistant", "raw peer chatter not for owner",
+                         "2026-08-21T08:45:00", "message_bus",
+                         notify=OWNER_NOTIFY_TEXT))
+
     # An unrelated third HUMAN user's private chat with the same agent. Its
     # user_id is not a peer/team prefix, so it must never be pulled at all.
     await _instance("chat_intruder", "intruder_u2",
@@ -172,6 +185,24 @@ def test_owner_isolation_drops_peer_userfacing_and_other_users(client):
     assert "hello intruder" not in raw
     assert PEER_REPLY not in raw and TEAM_REPLY not in raw
     assert any(m.get("content") == "hi mine" for m in msgs)  # owner's own chat
+
+
+def test_owner_notify_on_peer_turn_reaches_activity_verbatim(client):
+    # The agent's send_message_to_user_directly report on a peer/team turn must
+    # reach the owner VERBATIM in the Activity Log (peer scope → marked
+    # activity, not collapsed), and must NOT surface in the conversation tab.
+    act, act_raw = _history(client, OWNER_ID, include="activity", limit=500)
+    notify_rows = [m for m in act if m.get("content") == OWNER_NOTIFY_TEXT]
+    # Non-vacuous: without the peer_scoped message_type override this row stays
+    # message_type=='chat' and the activity stream filters it out → empty.
+    assert notify_rows, "owner-notify on a peer turn is invisible in the Activity Log"
+    assert all(m.get("message_type") == "activity" for m in notify_rows)
+    # The row's OWN raw chatter (not the notify) is never surfaced.
+    assert "raw peer chatter not for owner" not in act_raw
+
+    chat, _ = _history(client, OWNER_ID, include="chat", limit=500)
+    assert not any(m.get("content") == OWNER_NOTIFY_TEXT for m in chat), \
+        "peer owner-notify must not leak into the conversation tab"
 
 
 def test_non_owner_never_sees_peer_activity(client):
