@@ -94,15 +94,23 @@ admission 那层的整批预算退化为 backstop（保护的是 admission 延�
 一个卡住的连接池会把整轮 park 住 —— 而跑不完的轮不会上报，于是卡死的 reaper
 对外显示成"从没跑过"。
 
-**两个预算的关系是本次修复成立的唯一前提**：`_PER_CANDIDATE_S <
-admission._VETO_BUDGET_S`，否则外层先取消、记账被绕开，护栏静默失效。它由
-`test_the_two_timeout_layers_together_still_record_a_blind_pass` 用**真实**
-controller 守住（其余测试用的假 controller 没有外层预算，证明不了"内层先响"）。
-比值同时决定了一个**残余**：DB 完全卡住时，一轮最多 `批预算 ÷ 每候选预算` 个
-候选能被判到，其余被无判决扣留，所以 `judged` 会偏小、警告文案里的候选数也偏小。
-**告警不受影响**（判到的那几个全 blind ⇒ 整轮判定为瞎）。每候选预算取 12s 而不是
-15s，就是为了不整除批预算 —— 否则某个候选的两个 deadline 会落在同一瞬间，记不
-记得上账变成两个定时器之间的抛硬币。
+**两层预算的关系不能只靠"取个好数值"**：外层一旦把某次判活中途取消，那次判活
+就从记账里消失 —— 而且按真实计时，被吃掉的**恒定是每一轮的最后一个候选**，不是
+偶尔一个。选一个不整除批预算的值解决不了它（只是把边界挪到下一个候选）。所以
+reaper 把 `_PER_CANDIDATE_S` **传给** `claim_idle_users`（`per_check_budget`），
+由后者拒绝发起装不下的那次判活 —— "发起了就一定记得上账"变成**结构性成立**，与
+两个常量取什么值无关。两条测试守：
+`test_the_batch_budget_never_cancels_a_check_mid_flight`（守卫本身）和
+`test_the_two_timeout_layers_together_still_record_a_blind_pass`（用**真实**
+controller 端到端，其余测试的假 controller 没有外层预算，证明不了"内层先响"）。
+
+**残余**：被扣留的候选从没被判过，所以 `judged` 是个**下界**而不是候选数，警告
+文案里的数字也偏小。**告警不受影响**（判到的那几个全 blind ⇒ 整轮判定为瞎）。
+
+**审计写有自己的预算 `_AUDIT_WRITE_S`**，不复用判活预算：一次写 + 拿连接的合理
+量级和一次索引读本来就不同，焊在同一个名字上意味着以后每次调其中一个都会悄悄调
+另一个 —— 而这两行审计正是本次交付的全部可观测性，静默丢行是最不能接受的失败
+形态。
 
 **计数分两段**：一轮里 `is_busy` 被问的次数是 `候选数 + 幸存者数`。合并导出会
 让健康轮显示 `judged: 10 / reaped: 5`，读的人去查另外 5 个不存在的用户，"否决率"
@@ -165,12 +173,3 @@ reaper 通过构造注入 `controller` + `stop_fn`,可用 fake 完整单测,无�
   本地/桌面无 per-user executor,返回 None。在 `backend/main.py` lifespan 启动/取消。
 - TTL/间隔:`EXECUTOR_IDLE_TTL_SEC`(默认 1200=20min)、`EXECUTOR_REAP_INTERVAL_SEC`
   (默认 120)。
-- **免费额度网关票孤儿回收(2026-07-23)**:新增可选 `post_reap_fn(user_id)` 钩子,
-  在成功停掉某用户 executor **之后**触发。用途:回收该用户遗留的 gateway 会话票
-  (agent 硬崩溃、`agent_loop` 的 finally 没跑到 → 票没作废)。**为什么此刻安全**:
-  reaper 只回收 `claim_idle_users` 认领的空闲用户(0 活跃 loop),所以此刻该用户没有
-  在跑的 run,任何 ACTIVE 票必是孤儿 → 直接作废不违反铁律 #14(不需要定时器、不需要
-  猜哪个 run 还活着)。stop **失败**时**不**触发钩子(容器可能还活着,票不能动)。
-  `maybe_start_executor_reaper` 仅在配了 `SYSTEM_DEFAULT_LLM_GATEWAY_URL` 时装配该
-  钩子,钩子内 `GatewayKeyService.from_env(db).revoke_all_for_user`。见
-  [[gateway_key_service]]。

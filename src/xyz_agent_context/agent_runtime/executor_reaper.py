@@ -72,17 +72,28 @@ _recording_off_warned: set[str] = set()
 # tally never runs, and a pass in which nothing could be judged reports the
 # same zeros as a healthy pass with nothing to do.
 #
-# INVARIANT: this must stay well below admission._VETO_BUDGET_S, or the outer
-# budget cancels the lookup first and the accounting above is bypassed —
-# which is the whole failure this constant exists to prevent. Deliberately
-# not a divisor of it, so no candidate's two deadlines land on the same
-# instant and let a coin-flip between timers decide whether it is counted.
+# It must stay below admission._VETO_BUDGET_S, or the outer budget cancels
+# the lookup first and the accounting above is bypassed. Rather than trust a
+# ratio between two constants in two modules, the reaper HANDS this value to
+# claim_idle_users, which then refuses to start a check the batch cannot see
+# through — so "started ⇒ counted" holds structurally, whatever the two
+# numbers are. (Picking a value that does not divide the batch budget was
+# considered and dropped: it moves which candidate straddles the boundary
+# without removing it, and in real timings the outer budget wins that race
+# every pass, not occasionally.)
 #
-# The ratio also bounds the tally: with the batch budget exhausted, at most
-# budget/this many candidates get judged in one pass and the rest are held
-# back unjudged, so `judged` under-reports on a fully wedged DB. The ALARM is
-# unaffected (everyone judged came back blind ⇒ the pass reads as blind).
+# The tally still under-reports on a fully wedged DB — candidates held back
+# for want of budget are never judged, so `judged` is a floor, not the
+# candidate count. The ALARM is unaffected: everyone judged came back blind,
+# so the pass reads as blind.
 _PER_CANDIDATE_S = 12.0
+
+# Budget for one audit WRITE. Its own constant, not a reuse of the lookup
+# budget above: a write plus its pool acquisition has a different natural
+# scale from an indexed read, and welding the two to one name means every
+# future retune of one silently retunes the other. Small enough that a
+# wedged pool cannot park a pass, generous next to a healthy insert.
+_AUDIT_WRITE_S = 5.0
 
 # Last pass's outcome, for the L2 read-side (see reaper_status). Module level
 # because the reaper is one background task per process and the admin route
@@ -317,7 +328,7 @@ async def _audit(
                 detail=detail,
             )
 
-        await asyncio.wait_for(_write(), _PER_CANDIDATE_S)
+        await asyncio.wait_for(_write(), _AUDIT_WRITE_S)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[reaper] audit {event_type} failed user={user_id}: {e}")
 
@@ -433,6 +444,9 @@ class ExecutorReaper:
         """
         users = await self._controller.claim_idle_users(
             self.ttl_seconds, is_busy=self._is_busy,
+            # So the batch budget never cancels a check mid-flight: one
+            # cancelled that way is one missing from the tally below.
+            per_check_budget=_PER_CANDIDATE_S,
         )
         # Drained HERE, before the rechecks below add a second question per
         # survivor — that split is what keeps "judged" equal to the candidate

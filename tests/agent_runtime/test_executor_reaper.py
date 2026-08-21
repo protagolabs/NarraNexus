@@ -31,7 +31,8 @@ class _FakeController:
         self._idle = list(idle)
         self.restamped: list[str] = []
 
-    async def claim_idle_users(self, ttl_seconds, is_busy=None):
+    async def claim_idle_users(self, ttl_seconds, is_busy=None,
+                               per_check_budget=0.0):
         users, self._idle = self._idle, []
         if is_busy is None:
             return users
@@ -709,7 +710,10 @@ async def test_the_two_timeout_layers_together_still_record_a_blind_pass(
     import xyz_agent_context.agent_runtime.executor_reaper as mod
     from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
 
-    assert mod._PER_CANDIDATE_S < adm._VETO_BUDGET_S   # the invariant itself
+    # With room for a whole check, not merely "smaller": a per-check budget
+    # of 59 against a batch of 60 would satisfy `<` and still let the batch
+    # cancel every candidate after the first.
+    assert adm._VETO_BUDGET_S >= mod._PER_CANDIDATE_S * 2
 
     monkeypatch.setattr(mod, "_PER_CANDIDATE_S", 0.05)
     monkeypatch.setattr(adm, "_VETO_BUDGET_S", 5.0)
@@ -736,3 +740,88 @@ async def test_the_two_timeout_layers_together_still_record_a_blind_pass(
     assert [r[0] for r in audit_rows] == ["cull_disabled"]
     # ...and the user keeps its stamp, so it is reconsidered next pass.
     assert await controller.claim_idle_users(1) == ["u"]
+
+
+@pytest.mark.asyncio
+async def test_the_batch_budget_never_cancels_a_check_mid_flight(monkeypatch):
+    """A check cancelled by the OUTER budget vanishes from the tally — and it
+    is the last candidate of every wedged pass, not an occasional one. The
+    batch must decline to start what it cannot see through, leaving the
+    candidate its stamp for the next pass."""
+    import xyz_agent_context.agent_runtime.admission as adm
+
+    monkeypatch.setattr(adm, "_VETO_BUDGET_S", 10.0)
+
+    now = {"t": 0.0}
+    c = adm.AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    for user in ("a", "b"):
+        await c.release(await c.acquire(user))
+    now["t"] = 100.0
+
+    started = []
+
+    async def slow(user_id):
+        started.append(user_id)
+        now["t"] += 5.0            # half the batch budget per check
+        return False
+
+    claimed = await c.claim_idle_users(1, is_busy=slow, per_check_budget=8.0)
+
+    # b is never STARTED: 5s of the 10s batch remained, less than one whole
+    # check. The old code started it and let the outer timer kill it, which
+    # is exactly the candidate that then went uncounted.
+    assert started == ["a"]
+    assert claimed == ["a"]
+    assert await c.claim_idle_users(1) == ["b"]      # stamp intact
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_audit_write_cannot_park_the_pass(monkeypatch):
+    """The one code path both audit fixtures replace, so nothing else here
+    touches it. Its promise: a stuck pool must not park the pass, because a
+    pass that never finishes never reports — and a wedged reaper would then
+    show up as "never ran"."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    monkeypatch.setattr(mod, "_AUDIT_WRITE_S", 0.02)
+
+    async def wedged_client():
+        await asyncio.sleep(30)
+
+    # Patched on the SOURCE module: _audit imports it inside the function.
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", wedged_client
+    )
+
+    # Returns, does not raise, and does not wait for the pool.
+    await mod._audit("cull_disabled", detail={"judged": 1})
+
+
+@pytest.mark.asyncio
+async def test_a_wedged_audit_write_still_lets_the_pass_report(monkeypatch):
+    """The same promise, stated the way the docstring states it: the pass
+    completes and reaper_status() says so."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    monkeypatch.setattr(mod, "_AUDIT_WRITE_S", 0.02)
+
+    async def wedged_client():
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", wedged_client
+    )
+
+    async def blind(user_id):
+        return UNKNOWN_RUN
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop,
+        is_busy=_CullVeto(check=blind), ttl_seconds=1,
+    )
+    assert await reaper.reap_once() == []
+
+    status = reaper_status()
+    assert status["running"] is True          # NOT "never ran"
+    assert status["blind_passes"] == 1

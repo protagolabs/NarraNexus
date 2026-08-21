@@ -202,6 +202,7 @@ class AgentAdmissionController:
         self,
         ttl_seconds: float,
         is_busy: Optional[BusyCheck] = None,
+        per_check_budget: float = 0.0,
     ) -> list[str]:
         """Return + un-track users idle for >= ttl_seconds. Claiming is
         DESTRUCTIVE — a returned user loses its idle stamp.
@@ -228,6 +229,14 @@ class AgentAdmissionController:
         driven mostly from another process that is never, and its container
         leaks forever. Trading one silent failure for another is not a fix.
 
+        ``per_check_budget`` is the caller's own per-check timeout, if it has
+        one. Passing it stops this batch from ever cutting a check short: a
+        check is simply not started unless the whole budget still fits. That
+        matters because the caller's timeout is where the ACCOUNTING lives
+        (the reaper counts a timed-out check as "could not tell"), so a check
+        killed by the outer budget instead is one that vanishes from the
+        tally. Told, not imported: this layer must not depend on the reaper.
+
         The veto runs OUTSIDE the lock (it does I/O — the reaper's hits the
         DB) so admission never stalls behind it; the second pass re-checks
         that each candidate's stamp is still the one we saw, so a user that
@@ -251,7 +260,13 @@ class AgentAdmissionController:
             for user_id, _ in candidates:
                 remaining = deadline - self._clock()
                 try:
-                    if remaining <= 0:
+                    # Never start a check this batch cannot see through. The
+                    # alternative — starting it and letting the outer wait_for
+                    # cancel it — silently drops it from the caller's tally,
+                    # and does so for the LAST candidate of every wedged pass,
+                    # not occasionally. Held-back candidates keep their stamp
+                    # and are reconsidered next pass.
+                    if remaining <= 0 or remaining < per_check_budget:
                         raise TimeoutError("veto budget exhausted")
                     verdict = await asyncio.wait_for(is_busy(user_id), remaining)
                 except Exception as e:  # noqa: BLE001 — no verdict ⇒ assume busy
