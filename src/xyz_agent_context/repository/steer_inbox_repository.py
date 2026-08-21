@@ -10,6 +10,12 @@ RunRegistry's handle for a live run — this layer never interprets it);
 the transport drains a run's unconsumed rows into its ``SteeringInlet``
 at the next step boundary and marks them consumed.
 
+Why a store at all when team messages already live in ``bus_messages``:
+the table decouples the running loop from heterogeneous producers (team
+is a bus message, an owner-chat interjection is not), and ``consumed_at``
+is a per-RUN cursor the bus's per-(agent,channel) cursor cannot serve —
+see ``schema/steer_schema.py`` for the full argument.
+
 Plain class rather than a ``BaseRepository`` subclass: the id is an
 auto-increment integer and every access is a scoped range query, so
 entity plumbing would be ceremony (same reasoning as

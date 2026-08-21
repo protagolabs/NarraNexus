@@ -5,13 +5,24 @@
 @description: Live-steering injection — one message routed INTO a turn
 that is already running, instead of triggering a fresh turn.
 
-The durable record behind the "append to the running loop" capability
-(Owner decision: the inbox is a table, not just an in-memory queue — so
-it survives a crash, is auditable, and the ack cursor has a home). A
-producer (a team room post, an owner-chat interjection; IM is out of
-scope for v1) writes one of these keyed by the target run; the transport
-drains the run's unconsumed rows into its ``SteeringInlet`` at the next
-step boundary.
+One uniform inbox for the "append to the running loop" capability. Its
+job is DECOUPLING, not durability: the running loop drains ONE store
+instead of reaching into each producer's native home. That matters
+because the producers are heterogeneous — a team room post already lives
+in ``bus_messages``, but an owner-chat interjection is not a bus message
+at all (it runs the chat memory path), so "just query bus_messages"
+would miss half the producers, and every new source would add another
+special case in the feeder. Same outbox/inbox pattern the codebase
+already uses for ``instance_artifact_events``. (IM producers are out of
+scope for v1.) A producer writes one of these keyed by the target run;
+the transport drains the run's unconsumed rows into its ``SteeringInlet``
+at the next step boundary.
+
+``consumed_at`` is the OTHER thing the bus cannot lend: a per-RUN consume
+cursor. The bus's ``last_processed_at`` is per ``(agent, channel)`` and
+is already the trigger's (it decides new dispatches); it cannot double as
+a running turn's steer cursor — least of all when one agent has several
+concurrent runs. Per row, per run, is the only shape that survives that.
 
 ``run_id`` is deliberately OPAQUE here: this schema does not know how the
 orchestrator identifies a live run (that is the RunRegistry's concern),

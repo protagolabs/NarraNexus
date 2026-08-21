@@ -817,16 +817,20 @@ _register(
 
 # 21c. steer_inbox — live-steering injections destined for a running turn
 #
-# The durable store behind "append to the running loop": a producer (team room
-# post, owner-chat interjection) writes one row keyed by an OPAQUE run handle;
-# the transport drains a run's unconsumed rows into its SteeringInlet at the
-# next step boundary. A table, not a pure in-memory queue, so injections survive
-# a crash, are auditable, and the ack cursor (`consumed_at`) has a home.
+# One uniform inbox behind "append to the running loop": a producer (team room
+# post — already in bus_messages; owner-chat interjection — NOT a bus message)
+# writes one row keyed by an OPAQUE run handle; the transport drains a run's
+# unconsumed rows into its SteeringInlet at the next step boundary. The table
+# earns its place by DECOUPLING (the feeder drains one store, not each
+# producer's native home — same outbox pattern as instance_artifact_events),
+# NOT by re-persisting team messages the bus already keeps.
 #
 # `id` is the arrival order AND the consume cursor's unit. `(run_id, msg_id)` is
-# unique so a re-delivered message injects at most once. `(run_id, consumed_at)`
-# is the pull-unconsumed access path. See `schema/steer_schema.py` and
-# `repository/steer_inbox_repository.py`.
+# unique so a re-delivered message injects at most once. `consumed_at` is a
+# per-RUN cursor the bus's per-(agent,channel) cursor cannot lend (it is the
+# trigger's, and one agent may have several concurrent runs).
+# `(run_id, consumed_at)` is the pull-unconsumed access path. See
+# `schema/steer_schema.py` and `repository/steer_inbox_repository.py`.
 _register(
     TableDef(
         name="steer_inbox",

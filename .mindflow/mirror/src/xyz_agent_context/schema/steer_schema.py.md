@@ -6,8 +6,12 @@ stub: false
 
 # steer_schema.py — 运行中插话的一条注入
 
-`SteerInjection`:路由进"已经在跑的 turn"的一条消息(而非触发新 turn)。live-steering
-"往运行中 loop 追加消息"能力的持久记录。
+`SteerInjection`:路由进"已经在跑的 turn"的一条消息(而非触发新 turn)。**这张表的正当理由是
+解耦,不是持久化**——team 消息本来就在 bus_messages,单为持久化再存一份是冗余;但**不仅仅是
+bus**:单聊插话走 chat 记忆路径、根本不进 bus_messages,所以"查 bus_messages"会漏掉一半
+producer。统一 inbox 让 feeder 只 drain 一处(同 instance_artifact_events 的 outbox 模式)。
+`consumed_at` 是 bus 给不了的**per-run 游标**(bus 的 (agent,channel) 游标是 trigger 的,
+且一个 agent 可能多 run 并发)。
 
 - `run_id` **不透明**:本 schema 不知道 orchestrator 怎么标识一个 live run(那是 RunRegistry 的事),
   只要 producer 与 drainer 认同一个句柄——存储层与路由设计解耦。

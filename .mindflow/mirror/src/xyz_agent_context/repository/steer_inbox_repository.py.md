@@ -8,8 +8,10 @@ stub: false
 
 live-steering 的存储层:producer 往 `steer_inbox` append 一条注入(keyed by 不透明
 `run_id`——RunRegistry 的运行句柄,本层不解释),transport 在下个 step 边界把某个 run 的
-未消费行 drain 进它的 SteeringInlet 并 mark_consumed。落表(非纯内存队列)是 Owner 决策:
-崩溃可恢复、可审计、ack 游标有家(`consumed_at`)。
+未消费行 drain 进它的 SteeringInlet 并 mark_consumed。**存在理由=解耦 + per-run 游标,不是
+持久化 team 消息**(那本来就在 bus_messages):不仅仅是 bus,单聊插话不进 bus,统一 inbox 让
+feeder 只 drain 一处(同 artifact_events outbox);`consumed_at` 是 bus (agent,channel)
+游标给不了的 per-run 游标。详见 [[steer_schema.py]]。
 
 ## 三个操作
 
