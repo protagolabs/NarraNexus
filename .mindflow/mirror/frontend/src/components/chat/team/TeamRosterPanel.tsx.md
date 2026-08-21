@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 组长可在花名册就地指定（onSetLead）
+
+新增可选 `onSetLead(agentId)`。之前「组长」只能在 Edit-Team 弹窗底部那个标着
+「默认负责人」的 select 里改，埋三层、且术语和房间里那枚「组长」badge 对不上，用户
+「无法指定组长」的本质是这个 UX 断层（数据链一直是通的：`lead_agent_id`）。现在展开
+的非组长成员行会在 badge 所在处显示「设为组长」按钮（`data-testid=set-lead-<id>`），
+点击回调 `onSetLead`。给了才显示、当前组长不显示；父层 [[TeamChatPanel.tsx]] 用
+`api.updateTeam({lead_agent_id})` 乐观写入。守卫见 `__tests__/TeamRosterPanel.test.tsx`。
 
 ## 2026-08-19 — 从站立列退为抽屉面板(下方旧条目的布局表述以本条为准)
 

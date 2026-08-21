@@ -193,6 +193,25 @@ describe('TeamChatPanel · two-pane room', () => {
  * They now live in two on-demand places: the empty room's hero, and a `?`
  * popover in the member bar that works for the whole life of the room.
  */
+describe('TeamChatPanel · discoverable panel chrome', () => {
+  // The team-room redesign left the roster/work-board and the bulletin behind
+  // bare, unlabeled icons — the reason users reported the bulletin / work board
+  // as "gone". The toggles must carry a VISIBLE text label, not just a tooltip.
+  test('the bulletin toggle shows a visible label, not just an icon', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('bulletin-toggle');
+    // getByText finds a rendered text node — a `title`/`aria-label` would not
+    // satisfy it, so this distinguishes a visible label from a tooltip.
+    expect(within(toggle).getByText('chat.team.bulletin.title')).toBeTruthy();
+  });
+
+  test('the members (roster/work-board) toggle shows a visible label', async () => {
+    await renderRoom([RUNNING]);
+    const toggle = screen.getByTestId('members-toggle');
+    expect(within(toggle).getByText('chat.team.roster.title')).toBeTruthy();
+  });
+});
+
 describe('TeamChatPanel · addressing help', () => {
   test('help button toggles the guide popover', async () => {
     await renderRoom([RUNNING, IDLE_WITH_TRACE]);

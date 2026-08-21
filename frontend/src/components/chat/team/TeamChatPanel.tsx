@@ -538,6 +538,24 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   );
   const leadName = leadAgentId ? nameOf(leadAgentId) : null;
 
+  // Designate the team lead straight from the roster, where the badge is
+  // shown — the setter used to live only in the buried "default responder"
+  // select of the Edit-Team modal. Optimistic: reflect it immediately, roll
+  // back if the PATCH fails. A later activity poll reconciles either way.
+  const handleSetLead = useCallback(
+    async (agentId: string) => {
+      const prev = leadAgentId;
+      setLeadAgentId(agentId);
+      try {
+        const res = await api.updateTeam(teamId, { lead_agent_id: agentId });
+        if (!res.success) setLeadAgentId(prev);
+      } catch {
+        setLeadAgentId(prev);
+      }
+    },
+    [teamId, leadAgentId],
+  );
+
   const toggleRoster = useCallback((agentId: string) => {
     setRosterExpandedId((cur) => (cur === agentId ? null : agentId));
   }, []);
@@ -870,14 +888,16 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           type="button"
           onClick={() => toggleDrawerTab('members')}
           aria-pressed={drawerTab === 'members'}
+          data-testid="members-toggle"
           title={t('chat.team.roster.title')}
           aria-label={t('chat.team.roster.title')}
           className={cn(
-            'shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
             drawerTab === 'members' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
           )}
         >
           <Users2 className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.roster.title')}</span>
         </button>
 
         {/* The addressing rules, on demand. The empty room's hero states them
@@ -947,6 +967,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ClipboardList className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.bulletin.title')}</span>
           {(bulletin?.usage.entry_count ?? 0) > 0 && (
             <span className="text-[10px] font-mono" data-testid="bulletin-count">
               {bulletin?.usage.entry_count}
@@ -1329,6 +1350,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               onToggle={toggleRoster}
               accent={accent}
               onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+              onSetLead={handleSetLead}
               className="flex h-full w-full"
             />
           )}

@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 面板 chrome 加可见文字标签 + 组长就地指定
+
+**公告栏/工作板「没了」的真因是发现性**：v4 改版后房间右侧的成员/工作区/公告栏三个
+toggle 都是**只有 icon 的裸按钮**（只有 title/aria-label，没有可见文字），用户认不出
+哪枚图标是公告栏。修复：成员 toggle（`data-testid=members-toggle`）与公告栏 toggle
+各加可见文字标签（成员 / 公告栏）。**没动共享抽屉的 pin 设计**——`usePinnedDrawer`
+刻意让单聊与 team 房间共用 pin 键，强行解耦会跟既有架构对着干，且自动展开未 pin 的
+瞬态抽屉会用整屏背板吃掉用户第一次点击（见 `drawerTab` 初始化注释）。标签化是既完整
+又不违背架构的修法。
+
+**组长就地指定**：新增 `handleSetLead`，经 `api.updateTeam({lead_agent_id})` 乐观写入
+并本地 `setLeadAgentId`，作为 `onSetLead` 传给 [[TeamRosterPanel.tsx]]，让「设为组长」
+落在 badge 所在的花名册里，而不是只藏在 Edit-Team 弹窗。守卫见
+`__tests__/TeamChatPanel.roster.test.tsx`（标签可见性）。
 
 ## 2026-08-19(三)— 默认开抽屉看钉选偏好
 
