@@ -43,6 +43,10 @@ from xyz_agent_context.agent_runtime.admission import (
     get_admission_controller,
 )
 from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
+from xyz_agent_context.schema.executor_audit import (
+    EVENT_CULL_DISABLED,
+    EVENT_CULL_SKIPPED_BUSY,
+)
 
 StopFn = Callable[[str], Awaitable[None]]
 
@@ -50,14 +54,46 @@ DEFAULT_IDLE_TTL_SEC = 1200   # 20 min (locked decision)
 DEFAULT_INTERVAL_SEC = 120
 
 # Stand-in run id for "we could not find out". Not a real run, but it gets a
-# real run's answer — hands off. Never audited: the two causes (the recording
-# kill switch is pulled, or the DB is unreachable) are log-and-alert
-# territory, and one of them cannot write a row anyway.
+# real run's answer — hands off. Never written to a cull_skipped_busy row:
+# that metric counts runs actually saved, and "unknown" in the run_id column
+# would make it unreadable. The blind case has its own pass-level reporting
+# (see _report_pass).
 UNKNOWN_RUN = "unknown"
 
 # Callers already warned that run recording is off. Bounded (two callers),
 # and reset when the switch goes back on so a second pull warns again.
 _recording_off_warned: set[str] = set()
+
+# Last pass's outcome, for the L2 read-side (see reaper_status). Module level
+# because the reaper is one background task per process and the admin route
+# has no handle on the instance; a dict, so a process that never started one
+# reports "not running" rather than lying with zeros.
+_LAST_PASS: Optional[dict] = None
+
+# Passes between repeats of the "culling is blind" warning. The first blind
+# pass warns immediately; at the 120s default this then repeats hourly.
+# Warning every pass would be noise nobody reads; warning once would vanish
+# with the next `docker restart` (incident lesson #5) while the state persists
+# in the environment.
+_BLIND_WARN_EVERY = 30
+
+
+def reaper_status() -> dict:
+    """L2 health of the idle-cull reaper, for the admin runtime snapshot.
+
+    Answers the question the ``cull_skipped_busy`` metric cannot: culling
+    stopping entirely looks exactly like nothing needing to be culled. The
+    fail-safe paths (recording kill switch on, DB unreadable) make EVERY user
+    read as busy, so a blind reaper reaps zero forever and is otherwise
+    indistinguishable from a healthy idle system — until executors pile up to
+    the broker's cap and new users start getting refused.
+
+    ``blind_passes`` is the field to alert on: non-zero and climbing means
+    nothing is reclaiming executors in this process.
+    """
+    if _LAST_PASS is None:
+        return {"running": False}
+    return {"running": True, **_LAST_PASS}
 
 
 async def live_run_elsewhere(
@@ -128,12 +164,30 @@ class _CullVeto:
     def __init__(self, check=live_run_elsewhere) -> None:
         self._check = check
         self._blocked_by: dict[str, str] = {}   # user_id -> blocking run id
+        # Per-pass tallies. The veto is the only thing that sees the
+        # candidates — claim_idle_users returns just the survivors, so
+        # "nobody was due" and "everybody was vetoed" are the same empty list
+        # from the reaper's side. Counted here, drained by take_pass_stats.
+        self._judged = 0
+        self._vetoed = 0
+        self._blind = 0     # vetoes that were "could not tell", not "busy"
+
+    def take_pass_stats(self) -> dict:
+        stats = {
+            "judged": self._judged, "vetoed": self._vetoed, "blind": self._blind,
+        }
+        self._judged = self._vetoed = self._blind = 0
+        return stats
 
     async def __call__(self, user_id: str) -> bool:
         run_id = await self._check(user_id)
+        self._judged += 1
         if run_id is None:
             self._blocked_by.pop(user_id, None)
             return False
+        self._vetoed += 1
+        if run_id == UNKNOWN_RUN:
+            self._blind += 1
         if self._blocked_by.get(user_id) != run_id:
             if len(self._blocked_by) >= self._MAX_TRACKED:
                 self._blocked_by.pop(next(iter(self._blocked_by)))
@@ -143,25 +197,32 @@ class _CullVeto:
                 f"another process (idle here, busy elsewhere)"
             )
             if run_id != UNKNOWN_RUN:
-                await _audit_cull_skipped(user_id, run_id)
+                await _audit(
+                    EVENT_CULL_SKIPPED_BUSY, user_id=user_id, run_id=run_id,
+                )
         return True
 
 
-async def _audit_cull_skipped(user_id: str, run_id: str) -> None:
-    """Best-effort audit row for a vetoed cull. Never raises — the observer
-    must not break the pass it is observing."""
+async def _audit(
+    event_type: str,
+    *,
+    user_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    detail: Optional[dict] = None,
+) -> None:
+    """Best-effort audit row. Never raises — the observer must not break the
+    pass it is observing."""
     try:
         from xyz_agent_context.repository.executor_audit_repository import (
             ExecutorAuditRepository,
         )
-        from xyz_agent_context.schema.executor_audit import EVENT_CULL_SKIPPED_BUSY
         from xyz_agent_context.utils.db.db_factory import get_db_client
 
         await ExecutorAuditRepository(await get_db_client()).record(
-            event_type=EVENT_CULL_SKIPPED_BUSY, user_id=user_id, run_id=run_id,
+            event_type=event_type, user_id=user_id, run_id=run_id, detail=detail,
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[reaper] cull-skip audit failed user={user_id}: {e}")
+        logger.warning(f"[reaper] audit {event_type} failed user={user_id}: {e}")
 
 
 class ExecutorReaper:
@@ -186,12 +247,51 @@ class ExecutorReaper:
         # running agents (tests, single-process deployments) may pass None,
         # and making it say so out loud is the point.
         self._is_busy = is_busy
+        # Consecutive passes in which every judged candidate came back
+        # "could not tell". Drives the repeat warning and the L2 field.
+        self._blind_passes = 0
+
+    async def _report_pass(self, stats: dict, reaped: int) -> None:
+        """Publish one pass's outcome to the L2 surfaces. Never raises."""
+        global _LAST_PASS
+        blind = stats.get("blind", 0)
+        judged = stats.get("judged", 0)
+        wholly_blind = judged > 0 and blind == judged
+        self._blind_passes = self._blind_passes + 1 if wholly_blind else 0
+        _LAST_PASS = {
+            "reaped": reaped,
+            "veto_installed": self._is_busy is not None,
+            "blind_passes": self._blind_passes,
+            **stats,
+        }
+        if not wholly_blind:
+            return
+        # Every candidate unreadable ⇒ nothing will EVER be culled while this
+        # lasts. Repeated on a schedule so the state outlives a log rotation,
+        # and mirrored into the audit table so it outlives the container.
+        if (self._blind_passes - 1) % _BLIND_WARN_EVERY == 0:
+            logger.warning(
+                f"[reaper] liveness unreadable for all {judged} candidate(s) — "
+                f"NO executor has been culled for {self._blind_passes} pass(es). "
+                f"Check {RECORDING_DISABLED_ENV} and DB reachability; idle "
+                f"executors accumulate until the broker refuses new ones."
+            )
+        # Only the kill-switch cause can land this row — when the DB is the
+        # thing that is unreadable, the write needs the client that just
+        # failed. That asymmetry is why the warning above exists too.
+        await _audit(EVENT_CULL_DISABLED, detail={
+            "judged": judged, "blind_passes": self._blind_passes,
+        })
 
     async def reap_once(self) -> list[str]:
         """One cull pass. Returns the users whose executors were stopped.
 
-        A stop failure for one user is logged and skipped (the broker's own
-        label-based reaper backstops orphans); it never aborts the pass.
+        A stop failure for one user is logged and skipped; it never aborts the
+        pass. Every path that claims a user without stopping it hands the idle
+        stamp back — claiming is destructive, and this reaper is the only
+        thing culling idle executors (the broker's label-based reaper collects
+        ORPHANS, and a known user's container is not one), so a dropped stamp
+        is a container that is never reclaimed.
         """
         users = await self._controller.claim_idle_users(
             self.ttl_seconds, is_busy=self._is_busy,
@@ -221,8 +321,26 @@ class ExecutorReaper:
                 reaped.append(user_id)
             except Exception as e:  # noqa: BLE001 — best-effort, must not abort
                 logger.warning(f"[reaper] failed to stop executor user={user_id}: {e}")
+                # Same reasoning as the busy branch above, and the likelier of
+                # the two: stop_fn is an HTTP call to the broker, so a deploy
+                # restart or a 5xx lands here. Without the restamp the user's
+                # stamp is gone for good and — for a user driven from another
+                # process — its container is never reclaimed.
+                #
+                # Inside its own guard: restamp_idle only touches memory today,
+                # but this handler's contract is that ONE user's failure never
+                # aborts the pass, and that must not depend on what a
+                # collaborator does later.
+                try:
+                    await self._controller.restamp_idle(user_id)
+                except Exception as re:  # noqa: BLE001
+                    logger.warning(f"[reaper] restamp failed user={user_id}: {re}")
         if reaped:
             logger.info(f"[reaper] reaped {len(reaped)} idle executor(s): {reaped}")
+        # Only the veto sees the candidates; the claim hands back survivors
+        # only, so an empty pass is ambiguous without this.
+        if isinstance(self._is_busy, _CullVeto):
+            await self._report_pass(self._is_busy.take_pass_stats(), len(reaped))
         return reaped
 
     async def run_forever(self) -> None:

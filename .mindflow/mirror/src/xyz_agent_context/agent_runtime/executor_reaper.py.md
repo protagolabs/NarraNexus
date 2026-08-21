@@ -44,6 +44,37 @@ trigger 路径的 run 根本不会翻 running，DB 会把它们全报成空闲�
 一开，**整个回收器停摆**（一律答"忙"）并打警告。观测开关不能顺手变成"允许
 销毁容器"的授权。
 
+**护栏的起点是 `events` 行翻 `running`，不是 admission 入队**：另一个进程的
+run 从 `acquire()` 到 recorder 的 `_bind_run_id` 之间（step 0 建行 + 首个带
+event_id 的 progress，数百 ms~数秒）对 `first_live_run_id` 不可见。这个窗口里
+被回收的后果是 step 3 的 `ensure()` **冷启一个新容器**（用户看到首 token 慢），
+不是事故里那个 `infra_transient` —— 不构成本次事故的复发。彻底关掉要把
+admission 账本本身 Redis 化（铁律 #20），牵动并发闸门，单独排期。
+
+**claim 了但没动手的两条路都要还戳**：判活变忙、以及 `stop_fn` 抛异常
+（`stop_executor` 是一次到 broker 的 HTTP 调用，部署期重启/5xx/超时都走这条）。
+后者是更常见的那条。少还一次，该用户在 backend 的戳就永久消失，"主要在
+workers 里跑"的用户等不到下一次 `release()` → 容器再也不会被回收。broker 自带
+的 label-based reaper **不兜这条** —— 它清的是 orphan，一个已知 user 的容器不是
+orphan；而且 `EXECUTOR_IDLE_TTL_SECONDS` 在 compose 里没配，broker 自己的空闲
+回收器根本没开，编排侧这个 reaper 是**唯一**的空闲回收器。
+
+**停摆态必须可见**（事故教训 #4 的 L2）：fail-safe 让所有人恒判"忙"时，回收器
+永久停摆，而它和"本来就没人该回收"从外面看**一模一样**（都是 reap 0 行、
+`cull_skipped_busy` 恒 0）。所以：
+- `_CullVeto` 记每轮的 judged/vetoed/blind 三个计数（只有否决器看得见候选，
+  `claim_idle_users` 只回幸存者）
+- 整轮全 blind 时按 `_BLIND_WARN_EVERY` 周期重发警告 —— 只打一次会随
+  `docker restart` 一起消失，而开关状态还留在 `.env` 里（事故教训 #5）
+- 写一行 `cull_disabled` 审计（**按轮**不按候选）。只有 kill-switch 那种成因
+  写得进去，DB 拨不通那种要用的正是刚失败的 client
+- `reaper_status()` 挂进 `/api/admin/runtime/status`，`blind_passes` 是该告警
+  的那个字段
+
+不修的代价是具体的：泄漏累积到 broker 的 `MAX_EXECUTORS` 之后，ensure() 开始
+对**新用户** 403，现象是"点了没反应/起不了 agent"，而 on-call 手里没有任何指标
+指向 reaper。
+
 **可观测**：每次否决写一行 `instance_executor_audit / cull_skipped_busy`
 （见 [[executor_audit.py]]）。每行 = 一个老代码会当场掐死的在途 run。
 ## 2026-07-28 — post_reap 钩子随 per-run 会话票一起删除

@@ -217,8 +217,9 @@ class AgentAdmissionController:
         per-process singleton, so "zero active loops here" does not mean the
         user is idle — backend cannot see runs alive in workers and vice
         versa. The caller injects an out-of-process truth source (the reaper
-        passes ``executor_reaper.live_run_elsewhere``); any user it vetoes is
-        skipped and KEEPS its idle stamp.
+        passes ``executor_reaper._CullVeto``, which wraps the DB lookup, folds
+        the blocking run id down to a bool and de-duplicates its audit rows
+        per run); any user it vetoes is skipped and KEEPS its idle stamp.
 
         Keeping the stamp is why the veto lives in here rather than in the
         caller's filter: claiming is destructive, so a caller that

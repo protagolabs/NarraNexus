@@ -48,12 +48,11 @@ def audited(monkeypatch):
     """Capture cull-skip audit rows instead of reaching for a DB client."""
     rows: list[tuple[str, str]] = []
 
-    async def fake_audit(user_id, run_id):
-        rows.append((user_id, run_id))
+    async def fake_audit(event_type, **kw):
+        rows.append((kw.get("user_id"), kw.get("run_id")))
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.executor_reaper._audit_cull_skipped",
-        fake_audit,
+        "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
     )
     return rows
 
@@ -79,11 +78,14 @@ async def test_reap_once_skips_stop_failures():
         if user_id == "b":
             raise RuntimeError("broker down")
 
-    reaper = ExecutorReaper(
-        _FakeController(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
-    )
+    controller = _FakeController(["a", "b", "c"])
+    reaper = ExecutorReaper(controller, stop_fn, is_busy=None, ttl_seconds=1)
     reaped = await reaper.reap_once()
     assert reaped == ["a", "c"]   # b failed → skipped, pass not aborted
+    # Claimed but not stopped ⇒ the stamp goes back, or b's container is
+    # never reclaimed. stop_fn is an HTTP call to the broker, so this path
+    # runs on every deploy restart and every 5xx.
+    assert controller.restamped == ["b"]
 
 
 @pytest.mark.asyncio
@@ -313,3 +315,146 @@ def test_production_wiring_installs_the_cross_process_veto(monkeypatch):
 
     asyncio.run(_go())
     assert isinstance(built.get("is_busy"), mod._CullVeto)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_restamp_does_not_abort_the_pass():
+    """The handler's contract is that one user's failure never aborts the
+    pass; that must not depend on what a collaborator does later."""
+    class _BrokenRestamp(_FakeController):
+        async def restamp_idle(self, user_id):
+            raise RuntimeError("controller wedged")
+
+    stopped = []
+
+    async def stop_fn(user_id):
+        if user_id == "b":
+            raise RuntimeError("broker down")
+        stopped.append(user_id)
+
+    reaper = ExecutorReaper(
+        _BrokenRestamp(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
+    )
+    assert await reaper.reap_once() == ["a", "c"]
+    assert stopped == ["a", "c"]
+
+
+# --------------------------------------------------------------------------
+# Blind-pass reporting — "culling stopped" vs "nothing to cull"
+# --------------------------------------------------------------------------
+
+
+async def _noop_stop(user_id):
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _reset_reaper_module_state():
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+    mod._LAST_PASS = None
+    mod._recording_off_warned.clear()
+    yield
+    mod._LAST_PASS = None
+    mod._recording_off_warned.clear()
+
+
+@pytest.fixture
+def audit_rows(monkeypatch):
+    rows = []
+
+    async def fake_audit(event_type, **kw):
+        rows.append((event_type, kw.get("detail")))
+
+    monkeypatch.setattr(
+        "xyz_agent_context.agent_runtime.executor_reaper._audit", fake_audit
+    )
+    return rows
+
+
+def test_status_reports_not_running_before_any_pass():
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    assert reaper_status() == {"running": False}
+
+
+@pytest.mark.asyncio
+async def test_a_wholly_blind_pass_is_counted_and_audited(audit_rows):
+    """The failure this exists for: every candidate unreadable ⇒ nothing is
+    ever culled, and from outside it looks exactly like an idle system."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def blind(user_id):
+        return UNKNOWN_RUN
+
+    reaper = ExecutorReaper(
+        _FakeController(["a", "b"]), _noop_stop,
+        is_busy=_CullVeto(check=blind), ttl_seconds=1,
+    )
+    assert await reaper.reap_once() == []
+
+    status = reaper_status()
+    assert status["running"] is True
+    assert status["blind_passes"] == 1
+    assert status["judged"] == 2 and status["blind"] == 2
+    assert [r[0] for r in audit_rows] == ["cull_disabled"]
+    assert audit_rows[0][1]["judged"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_real_veto_is_not_a_blind_pass(audit_rows):
+    """A live run blocking the cull is the guard WORKING; it must not read as
+    the reaper having gone blind."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def busy(user_id):
+        return "evt_real"
+
+    reaper = ExecutorReaper(
+        _FakeController(["a"]), _noop_stop,
+        is_busy=_CullVeto(check=busy), ttl_seconds=1,
+    )
+    await reaper.reap_once()
+    assert reaper_status()["blind_passes"] == 0
+    assert [r[0] for r in audit_rows] == ["cull_skipped_busy"]
+
+
+@pytest.mark.asyncio
+async def test_blind_passes_reset_once_liveness_is_readable_again(audit_rows):
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    # reap_once asks twice per surviving user (claim, then again before the
+    # stop), so this is keyed on the pass, not on a call counter.
+    blind = {"still": True}
+
+    async def check(user_id):
+        return UNKNOWN_RUN if blind["still"] else None
+
+    controller = _FakeController(["a"])
+    reaper = ExecutorReaper(
+        controller, _noop_stop, is_busy=_CullVeto(check=check), ttl_seconds=1
+    )
+
+    await reaper.reap_once()
+    assert reaper_status()["blind_passes"] == 1
+    blind["still"] = False
+    controller._idle = ["a"]
+    assert await reaper.reap_once() == ["a"]
+    assert reaper_status()["blind_passes"] == 0
+
+
+@pytest.mark.asyncio
+async def test_an_empty_pass_is_not_blind(audit_rows):
+    """Nothing due is the healthy steady state — it must not raise the alarm
+    the blind counter exists to raise."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def check(user_id):
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController([]), _noop_stop,
+        is_busy=_CullVeto(check=check), ttl_seconds=1,
+    )
+    await reaper.reap_once()
+    assert reaper_status()["blind_passes"] == 0
+    assert audit_rows == []

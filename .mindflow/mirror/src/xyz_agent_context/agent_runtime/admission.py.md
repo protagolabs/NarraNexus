@@ -13,7 +13,10 @@ workers 两个进程，谁也不知道对方的 run。这对**准入**无害（�
 prod 事故，细节见 reaper 同日条目）。
 
 `claim_idle_users(ttl, is_busy=...)` 新增注入式否决：调用方给一个跨进程真相
-源（reaper 给的是 `live_run_elsewhere`，读 `events` 表），被否决的用户跳过。
+源，被否决的用户跳过。reaper 给的是 `_CullVeto` —— 它包住
+`live_run_elsewhere`（读 `events` 表），把挡路的 run id 折成 bool，并按 run
+去重审计行；**不是**直接给 `live_run_elsewhere`（那个返回 `Optional[str]`，
+不满足 `BusyCheck` 协议，直接传会连带丢掉审计去重）。
 
 **为什么否决必须在这个方法里面，而不是让调用方拿到名单后自己过滤** ——
 claim 是**破坏性**的：返回名单的同时就删 `_idle_since` 戳。在外面过滤的话，

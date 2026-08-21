@@ -4,7 +4,7 @@ last_verified: 2026-08-21
 stub: false
 ---
 
-## 2026-08-21 — 新增 event_type `cull_skipped_busy`
+## 2026-08-21 — 新增 event_type `cull_skipped_busy` + `cull_disabled`
 
 空闲回收器选中了一个用户，又因为**别的进程里有 run 活着**而退让时写入
 （[[executor_reaper.py]]）。**无需迁移**（event_type 是 VARCHAR(32) 字符串
@@ -15,6 +15,14 @@ run**，是跨进程护栏的 L3 度量。只有**真实 run id** 会落这张�
 （recording 开关被拉、DB 拨不通）只打日志不写行，其中 DB 拨不通那种本来也
 写不进去（要用的正是刚失败的那个 client）。所以**这里是零不等于护栏没事**；
 突然掉到零要去查护栏是不是没跑，而不是当成问题消失了（事故教训 #4/#5）。
+
+`cull_disabled` 是配套的另一半：**整轮**候选的判活全部读不出来（回收器停摆）
+时写一行，**按轮不按候选**。刻意与 `cull_skipped_busy` 分开 —— 把"判不出来"
+混进那个指标会让它的 `run_id` 列出现 `unknown`，"救下了几个 run"就没法读了。
+只有 kill-switch（`NARRANEXUS_RUN_RECORDING_DISABLED`）那种成因能落到这张表，
+DB 本身拨不通时要用的正是刚失败的那个 client。所以这个 event 证明停摆、但不
+穷尽停摆：另一半靠 reaper 的周期警告和 `/api/admin/runtime/status` 里
+`executor_reaper.blind_passes`。
 ## 2026-08-10 — 新增 event_type `mcp_auth_denied` + `mcp_auth_tokenless`（MCP caller auth）
 
 `mcp_auth_denied`：验签身份对不属于自己的 agent_id 发起工具调用时写入

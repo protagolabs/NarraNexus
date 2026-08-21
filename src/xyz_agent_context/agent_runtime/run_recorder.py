@@ -151,6 +151,12 @@ async def first_live_run_id(
     what stopped them (the reaper's audit row). Which live run is returned is
     arbitrary when several exist.
 
+    ``exclude_run_id`` exists for callers that are themselves a run: by the
+    time step 3 asks, its own events row is already 'running', so counting
+    itself would answer "busy" forever. First such caller is the broker's
+    stale-image replacement verdict, which lands in the follow-up PR to this
+    one; the reaper does not pass it (it is not a run).
+
     RAISES on an unreadable DB. Callers act destructively on the answer, so
     each must resolve that ambiguity itself — and every one of them resolves
     it as "busy" (see ``executor_reaper.live_run_elsewhere``).
