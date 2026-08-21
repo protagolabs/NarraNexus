@@ -1119,8 +1119,9 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 # Create new entity
                 entity_type = updates.pop("entity_type", "user")
                 # `entity_name_if_new` names a first-contact entity WITHOUT ever
-                # clobbering an existing name (the merge branch drops it). An
-                # explicit `entity_name` still wins when both are present.
+                # clobbering an existing name (the merge branch above is
+                # fill-if-empty: it names a nameless existing entity but keeps a
+                # non-blank one). An explicit `entity_name` still wins here.
                 entity_name = updates.pop("entity_name", None) or updates.pop(
                     "entity_name_if_new", None
                 )

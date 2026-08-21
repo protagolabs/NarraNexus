@@ -7,7 +7,8 @@ last_verified: 2026-08-21
 ## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
 
 - **`parse_event` 补 `chat_type`——正向白名单**(预审 Critical 陷阱 + 增量审 Important):此前构造 `ParsedMessage` 从不传 `chat_type`,恒取 dataclass 默认 `PRIVATE`——群/1:1 真相只在 `raw["chat_type"]`(`"group"`/`"p2p"`)。因为记不记是**安全门**(判错=私信投进群),用**正向白名单**:`chat_type=ChatType.PRIVATE if raw.get("chat_type")=="p2p" else ChatType.GROUP`——只有字面 `"p2p"` 是 1:1,缺失/话题群/未来新值一律 GROUP(宁可不记)。守卫 `test_lark_parse_event.py`(p2p→PRIVATE、group/topic_group/缺失→非 PRIVATE)。**注意不要顺手改 `is_group_reply_warranted`/`_should_respond_in_group`**(读原始 event dict,是「回不回」的决策,fail-closed 会把 1:1 当群丢掉——和「记不记」无关)。
-- **生产路径 `_process_message` 的 `record_turn`** 加 `chat_id=message.chat_id, chat_type=message.chat_type`;测试 shim `_write_to_inbox` 传 `chat_id=chat_id, chat_type=ChatType.PRIVATE`(保持生产形状,测试走 1:1)。让 [[inbox_recorder.py]] 只在 1:1 时把 Lark 会话写进 social graph。
+- **生产路径 `_process_message` 的 `record_turn`** 加 `chat_id=message.chat_id, chat_type=message.chat_type`;测试 shim `_write_to_inbox` 传 `chat_id=chat_id, chat_type=ChatType.PRIVATE`(保持生产形状,**会**记 reach——经它的既有 lark 测试会触到 seam 句柄)。让 [[inbox_recorder.py]] 只在 1:1 时把 Lark 会话写进 social graph。
+- `parse_event` 的 `sender_name` 默认值改用 `UNKNOWN_SENDER_NAME` 常量(增量审 Minor:reach 路径上的哨兵生产者,防日后改 schema 默认值时占位名被当真名写进 `entity_name`;见 [[parsed_message.py]])。
 
 ## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
 

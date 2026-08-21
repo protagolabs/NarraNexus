@@ -61,7 +61,11 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 )
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from xyz_agent_context.schema.parsed_message import (
+    UNKNOWN_SENDER_NAME,
+    ChatType,
+    ParsedMessage,
+)
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -463,7 +467,7 @@ class LarkTrigger(ChannelTriggerBase):
         msg_id = raw.get("message_id", raw.get("id", ""))
         chat_id = raw.get("chat_id", "")
         sender_id = raw.get("sender_id", "")
-        sender_name = raw.get("sender_name", "Unknown")
+        sender_name = raw.get("sender_name", UNKNOWN_SENDER_NAME)
         content_str = raw.get("content", "") or ""
         message_type = raw.get("message_type", "") or ""
 

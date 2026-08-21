@@ -255,12 +255,16 @@ class InboxRecorder:
                 {}, self._source, {"id": counterpart_id, "rooms": {agent_id: chat_id}}
             )
             updates: dict = {"contact_info": contact}
-            # Name only on CREATE — a first-contact entity is otherwise nameless,
-            # and §3b's first step searches by name. The store's create branch
-            # consumes `entity_name_if_new`; the merge branch ignores it, so a
-            # channel display name never overwrites a canonical name the LLM set.
+            # Name a first-contact / still-nameless entity — otherwise it stays
+            # nameless and §3b's first step (search by name) cannot find it. The
+            # store's create branch consumes `entity_name_if_new`, and its merge
+            # branch is fill-if-empty (names an entity another path left
+            # nameless), but a non-blank existing name is NEVER overwritten — so
+            # a channel display name cannot clobber a canonical one. Truncated to
+            # the column width (`entity_name` is VARCHAR(255) on MySQL); an
+            # over-long name would else fail the whole reach write with a 1406.
             if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME:
-                updates["entity_name_if_new"] = counterpart_name
+                updates["entity_name_if_new"] = counterpart_name[:255]
             res = await get_agent_data_store().extract_entity_info(
                 agent_id=agent_id,
                 entity_id=counterpart_id,

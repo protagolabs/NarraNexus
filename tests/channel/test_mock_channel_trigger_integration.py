@@ -102,6 +102,7 @@ class _FakeTrigger(ChannelTriggerBase):
         if raw.get("echo"):
             # Mark this id so is_echo will recognise it
             self._echo_ids.add(raw["id"])
+        from xyz_agent_context.schema.parsed_message import ChatType
         return ParsedMessage(
             message_id=raw["id"],
             chat_id=raw.get("chat", "C1"),
@@ -109,6 +110,10 @@ class _FakeTrigger(ChannelTriggerBase):
             sender_name=raw.get("name", "Alice"),
             content=raw.get("content", ""),
             timestamp_ms=raw.get("ts_ms", 1),
+            # A raw `group` flag drives a NON-default chat_type, so the wiring
+            # spy below can tell "passed the message's real type" from "passed a
+            # hardcoded ChatType.PRIVATE" (which equals the dataclass default).
+            chat_type=ChatType.GROUP if raw.get("group") else ChatType.PRIVATE,
         )
 
     async def is_echo(self, message, credential):
@@ -269,11 +274,19 @@ async def test_echo_messages_are_dropped(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_trigger_passes_chat_type_to_record_turn(db_client, monkeypatch):
-    """Locks the reach wiring: the shared trigger path must pass `chat_type`
-    (and `chat_id`) into `record_turn`. Deleting `chat_type=message.chat_type`
-    at the call site → the kwarg is absent here → red, and (silently, in prod)
-    reach recording turns off for every channel."""
+@pytest.mark.parametrize(
+    "group,expected",
+    [(False, "PRIVATE"), (True, "GROUP")],
+    ids=["1to1", "group"],
+)
+async def test_the_trigger_passes_the_messages_real_chat_type(db_client, monkeypatch, group, expected):
+    """Locks the reach wiring: the shared trigger path must pass the MESSAGE's
+    real `chat_type` (and `chat_id`) into `record_turn` — not a constant. Two
+    regressions both go red here: deleting `chat_type=message.chat_type` (kwarg
+    absent), and hardcoding `chat_type=ChatType.PRIVATE` (a GROUP message would
+    then arrive as PRIVATE — the exact round-1 Critical, private content into a
+    group). The prior version asserted only PRIVATE, which equals the dataclass
+    default and so caught neither."""
     from xyz_agent_context.channel import inbox_recorder as ir_mod
     from xyz_agent_context.schema.parsed_message import ChatType
 
@@ -309,7 +322,8 @@ async def test_the_trigger_passes_chat_type_to_record_turn(db_client, monkeypatc
 
     cred = _FakeCredential(agent_id="agent_a", app_id="fake_bot_1")
     trigger = _FakeTrigger(
-        [{"id": "m1", "from": "u_alice", "content": "hi", "ts_ms": 9_999_999_999_999, "chat": "C7"}],
+        [{"id": "m1", "from": "u_alice", "content": "hi", "ts_ms": 9_999_999_999_999,
+          "chat": "C7", "group": group}],
         cred,
     )
     await trigger.start(db_client)
@@ -319,7 +333,7 @@ async def test_the_trigger_passes_chat_type_to_record_turn(db_client, monkeypatc
         await trigger.stop()
 
     assert seen.get("chat_id") == "C7"
-    assert seen.get("chat_type") == ChatType.PRIVATE  # the fake's default; must be PASSED, not absent
+    assert seen.get("chat_type") == getattr(ChatType, expected)  # the message's REAL type, not a constant
 
 
 async def _await(v):
