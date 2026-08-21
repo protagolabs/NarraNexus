@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — steering inlet 接线(live 注入的顶层入口)
+
+`run_turn_events` 新增 `steering: SteeringInlet | None = None`,原样接进
+`LoopAssembly(steering=...)`;`None` 由 assembly 的 post_init 挂 `NullSteeringInlet`
+（现状不变）。与 expression_nudge 那条同理:这是"活的 steering inlet → loop"的唯一接线点。
+关键区别——steering 是**活对象(带队列),不走 TurnRequest 的 JSON 序列化**:transport 层
+（本地 runner / 云端 executor)在进程内构造并喂它,顶层入口只负责穿线。drain 行为见
+[[loop.py]] DRAIN_STEERING + [[steering.py]] QueueSteeringInlet。
+（附带订正:上条"run_turn_events 无测试入口"已不再成立——`test_steering_wiring.py`
+用 monkeypatch 假 loop 驱动 run_turn_events,锁住这条接线。）
 
 ## 2026-08-17 — 动态尾巴里，来源声明领在回复提醒之前
 

@@ -58,12 +58,17 @@ class _SignalCancellation:
         return self._flag
 
 
-async def serve_turn(raw_request: str, write_line: Any) -> int:
+async def serve_turn(raw_request: str, write_line: Any, *, steering: Any = None) -> int:
     """Run one turn from a serialized TurnRequest; stream lines out.
 
     Returns the process exit code (0 = the turn closed itself — even an
     ERROR end-reason is a *successful* serve; non-zero = the request
     never became a running turn).
+
+    ``steering`` is an optional live-injection inlet forwarded to the
+    loop; ``None`` keeps today's behaviour (no mid-turn injection). The
+    process host is what feeds it — the inlet object never crosses the
+    serialization boundary.
     """
     from xyz_agent_context.agent_framework.nexus_power.assembly import (
         TurnRequest,
@@ -105,7 +110,7 @@ async def serve_turn(raw_request: str, write_line: Any) -> int:
     adapter = LegacyEventAdapter()
     legacy = options.output_mode == "legacy_dict"
     try:
-        async for event in run_turn_events(request, cancellation, log=log):
+        async for event in run_turn_events(request, cancellation, log=log, steering=steering):
             if legacy:
                 for translated in adapter.translate(event):
                     await write_line({"event": translated})

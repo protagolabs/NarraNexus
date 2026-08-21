@@ -1,0 +1,109 @@
+"""
+@file_name: test_steering_wiring.py
+@author: Bin Liang
+@date: 2026-08-21
+@description: The framework entry points forward a steering inlet down to
+the LoopAssembly. QueueSteeringInlet's drain behaviour is proven at the
+loop level in test_loop_e2e; here we pin only the wiring — that a caller
+of run_turn_events / serve_turn can supply an inlet and it reaches the
+loop (default None still mounts NullSteeringInlet). A transport layer is
+what will actually feed the inlet; that is a separate change.
+"""
+
+import asyncio
+import json
+
+import pytest
+
+from xyz_agent_context.agent_framework.nexus_power import assembly as assembly_mod
+from xyz_agent_context.agent_framework.nexus_power.assembly import (
+    TurnRequest,
+    run_turn_events,
+)
+from xyz_agent_context.agent_framework.nexus_power.contracts.events import EndReason
+from xyz_agent_context.agent_framework.nexus_power.contracts.options import TurnOptions
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+    NullSteeringInlet,
+    QueueSteeringInlet,
+)
+
+
+class _NeverCancelled:
+    def requested(self) -> bool:
+        return False
+
+
+def _install_capturing_loop(monkeypatch) -> dict:
+    """Replace the real loop + model client with light fakes so the test
+    exercises run_turn_events' wiring without a provider call. Returns a
+    dict the fake loop writes the mounted inlet into."""
+    captured: dict = {}
+
+    class _CapturingLoop:
+        def __init__(self, assembly, ledger):
+            captured["steering"] = assembly.steering
+            self._ledger = ledger
+
+        async def run_turn(self):
+            yield self._ledger.close_turn(EndReason.NO_MORE_ACTIONS, model="fake")
+
+    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop as loop_mod
+    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
+    import xyz_agent_context.agent_framework.llm.litellm_client as lc_mod
+
+    monkeypatch.setattr(loop_mod, "NexusPowerLoop", _CapturingLoop)
+    monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: object())
+    monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())
+    return captured
+
+
+def _request() -> TurnRequest:
+    return TurnRequest(
+        thread_id="t1",
+        messages=[{"role": "user", "content": "hi"}],
+        options=TurnOptions(cwd="/tmp", agent_id="a", model="fake-model", provider="anthropic"),
+    )
+
+
+async def _drain(gen) -> None:
+    async for _ in gen:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_run_turn_events_mounts_the_supplied_steering_inlet(monkeypatch):
+    captured = _install_capturing_loop(monkeypatch)
+    inlet = QueueSteeringInlet(asyncio.Queue())
+
+    await _drain(run_turn_events(_request(), _NeverCancelled(), steering=inlet))
+
+    assert captured["steering"] is inlet
+
+
+@pytest.mark.asyncio
+async def test_run_turn_events_defaults_to_the_null_inlet(monkeypatch):
+    captured = _install_capturing_loop(monkeypatch)
+
+    await _drain(run_turn_events(_request(), _NeverCancelled()))
+
+    # Default (no steering arg) still mounts the always-empty inlet — the
+    # behaviour every existing turn relies on.
+    assert isinstance(captured["steering"], NullSteeringInlet)
+
+
+@pytest.mark.asyncio
+async def test_serve_turn_forwards_steering_to_run_turn_events(monkeypatch):
+    captured = _install_capturing_loop(monkeypatch)
+    inlet = QueueSteeringInlet(asyncio.Queue())
+
+    from xyz_agent_context.agent_framework.nexus_power.runner import serve_turn
+
+    payload = json.dumps({
+        "thread_id": "t1",
+        "messages": [{"role": "user", "content": "hi"}],
+        "options": {"cwd": "/tmp", "agent_id": "a", "model": "fake-model", "provider": "anthropic"},
+    })
+    lines: list = []
+    await serve_turn(payload, lambda obj: lines.append(obj) or asyncio.sleep(0), steering=inlet)
+
+    assert captured["steering"] is inlet
