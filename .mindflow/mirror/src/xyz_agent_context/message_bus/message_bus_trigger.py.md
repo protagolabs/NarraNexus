@@ -1491,3 +1491,17 @@ hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确�
 均做过变异验证。
 
 顺带删除三态 `POST_OK`/`POST_FAILED`/`POST_NOT_ATTEMPTED`（铁律 #2）。
+
+## 2026-08-21 — 并发粒度 agent → LANE (agent, channel)(live-steering 前置)
+
+痛点:一个 agent 服务多个 team 时被串行 block(在 team A 跑,team B 消息只能等)。改法:并发单元从
+**agent** 变 **lane=(agent_id, channel_id)**。`_in_flight`/`_agent_locks` 按 lane keyed;`_agents_with_pending`
+→`_lanes_with_pending`(SQL 多返 channel_id);`_dispatch(agent,channel)`/`_process_agent`→`_process_lane`
+(单 channel);`_poll_cycle` 按 lane 判在飞 + dispatch;patrol lane=(lead, 房间);heartbeat/stop 迭代 lane。
+
+**事故防护全保留**:per-lane 锁**照样防"同一条消息 dispatch 两次"**(重复风险本就是每 channel 每消息级,
+2026-05-12 msg×3 扣 30K token 事故);每 dispatch 独立 supervised task + semaphore + liveness(2026-07-27
+33h stall)不变。circuit-breaker 门在 `_process_lane` 里、碰 bus 前(paused agent 不读 bus)。
+
+`_process_agent(agent)` 保留为**跨 lane 集约**(委托 `_process_lane` per channel + 同一 circuit-breaker 门),
+不含独立逻辑——供按 agent 思考的调用方/测试;生产走 per-lane 并发 dispatch。

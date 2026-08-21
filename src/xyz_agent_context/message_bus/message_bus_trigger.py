@@ -25,10 +25,9 @@ import contextlib
 import json
 import re
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -283,17 +282,24 @@ class MessageBusTrigger:
         # this lock the same bus_message gets handed to AgentRuntime
         # 3+ times. Observed in production (2026-05-12 13:20 — agent
         # processed one msg_4eb528dc three times, burned ~30K tokens).
-        self._agent_locks: Dict[str, asyncio.Lock] = {}
+        # Serialisation is per LANE = (agent_id, channel_id), not per agent: a
+        # lane is one agent in one room, and the duplicate risk the lock guards
+        # (the same pending message dispatched twice before its cursor moves) is
+        # per-message, hence per-channel. Keying by lane keeps that guarantee
+        # while letting one agent run its several teams concurrently — a message
+        # in team B must not wait behind the agent's team-A turn.
+        self._agent_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
         # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
         # for a given cooldown key. Shared by both notifiers so a burst of
         # failures sharing one root cause writes at most one inbox row per
         # `FAILURE_NOTIFY_COOLDOWN_SECONDS`. See `_notify_owner`.
         self._notify_cooldown: Dict[str, float] = {}
-        # In-flight dispatches, agent_id -> _InFlight. The poll loop spawns
-        # these and does NOT await them (see `_poll_cycle`), so this is both
-        # the "don't dispatch the same agent twice" guard and the raw material
-        # for the audit heartbeat.
-        self._in_flight: Dict[str, _InFlight] = {}
+        # In-flight dispatches, LANE (agent_id, channel_id) -> _InFlight. The
+        # poll loop spawns these and does NOT await them (see `_poll_cycle`), so
+        # this is both the "don't dispatch the same LANE twice" guard and the
+        # raw material for the audit heartbeat. One agent may hold several lanes
+        # at once (its concurrent teams).
+        self._in_flight: Dict[Tuple[str, str], _InFlight] = {}
         # Wakes the poll loop out of its interval sleep on stop().
         self._stop_event = asyncio.Event()
         # Wakes the poll loop because WORK just landed, not because we are
@@ -648,9 +654,9 @@ class MessageBusTrigger:
         """
         self._running = False
         self._stop_event.set()
-        for agent_id, flight in list(self._in_flight.items()):
+        for lane, flight in list(self._in_flight.items()):
             flight.task.cancel()
-            logger.info(f"MessageBusTrigger: cancelling in-flight turn for {agent_id}")
+            logger.info(f"MessageBusTrigger: cancelling in-flight turn for {lane}")
         logger.info("MessageBusTrigger stopping")
 
     def liveness_snapshot(self) -> Dict[str, Any]:
@@ -676,14 +682,14 @@ class MessageBusTrigger:
         now = time.monotonic()
         running = sum(1 for f in self._in_flight.values() if f.running)
         longest_agent, longest_s = None, 0
-        for agent_id, flight in self._in_flight.items():
+        for (lane_agent, _lane_channel), flight in self._in_flight.items():
             if not flight.running:
                 continue
             elapsed = int(now - flight.started_at)
             # `is None` first: a turn that started this second has elapsed 0 and
             # must still be named, or a freshly-wedged slot reports as nobody.
             if longest_agent is None or elapsed > longest_s:
-                longest_agent, longest_s = agent_id, elapsed
+                longest_agent, longest_s = lane_agent, elapsed
         return {
             "cycles": self._cycles,
             "candidates": self._last_candidates,
@@ -697,50 +703,53 @@ class MessageBusTrigger:
             "last_dispatch_at": self._last_dispatch_at,
         }
 
-    async def _agents_with_pending(self) -> List[str]:
-        """Agents that have at least one message past their cursor.
+    async def _lanes_with_pending(self) -> List[Tuple[str, str]]:
+        """Lanes ``(agent_id, channel_id)`` that have a message past the cursor.
 
         One query replacing "every agent that is a member of any channel" —
         364 of them on prod, each of which then ran its own
         ``get_pending_messages`` (plus a poison lookup per row) every few
         seconds just to conclude it had nothing to do.
 
-        Deliberately a CANDIDATE set: it mirrors ``get_pending_messages``'
-        cursor + not-self-sent predicate but skips the poison and @mention
-        filters, which stay in ``_process_agent`` where the real decision is
-        made. Over-including is free; under-including would drop a message.
+        Returns LANES, not agents: the poll loop dispatches and gates per
+        ``(agent, channel)`` so one agent's teams run concurrently. Deliberately
+        a CANDIDATE set: it mirrors ``get_pending_messages``' cursor +
+        not-self-sent predicate but skips the poison and @mention filters, which
+        stay in ``_process_lane`` where the real decision is made. Over-including
+        is free; under-including would drop a message.
         """
         rows = await self._bus._db.execute(
-            "SELECT DISTINCT cm.agent_id AS agent_id "
+            "SELECT DISTINCT cm.agent_id AS agent_id, cm.channel_id AS channel_id "
             "FROM bus_channel_members cm "
             "JOIN bus_messages m ON m.channel_id = cm.channel_id "
             "WHERE m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
             "AND m.from_agent != cm.agent_id",
             (),
         )
-        return [r["agent_id"] for r in rows] if rows else []
+        return [(r["agent_id"], r["channel_id"]) for r in rows] if rows else []
 
-    def _dispatch(self, agent_id: str) -> None:
-        """Spawn a supervised turn for one agent and return immediately."""
-        task = asyncio.create_task(self._run_dispatch(agent_id))
-        self._in_flight[agent_id] = _InFlight(task=task, started_at=time.monotonic())
+    def _dispatch(self, agent_id: str, channel_id: str) -> None:
+        """Spawn a supervised turn for one lane and return immediately."""
+        lane = (agent_id, channel_id)
+        task = asyncio.create_task(self._run_dispatch(agent_id, channel_id))
+        self._in_flight[lane] = _InFlight(task=task, started_at=time.monotonic())
         # Paired done-callback: an unawaited task's exception would otherwise
         # surface only as a GC warning (incident lesson #2).
-        task.add_done_callback(lambda t, a=agent_id: self._on_dispatch_done(a, t))
+        task.add_done_callback(lambda t, ln=lane: self._on_dispatch_done(ln, t))
 
-    async def _run_dispatch(self, agent_id: str) -> None:
-        handled = await self._process_agent(agent_id)
+    async def _run_dispatch(self, agent_id: str, channel_id: str) -> None:
+        handled = await self._process_lane(agent_id, channel_id)
         if handled:
             self._handled_total += 1
 
-    def _on_dispatch_done(self, agent_id: str, task: asyncio.Task) -> None:
-        self._in_flight.pop(agent_id, None)
+    def _on_dispatch_done(self, lane: Tuple[str, str], task: asyncio.Task) -> None:
+        self._in_flight.pop(lane, None)
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
             logger.exception(
-                f"MessageBusTrigger: dispatch for {agent_id} died: {exc!r}",
+                f"MessageBusTrigger: dispatch for {lane} died: {exc!r}",
                 exc_info=exc,
             )
 
@@ -759,15 +768,15 @@ class MessageBusTrigger:
         cycling, the heartbeat keeps reporting, and `_in_flight` names the
         agent that is stuck.
         """
-        candidates = await self._agents_with_pending()
+        candidates = await self._lanes_with_pending()
         self._cycles += 1
         self._last_candidates = len(candidates)
 
         # The patrol lane. A second candidate source on the same cycle: teams
         # whose board has unfinished work and whose lead is due for a sweep.
-        # Runs through the same semaphore and the same per-agent lock as
-        # message dispatch, so a patrol can never double-run a lead that is
-        # already busy — and an empty board yields no candidates at all, which
+        # Runs through the same semaphore and the same per-lane lock as message
+        # dispatch, so a patrol can never double-run a lead that is already busy
+        # in that room — and an empty board yields no candidates at all, which
         # is the feature's whole cost guarantee.
         dispatched_patrols = await self._dispatch_patrols()
 
@@ -775,13 +784,14 @@ class MessageBusTrigger:
             return dispatched_patrols
 
         dispatched = 0
-        for agent_id in candidates:
-            # Its previous turn is still going; the per-agent lock would make a
-            # second dispatch wait, but not spawning it at all is cheaper and
-            # keeps `_in_flight` meaning one entry per agent.
-            if agent_id in self._in_flight:
+        for agent_id, channel_id in candidates:
+            # This lane's previous turn is still going; the per-lane lock would
+            # make a second dispatch wait, but not spawning it at all is cheaper
+            # and keeps `_in_flight` one entry per lane. A DIFFERENT lane of the
+            # same agent is not skipped — that is the concurrency this enables.
+            if (agent_id, channel_id) in self._in_flight:
                 continue
-            self._dispatch(agent_id)
+            self._dispatch(agent_id, channel_id)
             dispatched += 1
 
         if dispatched:
@@ -810,9 +820,11 @@ class MessageBusTrigger:
 
         count = 0
         for team_id, lead_agent_id, channel_id in due:
-            # Its own turn is still going — a patrol would just queue behind the
-            # per-agent lock, and skipping is cheaper than holding a slot.
-            if lead_agent_id in self._in_flight:
+            # The lead's turn IN THIS ROOM is still going — a patrol would just
+            # queue behind the per-lane lock, and skipping is cheaper than
+            # holding a slot. (A lead busy in another team can still be patrolled
+            # here — the patrol lane is (lead, this team's room).)
+            if (lead_agent_id, channel_id) in self._in_flight:
                 continue
             # Same gate message dispatch uses. Without it a lead with a dead key
             # or exhausted quota gets woken every 180-600s, forever, to run a
@@ -841,35 +853,37 @@ class MessageBusTrigger:
     def _dispatch_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
         """Spawn one patrol sweep, gated exactly like a message dispatch.
 
-        Same per-agent lock and same semaphore as ``_process_agent``: a lead
-        that is already answering somebody must not be woken a second time to
-        patrol, and patrols must not escape the worker cap. Registering in
-        ``_in_flight`` is what makes the next cycle skip this lead — and what
-        makes a stuck patrol visible in the heartbeat like any other turn.
+        Same per-lane lock and same semaphore as ``_process_lane``: a lead that
+        is already answering in this room must not be woken a second time to
+        patrol it, and patrols must not escape the worker cap. Registering in
+        ``_in_flight`` under the lane is what makes the next cycle skip this
+        lead here — and what makes a stuck patrol visible in the heartbeat like
+        any other turn.
         """
+        lane = (lead_agent_id, channel_id)
 
         async def _guarded() -> None:
-            lock = self._agent_locks.setdefault(lead_agent_id, asyncio.Lock())
+            lock = self._agent_locks.setdefault(lane, asyncio.Lock())
             async with lock, self._semaphore:
-                # Same bookkeeping as `_process_agent`: liveness_snapshot's
+                # Same bookkeeping as `_process_lane`: liveness_snapshot's
                 # starvation check and `longest_running_agent` both count only
                 # `running` entries, so a patrol that never sets it would hold a
                 # worker slot while the heartbeat reported it as merely waiting
                 # — the 2026-07-27 shape (33 h of nothing, liveness still green)
                 # one lane over.
-                flight = self._in_flight.get(lead_agent_id)
+                flight = self._in_flight.get(lane)
                 if flight is not None:
                     flight.running = True
                 await self._run_patrol(team_id, lead_agent_id, channel_id)
 
         task = asyncio.create_task(_guarded())
-        self._in_flight[lead_agent_id] = _InFlight(
+        self._in_flight[lane] = _InFlight(
             task=task, started_at=time.monotonic()
         )
         # Never a bare create_task: an exception in a fire-and-forget task is
         # only reported during GC (incident lesson #2).
         task.add_done_callback(
-            lambda t, a=lead_agent_id: self._on_dispatch_done(a, t)
+            lambda t, ln=lane: self._on_dispatch_done(ln, t)
         )
 
     def _should_process_message(
@@ -928,12 +942,14 @@ class MessageBusTrigger:
         self._rate_counters[key] = timestamps
         return True
 
-    async def _process_agent(self, agent_id: str) -> bool:
-        """Process pending messages for an agent. Returns True if messages handled.
+    async def _process_lane(self, agent_id: str, channel_id: str) -> bool:
+        """Process one lane's pending messages. Returns True if handled.
 
-        Acquires a per-agent lock so a slow ``_invoke_runtime`` does not let
-        the next poll fire a second AgentRuntime for the same pending
-        message. See ``__init__`` for the production incident this guards.
+        A lane is ``(agent_id, channel_id)``. Acquires the per-LANE lock so a
+        slow ``_invoke_runtime`` does not let the next poll fire a second
+        AgentRuntime for the same pending message (see ``__init__`` for the
+        production incident this guards) — while a DIFFERENT lane of the same
+        agent runs in parallel.
         """
         # Circuit-breaker skip-gate: a paused (dead key / quota) or cooling
         # agent is skipped entirely — its pending messages are left queued
@@ -955,90 +971,115 @@ class MessageBusTrigger:
             )
             return False
 
-        lock = self._agent_locks.setdefault(agent_id, asyncio.Lock())
+        lock = self._agent_locks.setdefault((agent_id, channel_id), asyncio.Lock())
         async with lock, self._semaphore:
             # Slot acquired — from here the turn counts as `running` rather
-            # than `waiting` in the heartbeat. Absent when `_process_agent` is
+            # than `waiting` in the heartbeat. Absent when `_process_lane` is
             # called directly (tests), which is why this is a lookup, not an
             # assumption.
-            flight = self._in_flight.get(agent_id)
+            flight = self._in_flight.get((agent_id, channel_id))
             if flight is not None:
                 flight.running = True
             try:
                 pending = await self._bus.get_pending_messages(agent_id)
-                if not pending:
+                # This lane owns exactly one channel; the candidate query is
+                # per (agent, channel) but `get_pending_messages` is per agent,
+                # so filter to ours — another lane handles the rest concurrently.
+                messages = [m for m in pending if m.channel_id == channel_id]
+                if not messages:
                     return False
 
-                by_channel: Dict[str, List[BusMessage]] = defaultdict(list)
-                for msg in pending:
-                    by_channel[msg.channel_id].append(msg)
+                # Skip IM-channel-owned channels — each has its own dedicated
+                # trigger that already processed the message; re-consuming
+                # would fire AgentRuntime a second time and send duplicate
+                # replies. Prefixes derive from MessageSourceRegistry (see
+                # im_channel_prefixes) so new channels can't be forgotten.
+                # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
+                #
+                # `InboxRecorder` (2026-08-17) stopped writing IM turns into
+                # the bus tables, so no NEW row can arrive here. But the old
+                # rows and memberships are still in place — iron rule #6
+                # forbids the destructive migration — and this branch is
+                # what has been keeping their `last_processed_at` current.
+                #
+                # Deleting it now would re-dispatch that history for any
+                # agent whose cursor is stale, and the circuit-breaker gate
+                # above is exactly how a cursor goes stale: a paused agent
+                # never reaches this loop, so its IM channels never got
+                # acked. Those turns would then run wearing the Owner-Relay
+                # peer prompt — the 2026-07-03 wechat incident, by a second
+                # route.
+                #
+                # Removal is a POST-MIGRATION step, after the Owner's
+                # backfill + cleanup. See
+                # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
+                if channel_id.startswith(im_channel_prefixes()):
+                    latest = max(messages, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
+                    return False
 
-                handled_any = False
-                for channel_id, messages in by_channel.items():
-                    # Skip IM-channel-owned channels — each has its own dedicated
-                    # trigger that already processed the message; re-consuming
-                    # would fire AgentRuntime a second time and send duplicate
-                    # replies. Prefixes derive from MessageSourceRegistry (see
-                    # im_channel_prefixes) so new channels can't be forgotten.
-                    # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
-                    #
-                    # `InboxRecorder` (2026-08-17) stopped writing IM turns into
-                    # the bus tables, so no NEW row can arrive here. But the old
-                    # rows and memberships are still in place — iron rule #6
-                    # forbids the destructive migration — and this branch is
-                    # what has been keeping their `last_processed_at` current.
-                    #
-                    # Deleting it now would re-dispatch that history for any
-                    # agent whose cursor is stale, and the circuit-breaker gate
-                    # above is exactly how a cursor goes stale: a paused agent
-                    # never reaches this loop, so its IM channels never got
-                    # acked. Those turns would then run wearing the Owner-Relay
-                    # peer prompt — the 2026-07-03 wechat incident, by a second
-                    # route.
-                    #
-                    # Removal is a POST-MIGRATION step, after the Owner's
-                    # backfill + cleanup. See
-                    # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
-                    if channel_id.startswith(im_channel_prefixes()):
-                        latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
-                        continue
+                channel_type, channel_owner = await self._get_channel_info(channel_id)
 
-                    channel_type, channel_owner = await self._get_channel_info(channel_id)
-
-                    # Mention filtering (channel owner is always activated)
-                    relevant = [
-                        m for m in messages
-                        if self._should_process_message(m, agent_id, channel_type, channel_owner)
-                    ]
-                    if not relevant:
-                        # Still ack to advance cursor
-                        latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(
-                            agent_id, channel_id, latest.created_at
-                        )
-                        continue
-
-                    # Rate limiting
-                    if not self._check_rate_limit(agent_id, channel_id):
-                        latest = max(relevant, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(
-                            agent_id, channel_id, latest.created_at
-                        )
-                        continue
-
-                    trigger_msg = relevant[-1]
-                    await self._handle_channel_batch(
-                        agent_id, channel_id, relevant, trigger_msg, channel_owner
+                # Mention filtering (channel owner is always activated)
+                relevant = [
+                    m for m in messages
+                    if self._should_process_message(m, agent_id, channel_type, channel_owner)
+                ]
+                if not relevant:
+                    # Still ack to advance cursor
+                    latest = max(messages, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
                     )
-                    handled_any = True
+                    return False
 
-                return handled_any
+                # Rate limiting
+                if not self._check_rate_limit(agent_id, channel_id):
+                    latest = max(relevant, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
+                    )
+                    return False
+
+                trigger_msg = relevant[-1]
+                await self._handle_channel_batch(
+                    agent_id, channel_id, relevant, trigger_msg, channel_owner
+                )
+                return True
             except Exception as e:
                 logger.exception(
-                    f"MessageBusTrigger: error processing agent {agent_id}: {e}"
+                    f"MessageBusTrigger: error processing lane "
+                    f"{(agent_id, channel_id)}: {e}"
                 )
                 return False
+
+    async def _process_agent(self, agent_id: str) -> bool:
+        """Process every pending channel of one agent, delegating each to
+        ``_process_lane``. Returns True if any lane handled a message.
+
+        Production dispatches lanes concurrently through the poll loop; this is
+        the whole-agent aggregator (one call, all of an agent's lanes, in
+        arrival-grouped order) — the shape callers that think per-agent want. It
+        adds no logic of its own beyond the same circuit-breaker skip-gate
+        ``_process_lane`` applies per lane, hoisted here so a paused agent is
+        skipped WITHOUT the bus read (its messages stay queued, not acked).
+        """
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
+        cb_skip, _cb_reason = await should_skip(agent_id)
+        if cb_skip:
+            return False
+        pending = await self._bus.get_pending_messages(agent_id)
+        if not pending:
+            return False
+        channels: list[str] = []
+        for msg in pending:
+            if msg.channel_id not in channels:
+                channels.append(msg.channel_id)
+        handled_any = False
+        for channel_id in channels:
+            if await self._process_lane(agent_id, channel_id):
+                handled_any = True
+        return handled_any
 
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent
@@ -1090,7 +1131,7 @@ class MessageBusTrigger:
         `joined_at` for the life of the agent while every team message stayed
         unread and rode into EVERY scenario's context, owner chat included.
 
-        Deliberately NOT called from the two ack sites in `_process_agent`
+        Deliberately NOT called from the two ack sites in `_process_lane`
         (un-mentioned, rate-limited). Those advance `last_processed_at` without
         running a turn, so nothing was rendered and nothing was seen. Marking
         them read would drop the messages unseen — and would take with them the

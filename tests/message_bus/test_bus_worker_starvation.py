@@ -108,11 +108,11 @@ def _saturate(t: MessageBusTrigger, *, running: int, waiting: int) -> None:
     for i in range(running):
         f = _InFlight(task=None, started_at=0.0)  # type: ignore[arg-type]
         f.running = True
-        t._in_flight[f"run_{i}"] = f
+        t._in_flight[(f"run_{i}", "ch")] = f  # keys are (agent, channel) lanes
     for i in range(waiting):
         f = _InFlight(task=None, started_at=0.0)  # type: ignore[arg-type]
         f.running = False
-        t._in_flight[f"wait_{i}"] = f
+        t._in_flight[(f"wait_{i}", "ch")] = f
 
 
 @pytest.mark.asyncio
