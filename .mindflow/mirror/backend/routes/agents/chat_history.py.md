@@ -16,6 +16,18 @@ stub: false
   正解是把活动流改读 events 索引,而非逐实例扫 memory JSON。
 - **M1 include 用 Literal**:`include: Literal["chat","activity","all"]` 交给 FastAPI 校验(非法值 422、大小写敏感),
   删掉手写 normalize;`want_activity = include != "chat"`。
+- **N1 owner-notify 行按 scope 分流(行为改动)**:同一条带 `owner_notify_content` 的 assistant 行,
+  `message_type` 现在是 **scope 的函数**——
+  - **owner scope**:保持 `message_type="chat"`,原文进**对话** tab(agent 自己的 IM turn 主动汇报 owner,
+    长期既有行为,不变)。
+  - **peer scope(A2A/team)**:强制改标 `message_type="activity"`(`content` 仍是**原文、不折叠成
+    `Background activity (...)`**),否则这行两个 tab 都进不去——对话 tab 从不读 peer 实例,活动流又只留
+    `message_type=='activity'`,`"chat"` 型行两边皆无。改标后进 **Activity Log**。
+  原文放行**不等于**泄露对端正文:bus 侧 handler 的 `owner_visible_reply_tool_names=("send_message_to_user_directly",)`
+  (`message_bus/__init__.py`)保证 `owner_notify_content` 只可能来自 owner-notify 工具、不可能是给 peer 的回复,
+  所以「原文给 owner」是语义正确而非隐私回退。改动用 `peer_scoped` 收口,勿写成「所有 owner_notify 都走 activity」
+  (会误导下一个人删掉 `peer_scoped` 判据 → N1 回退)。用例:`test_owner_notify_on_peer_turn_reaches_activity_verbatim`
+  (activity 见原文 + chat 不见 + 该行自身 peer 正文仍不外泄)。
 
 ## 2026-08-21 — Activity Log 纳入 A2A/team 活动:owner-only + 前缀收口 + 两条流各自分页
 
@@ -42,8 +54,9 @@ stub: false
    "有新回复"toast/滚动。`all` 保留旧语义给其他调用方。
 
 `_A2A_TEAM_SOURCES` 引用 `hook_schema.BUS_PRODUCED_SOURCES`(与 `chat_module` 同一来源,新增 bus
-传输一处改全生效);`_USER_FACING_SOURCES` 一并提到模块级。对端正文从不逐字外泄(仍走既有折叠成
-`Background activity (...)` / `owner_notify` 放行)。夹具:`tests/backend/test_activity_log_a2a_visibility.py`
+传输一处改全生效);`_USER_FACING_SOURCES` 一并提到模块级。对端正文从不逐字外泄(普通 peer 行折叠成
+`Background activity (...)`;`owner_notify_content` 的按 scope 放行见上「2026-08-21 (review)」的 **N1** 条目)。
+夹具:`tests/backend/test_activity_log_a2a_visibility.py`
 (owner 见 message_bus+a2a 折叠行、`include=all` 钉住前缀+行级两道隔离、非 owner 零泄漏、活动洪流下
 `include=chat` 对话不被饿死)。
 
