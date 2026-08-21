@@ -511,3 +511,36 @@ async def test_production_wiring_brackets_each_pass(db_client, monkeypatch):
         "instance_executor_audit", {"event_type": EVENT_CULL_SKIPPED_BUSY}
     )
     assert [r["run_id"] for r in rows] == ["evt_bus"]
+
+
+@pytest.mark.asyncio
+async def test_forget_after_means_exactly_what_it_says():
+    """Pins the aging boundary, because nothing else does and three separate
+    comments quote the number.
+
+    Aging runs at pass ENTRY, before the pass has had any chance to re-veto
+    the user — so the comparison has to be strictly greater, or an entry is
+    dropped one pass early and every doc describing _FORGET_AFTER is off by
+    one. The consequence of dropping early is a duplicate audit row for a run
+    that never stopped blocking us, i.e. the exact metric skew the dedup
+    exists to prevent.
+    """
+    from xyz_agent_context.agent_runtime.executor_reaper import _CullVeto
+
+    async def _blocked(user_id):
+        return "evt_long"
+
+    veto = _CullVeto(check=_blocked)
+    with veto.pass_():
+        assert await veto("u") is True          # last seen: pass 1
+
+    # Absent for exactly _FORGET_AFTER passes — still remembered on the last
+    # of them, so a user that reappears at the boundary is not re-audited.
+    for _ in range(_CullVeto._FORGET_AFTER):
+        with veto.pass_():
+            pass
+        assert "u" in veto._blocked_by
+
+    with veto.pass_():                           # one more → forgotten
+        pass
+    assert "u" not in veto._blocked_by

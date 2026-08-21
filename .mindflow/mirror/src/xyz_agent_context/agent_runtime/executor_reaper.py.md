@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
 
 ## 2026-08-20 — 收尾:pass 生命周期、审计写入条件、状态上限
@@ -21,8 +21,10 @@ last_verified: 2026-08-20
 故障期间本表留不下痕迹。"每行 = 一次救回的 run"**只对 `evt_*` 的行成立**。
 怎么读这个数字见 [[executor_audit.py]];什么时候写只有本文件知道。
 
-**状态上限**:`_blocked_by` 是 `_CullVeto` 的**唯一**可变状态,`_FORGET_AFTER`
-按 pass 序号老化,`_MAX_TRACKED` 是硬上限。两条都要:老化只在调用方 bracket 时
+**状态上限**:`_blocked_by` 是 `_CullVeto` 唯一**按用户增长**的状态(另有一个
+标量 `_pass_no`),`_FORGET_AFTER` 按 pass 序号老化——老化在 pass **入口**跑,
+所以比较必须是**严格大于**,否则条目会在还没轮到本轮重新否决它时就被丢掉,
+比 `_FORGET_AFTER` 承诺的少活一轮。`_MAX_TRACKED` 是硬上限。两条都要:老化只在调用方 bracket 时
 推进,而类型层不是 CI 门禁(`pyrightconfig.json` 只 include `module/`)。因此
 **上限不是多余的复杂度,是"下一个人忘了 bracket"时把危害从内存泄漏降级成几行
 重复审计的唯一保险**——不要因为"老化已经保证不无界"而删掉它。

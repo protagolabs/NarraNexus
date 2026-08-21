@@ -210,7 +210,12 @@ class _CullVeto:
         it is unaffected by how the pass ends."""
         self._pass_no += 1
         for user_id, (_run, last_seen) in list(self._blocked_by.items()):
-            if self._pass_no - last_seen >= self._FORGET_AFTER:
+            # Strictly greater: aging runs at pass ENTRY, before this pass has
+            # had any chance to re-veto the user. With >=, an entry last seen
+            # in pass N dies at the start of pass N+_FORGET_AFTER — having
+            # been absent for only _FORGET_AFTER-1 passes, one short of what
+            # the name and every comment describing it promise.
+            if self._pass_no - last_seen > self._FORGET_AFTER:
                 del self._blocked_by[user_id]
         yield self
 
