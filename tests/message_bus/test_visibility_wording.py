@@ -138,11 +138,12 @@ def test_the_delivery_rule_defers_the_mechanism_to_the_surface():
     )
 
     # 2026-08-17 — this used to require the tool NAMES in the line. It must not
-    # any more: there is one send verb per surface now, and naming any of them
-    # here would be the surface-specific claim P1 forbids. What has to hold is
-    # that the rule points at the turn for the how, instead of leaving "deliver
-    # it" unactionable.
-    assert "the send call this turn offers you" in line
+    # any more: naming a send verb here would be the surface-specific claim P1
+    # forbids (the verb that fits differs by surface). 2026-08-21 — the line no
+    # longer implies only ONE call can deliver (capability follows the agent),
+    # but it must still point at the turn for the how, instead of leaving
+    # "deliver it" unactionable.
+    assert "the top of the turn names the default one" in line
     assert "only the turn knows" in line
 
 
@@ -195,13 +196,15 @@ def test_the_block_says_cross_channel_calls_are_available_this_turn():
     text = _static_text()
     low = text.lower()
 
-    assert "both calls are available every turn" in low, (
-        "the block documents both send verbs without saying either can be "
-        "called this turn"
-    )
-    assert "you are not limited to it" in low, (
+    assert "you are not confined to it" in low, (
         "the block must state the agent is not confined to the conversation "
         "that woke it"
+    )
+    # The clause that keeps the sentence TRUE on patrol (where both send verbs
+    # ARE off the desk) without branching on room type. Removing it reintroduces
+    # a byte-stable claim that is false on one surface — the #311 defect class.
+    assert "unless this turn's own prompt says otherwise" in low, (
+        "the availability claim must be hedged so it holds on patrol too"
     )
     # The reflex-arc dead-ends must be gone, or the new capability is contradicted
     # a few lines from where it is granted.
@@ -414,10 +417,10 @@ def test_the_team_prompt_really_does_promise_what_the_static_rule_defers_to():
     # 2026-08-17 — the promise itself changed, and the contract has to track it.
     #
     # The static rule used to defer to "your reply is posted for you"; it now
-    # defers to "the send call this turn offers you". So what the room must
-    # actually do is NAME that call. If the room stopped naming it, the module's
-    # rule would be pointing at nothing — the exact failure this test exists for,
-    # one file over.
+    # defers to "the send call for the conversation it belongs to". So what the
+    # room must actually do is NAME that call. If the room stopped naming it, the
+    # module's rule would be pointing at nothing — the exact failure this test
+    # exists for, one file over.
     assert "message_team(" in prompt
     # And the room must still say what reaches it, because "deliver it" is only
     # actionable if the agent knows what counts as delivery here.

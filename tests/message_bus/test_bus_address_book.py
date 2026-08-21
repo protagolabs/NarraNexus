@@ -116,6 +116,18 @@ async def test_producer_caps_the_fetch_not_only_the_render(db_client):
     assert len(asked[0]) == MAX_TEAMS_IN_CONTEXT
 
 
+@pytest.mark.asyncio
+async def test_producer_swallows_a_db_failure_and_returns_empty(db_client):
+    """An address book is never worth a turn: a DB error yields `[]`, not a
+    raised turn. Without this the fail-open is a claim no test backs."""
+
+    class _Boom:
+        async def get_by_ids(self, *a, **k):
+            raise RuntimeError("db down")
+
+    assert await _module(db_client)._team_address_book(_Boom(), ["team_a"]) == []
+
+
 # ── the wiring: hook_data_gathering (membership → producer → extra_data) ────
 
 
@@ -215,3 +227,20 @@ def test_no_teams_renders_no_teams_section():
     text = "\n".join(_module()._volatile_context_parts(_ctx()))
 
     assert "Your teams" not in text
+
+
+def test_renderer_caps_the_list_and_the_heading_agrees_with_it():
+    """The render-side cap is a second copy of the same knowledge as the fetch
+    cap; pin it so the two cannot drift. The `(top N)` heading must equal the
+    number of lines actually printed, or it lies about what was shown."""
+    over = [
+        {"team_id": f"team_{i}", "name": f"T{i}"}
+        for i in range(MAX_TEAMS_IN_CONTEXT + 3)
+    ]
+
+    lines = _module()._volatile_context_parts(_ctx(bus_teams=over))
+    team_lines = [ln for ln in lines if ln.startswith("- `team_")]
+    heading = next(ln for ln in lines if ln.startswith("### Your teams"))
+
+    assert len(team_lines) == MAX_TEAMS_IN_CONTEXT
+    assert f"(top {MAX_TEAMS_IN_CONTEXT})" in heading

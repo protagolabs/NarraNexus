@@ -171,17 +171,46 @@ async def test_the_reminder_still_defaults_to_the_turns_own_verb():
     woke the turn, so the path of least resistance stays 'answer where you were
     spoken to'. Reaching another conversation costs a deliberate search + an
     explicit target — the intent gradient that replaces the old hard drop.
+
+    ONE instance, three turns of different kinds, in the runtime's order
+    (suppression asked BEFORE declaration). `get_disallowed_tools` no longer
+    branches on the turn, but `get_expressive_tools` still reads
+    `_is_team_turn(ctx_data)` — so it is now the one hook a `self`-cached turn
+    kind (a natural "save a getattr" optimisation) would break. The final
+    turn returns to `team` so an implementation that answers with the PREVIOUS
+    turn's verb cannot slip through by matching the last turn asked. The old
+    fresh-instance-per-case shape (deleted here) walked straight past that
+    class of bug, which had really shipped.
     """
+    module = _module()
+    config = await module.get_mcp_config()
+    q = f"mcp__{config.server_name}__"
+
     for extra, default in (
+        ({"bus_team_room": True}, "message_team"),
         ({}, "message_agent"),
         ({"bus_team_room": True}, "message_team"),
     ):
-        module = _module()
-        config = await module.get_mcp_config()
-        q = f"mcp__{config.server_name}__"
         ctx = _ctx(WorkingSource.MESSAGE_BUS, **extra)
-
+        # Runtime order: suppression first, declaration second.
+        await module.get_disallowed_tools(ctx)
         assert await module.get_expressive_tools(ctx) == [q + default]
+
+
+@pytest.mark.asyncio
+async def test_a_chat_turn_also_suppresses_neither_send_verb():
+    """The suppression removal is unconditional, by design (capability follows
+    the agent on every surface, bus or not). On an owner-chat turn the module
+    is not the reply origin, so it declares no reminder — but it also removes
+    nothing, so `message_team` is reachable if the owner asks the agent to post
+    in a room. Re-adding an owner-chat drop turns this red."""
+    module = _module()
+
+    ctx = _ctx(WorkingSource.CHAT)
+
+    assert await module.get_disallowed_tools(ctx) == []
+    # And it is not declared as the reply reminder on a turn it does not own.
+    assert await module.get_expressive_tools(ctx) == []
 
 
 @pytest.mark.asyncio

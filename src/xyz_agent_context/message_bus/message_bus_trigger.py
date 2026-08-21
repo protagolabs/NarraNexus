@@ -2625,13 +2625,12 @@ class MessageBusTrigger:
             # Reduces how often the platform's guard is consulted; it is NOT
             # the guard (iron rule #15). `message_bus/errand.py` keeps the
             # hand-off on the board whether or not the model obeys this line.
-            "- **Do not promise future delivery.** Sending this message ENDS "
-            "your turn — nothing of yours keeps running afterwards, so "
-            "\"完成后交给你\" / \"I'll report back when it's done\" is a "
-            "promise nothing will keep. Instead: finish the work in THIS turn "
-            "and reply with the result, or say plainly how far you got and "
-            "what you need, or schedule the follow-up explicitly with "
-            "`job_create` if you have it.",
+            "- **Do not promise future delivery.** Nothing of yours keeps "
+            "running once this turn ends, so \"完成后交给你\" / \"I'll report "
+            "back when it's done\" is a promise nothing will keep. Instead: "
+            "finish the work in THIS turn and reply with the result, or say "
+            "plainly how far you got and what you need, or schedule the "
+            "follow-up explicitly with `job_create` if you have it.",
         ]
         return "\n".join(lines)
 

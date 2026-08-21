@@ -359,20 +359,20 @@ class MessageBusModule(XYZBaseModule):
             "everything in it.",
             "",
             "- `message_team(team_id=..., text=...)` — say something in a room.",
-            # Capability follows the agent, not the trigger channel: both send
-            # verbs stay on the desk every turn (`get_disallowed_tools` no
-            # longer removes either). The reply reminder still defaults to the
-            # verb for the conversation that woke you, so answering where you
-            # were spoken to is the least-effort path; reaching elsewhere is a
-            # deliberate act, not an impossible one. This sentence is byte-stable
-            # and true on every surface — it names no room type.
-            "- Both calls are available every turn. The conversation that woke "
-            "you is just where a plain reply goes by default (the top of the "
-            "turn names it). You are NOT limited to it: to speak in a team room "
-            "you belong to, call `message_team`; to reach a peer, call "
-            "`message_agent`. Reaching a conversation other than the one that "
-            "woke you is a deliberate act — name the target, and it happens this "
-            "turn, not the next.",
+            # Capability follows the agent, not the trigger channel: the trigger
+            # channel decides only where a plain reply goes by default, never
+            # what the agent can reach. Byte-stable and surface-blind (R4): the
+            # "unless this turn's own prompt says otherwise" clause is what keeps
+            # the sentence TRUE on the one surface that does take the send verbs
+            # off the desk — patrol — without this block branching on room type
+            # (which its own docstring forbids). Do not drop that clause.
+            "- The conversation that woke you is only where a plain reply goes "
+            "by default (the top of the turn names it) — you are not confined "
+            "to it. Unless this turn's own prompt says otherwise, you can reach "
+            "any team or peer in your context: `message_team` for a room you "
+            "belong to, `message_agent` for a peer. Reaching a conversation "
+            "other than the one that woke you is a deliberate act — name the "
+            "target.",
             "- `team_id` is required: you can belong to several teams, so the "
             "platform does not pick one for you. The room a turn is about is "
             "named at the top of it, and every team you belong to is listed with "
@@ -479,11 +479,11 @@ class MessageBusModule(XYZBaseModule):
             # their turns with the results as plain text. Nothing was delivered.
             "- **Finished work is never ping-pong — deliver it.** When you "
             "complete something someone asked for (research, an answer, a "
-            "document), it has to REACH them — and it only does so through the "
-            "send call this turn offers you, which the top of the turn names. A "
-            "turn that ends with the work sitting in your own reasoning "
-            "delivered nothing. (No tool name is given here on purpose: which "
-            "one delivers depends on where you are, and only the turn knows.)",
+            "document), it has to REACH them — plain text sitting in your own "
+            "reasoning reaches nobody. Send it through the call for the "
+            "conversation it belongs to; the top of the turn names the default "
+            "one. (No tool name is given here on purpose: which call fits "
+            "depends on the conversation, and only the turn knows.)",
             "- **Do NOT repeat yourself.** If you have already said X, do not "
             "rephrase X to fill space.",
             "- **Substance only.** Write when you have new information, a "
@@ -727,9 +727,12 @@ class MessageBusModule(XYZBaseModule):
         Takes the ``team_ids`` the caller already resolved for peer scoping, so
         membership is not re-queried — only the team NAMES are read. The cap is
         applied HERE, on the fetch, not only at render time, so a pathological
-        owner's team count never rides into ``extra_data`` in full. A row whose
-        ``team_id`` went missing is dropped; a row with no name keeps its id (the
-        id is the address; the name is only a label).
+        owner's team count never rides into ``extra_data`` in full. The ids are
+        SORTED before the cap, so which teams survive the truncation is stable
+        and reproducible rather than a function of the membership query's row
+        order (only matters above the cap, which normal team counts never hit).
+        A row whose ``team_id`` went missing is dropped; a row with no name keeps
+        its id (the id is the address; the name is only a label).
 
         Never raises: an address book is not worth a turn (same posture as
         `_room_labels`).
@@ -738,7 +741,7 @@ class MessageBusModule(XYZBaseModule):
             return []
         try:
             rows = await db.get_by_ids(
-                "teams", "team_id", list(team_ids)[:MAX_TEAMS_IN_CONTEXT]
+                "teams", "team_id", sorted(team_ids)[:MAX_TEAMS_IN_CONTEXT]
             )
             return [
                 {"team_id": r.get("team_id", ""), "name": r.get("name") or "Team"}
@@ -805,6 +808,11 @@ class MessageBusModule(XYZBaseModule):
             # the bus; users who don't use teams keep the old "everyone I own"
             # behavior unchanged.
             known_agents = []
+            # Resolved inside the known-agents block, but declared out here so
+            # the address book below can reuse it without a second membership
+            # query — and can still run if the known-agents block fails past
+            # this point (see step 2b).
+            my_team_ids: list = []
             try:
                 db = await _get_shared_db()
                 if db:
@@ -851,23 +859,30 @@ class MessageBusModule(XYZBaseModule):
                         })
                         if len(known_agents) >= MAX_KNOWN_AGENTS_IN_CONTEXT:
                             break
-
-                    # Standing "your teams" address book: the teams this agent
-                    # is in, WITH their ids, so `message_team(team_id=...)` has a
-                    # target on every turn — not only when a team room happens
-                    # to sit in the unread window (`bus_room_labels`, which is
-                    # windowed and keyed on channel_id). Capability follows the
-                    # agent; the trigger channel decides the default reply, never
-                    # what the agent can reach. Passes the `my_team_ids` already
-                    # resolved above — membership is not re-queried; the producer
-                    # reads only the team NAMES.
-                    bus_teams = await self._team_address_book(db, my_team_ids)
-                    if bus_teams:
-                        ctx_data.extra_data["bus_teams"] = bus_teams
                 if known_agents:
                     ctx_data.extra_data["bus_known_agents"] = known_agents
             except Exception as e:
                 logger.debug(f"Failed to fetch known agents: {e}")
+
+            # --- 2b. Standing "your teams" address book ---
+            #
+            # Its OWN failure domain, kept out of the known-agents try above:
+            # that block ends in a full-table `agents` scan, and a failure there
+            # must not also cost the address book — which is the very thing this
+            # change relies on to let a DM turn reach a team room. Reuses the
+            # `my_team_ids` resolved above (membership is not re-queried); the
+            # producer reads only the team NAMES. Gives `message_team(team_id=)`
+            # a target on every turn, not only when a team room sits in the
+            # unread window (`bus_room_labels` is windowed and keyed on
+            # channel_id).
+            try:
+                db = await _get_shared_db()
+                if db and my_team_ids:
+                    bus_teams = await self._team_address_book(db, my_team_ids)
+                    if bus_teams:
+                        ctx_data.extra_data["bus_teams"] = bus_teams
+            except Exception as e:
+                logger.debug(f"Failed to build team address book: {e}")
 
             # --- 3. Fetch unread messages (capped) ---
             # The cap is pushed into the query, and it selects the NEWEST ones.

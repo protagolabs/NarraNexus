@@ -13,6 +13,8 @@ stub: false
 
 `is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)` 与 patrol 标记逻辑不变。
 
+**Dunhuang 那条（`_build_team_prompt` 的「Do not promise future delivery」）措辞解耦**（review 第 8 条）：旧句「Sending this message ENDS your turn」字面读作「发一条就结束」,和新授予的「同一轮可发去别的会话」矛盾。改为「Nothing of yours keeps running once this turn ends」——只否定它真正要否定的（turn 结束后没有你的东西在跑,所以「完成后交给你」是空头承诺）,**Dunhuang 禁令本身与三个出口(本轮做完/说清进度/`job_create`)一字不动**（铁律 #15,errand.py 看板兜底不是替代品）。`test_errand_auto_board.py::test_the_team_prompt_names_the_alternatives_to_a_promise` 同步改断言。
+
 ## 2026-08-19 — team「是否说过话」区分「判不了」与「确实没发」
 
 `has_message_from_turn` 的判据是 `event_id` 身份 join，而 event_id 来自 MCP 请求头、合法地会缺失（identity 从不是 flow control）。改为：`can_judge = bool(turn.event_id)`；判不了时**假定已投递**（`posted = spoke or not can_judge`），只有 event_id 在场且 join 为空才 `_announce_failed_room_post`。此前缺 header → `spoke=False` → 在一条已在房间里的回复下贴假「never sent it」通告 + `_hop_done` 低估投递率。由 `test_team_delivery_e2e.py::...without_an_event_id` 钉住。
