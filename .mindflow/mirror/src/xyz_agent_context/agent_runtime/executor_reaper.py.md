@@ -4,6 +4,32 @@ stub: false
 last_verified: 2026-08-20
 ---
 
+## 2026-08-20 — 收尾:pass 生命周期、审计写入条件、状态上限
+
+本段取代下面 2026-08-19 段里关于这三处的具体描述(那段的**事故经过与根因**仍然
+有效,只有实现细节被本段覆盖)。
+
+**pass 生命周期**:`pass_()` 挂在 `AgingBusyCheck` 上,不在 `BusyCheck` 上——
+裸 async 函数是受支持的注入形式,而 Protocol 成员在结构上必填,所以只能拆成两个。
+`reap_once` 用 `isinstance(veto, AgingBusyCheck)` 窄化。
+"不要在协调者里嗅探具体实现"这条原则**仍然有效**:窄化的对象是**声明过的协议**
+而不是某个具体类,且 `with` + `@contextmanager` 保证异常路径照样收尾——原禁令的
+两条理由都已满足。不要据此认为可以对具体类 `isinstance`。
+
+**什么时候写审计行**:判活给出真实 `run_id`,或 `unknown:recording-off` 哨兵时写;
+`unknown:db-unavailable` **有意不写**(写它要用刚失败的同一个 client)。所以 DB
+故障期间本表留不下痕迹。"每行 = 一次救回的 run"**只对 `evt_*` 的行成立**。
+怎么读这个数字见 [[executor_audit.py]];什么时候写只有本文件知道。
+
+**状态上限**:`_blocked_by` 是 `_CullVeto` 的**唯一**可变状态,`_FORGET_AFTER`
+按 pass 序号老化,`_MAX_TRACKED` 是硬上限。两条都要:老化只在调用方 bracket 时
+推进,而类型层不是 CI 门禁(`pyrightconfig.json` 只 include `module/`)。因此
+**上限不是多余的复杂度,是"下一个人忘了 bracket"时把危害从内存泄漏降级成几行
+重复审计的唯一保险**——不要因为"老化已经保证不无界"而删掉它。
+代价:上限触顶时会淘汰一条 run 还活着的条目,该 run 下一轮会被重复记一行。
+不设第二个"本轮见过"集合,正是因为它只在 `pass_()` 里重置,会在上限唯一存在的
+那个场景里无界增长。
+
 ## 2026-08-19 — 空闲回收加跨进程活性否决(prod 事故修复)
 
 **事故**:2026-07-31 prod,用户在群聊 @ agent 后回复失败,前端报
@@ -35,9 +61,9 @@ reaper 把**正在干活**的容器停了。
 变成跨进程(`admission.py` 里预留的 Redis seam,铁律 #20)——那牵动并发闸门本身,
 风险面大一个量级,单独排期。本次事故不在这个窗口内。
 
-**可观测**:被否决的 run 写一行 `instance_executor_audit` / `cull_skipped_busy`
-(带 `run_id`)。这是 L3 指标:每行 = 一次"老代码会杀掉的在途 run"。计数长期
-为 0 要去查护栏是不是没跑,而不是默认问题消失了。
+**可观测**:否决会写 `instance_executor_audit` / `cull_skipped_busy`。**写入条件
+与读法见 2026-08-20 段**——本段旧措辞("每次否决都写一行"、"每行 = 一次救回的
+run")已被覆盖。计数长期为 0 要去查护栏是不是没跑,而不是默认问题消失了。
 
 **判决与 stop 之间还有一段路,所以停之前再问一次**:`claim_idle_users` 是一次性
 把整批候选都否决完的,而 stop 是逐个串行执行的,每个 `docker stop` 还要等 SIGTERM
@@ -58,13 +84,8 @@ reaper 把**正在干活**的容器停了。
 去重键**不能**按"这一轮有没有出现"来淘汰。用户一旦在本进程活跃起来
 (`acquire` 弹掉 idle 戳)就不再是候选,于是"忘掉本轮缺席的人"会把一条**仍然
 活着**的阻塞 run 忘掉,过一会儿再为同一条 run 写第二行——网页单聊 + 群聊混用的
-用户恰好就是这次事故的触发画像,指标会正好在目标人群上偏高。所以用
-`_blocked_by: user -> (run_id, 连续缺席轮数)`,连续缺席 `_FORGET_AFTER` 轮才丢弃,
-既不误淘汰也不无界增长。
-
-pass 生命周期用 `pass_()` 上下文管理器暴露在 `BusyCheck` 上,`reap_once` 无条件
-调用(没有这个方法就退化成 `nullcontext`)——不要在协调者里 `isinstance` 嗅探
-具体实现,那与本文件"纯协调者"的定位矛盾,而且异常路径会漏掉收尾。
+用户恰好就是这次事故的触发画像,指标会正好在目标人群上偏高。具体的老化 /
+上限 / pass 生命周期形状见 **2026-08-20 段**。
 
 **判决函数放在本文件**:`live_run_elsewhere` / `stale_replacement_is_safe` 都在
 这里,`broker_client` 只是 transport,拿 `allow_stale_replace` 这个 bool。这跟

@@ -215,7 +215,6 @@ async def watch_ensure(request: Request) -> JSONResponse:
     /agent-loop); the port allowlist + workspace confinement in ensure_watch are
     the guard.
     """
-    import asyncio
 
     from xyz_agent_context.utils.office_watch import ensure_watch
 

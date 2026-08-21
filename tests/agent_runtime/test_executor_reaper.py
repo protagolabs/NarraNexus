@@ -431,19 +431,83 @@ async def test_a_second_pull_of_the_switch_warns_again(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dedup_map_is_bounded_even_if_the_pass_is_never_bracketed():
-    """Aging only runs if the caller brackets each pass with pass_(), and
-    nothing enforces that at merge time (AgingBusyCheck is documentation, not
-    a CI gate). Forgetting must therefore cost duplicate audit rows, not a
-    dict that grows with the user base inside a weeks-long process."""
+async def test_veto_state_is_bounded_even_if_the_pass_is_never_bracketed():
+    """Aging only advances if the caller brackets each pass, and nothing
+    enforces that at merge time (AgingBusyCheck is documentation, not a CI
+    gate). Forgetting must cost duplicate audit rows, not a structure that
+    grows with the user base inside a weeks-long process.
+
+    Asserts on the veto's WHOLE state, not one attribute: a companion
+    "seen this pass" set would be reset only inside pass_(), i.e. it would
+    grow without bound in exactly the scenario the cap exists for, while a
+    test that named only the capped attribute stayed green.
+    """
     from xyz_agent_context.agent_runtime.executor_reaper import _CullVeto
 
     async def _always_blocked(user_id):
         return f"evt_{user_id}"
 
     veto = _CullVeto(check=_always_blocked)
-    # Never call pass_() — simulate the caller that forgot.
-    for i in range(_CullVeto._MAX_TRACKED + 500):
+    for i in range(_CullVeto._MAX_TRACKED + 500):     # never brackets a pass
         assert await veto(f"u{i}") is True
 
-    assert len(veto._blocked_by) <= _CullVeto._MAX_TRACKED
+    unbounded = {
+        name: value for name, value in vars(veto).items()
+        if isinstance(value, (dict, set, list))
+        and len(value) > _CullVeto._MAX_TRACKED
+    }
+    assert unbounded == {}
+
+
+@pytest.mark.asyncio
+async def test_production_wiring_brackets_each_pass(db_client, monkeypatch):
+    """The one line that decides whether anything brackets a pass in
+    production — ExecutorReaper + a real _CullVeto — and it had no test while
+    being rewritten twice.
+
+    Both of its failure modes are silent: an isinstance that never matches
+    degrades to no aging (a leak visible only on a memory graph), and one
+    that RAISES (say @runtime_checkable gets dropped) is swallowed by
+    run_forever's except into a single warning while culling stops entirely.
+    """
+    import xyz_agent_context.utils.db.db_factory as db_factory
+    from xyz_agent_context.agent_runtime.admission import AgentAdmissionController
+    from xyz_agent_context.agent_runtime.executor_reaper import _CullVeto
+    from xyz_agent_context.schema.executor_audit import EVENT_CULL_SKIPPED_BUSY
+    from xyz_agent_context.utils.timezone import utc_now
+
+    async def _client():
+        return db_client
+
+    monkeypatch.setattr(db_factory, "get_db_client", _client)
+    await db_client.insert("events", {
+        "event_id": "evt_bus", "trigger": "message_bus",
+        "trigger_source": "team_room", "agent_id": "a", "user_id": "u_wired",
+        "state": "running", "started_at": utc_now(), "last_event_at": utc_now(),
+        "created_at": "2026-08-20T00:00:00", "updated_at": "2026-08-20T00:00:00",
+    })
+
+    now = {"t": 0.0}
+    controller = AgentAdmissionController(None, None, None, 0, clock=lambda: now["t"])
+    await controller.release(await controller.acquire("u_wired"))
+    now["t"] = 9999.0
+
+    stopped = []
+
+    async def stop_fn(user_id):
+        stopped.append(user_id)
+
+    veto = _CullVeto()
+    reaper = ExecutorReaper(controller, stop_fn, is_busy=veto, ttl_seconds=60)
+
+    for _ in range(4):
+        assert await reaper.reap_once() == []
+    assert stopped == [], "reaped a user whose run is live in another process"
+
+    # The pass really was bracketed: the pass counter advanced, which is what
+    # ages the dedup map, and the audit stayed at one row for the one run.
+    assert veto._pass_no == 4
+    rows = await db_client.get(
+        "instance_executor_audit", {"event_type": EVENT_CULL_SKIPPED_BUSY}
+    )
+    assert [r["run_id"] for r in rows] == ["evt_bus"]

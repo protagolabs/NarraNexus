@@ -185,51 +185,46 @@ class _CullVeto:
     # user that merely went active here for a moment keeps its entry.
     _FORGET_AFTER = 10
 
-    # Hard ceiling on the dedup map, independent of the aging above. Aging
-    # only runs if the caller brackets each pass with pass_(); nothing in CI
-    # enforces that it does (see AgingBusyCheck), and the failure mode of
-    # forgetting would otherwise be a dict that grows with the user base in a
-    # process that lives for weeks. With the cap, forgetting costs a few
-    # duplicate audit rows instead of memory. Sized well above any plausible
-    # number of simultaneously-vetoed users.
+    # Hard ceiling, independent of the aging above. Aging only advances when
+    # the caller brackets each pass with pass_(), and nothing enforces that at
+    # merge time (see AgingBusyCheck). Without the cap, forgetting would leak
+    # in a process that lives for weeks; with it, forgetting costs a few
+    # duplicate audit rows. Sized well above any plausible number of
+    # simultaneously-vetoed users.
     _MAX_TRACKED = 4096
 
     def __init__(self, check=live_run_elsewhere) -> None:
         self._check = check
-        # user_id -> (run_id that blocked us, passes since we last saw it)
+        # user_id -> (run_id that blocked us, pass number we last saw it in).
+        # ONE structure on purpose: a companion "seen this pass" set would be
+        # reset only inside pass_(), so in the very scenario _MAX_TRACKED
+        # exists for — nobody brackets — it would grow unboundedly while this
+        # one stayed capped, and the cap would be a half-measure the comments
+        # around it claimed was whole.
         self._blocked_by: dict[str, tuple[str, int]] = {}
-        self._seen_this_pass: set[str] = set()
+        self._pass_no: int = 0
 
     @contextmanager
     def pass_(self):
-        """Bracket one reaper pass. Exception-safe: the bookkeeping is aged
-        on the way out however the pass ended."""
-        self._seen_this_pass = set()
-        try:
-            yield self
-        finally:
-            for user_id in list(self._blocked_by):
-                if user_id in self._seen_this_pass:
-                    continue
-                run_id, absent = self._blocked_by[user_id]
-                if absent + 1 >= self._FORGET_AFTER:
-                    del self._blocked_by[user_id]
-                else:
-                    self._blocked_by[user_id] = (run_id, absent + 1)
+        """Bracket one reaper pass. Exception-safe: aging happens on entry, so
+        it is unaffected by how the pass ends."""
+        self._pass_no += 1
+        for user_id, (_run, last_seen) in list(self._blocked_by.items()):
+            if self._pass_no - last_seen >= self._FORGET_AFTER:
+                del self._blocked_by[user_id]
+        yield self
 
     async def __call__(self, user_id: str) -> bool:
         run_id = await self._check(user_id)
         if run_id is None:
             self._blocked_by.pop(user_id, None)
             return False
-        self._seen_this_pass.add(user_id)
         previous = self._blocked_by.get(user_id)
         if previous is None and len(self._blocked_by) >= self._MAX_TRACKED:
-            # Drop the entry that has gone unseen longest; it is the one whose
-            # run is most likely already over.
-            stalest = max(self._blocked_by, key=lambda u: self._blocked_by[u][1])
+            # Evict the least recently seen; its run is the likeliest to be over.
+            stalest = min(self._blocked_by, key=lambda u: self._blocked_by[u][1])
             del self._blocked_by[stalest]
-        self._blocked_by[user_id] = (run_id, 0)
+        self._blocked_by[user_id] = (run_id, self._pass_no)
         if previous is None or previous[0] != run_id:
             logger.info(
                 f"[reaper] skipping user={user_id}: run {run_id} is live in "

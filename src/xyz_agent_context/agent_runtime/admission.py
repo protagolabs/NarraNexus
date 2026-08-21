@@ -39,11 +39,11 @@ import asyncio
 import math
 import os
 import time
-from contextlib import asynccontextmanager
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, asynccontextmanager
 from typing import Callable, Optional, Protocol, runtime_checkable
 
 from loguru import logger
+
 
 class BusyCheck(Protocol):
     """Injected cross-process veto for idle claiming: "is this user busy
@@ -75,6 +75,7 @@ class AgingBusyCheck(BusyCheck, Protocol):
     """
 
     def pass_(self) -> AbstractContextManager: ...
+
 
 # Simultaneous in-flight vetoes per claim pass.
 _VETO_CONCURRENCY = 8
