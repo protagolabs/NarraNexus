@@ -884,3 +884,5 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 近期尾部兼作投递审计。设计出处:spec 2026-08-18-artifact-events-inventory-pointer §3。
 
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
+
+> **2026-08-21 steer_inbox**: 新增 `steer_inbox`(bus 家族,21c)——运行中插话注入的持久存储。`id` 自增=到达序+消费游标;`(run_id, msg_id)` 唯一(重投递最多注入一次);`(run_id, consumed_at)` 是 pull-unconsumed 访问路径。owner=[[steer_inbox_repository.py]],schema=[[steer_schema.py]]。
