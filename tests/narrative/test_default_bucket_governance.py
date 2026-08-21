@@ -93,26 +93,36 @@ async def test_seeding_is_skipped(retrieval_with_pool):
 # ===================================================================== #
 
 
-def test_judge_instructions_keep_the_eight_category_names():
-    """Removing the containers must not remove the judge's vocabulary.
+def test_judge_instructions_dropped_the_eight_category_names():
+    """Reversal of the earlier keep-the-vocabulary pin, on live evidence.
 
-    The eight names are how the judge recognises "this carries no durable
-    topic". Dropping them collapses its taxonomy from eight labels to a
-    binary it has never been measured on (that risk is pre-registered as
-    M6); keeping them in the instructions costs nothing.
+    The vocabulary was kept in P0 as recognition scaffolding ("DESCRIPTIONS,
+    not destinations"). 2026-08-21 hand-testing showed the judge reasoning
+    "根据分类规则…归为 GeneralOneShotQuestion" — it still classifies into the
+    taxonomy and maps category-hit to no_topic (3/7 turns dumped, and one
+    dump seeded the identity-wash hijack in
+    todo/2026-08-21-frozen-anchor-identity-wash-hijack.md). The list was
+    teaching the disease, so it goes — from BOTH judge prompts, so the
+    participant variant cannot quietly keep a copy.
     """
-    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
-    for name in (
-        "GreetingAndCourtesy",
-        "CasualChatOrEmotion",
-        "JokeAndEntertainment",
-        "AgentHelpAndCapability",
-        "AgentPersonaConfiguration",
-        "TaskLookup",
-        "GeneralOneShotQuestion",
-        "UnclassifiedOrGarbage",
+    for prompt_name in (
+        "NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS",
+        "NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS",
     ):
-        assert name in text, f"{name} must survive as vocabulary"
+        text = getattr(prompts, prompt_name)
+        for name in (
+            "GreetingAndCourtesy",
+            "CasualChatOrEmotion",
+            "JokeAndEntertainment",
+            "AgentHelpAndCapability",
+            "AgentPersonaConfiguration",
+            "TaskLookup",
+            "GeneralOneShotQuestion",
+            "UnclassifiedOrGarbage",
+        ):
+            assert name not in text, (
+                f"{prompt_name} still carries taxonomy word {name}"
+            )
 
 
 def test_judge_instructions_carry_the_p1_no_topic_narrowing():
@@ -142,20 +152,23 @@ def test_judge_instructions_carry_the_three_trap_counterexamples():
     assert "from now on" in text.lower()
 
 
-def test_p1_narrowing_does_not_swallow_shapes_4_5_and_7():
-    """The boundary clause, and why it is not optional.
+def test_no_topic_boundary_is_request_based_not_taxonomy_based():
+    """The boundary clause, rewritten with the taxonomy removed (2026-08-21).
 
-    "names ANY concrete object, task, question, or rule is NEW" read literally
-    contradicts three of the eight shapes the previous test pins: a question
-    about the Agent (4), a throwaway persona instruction (5), and a one-shot
-    trivia question (7) are all "questions" or "rules". The reverse check
-    before the run predicted `怎么变帅` and `你在干嘛` would wrongly flip
-    without this clause. It resolves the collision by reference — does the
-    message point at the USER'S own work — not by listing exceptions.
+    The old clause exempted agent-questions, persona play and one-shot trivia
+    by pointing back at shapes 4/5/7 of the vocabulary — and live testing
+    showed exactly those exemptions swallowing a capability question and a
+    news-search request (m6_live_specimens.md, turns 5/6). The new boundary
+    is request-based: no_topic is ONLY for messages that request nothing and
+    refer to nothing; any nameable request carries a topic. Ties break toward
+    NEW, because a thin new thread is recoverable while a frozen misfiled
+    turn feeds the identity-wash hijack.
     """
     text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
-    assert "USER'S OWN work" in text
-    assert "still carries no durable topic" in text
+    flat = " ".join(text.split())
+    assert "requests nothing and refers to nothing" in flat
+    assert "prefer NEW over NO_TOPIC" in flat
+    assert "USER'S OWN work" not in flat  # the old exemption frame is gone
 
 
 def test_judge_instructions_no_longer_offer_buckets_as_a_target():
@@ -203,11 +216,10 @@ def test_both_judge_prompts_agree_on_the_bucket_question():
         text = getattr(prompts, name)
         assert 'matched_category = "default"' not in text, f"{name} still offers buckets"
         assert "no_durable_topic" in text, f"{name} lacks the verdict"
-        # The eight names survive as recognition vocabulary in BOTH, never as
-        # a destination — dropping them collapses the taxonomy (M6's risk).
-        for cat in ("GreetingAndCourtesy", "AgentHelpAndCapability",
-                    "GeneralOneShotQuestion", "UnclassifiedOrGarbage"):
-            assert cat in text, f"{name} lost vocabulary {cat}"
+        # 2026-08-21: the eight names are gone from BOTH prompts — the
+        # taxonomy was teaching classify-and-dump (see
+        # test_judge_instructions_dropped_the_eight_category_names).
+        assert "GreetingAndCourtesy" not in text, f"{name} kept taxonomy words"
 
 
 @pytest.mark.asyncio

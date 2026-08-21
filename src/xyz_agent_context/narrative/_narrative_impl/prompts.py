@@ -162,19 +162,12 @@ NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = """You are a conversatio
 - If the user's message relates to the topic of a participant Narrative, prioritize matching the "participant" type
 - If the user is simply greeting or chatting casually, it carries no durable topic
 
-Recognising "no durable topic". These eight shapes are what it looks like:
-1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
-2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
-3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
-4. AgentHelpAndCapability: Asking about the Agent's features and capabilities
-5. AgentPersonaConfiguration: Setting the Agent's persona or behavior style
-6. TaskLookup: Viewing or searching task lists
-7. GeneralOneShotQuestion: One-time general knowledge Q&A
-8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
-
-These are DESCRIPTIONS, not destinations: they tell you how to recognise a
-turn that should not open or claim a thread. You never file a message "into"
-one of them.
+Recognising "no durable topic": a message that requests nothing and refers to
+nothing — a pure greeting, thanks, farewell, emotional expression, or bare
+acknowledgement. Such a message would read exactly the same in any
+conversation, about any subject. If the message asks you to do, find, explain,
+or remember ANYTHING nameable, it carries a topic — match it or create it,
+and when in doubt prefer NEW over NO_TOPIC.
 
 Judgment priority:
 1. **First check if it relates to a participant Narrative** (prioritize matching "participant")
@@ -202,19 +195,11 @@ NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching 
 2. No durable topic — the message carries nothing worth remembering as its own thread
 3. A new topic (a real subject that no existing topic covers)
 
-Recognising "no durable topic". These eight shapes are what it looks like:
-1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
-2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
-3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
-4. AgentHelpAndCapability: Asking about the Agent's features and capabilities
-5. AgentPersonaConfiguration: Setting the Agent's persona or behavior style
-6. TaskLookup: Viewing or searching task lists
-7. GeneralOneShotQuestion: One-time general knowledge Q&A
-8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
-
-These are DESCRIPTIONS, not destinations: they tell you how to recognise a
-turn that should not open or claim a thread. You never file a message "into"
-one of them.
+Recognising "no durable topic": a message that requests nothing and refers to
+nothing — a pure greeting, thanks, farewell, emotional expression, or bare
+acknowledgement ("你好", "thanks", "好的", "haha nice"). Such a message would
+read exactly the same in any conversation, about any subject. That is the
+whole definition; there is no list of message types to sort into.
 
 **A message is NOT "no durable topic" if it names something concrete** — a
 file, a project, a tool, an error, a person, a task, a deliverable — or if it
@@ -239,12 +224,13 @@ Three shapes that read like small talk but are NOT "no durable topic":
 - A rule the user sets for the future. "From now on, always ..." establishes
   a long-lived expectation, which is a durable topic.
 
-Boundary, so the three shapes above do not swallow shapes 4, 5 and 7: the
-test is whether the message references something in the USER'S OWN work or
-world — a file, a task, a deliverable, a system they run, a person they work
-with, or a standing rule for how the two of you work together. A question
-about you (the Agent), a one-shot trivia question, or a throwaway persona
-instruction references nothing of theirs and still carries no durable topic.
+Boundary: NO_TOPIC is only for a message that requests nothing and refers to
+nothing. If the message asks you to do, find, explain, or remember ANYTHING
+nameable — even a one-shot question or a request about your own capabilities —
+it carries a topic: match it to an existing one or create a new one. When in
+doubt, prefer NEW over NO_TOPIC: a thin new thread can be found and merged
+later, but a turn filed as NO_TOPIC leaves no trace in retrieval and its
+content can never be found again.
 
 Judgment priority:
 1. First check if it relates to an existing topic — if the query's business domain overlaps with an existing topic's summary/description, prefer matching it even if not an exact match

@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 八类目词表从两个 judge prompt 移除(推翻 08-16 的"必须留着")
+
+08-16 的 ⚠ 预警("拆词表 = 压成从未测过的二元判断")当时是对的谨慎,现在被
+真机证据推翻:judge 推理原文出现"根据分类规则…归为 GeneralOneShotQuestion"
+——词表在教 judge **先分类、再因命中类目而判 no_topic**,7 轮实测 3 轮进该
+出口(43%),其中一次误锚引发线身份劫持(todo/2026-08-21-frozen-anchor-
+identity-wash-hijack.md)。P1 的 Boundary 段落还**明文豁免**类目 4/5/7,
+轮 5(问能力)/轮 6(搜新闻)正是从豁免口进去的。
+
+改动(两个 prompt 同步,主版+participant 版):
+1. 八类目列表 + "DESCRIPTIONS, not destinations" 段 → 第一性原理定义:
+   **requests nothing and refers to nothing**(纯问候/致谢/告别/情绪/确认,
+   在任何对话里读起来都一样)才是 no_topic,没有类型清单可归
+2. Boundary 段重写为请求判据:点名任何可命名的请求(哪怕一次性问题、
+   哪怕问 Agent 能力)都携带话题;**存疑时 prefer NEW over NO_TOPIC**——
+   薄新线可找回可合并,冻结误档的轮次永远找不回(劫持案的教训)
+3. P1 的两条压倒规则 + 三条陷阱反例**原样保留**
+锚点测试同步翻转:`test_judge_instructions_dropped_the_eight_category_names`
+(双 prompt 断言不含)、`test_no_topic_boundary_is_request_based_not_
+taxonomy_based`。已知风险(如实):真寒暄误翻(P1 跷跷板)与琐碎问题
+建线增多(G3/G4),换来的是倾倒入口收窄+夺舍燃料减少;考卷复验待跑,
+本次先真机验证。
 
 ## 2026-08-16 — 两条 prompt：judge 的词表化，连续性的去容器化（C-1 + C-2）
 
