@@ -8,9 +8,13 @@ stream out.
 ``LoopAssembly`` is the loop's complete dependency set ("adding a
 component = adding a field with a default"); ``build_assembly`` is the
 only default construction site — every wiring decision lives here and
-nowhere else. Tests replace any component with ``dataclasses.replace``;
-nothing is ever monkey-patched. The whole request is JSON-serializable
-(the standalone-process runner's transport precondition).
+nowhere else. Loop-level tests swap any component via
+``dataclasses.replace`` (the assembly is injectable there). The
+top-level ``run_turn_events`` builds its own assembly, so its caller
+cannot inject one; entry tests instead patch the symbols it imports
+lazily inside the function — which is why those in-function imports must
+stay lazy. The whole request is JSON-serializable (the standalone-process
+runner's transport precondition).
 
 R1 decision on growth: assembly complexity is deliberately concentrated
 in this one file; strategy seams default, hard components are wired
@@ -126,10 +130,17 @@ async def run_turn_events(
     cancel: CancellationSignal,
     *,
     log: EventLogWriter | None = None,
+    steering: SteeringInlet | None = None,
 ) -> AsyncIterator[LoopEvent]:
     """The framework's top entry: assemble, expand, loop, stream typed
     events. Legacy-dict translation belongs to the adapter layer — new
-    protocol inside, old contract at the edge."""
+    protocol inside, old contract at the edge.
+
+    ``steering`` is the live-injection inlet the loop drains at each step
+    boundary; ``None`` mounts ``NullSteeringInlet`` (the default — every
+    turn today). A transport layer supplies a fed inlet (e.g. a
+    ``QueueSteeringInlet`` the runner writes room/chat messages into);
+    this entry only threads it to the loop."""
     from xyz_agent_context.agent_framework.llm.litellm_client import LitellmClient
     from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolContext
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
@@ -354,6 +365,7 @@ async def run_turn_events(
             include_arg_deltas=opts.include_arg_deltas,
             expression_nudge=opts.expression_nudge,
             side_events=side_events,
+            steering=steering,  # None → LoopAssembly mounts NullSteeringInlet
         )
         async for event in NexusPowerLoop(assembly, ledger).run_turn():
             yield event

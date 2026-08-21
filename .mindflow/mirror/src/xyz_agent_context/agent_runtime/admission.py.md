@@ -1,9 +1,43 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/admission.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-08-21
 ---
 
+## 2026-08-21 — `claim_idle_users` 接受跨进程否决（prod 事故修复）
+
+本控制器是**进程级**单例，所以它的视野是**片面的**：云端编排跑在 backend +
+workers 两个进程，谁也不知道对方的 run。这对**准入**无害（各自管各自那份
+配额），但对它顺带维护的**空闲记账**是致命的 —— [[executor_reaper.py]] 消费
+的正是这份记账，于是把活在另一个进程里的 run 当成空闲容器停掉（2026-07-31
+prod 事故，细节见 reaper 同日条目）。
+
+`claim_idle_users(ttl, is_busy=...)` 新增注入式否决：调用方给一个跨进程真相
+源，被否决的用户跳过。reaper 给的是 `_CullVeto` —— 它包住
+`live_run_elsewhere`（读 `events` 表），把挡路的 run id 折成 bool，并按 run
+去重审计行；**不是**直接给 `live_run_elsewhere`（那个返回 `Optional[str]`，
+不满足 `BusyCheck` 协议，直接传会连带丢掉审计去重）。
+
+**为什么否决必须在这个方法里面，而不是让调用方拿到名单后自己过滤** ——
+claim 是**破坏性**的：返回名单的同时就删 `_idle_since` 戳。在外面过滤的话，
+被跳过的用户戳没了，要等**本进程**下一次 `release()` 才重新打戳；而"主要在
+workers 里跑"的用户在 backend 永远等不到那次 release → 容器**永不回收**。
+那是把误杀换成泄漏，不是修复。
+
+配套 `restamp_idle(user_id)`：给"claim 了但最终没动手"的调用方用（reaper 在
+停之前又查了一次，发现用户忙了）。`setdefault` 而非赋值 —— 飞行期间可能有
+一次 release 落了戳，那个更老的戳才是真的。
+
+**`per_check_budget`（调用方自己的每候选超时）**：传了它，本层就**不发起**装不下
+的那次判活 —— 直接按"预算耗尽、无判决扣留"处理。因为**记账住在调用方那一侧**
+（reaper 把超时记成"判不出来"），被本层的整批 `wait_for` 中途取消的那次判活会从
+统计里凭空消失，而按真实计时那恒定是每一轮的最后一个候选。由调用方**告知**而不
+是本层 import —— 这一层不能反向依赖 reaper。
+
+**否决在锁外跑**：它做 I/O（打 DB），握着 `_cond` 会堵死所有 acquire/release。
+回锁后比对每个候选的戳还是不是刚才判的那一个，防住飞行期间用户重新活跃。
+整批有 `_VETO_BUDGET_S` 预算：DB 卡死时**停的是回收，不是 reaper 自己**
+（事故教训 #4：光看"任务还在"不算活性检查）—— 没来得及判的一律算忙，戳留着。
 ## 2026-06-18 — snapshot() + queue-depth observability
 
 新增只读 `snapshot() -> dict`(active_users/active_loops/queue_depth/各 cap/

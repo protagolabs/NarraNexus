@@ -31,6 +31,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_COMPLETED,
     STATE_FAILED,
     STATE_RUNNING,
+    first_live_run_id,
     recording_enabled,
     sweep_stale_runs,
 )
@@ -286,3 +287,77 @@ def test_recording_kill_switch(monkeypatch):
     assert recording_enabled() is False
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "false")
     assert recording_enabled() is True
+
+
+# --------------------------------------------------------------------------
+# first_live_run_id — the cross-process "is this user busy?" truth source
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_finds_a_live_run_for_the_user(db_client):
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_live", state="running",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(db_client, "u_test") == "evt_live"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_ignores_dead_and_terminal_runs(db_client):
+    stale = utc_now() - timedelta(seconds=600)
+    await _seed_events_row(
+        db_client, "evt_stale", state="running",
+        started_at=stale, last_event_at=stale,
+    )
+    await _seed_events_row(db_client, "evt_done", state=STATE_COMPLETED)
+    assert await first_live_run_id(db_client, "u_test") is None
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_counts_a_just_started_run(db_client):
+    """No heartbeat has fired yet — started_at is the fallback. Reading this
+    as idle would reopen the race the guard exists to close."""
+    await _seed_events_row(
+        db_client, "evt_new", state="running",
+        started_at=utc_now(), last_event_at=None,
+    )
+    assert await first_live_run_id(db_client, "u_test") == "evt_new"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_excludes_the_asking_run(db_client):
+    """Step 3's own events row is already 'running' when it asks, so counting
+    itself would mean 'always busy'."""
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_me", state="running",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(
+        db_client, "u_test", exclude_run_id="evt_me"
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_is_scoped_to_the_user(db_client):
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_other", state="running", user_id="u_other",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(db_client, "u_test") is None
+    assert await first_live_run_id(db_client, "u_other") == "evt_other"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_raises_on_an_unreadable_db():
+    """Deliberate: destructive callers must resolve the ambiguity themselves,
+    and they all resolve it as busy."""
+    class _Broken:
+        async def get(self, *a, **kw):
+            raise RuntimeError("pool exhausted")
+
+    with pytest.raises(RuntimeError):
+        await first_live_run_id(_Broken(), "u_test")
