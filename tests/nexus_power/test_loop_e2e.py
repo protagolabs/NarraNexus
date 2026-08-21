@@ -4,10 +4,12 @@
 @date: 2026-07-29
 @description: End-to-end loop runs against a scripted fake ModelClient:
 the tool round-trip, monologue-only stop, argument streaming for marker
-tools, cancellation pairing, overflow-compaction retry, and the legacy
-adapter's golden shapes.
+tools, cancellation pairing, overflow-compaction retry, the legacy
+adapter's golden shapes, and live steering (a queued injection reaches
+the next request through DRAIN_STEERING, with a no-steering control).
 """
 
+import asyncio
 import dataclasses
 
 import pytest
@@ -50,6 +52,9 @@ from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapt
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
     ExpressionContract,
+)
+from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+    QueueSteeringInlet,
 )
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
     CONTINUE_PREFILL,
@@ -876,12 +881,6 @@ async def test_queued_steering_reaches_the_next_model_request():
     next LLM step without a fresh turn. Delete DRAIN_STEERING or the
     concrete inlet and this goes red.
     """
-    import asyncio
-
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
-        QueueSteeringInlet,
-    )
-
     queue: asyncio.Queue = asyncio.Queue()
     await queue.put({"role": "user", "content": "STEERED: stop and reconsider"})
 
@@ -910,7 +909,12 @@ async def test_queued_steering_reaches_the_next_model_request():
 async def test_no_steering_closes_on_the_first_stoppable_step():
     """Guard the negative: with the default (null) inlet, a mute step
     with no queued input closes immediately — the second-step behaviour
-    above is caused by the injection, not by the harness always looping."""
+    above is caused by the injection, not by the harness always looping.
+
+    Shares its underlying fact (a default-inlet mute step stops in one)
+    with ``test_expression_nudge_defaults_off_and_respects_mute_state``;
+    kept as an explicit control beside the steering e2e for readability.
+    A change to the default stop semantics touches both assertions."""
     model = FakeModel([[_text("done"), _done(stop="end_turn")]])
     events, _ = await _run(_assembly(model, FakeTools()))
 

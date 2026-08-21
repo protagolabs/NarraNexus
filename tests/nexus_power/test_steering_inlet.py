@@ -11,11 +11,14 @@ in test_loop_e2e.py where the real loop harness already exists.
 """
 
 import asyncio
+import inspect
 
 import pytest
 
+from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+    SteeringInlet,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
-    NullSteeringInlet,
     QueueSteeringInlet,
 )
 
@@ -56,10 +59,13 @@ async def test_messages_put_between_drains_are_seen_by_the_later_drain():
 
 
 @pytest.mark.asyncio
-async def test_satisfies_the_steering_inlet_contract_shape():
-    # Same shape as the null inlet the contract test locks empty: one
-    # coroutine `drain()` returning a list. Guards against the concrete
-    # inlet drifting away from the protocol the loop depends on.
+async def test_satisfies_the_steering_inlet_protocol():
+    # Guards against the concrete inlet drifting away from the protocol
+    # the loop depends on. isinstance against the @runtime_checkable
+    # Protocol catches a missing method if SteeringInlet grows one; the
+    # coroutine + list checks pin the shape isinstance cannot see (it
+    # checks presence, not signature).
     inlet = QueueSteeringInlet(asyncio.Queue())
-    assert hasattr(inlet, "drain")
-    assert await inlet.drain() == await NullSteeringInlet().drain()
+    assert isinstance(inlet, SteeringInlet)
+    assert inspect.iscoroutinefunction(inlet.drain)
+    assert isinstance(await inlet.drain(), list)
