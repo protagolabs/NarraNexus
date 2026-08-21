@@ -80,8 +80,13 @@ export interface KindDescriptor {
   preview: PreviewStrategy;
   /** i18n key for the preview line; present iff preview === 'placeholder'. */
   previewPlaceholderKey?: string;
-  /** Download filename extension; 'bin' when the kind has no natural one. */
-  downloadExt: string;
+  /**
+   * Download filename extension. Absent when the kind has no SINGLE natural
+   * extension (office-live covers pptx/docx/xlsx) — consumers must go
+   * through downloadExtFor, which derives it from the artifact's file_path.
+   * A static 'bin' here was the Shenzhen-r2 ".bin download" bug.
+   */
+  downloadExt?: string;
   /** Human label for admin lists; consumers fall back to the raw kind. */
   label?: string;
   /** Chart-only: PNG/JPEG export entries in the download menu. */
@@ -167,7 +172,6 @@ export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
     saveMode: 'office-resident',
     selectionToAI: true,
     preview: 'none',
-    downloadExt: 'bin',
   },
   'application/x-url': {
     renderer: UrlRenderer,
@@ -175,6 +179,27 @@ export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
     saveMode: null,
     selectionToAI: false,
     preview: 'none',
-    downloadExt: 'bin',
   },
 };
+
+/**
+ * The download extension for one artifact: the registry's static extension
+ * when the kind has one, else the file_path's own extension (sanitized —
+ * it feeds a filename), else 'bin'. This is the fix for the Shenzhen-r2
+ * ".bin download" bug: an office artifact's real extension (pptx/docx/xlsx)
+ * lives only in its pointer, and the kind is an internal render marker,
+ * not a transport type.
+ */
+export function downloadExtFor(artifact: {
+  kind: string;
+  file_path?: string | null;
+}): string {
+  const staticExt = (KIND_REGISTRY as Record<string, KindDescriptor>)[
+    artifact.kind
+  ]?.downloadExt;
+  if (staticExt) return staticExt;
+  const base = (artifact.file_path ?? '').split('/').pop() ?? '';
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot + 1) : '';
+  return /^[A-Za-z0-9]{1,16}$/.test(ext) ? ext.toLowerCase() : 'bin';
+}

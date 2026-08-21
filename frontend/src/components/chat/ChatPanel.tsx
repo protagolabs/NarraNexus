@@ -37,6 +37,7 @@ import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
 import { ProcessPanel } from './ProcessPanel';
 import { SegmentedReply } from './SegmentedReply';
+import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
@@ -225,6 +226,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     currentSteps: _rtSteps,
     currentToolCalls: _rtToolCalls,
     currentEvents: _rtEvents,
+    resumedRun,
     isStreaming, addUserMessage, startStreaming,
     setActiveAgent,
   } = useChatStore();
@@ -1050,6 +1052,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
+              {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                  replay below is the SAME run continuing after a refresh /
+                  reconnect — label it, with elapsed anchored to the run's
+                  real start, so it cannot be read as a fresh generation. */}
+              {resumedRun && <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />}
               {/* Live view shows answers only: the process is in the
                   ProcessPanel above the composer. Painting it here too
                   would render the same thinking/tools twice.

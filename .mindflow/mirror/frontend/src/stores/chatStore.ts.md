@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — session 增 `resumedRun`(续接锚点,深圳复测 B1)
+
+`{ runId, startedAtMs } | null`:当前流式轮是「重连到既有 run」时由
+[[../services/wsManager.ts]] 的 run_reconnect 分支写入,携带 run 的
+**真实开始时间**。`startStreaming` 清空(重连流程是 onopen→startStreaming
+→run_reconnect,清空发生在写入前,顺序安全);渲染只在 isStreaming 时,
+settle 无需显式清。透传进 flat fields(`deriveFlatFields`)。
 
 ## 2026-08-17 — 气泡提取改用 `isOwnerReplyTool`
 

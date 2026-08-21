@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — run_reconnect 落「续接」锚点(深圳复测 B1)
+
+reconnect 的全量重放此前没有任何「这是同一个 run 在继续」的信号,刷新
+中途的测试者把重放记成「重新生成」。`run_reconnect` 分支现在把帧里的
+`started_at` 解析成 epoch ms 并 `markResumedRun` 进 [[../stores/chatStore.ts]]
+(UI 据此渲染「已续接 · 已运行 N 分」chip)。解析坑:后端 `_format_dt`
+输出 DB 的 **naive-UTC** ISO(无时区后缀),浏览器 `Date.parse` 会按
+本地时区解——无后缀的串显式补 'Z',带偏移的原样信任。重放协议本身
+零改动(铁律 #16:同帧同序同内容,只加呈现锚点)。
 
 ## 2026-08-14 — chat fast mode: 首包可带 fast_mode
 

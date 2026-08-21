@@ -111,6 +111,55 @@ describe('wsManager A3 — auto-reconnect on passive disconnect', () => {
     expect(msgs.filter((m) => m.role === 'user' && m.content === 'hello there')).toHaveLength(1);
   });
 
+  it('run_reconnect marks the session as a RESUMED run anchored to started_at (UTC-naive)', () => {
+    // Shenzhen-r2 B1: a refresh mid-run replays the whole stream with no
+    // "this is the same run continuing" signal — testers logged it as a
+    // re-generation. run_reconnect carries started_at; the session must
+    // keep it so the UI can say "resumed · running for N min".
+    useChatStore.getState().clearAll();
+    const nowMs = Date.parse('2026-08-14T16:08:00Z');
+    vi.setSystemTime(nowMs);
+    wsManager.reconnect(AGENT, USER, 'r_res1');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_res1',
+      state: 'running',
+      // Backend _format_dt emits the DB's NAIVE-UTC datetime, no offset —
+      // Date.parse alone would read it as LOCAL time and skew the elapsed
+      // display by the user's UTC offset.
+      started_at: '2026-08-14T16:00:41.109740',
+      input_content: 'long question',
+      input_timestamp: '2026-08-14T16:00:41',
+    });
+    const resumed = useChatStore.getState().agentSessions[AGENT]?.resumedRun;
+    expect(resumed?.runId).toBe('r_res1');
+    expect(resumed?.startedAtMs).toBe(Date.parse('2026-08-14T16:00:41.109740Z'));
+  });
+
+  it('an explicit offset in started_at is honored as-is, and a fresh run clears resumedRun', () => {
+    useChatStore.getState().clearAll();
+    wsManager.reconnect(AGENT, USER, 'r_res2');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_res2',
+      state: 'running',
+      started_at: '2026-08-14T17:00:41+01:00',
+    });
+    expect(useChatStore.getState().agentSessions[AGENT]?.resumedRun?.startedAtMs).toBe(
+      Date.parse('2026-08-14T17:00:41+01:00'),
+    );
+    // a NEW fresh run must not inherit the resumed badge — mirror the real
+    // send flow: ChatPanel calls startStreaming BEFORE wsManager.run
+    useChatStore.getState().startStreaming(AGENT);
+    wsManager.run(AGENT, USER, 'next question');
+    MockWebSocket.instances[1].triggerOpen();
+    expect(useChatStore.getState().agentSessions[AGENT]?.resumedRun).toBeNull();
+  });
+
   it('run_reconnect does NOT duplicate the prompt the session already holds (event_id match)', () => {
     // Simulate the fresh-run flow that precedes an auto-reconnect:
     // the user sent the message in THIS tab and run_started stamped it.
