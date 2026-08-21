@@ -212,8 +212,9 @@ describe('TeamChatPanel · discoverable panel chrome', () => {
   test('the members (roster/work-board) toggle shows a visible label', async () => {
     await renderRoom([RUNNING]);
     const toggle = screen.getByTestId('members-toggle');
-    // Labels are always visible (the avatar bar yields width via min-w-0), so
-    // this holds on every breakpoint, not just desktop.
+    // This only asserts the label text NODE renders — jsdom has no layout, so
+    // it cannot see clipping or wrapping. That the labels stay reachable on a
+    // phone (the member bar is flex-wrap) is a real-device check, not this one.
     expect(within(toggle).getByText('chat.team.roster.title')).toBeTruthy();
   });
 
@@ -273,10 +274,20 @@ describe('TeamChatPanel · set lead from the roster', () => {
     fireEvent.click(screen.getByTestId('roster-row-a3'));
     fireEvent.click(await screen.findByTestId('set-lead-a3'));
 
-    // The in-flight guard rejects it: still exactly one PATCH.
+    // The in-flight guard rejects it: still exactly one PATCH. (a3's row is
+    // expanded and still not lead, so its set-lead affordance is on screen.)
     expect(updateTeamMock).toHaveBeenCalledTimes(1);
-    resolveFirst({ success: true }); // flush so settingLeadRef clears
-    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(1));
+
+    // ...and the guard RELEASES once the first PATCH settles: a3's set-lead now
+    // goes through. Without the `finally { settingLeadRef = false }`, set-lead
+    // would be usable exactly once per mount. The first PATCH succeeds (a2 stays
+    // lead → no state change, so no act warning); `findByTestId` awaits the
+    // microtask that clears the guard.
+    updateTeamMock.mockResolvedValue({ success: true });
+    resolveFirst({ success: true });
+    fireEvent.click(await screen.findByTestId('set-lead-a3'));
+    await waitFor(() => expect(updateTeamMock).toHaveBeenCalledTimes(2));
+    expect(updateTeamMock).toHaveBeenLastCalledWith('t1', { lead_agent_id: 'a3' });
   });
 });
 

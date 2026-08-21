@@ -9,10 +9,13 @@ stub: false
 **公告栏/工作板「没了」的真因是发现性**：v4 改版后房间右侧的成员/工作区/公告栏三个
 toggle 都是**只有 icon 的裸按钮**（只有 title/aria-label，没有可见文字），用户认不出
 哪枚图标是公告栏。修复：三个 toggle（`members-toggle` / `artifacts-toggle` / bulletin）
-各加**始终可见**的文字标签（成员 / 工作区 / 公告栏）。第一版用 `hidden sm:inline` 降级,但
-<640px 上又变回裸 icon、病因原样保留(移动端是被支持的 surface,member bar 无替代布局);
-改成让空间从可收缩处来——头像条(`overflow-x-auto`)补 `min-w-0` 才真能让宽,三个 shrink-0
-的 toggle 就能全断点保持带字。**没动共享抽屉的 pin 设计**——`usePinnedDrawer`
+各加**始终可见**的文字标签（成员 / 工作区 / 公告栏）。走过两个错版:①`hidden sm:inline`
+在 <640px 又变回裸 icon;②只给头像条加 `min-w-0` 让宽——但 member bar 里六个子元素全
+`shrink-0`,硬下限≈430px > 手机视口,而 `MainLayout` 是 `overflow-hidden`,最右的公告栏
+toggle 直接被**裁掉**(比裸 icon 更糟)。终版:member bar 加 `flex-wrap gap-y-2`,并把右侧
+控件(guide/工作区/设置/公告栏)包成一个 `ml-auto` 的 flex-wrap 组——桌面一字不变,手机
+上整组掉到第二行、组内再 wrap,任何 toggle 都不被裁、都可点。jsdom 无 layout 测不出裁切,
+所以这条只能真机核验。**没动共享抽屉的 pin 设计**——`usePinnedDrawer`
 刻意让单聊与 team 房间共用 pin 键，强行解耦会跟既有架构对着干，且自动展开未 pin 的
 瞬态抽屉会用整屏背板吃掉用户第一次点击（见 `drawerTab` 初始化注释）。标签化是既完整
 又不违背架构的修法。

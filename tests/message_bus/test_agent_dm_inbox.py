@@ -19,6 +19,8 @@ one shot — each thread shows the full round-trip.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from xyz_agent_context.channel.inbox_recorder import (
@@ -168,6 +170,12 @@ async def test_send_succeeds_and_audits_when_recording_fails(db_client, monkeypa
         {"service": "message_bus_mcp", "event_type": "inbox_write_failed"},
     )
     assert len(audit) == 1, "the inbox write failure left no audit row"
+    # The row has to be USABLE for triage: who → who, and what broke. A row
+    # with no from/to is nearly as useless as no row.
+    detail = json.loads(audit[0]["detail"])
+    assert detail["from_agent"] == A
+    assert detail["to_agent"] == B
+    assert "RuntimeError" in detail["error"]
 
 
 @pytest.mark.asyncio

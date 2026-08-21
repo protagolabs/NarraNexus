@@ -833,7 +833,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     <div className="flex h-full min-h-0">
       <div className="flex h-full flex-1 flex-col min-h-0">
       {/* Member bar — team identity + the roster of agents in this room. */}
-      <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
+      <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ backgroundColor: accent }}
@@ -912,7 +912,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
 
         {/* The addressing rules, on demand. The empty room's hero states them
             once; after the first message this is the only way back to them. */}
-        <div className="relative ml-auto shrink-0" ref={guideRef}>
+        {/* Right-side controls as one wrap-group: on desktop they sit at the
+            end of the bar; on a phone the whole group drops to a second line
+            (member bar is flex-wrap) and wraps within itself, so no toggle is
+            ever clipped by MainLayout's overflow-hidden. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 ml-auto">
+        <div className="relative shrink-0" ref={guideRef}>
           <button
             type="button"
             onClick={() => setGuideOpen((v) => !v)}
@@ -986,6 +991,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             </span>
           )}
         </button>
+        </div>
       </div>
 
       {/* Two panes: the conversation on the left, the standing roster on the

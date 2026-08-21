@@ -132,9 +132,13 @@ async def _record_peer_dm_inbox(
     On failure it books an ``inbox_write_failed`` audit ROW (CLAUDE.md lesson
     #5: a DB trace outlives a rotated log) plus a stable log line, so
     "the inbox dropped a peer message" is diagnosable from the database — the
-    same contract the IM triggers honor. The audit path uses the public
-    ``ServiceAuditor.event`` and its imports are module-level, so nothing in the
-    ``except`` body can itself raise and invert the delivered send.
+    same contract the IM triggers honor. NOTE the row lands in ``service_audit``
+    (``service="message_bus_mcp"``), NOT the IM side's ``channel_trigger_audit``:
+    this is an MCP tool, not a channel trigger, so a full "did any inbox write
+    fail lately" sweep must query BOTH tables on the same event name. The audit
+    path uses the public ``ServiceAuditor.event`` and its imports are
+    module-level, so nothing in the ``except`` body can itself raise and invert
+    the delivered send.
     """
     try:
         from xyz_agent_context.channel.inbox_recorder import InboxRecorder
@@ -183,8 +187,11 @@ async def _record_peer_dm_inbox(
                     "error": f"{type(e).__name__}: {e}",
                 },
             )
-        except Exception:  # noqa: BLE001 — audit is best-effort
-            logger.warning("[agent-dm-inbox] audit write failed too")
+        except Exception as e2:  # noqa: BLE001 — audit is best-effort
+            logger.warning(
+                f"[agent-dm-inbox] audit write failed too: "
+                f"{type(e2).__name__}: {e2}"
+            )
 
 
 async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
