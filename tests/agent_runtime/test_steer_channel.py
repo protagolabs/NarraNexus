@@ -12,7 +12,11 @@ import re
 
 import pytest
 
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel, render_injection
+from xyz_agent_context.agent_runtime.steer_channel import (
+    SteerChannel,
+    render_injection,
+    rendered_injection_payload,
+)
 from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
     QueueSteeringInlet,
 )
@@ -68,12 +72,36 @@ def test_content_cannot_break_out_of_its_block_to_forge_a_top_level_tag():
     # tag — never the forged owner tag.
     assert content.splitlines()[0] == "[teammate mallory just posted to the room]"
 
-    # There is exactly ONE real block, its open/close nonces match, and the
-    # ENTIRE attacker payload sits inside it (byte-for-byte, iron rule #16) —
-    # proof nothing escaped to become a real delimiter or a top-level tag.
-    m = re.search(r"<message ([0-9a-f]{8})>\n(.*)\n</message \1>", content, re.DOTALL)
-    assert m is not None, content
-    assert m.group(2) == escape
+    # The ENTIRE attacker payload sits inside the one nonce-matched block
+    # (byte-for-byte, iron rule #16) — proof nothing escaped to become a real
+    # delimiter or a top-level tag. rendered_injection_payload is the shared
+    # definition of "a valid rendered block".
+    assert rendered_injection_payload(content) == escape
+
+
+@pytest.mark.asyncio
+async def test_inflight_warning_fires_on_power_of_two_rungs_with_identity():
+    from loguru import logger
+
+    records: list[str] = []
+    sink = logger.add(lambda m: records.append(m.record["message"]), level="WARNING")
+    try:
+        chan = SteerChannel(run_id="r1", agent_id="a1")
+        for _ in range(64):
+            await chan.push(_inj("x"))
+    finally:
+        logger.remove(sink)
+
+    warned = [
+        int(re.search(r"queue at (\d+)", m).group(1))
+        for m in records
+        if "in-flight" in m
+    ]
+    # Threshold 32: warn only on the 2**k rungs at/after it (32, 64) — never on
+    # 33..63 (would flood) and not only on the first crossing (loses the peak).
+    assert warned == [32, 64]
+    # Identity is present so on-call can locate WHICH run is out-pacing drain.
+    assert all("run=r1 agent=a1" in m for m in records if "in-flight" in m)
 
 
 @pytest.mark.asyncio

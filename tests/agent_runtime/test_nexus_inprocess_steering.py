@@ -19,9 +19,10 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelEvent,
     ProviderProfile,
 )
-import re
-
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
+from xyz_agent_context.agent_runtime.steer_channel import (
+    SteerChannel,
+    rendered_injection_payload,
+)
 from xyz_agent_context.schema.steer_schema import SteerInjection
 
 
@@ -93,7 +94,5 @@ async def test_pushed_injection_reaches_the_next_model_request_in_process(monkey
     # preserved byte-for-byte inside a matched-nonce block.
     content = injected[0]["content"]
     assert content.startswith("[teammate teammate_bob just posted to the room]")
-    m = re.search(r"<message ([0-9a-f]{8})>\n(.*)\n</message \1>", content, re.DOTALL)
-    assert m is not None, content
-    assert m.group(2) == "STEERED: reconsider"
+    assert rendered_injection_payload(content) == "STEERED: reconsider"
     assert events  # produced a legacy event stream

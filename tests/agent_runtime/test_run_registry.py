@@ -168,6 +168,21 @@ def test_registering_after_a_sweep_establishes_a_fresh_mapping():
     assert live.steer == "h2"
 
 
+def test_live_run_heals_a_dangling_surface_entry():
+    # The one path that leaves a surface pointing at a run_id no longer in
+    # _by_run: the same run_id registered on two surfaces, then released
+    # (release clears only the surface_key on its handle). live_run on the OTHER
+    # surface must report no live run AND clear the stale mapping — the
+    # self-heal branch. Break the del's key and this is where it would surface.
+    reg = RunRegistry()
+    reg.register("agent_a", "team:s1", "run1", steer="h")
+    reg.register("agent_a", "team:s2", "run1", steer="h")  # same run_id, 2nd surface
+    reg.release("run1")  # clears only s2 (the handle's surface_key)
+
+    assert reg.live_run("agent_a", "team:s1") is None  # heals the dangling entry
+    assert reg.live_run("agent_a", "team:s1") is None  # and stays clean
+
+
 def test_superseding_a_run_does_not_leak_the_old_by_run_entry():
     reg = RunRegistry()
     reg.register("agent_a", "team:roomA", "run_old", steer="old")
