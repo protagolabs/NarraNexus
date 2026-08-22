@@ -30,19 +30,30 @@ registry never interprets it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+
+from loguru import logger
 
 
 @dataclass(frozen=True)
 class RunHandle:
     """One live run's routing entry. ``steer`` is the opaque push handle the
     owner registered (e.g. a channel that writes into the loop's inlet); the
-    registry stores and returns it without interpreting it."""
+    registry stores and returns it without interpreting it.
+
+    ``is_alive`` is an optional SYNCHRONOUS liveness probe: when present,
+    ``live_run`` calls it and treats a dead run as no live run (and cleans the
+    stale mapping), so a crashed run that never released degrades to "start a
+    fresh turn" rather than "this surface is deaf forever". None = assume alive
+    (the scoped ``registered`` API is the primary guard against a missed
+    release; this is defence in depth)."""
 
     run_id: str
     agent_id: str
     surface_key: str
     steer: Any
+    is_alive: Optional[Callable[[], bool]] = None
 
 
 class RunRegistry:
@@ -55,23 +66,57 @@ class RunRegistry:
         self._by_run: Dict[str, RunHandle] = {}
         self._by_surface: Dict[Tuple[str, str], str] = {}
 
-    def register(self, agent_id: str, surface_key: str, run_id: str, steer: Any) -> None:
+    def register(
+        self, agent_id: str, surface_key: str, run_id: str, steer: Any,
+        is_alive: Optional[Callable[[], bool]] = None,
+    ) -> None:
         """Record a live run. A surface holds at most one live run — a repeat
-        register on the same ``(agent, surface)`` supersedes the older one
-        (its ``run_id`` mapping is overwritten; a late ``release`` of the
-        superseded run then finds the surface no longer points at it)."""
-        handle = RunHandle(run_id=run_id, agent_id=agent_id, surface_key=surface_key, steer=steer)
-        self._by_run[run_id] = handle
-        self._by_surface[(agent_id, surface_key)] = run_id
+        register on the same ``(agent, surface)`` supersedes the older one:
+        the superseded run's ``_by_run`` entry is dropped (else it leaks a
+        SteerChannel for the life of the process), and its late ``release``
+        then finds the surface no longer points at it.
+
+        Prefer ``registered`` (the scoped API) so release can never be missed;
+        this raw method exists for callers with their own scope guard."""
+        key = (agent_id, surface_key)
+        prev = self._by_surface.get(key)
+        if prev is not None and prev != run_id:
+            self._by_run.pop(prev, None)  # supersede — do not leak the old run
+        self._by_run[run_id] = RunHandle(
+            run_id=run_id, agent_id=agent_id, surface_key=surface_key,
+            steer=steer, is_alive=is_alive,
+        )
+        self._by_surface[key] = run_id
+        logger.debug(f"[run-registry] register {run_id} on {key}")
+
+    @contextmanager
+    def registered(
+        self, agent_id: str, surface_key: str, run_id: str, steer: Any,
+        is_alive: Optional[Callable[[], bool]] = None,
+    ) -> Iterator[None]:
+        """Scoped register/release — releases in ``finally`` however the body
+        exits, so a caller cannot leave a dead run pinned to a surface."""
+        self.register(agent_id, surface_key, run_id, steer, is_alive)
+        try:
+            yield
+        finally:
+            self.release(run_id)
 
     def live_run(self, agent_id: str, surface_key: str) -> Optional[RunHandle]:
         """The live run for ``(agent, surface)``, or None. A match on a
         different surface or a different agent is impossible by construction —
-        the key is the pair."""
+        the key is the pair. A handle whose ``is_alive`` says the run is gone
+        is swept here so a crashed run cannot make the surface permanently
+        deaf."""
         run_id = self._by_surface.get((agent_id, surface_key))
         if run_id is None:
             return None
-        return self._by_run.get(run_id)
+        handle = self._by_run.get(run_id)
+        if handle is not None and handle.is_alive is not None and not handle.is_alive():
+            logger.info(f"[run-registry] sweeping dead run {run_id} on {(agent_id, surface_key)}")
+            self.release(run_id)
+            return None
+        return handle
 
     def release(self, run_id: str) -> None:
         """Drop a finished run. Only clears the surface mapping if it still
@@ -83,6 +128,7 @@ class RunRegistry:
         key = (handle.agent_id, handle.surface_key)
         if self._by_surface.get(key) == run_id:
             del self._by_surface[key]
+        logger.debug(f"[run-registry] release {run_id} on {key}")
 
 
 _registry: Optional[RunRegistry] = None

@@ -32,3 +32,10 @@ v1 两个 producer 都与目标 run 同进程——team 消息与 team run 都�
 `run_registry.py` / `steer_channel.py` 平铺进 `agent_runtime/` 而非开 `steering/` 子包:`RunRegistry` 是
 通用的"活 run 路由"原语(不止 steering 用),`agent_runtime/` 本就偏平(admission/background_run/client 等
 平铺)。若将来 steering 相关文件增多再收成子包。
+
+## 2026-08-21(补)— review 加固:作用域 API + 顶替不泄漏 + 生存性兜底
+
+`registered()` contextmanager(finally release,调用方没法忘);`register` 顶替旧 run 时 pop 旧 `_by_run`
+条目(否则泄漏一个 SteerChannel);`RunHandle.is_alive` 可选**同步**探针,`live_run` 命中后校验、死 run 就
+清映射并当作无活 run——「忘 release/崩溃」退化成「多起一个新 turn」而非「该 surface 永久失聪」(事故教训
+#4/#5)。register/release 各写一行 audit(logger)。is_alive 必须同步(live_run 靠读改写间无 await 的原子性)。

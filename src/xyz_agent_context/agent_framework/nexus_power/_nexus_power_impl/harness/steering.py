@@ -57,11 +57,11 @@ class QueueSteeringInlet:
       awaiting getter is added.
     * **Back-pressure at the durable write edge, not this queue.** This
       queue is an in-flight hand-off of already-admitted messages, so the
-      transport (``agent_runtime.steer_channel.SteerChannel``) leaves it
-      unbounded and ``put_nowait`` never blocks. The bound lives one layer
-      up, at the ``steer_inbox`` write edge, where a producer that outruns
-      the run is back-pressured (``SteerInboxFull``) — never dropped (iron
-      rule #16). ``drain()`` likewise takes the whole backlog and never
+      transport (in-process today: the orchestrator's steer channel) leaves
+      it unbounded and ``put_nowait`` never blocks. The bound lives one
+      layer up, at the ``steer_inbox`` write edge, where a producer that
+      outruns the run is back-pressured (``SteerInboxFull``) — never dropped
+      (iron rule #16). ``drain()`` likewise takes the whole backlog and never
       truncates. The invariant that keeps this in-flight queue from growing
       is the ORCHESTRATOR's: it must push into the channel at the loop's
       drain rate (one step-boundary's worth), not empty the whole inbox

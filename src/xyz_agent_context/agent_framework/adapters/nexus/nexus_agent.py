@@ -185,9 +185,14 @@ class NexusAgent:
         self._schedule_pool_prewarm()
 
     def capabilities(self) -> set[str]:
-        """Shipped beyond the base contract: the two-track event log
-        (local NDJSON truth file per turn)."""
-        return {"event_log"}
+        """Shipped beyond the base contract: the two-track event log (local
+        NDJSON truth file per turn) and live ``steering`` — in-process the loop
+        drains the SteerChannel directly, subprocess the pump feeds it down
+        stdin. The orchestrator gates whether to make a run steerable on
+        ``"steering" in driver.capabilities()``, so the remote (HTTP) path —
+        which cannot carry a live channel and does NOT declare it — degrades to
+        a fresh turn instead of silently dropping the injection."""
+        return {"event_log", "steering"}
 
     @timed("llm.nexus.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
@@ -399,26 +404,7 @@ class NexusAgent:
         else:
             process = await pool.spawn(prewarm=False)
         assert process.stdin and process.stdout
-        process.stdin.write(
-            (json.dumps(payload, default=_json_default) + "\n").encode("utf-8")
-        )
-        await process.stdin.drain()
-
-        # Steer transport: a steerable run keeps stdin OPEN and a pump writes
-        # each pushed injection as a `{"steer": …}` line the runner reads. A
-        # non-steerable run closes stdin exactly as before (the runner's reader
-        # then hits EOF at once) — zero behaviour change on the default path.
-        steer_pump: "asyncio.Task[None] | None" = None
-        if steer_channel is None:
-            process.stdin.close()
-        else:
-            steer_pump = asyncio.create_task(
-                self._pump_steer_to_stdin(process, steer_channel, cancel)
-            )
-            steer_pump.add_done_callback(
-                lambda t: t.cancelled() or t.exception() and
-                logger.warning(f"[nexus_power] steer pump ended: {t.exception()}")
-            )
+        steer_pump = await self._open_steer_transport(process, payload, steer_channel, cancel)
 
         signalled = False
         try:
@@ -459,6 +445,40 @@ class NexusAgent:
             if process.returncode is None:
                 _terminate_group(process.pid)
                 await process.wait()
+
+    async def _open_steer_transport(
+        self, process: "asyncio.subprocess.Process", payload: dict[str, Any],
+        steer_channel: Any, cancel: CancellationView,
+    ) -> "asyncio.Task[None] | None":
+        """Write the request line, then set up the steer transport and return
+        its pump task (or None).
+
+        A steerable run keeps stdin OPEN and a pump writes each pushed injection
+        as a ``{"steer": …}`` line the runner reads. A non-steerable run closes
+        stdin exactly as before — the runner's reader then hits EOF at once —
+        so the default path is byte-for-byte unchanged. Extracted so this
+        close-vs-keep-open decision is unit-tested without spawning a runner."""
+        assert process.stdin is not None
+        process.stdin.write(
+            (json.dumps(payload, default=_json_default) + "\n").encode("utf-8")
+        )
+        await process.stdin.drain()
+        if steer_channel is None:
+            process.stdin.close()
+            return None
+
+        def _on_pump_done(t: "asyncio.Task[None]") -> None:
+            if t.cancelled():
+                return  # cancelled at turn end — expected, not an error
+            exc = t.exception()
+            if exc is not None:
+                logger.warning(f"[nexus_power] steer pump died: {exc!r}")
+
+        pump = asyncio.create_task(
+            self._pump_steer_to_stdin(process, steer_channel, cancel)
+        )
+        pump.add_done_callback(_on_pump_done)
+        return pump
 
     async def _pump_steer_to_stdin(
         self, process: "asyncio.subprocess.Process", steer_channel: Any,

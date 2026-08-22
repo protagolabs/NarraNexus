@@ -34,6 +34,8 @@ import signal
 import sys
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 if TYPE_CHECKING:
     # Type-only: the real class is never imported at module top — runner's
     # imports stay lazy so the cold path pays them only on demand (the
@@ -229,9 +231,16 @@ def main() -> None:
                 # has nowhere to go and is dropped silently, like a bad line.
                 return
 
-        reader = threading.Thread(
-            target=lambda: forward_steer_lines(sys.stdin, _deliver), daemon=True,
-        )
+        def _reader_body() -> None:
+            # Thread-side fire-and-forget: catch so a stray exception is logged
+            # rather than dumped to stderr, where the driver would mistake it
+            # for a turn failure (incident lesson #2, thread variant).
+            try:
+                forward_steer_lines(sys.stdin, _deliver)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[runner] steer reader thread exiting on {e!r}")
+
+        reader = threading.Thread(target=_reader_body, daemon=True)
         reader.start()
 
         return await serve_turn(raw, write_line, steering=inlet)

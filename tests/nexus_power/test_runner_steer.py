@@ -47,3 +47,13 @@ def test_forward_steer_lines_delivers_valid_and_skips_bad():
         {"role": "user", "content": "a"},
         {"role": "user", "content": "b"},
     ]
+
+
+def test_forward_steer_lines_returns_at_once_on_immediate_eof():
+    # A non-steerable run's driver writes the request then closes stdin, so the
+    # reader iterator is empty: the thread must return without delivering
+    # anything (this is what makes it "zero behaviour change" and lets the
+    # thread exit at once).
+    delivered: list = []
+    forward_steer_lines(iter([]), delivered.append)
+    assert delivered == []

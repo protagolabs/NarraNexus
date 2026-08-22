@@ -9,7 +9,6 @@ subprocess, real loop, fake model. Proves the driver actually mounts the
 inlet over the channel's queue.
 """
 
-import asyncio
 
 import pytest
 

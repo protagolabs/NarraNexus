@@ -34,3 +34,7 @@ daemon 线程体抽成模块级 `forward_steer_lines(lines, deliver)`(纯解析+
 线程 wrapper 只供 `sys.stdin` + 跨线程 `deliver`。`_deliver` 用 `call_soon_threadsafe` 且 `try/except
 RuntimeError`——turn 已结束、loop 正在关时的迟到 steer 行无处可去,静默丢弃(同"坏行绝不掀翻回合")。
 **子进程完整 steer 回合无 fake-model e2e**(跨进程模型墙),靠 dev EC2 手验;in-process e2e 已证 loop 投递半程。
+
+## 2026-08-21(补)— reader 线程 try/except
+
+reader 线程体包 try/except(事故教训 #2 线程版:线程异常本会打到 stderr,被 driver 误当回合失败尾巴)。

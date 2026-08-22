@@ -28,25 +28,48 @@ different wording — while the injected message stays a plain ``user`` message
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, get_args
 
-from xyz_agent_context.schema.steer_schema import SteerInjection
+from loguru import logger
+
+from xyz_agent_context.schema.steer_schema import SteerInjection, SteerSource
 
 ProviderMessage = Dict[str, Any]
 
 _SOURCE_TAGS = {
-    "team": "[teammate {sender} just posted to the room]",
-    "owner_chat": "[the owner adds]",
+    "team": "teammate {sender} just posted to the room",
+    "owner_chat": "the owner adds",
 }
+# Every source value must have a tag: the tag is what the prompt layer reads to
+# tell a teammate's message from the owner's, so a missing one is a silent
+# wrong-wording, not a cosmetic gap. Locked at import so adding a SteerSource
+# without a tag fails loudly here rather than degrading in production.
+assert set(_SOURCE_TAGS) == set(get_args(SteerSource)), (
+    "every SteerSource needs a _SOURCE_TAGS entry"
+)
+
+#: Warn when a run's in-flight steer queue grows past this. The queue is
+#: unbounded on purpose (back-pressure lives at the steer_inbox write edge —
+#: never drop, iron rule #16), so this is a DIAGNOSTIC signal, not a cap: past
+#: a step-boundary's worth the orchestrator is pushing faster than the loop
+#: drains, which risks one drain overflowing the prompt. Alert, do not truncate.
+_STEER_INFLIGHT_WARN = 32
 
 
 def render_injection(inj: SteerInjection) -> ProviderMessage:
-    """One ``SteerInjection`` → one provider message. English tag (source
-    provenance) + the user's own content untouched."""
-    tag = _SOURCE_TAGS.get(inj.source, "[new message from {sender}]").format(
-        sender=inj.sender_id
-    )
-    return {"role": inj.role, "content": f"{tag} {inj.content}"}
+    """One ``SteerInjection`` → one provider message.
+
+    Provenance (which producer) and the user's content are kept STRUCTURALLY
+    separate: the platform tag is its own line and the content sits in a
+    delimited block, so a teammate whose text contains ``[the owner adds]``
+    cannot forge the platform's owner tag (owner and teammate are real,
+    distinct authorities here). Stays a plain append-only ``user`` message
+    (iron rule #16 / prompt-cache prefix)."""
+    tag = _SOURCE_TAGS[inj.source].format(sender=inj.sender_id)
+    return {
+        "role": inj.role,
+        "content": f"[{tag}]\n<message>\n{inj.content}\n</message>",
+    }
 
 
 class SteerChannel:
@@ -64,6 +87,17 @@ class SteerChannel:
         # subprocess pump consumes it with `queue.get()`; the in-process inlet
         # drains it directly.
         self.queue.put_nowait(render_injection(inj))
+        if self.queue.qsize() > _STEER_INFLIGHT_WARN:
+            # The invariant "push at the loop's drain rate" is failing — surface
+            # it (diagnostic only; never drop). See _STEER_INFLIGHT_WARN.
+            logger.warning(
+                f"[steer] in-flight queue at {self.queue.qsize()} "
+                f"(> {_STEER_INFLIGHT_WARN}); orchestrator is out-pacing drain"
+            )
+
+    def qsize(self) -> int:
+        """Pending in-flight injections — for an upstream throttle decision."""
+        return self.queue.qsize()
 
 
 __all__ = ["SteerChannel", "render_injection", "ProviderMessage"]

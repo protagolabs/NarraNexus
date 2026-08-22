@@ -78,8 +78,10 @@ NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 
 `agent_loop` 从 kwargs 取 `steering`(orchestrator 的 SteerChannel)。**in-process**:用
 `QueueSteeringInlet(channel.queue)` 挂到 `serve_turn(steering=inlet)`——loop 直接 drain channel 的
-queue,push 即到,无 pump 无拷贝。**subprocess**:目前只接参数不动行为(保持 stdin 写一行即 close);
-真正的"keep stdin open + pump 下 stdin 行、runner 读"随 runner-side reader 一起加。见 [[steer_channel.py]]。
+queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因就是这条零拷贝设计)。
+**subprocess** 的 steer 传输见下面「(补)」一节(keep stdin open + pump 下 stdin 行、runner 读)。
+`capabilities()` 声明 `steering`;remote(HTTP)driver 不声明(活 channel 过不了 HTTP),orchestrator 据
+`"steering" in driver.capabilities()` 决定是否让 run 可 steer,remote run 降级成新 turn 而非静默丢注入。见 [[steer_channel.py]]。
 
 ## 2026-08-21(补)— subprocess steer 传输
 
