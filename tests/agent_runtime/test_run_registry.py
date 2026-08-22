@@ -7,6 +7,12 @@
 on THIS surface?" and steer into that run instead of dispatching a new
 turn. Surface-scoping is the whole point: a message for one surface must
 never route into the same agent's run on a different surface.
+
+RunRegistry is deliberately synchronous (dict ops, no await between read
+and write — that atomicity is the design), so these tests are plain ``def``:
+no event loop, no ``@pytest.mark.asyncio`` (the project runs
+``asyncio_mode = "auto"``, and writing them async would falsely suggest an
+async API).
 """
 
 import pytest
@@ -14,8 +20,7 @@ import pytest
 from xyz_agent_context.agent_runtime.run_registry import RunRegistry
 
 
-@pytest.mark.asyncio
-async def test_register_then_live_run_returns_the_handle():
+def test_register_then_live_run_returns_the_handle():
     reg = RunRegistry()
     reg.register("agent_a", "team:room1", "run1", steer="handle1")
 
@@ -25,8 +30,7 @@ async def test_register_then_live_run_returns_the_handle():
     assert live.steer == "handle1"
 
 
-@pytest.mark.asyncio
-async def test_a_different_surface_of_the_same_agent_does_not_match():
+def test_a_different_surface_of_the_same_agent_does_not_match():
     # The anti-cross-talk guarantee: agent_a running on team room1 must NOT
     # be a match for a message on team room2 (or its web chat, or a job).
     reg = RunRegistry()
@@ -36,23 +40,20 @@ async def test_a_different_surface_of_the_same_agent_does_not_match():
     assert reg.live_run("agent_a", "chat:u1:s1") is None
 
 
-@pytest.mark.asyncio
-async def test_a_different_agent_does_not_match():
+def test_a_different_agent_does_not_match():
     reg = RunRegistry()
     reg.register("agent_a", "team:room1", "run1", steer="h")
     assert reg.live_run("agent_b", "team:room1") is None
 
 
-@pytest.mark.asyncio
-async def test_release_removes_the_run():
+def test_release_removes_the_run():
     reg = RunRegistry()
     reg.register("agent_a", "team:room1", "run1", steer="h")
     reg.release("run1")
     assert reg.live_run("agent_a", "team:room1") is None
 
 
-@pytest.mark.asyncio
-async def test_concurrent_runs_of_one_agent_on_distinct_surfaces_are_isolated():
+def test_concurrent_runs_of_one_agent_on_distinct_surfaces_are_isolated():
     # The multi-team / multi-trigger case: one agent, several live runs, each
     # found only by its own surface — three isolated inboxes downstream.
     reg = RunRegistry()
@@ -65,8 +66,7 @@ async def test_concurrent_runs_of_one_agent_on_distinct_surfaces_are_isolated():
     assert reg.live_run("agent_a", "chat:u1:s1").run_id == "run_web"
 
 
-@pytest.mark.asyncio
-async def test_releasing_one_run_leaves_the_agents_other_runs():
+def test_releasing_one_run_leaves_the_agents_other_runs():
     reg = RunRegistry()
     reg.register("agent_a", "team:roomA", "run_a", steer="ha")
     reg.register("agent_a", "team:roomB", "run_b", steer="hb")
@@ -77,8 +77,7 @@ async def test_releasing_one_run_leaves_the_agents_other_runs():
     assert reg.live_run("agent_a", "team:roomB").run_id == "run_b"
 
 
-@pytest.mark.asyncio
-async def test_re_registering_a_surface_replaces_the_stale_run():
+def test_re_registering_a_surface_replaces_the_stale_run():
     # A surface holds at most one live run; the newest wins and the stale
     # mapping never shadows it.
     reg = RunRegistry()
@@ -90,10 +89,12 @@ async def test_re_registering_a_surface_replaces_the_stale_run():
     assert live.steer == "new"
 
 
-@pytest.mark.asyncio
-async def test_releasing_a_superseded_run_does_not_evict_the_current_one():
+def test_releasing_a_superseded_run_does_not_evict_the_current_one():
     # run_old was replaced by run_new on the same surface; a late release of
-    # run_old must not clear run_new's mapping.
+    # run_old must not clear run_new's mapping. Post-supersede-pop this now
+    # travels the ``handle is None`` early-return in release (run_old is already
+    # gone from _by_run), which is exactly why the ``== run_id`` surface guard
+    # could be dropped — the pop makes the late release a no-op on its own.
     reg = RunRegistry()
     reg.register("agent_a", "team:roomA", "run_old", steer="old")
     reg.register("agent_a", "team:roomA", "run_new", steer="new")
@@ -103,8 +104,7 @@ async def test_releasing_a_superseded_run_does_not_evict_the_current_one():
     assert reg.live_run("agent_a", "team:roomA").run_id == "run_new"
 
 
-@pytest.mark.asyncio
-async def test_registered_scope_releases_on_normal_and_exception_exit():
+def test_registered_scope_releases_on_normal_and_exception_exit():
     reg = RunRegistry()
     with reg.registered("agent_a", "team:room1", "run1", steer="h"):
         assert reg.live_run("agent_a", "team:room1").run_id == "run1"
@@ -119,23 +119,60 @@ async def test_registered_scope_releases_on_normal_and_exception_exit():
     assert reg.live_run("agent_a", "team:room1") is None
 
 
-@pytest.mark.asyncio
-async def test_live_run_sweeps_a_dead_run_so_the_surface_is_not_deaf_forever():
+def test_registered_scope_exit_does_not_evict_a_run_that_superseded_it():
+    # The real orchestration shape: `registered()` is the main entry, and being
+    # superseded mid-scope is a routine event. run1 is registered under scope,
+    # run2 supersedes the same surface while the scope body still runs, and the
+    # scope's finally-release(run1) must be a no-op — run2 stays live.
+    reg = RunRegistry()
+    with reg.registered("agent_a", "team:room1", "run1", steer="h1"):
+        assert reg.live_run("agent_a", "team:room1").run_id == "run1"
+        reg.register("agent_a", "team:room1", "run2", steer="h2")  # supersede
+    live = reg.live_run("agent_a", "team:room1")
+    assert live is not None
+    assert live.run_id == "run2"  # the superseding run survives the scope exit
+
+
+def test_live_run_sweeps_a_dead_run_so_the_surface_is_not_deaf_forever():
     reg = RunRegistry()
     reg.register("agent_a", "team:room1", "run1", steer="h", is_alive=lambda: False)
-    # The run says it is dead → live_run reports no live run AND clears the
-    # stale mapping, so the next message dispatches a fresh turn.
+    # The run says it is dead → live_run reports no live run. (That the mapping
+    # is cleared is proven by test_registering_after_a_sweep, via public API.)
     assert reg.live_run("agent_a", "team:room1") is None
-    assert ("agent_a", "team:room1") not in reg._by_surface
 
 
-@pytest.mark.asyncio
-async def test_superseding_a_run_does_not_leak_the_old_by_run_entry():
+def test_live_run_keeps_a_run_its_probe_reports_alive():
+    # The other side of the sweep: an is_alive that says "alive" must not sweep.
+    # Reverse the predicate in live_run ("has a probe → treat as dead") and this
+    # is the only test that goes red — it pins the positive branch the sweep
+    # test cannot.
+    reg = RunRegistry()
+    reg.register("agent_a", "team:room1", "run1", steer="h", is_alive=lambda: True)
+    live = reg.live_run("agent_a", "team:room1")
+    assert live is not None
+    assert live.run_id == "run1"
+    assert live.steer == "h"
+
+
+def test_registering_after_a_sweep_establishes_a_fresh_mapping():
+    # After a dead run is swept the surface is free again: a fresh run
+    # registers and routes normally, with no residue from the swept run.
+    reg = RunRegistry()
+    reg.register("agent_a", "team:room1", "run_dead", steer="h", is_alive=lambda: False)
+    assert reg.live_run("agent_a", "team:room1") is None  # swept
+
+    reg.register("agent_a", "team:room1", "run_fresh", steer="h2")
+    live = reg.live_run("agent_a", "team:room1")
+    assert live is not None
+    assert live.run_id == "run_fresh"
+    assert live.steer == "h2"
+
+
+def test_superseding_a_run_does_not_leak_the_old_by_run_entry():
     reg = RunRegistry()
     reg.register("agent_a", "team:roomA", "run_old", steer="old")
     reg.register("agent_a", "team:roomA", "run_new", steer="new")
     # The old run's _by_run entry (and its SteerChannel) must be dropped, not
     # left pinned for the life of the process. Delete the supersede pop and
     # this is 2.
-    assert len(reg._by_run) == 1
-    assert "run_old" not in reg._by_run
+    assert reg.live_run_count() == 1

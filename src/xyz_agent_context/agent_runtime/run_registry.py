@@ -87,7 +87,11 @@ class RunRegistry:
             steer=steer, is_alive=is_alive,
         )
         self._by_surface[key] = run_id
-        logger.debug(f"[run-registry] register {run_id} on {key}")
+        # INFO, not DEBUG: this is a per-RUN lifecycle event (not per-message —
+        # live_run stays quiet), and the default log level is INFO, so DEBUG
+        # would never land in dev/prod and the release/sweep lines would have no
+        # matching "when did this run start" record (incident lesson #5).
+        logger.info(f"[run-registry] register {run_id} on {key}")
 
     @contextmanager
     def registered(
@@ -112,23 +116,41 @@ class RunRegistry:
         if run_id is None:
             return None
         handle = self._by_run.get(run_id)
-        if handle is not None and handle.is_alive is not None and not handle.is_alive():
+        if handle is None:
+            # Dangling surface entry: the surface points at a run_id no longer in
+            # _by_run (e.g. one run_id was registered on two surfaces, then
+            # released — release clears only its own surface_key). Behaviour is
+            # already correct (no live run), but heal the stale mapping so the
+            # self-sweeping invariant is complete, not half.
+            del self._by_surface[(agent_id, surface_key)]
+            return None
+        if handle.is_alive is not None and not handle.is_alive():
             logger.info(f"[run-registry] sweeping dead run {run_id} on {(agent_id, surface_key)}")
             self.release(run_id)
             return None
         return handle
 
+    def live_run_count(self) -> int:
+        """How many runs are currently held. A tiny public window onto the
+        registry's size so a leak (a superseded run left pinned) is observable
+        without reaching into private fields — the seam may move behind Redis /
+        a DB view, at which point ``_by_run`` stops being the truth."""
+        return len(self._by_run)
+
     def release(self, run_id: str) -> None:
-        """Drop a finished run. Only clears the surface mapping if it still
-        points at THIS run — so a late release of a superseded run never
-        evicts the run that replaced it on the same surface."""
+        """Drop a finished run. A run_id lives in ``_by_run`` only while its
+        surface still points at it — a superseded run is popped from
+        ``_by_run`` at supersede time (see ``register``), so a late release of
+        a superseded run early-returns here on the ``None`` handle and never
+        reaches the surface mapping. Once we hold a live handle the surface
+        entry is ours to clear unconditionally; no ``== run_id`` guard is
+        needed (it would always be true)."""
         handle = self._by_run.pop(run_id, None)
         if handle is None:
             return
         key = (handle.agent_id, handle.surface_key)
-        if self._by_surface.get(key) == run_id:
-            del self._by_surface[key]
-        logger.debug(f"[run-registry] release {run_id} on {key}")
+        self._by_surface.pop(key, None)
+        logger.info(f"[run-registry] release {run_id} on {key}")  # per-run lifecycle; see register
 
 
 _registry: Optional[RunRegistry] = None

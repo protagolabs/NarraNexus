@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/runner.py
-last_verified: 2026-08-21
+last_verified: 2026-08-22
 stub: false
 ---
 
@@ -35,6 +35,13 @@ daemon 线程体抽成模块级 `forward_steer_lines(lines, deliver)`(纯解析+
 RuntimeError`——turn 已结束、loop 正在关时的迟到 steer 行无处可去,静默丢弃(同"坏行绝不掀翻回合")。
 **子进程完整 steer 回合无 fake-model e2e**(跨进程模型墙),靠 dev EC2 手验;in-process e2e 已证 loop 投递半程。
 
-## 2026-08-21(补)— reader 线程 try/except
+## 2026-08-22(补)— reader 线程 try/except:诚实版
 
-reader 线程体包 try/except(事故教训 #2 线程版:线程异常本会打到 stderr,被 driver 误当回合失败尾巴)。
+reader 线程体包 try/except(事故教训 #2 线程版)。**准确表述**:runner 进程**从不调** `setup_logging()`
+(`main()` 只 `_prewarm`→读 stdin→`serve_turn`,全仓唯一 `logger.remove()` 在 `utils/logging/_setup.py`,不在这
+条路径),所以 loguru 保留 import 时自带的默认 **stderr** sink——这行**照样进 stderr**,driver 在回合非 0 退出时
+可能把它当 stderr 尾巴带出来。try/except 的**真实收益**是把线程异常从"整段 traceback"收敛成"一行",**不是**
+"不进 stderr"。级别用 `logger.warning`(反正会被看到,DEBUG 会假装看不见);`from loguru import logger` 放进
+`except` 分支内,别提到模块顶——顶注的"imports 惰性、冷启动按需付费(warm-pool / `_prewarm` 契约)"约束。
+真要 stderr 全干净得走 option (b):异常写本回合 NDJSON truth file(`<cwd>/.nexus_power/`),本 PR 未做(该 except
+至今无已知触发路径,不值当为它加线程安全的落盘)。

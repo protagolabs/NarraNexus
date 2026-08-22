@@ -19,7 +19,9 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ModelEvent,
     ProviderProfile,
 )
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel, render_injection
+import re
+
+from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
 from xyz_agent_context.schema.steer_schema import SteerInjection
 
 
@@ -86,8 +88,12 @@ async def test_pushed_injection_reaches_the_next_model_request_in_process(monkey
         if "STEERED: reconsider" in str(m.get("content", ""))
     ]
     assert injected, "the pushed steer message must ride the next model request"
-    assert injected[0]["content"] == render_injection(SteerInjection(
-        run_id="r1", msg_id="m1", role="user",
-        content="STEERED: reconsider", sender_id="teammate_bob", source="team",
-    ))["content"]
+    # render_injection stamps a random anti-forge nonce, so assert on structure
+    # (not exact bytes of a second render): leading teammate tag, content
+    # preserved byte-for-byte inside a matched-nonce block.
+    content = injected[0]["content"]
+    assert content.startswith("[teammate teammate_bob just posted to the room]")
+    m = re.search(r"<message ([0-9a-f]{8})>\n(.*)\n</message \1>", content, re.DOTALL)
+    assert m is not None, content
+    assert m.group(2) == "STEERED: reconsider"
     assert events  # produced a legacy event stream

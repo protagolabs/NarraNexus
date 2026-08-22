@@ -15,7 +15,7 @@ import json
 import pytest
 
 from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import NexusAgent
-from xyz_agent_context.agent_runtime.steer_channel import SteerChannel, render_injection
+from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
 from xyz_agent_context.schema.steer_schema import SteerInjection
 
 
@@ -72,7 +72,15 @@ async def test_push_becomes_a_steer_line_on_stdin():
 
     assert proc.stdin.lines, "the pump must write the pushed injection to stdin"
     frame = json.loads(proc.stdin.lines[0].decode("utf-8"))
-    assert frame["steer"] == render_injection(inj)
+    # render_injection now stamps a random per-render nonce into the block
+    # delimiter (anti-forge, see test_steer_channel), so it is no longer a pure
+    # function — assert on structure, not on a second render's exact bytes: the
+    # frame carries the SAME rendered dict the channel enqueued (role + the
+    # content actually pushed, content preserved byte-for-byte).
+    steer = frame["steer"]
+    assert steer["role"] == "user"
+    assert "reconsider" in steer["content"]
+    assert steer["content"].startswith("[teammate bob just posted to the room]")
 
 
 @pytest.mark.asyncio

@@ -34,8 +34,6 @@ import signal
 import sys
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
-
 if TYPE_CHECKING:
     # Type-only: the real class is never imported at module top — runner's
     # imports stay lazy so the cold path pays them only on demand (the
@@ -232,13 +230,22 @@ def main() -> None:
                 return
 
         def _reader_body() -> None:
-            # Thread-side fire-and-forget: catch so a stray exception is logged
-            # rather than dumped to stderr, where the driver would mistake it
-            # for a turn failure (incident lesson #2, thread variant).
+            # Thread-side fire-and-forget: catch so a stray exception collapses
+            # to ONE line instead of a multi-line traceback (incident lesson #2,
+            # thread variant). Honest scope: the runner never calls
+            # setup_logging(), so loguru keeps its default stderr sink — this
+            # line DOES reach stderr, and the driver may surface it in a
+            # non-zero turn's stderr tail. That is a readability win over a raw
+            # traceback, not stderr suppression; WARNING (not DEBUG) because it
+            # is going to be seen anyway and DEBUG would falsely imply it is
+            # hidden. (loguru imported here, not at module top, to keep the cold
+            # path's imports lazy — warm-pool / _prewarm contract.)
             try:
                 forward_steer_lines(sys.stdin, _deliver)
             except Exception as e:  # noqa: BLE001
-                logger.debug(f"[runner] steer reader thread exiting on {e!r}")
+                from loguru import logger
+
+                logger.warning(f"[runner] steer reader thread exiting on {e!r}")
 
         reader = threading.Thread(target=_reader_body, daemon=True)
         reader.start()

@@ -28,6 +28,7 @@ different wording — while the injected message stays a plain ``user`` message
 from __future__ import annotations
 
 import asyncio
+import secrets
 from typing import Any, Dict, get_args
 
 from loguru import logger
@@ -60,15 +61,30 @@ def render_injection(inj: SteerInjection) -> ProviderMessage:
     """One ``SteerInjection`` → one provider message.
 
     Provenance (which producer) and the user's content are kept STRUCTURALLY
-    separate: the platform tag is its own line and the content sits in a
-    delimited block, so a teammate whose text contains ``[the owner adds]``
-    cannot forge the platform's owner tag (owner and teammate are real,
-    distinct authorities here). Stays a plain append-only ``user`` message
-    (iron rule #16 / prompt-cache prefix)."""
+    separate AND the separation is unforgeable: the platform tag is the leading
+    line, and the content sits inside a ``<message NONCE>…</message NONCE>``
+    block whose NONCE is freshly randomised here, per render. Owner and teammate
+    are real, distinct authorities (the agent holds shell / file / MCP tools), so
+    a teammate must never be able to make the model read their words as the
+    owner's. Because the sender cannot predict the nonce, they cannot write a
+    matching ``</message NONCE>`` to close the block early — any ``</message>``
+    in their text stays trapped INSIDE the block as literal content. The
+    invariant the prompt layer trusts: the only ``[…]`` tag line that sits
+    OUTSIDE every message block is the one this function emitted. Content is
+    passed byte-for-byte (never escaped or clipped — iron rule #16); the nonce,
+    not mangling the content, is what makes the boundary hold. Stays a plain
+    append-only ``user`` message (prompt-cache prefix)."""
     tag = _SOURCE_TAGS[inj.source].format(sender=inj.sender_id)
+    # 8 hex chars (32 bits) of unpredictable delimiter — the project's ID idiom
+    # (secrets.token_hex(4)). A per-render nonce, not derived from any
+    # sender-influenced field (msg_id could be the sender's own message id), so
+    # it cannot be precomputed to forge a block close.
+    nonce = secrets.token_hex(4)
     return {
         "role": inj.role,
-        "content": f"[{tag}]\n<message>\n{inj.content}\n</message>",
+        "content": (
+            f"[{tag}]\n<message {nonce}>\n{inj.content}\n</message {nonce}>"
+        ),
     }
 
 
@@ -77,7 +93,15 @@ class SteerChannel:
     drains — in-process by sharing ``queue`` with a QueueSteeringInlet, or via
     a pump for the subprocess/remote transport."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, run_id: str | None = None, agent_id: str | None = None
+    ) -> None:
+        # Identity is optional so tests can construct a bare channel, but the
+        # orchestrator passes both: without them the overflow warning below
+        # names a queue depth and nothing else, so on-call cannot tell WHICH of
+        # a process's many concurrent runs is the one out-pacing its drain.
+        self.run_id = run_id
+        self.agent_id = agent_id
         self.queue: "asyncio.Queue[ProviderMessage]" = asyncio.Queue()
 
     async def push(self, inj: SteerInjection) -> None:
@@ -87,12 +111,17 @@ class SteerChannel:
         # subprocess pump consumes it with `queue.get()`; the in-process inlet
         # drains it directly.
         self.queue.put_nowait(render_injection(inj))
-        if self.queue.qsize() > _STEER_INFLIGHT_WARN:
-            # The invariant "push at the loop's drain rate" is failing — surface
-            # it (diagnostic only; never drop). See _STEER_INFLIGHT_WARN.
+        if self.queue.qsize() == _STEER_INFLIGHT_WARN + 1:
+            # EDGE-triggered (== threshold+1), not level (> threshold): a single
+            # backlog drain can reach MAX_UNCONSUMED_PER_RUN (500), and warning
+            # on every push past 32 would emit hundreds of interleaved lines and
+            # drown out the very signal when it matters most. Fire once on the
+            # upward crossing. Diagnostic only; never drop. See
+            # _STEER_INFLIGHT_WARN.
             logger.warning(
-                f"[steer] in-flight queue at {self.queue.qsize()} "
-                f"(> {_STEER_INFLIGHT_WARN}); orchestrator is out-pacing drain"
+                f"[steer] run={self.run_id} agent={self.agent_id} in-flight "
+                f"queue crossed {_STEER_INFLIGHT_WARN} "
+                f"(now {self.queue.qsize()}); orchestrator is out-pacing drain"
             )
 
     def qsize(self) -> int:
