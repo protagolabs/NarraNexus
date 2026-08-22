@@ -101,3 +101,41 @@ async def test_releasing_a_superseded_run_does_not_evict_the_current_one():
     reg.release("run_old")
 
     assert reg.live_run("agent_a", "team:roomA").run_id == "run_new"
+
+
+@pytest.mark.asyncio
+async def test_registered_scope_releases_on_normal_and_exception_exit():
+    reg = RunRegistry()
+    with reg.registered("agent_a", "team:room1", "run1", steer="h"):
+        assert reg.live_run("agent_a", "team:room1").run_id == "run1"
+    assert reg.live_run("agent_a", "team:room1") is None  # released on normal exit
+
+    with pytest.raises(ValueError):
+        with reg.registered("agent_a", "team:room1", "run2", steer="h"):
+            assert reg.live_run("agent_a", "team:room1").run_id == "run2"
+            raise ValueError("boom")
+    # finally released even though the body raised — a crashed run cannot pin
+    # the surface (the deaf-surface guard).
+    assert reg.live_run("agent_a", "team:room1") is None
+
+
+@pytest.mark.asyncio
+async def test_live_run_sweeps_a_dead_run_so_the_surface_is_not_deaf_forever():
+    reg = RunRegistry()
+    reg.register("agent_a", "team:room1", "run1", steer="h", is_alive=lambda: False)
+    # The run says it is dead → live_run reports no live run AND clears the
+    # stale mapping, so the next message dispatches a fresh turn.
+    assert reg.live_run("agent_a", "team:room1") is None
+    assert ("agent_a", "team:room1") not in reg._by_surface
+
+
+@pytest.mark.asyncio
+async def test_superseding_a_run_does_not_leak_the_old_by_run_entry():
+    reg = RunRegistry()
+    reg.register("agent_a", "team:roomA", "run_old", steer="old")
+    reg.register("agent_a", "team:roomA", "run_new", steer="new")
+    # The old run's _by_run entry (and its SteerChannel) must be dropped, not
+    # left pinned for the life of the process. Delete the supersede pop and
+    # this is 2.
+    assert len(reg._by_run) == 1
+    assert "run_old" not in reg._by_run
