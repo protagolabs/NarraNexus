@@ -60,10 +60,14 @@ class AgentLoopDriver(Protocol):
 
         Capability negotiation seam: the orchestrator and frontend switch
         optional behaviour on the declared set instead of hardcoding
-        per-framework knowledge. An empty set means "base contract only"
-        — exactly today's behaviour, so existing drivers declare nothing.
+        per-framework knowledge. An empty set means "base contract only" — that
+        is what the remote (HTTP) driver returns, because a live steer channel
+        cannot cross the wire. The consumer is live: the orchestrator gates a
+        run's steerability on ``"steering" in driver.capabilities()``.
 
-        Planned vocabulary (declare only what actually ships):
+        Every declared string must come from this planned vocabulary (declare
+        only what actually ships — ``NexusAgent`` ships ``event_log`` and
+        ``steering`` today):
         ``steering`` / ``plan`` / ``resume`` / ``fork`` / ``sleep`` /
         ``subagent_announce`` / ``event_log`` / ``interrupt_soft`` /
         ``raw_context`` / ``arg_streaming``.

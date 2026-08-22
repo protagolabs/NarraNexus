@@ -773,3 +773,5 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
 
 > **2026-08-20**: `_resolve_agent_framework_name` 的缺行/空列/DB 故障兜底由 `claude_code` 改为 `nexus_power`（平台默认框架变更；仅注释同步，逻辑走 model_identity._DEFAULT_FRAMEWORK）。
+
+> **2026-08-21**: `driver.agent_loop(...)` 新增显式 `steering=ctx.steering`(挨着 `cancellation`)。所有可达 driver(claude/codex/nexus/remote)的 `agent_loop` 都吃 `**kwargs`,故非 nexus driver 安全吸收忽略;只有 NexusAgent 真正消费它(接 SteerChannel)。见 [[nexus_agent.py]] 同日条目。

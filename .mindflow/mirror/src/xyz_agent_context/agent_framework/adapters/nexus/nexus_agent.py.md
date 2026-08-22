@@ -73,3 +73,19 @@ NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 ## 2026-08-18 — 透传 origin_declaration
 
 与 claude 适配层同理：只透传，不重新措辞。见 [[sdk.py]] 同日条目。
+
+## 2026-08-21 — live steering:接 SteerChannel
+
+`agent_loop` 从 kwargs 取 `steering`(orchestrator 的 SteerChannel)。**in-process**:用
+`QueueSteeringInlet(channel.queue)` 挂到 `serve_turn(steering=inlet)`——loop 直接 drain channel 的
+queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因就是这条零拷贝设计)。
+**subprocess** 的 steer 传输见下面「(补)」一节(keep stdin open + pump 下 stdin 行、runner 读)。
+`capabilities()` 声明 `steering`;remote(HTTP)driver 不声明(活 channel 过不了 HTTP),orchestrator 据
+`"steering" in driver.capabilities()` 决定是否让 run 可 steer,remote run 降级成新 turn 而非静默丢注入。见 [[steer_channel.py]]。
+
+## 2026-08-21(补)— subprocess steer 传输
+
+`_run_subprocess`:steer 可能的 run(steer_channel 非 None)**不 close stdin**,起 `_pump_steer_to_stdin`
+抽干 channel、把每条写成 `{"steer": …}` 行喂给 runner;回合结束(finally)cancel pump + close stdin。
+非 steer 的 run 照旧写完即 close(**零行为变化**)。pump 用 `_CANCEL_POLL_S` 轮询 channel.queue,管道断
+(ConnectionReset/BrokenPipe)即退,由 read loop 的 EOF 收尾。

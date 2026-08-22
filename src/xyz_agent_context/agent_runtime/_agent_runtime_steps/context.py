@@ -79,6 +79,12 @@ class RunContext:
     # ===== Cancellation =====
     cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token
 
+    # ===== Live steering =====
+    # The run's SteerChannel (agent_runtime.steer_channel.SteerChannel) when the
+    # orchestrator started this run steerable; None = no mid-run injection. Live
+    # object, threaded run-start-to-loop exactly like `cancellation`.
+    steering: Optional[Any] = None
+
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None
     event: Optional["Event"] = None

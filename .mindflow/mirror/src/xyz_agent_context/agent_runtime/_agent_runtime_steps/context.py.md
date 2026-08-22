@@ -63,3 +63,8 @@ team 房间把纯文本贴进房间的回调,只有 MessageBusTrigger 的 team �
 张贴」这个机制，而房间现在收 `message_team` 工具调用，所以字段没有生产写入方了。原注释解释
 它为何必须在 `run()` 之内发生（chat 行在 run 内写，之后的张贴无法被记成回复）—— 那条约束
 现在由 `post_team_reply` 在工具调用里满足。
+
+## 2026-08-21 — RunContext.steering
+
+新增 `steering: Optional[Any]`(run 的 SteerChannel;None=不可 steer)。和 `cancellation` 并列,是
+run-start→loop 的活控制对象;由 `run()` 填、step_3 读并传给 driver。

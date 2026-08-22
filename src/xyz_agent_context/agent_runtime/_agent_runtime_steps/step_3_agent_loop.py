@@ -1487,6 +1487,7 @@ async def step_3_agent_loop(
         _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
             cancellation=ctx.cancellation,
+            steering=ctx.steering,
             **turn_input.driver_kwargs(),
         ):
             if _warming_active:
