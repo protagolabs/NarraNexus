@@ -1419,7 +1419,11 @@ class MessageBusTrigger:
                 )
                 from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
 
-                steer_channel = SteerChannel() if is_team else None
+                # agent_id is known now; run_id is late-bound (Step 0), so the
+                # channel carries agent_id for the overflow warning and gets its
+                # run_id stamped in on_event_id — the identity the mechanism asks
+                # the orchestrator to supply (see steer_channel mirror).
+                steer_channel = SteerChannel(agent_id=agent_id) if is_team else None
                 steer_run_id: list[str] = [""]
                 stack.callback(
                     lambda: steer_channel is not None
@@ -1431,8 +1435,21 @@ class MessageBusTrigger:
                     watcher.register(run_id, cancellation)
                     if steer_channel is not None:
                         steer_run_id[0] = run_id
+                        steer_channel.run_id = run_id  # label the overflow warning
+                        # Liveness backstop the mechanism requires of every
+                        # producer (not optional — see run_registry mirror): if
+                        # this lane's task dies WITHOUT the stack.callback release
+                        # running (a hard crash the finally cannot cover),
+                        # live_run sweeps the dead run so the surface is not deaf
+                        # forever. on_event_id runs in the lane's own task, so
+                        # current_task() is exactly that task; `not done()` holds
+                        # for the whole turn. A wrong "dead-while-alive" would
+                        # silently drop steering, so probe the lane task itself —
+                        # nothing looser.
+                        run_task = asyncio.current_task()
                         get_run_registry().register(
-                            agent_id, channel_id, run_id, steer_channel
+                            agent_id, channel_id, run_id, steer_channel,
+                            is_alive=(lambda t=run_task: t is not None and not t.done()),
                         )
                     if note_event_id is not None:
                         await note_event_id(run_id)
@@ -2427,6 +2444,7 @@ class MessageBusTrigger:
         it; ``trigger_messages`` are the @mentions for this agent — what it
         should respond to."""
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+        from xyz_agent_context.agent_runtime.steer_channel import STEER_PROVENANCE_RULE
 
         member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
         me = member_map.get(agent_id, agent_id)
@@ -2446,6 +2464,13 @@ class MessageBusTrigger:
             "room (they are in the conversation below). So NEVER 'forward' or "
             "'send' a file that's already here, and never claim you did — to "
             "bring a teammate in, just @mention them and they'll see it too.",
+            # A team run is steerable: a message that arrives WHILE this turn
+            # runs is appended live (render_injection), tagged by source. The
+            # tag is authority-bearing (owner vs teammate), so the model must be
+            # told how to read it or a teammate could forge an owner tag — the
+            # nonce boundary only holds once the prompt states this rule. Shared
+            # verbatim with the chat / IM producers via the one constant.
+            STEER_PROVENANCE_RULE,
         ]
         # --- The team card ---------------------------------------------
         #

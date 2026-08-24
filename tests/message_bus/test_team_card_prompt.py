@@ -80,7 +80,12 @@ def test_a_long_intro_is_cut_and_says_so():
     text = _prompt(team={"name": "Desk", "intro_md": long_intro})
 
     assert "truncated" in text.lower()
-    assert len(text) < len(long_intro) + 4000
+    # Pin the truncation directly, not via a total-length budget: the intro is
+    # all "x", so the "x" it contributes must be capped at TEAM_INTRO_MAX_CHARS
+    # (the rest of the fixed prompt holds only a handful of stray "x"s). This is
+    # immune to the fixed prompt legitimately growing — a new standing rule must
+    # not be able to fail an intro-truncation test.
+    assert text.count("x") <= TEAM_INTRO_MAX_CHARS + 100
 
 
 def test_an_intro_that_fits_carries_no_truncation_notice():
