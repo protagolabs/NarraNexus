@@ -54,14 +54,18 @@ Create Agent 向导（可能只关心这一步刚添加的 provider）都能直�
   的 `finally` 块会在 `triggerClaudeLogin()` 的 await 真正返回（进程真正退
   出）之后才清空,避免计时器提前归零导致状态和真实进程状态不同步。
 - `handleAddClaudeOAuth` / `handleSaveSetupToken` / `handleAddCodexOAuth`
-  三个 handler 都只在 `addProvider()` 返回 `{ ok: true }` 时才调用
-  `onComplete()`——失败时组件目前**不展示行内错误**（这点和
-  `CustomEndpointForm` 不同,后者有自己的 `error` state）。这不是遗漏：原
-  `ProviderSettings.tsx` 里 oauth 标签页的错误也是走组件级共享的 `error`
-  state 展示在整个弹窗底部,而不是卡片内部;抽出来的这个组件没有"弹窗底部"
-  这个概念,错误展示的位置留给调用方决定（调用方可以检查 `addProvider` 的
-  返回值自己处理,但当前这个组件不做,因为调用方目前唯一的用法——本次抽
-  取——还没有接线,错误 UX 留给 Task 7/10 wiring 时按实际调用场景决定）。
+  三个 handler 现在共享同一个本地 `error` state（单个 `useState('')`）：
+  `addProvider()` 返回 `{ ok: true }` 时清空 `error` 再调用 `onComplete()`；
+  返回 `{ ok: false }` 时 `setError(res.detail || t('settings.provider.failed'))`,
+  在组件 fragment 末尾（两张卡片之后）渲染一次
+  `{error && <p className="text-sm text-[var(--color-error)]">{error}</p>}`。
+  这跟 `CustomEndpointForm` 已经建立的模式一致——每个 add-method 组件拥有
+  自己的本地 `error` state,而不是依赖父级共享的错误横幅。用单个共享 slot
+  （而不是每个 handler 一个）是合理的,因为这三个 action 在同一个面板里,
+  用户视角下不会并发触发；这和旧 `ProviderSettings.tsx` 的问题不同——那边
+  是三个**不相关的标签页**共享一个 `error`,同一个面板内的三个顺序动作共享
+  一个 slot 没有那个歧义。（此前版本这里失败时完全不展示任何提示,已在
+  2026-08-24 的后续提交中修复。）
 - Codex 卡片**没有** Tauri 自动化,永远显示"去终端跑 `codex login`"的提
   示——这是刻意保留的原始行为,不是这次抽取漏做的功能,`codex login` 会打开
   浏览器,目前没有走 Tauri IPC 的封装。

@@ -85,6 +85,15 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
   const [setupToken, setSetupToken] = useState('')
   const [savingSetupToken, setSavingSetupToken] = useState(false)
 
+  // Single local error slot shared by the three addProvider() call sites
+  // below (Claude OAuth add, setup-token save, Codex OAuth add). Mirrors
+  // the pattern CustomEndpointForm.tsx already uses — each add-method
+  // component owns its own error state rather than relying on a shared
+  // parent-level banner. One slot is fine here because, unlike the old
+  // ProviderSettings.tsx tabs, these three actions live in a single panel
+  // and a user only ever triggers one at a time.
+  const [error, setError] = useState('')
+
   const claudeCard = providers.find((p) => p.source === 'claude_oauth')
   const hasClaude = claudeCard !== undefined
   // Token transport (`claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN env
@@ -127,7 +136,12 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
 
   const handleAddClaudeOAuth = async () => {
     const res = await addProvider({ card_type: 'claude_oauth' })
-    if (res.ok) onComplete()
+    if (res.ok) {
+      setError('')
+      onComplete()
+    } else {
+      setError(res.detail || t('settings.provider.failed'))
+    }
   }
 
   const handleSaveSetupToken = async () => {
@@ -139,8 +153,11 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
       // the card as auth_type=oauth_token (reconnect-in-place keeps slots).
       const res = await addProvider({ card_type: 'claude_oauth', api_key: token })
       if (res.ok) {
+        setError('')
         setSetupToken('')
         onComplete()
+      } else {
+        setError(res.detail || t('settings.provider.failed'))
       }
     } finally {
       setSavingSetupToken(false)
@@ -149,7 +166,12 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
 
   const handleAddCodexOAuth = async () => {
     const res = await addProvider({ card_type: 'codex_oauth' })
-    if (res.ok) onComplete()
+    if (res.ok) {
+      setError('')
+      onComplete()
+    } else {
+      setError(res.detail || t('settings.provider.failed'))
+    }
   }
 
   const handleClaudeLogin = async () => {
@@ -438,6 +460,8 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
           </div>
         )}
       </div>
+
+      {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
     </>
   )
 }

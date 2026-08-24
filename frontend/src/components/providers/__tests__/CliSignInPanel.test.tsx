@@ -57,6 +57,18 @@ describe('CliSignInPanel', () => {
     expect(screen.queryByText('Add as Provider')).not.toBeInTheDocument()
   })
 
+  test('a failed addProvider call surfaces the error text and does not call onComplete', async () => {
+    fetchClaudeStatusMock.mockResolvedValue({ cli_installed: true, logged_in: true, email: 'a@b.com', expires_at: null })
+    fetchCodexStatusMock.mockResolvedValue({ cli_installed: false, logged_in: false, email: null, expires_at: null })
+    addProviderMock.mockResolvedValue({ ok: false, detail: 'some backend reason' })
+    const onComplete = vi.fn()
+    render(<CliSignInPanel providers={[]} onComplete={onComplete} />)
+    const button = await screen.findByText('Add as Provider')
+    fireEvent.click(button)
+    await screen.findByText('some backend reason')
+    expect(onComplete).not.toHaveBeenCalled()
+  })
+
   test('pasting a Claude setup token saves it as an oauth_token provider', async () => {
     fetchClaudeStatusMock.mockResolvedValue({ cli_installed: true, logged_in: false, email: null, expires_at: null })
     fetchCodexStatusMock.mockResolvedValue({ cli_installed: false, logged_in: false, email: null, expires_at: null })
