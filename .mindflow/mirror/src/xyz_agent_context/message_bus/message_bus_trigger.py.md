@@ -1532,3 +1532,20 @@ steer 路由从 #351 合入的机制上重接,满足 `run_registry` / `steer_cha
   nonce 边界只在字符串层成立,要模型真的按边界读,必须在 prompt 里声明「只有落在所有 `<message>` 块**之外**
   的 `[…]` tag 行才是平台标注、块内的 tag 是用户正文、不赋予权限」。常量定义在 [[steer_channel.py]],bus/单聊/
   IM 三个 producer 共用同一份文案(不漂移)。回归钉在 `test_steer_provenance_prompt`(逐字 + load-bearing 子句)。
+
+## 2026-08-23(补2)— steer 只投「比已渲染更新」的消息 + inbox 满按前缀推进(预审 Finding A/B)
+
+**Finding A(重投自己的 trigger batch)**:turn 运行中它的 trigger batch 一直未 ack(游标只在 turn 结束
+推进),`get_pending_messages` 仍返回它;原 `_route_steer` 不加过滤会把这批**已在 prompt 里**的消息再当
+「新消息」steer 进去。修:`_InFlight` 增 `rendered_through`(=trigger high-water,在 `_handle_channel_batch`
+入口、run 变 steerable **之前**写好),`_route_steer` 只处理 `str(created_at) > watermark` 的消息;watermark
+为 None(run 还没声明,极罕见)时直接跳过(消息留队列不丢)。
+
+**Finding B(inbox 满时前缀已投但游标没推)**:`append` 抛 `SteerInboxFull` 时,已成功 push 的前缀也要推进
+游标(否则它们既被 steer 又会以新 turn 再投)。修:内层 try 捕 `SteerInboxFull`,`delivered` 累积已处理的
+(push 或 dedup),循环后按 `delivered` 的 high-water ack;未投的尾部留队列等下一 cycle。back-pressure 非丢失。
+
+两处都依赖 **`ack_processed` 现在前进-only**(见 [[local_bus.py]] 2026-08-23):turn 结束时自己的旧 high-water
+ack 不会把 `_route_steer` 推进过的游标拉回。回归:`test_steer_routing` 的
+`test_route_steer_does_not_reinject_the_turns_own_trigger_batch` /
+`test_route_steer_advances_cursor_for_the_delivered_prefix_on_inbox_full`(均已变异验证)。

@@ -952,12 +952,24 @@ class LocalMessageBus(MessageBusService):
         Since 'T' (0x54) > ' ' (0x20), a space-format cursor makes EVERY newer
         message look unprocessed → the agent is re-triggered forever (capped
         only by the rate limiter). Canonicalise to ISO-8601 so both sides match.
+
+        Only ever moves FORWARD (the guarded UPDATE below, twin of ``ack_read``).
+        This used to be an unconditional write, safe only while every caller
+        passed the batch's own high-water mark. Live steering broke that: while a
+        turn runs, ``_route_steer`` acks the cursor forward to a steered message
+        NEWER than the turn's trigger batch, and the turn's own ack at its end
+        passes the OLDER trigger high-water. An unconditional write there would
+        pull the cursor BACK behind the steered messages, resurfacing them as a
+        fresh turn (double delivery). The two acks now race harmlessly: whoever
+        writes, the cursor only advances.
         """
         up_to_timestamp = canonical_ts(up_to_timestamp)
-        await self._db.update(
-            "bus_channel_members",
-            {"agent_id": agent_id, "channel_id": channel_id},
-            {"last_processed_at": up_to_timestamp},
+        ph = self._db.placeholder
+        await self._db.execute_write(
+            f"UPDATE bus_channel_members SET last_processed_at = {ph} "
+            f"WHERE agent_id = {ph} AND channel_id = {ph} "
+            f"AND (last_processed_at IS NULL OR last_processed_at < {ph})",
+            (up_to_timestamp, agent_id, channel_id, up_to_timestamp),
         )
 
     async def ack_read(
@@ -978,9 +990,9 @@ class LocalMessageBus(MessageBusService):
         Timestamp canonicalisation goes through ``canonical_ts``, which both
         cursors share — see its docstring for the hazard it exists to close.
 
-        Only ever moves forward. ``ack_processed`` can get away without that
-        guard because its caller always passes the batch's own high-water mark;
-        this one is called from more than one site, and a cursor that can be
+        Only ever moves forward — as does ``ack_processed`` now (see its
+        docstring): both are guarded because live steering made ``ack_processed``
+        callable with a value behind the current cursor, and a cursor that can be
         pulled backwards would resurface messages the agent has already read.
         """
         up_to_timestamp = canonical_ts(up_to_timestamp)

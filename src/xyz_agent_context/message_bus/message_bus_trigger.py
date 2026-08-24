@@ -245,6 +245,14 @@ class _InFlight:
     # still False is queued behind `_semaphore`, and the gap between the two
     # counts is exactly the slot-starvation signal the heartbeat reports.
     running: bool = False
+    # The newest message this turn's prompt already carries (its trigger
+    # batch's high-water = the timestamp it will ack to at turn END). Steering
+    # into a live run must inject ONLY messages newer than this, or it would
+    # re-deliver the very batch the turn is already acting on (the trigger
+    # cursor does not advance until the turn ends). None until the turn declares
+    # it — which happens before the run becomes steerable, so `_route_steer`
+    # (gated on a registered SteerChannel) always sees it set.
+    rendered_through: Optional[str] = None
 
 
 class MessageBusTrigger:
@@ -1100,9 +1108,22 @@ class MessageBusTrigger:
         run = get_run_registry().live_run(agent_id, channel_id)
         if run is None:
             return
+        # Steer ONLY messages newer than what the running turn already rendered.
+        # Its trigger batch (<= this high-water) is already in its prompt and its
+        # own end-ack advances the cursor past it; re-injecting it would
+        # double-deliver the batch the turn is acting on. The turn declares the
+        # high-water before the run becomes steerable, so a live run has it —
+        # the rare None gap is safe to skip (messages stay queued, never lost).
+        flight = self._in_flight.get((agent_id, channel_id))
+        watermark = flight.rendered_through if flight is not None else None
+        if watermark is None:
+            return
         try:
             pending = await self._bus.get_pending_messages(agent_id)
-            messages = [m for m in pending if m.channel_id == channel_id]
+            messages = [
+                m for m in pending
+                if m.channel_id == channel_id and str(m.created_at) > watermark
+            ]
             if not messages:
                 return
             channel_type, channel_owner = await self._get_channel_info(channel_id)
@@ -1111,33 +1132,50 @@ class MessageBusTrigger:
                 if self._should_process_message(m, agent_id, channel_type, channel_owner)
             ]
             if not relevant:
-                # Un-addressed: advance the cursor so they do not re-scan every
-                # cycle — the same ack the dispatch path does for a mute batch.
+                # New but un-addressed to this agent: advance the cursor so they
+                # do not re-scan every cycle — the same ack the dispatch path does
+                # for a mute batch. They are past the watermark, so the turn's own
+                # forward-only end-ack cannot pull the cursor back behind them.
                 latest = max(messages, key=lambda m: str(m.created_at))
                 await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
                 return
 
             from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxFull,
                 SteerInboxRepository,
             )
             from xyz_agent_context.schema.steer_schema import SteerInjection
             from xyz_agent_context.utils.db.db_factory import get_db_client
 
             inbox = SteerInboxRepository(await get_db_client())
-            for m in relevant:
-                inj = SteerInjection(
-                    run_id=run.run_id, msg_id=m.message_id, role="user",
-                    content=m.content, sender_id=m.from_agent, source="team",
+            delivered: List[BusMessage] = []
+            try:
+                for m in relevant:
+                    inj = SteerInjection(
+                        run_id=run.run_id, msg_id=m.message_id, role="user",
+                        content=m.content, sender_id=m.from_agent, source="team",
+                    )
+                    # steer_inbox is the durable record AND the dedup: push into
+                    # the loop only on a NEW row, so a message re-seen before its
+                    # ack never double-injects.
+                    if await inbox.append(inj):
+                        await run.steer.push(inj)
+                    delivered.append(m)
+            except SteerInboxFull:
+                # The run's unconsumed backlog is at capacity — it drains slower
+                # than messages arrive. Stop; the prefix already accounted for
+                # still gets its cursor advanced below (so it will not also start
+                # a fresh turn), the rest stay queued for a later cycle. Back-
+                # pressure, not loss.
+                logger.warning(
+                    f"[steer] inbox full for {(agent_id, channel_id)}: delivered "
+                    f"{len(delivered)}/{len(relevant)}, rest queued"
                 )
-                # steer_inbox is the durable record AND the dedup: push into the
-                # loop only on a NEW row, so a message re-seen before its ack
-                # never double-injects.
-                if await inbox.append(inj):
-                    await run.steer.push(inj)
-            # Delivered — advance the processing cursor so these do not also
-            # start a fresh turn.
-            latest = max(relevant, key=lambda m: str(m.created_at))
-            await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
+            # Advance the cursor over exactly what we accounted for (freshly
+            # pushed OR already-present dedup) — never past a message we did not.
+            if delivered:
+                latest = max(delivered, key=lambda m: str(m.created_at))
+                await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
         except Exception as e:  # noqa: BLE001 — a steer failure must not break the loop
             logger.warning(
                 f"[steer] route into live run for {(agent_id, channel_id)} "
@@ -1282,6 +1320,16 @@ class MessageBusTrigger:
         # Flipped by the room-post handler below. Separate from `_hop_done`
         # only in that it names WHY the hop did not complete.
         posted = True
+
+        # Declare this turn's rendered high-water BEFORE the run can become
+        # steerable (on_event_id fires later, inside _invoke_runtime). trigger
+        # is the NEWEST batched message, so it is the exact boundary the ack at
+        # turn end uses; recording it now lets `_route_steer` inject only gen.-
+        # uinely NEW messages and never the batch this turn already holds. Guard
+        # the lookup: patrol / tests may reach this without a dispatch flight.
+        _flight = self._in_flight.get((agent_id, channel_id))
+        if _flight is not None:
+            _flight.rendered_through = str(trigger_message.created_at)
 
         # Hop timing ([bus-timing], 2026-08-05): the 2026-08-01 event clocked
         # a bus hop at 45-95s with no way to split "sat in the queue" from

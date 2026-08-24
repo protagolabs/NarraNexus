@@ -135,6 +135,31 @@ async def test_ack_read_runs_on_mysql_and_only_moves_forward(bus):
 
 
 @pytest.mark.asyncio
+async def test_ack_processed_runs_on_mysql_and_only_moves_forward(bus):
+    """The PROCESSED cursor's guarded UPDATE — the twin of ack_read's, added for
+    live steering. Same shape (WHERE carries the value twice); a dialect error or
+    a lost guard would let a running turn's older end-ack drag the cursor back
+    behind steered messages and re-dispatch them as a fresh turn."""
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="older")
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="newer")
+    rows = await bus._db.execute(
+        "SELECT created_at FROM bus_messages WHERE channel_id = %s "
+        "ORDER BY created_at DESC LIMIT 1",
+        (ROOM,),
+    )
+    newest = rows[0]["created_at"]
+
+    await bus.ack_processed(ME, ROOM, newest)
+    pend = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
+    assert pend == []
+
+    # A stale timestamp must be a no-op, not a rewind that resurfaces the batch.
+    await bus.ack_processed(ME, ROOM, "1971-01-01T00:00:00+00:00")
+    pend = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
+    assert pend == []
+
+
+@pytest.mark.asyncio
 async def test_has_message_from_turn_runs_on_mysql(bus):
     """The three-column existence WHERE added for the team-room notice gate.
 

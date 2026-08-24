@@ -368,3 +368,18 @@ b 没有任何东西可回答。agent 把自己写成收件人是普通的模型
 `m.channel_id = ?` 收到一个前缀字符串、`m.created_at < ?` 收到一个 channel id；查询什么都不匹配，
 该方法返回 False，调用方跳过 early return，`ack_read` 推进游标 —— 丢掉窗口之外所有未读。
 没有异常，也不会有测试失败，除非 fixture 恰好持有正确数量的前缀。
+
+## 2026-08-23(补)— `ack_processed` 改成前进-only(live-steering 驱动)
+
+原 `ack_processed` 是**无条件** UPDATE last_processed_at,只在「每个调用方都传 batch 自己的 high-water」
+的前提下安全(其 docstring 也这么写、并说双子 `ack_read` 才需要守卫)。live-steering 打破了这个前提:
+turn 运行中 `_route_steer` 把游标推进到**比 trigger batch 更新**的被 steer 消息,而 turn 结束时自己的
+ack 传的是**更旧**的 trigger high-water。无条件写会把游标**拉回**到被 steer 消息之前,让它们重新变
+pending → 二次以新 turn 投递(双投)。两个 ack 还分属 poll 任务与 turn 任务、无锁,谁后写谁赢=race。
+
+改法:`ack_processed` 抄 `ack_read` 那条 dialect-safe 的守卫 UPDATE(`{ph}` 占位符、无引用标识符、
+`AND (last_processed_at IS NULL OR last_processed_at < {ph})`)。游标只前进,两个 ack 谁先谁后都无害。
+同步修正 `ack_read` docstring 里「ack_processed 不需守卫」的过时说法。回归:
+`test_steer_routing.test_ack_processed_only_moves_forward`(SQLite,已变异验证:去掉守卫→红) +
+`test_unread_cursor_mysql.test_ack_processed_runs_on_mysql_and_only_moves_forward`(真 MySQL 方言,
+与 ack_read twin 对称)。
