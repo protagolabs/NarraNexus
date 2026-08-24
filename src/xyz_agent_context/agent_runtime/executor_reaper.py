@@ -260,10 +260,11 @@ async def no_live_recorded_run_for(
     and the question a caller turns this into is about the CONTAINER, not
     about itself: "nothing else of MINE is on it" does not exclude another
     subsystem's session. No caller can establish that today, so every caller
-    that passes this is accepting a residual risk — see the note below on why
-    that is currently acceptable, and
-    ``reference/self_notebook/todo/2026-08-21-non-run-container-holders.md``
-    for the fix that removes it.
+    that passes this is accepting a residual risk. It is currently acceptable
+    only because the idle cull already destroys such a container on its TTL;
+    the fix is to give non-run holders a lease row that
+    ``live_run_elsewhere`` reads, which removes the risk for every consumer
+    at once instead of per caller.
 
     Second consumer of the liveness answer above, and it lives here so there
     is ONE place that asks "is anyone using this container?". The alternative

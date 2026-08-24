@@ -13,6 +13,7 @@ import pytest
 
 from xyz_agent_context.agent_runtime.executor_reaper import (
     UNKNOWN_RUN,
+    _REAPER_LIVENESS,
     ExecutorReaper,
     _CullVeto,
     live_run_elsewhere,
@@ -930,7 +931,7 @@ async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
     """Same container, same rule as the cull: a live run means hands off."""
     import xyz_agent_context.agent_runtime.executor_reaper as mod
 
-    async def live(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
+    async def live(user_id, *, exclude_run_id=None, caller, consequence):
         return "evt_live"
 
     monkeypatch.setattr(mod, "live_run_elsewhere", live)
@@ -941,7 +942,7 @@ async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
 async def test_stale_replacement_is_allowed_when_nothing_is_live(monkeypatch):
     import xyz_agent_context.agent_runtime.executor_reaper as mod
 
-    async def idle(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
+    async def idle(user_id, *, exclude_run_id=None, caller, consequence):
         return None
 
     monkeypatch.setattr(mod, "live_run_elsewhere", idle)
@@ -957,7 +958,7 @@ async def test_stale_replacement_excludes_the_asking_run(monkeypatch):
 
     seen = {}
 
-    async def spy(user_id, *, exclude_run_id=None, caller="reaper", consequence=""):
+    async def spy(user_id, *, exclude_run_id=None, caller, consequence):
         seen["exclude"] = exclude_run_id
         seen["caller"] = caller
         seen["consequence"] = consequence
@@ -999,3 +1000,17 @@ def test_the_log_subject_has_no_default():
     params = inspect.signature(live_run_elsewhere).parameters
     assert params["caller"].default is inspect.Parameter.empty
     assert params["consequence"].default is inspect.Parameter.empty
+
+
+def test_the_reaper_binds_its_own_log_subject():
+    """The signature can only protect a NEW consumer: the reaper binds both
+    values in a partial, and a TypeError on its path is swallowed by the
+    pass-level handlers that keep one user's failure from aborting a cull. So
+    the binding itself needs a test — the counterpart to the stale-replace
+    spy above. Read off .keywords rather than calling it, which would hit a
+    real DB."""
+    assert _REAPER_LIVENESS.func is live_run_elsewhere
+    assert _REAPER_LIVENESS.keywords == {
+        "caller": "reaper",
+        "consequence": "executor idle-culling is OFF",
+    }

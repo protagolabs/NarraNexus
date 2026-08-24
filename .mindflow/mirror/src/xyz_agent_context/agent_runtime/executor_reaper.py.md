@@ -32,13 +32,18 @@ office_watch 的代理会话不是 run，`backend/routes/office_watch/proxy.py` 
 要证的命题是"容器上没有任何人"。"我自己没在容器上占东西"排除不掉别的子系统的会话
 —— 今天没有任何调用方能证明前者，所以**每个传判决的调用方都在接受一个残留风险**
 （office-watch 会话被连带拆掉）。今天可以接受，是因为空闲回收器已经在 20 分钟
-idle TTL 上拆这种容器；正解是让非 run 占用者也进同一个判活口径，见
-`reference/self_notebook/todo/2026-08-21-non-run-container-holders.md`。
+idle TTL 上拆这种容器；正解是让非 run 占用者也进同一个判活口径：`watch/ensure` 落一条 lease 行，
+`live_run_elsewhere` 一起读。（细节另有本地笔记
+`reference/self_notebook/todo/…`，**未入库**，不必依赖它。）
 
 `caller` 和 `consequence` 都只用于日志，而且**签名上就是必填**（没有默认值，
 reaper 那侧用 `functools.partial` 显式绑定）：默认值必然是某一个消费方的后果文案，
-下一个漏传的消费方会静默继承它 —— 那正是这个参数被加出来要修的 bug。现在漏传是
-第一次调用就 `TypeError`。两个消费方在"判不
+下一个漏传的消费方会静默继承它 —— 那正是这个参数被加出来要修的 bug。**新**消费方漏传就是第一次调用
+`TypeError`；reaper 这条路不是 —— 它靠 `_REAPER_LIVENESS` 绑定，而这条路上的
+TypeError 会被"一个用户的失败不中断整趟"那两处宽 catch 吞成一条 `reap pass error`
+或（更糟）`failed to stop executor`（读起来像 broker 挂了），`reaper_status()` 照样
+报健康。所以 **reaper 的绑定值由测试守**，不是由签名守
+（`test_the_reaper_binds_its_own_log_subject`）。两个消费方在"判不
 出来"时的后果不同（回收停摆 vs 镜像永不滚动），把其中一方的后果硬编码进共享函数，
 就是让另一方的告警去指错方向。`NARRANEXUS_RUN_RECORDING_DISABLED` 打开时
 stale-replace 恒判 `False`（所有用户被钉在旧镜像上），那条日志必须说的是镜像的事。

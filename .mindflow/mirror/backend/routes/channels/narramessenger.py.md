@@ -31,8 +31,9 @@ NarraMessenger 上的首次交互会变成：prewarm 把**旧镜像**的容器�
 要证的命题是"容器上没有任何人"，不是"这个调用方没占"。今天接受这个残留，是因为
 空闲回收器**已经**在 20 分钟 idle TTL 上拆这种容器（office-watch 的
 `ensure_executor` 也不刷新 admission 的 idle 戳），所以这里只是多了一个触发时刻，
-不是新故障类别。正解见
-`reference/self_notebook/todo/2026-08-21-non-run-container-holders.md`。
+不是新故障类别。正解：让 `watch/ensure` 落一条 lease 行（用户 + 过期时间），`live_run_elsewhere`
+一起读 —— 在同一个口径里治，三个消费方自动都受保护，而不是每个调用方各自打补丁。
+（细节另有本地笔记 `reference/self_notebook/todo/…`，**未入库**，不必依赖它。）
 
 **镜像滚动是 best-effort**：只有真正走到 `_do_prewarm` 的那次 prewarm 会带判决。
 ledger 里已有 `ready` 条目且容器健康时，路由直接 202 `already_warm`、压根不调
