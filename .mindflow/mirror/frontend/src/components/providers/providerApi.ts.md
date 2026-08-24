@@ -6,24 +6,29 @@ stub: false
 
 ## 为什么存在
 
-这是从 [[../settings/ProviderSettings]] 里抽出来的共享 fetch/mutation
-层——`authFetch` / `providerUrl` / `addProvider` / `testProviderConfig` /
-`fetchClaudeStatus` / `fetchCodexStatus`。抽取之前这几个函数（尤其是
-`authFetch` 和 `providerUrl`）是 `ProviderSettings.tsx` 内部的模块级私有
-函数，`CustomEndpointForm.tsx` / `CliSignInPanel.tsx`（本计划 Task 3/4 从
-`ProviderSettings.tsx` 里抽出的两个独立组件）以及后来的
+这是仿照 [[../settings/ProviderSettings]] 内部原有的 `authFetch` /
+`providerUrl` 写法抽出来的共享 fetch/mutation 层——`authFetch` /
+`providerUrl` / `addProvider` / `testProviderConfig` / `fetchClaudeStatus` /
+`fetchCodexStatus`。`CustomEndpointForm.tsx` / `CliSignInPanel.tsx`（本计
+划 Task 3/4 从 `ProviderSettings.tsx` 里抽出的两个独立组件）以及后来的
 [[../../pages/CreateAgentPage]] provider 步骤都需要打同一批
 `/api/providers/*` 接口——如果每个组件各自 `fetch`，identity header 的拼
 装逻辑（见下）迟早会有一份漂移、某个组件忘了发 `X-User-Id` 或忘了发
-JWT，复现一次 2026-05-18 那次"local 模式写错用户"的事故只是时间问题。抽
-成单一文件后，"provider 相关请求怎么发"只有一处实现，四个调用方
-（`ProviderSettings`、`CustomEndpointForm`、`CliSignInPanel`、
-`CreateAgentPage`）全部通过它间接命中同一套逻辑。
+JWT，复现一次 2026-05-18 那次"local 模式写错用户"的事故只是时间问题。
+
+**已知未完成的统一**：`ProviderSettings.tsx` 自己并**没有**改造成 import
+这个文件——它内部仍然保留着一份几乎一模一样的本地 `authFetch`/
+`providerUrl`（`ProviderSettings.tsx` 现在的 39-69 行、153-159 行），它自
+己的 provider 列表/详情/删除/测试/edit-models 请求走的是这份本地拷贝，不
+是这里。也就是说"四个调用方共用一套逻辑"目前只对三个成立
+（`CustomEndpointForm`/`CliSignInPanel`/`CreateAgentPage`），`ProviderSettings`
+本身还是游离在外的第四份实现——这正是本文件开头这段话想防止的那种漂移，
+只是还没有人回头把 `ProviderSettings.tsx` 也切过来。谁要动
+`ProviderSettings.tsx` 的这两个本地函数时，顺手改成 import 这里的版本、
+删掉本地拷贝。
 
 ## 依赖它的调用方
 
-- [[../settings/ProviderSettings]] — provider 列表/详情/删除/测试/
-  edit-models 都走这里的 `authFetch`/`providerUrl`。
 - [[CustomEndpointForm]] — 自定义 endpoint 表单的 `addProvider` /
   `testProviderConfig`。
 - [[CliSignInPanel]] — Claude/Codex CLI 登录卡的 `addProvider` /

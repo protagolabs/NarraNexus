@@ -1,6 +1,7 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-08-24
+stub: false
 ---
 
 ## 2026-08-24 (4) — (1)~(3) 抽取的真正动机：Create Agent 向导要复用同一套逻辑
@@ -30,9 +31,19 @@ last_verified: 2026-08-24
   来就是共享组件,没被这轮任务碰;加上这轮任务抽出的
   `CustomEndpointForm`/`CliSignInPanel`）做自己的 Step 1,不经过
   `ProviderSettings.tsx`——两个页面之间没有相互 import 关系,只是各自 import
-  同一批 `components/providers/` 下的组件 + 共享的
-  [[../providers/providerApi]] 网络层,符合本仓库"模块之间不互相依赖,靠共享
-  组件复用"的约束。
+  同一批 `components/providers/` 下的组件,符合本仓库"模块之间不互相依赖,靠
+  共享组件复用"的约束。
+
+**注意，统一还没做完**：上面说的"共享逻辑"目前只到组件这一层——
+`CustomEndpointForm`/`CliSignInPanel` 内部确实都 import
+[[../providers/providerApi]] 的 `authFetch`/`addProvider`/…。但本文件
+（`ProviderSettings.tsx`）自己剩下的①②③三块（provider 网格/详情弹窗/
+edit-models 弹窗）**没有**跟着切过去，仍然保留着一份本地的 `authFetch`/
+`providerUrl`（现在的 39-69 行、153-159 行），列表/详情/删除/测试/
+edit-models 这些请求走的是这份本地拷贝，不是 [[../providers/providerApi]]。
+两份实现目前内容几乎一致，但这正是 [[../providers/providerApi]] 那篇文档
+开头警告的"迟早会有一份漂移"的风险来源——谁下次要动 provider 请求逻辑，
+应该顺手把本文件这两个本地函数也换成 import，而不是改两处。
 
 ## 2026-08-24 (3) — oauth tab 改为渲染 CliSignInPanel，删掉内联 Claude/Codex 登录卡
 
