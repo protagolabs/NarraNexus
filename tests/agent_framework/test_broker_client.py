@@ -212,3 +212,30 @@ async def test_stop_executor_is_a_noop_without_a_broker(monkeypatch):
     keep holding on to."""
     monkeypatch.delenv("BROKER_URL", raising=False)
     assert await bc.stop_executor("a") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(204),                              # empty body
+        httpx.Response(200, text="<html>gateway</html>"),  # not JSON
+        httpx.Response(200, json=["stopped"]),             # JSON, not an object
+    ],
+    ids=["empty", "not-json", "not-an-object"],
+)
+async def test_stop_executor_survives_an_unexpected_body(monkeypatch, response):
+    """A 2xx whose body is not a JSON object means "it stopped, and the broker
+    said so oddly" — never "the call failed". Reporting the opposite would
+    make the reaper log a failure for a stop that happened."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(lambda req: response)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+    assert await bc.stop_executor("a") is True

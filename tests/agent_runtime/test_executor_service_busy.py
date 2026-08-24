@@ -32,19 +32,21 @@ def _clear_inflight():
     es._inflight_started.clear()
 
 
-def test_health_is_idle_with_nothing_in_flight():
-    body = es.health()
+@pytest.mark.asyncio
+async def test_health_is_idle_with_nothing_in_flight():
+    body = await es.health()
     assert body["status"] == "healthy"
     assert body["busy"] is False
     assert body["inflight_work"] == 0
     assert body["inflight_oldest_s"] is None
 
 
-def test_health_reports_busy_and_the_oldest_age():
+@pytest.mark.asyncio
+async def test_health_reports_busy_and_the_oldest_age():
     es._inflight_started[1] = es.monotonic() - 42.0
     es._inflight_started[2] = es.monotonic()
 
-    body = es.health()
+    body = await es.health()
     assert body["busy"] is True
     assert body["inflight_work"] == 2
     # The OLDEST, not the newest: a count alone cannot distinguish a
@@ -62,12 +64,13 @@ def _app(handler, path="/agent-loop"):
     return es.InFlightWorkMiddleware(app)
 
 
-def test_busy_is_true_while_a_stream_is_open():
+@pytest.mark.asyncio
+async def test_busy_is_true_while_a_stream_is_open():
     seen = []
 
     async def handler(request):
         async def body():
-            seen.append(es.health()["busy"])
+            seen.append((await es.health())["busy"])
             yield b"chunk\n"
 
         return StreamingResponse(body())
@@ -76,7 +79,7 @@ def test_busy_is_true_while_a_stream_is_open():
         assert client.post("/agent-loop").status_code == 200
 
     assert seen == [True]                    # busy DURING the stream
-    assert es.health()["busy"] is False       # released after
+    assert (await es.health())["busy"] is False   # released after
 
 
 def test_the_slot_is_released_when_the_body_never_runs():
@@ -141,13 +144,14 @@ def test_health_never_marks_the_container_busy():
     assert es._inflight_started == {}
 
 
-def test_watch_paths_count_as_work():
+@pytest.mark.asyncio
+async def test_watch_paths_count_as_work():
     """Office-watch runs INSIDE the container; reaping under it destroys that
     session too, so it has to hold the container busy."""
     seen = []
 
     async def handler(request):
-        seen.append(es.health()["busy"])
+        seen.append((await es.health())["busy"])
         return StreamingResponse(iter([b"ok"]))
 
     app = _app(handler, path="/watch/{port}/{path:path}")
@@ -230,3 +234,27 @@ async def test_the_watch_passthrough_bounds_its_read_gap(monkeypatch):
     assert resp.status_code == 502          # upstream refused, as arranged
     assert seen["timeout"].sock_read == es._WATCH_READ_TIMEOUT_S
     assert seen["timeout"].total is None    # the stream itself stays unbounded
+
+
+@pytest.mark.asyncio
+async def test_health_runs_on_the_event_loop_thread():
+    """`async def` here is load-bearing. A sync handler would be dispatched to
+    a worker thread, putting these reads on a different thread from the
+    middleware's writes — and `min()` iterates, so a dict resized mid-iteration
+    raises RuntimeError, while the separate reads could straddle an insert and
+    report busy with no age."""
+    import inspect
+
+    assert inspect.iscoroutinefunction(es.health)
+
+
+def test_a_neighbouring_path_is_not_counted_as_work():
+    """Bare `startswith` would enrol a future /watchdog or
+    /agent-loop-metrics, and a high-frequency one would pin the container busy
+    forever — with nothing linking the symptom to the new route's name."""
+    assert es._is_work_path("/agent-loop") is True
+    assert es._is_work_path("/watch/9000/index.html") is True
+    assert es._is_work_path("/watch") is True
+    assert es._is_work_path("/watchdog") is False
+    assert es._is_work_path("/agent-loop-metrics") is False
+    assert es._is_work_path("/health") is False

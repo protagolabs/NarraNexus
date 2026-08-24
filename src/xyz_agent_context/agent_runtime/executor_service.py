@@ -115,7 +115,9 @@ app = FastAPI(title="NarraNexus Agent-Loop Executor", lifespan=_lifespan)
 # field, so probing it would answer "cannot tell" forever and the image
 # would never roll.)
 #
-# Plain dict: this service is single-process asyncio, so mutation is atomic.
+# Plain dict, no lock: every reader and writer runs on the event loop thread
+# (the middleware below, and /health — which is `async def` precisely so this
+# stays true). Nothing here is safe to read from a worker thread.
 # Values are monotonic start times so /health can report the OLDEST in-flight
 # request's age. A bare count could not distinguish a legitimate 10-hour turn
 # (rule #14 — must keep reporting busy) from something pinned open: a request
@@ -151,6 +153,20 @@ _BODY_READ_TIMEOUT_S = 60.0
 _WATCH_READ_TIMEOUT_S = 300.0
 
 
+def _is_work_path(path: str) -> bool:
+    """Whether this request counts as someone using the container.
+
+    Segment-aware, not a bare prefix: ``startswith`` would silently enrol a
+    future ``/watchdog`` or ``/agent-loop-metrics``, and a high-frequency one
+    would pin the container busy forever — with nothing connecting the
+    symptom (never reclaimed) to the cause (a new route's name).
+    """
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in _WORK_PATH_PREFIXES
+    )
+
+
 class InFlightWorkMiddleware:
     """Count in-flight work as raw ASGI, NOT inside the route handler.
 
@@ -176,8 +192,8 @@ class InFlightWorkMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope.get("type") != "http" or not str(scope.get("path", "")).startswith(
-            _WORK_PATH_PREFIXES
+        if scope.get("type") != "http" or not _is_work_path(
+            str(scope.get("path", ""))
         ):
             await self.app(scope, receive, send)
             return
@@ -195,12 +211,19 @@ app.add_middleware(InFlightWorkMiddleware)
 
 
 @app.get("/health")
-def health() -> dict:
+async def health() -> dict:
     """Liveness plus "am I working right now?".
 
     ``busy`` is what stops the broker's idle reaper from stopping a container
     mid-turn. ``inflight_oldest_s`` is here so an in-flight count that never
     drains is diagnosable rather than merely mysterious.
+
+    ``async def`` is load-bearing, not style. FastAPI runs a SYNC handler in a
+    worker thread, which would put these reads on a different thread from the
+    middleware's writes: ``min()`` iterates, and a dict resized mid-iteration
+    raises RuntimeError, while the three reads below could also land on
+    either side of an insert and report ``busy`` with no age. On the loop
+    thread none of that can interleave.
     """
     oldest = min(_inflight_started.values(), default=None)
     return {
@@ -355,6 +378,12 @@ async def agent_loop(request: Request) -> Response:
     # the container marked busy, i.e. never reapable. A parse budget, NOT a
     # ceiling on the turn: once the body is in, the loop below runs as long as
     # it likes (rule #14).
+    #
+    # It closes the single-request wedge, not the general case: a caller
+    # inside the container can simply POST again, holding busy for another
+    # window each time. That is not a new capability (the same agent can hold
+    # the container by running a real turn), and the real boundary is the
+    # expiring lease noted above _WORK_PATH_PREFIXES.
     try:
         body = await asyncio.wait_for(request.json(), timeout=_BODY_READ_TIMEOUT_S)
     except TimeoutError:

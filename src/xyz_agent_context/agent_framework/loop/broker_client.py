@@ -214,7 +214,15 @@ async def stop_executor(user_id: str, *, timeout: float = 30.0) -> bool:
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.delete(endpoint)
         resp.raise_for_status()
-        status = (resp.json() or {}).get("status") if resp.content else None
+        # Defensive about the SHAPE, not the status code: a 2xx whose body is
+        # not a JSON object (a proxy's HTML error page, a bare array) would
+        # otherwise raise here and be read by the caller as "the stop failed"
+        # — reporting the opposite of what happened, for a stop that did.
+        try:
+            data = resp.json() if resp.content else None
+        except ValueError:
+            data = None
+        status = data.get("status") if isinstance(data, dict) else None
     if status == "busy":
         logger.info(
             f"[broker] executor for user={user_id} is busy; not stopped "

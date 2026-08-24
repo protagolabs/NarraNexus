@@ -71,6 +71,7 @@ async def test_reap_once_stops_all_idle_users():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -85,6 +86,7 @@ async def test_reap_once_skips_stop_failures():
     async def stop_fn(user_id):
         if user_id == "b":
             raise RuntimeError("broker down")
+        return True
 
     controller = _FakeController(["a", "b", "c"])
     reaper = ExecutorReaper(controller, stop_fn, is_busy=None, ttl_seconds=1)
@@ -115,6 +117,7 @@ async def test_a_stop_failure_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -143,6 +146,7 @@ async def test_user_busy_in_another_process_is_not_reaped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         return user_id == "busy-elsewhere"
@@ -162,6 +166,7 @@ async def test_a_vetoed_user_keeps_its_stamp_and_is_reoffered():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     busy = {"u"}
 
@@ -187,6 +192,7 @@ async def test_user_that_became_busy_between_claim_and_stop_is_restamped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         calls["n"] += 1
@@ -343,6 +349,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _BrokenRestamp(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -357,7 +364,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
 
 
 async def _noop_stop(user_id):
-    return None
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -1047,15 +1054,15 @@ async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
 
 @pytest.mark.asyncio
 async def test_a_successful_stop_still_counts(audit_rows):
-    """The refusal check must be `is False`, not truthiness: a stop_fn that
-    returns None (the old contract) means "stopped"."""
+    """The other half of the pair: a stop that happened is counted and the
+    stamp stays consumed."""
     from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
 
-    async def legacy_stop(user_id):
-        return None
+    async def real_stop(user_id):
+        return True
 
     reaper = ExecutorReaper(
-        _FakeController(["u"]), legacy_stop, is_busy=None, ttl_seconds=1
+        _FakeController(["u"]), real_stop, is_busy=None, ttl_seconds=1
     )
     assert await reaper.reap_once() == ["u"]
     assert reaper_status()["refused_busy"] == 0

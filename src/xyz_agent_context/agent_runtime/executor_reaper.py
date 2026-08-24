@@ -56,9 +56,15 @@ from xyz_agent_context.schema.executor_audit import (
     EVENT_CULL_SKIPPED_BUSY,
 )
 
-# Returns False when the broker REFUSED because the container reported work
-# in flight — a normal outcome, not an error, and one the reaper must be able
-# to tell from success (see reap_once).
+# Returns whether the executor actually stopped. False means the broker
+# REFUSED because the container reported work in flight — a normal outcome,
+# not an error, and one the reaper must be able to tell from success.
+#
+# Consumed as `if not await stop_fn(...)`, so a falsy return of any kind means
+# "not stopped". That polarity is the safe one: a future branch that forgets
+# to return leaves the user its idle stamp and retries next pass, whereas
+# treating silence as success drops the stamp and leaves a container that was
+# never stopped never reconsidered either (see reap_once).
 StopFn = Callable[[str], Awaitable[bool]]
 
 DEFAULT_IDLE_TTL_SEC = 1200   # 20 min (locked decision)
@@ -619,7 +625,7 @@ class ExecutorReaper:
                     # never gets a new stamp in THIS one.
                     await self._controller.restamp_idle(user_id)
                     continue
-                if await self._stop_fn(user_id) is False:
+                if not await self._stop_fn(user_id):
                     # The broker refused: the CONTAINER reports work this side
                     # cannot see (an office-watch session leaves no run row).
                     # Same handling as the busy branch above — hand the stamp

@@ -40,6 +40,17 @@ docker embedded DNS 共享失败源，而在途 turn 对那个 resolver 免疫�
 broker 侧 resolver 一抖就两个条件同时满足、把健康的长 turn 杀了，而它本来要处理的
 "服务器卡死"两个条件都不满足、从来没被处理。
 
+**`/health` 必须是 `async def`**：FastAPI 会把**同步** handler 丢进工作线程，那样
+读的线程和中间件写的线程就不是同一个 —— `min()` 是一次跨字节码的迭代，字典在迭代中
+被 resize 会抛 `RuntimeError`；而 `busy` / `len` / `min` 三次独立读还可能落在一次
+insert 的两侧，报出"busy 但没有年龄"这种自相矛盾的组合。放在事件循环线程上，这些
+都不可能交错。原注释把这条的理由写成"单进程 asyncio 所以原子"，那个前提恰好被同步
+handler 破坏了 —— 真正让它成立的是**读写同线程**。
+
+**work 前缀按路径段匹配**，不是裸 `startswith`：后者会静默把将来的 `/watchdog`、
+`/agent-loop-metrics` 算成 work，而一个高频的这种端点会把容器钉成永久 busy —— 症状
+（永不回收）和根因（新端点名字撞前缀）之间毫无提示。
+
 **`/health` 自己绝不算 work**（`_WORK_PATH_PREFIXES` 是前缀白名单，不是"任何请求"）
 —— 否则 broker 的探测会自我实现，每个容器永远 busy。
 
