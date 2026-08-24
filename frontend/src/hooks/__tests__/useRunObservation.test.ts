@@ -35,6 +35,16 @@ describe('applyObservationFrame', () => {
     expect(snap.startedAt).toBe(Date.parse('2026-07-31T10:00:00Z'));
   });
 
+  it('anchors a NAIVE-UTC started_at as UTC — the shape cloud MySQL actually emits', () => {
+    // review #349 I1: the 'Z' case above was the only coverage, and the
+    // backend never used to send that shape — a bare Date.parse here was
+    // permanently green while reading the real frames as LOCAL time.
+    const snap = feed([
+      { type: 'run_reconnect', run_id: 'evt_1', state: 'running', started_at: '2026-07-31T10:00:00.123456' },
+    ]);
+    expect(snap.startedAt).toBe(Date.parse('2026-07-31T10:00:00.123456Z'));
+  });
+
   it('replay rows materialise the same blocks the live path builds', () => {
     const snap = feed([
       { type: 'run_reconnect', run_id: 'evt_1', state: 'running' },

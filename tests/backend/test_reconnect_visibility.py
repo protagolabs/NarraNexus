@@ -134,3 +134,26 @@ async def test_chat_run_fast_path_needs_no_agents_row(db_client):
     await ws_module._handle_reconnect(ws, run_id="evt_vis5", requesting_user_id="binliang")
     assert not any(f.get("error_type") == "Forbidden" for f in ws.sent)
     assert any(f["type"] == "run_ended" for f in ws.sent)
+
+
+def test_format_dt_attaches_utc_to_naive_datetimes():
+    """review #349 I1: MySQL's DATETIME(6) strips tzinfo, so the driver hands
+    back NAIVE datetimes — an offset-less isoformat() string is then read as
+    LOCAL time by the browser's Date.parse, skewing run_reconnect's
+    started_at/input_timestamp by the viewer's UTC offset. Naive values must
+    gain an explicit UTC offset, with microseconds preserved (format_for_api
+    truncates to seconds and would break the exact-millisecond dedup)."""
+    from datetime import datetime, timezone
+
+    from backend.routes.websocket import _format_dt
+
+    naive = datetime(2026, 8, 14, 16, 0, 41, 109740)
+    s = _format_dt(naive)
+    assert s is not None and s.endswith("+00:00")
+    assert "16:00:41.109740" in s  # microseconds survive
+
+    aware = datetime(2026, 8, 14, 16, 0, 41, tzinfo=timezone.utc)
+    assert _format_dt(aware) == aware.isoformat()  # offset trusted as-is
+
+    assert _format_dt(None) is None
+    assert _format_dt("2026-08-14 16:00:41") == "2026-08-14 16:00:41"

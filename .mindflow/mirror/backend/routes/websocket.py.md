@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-14
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `_format_dt` 补上时区契约(#349 I1 根因)
+
+MySQL DATETIME(6) 剥 tzinfo → driver 还回 naive datetime → 原来的
+`isoformat()` 吐无后缀串,浏览器 `Date.parse` 按**本地时区**解——
+run_reconnect 帧的 `started_at`/`input_timestamp` 在云端整体偏移观看者
+的 UTC offset(SQLite 往返自带 `+00:00`,本地永远复现不出)。naive 值
+现在补 `timezone.utc` 再 isoformat。**不能**换 `format_for_api`:它截到
+整秒,而 `input_timestamp` 与落库聊天行的去重依赖毫秒级一致(帧注释
+明写)。前端侧的容错解析器是 [[../../frontend/src/lib/backendTs]]。
 
 ## 2026-08-14 — chat fast mode: 首包可带 fast_mode
 

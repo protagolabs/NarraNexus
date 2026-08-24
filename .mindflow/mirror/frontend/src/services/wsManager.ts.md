@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 (review #349) — 续接锚点只认 running;时间戳解析归一
+
+- **I2**:`markResumedRun` 加 `raw.state === 'running'` 守卫——后端对
+  **任何**可 attach 的 run 都先发 run_reconnect,「早已结束」是常见
+  情形,不加守卫会对昨天完成的 run 打出「已续接进行中 · 已运行
+  1500 分钟」(chip 要消灭的误判反向复现)。判定条件与后端补发
+  run_ended 的分支逐字一致。测试补 `state: 'completed'` 用例。
+- **I1**:`started_at` 与 `input_timestamp` 的解析都改走
+  [[../lib/backendTs]](naive-UTC 规则收敛单点;`input_timestamp`
+  原来裸 `Date.parse`,云端 UTC+8 下注入的用户气泡会排到 8 小时前)。
 
 ## 2026-08-21 — run_reconnect 落「续接」锚点(深圳复测 B1)
 

@@ -181,6 +181,7 @@ interface ChatState {
   history: ConversationRound[];
   currentEvents: TurnEvent[];
   resumedRun: AgentChatState['resumedRun'];
+  currentRunId: string | null;
 
   // Actions (all accept agentId)
   setActiveAgent: (agentId: string) => void;
@@ -254,6 +255,7 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     history: session.history,
     currentEvents: session.currentEvents,
     resumedRun: session.resumedRun,
+    currentRunId: session.currentRunId,
   };
 }
 

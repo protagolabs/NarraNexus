@@ -138,6 +138,25 @@ describe('wsManager A3 — auto-reconnect on passive disconnect', () => {
     expect(resumed?.startedAtMs).toBe(Date.parse('2026-08-14T16:00:41.109740Z'));
   });
 
+  it('a run_reconnect for an ALREADY-FINISHED run never marks resumedRun', () => {
+    // review #349 I2: the backend sends run_reconnect for any attachable
+    // run — the already-finished case is the COMMON one (the run usually
+    // ended during the very outage that triggered the reconnect). Badging
+    // its replay "resumed · running for N min" is the same misread the
+    // chip exists to kill, in the opposite direction.
+    useChatStore.getState().clearAll();
+    wsManager.reconnect(AGENT, USER, 'r_done1');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_done1',
+      state: 'completed',
+      started_at: '2026-08-14T16:00:41.109740',
+    });
+    expect(useChatStore.getState().agentSessions[AGENT]?.resumedRun).toBeNull();
+  });
+
   it('an explicit offset in started_at is honored as-is, and a fresh run clears resumedRun', () => {
     useChatStore.getState().clearAll();
     wsManager.reconnect(AGENT, USER, 'r_res2');

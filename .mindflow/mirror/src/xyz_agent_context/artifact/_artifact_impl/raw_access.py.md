@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/raw_access.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
 

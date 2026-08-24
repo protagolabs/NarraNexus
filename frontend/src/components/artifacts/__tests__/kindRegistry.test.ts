@@ -119,7 +119,7 @@ describe('KIND_REGISTRY', () => {
         downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: 'x/deck' }),
       ).toBe('bin');
       expect(
-        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: null }),
+        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: '' }),
       ).toBe('bin');
       expect(
         downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: 'x/tar.' }),

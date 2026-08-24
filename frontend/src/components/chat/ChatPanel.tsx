@@ -234,6 +234,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     currentToolCalls: _rtToolCalls,
     currentEvents: _rtEvents,
     resumedRun,
+    currentRunId,
     isStreaming, addUserMessage, startStreaming,
     setActiveAgent,
   } = useChatStore();
@@ -1125,8 +1126,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
                   replay below is the SAME run continuing after a refresh /
                   reconnect — label it, with elapsed anchored to the run's
-                  real start, so it cannot be read as a fresh generation. */}
-              {resumedRun && <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />}
+                  real start, so it cannot be read as a fresh generation.
+                  runId must match the streaming turn (review #349 M4): the
+                  anchor may only badge ITS run — if a second start-stream
+                  path ever appears, a stale anchor stays invisible instead
+                  of silently badging someone else's turn. */}
+              {resumedRun && resumedRun.runId === currentRunId && (
+                <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+              )}
               {/* Live view shows answers only: the process is in the
                   ProcessPanel above the composer. Painting it here too
                   would render the same thinking/tools twice.

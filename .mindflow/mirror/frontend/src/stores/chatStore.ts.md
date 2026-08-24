@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 (review #349 M4) — `runId` 接成守卫;`currentRunId` 进 flat fields
+
+`resumedRun.runId` 原是死字段。现在 ChatPanel 的 chip 渲染条件要求
+`resumedRun.runId === currentRunId`——锚点只给**它自己的** run 打标;
+将来若出现第二条开流路径,陈旧锚点是隐形而不是错标。`currentRunId`
+为此加入 flat fields。
 
 ## 2026-08-21 — session 增 `resumedRun`(续接锚点,深圳复测 B1)
 

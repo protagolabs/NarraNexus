@@ -28,6 +28,7 @@ import asyncio
 import json
 import traceback
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any, Optional
 import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -549,9 +550,24 @@ async def _follow_run_from_db(
 
 
 def _format_dt(value: Any) -> Optional[str]:
-    """ISO format for any datetime / string value, None passes through."""
+    """ISO format for any datetime / string value, None passes through.
+
+    Timezone contract (review #349 I1): DB datetimes are UTC, but MySQL's
+    DATETIME(6) strips tzinfo, so the driver hands back a NAIVE value —
+    ``isoformat()`` alone then emits an offset-less string that a browser's
+    ``Date.parse`` reads as LOCAL time, skewing every consumer by the
+    viewer's UTC offset (SQLite round-trips ``+00:00`` and hides the bug
+    locally). A naive datetime gets ``timezone.utc`` attached before
+    formatting. NOT ``format_for_api``: that helper truncates to whole
+    seconds, and ``input_timestamp`` must match the persisted chat row by
+    exact millisecond (see the run_reconnect frame comment).
+    """
     if value is None:
         return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
 

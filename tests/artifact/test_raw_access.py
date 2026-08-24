@@ -107,6 +107,26 @@ async def test_office_live_entry_serves_real_mime_not_the_render_kind(
 
 
 @pytest.mark.asyncio
+async def test_url_artifact_entry_serves_json_not_the_render_kind(env):
+    """review #349 M3: 'application/x-url' is a render marker too (the entry
+    is a page.url.json manifest) — the backend set must match the frontend's
+    judgment or the 'which kinds are markers' knowledge forks."""
+    entry = env["workspace"] / "tabs" / "page.url.json"
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_text('{"url": "https://example.com"}', encoding="utf-8")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/x-url", entry_path=str(entry),
+        title="tab", description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == "application/json"
+    assert resolved.kind == "application/x-url"  # CSP branch reads kind, untouched
+
+
+@pytest.mark.asyncio
 async def test_office_live_entry_without_extension_falls_back_to_octet_stream(env):
     entry = env["workspace"] / "office2" / "deck"
     entry.parent.mkdir(exist_ok=True)

@@ -190,13 +190,10 @@ export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
  * lives only in its pointer, and the kind is an internal render marker,
  * not a transport type.
  */
-export function downloadExtFor(artifact: {
-  kind: string;
-  file_path?: string | null;
-}): string {
-  const staticExt = (KIND_REGISTRY as Record<string, KindDescriptor>)[
-    artifact.kind
-  ]?.downloadExt;
+export function downloadExtFor(artifact: Pick<Artifact, 'kind' | 'file_path'>): string {
+  // `?.` stays despite the exhaustive Record type: `kind` is a server value
+  // and a NEWER backend may ship a kind this build's union doesn't know.
+  const staticExt = KIND_REGISTRY[artifact.kind]?.downloadExt;
   if (staticExt) return staticExt;
   const base = (artifact.file_path ?? '').split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');

@@ -42,8 +42,13 @@ from xyz_agent_context.utils.workspace_paths import team_shared_dir
 # Kinds that are internal render markers, not transport MIMEs — serving them
 # as Content-Type makes a directly-opened URL an unknown binary (the
 # Shenzhen-r2 ".bin download" bug). The entry's real type comes from its
-# extension instead.
-_RENDER_MARKER_KINDS = frozenset({"application/vnd.officecli-live"})
+# extension instead. Keep this in step with the frontend's set of
+# non-static-downloadExt kinds (kindRegistry.ts) — review #349 M3 caught
+# the two drifting after one round.
+_RENDER_MARKER_KINDS = frozenset({
+    "application/vnd.officecli-live",
+    "application/x-url",  # entry is tabs/<slug>/page.url.json → application/json
+})
 
 # Explicit map for the office extensions, NOT mimetypes.guess_type: the
 # stdlib's knowledge of pptx/docx/xlsx comes from the platform's mime.types
