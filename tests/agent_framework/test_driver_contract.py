@@ -86,20 +86,25 @@ def test_all_drivers_declare_only_known_vocabulary():
         )
 
 
-def test_steering_capability_is_declared_exactly_where_it_can_be_honored():
-    """The contract that gates live steering: NexusAgent CAN carry a live steer
-    channel (in-process queue / subprocess stdin pump) and MUST declare
-    ``steering``; the remote HTTP driver CANNOT (no wire representation for a
-    live channel) and MUST NOT — the orchestrator degrades a remote run to a
-    fresh turn precisely because this string is absent there. A typo on either
-    side ('Steering', 'steer') would silently flip the gate."""
+def test_steering_capability_is_declared_where_it_can_be_honored():
+    """The contract that gates live steering. NexusAgent CAN carry a live steer
+    channel (in-process queue / subprocess stdin pump) and declares ``steering``.
+    The remote HTTP driver carries steering over the hop (POSTs each injection to
+    the executor's ``/steer`` and forwards ``steer_consumed`` back — see
+    RemoteAgentLoopDriver.agent_loop), but ONLY for a framework whose in-container
+    driver can actually drain it: nexus_power YES, claude_code / codex_cli NO
+    (their SDKs return the base contract, so a steer would queue unread). The
+    remote shell is one class for every framework, so it must reflect the wrapped
+    driver's capability, not a blanket yes. A typo on either side ('Steering',
+    'steer') would silently flip the gate."""
     assert "steering" in NexusAgent(working_path="/tmp").capabilities()
-    remote = RemoteAgentLoopDriver(
-        framework="claude_code",
-        working_path="./",
-        executor_url="http://127.0.0.1:9",
-    )
-    assert remote.capabilities() == set()
+
+    def _remote(fw):
+        return RemoteAgentLoopDriver(framework=fw, working_path="./", executor_url="http://127.0.0.1:9")
+
+    assert "steering" in _remote("nexus_power").capabilities()  # can honor it
+    assert "steering" not in _remote("claude_code").capabilities()  # cannot — must not claim it
+    assert "steering" not in _remote("codex_cli").capabilities()
 
 
 def test_protocol_declares_capabilities_default():

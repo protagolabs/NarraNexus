@@ -193,11 +193,17 @@ class BackgroundRun:
         db: "AsyncDatabaseClient",
         active_runs: dict,
         cancellation: Optional[CancellationToken] = None,
+        steering: Optional[Any] = None,
     ) -> None:
         self.agent_id = agent_id
         self.user_id = user_id
         self.input_preview = input_preview[:200] if input_preview else ""
         self.db = db
+        # Live steering (opt-in): a SteerChannel the owner's chat WS pushes a
+        # mid-run message into, so a follow-up rides THIS run instead of starting
+        # a fresh one. None → today's behaviour (no mid-run injection). Same seam
+        # as the bus and the same object AgentRuntime.run threads to the loop.
+        self._steering = steering
         # Constructed once here (r2 M1): the drain runs on every tool-output
         # boundary, and a lazy in-loop construction hid ImportErrors inside
         # the drain's best-effort try.
@@ -384,6 +390,10 @@ class BackgroundRun:
                         # Pure passthrough — AgentRuntime maps the flag to a
                         # TurnProfile (see _resolve_turn_profile).
                         fast_mode=fast_mode,
+                        # Live steering: the owner's chat WS pushes a mid-run
+                        # message into this channel; the loop drains it at the
+                        # next step boundary. None → no mid-run injection.
+                        steering=self._steering,
                     ):
                         # Uniform dict for routing; original fidelity is
                         # preserved by normalise_event's passthrough.

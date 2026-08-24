@@ -68,6 +68,16 @@ turn"（必须持续报 busy）和"有东西被钉住了"。一个永远不结�
   `sock_read` 会把这个请求永久挂住。agent-loop 那条流**保持无界**（一个工具调用可以
   思考几小时不吐字节）。
 
+## 2026-08-24 — 云端 live-steering:`/steer` ingress + `/capabilities` + `steer_consumed` 帧
+
+executor 容器里 loop 是 in-process(`AGENT_EXECUTOR_URL` 未设→本地 `NexusAgent`,可 steer)。补上「一协议两传输」的云端一半:
+* **`_InboundSteer`**:一 run 的 HTTP 版 steer channel。`POST /steer` 喂 `queue`(容器内 driver 照 stdin pump 一样 drain);`deliver_consumed(ids)` 不认识 producer(真 `SteerChannel` 在 orchestrator 进程),故把 ids 转发到 `consumed_out`,`_stream` 抽出来发成 `{"steer_consumed": …}` 帧。只有 `queue`/`deliver_consumed` 是 `NexusAgent` 鸭子消费的形。
+* **`_STEER_RUNS: dict[run_id → _InboundSteer]`**:本进程在飞可控 run。可控 `/agent-loop` 开始时登记、流结束 `finally` 删。模块单例(非 seam):executor 一容器一用户、run 与其 `/steer` 都在本进程,无跨进程真值要搬(不同于 orchestrator 的 RunRegistry)。run_id 不可猜→无鉴权的 `/steer` 也挡得住乱注入。
+* **`/agent-loop`**:读 `body["run_id"]`,有则建 `_InboundSteer` 登记、`steering=inbound` 传给 driver,`_stream` 把 `{"event": …}` 与 `{"steer_consumed": …}` 两种帧交织(消费帧至多晚一个 event,尾部再 drain 一次;**审后补:driver 抛异常时,`except` 分支也先 drain 一次 consumed 再发 error 帧**——orchestrator 命中 error 就停读,晚发的消费帧会丢,把 at-most-once 窗口缩成无谓重投);`finally` 摘登记。三种帧 `json.dumps` 均带 `default=str`(对称)。无 run_id=非可控,`steering=None`,原路径不变。
+* **`POST /steer`**:`{run_id, steer}`→查 `_STEER_RUNS`→`queue.put_nowait`。**body 读取同 `/agent-loop` 加 `_BODY_READ_TIMEOUT_S` 解析预算**(审后补):同一无鉴权、容器内可达的端点,永不关闭的 chunked 请求会挂住 task+连接,`except TimeoutError`→408(体保持 `{"ok":False}` 与本端点 404/400 一致;`/agent-loop` 的 408 是它自己 `{"error":…}` 形状,不动)。未知 run_id→**404**(非静默 200):调用方必须知道没投递到,好让那行不被 ack、以新 turn 重现(铁律#16)。非 dict 的 steer→400。408/404/400 各自分支,pump 看来都是非 200→瞬态续 drain,但日志可区分。
+* **`GET /capabilities?framework=`**:回 `get_agent_loop_driver(framework).capabilities()`(nexus_power={event_log,steering}),给 orchestrator 显式协商用;探测失败不 500。
+消费回程与本地对称:runner 的 `steer_consumed` 行→容器内 `NexusAgent.deliver_consumed`→`consumed_out`→`_stream` 发帧→orchestrator 的 [[remote_driver.py]] `_handle_frame` 拦截→真 `SteerChannel.deliver_consumed`。
+
 ## 2026-08-20 — 启动 lifespan 预热 runner 池（EXECUTOR_PREWARM_FRAMEWORKS 门控）
 
 `app` 挂 `_lifespan`：接受请求前对 `EXECUTOR_PREWARM_FRAMEWORKS`（默认 `nexus_power`）
