@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "Clé API",
       "addProviderCli": "Connexion CLI",
       "changeProvider": "Changer",
-      "next": "Suivant"
+      "next": "Suivant",
+      "back": "Retour"
     },
     "account": {
       "powerOnlyHint": "Compte, facturation et abonnement sont des fonctionnalités du compte NetMind — connectez-vous avec un compte NetMind pour les voir ici."

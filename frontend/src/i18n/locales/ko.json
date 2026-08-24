@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "API 키",
       "addProviderCli": "CLI 로그인",
       "changeProvider": "변경",
-      "next": "다음"
+      "next": "다음",
+      "back": "뒤로"
     },
     "account": {
       "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."

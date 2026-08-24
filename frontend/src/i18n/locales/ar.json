@@ -1789,7 +1789,8 @@
       "addProviderApiKey": "مفتاح API",
       "addProviderCli": "تسجيل الدخول عبر CLI",
       "changeProvider": "تغيير",
-      "next": "التالي"
+      "next": "التالي",
+      "back": "رجوع"
     },
     "account": {
       "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."

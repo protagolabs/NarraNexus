@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "API-Schlüssel",
       "addProviderCli": "CLI-Anmeldung",
       "changeProvider": "Ändern",
-      "next": "Weiter"
+      "next": "Weiter",
+      "back": "Zurück"
     },
     "account": {
       "powerOnlyHint": "Konto, Abrechnung und Abonnement sind NetMind-Kontofunktionen — melde dich mit einem NetMind-Konto an, um sie hier zu sehen."

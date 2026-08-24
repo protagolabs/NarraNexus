@@ -1556,6 +1556,8 @@
       "colStatus": "状态",
       "colFramework": "框架",
       "colModel": "模型",
+      "colChannels": "渠道",
+      "colLastActive": "最近活跃",
       "colTeam": "团队",
       "colMembers": "成员",
       "colLeader": "负责人",
@@ -1563,6 +1565,7 @@
       "noLeader": "暂无负责人",
       "teamsCount": "{{count}} 个团队",
       "membersCount": "{{count}} 个 Agent",
+      "teamProfileNoDescription": "暂无团队介绍。",
       "noStatusYet": "暂无实时状态 — 下次轮询会补上。",
       "publicAgent": "公开",
       "noTeamsLabel": "还没有团队",
@@ -2170,7 +2173,8 @@
       "addProviderApiKey": "API Key",
       "addProviderCli": "CLI 登录",
       "changeProvider": "更改",
-      "next": "下一步"
+      "next": "下一步",
+      "back": "上一步"
     },
     "account": {
       "powerOnlyHint": "账户、账单与订阅是 NetMind 账号功能 — 使用 NetMind 账号登录后这里才会显示。"

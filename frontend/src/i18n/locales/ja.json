@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "APIキー",
       "addProviderCli": "CLIサインイン",
       "changeProvider": "変更",
-      "next": "次へ"
+      "next": "次へ",
+      "back": "戻る"
     },
     "account": {
       "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"

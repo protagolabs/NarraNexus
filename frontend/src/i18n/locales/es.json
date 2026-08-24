@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "Clave API",
       "addProviderCli": "Inicio de sesión CLI",
       "changeProvider": "Cambiar",
-      "next": "Siguiente"
+      "next": "Siguiente",
+      "back": "Atrás"
     },
     "account": {
       "powerOnlyHint": "Cuenta, facturación y suscripción son funciones de la cuenta NetMind — inicia sesión con una cuenta NetMind para verlas aquí."

@@ -1556,6 +1556,8 @@
       "colStatus": "Status",
       "colFramework": "Framework",
       "colModel": "Model",
+      "colChannels": "Channels",
+      "colLastActive": "Last active",
       "colTeam": "Team",
       "colMembers": "Members",
       "colLeader": "Leader",
@@ -1563,6 +1565,7 @@
       "noLeader": "No leader",
       "teamsCount": "{{count}} teams",
       "membersCount": "{{count}} agents",
+      "teamProfileNoDescription": "No team description.",
       "noStatusYet": "No live status yet — the next poll will fill this in.",
       "publicAgent": "public",
       "noTeamsLabel": "No teams yet",
@@ -2170,7 +2173,8 @@
       "addProviderApiKey": "API Key",
       "addProviderCli": "CLI sign-in",
       "changeProvider": "Change",
-      "next": "Next"
+      "next": "Next",
+      "back": "Back"
     },
     "account": {
       "powerOnlyHint": "Account, billing and subscription are NetMind account features — sign in with a NetMind account to see them here."

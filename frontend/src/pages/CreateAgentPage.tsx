@@ -58,12 +58,10 @@ import {
   HomeAssistantBrandIcon,
   LarkBrandIcon,
   NarraMessengerBrandIcon,
-  NexusPowerBrandIcon,
   SlackBrandIcon,
   TelegramBrandIcon,
   WeChatBrandIcon,
 } from '@/components/icons/ChannelBrandIcons';
-import { ClaudeBrandIcon, OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
 import { useConfigStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
 import { useMarketplaceSearch } from '@/hooks/useSkillMarketplace';
@@ -71,12 +69,10 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { getModelBrandIcon, getProtocolBrandIcon } from '@/lib/modelBrandIcons';
 import {
-  availableFrameworks,
-  providerBacksFramework,
+  AGENT_FRAMEWORKS,
   getModelsForSlot,
   defaultHelperModel,
   cloudNetmindOnly,
-  frameworkAllowedInCloud,
   isSlotBindableSource,
   deriveFrameworkFromProvider,
   type ProviderSummary,
@@ -114,15 +110,9 @@ const CHANNEL_ICONS: Array<{ key: ChannelKey; label: string; Icon: ChannelIconCo
   { key: 'narramessenger', label: 'NarraMessenger', Icon: NarraMessengerBrandIcon },
 ];
 
-// AGENT_FRAMEWORKS ids (lib/agentFramework.ts) → real brand icon. claude_code
-// and codex_cli map to their model vendor (Claude Code runs on Anthropic,
-// Codex CLI on OpenAI); nexus_power is this app's own engine, so it gets the
-// app's own logo like NarraMessenger does.
-const FRAMEWORK_ICONS: Record<string, ChannelIconComponent> = {
-  claude_code: ClaudeBrandIcon,
-  codex_cli: OpenAIBrandIcon,
-  nexus_power: NexusPowerBrandIcon,
-};
+// Wizard: step 1 picks/adds a provider, step 2 fills in the rest of the
+// agent's details (Awareness/Engine/Channel/Config boxes).
+type WizardStep = 'provider' | 'details';
 
 type DiscordDraft = { botToken: string; ownerUserId: string };
 type TelegramDraft = { botToken: string; ownerUsername: string };
@@ -278,10 +268,9 @@ export default function CreateAgentPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  type WizardStep = 'provider' | 'details'
-  const [step, setStep] = useState<WizardStep>('provider')
-  const [addMethod, setAddMethod] = useState<'apikey' | 'cli' | null>(null)
-  const [apiKeySubTab, setApiKeySubTab] = useState<'quick' | 'custom'>('quick')
+  const [step, setStep] = useState<WizardStep>('provider');
+  const [addMethod, setAddMethod] = useState<'apikey' | 'cli' | null>(null);
+  const [apiKeySubTab, setApiKeySubTab] = useState<'quick' | 'custom'>('quick');
 
   useEffect(() => {
     const handle = setTimeout(() => setSkillQuery(skillInput.trim()), 300);
@@ -332,8 +321,6 @@ export default function CreateAgentPage() {
 
   const providerList = Object.values(providers).filter((p) => p.is_active);
   const bindableProviders = providerList.filter((p) => !netmindOnly || isSlotBindableSource(p.source));
-  const agentProviders = bindableProviders.filter((p) => providerBacksFramework(p, framework));
-  const frameworkOptions = availableFrameworks(bindableProviders, framework);
   const helperProviders = providerList.filter(
     (p) => (!netmindOnly || isSlotBindableSource(p.source)) && ['openai', 'anthropic'].includes(p.protocol),
   );
@@ -345,27 +332,32 @@ export default function CreateAgentPage() {
     a.provider_id === b.provider_id && a.model === b.model;
 
   const applyProviderSelection = (pid: string, prov: ProviderSummary) => {
-    const fw = deriveFrameworkFromProvider(prov)
-    const models = getModelsForSlot(prov, 'agent', fw, {})
-    setFramework(fw)
-    setAgentDraft((d) => ({ ...d, provider_id: pid, model: models[0]?.model_id || '' }))
-  }
+    const fw = deriveFrameworkFromProvider(prov);
+    const models = getModelsForSlot(prov, 'agent', fw, {});
+    setFramework(fw);
+    setAgentDraft((d) => ({ ...d, provider_id: pid, model: models[0]?.model_id || '' }));
+  };
 
   const selectProvider = (pid: string) => {
-    if (pid === agentDraft.provider_id) return
-    const prov = providers[pid]
-    if (prov) applyProviderSelection(pid, prov)
-  }
+    if (pid === agentDraft.provider_id) return;
+    const prov = providers[pid];
+    if (prov) applyProviderSelection(pid, prov);
+  };
 
   const handleProviderAdded = async () => {
-    const prevIds = new Set(Object.keys(providers))
-    const res = await api.getProviders()
-    const nextProviders = (res?.data?.providers ?? {}) as Record<string, ProviderSummary>
-    setProviders(nextProviders)
-    const addedId = Object.keys(nextProviders).find((id) => !prevIds.has(id))
-    if (addedId && nextProviders[addedId]) applyProviderSelection(addedId, nextProviders[addedId])
-    setAddMethod(null)
-  }
+    try {
+      const prevIds = new Set(Object.keys(providers));
+      const res = await api.getProviders();
+      const nextProviders = (res?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      setProviders(nextProviders);
+      const addedId = Object.keys(nextProviders).find((id) => !prevIds.has(id));
+      if (addedId && nextProviders[addedId]) applyProviderSelection(addedId, nextProviders[addedId]);
+    } catch {
+      await notifyError(t('pages.settings.modelDefaults.loadFailed'));
+    } finally {
+      setAddMethod(null);
+    }
+  };
 
   const toggleSkill = (item: MarketplaceSkillItem) => {
     setSelectedSkills((prev) => {
@@ -687,18 +679,542 @@ export default function CreateAgentPage() {
 
         {step === 'details' && (
           <>
-            {/* Awareness/Engine/Channel/Config boxes go here — Task 11 */}
+            <div className={boxCls}>
+              <span className={boxTitleCls}>{t('pages.createAgent.awarenessSectionTitle')} *</span>
+              <div className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>* {t('pages.createAgent.nameLabel')}</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('pages.createAgent.namePlaceholder')}
+                  className={cn(inputCls, 'h-9')}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>{t('pages.createAgent.descLabel')}</span>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('pages.createAgent.descPlaceholder')}
+                  rows={6}
+                  className={cn(
+                    inputCls,
+                    'min-h-[140px] resize-y py-2.5 font-mono leading-relaxed',
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className={boxCls}>
+              <span className={boxTitleCls}>{t('pages.createAgent.engineSectionTitle')} *</span>
+
+              {/* Agent slot */}
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] px-3 py-2">
+                  <span className="flex items-center gap-2 min-w-0 text-[13px] text-[var(--nm-ink)]">
+                    {(() => {
+                      const prov = providers[agentDraft.provider_id]
+                      const Icon = prov ? getProtocolBrandIcon(prov.protocol) : null
+                      const fwLabel = AGENT_FRAMEWORKS.find((f) => f.id === framework)?.label || framework
+                      return (
+                        <>
+                          {Icon && <Icon className="h-4 w-4 shrink-0" />}
+                          <span className="truncate">
+                            {prov ? `${prov.name} · ${fwLabel}` : t('pages.settings.modelDefaults.selectProvider')}
+                          </span>
+                        </>
+                      )
+                    })()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setStep('provider')}
+                    className="shrink-0 font-mono text-[12px] text-[var(--nm-ink50)] underline underline-offset-2 hover:text-[var(--nm-ink)]"
+                  >
+                    {t('pages.createAgent.changeProvider')}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('pages.settings.modelDefaults.model')}</span>
+                    <IconSelect
+                      value={agentDraft.model}
+                      disabled={!agentDraft.provider_id}
+                      placeholder={t('pages.settings.modelDefaults.selectModel')}
+                      options={(providers[agentDraft.provider_id]
+                        ? getModelsForSlot(providers[agentDraft.provider_id], 'agent', framework, {})
+                        : []
+                      ).map((m) => ({ value: m.model_id, label: m.display_name, Icon: getModelBrandIcon(m.model_id) }))}
+                      onChange={(model) => setAgentDraft((d) => ({ ...d, model }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('pages.settings.modelDefaults.thinking')}</span>
+                    <select
+                      className={selectCls}
+                      value={agentDraft.thinking}
+                      onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
+                    >
+                      <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+                      <option value="on">{t('pages.settings.modelDefaults.on')}</option>
+                      <option value="off">{t('pages.settings.modelDefaults.off')}</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('pages.settings.modelDefaults.reasoningEffort')}</span>
+                    <select
+                      className={selectCls}
+                      value={agentDraft.reasoning_effort}
+                      onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
+                    >
+                      <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+                      <option value="low">{t('pages.settings.modelDefaults.low')}</option>
+                      <option value="medium">{t('pages.settings.modelDefaults.medium')}</option>
+                      <option value="high">{t('pages.settings.modelDefaults.high')}</option>
+                      <option value="max">{t('pages.settings.modelDefaults.max')}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Helper slot */}
+              <div className="flex flex-col gap-1.5 pt-1 border-t border-[var(--nm-hairline)]">
+                <span className={cn(fieldLabel, 'mt-3')}>{t('pages.settings.modelDefaults.helperTitle')}</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <IconSelect
+                    value={helperDraft.provider_id}
+                    disabled={loadingEngine}
+                    placeholder={t('pages.settings.modelDefaults.selectProvider')}
+                    options={helperProviders.map((p) => ({
+                      value: p.provider_id,
+                      label: p.name,
+                      Icon: getProtocolBrandIcon(p.protocol),
+                    }))}
+                    onChange={(pid) => {
+                      const prov = providers[pid];
+                      const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
+                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                      setHelperDraft({ provider_id: pid, model });
+                    }}
+                  />
+                  <IconSelect
+                    value={helperDraft.model}
+                    disabled={!helperDraft.provider_id}
+                    placeholder={t('pages.settings.modelDefaults.selectModel')}
+                    options={(providers[helperDraft.provider_id]
+                      ? getModelsForSlot(providers[helperDraft.provider_id], 'helper_llm', null, {})
+                      : []
+                    ).map((m) => ({ value: m.model_id, label: m.display_name, Icon: getModelBrandIcon(m.model_id) }))}
+                    onChange={(model) => setHelperDraft((d) => ({ ...d, model }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className={boxCls}>
+              <span className={boxTitleCls}>
+                {t('pages.createAgent.channelSectionTitle')}{' '}
+                <span className="font-normal text-[var(--nm-ink30)]">
+                  {t('pages.createAgent.optionalSuffix')}
+                </span>
+              </span>
+              <div className="flex flex-wrap items-start gap-3">
+                {CHANNEL_ICONS.map(({ key, label, Icon }) => {
+                  const expanded = expandedChannel === key;
+                  const connected = connectedChannels.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      title={label}
+                      onClick={() => toggleChannel(key)}
+                      className={cn(
+                        'relative flex w-[76px] flex-col items-center justify-center gap-1.5 rounded-[var(--radius-md)] border p-3 transition-colors',
+                        expanded
+                          ? 'border-[var(--nm-ink)] bg-[var(--nm-card)]'
+                          : 'border-[var(--border-subtle)] bg-[var(--nm-card)] hover:border-[var(--border-strong)]',
+                      )}
+                    >
+                      {connected && (
+                        <span
+                          title={t('pages.createAgent.channelConfigured')}
+                          className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--color-success)]"
+                        />
+                      )}
+                      <Icon
+                        className={cn(
+                          // Every icon now carries its own hardcoded brand color
+                          // (not currentColor — Owner wants them recognizable as
+                          // real colored logos), so dimming has to be opacity /
+                          // grayscale for all of them uniformly, not a text-color
+                          // swap that only ever affected the vector ones.
+                          'h-6 w-6 transition-[filter,opacity]',
+                          expanded ? 'opacity-100 grayscale-0' : 'opacity-40 grayscale',
+                        )}
+                      />
+                      <span className="max-w-full truncate text-[10px] text-[var(--nm-ink50)]">
+                        {label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {expandedChannel === 'discord' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>Discord</span>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.discord.botToken')}</span>
+                    <input
+                      value={discordDraft.botToken}
+                      onChange={(e) => setDiscordDraft((d) => ({ ...d, botToken: e.target.value }))}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.discord.ownerIdLabel')}</span>
+                    <input
+                      value={discordDraft.ownerUserId}
+                      onChange={(e) => setDiscordDraft((d) => ({ ...d, ownerUserId: e.target.value }))}
+                      placeholder={t('awareness.discord.ownerIdPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('discord')} className="self-start">
+                    {t('awareness.common.bindBot')}
+                  </Button>
+                </div>
+              )}
+
+              {expandedChannel === 'telegram' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>Telegram</span>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.discord.botToken')}</span>
+                    <input
+                      value={telegramDraft.botToken}
+                      onChange={(e) => setTelegramDraft((d) => ({ ...d, botToken: e.target.value }))}
+                      placeholder={t('awareness.telegram.tokenPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.telegram.usernameLabel')}</span>
+                    <input
+                      value={telegramDraft.ownerUsername}
+                      onChange={(e) => setTelegramDraft((d) => ({ ...d, ownerUsername: e.target.value }))}
+                      placeholder={t('awareness.telegram.usernamePlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('telegram')} className="self-start">
+                    {t('awareness.common.bindBot')}
+                  </Button>
+                </div>
+              )}
+
+              {expandedChannel === 'slack' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>Slack</span>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.discord.botToken')}</span>
+                    <input
+                      value={slackDraft.botToken}
+                      onChange={(e) => setSlackDraft((d) => ({ ...d, botToken: e.target.value }))}
+                      placeholder={t('awareness.slack.botTokenPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.slack.appToken')}</span>
+                    <input
+                      value={slackDraft.appToken}
+                      onChange={(e) => setSlackDraft((d) => ({ ...d, appToken: e.target.value }))}
+                      placeholder={t('awareness.slack.appTokenPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.slack.emailLabel')}</span>
+                    <input
+                      value={slackDraft.ownerEmail}
+                      onChange={(e) => setSlackDraft((d) => ({ ...d, ownerEmail: e.target.value }))}
+                      placeholder={t('awareness.slack.emailPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('slack')} className="self-start">
+                    {t('awareness.common.bindBot')}
+                  </Button>
+                </div>
+              )}
+
+              {expandedChannel === 'lark' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>Lark / Feishu</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setLarkDraft((d) => ({ ...d, brand: 'feishu' }))}
+                      className={cn(
+                        'h-8 flex-1 rounded-[var(--radius-sm)] border text-[12.5px]',
+                        larkDraft.brand === 'feishu'
+                          ? 'border-[var(--nm-ink)] bg-[var(--nm-card)] text-[var(--nm-ink)]'
+                          : 'border-[var(--border-subtle)] text-[var(--nm-ink50)]',
+                      )}
+                    >
+                      {t('awareness.lark.feishu')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLarkDraft((d) => ({ ...d, brand: 'lark' }))}
+                      className={cn(
+                        'h-8 flex-1 rounded-[var(--radius-sm)] border text-[12.5px]',
+                        larkDraft.brand === 'lark'
+                          ? 'border-[var(--nm-ink)] bg-[var(--nm-card)] text-[var(--nm-ink)]'
+                          : 'border-[var(--border-subtle)] text-[var(--nm-ink50)]',
+                      )}
+                    >
+                      {t('awareness.lark.larkInternational')}
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.lark.appId')}</span>
+                    <input
+                      value={larkDraft.appId}
+                      onChange={(e) => setLarkDraft((d) => ({ ...d, appId: e.target.value }))}
+                      placeholder={t('awareness.lark.appIdPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.lark.appSecret')}</span>
+                    <input
+                      value={larkDraft.appSecret}
+                      onChange={(e) => setLarkDraft((d) => ({ ...d, appSecret: e.target.value }))}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.lark.ownerEmail')}</span>
+                    <input
+                      value={larkDraft.ownerEmail}
+                      onChange={(e) => setLarkDraft((d) => ({ ...d, ownerEmail: e.target.value }))}
+                      placeholder={t('awareness.lark.ownerEmailPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('lark')} className="self-start">
+                    {t('awareness.common.bindBot')}
+                  </Button>
+                </div>
+              )}
+
+              {expandedChannel === 'home_assistant' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>Home Assistant</span>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.homeAssistant.baseUrl')}</span>
+                    <input
+                      value={haDraft.baseUrl}
+                      onChange={(e) => setHaDraft((d) => ({ ...d, baseUrl: e.target.value }))}
+                      placeholder={t('awareness.homeAssistant.baseUrlPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('awareness.homeAssistant.token')}</span>
+                    <input
+                      value={haDraft.token}
+                      onChange={(e) => setHaDraft((d) => ({ ...d, token: e.target.value }))}
+                      placeholder={t('awareness.homeAssistant.tokenPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-[12.5px] text-[var(--nm-ink)]">
+                    <input
+                      type="checkbox"
+                      checked={haDraft.verifyTls}
+                      onChange={(e) => setHaDraft((d) => ({ ...d, verifyTls: e.target.checked }))}
+                    />
+                    {t('awareness.homeAssistant.verifyTls')}
+                  </label>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('home_assistant')} className="self-start">
+                    {t('awareness.common.save')}
+                  </Button>
+                </div>
+              )}
+
+              {expandedChannel === 'wechat' && (
+                <div className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>WeChat</span>
+                  <span className="text-[12px] text-[var(--nm-ink30)]">
+                    {t('pages.createAgent.channelPlaceholderHint')}
+                  </span>
+                </div>
+              )}
+
+              {expandedChannel === 'narramessenger' && (
+                <div className="flex flex-col gap-3 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-paper)] p-3.5">
+                  <span className={fieldLabel}>NarraMessenger</span>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={fieldLabel}>{t('pages.createAgent.narramessengerBindLabel')}</span>
+                    <input
+                      value={narramessengerDraft.bindCommand}
+                      onChange={(e) => setNarramessengerDraft({ bindCommand: e.target.value })}
+                      placeholder={t('pages.createAgent.narramessengerBindPlaceholder')}
+                      className={cn(inputCls, 'h-9')}
+                    />
+                  </div>
+                  {channelError && <p className="text-[12px] text-[var(--color-error)]">{channelError}</p>}
+                  <Button size="sm" onClick={() => connectChannel('narramessenger')} className="self-start">
+                    {t('awareness.common.bindBot')}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className={boxCls}>
+              <span className={boxTitleCls}>
+                {t('pages.createAgent.configSectionTitle')}{' '}
+                <span className="font-normal text-[var(--nm-ink30)]">
+                  {t('pages.createAgent.optionalSuffix')}
+                </span>
+              </span>
+
+              {/* Skills */}
+              <div className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>{t('pages.createAgent.skillsLabel')}</span>
+                <Popover open={skillsOpen} onOpenChange={setSkillsOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(selectCls, 'flex items-center justify-between text-left')}
+                    >
+                      <span>
+                        {selectedSkills.size > 0
+                          ? t('pages.createAgent.skillsSelectedCount', { count: selectedSkills.size })
+                          : t('pages.createAgent.skillsPlaceholder')}
+                      </span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--nm-ink30)]" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="z-[1100] w-[360px] p-2">
+                    <div className="flex items-center gap-2 h-8 px-2.5 mb-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--nm-card)]">
+                      <Search className="w-3 h-3 shrink-0 text-[var(--nm-ink30)]" />
+                      <input
+                        autoFocus
+                        value={skillInput}
+                        onChange={(e) => setSkillInput(e.target.value)}
+                        placeholder={t('pages.createAgent.skillsSearchPlaceholder')}
+                        className="flex-1 bg-transparent text-[12px] text-[var(--nm-ink)] placeholder:text-[var(--nm-ink30)] focus:outline-none"
+                      />
+                    </div>
+                    <div className="max-h-[280px] overflow-y-auto flex flex-col gap-1">
+                      {skillsLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-4 w-4 animate-spin text-[var(--nm-ink30)]" />
+                        </div>
+                      ) : (skillResults?.items?.length ?? 0) === 0 ? (
+                        <div className="text-[12px] text-[var(--nm-ink50)] px-2 py-3 text-center">
+                          {t('pages.createAgent.skillsNoResults')}
+                        </div>
+                      ) : (
+                        skillResults!.items.map((item) => {
+                          const checked = selectedSkills.has(item.skill_id);
+                          return (
+                            <label
+                              key={item.skill_id}
+                              className={cn(
+                                'flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 transition-colors',
+                                checked ? 'bg-[var(--nm-card)]' : 'hover:bg-[var(--nm-card)]',
+                              )}
+                              onClick={() => toggleSkill(item)}
+                            >
+                              <span
+                                className={cn(
+                                  'mt-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[2px] border text-[10px] leading-none',
+                                  checked
+                                    ? 'border-[var(--nm-ink)] bg-[var(--nm-ink)] text-[var(--nm-paper)]'
+                                    : 'border-[var(--border-default)] bg-[var(--nm-card)] text-transparent',
+                                )}
+                              >
+                                ✓
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[12.5px] font-medium text-[var(--nm-ink)]">
+                                  {item.name}
+                                </span>
+                                {item.description && (
+                                  <span className="block truncate text-[11px] text-[var(--nm-ink30)]">
+                                    {item.description}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                {selectedSkillsList.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedSkillsList.map((s) => (
+                      <span
+                        key={s.skill_id}
+                        className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--nm-card)] px-2 py-0.5 text-[11px] text-[var(--nm-ink)] border border-[var(--nm-hairline)]"
+                      >
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* MCP — disabled placeholder, no agent-independent catalog exists */}
+              <div className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>{t('pages.createAgent.mcpLabel')}</span>
+                <div className={cn(selectCls, 'flex items-center opacity-50 cursor-not-allowed select-none')}>
+                  {t('pages.createAgent.mcpPlaceholder')}
+                </div>
+              </div>
+            </div>
           </>
         )}
+        {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
       </DialogContent>
       <DialogFooter>
-        <Button variant="ghost" onClick={() => navigate('/app/chat')} disabled={busy}>
-          {t('pages.createAgent.cancel')}
-        </Button>
-        <Button onClick={handleCreate} disabled={!canCreate} className="gap-1.5">
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {busy ? t('pages.createAgent.creating') : t('pages.createAgent.createButton')}
-        </Button>
+        {step === 'provider' && (
+          <>
+            <Button variant="ghost" onClick={() => navigate('/app/chat')} disabled={busy}>
+              {t('pages.createAgent.cancel')}
+            </Button>
+            <Button onClick={() => setStep('details')}>
+              {t('pages.createAgent.next')}
+            </Button>
+          </>
+        )}
+        {step === 'details' && (
+          <>
+            <Button variant="ghost" onClick={() => setStep('provider')} disabled={busy}>
+              {t('pages.createAgent.back', 'Back')}
+            </Button>
+            <Button variant="ghost" onClick={() => navigate('/app/chat')} disabled={busy}>
+              {t('pages.createAgent.cancel')}
+            </Button>
+            <Button onClick={handleCreate} disabled={!canCreate} className="gap-1.5">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {busy ? t('pages.createAgent.creating') : t('pages.createAgent.createButton')}
+            </Button>
+          </>
+        )}
       </DialogFooter>
     </Dialog>
   );

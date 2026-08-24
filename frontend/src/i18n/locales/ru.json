@@ -1787,7 +1787,8 @@
       "addProviderApiKey": "API-ключ",
       "addProviderCli": "Вход через CLI",
       "changeProvider": "Изменить",
-      "next": "Далее"
+      "next": "Далее",
+      "back": "Назад"
     },
     "account": {
       "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."

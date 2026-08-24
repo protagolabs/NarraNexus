@@ -1785,7 +1785,8 @@
       "addProviderApiKey": "Chave de API",
       "addProviderCli": "Login via CLI",
       "changeProvider": "Alterar",
-      "next": "Próximo"
+      "next": "Próximo",
+      "back": "Voltar"
     },
     "account": {
       "powerOnlyHint": "Conta, cobrança e assinatura são recursos da conta NetMind — entre com uma conta NetMind para vê-los aqui."
