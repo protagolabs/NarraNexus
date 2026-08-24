@@ -36,7 +36,7 @@ describe('Chinese localization completeness', () => {
     const chatPanel = source('../components/chat/ChatPanel.tsx');
     const settingsPage = source('../pages/SettingsPage.tsx');
     const oneKeyOnboard = source('../components/settings/OneKeyOnboard.tsx');
-    const providerSettings = source('../components/settings/ProviderSettings.tsx');
+    const cliSignInPanel = source('../components/providers/CliSignInPanel.tsx');
 
     expect(source('../components/onboarding/OnboardingChecklist.tsx')).toContain(
       "t('onboarding.checklist.gettingStarted')",
@@ -55,9 +55,11 @@ describe('Chinese localization completeness', () => {
     expect(oneKeyOnboard).toContain("t('settings.provider.oneKeyTitle')");
     expect(oneKeyOnboard).not.toContain('>One key to start<');
     expect(oneKeyOnboard).not.toContain('Setting up...');
-    expect(providerSettings).not.toContain('Checking status...');
-    expect(providerSettings).not.toContain('>Claude Code Login<');
-    expect(providerSettings).not.toContain('>Codex CLI Login<');
+    expect(cliSignInPanel).not.toContain('Checking status...');
+    expect(cliSignInPanel).not.toContain('>Claude Code Login<');
+    expect(cliSignInPanel).not.toContain('>Codex CLI Login<');
+    expect(cliSignInPanel).toContain("t('settings.provider.claudeLoginTitle')");
+    expect(cliSignInPanel).toContain("t('settings.provider.codexLoginTitle')");
     expect(chatPanel).toContain("t('chat.bootstrapGreeting')");
     expect(chatPanel).toContain("t('chat.securityReminder')");
     expect(chatPanel).not.toContain('Security reminder: never paste sensitive');
