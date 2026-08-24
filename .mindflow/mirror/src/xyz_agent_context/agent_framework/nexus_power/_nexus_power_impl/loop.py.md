@@ -97,3 +97,15 @@ drain 出注入并 `record_steering` 后,读 `a.steering.take_consumed()`([[stee
 `TYPE_STEER_CONSUMED` 现在**直接 yield**、不经 `_log`:它是瞬态控制信号、不是 ledger/NDJSON-truth 行。过 `_log` 会
 每次 drain 写一条 seq=-1 进「未来 nexus_events 表镜像」文件,一 turn 几十条会在 `(thread_id,seq)` 键上互撞。直接
 yield 让「不是 ledger row」这句话成真。serve_turn 仍能收到(yield 是流,`_log` 只是旁路 sink)。
+
+## 2026-08-23 — WAIT_FOR_INPUT 边界(wait 工具)
+
+DRAIN_STEERING 之后、STOP_CHECK 之前插 WAIT 边界:agent 调 `wait_for_input`(见 [[wait_channel.py]])→ `a.wait.pending`
+被置。loop 读清后 `await a.steering.wait_for_input(secs, a.cancel)`:有货→record_steering+continue;超时→注入一条
+`NexusPowerPrompts.wait_timed_out(secs)` 通知+continue(取消驱动的空返回则跳过通知,让顶部 cancel 边界中断)。wait 先于
+stop=被请求的等待优先于收尾。**消费上报**:wait_for_input 经 `_take_one` 累积 consumed id(与 drain 同),WAIT 边界在
+`record_steering(waited)` 后同样 `take_consumed()`+发 `TYPE_STEER_CONSUMED`——steer 进等待中 run 的消息也推 producer 游标。
+
+## 2026-08-24(补)— wait 请求在 DRAIN 前**一次**读清(不跨 step 残留)
+
+`wait_secs = a.wait.pending; a.wait.pending = None` 提到 **DRAIN 之前**执行一次,WAIT 边界只用本地 `wait_secs`。理由:若这步已有 steer 到达,非阻塞 drain 取走它并 `continue`——这**就满足了**等待(agent 求的是"等到输入",输入到了),所以请求绝不能存活到后续 step 再凭 stale intent 阻塞。上提读清是这条保证。回归锁在 `test_a_same_step_message_satisfies_the_wait_and_no_stale_wait_blocks_later`(secs=300,若残留则第二 mute step 阻塞、超 1s wall-clock 变红)。

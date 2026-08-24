@@ -328,6 +328,12 @@ class NexusAgent:
             "initial_expansions": sorted(kwargs.get("initial_expansions") or ()),
             "output_mode": "legacy_dict",
             "prompt_mode": prompt_mode,
+            # Steerability crosses the boundary EXPLICITLY: the runner mounts an
+            # inlet on every turn, so only this flag tells it whether a producer
+            # can actually feed one — it gates the wait_for_input tool. The single
+            # truth is "did this run get a SteerChannel", the same criterion
+            # `_open_steer_transport` uses to keep stdin open vs close it.
+            "steerable": kwargs.get("steering") is not None,
         }
         if profile is not None and profile.include_arg_deltas is not None:
             options["include_arg_deltas"] = profile.include_arg_deltas
