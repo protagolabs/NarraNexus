@@ -76,3 +76,8 @@ TypeError), defeating its placeholder purpose.
 ## 2026-08-14 (补) — `send_to_agent` 跟进签名
 
 同上,占位实现随协议同步。
+
+## 2026-08-23(补)— get_pending_messages 签名加 channel_id
+
+`get_pending_messages` 签名加 `channel_id: Optional[str]=None` 与抽象契约([[message_bus_service.py]])/[[local_bus.py]] 同步。
+本类仍是 NotImplemented stub(云端 bus 未实现),仅保持签名不漂移。

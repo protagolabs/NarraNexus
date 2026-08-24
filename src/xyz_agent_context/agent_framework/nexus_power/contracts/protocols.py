@@ -125,6 +125,15 @@ class SteeringInlet(Protocol):
 
     async def drain(self) -> list[ProviderMessage]: ...
 
+    def take_consumed(self) -> list[str]:
+        """The steer_inbox row ids drained since the last call, then cleared —
+        so the loop can report which injections the run actually consumed. An
+        inlet with no id-bearing source returns []. No default body: a Protocol
+        default does not reach a structural implementer anyway, and the loop
+        calls this unconditionally, so every inlet MUST define it (the next inlet
+        — the cloud executor's — included)."""
+        ...
+
 
 @runtime_checkable
 class EventLogWriter(Protocol):

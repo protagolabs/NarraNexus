@@ -77,3 +77,23 @@ STOP_CHECK 关成 NO_MORE_ACTIONS——用户打断被伪装成自然结束。�
 账本,close 时折叠进 assistant 消息(打断的工作是历史,不是垃圾)。
 
 只决定「下一步做什么」:一切分叉是策略调用、一切能力是通道调用,扩展路线图零改本文件。硬保证:取消只落安全边界且绝不切开配对(合成收口);任何终止路径恰好一个 turn_done(计费链唯一源,finally 兜底);CONTEXT_OVERFLOW→压缩+重试(有进展才重试,防死循环);本文件永不出现轮次/时长上限(铁律 #14)。参数流式:tool_use_start 建 extractor、arg_delta 喂片、tool_use finalize 校齐(流出文本==最终值不变量)。
+
+## 2026-08-23(补)— DRAIN_STEERING 后发 TYPE_STEER_CONSUMED
+
+drain 出注入并 `record_steering` 后,读 `a.steering.take_consumed()`([[steering.py]]),非空则 `yield` 一个
+`TYPE_STEER_CONSUMED`(transient ui-track、seq=-1、payload={"ids":[...]},见 [[events.py]])。这是「游标随真消费
+前进」的信号源:transport 拦截它、告诉 producer 哪些 steer_inbox 行被真读到(见 [[message_bus_trigger.py]] 补5)。
+无 id 时不发。
+
+## 2026-08-23(补2)— 消费信号的 at-most-once 残留(架构标记)
+
+「consumed」= drain 进本 turn 的 ledger、在模型真动它**之前**发信号。相对被关掉的 push-窗口的残留:子进程在这行 flush
+后、模型动作前崩溃 → 游标推进却无输出(at-most-once);`record_steering` 抛异常 → id 滞留 inlet 未上报 → 之后重投(非丢失)。
+两者都**严格窄于**每 turn 的 push-窗口。trigger 批仍 at-least-once,steer 崩溃时 at-most-once——一个后人该知道、但本 PR 不修的
+不对称。loop.py:260 有对应注释。
+
+## 2026-08-24(补3)— steer_consumed 直接 yield,不过 `_log`
+
+`TYPE_STEER_CONSUMED` 现在**直接 yield**、不经 `_log`:它是瞬态控制信号、不是 ledger/NDJSON-truth 行。过 `_log` 会
+每次 drain 写一条 seq=-1 进「未来 nexus_events 表镜像」文件,一 turn 几十条会在 `(thread_id,seq)` 键上互撞。直接
+yield 让「不是 ledger row」这句话成真。serve_turn 仍能收到(yield 是流,`_log` 只是旁路 sink)。

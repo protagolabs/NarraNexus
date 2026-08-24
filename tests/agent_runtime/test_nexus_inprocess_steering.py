@@ -95,4 +95,50 @@ async def test_pushed_injection_reaches_the_next_model_request_in_process(monkey
     content = injected[0]["content"]
     assert content.startswith("[teammate teammate_bob just posted to the room]")
     assert rendered_injection_payload(content) == "STEERED: reconsider"
+    # The platform bookkeeping key is stripped before the model — it never leaks
+    # into the request the LLM sees.
+    assert "_steer_id" not in injected[0]
     assert events  # produced a legacy event stream
+
+
+@pytest.mark.asyncio
+async def test_consumed_signal_flows_back_to_on_consumed_in_process(monkeypatch):
+    # The consumption round-trip, end to end through the in-process driver: the
+    # loop drains a steered message, reports which steer_inbox row it CONSUMED,
+    # and the driver forwards that to the SteerChannel's on_consumed with the
+    # remembered created_at — the signal the producer advances its cursor on.
+    monkeypatch.setenv("NEXUS_POWER_INPROCESS", "1")
+    monkeypatch.setattr(claude_config, "model", "fake-model")
+    monkeypatch.setattr(claude_config, "api_key", "k")
+    monkeypatch.setattr(claude_config, "base_url", "http://gw.local")
+    monkeypatch.setattr(claude_config, "auth_type", "api_key")
+    monkeypatch.setattr(claude_config, "thinking", "")
+
+    fake = _FakeModel()
+    import xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client as mc_mod
+    import xyz_agent_context.agent_framework.llm.litellm_client as lc_mod
+    monkeypatch.setattr(mc_mod, "LiteLLMModelClient", lambda profile, client: fake)
+    monkeypatch.setattr(lc_mod, "LitellmClient", lambda *a, **k: object())
+
+    channel = SteerChannel()
+    channel.remember("m1", "2026-08-24T00:00:00+00:00")  # producer's cursor watermark
+    seen: list = []
+
+    async def _on_consumed(ids, latest):
+        seen.append((list(ids), latest))
+
+    channel.on_consumed = _on_consumed
+    await channel.push(SteerInjection(
+        run_id="r1", msg_id="m1", role="user",
+        content="STEERED: reconsider", sender_id="teammate_bob", source="team",
+    ))
+
+    agent = NexusAgent(working_path="/tmp")
+    _ = [e async for e in agent.agent_loop(
+        messages=[{"role": "user", "content": "hi"}], mcp_servers={}, steering=channel,
+    )]
+
+    # on_consumed fired exactly once, naming the consumed row and the remembered
+    # created_at. Delete the loop's emit, the runner's line, or the driver's
+    # intercept and this stays empty.
+    assert seen == [(["m1"], "2026-08-24T00:00:00+00:00")]

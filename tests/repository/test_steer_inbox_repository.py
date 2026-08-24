@@ -88,6 +88,53 @@ async def test_pull_is_scoped_to_run_and_ordered_by_arrival(db_client):
 
 
 @pytest.mark.asyncio
+async def test_mark_consumed_by_msg_ids_consumes_exactly_the_named_rows(db_client):
+    # The consumer reports the EXACT msg_ids it drained (not a row-id ceiling),
+    # so the loop needs no row id threaded back through the transport.
+    repo = SteerInboxRepository(db_client)
+    await repo.append(_inj("run1", "m1"))
+    await repo.append(_inj("run1", "m2"))
+    await repo.append(_inj("run1", "m3"))
+    await repo.append(_inj("run2", "m1"))  # another run — must not be touched
+
+    n = await repo.mark_consumed_by_msg_ids("run1", ["m1", "m3"])
+    assert n == 2
+
+    assert [p.msg_id for p in await repo.pull_unconsumed("run1")] == ["m2"]
+    # run2's identically-named row is untouched (scoped by run_id).
+    assert [p.msg_id for p in await repo.pull_unconsumed("run2")] == ["m1"]
+
+    # Re-consuming is a no-op (consumed_at IS NULL guard); empty ids too.
+    assert await repo.mark_consumed_by_msg_ids("run1", ["m1"]) == 0
+    assert await repo.mark_consumed_by_msg_ids("run1", []) == 0
+
+
+@pytest.mark.asyncio
+async def test_discard_run_deletes_only_this_runs_unconsumed_rows(db_client):
+    # At run teardown, rows pushed but never drained are reclaimed by DELETE (not
+    # mark-consumed) so the table does not grow unbounded; consumed rows and other
+    # runs are untouched.
+    repo = SteerInboxRepository(db_client)
+    await repo.append(_inj("run1", "m1"))
+    await repo.append(_inj("run1", "m2"))
+    await repo.append(_inj("run2", "m1"))
+    await repo.mark_consumed_by_msg_ids("run1", ["m1"])  # m1 consumed, m2 orphan
+
+    n = await repo.discard_run("run1")
+    assert n == 1  # only the un-consumed m2
+
+    # m1 (consumed) survives — it is real audit ("this reached a model"); m2 gone.
+    all_run1 = await db_client.execute(
+        "SELECT msg_id FROM steer_inbox WHERE run_id = %s", params=("run1",), fetch=True,
+    )
+    assert [r["msg_id"] for r in (all_run1 or [])] == ["m1"]
+    # run2 untouched
+    assert len(await repo.pull_unconsumed("run2")) == 1
+    # empty / unknown run is a no-op
+    assert await repo.discard_run("run_none") == 0
+
+
+@pytest.mark.asyncio
 async def test_mark_consumed_up_to_hides_only_those_at_or_below(db_client):
     repo = SteerInboxRepository(db_client)
     await repo.append(_inj("run1", "m1"))
@@ -161,15 +208,21 @@ async def test_append_back_pressures_when_the_run_backlog_is_full(db_client, mon
 
 
 @pytest.mark.asyncio
-async def test_cleanup_deletes_old_consumed_but_never_unconsumed(db_client):
+async def test_cleanup_deletes_old_consumed_and_old_unconsumed_orphans_but_keeps_recent(db_client):
     repo = SteerInboxRepository(db_client)
     old = to_datetime6_literal(utc_now() - timedelta(days=30))
+    recent_unconsumed = to_datetime6_literal(utc_now() - timedelta(days=2))
     now = to_datetime6_literal(utc_now())
     base = {"run_id": "run1", "role": "user", "sender_id": "s", "source": "team"}
-    # old + consumed → deleted; old + UNconsumed → kept (never delete un-injected);
-    # recent + consumed → kept (younger than cutoff).
+    # old + consumed → deleted (retention arm);
+    # old + UNconsumed → deleted (orphan arm: a 30d-old unconsumed row is a dead
+    #   run — the teardown discard's structural backstop);
+    # recent (2d) + UNconsumed → KEPT (younger than orphan_days=7, so it could
+    #   still belong to a live, actively-draining run — never delete un-injected);
+    # recent + consumed → kept (younger than the retention cutoff).
     await db_client.insert("steer_inbox", {**base, "msg_id": "old_done", "content": "a", "created_at": old, "consumed_at": old})
-    await db_client.insert("steer_inbox", {**base, "msg_id": "old_pending", "content": "b", "created_at": old})
+    await db_client.insert("steer_inbox", {**base, "msg_id": "old_orphan", "content": "b", "created_at": old})
+    await db_client.insert("steer_inbox", {**base, "msg_id": "recent_pending", "content": "e", "created_at": recent_unconsumed})
     await db_client.insert("steer_inbox", {**base, "msg_id": "new_done", "content": "c", "created_at": now, "consumed_at": now})
     # A separate run whose row has a REAL DB-default created_at (second
     # granularity, no microseconds), consumed and recent — confirms the DELETE
@@ -178,11 +231,11 @@ async def test_cleanup_deletes_old_consumed_but_never_unconsumed(db_client):
     real = await repo.pull_unconsumed("run_real")
     await repo.mark_consumed("run_real", real[-1].id)
 
-    deleted = await repo.cleanup_older_than_days(7)
-    assert deleted == 1
+    deleted = await repo.cleanup_older_than_days(7, 7)
+    assert deleted == 2  # old_done (consumed) + old_orphan (unconsumed)
 
     survivors = await db_client.execute(
         "SELECT run_id, msg_id FROM steer_inbox ORDER BY msg_id",
         fetch=True,
     )
-    assert sorted(r["msg_id"] for r in survivors) == ["new_done", "old_pending", "real_new"]
+    assert sorted(r["msg_id"] for r in survivors) == ["new_done", "real_new", "recent_pending"]

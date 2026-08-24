@@ -38,6 +38,35 @@ async def test_drain_returns_queued_messages_in_fifo_order_then_empties():
 
 
 @pytest.mark.asyncio
+async def test_drain_strips_the_private_steer_id_and_tracks_it_for_consumption():
+    # The producer stamps `_steer_id` on a steered message so the loop can report
+    # back WHICH steer_inbox rows the run actually consumed. drain() must strip it
+    # (the model never sees the platform's bookkeeping key) AND record it, so the
+    # loop can emit a steer_consumed signal. Delete the strip and the id leaks to
+    # the model request; delete the tracking and consumption can never be acked.
+    queue: asyncio.Queue = asyncio.Queue()
+    inlet = QueueSteeringInlet(queue)
+    await queue.put({"role": "user", "content": "hi", "_steer_id": "m1"})
+    await queue.put({"role": "user", "content": "ho", "_steer_id": "m2"})
+
+    drained = await inlet.drain()
+
+    assert [m["content"] for m in drained] == ["hi", "ho"]
+    assert all("_steer_id" not in m for m in drained)  # stripped, not sent to model
+    assert inlet.take_consumed() == ["m1", "m2"]  # tracked, in order
+    assert inlet.take_consumed() == []  # take clears — reported once
+
+
+@pytest.mark.asyncio
+async def test_drain_of_messages_without_a_steer_id_tracks_nothing():
+    queue: asyncio.Queue = asyncio.Queue()
+    inlet = QueueSteeringInlet(queue)
+    await queue.put({"role": "user", "content": "plain"})  # no _steer_id
+    await inlet.drain()
+    assert inlet.take_consumed() == []
+
+
+@pytest.mark.asyncio
 async def test_drain_on_empty_queue_returns_empty_list_without_blocking():
     inlet = QueueSteeringInlet(asyncio.Queue())
     # Must be non-blocking: the loop calls drain() every step boundary and

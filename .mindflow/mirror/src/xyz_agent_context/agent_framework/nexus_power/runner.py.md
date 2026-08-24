@@ -45,3 +45,9 @@ reader 线程体包 try/except(事故教训 #2 线程版)。**准确表述**:run
 `except` 分支内,别提到模块顶——顶注的"imports 惰性、冷启动按需付费(warm-pool / `_prewarm` 契约)"约束。
 真要 stderr 全干净得走 option (b):异常写本回合 NDJSON truth file(`<cwd>/.nexus_power/`),本 PR 未做(该 except
 至今无已知触发路径,不值当为它加线程安全的落盘)。
+
+## 2026-08-23(补)— steer_consumed 走独立行,绕过 legacy 白名单
+
+`serve_turn` 里 `TYPE_STEER_CONSUMED` 事件**不**走 `{"event": …}` 流,而写**独立行** `{"steer_consumed": ids}`。
+原因:bus 用 `output_mode=legacy_dict`,`LegacyEventAdapter.translate` 有类型白名单、会 drop 未知事件;消费信号是
+瞬态控制信号(非 turn 输出),独立行让 driver 直接拦截、不必进 AgentRuntime、也不必给它写一条 legacy 翻译。

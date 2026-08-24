@@ -52,6 +52,107 @@ class _NeverCancel:
         return False
 
 
+class _FakeStdout:
+    def __init__(self, lines):
+        self._lines = [(ln + "\n").encode("utf-8") for ln in lines] + [b""]
+
+    async def readline(self):
+        return self._lines.pop(0) if self._lines else b""
+
+
+class _FakeStderr:
+    async def read(self):
+        return b""
+
+
+class _FullFakeProcess:
+    def __init__(self, lines):
+        self.stdin = _FakeStdin()
+        self.stdout = _FakeStdout(lines)
+        self.stderr = _FakeStderr()
+        self.returncode = 0
+        self.pid = -987654  # never a real group; _terminate_group is patched too
+
+    async def wait(self):
+        return 0
+
+
+class _FakePool:
+    enabled = False
+
+    def __init__(self, proc):
+        self._proc = proc
+
+    async def spawn(self, prewarm=False):
+        return self._proc
+
+    async def acquire(self):
+        return self._proc
+
+
+@pytest.mark.asyncio
+async def test_run_subprocess_intercepts_steer_consumed_and_does_not_yield_it(monkeypatch):
+    # Production team turns run in a SUBPROCESS. The consumption interception on
+    # THIS path must call deliver_consumed and NOT surface the line as an event.
+    import xyz_agent_context.agent_framework.adapters.nexus.nexus_agent as na
+    import json as _json
+
+    proc = _FullFakeProcess([
+        _json.dumps({"steer_consumed": ["m1", "m2"]}),
+        _json.dumps({"event": {"type": "text_delta", "seq": 1, "track": "ui",
+                               "payload": {"text": "hi"}}}),
+    ])
+    pool = _FakePool(proc)
+    monkeypatch.setattr(na._WarmRunnerPool, "shared", classmethod(lambda cls: pool))
+    monkeypatch.setattr(na, "_terminate_group", lambda pid: None)
+
+    channel = SteerChannel()
+    channel.remember("m1", "2026-08-24T00:00:00+00:00")
+    channel.remember("m2", "2026-08-24T00:00:01+00:00")
+    seen: list = []
+
+    async def _on_consumed(ids, latest):
+        seen.append((list(ids), latest))
+
+    channel.on_consumed = _on_consumed
+
+    agent = NexusAgent(working_path="/tmp")
+    events = []
+    async for e in agent._run_subprocess(
+        {"thread_id": "t", "messages": [], "options": {}}, _NeverCancel(), channel
+    ):
+        events.append(e)
+
+    # deliver_consumed fired once with the ids + the newest remembered created_at;
+    # the steer_consumed line was intercepted, never yielded as an event.
+    assert seen == [(["m1", "m2"], "2026-08-24T00:00:01+00:00")]
+    assert all("steer_consumed" not in str(e) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_pump_carries_the_steer_id_through_the_stdin_frame():
+    # The subprocess path (production) forwards the WHOLE steer msg, so the
+    # runner-side inlet gets `_steer_id` and can report consumption back. If the
+    # pump ever narrows the frame to role/content, consumption silently breaks.
+    agent = NexusAgent(working_path="/tmp")
+    proc = _FakeProcess()
+    channel = SteerChannel()
+    inj = SteerInjection(run_id="r1", msg_id="m9", role="user",
+                         content="x", sender_id="a", source="team")
+    written = asyncio.Event()
+    proc.stdin.on_write = written.set
+    pump = asyncio.create_task(agent._pump_steer_to_stdin(proc, channel, _NeverCancel()))
+    try:
+        await channel.push(inj)
+        await asyncio.wait_for(written.wait(), timeout=2)
+    finally:
+        pump.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await pump
+    frame = json.loads(proc.stdin.lines[0].decode("utf-8"))
+    assert frame["steer"]["_steer_id"] == "m9"
+
+
 @pytest.mark.asyncio
 async def test_push_becomes_a_steer_line_on_stdin():
     agent = NexusAgent(working_path="/tmp")

@@ -38,6 +38,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_ERROR,
+    TYPE_STEER_CONSUMED,
     TYPE_TEXT_DELTA,
     TYPE_THINKING_DELTA,
     EndReason,
@@ -260,6 +261,35 @@ class NexusPowerLoop:
                 injected = await a.steering.drain()
                 if injected:
                     ledger.record_steering(injected)
+                    # Report which steer_inbox rows were actually CONSUMED, so
+                    # the producer advances its cursor on consumption, not on
+                    # push (a message pushed but never drained is never acked,
+                    # never lost). A transient ui-track signal the transport
+                    # intercepts; empty for a source without ids.
+                    #
+                    # "Consumed" = drained into this turn's ledger, reported
+                    # before the model acts on it. The residual vs the push-window
+                    # this closed: a subprocess crash between this line flushing
+                    # and the model acting would advance the cursor with no output
+                    # (at-most-once), and a record_steering raise would buffer the
+                    # ids in the inlet un-reported → a later duplicate, not loss.
+                    # Both are strictly narrower than the every-turn push-window;
+                    # the trigger batch stays at-least-once, steer is at-most-once
+                    # across a crash — an asymmetry worth knowing, not fixing here.
+                    consumed = a.steering.take_consumed()
+                    if consumed:
+                        # Yielded DIRECTLY, not through `_log`: this is a transient
+                        # control signal the transport intercepts, not a ledger /
+                        # NDJSON-truth row — routing it through `_log` would write
+                        # a seq=-1 row per drain (dozens a turn) into the file the
+                        # event_log docstring says mirrors the future nexus_events
+                        # table, and they would collide on the (thread_id, seq)
+                        # key. seq=-1 marks "not a ledger row"; the direct yield is
+                        # what makes that true.
+                        yield LoopEvent(
+                            track="ui", seq=-1, type=TYPE_STEER_CONSUMED,
+                            payload={"ids": consumed},
+                        )
                     continue
 
                 # ---- STOP_CHECK -------------------------------------------

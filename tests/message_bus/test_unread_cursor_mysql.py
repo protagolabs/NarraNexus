@@ -135,6 +135,71 @@ async def test_ack_read_runs_on_mysql_and_only_moves_forward(bus):
 
 
 @pytest.mark.asyncio
+async def test_get_pending_channel_scope_runs_on_mysql(bus):
+    """The new `AND m.channel_id = %s` branch of get_pending_messages, on a real
+    MySQL dialect — the per-lane scoping that keeps a busy agent's other room
+    from starving. SQLite alone cannot see a dialect error in the added WHERE."""
+    other = f"{_PREFIX}_room2"
+    await bus._db.execute_write(
+        "DELETE FROM bus_messages WHERE channel_id = %s", (other,)
+    )
+    await bus._db.execute_write(
+        "DELETE FROM bus_channel_members WHERE channel_id = %s", (other,)
+    )
+    await bus._db.execute_write(
+        "DELETE FROM bus_channels WHERE channel_id = %s", (other,)
+    )
+    await bus._db.execute_write(
+        "INSERT INTO bus_channels (channel_id, name, channel_type, created_by) "
+        "VALUES (%s, %s, %s, %s)",
+        (other, "room2", "group", "team_t1"),
+    )
+    await bus._db.execute_write(
+        "INSERT INTO bus_channel_members (channel_id, agent_id) VALUES (%s, %s)",
+        (other, ME),
+    )
+    try:
+        await bus.send_message(from_agent=PEER, to_channel=ROOM, content="in-room")
+        await bus.send_message(from_agent=PEER, to_channel=other, content="in-other")
+
+        scoped = await bus.get_pending_messages(ME, channel_id=other)
+        assert [m.content for m in scoped] == ["in-other"]
+        # None keeps the cross-channel query.
+        both = {m.channel_id for m in await bus.get_pending_messages(ME)}
+        assert {ROOM, other} <= both
+    finally:
+        for table in ("bus_messages", "bus_channel_members", "bus_channels"):
+            await bus._db.execute_write(
+                f"DELETE FROM {table} WHERE channel_id = %s", (other,)
+            )
+
+
+@pytest.mark.asyncio
+async def test_ack_processed_runs_on_mysql_and_only_moves_forward(bus):
+    """The PROCESSED cursor's guarded UPDATE — the twin of ack_read's, added for
+    live steering. Same shape (WHERE carries the value twice); a dialect error or
+    a lost guard would let a running turn's older end-ack drag the cursor back
+    behind steered messages and re-dispatch them as a fresh turn."""
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="older")
+    await bus.send_message(from_agent=PEER, to_channel=ROOM, content="newer")
+    rows = await bus._db.execute(
+        "SELECT created_at FROM bus_messages WHERE channel_id = %s "
+        "ORDER BY created_at DESC LIMIT 1",
+        (ROOM,),
+    )
+    newest = rows[0]["created_at"]
+
+    await bus.ack_processed(ME, ROOM, newest)
+    pend = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
+    assert pend == []
+
+    # A stale timestamp must be a no-op, not a rewind that resurfaces the batch.
+    await bus.ack_processed(ME, ROOM, "1971-01-01T00:00:00+00:00")
+    pend = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
+    assert pend == []
+
+
+@pytest.mark.asyncio
 async def test_has_message_from_turn_runs_on_mysql(bus):
     """The three-column existence WHERE added for the team-room notice gate.
 

@@ -86,6 +86,38 @@ async def test_append_dedup_pull_and_scoped_consume_roundtrip(mysql_client):
 
 
 @pytest.mark.asyncio
+async def test_mark_consumed_by_msg_ids_in_clause_on_mysql(mysql_client):
+    # The new `msg_id IN (%s, %s, …)` UPDATE — a real MySQL dialect check on the
+    # variadic placeholder list; SQLite alone cannot see a dialect error here.
+    repo = SteerInboxRepository(mysql_client)
+    await repo.append(_inj(RUN_A, "x1", "a"))
+    await repo.append(_inj(RUN_A, "x2", "b"))
+    await repo.append(_inj(RUN_A, "x3", "c"))
+    await repo.append(_inj(RUN_B, "x1", "other"))
+
+    n = await repo.mark_consumed_by_msg_ids(RUN_A, ["x1", "x3"])
+    assert n == 2
+    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_A)] == ["x2"]
+    assert len(await repo.pull_unconsumed(RUN_B)) == 1  # run-scoped
+    assert await repo.mark_consumed_by_msg_ids(RUN_A, []) == 0  # empty is a no-op
+
+
+@pytest.mark.asyncio
+async def test_discard_run_delete_on_mysql(mysql_client):
+    # discard_run's DELETE … WHERE run_id = %s AND consumed_at IS NULL on a real
+    # MySQL dialect.
+    repo = SteerInboxRepository(mysql_client)
+    await repo.append(_inj(RUN_A, "d1"))
+    await repo.append(_inj(RUN_A, "d2"))
+    await repo.append(_inj(RUN_B, "d1"))
+    await repo.mark_consumed_by_msg_ids(RUN_A, ["d1"])  # d1 consumed, d2 orphan
+
+    assert await repo.discard_run(RUN_A) == 1  # only un-consumed d2
+    assert await repo.pull_unconsumed(RUN_A) == []
+    assert len(await repo.pull_unconsumed(RUN_B)) == 1  # run-scoped
+
+
+@pytest.mark.asyncio
 async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeypatch):
     # The COUNT-unconsumed backlog guard and the retention DELETE are both raw
     # SQL — exercise them on the real dialect (IS NULL / IS NOT NULL / < cutoff).
@@ -99,8 +131,12 @@ async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeyp
         await repo.append(_inj(RUN_A, "m3"))
 
     old = to_datetime6_literal(utc_now() - timedelta(days=30))
+    recent = to_datetime6_literal(utc_now() - timedelta(days=2))
     base = {"run_id": RUN_B, "role": "user", "sender_id": "s", "source": "team"}
     await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_done", "content": "a", "created_at": old, "consumed_at": old})
-    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_pending", "content": "b", "created_at": old})
-    assert await repo.cleanup_older_than_days(7) == 1
-    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["old_pending"]
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_orphan", "content": "b", "created_at": old})
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "recent_pending", "content": "e", "created_at": recent})
+    # Retention arm deletes old_done; orphan arm deletes the 30d-old unconsumed
+    # old_orphan; the 2d-old recent_pending is kept (younger than orphan_days=7).
+    assert await repo.cleanup_older_than_days(7, 7) == 2
+    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["recent_pending"]

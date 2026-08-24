@@ -848,6 +848,9 @@ _register(
         indexes=[
             Index("idx_steer_inbox_run_msg", ["run_id", "msg_id"], unique=True),
             Index("idx_steer_inbox_run_consumed", ["run_id", "consumed_at"]),
+            # The daily retention sweep (cleanup_older_than_days) filters both
+            # arms on created_at; without this it is a full table scan on MySQL.
+            Index("idx_steer_inbox_created", ["created_at"]),
         ],
     )
 )

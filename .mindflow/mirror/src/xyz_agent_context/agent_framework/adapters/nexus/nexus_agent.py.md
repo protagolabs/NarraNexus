@@ -89,3 +89,10 @@ queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因�
 抽干 channel、把每条写成 `{"steer": …}` 行喂给 runner;回合结束(finally)cancel pump + close stdin。
 非 steer 的 run 照旧写完即 close(**零行为变化**)。pump 用 `_CANCEL_POLL_S` 轮询 channel.queue,管道断
 (ConnectionReset/BrokenPipe)即退,由 read loop 的 EOF 收尾。
+
+## 2026-08-23(补)— driver 拦截 steer_consumed 行 → SteerChannel.deliver_consumed
+
+`_run_subprocess` 与 `_run_inprocess` 的行读循环都判 `"steer_consumed" in line`:是→`await steer_channel.deliver_consumed(ids)`
+(见 [[steer_channel.py]])然后 `continue`,**不**yield 给上层。两条路径都经 `serve_turn`(in-process 也调 serve_turn),
+所以拦截点对称。这把「消费证据」在 driver 层(bus 进程、有 DB)交回 producer,绕过 AgentRuntime 的 step 机构——
+5 层里最短的正确回路。

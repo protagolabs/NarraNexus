@@ -182,23 +182,88 @@ class SteerInboxRepository:
         )
         return result if isinstance(result, int) else 0
 
-    async def cleanup_older_than_days(self, days: int) -> int:
-        """Delete CONSUMED rows older than ``days``. Returns rows deleted
-        (best-effort; 0 on driver error).
+    async def mark_consumed_by_msg_ids(
+        self, run_id: str, msg_ids: "list[str]"
+    ) -> int:
+        """Stamp ``consumed_at`` on the EXACT ``(run_id, msg_id)`` rows the loop
+        reported draining. Returns how many rows it consumed.
+
+        The consumer (the loop) reports the msg_ids it drained, not a row-id
+        ceiling — a drain takes the whole queued window, so marking the exact set
+        is both precise and equivalent to a ceiling here, and it needs no row id
+        threaded back through the transport (``append`` still returns a bool).
+        Scoped to ``consumed_at IS NULL`` so re-consuming is a no-op; the stamp
+        goes through ``to_datetime6_literal`` for the same byte format as
+        ``created_at`` (raw-SQL param bypasses the dict serializer)."""
+        if not msg_ids:
+            return 0
+        marks = ", ".join(["%s"] * len(msg_ids))
+        result = await self._db.execute(
+            f"UPDATE steer_inbox SET consumed_at = %s "
+            f"WHERE run_id = %s AND msg_id IN ({marks}) AND consumed_at IS NULL",
+            params=(to_datetime6_literal(utc_now()), run_id, *msg_ids),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
+
+    async def discard_run(self, run_id: str) -> int:
+        """DELETE this run's still-UNCONSUMED rows. Returns how many.
+
+        Called when a run is released — the moment "these rows will never be
+        drained" becomes certain (the SteerChannel is gone, the loop has ended).
+        Without this, a row that was pushed but the turn ended before draining it
+        stays ``consumed_at IS NULL`` forever, so ``cleanup_older_than_days`` (its
+        guard is ``consumed_at IS NOT NULL``) can never reclaim it → the table
+        grows unbounded. DELETE, not mark-consumed: stamping a never-drained row
+        ``consumed`` would lie to any future audit of "which injections actually
+        reached a model". Must run AFTER the run's last possible drain — running
+        it before release would race an in-flight ``deliver_consumed`` (row gone,
+        ``mark_consumed_by_msg_ids`` finds nothing, cursor still advances → a real
+        loss)."""
+        result = await self._db.execute(
+            "DELETE FROM steer_inbox WHERE run_id = %s AND consumed_at IS NULL",
+            params=(run_id,),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
+
+    async def cleanup_older_than_days(self, days: int, orphan_days: int) -> int:
+        """Delete CONSUMED rows older than ``days`` AND UN-consumed ORPHAN rows
+        older than ``orphan_days``. Returns rows deleted (best-effort; 0 on
+        driver error).
 
         The family's retention contract (``channel_seen_message``,
-        ``lark_seen_message``, ``channel_trigger_audit``) — hooked to a daily
-        cleanup tick by a later PR. Two guards: ``consumed_at IS NOT NULL`` so
-        a long-running turn's not-yet-injected messages are never deleted (iron
-        rule #16); and pruning by ``created_at`` (whose format is uniform via
-        the DB default) rather than ``consumed_at``, which a raw param could
-        write in a second SQLite format."""
-        cutoff = to_datetime6_literal(utc_now() - timedelta(days=days))
+        ``lark_seen_message``, ``channel_trigger_audit``) — run by
+        ``MessageBusTrigger._maybe_run_steer_cleanup`` (startup + daily), which
+        passes the retention bounds from its ``STEER_RETENTION_DAYS`` /
+        ``STEER_ORPHAN_DAYS`` constants (repository stays pure CRUD; the values
+        are the caller's policy). Two reclaim arms:
+
+        * consumed rows past ``days`` — normal retention. ``consumed_at IS NOT
+          NULL`` so a long-running turn's not-yet-injected messages are never
+          deleted (iron rule #16).
+        * rows STILL unconsumed past ``orphan_days`` — the STRUCTURAL backstop
+          for orphans (a row pushed but never drained). The producer discards
+          these at run teardown (``_discard_steer_orphans``), but that has a
+          narrow race (an append landing after the teardown DELETE); this arm
+          reclaims whatever slips through. ``orphan_days`` is DELIBERATELY
+          generous (7d ≫ any turn, including the tens-of-hours jobs iron rule #14
+          allows — whose rows drain AS the run runs, so they are never unconsumed
+          for days): no live, actively-draining run can own a row that old, so
+          this never deletes a legitimately-pending injection.
+
+        Prunes by ``created_at`` (uniform format via the DB default), not
+        ``consumed_at`` which a raw param could write in a second SQLite
+        format."""
+        now = utc_now()
+        cutoff = to_datetime6_literal(now - timedelta(days=days))
+        orphan_cutoff = to_datetime6_literal(now - timedelta(days=orphan_days))
         try:
             result = await self._db.execute(
-                "DELETE FROM steer_inbox "
-                "WHERE created_at < %s AND consumed_at IS NOT NULL",
-                params=(cutoff,),
+                "DELETE FROM steer_inbox WHERE "
+                "(created_at < %s AND consumed_at IS NOT NULL) "
+                "OR (created_at < %s AND consumed_at IS NULL)",
+                params=(cutoff, orphan_cutoff),
                 fetch=False,
             )
             return int(result) if isinstance(result, (int, float)) else 0

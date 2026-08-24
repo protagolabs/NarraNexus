@@ -14,13 +14,19 @@ from __future__ import annotations
 
 import asyncio
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import ProviderMessage
+from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+    ProviderMessage,
+    STEER_ID_KEY,
+)
 
 
 class NullSteeringInlet:
     """No steering source; always empty."""
 
     async def drain(self) -> list[ProviderMessage]:
+        return []
+
+    def take_consumed(self) -> list[str]:
         return []
 
 
@@ -70,11 +76,30 @@ class QueueSteeringInlet:
 
     def __init__(self, queue: asyncio.Queue[ProviderMessage]) -> None:
         self._queue = queue
+        # steer_inbox row ids of messages drained (consumed) but not yet
+        # reported. The loop reads this after each drain to emit a
+        # ``steer_consumed`` signal; the producer marks those rows consumed and
+        # only THEN advances its cursor — so a message pushed-but-never-drained
+        # is never acked (never lost). A private, transport-only key.
+        self._consumed_ids: list[str] = []
 
     async def drain(self) -> list[ProviderMessage]:
         drained: list[ProviderMessage] = []
         while True:
             try:
-                drained.append(self._queue.get_nowait())
+                msg = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 return drained
+            # Strip the platform bookkeeping key (the model never sees it) and
+            # record it as consumed. A message without one (tests, a non-steer
+            # producer) tracks nothing.
+            steer_id = msg.pop(STEER_ID_KEY, None) if isinstance(msg, dict) else None
+            if steer_id is not None:
+                self._consumed_ids.append(steer_id)
+            drained.append(msg)
+
+    def take_consumed(self) -> list[str]:
+        """The steer_inbox ids consumed since the last call, then cleared.
+        The loop calls this after ``drain`` to report consumption exactly once."""
+        ids, self._consumed_ids = self._consumed_ids, []
+        return ids

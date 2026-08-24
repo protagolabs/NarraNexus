@@ -123,3 +123,39 @@ async def test_push_lands_on_the_shared_queue_the_inlet_drains():
         m["content"].startswith("[teammate agent_x just posted to the room]")
         for m in drained
     )
+
+
+@pytest.mark.asyncio
+async def test_push_stamps_the_steer_id_for_consumption_reporting():
+    chan = SteerChannel()
+    await chan.push(SteerInjection(
+        run_id="r1", msg_id="m7", role="user", content="x",
+        sender_id="a", source="team",
+    ))
+    frame = chan.queue.get_nowait()
+    assert frame["_steer_id"] == "m7"  # so the loop can report it consumed
+
+
+@pytest.mark.asyncio
+async def test_deliver_consumed_names_the_newest_remembered_created_at_and_prunes():
+    chan = SteerChannel()
+    chan.remember("m1", "2026-08-24T00:00:01+00:00")
+    chan.remember("m2", "2026-08-24T00:00:02+00:00")
+    seen: list = []
+
+    async def _on_consumed(ids, latest):
+        seen.append((list(ids), latest))
+
+    chan.on_consumed = _on_consumed
+    await chan.deliver_consumed(["m1", "m2"])
+
+    # Forwards the ids and the NEWEST remembered created_at (the cursor watermark).
+    assert seen == [(["m1", "m2"], "2026-08-24T00:00:02+00:00")]
+    # Pruned after consumption — the map does not grow unbounded across a turn.
+    assert chan._created_at == {}
+
+
+@pytest.mark.asyncio
+async def test_deliver_consumed_is_a_noop_without_a_callback():
+    chan = SteerChannel()  # on_consumed unset (a test / non-tracking producer)
+    await chan.deliver_consumed(["m1"])  # must not raise
