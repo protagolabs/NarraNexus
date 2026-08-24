@@ -1,8 +1,61 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — `/health` 报 `busy`：容器自己回答"我在不在干活"
+
+broker 的空闲回收器**只看得见 turn START**（`ensure()` 每轮调一次，之后编排侧直接
+对容器流式），所以它的 idle 计时器量的是"距这一轮开始多久"—— 一个跑得比 TTL 长的
+turn 和一个被遗弃的容器长得**一模一样**。prod 的 `EXECUTOR_IDLE_TTL_SECONDS` 是
+4h，而铁律 #14 说多小时的 turn 是一等场景，所以"把 TTL 调大"不是答案：没有既安全
+又有用的 TTL。
+
+**为什么由容器回答，而不是查编排侧 DB**：对"我能不能停这个容器"这个问题，容器自己
+就是最准确的答案 —— 不依赖 events 行的写入窗口，也不依赖 run recording 有没有被
+关掉。（stale **镜像**替换仍然用编排侧判决，因为那里的容器按定义跑着旧镜像、可能
+根本没有这个字段，探它会永远答"说不准"，镜像就永远滚不动。）
+
+**为什么记账必须是裸 ASGI 中间件，不能写在 handler 的 `finally` 里**：
+`StreamingResponse.stream_response` 在碰 `body_iterator` **之前**就发
+`http.response.start`。消费方此时已经走掉的话，那个生成器**从未被启动**，而关闭一个
+从未启动的 async generator **不会执行它的任何代码**，`finally` 也包括在内 —— 计数
+就再也降不回来，容器从此永远报 busy：不可回收、不会自愈、任何指标上都看不出来。
+在中间件这一层，记账括住的是 `await self.app(...)`，正常结束/客户端断开/取消/流还
+没开始就抛异常，所有出口都经过它。
+
+用裸 ASGI 而不是 `@app.middleware("http")`：后者是 `BaseHTTPMiddleware`，会把流式
+响应体经 anyio memory stream 重新包一层 —— 在唯一一条帧大到几百 KiB 的路径上多复制
+一遍每个 NDJSON 帧。
+
+**broker 的三条销毁路径里，两条现在听 `busy`**：空闲回收器和
+`DELETE /executors/{user_id}`（后者的调用方是编排侧回收器，TTL 20 分钟，比 broker
+自己的 4h 紧一个数量级，所以这个信号最先在那条路上被用到）。stale **镜像**替换仍用
+编排侧判决 —— 那里的容器按定义跑旧镜像、可能没有这个字段。
+
+**broker 探测走容器 IP 而不是容器名**（deploy 侧 `_container_ip`）：按名字探测会和
+docker embedded DNS 共享失败源，而在途 turn 对那个 resolver 免疫（编排侧在**早已
+建立**的连接上收帧）。第一版的逃生舱同时要求"按名字拨不通"，极性正好是反的 ——
+broker 侧 resolver 一抖就两个条件同时满足、把健康的长 turn 杀了，而它本来要处理的
+"服务器卡死"两个条件都不满足、从来没被处理。
+
+**`/health` 自己绝不算 work**（`_WORK_PATH_PREFIXES` 是前缀白名单，不是"任何请求"）
+—— 否则 broker 的探测会自我实现，每个容器永远 busy。
+
+**报最老那个在途请求的年龄**而不是只报个数：光有计数分不清"一个合法的 10 小时
+turn"（必须持续报 busy）和"有东西被钉住了"。一个永远不结束的请求会让容器永久 busy，
+而 broker 现在尊重 busy —— 年龄让这个状态变成看得见的事实。
+
+**两处无界 await 一并封掉**（它们都能把 busy 钉死）：
+- `/agent-loop` 的**请求体读取**加 `_BODY_READ_TIMEOUT_S`。这个端点无鉴权、且从
+  **容器内部**可达 —— agent 自己的 Bash 就能 POST 一个 chunked 请求然后永不关闭。
+  这是**解析预算，不是 turn 的上限**：body 收齐之后循环爱跑多久跑多久（铁律 #14）。
+- office-watch 透传的 `sock_read` 加 `_WATCH_READ_TIMEOUT_S`。上游是
+  127.0.0.1 的本地进程，长时间无数据是卡死而不是网络天气；而客户端半关闭（笔记本
+  睡眠、NAT 丢映射：没有 FIN，也就永远等不到 `http.disconnect`）时，无界的
+  `sock_read` 会把这个请求永久挂住。agent-loop 那条流**保持无界**（一个工具调用可以
+  思考几小时不吐字节）。
 
 ## 2026-08-20 — 启动 lifespan 预热 runner 池（EXECUTOR_PREWARM_FRAMEWORKS 门控）
 

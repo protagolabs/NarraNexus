@@ -1014,3 +1014,48 @@ def test_the_reaper_binds_its_own_log_subject():
         "caller": "reaper",
         "consequence": "executor idle-culling is OFF",
     }
+
+
+# --------------------------------------------------------------------------
+# The broker can refuse: the container sees holders this side cannot
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
+    """The broker answers `status: busy` with a 200 when the CONTAINER reports
+    work — an office-watch session leaves no run row, so this side's oracle
+    reads the user as idle. Treating that as stopped would drop the idle stamp
+    and leave the container unreclaimed for good."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def refused_stop(user_id):
+        return False
+
+    controller = _FakeController(["u"])
+    reaper = ExecutorReaper(
+        controller, refused_stop, is_busy=None, ttl_seconds=1
+    )
+
+    assert await reaper.reap_once() == []          # not counted as reaped
+    assert controller.restamped == ["u"]            # stamp handed back
+    assert reaper_status()["refused_busy"] == 1
+    # NOT a cull_skipped_busy row: that metric's contract is one row = one run
+    # saved, named by its real run id, and this refusal has no run id to name.
+    assert audit_rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_successful_stop_still_counts(audit_rows):
+    """The refusal check must be `is False`, not truthiness: a stop_fn that
+    returns None (the old contract) means "stopped"."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def legacy_stop(user_id):
+        return None
+
+    reaper = ExecutorReaper(
+        _FakeController(["u"]), legacy_stop, is_busy=None, ttl_seconds=1
+    )
+    assert await reaper.reap_once() == ["u"]
+    assert reaper_status()["refused_busy"] == 0
