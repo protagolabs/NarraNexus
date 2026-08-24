@@ -1,7 +1,20 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 (1) — ModelBubbleInput / ModelSuggestionChips 搬到 providers/
+
+提交 `22e59e21` 把 `ModelBubbleInput` 和 `ModelSuggestionChips` 原样搬出本文
+件，落到新文件 `components/providers/ModelBubbleInput.tsx`
+（[[ModelBubbleInput]]）。本次是机械抽取，不改行为、不改 props；本文件里
+两处调用点（自定义端点表单 + 编辑模型弹窗）改成从新路径 import，其余渲染
+逻辑不变。
+
+动机：这是把"provider 连接"相关的可复用逻辑从本文件搬出去的第一步，为即将
+新增的 Create Agent 向导 provider 步骤（会复用同一套 tag 风格 model 输入）
+做准备，避免向导那边整段复制 ~120 行渲染代码。后续任务预计会继续把
+`CustomEndpointForm` 也抽到 `components/providers/` 下。
 
 ## 2026-07-30 — OAuth 卡隐藏 Edit models
 
@@ -413,13 +426,10 @@ reset path.
   provider). Caching is local state — refreshing the page re-fetches.
 - `getApiBaseUrl()` from `runtimeStore` ensures the correct backend URL is
   used whether running locally or in Tauri mode.
-- **`ModelBubbleInput` commit trap** — text typed in the tag input is only
-  pushed into `formModels` on Enter / `+` click. If the user types a model
-  name and clicks "Add Provider" without committing, the text is silently
-  lost and the backend autopopulates defaults (2 Claude models for
-  `anthropic` card_type). As of 2026-04-23 the input shows a warning hint
-  and pulses the `+` button while uncommitted text exists, to make the
-  commit step visible. A stronger fix (auto-flush on submit) was deferred.
+- **`ModelBubbleInput` commit trap** — the component now lives in
+  `components/providers/ModelBubbleInput.tsx` (moved by `22e59e21`); see
+  [[ModelBubbleInput]] for the tag-input commit-trap gotcha (text typed but
+  not committed via Enter / `+` is silently dropped on submit).
 
 ## 2026-07-07 (bug#3 跟进) — helper 下拉不再隐藏 OAuth provider
 
