@@ -67,5 +67,13 @@ created_at 同字节格式)。**这是 steer_inbox 第一个真正的生产消�
 ## 2026-08-24(补2)— discard_run 的调用顺序(修正)
 
 `discard_run` 由 `_discard_steer_orphans` 在 **run release 之后**调(靠 AsyncExitStack LIFO:discard 注册在 release
-注册之前 → 后退栈 → 后跑)。加上 `_route_steer` append 前的 `live_run is run` re-check,竞态窗口关闭。docstring 的
+注册之前 → 后退栈 → 后跑)。加上 `_route_steer` append 前的 `live_run is run` re-check,竞态窗口收窄(非关闭:get_db_client+append 仍 yield,残留行由 retention 的孤儿臂回收)。docstring 的
 「Called when a run is released / after the last drain」现在与实现一致(见 [[message_bus_trigger.py]] 补8)。
+
+## 2026-08-24(补3)— cleanup_older_than_days 增孤儿臂(结构性兜底)
+
+`cleanup_older_than_days(days, orphan_days=7)` 现在两臂:①consumed 且过 `days`(常规 retention,`consumed_at IS NOT NULL`
+护长跑 run 未注入行);②**still unconsumed 且过 `orphan_days`**——孤儿的结构性兜底(teardown discard 的竞态残留)。
+`orphan_days=7` 刻意 generous:远超任何 turn(含铁律#14 的几十小时 job——其行随 run 边跑边 drain,不会未消费好几天),
+所以**绝不删活跃 draining run 的合法待注入行**。这把 discard 竞态残留从「永久泄漏」降成「≤orphan_days 后被扫」。
+注:`cleanup_older_than_days` 全仓仍无调用方(#351 遗留,daily tick 待后续 PR),兜底就位但要 tick 接上才真跑。

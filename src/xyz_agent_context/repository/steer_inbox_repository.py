@@ -227,23 +227,42 @@ class SteerInboxRepository:
         )
         return result if isinstance(result, int) else 0
 
-    async def cleanup_older_than_days(self, days: int) -> int:
-        """Delete CONSUMED rows older than ``days``. Returns rows deleted
-        (best-effort; 0 on driver error).
+    async def cleanup_older_than_days(
+        self, days: int, orphan_days: int = 7
+    ) -> int:
+        """Delete CONSUMED rows older than ``days`` AND UN-consumed ORPHAN rows
+        older than ``orphan_days``. Returns rows deleted (best-effort; 0 on
+        driver error).
 
         The family's retention contract (``channel_seen_message``,
         ``lark_seen_message``, ``channel_trigger_audit``) — hooked to a daily
-        cleanup tick by a later PR. Two guards: ``consumed_at IS NOT NULL`` so
-        a long-running turn's not-yet-injected messages are never deleted (iron
-        rule #16); and pruning by ``created_at`` (whose format is uniform via
-        the DB default) rather than ``consumed_at``, which a raw param could
-        write in a second SQLite format."""
-        cutoff = to_datetime6_literal(utc_now() - timedelta(days=days))
+        cleanup tick by a later PR. Two reclaim arms:
+
+        * consumed rows past ``days`` — normal retention. ``consumed_at IS NOT
+          NULL`` so a long-running turn's not-yet-injected messages are never
+          deleted (iron rule #16).
+        * rows STILL unconsumed past ``orphan_days`` — the STRUCTURAL backstop
+          for orphans (a row pushed but never drained). The producer discards
+          these at run teardown (``_discard_steer_orphans``), but that has a
+          narrow race (an append landing after the teardown DELETE); this arm
+          reclaims whatever slips through. ``orphan_days`` is DELIBERATELY
+          generous (7d ≫ any turn, including the tens-of-hours jobs iron rule #14
+          allows — whose rows drain AS the run runs, so they are never unconsumed
+          for days): no live, actively-draining run can own a row that old, so
+          this never deletes a legitimately-pending injection.
+
+        Prunes by ``created_at`` (uniform format via the DB default), not
+        ``consumed_at`` which a raw param could write in a second SQLite
+        format."""
+        now = utc_now()
+        cutoff = to_datetime6_literal(now - timedelta(days=days))
+        orphan_cutoff = to_datetime6_literal(now - timedelta(days=orphan_days))
         try:
             result = await self._db.execute(
-                "DELETE FROM steer_inbox "
-                "WHERE created_at < %s AND consumed_at IS NOT NULL",
-                params=(cutoff,),
+                "DELETE FROM steer_inbox WHERE "
+                "(created_at < %s AND consumed_at IS NOT NULL) "
+                "OR (created_at < %s AND consumed_at IS NULL)",
+                params=(cutoff, orphan_cutoff),
                 fetch=False,
             )
             return int(result) if isinstance(result, (int, float)) else 0

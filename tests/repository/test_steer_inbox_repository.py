@@ -208,15 +208,21 @@ async def test_append_back_pressures_when_the_run_backlog_is_full(db_client, mon
 
 
 @pytest.mark.asyncio
-async def test_cleanup_deletes_old_consumed_but_never_unconsumed(db_client):
+async def test_cleanup_deletes_old_consumed_and_old_unconsumed_orphans_but_keeps_recent(db_client):
     repo = SteerInboxRepository(db_client)
     old = to_datetime6_literal(utc_now() - timedelta(days=30))
+    recent_unconsumed = to_datetime6_literal(utc_now() - timedelta(days=2))
     now = to_datetime6_literal(utc_now())
     base = {"run_id": "run1", "role": "user", "sender_id": "s", "source": "team"}
-    # old + consumed → deleted; old + UNconsumed → kept (never delete un-injected);
-    # recent + consumed → kept (younger than cutoff).
+    # old + consumed → deleted (retention arm);
+    # old + UNconsumed → deleted (orphan arm: a 30d-old unconsumed row is a dead
+    #   run — the teardown discard's structural backstop);
+    # recent (2d) + UNconsumed → KEPT (younger than orphan_days=7, so it could
+    #   still belong to a live, actively-draining run — never delete un-injected);
+    # recent + consumed → kept (younger than the retention cutoff).
     await db_client.insert("steer_inbox", {**base, "msg_id": "old_done", "content": "a", "created_at": old, "consumed_at": old})
-    await db_client.insert("steer_inbox", {**base, "msg_id": "old_pending", "content": "b", "created_at": old})
+    await db_client.insert("steer_inbox", {**base, "msg_id": "old_orphan", "content": "b", "created_at": old})
+    await db_client.insert("steer_inbox", {**base, "msg_id": "recent_pending", "content": "e", "created_at": recent_unconsumed})
     await db_client.insert("steer_inbox", {**base, "msg_id": "new_done", "content": "c", "created_at": now, "consumed_at": now})
     # A separate run whose row has a REAL DB-default created_at (second
     # granularity, no microseconds), consumed and recent — confirms the DELETE
@@ -226,10 +232,10 @@ async def test_cleanup_deletes_old_consumed_but_never_unconsumed(db_client):
     await repo.mark_consumed("run_real", real[-1].id)
 
     deleted = await repo.cleanup_older_than_days(7)
-    assert deleted == 1
+    assert deleted == 2  # old_done (consumed) + old_orphan (unconsumed)
 
     survivors = await db_client.execute(
         "SELECT run_id, msg_id FROM steer_inbox ORDER BY msg_id",
         fetch=True,
     )
-    assert sorted(r["msg_id"] for r in survivors) == ["new_done", "old_pending", "real_new"]
+    assert sorted(r["msg_id"] for r in survivors) == ["new_done", "real_new", "recent_pending"]

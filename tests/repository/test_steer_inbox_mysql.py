@@ -131,8 +131,12 @@ async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeyp
         await repo.append(_inj(RUN_A, "m3"))
 
     old = to_datetime6_literal(utc_now() - timedelta(days=30))
+    recent = to_datetime6_literal(utc_now() - timedelta(days=2))
     base = {"run_id": RUN_B, "role": "user", "sender_id": "s", "source": "team"}
     await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_done", "content": "a", "created_at": old, "consumed_at": old})
-    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_pending", "content": "b", "created_at": old})
-    assert await repo.cleanup_older_than_days(7) == 1
-    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["old_pending"]
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "old_orphan", "content": "b", "created_at": old})
+    await mysql_client.insert("steer_inbox", {**base, "msg_id": "recent_pending", "content": "e", "created_at": recent})
+    # Retention arm deletes old_done; orphan arm deletes the 30d-old unconsumed
+    # old_orphan; the 2d-old recent_pending is kept (younger than orphan_days=7).
+    assert await repo.cleanup_older_than_days(7) == 2
+    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["recent_pending"]

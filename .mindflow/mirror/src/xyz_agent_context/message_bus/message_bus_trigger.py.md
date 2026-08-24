@@ -1650,3 +1650,10 @@ read 游标降级成在 `_InFlight.steered_through` 记水位;turn 末尾 `_ack_
 更新的未寻址杂音,断言在**游标**上——floor 那条唯一会丢消息的分支;删 floor/`<`→`<=` 变红);
 `test_route_steer_skips_the_batch_if_the_run_released_mid_flight`(在 `_get_channel_info` await 里 release,断言不 append、
 消息留 pending)。`_discard_steer_orphans` 参数改名 `run_id_cell`(late-bind holder 自解释)。
+
+## 2026-08-24(补9)— re-check 是「收窄」非「关闭」+ 结构性兜底(Opus 预审 C)
+
+诚实标注:`live_run is run` re-check **收窄**但不**关闭**竞态——其后 `get_db_client` + `inbox.append` 仍 yield,
+release 落在这最后窗口仍可能留一行未 drain。**不丢消息**(游标没动→重投);那罕见残留行由
+`cleanup_older_than_days` 的**未消费孤儿臂**(`orphan_days=7`,见 [[steer_inbox_repository.py]] 补3)回收=结构性兜底。
+loop.py:1244 有对应注释。

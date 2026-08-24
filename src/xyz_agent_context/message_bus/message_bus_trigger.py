@@ -1234,13 +1234,18 @@ class MessageBusTrigger:
             unaddressed = [m for m in messages if m.message_id not in relevant_ids]
 
             # Re-confirm the run is STILL the same live handle before writing
-            # anything. The awaits above (get_pending / channel info / db) give
-            # the turn time to end and release; an append after the run's orphan
-            # reclaim + release would write a row nobody will ever drain OR
-            # discard — a permanent un-reclaimable leak. Compare handle IDENTITY,
-            # not is_alive: the lane task stays alive past release, so a liveness
-            # probe would wrongly say "still here". Mismatch → skip the whole
-            # batch and DO NOT ack; the messages stay pending for a fresh turn.
+            # anything. The awaits above (get_pending / channel info) give the
+            # turn time to end and release; an append after the run's orphan
+            # reclaim + release would write a row nobody will ever drain. Compare
+            # handle IDENTITY, not is_alive: the lane task stays alive past
+            # release, so a liveness probe would wrongly say "still here".
+            # Mismatch → skip the whole batch and DO NOT ack; the messages stay
+            # pending for a fresh turn. This NARROWS the race, not closes it — the
+            # get_db_client + inbox.append below still yield, so a release landing
+            # in that last window can leave one un-drained row. No message is lost
+            # (the cursor never moved, so it redelivers), and the rare leftover
+            # row is reclaimed by cleanup_older_than_days's unconsumed-orphan arm
+            # (steer_inbox_repository) — the structural backstop.
             if get_run_registry().live_run(agent_id, channel_id) is not run:
                 return
 
