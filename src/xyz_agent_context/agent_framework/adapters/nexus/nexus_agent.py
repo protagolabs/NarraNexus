@@ -189,9 +189,12 @@ class NexusAgent:
         NDJSON truth file per turn) and live ``steering`` — in-process the loop
         drains the SteerChannel directly, subprocess the pump feeds it down
         stdin. The orchestrator gates whether to make a run steerable on
-        ``"steering" in driver.capabilities()``, so the remote (HTTP) path —
-        which cannot carry a live channel and does NOT declare it — degrades to
-        a fresh turn instead of silently dropping the injection."""
+        ``"steering" in driver.capabilities()``. The remote (HTTP) path now ALSO
+        carries steering for nexus_power: ``RemoteAgentLoopDriver`` POSTs each
+        injection to the executor's ``/steer`` endpoint and forwards the loop's
+        ``steer_consumed`` frames back (it declares ``steering`` framework-aware,
+        i.e. only when it wraps a steer-capable driver like this one). So a cloud
+        nexus_power run is steerable end to end, not degraded to a fresh turn."""
         return {"event_log", "steering"}
 
     @timed("llm.nexus.agent_loop", slow_threshold_ms=15000)

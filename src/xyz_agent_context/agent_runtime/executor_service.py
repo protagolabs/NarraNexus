@@ -4,10 +4,13 @@
 @date: 2026-06-17
 @description: The agent-loop Executor service.
 
-This is the ONLY tier that spawns the claude/codex CLI. It is a thin,
-near-stateless FastAPI app: given an assembled prompt + the resolved
-(scoped) provider configs + the workspace path, it runs the LOCAL
-agent-loop driver and streams the raw event dicts back as NDJSON.
+This is the ONLY tier that spawns the claude/codex CLI. It is a thin FastAPI
+app — stateless except for the in-flight steer handles (``_STEER_RUNS``, one per
+live steerable run, added/removed within the run's own stream): given an
+assembled prompt + the resolved (scoped) provider configs + the workspace path,
+it runs the LOCAL agent-loop driver and streams the raw event dicts back as
+NDJSON. A steerable run additionally accepts ``POST /steer`` injections for the
+duration of its stream (see ``_InboundSteer``).
 
 Security shape (why this exists):
   * It holds NO platform master secrets (no JWT/DB/admin keys). Its
@@ -30,7 +33,11 @@ Security shape (why this exists):
     CLI transcript itself, inside this container, and deletes it when the
     turn ends, so nothing durable exists for a caller to point at.
     Anything added to this body later must preserve the property or
-    re-earn it the same way.
+    re-earn it the same way. The ``run_id`` added for ``/steer`` (2026-08-24)
+    preserves it: the caller MINTS it (a ``secrets`` token) to name a run it
+    just created, so it names only a resource the caller already holds — and
+    ``/steer`` with an unknown/guessed id is a 404, delivering nothing. It is
+    NOT a durable cross-tenant handle like the old ``resume_session_id`` was.
 
 Per-agent / per-user workspace isolation is a deployment concern layered
 on top (mount only that user's workspace into the container) — out of
@@ -45,6 +52,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -59,6 +67,51 @@ from xyz_agent_context.agent_framework.loop.driver import (
 from xyz_agent_context.agent_runtime.executor_protocol import (
     apply_provider_configs,
 )
+
+
+ProviderMessage = dict[str, Any]
+
+
+class _InboundSteer:
+    """The executor side of a live steer channel — the HTTP twin of the local
+    stdin transport. ``POST /steer`` feeds ``queue``; the in-container driver
+    (``NexusAgent``, steering-capable) drains it exactly as it drains an
+    orchestrator's ``SteerChannel`` — in the subprocess path its pump writes each
+    item as a ``{"steer": …}`` stdin line to the runner.
+
+    Consumption flows the OTHER way: when the loop reports which steer_inbox rows
+    it drained, ``NexusAgent`` calls ``deliver_consumed`` (the same hook it calls
+    on the orchestrator's real channel). Here there is no producer to ack — the
+    real ``SteerChannel`` lives back in the orchestrator process — so we forward
+    the ids OUT on ``consumed_out``; ``/agent-loop``'s ``_stream`` drains that and
+    emits a ``{"steer_consumed": …}`` NDJSON frame, and the orchestrator's
+    ``RemoteAgentLoopDriver`` intercepts it and calls the real channel. This makes
+    the remote hop symmetric with the in-process one: the same steer_consumed
+    line, one process boundary further out.
+
+    Only ``queue`` and ``deliver_consumed`` are part of the shape ``NexusAgent``
+    consumes (duck-typed); ``consumed_out`` is private to this transport.
+    """
+
+    def __init__(self) -> None:
+        self.queue: "asyncio.Queue[ProviderMessage]" = asyncio.Queue()
+        self.consumed_out: "asyncio.Queue[list[str]]" = asyncio.Queue()
+
+    async def deliver_consumed(self, ids: list[str]) -> None:
+        if ids:
+            self.consumed_out.put_nowait(list(ids))
+
+
+# In-flight steerable runs in THIS executor process, keyed by the orchestrator's
+# unguessable run_id. Populated when a steerable /agent-loop starts, removed when
+# its stream ends. A module singleton, not a seam: the executor is one container
+# per user and the run + its /steer ingress are both in THIS process, so there is
+# no cross-process truth to move (unlike the orchestrator's RunRegistry). The
+# run_id is unguessable (the driver mints a secrets token) — that is what keeps
+# /steer, which is unauthenticated like /agent-loop, from letting a direct caller
+# inject into a run whose handle they were never given.
+_STEER_RUNS: dict[str, _InboundSteer] = {}
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -397,12 +450,36 @@ async def agent_loop(request: Request) -> Response:
     # THIS task's ContextVars, so the CLI authenticates with the right key.
     apply_provider_configs(body.get("provider_configs") or {})
 
-
     # AGENT_EXECUTOR_URL is unset in the executor container → local driver.
     driver = get_agent_loop_driver(framework, working_path=working_path)
 
+    # Steerable run: an inbound channel this run drains, so a later POST /steer
+    # can reach it. run_id is the orchestrator's unguessable handle; absent → a
+    # non-steerable run, unchanged (steering stays None below).
+    run_id = body.get("run_id")
+    inbound = _InboundSteer() if run_id else None
+
     async def _stream():
-        logger.info(f"[Executor] agent-loop start framework={framework!r} workspace={working_path}")
+        logger.info(
+            f"[Executor] agent-loop start framework={framework!r} "
+            f"workspace={working_path} steerable={run_id is not None}"
+        )
+
+        def _drain_consumed():
+            # Emit any steer_consumed the loop has reported so far, oldest-first.
+            # A cursor signal, so at-most-one-event-late ordering is fine; the
+            # final drain after the loop catches the tail. Never dropped.
+            while inbound is not None and not inbound.consumed_out.empty():
+                ids = inbound.consumed_out.get_nowait()
+                yield json.dumps({"steer_consumed": ids}, default=str) + "\n"
+
+        # Register INSIDE the generator, paired with the finally pop, so a
+        # registration can never outlive its cleanup: if the client is handed a
+        # 200 but abandons the stream before iterating, neither runs and nothing
+        # leaks in this long-lived process. A real /steer arrives mid-run, never
+        # at t=0, so there is no window where it misses the registration.
+        if run_id:
+            _STEER_RUNS[run_id] = inbound  # type: ignore[assignment]
         try:
             async for event in driver.agent_loop(
                 messages=body["messages"],
@@ -416,13 +493,85 @@ async def agent_loop(request: Request) -> Response:
                 turn_profile=body.get("turn_profile") or None,
                 extra_accessible_roots=body.get("extra_accessible_roots") or None,
                 origin_declaration=body.get("origin_declaration") or "",
+                steering=inbound,  # None on a non-steerable run (unchanged path)
             ):
+                # Flush consumed frames the loop produced up to this event, then
+                # the event — two frame types on one NDJSON stream.
+                for frame in _drain_consumed():
+                    yield frame
                 yield json.dumps({"event": event}, default=str) + "\n"
+            for frame in _drain_consumed():  # tail: consumed after the last event
+                yield frame
         except Exception as e:  # noqa: BLE001 — surface to caller, never crash the service
+            # Flush any steer_consumed the loop reported BEFORE it raised, ahead of
+            # the error frame — the orchestrator stops reading once it hits the
+            # error, so a consumed frame emitted after would be lost, shrinking the
+            # at-most-once window into a needless duplicate-re-injection.
+            for frame in _drain_consumed():
+                yield frame
             logger.exception(f"[Executor] agent-loop failed: {e}")
-            yield json.dumps({"error": {"type": type(e).__name__, "message": str(e)}}) + "\n"
+            yield json.dumps({"error": {"type": type(e).__name__, "message": str(e)}}, default=str) + "\n"
+        finally:
+            if run_id:
+                # The run is over: its handle must not linger (a later /steer on it
+                # is now correctly a 404, and the dict cannot leak across runs).
+                _STEER_RUNS.pop(run_id, None)
 
     return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+@app.post("/steer")
+async def steer(request: Request) -> JSONResponse:
+    """Inject one live message into a running steerable turn.
+
+    Body: ``{"run_id": str, "steer": {provider msg}}`` (see
+    ``executor_protocol.build_steer_request``). The message is handed to the
+    run's inbound queue, which the in-container driver drains at the next step
+    boundary — the HTTP twin of a local ``{"steer": …}`` stdin line.
+
+    Unauthenticated like ``/agent-loop``; safe because ``run_id`` is unguessable
+    (the orchestrator mints a ``secrets`` token). An unknown handle → 404 and the
+    injection is not delivered — the orchestrator sees the failure and the
+    un-consumed row is never acked, so it resurfaces as a fresh turn (never
+    silently lost, iron rule #16)."""
+    # Same parse budget as /agent-loop (#356): this endpoint is unauthenticated
+    # and reachable from INSIDE the container, so the agent's own Bash could POST
+    # a chunked request and never close it — request.json() would then hang a task
+    # + connection until the container is reaped. A budget on the body read, not a
+    # ceiling on anything (the injection itself is instant).
+    try:
+        body = await asyncio.wait_for(request.json(), timeout=_BODY_READ_TIMEOUT_S)
+    except TimeoutError:
+        logger.warning("[Executor] steer request body never completed")
+        return JSONResponse({"ok": False, "error": "request body timed out"}, status_code=408)
+    run_id = body.get("run_id")
+    msg = body.get("steer")
+    inbound = _STEER_RUNS.get(run_id) if run_id else None
+    if inbound is None:
+        # Run ended or never existed / a bad handle. 404, not 200: the caller must
+        # learn the injection did NOT land (so the row stays un-acked), not think
+        # it was delivered.
+        return JSONResponse({"ok": False, "error": "no such run"}, status_code=404)
+    if not isinstance(msg, dict):
+        return JSONResponse({"ok": False, "error": "steer must be a provider message object"}, status_code=400)
+    inbound.queue.put_nowait(msg)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/capabilities")
+def capabilities(framework: str = "nexus_power") -> dict:
+    """What the in-container driver for ``framework`` supports (e.g.
+    ``{"steering", "event_log"}`` for nexus_power). The orchestrator's
+    ``RemoteAgentLoopDriver`` can consult this to decide whether to register a
+    remote run as steerable, instead of hard-coding the assumption. Constructed
+    the same way as ``/agent-loop``'s driver so the answer is the real one."""
+    try:
+        driver = get_agent_loop_driver(framework, working_path="/tmp")
+        caps = driver.capabilities()
+    except Exception as e:  # noqa: BLE001 — never 500 a capability probe
+        logger.warning(f"[Executor] capabilities probe for {framework!r} failed: {e}")
+        return {"framework": framework, "capabilities": []}
+    return {"framework": framework, "capabilities": sorted(caps)}
 
 
 def _resolve_executor_log_dir(base_working_path: str) -> Path:

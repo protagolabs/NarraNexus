@@ -8,6 +8,10 @@ stub: false
 
 payload 的 options 里加 `steerable = kwargs.get("steering") is not None`——把"这轮可不可控"这个**已有**决定(driver 是否拿到 `SteerChannel`,与 `_open_steer_transport` 决定 stdin 保持打开还是关闭是同一判据)显式带过序列化边界给 runner。runner 每轮都挂 inlet,单靠 inlet 身份判不出可控性;`wait_for_input` 工具的暴露门(见 [[options.py]] / assembly `_steer_channels`)据此 flag 而非 inlet 身份。单一真值来源,别在别处再造第二个。
 
+## 2026-08-24 — capabilities docstring 订正:remote(HTTP)现在**也**带 steering(取代 2026-08-21 节末句)
+
+2026-08-21 节末「remote(HTTP)driver 不声明 steering、remote run 降级成新 turn」**已不成立**。`RemoteAgentLoopDriver` 现按 framework 声明 steering(仅 nexus_power 这类可 drain 的 driver),经 executor `/steer` + `steer_consumed` 帧承载(见 [[remote_driver.py]] / [[executor_service.py]])。故 cloud 上的 nexus_power run **端到端可 steer**,不再降级。本文件只改了 `capabilities()` 的 docstring 措辞(实现 `{event_log, steering}` 不变);契约反转的实体在 remote_driver/executor_service。
+
 ## 2026-08-20 — warmup() + _schedule_pool_prewarm()：启动时预填 warm-runner 池
 
 新增 `NexusAgent.warmup()`（executor 启动 lifespan 调用）提前填充 warm-runner 池，
