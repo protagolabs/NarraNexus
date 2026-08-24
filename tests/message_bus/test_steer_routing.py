@@ -401,6 +401,35 @@ async def test_ack_room_seen_holds_read_when_a_steer_cycle_is_in_flight():
 
 
 @pytest.mark.asyncio
+async def test_start_loop_invokes_the_steer_cleanup_tick(monkeypatch):
+    # Pins the WIRING itself: start()'s poll loop must call _maybe_run_steer_cleanup
+    # each cycle (delete that call and steer_inbox is write-only again). Run one
+    # loop iteration with everything else stubbed and stop after it.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    called: list = []
+
+    async def _spy():
+        called.append(1)
+
+    async def _noop(*a, **k):
+        return 0
+
+    async def _stop_after():
+        t._running = False
+
+    monkeypatch.setattr(t, "_snapshot_wake_baseline", _noop)
+    monkeypatch.setattr(t, "_poll_cycle", _noop)
+    monkeypatch.setattr(t, "_check_worker_starvation", _noop)
+    monkeypatch.setattr(t, "_maybe_run_steer_cleanup", _spy)
+    monkeypatch.setattr(t, "_sleep_until_due", _stop_after)
+
+    await t.start()
+
+    assert called == [1]  # the loop ran the tick exactly once this iteration
+
+
+@pytest.mark.asyncio
 async def test_steer_cleanup_tick_actually_calls_the_repository_gated_daily(monkeypatch):
     # The retention tick must be WIRED — steer_inbox is this trigger's only
     # production writer, so if nobody calls cleanup the table is write-only. Test
