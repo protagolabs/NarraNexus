@@ -1657,3 +1657,19 @@ read 游标降级成在 `_InFlight.steered_through` 记水位;turn 末尾 `_ack_
 release 落在这最后窗口仍可能留一行未 drain。**不丢消息**(游标没动→重投);那罕见残留行由
 `cleanup_older_than_days` 的**未消费孤儿臂**(`orphan_days=7`,见 [[steer_inbox_repository.py]] 补3)回收=结构性兜底。
 loop.py:1244 有对应注释。
+
+## 2026-08-24(补10)— read 游标闸门收口 + retention tick 接线(第4轮 review 🟡1/🟡2)
+
+**🟡1(re-check 抹掉 gap 闸门输入)**:上一版 `live_run is run` re-check 的 `return` 在 `unsteered_gap=True` 之上,
+早退时保守标记没举起 → `_ack_room_seen` 可能外推 read 游标越过从没渲染的消息。修:①`unsteered_gap` 提旗到 re-check
+**之前**(纯内存保守标记,不是 DB 写/ack,必须活过早退);②`_InFlight.steer_cycles_in_flight`(`_route_steer` 入口 +1、
+`finally` −1),`_ack_room_seen` 把 `>0` 与 `unsteered_gap` 同等对待——「无法证明没有 gap 就不外推」。read 游标闸门=
+「单写入方 + 双输入(旗/在途计数),默认保守」。回归:`test_release_race_still_raises_the_unsteered_gap_flag`(早退仍举旗)、
+`test_ack_room_seen_holds_read_when_a_steer_cycle_is_in_flight`(在途 hold)、floor 等值边界 —— 三条都变异验证。
+
+**🟡2(cleanup 全仓零调用方 → steer_inbox 只写不删)**:MessageBusTrigger 是 steer_inbox **唯一生产写入方**,故它接
+retention tick:`_maybe_run_steer_cleanup`(poll loop 里 heartbeat 后调,`_last_steer_cleanup_monotonic` 门控 startup+每日),
+调 `cleanup_older_than_days(STEER_RETENTION_DAYS=3, STEER_ORPHAN_DAYS=7)`。策略常量在**调用方**(trigger 模块级),repository
+只做 CRUD。加 `idx_steer_inbox_created`(两臂都过滤 created_at,否则 MySQL 全表扫)。**补9 的「structural backstop」现在
+真接上了**。回归 `test_steer_cleanup_tick_actually_calls_the_repository_gated_daily`(测**接线**——tick 真调 repo、且日级门控,
+不是只测 repo 方法,避开上轮「有没有人调」那个坑)。

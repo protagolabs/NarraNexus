@@ -113,6 +113,19 @@ RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
 # an idle period). Worst-case idle latency ≈ POLL_MAX_INTERVAL.
 POLL_MIN_INTERVAL = 3
 POLL_MAX_INTERVAL = 12
+
+#: steer_inbox retention, run by the poll loop (startup + daily). This trigger is
+#: steer_inbox's only production writer, so it owns its retention — without this
+#: the table would be write-only. Two bounds passed to
+#: SteerInboxRepository.cleanup_older_than_days:
+#: * CONSUMED rows kept this long (they are done — brief keep for audit);
+#: * UNCONSUMED rows past ORPHAN days are dead-run orphans (the teardown discard's
+#:   backstop). ORPHAN is deliberately generous (>> any turn, incl. binding rule
+#:   #14's tens-of-hours jobs whose rows drain as they run) so a live,
+#:   actively-draining run is never touched.
+STEER_RETENTION_DAYS = 3
+STEER_ORPHAN_DAYS = 7
+STEER_CLEANUP_INTERVAL_S = 24 * 3600
 POLL_STEP_UP = 3
 
 # How often the poll loop checks the cross-process wake signal while it sleeps.
@@ -265,6 +278,13 @@ class _InFlight:
     # read cursor must NOT jump over it — `_ack_room_seen` falls back to the
     # trigger high-water when this is set.
     unsteered_gap: bool = False
+    # How many `_route_steer` cycles are executing for this lane right now.
+    # `_ack_room_seen` treats >0 like `unsteered_gap`: a cycle still in flight may
+    # be about to discover an un-rendered message after its awaits, so the read
+    # cursor cannot safely extrapolate to steered_through until it settles. The
+    # default-conservative half of the read-cursor gate (the flag is the other
+    # half); +1 at _route_steer entry, -1 in its finally.
+    steer_cycles_in_flight: int = 0
 
 
 class MessageBusTrigger:
@@ -346,6 +366,9 @@ class MessageBusTrigger:
         self._handled_total = 0
         self._last_candidates = 0
         self._last_dispatch_at: Optional[str] = None
+        # steer_inbox retention gate. -inf so the first poll cycle runs it once at
+        # startup, then STEER_CLEANUP_INTERVAL_S apart (like ChannelTriggerBase).
+        self._last_steer_cleanup_monotonic = float("-inf")
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
@@ -388,6 +411,9 @@ class MessageBusTrigger:
             # The heartbeat has always CARRIED the starvation signal; this is
             # what finally reads it.
             await self._check_worker_starvation()
+            # steer_inbox retention (startup + daily). Gated so it is one query a
+            # day, not per cycle.
+            await self._maybe_run_steer_cleanup()
             await self._sleep_until_due()
 
         await self.audit.stopped(self.liveness_snapshot())
@@ -1215,6 +1241,15 @@ class MessageBusTrigger:
         watermark = flight.rendered_through if flight is not None else None
         if watermark is None:
             return
+        # Mark this lane as having a steer cycle in flight for the whole method.
+        # The turn-end `_ack_room_seen` treats an in-flight cycle exactly like an
+        # unsteered_gap: while a `_route_steer` is running it CANNOT prove there
+        # is no un-rendered message between the window and steered_through (it may
+        # be about to discover one after its awaits), so it must not extrapolate
+        # the read cursor to steered_through. finally-decremented: an exception
+        # path that skipped the -1 would pin this lane's read cursor at the
+        # trigger high-water forever (a perceivable regression, not just a leak).
+        flight.steer_cycles_in_flight += 1
         try:
             # Scope to this lane's room in SQL (same reason as _process_lane):
             # the LIMIT must land on this room, not the agent's cross-channel
@@ -1233,19 +1268,26 @@ class MessageBusTrigger:
             relevant_ids = {m.message_id for m in relevant}
             unaddressed = [m for m in messages if m.message_id not in relevant_ids]
 
+            # Raise the read-cursor gate flag for any un-steered message BEFORE
+            # the release re-check below. This is a pure in-memory CONSERVATIVE
+            # marker (not a DB write, not an ack) — it only makes the read cursor
+            # hold further back — so it must survive an early return, or the
+            # release race would silently drop this gate input and let
+            # `_ack_room_seen` extrapolate past a never-rendered message.
+            if unaddressed:
+                flight.unsteered_gap = True
+
             # Re-confirm the run is STILL the same live handle before writing
-            # anything. The awaits above (get_pending / channel info) give the
-            # turn time to end and release; an append after the run's orphan
-            # reclaim + release would write a row nobody will ever drain. Compare
-            # handle IDENTITY, not is_alive: the lane task stays alive past
-            # release, so a liveness probe would wrongly say "still here".
-            # Mismatch → skip the whole batch and DO NOT ack; the messages stay
-            # pending for a fresh turn. This NARROWS the race, not closes it — the
-            # get_db_client + inbox.append below still yield, so a release landing
-            # in that last window can leave one un-drained row. No message is lost
-            # (the cursor never moved, so it redelivers), and the rare leftover
-            # row is reclaimed by cleanup_older_than_days's unconsumed-orphan arm
-            # (steer_inbox_repository) — the structural backstop.
+            # anything (append / push / ack). The awaits above give the turn time
+            # to end and release; an append after the run's orphan reclaim +
+            # release would write a row nobody will ever drain. Compare handle
+            # IDENTITY, not is_alive: the lane task stays alive past release, so a
+            # liveness probe would wrongly say "still here". Mismatch → skip the
+            # DB writes and ack; the messages stay pending for a fresh turn. This
+            # narrows the append race (the get_db_client + inbox.append below
+            # still yield); the rare leftover row is reclaimed by the steer_inbox
+            # retention tick's unconsumed-orphan arm (once wired — see
+            # _run_steer_cleanup / steer_inbox_repository).
             if get_run_registry().live_run(agent_id, channel_id) is not run:
                 return
 
@@ -1284,16 +1326,12 @@ class MessageBusTrigger:
                     )
 
             if unaddressed and flight is not None:
-                # A NEW message this turn was NOT steered (not @ this agent, or it
-                # arrived after the prompt was built). It sits between the
-                # rendered window and the steered high-water and was never shown,
-                # so the READ cursor must not jump over it — flag it for
-                # _ack_room_seen.
-                flight.unsteered_gap = True
-                # But DO advance the PROCESSING cursor over un-addressed messages
-                # strictly OLDER than the oldest UN-consumed steered message (the
-                # floor), so a busy room's chatter does not permanently occupy the
-                # LIMIT-50 window and starve live-steering (review Important #1).
+                # unsteered_gap was already raised above (before the re-check).
+                # Here we only advance the PROCESSING cursor over un-addressed
+                # messages strictly OLDER than the oldest UN-consumed steered
+                # message (the floor), so a busy room's chatter does not
+                # permanently occupy the LIMIT-50 window and starve live-steering
+                # (review Important #1).
                 # Never past the floor (that would mark an un-consumed steered
                 # message processed before the run read it), and NEVER ack_read
                 # (un-addressed messages were never rendered — the 🔴1 red line).
@@ -1314,6 +1352,34 @@ class MessageBusTrigger:
                 f"[steer] route into live run for {(agent_id, channel_id)} "
                 f"failed, messages left queued: {type(e).__name__}: {e}"
             )
+        finally:
+            # Always drop the in-flight marker — a missed decrement would pin this
+            # lane's read cursor at the trigger high-water for the rest of the
+            # turn (a perceivable regression, not a leak).
+            flight.steer_cycles_in_flight -= 1
+
+    async def _maybe_run_steer_cleanup(self) -> None:
+        """Reclaim old steer_inbox rows — startup + once a day. This trigger is
+        the table's only production writer, so it owns the retention tick (else
+        the table is write-only and grows forever). Gated on monotonic time;
+        best-effort — a cleanup failure never touches the poll loop."""
+        now = time.monotonic()
+        if now - self._last_steer_cleanup_monotonic < STEER_CLEANUP_INTERVAL_S:
+            return
+        self._last_steer_cleanup_monotonic = now
+        try:
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            deleted = await SteerInboxRepository(
+                await get_db_client()
+            ).cleanup_older_than_days(STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS)
+            if deleted:
+                logger.info(f"[steer-inbox] retention swept {deleted} rows")
+        except Exception as e:  # noqa: BLE001 — retention never breaks the loop
+            logger.warning(f"[steer-inbox] retention sweep failed: {type(e).__name__}: {e}")
 
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent
@@ -1411,7 +1477,11 @@ class MessageBusTrigger:
             if (
                 flight is not None
                 and flight.steered_through is not None
+                # Extrapolate ONLY when we can PROVE there is no un-rendered gap:
+                # no un-steered message seen (unsteered_gap) AND no _route_steer
+                # cycle still running (which might discover one after its awaits).
                 and not flight.unsteered_gap
+                and flight.steer_cycles_in_flight == 0
                 and flight.steered_through > up_to
             ):
                 up_to = flight.steered_through

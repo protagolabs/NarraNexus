@@ -886,3 +886,9 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
 
 > **2026-08-21 steer_inbox**: 新增 `steer_inbox`(21c)——运行中插话注入的统一 inbox。**理由=解耦+per-run 游标,非持久化**(team 消息本在 bus_messages;但单聊插话不进 bus,统一 inbox 让 feeder 只 drain 一处,同 artifact_events outbox)。`id` 自增=到达序+消费游标;`(run_id, msg_id)` 唯一(重投递最多注入一次);`consumed_at` 是 bus (agent,channel) 游标给不了的 per-run 游标;`(run_id, consumed_at)` 是 pull-unconsumed 访问路径。owner=[[steer_inbox_repository.py]],schema=[[steer_schema.py]]。
+
+## 2026-08-24(补)— steer_inbox 加 idx_steer_inbox_created
+
+`steer_inbox` 加 `Index("idx_steer_inbox_created", ["created_at"])`:支撑 `cleanup_older_than_days` 的两臂 DELETE
+(都过滤 `created_at`),否则 MySQL 上全表扫。走 registry(`auto_migrate` 幂等加索引,非手写 ALTER)。见
+[[message_bus_trigger.py]] 补10 / [[steer_inbox_repository.py]] 补4。

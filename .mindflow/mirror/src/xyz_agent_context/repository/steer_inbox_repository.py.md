@@ -77,3 +77,10 @@ created_at 同字节格式)。**这是 steer_inbox 第一个真正的生产消�
 `orphan_days=7` 刻意 generous:远超任何 turn(含铁律#14 的几十小时 job——其行随 run 边跑边 drain,不会未消费好几天),
 所以**绝不删活跃 draining run 的合法待注入行**。这把 discard 竞态残留从「永久泄漏」降成「≤orphan_days 后被扫」。
 注:`cleanup_older_than_days` 全仓仍无调用方(#351 遗留,daily tick 待后续 PR),兜底就位但要 tick 接上才真跑。
+
+## 2026-08-24(补4)— cleanup 已接线(修正 补3)
+
+补3 的「全仓仍无调用方」**已作废**:`MessageBusTrigger._maybe_run_steer_cleanup`(startup+每日)现在真调
+`cleanup_older_than_days(STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS)`(见 [[message_bus_trigger.py]] 补10)。retention 两臂
+(consumed 过 days / unconsumed 过 orphan_days)在生产上会跑;`orphan_days` 由调用方常量给(repository 只 CRUD)。
+新增 `idx_steer_inbox_created` 支撑 DELETE 的 created_at 过滤。

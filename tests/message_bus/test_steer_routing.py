@@ -273,6 +273,43 @@ async def test_floored_unaddressed_ack_never_jumps_past_an_unconsumed_steer():
 
 
 @pytest.mark.asyncio
+async def test_floor_is_strict_an_unaddressed_message_equal_to_the_floor_is_not_acked():
+    # Boundary (review Minor): the floor comparison is strict `<`, so an
+    # un-addressed message with the SAME created_at as the oldest un-consumed
+    # steered message must NOT be acked — else the cursor would land exactly on
+    # the steered message's timestamp and drop it from the pending set. Second-
+    # granularity created_at makes an exact tie reachable. `<`→`<=` → red here.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    db = await get_db_client()
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="@me act", mentions=[ME])
+        await t._route_steer(ME, ROOM)  # steer it (unconsumed → the floor)
+        steered = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
+
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="tie noise", mentions=[])
+        noise = next(x for x in await bus.get_recent_messages(ROOM, limit=10)
+                     if x.content == "tie noise")
+        # Force an exact created_at tie with the steered (floor) message.
+        await db.execute(
+            "UPDATE bus_messages SET created_at = %s WHERE message_id = %s",
+            (steered.created_at, noise.message_id), fetch=False,
+        )
+
+        await t._route_steer(ME, ROOM)
+
+        # The steered message stays pending — the tie was NOT acked past it.
+        pend_ids = {x.message_id for x in await bus.get_pending_messages(ME)
+                    if x.channel_id == ROOM}
+        assert steered.message_id in pend_ids
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
 async def test_route_steer_skips_the_batch_if_the_run_released_mid_flight(monkeypatch):
     # The release-race guard: if the run ends and releases while _route_steer is
     # awaiting (get_pending / channel info / db), an append afterwards would write
@@ -301,6 +338,97 @@ async def test_route_steer_skips_the_batch_if_the_run_released_mid_flight(monkey
         assert [x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM]
     finally:
         _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_release_race_still_raises_the_unsteered_gap_flag(monkeypatch):
+    # The read-cursor gate input must survive the release-race early return: an
+    # un-addressed message is seen, the run releases during the channel-info
+    # await, _route_steer early-returns at the re-check — but unsteered_gap must
+    # already be raised (it is set BEFORE the re-check), or _ack_room_seen would
+    # extrapolate the read cursor past the never-rendered message. Move the flag
+    # below the re-check → red.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    flight = t._in_flight[(ME, ROOM)]
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="noise", mentions=[])  # un-addressed
+        real_info = t._get_channel_info
+
+        async def _release_then_info(cid):
+            get_run_registry().release(RUN)
+            return await real_info(cid)
+
+        monkeypatch.setattr(t, "_get_channel_info", _release_then_info)
+        await t._route_steer(ME, ROOM)
+
+        assert flight.unsteered_gap is True  # raised before the early return
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_ack_room_seen_holds_read_when_a_steer_cycle_is_in_flight():
+    # The default-conservative half of the gate: even with no unsteered_gap, an
+    # in-flight _route_steer cycle (which may still discover an un-rendered
+    # message after its awaits) blocks the read cursor from extrapolating to
+    # steered_through. Drop the `steer_cycles_in_flight == 0` guard → red.
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    flight = t._in_flight[(ME, ROOM)]
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="steered", mentions=[ME])
+        m = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
+        flight.steered_through = canonical_ts(m.created_at)
+        flight.unsteered_gap = False
+        flight.steer_cycles_in_flight = 1  # a cycle is running
+        trig = BusMessage(message_id="trg", channel_id=ROOM, from_agent="usr_u1",
+                          content="t", created_at="1970-01-01T00:00:00+00:00")
+
+        await t._ack_room_seen(ME, ROOM, trig, is_team=True,
+                               rendered_from="1970-01-01T00:00:00+00:00")
+
+        # Read cursor held (not extrapolated) → the steered message stays unread.
+        assert await bus.count_unread(ME) == 1
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_steer_cleanup_tick_actually_calls_the_repository_gated_daily(monkeypatch):
+    # The retention tick must be WIRED — steer_inbox is this trigger's only
+    # production writer, so if nobody calls cleanup the table is write-only. Test
+    # the wiring (does _maybe_run_steer_cleanup call the repo), not just the repo
+    # method. Delete the call in start()'s loop → the table grows forever; this
+    # asserts the method itself calls through and is gated to daily.
+    import xyz_agent_context.message_bus.message_bus_trigger as mbt
+
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    calls: list = []
+
+    async def _spy(self, days, orphan_days=7):
+        calls.append((days, orphan_days))
+        return 0
+
+    monkeypatch.setattr(SteerInboxRepository, "cleanup_older_than_days", _spy)
+
+    # startup (_last is -inf) → runs, with the caller's retention constants.
+    await t._maybe_run_steer_cleanup()
+    assert calls == [(mbt.STEER_RETENTION_DAYS, mbt.STEER_ORPHAN_DAYS)]
+    # immediately again → gated (one query a day, not per cycle).
+    await t._maybe_run_steer_cleanup()
+    assert len(calls) == 1
+    # after the interval elapses → runs again.
+    t._last_steer_cleanup_monotonic -= mbt.STEER_CLEANUP_INTERVAL_S + 1
+    await t._maybe_run_steer_cleanup()
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio
