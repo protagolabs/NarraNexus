@@ -188,6 +188,24 @@ export function providerBacksFramework(
 }
 
 /**
+ * Which framework a provider resolves to when nothing has explicitly
+ * chosen one — the rule the Create Agent wizard's provider-first step
+ * relies on to hide the Framework picker entirely. A subscription card
+ * is redeemable by exactly one CLI (see `CLI_FRAMEWORK_BY_OAUTH_SOURCE`),
+ * so that's forced. A plain API key doesn't imply any particular CLI, so
+ * it resolves to NexusPower — this project's own engine, which already
+ * accepts both protocols (see `nexus_power`'s `protocols` field above).
+ */
+export function deriveFrameworkFromProvider(
+  prov: Pick<ProviderSummary, 'source' | 'auth_type'>,
+): string {
+  if (SUBSCRIPTION_AUTH_TYPES.includes(prov.auth_type)) {
+    return CLI_FRAMEWORK_BY_OAUTH_SOURCE[prov.source] || 'nexus_power'
+  }
+  return 'nexus_power'
+}
+
+/**
  * The frameworks worth OFFERING for this wallet: a framework nothing in the
  * provider list can drive is a dead end (pick it and every provider option
  * disappears), so it is hidden rather than left to fail at save time. Pass the

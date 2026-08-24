@@ -11,6 +11,7 @@ import { describe, test, expect } from 'vitest'
 import {
   availableFrameworks,
   providerBacksFramework,
+  deriveFrameworkFromProvider,
   AGENT_FRAMEWORKS,
 } from '../agentFramework'
 
@@ -75,5 +76,21 @@ describe('availableFrameworks', () => {
     // the selected value would silently re-point the <select> elsewhere.
     const fws = availableFrameworks([CODEX_LOGIN], 'nexus_power')
     expect(fws.map((f) => f.id)).toEqual(['codex_cli', 'nexus_power'])
+  })
+})
+
+describe('deriveFrameworkFromProvider', () => {
+  test('a Claude Code Login subscription card locks to claude_code', () => {
+    expect(deriveFrameworkFromProvider(CLAUDE_LOGIN)).toBe('claude_code')
+    expect(deriveFrameworkFromProvider(CLAUDE_SETUP_TOKEN)).toBe('claude_code')
+  })
+
+  test('a Codex CLI Login subscription card locks to codex_cli', () => {
+    expect(deriveFrameworkFromProvider(CODEX_LOGIN)).toBe('codex_cli')
+  })
+
+  test('a plain API key or bearer card defaults to nexus_power', () => {
+    expect(deriveFrameworkFromProvider(ANTHROPIC_KEY)).toBe('nexus_power')
+    expect(deriveFrameworkFromProvider(NETMIND_OPENAI)).toBe('nexus_power')
   })
 })
