@@ -4,7 +4,7 @@ vi.mock('@/stores/runtimeStore', () => ({
   getApiBaseUrl: () => 'https://api.test',
 }))
 
-import { authFetch, providerUrl, addProvider, testProviderConfig } from '../providerApi'
+import { authFetch, providerUrl, addProvider, testProviderConfig, fetchClaudeStatus, fetchCodexStatus } from '../providerApi'
 
 const originalFetch = global.fetch
 
@@ -78,5 +78,69 @@ describe('testProviderConfig', () => {
     )
     const result = await testProviderConfig({ card_type: 'anthropic', api_key: 'sk-bad' })
     expect(result).toEqual({ ok: false, msg: 'unauthorized' })
+  })
+
+  test('returns ok:true with undefined msg on a successful probe', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), { status: 200 }),
+    )
+    const result = await testProviderConfig({ card_type: 'anthropic', api_key: 'sk-x' })
+    expect(result).toEqual({ ok: true, msg: undefined })
+  })
+
+  test('returns ok:false on a network error, without throwing', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const result = await testProviderConfig({ card_type: 'anthropic', api_key: 'sk-x' })
+    expect(result.ok).toBe(false)
+  })
+})
+
+describe('fetchClaudeStatus', () => {
+  test('resolves to the data object on a successful response', async () => {
+    const mockData = { cli_installed: true, logged_in: true, email: 'a@b.com', expires_at: null }
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: mockData }), { status: 200 }),
+    )
+    const result = await fetchClaudeStatus()
+    expect(result).toEqual(mockData)
+  })
+
+  test('resolves to null when success is false', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ success: false }), { status: 200 }),
+    )
+    const result = await fetchClaudeStatus()
+    expect(result).toBeNull()
+  })
+
+  test('resolves to null on a network error, without throwing', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const result = await fetchClaudeStatus()
+    expect(result).toBeNull()
+  })
+})
+
+describe('fetchCodexStatus', () => {
+  test('resolves to the data object on a successful response', async () => {
+    const mockData = { cli_installed: true, logged_in: true, email: 'a@b.com', expires_at: null }
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: mockData }), { status: 200 }),
+    )
+    const result = await fetchCodexStatus()
+    expect(result).toEqual(mockData)
+  })
+
+  test('resolves to null when success is false', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ success: false }), { status: 200 }),
+    )
+    const result = await fetchCodexStatus()
+    expect(result).toBeNull()
+  })
+
+  test('resolves to null on a network error, without throwing', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const result = await fetchCodexStatus()
+    expect(result).toBeNull()
   })
 })
