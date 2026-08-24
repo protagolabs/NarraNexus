@@ -3,6 +3,37 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-08-24
 ---
 
+## 2026-08-24 (4) — (1)~(3) 抽取的真正动机：Create Agent 向导要复用同一套逻辑
+
+(1)/(2)/(3) 三条各自记录了 `ModelBubbleInput` / `CustomEndpointForm` /
+`CliSignInPanel` 从本文件搬出去这件事本身,但只从"本文件瘦身"的角度写。补
+一条从**调用方视角**的总结：这三次抽取不是为了 Settings 页面自己变干净就
+够了——真正把它们从"内联在本文件里的可以但没必要"升级成"必须抽出来"的,是
+新的 [[../../pages/CreateAgentPage]] Step 1（provider 选择/添加步骤,见该文
+件 2026-08-24 (14) 条目）需要一模一样的"添加 provider"逻辑：一键预设、自定
+义 endpoint、CLI 登录三条路径,跟 Settings 这边的 add-provider 弹窗要做的事
+完全一样。如果不抽,这 ~700 行（三个组件的原内联代码合计）就得在两个页面
+各写一份,而且两份会随时间漂移（字段校验、错误文案、`testResult` 清空时机
+这类细节最容易先在一处改了另一处忘改）。
+
+抽取之后职责边界很干净：
+
+- `ProviderSettings.tsx`（本文件）现在只剩四件事——① provider 卡片网格
+  （`providerList` 渲染 + "+ Add provider" 卡片）、② provider 详情弹窗
+  （查看/Test/Edit models/Delete）、③ edit-models 弹窗（复用
+  [[../providers/ModelBubbleInput]]）、④ add-modal 的 tab 切换外壳
+  （`addMethod: 'onekey' | 'oauth' | 'custom'`,三个 tab 分别渲染
+  `OneKeyOnboard` / [[../providers/CliSignInPanel]] /
+  [[../providers/CustomEndpointForm]]）。本文件不再拥有任何一种"添加
+  provider"的具体表单逻辑或本地 state。
+- `CreateAgentPage.tsx` 独立地消费同一批三个组件（`OneKeyOnboard`——这个本
+  来就是共享组件,没被这轮任务碰;加上这轮任务抽出的
+  `CustomEndpointForm`/`CliSignInPanel`）做自己的 Step 1,不经过
+  `ProviderSettings.tsx`——两个页面之间没有相互 import 关系,只是各自 import
+  同一批 `components/providers/` 下的组件 + 共享的
+  [[../providers/providerApi]] 网络层,符合本仓库"模块之间不互相依赖,靠共享
+  组件复用"的约束。
+
 ## 2026-08-24 (3) — oauth tab 改为渲染 CliSignInPanel，删掉内联 Claude/Codex 登录卡
 
 Add-provider 弹窗的 "oauth" tab（Claude Code Login 卡 + Codex CLI Login 卡整
