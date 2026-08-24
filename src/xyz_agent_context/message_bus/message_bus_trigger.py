@@ -253,6 +253,18 @@ class _InFlight:
     # it — which happens before the run becomes steerable, so `_route_steer`
     # (gated on a registered SteerChannel) always sees it set.
     rendered_through: Optional[str] = None
+    # The newest CONSUMED steered message's canonical created_at, raised by the
+    # consumption callback. The turn-end read-cursor ack extends its upper bound
+    # to this so a steered-and-consumed message is marked read — but only through
+    # the single gap-guarded writer (`_ack_room_seen`), never from the
+    # consumption callback directly (that would bypass the gap protection).
+    steered_through: Optional[str] = None
+    # Set when a NEW message arrived this turn that was NOT steered (un-addressed
+    # to this agent, or arrived after the prompt was built). It sits between the
+    # rendered window and the steered high-water and was never shown, so the
+    # read cursor must NOT jump over it — `_ack_room_seen` falls back to the
+    # trigger high-water when this is set.
+    unsteered_gap: bool = False
 
 
 class MessageBusTrigger:
@@ -1102,11 +1114,15 @@ class MessageBusTrigger:
         and ``ack_processed`` is forward-only besides). It:
 
         * marks the ``(run_id, msg_id)`` rows consumed (retention — else the row
-          is never eligible for cleanup — and back-pressure accounting); and
-        * advances BOTH the processing cursor (so the message is not also
-          re-delivered as a fresh turn) and the read cursor (so it is not left
-          forever "unread" and re-injected into every later context) to the
-          newest consumed message.
+          is never eligible for cleanup — and back-pressure accounting);
+        * advances the PROCESSING cursor (so the message is not also re-delivered
+          as a fresh turn) to the newest consumed message; and
+        * raises the flight's ``steered_through`` high-water so the turn-end
+          ``_ack_room_seen`` extends the READ cursor to it — the read cursor is
+          NOT advanced here, because ``_ack_room_seen`` owns the gap protection
+          (``has_unread_before``) that stops an un-rendered backlog below the
+          window from being marked read, and a second writer here would bypass
+          that gate. One read-cursor writer, one gate.
 
         The cursor moves on CONSUMPTION, never on push — a message pushed but
         never drained (the turn ended first) is left pending and delivered by a
@@ -1125,11 +1141,42 @@ class MessageBusTrigger:
             )
             if latest_created_at:
                 await self._bus.ack_processed(agent_id, channel_id, latest_created_at)
-                await self._bus.ack_read(agent_id, channel_id, latest_created_at)
+                # Read cursor is NOT advanced here — hand the high-water to the
+                # gap-guarded turn-end writer instead (see docstring).
+                flight = self._in_flight.get((agent_id, channel_id))
+                if flight is not None and (
+                    flight.steered_through is None
+                    or latest_created_at > flight.steered_through
+                ):
+                    flight.steered_through = latest_created_at
         except Exception as e:  # noqa: BLE001 — consumption ack must not break the turn
             logger.warning(
                 f"[steer] consumption ack for {(agent_id, channel_id)} run "
                 f"{run_id} failed: {type(e).__name__}: {e}"
+            )
+
+    async def _discard_steer_orphans(self, steer_run_id: "List[str]") -> None:
+        """Reclaim steer_inbox rows this run pushed but never drained, at run
+        teardown. Best-effort — a cleanup failure must never break the turn.
+        Runs at AsyncExitStack unwind (after the loop's last drain), so it cannot
+        race an in-flight ``deliver_consumed``. No id yet (run never bound) → the
+        run produced no steer rows, nothing to reclaim."""
+        run_id = steer_run_id[0]
+        if not run_id:
+            return
+        try:
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            n = await SteerInboxRepository(await get_db_client()).discard_run(run_id)
+            if n:
+                logger.info(f"[steer] discarded {n} never-drained rows for run {run_id}")
+        except Exception as e:  # noqa: BLE001 — teardown cleanup never breaks a turn
+            logger.warning(
+                f"[steer] discard orphans for run {run_id} failed: "
+                f"{type(e).__name__}: {e}"
             )
 
     async def _route_steer(self, agent_id: str, channel_id: str) -> None:
@@ -1179,47 +1226,69 @@ class MessageBusTrigger:
                 m for m in messages
                 if self._should_process_message(m, agent_id, channel_type, channel_owner)
             ]
-            if not relevant:
-                # New but un-addressed to this agent: NOT steered and NOT acked
-                # here (acking from this poll task could jump the cursor past an
-                # older un-consumed steered message). Left for the lane's normal
-                # processing once the turn frees — a few cheap re-scans meanwhile.
-                return
+            relevant_ids = {m.message_id for m in relevant}
+            unaddressed = [m for m in messages if m.message_id not in relevant_ids]
 
-            from xyz_agent_context.repository.steer_inbox_repository import (
-                SteerInboxFull,
-                SteerInboxRepository,
-            )
-            from xyz_agent_context.schema.steer_schema import SteerInjection
-            from xyz_agent_context.utils.db.db_factory import get_db_client
-
-            inbox = SteerInboxRepository(await get_db_client())
-            try:
-                for m in relevant:
-                    inj = SteerInjection(
-                        run_id=run.run_id, msg_id=m.message_id, role="user",
-                        content=m.content, sender_id=m.from_agent, source="team",
-                    )
-                    # steer_inbox is the durable record AND the dedup: push into
-                    # the loop only on a NEW row, so a message re-seen before it is
-                    # consumed never double-injects. Remember its created_at so the
-                    # consumption callback can advance the cursor to it.
-                    if await inbox.append(inj):
-                        await run.steer.push(inj)
-                        # Remember the CANONICAL created_at (not str(datetime),
-                        # which is space-format and sorts BELOW every real 'T'
-                        # cursor — canonical_ts exists for exactly this hazard) so
-                        # the consumption ack advances the cursor correctly.
-                        run.steer.remember(m.message_id, canonical_ts(m.created_at))
-            except SteerInboxFull:
-                # The run's UNCONSUMED backlog is at capacity — it drains slower
-                # than messages arrive. Stop; what we pushed is delivered (its
-                # cursor moves on consumption), the rest stay queued for a later
-                # cycle. No cursor to unwind here — delivery is push, the cursor
-                # is consumption. Back-pressure, not loss.
-                logger.warning(
-                    f"[steer] inbox full for {(agent_id, channel_id)}, rest queued"
+            if relevant:
+                from xyz_agent_context.repository.steer_inbox_repository import (
+                    SteerInboxFull,
+                    SteerInboxRepository,
                 )
+                from xyz_agent_context.schema.steer_schema import SteerInjection
+                from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                inbox = SteerInboxRepository(await get_db_client())
+                try:
+                    for m in relevant:
+                        inj = SteerInjection(
+                            run_id=run.run_id, msg_id=m.message_id, role="user",
+                            content=m.content, sender_id=m.from_agent, source="team",
+                        )
+                        # steer_inbox is the durable record AND the dedup: push
+                        # into the loop only on a NEW row, so a message re-seen
+                        # before it is consumed never double-injects. Remember its
+                        # CANONICAL created_at (not str(datetime), which is
+                        # space-format and sorts BELOW every 'T' cursor) so the
+                        # consumption ack advances the cursor correctly.
+                        if await inbox.append(inj):
+                            await run.steer.push(inj)
+                            run.steer.remember(m.message_id, canonical_ts(m.created_at))
+                except SteerInboxFull:
+                    # The run's UNCONSUMED backlog is at capacity — it drains
+                    # slower than messages arrive. Stop; what we pushed is
+                    # delivered (its cursor moves on consumption), the rest stay
+                    # queued for a later cycle. No cursor to unwind — delivery is
+                    # push, the cursor is consumption. Back-pressure, not loss.
+                    logger.warning(
+                        f"[steer] inbox full for {(agent_id, channel_id)}, rest queued"
+                    )
+
+            if unaddressed and flight is not None:
+                # A NEW message this turn was NOT steered (not @ this agent, or it
+                # arrived after the prompt was built). It sits between the
+                # rendered window and the steered high-water and was never shown,
+                # so the READ cursor must not jump over it — flag it for
+                # _ack_room_seen.
+                flight.unsteered_gap = True
+                # But DO advance the PROCESSING cursor over un-addressed messages
+                # strictly OLDER than the oldest UN-consumed steered message (the
+                # floor), so a busy room's chatter does not permanently occupy the
+                # LIMIT-50 window and starve live-steering (review Important #1).
+                # Never past the floor (that would mark an un-consumed steered
+                # message processed before the run read it), and NEVER ack_read
+                # (un-addressed messages were never rendered — the 🔴1 red line).
+                # Re-fetch the floor now (after this cycle's deliveries, and the
+                # turn task may have consumed a batch between the awaits above).
+                floor = run.steer.oldest_unconsumed_created_at()
+                ackable = [
+                    m for m in unaddressed
+                    if floor is None or canonical_ts(m.created_at) < floor
+                ]
+                if ackable:
+                    latest = max(ackable, key=lambda m: canonical_ts(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
+                    )
         except Exception as e:  # noqa: BLE001 — a steer failure must not break the loop
             logger.warning(
                 f"[steer] route into live run for {(agent_id, channel_id)} "
@@ -1310,10 +1379,26 @@ class MessageBusTrigger:
                     f"never rendered"
                 )
                 return
+            # Upper bound: the trigger high-water, EXTENDED to the newest steered
+            # message the run consumed this turn — those were rendered (injected)
+            # too, so they are read. But only when nothing UN-steered slipped in
+            # between (unsteered_gap): a new message that was neither in the
+            # scrollback nor steered sits below steered_through and was never
+            # shown, so on a gap we fall back to the trigger high-water and leave
+            # it unread. The read cursor still has ONE writer and ONE gate.
+            up_to = canonical_ts(trigger_message.created_at)
+            flight = self._in_flight.get((agent_id, channel_id))
+            if (
+                flight is not None
+                and flight.steered_through is not None
+                and not flight.unsteered_gap
+                and flight.steered_through > up_to
+            ):
+                up_to = flight.steered_through
             await self._bus.ack_read(
                 agent_id=agent_id,
                 channel_id=channel_id,
-                up_to_timestamp=trigger_message.created_at,
+                up_to_timestamp=up_to,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -1540,6 +1625,16 @@ class MessageBusTrigger:
                     lambda: steer_channel is not None
                     and get_run_registry().release(steer_run_id[0])
                 )
+                if steer_channel is not None:
+                    # After the run's LAST possible drain (stack unwind = turn
+                    # fully done, all deliver_consumed fired), reclaim any row
+                    # pushed but never drained — else it stays consumed_at NULL
+                    # forever and the table grows unbounded (review Important #2).
+                    # Async callback (DELETE awaits); AsyncExitStack runs it at
+                    # unwind, which is strictly after the loop ended.
+                    stack.push_async_callback(
+                        self._discard_steer_orphans, steer_run_id
+                    )
 
                 # When the run reports draining steer rows, advance the cursors on
                 # CONSUMPTION (see `_ack_steer_consumed`). Bound to this lane and

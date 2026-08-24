@@ -26,7 +26,7 @@ import pytest
 import xyz_agent_context.agent_runtime.run_registry as run_registry
 from xyz_agent_context.agent_runtime.run_registry import RunRegistry, get_run_registry
 from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.message_bus.local_bus import LocalMessageBus, canonical_ts
 from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger, _InFlight
 from xyz_agent_context.repository.steer_inbox_repository import (
     SteerInboxFull,
@@ -135,11 +135,14 @@ async def test_route_steer_delivers_into_the_run_but_does_not_advance_the_cursor
 
 
 @pytest.mark.asyncio
-async def test_ack_steer_consumed_marks_the_rows_and_advances_both_cursors():
+async def test_ack_steer_consumed_advances_processing_and_records_read_high_water():
     # The consumption side: once the run reports draining the steer rows,
-    # _ack_steer_consumed marks them consumed AND advances the processing cursor
-    # (so the message is not re-delivered as a fresh turn) and the read cursor
-    # (so it is not left forever unread). Delete either ack and this goes red.
+    # _ack_steer_consumed marks them consumed, advances the PROCESSING cursor (so
+    # the message is not re-delivered as a fresh turn), and RECORDS the read
+    # high-water on the flight — but does NOT touch the read cursor here (that is
+    # _ack_room_seen's job, which owns the gap protection). Delete the
+    # ack_processed and pending stays; delete the steered_through record and the
+    # read cursor can never catch up.
     bus = await _fresh_bus()
     t = _trigger(bus)
     channel = await _make_live_lane(t)
@@ -150,17 +153,89 @@ async def test_ack_steer_consumed_marks_the_rows_and_advances_both_cursors():
         await t._route_steer(ME, ROOM)  # deliver (row + push), cursor NOT moved
         m = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
         assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN)
+        watermark = channel._created_at[m.message_id]
 
-        # The run drained it → consumption ack. Pass the canonical watermark the
-        # channel remembered at push (what production forwards via on_consumed).
-        await t._ack_steer_consumed(ME, ROOM, RUN, [m.message_id], channel._created_at[m.message_id])
+        # The run drained it → consumption ack.
+        await t._ack_steer_consumed(ME, ROOM, RUN, [m.message_id], watermark)
 
         # processing cursor advanced → no longer pending (no fresh-turn re-deliver)
         assert [x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM] == []
         # steer_inbox row stamped consumed (retention + back-pressure accounting)
         assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN) == []
-        # read cursor advanced too → the message is no longer counted unread
+        # read cursor NOT advanced here — it is still counted unread; the flight
+        # only carries the high-water for _ack_room_seen to use.
+        assert await bus.count_unread(ME) == 1
+        assert t._in_flight[(ME, ROOM)].steered_through == watermark
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_ack_room_seen_extends_read_to_steered_through_but_holds_on_a_gap():
+    # The single gap-guarded read-cursor writer: _ack_room_seen advances the read
+    # cursor to max(trigger, steered_through) when the window has no gap AND no
+    # un-steered message slipped in; on an unsteered_gap it falls back to the
+    # trigger so a never-rendered message is left unread.
+    from xyz_agent_context.message_bus.schemas import BusMessage
+
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM, content="steered", mentions=[ME])
+        m = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
+        trig = BusMessage(message_id="trg", channel_id=ROOM, from_agent="usr_u1",
+                          content="t", created_at="1970-01-01T00:00:00+00:00")
+        flight = t._in_flight[(ME, ROOM)]
+        flight.steered_through = canonical_ts(m.created_at)
+
+        # No gap → read advances to steered_through (covers the steered message).
+        await t._ack_room_seen(ME, ROOM, trig, is_team=True, rendered_from="1970-01-01T00:00:00+00:00")
         assert await bus.count_unread(ME) == 0
+
+        # Now a gap: reset the read cursor by a fresh message + unsteered_gap set;
+        # the read cursor must NOT jump over the un-rendered one.
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM, content="never-shown", mentions=[])
+        gap_msg = next(x for x in (await bus.get_recent_messages(ROOM, limit=10)) if x.content == "never-shown")
+        flight.steered_through = canonical_ts(gap_msg.created_at)
+        flight.unsteered_gap = True
+        await t._ack_room_seen(ME, ROOM, trig, is_team=True, rendered_from="1970-01-01T00:00:00+00:00")
+        # the never-shown message stays unread (read held at the trigger, which is
+        # older than it).
+        assert await bus.count_unread(ME) >= 1
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_a_busy_room_does_not_starve_live_steering_past_the_limit_window():
+    # Important #1: un-addressed chatter must not permanently occupy the LIMIT-50
+    # window and hide an @mention beyond it. _route_steer advances the processing
+    # cursor over un-addressed messages older than any un-consumed steer (floor),
+    # so a later cycle's window reaches the @mention and steers it. Delete the
+    # un-addressed ack and the @mention beyond row 50 is never steered.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    try:
+        # 50 un-addressed (not @ ME) fill the whole LIMIT-50 window, then one
+        # @mention sits at row 51 — invisible to the first scoped query.
+        for i in range(50):
+            await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                                   content=f"noise{i}", mentions=[])
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="@me please", mentions=[ME])
+
+        # First cycle: window is all noise → nothing to steer, but the cursor
+        # advances over the noise (floor is None — no un-consumed steer yet).
+        await t._route_steer(ME, ROOM)
+        assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN) == []
+
+        # Second cycle: the noise is acked away, so the @mention is now in-window
+        # and gets steered.
+        await t._route_steer(ME, ROOM)
+        injs = await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN)
+        assert [i.content for i in injs] == ["@me please"]
     finally:
         _drain_flight(t)
 

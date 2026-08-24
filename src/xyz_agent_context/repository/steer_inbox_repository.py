@@ -206,6 +206,27 @@ class SteerInboxRepository:
         )
         return result if isinstance(result, int) else 0
 
+    async def discard_run(self, run_id: str) -> int:
+        """DELETE this run's still-UNCONSUMED rows. Returns how many.
+
+        Called when a run is released — the moment "these rows will never be
+        drained" becomes certain (the SteerChannel is gone, the loop has ended).
+        Without this, a row that was pushed but the turn ended before draining it
+        stays ``consumed_at IS NULL`` forever, so ``cleanup_older_than_days`` (its
+        guard is ``consumed_at IS NOT NULL``) can never reclaim it → the table
+        grows unbounded. DELETE, not mark-consumed: stamping a never-drained row
+        ``consumed`` would lie to any future audit of "which injections actually
+        reached a model". Must run AFTER the run's last possible drain — running
+        it before release would race an in-flight ``deliver_consumed`` (row gone,
+        ``mark_consumed_by_msg_ids`` finds nothing, cursor still advances → a real
+        loss)."""
+        result = await self._db.execute(
+            "DELETE FROM steer_inbox WHERE run_id = %s AND consumed_at IS NULL",
+            params=(run_id,),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
+
     async def cleanup_older_than_days(self, days: int) -> int:
         """Delete CONSUMED rows older than ``days``. Returns rows deleted
         (best-effort; 0 on driver error).

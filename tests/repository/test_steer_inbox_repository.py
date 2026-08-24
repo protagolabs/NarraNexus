@@ -110,6 +110,31 @@ async def test_mark_consumed_by_msg_ids_consumes_exactly_the_named_rows(db_clien
 
 
 @pytest.mark.asyncio
+async def test_discard_run_deletes_only_this_runs_unconsumed_rows(db_client):
+    # At run teardown, rows pushed but never drained are reclaimed by DELETE (not
+    # mark-consumed) so the table does not grow unbounded; consumed rows and other
+    # runs are untouched.
+    repo = SteerInboxRepository(db_client)
+    await repo.append(_inj("run1", "m1"))
+    await repo.append(_inj("run1", "m2"))
+    await repo.append(_inj("run2", "m1"))
+    await repo.mark_consumed_by_msg_ids("run1", ["m1"])  # m1 consumed, m2 orphan
+
+    n = await repo.discard_run("run1")
+    assert n == 1  # only the un-consumed m2
+
+    # m1 (consumed) survives — it is real audit ("this reached a model"); m2 gone.
+    all_run1 = await db_client.execute(
+        "SELECT msg_id FROM steer_inbox WHERE run_id = %s", params=("run1",), fetch=True,
+    )
+    assert [r["msg_id"] for r in (all_run1 or [])] == ["m1"]
+    # run2 untouched
+    assert len(await repo.pull_unconsumed("run2")) == 1
+    # empty / unknown run is a no-op
+    assert await repo.discard_run("run_none") == 0
+
+
+@pytest.mark.asyncio
 async def test_mark_consumed_up_to_hides_only_those_at_or_below(db_client):
     repo = SteerInboxRepository(db_client)
     await repo.append(_inj("run1", "m1"))

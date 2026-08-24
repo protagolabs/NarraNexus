@@ -56,3 +56,10 @@ SQL 有 MySQL twin 覆盖。
 MySQL twin(`test_steer_inbox_mysql`)。scoped `consumed_at IS NULL`(重复消费 no-op)、`to_datetime6_literal`(与
 created_at 同字节格式)。**这是 steer_inbox 第一个真正的生产消费点**——补上了「bus 写进来的行永远 NULL、retention
 永不生效」的 #2 洞。
+
+## 2026-08-24(补)— discard_run:release 时回收从没 drain 的孤儿行
+
+`discard_run(run_id)`:`DELETE FROM steer_inbox WHERE run_id=%s AND consumed_at IS NULL`。谁负责收孤儿行=**bus
+在 run release 时**(见 [[message_bus_trigger.py]] `_discard_steer_orphans`)。用 DELETE 不用 mark_consumed:把从没
+进模型的行标 consumed 会让「哪些插话真进了模型」的审计失真。必须在最后一次 drain 之后跑(否则与 deliver_consumed
+竞态→真丢失)。补上 push-但-turn-先结束 那类行的 retention 洞(mark_consumed_by_msg_ids 只覆盖真被消费的)。

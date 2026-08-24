@@ -17,3 +17,8 @@ track=model(重建上下文)/ui(仅前端重放)是恢复/回放/压缩一切能
 
 新增 `TYPE_STEER_CONSUMED="steer_consumed"`(进 `VALID_EVENT_TYPES`):loop drain 后报「消费了哪些 steer_inbox 行」的
 瞬态控制信号(非 ledger 行)。走独立 transport 行、被 driver 拦截,不需要 legacy adapter 翻译(见 [[runner.py]]/[[nexus_agent.py]])。
+
+## 2026-08-24(补2)— TYPE_STEER_CONSUMED 不进 VALID_EVENT_TYPES
+
+`TYPE_STEER_CONSUMED` 刻意**不**登记进 `VALID_EVENT_TYPES`:它走独立 transport 行、被 driver 拦截,从不作为普通事件
+被校验或翻译;登记进「合法事件类型」会与它的 own-line/intercept 设计自相矛盾。

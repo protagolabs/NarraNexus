@@ -103,6 +103,21 @@ async def test_mark_consumed_by_msg_ids_in_clause_on_mysql(mysql_client):
 
 
 @pytest.mark.asyncio
+async def test_discard_run_delete_on_mysql(mysql_client):
+    # discard_run's DELETE … WHERE run_id = %s AND consumed_at IS NULL on a real
+    # MySQL dialect.
+    repo = SteerInboxRepository(mysql_client)
+    await repo.append(_inj(RUN_A, "d1"))
+    await repo.append(_inj(RUN_A, "d2"))
+    await repo.append(_inj(RUN_B, "d1"))
+    await repo.mark_consumed_by_msg_ids(RUN_A, ["d1"])  # d1 consumed, d2 orphan
+
+    assert await repo.discard_run(RUN_A) == 1  # only un-consumed d2
+    assert await repo.pull_unconsumed(RUN_A) == []
+    assert len(await repo.pull_unconsumed(RUN_B)) == 1  # run-scoped
+
+
+@pytest.mark.asyncio
 async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeypatch):
     # The COUNT-unconsumed backlog guard and the retention DELETE are both raw
     # SQL — exercise them on the real dialect (IS NULL / IS NOT NULL / < cutoff).

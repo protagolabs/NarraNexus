@@ -1614,3 +1614,23 @@ loop 的 DRAIN_STEERING 在每 step 末尾、STOP_CHECK 之前——一旦决定
 - **steer 投递的 `[bus-timing]` hop 计时**:暂缺(steer 消息不产生 queue_wait/hop 记录),记为**已知观测缺口、后续补**——
   与本 PR 的正确性正交,不阻塞;补的时候给消费 ack 一条同族计时行(延迟收益=「插话不等 turn 结束」的度量)。
 - **`_route_steer`/`_ack_steer_consumed` 每次 `await get_db_client()`**:客户端是进程/loop 单例,可忽略;不额外缓存。
+
+## 2026-08-24(补7)— 增量 review 修复:read 游标单写入方 + 未寻址带 floor ack + 孤儿行回收
+
+**修正 补5 的过时描述**:read 游标**不再**在 `_ack_steer_consumed` 里推(补5 说「read 游标也在这里推」已作废)。
+
+**🔴1(read 游标旁路 gap 保护)**:`_ack_steer_consumed` 只留 `mark_consumed_by_msg_ids` + `ack_processed`,
+read 游标降级成在 `_InFlight.steered_through` 记水位;turn 末尾 `_ack_room_seen`(唯一 read 写入方、持有
+`has_unread_before` gap 闸门)用 `max(canonical_ts(trigger), steered_through)` 作上界。**子情形2**:一次 steer
+里有新消息没被 steer(未寻址/prompt 构建后到达)→ `_route_steer` 在 flight 打 `unsteered_gap`,`_ack_room_seen`
+见到就退回只用 trigger(那条从没渲染的消息保持未读)。**read 游标恒等于:一个写入方 + 一道闸门。**
+
+**🟡1(未寻址不 ack → 繁忙房间 >50 杂音后 steer 停摆)**:`_route_steer` 恢复对未寻址批次推 `ack_processed`,但带
+**floor**=本 run 最老未消费 steer 的 created_at(`SteerChannel.oldest_unconsumed_created_at()`,每次重取);只 ack
+严格早于 floor 的未寻址消息(绝不跳过未消费 steered),**绝不 ack_read**(未寻址从没渲染=🔴1 红线)。回归:
+`test_a_busy_room_does_not_starve_live_steering_past_the_limit_window`(50 杂音+1 @mention,断言第二 cycle 能 steer)。
+
+**🟡2(push 但从没 drain 的孤儿行永不可回收)**:run release 时 `stack.push_async_callback(_discard_steer_orphans)`→
+`SteerInboxRepository.discard_run(run_id)`(`DELETE … consumed_at IS NULL`,不是 mark_consumed——标假 consumed 会污染
+「哪些真进了模型」的审计)。**必须在最后一次 drain 之后**(AsyncExitStack unwind,所有 deliver_consumed 已跑完),
+放 release 之前会与 in-flight deliver_consumed 竞态。回归:`test_discard_run_*`(SQLite+MySQL twin)。

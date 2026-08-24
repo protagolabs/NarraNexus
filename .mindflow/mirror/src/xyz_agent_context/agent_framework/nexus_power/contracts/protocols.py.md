@@ -20,3 +20,8 @@ dispatcher 不再排序(C2 落地)后,「确定性、append-only 顺序」成为
 `SteeringInlet` 加可选 `take_consumed() -> list[str]`(默认 `[]`):返回自上次调用以来 drain 掉的 steer_inbox 行 id 并清空,
 让 loop 能发 `TYPE_STEER_CONSUMED` 报消费、驱动 producer 只对真被读到的行推游标。`QueueSteeringInlet` 实现(累积
 被剥的 `_steer_id`),`NullSteeringInlet` 恒空。见消费契约([[message_bus_trigger.py]] 补5)。
+
+## 2026-08-24(补)— take_consumed 无默认体
+
+`SteeringInlet.take_consumed` 方法体改 `...`(不留 `return []`):Protocol 默认体对结构化实现者不生效,而 loop 无条件
+调它,所以每个 inlet 必须自定义(下一个——云端 executor 的 inlet——也是)。让「必须实现」在类型层直说。

@@ -204,6 +204,14 @@ class SteerChannel:
         Called by the producer right after a successful push."""
         self._created_at[msg_id] = created_at
 
+    def oldest_unconsumed_created_at(self) -> Optional[str]:
+        """The oldest canonical ``created_at`` still pushed-but-not-consumed
+        (the map is pruned on consume), or None if nothing is outstanding. The
+        producer uses it as a FLOOR: it may advance the processing cursor over
+        un-addressed messages strictly OLDER than this without ever jumping past
+        an un-consumed steered message."""
+        return min(self._created_at.values(), default=None)
+
     async def deliver_consumed(self, ids: list[str]) -> None:
         """The driver calls this when the loop reports which steer_inbox rows it
         DRAINED. Resolves the newest consumed message's created_at (remembered at

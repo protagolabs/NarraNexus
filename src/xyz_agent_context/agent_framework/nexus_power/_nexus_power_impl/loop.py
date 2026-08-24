@@ -278,10 +278,18 @@ class NexusPowerLoop:
                     # across a crash — an asymmetry worth knowing, not fixing here.
                     consumed = a.steering.take_consumed()
                     if consumed:
-                        yield await self._log(LoopEvent(
+                        # Yielded DIRECTLY, not through `_log`: this is a transient
+                        # control signal the transport intercepts, not a ledger /
+                        # NDJSON-truth row — routing it through `_log` would write
+                        # a seq=-1 row per drain (dozens a turn) into the file the
+                        # event_log docstring says mirrors the future nexus_events
+                        # table, and they would collide on the (thread_id, seq)
+                        # key. seq=-1 marks "not a ledger row"; the direct yield is
+                        # what makes that true.
+                        yield LoopEvent(
                             track="ui", seq=-1, type=TYPE_STEER_CONSUMED,
                             payload={"ids": consumed},
-                        ))
+                        )
                     continue
 
                 # ---- STOP_CHECK -------------------------------------------

@@ -68,3 +68,9 @@ import 同一份,三处不漂移。与 `rendered_injection_payload()`(render 逆
 **最新**已消费 created_at,回调 `on_consumed(ids, latest)` 后**清**掉这些条目(不随 turn 无界增长)。`on_consumed`
 由 producer(bus)设,是「游标随消费前进、绝不随 push 前进」的唯一入口——push-但-没-drain 的消息因此不会被误 ack。
 `channel_id` 也进构造:on_consumed 要用它 ack 对的 lane。
+
+## 2026-08-24(补)— oldest_unconsumed_created_at:未寻址 ack 的 floor
+
+`oldest_unconsumed_created_at()` 返回 `_created_at`(push 记、consume 清)里最老的 canonical created_at,或 None。
+producer 用作 floor:可把 processing 游标推过**严格早于**它的未寻址消息,而绝不跳过任何未消费 steered 消息
+(见 [[message_bus_trigger.py]] 🟡1)。
