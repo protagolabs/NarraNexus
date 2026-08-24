@@ -34,6 +34,7 @@ import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
 import { MODEL_SUGGESTION_GROUPS } from '@/lib/agentFramework'
 import { ModelBubbleInput } from '@/components/providers/ModelBubbleInput'
+import { CustomEndpointForm } from '@/components/providers/CustomEndpointForm'
 
 /** How long we let `claude auth login` block before auto-aborting it.
  *  Anthropic's OAuth flow itself has no hard upper bound, but past ~10 min
@@ -220,20 +221,6 @@ export function ProviderSettings() {
   // Cleared whenever the user re-runs the sync so the UI never lies.
   const [syncResult, setSyncResult] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  // Protocol form
-  const [showForm, setShowForm] = useState<'anthropic' | 'openai' | null>(null)
-  const [formName, setFormName] = useState('')
-  const [formUrl, setFormUrl] = useState('')
-  const [formKey, setFormKey] = useState('')
-  const [formAuth, setFormAuth] = useState<'api_key' | 'bearer_token'>('api_key')
-  const [formModels, setFormModels] = useState<string[]>([])
-  const [formAdding, setFormAdding] = useState(false)
-  // In-form connectivity probe (verify BEFORE saving). Result is cleared
-  // whenever the form context changes so the UI never shows a stale verdict.
-  const [formTesting, setFormTesting] = useState(false)
-  const [formTestResult, setFormTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-
-
   // Setup-token paste flow (`claude setup-token` → long-lived subscription
   // token stored server-side, env-injected at spawn; no CLI login state).
   const [setupToken, setSetupToken] = useState('')
@@ -380,55 +367,6 @@ export function ProviderSettings() {
     }
   }
 
-  const handleAddProtocol = async () => {
-    if (!showForm || !formKey.trim()) { setError(t('settings.provider.enterApiKeyShort')); return }
-    setFormAdding(true)
-    const ok = await addProvider({
-      card_type: showForm,
-      name: formName.trim() || undefined,
-      api_key: formKey.trim(),
-      base_url: formUrl.trim(),
-      auth_type: formAuth,
-      models: formModels,
-    })
-    if (ok) {
-      setShowForm(null); setFormName(''); setFormUrl(''); setFormKey(''); setFormAuth('api_key'); setFormModels([])
-      setFormTestResult(null)
-    }
-    setFormAdding(false)
-  }
-
-  // Stateless "verify before save": probe the endpoint straight from the
-  // current form values via /test-config — nothing is persisted, so the
-  // user can fix a wrong key / url / model without polluting stored config.
-  const handleTestForm = async () => {
-    if (!showForm || !formKey.trim()) { setError(t('settings.provider.enterApiKeyShort')); return }
-    setFormTesting(true)
-    setFormTestResult(null)
-    try {
-      const res = await authFetch(providerUrl('/test-config'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          card_type: showForm,
-          api_key: formKey.trim(),
-          base_url: formUrl.trim(),
-          auth_type: formAuth,
-          models: formModels,
-        }),
-      }).then((r) => r.json()).catch(() => ({}))
-      // On 401/422 the body is { detail }, not { success, message } — fall
-      // back so we never render an empty red line (a blank "failure").
-      const msg = res.message
-        || (typeof res.detail === 'string' ? res.detail : null)
-        || t('settings.provider.networkError')
-      setFormTestResult({ ok: !!res.success, msg })
-    } catch {
-      setFormTestResult({ ok: false, msg: t('settings.provider.networkError') })
-    }
-    setFormTesting(false)
-  }
-
   const handleDelete = async (id: string) => {
     await authFetch(providerUrl(`/${id}`), { method: 'DELETE' })
     await refreshConfig()
@@ -506,14 +444,6 @@ export function ProviderSettings() {
 
   // Local slot change. Preserves the slot's reasoning params: switching
   // provider/model must not silently reset Thinking/Reasoning Effort.
-
-  const openForm = (protocol: 'anthropic' | 'openai') => {
-    setShowForm(protocol)
-    setFormName('')
-    setFormUrl(protocol === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')
-    setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
-    setFormTesting(false); setFormTestResult(null)
-  }
 
   // ---- Full view (always expanded) ----
   return (
@@ -909,89 +839,7 @@ export function ProviderSettings() {
           </div>
           </>)}
 
-          {addMethod === 'custom' && (
-          <div className="space-y-4">
-            {/* Step 1: pick the protocol; the fields only appear after that. */}
-            <div>
-              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.protocolLabel')}</label>
-              <select
-                value={showForm || ''}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (!v) setShowForm(null)
-                  else openForm(v as 'anthropic' | 'openai')
-                }}
-                className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-              >
-                <option value="">{t('settings.provider.selectProtocol')}</option>
-                <option value="openai">{t('settings.provider.protocolOpenai')}</option>
-                <option value="anthropic">{t('settings.provider.protocolAnthropic')}</option>
-              </select>
-            </div>
-
-            {/* Step 2: the endpoint fields (shown once a protocol is chosen). */}
-            {showForm && (
-              <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
-                <p className="text-sm text-[var(--text-tertiary)]">
-                  {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
-                    <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
-                      placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
-                      className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                  </div>
-                  {showForm === 'anthropic' ? (
-                    <div>
-                      <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
-                      <select value={formAuth} onChange={(e) => { setFormAuth(e.target.value as 'api_key' | 'bearer_token'); setFormTestResult(null) }}
-                        className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                        <option value="api_key">{t('settings.provider.authApiKey')}</option>
-                        <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
-                      </select>
-                    </div>
-                  ) : <div />}
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
-                  <input type="text" value={formUrl} onChange={(e) => { setFormUrl(e.target.value); setFormTestResult(null) }}
-                    placeholder={t('settings.provider.baseUrl')}
-                    className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
-                  <input type="password" value={formKey} onChange={(e) => { setFormKey(e.target.value); setFormTestResult(null) }}
-                    placeholder={t('settings.provider.yourApiKey')}
-                    className="w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
-                  <ModelBubbleInput
-                    models={formModels}
-                    onChange={(m) => { setFormModels(m); setFormTestResult(null) }}
-                    suggestions={MODEL_SUGGESTION_GROUPS}
-                  />
-                </div>
-                {formTestResult && (
-                  <p className={cn('text-sm', formTestResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
-                    {formTestResult.msg}
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <button onClick={handleTestForm} disabled={formTesting || formAdding || !formKey.trim()}
-                    className="px-4 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors">
-                    {formTesting ? '...' : t('settings.provider.testConnection')}
-                  </button>
-                  <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                    className="flex-1 py-2.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                    {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          )}
+          {addMethod === 'custom' && <CustomEndpointForm onComplete={refreshConfig} />}
 
           {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
           </div>

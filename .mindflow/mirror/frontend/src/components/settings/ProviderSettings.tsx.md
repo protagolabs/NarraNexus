@@ -3,6 +3,41 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-08-24
 ---
 
+## 2026-08-24 (2) — custom tab 改为渲染 CustomEndpointForm，删掉内联表单
+
+Add-provider 弹窗的 "custom" tab（协议 select → name/auth_type/base_url/
+api_key/models → test → submit 那整段）不再内联渲染，改成：
+
+```tsx
+{addMethod === 'custom' && <CustomEndpointForm onComplete={refreshConfig} />}
+```
+
+`CustomEndpointForm`（`components/providers/CustomEndpointForm.tsx`，上一个
+任务抽出）是自包含组件——自己的 protocol/name/url/key/auth/models/testing
+state，自己通过 `providerApi.ts` 的 `addProvider`/`testProviderConfig` 打
+后端，只需要一个 `onComplete` 回调。
+
+一并删除了只为驱动旧内联表单存在的死代码：
+- state：`showForm` `formName` `formUrl` `formKey` `formAuth` `formModels`
+  `formAdding` `formTesting` `formTestResult`
+- handler：`handleAddProtocol`（POST 保存）、`handleTestForm`（POST
+  `/test-config` 连通性探测）、`openForm`（协议切换时重置表单）
+
+**`error`/`setError`（组件级 state）保留，没有删。** 逐个 grep 确认后发现
+它不是 custom tab 专属——同一个 `addProvider()` 辅助函数（本文件的顶层
+POST helper，非 `providerApi.ts` 那个同名导出）仍被 `handleAddClaudeOAuth`
+/ `handleSaveSetupToken` / `handleAddCodexOAuth` 调用，这三个是 oauth tab
+（Claude/Codex CLI 登录卡）的活代码，本次任务范围之外、留到后续任务再抽。
+`addProvider` 内部的 `setError(...)` 调用因此仍是活的，`error` 的渲染
+（`{error && <p ...>}`，弹窗底部，三个 tab 共用同一行）也保留原位不动。
+只是 `handleAddProtocol`/`handleTestForm`/`openForm` 里那几处 `setError`
+调用随函数整体删除——它们是 custom tab 专属的调用点，不是 `error` state
+本身。
+
+验证：`tsc -b --noEmit`（0 条 ProviderSettings 相关报错）、`eslint`（0
+报错/警告，含未使用变量检查，证明删除是完整的）、
+`zh-localization.test.ts`（3/3 pass，未改动该测试）。
+
 ## 2026-08-24 (1) — ModelBubbleInput / ModelSuggestionChips 搬到 providers/
 
 提交 `22e59e21` 把 `ModelBubbleInput` 和 `ModelSuggestionChips` 原样搬出本文
