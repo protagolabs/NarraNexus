@@ -6,9 +6,13 @@ stub: false
 
 ## 2026-08-21 — 直播块顶部渲染 [[ResumedRunChip]](深圳复测 B1)
 
-`resumedRun`(来自 chatStore flat fields)非空时,在直播回复气泡上方
-渲染「已续接进行中的任务 · 已运行 N 分」chip——刷新后重连的全量重放
-从此有了身份标识,不再被读成从零重新生成。重放渲染路径零改动。
+渲染条件是 `resumedRun && resumedRun.runId === currentRunId`(#349 M4
+收紧,2026-08-24;两个字段都来自 chatStore flat fields):锚点只给
+**它自己的** run 打标——将来若出现第二条开流路径,陈旧锚点是隐形而
+不是错标到别人的轮次上(为什么这样设计见 [[../../stores/chatStore.ts]]
+的 08-24 条)。chip 在直播回复气泡上方,给刷新后重连的全量重放一个
+「同一 run 在继续」的身份标识,不再被读成从零重新生成。排查「chip
+不显示」时注意 runId 不匹配这条路径。重放渲染路径零改动。
 
 ## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
 

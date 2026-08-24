@@ -4,6 +4,16 @@ last_verified: 2026-08-24
 stub: false
 ---
 
+## 2026-08-24 (#349 M3) — `application/x-url` 也进渲染标记集
+
+URL tab 的 entry 是 `tabs/<slug>/page.url.json`——`application/x-url` 同样
+是内部渲染标记不是真 MIME。加入 `_RENDER_MARKER_KINDS` 后,raw 路由对它的
+**对外 Content-Type 从 `application/x-url` 变为 `application/json`**
+(经 guess_type 内建表,.json 不依赖平台 mime.types)。CSP 分支读的是
+`resolved.kind`(保持 `application/x-url` 不变),测试同时钉住两者。
+「哪些 kind 是渲染标记」现与前端 kindRegistry 的非静态-downloadExt 集合
+一致——r1 两边曾漂移一轮,同步机制目前是注释互指。
+
 ## 2026-08-21 — 渲染标记 kind 不再当传输 MIME(深圳复测 .bin bug 后端面)
 
 entry 的 `media_type` 原来无条件 = `art.kind`,但
@@ -45,8 +55,11 @@ verification and response headers (CSP). Covered by
   be the whole workspace — Bootstrap.md and every other artifact's files).
   The entry's own basename is tolerated as an alias of the entry.
 - Sub-paths are realpath-confined to the artifact root.
-- Media type: entry serves as the artifact's `kind`; assets are guessed via
-  `mimetypes` (the kind describes the entry, not a sibling style.css).
+- Media type: entry serves as the artifact's `kind` — EXCEPT render-marker
+  kinds (`_RENDER_MARKER_KINDS`: officecli-live, x-url), whose transport type
+  derives from the entry's extension (2026-08-21/24 entries above); assets are
+  guessed via `mimetypes` (the kind describes the entry, not a sibling
+  style.css).
 
 ## Error contract (the frontend depends on it)
 
