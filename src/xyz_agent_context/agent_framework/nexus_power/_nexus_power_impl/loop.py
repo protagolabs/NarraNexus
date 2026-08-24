@@ -87,6 +87,15 @@ class NexusPowerLoop:
     """One instance runs one turn (no cross-turn state: stateless worker)."""
 
     def __init__(self, assembly: Any, ledger: TurnLedger) -> None:
+        # `assembly` is intentionally `Any`: typing it `LoopAssembly` would put
+        # every `a.<seat>` access under the checker, which surfaces pre-existing
+        # protocol-completeness gaps unrelated to this change (ExpressionPolicy
+        # has no `names`, ToolExecutor no `spec_for`, stream_step returns a bare
+        # AsyncIterator with no `aclose`). Tightening it is worth doing but is its
+        # own PR — see reference/self_notebook/todo. So the loop's `a.wait.pending`
+        # is NOT statically checked here (only LoopAssembly's construction site
+        # is); a producer must not assume it is, and must clamp through
+        # WaitRequest.request rather than trust a raw write (see WaitState).
         self._a = assembly
         self._ledger = ledger
         self._closed = False
@@ -257,6 +266,15 @@ class NexusPowerLoop:
                     )
                 )
 
+                # Read-and-clear the wait request ONCE, here, before DRAIN. If a
+                # steered message arrived THIS step, the non-blocking drain below
+                # takes it and `continue`s — that satisfies the wait (the agent
+                # asked to wait FOR input; input arrived), so the request must not
+                # survive to a later step and then block on stale intent. Clearing
+                # it up here is that guarantee; the WAIT boundary uses the local.
+                wait_secs = a.wait.pending
+                a.wait.pending = None
+
                 # ---- DRAIN_STEERING ---------------------------------------
                 injected = await a.steering.drain()
                 if injected:
@@ -290,6 +308,38 @@ class NexusPowerLoop:
                             track="ui", seq=-1, type=TYPE_STEER_CONSUMED,
                             payload={"ids": consumed},
                         )
+                    continue
+
+                # ---- WAIT_FOR_INPUT ---------------------------------------
+                # Opt-in: the agent called `wait_for_input` this step, asking to
+                # HOLD the turn open for new input instead of ending it. Reached
+                # only if the drain above was EMPTY (a same-step message already
+                # satisfied and cleared the request); BEFORE stop (a requested
+                # wait must beat the close). `wait_secs` was read-and-cleared once
+                # above, so a stale request can never carry to a later step.
+                if wait_secs is not None:
+                    secs = wait_secs
+                    waited = await a.steering.wait_for_input(secs, a.cancel)
+                    if waited:
+                        ledger.record_steering(waited)  # input arrived -> rides next step
+                        # Report consumption too (wait_for_input tracked the ids
+                        # via the same _take_one as drain), so a message steered
+                        # into a WAITING run advances the producer's cursor — same
+                        # signal, same direct-yield, as DRAIN_STEERING above.
+                        consumed = a.steering.take_consumed()
+                        if consumed:
+                            yield LoopEvent(
+                                track="ui", seq=-1, type=TYPE_STEER_CONSUMED,
+                                payload={"ids": consumed},
+                            )
+                    elif not a.cancel.requested():
+                        # timeout -> tell the agent so it wraps up (a cancel-driven
+                        # empty return skips the notice: the cancellation
+                        # boundary at the top of the loop will interrupt).
+                        ledger.record_steering([{
+                            "role": "user",
+                            "content": NexusPowerPrompts.wait_timed_out(int(secs)),
+                        }])
                     continue
 
                 # ---- STOP_CHECK -------------------------------------------

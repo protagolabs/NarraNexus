@@ -13,11 +13,25 @@ append-only by contract (a prefix mutation would void the prompt cache).
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
     ProviderMessage,
     STEER_ID_KEY,
 )
+from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+    CancellationSignal,
+)
+
+#: How often ``wait_for_input`` re-checks cancellation while blocking. A long
+#: wait must still respond to a stop promptly, so the blocking get() is sliced:
+#: this bounds the cancel-latency without busy-spinning. 0.1s is a deliberate
+#: simplicity choice over racing the get against a cancel-future: CancellationSignal
+#: is a poll-only ``requested()`` view (no awaitable to select on), so a periodic
+#: re-check is the honest fit. TODO(perf, only if it ever matters): if a signal
+#: that exposes an awaitable lands, swap the slice loop for a single
+#: ``asyncio.wait({get, cancel_event})`` and drop the poll constant.
+_WAIT_CANCEL_POLL_S = 0.1
 
 
 class NullSteeringInlet:
@@ -27,6 +41,14 @@ class NullSteeringInlet:
         return []
 
     def take_consumed(self) -> list[str]:
+        return []
+
+    async def wait_for_input(
+        self, timeout: float, cancel: Optional[CancellationSignal] = None
+    ) -> list[ProviderMessage]:
+        # No producer can ever feed this inlet, so a wait would only burn the
+        # timeout to no purpose — report the timeout at once (empty). The agent
+        # that asked to wait learns "nothing arrived" immediately and closes.
         return []
 
 
@@ -83,6 +105,16 @@ class QueueSteeringInlet:
         # is never acked (never lost). A private, transport-only key.
         self._consumed_ids: list[str] = []
 
+    def _take_one(self, msg: ProviderMessage) -> ProviderMessage:
+        """Strip the platform bookkeeping key (the model never sees it) and
+        record it as consumed, returning the clean message. Shared by ``drain``
+        and ``wait_for_input`` so both report consumption. A message without one
+        (tests, a non-steer producer) tracks nothing."""
+        steer_id = msg.pop(STEER_ID_KEY, None) if isinstance(msg, dict) else None
+        if steer_id is not None:
+            self._consumed_ids.append(steer_id)
+        return msg
+
     async def drain(self) -> list[ProviderMessage]:
         drained: list[ProviderMessage] = []
         while True:
@@ -90,16 +122,67 @@ class QueueSteeringInlet:
                 msg = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 return drained
-            # Strip the platform bookkeeping key (the model never sees it) and
-            # record it as consumed. A message without one (tests, a non-steer
-            # producer) tracks nothing.
-            steer_id = msg.pop(STEER_ID_KEY, None) if isinstance(msg, dict) else None
-            if steer_id is not None:
-                self._consumed_ids.append(steer_id)
-            drained.append(msg)
+            drained.append(self._take_one(msg))
 
     def take_consumed(self) -> list[str]:
         """The steer_inbox ids consumed since the last call, then cleared.
-        The loop calls this after ``drain`` to report consumption exactly once."""
+        The loop calls this after ``drain`` / ``wait_for_input`` to report
+        consumption exactly once."""
         ids, self._consumed_ids = self._consumed_ids, []
         return ids
+
+    async def wait_for_input(
+        self, timeout: float, cancel: Optional[CancellationSignal] = None
+    ) -> list[ProviderMessage]:
+        """Block up to ``timeout`` seconds for the next message, then fuse it
+        with whatever else is queued by then. Two outcomes only (the Owner's
+        contract): a non-empty list (input arrived) or ``[]`` (timeout / cancelled).
+
+        Fast path: if the queue already has messages, return them without
+        waiting. Otherwise a single ``queue.get()`` task is awaited in slices so
+        cancellation is honoured within ``_WAIT_CANCEL_POLL_S`` rather than only
+        at the deadline. Reusing ONE get task across slices (instead of
+        ``wait_for(queue.get(), slice)`` per slice) closes the classic hazard
+        where a timed-out ``get`` drops an item it had already dequeued: the
+        pending get is cancelled only if it never completed, so a message is
+        either returned or left on the queue — never consumed and lost
+        (iron rule #16). Consumed ids are tracked (via ``_take_one``) exactly
+        like ``drain``, so a message steered into a WAITING run advances the
+        producer's cursor too."""
+        drained = await self.drain()
+        if drained:
+            return drained
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        get_task: "asyncio.Task[ProviderMessage]" = asyncio.ensure_future(
+            self._queue.get()
+        )
+        try:
+            while True:
+                if cancel is not None and cancel.requested():
+                    return []
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    # Deadline: one last non-blocking sweep before giving up. A
+                    # message that resolved the pending get in the final slice is
+                    # sitting in the queue (get_task has not dequeued it — had it,
+                    # the done() branch above would have returned it), so drain()
+                    # takes it NOW instead of leaving the agent told "nothing
+                    # arrived" only to see it on the next step's DRAIN. get_nowait
+                    # has no await point, so it cannot race the still-pending
+                    # get_task; the finally then cancels that get, and with the
+                    # queue already emptied that drops nothing. Empty in the common
+                    # timeout case → [] → the loop injects the wrap-up notice.
+                    return await self.drain()
+                await asyncio.wait(
+                    {get_task}, timeout=min(_WAIT_CANCEL_POLL_S, remaining)
+                )
+                if get_task.done():
+                    # Strip + track the first item too (it bypassed drain).
+                    first = self._take_one(get_task.result())
+                    return [first, *await self.drain()]
+        finally:
+            # Only a get that never dequeued is still pending here (the done
+            # branch returns inline), so cancelling it cannot drop a message.
+            if not get_task.done():
+                get_task.cancel()

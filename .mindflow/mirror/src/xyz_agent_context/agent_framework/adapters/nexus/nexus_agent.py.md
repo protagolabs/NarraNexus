@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `_build_request_payload` 写 `options.steerable`
+
+payload 的 options 里加 `steerable = kwargs.get("steering") is not None`——把"这轮可不可控"这个**已有**决定(driver 是否拿到 `SteerChannel`,与 `_open_steer_transport` 决定 stdin 保持打开还是关闭是同一判据)显式带过序列化边界给 runner。runner 每轮都挂 inlet,单靠 inlet 身份判不出可控性;`wait_for_input` 工具的暴露门(见 [[options.py]] / assembly `_steer_channels`)据此 flag 而非 inlet 身份。单一真值来源,别在别处再造第二个。
 
 ## 2026-08-20 — warmup() + _schedule_pool_prewarm()：启动时预填 warm-runner 池
 

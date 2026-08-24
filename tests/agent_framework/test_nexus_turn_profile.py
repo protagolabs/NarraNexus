@@ -61,6 +61,20 @@ def test_voice_fast_profile_applies_knobs(anthropic_slot):
     assert options["expression_nudge"] is True
 
 
+def test_steerable_follows_the_registered_steer_channel(anthropic_slot):
+    # The UPSTREAM half of the wait-tool gate (C1). The driver stamps
+    # options.steerable from whether a live steer channel was handed in — the
+    # SAME `steering` kwarg that keeps the runner's stdin open (nexus_agent
+    # _open_steer_transport) and that _run_inprocess builds its inlet from. The
+    # downstream gate tests (test_steering_wiring) construct TurnOptions
+    # directly and never exercise THIS line, so without this a regression here
+    # (steering renamed, kwargs not threaded, flag forced) leaves CI green while
+    # wait_for_input silently (dis)appears in production. Pin both arms at the
+    # source. `is`, not `==`: this must stay a real bool.
+    assert _payload(agent_id="a1")["options"]["steerable"] is False
+    assert _payload(agent_id="a1", steering=object())["options"]["steerable"] is True
+
+
 def test_wire_dict_form_behaves_like_model(anthropic_slot):
     profile = TurnProfile(prompt_mode="minimal", reasoning_effort="minimal")
     for form in (profile, profile.model_dump()):
