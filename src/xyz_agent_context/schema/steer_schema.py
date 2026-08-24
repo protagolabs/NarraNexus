@@ -10,13 +10,25 @@ job is DECOUPLING, not durability: the running loop drains ONE store
 instead of reaching into each producer's native home. That matters
 because the producers are heterogeneous — a team room post already lives
 in ``bus_messages``, but an owner-chat interjection is not a bus message
-at all (it runs the chat memory path), so "just query bus_messages"
-would miss half the producers, and every new source would add another
-special case in the feeder. Same outbox/inbox pattern the codebase
-already uses for ``instance_artifact_events``. (IM producers are out of
-scope for v1.) A producer writes one of these keyed by the target run;
-the transport drains the run's unconsumed rows into its ``SteeringInlet``
-at the next step boundary.
+at all, so "just query bus_messages" would miss half the producers, and
+every new source would add another special case in the feeder. Same
+outbox/inbox pattern the codebase already uses for
+``instance_artifact_events``. (IM producers are out of scope for v1.) A
+producer writes one of these keyed by the target run; the transport drains
+the run's unconsumed rows into its ``SteeringInlet`` at the next step
+boundary.
+
+NOTE (2026-08-24): the owner-chat producer's FIRST landing (the chat
+WebSocket, PR #355) does NOT go through this inbox — it pushes the
+interjection straight into the in-flight run's in-process ``SteerChannel``
+(ephemeral, bounded on the WS write edge by the same MAX_CONTENT_BYTES /
+MAX_UNCONSUMED_PER_RUN this repo defines). So for that path the
+interjection's EFFECT persists (it rides the turn and shapes the assistant
+reply, which chat memory does save), but the literal owner message is not
+itself written to chat memory yet — persisting it on consumption (for
+refresh-history fidelity + next-turn recall) is a scoped follow-up, not the
+current behaviour. Do not read this inbox as the owner-chat path of record
+until that lands.
 
 ``consumed_at`` is the OTHER thing the bus cannot lend: a per-RUN consume
 cursor. The bus's ``last_processed_at`` is per ``(agent, channel)`` and

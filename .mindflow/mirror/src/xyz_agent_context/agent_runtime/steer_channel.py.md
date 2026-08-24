@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/steer_channel.py
-last_verified: 2026-08-22
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `STEER_PROVENANCE_RULE` 措辞订正:`owner_chat` 豁免
+
+原 docstring 写「imported by **every** producer (bus/chat/IM)」——与 owner_chat 单聊(PR #355)不装它的实现矛盾。订正为:该反伪造规则**仅当 producer 把非 owner 路由进 run 时**必装(挡队友/IM peer 把自己的话伪装成 owner)。**`owner_chat` 明确豁免**:发送方就是 owner(其 agent 唯一权威),无跨权威边界可伪造,规则是 no-op。一旦有 producer 把**非 owner** 路由进某 channel,它即变必需。见 [[websocket.py]] `_route_steer` 的同款注释。
 
 # steer_channel.py — orchestrator 往运行中 run 推消息的句柄
 

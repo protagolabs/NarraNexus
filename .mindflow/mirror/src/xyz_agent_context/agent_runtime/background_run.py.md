@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — drive() 透传 steering(单聊 owner 运行中插话)
+
+`BackgroundRun.__init__` 加 `steering: Optional[Any] = None`(存 `self._steering`),`drive()` 把它原样传给 `runtime.run(steering=...)`。用途:owner 单聊的 WS(见 [[websocket.py]])建一个 `SteerChannel` 递进来;运行中 owner 再发一句,`_listen_for_control` push 进这个 channel,loop 在下个 step 边界 drain,折进**同一 turn** 而不是起新 run。None → 现状不变(无运行中注入)。与 bus 同一 steering 接缝、同一个 `AgentRuntime.run` 穿到 loop 的对象。
 
 ## 2026-08-14 — chat fast mode: drive() 透传 fast_mode
 

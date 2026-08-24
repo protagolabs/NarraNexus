@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/steer_schema.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — docstring 订正:owner_chat 首落地**不走**本 inbox
+
+模块 docstring 原来把 owner-chat「跑 chat memory path」列为本 inbox 存在的理由之一。**订正**:owner_chat 的首个落地(chat WebSocket,PR #355,见 [[websocket.py]])**不经这个 inbox**——它把插话直接 push 进在飞 run 的进程内 `SteerChannel`(ephemeral,上限在 WS 写边用本 repo 同两个常量 `MAX_CONTENT_BYTES`/`MAX_UNCONSUMED_PER_RUN` 重加)。所以该路径的插话**效果**持久(它折进本轮、塑形 assistant 回复,chat memory 会存回复),但**字面 owner 消息**尚未写进 chat memory——消费时补写(刷新历史保真+下轮 recall)是**scoped follow-up**。别把本 inbox 当 owner_chat 的 path-of-record,直到那个 follow-up 落地。
 
 # steer_schema.py — 运行中插话的一条注入
 
