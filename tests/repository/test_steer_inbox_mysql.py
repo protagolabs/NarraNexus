@@ -138,5 +138,5 @@ async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeyp
     await mysql_client.insert("steer_inbox", {**base, "msg_id": "recent_pending", "content": "e", "created_at": recent})
     # Retention arm deletes old_done; orphan arm deletes the 30d-old unconsumed
     # old_orphan; the 2d-old recent_pending is kept (younger than orphan_days=7).
-    assert await repo.cleanup_older_than_days(7) == 2
+    assert await repo.cleanup_older_than_days(7, 7) == 2
     assert [p.msg_id for p in await repo.pull_unconsumed(RUN_B)] == ["recent_pending"]

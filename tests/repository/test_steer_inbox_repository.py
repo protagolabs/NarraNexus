@@ -231,7 +231,7 @@ async def test_cleanup_deletes_old_consumed_and_old_unconsumed_orphans_but_keeps
     real = await repo.pull_unconsumed("run_real")
     await repo.mark_consumed("run_real", real[-1].id)
 
-    deleted = await repo.cleanup_older_than_days(7)
+    deleted = await repo.cleanup_older_than_days(7, 7)
     assert deleted == 2  # old_done (consumed) + old_orphan (unconsumed)
 
     survivors = await db_client.execute(

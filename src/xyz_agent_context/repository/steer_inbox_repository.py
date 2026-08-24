@@ -227,16 +227,17 @@ class SteerInboxRepository:
         )
         return result if isinstance(result, int) else 0
 
-    async def cleanup_older_than_days(
-        self, days: int, orphan_days: int = 7
-    ) -> int:
+    async def cleanup_older_than_days(self, days: int, orphan_days: int) -> int:
         """Delete CONSUMED rows older than ``days`` AND UN-consumed ORPHAN rows
         older than ``orphan_days``. Returns rows deleted (best-effort; 0 on
         driver error).
 
         The family's retention contract (``channel_seen_message``,
-        ``lark_seen_message``, ``channel_trigger_audit``) — hooked to a daily
-        cleanup tick by a later PR. Two reclaim arms:
+        ``lark_seen_message``, ``channel_trigger_audit``) — run by
+        ``MessageBusTrigger._maybe_run_steer_cleanup`` (startup + daily), which
+        passes the retention bounds from its ``STEER_RETENTION_DAYS`` /
+        ``STEER_ORPHAN_DAYS`` constants (repository stays pure CRUD; the values
+        are the caller's policy). Two reclaim arms:
 
         * consumed rows past ``days`` — normal retention. ``consumed_at IS NOT
           NULL`` so a long-running turn's not-yet-injected messages are never

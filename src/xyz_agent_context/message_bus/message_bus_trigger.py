@@ -113,6 +113,7 @@ RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
 # an idle period). Worst-case idle latency ≈ POLL_MAX_INTERVAL.
 POLL_MIN_INTERVAL = 3
 POLL_MAX_INTERVAL = 12
+POLL_STEP_UP = 3
 
 #: steer_inbox retention, run by the poll loop (startup + daily). This trigger is
 #: steer_inbox's only production writer, so it owns its retention — without this
@@ -126,7 +127,6 @@ POLL_MAX_INTERVAL = 12
 STEER_RETENTION_DAYS = 3
 STEER_ORPHAN_DAYS = 7
 STEER_CLEANUP_INTERVAL_S = 24 * 3600
-POLL_STEP_UP = 3
 
 # How often the poll loop checks the cross-process wake signal while it sleeps.
 # Bounds the added latency of a send made outside this process; 0.5s keeps that
@@ -1282,12 +1282,12 @@ class MessageBusTrigger:
             # to end and release; an append after the run's orphan reclaim +
             # release would write a row nobody will ever drain. Compare handle
             # IDENTITY, not is_alive: the lane task stays alive past release, so a
-            # liveness probe would wrongly say "still here". Mismatch → skip the
-            # DB writes and ack; the messages stay pending for a fresh turn. This
-            # narrows the append race (the get_db_client + inbox.append below
-            # still yield); the rare leftover row is reclaimed by the steer_inbox
-            # retention tick's unconsumed-orphan arm (once wired — see
-            # _run_steer_cleanup / steer_inbox_repository).
+            # liveness probe would wrongly say "still here". Mismatch → perform
+            # NEITHER the DB writes NOR the acks; the messages stay pending for a
+            # fresh turn. This narrows the append race (the get_db_client +
+            # inbox.append below still yield); the rare leftover row is reclaimed
+            # by the daily steer_inbox retention tick's unconsumed-orphan arm
+            # (_maybe_run_steer_cleanup, wired in start()'s poll loop).
             if get_run_registry().live_run(agent_id, channel_id) is not run:
                 return
 
