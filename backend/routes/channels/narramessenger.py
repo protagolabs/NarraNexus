@@ -38,6 +38,7 @@ from xyz_agent_context.agent_framework.loop.broker_client import (
     executor_healthy,
     wait_until_ready,
 )
+from xyz_agent_context.agent_runtime.executor_reaper import no_live_recorded_run_for
 from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
@@ -191,7 +192,33 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
     entirely — the next POST re-warms either way.
     """
     try:
-        result = await ensure_executor(user_id)
+        # Prewarm is the RIGHT place to roll a stale executor image: it is
+        # not a run, and its whole purpose is to move cold-start out of the
+        # user's turn. Leaving the default False here would defer the
+        # replacement to this user's next turn — so the first interaction
+        # after every image rebuild would warm the OLD image, then pay a full
+        # stop + await-gone + run + wait_until_ready inline, with the prewarm
+        # wasted.
+        #
+        # No run to exclude: this is not one.
+        #
+        # Residual risk, stated rather than argued away: the verdict covers
+        # RECORDED RUNS only. A live office-watch session runs inside this
+        # same container and is invisible to it, so a replacement authorised
+        # here can take that session down. "Prewarm itself holds nothing on
+        # the container" would be the wrong argument — the authorisation is
+        # about the container, not about this caller.
+        #
+        # Accepted for now because the idle reaper already destroys such a
+        # container on its 20-minute TTL (office-watch does not refresh the
+        # admission ledger either), so this adds a trigger moment rather than
+        # a new class of failure. The fix is one liveness rule that sees
+        # non-run holders too: have watch/ensure record a lease row that
+        # live_run_elsewhere reads, so all three consumers inherit it. That
+        # belongs in its own change, not here.
+        result = await ensure_executor(
+            user_id, allow_stale_replace=await no_live_recorded_run_for(user_id)
+        )
         if result is None:  # broker vanished between guard and call
             if _owns_ledger_entry(user_id, gen):
                 _PREWARM_STATE.pop(user_id, None)
