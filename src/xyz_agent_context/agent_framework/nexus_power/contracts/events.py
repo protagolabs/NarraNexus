@@ -42,6 +42,12 @@ TYPE_PLAN = "plan"                      # ui track: full plan snapshot
 TYPE_STEP_DONE = "step_done"
 TYPE_TURN_DONE = "turn_done"
 TYPE_ERROR = "error"
+#: Transient control signal (NOT a ledger row): after draining steering the loop
+#: names the steer_inbox row ids it CONSUMED, so the transport can tell the
+#: producer to advance its cursor on consumption rather than on push. Rides its
+#: own transport line — the driver intercepts it and never forwards it onward, so
+#: it does not need a legacy-adapter translation.
+TYPE_STEER_CONSUMED = "steer_consumed"
 
 VALID_EVENT_TYPES = frozenset(
     {
@@ -56,6 +62,7 @@ VALID_EVENT_TYPES = frozenset(
         TYPE_STEP_DONE,
         TYPE_TURN_DONE,
         TYPE_ERROR,
+        TYPE_STEER_CONSUMED,
     }
 )
 

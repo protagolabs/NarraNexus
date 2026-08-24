@@ -88,6 +88,28 @@ async def test_pull_is_scoped_to_run_and_ordered_by_arrival(db_client):
 
 
 @pytest.mark.asyncio
+async def test_mark_consumed_by_msg_ids_consumes_exactly_the_named_rows(db_client):
+    # The consumer reports the EXACT msg_ids it drained (not a row-id ceiling),
+    # so the loop needs no row id threaded back through the transport.
+    repo = SteerInboxRepository(db_client)
+    await repo.append(_inj("run1", "m1"))
+    await repo.append(_inj("run1", "m2"))
+    await repo.append(_inj("run1", "m3"))
+    await repo.append(_inj("run2", "m1"))  # another run — must not be touched
+
+    n = await repo.mark_consumed_by_msg_ids("run1", ["m1", "m3"])
+    assert n == 2
+
+    assert [p.msg_id for p in await repo.pull_unconsumed("run1")] == ["m2"]
+    # run2's identically-named row is untouched (scoped by run_id).
+    assert [p.msg_id for p in await repo.pull_unconsumed("run2")] == ["m1"]
+
+    # Re-consuming is a no-op (consumed_at IS NULL guard); empty ids too.
+    assert await repo.mark_consumed_by_msg_ids("run1", ["m1"]) == 0
+    assert await repo.mark_consumed_by_msg_ids("run1", []) == 0
+
+
+@pytest.mark.asyncio
 async def test_mark_consumed_up_to_hides_only_those_at_or_below(db_client):
     repo = SteerInboxRepository(db_client)
     await repo.append(_inj("run1", "m1"))

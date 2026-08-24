@@ -38,6 +38,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
 )
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_ERROR,
+    TYPE_STEER_CONSUMED,
     TYPE_TEXT_DELTA,
     TYPE_THINKING_DELTA,
     EndReason,
@@ -260,6 +261,17 @@ class NexusPowerLoop:
                 injected = await a.steering.drain()
                 if injected:
                     ledger.record_steering(injected)
+                    # Report which steer_inbox rows were actually CONSUMED, so
+                    # the producer advances its cursor on consumption, not on
+                    # push (a message pushed but never drained is never acked,
+                    # never lost). A transient ui-track signal the transport
+                    # intercepts; empty for a source without ids.
+                    consumed = a.steering.take_consumed()
+                    if consumed:
+                        yield await self._log(LoopEvent(
+                            track="ui", seq=-1, type=TYPE_STEER_CONSUMED,
+                            payload={"ids": consumed},
+                        ))
                     continue
 
                 # ---- STOP_CHECK -------------------------------------------

@@ -30,10 +30,11 @@ from __future__ import annotations
 import asyncio
 import re
 import secrets
-from typing import Any, Dict, Optional, get_args
+from typing import Any, Awaitable, Callable, Dict, Optional, get_args
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.nexus_power.contracts.model import STEER_ID_KEY
 from xyz_agent_context.schema.steer_schema import SteerInjection, SteerSource
 
 ProviderMessage = Dict[str, Any]
@@ -139,15 +140,32 @@ class SteerChannel:
     a pump for the subprocess/remote transport."""
 
     def __init__(
-        self, run_id: str | None = None, agent_id: str | None = None
+        self,
+        run_id: str | None = None,
+        agent_id: str | None = None,
+        channel_id: str | None = None,
     ) -> None:
         # Identity is optional so tests can construct a bare channel, but the
-        # orchestrator passes both: without them the overflow warning below
-        # names a queue depth and nothing else, so on-call cannot tell WHICH of
-        # a process's many concurrent runs is the one out-pacing its drain.
+        # orchestrator passes them: without run/agent the overflow warning below
+        # names a queue depth and nothing else, and channel_id is what the
+        # consumption callback needs to advance the right lane's cursor.
         self.run_id = run_id
         self.agent_id = agent_id
+        self.channel_id = channel_id
         self.queue: "asyncio.Queue[ProviderMessage]" = asyncio.Queue()
+        # msg_id → the bus row's created_at, remembered at push so the
+        # consumption callback can advance the cursor to the newest CONSUMED
+        # message without a second query. Grows on push, pruned on consume.
+        self._created_at: Dict[str, str] = {}
+        # Set by the producer (the bus) to be told which steer_inbox rows the run
+        # actually CONSUMED (drained into its context) and the newest one's
+        # created_at, so it advances its cursor on consumption — never on push.
+        # The driver invokes it via ``deliver_consumed`` when the loop reports a
+        # drain. None = nobody is tracking consumption (tests / a producer that
+        # does not need it).
+        self.on_consumed: Optional[
+            Callable[[list[str], Optional[str]], Awaitable[None]]
+        ] = None
 
     async def push(self, inj: SteerInjection) -> None:
         # put_nowait on the run's own event loop — the queue is unbounded here
@@ -155,7 +173,12 @@ class SteerChannel:
         # edge); this queue is the already-admitted in-flight hand-off. The
         # subprocess pump consumes it with `queue.get()`; the in-process inlet
         # drains it directly.
-        self.queue.put_nowait(render_injection(inj))
+        msg = render_injection(inj)
+        # Stamp the steer_inbox row id so the loop can report consumption back;
+        # the inlet strips it before the model ever sees it (STEER_ID_KEY).
+        if inj.msg_id:
+            msg[STEER_ID_KEY] = inj.msg_id
+        self.queue.put_nowait(msg)
         qsize = self.queue.qsize()
         if qsize >= _STEER_INFLIGHT_WARN and _is_power_of_two(qsize):
             # Log on the power-of-two rungs at/after the threshold (32, 64, 128,
@@ -174,6 +197,27 @@ class SteerChannel:
     def qsize(self) -> int:
         """Pending in-flight injections — for an upstream throttle decision."""
         return self.queue.qsize()
+
+    def remember(self, msg_id: str, created_at: str) -> None:
+        """Record a pushed message's bus ``created_at`` so ``deliver_consumed``
+        can name the newest consumed message's cursor watermark without a query.
+        Called by the producer right after a successful push."""
+        self._created_at[msg_id] = created_at
+
+    async def deliver_consumed(self, ids: list[str]) -> None:
+        """The driver calls this when the loop reports which steer_inbox rows it
+        DRAINED. Resolves the newest consumed message's created_at (remembered at
+        push) and forwards both to the producer's ``on_consumed`` so the cursor
+        moves on consumption, not on push. No-op if nobody is tracking
+        (``on_consumed`` unset) or nothing was consumed."""
+        if not ids or self.on_consumed is None:
+            return
+        latest = max(
+            (c for c in (self._created_at.get(i) for i in ids) if c), default=None
+        )
+        await self.on_consumed(ids, latest)
+        for i in ids:
+            self._created_at.pop(i, None)  # consumed — free the memory
 
 
 __all__ = [

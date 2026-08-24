@@ -47,3 +47,12 @@ feeder 只 drain 一处(同 artifact_events outbox);`consumed_at` 是 bus (agent
 不是 BaseRepository 子类:自增 id、无实体主键、全是 scoped range 查询(同 artifact_event 的理由)。
 读仍返 `SteerInjection` 给 provenance 带类型。双方言 `%s` 参数化,标识符别加引号。`cleanup`/COUNT 的生
 SQL 有 MySQL twin 覆盖。
+
+## 2026-08-23(补)— mark_consumed_by_msg_ids:按 msg_id 精确消费
+
+新增 `mark_consumed_by_msg_ids(run_id, msg_ids)`:按**确切的 (run_id, msg_id) 集合**盖 consumed_at(而非 `mark_consumed`
+的行-id 天花板),因为消费端(loop)报的是它 drain 的 msg_id,不必把行 id 穿过 transport 回来(`append` 仍返 bool)。
+一次 drain 取整个队列窗口,故「精确集合」与「天花板」等价、但更直接。`IN (%s,…)` 变长占位符=新 raw SQL→配了
+MySQL twin(`test_steer_inbox_mysql`)。scoped `consumed_at IS NULL`(重复消费 no-op)、`to_datetime6_literal`(与
+created_at 同字节格式)。**这是 steer_inbox 第一个真正的生产消费点**——补上了「bus 写进来的行永远 NULL、retention
+永不生效」的 #2 洞。

@@ -104,7 +104,11 @@ def _drain_flight(t: MessageBusTrigger) -> None:
 
 
 @pytest.mark.asyncio
-async def test_route_steer_injects_into_live_run_and_advances_cursor():
+async def test_route_steer_delivers_into_the_run_but_does_not_advance_the_cursor():
+    # Delivery is a durable steer_inbox row + a push onto the live run. The cursor
+    # is NOT advanced here — a push is not proof the run READ it (the turn may end
+    # before its next drain), so acking on push would silently lose a
+    # pushed-but-never-drained message. The cursor moves only on consumption.
     bus = await _fresh_bus()
     t = _trigger(bus)
     channel = await _make_live_lane(t)
@@ -119,11 +123,44 @@ async def test_route_steer_injects_into_live_run_and_advances_cursor():
         injs = await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN)
         assert len(injs) == 1
         assert "reconsider please" in injs[0].content
-
         assert not channel.queue.empty()  # pushed onto the live run
+        # created_at remembered so the consumption callback can name the cursor.
+        assert channel._created_at  # non-empty
 
-        remaining = await bus.get_pending_messages(ME)
-        assert [m for m in remaining if m.channel_id == ROOM] == []  # cursor advanced
+        # NOT acked on push — still pending until the run reports it consumed.
+        remaining = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
+        assert len(remaining) == 1
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_ack_steer_consumed_marks_the_rows_and_advances_both_cursors():
+    # The consumption side: once the run reports draining the steer rows,
+    # _ack_steer_consumed marks them consumed AND advances the processing cursor
+    # (so the message is not re-delivered as a fresh turn) and the read cursor
+    # (so it is not left forever unread). Delete either ack and this goes red.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    channel = await _make_live_lane(t)
+    try:
+        await bus.send_message(
+            from_agent="usr_u1", to_channel=ROOM, content="please stop", mentions=[ME],
+        )
+        await t._route_steer(ME, ROOM)  # deliver (row + push), cursor NOT moved
+        m = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
+        assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN)
+
+        # The run drained it → consumption ack. Pass the canonical watermark the
+        # channel remembered at push (what production forwards via on_consumed).
+        await t._ack_steer_consumed(ME, ROOM, RUN, [m.message_id], channel._created_at[m.message_id])
+
+        # processing cursor advanced → no longer pending (no fresh-turn re-deliver)
+        assert [x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM] == []
+        # steer_inbox row stamped consumed (retention + back-pressure accounting)
+        assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN) == []
+        # read cursor advanced too → the message is no longer counted unread
+        assert await bus.count_unread(ME) == 0
     finally:
         _drain_flight(t)
 
@@ -191,12 +228,12 @@ async def test_route_steer_does_not_reinject_the_turns_own_trigger_batch():
 
 
 @pytest.mark.asyncio
-async def test_route_steer_advances_cursor_for_the_delivered_prefix_on_inbox_full(
+async def test_route_steer_delivers_the_prefix_and_leaves_the_rest_on_inbox_full(
     monkeypatch,
 ):
-    # Finding B: if the run's steer_inbox is full partway through the batch, the
-    # messages already delivered must still get the cursor advanced (so they do
-    # not ALSO start a fresh turn); only the undelivered tail stays queued.
+    # On SteerInboxFull mid-batch, the pushed prefix is delivered (into the run)
+    # and the tail stays queued. No cursor is touched either way — delivery is
+    # push, the cursor is consumption — so nothing is acked-away un-consumed.
     bus = await _fresh_bus()
     t = _trigger(bus)
     channel = await _make_live_lane(t)
@@ -221,11 +258,12 @@ async def test_route_steer_advances_cursor_for_the_delivered_prefix_on_inbox_ful
 
         await t._route_steer(ME, ROOM)
 
-        # The first was pushed and its cursor advanced; the second stays queued.
+        # The first was pushed; the second was not. Neither is acked (cursor is
+        # consumption-driven), so BOTH stay pending — the first until it is
+        # consumed, the second until a later cycle delivers it.
         assert channel.queue.qsize() == 1
         remaining = [m for m in await bus.get_pending_messages(ME) if m.channel_id == ROOM]
-        assert len(remaining) == 1
-        assert remaining[0].content == "second"
+        assert len(remaining) == 2
     finally:
         _drain_flight(t)
 

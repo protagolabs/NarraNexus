@@ -182,6 +182,30 @@ class SteerInboxRepository:
         )
         return result if isinstance(result, int) else 0
 
+    async def mark_consumed_by_msg_ids(
+        self, run_id: str, msg_ids: "list[str]"
+    ) -> int:
+        """Stamp ``consumed_at`` on the EXACT ``(run_id, msg_id)`` rows the loop
+        reported draining. Returns how many rows it consumed.
+
+        The consumer (the loop) reports the msg_ids it drained, not a row-id
+        ceiling — a drain takes the whole queued window, so marking the exact set
+        is both precise and equivalent to a ceiling here, and it needs no row id
+        threaded back through the transport (``append`` still returns a bool).
+        Scoped to ``consumed_at IS NULL`` so re-consuming is a no-op; the stamp
+        goes through ``to_datetime6_literal`` for the same byte format as
+        ``created_at`` (raw-SQL param bypasses the dict serializer)."""
+        if not msg_ids:
+            return 0
+        marks = ", ".join(["%s"] * len(msg_ids))
+        result = await self._db.execute(
+            f"UPDATE steer_inbox SET consumed_at = %s "
+            f"WHERE run_id = %s AND msg_id IN ({marks}) AND consumed_at IS NULL",
+            params=(to_datetime6_literal(utc_now()), run_id, *msg_ids),
+            fetch=False,
+        )
+        return result if isinstance(result, int) else 0
+
     async def cleanup_older_than_days(self, days: int) -> int:
         """Delete CONSUMED rows older than ``days``. Returns rows deleted
         (best-effort; 0 on driver error).

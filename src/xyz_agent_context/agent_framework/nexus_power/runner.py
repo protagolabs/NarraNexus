@@ -85,6 +85,9 @@ async def serve_turn(
         TurnRequest,
         run_turn_events,
     )
+    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+        TYPE_STEER_CONSUMED,
+    )
     from xyz_agent_context.agent_framework.nexus_power.contracts.options import TurnOptions
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
         LegacyEventAdapter,
@@ -122,6 +125,13 @@ async def serve_turn(
     legacy = options.output_mode == "legacy_dict"
     try:
         async for event in run_turn_events(request, cancellation, log=log, steering=steering):
+            # Steer-consumption is a transient control signal, not turn output —
+            # it rides its OWN line (never the {"event": …} stream) so it bypasses
+            # the legacy adapter's type whitelist (which would drop it) and the
+            # driver can intercept it without it reaching AgentRuntime.
+            if event.type == TYPE_STEER_CONSUMED:
+                await write_line({"steer_consumed": list(event.payload.get("ids", []))})
+                continue
             if legacy:
                 for translated in adapter.translate(event):
                     await write_line({"event": translated})

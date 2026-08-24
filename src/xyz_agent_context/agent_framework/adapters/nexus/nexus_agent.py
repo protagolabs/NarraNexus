@@ -387,6 +387,13 @@ class NexusAgent:
                 line = await queue.get()
                 if line is None:
                     break
+                # Steer-consumption: the loop reported which steer_inbox rows it
+                # drained. Tell the SteerChannel so the producer advances its
+                # cursor on consumption; never forwarded onward.
+                if "steer_consumed" in line:
+                    if steer_channel is not None:
+                        await steer_channel.deliver_consumed(list(line["steer_consumed"]))
+                    continue
                 event = self._line_to_event(line)
                 if event is not None:
                     yield event
@@ -422,6 +429,13 @@ class NexusAgent:
                     line = json.loads(raw.decode("utf-8"))
                 except json.JSONDecodeError:
                     logger.warning(f"[nexus_power] non-JSON runner line: {raw[:200]!r}")
+                    continue
+                # Steer-consumption rides its own line (see runner.serve_turn):
+                # tell the SteerChannel which rows the run drained so the producer
+                # advances its cursor on consumption; never forwarded onward.
+                if "steer_consumed" in line:
+                    if steer_channel is not None:
+                        await steer_channel.deliver_consumed(list(line["steer_consumed"]))
                     continue
                 event = self._line_to_event(line)
                 if event is not None:

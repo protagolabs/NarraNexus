@@ -86,6 +86,23 @@ async def test_append_dedup_pull_and_scoped_consume_roundtrip(mysql_client):
 
 
 @pytest.mark.asyncio
+async def test_mark_consumed_by_msg_ids_in_clause_on_mysql(mysql_client):
+    # The new `msg_id IN (%s, %s, …)` UPDATE — a real MySQL dialect check on the
+    # variadic placeholder list; SQLite alone cannot see a dialect error here.
+    repo = SteerInboxRepository(mysql_client)
+    await repo.append(_inj(RUN_A, "x1", "a"))
+    await repo.append(_inj(RUN_A, "x2", "b"))
+    await repo.append(_inj(RUN_A, "x3", "c"))
+    await repo.append(_inj(RUN_B, "x1", "other"))
+
+    n = await repo.mark_consumed_by_msg_ids(RUN_A, ["x1", "x3"])
+    assert n == 2
+    assert [p.msg_id for p in await repo.pull_unconsumed(RUN_A)] == ["x2"]
+    assert len(await repo.pull_unconsumed(RUN_B)) == 1  # run-scoped
+    assert await repo.mark_consumed_by_msg_ids(RUN_A, []) == 0  # empty is a no-op
+
+
+@pytest.mark.asyncio
 async def test_backlog_count_and_retention_delete_on_mysql(mysql_client, monkeypatch):
     # The COUNT-unconsumed backlog guard and the retention DELETE are both raw
     # SQL — exercise them on the real dialect (IS NULL / IS NOT NULL / < cutoff).

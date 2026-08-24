@@ -125,6 +125,12 @@ class SteeringInlet(Protocol):
 
     async def drain(self) -> list[ProviderMessage]: ...
 
+    def take_consumed(self) -> list[str]:
+        """The steer_inbox row ids drained since the last call, then cleared —
+        so the loop can report which injections the run actually consumed. An
+        inlet with no id-bearing source returns []."""
+        return []
+
 
 @runtime_checkable
 class EventLogWriter(Protocol):

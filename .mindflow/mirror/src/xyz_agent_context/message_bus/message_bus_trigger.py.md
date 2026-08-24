@@ -1572,3 +1572,45 @@ ack 不会把 `_route_steer` 推进过的游标拉回。回归:`test_steer_routi
 当前取值**——fan-out 从 agent 数变 agent×活跃房间数。
 **Minor**：`_agent_locks`→`_lane_locks`（存的就是 lane key）；删「Per-agent serialisation」过时首行；类 docstring
 「Finds agents」→「Finds LANES」。
+
+## 2026-08-23(补5)— 消费契约:游标随「真消费」前进(review Critical #1/#2/#3 + #5)
+
+**根因**：原 `_route_steer` 在 `push`(=put_nowait 到 asyncio.Queue,永不失败、不代表被读)后就推 bus 游标。
+loop 的 DRAIN_STEERING 在每 step 末尾、STOP_CHECK 之前——一旦决定收尾就再无第二次 drain,游标却已推过。
+三窗口(末次 drain 后 / turn 失败 / release 竞态)都能让「@了 agent、它从没看见、也不重投」→ 静默丢失。
+
+**正解(跨 5 层,team turn 走 subprocess、runner 刻意 DB-free,故消费证据经 stdout 逆流)**:
+1. producer(`SteerChannel.push`)给 provider message 盖私有键 `_steer_id=msg_id`([[model.py]] `STEER_ID_KEY`);
+   `remember(msg_id, canonical_ts(created_at))` 记游标水位。
+2. consumer(`QueueSteeringInlet.drain`,见 [[steering.py]])**剥** `_steer_id`(模型看不到)、累积到 `take_consumed()`。
+3. loop drain 后 `yield` 一个 **`TYPE_STEER_CONSUMED`** 事件(transient ui-track,见 [[loop.py]]/[[events.py]])。
+4. runner `serve_turn` 把它写成**独立行** `{"steer_consumed": ids}`(绕过 legacy adapter 白名单,见 [[runner.py]]);
+   driver `_run_subprocess`/`_run_inprocess` **拦截**该行 → `steer_channel.deliver_consumed(ids)`(见 [[nexus_agent.py]]),
+   **不**转发给 AgentRuntime。
+5. `SteerChannel.deliver_consumed` 用 `remember` 的映射取最新 created_at,回调 `on_consumed(ids, latest)`。
+6. bus 的 `on_consumed`=lambda→`_ack_steer_consumed(agent, channel, run_id, ids, latest)`:`mark_consumed_by_msg_ids`
+   (retention+背压,见 [[steer_inbox_repository.py]]) + `ack_processed` + `ack_read` 到 latest。
+
+**`_route_steer` 现在 delivery-only**:append+push+remember,**从不碰游标**。故 push-但-没-drain 的消息留 pending→
+新 turn 重投(不丢);已消费的游标已过(不双投);un-addressed 也不 ack(避免跳过更旧未消费 steered 消息)。
+
+**无 poll/turn race**:`on_consumed` 由 driver 在**turn 任务**里(迭代 turn 事件时)触发,与 turn 末尾 ack 同任务串行;
+且 `ack_processed`/`ack_read` 都是前进-only(补1/补3)。所以 read 游标也在这里推(reviewer #3 的 `steered_through`
+方案被这个更根因的消费驱动取代——两个游标同源、同任务)。
+
+**#5 消解**:`_route_steer` 不再有「已投递前缀推游标」,SteerInboxFull/任何异常都只是「投一半、其余留 pending」,
+无游标可漏→无双投。内层 `except SteerInboxFull` 仅做优雅停+日志。
+
+**Minor**:steer 水位/比较过 `canonical_ts`(space 格式串会排在所有 'T' created_at 之下,坑);`rendered_through`
+在 `get_recent_messages` **之后**抬到 scrollback 最新(否则 DB 往返间到达的消息既进 scrollback 又被 steer=一 turn 看两遍)。
+回归:`test_steer_routing`(delivery-only / 消费推双游标 / inbox 满留 pending / 不重投 / 前进-only)、
+`test_nexus_inprocess_steering.test_consumed_signal_flows_back...`(5 层 e2e)。
+
+## 2026-08-23(补6)— 剩余 Minor 决议
+
+- **qsize 节流(steering.py docstring 点名交给 steer-routing PR)对 bus producer 记为 N/A**:每轮 push 量由**到达率**
+  (poll 周期内新消息)决定,不是「一次把 backlog 灌进去」;真正的背压边界是 `steer_inbox` 的 `SteerInboxFull`(未消费 500 上限),
+  且现在游标随消费前进,in-flight 队列随 loop 每 step drain 收敛。故不读 `qsize()` 节流;`qsize()` 保留供未来上层用。
+- **steer 投递的 `[bus-timing]` hop 计时**:暂缺(steer 消息不产生 queue_wait/hop 记录),记为**已知观测缺口、后续补**——
+  与本 PR 的正确性正交,不阻塞;补的时候给消费 ack 一条同族计时行(延迟收益=「插话不等 turn 结束」的度量)。
+- **`_route_steer`/`_ack_steer_consumed` 每次 `await get_db_client()`**:客户端是进程/loop 单例,可忽略;不额外缓存。
