@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — `stop_executor` 返回"到底停了没有"
+
+broker 现在会在**容器自报有在途工作**时拒绝停机，返回 200 + `status: "busy"`。
+它看得见这一侧看不见的持有者 —— office-watch 会话跑在容器**内部**、不留 run 行，
+所以编排侧的 oracle（events 表）会把这个用户读成空闲。
+
+因此拒绝是**正常结果而非错误**，调用方必须能和成功区分开：当成停了的话，
+[[executor_reaper.py]] 会把该用户的 idle 戳丢掉，那个从没被停掉的容器就再也不会被
+重新考虑（"claim 了但没动手"那类泄漏，见 #340）。返回 `bool` 而不是抛异常，是因为
+它本来就不是错误路径。
+
+没配 broker 时返回 `True`：没有要停的东西，也没有要让调用方继续持有的东西。
 
 ## 2026-08-21 — `ensure_executor` 带上 `allow_stale_replace`
 

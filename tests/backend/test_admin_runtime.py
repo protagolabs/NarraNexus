@@ -187,7 +187,7 @@ async def test_status_has_required_top_level_keys(db_client, monkeypatch):
         assert set(body["executor_reaper"]) == {
             "running", "age_seconds", "stale", "task_error", "veto_installed",
             "interval_seconds", "reaped", "blind_passes", "judged", "vetoed",
-            "blind", "recheck_judged", "recheck_vetoed",
+            "blind", "recheck_judged", "recheck_vetoed", "refused_busy",
         }
     finally:
         reset_admission_controller_for_test(None)

@@ -56,7 +56,16 @@ from xyz_agent_context.schema.executor_audit import (
     EVENT_CULL_SKIPPED_BUSY,
 )
 
-StopFn = Callable[[str], Awaitable[None]]
+# Returns whether the executor actually stopped. False means the broker
+# REFUSED because the container reported work in flight — a normal outcome,
+# not an error, and one the reaper must be able to tell from success.
+#
+# Consumed as `if not await stop_fn(...)`, so a falsy return of any kind means
+# "not stopped". That polarity is the safe one: a future branch that forgets
+# to return leaves the user its idle stamp and retries next pass, whereas
+# treating silence as success drops the stamp and leaves a container that was
+# never stopped never reconsidered either (see reap_once).
+StopFn = Callable[[str], Awaitable[bool]]
 
 DEFAULT_IDLE_TTL_SEC = 1200   # 20 min (locked decision)
 DEFAULT_INTERVAL_SEC = 120
@@ -180,6 +189,7 @@ def reaper_status() -> dict:
         "blind": 0,
         "recheck_judged": 0,
         "recheck_vetoed": 0,
+        "refused_busy": 0,
         **(_LAST_PASS or {}),
     }
 
@@ -477,7 +487,7 @@ class ExecutorReaper:
         self._passes_since_audit = 0
 
     async def _report_pass(
-        self, claim: dict, recheck: dict, reaped: int
+        self, claim: dict, recheck: dict, reaped: int, *, refused: int = 0
     ) -> None:
         """Publish one pass's outcome to the L2 surfaces. Never raises.
 
@@ -506,6 +516,10 @@ class ExecutorReaper:
             self._passes_since_audit = 0
         _LAST_PASS = {
             "reaped": reaped,
+            # Stops the broker refused because the container reported work.
+            # Distinct from `vetoed` (this side's own DB verdict): non-zero
+            # here means the container saw a holder the events table cannot.
+            "refused_busy": refused,
             # Carried, not kept in a module global: staleness is judged
             # against it, and one fewer piece of resettable module state is
             # one fewer way for a test to leak into the next one.
@@ -584,6 +598,8 @@ class ExecutorReaper:
         veto = self._is_busy if isinstance(self._is_busy, _CullVeto) else None
         claim_stats = veto.take_pass_stats() if veto else {}
         reaped: list[str] = []
+        # Users the broker refused to stop because the CONTAINER reported work.
+        refused = 0
         for user_id in users:
             try:
                 # Re-checked per user, not once for the batch. claim_idle_users
@@ -609,7 +625,25 @@ class ExecutorReaper:
                     # never gets a new stamp in THIS one.
                     await self._controller.restamp_idle(user_id)
                     continue
-                await self._stop_fn(user_id)
+                if not await self._stop_fn(user_id):
+                    # The broker refused: the CONTAINER reports work this side
+                    # cannot see (an office-watch session leaves no run row).
+                    # Same handling as the busy branch above — hand the stamp
+                    # back, or a container we never stopped is also a container
+                    # we never reconsider. Counted, so the admin surface does
+                    # not report a cull that did not happen.
+                    logger.info(
+                        f"[reaper] broker refused to stop user={user_id}: the "
+                        f"container is busy; leaving its executor alone"
+                    )
+                    refused += 1
+                    await self._controller.restamp_idle(user_id)
+                    # Deliberately NOT a cull_skipped_busy row: that metric's
+                    # contract is "one row = one run this guard saved, named by
+                    # its real run id", and this refusal has no run id to name
+                    # (the holder is not a recorded run). Reported as a count
+                    # instead, via reaper_status.
+                    continue
                 reaped.append(user_id)
             except Exception as e:  # noqa: BLE001 — best-effort, must not abort
                 logger.warning(f"[reaper] failed to stop executor user={user_id}: {e}")
@@ -636,6 +670,7 @@ class ExecutorReaper:
         # the report there would show it as "not running".
         await self._report_pass(
             claim_stats, veto.take_pass_stats() if veto else {}, len(reaped),
+            refused=refused,
         )
         return reaped
 

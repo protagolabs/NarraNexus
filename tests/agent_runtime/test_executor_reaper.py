@@ -71,6 +71,7 @@ async def test_reap_once_stops_all_idle_users():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -85,6 +86,7 @@ async def test_reap_once_skips_stop_failures():
     async def stop_fn(user_id):
         if user_id == "b":
             raise RuntimeError("broker down")
+        return True
 
     controller = _FakeController(["a", "b", "c"])
     reaper = ExecutorReaper(controller, stop_fn, is_busy=None, ttl_seconds=1)
@@ -115,6 +117,7 @@ async def test_a_stop_failure_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -143,6 +146,7 @@ async def test_user_busy_in_another_process_is_not_reaped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         return user_id == "busy-elsewhere"
@@ -162,6 +166,7 @@ async def test_a_vetoed_user_keeps_its_stamp_and_is_reoffered():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     busy = {"u"}
 
@@ -187,6 +192,7 @@ async def test_user_that_became_busy_between_claim_and_stop_is_restamped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         calls["n"] += 1
@@ -343,6 +349,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _BrokenRestamp(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -357,7 +364,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
 
 
 async def _noop_stop(user_id):
-    return None
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -1014,3 +1021,48 @@ def test_the_reaper_binds_its_own_log_subject():
         "caller": "reaper",
         "consequence": "executor idle-culling is OFF",
     }
+
+
+# --------------------------------------------------------------------------
+# The broker can refuse: the container sees holders this side cannot
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
+    """The broker answers `status: busy` with a 200 when the CONTAINER reports
+    work — an office-watch session leaves no run row, so this side's oracle
+    reads the user as idle. Treating that as stopped would drop the idle stamp
+    and leave the container unreclaimed for good."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def refused_stop(user_id):
+        return False
+
+    controller = _FakeController(["u"])
+    reaper = ExecutorReaper(
+        controller, refused_stop, is_busy=None, ttl_seconds=1
+    )
+
+    assert await reaper.reap_once() == []          # not counted as reaped
+    assert controller.restamped == ["u"]            # stamp handed back
+    assert reaper_status()["refused_busy"] == 1
+    # NOT a cull_skipped_busy row: that metric's contract is one row = one run
+    # saved, named by its real run id, and this refusal has no run id to name.
+    assert audit_rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_successful_stop_still_counts(audit_rows):
+    """The other half of the pair: a stop that happened is counted and the
+    stamp stays consumed."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def real_stop(user_id):
+        return True
+
+    reaper = ExecutorReaper(
+        _FakeController(["u"]), real_stop, is_busy=None, ttl_seconds=1
+    )
+    assert await reaper.reap_once() == ["u"]
+    assert reaper_status()["refused_busy"] == 0

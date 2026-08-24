@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — broker 可以拒绝停机，本文件必须听懂
+
+`stop_fn` 的契约从 `Awaitable[None]` 变成 `Awaitable[bool]`：`False` = broker 拒绝，
+因为**容器自己**说有在途工作（见 [[broker_client.py]]）。这一侧的判活读 events 表，
+看不见 office-watch 这类不落 run 行的持有者，而**编排侧回收器的 TTL 是 20 分钟**，
+比 broker 自己的 4h 紧一个数量级 —— 所以"容器忙"这件事最先是在这条路上被撞见的。
+
+判据是 `if not await stop_fn(...)` 而不是 `is False`：极性要偏向安全的那一侧 ——
+将来某条分支忘了 return，falsy 会让该用户**留着戳、下轮重试**；而把沉默当成功会丢
+掉戳，那个从没被停掉的容器就再也不会被重新考虑。（`is False` 还等于把已退役的
+`-> None` 契约固化下来，铁律 #2。）
+
+处理方式与"判活变忙"那条分支一致：**把戳还回去**（否则一个从没被停掉的容器也就
+再也不会被重新考虑），不计入 `reaped`，并在 `reaper_status()` 里单独记
+`refused_busy`。
+
+**故意不写 `cull_skipped_busy` 行**：那个指标的契约是"一行 = 救下的一个 run，且用它
+真实的 run id 命名"，而这次拒绝**没有 run id 可命名**（持有者不是 recorded run）。
+混进去会让"数行数 = 救了几个 run"这个读法失效 —— 与当初拒绝把 `unknown` 写进
+run_id 列是同一条理由。`refused_busy` 非零意味着容器看见了 events 表看不见的持有者。
 
 ## 2026-08-21 — 判活多了第二个消费方：broker 的 stale 镜像替换判决
 

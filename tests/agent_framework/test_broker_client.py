@@ -168,3 +168,74 @@ async def test_a_deferred_stale_replacement_is_surfaced(monkeypatch):
 
     assert result.url == "http://nx-exec-a:8020"
     assert any("STALE-image" in w for w in warnings)
+
+
+@pytest.mark.asyncio
+async def test_stop_executor_reports_a_busy_refusal(monkeypatch):
+    """A refusal is a 200 with `status: busy`, not an error — so nothing
+    raises, and the only way the caller can tell is this return value."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={"status": "busy", "container_id": "c1"})
+    )
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+    assert await bc.stop_executor("a") is False
+
+
+@pytest.mark.asyncio
+async def test_stop_executor_reports_a_real_stop(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={"status": "stopped", "container_id": "c1"})
+    )
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+    assert await bc.stop_executor("a") is True
+
+
+@pytest.mark.asyncio
+async def test_stop_executor_is_a_noop_without_a_broker(monkeypatch):
+    """True, not False: there is nothing to stop and nothing for the reaper to
+    keep holding on to."""
+    monkeypatch.delenv("BROKER_URL", raising=False)
+    assert await bc.stop_executor("a") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(204),                              # empty body
+        httpx.Response(200, text="<html>gateway</html>"),  # not JSON
+        httpx.Response(200, json=["stopped"]),             # JSON, not an object
+    ],
+    ids=["empty", "not-json", "not-an-object"],
+)
+async def test_stop_executor_survives_an_unexpected_body(monkeypatch, response):
+    """A 2xx whose body is not a JSON object means "it stopped, and the broker
+    said so oddly" — never "the call failed". Reporting the opposite would
+    make the reaper log a failure for a stop that happened."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(lambda req: response)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+    assert await bc.stop_executor("a") is True

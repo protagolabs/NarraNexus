@@ -192,18 +192,42 @@ async def wait_until_ready(
         await asyncio.sleep(interval)
 
 
-async def stop_executor(user_id: str, *, timeout: float = 30.0) -> None:
-    """Tell the broker to stop this user's executor (idle-cull).
+async def stop_executor(user_id: str, *, timeout: float = 30.0) -> bool:
+    """Tell the broker to stop this user's executor (idle-cull). True if it
+    actually stopped.
 
-    No-op when no broker is configured. Best-effort: a transport error is
-    raised to the caller (the reaper), which logs and moves on — the
-    broker's own label-based reaper is the backstop for orphans.
+    The broker refuses while the CONTAINER reports work in flight, answering
+    ``status: "busy"`` with a 200 — it sees holders this side cannot (an
+    office-watch session runs inside the container and records no run). A
+    refusal is therefore a normal outcome, not an error, and the caller must
+    be able to tell it from success: treating it as stopped would drop the
+    user's idle stamp and leave the container unreclaimed for good.
+
+    No-op returning True when no broker is configured (nothing to stop, and
+    nothing for the caller to hold on to). Transport errors are raised to the
+    caller (the reaper), which logs, restamps and moves on.
     """
     base = broker_url()
     if not base:
-        return
+        return True
     endpoint = f"{base.rstrip('/')}/executors/{user_id}"
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.delete(endpoint)
         resp.raise_for_status()
+        # Defensive about the SHAPE, not the status code: a 2xx whose body is
+        # not a JSON object (a proxy's HTML error page, a bare array) would
+        # otherwise raise here and be read by the caller as "the stop failed"
+        # — reporting the opposite of what happened, for a stop that did.
+        try:
+            data = resp.json() if resp.content else None
+        except ValueError:
+            data = None
+        status = data.get("status") if isinstance(data, dict) else None
+    if status == "busy":
+        logger.info(
+            f"[broker] executor for user={user_id} is busy; not stopped "
+            f"(it holds work this side cannot see)"
+        )
+        return False
     logger.info(f"[broker] stopped idle executor user={user_id}")
+    return True
