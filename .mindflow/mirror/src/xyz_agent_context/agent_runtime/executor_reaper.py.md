@@ -4,6 +4,50 @@ stub: false
 last_verified: 2026-08-21
 ---
 
+## 2026-08-21 — 判活多了第二个消费方：broker 的 stale 镜像替换判决
+
+`no_live_recorded_run_for(user_id, active_run_id=...)` 落在本文件，因为它和空闲
+回收问的是**同一个问题**（"现在有人在用这个容器吗"）、销毁的是**同一个容器**，只是
+理由不同。分成两处问会让两边的判活口径在第一次改动时就开始漂移。
+
+**判决在编排侧算、broker 只负责听**：broker 是全系统唯一有 docker 权限的组件，
+它的威胁模型建立在"只有一个受调用方控制的输入（会被校验的 user_id）"上。为了一个
+编排侧本来就握着的事实给它发 DB 凭证，是拿安全面换便利。
+
+**必须排除提问者自己**：ensure 发生在 step 3，那时提问者的 events 行已经是
+running，不排除的话判决恒为"忙"，镜像永远滚不动 —— 把掐 run 换成"旧 executor 静默
+降级"（2026-07 mcp_servers 改名 → 空 MCP 集，不报错）。
+
+**故意保守**：同一用户的另一个在途 run 未必真在用这个容器（可能还没走到 step 3，
+或者是根本不碰 executor 的 direct-trigger run）。推迟的代价是多跑一轮旧代码、下次
+ensure 自愈；替换的代价是杀掉一个在跑的 run（铁律 #14）。
+
+**函数名说的是证据，不是结论**：叫 `no_live_recorded_run_for` 而不是
+"…is_safe"。它能看见的只有 `events` 表里的 run；容器上别的东西它一个都看不见 ——
+office_watch 的代理会话不是 run，`backend/routes/office_watch/proxy.py` 那几处
+**必须**继续吃默认 `allow_stale_replace=False`。名字写成"safe"就是在邀请下一个人
+把它传给那些调用方。
+
+**而且判决的主体是容器，不是调用方**：`allow_stale_replace=True` 授权销毁的是容器，
+要证的命题是"容器上没有任何人"。"我自己没在容器上占东西"排除不掉别的子系统的会话
+—— 今天没有任何调用方能证明前者，所以**每个传判决的调用方都在接受一个残留风险**
+（office-watch 会话被连带拆掉）。今天可以接受，是因为空闲回收器已经在 20 分钟
+idle TTL 上拆这种容器；正解是让非 run 占用者也进同一个判活口径：`watch/ensure` 落一条 lease 行，
+`live_run_elsewhere` 一起读。（细节另有本地笔记
+`reference/self_notebook/todo/…`，**未入库**，不必依赖它。）
+
+`caller` 和 `consequence` 都只用于日志，而且**签名上就是必填**（没有默认值，
+reaper 那侧用 `functools.partial` 显式绑定）：默认值必然是某一个消费方的后果文案，
+下一个漏传的消费方会静默继承它 —— 那正是这个参数被加出来要修的 bug。**新**消费方漏传就是第一次调用
+`TypeError`；reaper 这条路不是 —— 它靠 `_REAPER_LIVENESS` 绑定，而这条路上的
+TypeError 会被"一个用户的失败不中断整趟"那两处宽 catch 吞成一条 `reap pass error`
+或（更糟）`failed to stop executor`（读起来像 broker 挂了），`reaper_status()` 照样
+报健康。所以 **reaper 的绑定值由测试守**，不是由签名守
+（`test_the_reaper_binds_its_own_log_subject`）。两个消费方在"判不
+出来"时的后果不同（回收停摆 vs 镜像永不滚动），把其中一方的后果硬编码进共享函数，
+就是让另一方的告警去指错方向。`NARRANEXUS_RUN_RECORDING_DISABLED` 打开时
+stale-replace 恒判 `False`（所有用户被钉在旧镜像上），那条日志必须说的是镜像的事。
+
 ## 2026-08-21 — 回收器不再掐掉活在别的进程里的 run（prod 事故修复）
 
 **事故**：2026-07-31 prod 群聊 @ agent 后回复失败，前端 `infra_transient`。

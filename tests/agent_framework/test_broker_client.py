@@ -40,7 +40,10 @@ async def test_resolves_executor_url_from_broker(monkeypatch):
     assert result.url == "http://nx-exec-alice:8020"
     assert result.cold_started is True   # status "started" → cold
     assert captured["url"] == "http://broker:8030/executors"
-    assert captured["body"] == {"user_id": "alice"}
+    # The verdict rides along on every ensure, defaulting to the fail-safe
+    # side: a caller that has no run context can only ever delay an image
+    # roll, never authorise destroying a container in use.
+    assert captured["body"] == {"user_id": "alice", "allow_stale_replace": False}
 
 
 @pytest.mark.asyncio
@@ -100,3 +103,68 @@ async def test_missing_identity_token_reads_none(monkeypatch):
     )
     result = await bc.ensure_executor("a")
     assert result.identity_token is None
+
+
+@pytest.mark.asyncio
+async def test_the_stale_replace_verdict_reaches_the_broker(monkeypatch):
+    """A wiring test: the flag is only ever read by the broker, so nothing in
+    this process fails if it stops being sent — it just silently reverts to
+    "replace unconditionally", which is the 2026-07-31 behaviour."""
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+        captured["body"] = _json.loads(request.content)
+        return httpx.Response(
+            200, json={"status": "reused", "executor_url": "http://nx-exec-a:8020"}
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+
+    await bc.ensure_executor("a", allow_stale_replace=True)
+    assert captured["body"]["allow_stale_replace"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_deferred_stale_replacement_is_surfaced(monkeypatch):
+    """Deferring is correct, but silence is not: this user runs last deploy's
+    executor code for another turn, and a stale executor after a wire-protocol
+    change degrades runs without raising anything."""
+    from loguru import logger
+
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, json={
+            "status": "reused",
+            "executor_url": "http://nx-exec-a:8020",
+            "stale_replace_deferred": True,
+        })
+    )
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real_client(
+            transport=transport,
+            **{k2: v for k2, v in k.items() if k2 != "transport"},
+        ),
+    )
+
+    # The module logs through loguru, so caplog would see nothing.
+    warnings: list[str] = []
+    sink = logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    try:
+        result = await bc.ensure_executor("a")
+    finally:
+        logger.remove(sink)
+
+    assert result.url == "http://nx-exec-a:8020"
+    assert any("STALE-image" in w for w in warnings)
