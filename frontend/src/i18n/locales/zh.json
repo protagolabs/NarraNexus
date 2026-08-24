@@ -52,7 +52,9 @@
     "composer": {
       "selectAgentFirst": "请先选择一个智能体…",
       "dropFile": "拖放文件以添加附件…",
-      "placeholder": "输入消息，或输入 / 使用技能…"
+      "placeholder": "输入消息，或输入 / 使用技能…",
+      "steerPlaceholder": "补充给本次运行 — 你的回复会并入当前这一轮…",
+      "attachDuringRun": "运行中无法添加附件 — 可先发送文字,或等运行结束后再添加文件。"
     },
     "fastMode": {
       "label": "极速",
@@ -350,7 +352,21 @@
       "modelFramework": "模型与框架",
       "switchAgent": "切换 agent"
     },
-    "composerPrivacyHint": "请勿分享敏感个人信息。"
+    "composerPrivacyHint": "请勿分享敏感个人信息。",
+    "steer": {
+      "sendTitle": "并入本次运行(回车)",
+      "queued": "排队中…",
+      "merged": "已并入本次运行",
+      "rejected": "未送达 — {{reason}}",
+      "reason": {
+        "too_large": "消息过长",
+        "too_many_pending": "待处理过多",
+        "framework_no_steering": "该智能体不支持运行中插话",
+        "not_sent": "连接未就绪",
+        "run_ended": "运行已先结束",
+        "unknown": "未能送达"
+      }
+    }
   },
   "awareness": {
     "common": {

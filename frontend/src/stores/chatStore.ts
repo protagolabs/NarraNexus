@@ -71,6 +71,13 @@ export interface AgentChatState {
    *  (Shenzhen-r2 B1). Cleared on startStreaming; rendered only while
    *  isStreaming, so it never needs an explicit clear at settle. */
   resumedRun: { runId: string; startedAtMs: number } | null;
+  /** Whether the CURRENT run can accept a mid-run steer (from
+   *  `run_started.steerable`). Gates SENDING during a run (the composer stays
+   *  editable either way): a steerable run folds a follow-up into the same turn,
+   *  a non-steerable one holds the draft until the run ends. Also drives the
+   *  steer send-button + placeholder. Reset false on startStreaming, set on
+   *  run_started. */
+  currentSteerable: boolean;
 }
 
 /**
@@ -127,6 +134,7 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   currentEvents: Object.freeze([]) as unknown as TurnEvent[],
   currentRunId: null,
   resumedRun: null,
+  currentSteerable: false,
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -144,6 +152,7 @@ function createDefaultAgentState(): AgentChatState {
     currentEvents: [],
     currentRunId: null,
     resumedRun: null,
+    currentSteerable: false,
   };
 }
 
@@ -182,6 +191,7 @@ interface ChatState {
   currentEvents: TurnEvent[];
   resumedRun: AgentChatState['resumedRun'];
   currentRunId: string | null;
+  currentSteerable: boolean;
 
   // Actions (all accept agentId)
   setActiveAgent: (agentId: string) => void;
@@ -191,6 +201,11 @@ interface ChatState {
     attachments?: import('@/types').Attachment[],
     timestampMs?: number,
   ) => string;
+  /** Optimistic mid-run steer bubble (owner follow-up during a live run). */
+  addSteerMessage: (agentId: string, content: string, clientMsgId: string) => string;
+  /** Mark a steer bubble rejected locally (by clientMsgId) when the send never
+   *  left the client, so it doesn't hang 'queued' with no backend ack coming. */
+  markSteerRejected: (agentId: string, clientMsgId: string, reason: string) => void;
   startStreaming: (agentId: string) => void;
   stopStreaming: (agentId: string, agentName?: string, opts?: { cancelled?: boolean }) => void;
   /** Set the current run's event_id and backfill it onto the trailing
@@ -241,6 +256,29 @@ function updateSession(
   };
 }
 
+/**
+ * The single place that "recognises a steer bubble and re-stamps its status"
+ * lives. Every steer transition (local reject, steer_consumed→merged,
+ * steer_rejected→rejected, run-end sweep) flows through here so the match
+ * guard and the patch shape can't drift into subtly different copies.
+ *
+ * A message with no `steerClientMsgId` is NEVER a steer bubble, so it is always
+ * left untouched — this guard is what stops a stray `steer_rejected` whose
+ * `client_msg_id` is undefined from matching every ordinary (undefined-id)
+ * bubble on screen and flipping the whole timeline to 'rejected'. `match`
+ * receives the (always-defined) client id plus the full message so a caller can
+ * key on either (e.g. the run-end sweep keys on `steerStatus === 'queued'`).
+ */
+function patchSteerBubbles(
+  messages: ChatMessage[],
+  match: (clientMsgId: string, m: ChatMessage) => boolean,
+  patch: (m: ChatMessage) => Partial<ChatMessage>,
+): ChatMessage[] {
+  return messages.map((m) =>
+    m.steerClientMsgId && match(m.steerClientMsgId, m) ? { ...m, ...patch(m) } : m,
+  );
+}
+
 /** Derive flat fields from the active agent's session */
 function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>; activeAgentId: string }) {
   const session = getSession(state.agentSessions, state.activeAgentId);
@@ -256,6 +294,7 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     currentEvents: session.currentEvents,
     resumedRun: session.resumedRun,
     currentRunId: session.currentRunId,
+    currentSteerable: session.currentSteerable,
   };
 }
 
@@ -328,6 +367,42 @@ export const useChatStore = create<ChatState>((_set, get) => {
       return id;
     },
 
+    // Add an optimistic mid-run steer bubble (owner follow-up sent WHILE a run
+    // streams). Starts as 'queued'; processMessage flips it to 'merged'
+    // (steer_consumed) or 'rejected' (steer_rejected) by steerClientMsgId.
+    addSteerMessage: (agentId: string, content: string, clientMsgId: string) => {
+      const id = generateId();
+      const message: ChatMessage = {
+        id,
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+        steerStatus: 'queued',
+        steerClientMsgId: clientMsgId,
+      };
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+          messages: [...s.messages, message],
+        })),
+      }));
+      return id;
+    },
+
+    // Mark a steer bubble rejected locally (by clientMsgId) — used when the send
+    // never left the client (steer() returned false: the socket was no longer
+    // steerable), so the bubble doesn't hang 'queued' with no backend ack coming.
+    markSteerRejected: (agentId: string, clientMsgId: string, reason: string) => {
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+          messages: patchSteerBubbles(
+            s.messages,
+            (id) => id === clientMsgId,
+            () => ({ steerStatus: 'rejected', rejectReason: reason }),
+          ),
+        })),
+      }));
+    },
+
     // Start streaming for a specific agent
     startStreaming: (agentId: string) => {
       set((state) => ({
@@ -347,6 +422,8 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // says otherwise (markResumedRun fires AFTER this reset on the
           // reconnect path — onopen → startStreaming → run_reconnect).
           resumedRun: null,
+          // Steerability is (re)declared by run_started; assume not until then.
+          currentSteerable: false,
         })),
       }));
     },
@@ -497,9 +574,24 @@ export const useChatStore = create<ChatState>((_set, get) => {
           ? [...prevState.toastQueue, { kind: 'agent' as const, agentId, agentName: agentName || agentId, timestamp: Date.now() }]
           : prevState.toastQueue;
 
+        // Reconcile any steer bubble still 'queued' at run end: the run is over
+        // and will emit no further steer_consumed/steer_rejected for it (a steer
+        // that arrives after the loop's final turn is never drained, and error /
+        // circuit-open paths end the run with no ack at all), so a bubble left
+        // 'queued' would hang forever. Flip it to 'rejected' with reason
+        // 'run_ended' so the three-state invariant ("never a silently hung
+        // queued") holds on every termination path, not just the ack paths.
+        const reconciledMessages = patchSteerBubbles(
+          session.messages,
+          // Only bubbles still awaiting an ack — a 'queued' bubble never carries
+          // a rejectReason yet, so we stamp 'run_ended' outright.
+          (_id, m) => m.steerStatus === 'queued',
+          () => ({ steerStatus: 'rejected', rejectReason: 'run_ended' }),
+        );
+
         return {
           agentSessions: updateSession(prevState.agentSessions, agentId, () => ({
-            messages: [...session.messages, assistantMessage],
+            messages: [...reconciledMessages, assistantMessage],
             currentSteps: completedSteps,
             history: newHistory,
             isStreaming: false,
@@ -532,9 +624,60 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // reconnect (which uses run_reconnect instead), so we never
           // mistakenly reset on a same-run reconnect.
           get().setCurrentRunId(agentId, message.run_id);
+          // Record whether this run accepts a mid-run steer — gates SENDING for
+          // the run's duration (the composer stays editable regardless).
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, () => ({
+              currentSteerable: message.steerable === true,
+            })),
+          }));
           useBookmarkStore.getState().onRunStart(agentId);
           break;
         }
+        case 'steer_queued': {
+          // The backend accepted a mid-run follow-up into the run. The optimistic
+          // bubble was already added as 'queued' at send time (addSteerMessage);
+          // this ack just confirms it, so nothing to change. (Kept explicit so a
+          // future "sending…" → "queued" transition has a home.)
+          break;
+        }
+        case 'steer_consumed': {
+          // The run actually folded these follow-ups into the turn — flip their
+          // bubbles from 'queued' to 'merged' by the ids the client minted.
+          const ids = new Set(message.ids || []);
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+              messages: patchSteerBubbles(
+                s.messages,
+                (id) => ids.has(id),
+                () => ({ steerStatus: 'merged' }),
+              ),
+            })),
+          }));
+          break;
+        }
+        case 'steer_rejected': {
+          // Bounds (too large / too many pending) or the framework can't steer —
+          // mark that bubble rejected so the user sees it did NOT land (never a
+          // silently hung 'queued').
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+              messages: patchSteerBubbles(
+                s.messages,
+                (id) => id === message.client_msg_id,
+                () => ({ steerStatus: 'rejected', rejectReason: message.reason }),
+              ),
+            })),
+          }));
+          break;
+        }
+        case 'run_reconnect':
+          // Normally absorbed upstream (wsManager.translateReconnectFrame
+          // returns null for run_reconnect, so it never reaches here). Kept as
+          // an explicit no-op — a reconnected session holds no live channel, so
+          // there is deliberately no bubble/steer state to change — rather than
+          // relying on the switch's silent fall-through to say the same thing.
+          break;
         case 'progress': {
           const progress = message as ProgressMessage;
           set((state) => {

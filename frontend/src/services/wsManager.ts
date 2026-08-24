@@ -29,6 +29,10 @@ interface ConnectionEntry {
   userId?: string;
   agentName?: string;
   onComplete?: OnCompleteCallback;
+  // Whether this run can accept a mid-run steer (from run_started.steerable).
+  // Gates the steer() send + the placeholder. Set on run_started; a completed
+  // run is never steerable (steer()/isSteerable() also check `completed`).
+  steerable?: boolean;
 }
 
 type OnCompleteCallback = (agentId: string) => void;
@@ -162,6 +166,7 @@ class WebSocketManager {
         // the backoff counter — this connection reached the server fine.
         if (message.type === 'run_started' && message.run_id) {
           entry.runId = message.run_id;
+          entry.steerable = message.steerable === true;
           this.reconnectAttempts.delete(agentId);
         }
 
@@ -499,6 +504,42 @@ class WebSocketManager {
     if (entry && entry.ws.readyState === WebSocket.OPEN) {
       entry.ws.send(JSON.stringify({ action: 'stop' }));
     }
+  }
+
+  /**
+   * Send a mid-run follow-up ("steer") over the live run's socket so it folds
+   * into the SAME turn instead of starting a fresh run. Returns true if it was
+   * actually sent (an open, steerable, not-yet-completed run existed); false
+   * otherwise — the caller must handle a false itself (ChatPanel marks the
+   * optimistic bubble rejected). It does NOT fall back to a fresh run: that
+   * would `close()` the live socket and abort the very run the user is trying
+   * to add to. The backend acks with steer_queued / steer_rejected, then
+   * steer_consumed once the run reads it.
+   */
+  steer(agentId: string, inputContent: string, clientMsgId: string): boolean {
+    if (MOCK_ENABLED) return false;
+    const entry = this.connections.get(agentId);
+    if (
+      !entry ||
+      !entry.steerable ||
+      entry.completed ||
+      entry.ws.readyState !== WebSocket.OPEN
+    ) {
+      return false;
+    }
+    entry.ws.send(JSON.stringify({
+      action: 'steer',
+      input_content: inputContent,
+      client_msg_id: clientMsgId,
+    }));
+    return true;
+  }
+
+  /** Whether the agent's live run can accept a mid-run steer (run_started said
+   *  so AND the run has not completed — a finished run can't drain a steer). */
+  isSteerable(agentId: string): boolean {
+    const entry = this.connections.get(agentId);
+    return entry?.steerable === true && !entry.completed;
   }
 
   /** Close a specific agent's connection */

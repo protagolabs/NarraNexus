@@ -18,6 +18,9 @@ stub: false
 **真实开始时间**。`startStreaming` 清空(重连流程是 onopen→startStreaming
 →run_reconnect,清空发生在写入前,顺序安全);渲染只在 isStreaming 时,
 settle 无需显式清。透传进 flat fields(`deriveFlatFields`)。
+## 2026-08-24 — steer 三态 + currentSteerable
+
+AgentChatState 加 `currentSteerable`(run_started 设、startStreaming 重置 false、进 deriveFlatFields 让 ChatPanel reactive)。新增 `addSteerMessage(agentId,content,clientMsgId)`=乐观 `queued` 气泡;`markSteerRejected(agentId,clientMsgId,reason)`=按 `steerClientMsgId` 就地翻 `rejected`+`rejectReason`,供**发送根本没离开客户端**(`steer()` 返 false)时用——后端不会来 ack,故本地标红,不让气泡永远挂 `queued`(与后端 `steer_rejected` 帧殊途同归,无匹配 id 时无害 no-op)。processMessage:`steer_consumed{ids}`→把 `steerClientMsgId∈ids` 的气泡翻 `merged`;`steer_rejected{client_msg_id,reason}`→翻 `rejected`+`rejectReason`;`steer_queued`/`run_reconnect` no-op(乐观气泡已 queued;重连不可 steer)。无匹配 id 的 consumed 是无害 no-op。**run 收尾兜底**:`stopStreaming` 里把仍 `queued` 的 steer 气泡统一翻 `rejected`+`rejectReason='run_ended'`——run 已结束、不会再来 `steer_consumed/steer_rejected`(晚到、跑完没 drain 的 steer,或 error/circuit-open 无 ack 收尾),否则气泡永挂 `queued`,违反三态不变量;已 resolve 的(merged/rejected)不动。`not_sent`/`run_ended` 两个 client 侧 reason 在 `chat.steer.reason.*` 有 i18n key(否则前端直显裸 token)。**四处「按 steerClientMsgId 认气泡+翻状态」的 map 收敛成一个 helper `patchSteerBubbles(messages, match, patch)`**(markSteerRejected/steer_consumed/steer_rejected/stopStreaming 兜底共用):helper 内建 `m.steerClientMsgId &&` 前置守卫——一条无 `steerClientMsgId` 的普通消息永不是 steer 气泡、永远不动,这道守卫挡住「后端某天发来 `steer_rejected` 而 `client_msg_id` 缺失(undefined)→命中所有 undefined-id 的历史气泡、整屏误标 rejected」;`match` 同时收(已定义的)client id 和整条 m,故收尾兜底能按 `steerStatus==='queued'` 匹配。一处定义,加第四态或新调用方(#354/team)时只改一处、守卫不漂。`run_reconnect` 分支:通常在 wsManager 上游被 translateReconnectFrame 吸收(返回 null),store 侧保留一个显式 no-op(reconnect 无 live channel、无 steer 状态可改),不靠 switch 静默兜底;`RunReconnectMessage` 也删掉了永不被读的 `steerable?` 字段(见 [[messages.ts]])。
 
 ## 2026-08-17 — 气泡提取改用 `isOwnerReplyTool`
 

@@ -24,6 +24,9 @@ reconnect 的全量重放此前没有任何「这是同一个 run 在继续」�
 输出 DB 的 **naive-UTC** ISO(无时区后缀),浏览器 `Date.parse` 会按
 本地时区解——无后缀的串显式补 'Z',带偏移的原样信任。重放协议本身
 零改动(铁律 #16:同帧同序同内容,只加呈现锚点)。
+## 2026-08-24 — mid-run steer 发送 + steerable 捕捉
+
+`run_started.steerable` 存进 `entry.steerable`;新增 `steer(agentId, content, clientMsgId)`:仅当连接在、`entry.steerable`、**`!entry.completed`**、`ws.OPEN` 才发 `{action:'steer',input_content,client_msg_id}` 并返 true;否则返 false——调用方须自行处理(ChatPanel 把乐观气泡标 `rejected`),**绝不回退新 run**(那会 `close()` 掉正在跑的这条 socket、中止用户想补话的那一轮)。`isSteerable(agentId)` 读 `entry.steerable && !entry.completed`——**跑完的 run 不可 steer**(已无法 drain),`complete`/circuit-open/error 等任一收尾路径置 `entry.completed=true` 即统一失效,无需各处重置 `steerable`。steer_queued/consumed/rejected 帧照常经 `processMessage` 进 [[chatStore.ts]]。
 
 ## 2026-08-14 — chat fast mode: 首包可带 fast_mode
 

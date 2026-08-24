@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 运行中插话(steer)帧 + ChatMessage 三态
+
+RuntimeMessage 加 `steer_queued`/`steer_rejected{reason}`/`steer_consumed{ids}`;`run_started` 加 `steerable?`。ChatMessage 加 `steerStatus?:'queued'|'merged'|'rejected'` + `steerClientMsgId?` + `rejectReason?`(owner 运行中发的 follow-up 气泡三态)。协议由后端 [[websocket.py]](PR #355)定义,前端消费。`RunReconnectMessage` **不带** `steerable` 字段:reconnect 无 live channel、结构上就不可 steer(新 entry 的 `entry.steerable` 缺省 falsy、`steer()`/`isSteerable()` 直接 false),没有任何读取点,留个字段只会诱导后来人以为翻一下就能让 reconnect 可 steer(不接 live channel 是做不到的)。
 
 ## 2026-08-01 — 两个联合类型补 `free_tier_exhausted` / `invalid_credentials`
 
