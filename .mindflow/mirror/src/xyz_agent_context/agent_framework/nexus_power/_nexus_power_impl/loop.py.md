@@ -84,3 +84,10 @@ drain 出注入并 `record_steering` 后,读 `a.steering.take_consumed()`([[stee
 `TYPE_STEER_CONSUMED`(transient ui-track、seq=-1、payload={"ids":[...]},见 [[events.py]])。这是「游标随真消费
 前进」的信号源:transport 拦截它、告诉 producer 哪些 steer_inbox 行被真读到(见 [[message_bus_trigger.py]] 补5)。
 无 id 时不发。
+
+## 2026-08-23(补2)— 消费信号的 at-most-once 残留(架构标记)
+
+「consumed」= drain 进本 turn 的 ledger、在模型真动它**之前**发信号。相对被关掉的 push-窗口的残留:子进程在这行 flush
+后、模型动作前崩溃 → 游标推进却无输出(at-most-once);`record_steering` 抛异常 → id 滞留 inlet 未上报 → 之后重投(非丢失)。
+两者都**严格窄于**每 turn 的 push-窗口。trigger 批仍 at-least-once,steer 崩溃时 at-most-once——一个后人该知道、但本 PR 不修的
+不对称。loop.py:260 有对应注释。

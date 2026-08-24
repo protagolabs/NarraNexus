@@ -23,3 +23,9 @@ DeepSeek-V4-Pro 在 120K 输入时被从 8_192 压到 3_904、130K 压到 1_024�
 # contracts/model — 方言是数据不是代码
 
 ProviderProfile 一行数据描述一家 provider(cache 方言/窗口/参数增量能力位),新 provider=加行,未知走保守默认(任何用户模型可跑,铁律 #15)。ModelEventKind 是封闭 Literal(R3):翻译层自己的词汇,构造期校验,拼错当场炸。content_index 对齐分片(pi 纪律:块事件不保证连续)。
+
+## 2026-08-23(补)— STEER_ID_KEY
+
+新增 `STEER_ID_KEY="_steer_id"`:steer producer 可在 ProviderMessage 上盖的私有键,载 steer_inbox 行 id,让 loop 能
+报「消费了哪几行」;inlet 在 drain 时剥掉(模型看不到)。定义在 ProviderMessage 契约这一层,producer([[steer_channel.py]])
+与 consumer(inlet [[steering.py]])共用同一名字、互不 reach 对方包。见 [[message_bus_trigger.py]] 消费契约。
