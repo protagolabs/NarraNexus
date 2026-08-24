@@ -3,6 +3,66 @@ code_file: frontend/src/components/settings/ProviderSettings.tsx
 last_verified: 2026-08-24
 ---
 
+## 2026-08-24 (3) — oauth tab 改为渲染 CliSignInPanel，删掉内联 Claude/Codex 登录卡
+
+Add-provider 弹窗的 "oauth" tab（Claude Code Login 卡 + Codex CLI Login 卡整
+段）不再内联渲染，改成：
+
+```tsx
+{addMethod === 'oauth' && (
+  <CliSignInPanel providers={providerList} onComplete={refreshConfig} />
+)}
+```
+
+`CliSignInPanel`（`components/providers/CliSignInPanel.tsx`，上一个任务抽
+出）是自包含组件——自己的 claudeStatus/codexStatus/setupToken 等 state，自
+己的登录/登出/setup-token handler，自己通过 `providerApi.ts` 的
+`addProvider`/`fetchClaudeStatus`/`fetchCodexStatus` 打后端，自己的错误展
+示；只需要 `providers`（复用本文件已有的 `providerList = Object.values
+(providers)`，只用到其中的 `source`/`auth_type`）和一个 `onComplete` 回调。
+
+一并删除了只为驱动旧内联 oauth 卡片存在的死代码：
+- state：`claudeStatus` `claudeLoggingIn` `claudeLoggingOut` `codexStatus`
+  `claudeLoginRemaining` `setupToken` `savingSetupToken`
+- 倒计时 `useEffect`（每秒递减 `claudeLoginRemaining`，归零调
+  `cancelClaudeLogin()`）
+- handler：`handleAddClaudeOAuth` `handleSaveSetupToken`
+  `handleAddCodexOAuth` `handleClaudeLogin` `handleClaudeLogout`
+- 模块级 helper：`formatCountdown` `formatExpiresAt`（只被删掉的 JSX 用到）
+- 模块级常量 `CLAUDE_LOGIN_TIMEOUT_SEC`（只被 `handleClaudeLogin` 用到，随
+  之一起删）
+- 派生变量：`claudeCard` `hasClaude` `claudeTokenConnected` `hasCodex`
+  （现在完全在 `CliSignInPanel` 内部从它的 `providers` prop 派生）
+
+**`error`/`setError`（组件级顶层 state）+ 顶层 `addProvider` 辅助函数（本
+文件的 POST helper，非 `providerApi.ts` 那个同名导出）这次终于删干净
+了。** 上一条目（08-24 (2)）里它俩被保留，理由是 `handleAddClaudeOAuth` /
+`handleSaveSetupToken` / `handleAddCodexOAuth` 这三个 oauth handler 还在
+调用 `addProvider`。本次把这三个 handler 整体删除后，逐个 grep 全文件确
+认：`addProvider` 再没有任何调用点，顶层 `error`/`setError` 也再没有任何
+读写点（弹窗底部 `{error && <p>...}` 那行随之一起删）——两者都是彻底死代
+码，本次一起删除。
+
+`refreshConfig` 同步简化：之前用 `Promise.all` 并发三个请求（providers 列
+表 + `/claude-status` + `/codex-status`），现在只剩 providers 列表一个请
+求——claude/codex 状态查询完全移进了 `CliSignInPanel` 自己的
+`refreshStatuses`（mount 时调一次，登录/登出/add 之后各自重调）。
+
+`@/lib/tauri` 的 import 行（`isTauri` `triggerClaudeLogin`
+`triggerClaudeLogout` `cancelClaudeLogin`）整行删除——这四个只被刚删掉的
+oauth handler/JSX 用到，现在都活在 `CliSignInPanel.tsx` 里。
+
+验证：`tsc -b --noEmit`（0 条 ProviderSettings 相关报错）、`eslint`（0
+报错/警告，含未使用变量检查，证明删除是完整的）、
+`zh-localization.test.ts`（3/3 pass；该测试仍断言本文件不含
+`'>Claude Code Login<'` 等字符串，断言仍然成立，但已经测不出什么了——留
+给 Task 8 改成断言 `CliSignInPanel.tsx`）。
+
+至此 `addMethod` 的三个 tab（onekey/oauth/custom）全部委托给独立组件
+（`OneKeyOnboard`/`CliSignInPanel`/`CustomEndpointForm`），本文件不再内联
+任何一种"添加 provider"的具体逻辑，只保留卡片网格、详情弹窗、编辑模型弹
+窗和 tab 切换外壳。
+
 ## 2026-08-24 (2) — custom tab 改为渲染 CustomEndpointForm，删掉内联表单
 
 Add-provider 弹窗的 "custom" tab（协议 select → name/auth_type/base_url/
