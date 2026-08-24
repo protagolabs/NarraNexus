@@ -3,11 +3,9 @@
     "name": "언어"
   },
   "sidebar": {
-    "chats": "채팅",
     "teams": "팀",
     "agents": "에이전트",
     "local": "로컬",
-    "dashboard": "대시보드",
     "settings": "설정",
     "system": "시스템",
     "clearHistory": "기록 지우기",
@@ -33,7 +31,10 @@
     "themeDark": "다크",
     "themeSystem": "시스템",
     "workspace": "내 워크스페이스",
-    "accountTitle": "계정"
+    "accountTitle": "계정",
+    "search": "검색",
+    "sectionWorkspace": "워크스페이스",
+    "sectionConfigure": "구성"
   },
   "chat": {
     "conversation": "대화",
@@ -702,18 +703,7 @@
       "deleteAgentFailedMessage": "에이전트 삭제 실패: {{error}}",
       "deleteAgentError": "에이전트 삭제 중 오류가 발생했습니다. 다시 시도해 주세요.",
       "deleteTeamTitle": "팀 삭제",
-      "deleteTeamMessage": "팀 \"{{name}}\"을(를) 삭제하시겠습니까? 멤버 연결은 해제되지만 에이전트 자체는 삭제되지 않습니다.",
-      "createAgentOrTeam": "에이전트 또는 팀 생성",
-      "createAgent": "에이전트 생성",
-      "createTeam": "팀 생성",
-      "manageAgents": "에이전트 관리",
-      "manageAgentsTitle": "에이전트 관리 (일괄 · 추가 / 편집 / 삭제)",
-      "teamGroupChatTitle": "{{name}} — 그룹 채팅",
-      "teamGroupChatAria": "{{name}} 그룹 채팅",
-      "refreshAgents": "에이전트 새로고침",
-      "emptyLabel": "아직 에이전트가 없습니다",
-      "emptyHint": "첫 에이전트를 만들어 대화를 시작하세요.",
-      "noAgentsShort": "아직 에이전트가 없습니다."
+      "deleteTeamMessage": "팀 \"{{name}}\"을(를) 삭제하시겠습니까? 멤버 연결은 해제되지만 에이전트 자체는 삭제되지 않습니다."
     },
     "agentRow": {
       "saveTitle": "저장 (Enter)",
@@ -742,13 +732,6 @@
       "newTitle": "새로 만들기 — 에이전트, 팀, 가져오기…",
       "importBundle": ".nxbundle 가져오기",
       "importAgent": "다른 소스에서 가져오기"
-    },
-    "teamChatRow": {
-      "groupChatTitle": "{{name}} — 그룹 채팅",
-      "agentCount_other": "에이전트 {{count}}명",
-      "toggleMembers": "멤버 표시",
-      "noMembers": "아직 멤버가 없습니다",
-      "unread": "읽지 않은 메시지"
     },
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
@@ -1256,6 +1239,9 @@
       "colStatus": "상태",
       "colTeam": "팀",
       "colMembers": "멤버",
+      "colLeader": "리더",
+      "colCreatedBy": "만든 사람",
+      "noLeader": "리더 없음",
       "teamsCount": "팀 {{count}}개",
       "membersCount": "에이전트 {{count}}개",
       "noStatusYet": "아직 실시간 상태가 없습니다 — 다음 폴링에서 채워집니다.",
@@ -1410,7 +1396,8 @@
       "bulkDeleteResult": "{{success}}개 삭제됨.",
       "bulkDeleteResultWithFailures": "{{success}}개 삭제됨, {{failedCount}}개 실패 ({{failedIds}}).",
       "addedToTeamTitle": "팀에 추가됨",
-      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다."
+      "addedToTeamMessage": "선택한 팀에 에이전트 {{count}}개가 추가되었습니다.",
+      "openChat": "채팅 열기"
     },
     "bundleImport": {
       "installTemplate": "템플릿 설치",
@@ -1760,6 +1747,45 @@
       "searchPlaceholder": "이름 / ID로 에이전트 검색…",
       "noMatch": "일치하는 에이전트가 없습니다",
       "cancel": "취소"
+    },
+    "createAgent": {
+      "title": "에이전트 생성",
+      "cancel": "취소",
+      "createButton": "생성",
+      "creating": "생성 중…",
+      "awarenessSectionTitle": "정체성",
+      "nameLabel": "이름",
+      "namePlaceholder": "에이전트 이름",
+      "descLabel": "지침",
+      "descPlaceholder": "이 에이전트가 무엇을 해야 하는지, 무엇에 집중해야 하는지, 무엇을 피해야 하는지 작성하세요…",
+      "engineSectionTitle": "엔진",
+      "channelSectionTitle": "채널",
+      "channelPlaceholderHint": "생성 후 사용 가능",
+      "channelConfigured": "구성됨",
+      "channelConnectMissing": "필수 항목을 먼저 입력하세요",
+      "narramessengerBindLabel": "바인딩 링크",
+      "narramessengerBindPlaceholder": "NarraMessenger 앱의 바인딩 링크를 붙여넣으세요",
+      "configSectionTitle": "구성",
+      "skillsLabel": "스킬",
+      "skillsSelectedCount": "{{count}}개 선택됨",
+      "skillsPlaceholder": "스킬 선택…",
+      "skillsSearchPlaceholder": "스킬 검색…",
+      "skillsNoResults": "스킬을 찾을 수 없습니다",
+      "mcpLabel": "MCP",
+      "mcpPlaceholder": "생성 후 사용 가능",
+      "nameRequired": "이름을 입력해주세요",
+      "partialFailureNotice": "에이전트가 생성되었지만 일부 설정이 적용되지 않았습니다: {{detail}}. 나중에 에이전트 설정에서 마무리할 수 있습니다.",
+      "createFailed": "에이전트 생성에 실패했습니다",
+      "optionalSuffix": "(선택)",
+      "providerStepTitle": "제공자 선택",
+      "providerStepSubtitle": "기존 제공자를 선택하거나 새로 연결하세요. 이것이 에이전트를 구동할 엔진을 결정합니다.",
+      "providerRowApiKey": "API 키",
+      "providerRowCli": "CLI 로그인",
+      "addProviderTitle": "제공자 추가",
+      "addProviderApiKey": "API 키",
+      "addProviderCli": "CLI 로그인",
+      "changeProvider": "변경",
+      "next": "다음"
     },
     "account": {
       "powerOnlyHint": "계정·결제·구독은 NetMind 계정 기능입니다. NetMind 계정으로 로그인하면 여기에 표시됩니다."

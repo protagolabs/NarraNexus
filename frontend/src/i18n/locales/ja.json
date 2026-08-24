@@ -3,11 +3,9 @@
     "name": "言語"
   },
   "sidebar": {
-    "chats": "チャット",
     "teams": "チーム",
     "agents": "エージェント",
     "local": "ローカル",
-    "dashboard": "ダッシュボード",
     "settings": "設定",
     "system": "システム",
     "clearHistory": "履歴を消去",
@@ -33,7 +31,10 @@
     "themeDark": "ダーク",
     "themeSystem": "システム",
     "workspace": "あなたのワークスペース",
-    "accountTitle": "アカウント"
+    "accountTitle": "アカウント",
+    "search": "検索",
+    "sectionWorkspace": "ワークスペース",
+    "sectionConfigure": "設定"
   },
   "chat": {
     "conversation": "会話",
@@ -702,18 +703,7 @@
       "deleteAgentFailedMessage": "エージェントの削除に失敗しました：{{error}}",
       "deleteAgentError": "エージェントの削除中にエラーが発生しました。もう一度お試しください。",
       "deleteTeamTitle": "チームを削除",
-      "deleteTeamMessage": "チーム「{{name}}」を削除しますか？メンバーのリンクは解除されますが、エージェント自体は削除されません。",
-      "createAgentOrTeam": "エージェントまたはチームを作成",
-      "createAgent": "エージェントを作成",
-      "createTeam": "チームを作成",
-      "manageAgents": "エージェントを管理",
-      "manageAgentsTitle": "エージェントを管理（一括 · 追加 / 編集 / 削除）",
-      "teamGroupChatTitle": "{{name}} — グループチャット",
-      "teamGroupChatAria": "{{name}} グループチャット",
-      "refreshAgents": "エージェントを更新",
-      "emptyLabel": "エージェントはまだありません",
-      "emptyHint": "最初のエージェントを作成して会話を始めましょう。",
-      "noAgentsShort": "エージェントはまだありません。"
+      "deleteTeamMessage": "チーム「{{name}}」を削除しますか？メンバーのリンクは解除されますが、エージェント自体は削除されません。"
     },
     "agentRow": {
       "saveTitle": "保存（Enter）",
@@ -742,13 +732,6 @@
       "newTitle": "新規 — エージェント、チーム、インポート…",
       "importBundle": ".nxbundle をインポート",
       "importAgent": "他のソースからインポート"
-    },
-    "teamChatRow": {
-      "groupChatTitle": "{{name}} — グループチャット",
-      "agentCount_other": "{{count}} 体のエージェント",
-      "toggleMembers": "メンバーを表示",
-      "noMembers": "メンバーはまだいません",
-      "unread": "未読メッセージ"
     },
     "teamRowMenu": {
       "options": "グループチャットのオプション",
@@ -1256,6 +1239,9 @@
       "colStatus": "ステータス",
       "colTeam": "チーム",
       "colMembers": "メンバー",
+      "colLeader": "リーダー",
+      "colCreatedBy": "作成者",
+      "noLeader": "リーダーなし",
       "teamsCount": "{{count}} チーム",
       "membersCount": "{{count}} エージェント",
       "noStatusYet": "ライブステータスはまだありません — 次のポーリングで反映されます。",
@@ -1410,7 +1396,8 @@
       "bulkDeleteResult": "{{success}} 件を削除しました。",
       "bulkDeleteResultWithFailures": "{{success}} 件を削除、{{failedCount}} 件が失敗（{{failedIds}}）。",
       "addedToTeamTitle": "チームに追加しました",
-      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。"
+      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。",
+      "openChat": "チャットを開く"
     },
     "bundleImport": {
       "installTemplate": "テンプレートをインストール",
@@ -1760,6 +1747,45 @@
       "searchPlaceholder": "名前 / ID でエージェントを検索…",
       "noMatch": "一致するエージェントがありません",
       "cancel": "キャンセル"
+    },
+    "createAgent": {
+      "title": "エージェントを作成",
+      "cancel": "キャンセル",
+      "createButton": "作成",
+      "creating": "作成中…",
+      "awarenessSectionTitle": "アイデンティティ",
+      "nameLabel": "名前",
+      "namePlaceholder": "エージェント名を入力",
+      "descLabel": "指示",
+      "descPlaceholder": "このエージェントが何をすべきか、何に注力すべきか、何を避けるべきかを書いてください…",
+      "engineSectionTitle": "エンジン",
+      "channelSectionTitle": "チャンネル",
+      "channelPlaceholderHint": "作成後に利用可能",
+      "channelConfigured": "設定済み",
+      "channelConnectMissing": "先に必須項目を入力してください",
+      "narramessengerBindLabel": "バインドリンク",
+      "narramessengerBindPlaceholder": "NarraMessenger アプリのバインドリンクを貼り付け",
+      "configSectionTitle": "設定",
+      "skillsLabel": "スキル",
+      "skillsSelectedCount": "{{count}} 件選択中",
+      "skillsPlaceholder": "スキルを選択…",
+      "skillsSearchPlaceholder": "スキルを検索…",
+      "skillsNoResults": "スキルが見つかりません",
+      "mcpLabel": "MCP",
+      "mcpPlaceholder": "作成後に利用可能",
+      "nameRequired": "名前を入力してください",
+      "partialFailureNotice": "エージェントは作成されましたが、一部の設定が適用されませんでした：{{detail}}。エージェントの設定から後で完了できます。",
+      "createFailed": "エージェントの作成に失敗しました",
+      "optionalSuffix": "（任意）",
+      "providerStepTitle": "プロバイダーを選択",
+      "providerStepSubtitle": "既存のプロバイダーを選ぶか、新しく接続してください。これがエージェントを動かすエンジンを決めます。",
+      "providerRowApiKey": "APIキー",
+      "providerRowCli": "CLIサインイン",
+      "addProviderTitle": "プロバイダーを追加",
+      "addProviderApiKey": "APIキー",
+      "addProviderCli": "CLIサインイン",
+      "changeProvider": "変更",
+      "next": "次へ"
     },
     "account": {
       "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"

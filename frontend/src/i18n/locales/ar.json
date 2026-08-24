@@ -3,11 +3,9 @@
     "name": "اللغة"
   },
   "sidebar": {
-    "chats": "المحادثات",
     "teams": "الفِرق",
     "agents": "الوكلاء",
     "local": "محلي",
-    "dashboard": "لوحة التحكم",
     "settings": "الإعدادات",
     "system": "النظام",
     "clearHistory": "مسح السجل",
@@ -33,7 +31,10 @@
     "themeDark": "داكن",
     "themeSystem": "النظام",
     "workspace": "مساحة عملك",
-    "accountTitle": "الحساب"
+    "accountTitle": "الحساب",
+    "search": "بحث",
+    "sectionWorkspace": "مساحة العمل",
+    "sectionConfigure": "الإعدادات"
   },
   "chat": {
     "conversation": "محادثة",
@@ -706,18 +707,7 @@
       "deleteAgentFailedMessage": "فشل حذف الوكيل: {{error}}",
       "deleteAgentError": "حدث خطأ أثناء حذف الوكيل. يرجى المحاولة مرة أخرى.",
       "deleteTeamTitle": "حذف الفريق",
-      "deleteTeamMessage": "حذف الفريق «{{name}}»؟ سيتم إلغاء ربط الأعضاء؛ أما الوكلاء أنفسهم فلن يُحذفوا.",
-      "createAgentOrTeam": "إنشاء وكيل أو فريق",
-      "createAgent": "إنشاء وكيل",
-      "createTeam": "إنشاء فريق",
-      "manageAgents": "إدارة الوكلاء",
-      "manageAgentsTitle": "إدارة الوكلاء (دفعة · إضافة / تعديل / حذف)",
-      "teamGroupChatTitle": "{{name}} — محادثة جماعية",
-      "teamGroupChatAria": "محادثة جماعية {{name}}",
-      "refreshAgents": "تحديث الوكلاء",
-      "emptyLabel": "لا يوجد وكلاء بعد",
-      "emptyHint": "أنشئ أول وكيل لك لبدء محادثة.",
-      "noAgentsShort": "لا يوجد وكلاء بعد."
+      "deleteTeamMessage": "حذف الفريق «{{name}}»؟ سيتم إلغاء ربط الأعضاء؛ أما الوكلاء أنفسهم فلن يُحذفوا."
     },
     "agentRow": {
       "saveTitle": "حفظ (Enter)",
@@ -746,18 +736,6 @@
       "newTitle": "جديد — وكيل، فريق، استيراد…",
       "importBundle": "استيراد ‎.nxbundle",
       "importAgent": "استيراد من مصدر آخر"
-    },
-    "teamChatRow": {
-      "groupChatTitle": "{{name}} — محادثة جماعية",
-      "agentCount_zero": "لا يوجد وكلاء",
-      "agentCount_one": "وكيل واحد",
-      "agentCount_two": "وكيلان",
-      "agentCount_few": "{{count}} وكلاء",
-      "agentCount_many": "{{count}} وكيلًا",
-      "agentCount_other": "{{count}} وكيل",
-      "toggleMembers": "عرض الأعضاء",
-      "noMembers": "لا يوجد أعضاء بعد",
-      "unread": "رسائل غير مقروءة"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
@@ -1265,6 +1243,9 @@
       "colStatus": "الحالة",
       "colTeam": "الفريق",
       "colMembers": "الأعضاء",
+      "colLeader": "القائد",
+      "colCreatedBy": "أنشأه",
+      "noLeader": "لا يوجد قائد",
       "teamsCount": "{{count}} فرق",
       "membersCount": "{{count}} وكلاء",
       "noStatusYet": "لا توجد حالة مباشرة بعد — سيملؤها الاستطلاع التالي.",
@@ -1419,7 +1400,8 @@
       "bulkDeleteResult": "تم حذف {{success}}.",
       "bulkDeleteResultWithFailures": "تم حذف {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "تمت الإضافة إلى الفريق",
-      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد."
+      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد.",
+      "openChat": "فتح المحادثة"
     },
     "bundleImport": {
       "installTemplate": "تثبيت قالب",
@@ -1769,6 +1751,45 @@
       "searchPlaceholder": "ابحث عن الوكلاء بالاسم / المعرف…",
       "noMatch": "لا يوجد وكلاء مطابقون",
       "cancel": "إلغاء"
+    },
+    "createAgent": {
+      "title": "إنشاء وكيل",
+      "cancel": "إلغاء",
+      "createButton": "إنشاء",
+      "creating": "جارٍ الإنشاء…",
+      "awarenessSectionTitle": "الهوية",
+      "nameLabel": "الاسم",
+      "namePlaceholder": "اسم الوكيل",
+      "descLabel": "التعليمات",
+      "descPlaceholder": "اكتب ما يجب أن يفعله هذا الوكيل، وما يجب التركيز عليه، وما يجب تجنبه…",
+      "engineSectionTitle": "المحرك",
+      "channelSectionTitle": "القناة",
+      "channelPlaceholderHint": "متاح بعد الإنشاء",
+      "channelConfigured": "تم الإعداد",
+      "channelConnectMissing": "يرجى تعبئة الحقول المطلوبة أولاً",
+      "narramessengerBindLabel": "رابط الربط",
+      "narramessengerBindPlaceholder": "الصق رابط الربط من تطبيق NarraMessenger",
+      "configSectionTitle": "الإعدادات",
+      "skillsLabel": "المهارات",
+      "skillsSelectedCount": "تم اختيار {{count}}",
+      "skillsPlaceholder": "اختر المهارات…",
+      "skillsSearchPlaceholder": "ابحث عن المهارات…",
+      "skillsNoResults": "لم يتم العثور على مهارات",
+      "mcpLabel": "MCP",
+      "mcpPlaceholder": "متاح بعد الإنشاء",
+      "nameRequired": "الاسم مطلوب",
+      "partialFailureNotice": "تم إنشاء الوكيل، لكن تعذّر تطبيق بعض الإعدادات: {{detail}}. يمكنك إكمال الإعداد لاحقًا من إعدادات الوكيل.",
+      "createFailed": "فشل إنشاء الوكيل",
+      "optionalSuffix": "(اختياري)",
+      "providerStepTitle": "اختر موفراً",
+      "providerStepSubtitle": "اختر موفراً حالياً أو قم بتوصيل واحد جديد. هذا يحدد المحرك الذي يشغل الوكيل.",
+      "providerRowApiKey": "مفتاح API",
+      "providerRowCli": "تسجيل الدخول عبر CLI",
+      "addProviderTitle": "إضافة موفر",
+      "addProviderApiKey": "مفتاح API",
+      "addProviderCli": "تسجيل الدخول عبر CLI",
+      "changeProvider": "تغيير",
+      "next": "التالي"
     },
     "account": {
       "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."

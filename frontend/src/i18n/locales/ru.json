@@ -3,11 +3,9 @@
     "name": "Язык"
   },
   "sidebar": {
-    "chats": "Чаты",
     "teams": "Команды",
     "agents": "Агенты",
     "local": "Локально",
-    "dashboard": "Панель",
     "settings": "Настройки",
     "system": "Система",
     "clearHistory": "Очистить историю",
@@ -33,7 +31,10 @@
     "themeDark": "Тёмная",
     "themeSystem": "Системная",
     "workspace": "Ваше рабочее пространство",
-    "accountTitle": "Аккаунт"
+    "accountTitle": "Аккаунт",
+    "search": "Поиск",
+    "sectionWorkspace": "Рабочая область",
+    "sectionConfigure": "Настройка"
   },
   "chat": {
     "conversation": "Беседа",
@@ -704,18 +705,7 @@
       "deleteAgentFailedMessage": "Не удалось удалить агента: {{error}}",
       "deleteAgentError": "Ошибка при удалении агента. Попробуйте ещё раз.",
       "deleteTeamTitle": "Удалить команду",
-      "deleteTeamMessage": "Удалить команду «{{name}}»? Участники будут отвязаны; сами агенты НЕ удаляются.",
-      "createAgentOrTeam": "Создать агента или команду",
-      "createAgent": "Создать агента",
-      "createTeam": "Создать команду",
-      "manageAgents": "Управление агентами",
-      "manageAgentsTitle": "Управление агентами (пакетно · добавить / изменить / удалить)",
-      "teamGroupChatTitle": "{{name}} — групповой чат",
-      "teamGroupChatAria": "Групповой чат {{name}}",
-      "refreshAgents": "Обновить агентов",
-      "emptyLabel": "Агентов пока нет",
-      "emptyHint": "Создайте своего первого агента, чтобы начать разговор.",
-      "noAgentsShort": "Агентов пока нет."
+      "deleteTeamMessage": "Удалить команду «{{name}}»? Участники будут отвязаны; сами агенты НЕ удаляются."
     },
     "agentRow": {
       "saveTitle": "Сохранить (Enter)",
@@ -744,16 +734,6 @@
       "newTitle": "Создать — агент, команда, импорт…",
       "importBundle": "Импортировать .nxbundle",
       "importAgent": "Импорт из другого источника"
-    },
-    "teamChatRow": {
-      "groupChatTitle": "{{name}} — групповой чат",
-      "agentCount_one": "{{count}} агент",
-      "agentCount_few": "{{count}} агента",
-      "agentCount_many": "{{count}} агентов",
-      "agentCount_other": "{{count}} агентов",
-      "toggleMembers": "Показать участников",
-      "noMembers": "Участников пока нет",
-      "unread": "Непрочитанные сообщения"
     },
     "teamRowMenu": {
       "options": "Параметры группового чата",
@@ -1261,6 +1241,9 @@
       "colStatus": "Статус",
       "colTeam": "Команда",
       "colMembers": "Участники",
+      "colLeader": "Лидер",
+      "colCreatedBy": "Создатель",
+      "noLeader": "Нет лидера",
       "teamsCount": "{{count}} команд",
       "membersCount": "{{count}} агентов",
       "noStatusYet": "Живого статуса пока нет — следующий опрос его заполнит.",
@@ -1415,7 +1398,8 @@
       "bulkDeleteResult": "Удалено: {{success}}.",
       "bulkDeleteResultWithFailures": "Удалено: {{success}}, с ошибкой: {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "Добавлено в команду",
-      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}."
+      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}.",
+      "openChat": "Открыть чат"
     },
     "bundleImport": {
       "installTemplate": "Установить шаблон",
@@ -1765,6 +1749,45 @@
       "searchPlaceholder": "Поиск агентов по имени / id…",
       "noMatch": "Нет подходящих агентов",
       "cancel": "Отмена"
+    },
+    "createAgent": {
+      "title": "Создать агента",
+      "cancel": "Отмена",
+      "createButton": "Создать",
+      "creating": "Создание…",
+      "awarenessSectionTitle": "Личность",
+      "nameLabel": "Имя",
+      "namePlaceholder": "Имя агента",
+      "descLabel": "Инструкции",
+      "descPlaceholder": "Опишите, что должен делать этот агент, на чём сосредоточиться и чего избегать…",
+      "engineSectionTitle": "Движок",
+      "channelSectionTitle": "Канал",
+      "channelPlaceholderHint": "Доступно после создания",
+      "channelConfigured": "Настроено",
+      "channelConnectMissing": "Сначала заполните обязательные поля",
+      "narramessengerBindLabel": "Ссылка привязки",
+      "narramessengerBindPlaceholder": "Вставьте ссылку привязки из приложения NarraMessenger",
+      "configSectionTitle": "Конфигурация",
+      "skillsLabel": "Навыки",
+      "skillsSelectedCount": "Выбрано: {{count}}",
+      "skillsPlaceholder": "Выбрать навыки…",
+      "skillsSearchPlaceholder": "Поиск навыков…",
+      "skillsNoResults": "Навыки не найдены",
+      "mcpLabel": "MCP",
+      "mcpPlaceholder": "Доступно после создания",
+      "nameRequired": "Введите имя",
+      "partialFailureNotice": "Агент создан, но часть настроек не применена: {{detail}}. Вы можете завершить настройку позже в настройках агента.",
+      "createFailed": "Не удалось создать агента",
+      "optionalSuffix": "(необязательно)",
+      "providerStepTitle": "Выберите провайдера",
+      "providerStepSubtitle": "Выберите существующего провайдера или подключите нового. Это определяет, какой движок будет управлять агентом.",
+      "providerRowApiKey": "API-ключ",
+      "providerRowCli": "Вход через CLI",
+      "addProviderTitle": "Добавить провайдера",
+      "addProviderApiKey": "API-ключ",
+      "addProviderCli": "Вход через CLI",
+      "changeProvider": "Изменить",
+      "next": "Далее"
     },
     "account": {
       "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."

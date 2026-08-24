@@ -3,11 +3,9 @@
     "name": "Langue"
   },
   "sidebar": {
-    "chats": "Discussions",
     "teams": "Équipes",
     "agents": "Agents",
     "local": "Local",
-    "dashboard": "Tableau de bord",
     "settings": "Paramètres",
     "system": "Système",
     "clearHistory": "Effacer l'historique",
@@ -33,7 +31,10 @@
     "themeDark": "Sombre",
     "themeSystem": "Système",
     "workspace": "Votre espace de travail",
-    "accountTitle": "Compte"
+    "accountTitle": "Compte",
+    "search": "Rechercher",
+    "sectionWorkspace": "Espace de travail",
+    "sectionConfigure": "Configurer"
   },
   "chat": {
     "conversation": "Conversation",
@@ -702,18 +703,7 @@
       "deleteAgentFailedMessage": "Échec de la suppression de l'agent : {{error}}",
       "deleteAgentError": "Erreur lors de la suppression de l'agent. Veuillez réessayer.",
       "deleteTeamTitle": "Supprimer l'équipe",
-      "deleteTeamMessage": "Supprimer l'équipe « {{name}} » ? Les membres sont dissociés ; les agents eux-mêmes ne sont PAS supprimés.",
-      "createAgentOrTeam": "Créer un agent ou une équipe",
-      "createAgent": "Créer un agent",
-      "createTeam": "Créer une équipe",
-      "manageAgents": "Gérer les agents",
-      "manageAgentsTitle": "Gérer les agents (par lot · ajouter / modifier / supprimer)",
-      "teamGroupChatTitle": "{{name}} — discussion de groupe",
-      "teamGroupChatAria": "Discussion de groupe {{name}}",
-      "refreshAgents": "Actualiser les agents",
-      "emptyLabel": "Aucun agent pour l'instant",
-      "emptyHint": "Créez votre premier agent pour démarrer une conversation.",
-      "noAgentsShort": "Aucun agent pour l'instant."
+      "deleteTeamMessage": "Supprimer l'équipe « {{name}} » ? Les membres sont dissociés ; les agents eux-mêmes ne sont PAS supprimés."
     },
     "agentRow": {
       "saveTitle": "Enregistrer (Entrée)",
@@ -742,14 +732,6 @@
       "newTitle": "Nouveau — agent, équipe, import…",
       "importBundle": "Importer un .nxbundle",
       "importAgent": "Importer depuis une autre source"
-    },
-    "teamChatRow": {
-      "groupChatTitle": "{{name}} — discussion de groupe",
-      "agentCount_one": "{{count}} agent",
-      "agentCount_other": "{{count}} agents",
-      "toggleMembers": "Afficher les membres",
-      "noMembers": "Pas encore de membres",
-      "unread": "Messages non lus"
     },
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
@@ -1257,6 +1239,9 @@
       "colStatus": "Statut",
       "colTeam": "Équipe",
       "colMembers": "Membres",
+      "colLeader": "Responsable",
+      "colCreatedBy": "Créé par",
+      "noLeader": "Aucun responsable",
       "teamsCount": "{{count}} équipes",
       "membersCount": "{{count}} agents",
       "noStatusYet": "Pas encore de statut en direct — le prochain sondage le remplira.",
@@ -1411,7 +1396,8 @@
       "bulkDeleteResult": "{{success}} supprimés.",
       "bulkDeleteResultWithFailures": "{{success}} supprimés, {{failedCount}} échoués ({{failedIds}}).",
       "addedToTeamTitle": "Ajoutés à l'équipe",
-      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée."
+      "addedToTeamMessage": "{{count}} agents ajoutés à l'équipe sélectionnée.",
+      "openChat": "Ouvrir le chat"
     },
     "bundleImport": {
       "installTemplate": "Installer le modèle",
@@ -1761,6 +1747,45 @@
       "searchPlaceholder": "Rechercher des agents par nom / id…",
       "noMatch": "Aucun agent ne correspond",
       "cancel": "Annuler"
+    },
+    "createAgent": {
+      "title": "Créer un agent",
+      "cancel": "Annuler",
+      "createButton": "Créer",
+      "creating": "Création…",
+      "awarenessSectionTitle": "Identité",
+      "nameLabel": "Nom",
+      "namePlaceholder": "Nom de l'agent",
+      "descLabel": "Instructions",
+      "descPlaceholder": "Écrivez ce que cet agent doit faire, sur quoi se concentrer, quoi éviter…",
+      "engineSectionTitle": "Moteur",
+      "channelSectionTitle": "Canal",
+      "channelPlaceholderHint": "Disponible après la création",
+      "channelConfigured": "Configuré",
+      "channelConnectMissing": "Veuillez d'abord remplir les champs obligatoires",
+      "narramessengerBindLabel": "Lien de liaison",
+      "narramessengerBindPlaceholder": "Collez le lien de liaison depuis l'app NarraMessenger",
+      "configSectionTitle": "Configuration",
+      "skillsLabel": "Compétences",
+      "skillsSelectedCount": "{{count}} sélectionnée(s)",
+      "skillsPlaceholder": "Sélectionner des compétences…",
+      "skillsSearchPlaceholder": "Rechercher des compétences…",
+      "skillsNoResults": "Aucune compétence trouvée",
+      "mcpLabel": "MCP",
+      "mcpPlaceholder": "Disponible après la création",
+      "nameRequired": "Le nom est requis",
+      "partialFailureNotice": "Agent créé, mais certains paramètres n'ont pas pu être appliqués : {{detail}}. Vous pouvez terminer la configuration plus tard dans les paramètres de l'agent.",
+      "createFailed": "Échec de la création de l'agent",
+      "optionalSuffix": "(facultatif)",
+      "providerStepTitle": "Choisir un fournisseur",
+      "providerStepSubtitle": "Choisissez un fournisseur existant ou connectez-en un nouveau. Cela détermine le moteur qui pilote l'agent.",
+      "providerRowApiKey": "Clé API",
+      "providerRowCli": "Connexion CLI",
+      "addProviderTitle": "Ajouter un fournisseur",
+      "addProviderApiKey": "Clé API",
+      "addProviderCli": "Connexion CLI",
+      "changeProvider": "Changer",
+      "next": "Suivant"
     },
     "account": {
       "powerOnlyHint": "Compte, facturation et abonnement sont des fonctionnalités du compte NetMind — connectez-vous avec un compte NetMind pour les voir ici."
