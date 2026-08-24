@@ -46,6 +46,7 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
     SteeringInlet,
     StopPolicy,
     ToolExecutor,
+    WaitRequest,
 )
 
 
@@ -94,6 +95,16 @@ class LoopAssembly:
     # annotations of their own (MCP tools cannot declare ours). These
     # are the conventional reply-content field names.
     reply_fields: tuple[str, ...] = ("content", "message", "text")
+    # The `wait_for_input` control tool's handoff: the WaitChannel writes the
+    # requested (clamped) seconds here, the loop reads-and-clears it at the step
+    # boundary and does the blocking wait itself. Typed as the WaitRequest
+    # protocol (not Any) so THIS construction site is checked — a caller passing
+    # the wrong shape fails here. (The loop reads `a.wait.pending` through an
+    # `Any`-typed assembly, so that read is NOT statically checked; the clamp is
+    # enforced at runtime instead, at WaitRequest.request — see loop.__init__.)
+    # Defaulted lazily (like the seats) so a turn without the wait tool still has
+    # an inert holder.
+    wait: WaitRequest = field(default=None)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # Frozen dataclass defaults for the seats (kept lazy to preserve
@@ -123,6 +134,38 @@ class LoopAssembly:
             object.__setattr__(self, "retry", StepRetry())
         if self.hooks is None:
             object.__setattr__(self, "hooks", HookRegistry.empty())
+        if self.wait is None:
+            from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
+                WaitState,
+            )
+            object.__setattr__(self, "wait", WaitState())
+
+
+def _steer_channels(steerable: bool, wait_state: WaitRequest) -> tuple[Any, ...]:
+    """The steer-only tool channels for a turn: the ``wait_for_input`` tool,
+    exposed ONLY on a STEERABLE run.
+
+    Steerability is the orchestrator's explicit decision (it registered a live
+    ``SteerChannel`` for this run), carried across the serialization boundary on
+    ``TurnOptions.steerable`` — deliberately NOT inferred from whether a steering
+    inlet object is mounted. The subprocess runner (``runner.main``, the default
+    cloud/local path) mounts a ``QueueSteeringInlet`` on EVERY turn, fed only on a
+    steerable one, so "an inlet is present" is always true and gates nothing;
+    keying on it would leave ``wait_for_input`` on every prompt. On a
+    non-steerable run nothing can ever feed the inlet, so the tool could only
+    block up to its clamp (default 60s, max 300s) on a queue with no producer —
+    which is why it must not appear. DRAIN is orthogonal: an empty inlet drains
+    to nothing whether or not the run is steerable, so mid-turn injection is
+    unaffected. Pure + tiny so the one wiring decision is unit-tested through the
+    PRODUCTION arm (a steerable-flag mistake would otherwise only show as a real
+    run blocking a full minute); deliberately NOT a registry — one conditional
+    channel is not a plugin mechanism (over-design)."""
+    if not steerable:
+        return ()
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
+        WaitChannel,
+    )
+    return (WaitChannel(wait_state),)
 
 
 async def run_turn_events(
@@ -202,6 +245,9 @@ async def run_turn_events(
         PolicyEngine,
         ShellConfinementLayer,
         WorkspaceConfinementLayer,
+    )
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.wait_channel import (
+        WaitState,
     )
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
         PlanState,
@@ -298,8 +344,12 @@ async def run_turn_events(
         plan,
         lambda steps, note: side_events.append(ledger.record_plan(steps, note)),
     )
+    # The WaitState is shared with the loop (LoopAssembly.wait) so the tool's
+    # request reaches the boundary; the tool itself is exposed only on a
+    # steerable turn (see _steer_channels).
+    wait_state = WaitState()
     dispatcher = ToolDispatcher(
-        (builtin, scheduling, mcp),
+        (builtin, scheduling, *_steer_channels(opts.steerable, wait_state), mcp),
         policy=PolicyEngine(
             (DisallowedToolsLayer(), WorkspaceConfinementLayer(), ShellConfinementLayer())
         ),
@@ -366,6 +416,7 @@ async def run_turn_events(
             expression_nudge=opts.expression_nudge,
             side_events=side_events,
             steering=steering,  # None → LoopAssembly mounts NullSteeringInlet
+            wait=wait_state,  # shared with the WaitChannel above
         )
         async for event in NexusPowerLoop(assembly, ledger).run_turn():
             yield event

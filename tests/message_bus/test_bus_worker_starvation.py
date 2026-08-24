@@ -108,11 +108,11 @@ def _saturate(t: MessageBusTrigger, *, running: int, waiting: int) -> None:
     for i in range(running):
         f = _InFlight(task=None, started_at=0.0)  # type: ignore[arg-type]
         f.running = True
-        t._in_flight[f"run_{i}"] = f
+        t._in_flight[(f"run_{i}", "ch")] = f  # keys are (agent, channel) lanes
     for i in range(waiting):
         f = _InFlight(task=None, started_at=0.0)  # type: ignore[arg-type]
         f.running = False
-        t._in_flight[f"wait_{i}"] = f
+        t._in_flight[(f"wait_{i}", "ch")] = f
 
 
 @pytest.mark.asyncio
@@ -143,8 +143,10 @@ async def test_a_sustained_shortage_alerts_once(clock):
     assert detail["waiting"] == 3
     assert detail["max_workers"] == 2
     assert detail["starved_for_s"] >= int(STARVATION_ALERT_AFTER_S)
-    # The point of the alert is to name what to look at.
-    assert "longest_running_agent" in detail
+    # The point of the alert is to name WHICH lane to look at (agent@channel),
+    # and whether one agent is hogging the pool or many each hold a slot.
+    assert detail["longest_running_lane"] == "run_0@ch"
+    assert detail["distinct_agents"] == 2
 
 
 @pytest.mark.asyncio

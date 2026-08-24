@@ -13,10 +13,12 @@ import pytest
 
 from xyz_agent_context.agent_runtime.executor_reaper import (
     UNKNOWN_RUN,
+    _REAPER_LIVENESS,
     ExecutorReaper,
     _CullVeto,
     live_run_elsewhere,
     maybe_start_executor_reaper,
+    no_live_recorded_run_for,
 )
 
 
@@ -69,6 +71,7 @@ async def test_reap_once_stops_all_idle_users():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -83,6 +86,7 @@ async def test_reap_once_skips_stop_failures():
     async def stop_fn(user_id):
         if user_id == "b":
             raise RuntimeError("broker down")
+        return True
 
     controller = _FakeController(["a", "b", "c"])
     reaper = ExecutorReaper(controller, stop_fn, is_busy=None, ttl_seconds=1)
@@ -113,6 +117,7 @@ async def test_a_stop_failure_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _FakeController(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -141,6 +146,7 @@ async def test_user_busy_in_another_process_is_not_reaped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         return user_id == "busy-elsewhere"
@@ -160,6 +166,7 @@ async def test_a_vetoed_user_keeps_its_stamp_and_is_reoffered():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     busy = {"u"}
 
@@ -185,6 +192,7 @@ async def test_user_that_became_busy_between_claim_and_stop_is_restamped():
 
     async def stop_fn(user_id):
         stopped.append(user_id)
+        return True
 
     async def is_busy(user_id):
         calls["n"] += 1
@@ -260,7 +268,9 @@ async def test_unreadable_db_reads_as_busy(monkeypatch):
     monkeypatch.setattr(
         "xyz_agent_context.utils.db.db_factory.get_db_client", boom
     )
-    assert await live_run_elsewhere("u") == UNKNOWN_RUN
+    assert await live_run_elsewhere(
+        "u", caller="reaper", consequence="culling is OFF"
+    ) == UNKNOWN_RUN
 
 
 @pytest.mark.asyncio
@@ -270,7 +280,9 @@ async def test_recording_kill_switch_disables_culling(monkeypatch):
     from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
 
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
-    assert await live_run_elsewhere("u") == UNKNOWN_RUN
+    assert await live_run_elsewhere(
+        "u", caller="reaper", consequence="culling is OFF"
+    ) == UNKNOWN_RUN
 
 
 @pytest.mark.asyncio
@@ -337,6 +349,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
         if user_id == "b":
             raise RuntimeError("broker down")
         stopped.append(user_id)
+        return True
 
     reaper = ExecutorReaper(
         _BrokenRestamp(["a", "b", "c"]), stop_fn, is_busy=None, ttl_seconds=1
@@ -351,7 +364,7 @@ async def test_a_failing_restamp_does_not_abort_the_pass():
 
 
 async def _noop_stop(user_id):
-    return None
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -913,3 +926,143 @@ async def test_a_lost_cull_disabled_row_is_retried_next_pass(monkeypatch):
     # Passes 1-3 retry (1 and 2 failed), pass 4 is silent — the row landed on
     # pass 3, so the slow tick resumes.
     assert attempts == ["cull_disabled"] * 3
+
+
+# --------------------------------------------------------------------------
+# The broker's stale-image replacement verdict (second consumer)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_blocked_by_a_live_run(monkeypatch):
+    """Same container, same rule as the cull: a live run means hands off."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    async def live(user_id, *, exclude_run_id=None, caller, consequence):
+        return "evt_live"
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", live)
+    assert await mod.no_live_recorded_run_for("u") is False
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_allowed_when_nothing_is_live(monkeypatch):
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    async def idle(user_id, *, exclude_run_id=None, caller, consequence):
+        return None
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", idle)
+    assert await mod.no_live_recorded_run_for("u") is True
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_excludes_the_asking_run(monkeypatch):
+    """Step 3's own events row is already 'running' when it asks. Counting
+    itself would mean "never replace", and a stale executor after a
+    wire-protocol change degrades runs silently."""
+    import xyz_agent_context.agent_runtime.executor_reaper as mod
+
+    seen = {}
+
+    async def spy(user_id, *, exclude_run_id=None, caller, consequence):
+        seen["exclude"] = exclude_run_id
+        seen["caller"] = caller
+        seen["consequence"] = consequence
+        return None
+
+    monkeypatch.setattr(mod, "live_run_elsewhere", spy)
+    assert await mod.no_live_recorded_run_for("u", active_run_id="evt_me") is True
+    assert seen["exclude"] == "evt_me"
+    # Labelled distinctly: the two consumers suffer different consequences
+    # when liveness is unreadable (culling stops vs images stop rolling).
+    assert seen["caller"] == "stale-replace"
+    # ...and the consequence half of the "cannot tell" warning is this
+    # consumer's, not the reaper's: unknowable liveness stops images rolling,
+    # it does not stop culling.
+    assert "images will NOT roll" in seen["consequence"]
+
+
+@pytest.mark.asyncio
+async def test_stale_replacement_is_refused_when_liveness_is_unreadable(monkeypatch):
+    """Not knowing must never authorise destroying a container (rule #14) —
+    here the cost of being wrong is a killed turn, the benefit a faster image
+    roll that self-corrects at the next ensure anyway."""
+    async def boom():
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", boom
+    )
+    assert await no_live_recorded_run_for("u") is False
+
+
+def test_the_log_subject_has_no_default():
+    """Both log fields are required on purpose: a default is necessarily one
+    consumer's outcome, and the next consumer that omits it inherits that
+    text silently — which is the bug this parameter was added to fix. Now the
+    omission is a TypeError on the first call."""
+    import inspect
+
+    params = inspect.signature(live_run_elsewhere).parameters
+    assert params["caller"].default is inspect.Parameter.empty
+    assert params["consequence"].default is inspect.Parameter.empty
+
+
+def test_the_reaper_binds_its_own_log_subject():
+    """The signature can only protect a NEW consumer: the reaper binds both
+    values in a partial, and a TypeError on its path is swallowed by the
+    pass-level handlers that keep one user's failure from aborting a cull. So
+    the binding itself needs a test — the counterpart to the stale-replace
+    spy above. Read off .keywords rather than calling it, which would hit a
+    real DB."""
+    assert _REAPER_LIVENESS.func is live_run_elsewhere
+    assert _REAPER_LIVENESS.keywords == {
+        "caller": "reaper",
+        "consequence": "executor idle-culling is OFF",
+    }
+
+
+# --------------------------------------------------------------------------
+# The broker can refuse: the container sees holders this side cannot
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_broker_refusal_is_not_counted_as_a_cull(audit_rows):
+    """The broker answers `status: busy` with a 200 when the CONTAINER reports
+    work — an office-watch session leaves no run row, so this side's oracle
+    reads the user as idle. Treating that as stopped would drop the idle stamp
+    and leave the container unreclaimed for good."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def refused_stop(user_id):
+        return False
+
+    controller = _FakeController(["u"])
+    reaper = ExecutorReaper(
+        controller, refused_stop, is_busy=None, ttl_seconds=1
+    )
+
+    assert await reaper.reap_once() == []          # not counted as reaped
+    assert controller.restamped == ["u"]            # stamp handed back
+    assert reaper_status()["refused_busy"] == 1
+    # NOT a cull_skipped_busy row: that metric's contract is one row = one run
+    # saved, named by its real run id, and this refusal has no run id to name.
+    assert audit_rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_successful_stop_still_counts(audit_rows):
+    """The other half of the pair: a stop that happened is counted and the
+    stamp stays consumed."""
+    from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
+
+    async def real_stop(user_id):
+        return True
+
+    reaper = ExecutorReaper(
+        _FakeController(["u"]), real_stop, is_busy=None, ttl_seconds=1
+    )
+    assert await reaper.reap_once() == ["u"]
+    assert reaper_status()["refused_busy"] == 0

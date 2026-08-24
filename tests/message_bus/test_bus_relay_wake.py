@@ -113,7 +113,7 @@ async def test_a_team_reply_wakes_the_poll_loop(db_client):
     )
     before = await wake_signal.read(db_client)
 
-    await trig._process_agent(A)
+    await trig._process_lane(A, CHANNEL)
 
     assert await wake_signal.read(db_client) != before, (
         "A posted into the room and nothing asked the loop to look again — "
@@ -137,7 +137,7 @@ async def test_a_failed_room_post_does_not_wake(db_client, monkeypatch):
     monkeypatch.setattr(trig, "_announce_failed_room_post",
                         lambda *a, **k: asyncio.sleep(0))
 
-    await trig._process_agent(A)
+    await trig._process_lane(A, CHANNEL)
 
     assert not trig._wake_event.is_set()
 
@@ -289,7 +289,7 @@ async def test_a_three_hop_relay_never_goes_completely_silent(db_client):
             f"dead silence before {hop_agent}'s hop — a message is pending and "
             f"the room shows every member idle: {states}"
         )
-        await trig._process_agent(hop_agent)
+        await trig._process_lane(hop_agent, CHANNEL)
 
     # And once more after the last hop, where the room SHOULD settle to idle:
     # nothing is pending any more, so silence is honest here.

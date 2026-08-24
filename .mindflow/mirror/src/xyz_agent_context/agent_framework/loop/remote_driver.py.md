@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-22
 ---
+
+## 2026-08-22 — steering 不声明:活 channel 过不了 HTTP
+
+live-steering(PR #351)是**进程内**能力:orchestrator 起可 steer 的 run 时把
+`SteerChannel` 登进本进程的 `RunRegistry`,producer 与目标 run 同进程,push 直达
+loop 的 drain(见 [[run_registry.py]] / [[steer_channel.py]])。远程 driver 这条路
+**刻意不参与**,三件事写死:
+
+- **(a) 不声明 steering 是有意的**,不是遗漏:`capabilities()` 仍返回空集
+  (2026-07-27 条目定的空协商缝)。远程 run 没有本进程可推的活句柄——run 在
+  executor 容器里,`SteerChannel` 在这边,中间隔着一次 HTTP POST + NDJSON 单向
+  下行流。声明能力却无处投递,只会让上层误判"这条 run 可 steer"。
+- **(b) steering 绝不能进 `build_agent_loop_request` 的 body 白名单**:那个 body 是
+  白名单式快照(2026-08-07 / 2026-07-31 条目),只放能序列化过网络的标量/dict。
+  `SteerChannel` 是一个活的 `asyncio.Queue` 句柄,绑在本进程的事件循环上
+  (线程亲和,见 steer_channel push 契约)——它**没有** wire 表示,塞进 body 也只是
+  一个死引用。任何"把 steer 也透传过去"的改法都是类型错误伪装成功能。
+- **(c) 真要云端可 steer 需要独立改动**:得给 executor 开一个**上行** steer 端点
+  (POST 一条注入到运行中的容器 run),容器内 driver 把它喂进自己的
+  `QueueSteeringInlet`——即 steer_channel 里写的"子进程/远程:driver 起 pump 抽干
+  channel、写下 runner 的 steer 传输"。这是一条独立的双向协议扩展,不是本 driver
+  顺手能带的透传。在它落地前,远程路径对 steering 零知识是**正确**状态。
 
 ## 2026-08-19 — 把 origin_declaration 传给 build_agent_loop_request
 

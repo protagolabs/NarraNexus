@@ -39,10 +39,12 @@ scope for this module, which just runs the loop it is handed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import monotonic
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -95,9 +97,143 @@ async def _lifespan(app: FastAPI):
 app = FastAPI(title="NarraNexus Agent-Loop Executor", lifespan=_lifespan)
 
 
+# Long-lived work in flight inside THIS container, reported on /health as
+# ``busy`` so the broker can refuse to stop a container that is working.
+#
+# Why the broker needs it: it only ever observes turn START (ensure() is
+# called once per turn; the orchestrator then streams against the container
+# directly), so its idle timer measures "time since a turn began". A turn
+# outliving that TTL is indistinguishable from an abandoned container — and
+# binding rule #14 makes multi-hour turns first-class, so "keep the TTL
+# comfortably above the longest turn" is not an available answer.
+#
+# Why the CONTAINER answers rather than the orchestrator's DB: for "may I
+# stop this container" this is the exact question and the exact answer — no
+# events-row write window, no dependence on run recording being enabled.
+# (Stale IMAGE replacement deliberately keeps using the orchestrator's
+# verdict: the container there runs an old image that may predate this
+# field, so probing it would answer "cannot tell" forever and the image
+# would never roll.)
+#
+# Plain dict, no lock: every reader and writer runs on the event loop thread
+# (the middleware below, and /health — which is `async def` precisely so this
+# stays true). Nothing here is safe to read from a worker thread.
+# Values are monotonic start times so /health can report the OLDEST in-flight
+# request's age. A bare count could not distinguish a legitimate 10-hour turn
+# (rule #14 — must keep reporting busy) from something pinned open: a request
+# that never ends holds this container busy forever, which the broker now
+# honours, so the container stops being reapable. Age makes that state a
+# visible fact instead of an assumption.
+_inflight_started: dict[int, float] = {}
+_next_work_id: int = 0
+
+# Request prefixes that mean "someone is using this container". /agent-loop is
+# a streaming turn; the office-watch endpoints proxy to a server running
+# INSIDE the container, and reaping under them destroys that session too. A
+# prefix list rather than "any request": /health itself must never mark the
+# container busy, or the broker's probe would be self-fulfilling.
+#
+# Known consequence, deliberate: a browser tab left on a document holds its
+# watch stream open, so that container reports busy indefinitely and the
+# broker will not reclaim its slot. The alternative is the status quo — the
+# reaper destroys the watch session out from under the user at the idle TTL —
+# and between "a slot stays held while someone has the document open" and
+# "editing silently breaks", the first is the right failure. The real fix is
+# for such holders to carry an expiring lease rather than an open socket;
+# until then this is a slot-pressure trade, not a correctness one.
+_WORK_PATH_PREFIXES = ("/agent-loop", "/watch")
+
+# Budget for reading a request BODY. Generous next to any real payload, and
+# unrelated to how long the turn itself may run.
+_BODY_READ_TIMEOUT_S = 60.0
+
+# Read-gap budget for the office-watch passthrough. Applies ONLY there: the
+# agent-loop stream must stay unbounded (rule #14 — a tool call can think for
+# hours with nothing to send).
+_WATCH_READ_TIMEOUT_S = 300.0
+
+
+def _is_work_path(path: str) -> bool:
+    """Whether this request counts as someone using the container.
+
+    Segment-aware, not a bare prefix: ``startswith`` would silently enrol a
+    future ``/watchdog`` or ``/agent-loop-metrics``, and a high-frequency one
+    would pin the container busy forever — with nothing connecting the
+    symptom (never reclaimed) to the cause (a new route's name).
+    """
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in _WORK_PATH_PREFIXES
+    )
+
+
+class InFlightWorkMiddleware:
+    """Count in-flight work as raw ASGI, NOT inside the route handler.
+
+    The handler cannot do this correctly. ``StreamingResponse.stream_response``
+    sends ``http.response.start`` BEFORE touching ``body_iterator``, so when
+    the consumer is already gone the generator is never started — and closing
+    a never-started async generator runs none of its code, ``finally``
+    included. The counter would then never come back down and the container
+    would report ``busy`` for the rest of its life: never reapable, no
+    self-heal, invisible to every metric.
+
+    At this layer the accounting brackets ``await self.app(...)``, which every
+    exit path passes through — normal completion, client disconnect,
+    cancellation, an exception raised before streaming ever begins.
+
+    Raw ASGI rather than ``@app.middleware("http")`` on purpose: that
+    decorator is ``BaseHTTPMiddleware``, which re-wraps streaming bodies
+    through an anyio memory stream — an extra copy of every NDJSON frame, on
+    the one path whose frames reach hundreds of KiB.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http" or not _is_work_path(
+            str(scope.get("path", ""))
+        ):
+            await self.app(scope, receive, send)
+            return
+        global _next_work_id
+        _next_work_id += 1
+        work_id = _next_work_id
+        _inflight_started[work_id] = monotonic()
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _inflight_started.pop(work_id, None)
+
+
+app.add_middleware(InFlightWorkMiddleware)
+
+
 @app.get("/health")
-def health() -> dict:
-    return {"status": "healthy"}
+async def health() -> dict:
+    """Liveness plus "am I working right now?".
+
+    ``busy`` is what stops the broker's idle reaper from stopping a container
+    mid-turn. ``inflight_oldest_s`` is here so an in-flight count that never
+    drains is diagnosable rather than merely mysterious.
+
+    ``async def`` is load-bearing, not style. FastAPI runs a SYNC handler in a
+    worker thread, which would put these reads on a different thread from the
+    middleware's writes: ``min()`` iterates, and a dict resized mid-iteration
+    raises RuntimeError, while the three reads below could also land on
+    either side of an insert and report ``busy`` with no age. On the loop
+    thread none of that can interleave.
+    """
+    oldest = min(_inflight_started.values(), default=None)
+    return {
+        "status": "healthy",
+        "busy": bool(_inflight_started),
+        "inflight_work": len(_inflight_started),
+        "inflight_oldest_s": (
+            None if oldest is None else round(monotonic() - oldest, 1)
+        ),
+    }
 
 
 @app.post("/watch/ensure")
@@ -182,7 +318,26 @@ async def watch_passthrough(port: int, path: str, request: Request) -> Response:
     if request.url.query:
         upstream += f"?{request.url.query}"
     fwd = {k: v for k, v in request.headers.items() if k.lower() in ("accept", "cache-control", "last-event-id")}
-    timeout = aiohttp.ClientTimeout(total=None, sock_read=None, sock_connect=10)
+    # sock_read is bounded, unlike the agent-loop stream's. Upstream here is a
+    # LOCAL process on 127.0.0.1, so a long read gap is a wedge, not network
+    # weather — and an unbounded one pins this request open forever when the
+    # client half-closes (laptop sleeps, NAT drops the mapping: no FIN, so no
+    # http.disconnect ever arrives). That would hold the container marked busy
+    # for good, and the broker now honours busy.
+    #
+    # The trade-off, with the part that IS knowable pinned down: `officecli`
+    # is a prebuilt third-party binary (iOfficeAI/OfficeCLI, pinned by
+    # OFFICECLI_VERSION in the deploy repo's Dockerfile.executor), so its
+    # keep-alive cadence is not a fact this repo owns — which is exactly why
+    # the budget must not depend on it. If it emits nothing for this long, an
+    # idle document's stream ends and the browser's EventSource reconnects on
+    # its own (the orchestrator proxy's shim keeps that path working); the
+    # window is deliberately far longer than any interactive edit gap. The
+    # other side of the trade is a container left unreapable for the rest of
+    # its life, which no reconnect recovers from.
+    timeout = aiohttp.ClientTimeout(
+        total=None, sock_read=_WATCH_READ_TIMEOUT_S, sock_connect=10,
+    )
     session = aiohttp.ClientSession(timeout=timeout)
     try:
         resp = await session.get(upstream, headers=fwd)
@@ -209,14 +364,32 @@ async def watch_passthrough(port: int, path: str, request: Request) -> Response:
 
 
 @app.post("/agent-loop")
-async def agent_loop(request: Request) -> StreamingResponse:
+async def agent_loop(request: Request) -> Response:
     """Run one agent turn and stream raw event dicts back as NDJSON.
 
     One JSON object per line:
       {"event": {...}}            a raw agent-loop event
       {"error": {"type","message"}}  the loop raised
     """
-    body = await request.json()
+    # Bound the BODY read, and only the body read. This endpoint is
+    # unauthenticated and reachable from inside this very container — the
+    # agent's own Bash can POST a chunked request and never close it, and
+    # request.json() would then wait forever while the middleware above holds
+    # the container marked busy, i.e. never reapable. A parse budget, NOT a
+    # ceiling on the turn: once the body is in, the loop below runs as long as
+    # it likes (rule #14).
+    #
+    # It closes the single-request wedge, not the general case: a caller
+    # inside the container can simply POST again, holding busy for another
+    # window each time. That is not a new capability (the same agent can hold
+    # the container by running a real turn), and the real boundary is the
+    # expiring lease noted above _WORK_PATH_PREFIXES.
+    try:
+        body = await asyncio.wait_for(request.json(), timeout=_BODY_READ_TIMEOUT_S)
+    except TimeoutError:
+        # asyncio.CancelledError is a BaseException and still propagates.
+        logger.warning("[Executor] agent-loop request body never completed")
+        return JSONResponse({"error": "request body timed out"}, status_code=408)
     framework = body["framework"]
     working_path = body["working_path"]
 

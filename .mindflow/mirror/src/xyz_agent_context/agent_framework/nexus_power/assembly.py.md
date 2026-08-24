@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — wait 座位接线 + `_steer_channels`(**steerable-flag** 门,非 inlet 身份)
+
+`run_turn_events` 里构造共享 `WaitState()` 并 `LoopAssembly(wait=...)` 穿进去——`wait_for_input` 工具写它、loop 在 WAIT 边界读它,是"工具→loop"的唯一接线点(同 expression_nudge 教训)。post_init 缺省挂空 `WaitState`。**`wait: WaitRequest` 只让构造点被类型检查**;loop 侧经 `Any` assembly 读 `a.wait.pending`,静态查不到,故 clamp 靠运行期 `WaitRequest.request`(见 [[protocols.py]] I2)。
+**`_steer_channels(steerable: bool, wait_state)` 纯函数**(模块级、可单测):仅当 **`TurnOptions.steerable` 为真**才暴露 `WaitChannel`。**关键订正**:门**不能**判 inlet 身份——默认的 subprocess `runner.main()` 每轮无条件挂一个 `QueueSteeringInlet`(只在可控轮被喂),所以"有没有挂 inlet"恒为真、`steering is None` 在生产上永不成立。steerable 由 orchestrator 是否注册 `SteerChannel` 决定(`nexus_agent._build_request_payload` 写 `steer_channel is not None`),经 `TurnOptions.steerable` 跨序列化边界带过来。非可控轮暴露该工具=agent 一调就在无人喂的队列上阻塞满 clamp(缺省 60s、最长 300s)。DRAIN 与此正交:空 inlet 无论可控与否都 drain 成空。刻意不做注册表。回归打**生产臂**:`test_steering_wiring.test_wait_tool_is_hidden_on_a_non_steerable_run_even_with_an_inlet_mounted`(挂真 inlet + steerable=False → 工具不可见)+ `test_wait_for_input.test_steer_channels_are_gated_on_the_steerable_flag`。
 
 ## 2026-08-21 — steering inlet 接线(live 注入的顶层入口)
 

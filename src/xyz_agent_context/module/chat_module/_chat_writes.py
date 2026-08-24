@@ -73,6 +73,41 @@ def build_bootstrap_greeting_row(
     return {"role": "assistant", "content": greeting, "meta_data": meta}
 
 
+async def agent_chat_has_history(
+    db: "AsyncDatabaseClient", agent_id: str, user_id: str
+) -> bool:
+    """True if ANY ChatModule instance of (agent, user) already holds messages.
+
+    The greeting's idempotency scope (Shenzhen-r2 B2): per-INSTANCE emptiness
+    is the wrong unit — every new narrative creates a fresh empty chat
+    instance, so an instance-scoped guard re-greets on each one while
+    bootstrap is active, and the extra assistant row pops in next to whatever
+    the user just asked ("one question, two replies"). First contact is a
+    per-(agent, user) fact: any prior chat history anywhere means the agent
+    has already been greeted. Status is deliberately ignored — history in an
+    archived/cancelled instance still proves prior contact.
+    """
+    from xyz_agent_context.repository.event_memory_repository import (
+        EventMemoryRepository,
+    )
+
+    rows = await db.get(
+        "module_instances",
+        {"agent_id": agent_id, "user_id": user_id, "module_class": _CHAT_MODULE_NAME},
+    )
+    repo = EventMemoryRepository(agent_id, user_id, db)
+    for row in rows or []:
+        instance_id = row.get("instance_id")
+        if not instance_id:
+            continue
+        mem = await repo.search_instance_json_format_memory(
+            _CHAT_MODULE_NAME, instance_id
+        )
+        if mem and mem.get("messages"):
+            return True
+    return False
+
+
 async def seed_bootstrap_greeting(
     db: "AsyncDatabaseClient",
     agent_id: str,
@@ -102,6 +137,12 @@ async def seed_bootstrap_greeting(
         )
         if existing and existing.get("messages"):
             return False  # already has history — hook / prior seed handled it
+        # Cross-instance guard (Shenzhen-r2 B2): a fresh instance born for a
+        # NEW narrative must not re-greet an agent that already has history
+        # elsewhere. Kept AFTER the own-instance check — that one is cheaper
+        # and does not depend on module_instances registration.
+        if await agent_chat_has_history(db, agent_id, user_id):
+            return False
         row = build_bootstrap_greeting_row(greeting, turn_started_at, instance_id)
         ok = await repo.add_instance_json_format_memory(
             _CHAT_MODULE_NAME,

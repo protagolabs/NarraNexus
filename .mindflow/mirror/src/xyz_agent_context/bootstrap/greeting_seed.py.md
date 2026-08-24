@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/greeting_seed.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 本模块只剩外层便宜过滤;per-agent 幂等归写入方(深圳复测 B2)
+
+原 docstring 用「不然会 re-greet 每个新 narrative」论证 bootstrap_active
+门——B2 实锤:bootstrap_active **窗口内**每个新 narrative 照样重种。
+真正的幂等契约移进写入方(`chat_module.seed_bootstrap_greeting` 的
+`agent_chat_has_history` 跨 instance 守卫,per-(agent,user));本模块的
+门保留为外层便宜过滤(过期即整体停摆)。docstring 已同步改写。
 
 ## 2026-08-20 — 「该不该 seed 问候语」的判定（门禁必须对齐 hook 的 bootstrap_active）
 

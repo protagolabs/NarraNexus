@@ -1,7 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — 活动摘要的 bus-source 判定改用共享常量
+
+`_working_source_summary` 里 `if working_source in ("message_bus", "a2a")` 的硬编码字面量
+换成 `hook_schema.BUS_PRODUCED_SOURCES`(值不变,纯去重)。此前这对字符串在枚举本体、这里、
+以及 Activity Log 路由三处各写一份;统一到单一来源后,新增一个 bus 侧 transport 只改一处、
+所有消费方一起生效,避免"漏改一处 → 活动静默不显示"这类无声 bug。行为无变化。
+
+## 2026-08-21 — hook 兜底 prepend:sibling 抑制 + 不再盖 event_id(深圳复测 B2)
+
+`hook_persist_turn` 的首轮问候 prepend 补两刀:
+① 先查 [[_chat_writes]]`.agent_chat_has_history`——该 (agent,user) 在
+别的 instance 已有历史就不种(新 narrative 的空 instance 不再被当
+「首次接触」重新问候;检查失败 fail-open,最坏是旧行为的一次重种)。
+② `build_bootstrap_greeting_row(...)` 不再传 `event_id`——问候不属于
+任何 run,盖当次 run 的 id 会让它与本轮真实回复共享前端时间线的
+(role, event_id) 去重身份(B2 的另一半)。seed 路径本就不盖,两个
+写入方从此一致。
 
 ## 2026-08-20 — bootstrap 问候 prepend 改用共享行构造器
 

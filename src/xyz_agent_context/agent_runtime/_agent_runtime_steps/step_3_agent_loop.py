@@ -60,6 +60,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        ExecutorEnsureResult,
+    )
+
     from .context import RunContext
 
 
@@ -1199,8 +1203,54 @@ async def _record_executor_infra_event(
         )
 
 
-@timed("step.3_agent_loop")
+async def _ensure_executor_for_run(
+    user_id: str, run_id: Optional[str]
+) -> Optional["ExecutorEnsureResult"]:
+    """Ensure this run's executor, carrying the stale-image replacement
+    verdict to the broker.
 
+    A named seam rather than three inline lines, because the verdict is the
+    kind of argument whose omission changes nothing here and everything at
+    the broker: drop it and this process behaves identically while the broker
+    silently returns to destroying containers under live runs. A seam can be
+    tested; an inline keyword argument can only be re-read.
+
+    The verdict is computed at THIS layer because it is the one that knows
+    both the user and which run is asking — our own events row is already
+    'running' by now, so it has to discount us or the image would never roll.
+    broker_client is a transport client and owns no part of the decision.
+    """
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        broker_url,
+        ensure_executor,
+    )
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        no_live_recorded_run_for,
+    )
+
+    if broker_url() is None:
+        # No broker, no one to hand a verdict to — and ensure_executor would
+        # return None on the next line anyway. Short-circuited HERE because
+        # the verdict is an ARGUMENT, so it is computed first: without this,
+        # local / desktop / static-AGENT_EXECUTOR_URL deployments pay a DB
+        # round-trip on every turn's hot path for a bool that is discarded
+        # (rule #7 — the two run modes must not tax each other). Returning
+        # None, not raising: the call site reads `ensured is None` to fall
+        # back to the in-process driver, exactly as ensure_executor does.
+        #
+        # broker_url(), not executor_seam_active(): the latter also counts a
+        # static AGENT_EXECUTOR_URL, and that path never calls the broker.
+        return None
+
+    return await ensure_executor(
+        user_id,
+        allow_stale_replace=await no_live_recorded_run_for(
+            user_id, active_run_id=run_id
+        ),
+    )
+
+
+@timed("step.3_agent_loop")
 async def step_3_agent_loop(
     ctx: "RunContext",
     db_client,
@@ -1429,11 +1479,12 @@ async def step_3_agent_loop(
         # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
         # so get_agent_loop_driver falls back. This is the cold-start point.
         from xyz_agent_context.agent_framework.loop.broker_client import (
-            ensure_executor,
             wait_until_ready,
         )
 
-        ensured = await ensure_executor(ctx.user_id)
+        ensured = await _ensure_executor_for_run(
+            ctx.user_id, str(ctx.event.id) if ctx.event else None
+        )
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a
@@ -1487,6 +1538,7 @@ async def step_3_agent_loop(
         _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
             cancellation=ctx.cancellation,
+            steering=ctx.steering,
             **turn_input.driver_kwargs(),
         ):
             if _warming_active:

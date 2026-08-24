@@ -28,10 +28,17 @@ container out from under a live group-chat reply, surfacing to the user
 as ``infra_transient``. The idle claim is therefore vetoed by a
 cross-process liveness check against the ``events`` table, which every
 process writes to (incident lesson #5).
+
+That check has a second consumer, which is why it is a module-level
+function here rather than a private of the reaper: the broker's stale-image
+replacement destroys the same container for a different reason, and asking
+the same question two ways is how the two answers drift apart. See
+``no_live_recorded_run_for``.
 """
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 from time import monotonic
 from typing import Awaitable, Callable, Optional
@@ -49,7 +56,16 @@ from xyz_agent_context.schema.executor_audit import (
     EVENT_CULL_SKIPPED_BUSY,
 )
 
-StopFn = Callable[[str], Awaitable[None]]
+# Returns whether the executor actually stopped. False means the broker
+# REFUSED because the container reported work in flight — a normal outcome,
+# not an error, and one the reaper must be able to tell from success.
+#
+# Consumed as `if not await stop_fn(...)`, so a falsy return of any kind means
+# "not stopped". That polarity is the safe one: a future branch that forgets
+# to return leaves the user its idle stamp and retries next pass, whereas
+# treating silence as success drops the stamp and leaves a container that was
+# never stopped never reconsidered either (see reap_once).
+StopFn = Callable[[str], Awaitable[bool]]
 
 DEFAULT_IDLE_TTL_SEC = 1200   # 20 min (locked decision)
 DEFAULT_INTERVAL_SEC = 120
@@ -173,6 +189,7 @@ def reaper_status() -> dict:
         "blind": 0,
         "recheck_judged": 0,
         "recheck_vetoed": 0,
+        "refused_busy": 0,
         **(_LAST_PASS or {}),
     }
 
@@ -180,8 +197,9 @@ def reaper_status() -> dict:
 async def live_run_elsewhere(
     user_id: str,
     *,
+    caller: str,
+    consequence: str,
     exclude_run_id: Optional[str] = None,
-    caller: str = "reaper",
 ) -> Optional[str]:
     """The id of a run live in ANY process for this user, or None.
 
@@ -192,6 +210,23 @@ async def live_run_elsewhere(
     Never raises. Every failure path answers "busy", with ``UNKNOWN_RUN`` as
     the id so callers can tell a real blocker from an unknowable one. Not
     knowing must never authorise destroying anything (binding rule #14).
+
+    ``caller`` and ``consequence`` only shape the logs, and both are
+    REQUIRED for the same reason: the consumers suffer DIFFERENT outcomes
+    when the answer is unknowable (culling stops vs. executor images stop
+    rolling), and the warning fires once per caller per process — so the one
+    line somebody gets has to name the right subsystem. Required rather than
+    defaulted because a default is necessarily one consumer's outcome, and
+    the next consumer that omits it inherits that text silently.
+
+    A NEW consumer that omits either gets a TypeError on its first call. The
+    reaper does not: it binds both here (``_REAPER_LIVENESS``), and a
+    TypeError on that path is swallowed by the pass-level handlers that keep
+    one user's failure from aborting a cull — it surfaces as "reap pass
+    error", or as "failed to stop executor", which reads like a broker fault.
+    So the reaper's binding is pinned by
+    ``test_the_reaper_binds_its_own_log_subject`` instead of by this
+    signature. Anyone binding these for a third consumer needs the same.
     """
     from xyz_agent_context.agent_runtime.run_recorder import (
         first_live_run_id,
@@ -208,8 +243,8 @@ async def live_run_elsewhere(
             _recording_off_warned.add(caller)
             logger.warning(
                 f"[{caller}] run recording is disabled ({RECORDING_DISABLED_ENV}) "
-                f"— cross-process liveness is unknowable, so executor "
-                f"idle-culling is OFF while it stays disabled."
+                f"— cross-process liveness is unknowable, so {consequence} "
+                f"while it stays disabled."
             )
         return UNKNOWN_RUN
     _recording_off_warned.discard(caller)
@@ -221,6 +256,72 @@ async def live_run_elsewhere(
     except Exception as e:  # noqa: BLE001 — no verdict ⇒ assume busy
         logger.warning(f"[{caller}] busy check unavailable for user={user_id}: {e}")
         return UNKNOWN_RUN
+
+
+async def no_live_recorded_run_for(
+    user_id: str, *, active_run_id: Optional[str] = None
+) -> bool:
+    """True when this user has no live RECORDED run — the verdict callers
+    hand to ``ensure_executor`` as ``allow_stale_replace``.
+
+    Named for the evidence, not for the conclusion. An earlier name said
+    "replacement is safe", which promises more than this can see: it knows
+    about runs in the ``events`` table and nothing else. Anything else living
+    on that container is invisible here —
+
+      * office-watch proxy sessions (``backend/routes/office_watch/proxy.py``)
+        run ``officecli watch`` INSIDE the container and stream from it; a
+        replacement takes the watch process and its port with it
+      * anything future that holds the container without recording a run
+
+    and the question a caller turns this into is about the CONTAINER, not
+    about itself: "nothing else of MINE is on it" does not exclude another
+    subsystem's session. No caller can establish that today, so every caller
+    that passes this is accepting a residual risk. It is currently acceptable
+    only because the idle cull already destroys such a container on its TTL;
+    the fix is to give non-run holders a lease row that
+    ``live_run_elsewhere`` reads, which removes the risk for every consumer
+    at once instead of per caller.
+
+    Second consumer of the liveness answer above, and it lives here so there
+    is ONE place that asks "is anyone using this container?". The alternative
+    is a second running-plus-heartbeat query elsewhere, whose staleness rule
+    drifts from this one the first time either is touched.
+
+    The broker cannot answer this itself and should not learn how: it is the
+    one component with docker access, and its threat model rests on having
+    exactly one caller-controlled input (a user_id it validates). Handing it
+    DB credentials to look up run state would widen that surface for a fact
+    the orchestrator already holds.
+
+    ``active_run_id`` is the asking run's own id, excluded from the answer:
+    at ensure() time the caller's events row is already ``running`` but it
+    has not connected to the container yet, so counting itself would mean
+    "never replace" — and a stale executor after a wire-protocol change
+    degrades runs silently (2026-07: an old executor got an EMPTY MCP set).
+
+    Deliberately conservative: a live run of the same user may not be using
+    the executor at all (not yet at step 3, or a direct-trigger run that
+    never does). Deferring costs one more turn on old code and self-corrects
+    at the next ensure; replacing under a live run kills it (rule #14).
+    """
+    live = await live_run_elsewhere(
+        user_id,
+        exclude_run_id=active_run_id,
+        caller="stale-replace",
+        consequence="stale executor images will NOT roll",
+    )
+    return live is None
+
+
+# The reaper's own binding of the shared liveness call. A partial rather
+# than defaults on live_run_elsewhere: see that function on why the log
+# subject cannot have a default.
+_REAPER_LIVENESS = functools.partial(
+    live_run_elsewhere,
+    caller="reaper",
+    consequence="executor idle-culling is OFF",
+)
 
 
 class _CullVeto:
@@ -242,7 +343,7 @@ class _CullVeto:
 
     _MAX_TRACKED = 4096
 
-    def __init__(self, check=live_run_elsewhere) -> None:
+    def __init__(self, check=_REAPER_LIVENESS) -> None:
         self._check = check
         self._blocked_by: dict[str, str] = {}   # user_id -> blocking run id
         # Per-pass tallies. The veto is the only thing that sees the
@@ -386,7 +487,7 @@ class ExecutorReaper:
         self._passes_since_audit = 0
 
     async def _report_pass(
-        self, claim: dict, recheck: dict, reaped: int
+        self, claim: dict, recheck: dict, reaped: int, *, refused: int = 0
     ) -> None:
         """Publish one pass's outcome to the L2 surfaces. Never raises.
 
@@ -415,6 +516,10 @@ class ExecutorReaper:
             self._passes_since_audit = 0
         _LAST_PASS = {
             "reaped": reaped,
+            # Stops the broker refused because the container reported work.
+            # Distinct from `vetoed` (this side's own DB verdict): non-zero
+            # here means the container saw a holder the events table cannot.
+            "refused_busy": refused,
             # Carried, not kept in a module global: staleness is judged
             # against it, and one fewer piece of resettable module state is
             # one fewer way for a test to leak into the next one.
@@ -493,6 +598,8 @@ class ExecutorReaper:
         veto = self._is_busy if isinstance(self._is_busy, _CullVeto) else None
         claim_stats = veto.take_pass_stats() if veto else {}
         reaped: list[str] = []
+        # Users the broker refused to stop because the CONTAINER reported work.
+        refused = 0
         for user_id in users:
             try:
                 # Re-checked per user, not once for the batch. claim_idle_users
@@ -518,7 +625,25 @@ class ExecutorReaper:
                     # never gets a new stamp in THIS one.
                     await self._controller.restamp_idle(user_id)
                     continue
-                await self._stop_fn(user_id)
+                if not await self._stop_fn(user_id):
+                    # The broker refused: the CONTAINER reports work this side
+                    # cannot see (an office-watch session leaves no run row).
+                    # Same handling as the busy branch above — hand the stamp
+                    # back, or a container we never stopped is also a container
+                    # we never reconsider. Counted, so the admin surface does
+                    # not report a cull that did not happen.
+                    logger.info(
+                        f"[reaper] broker refused to stop user={user_id}: the "
+                        f"container is busy; leaving its executor alone"
+                    )
+                    refused += 1
+                    await self._controller.restamp_idle(user_id)
+                    # Deliberately NOT a cull_skipped_busy row: that metric's
+                    # contract is "one row = one run this guard saved, named by
+                    # its real run id", and this refusal has no run id to name
+                    # (the holder is not a recorded run). Reported as a count
+                    # instead, via reaper_status.
+                    continue
                 reaped.append(user_id)
             except Exception as e:  # noqa: BLE001 — best-effort, must not abort
                 logger.warning(f"[reaper] failed to stop executor user={user_id}: {e}")
@@ -545,6 +670,7 @@ class ExecutorReaper:
         # the report there would show it as "not running".
         await self._report_pass(
             claim_stats, veto.take_pass_stats() if veto else {}, len(reaped),
+            refused=refused,
         )
         return reaped
 

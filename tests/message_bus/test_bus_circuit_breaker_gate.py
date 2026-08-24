@@ -2,10 +2,11 @@
 @file_name: test_bus_circuit_breaker_gate.py
 @author:
 @date: 2026-07-13
-@description: MessageBusTrigger._process_agent circuit-breaker skip-gate.
+@description: MessageBusTrigger._process_lane circuit-breaker skip-gate.
 
 A paused/cooling agent must be skipped WITHOUT consuming its pending bus
-messages (they stay queued for when it resumes).
+messages (they stay queued for when it resumes). The gate lives in the
+production per-lane method and fires before the bus read.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ class _SpyBus:
     def __init__(self):
         self.get_pending_called = False
 
-    async def get_pending_messages(self, agent_id):
+    async def get_pending_messages(self, agent_id, limit=50, channel_id=None):
         self.get_pending_called = True
         return []
 
@@ -30,8 +31,8 @@ class _SpyBus:
 def _trigger(bus):
     t = MessageBusTrigger.__new__(MessageBusTrigger)
     t._semaphore = asyncio.Semaphore(10)
-    t._agent_locks = {}
-    # `_process_agent` marks its dispatch as slot-holding for the heartbeat;
+    t._lane_locks = {}
+    # `_process_lane` marks its dispatch as slot-holding for the heartbeat;
     # called directly there is no dispatch, so an empty registry is the
     # accurate state, not a stub.
     t._in_flight = {}
@@ -47,7 +48,7 @@ async def test_paused_agent_skipped_without_touching_bus(monkeypatch):
 
     bus = _SpyBus()
     t = _trigger(bus)
-    result = await t._process_agent("ag_paused")
+    result = await t._process_lane("ag_paused", "ch_test")
 
     assert result is False
     assert bus.get_pending_called is False  # messages left queued
@@ -61,7 +62,7 @@ async def test_healthy_agent_falls_through_to_bus(monkeypatch):
 
     bus = _SpyBus()
     t = _trigger(bus)
-    result = await t._process_agent("ag_ok")
+    result = await t._process_lane("ag_ok", "ch_test")
 
     # No pending messages → returns False, but it DID consult the bus.
     assert result is False

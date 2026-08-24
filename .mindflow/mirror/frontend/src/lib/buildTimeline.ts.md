@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 不再在 history 循环里丢弃 message_bus 活动行
+
+删掉了 history 循环里 `message_type === 'activity' && working_source === 'message_bus'`
+的 `continue`。它原意是「别让 message_bus 活动出现在 1:1 对话里」,但生产里
+**所有** peer/team turn 的 `working_source` 都是 `message_bus`(`MessageBusTrigger._invoke_runtime`
+对 A2A/team/patrol 一律写 MESSAGE_BUS,全仓无代码写 `a2a`)——于是这条 filter 把 Activity Log
+要显示的行**全部**丢掉,bug 2 端到端成了空操作。现在让这些行通过,由更靠前的两道机制保证对话 tab
+仍然干净:① 对话 tab 请求 `include='chat'`,后端就把 `activity` 行剔掉;② `ChatPanel.visibleTimeline`
+按 `messageType === 'activity'` 把活动行排除在对话 tab 外(session 侧活动行靠这一道)。`:140` 只在
+history 循环,session 循环无同类 filter,删除不影响 live session。用例:
+`buildTimeline.test.ts` 断言 `{activity, message_bus}` history 行会出现在结果里(删了会回来的非空守卫)。
 
 ## 2026-08-04 — 空白历史行兜底过滤
 

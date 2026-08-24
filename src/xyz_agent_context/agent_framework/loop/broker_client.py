@@ -74,9 +74,27 @@ def executor_seam_active() -> bool:
 
 
 async def ensure_executor(
-    user_id: str, *, timeout: float = 120.0
+    user_id: str,
+    *,
+    allow_stale_replace: bool = False,
+    timeout: float = 120.0,
 ) -> Optional[ExecutorEnsureResult]:
     """Ensure this user's executor via the broker; return url + cold-start.
+
+    ``allow_stale_replace`` is the CALLER's verdict on whether the broker may
+    destroy this user's container to roll a stale executor image — i.e.
+    whether anyone is using it right now. This module cannot compute that and
+    deliberately does not: it is a transport client, the fact lives in the
+    orchestrator's DB, and the decision belongs to whoever holds run context
+    (step 3 passes ``executor_reaper.no_live_recorded_run_for``'s answer;
+    callers that are not a run leave it False).
+
+    False is the safe default in both directions — it can only ever DELAY an
+    image roll, never kill a run — so an omission degrades rather than
+    breaks. Named for the one replacement reason it gates: the broker has
+    others (an unreachable container, capacity churn) and those must stay
+    unconditional, because a container nobody can reach has no run on it to
+    protect.
 
     Returns ``None`` when no broker is configured (caller falls back).
     Raises on broker/transport error — in cloud we must NOT silently fall
@@ -93,7 +111,13 @@ async def ensure_executor(
     endpoint = f"{base.rstrip('/')}/executors"
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(endpoint, json={"user_id": user_id})
+            resp = await client.post(
+                endpoint,
+                json={
+                    "user_id": user_id,
+                    "allow_stale_replace": allow_stale_replace,
+                },
+            )
             resp.raise_for_status()
             data = resp.json()
     except httpx.TransportError as e:
@@ -106,6 +130,17 @@ async def ensure_executor(
     logger.info(
         f"[broker] ensured executor user={user_id} status={status} url={executor_url}"
     )
+    if data.get("stale_replace_deferred"):
+        # Loud on purpose: this user runs last deploy's executor code for at
+        # least one more turn. Deferring is correct (a run was live on the
+        # container) but it must never be silent — a stale executor after a
+        # wire-protocol change degrades runs without raising anything
+        # (2026-07 mcp_servers rename handed an old executor an EMPTY MCP
+        # set). It self-corrects at the next ensure with no live run.
+        logger.warning(
+            f"[broker] user={user_id} kept a STALE-image executor: a run was "
+            f"live on it. It rolls at the next ensure with no live run."
+        )
     if not executor_url:
         raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
     return ExecutorEnsureResult(
@@ -157,18 +192,42 @@ async def wait_until_ready(
         await asyncio.sleep(interval)
 
 
-async def stop_executor(user_id: str, *, timeout: float = 30.0) -> None:
-    """Tell the broker to stop this user's executor (idle-cull).
+async def stop_executor(user_id: str, *, timeout: float = 30.0) -> bool:
+    """Tell the broker to stop this user's executor (idle-cull). True if it
+    actually stopped.
 
-    No-op when no broker is configured. Best-effort: a transport error is
-    raised to the caller (the reaper), which logs and moves on — the
-    broker's own label-based reaper is the backstop for orphans.
+    The broker refuses while the CONTAINER reports work in flight, answering
+    ``status: "busy"`` with a 200 — it sees holders this side cannot (an
+    office-watch session runs inside the container and records no run). A
+    refusal is therefore a normal outcome, not an error, and the caller must
+    be able to tell it from success: treating it as stopped would drop the
+    user's idle stamp and leave the container unreclaimed for good.
+
+    No-op returning True when no broker is configured (nothing to stop, and
+    nothing for the caller to hold on to). Transport errors are raised to the
+    caller (the reaper), which logs, restamps and moves on.
     """
     base = broker_url()
     if not base:
-        return
+        return True
     endpoint = f"{base.rstrip('/')}/executors/{user_id}"
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.delete(endpoint)
         resp.raise_for_status()
+        # Defensive about the SHAPE, not the status code: a 2xx whose body is
+        # not a JSON object (a proxy's HTML error page, a bare array) would
+        # otherwise raise here and be read by the caller as "the stop failed"
+        # — reporting the opposite of what happened, for a stop that did.
+        try:
+            data = resp.json() if resp.content else None
+        except ValueError:
+            data = None
+        status = data.get("status") if isinstance(data, dict) else None
+    if status == "busy":
+        logger.info(
+            f"[broker] executor for user={user_id} is busy; not stopped "
+            f"(it holds work this side cannot see)"
+        )
+        return False
     logger.info(f"[broker] stopped idle executor user={user_id}")
+    return True

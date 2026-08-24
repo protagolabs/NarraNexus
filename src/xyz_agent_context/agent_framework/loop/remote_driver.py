@@ -115,6 +115,17 @@ class RemoteAgentLoopDriver:
         import aiohttp
 
         _cancel_view = CancellationView(cancellation)
+        # A live SteerChannel cannot cross the HTTP boundary, and this driver
+        # does NOT declare the `steering` capability, so the orchestrator should
+        # never register a remote run as steerable. If one slips through, make
+        # the dropped injection VISIBLE rather than silent (iron rule #16) —
+        # cloud steering needs a `/steer` executor endpoint (a later change).
+        if kwargs.get("steering") is not None:
+            logger.warning(
+                "[RemoteAgentLoop] steering supplied but the remote transport "
+                "cannot carry it — injections for this run will not be "
+                "delivered (gate register on 'steering' in capabilities())"
+            )
         # turn_profile arrives as the in-process pydantic model; the wire
         # wants its dict form (JSON body).
         _profile = kwargs.get("turn_profile")

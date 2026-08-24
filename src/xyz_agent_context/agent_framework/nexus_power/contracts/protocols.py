@@ -18,7 +18,7 @@ platform imports; the real class satisfies it as-is.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Protocol, Sequence, runtime_checkable
+from typing import Any, AsyncIterator, Optional, Protocol, Sequence, runtime_checkable
 
 from xyz_agent_context.agent_framework.nexus_power.contracts.errors import LoopError
 from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
@@ -124,6 +124,50 @@ class SteeringInlet(Protocol):
     append-only — never mutate the prefix."""
 
     async def drain(self) -> list[ProviderMessage]: ...
+
+    def take_consumed(self) -> list[str]:
+        """The steer_inbox row ids drained since the last call, then cleared —
+        so the loop can report which injections the run actually consumed. An
+        inlet with no id-bearing source returns []. No default body: a Protocol
+        default does not reach a structural implementer anyway, and the loop
+        calls this unconditionally, so every inlet MUST define it (the next inlet
+        — the cloud executor's — included)."""
+        ...
+
+    async def wait_for_input(
+        self, timeout: float, cancel: CancellationSignal | None = None
+    ) -> list[ProviderMessage]:
+        """BLOCK up to ``timeout`` seconds for the next message(s), then return
+        them fused; ``[]`` on timeout or cancellation. The blocking twin of
+        ``drain`` — the loop calls it only when the agent has explicitly asked
+        to wait (the ``wait_for_input`` tool), never on the ordinary boundary.
+        ``cancel`` (a ``CancellationSignal``, duck-typed on ``requested()``) must
+        interrupt the wait promptly, not only at the deadline. A source-less
+        inlet returns ``[]`` at once (no producer can ever feed it)."""
+        ...
+
+
+@runtime_checkable
+class WaitRequest(Protocol):
+    """The loop's wait seat: a per-turn holder the ``wait_for_input`` tool
+    writes and the loop reads-and-clears at the WAIT boundary. Typing it here
+    (not ``Any``) checks the ``LoopAssembly.wait`` CONSTRUCTION site and pins a
+    future second producer (the cloud executor's /steer) to the same shape — the
+    loop itself reads ``a.wait.pending`` through an ``Any`` assembly, so the bound
+    is enforced at runtime (``request``), not statically.
+    ``pending`` is the CLAMPED seconds to wait, or None when nothing is pending.
+    ``request`` is the ONE clamp entry: it bounds ``raw`` into [MIN, MAX]
+    (missing/garbage → default), stores it on ``pending``, and returns it. It is
+    part of the protocol — not just a convention on the concrete ``WaitState`` —
+    so every producer (``WaitChannel`` today, the cloud executor's ``/steer``
+    tomorrow) clamps through the same door instead of writing ``pending`` raw;
+    that is what lets the loop trust ``pending`` is already in range. Writing
+    ``pending`` directly bypasses the bound and is a bug (a test double included:
+    it would render "You waited 0s" / block for a day)."""
+
+    pending: Optional[float]
+
+    def request(self, raw: Any) -> float: ...
 
 
 @runtime_checkable

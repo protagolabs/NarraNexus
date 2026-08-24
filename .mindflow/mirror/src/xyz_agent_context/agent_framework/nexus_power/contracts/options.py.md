@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/options.py
-last_verified: 2026-08-17
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `steerable: bool`(可控性跨边界的显式载体)
+
+新增 `steerable`(默认 False)。这一轮 run 是否可控(orchestrator 是否给它注册了 `SteerChannel`)必须**显式**过序列化边界:subprocess `runner.main()` 每轮无条件挂 `QueueSteeringInlet`,所以"有没有挂 inlet"在生产上恒真、推不出可控性。`wait_for_input` 工具**仅当** `steerable=True` 才暴露(见 [[assembly.py]] `_steer_channels`)——否则 agent 一调就在无人喂的队列上阻塞满 clamp。写入方=`nexus_agent._build_request_payload`(`steer_channel is not None`)。默认 False:旧 payload 无此字段→安全降级为"不暴露 wait"(不会误挂 300s 阻塞)。DRAIN 与它正交。
 
 ## 2026-08-17 — `origin_declaration`
 

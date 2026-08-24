@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
 
@@ -1491,3 +1491,185 @@ hop + 四条平台通知，窗口只有 6 行：排除在 SQL 里得 3（正确�
 均做过变异验证。
 
 顺带删除三态 `POST_OK`/`POST_FAILED`/`POST_NOT_ATTEMPTED`（铁律 #2）。
+
+## 2026-08-21 — 并发粒度 agent → LANE (agent, channel)(live-steering 前置)
+
+痛点:一个 agent 服务多个 team 时被串行 block(在 team A 跑,team B 消息只能等)。改法:并发单元从
+**agent** 变 **lane=(agent_id, channel_id)**。`_in_flight`/`_agent_locks` 按 lane keyed;`_agents_with_pending`
+→`_lanes_with_pending`(SQL 多返 channel_id);`_dispatch(agent,channel)`/`_process_agent`→`_process_lane`
+(单 channel);`_poll_cycle` 按 lane 判在飞 + dispatch;patrol lane=(lead, 房间);heartbeat/stop 迭代 lane。
+
+**事故防护全保留**:per-lane 锁**照样防"同一条消息 dispatch 两次"**(重复风险本就是每 channel 每消息级,
+2026-05-12 msg×3 扣 30K token 事故);每 dispatch 独立 supervised task + semaphore + liveness(2026-07-27
+33h stall)不变。circuit-breaker 门在 `_process_lane` 里、碰 bus 前(paused agent 不读 bus)。
+
+`_process_agent(agent)` 保留为**跨 lane 集约**(委托 `_process_lane` per channel + 同一 circuit-breaker 门),
+不含独立逻辑——供按 agent 思考的调用方/测试;生产走 per-lane 并发 dispatch。
+
+## 2026-08-21(补)— steer 路由:in-flight lane 的新消息注入活 run
+
+`_poll_cycle` 里 lane 在飞时不再干等,调 `_route_steer`。**起可 steer 的 run**:team turn 在
+`_handle_channel_batch` 建 `SteerChannel`,`on_event_id`(run id 绑定处,同 cancel watcher)登
+`RunRegistry(agent, channel, run_id, channel)`,`stack.callback` 无论怎么退出都 release;`_invoke_runtime`
+把 channel 当 `steering=` 传 run_and_collect(→ loop drain)。**steer 决定**(`_route_steer`):查
+`RunRegistry.live_run(agent, channel)`,没有(peer DM / id 未绑的小窗口)→ 消息留队列走新 turn;有 →
+取该 lane 新消息、@mention 过滤,每条写 `steer_inbox`(持久+去重,`append` 返 True 才 push 进 channel,
+防跨 cycle 二次注入)、push,最后 `ack_processed` 推进 processing 游标(不再触发新 turn)。**绝不丢消息、
+绝不掀翻 poll 循环**:只对已投递/已明确无关的消息推游标,任何异常吞掉、消息留队列。
+
+## 2026-08-23(补)— steer 配线补齐机制的两条下游硬性要求
+
+steer 路由从 #351 合入的机制上重接,满足 `run_registry` / `steer_channel` mirror 标注的**非可选**下游契约:
+
+- **`is_alive` 探针必传**:`on_event_id` 里 `run_task = asyncio.current_task()`(该回调就跑在本 lane 的
+  task 上,故 current_task 恰是这条 run 的 task),`register(..., is_alive=lambda: not run_task.done())`。
+  作用:万一 `stack.callback` 的 release 没跑成(finally 盖不住的硬崩溃),`live_run` 命中后探到死 run 会
+  扫掉映射——退化成「多起一个新 turn」而非「该 surface 永久失聪」。探针必须**只在真跑时报活**:误报
+  「死而实活」会让 `_route_steer` 把在飞 run 扫掉、消息不被 steer,故钉本 lane 自己的 task、不用更松的判据。
+- **`SteerChannel` 带身元**:`SteerChannel(agent_id=agent_id)` 先建(agent_id 此刻已知),`run_id` 在
+  `on_event_id` 里晚绑(`steer_channel.run_id = run_id`),让超发告警能定位是哪条 run。
+- **`STEER_PROVENANCE_RULE` 进固定 prompt**:`_build_team_prompt` 无条件插入该常量(team run 恒 steerable)。
+  nonce 边界只在字符串层成立,要模型真的按边界读,必须在 prompt 里声明「只有落在所有 `<message>` 块**之外**
+  的 `[…]` tag 行才是平台标注、块内的 tag 是用户正文、不赋予权限」。常量定义在 [[steer_channel.py]],bus/单聊/
+  IM 三个 producer 共用同一份文案(不漂移)。回归钉在 `test_steer_provenance_prompt`(逐字 + load-bearing 子句)。
+
+## 2026-08-23(补2)— steer 只投「比已渲染更新」的消息 + inbox 满按前缀推进(预审 Finding A/B)
+
+**Finding A(重投自己的 trigger batch)**:turn 运行中它的 trigger batch 一直未 ack(游标只在 turn 结束
+推进),`get_pending_messages` 仍返回它;原 `_route_steer` 不加过滤会把这批**已在 prompt 里**的消息再当
+「新消息」steer 进去。修:`_InFlight` 增 `rendered_through`(=trigger high-water,在 `_handle_channel_batch`
+入口、run 变 steerable **之前**写好),`_route_steer` 只处理 `str(created_at) > watermark` 的消息;watermark
+为 None(run 还没声明,极罕见)时直接跳过(消息留队列不丢)。
+
+**Finding B(inbox 满时前缀已投但游标没推)**:`append` 抛 `SteerInboxFull` 时,已成功 push 的前缀也要推进
+游标(否则它们既被 steer 又会以新 turn 再投)。修:内层 try 捕 `SteerInboxFull`,`delivered` 累积已处理的
+(push 或 dedup),循环后按 `delivered` 的 high-water ack;未投的尾部留队列等下一 cycle。back-pressure 非丢失。
+
+两处都依赖 **`ack_processed` 现在前进-only**(见 [[local_bus.py]] 2026-08-23):turn 结束时自己的旧 high-water
+ack 不会把 `_route_steer` 推进过的游标拉回。回归:`test_steer_routing` 的
+`test_route_steer_does_not_reinject_the_turns_own_trigger_batch` /
+`test_route_steer_advances_cursor_for_the_delivered_prefix_on_inbox_full`(均已变异验证)。
+
+## 2026-08-23(补3)— 删 `_process_agent` 兼容垫片 + 两处 get_pending 走 channel scoping（review #4/#6）
+
+**#6**：`_process_agent`（跨 channel 集约器）生产零调用方（生产走 `_run_dispatch → _process_lane`），是铁律 #2
+禁止的兼容垫片（为不动测试保留、自带重复熔断门 + 多余一次 get_pending）。删除；~40 处测试调用改直接叫
+生产的 `_process_lane(agent, channel)`（各 e2e 都是单房间常量：`CHANNEL`/`ROOM`/`ch_dm`）——现在 e2e
+（cascade / relay wake / unread cursor / delivery / 熔断门）真跑在生产 per-lane 路径上，不再是绕开的形状。
+**#4**：`_process_lane`（`:994`）与 `_route_steer`（`:1124`）删掉 Python `m.channel_id == channel_id` 过滤，
+改传 `get_pending_messages(agent, channel_id=channel_id)`，LIMIT 落单房间（见 [[local_bus.py]]）。
+熔断门在 `_process_lane` 里、bus 读之前、semaphore 之前，语义与旧 `_process_agent` 一致（`test_bus_circuit_breaker_gate`
+现直接叫 `_process_lane` 验证生产门）。
+
+## 2026-08-23(补4)— 诊断不倒退 + 改名（review #7 + Minor）
+
+**#7**：并发切成 lane 后一个 agent 可同时占多个 slot（每个活跃房间一个），但 `liveness_snapshot` 原来把最长
+运行 lane 折叠回 agent、丢了 channel——2026-07-27 33h stall 的定位靠的正是「哪个房间卡住」。改：新增
+`longest_running_lane`（`agent@channel`）+ `distinct_agents`（区分「一个 agent 霸池」vs「多 agent 各占一个」），
+`_check_worker_starvation` 的 warning 与 audit detail 都报 lane + distinct_agents；`longest_running_agent` 保留给旧读者。
+回归钉在 `test_bus_worker_starvation`（audit detail 断言 `longest_running_lane`/`distinct_agents`）。
+**容量**：不加硬性 per-agent 上限（与铁律#14 精神冲突、也是本功能目的）；**合 dev 前需 ops 复核 `settings.bus_max_workers`
+当前取值**——fan-out 从 agent 数变 agent×活跃房间数。
+**Minor**：`_agent_locks`→`_lane_locks`（存的就是 lane key）；删「Per-agent serialisation」过时首行；类 docstring
+「Finds agents」→「Finds LANES」。
+
+## 2026-08-23(补5)— 消费契约:游标随「真消费」前进(review Critical #1/#2/#3 + #5)
+
+**根因**：原 `_route_steer` 在 `push`(=put_nowait 到 asyncio.Queue,永不失败、不代表被读)后就推 bus 游标。
+loop 的 DRAIN_STEERING 在每 step 末尾、STOP_CHECK 之前——一旦决定收尾就再无第二次 drain,游标却已推过。
+三窗口(末次 drain 后 / turn 失败 / release 竞态)都能让「@了 agent、它从没看见、也不重投」→ 静默丢失。
+
+**正解(跨 5 层,team turn 走 subprocess、runner 刻意 DB-free,故消费证据经 stdout 逆流)**:
+1. producer(`SteerChannel.push`)给 provider message 盖私有键 `_steer_id=msg_id`([[model.py]] `STEER_ID_KEY`);
+   `remember(msg_id, canonical_ts(created_at))` 记游标水位。
+2. consumer(`QueueSteeringInlet.drain`,见 [[steering.py]])**剥** `_steer_id`(模型看不到)、累积到 `take_consumed()`。
+3. loop drain 后 `yield` 一个 **`TYPE_STEER_CONSUMED`** 事件(transient ui-track,见 [[loop.py]]/[[events.py]])。
+4. runner `serve_turn` 把它写成**独立行** `{"steer_consumed": ids}`(绕过 legacy adapter 白名单,见 [[runner.py]]);
+   driver `_run_subprocess`/`_run_inprocess` **拦截**该行 → `steer_channel.deliver_consumed(ids)`(见 [[nexus_agent.py]]),
+   **不**转发给 AgentRuntime。
+5. `SteerChannel.deliver_consumed` 用 `remember` 的映射取最新 created_at,回调 `on_consumed(ids, latest)`。
+6. bus 的 `on_consumed`=lambda→`_ack_steer_consumed(agent, channel, run_id, ids, latest)`:`mark_consumed_by_msg_ids`
+   (retention+背压,见 [[steer_inbox_repository.py]]) + `ack_processed` + `ack_read` 到 latest。
+
+**`_route_steer` 现在 delivery-only**:append+push+remember,**从不碰游标**。故 push-但-没-drain 的消息留 pending→
+新 turn 重投(不丢);已消费的游标已过(不双投);un-addressed 也不 ack(避免跳过更旧未消费 steered 消息)。
+
+**无 poll/turn race**:`on_consumed` 由 driver 在**turn 任务**里(迭代 turn 事件时)触发,与 turn 末尾 ack 同任务串行;
+且 `ack_processed`/`ack_read` 都是前进-only(补1/补3)。所以 read 游标也在这里推(reviewer #3 的 `steered_through`
+方案被这个更根因的消费驱动取代——两个游标同源、同任务)。
+
+**#5 消解**:`_route_steer` 不再有「已投递前缀推游标」,SteerInboxFull/任何异常都只是「投一半、其余留 pending」,
+无游标可漏→无双投。内层 `except SteerInboxFull` 仅做优雅停+日志。
+
+**Minor**:steer 水位/比较过 `canonical_ts`(space 格式串会排在所有 'T' created_at 之下,坑);`rendered_through`
+在 `get_recent_messages` **之后**抬到 scrollback 最新(否则 DB 往返间到达的消息既进 scrollback 又被 steer=一 turn 看两遍)。
+回归:`test_steer_routing`(delivery-only / 消费推双游标 / inbox 满留 pending / 不重投 / 前进-only)、
+`test_nexus_inprocess_steering.test_consumed_signal_flows_back...`(5 层 e2e)。
+
+## 2026-08-23(补6)— 剩余 Minor 决议
+
+- **qsize 节流(steering.py docstring 点名交给 steer-routing PR)对 bus producer 记为 N/A**:每轮 push 量由**到达率**
+  (poll 周期内新消息)决定,不是「一次把 backlog 灌进去」;真正的背压边界是 `steer_inbox` 的 `SteerInboxFull`(未消费 500 上限),
+  且现在游标随消费前进,in-flight 队列随 loop 每 step drain 收敛。故不读 `qsize()` 节流;`qsize()` 保留供未来上层用。
+- **steer 投递的 `[bus-timing]` hop 计时**:暂缺(steer 消息不产生 queue_wait/hop 记录),记为**已知观测缺口、后续补**——
+  与本 PR 的正确性正交,不阻塞;补的时候给消费 ack 一条同族计时行(延迟收益=「插话不等 turn 结束」的度量)。
+- **`_route_steer`/`_ack_steer_consumed` 每次 `await get_db_client()`**:客户端是进程/loop 单例,可忽略;不额外缓存。
+
+## 2026-08-24(补7)— 增量 review 修复:read 游标单写入方 + 未寻址带 floor ack + 孤儿行回收
+
+**修正 补5 的过时描述**:read 游标**不再**在 `_ack_steer_consumed` 里推(补5 说「read 游标也在这里推」已作废)。
+
+**🔴1(read 游标旁路 gap 保护)**:`_ack_steer_consumed` 只留 `mark_consumed_by_msg_ids` + `ack_processed`,
+read 游标降级成在 `_InFlight.steered_through` 记水位;turn 末尾 `_ack_room_seen`(唯一 read 写入方、持有
+`has_unread_before` gap 闸门)用 `max(canonical_ts(trigger), steered_through)` 作上界。**子情形2**:一次 steer
+里有新消息没被 steer(未寻址/prompt 构建后到达)→ `_route_steer` 在 flight 打 `unsteered_gap`,`_ack_room_seen`
+见到就退回只用 trigger(那条从没渲染的消息保持未读)。**read 游标恒等于:一个写入方 + 一道闸门。**
+
+**🟡1(未寻址不 ack → 繁忙房间 >50 杂音后 steer 停摆)**:`_route_steer` 恢复对未寻址批次推 `ack_processed`,但带
+**floor**=本 run 最老未消费 steer 的 created_at(`SteerChannel.oldest_unconsumed_created_at()`,每次重取);只 ack
+严格早于 floor 的未寻址消息(绝不跳过未消费 steered),**绝不 ack_read**(未寻址从没渲染=🔴1 红线)。回归:
+`test_a_busy_room_does_not_starve_live_steering_past_the_limit_window`(50 杂音+1 @mention,断言第二 cycle 能 steer)。
+
+**🟡2(push 但从没 drain 的孤儿行永不可回收)**:run release 时 `stack.push_async_callback(_discard_steer_orphans)`→
+`SteerInboxRepository.discard_run(run_id)`(`DELETE … consumed_at IS NULL`,不是 mark_consumed——标假 consumed 会污染
+「哪些真进了模型」的审计)。**必须在最后一次 drain 之后**(AsyncExitStack unwind,所有 deliver_consumed 已跑完),
+放 release 之前会与 in-flight deliver_consumed 竞态。回归:`test_discard_run_*`(SQLite+MySQL twin)。
+
+## 2026-08-24(补8)— 孤儿回收顺序修正 + release 竞态 re-check(增量 review 🟡1/🟡2)
+
+**顺序修正**:`_discard_steer_orphans` 必须跑在 `release` **之后**(release 后 run 出 RunRegistry,没有 `_route_steer`
+能再找到它 append)。`AsyncExitStack` 是 **LIFO**,所以把 discard 的 `push_async_callback` 注册在 release 的
+`stack.callback` **之前**(先注册=后退栈=后跑)。补7 描述的「release 时/之后」现在才真正成立。
+
+**release 竞态 re-check**:光调顺序还剩「句柄在 release 前拿到、append 在 discard 后落地」的窗口(poll 任务的
+`_route_steer` 在 `live_run()` 之后要 await 几次 DB)。故在 `inbox.append` 之前复查
+`get_run_registry().live_run(agent,channel) is run`——**句柄身份**,不是 `is_alive`(lane task 在 release 后仍 alive,
+探针会误报活着,round1 已点过)。不匹配→整批跳过且**不 ack**(消息留 pending 走新 turn,不升级成丢失)。
+
+**测试**(增量 🟡2,都变异验证):`test_floored_unaddressed_ack_never_jumps_past_an_unconsumed_steer`(steer 但不消费+
+更新的未寻址杂音,断言在**游标**上——floor 那条唯一会丢消息的分支;删 floor/`<`→`<=` 变红);
+`test_route_steer_skips_the_batch_if_the_run_released_mid_flight`(在 `_get_channel_info` await 里 release,断言不 append、
+消息留 pending)。`_discard_steer_orphans` 参数改名 `run_id_cell`(late-bind holder 自解释)。
+
+## 2026-08-24(补9)— re-check 是「收窄」非「关闭」+ 结构性兜底(Opus 预审 C)
+
+诚实标注:`live_run is run` re-check **收窄**但不**关闭**竞态——其后 `get_db_client` + `inbox.append` 仍 yield,
+release 落在这最后窗口仍可能留一行未 drain。**不丢消息**(游标没动→重投);那罕见残留行由
+`cleanup_older_than_days` 的**未消费孤儿臂**(`orphan_days=7`,见 [[steer_inbox_repository.py]] 补3)回收=结构性兜底。
+loop.py:1244 有对应注释。
+
+## 2026-08-24(补10)— read 游标闸门收口 + retention tick 接线(第4轮 review 🟡1/🟡2)
+
+**🟡1(re-check 抹掉 gap 闸门输入)**:上一版 `live_run is run` re-check 的 `return` 在 `unsteered_gap=True` 之上,
+早退时保守标记没举起 → `_ack_room_seen` 可能外推 read 游标越过从没渲染的消息。修:①`unsteered_gap` 提旗到 re-check
+**之前**(纯内存保守标记,不是 DB 写/ack,必须活过早退);②`_InFlight.steer_cycles_in_flight`(`_route_steer` 入口 +1、
+`finally` −1),`_ack_room_seen` 把 `>0` 与 `unsteered_gap` 同等对待——「无法证明没有 gap 就不外推」。read 游标闸门=
+「单写入方 + 双输入(旗/在途计数),默认保守」。回归:`test_release_race_still_raises_the_unsteered_gap_flag`(早退仍举旗)、
+`test_ack_room_seen_holds_read_when_a_steer_cycle_is_in_flight`(在途 hold)、floor 等值边界 —— 三条都变异验证。
+
+**🟡2(cleanup 全仓零调用方 → steer_inbox 只写不删)**:MessageBusTrigger 是 steer_inbox **唯一生产写入方**,故它接
+retention tick:`_maybe_run_steer_cleanup`(poll loop 里 heartbeat 后调,`_last_steer_cleanup_monotonic` 门控 startup+每日),
+调 `cleanup_older_than_days(STEER_RETENTION_DAYS=3, STEER_ORPHAN_DAYS=7)`。策略常量在**调用方**(trigger 模块级),repository
+只做 CRUD。加 `idx_steer_inbox_created`(两臂都过滤 created_at,否则 MySQL 全表扫)。**补9 的「structural backstop」现在
+真接上了**。回归 `test_steer_cleanup_tick_actually_calls_the_repository_gated_daily`(测**接线**——tick 真调 repo、且日级门控,
+不是只测 repo 方法,避开上轮「有没有人调」那个坑)。

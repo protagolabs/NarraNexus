@@ -13,7 +13,7 @@ that has none, so every call returned `{"success": false}` while the room stayed
 silent.
 
 So this drives the REAL registered tool, on a real database, from inside a real
-`_process_agent` dispatch, and asserts what a person in the room would notice:
+`_process_lane` dispatch, and asserts what a person in the room would notice:
 
   * the words are in the room, once, attributed to the agent
   * an @mention resolved, so the hand-off can continue
@@ -123,7 +123,7 @@ async def test_a_team_turn_delivers_through_the_agents_own_tool_call(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ANA)
+    await trigger._process_lane(ANA, ROOM)
 
     # The prompt told her HOW to speak, with the room she is in.
     assert prompts, "the turn never reached the runtime"
@@ -174,7 +174,7 @@ async def test_a_turn_that_says_nothing_to_the_room_is_announced(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ANA)
+    await trigger._process_lane(ANA, ROOM)
 
     rows = await bus.get_recent_messages(ROOM, limit=20)
 
@@ -233,7 +233,7 @@ async def test_a_delivered_reply_is_not_announced_failed_without_an_event_id(db_
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ANA)
+    await trigger._process_lane(ANA, ROOM)
 
     rows = await bus.get_recent_messages(ROOM, limit=20)
     # The reply is in the room.
