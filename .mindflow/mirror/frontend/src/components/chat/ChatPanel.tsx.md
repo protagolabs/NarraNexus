@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 运行中发送=折进本轮(steer)
+
+`handleSubmit` 不再硬挡 `isLoading`:运行中且 `currentSteerable` 且有文本时,`wsManager.steer` 折进本轮(**return,绝不落到 fresh-run `run(...)`**);非 steerable(或空文本)运行中→no-op(草稿留着,跑完再发)。`clientMsgId` 用 `generateId()`(**不用 `crypto.randomUUID`**——非 secure context http://<ip> 下 undefined 会抛)。`isLoading` 非 loading 时行为逐字不变(仍走 addUserMessage+startStreaming+run)。
+**审后订正(#357 fix-first)**:
+* **气泡永远上屏 + 反馈闭环**:进 steer 分支后**无条件** `addSteerMessage`('queued'),再看 `steer()` 返回:`true`→清空 composer;`false`(socket 已不 steerable:CONNECTING/CLOSING/closed)→`markSteerRejected(agentId,clientMsgId,'not_sent')` 当场标红,**绝不静默丢弃**(旧稿的"no-op 丢消息"是本轮推翻点)。
+* **attachments 运行中不发也不清**:steer 是 v1 纯文本;运行中带附件发送时附件**保留**(不再 `setPendingAttachments([])`),留给跑完后的下一条消息——避免数据丢失。
+
+**审后第二轮(auto-review acff728b 的 N1/N3/R4/M1/M5)**:
+* **运行中禁止新增附件(R4 + N1 模式 A)**:`uploadAttachments`(附件上传的**唯一漏斗**,拖拽/粘贴/选文件/录音都过它)开头加 `if (isLoading) { setTranscriptionNotice(t('chat.composer.attachDuringRun')); return; }`。附件键/录音键本就 `isLoading` 禁用,但拖拽/粘贴直达此函数——在**网络上传之前**拦掉,后端不留孤儿文件、界面不出一个「亮着却发不出」的 chip,并给可关提示而非静默吞掉。deps 加 `isLoading`。
+* **steer 发送键的宽度契约(N3)**:steerable 运行中并排 Stop + steer 发送键两颗,给 `Composer` 传 `trailingSlots={isStreaming && currentSteerable ? 2 : 1}`,textarea 据此留 `pr-24`(见 [[Composer.tsx]]),否则用户打的字会滑到 steer 键底下被遮。
+* **steer 键 title 走 i18n(M1)**:`title={t('chat.steer.sendTitle')}`(不再硬编码英文),与本功能其余文案(placeholder/三态尾标/reason)同口径。
+* **测试(R7)**:`chatPanelSteerSubmit.test.tsx` 覆盖 handleSubmit 的 steer 分支——steerable+文本→调 `steer()` 不调 `run()`+乐观气泡 `queued`;`steer()` 返 false→气泡 `rejected`/`not_sent` 且不调 `run()`;非 steerable→无 steer 键、Enter 既不 steer 也不起新 run、草稿不成气泡。mock `@/hooks`(仅覆盖 useAgentWebSocket/useFastMode,其余保真)+`@/lib/api`,用真 store 播种。
+* **Composer 保持可编辑**:`disabled={!agentId}`(**不再** `isLoading&&!currentSteerable`)——恪守 [[Composer.tsx]] 的契约「运行中仍可编辑,只 gate 发送」;否则 #355 未合前每次运行输入框都会灰、丢掉「运行中打草稿」既有能力。steerable 运行中显 `steerPlaceholder`(仅真能 steer 时才显示「并入本轮」,不撒谎)。
+* **steerable 运行中有发送键**:`isStreaming` 分支渲染 **Stop + (currentSteerable 时) 一颗 steer 发送键**(`right-12`,Stop 在 `right-2`),给鼠标/移动端一个真实提交入口(不只靠 Enter)。该键 `disabled` = `composerEmpty || uploadingCount || !agentId`,**刻意不含 `|| isLoading`**(此刻正流式);fresh-run 那颗发送键保留 `|| isLoading` 作防重复提交,是**另一颗**、各自 disabled。
 
 ## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
 

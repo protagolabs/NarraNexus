@@ -483,7 +483,35 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // would inherit the parent .text-sm (0.85rem) and look smaller.
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
-              <span className="whitespace-pre-wrap text-sm">{message.content}</span>
+              <>
+                <span className="whitespace-pre-wrap text-sm">{message.content}</span>
+                {message.steerStatus && (
+                  // Mid-run follow-up state: queued → merged, or rejected.
+                  <span
+                    className="block mt-1 text-[11px] opacity-70"
+                    style={{
+                      color: message.steerStatus === 'rejected'
+                        ? 'var(--color-error)'
+                        : 'var(--text-tertiary)',
+                    }}
+                  >
+                    {message.steerStatus === 'queued' && t('chat.steer.queued')}
+                    {message.steerStatus === 'merged' && `✓ ${t('chat.steer.merged')}`}
+                    {message.steerStatus === 'rejected' &&
+                      t('chat.steer.rejected', {
+                        // Known reason → its localized text; an unknown/blank
+                        // reason (e.g. a backend reject with no `reason`) falls
+                        // back to a generic phrase so the line never renders as
+                        // "Not sent — " with a dangling dash.
+                        reason: message.rejectReason
+                          ? t(`chat.steer.reason.${message.rejectReason}`, {
+                              defaultValue: message.rejectReason,
+                            })
+                          : t('chat.steer.reason.unknown'),
+                      })}
+                  </span>
+                )}
+              </>
             ) : message.actionReason ? (
               // Self-serviceable failure: show a clean, localized "what you
               // can do" line in the body. The full (English) provider detail

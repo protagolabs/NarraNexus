@@ -17,7 +17,14 @@ export type MessageType =
   | 'error'
   | 'complete'
   | 'heartbeat'
-  | 'cancelled';
+  | 'cancelled'
+  // Live-steering control frames (owner mid-run follow-up). The client sends
+  // {action:'steer', ...}; the backend acks with steer_queued (accepted into
+  // the run), steer_rejected (bounds / framework can't steer), or later
+  // steer_consumed (the run actually folded it in). See wsManager.steer.
+  | 'steer_queued'
+  | 'steer_rejected'
+  | 'steer_consumed';
 
 // Progress status
 export type ProgressStatus = 'running' | 'completed' | 'failed';
@@ -156,6 +163,40 @@ export interface CancelledMessage extends BaseMessage {
 export interface RunStartedMessage {
   type: 'run_started';
   run_id: string;
+  // Whether this run's framework can drain a mid-run steer (nexus_power yes;
+  // claude_code / codex no). Gates SENDING during the run (the composer stays
+  // editable regardless): when true a follow-up folds into the turn, else it
+  // holds until the run ends rather than hanging with no ack. Absent on legacy
+  // backends → treated as not steerable (safe: no mid-run input).
+  steerable?: boolean;
+}
+
+// Reconnect control frame. A reconnected session cannot steer — it does not
+// hold the run's live channel — and the frontend enforces that structurally: a
+// reconnect builds a fresh ConnectionEntry whose `steerable` is undefined
+// (falsy), and steer()/isSteerable() are false without anyone reading this
+// frame. So there is deliberately NO `steerable` field here: nothing would read
+// it, and declaring one would invite a future reader to assume reconnect can be
+// made steerable by flipping it (it can't, without also wiring a live channel).
+export interface RunReconnectMessage {
+  type: 'run_reconnect';
+  run_id: string;
+}
+
+// Steer acks (see MessageType). client_msg_id echoes the id the client minted
+// for its optimistic bubble so it can be matched.
+export interface SteerQueuedMessage {
+  type: 'steer_queued';
+  client_msg_id: string;
+}
+export interface SteerRejectedMessage {
+  type: 'steer_rejected';
+  client_msg_id: string;
+  reason: 'too_large' | 'too_many_pending' | 'framework_no_steering' | string;
+}
+export interface SteerConsumedMessage {
+  type: 'steer_consumed';
+  ids: string[];  // the client_msg_ids the run actually folded in
 }
 
 // Union type for all runtime messages
@@ -170,7 +211,11 @@ export type RuntimeMessage =
   | CompleteMessage
   | HeartbeatMessage
   | CancelledMessage
-  | RunStartedMessage;
+  | RunStartedMessage
+  | RunReconnectMessage
+  | SteerQueuedMessage
+  | SteerRejectedMessage
+  | SteerConsumedMessage;
 
 // Attachment metadata (mirrors backend xyz_agent_context.schema.Attachment)
 export type AttachmentCategory =
@@ -260,6 +305,14 @@ export interface ChatMessage {
     | string;
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
+  // Live-steering follow-up state (owner sent this WHILE a run was in flight).
+  // 'queued'   — sent, backend acked steer_queued, awaiting consumption
+  // 'merged'   — the run folded it in (steer_consumed) → it shaped the reply
+  // 'rejected' — bounds / framework can't steer (steer_rejected); rejectReason set
+  // Absent on an ordinary (turn-starting) user message.
+  steerStatus?: 'queued' | 'merged' | 'rejected';
+  steerClientMsgId?: string;  // the id used to match steer_queued / _consumed / _rejected
+  rejectReason?: string;      // present when steerStatus === 'rejected'
   // Inline timeline carried over from the live stream. Set on assistant
   // messages at stopStreaming time so MessageBubble can render exactly
   // the same chronological "think → tool → reply" sequence the user
