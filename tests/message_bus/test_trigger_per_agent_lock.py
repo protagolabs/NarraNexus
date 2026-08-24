@@ -38,7 +38,7 @@ def _trigger() -> MessageBusTrigger:
     lock structure, which lives on attributes we set here directly."""
     t = MessageBusTrigger.__new__(MessageBusTrigger)
     t._semaphore = asyncio.Semaphore(10)  # generous, the lock is the unit under test
-    t._agent_locks = {}
+    t._lane_locks = {}
     return t
 
 
@@ -47,7 +47,7 @@ def _lane_worker(t: MessageBusTrigger):
     state = {"in_flight": 0, "max_in_flight": 0}
 
     async def run(lane: tuple[str, str]) -> None:
-        lock = t._agent_locks.setdefault(lane, asyncio.Lock())
+        lock = t._lane_locks.setdefault(lane, asyncio.Lock())
         async with lock, t._semaphore:
             state["in_flight"] += 1
             state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
@@ -105,11 +105,11 @@ async def test_lane_locks_dict_grows_on_demand():
     """Lock map populates lazily — first call for a lane creates its Lock.
     Catches refactors that switch to eager dict prepopulation."""
     t = _trigger()
-    assert t._agent_locks == {}
+    assert t._lane_locks == {}
     lane = ("agent_a", "ch1")
-    lock_a = t._agent_locks.setdefault(lane, asyncio.Lock())
-    assert lane in t._agent_locks
+    lock_a = t._lane_locks.setdefault(lane, asyncio.Lock())
+    assert lane in t._lane_locks
     # Re-fetching returns the same Lock instance — critical so two concurrent
     # calls share the same mutex.
-    lock_a_again = t._agent_locks.setdefault(lane, asyncio.Lock())
+    lock_a_again = t._lane_locks.setdefault(lane, asyncio.Lock())
     assert lock_a is lock_a_again

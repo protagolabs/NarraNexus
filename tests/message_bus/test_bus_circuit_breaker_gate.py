@@ -31,7 +31,7 @@ class _SpyBus:
 def _trigger(bus):
     t = MessageBusTrigger.__new__(MessageBusTrigger)
     t._semaphore = asyncio.Semaphore(10)
-    t._agent_locks = {}
+    t._lane_locks = {}
     # `_process_lane` marks its dispatch as slot-holding for the heartbeat;
     # called directly there is no dispatch, so an empty registry is the
     # accurate state, not a stub.

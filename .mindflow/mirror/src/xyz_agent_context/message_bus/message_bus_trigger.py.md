@@ -1560,3 +1560,15 @@ ack 不会把 `_route_steer` 推进过的游标拉回。回归:`test_steer_routi
 改传 `get_pending_messages(agent, channel_id=channel_id)`，LIMIT 落单房间（见 [[local_bus.py]]）。
 熔断门在 `_process_lane` 里、bus 读之前、semaphore 之前，语义与旧 `_process_agent` 一致（`test_bus_circuit_breaker_gate`
 现直接叫 `_process_lane` 验证生产门）。
+
+## 2026-08-23(补4)— 诊断不倒退 + 改名（review #7 + Minor）
+
+**#7**：并发切成 lane 后一个 agent 可同时占多个 slot（每个活跃房间一个），但 `liveness_snapshot` 原来把最长
+运行 lane 折叠回 agent、丢了 channel——2026-07-27 33h stall 的定位靠的正是「哪个房间卡住」。改：新增
+`longest_running_lane`（`agent@channel`）+ `distinct_agents`（区分「一个 agent 霸池」vs「多 agent 各占一个」），
+`_check_worker_starvation` 的 warning 与 audit detail 都报 lane + distinct_agents；`longest_running_agent` 保留给旧读者。
+回归钉在 `test_bus_worker_starvation`（audit detail 断言 `longest_running_lane`/`distinct_agents`）。
+**容量**：不加硬性 per-agent 上限（与铁律#14 精神冲突、也是本功能目的）；**合 dev 前需 ops 复核 `settings.bus_max_workers`
+当前取值**——fan-out 从 agent 数变 agent×活跃房间数。
+**Minor**：`_agent_locks`→`_lane_locks`（存的就是 lane key）；删「Per-agent serialisation」过时首行；类 docstring
+「Finds agents」→「Finds LANES」。

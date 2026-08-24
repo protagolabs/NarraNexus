@@ -259,8 +259,8 @@ class MessageBusTrigger:
     """
     Background poller that processes pending MessageBus messages.
 
-    Finds agents with unprocessed messages and triggers AgentRuntime to
-    handle them.
+    Finds LANES (agent, channel) with unprocessed messages and triggers
+    AgentRuntime per lane, so one agent runs its several rooms concurrently.
 
     Args:
         bus: A MessageBusService instance (typically LocalMessageBus).
@@ -281,22 +281,20 @@ class MessageBusTrigger:
         self._semaphore = asyncio.Semaphore(max_workers)
         self._rate_counters: Dict[str, List[float]] = {}
         self._current_interval = poll_interval
-        # Per-agent serialisation lock. The global ``_semaphore`` caps
-        # concurrent agents but does NOT prevent the same agent from
-        # being processed twice in parallel — `get_pending_messages`
-        # only filters on ``last_processed_at``, which is advanced
-        # after ``_invoke_runtime`` returns. AgentRuntime takes minutes
-        # for an LLM-heavy turn; the poll loop fires every 10s; without
-        # this lock the same bus_message gets handed to AgentRuntime
-        # 3+ times. Observed in production (2026-05-12 13:20 — agent
-        # processed one msg_4eb528dc three times, burned ~30K tokens).
-        # Serialisation is per LANE = (agent_id, channel_id), not per agent: a
-        # lane is one agent in one room, and the duplicate risk the lock guards
-        # (the same pending message dispatched twice before its cursor moves) is
-        # per-message, hence per-channel. Keying by lane keeps that guarantee
-        # while letting one agent run its several teams concurrently — a message
-        # in team B must not wait behind the agent's team-A turn.
-        self._agent_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+        # Per-LANE serialisation lock, lane = (agent_id, channel_id). The global
+        # ``_semaphore`` caps concurrent turns but does NOT prevent the same
+        # pending message being dispatched twice in parallel —
+        # `get_pending_messages` only filters on ``last_processed_at``, which is
+        # advanced after ``_invoke_runtime`` returns. AgentRuntime takes minutes
+        # for an LLM-heavy turn; the poll loop fires every ~10s; without this
+        # lock the same bus_message gets handed to AgentRuntime 3+ times.
+        # Observed in production (2026-05-12 13:20 — msg_4eb528dc processed three
+        # times, burned ~30K tokens). The duplicate risk is per-message hence
+        # per-channel, so keying by lane keeps the guarantee while letting one
+        # agent run its several teams concurrently — a message in team B must not
+        # wait behind the agent's team-A turn. Unbounded (agent×channel keys, no
+        # cleanup): bounded in practice by the roster, like `_in_flight`.
+        self._lane_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
         # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
         # for a given cooldown key. Shared by both notifiers so a burst of
         # failures sharing one root cause writes at most one inbox row per
@@ -638,8 +636,8 @@ class MessageBusTrigger:
         logger.warning(
             f"[bus] worker pool saturated for {starved_for:.0f}s: "
             f"running={snap['running']}/{snap['max_workers']} "
-            f"waiting={snap['waiting']} "
-            f"longest={snap['longest_running_agent']} ({snap['longest_running_s']}s). "
+            f"waiting={snap['waiting']} distinct_agents={snap['distinct_agents']} "
+            f"longest={snap['longest_running_lane']} ({snap['longest_running_s']}s). "
             f"Raise settings.bus_max_workers if this persists."
         )
         await self.audit.error({
@@ -648,8 +646,11 @@ class MessageBusTrigger:
             "running": snap["running"],
             "waiting": snap["waiting"],
             "max_workers": snap["max_workers"],
-            # Names who to go look at. Diagnostic only — nothing acts on it.
-            "longest_running_agent": snap["longest_running_agent"],
+            # Names WHICH lane to go look at (agent@channel) and whether one
+            # agent is hogging the pool (distinct_agents == 1) or many each hold
+            # one. Diagnostic only — nothing acts on it.
+            "distinct_agents": snap["distinct_agents"],
+            "longest_running_lane": snap["longest_running_lane"],
             "longest_running_s": snap["longest_running_s"],
         })
 
@@ -681,23 +682,40 @@ class MessageBusTrigger:
         `running == max_workers` with `waiting > 0` means the worker pool, not
         the agents, is the bottleneck.
 
-        `longest_running_s` / `longest_running_agent` are DIAGNOSTIC ONLY —
-        they name who is holding a slot so a human can look. Nothing here ever
-        force-stops a turn; a multi-hour run is a legitimate workload
+        `longest_running_s` / `longest_running_lane` (agent@channel) are
+        DIAGNOSTIC ONLY — they name WHICH lane is holding a slot so a human can
+        look, and `distinct_agents` says whether one agent is hogging the pool
+        (== 1) or many each hold one. `longest_running_agent` is kept for older
+        readers. Nothing here ever force-stops a turn; a multi-hour run is a
+        legitimate workload
         (binding rule #14), and the failure mode this guards against is our own
         loop dying, not an agent taking its time.
         """
         now = time.monotonic()
         running = sum(1 for f in self._in_flight.values() if f.running)
-        longest_agent, longest_s = None, 0
-        for (lane_agent, _lane_channel), flight in self._in_flight.items():
+        # Now that the unit is the lane, an agent can hold several slots at once
+        # (one per busy room). Report the full lane of the longest holder — the
+        # channel is exactly what on-call needs to know WHICH room is wedged, and
+        # dropping it (folding back to the agent) lowers the diagnostic below what
+        # the 2026-07-27 33h stall was located with (incident lesson #4). Also
+        # report distinct_agents so starvation can be read as "one agent hogging
+        # the pool" vs "many agents each holding one".
+        longest_agent, longest_channel, longest_s = None, None, 0
+        running_agents: set = set()
+        for (lane_agent, lane_channel), flight in self._in_flight.items():
             if not flight.running:
                 continue
+            running_agents.add(lane_agent)
             elapsed = int(now - flight.started_at)
             # `is None` first: a turn that started this second has elapsed 0 and
             # must still be named, or a freshly-wedged slot reports as nobody.
             if longest_agent is None or elapsed > longest_s:
-                longest_agent, longest_s = lane_agent, elapsed
+                longest_agent, longest_channel, longest_s = (
+                    lane_agent, lane_channel, elapsed,
+                )
+        longest_lane = (
+            f"{longest_agent}@{longest_channel}" if longest_agent is not None else None
+        )
         return {
             "cycles": self._cycles,
             "candidates": self._last_candidates,
@@ -706,8 +724,10 @@ class MessageBusTrigger:
             "running": running,
             "waiting": len(self._in_flight) - running,
             "max_workers": self._max_workers,
+            "distinct_agents": len(running_agents),
             "longest_running_s": longest_s,
             "longest_running_agent": longest_agent,
+            "longest_running_lane": longest_lane,
             "last_dispatch_at": self._last_dispatch_at,
         }
 
@@ -873,7 +893,7 @@ class MessageBusTrigger:
         lane = (lead_agent_id, channel_id)
 
         async def _guarded() -> None:
-            lock = self._agent_locks.setdefault(lane, asyncio.Lock())
+            lock = self._lane_locks.setdefault(lane, asyncio.Lock())
             async with lock, self._semaphore:
                 # Same bookkeeping as `_process_lane`: liveness_snapshot's
                 # starvation check and `longest_running_agent` both count only
@@ -981,7 +1001,7 @@ class MessageBusTrigger:
             )
             return False
 
-        lock = self._agent_locks.setdefault((agent_id, channel_id), asyncio.Lock())
+        lock = self._lane_locks.setdefault((agent_id, channel_id), asyncio.Lock())
         async with lock, self._semaphore:
             # Slot acquired — from here the turn counts as `running` rather
             # than `waiting` in the heartbeat. Absent when `_process_lane` is
