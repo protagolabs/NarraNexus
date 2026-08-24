@@ -193,3 +193,7 @@ async def test_reconnect_frame_timestamps_carry_utc_offset(db_client, monkeypatc
     assert frame["started_at"].endswith("+00:00"), frame["started_at"]
     assert "16:00:41.109740" in frame["started_at"]
     assert frame["input_timestamp"].endswith("+00:00"), frame["input_timestamp"]
+    # microseconds matter MOST here: input_timestamp must match the persisted
+    # chat row by exact millisecond (the frame comment's contract) — a
+    # field-specific formatter that truncates would break dedup silently
+    assert "16:00:41.109740" in frame["input_timestamp"]

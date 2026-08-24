@@ -235,7 +235,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     currentEvents: _rtEvents,
     resumedRun,
     currentRunId,
-    isStreaming, addUserMessage, startStreaming,
     isStreaming, addUserMessage, addSteerMessage, markSteerRejected, startStreaming,
     currentSteerable,
     setActiveAgent,
