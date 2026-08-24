@@ -10,8 +10,10 @@ last_verified: 2026-08-21
 替换。本模块只负责**运**这个判决，不产生它 —— 它是传输客户端，"这个用户此刻忙
 不忙"是编排侧 DB 里的事实，判决由掌握上下文的那一层给：step 3 见
 [[step_3_agent_loop.py]] 的 `_ensure_executor_for_run`（排除提问者自己），
-**prewarm 也传** —— 它不是 run、容器上没人、而且它整个存在的理由就是把冷启动搬到
-用户等待之外，留默认 `False` 会让镜像替换被推迟到用户的这一轮里全额付掉。
+**prewarm 也传** —— 它不是 run，而且它整个存在的理由就是把冷启动搬到用户等待之外，
+留默认 `False` 会让镜像替换被推迟到用户的这一轮里全额付掉。**注意不是"容器上没人"**：
+判决只覆盖 recorded run，容器里可能有活着的 office-watch 会话，见
+[[narramessenger.py]] 2026-08-21 条目里的残留风险。
 
 真正必须保持默认 `False` 的是 office_watch 代理（[[proxy.py]]）：那是活着的会话，
 但**不是 recorded run**，判决函数看不见它 —— 传 `True` 等于授权 broker 把用户正在

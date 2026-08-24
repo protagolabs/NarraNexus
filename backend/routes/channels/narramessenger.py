@@ -200,11 +200,21 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
         # image, then pay a full stop + await-gone + run + wait_until_ready
         # inline, with the prewarm wasted.
         #
-        # No run to exclude: this is not one. That also makes the verdict
-        # sound for this caller — it covers recorded runs only, and prewarm
-        # holds nothing else on the container (see no_live_recorded_run_for;
-        # office-watch proxy sessions are the counter-example and keep the
-        # default).
+        # No run to exclude: this is not one.
+        #
+        # Residual risk, stated rather than argued away: the verdict covers
+        # RECORDED RUNS only. A live office-watch session runs inside this
+        # same container and is invisible to it, so a replacement authorised
+        # here can take that session down. "Prewarm itself holds nothing on
+        # the container" would be the wrong argument — the authorisation is
+        # about the container, not about this caller.
+        #
+        # Accepted for now because the idle reaper already destroys such a
+        # container on its 20-minute TTL (office-watch does not refresh the
+        # admission ledger either), so this adds a trigger moment rather than
+        # a new class of failure. The fix is one liveness rule that sees
+        # non-run holders too — see
+        # reference/self_notebook/todo/2026-08-21-non-run-container-holders.md
         result = await ensure_executor(
             user_id, allow_stale_replace=await no_live_recorded_run_for(user_id)
         )

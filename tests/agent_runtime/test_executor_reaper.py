@@ -261,7 +261,9 @@ async def test_unreadable_db_reads_as_busy(monkeypatch):
     monkeypatch.setattr(
         "xyz_agent_context.utils.db.db_factory.get_db_client", boom
     )
-    assert await live_run_elsewhere("u") == UNKNOWN_RUN
+    assert await live_run_elsewhere(
+        "u", caller="reaper", consequence="culling is OFF"
+    ) == UNKNOWN_RUN
 
 
 @pytest.mark.asyncio
@@ -271,7 +273,9 @@ async def test_recording_kill_switch_disables_culling(monkeypatch):
     from xyz_agent_context.agent_runtime.run_recorder import RECORDING_DISABLED_ENV
 
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "1")
-    assert await live_run_elsewhere("u") == UNKNOWN_RUN
+    assert await live_run_elsewhere(
+        "u", caller="reaper", consequence="culling is OFF"
+    ) == UNKNOWN_RUN
 
 
 @pytest.mark.asyncio
@@ -983,3 +987,15 @@ async def test_stale_replacement_is_refused_when_liveness_is_unreadable(monkeypa
         "xyz_agent_context.utils.db.db_factory.get_db_client", boom
     )
     assert await no_live_recorded_run_for("u") is False
+
+
+def test_the_log_subject_has_no_default():
+    """Both log fields are required on purpose: a default is necessarily one
+    consumer's outcome, and the next consumer that omits it inherits that
+    text silently — which is the bug this parameter was added to fix. Now the
+    omission is a TypeError on the first call."""
+    import inspect
+
+    params = inspect.signature(live_run_elsewhere).parameters
+    assert params["caller"].default is inspect.Parameter.empty
+    assert params["consequence"].default is inspect.Parameter.empty

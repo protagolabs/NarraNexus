@@ -38,6 +38,7 @@ the same question two ways is how the two answers drift apart. See
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 from time import monotonic
 from typing import Awaitable, Callable, Optional
@@ -186,9 +187,9 @@ def reaper_status() -> dict:
 async def live_run_elsewhere(
     user_id: str,
     *,
+    caller: str,
+    consequence: str,
     exclude_run_id: Optional[str] = None,
-    caller: str = "reaper",
-    consequence: str = "executor idle-culling is OFF",
 ) -> Optional[str]:
     """The id of a run live in ANY process for this user, or None.
 
@@ -200,12 +201,15 @@ async def live_run_elsewhere(
     the id so callers can tell a real blocker from an unknowable one. Not
     knowing must never authorise destroying anything (binding rule #14).
 
-    ``caller`` and ``consequence`` only shape the logs, and both have to be
-    passed for the same reason: the consumers suffer DIFFERENT outcomes when
-    the answer is unknowable (culling stops vs. executor images stop
-    rolling). A line that names the wrong one sends the next person
-    debugging in the wrong direction — and hard-coding one consumer's
-    outcome into a shared function is how that happens.
+    ``caller`` and ``consequence`` only shape the logs, and both are
+    REQUIRED for the same reason: the consumers suffer DIFFERENT outcomes
+    when the answer is unknowable (culling stops vs. executor images stop
+    rolling), and the warning fires once per caller per process — so the one
+    line somebody gets has to name the right subsystem. Required rather than
+    defaulted because a default is necessarily one consumer's outcome, and
+    the next consumer that omits it inherits that text silently. Omission is
+    now a TypeError on the first call instead of a log pointing at the wrong
+    subsystem.
     """
     from xyz_agent_context.agent_runtime.run_recorder import (
         first_live_run_id,
@@ -249,12 +253,17 @@ async def no_live_recorded_run_for(
     on that container is invisible here —
 
       * office-watch proxy sessions (``backend/routes/office_watch/proxy.py``)
-        are not runs; they must keep passing ``allow_stale_replace=False``
+        run ``officecli watch`` INSIDE the container and stream from it; a
+        replacement takes the watch process and its port with it
       * anything future that holds the container without recording a run
 
-    so a caller may only turn this into "safe to destroy" when it knows those
-    do not apply to it. Getting that wrong looks exactly like the incident
-    below, from the user's side.
+    and the question a caller turns this into is about the CONTAINER, not
+    about itself: "nothing else of MINE is on it" does not exclude another
+    subsystem's session. No caller can establish that today, so every caller
+    that passes this is accepting a residual risk — see the note below on why
+    that is currently acceptable, and
+    ``reference/self_notebook/todo/2026-08-21-non-run-container-holders.md``
+    for the fix that removes it.
 
     Second consumer of the liveness answer above, and it lives here so there
     is ONE place that asks "is anyone using this container?". The alternative
@@ -287,6 +296,16 @@ async def no_live_recorded_run_for(
     return live is None
 
 
+# The reaper's own binding of the shared liveness call. A partial rather
+# than defaults on live_run_elsewhere: see that function on why the log
+# subject cannot have a default.
+_REAPER_LIVENESS = functools.partial(
+    live_run_elsewhere,
+    caller="reaper",
+    consequence="executor idle-culling is OFF",
+)
+
+
 class _CullVeto:
     """The reaper's ``is_busy`` veto, with per-RUN audit de-duplication.
 
@@ -306,7 +325,7 @@ class _CullVeto:
 
     _MAX_TRACKED = 4096
 
-    def __init__(self, check=live_run_elsewhere) -> None:
+    def __init__(self, check=_REAPER_LIVENESS) -> None:
         self._check = check
         self._blocked_by: dict[str, str] = {}   # user_id -> blocking run id
         # Per-pass tallies. The veto is the only thing that sees the

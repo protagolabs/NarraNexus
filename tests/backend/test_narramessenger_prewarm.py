@@ -15,11 +15,14 @@ import backend.routes.channels.narramessenger as nm
 @pytest.fixture(autouse=True)
 def _stub_stale_replace_verdict(monkeypatch):
     """_do_prewarm now asks whether a stale image may be rolled, which reads
-    the events table. Stubbed by default so these tests keep exercising the
-    prewarm ledger rather than the DB; the one test that cares about the
-    verdict overrides it."""
+    the events table. Stubbed so these tests keep exercising the prewarm
+    ledger rather than the DB.
+
+    Defaults to the SAFE answer (False). Tests about ledger behaviour should
+    not all run on the permissive path just because that is the interesting
+    one for two other tests; those two override this."""
     async def verdict(user_id, *, active_run_id=None):
-        return True
+        return False
 
     monkeypatch.setattr(nm, "no_live_recorded_run_for", verdict)
 
@@ -303,3 +306,31 @@ async def test_prewarm_authorises_rolling_a_stale_image(monkeypatch):
     assert captured["allow"] is True
     # Nothing to exclude — prewarm is not a run.
     assert captured["active_run_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_prewarm_defers_the_roll_while_a_run_is_live(monkeypatch):
+    """The negative half of the pair above. Without it, hard-coding
+    `allow_stale_replace=True` in _do_prewarm passes every test in this file
+    — and that constant is precisely "prewarm authorises destroying a
+    container unconditionally", the 2026-07-31 shape."""
+    captured = {}
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        from types import SimpleNamespace
+
+        captured["allow"] = allow_stale_replace
+        return SimpleNamespace(url="http://x:8020", cold_started=True)
+
+    async def busy(user_id, *, active_run_id=None):
+        return False
+
+    async def ready(url):
+        return None
+
+    monkeypatch.setattr(nm, "ensure_executor", fake_ensure)
+    monkeypatch.setattr(nm, "no_live_recorded_run_for", busy)
+    monkeypatch.setattr(nm, "wait_until_ready", ready)
+
+    await nm._do_prewarm("u1", gen=next(nm._PREWARM_GEN))
+    assert captured["allow"] is False
