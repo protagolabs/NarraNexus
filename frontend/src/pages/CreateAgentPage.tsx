@@ -713,9 +713,9 @@ export default function CreateAgentPage() {
                 <div className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] px-3 py-2">
                   <span className="flex items-center gap-2 min-w-0 text-[13px] text-[var(--nm-ink)]">
                     {(() => {
-                      const prov = providers[agentDraft.provider_id]
-                      const Icon = prov ? getProtocolBrandIcon(prov.protocol) : null
-                      const fwLabel = AGENT_FRAMEWORKS.find((f) => f.id === framework)?.label || framework
+                      const prov = providers[agentDraft.provider_id];
+                      const Icon = prov ? getProtocolBrandIcon(prov.protocol) : null;
+                      const fwLabel = AGENT_FRAMEWORKS.find((f) => f.id === framework)?.label || framework;
                       return (
                         <>
                           {Icon && <Icon className="h-4 w-4 shrink-0" />}
@@ -723,7 +723,7 @@ export default function CreateAgentPage() {
                             {prov ? `${prov.name} · ${fwLabel}` : t('pages.settings.modelDefaults.selectProvider')}
                           </span>
                         </>
-                      )
+                      );
                     })()}
                   </span>
                   <button
@@ -1204,7 +1204,7 @@ export default function CreateAgentPage() {
         {step === 'details' && (
           <>
             <Button variant="ghost" onClick={() => setStep('provider')} disabled={busy}>
-              {t('pages.createAgent.back', 'Back')}
+              {t('pages.createAgent.back')}
             </Button>
             <Button variant="ghost" onClick={() => navigate('/app/chat')} disabled={busy}>
               {t('pages.createAgent.cancel')}
