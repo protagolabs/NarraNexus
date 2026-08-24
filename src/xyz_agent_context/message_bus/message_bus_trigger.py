@@ -1155,13 +1155,17 @@ class MessageBusTrigger:
                 f"{run_id} failed: {type(e).__name__}: {e}"
             )
 
-    async def _discard_steer_orphans(self, steer_run_id: "List[str]") -> None:
+    async def _discard_steer_orphans(self, run_id_cell: "List[str]") -> None:
         """Reclaim steer_inbox rows this run pushed but never drained, at run
-        teardown. Best-effort — a cleanup failure must never break the turn.
-        Runs at AsyncExitStack unwind (after the loop's last drain), so it cannot
-        race an in-flight ``deliver_consumed``. No id yet (run never bound) → the
-        run produced no steer rows, nothing to reclaim."""
-        run_id = steer_run_id[0]
+        teardown. ``run_id_cell`` is a one-element late-bind holder — the run id
+        is not known until Step 0 stamps it into ``run_id_cell[0]`` (same shape
+        as ``watched_run_id``). Best-effort — a cleanup failure must never break
+        the turn. Runs at AsyncExitStack unwind AFTER release (registered before
+        it, LIFO), so no ``_route_steer`` can still find the run to append, and
+        after the loop's last drain, so it cannot race an in-flight
+        ``deliver_consumed``. Empty id (run never bound) → no steer rows, nothing
+        to reclaim."""
+        run_id = run_id_cell[0]
         if not run_id:
             return
         try:
@@ -1228,6 +1232,17 @@ class MessageBusTrigger:
             ]
             relevant_ids = {m.message_id for m in relevant}
             unaddressed = [m for m in messages if m.message_id not in relevant_ids]
+
+            # Re-confirm the run is STILL the same live handle before writing
+            # anything. The awaits above (get_pending / channel info / db) give
+            # the turn time to end and release; an append after the run's orphan
+            # reclaim + release would write a row nobody will ever drain OR
+            # discard — a permanent un-reclaimable leak. Compare handle IDENTITY,
+            # not is_alive: the lane task stays alive past release, so a liveness
+            # probe would wrongly say "still here". Mismatch → skip the whole
+            # batch and DO NOT ack; the messages stay pending for a fresh turn.
+            if get_run_registry().live_run(agent_id, channel_id) is not run:
+                return
 
             if relevant:
                 from xyz_agent_context.repository.steer_inbox_repository import (
@@ -1621,20 +1636,21 @@ class MessageBusTrigger:
                     if is_team else None
                 )
                 steer_run_id: list[str] = [""]
+                # Orphan reclaim MUST run AFTER release (once the run is out of
+                # the RunRegistry, no _route_steer can find it to append a new
+                # row). AsyncExitStack is LIFO, so to run discard AFTER release it
+                # must be registered BEFORE release — registered here, first, it
+                # unwinds last. (It still runs at unwind, strictly after the loop
+                # ended and every deliver_consumed fired, so it never races an
+                # in-flight drain; the DELETE awaits, hence push_async_callback.)
+                if steer_channel is not None:
+                    stack.push_async_callback(
+                        self._discard_steer_orphans, steer_run_id
+                    )
                 stack.callback(
                     lambda: steer_channel is not None
                     and get_run_registry().release(steer_run_id[0])
                 )
-                if steer_channel is not None:
-                    # After the run's LAST possible drain (stack unwind = turn
-                    # fully done, all deliver_consumed fired), reclaim any row
-                    # pushed but never drained — else it stays consumed_at NULL
-                    # forever and the table grows unbounded (review Important #2).
-                    # Async callback (DELETE awaits); AsyncExitStack runs it at
-                    # unwind, which is strictly after the loop ended.
-                    stack.push_async_callback(
-                        self._discard_steer_orphans, steer_run_id
-                    )
 
                 # When the run reports draining steer rows, advance the cursors on
                 # CONSUMPTION (see `_ack_steer_consumed`). Bound to this lane and

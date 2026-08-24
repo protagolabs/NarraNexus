@@ -1634,3 +1634,19 @@ read 游标降级成在 `_InFlight.steered_through` 记水位;turn 末尾 `_ack_
 `SteerInboxRepository.discard_run(run_id)`(`DELETE … consumed_at IS NULL`,不是 mark_consumed——标假 consumed 会污染
 「哪些真进了模型」的审计)。**必须在最后一次 drain 之后**(AsyncExitStack unwind,所有 deliver_consumed 已跑完),
 放 release 之前会与 in-flight deliver_consumed 竞态。回归:`test_discard_run_*`(SQLite+MySQL twin)。
+
+## 2026-08-24(补8)— 孤儿回收顺序修正 + release 竞态 re-check(增量 review 🟡1/🟡2)
+
+**顺序修正**:`_discard_steer_orphans` 必须跑在 `release` **之后**(release 后 run 出 RunRegistry,没有 `_route_steer`
+能再找到它 append)。`AsyncExitStack` 是 **LIFO**,所以把 discard 的 `push_async_callback` 注册在 release 的
+`stack.callback` **之前**(先注册=后退栈=后跑)。补7 描述的「release 时/之后」现在才真正成立。
+
+**release 竞态 re-check**:光调顺序还剩「句柄在 release 前拿到、append 在 discard 后落地」的窗口(poll 任务的
+`_route_steer` 在 `live_run()` 之后要 await 几次 DB)。故在 `inbox.append` 之前复查
+`get_run_registry().live_run(agent,channel) is run`——**句柄身份**,不是 `is_alive`(lane task 在 release 后仍 alive,
+探针会误报活着,round1 已点过)。不匹配→整批跳过且**不 ack**(消息留 pending 走新 turn,不升级成丢失)。
+
+**测试**(增量 🟡2,都变异验证):`test_floored_unaddressed_ack_never_jumps_past_an_unconsumed_steer`(steer 但不消费+
+更新的未寻址杂音,断言在**游标**上——floor 那条唯一会丢消息的分支;删 floor/`<`→`<=` 变红);
+`test_route_steer_skips_the_batch_if_the_run_released_mid_flight`(在 `_get_channel_info` await 里 release,断言不 append、
+消息留 pending)。`_discard_steer_orphans` 参数改名 `run_id_cell`(late-bind holder 自解释)。

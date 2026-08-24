@@ -241,6 +241,69 @@ async def test_a_busy_room_does_not_starve_live_steering_past_the_limit_window()
 
 
 @pytest.mark.asyncio
+async def test_floored_unaddressed_ack_never_jumps_past_an_unconsumed_steer():
+    # The floor guard — the ONLY branch that could lose a steer message. Steer an
+    # @mention but do NOT consume it, then a NEWER un-addressed message arrives.
+    # The floored un-addressed ack must NOT advance the processing cursor past the
+    # un-consumed steered message, or that message would fall out of the pending
+    # set and, if the turn ends before draining it, vanish. Assert on the CURSOR
+    # (get_pending), not the inbox — the row exists either way. Delete the floor
+    # (or `<`→`<=`) and this goes red.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="@me act", mentions=[ME])
+        await t._route_steer(ME, ROOM)  # steer the @mention (unconsumed)
+        steered = next(x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM)
+
+        # A NEWER un-addressed message arrives (not @ ME).
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="later noise", mentions=[])
+        await t._route_steer(ME, ROOM)
+
+        # The un-consumed steered @mention is still pending — the floor kept the
+        # cursor from jumping past it via the newer un-addressed message.
+        pend_ids = {x.message_id for x in await bus.get_pending_messages(ME)
+                    if x.channel_id == ROOM}
+        assert steered.message_id in pend_ids
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
+async def test_route_steer_skips_the_batch_if_the_run_released_mid_flight(monkeypatch):
+    # The release-race guard: if the run ends and releases while _route_steer is
+    # awaiting (get_pending / channel info / db), an append afterwards would write
+    # a row nobody drains OR discards — a permanent leak. The re-check of
+    # live_run(...) is run must skip the whole batch. Simulate the release landing
+    # during the _get_channel_info await.
+    bus = await _fresh_bus()
+    t = _trigger(bus)
+    await _make_live_lane(t)
+    try:
+        await bus.send_message(from_agent="usr_u1", to_channel=ROOM,
+                               content="@me act", mentions=[ME])
+
+        real_info = t._get_channel_info
+
+        async def _release_then_info(cid):
+            get_run_registry().release(RUN)  # the turn ended mid-_route_steer
+            return await real_info(cid)
+
+        monkeypatch.setattr(t, "_get_channel_info", _release_then_info)
+        await t._route_steer(ME, ROOM)
+
+        # Nothing appended for the released run — no orphan row written.
+        assert await SteerInboxRepository(await get_db_client()).pull_unconsumed(RUN) == []
+        # And the message stays pending for a fresh turn (not acked away).
+        assert [x for x in await bus.get_pending_messages(ME) if x.channel_id == ROOM]
+    finally:
+        _drain_flight(t)
+
+
+@pytest.mark.asyncio
 async def test_route_steer_is_a_noop_when_the_run_is_not_registered():
     bus = await _fresh_bus()
     t = _trigger(bus)

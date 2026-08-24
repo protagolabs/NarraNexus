@@ -63,3 +63,9 @@ created_at 同字节格式)。**这是 steer_inbox 第一个真正的生产消�
 在 run release 时**(见 [[message_bus_trigger.py]] `_discard_steer_orphans`)。用 DELETE 不用 mark_consumed:把从没
 进模型的行标 consumed 会让「哪些插话真进了模型」的审计失真。必须在最后一次 drain 之后跑(否则与 deliver_consumed
 竞态→真丢失)。补上 push-但-turn-先结束 那类行的 retention 洞(mark_consumed_by_msg_ids 只覆盖真被消费的)。
+
+## 2026-08-24(补2)— discard_run 的调用顺序(修正)
+
+`discard_run` 由 `_discard_steer_orphans` 在 **run release 之后**调(靠 AsyncExitStack LIFO:discard 注册在 release
+注册之前 → 后退栈 → 后跑)。加上 `_route_steer` append 前的 `live_run is run` re-check,竞态窗口关闭。docstring 的
+「Called when a run is released / after the last drain」现在与实现一致(见 [[message_bus_trigger.py]] 补8)。
