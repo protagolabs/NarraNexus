@@ -135,7 +135,7 @@ async def test_a_team_turn_marks_the_room_read(db_client):
     await _seed_team_room(db_client)
     await _post(trigger._bus, mentions=[ME])
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is not None
 
@@ -152,7 +152,7 @@ async def test_a_silent_team_turn_marks_the_room_read_too(db_client):
     await _seed_team_room(db_client)
     await _post(trigger._bus, mentions=[ME])
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is not None
 
@@ -171,7 +171,7 @@ async def test_a_stopped_team_turn_still_marks_the_room_read(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is not None
 
@@ -191,7 +191,7 @@ async def test_an_unmentioned_member_keeps_the_room_unread(db_client):
     await _seed_team_room(db_client)
     await _post(trigger._bus, mentions=[PEER])
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is None
     # …and the message is still on offer to the next turn, whatever wakes it.
@@ -206,7 +206,7 @@ async def test_a_rate_limited_turn_keeps_the_room_unread(db_client):
     await _post(trigger._bus, mentions=[ME])
     trigger._check_rate_limit = lambda *a, **kw: False  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is None
 
@@ -237,7 +237,7 @@ async def test_a_peer_dm_without_a_reply_stays_unread(db_client):
         from_agent=PEER, to_channel="ch_dm", content="ping",
     )
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     row = await db_client.get_one(
         "bus_channel_members", {"channel_id": "ch_dm", "agent_id": ME}
@@ -272,7 +272,7 @@ async def test_a_backlog_deeper_than_the_scrollback_is_not_swallowed(db_client):
         )
     await _post(trigger._bus, mentions=[ME])
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is None
     # The un-rendered older messages are still on offer.
@@ -295,7 +295,7 @@ async def test_a_backlog_the_scrollback_covers_is_cleared(db_client):
         )
     await _post(trigger._bus, mentions=[ME])
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     assert await _read_cursor(db_client) is not None
     assert await trigger._bus.get_unread(ME) == []
@@ -330,7 +330,7 @@ async def test_the_team_reply_is_posted_exactly_once(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     mine = [
         m for m in await trigger._bus.get_recent_messages(CHANNEL, limit=10)
@@ -369,7 +369,7 @@ async def test_the_deliverer_still_parses_mentions_and_stamps_the_run(db_client)
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     posted = [
         m for m in await trigger._bus.get_recent_messages(CHANNEL, limit=10)
@@ -406,7 +406,7 @@ async def test_a_peer_dm_gets_no_deliverer(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, "ch_dm")
 
     assert seen["cb"] is None
 
@@ -440,7 +440,7 @@ async def test_a_failed_team_turn_tells_the_room(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     posted = await trigger._bus.get_recent_messages(CHANNEL, limit=10)
     notices = [m for m in posted if "couldn't process" in m.content]
@@ -483,7 +483,7 @@ async def test_a_transient_hiccup_does_not_announce_a_failure(db_client):
 
     trigger._invoke_runtime = _invoke  # type: ignore[method-assign]
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     posted = await trigger._bus.get_recent_messages(CHANNEL, limit=10)
     assert [m.content for m in posted if m.from_agent == ME] == ["here is your answer"]

@@ -1549,3 +1549,14 @@ steer 路由从 #351 合入的机制上重接,满足 `run_registry` / `steer_cha
 ack 不会把 `_route_steer` 推进过的游标拉回。回归:`test_steer_routing` 的
 `test_route_steer_does_not_reinject_the_turns_own_trigger_batch` /
 `test_route_steer_advances_cursor_for_the_delivered_prefix_on_inbox_full`(均已变异验证)。
+
+## 2026-08-23(补3)— 删 `_process_agent` 兼容垫片 + 两处 get_pending 走 channel scoping（review #4/#6）
+
+**#6**：`_process_agent`（跨 channel 集约器）生产零调用方（生产走 `_run_dispatch → _process_lane`），是铁律 #2
+禁止的兼容垫片（为不动测试保留、自带重复熔断门 + 多余一次 get_pending）。删除；~40 处测试调用改直接叫
+生产的 `_process_lane(agent, channel)`（各 e2e 都是单房间常量：`CHANNEL`/`ROOM`/`ch_dm`）——现在 e2e
+（cascade / relay wake / unread cursor / delivery / 熔断门）真跑在生产 per-lane 路径上，不再是绕开的形状。
+**#4**：`_process_lane`（`:994`）与 `_route_steer`（`:1124`）删掉 Python `m.channel_id == channel_id` 过滤，
+改传 `get_pending_messages(agent, channel_id=channel_id)`，LIMIT 落单房间（见 [[local_bus.py]]）。
+熔断门在 `_process_lane` 里、bus 读之前、semaphore 之前，语义与旧 `_process_agent` 一致（`test_bus_circuit_breaker_gate`
+现直接叫 `_process_lane` 验证生产门）。

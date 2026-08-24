@@ -383,3 +383,14 @@ pending → 二次以新 turn 投递(双投)。两个 ack 还分属 poll 任务�
 `test_steer_routing.test_ack_processed_only_moves_forward`(SQLite,已变异验证:去掉守卫→红) +
 `test_unread_cursor_mysql.test_ack_processed_runs_on_mysql_and_only_moves_forward`(真 MySQL 方言,
 与 ack_read twin 对称)。
+
+## 2026-08-23(补2)— get_pending_messages 加 channel_id：LIMIT 落单房间
+
+`get_pending_messages(agent_id, limit=50, channel_id=None)`：channel_id 非空时 SQL 加 `AND m.channel_id = {ph}`
+（占位符、无引号标识符），params 顺序 `(agent, channel, agent)`；None 时退回原跨 channel 查询与 `(agent, agent)`。
+起因（PR#352 review #4）：并发切成 lane 但取数没切——每 lane 发一条**跨全 agent** 的 `LIMIT 50` 再在 Python
+里滤自己那个 channel。忙房间 A 有 >50 待处理时，房间 B 的新消息永远被挤出这 50 条、过滤成空、`return False`
+不 ack，每轮白烧一个 slot——「多 team 并发」恰在它要解决的场景失效。channel scoping 让 LIMIT 落单房间。
+同族先例：`has_unread_before` 的 scoped `LIMIT 1`（docstring 明写别把跨 channel backlog 拖来 Python 过滤）。
+poison / stopped-tree `NOT EXISTS` 谓词与参数顺序原样保留。回归：`test_pending_channel_scope`（SQLite 饥饿场景）
++ `test_unread_cursor_mysql.test_get_pending_channel_scope_runs_on_mysql`（真 MySQL 方言）。

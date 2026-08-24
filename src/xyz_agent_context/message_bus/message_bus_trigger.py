@@ -991,11 +991,13 @@ class MessageBusTrigger:
             if flight is not None:
                 flight.running = True
             try:
-                pending = await self._bus.get_pending_messages(agent_id)
-                # This lane owns exactly one channel; the candidate query is
-                # per (agent, channel) but `get_pending_messages` is per agent,
-                # so filter to ours — another lane handles the rest concurrently.
-                messages = [m for m in pending if m.channel_id == channel_id]
+                # This lane owns exactly one channel. Scope the query to it in
+                # SQL so the LIMIT falls on THIS room's backlog — not the agent's
+                # whole cross-channel backlog filtered to empty in Python, which
+                # starves a busy agent's other rooms and burns a slot each poll.
+                messages = await self._bus.get_pending_messages(
+                    agent_id, channel_id=channel_id
+                )
                 if not messages:
                     return False
 
@@ -1063,34 +1065,6 @@ class MessageBusTrigger:
                 )
                 return False
 
-    async def _process_agent(self, agent_id: str) -> bool:
-        """Process every pending channel of one agent, delegating each to
-        ``_process_lane``. Returns True if any lane handled a message.
-
-        Production dispatches lanes concurrently through the poll loop; this is
-        the whole-agent aggregator (one call, all of an agent's lanes, in
-        arrival-grouped order) — the shape callers that think per-agent want. It
-        adds no logic of its own beyond the same circuit-breaker skip-gate
-        ``_process_lane`` applies per lane, hoisted here so a paused agent is
-        skipped WITHOUT the bus read (its messages stay queued, not acked).
-        """
-        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
-        cb_skip, _cb_reason = await should_skip(agent_id)
-        if cb_skip:
-            return False
-        pending = await self._bus.get_pending_messages(agent_id)
-        if not pending:
-            return False
-        channels: list[str] = []
-        for msg in pending:
-            if msg.channel_id not in channels:
-                channels.append(msg.channel_id)
-        handled_any = False
-        for channel_id in channels:
-            if await self._process_lane(agent_id, channel_id):
-                handled_any = True
-        return handled_any
-
     async def _route_steer(self, agent_id: str, channel_id: str) -> None:
         """Steer a running lane's new messages into its live run instead of
         dispatching a fresh turn.
@@ -1119,11 +1093,14 @@ class MessageBusTrigger:
         if watermark is None:
             return
         try:
-            pending = await self._bus.get_pending_messages(agent_id)
-            messages = [
-                m for m in pending
-                if m.channel_id == channel_id and str(m.created_at) > watermark
-            ]
+            # Scope to this lane's room in SQL (same reason as _process_lane):
+            # the LIMIT must land on this room, not the agent's cross-channel
+            # backlog. Then keep only what is NEWER than the running turn already
+            # rendered.
+            pending = await self._bus.get_pending_messages(
+                agent_id, channel_id=channel_id
+            )
+            messages = [m for m in pending if str(m.created_at) > watermark]
             if not messages:
                 return
             channel_type, channel_owner = await self._get_channel_info(channel_id)

@@ -130,7 +130,7 @@ async def test_a_named_teammate_dropped_by_the_cap_is_announced(db_client):
     await _seed(db_client)
     await _room_at_the_cap(trigger._bus)
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     await _assert_turn_survived(db_client)
     notices = await _notices(db_client)
@@ -145,7 +145,7 @@ async def test_an_at_all_dropped_by_the_cap_is_announced(db_client):
     await _seed(db_client)
     await _room_at_the_cap(trigger._bus)
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     await _assert_turn_survived(db_client)
     notices = await _notices(db_client)
@@ -161,7 +161,7 @@ async def test_the_notice_comes_after_the_reply(db_client):
     await _seed(db_client)
     await _room_at_the_cap(trigger._bus)
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     rows = await db_client.execute(
         "SELECT from_agent, content, msg_type, created_at FROM bus_messages "
@@ -185,7 +185,7 @@ async def test_the_notice_wakes_nobody(db_client):
     await _seed(db_client)
     await _room_at_the_cap(trigger._bus)
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     await _assert_turn_survived(db_client)
     assert (await _notices(db_client))[0]["mentions"] in (None, "")
@@ -200,7 +200,7 @@ async def test_a_room_below_the_cap_says_nothing(db_client):
         from_agent=USER, to_channel=CHANNEL, content="anyone?", mentions=[ME]
     )
 
-    await trigger._process_agent(ME)
+    await trigger._process_lane(ME, CHANNEL)
 
     await _assert_turn_survived(db_client)
     assert await _notices(db_client) == []
