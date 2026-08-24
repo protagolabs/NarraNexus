@@ -194,11 +194,11 @@ async def _do_prewarm(user_id: str, gen: int) -> None:
     try:
         # Prewarm is the RIGHT place to roll a stale executor image: it is
         # not a run, and its whole purpose is to move cold-start out of the
-        # user's turn. Leaving the default False
-        # here would defer the replacement to this user's next turn — so the
-        # first interaction after every image rebuild would warm the OLD
-        # image, then pay a full stop + await-gone + run + wait_until_ready
-        # inline, with the prewarm wasted.
+        # user's turn. Leaving the default False here would defer the
+        # replacement to this user's next turn — so the first interaction
+        # after every image rebuild would warm the OLD image, then pay a full
+        # stop + await-gone + run + wait_until_ready inline, with the prewarm
+        # wasted.
         #
         # No run to exclude: this is not one.
         #

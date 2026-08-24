@@ -207,9 +207,16 @@ async def live_run_elsewhere(
     rolling), and the warning fires once per caller per process — so the one
     line somebody gets has to name the right subsystem. Required rather than
     defaulted because a default is necessarily one consumer's outcome, and
-    the next consumer that omits it inherits that text silently. Omission is
-    now a TypeError on the first call instead of a log pointing at the wrong
-    subsystem.
+    the next consumer that omits it inherits that text silently.
+
+    A NEW consumer that omits either gets a TypeError on its first call. The
+    reaper does not: it binds both here (``_REAPER_LIVENESS``), and a
+    TypeError on that path is swallowed by the pass-level handlers that keep
+    one user's failure from aborting a cull — it surfaces as "reap pass
+    error", or as "failed to stop executor", which reads like a broker fault.
+    So the reaper's binding is pinned by
+    ``test_the_reaper_binds_its_own_log_subject`` instead of by this
+    signature. Anyone binding these for a third consumer needs the same.
     """
     from xyz_agent_context.agent_runtime.run_recorder import (
         first_live_run_id,
