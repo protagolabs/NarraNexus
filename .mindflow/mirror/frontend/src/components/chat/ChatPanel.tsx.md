@@ -19,6 +19,15 @@ stub: false
 * **Composer 保持可编辑**:`disabled={!agentId}`(**不再** `isLoading&&!currentSteerable`)——恪守 [[Composer.tsx]] 的契约「运行中仍可编辑,只 gate 发送」;否则 #355 未合前每次运行输入框都会灰、丢掉「运行中打草稿」既有能力。steerable 运行中显 `steerPlaceholder`(仅真能 steer 时才显示「并入本轮」,不撒谎)。
 * **steerable 运行中有发送键**:`isStreaming` 分支渲染 **Stop + (currentSteerable 时) 一颗 steer 发送键**(`right-12`,Stop 在 `right-2`),给鼠标/移动端一个真实提交入口(不只靠 Enter)。该键 `disabled` = `composerEmpty || uploadingCount || !agentId`,**刻意不含 `|| isLoading`**(此刻正流式);fresh-run 那颗发送键保留 `|| isLoading` 作防重复提交,是**另一颗**、各自 disabled。
 
+## 2026-08-21 — 直播块顶部渲染 [[ResumedRunChip]](深圳复测 B1)
+
+渲染条件是 `resumedRun && resumedRun.runId === currentRunId`(#349 M4
+收紧,2026-08-24;两个字段都来自 chatStore flat fields):锚点只给
+**它自己的** run 打标——将来若出现第二条开流路径,陈旧锚点是隐形而
+不是错标到别人的轮次上(为什么这样设计见 [[../../stores/chatStore.ts]]
+的 08-24 条)。chip 在直播回复气泡上方,给刷新后重连的全量重放一个
+「同一 run 在继续」的身份标识,不再被读成从零重新生成。排查「chip
+不显示」时注意 runId 不匹配这条路径。重放渲染路径零改动。
 ## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
 
 上一版把 `historyInclude` 塞进 `loadChatHistory` deps + reload effect 清空历史 →

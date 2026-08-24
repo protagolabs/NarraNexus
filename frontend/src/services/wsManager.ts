@@ -10,6 +10,7 @@ import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
 import { isAuthErrorMessage, reportWsAuthFailure } from './wsAuthError';
+import { parseBackendTs } from '@/lib/backendTs';
 import {
   circuitOpenReason,
   dispatchAgentCircuitOpen,
@@ -400,7 +401,10 @@ class WebSocketManager {
               (!!last && last.role === 'user' && !last.event_id && last.content === inputContent);
             if (!alreadyInSession) {
               const tsStr = raw.input_timestamp as string | null | undefined;
-              const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+              // parseBackendTs, not Date.parse: a naive-UTC string read as
+              // local time shifts this bubble by the viewer's UTC offset and
+              // mis-sorts it against history (review #349 I1).
+              const tsMs = parseBackendTs(tsStr);
               store().addUserMessage(
                 agentId,
                 inputContent,
@@ -419,6 +423,22 @@ class WebSocketManager {
           // reconnect protocol absorbs `run_reconnect` before processMessage
           // (translateReconnectFrame returns null), so we set it here.
           store().setCurrentRunId(agentId, runId);
+          // Resume badge (Shenzhen-r2 B1): the replay that follows renders
+          // the whole run from seq 0 — without an anchor to the run's REAL
+          // start, a refresh mid-run reads as "it started generating again
+          // from scratch". ONLY for a run that is still running (review
+          // #349 I2): the backend sends run_reconnect for ANY attachable
+          // run and the already-finished case is the COMMON one — badging
+          // its replay "resumed · running for N min" would be the same
+          // misread in the opposite direction. `state === 'running'` is
+          // verbatim the backend's own branch condition (anything else
+          // gets a run_ended right after the replay).
+          const startedMs = parseBackendTs(
+            raw.started_at as string | null | undefined,
+          );
+          if (raw.state === 'running' && Number.isFinite(startedMs)) {
+            store().markResumedRun(agentId, runId, startedMs);
+          }
         }
 
         // Honor terminal lifecycle frames BEFORE the translate/early-return

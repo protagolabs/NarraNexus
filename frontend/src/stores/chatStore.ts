@@ -64,6 +64,13 @@ export interface AgentChatState {
    *  lib/buildTimeline.ts. */
   currentRunId: string | null;
 
+  /** Set when the current streaming turn is a RECONNECT to an already-running
+   *  backend run (Phase C), not a fresh generation — carries the run's real
+   *  start time so the UI can say "resumed · running for N min" instead of
+   *  looking like a from-scratch re-generation after a page refresh
+   *  (Shenzhen-r2 B1). Cleared on startStreaming; rendered only while
+   *  isStreaming, so it never needs an explicit clear at settle. */
+  resumedRun: { runId: string; startedAtMs: number } | null;
   /** Whether the CURRENT run can accept a mid-run steer (from
    *  `run_started.steerable`). Gates SENDING during a run (the composer stays
    *  editable either way): a steerable run folds a follow-up into the same turn,
@@ -126,6 +133,7 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   history: Object.freeze([]) as unknown as ConversationRound[],
   currentEvents: Object.freeze([]) as unknown as TurnEvent[],
   currentRunId: null,
+  resumedRun: null,
   currentSteerable: false,
 });
 
@@ -143,6 +151,7 @@ function createDefaultAgentState(): AgentChatState {
     history: [],
     currentEvents: [],
     currentRunId: null,
+    resumedRun: null,
     currentSteerable: false,
   };
 }
@@ -180,6 +189,8 @@ interface ChatState {
   isStreaming: boolean;
   history: ConversationRound[];
   currentEvents: TurnEvent[];
+  resumedRun: AgentChatState['resumedRun'];
+  currentRunId: string | null;
   currentSteerable: boolean;
 
   // Actions (all accept agentId)
@@ -201,6 +212,7 @@ interface ChatState {
    *  event-id-less user message. Called from the `run_started` frame
    *  (fresh run) and from wsManager on reconnect. */
   setCurrentRunId: (agentId: string, runId: string) => void;
+  markResumedRun: (agentId: string, runId: string, startedAtMs: number) => void;
   processMessage: (agentId: string, message: RuntimeMessage) => void;
   clearAgent: (agentId: string) => void;
   clearAll: () => void;
@@ -280,6 +292,8 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     isStreaming: session.isStreaming,
     history: session.history,
     currentEvents: session.currentEvents,
+    resumedRun: session.resumedRun,
+    currentRunId: session.currentRunId,
     currentSteerable: session.currentSteerable,
   };
 }
@@ -404,6 +418,10 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // Clean slate — the run id of this new turn arrives via the
           // `run_started` frame (fresh) or setCurrentRunId (reconnect).
           currentRunId: null,
+          // A fresh turn is a fresh generation until a run_reconnect frame
+          // says otherwise (markResumedRun fires AFTER this reset on the
+          // reconnect path — onopen → startStreaming → run_reconnect).
+          resumedRun: null,
           // Steerability is (re)declared by run_started; assume not until then.
           currentSteerable: false,
         })),
@@ -427,6 +445,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
               : s.messages;
           return { currentRunId: runId, messages };
         }),
+      }));
+    },
+
+    // Mark the streaming turn as a reconnect to an already-running run
+    // (run_reconnect frame), anchored to the run's REAL start time — the
+    // UI renders "resumed · running for N min" from this instead of
+    // presenting the replay as a from-scratch generation (Shenzhen-r2 B1).
+    markResumedRun: (agentId: string, runId: string, startedAtMs: number) => {
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, () => ({
+          resumedRun: { runId, startedAtMs },
+        })),
       }));
     },
 

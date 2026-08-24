@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ArtifactKind } from '@/types/artifact';
-import { KIND_REGISTRY } from '../kindRegistry';
+import { KIND_REGISTRY, downloadExtFor } from '../kindRegistry';
 
 const ALL_KINDS: ArtifactKind[] = [
   'text/html',
@@ -75,9 +75,68 @@ describe('KIND_REGISTRY', () => {
       'image/png': 'png',
       'image/jpeg': 'jpg',
       'application/pdf': 'pdf',
-      // No natural extension pre-registry; the menu fell back to 'bin'.
-      'application/vnd.officecli-live': 'bin',
-      'application/x-url': 'bin',
+      // No static extension — the real one lives in file_path (a pptx and
+      // a docx share this kind), so these derive per-artifact via
+      // downloadExtFor. A static 'bin' here is exactly the Shenzhen-r2
+      // ".bin download" bug.
+      'application/vnd.officecli-live': undefined,
+      'application/x-url': undefined,
+    });
+  });
+
+  describe('downloadExtFor', () => {
+    it('derives the office extension from file_path (the .bin bug)', () => {
+      expect(
+        downloadExtFor({
+          kind: 'application/vnd.officecli-live',
+          file_path: 'agent_a_user_b/ev-sales-trend.pptx',
+        }),
+      ).toBe('pptx');
+      expect(
+        downloadExtFor({
+          kind: 'application/vnd.officecli-live',
+          file_path: 'agent_a_user_b/ev-sales-trend-report.docx',
+        }),
+      ).toBe('docx');
+      expect(
+        downloadExtFor({
+          kind: 'application/vnd.officecli-live',
+          file_path: 'agent_a_user_b/budget.xlsx',
+        }),
+      ).toBe('xlsx');
+    });
+
+    it('a static registry extension wins over the file_path one', () => {
+      // kind describes the ENTRY semantics; a markdown artifact whose
+      // pointer ends .markdown still downloads as .md.
+      expect(
+        downloadExtFor({ kind: 'text/markdown', file_path: 'x/notes.markdown' }),
+      ).toBe('md');
+    });
+
+    it('falls back to bin when neither side has an extension', () => {
+      expect(
+        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: 'x/deck' }),
+      ).toBe('bin');
+      expect(
+        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: '' }),
+      ).toBe('bin');
+      expect(
+        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: 'x/tar.' }),
+      ).toBe('bin');
+    });
+
+    it('sanitizes a hostile file_path extension instead of trusting it', () => {
+      // extension feeds a filename — length-capped and alnum-only
+      expect(
+        downloadExtFor({
+          kind: 'application/vnd.officecli-live',
+          file_path: 'x/a.' + 'q'.repeat(40),
+        }),
+      ).toBe('bin');
+      expect(
+        downloadExtFor({ kind: 'application/vnd.officecli-live', file_path: 'x/a.p tx' }),
+      ).toBe('bin');
     });
   });
 
