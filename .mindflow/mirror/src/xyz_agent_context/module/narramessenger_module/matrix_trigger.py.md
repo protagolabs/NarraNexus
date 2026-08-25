@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — `is_agent_peer` + silent 分支补熔断
+
+**`is_agent_peer` 覆写**：平台把 agent 身份铸成
+`@agent-<id>:<homeserver>`（见 [[_narramessenger_service.py]] 的
+`_MATRIX_USER_RE`），所以「对面是不是机器」在这个渠道是前缀判断而不是猜测。
+新增模块级常量 `AGENT_MXID_PREFIX` 承载这个拼法。
+
+这是最需要它的渠道：8/14 那 70 小时的乒乓就是两个 agent 在
+NarraMessenger DM 里互相复读。答出这个问题同时收紧熔断阈值、关掉
+「替它编一条回复」的 DM 兜底、并让 prompt 告诉模型可以闭嘴。
+
+**`group_silent` 分支要单独挂闸门**：那条分支在
+`super()._process_message` **之前** return，所以基类的闸门看不到它——但它
+仍然会跑一条管线（记忆摄入）。群房里的复读风暴照样烧。dm / group_mention
+两条路走 `super()`，继承基类那处即可。
 
 ## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
 

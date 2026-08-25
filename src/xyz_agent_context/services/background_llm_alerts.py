@@ -289,6 +289,99 @@ async def alert_agent_transient_streak(
         logger.warning(f"[agent-cb] transient owner notice failed: {e}")
 
 
+# Audit plane for the message-ingress circuit breaker.
+_INGRESS_AUDIT_SERVICE = "ingress_breaker"
+
+
+async def alert_ingress_breaker_tripped(
+    *,
+    agent_id: str,
+    db,
+    channel: str,
+    verdict,
+) -> None:
+    """Tell the owner their agent has stopped listening to one conversation.
+
+    Unlike every alert above it, this one is not about a failure — the
+    platform is working exactly as designed. It is about VISIBILITY: a
+    tripped ingress breaker makes a conversation go silent, and silence the
+    owner cannot explain is its own incident. The 8/14 ping-pong loop ran
+    70 hours precisely because nothing about that conversation reached a
+    human.
+
+    Deliberately NON-PRESCRIPTIVE about the far side's software (binding
+    rule #15): it states what was observed and what we did, and leaves the
+    judgement to the owner.
+
+    ``verdict`` is an ``IngressVerdict``; taken structurally rather than
+    imported to keep ``services/`` from depending on ``channel/``. Never
+    raises — observer never breaks the observed.
+    """
+    details = {
+        "agent_id": agent_id,
+        "event": "ingress_tripped",
+        "channel": channel,
+        **verdict.audit_details(),
+    }
+    try:
+        await ServiceAuditor(_INGRESS_AUDIT_SERVICE).error(details)
+    except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        logger.warning(f"[ingress-breaker] audit write failed: {e}")
+
+    owner_user_id = None
+    try:
+        owner_user_id = (
+            (await db.get_one("agents", {"agent_id": agent_id}) or {})
+        ).get("created_by")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[ingress-breaker] owner lookup failed: {e}")
+    if not owner_user_id:
+        return
+
+    # Deduped per conversation, not per agent: two different runaway peers
+    # are two things the owner needs to know about, but one peer escalating
+    # through four tiers is one story.
+    cooldown_key = f"ingress:{verdict.session_key}"
+    now = time.monotonic()
+    last = _notify_cooldown.get(cooldown_key)
+    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
+        return
+
+    peer = "another agent" if verdict.is_agent_peer else "a sender"
+    minutes = int(verdict.cooldown_seconds // 60)
+    window = f"{minutes} minutes" if minutes < 120 else f"{minutes // 60} hours"
+    try:
+        content = (
+            f"On {channel}, {peer} sent {verdict.window_count} messages that "
+            f"were {int(verdict.dup_ratio * 100)}% repeats of each other. That "
+            f"pattern does not produce new information for the agent to act "
+            f"on, so this platform has stopped feeding that ONE conversation "
+            f"into the agent for {window}.\n\n"
+            f"Nothing else is affected: the agent keeps running, and every "
+            f"other conversation on every channel is untouched. Messages from "
+            f"this conversation are recorded but not processed until the "
+            f"window elapses, at which point one message is let through to "
+            f"re-test.\n\n"
+            f"If the repetition was intentional, no action is needed — it "
+            f"clears itself once the conversation returns to normal."
+        )
+        await InboxRepository(db).create_message(
+            user_id=owner_user_id,
+            message_id=f"ingress_{uuid.uuid4().hex[:16]}",
+            title=f"Paused a repetitive conversation on {channel}",
+            content=content,
+            message_type=InboxMessageType.SYSTEM_NOTICE,
+            source=MessageSource(type="ingress_breaker", id=verdict.session_key),
+        )
+        _notify_cooldown[cooldown_key] = now
+        logger.warning(
+            f"[ingress-breaker] notified owner {owner_user_id}: "
+            f"{verdict.session_key} tier={verdict.tier}"
+        )
+    except Exception as e:  # noqa: BLE001 — notification is best-effort
+        logger.warning(f"[ingress-breaker] owner inbox notice failed: {e}")
+
+
 async def audit_agent_internal_streak(
     *,
     agent_id: str,

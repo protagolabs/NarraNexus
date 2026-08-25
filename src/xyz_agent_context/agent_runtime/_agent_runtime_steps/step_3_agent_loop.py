@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import AsyncGenerator, Any, Optional, Union, TYPE_CHECKING
 
 from loguru import logger
@@ -339,6 +340,62 @@ def _channel_turn_envelope(ctx) -> dict:
 # channel recipient waiting on the other end.
 _NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
 
+# How many platform-written DM replies one conversation may receive inside
+# IM_DM_FALLBACK_WINDOW_SECONDS before the fallback stops arming.
+#
+# The fallback exists for an OVERSIGHT — the agent meant to reply and
+# forgot the tool. Oversights are occasional. A conversation generating
+# them steadily is not being helped by a fourth invented reply; it is
+# being fed, and every fallback we emit lands as an inbound message on
+# the other side. This is a suppression heuristic, deliberately kept
+# in-process (a restart resets it) like ``background_llm_alerts``'
+# cooldown map — the durable protection is the ingress breaker, which
+# does survive restarts.
+IM_DM_FALLBACK_BURST_LIMIT = 3
+IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
+
+# f"{channel}:{room_id}" -> monotonic timestamps of recent deliveries.
+_im_dm_fallback_history: dict[str, list[float]] = {}
+
+
+def _fallback_conversation_key(channel_tag: dict) -> str:
+    """Identity for fallback rate limiting: one conversation, one budget."""
+    channel = str(channel_tag.get("channel", "") or "")
+    room_id = str(channel_tag.get("room_id", "") or "")
+    if not channel and not room_id:
+        return ""
+    return f"{channel}:{room_id}"
+
+
+def _recent_fallback_count(key: str) -> int:
+    """Deliveries to this conversation inside the live window."""
+    if not key:
+        return 0
+    cutoff = time.monotonic() - IM_DM_FALLBACK_WINDOW_SECONDS
+    recent = [t for t in _im_dm_fallback_history.get(key, []) if t >= cutoff]
+    if recent:
+        _im_dm_fallback_history[key] = recent
+    else:
+        _im_dm_fallback_history.pop(key, None)
+    return len(recent)
+
+
+def _record_fallback_delivery(key: str) -> None:
+    """Count a fallback that actually reached the far side.
+
+    Recorded on DELIVERY, not on decision: a fallback the channel failed
+    to send never became an inbound message on the other side, so it must
+    not consume this conversation's budget.
+    """
+    if not key:
+        return
+    _im_dm_fallback_history.setdefault(key, []).append(time.monotonic())
+
+
+def reset_im_dm_fallback_history() -> None:
+    """Clear the in-process fallback history. For tests / explicit resets."""
+    _im_dm_fallback_history.clear()
+
 
 def _has_organic_reply(
     agent_loop_response: list,
@@ -389,6 +446,8 @@ def _should_run_helper_llm_fallback(
     agent_loop_response: list,
     cancellation,
     is_direct_message: bool = False,
+    is_agent_peer: bool = False,
+    recent_fallback_count: int = 0,
 ) -> tuple[str | None, str]:
     """Decide what the chat fallback path should do this turn.
 
@@ -431,6 +490,19 @@ def _should_run_helper_llm_fallback(
           recipient would get a confident-sounding message with no error
           surface at all, so we stay silent rather than deliver a reply
           synthesised from half a thought.
+        * ``"agent_peer_no_fallback"``: the far side is another agent.
+          ``message_bus`` has always been excluded for exactly this
+          reason — "must not answer peer agents" — but A2A conversations
+          also arrive over IM channels (a NarraMessenger DM between two
+          agents is the 8/14 incident), and there the exclusion did not
+          apply. An agent that chose not to reply chose not to reply;
+          inventing one for it is how a machine conversation becomes
+          perpetual. See ``ChannelTag.is_agent_peer``.
+        * ``"fallback_rate_limited"``: this conversation has already been
+          handed several platform-written replies in the recent past. One
+          forgotten reply tool is an oversight worth covering; a steady
+          stream of them is a loop being fed, and each fallback we emit
+          is itself an inbound message on the other side.
 
     **Why IM DMs are in scope now.** The original gate (2026-05-12) was
     ``working_source != "chat" → out of scope``, reasoned as "job/lark
@@ -474,6 +546,12 @@ def _should_run_helper_llm_fallback(
             return None, "already_replied_via_tool"
         if has_fatal:
             return None, "fatal_no_invented_reply"
+        # Checked AFTER the two above so the reason we report is the most
+        # specific one true of this turn.
+        if is_agent_peer:
+            return None, "agent_peer_no_fallback"
+        if recent_fallback_count >= IM_DM_FALLBACK_BURST_LIMIT:
+            return None, "fallback_rate_limited"
         return "no_reply_im_dm", ""
 
     if has_fatal and has_reply:
@@ -920,6 +998,12 @@ async def _stream_fallback_recovery(
                 working_source, channel_tag or {}, reply_kwargs or {}, text
             )
             if delivered:
+                # Counted on DELIVERY: a reply the channel failed to send
+                # never landed on the far side, so it must not spend this
+                # conversation's fallback budget.
+                _record_fallback_delivery(
+                    _fallback_conversation_key(channel_tag or {})
+                )
                 fallback_full = text
                 yield ProgressMessage(
                     step="3.4.fallback",
@@ -1736,6 +1820,8 @@ async def step_3_agent_loop(
         # (caught in live Telegram testing 2026-08-06: the prompt carried
         # the DM protocol while the decision logged group_room).
         channel_envelope = _channel_turn_envelope(context)
+        _envelope_tag = channel_envelope.get("channel_tag") or {}
+        _fallback_key = _fallback_conversation_key(_envelope_tag)
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,
@@ -1743,6 +1829,11 @@ async def step_3_agent_loop(
             is_direct_message=(
                 channel_envelope.get("channel_room_type") == ROOM_TYPE_DIRECT
             ),
+            # Both travel on the SAME envelope the room type does, so a
+            # channel that forgets to populate the envelope loses the DM
+            # fallback entirely rather than getting it half-armed.
+            is_agent_peer=bool(_envelope_tag.get("is_agent_peer", False)),
+            recent_fallback_count=_recent_fallback_count(_fallback_key),
         )
         # One unconditional line per turn recording what the recovery slot
         # decided AND the room type it decided on. The prompt and this

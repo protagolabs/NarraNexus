@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — DM 兜底加两道前置判断
+
+`no_reply_im_dm` 会用 helper LLM **替 agent 编一条回复发出去**。它此前只问
+一个问题：有没有调过回复工具。8/14 事故里它没上场，但换个剧本它自己就是
+一台乒乓引擎——每条兜底回复落到对面都是一条新的入站消息。
+
+**门 1 · `agent_peer_no_fallback`**：`message_bus` 从一开始就被排除在兜底
+之外，理由白纸黑字写着「不能替 agent 回答 peer agent」。但 A2A 对话也会
+走 IM 渠道（8/14 就是两个 agent 的 NarraMessenger DM），那条路上这个排除
+从来没生效过。agent 选择不回复就是选择不回复，替它编一条是机器对话变成
+永动机的起点。
+
+**门 2 · `fallback_rate_limited`**：兜底是为**疏忽**准备的（本来想回，忘了
+调工具）；疏忽是偶发的。稳定产出疏忽的对话，不会因为第四条编出来的回复而
+变好。
+
+**信号怎么上来的**：决策函数原本只有四个入参，拿不到 `ParsedMessage` /
+`channel_tag` / db。给 `ChannelTag` 加了 `is_agent_peer`，由
+[[channel_trigger_base.py]] 的 `is_agent_peer` seam 填。它**和 room_type 走
+同一个信封**——这样一个忘了填信封的渠道是整个失去 DM 兜底，而不是拿到一个
+半武装的版本（room_type 当年就栽在这上面，见 2026-08-06 那条）。
+
+**计数器进程内即可**，键 `f"{channel}:{room_id}"`，抄
+[[background_llm_alerts.py]] 的 `_notify_cooldown` 惯例。它是抑制启发式，
+不是安全关键冷却——真正扛重启的止血是 [[ingress_guard.py]] 的落库熔断。
+**在投递成功时才计数**：渠道没发出去的兜底从没落到对面，不该花掉这个对话
+的额度。
 
 ## 2026-08-21 — `_ensure_executor_for_run`：判决在这一层算
 

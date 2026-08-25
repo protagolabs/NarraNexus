@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — DM 协议补 loop-breaker
+
+群聊协议从 2026-03 起就有 loop-breaker（「来回拉锯 = 你在循环里，STOP」）。
+DM 协议一直没有——因为它是为**相反**的故障写的（0802：太安静），全文的主张
+是「回复是默认」。于是在唯一一种**两个 agent 可以单独待着**的房型里，模型
+被告知必须回复，且没有给出口。8/14 的 70 小时乒乓就发生在这里。
+
+新增 `### Breaking a Loop`，口子开得很窄——只针对**重复**和**对面是机器**
+两种情形，并显式写一句「这不削弱上面的默认」，保住 0802 的修复。
+`TestDirectProtocolLoopBreaker` 同时正向钉新段落、反向钉群聊那套沉默默认
+**没有**混进来。
+
+**prompt 与运行时必须一致**：兜底只问「有没有调回复工具」，所以光在 prompt
+里允许沉默、运行时不配套，只是把循环从模型搬到平台。配套的运行时门是
+[[step_3_agent_loop.py]] 的 `agent_peer_no_fallback`，两边在
+`test_runtime_gate_exists_for_the_agent_peer_case` 里一起钉。
 
 ## 2026-08-21 — 指令 #5 收窄:不再让 agent 手写渠道 reach(PR-2 预审 Important)
 

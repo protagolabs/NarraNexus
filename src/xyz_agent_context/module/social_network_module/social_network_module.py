@@ -558,17 +558,31 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
             # 1. Run independent LLM calls in parallel: summary + batch extraction
             new_summary, mentioned = await asyncio.gather(
-                summarize_new_entity_info(input_content, final_output),
+                summarize_new_entity_info(
+                    input_content, final_output, agent_id=self.agent_id
+                ),
                 extract_mentioned_entities(
                     input_content, final_output, primary_name,
                     agent_name=agent_name, agent_id=self.agent_id,
                 ),
             )
 
-            # 2. Process summary results
-            if new_summary and new_summary.strip():
+            # 2. Process summary results.
+            # `None` means the LLM call FAILED (already reported by
+            # _entity_updater); `""` means it ran and found nothing worth
+            # remembering. Both skip the write, but only one is a problem
+            # — which is the whole reason the two are distinguishable now.
+            if new_summary is None:
+                logger.warning(
+                    "            Entity summary unavailable this turn "
+                    "(LLM call failed); description write skipped"
+                )
+            elif new_summary.strip():
                 logger.info(f"            New summary generated: {new_summary[:100]}...")
-                await append_to_entity_description(repo, user_id, instance_id, new_summary)
+                await append_to_entity_description(
+                    repo, user_id, instance_id, new_summary,
+                    agent_id=self.agent_id,
+                )
 
             # 3. Update interaction stats (always)
             await update_interaction_stats(repo, user_id, instance_id)
@@ -590,8 +604,12 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 recent_conversation = f"User: {input_content}\nAgent: {final_output}"
                 new_persona = await infer_persona(
                     entity=entity, awareness=awareness,
-                    job_info=job_info_str, recent_conversation=recent_conversation
+                    job_info=job_info_str, recent_conversation=recent_conversation,
+                    agent_id=self.agent_id,
                 )
+                # None = the call failed (reported downstream). Writing the
+                # old value back would look exactly like a successful
+                # refresh, so skip instead.
                 if new_persona:
                     await update_entity_persona(repo, user_id, instance_id, new_persona)
 
@@ -679,6 +697,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     decision, matched = await decide_merge_or_create(
                         mentioned_entity.name, mentioned_entity.summary,
                         candidate_aliases, matches,
+                        agent_id=self.agent_id,
                     )
                     if decision == "MERGE" and matched:
                         existing = matched
@@ -688,7 +707,8 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     matched_id = existing.entity_id
                     if mentioned_entity.summary:
                         await append_to_entity_description(
-                            repo, matched_id, instance_id, mentioned_entity.summary
+                            repo, matched_id, instance_id, mentioned_entity.summary,
+                            agent_id=self.agent_id,
                         )
                     # Merge keywords
                     if mentioned_entity.keywords:

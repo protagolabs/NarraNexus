@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/services/background_llm_alerts.py
-last_verified: 2026-07-13
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 新增 `alert_ingress_breaker_tripped`
+
+与本文件里其他告警都不同：它**不是**在报故障。ingress 熔断器跳闸时平台完全
+按设计工作。它报的是**可见性**——跳闸意味着一整个对话安静下去，而
+「用户无法解释的安静」本身就是一次事故。8/14 那 70 小时之所以能跑，正是
+因为关于那个对话的任何信息都没有到达人类。
+
+沿用本文件既有的两层结构（`ServiceAuditor` 审计行 + `InboxRepository` 收件箱
+通知 + 30 分钟冷却）。三点差异：
+
+- **按会话去重**，不是按 agent：两个不同的失控对端是用户要分别知道的两件事，
+  而同一个对端连升四档是一个故事。
+- **措辞不评判对面的软件**（铁律 #15）：只陈述观察到什么、我们做了什么，
+  判断留给用户。
+- `verdict` 按结构取（鸭子类型），不 import `IngressVerdict`——`services/`
+  不该依赖 `channel/`。
+
+同期：[[_entity_updater.py]] 终于接上了 `alert_background_llm_failure`。该
+函数的 docstring 从写下那天起就把 `entity_summary` 列为预期 source，坑挖好
+了一直没埋线。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

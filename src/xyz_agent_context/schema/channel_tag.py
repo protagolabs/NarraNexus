@@ -39,12 +39,21 @@ class ChannelTag:
         sender_id: Unique identifier within the trigger source
         room_id: Conversation identifier (optional, used by IM channels)
         room_name: Conversation display name (optional)
+        is_agent_peer: the sender is another agent, not a human
     """
     channel: str          # Trigger source type
     sender_name: str      # Display name
     sender_id: str        # Unique ID within the source
     room_id: str = ""     # Conversation ID (optional, for IM channels)
     room_name: str = ""   # Conversation name (optional)
+    # Is the far side a machine? Filled from ``ChannelTriggerBase.is_agent_peer``
+    # (2026-08-24). Carried HERE rather than re-derived downstream because
+    # only the trigger layer knows the platform's identity convention, and
+    # step_3's fallback decision — which is where inventing a reply to
+    # another agent turns into a ping-pong engine — has no access to the
+    # ParsedMessage. Defaults False: on most channels every sender is a
+    # person, and ``to_dict`` drops the field when it is.
+    is_agent_peer: bool = False
 
     def format(self) -> str:
         """
@@ -75,6 +84,7 @@ class ChannelTag:
             sender_id=data.get("sender_id", ""),
             room_id=data.get("room_id", ""),
             room_name=data.get("room_name", ""),
+            is_agent_peer=bool(data.get("is_agent_peer", False)),
         )
 
     @staticmethod
@@ -133,6 +143,7 @@ class ChannelTag:
         sender_id: str,
         chat_id: str = "",
         chat_name: str = "",
+        is_agent_peer: bool = False,
     ) -> ChannelTag:
         """Create a ChannelTag for Lark/Feishu message."""
         return ChannelTag(
@@ -141,4 +152,5 @@ class ChannelTag:
             sender_id=sender_id,
             room_id=chat_id,
             room_name=chat_name,
+            is_agent_peer=is_agent_peer,
         )

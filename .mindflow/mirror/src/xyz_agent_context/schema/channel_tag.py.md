@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/channel_tag.py
-last_verified: 2026-04-10
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 新增 `is_agent_peer`
+
+「对面是不是另一个 agent」由 [[channel_trigger_base.py]] 的 `is_agent_peer`
+seam 填。**带在 ChannelTag 上而不是下游现推**：只有 trigger 层知道各平台的
+身份约定，而真正需要这个答案的地方——[[step_3_agent_loop.py]] 的兜底决策，
+也就是「替 agent 编一条回复」变成乒乓引擎的那个点——完全拿不到
+`ParsedMessage`。
+
+默认 False；`to_dict` 本来就会丢掉假值，所以绝大多数渠道的序列化体积不变。
 
 # channel_tag.py
 

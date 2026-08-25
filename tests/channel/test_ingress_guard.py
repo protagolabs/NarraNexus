@@ -1,0 +1,326 @@
+"""
+@file_name: test_ingress_guard.py
+@author:
+@date: 2026-08-24
+@description: State-machine tests for the message-ingress circuit breaker.
+
+Pins the L2/L3 model from the 2026-08-17 ingress design: a session trips
+only when it is BOTH fast AND repetitive, cooldowns escalate along a fixed
+schedule, expiry buys exactly one half-open probe, and a session that
+behaves settles back to closed.
+
+Timing style follows ``test_credential_breaker.py``: no sleeping and no
+fake clock patched into asyncio. ``IngressGuard.admit`` takes an explicit
+``now``, so every temporal assertion is arithmetic on a fixed base instant.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from xyz_agent_context.channel.ingress_guard import (
+    IngressGuard,
+    content_fingerprint,
+)
+
+pytestmark = pytest.mark.asyncio
+
+
+BASE = datetime(2026, 8, 14, 10, 22, 0, tzinfo=timezone.utc)
+
+# Shrunk so a test can cross a threshold in a handful of calls, the same way
+# _BreakerTrigger shrinks the credential breaker's constants.
+SCHEDULE = (300.0, 1800.0, 7200.0, 86400.0)
+
+
+def _guard(**kwargs) -> IngressGuard:
+    defaults = dict(
+        window_seconds=600,
+        rate_threshold=10,
+        dup_ratio_threshold=0.8,
+        agent_rate_threshold=5,
+        agent_dup_ratio_threshold=0.5,
+        schedule_seconds=SCHEDULE,
+        recovery_windows=2,
+    )
+    defaults.update(kwargs)
+    return IngressGuard(**defaults)
+
+
+async def _send(
+    guard: IngressGuard,
+    *,
+    n: int,
+    text,
+    start: datetime,
+    step_seconds: float = 1.0,
+    is_agent_peer: bool = False,
+    chat_id: str = "room1",
+    sender_id: str = "peer1",
+):
+    """Feed ``n`` messages and return the list of verdicts."""
+    out = []
+    for i in range(n):
+        body = text(i) if callable(text) else text
+        out.append(
+            await guard.admit(
+                agent_id="agt_1",
+                channel="narramessenger",
+                chat_id=chat_id,
+                sender_id=sender_id,
+                fingerprint=content_fingerprint(chat_id, sender_id, body),
+                is_agent_peer=is_agent_peer,
+                now=start + timedelta(seconds=i * step_seconds),
+            )
+        )
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Entry condition — rate AND repetition, never either alone
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_verbatim_repeat_burst_trips():
+    guard = _guard()
+    verdicts = await _send(guard, n=12, text="ping", start=BASE)
+
+    assert verdicts[0].admit is True, "the first message must always flow"
+    denied = [v for v in verdicts if not v.admit]
+    assert denied, "a verbatim repeat burst must trip"
+    trip = denied[0]
+    assert trip.tier == 1
+    assert trip.transition == "tripped"
+    assert trip.cooldown_seconds == SCHEDULE[0]
+
+
+async def test_fast_but_varied_never_trips():
+    """A user firing off many DIFFERENT messages is not a loop."""
+    guard = _guard()
+    verdicts = await _send(guard, n=60, text=lambda i: f"message number {i}", start=BASE)
+
+    assert all(v.admit for v in verdicts)
+    assert all(v.tier == 0 for v in verdicts)
+
+
+async def test_repetitive_but_slow_never_trips():
+    """The same "ok" once every few minutes is a quiet human, not a storm."""
+    guard = _guard()
+    verdicts = await _send(guard, n=40, text="ok", start=BASE, step_seconds=200.0)
+
+    assert all(v.admit for v in verdicts)
+
+
+async def test_agent_peer_thresholds_are_tighter():
+    """A2A rooms are the loop-prone surface, so they trip sooner."""
+    human = _guard()
+    human_verdicts = await _send(human, n=7, text="ping", start=BASE)
+    assert all(v.admit for v in human_verdicts), "7 < human rate_threshold=10"
+
+    agent = _guard()
+    agent_verdicts = await _send(agent, n=7, text="ping", start=BASE, is_agent_peer=True)
+    assert any(not v.admit for v in agent_verdicts), "7 >= agent rate_threshold=5"
+
+
+async def test_half_repetition_trips_agent_peer_only():
+    """dup_ratio ~0.5 — each body said exactly twice.
+
+    Over the agent bar (0.5), under the human one (0.8): the same traffic
+    is a loop worth breaking between two agents and merely a chatty human
+    otherwise.
+    """
+    text = lambda i: f"body {i // 2}"  # noqa: E731 — every body sent twice
+
+    human = _guard()
+    assert all(v.admit for v in await _send(human, n=10, text=text, start=BASE))
+
+    agent = _guard()
+    assert any(
+        not v.admit for v in await _send(agent, n=10, text=text, start=BASE, is_agent_peer=True)
+    )
+
+
+async def test_two_bodies_alternating_forever_is_a_loop_for_everyone():
+    """Ping-pong does not become innocent by having two lines instead of
+    one: 20 messages drawn from 2 distinct bodies scores 0.9, over even
+    the human bar."""
+    guard = _guard()
+    verdicts = await _send(guard, n=20, text=lambda i: f"body {i % 2}", start=BASE)
+    assert any(not v.admit for v in verdicts)
+
+
+async def test_empty_fingerprints_are_not_duplicates_of_each_other():
+    """Caption-less uploads produce no fingerprint; they must not read as a
+    verbatim repeat storm (the same carve-out the empty-content guard makes
+    for attachment_refs)."""
+    guard = _guard()
+    verdicts = []
+    for i in range(30):
+        verdicts.append(
+            await guard.admit(
+                agent_id="agt_1",
+                channel="slack",
+                chat_id="room1",
+                sender_id="peer1",
+                fingerprint="",
+                is_agent_peer=False,
+                now=BASE + timedelta(seconds=i),
+            )
+        )
+    assert all(v.admit for v in verdicts)
+
+
+async def test_sessions_are_isolated():
+    """One noisy conversation must not isolate a quiet neighbour."""
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE, chat_id="noisy")
+    quiet = await _send(guard, n=3, text="hello", start=BASE, chat_id="quiet")
+    assert all(v.admit for v in quiet)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Cooldown, escalation, half-open probe
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_messages_during_cooldown_are_suppressed_and_counted():
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    later = BASE + timedelta(seconds=60)
+    verdicts = await _send(guard, n=5, text="ping", start=later)
+    assert all(not v.admit for v in verdicts)
+    assert all(v.reason == "cooling" for v in verdicts)
+    assert verdicts[-1].suppressed > verdicts[0].suppressed, "each drop is counted"
+
+
+async def test_cooldown_expiry_admits_exactly_one_probe():
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    # Well past the cooldown: it starts at the TRIPPING message, which is
+    # some seconds into the burst, not at BASE.
+    after = BASE + timedelta(seconds=SCHEDULE[0] + 60)
+    probe = (await _send(guard, n=1, text="ping", start=after))[0]
+    assert probe.admit is True
+    assert probe.transition == "probe"
+    assert probe.reason == "cooldown_expired"
+    assert probe.tier == 1, "the probe does NOT forgive the escalation memory"
+
+
+async def test_reoffending_after_probe_lands_on_the_next_tier():
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    after = BASE + timedelta(seconds=SCHEDULE[0] + 60)
+    verdicts = await _send(guard, n=12, text="ping", start=after)
+    escalated = [v for v in verdicts if v.transition == "escalated"]
+    assert escalated, "a session that immediately re-offends must escalate"
+    assert escalated[0].tier == 2
+    assert escalated[0].cooldown_seconds == SCHEDULE[1]
+
+
+async def test_escalation_plateaus_at_the_last_step():
+    guard = _guard()
+    now = BASE
+    for expected_cooldown in SCHEDULE + (SCHEDULE[-1], SCHEDULE[-1]):
+        verdicts = await _send(guard, n=12, text="ping", start=now)
+        trip = [v for v in verdicts if v.transition in ("tripped", "escalated")][0]
+        assert trip.cooldown_seconds == expected_cooldown
+        now = now + timedelta(seconds=expected_cooldown + 60)
+
+
+async def test_good_behaviour_decays_the_tier_back_to_closed():
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    now = BASE + timedelta(seconds=SCHEDULE[0] + 1)
+    # Two clean windows (recovery_windows=2) of ordinary, varied traffic.
+    for _ in range(6):
+        await _send(guard, n=1, text=lambda i, t=now: f"hello {t}", start=now)
+        now = now + timedelta(seconds=300)
+
+    final = (await _send(guard, n=1, text="anything new", start=now))[0]
+    assert final.admit is True
+    assert final.tier == 0, "a recovered session must forget its escalation"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Durability — a cooldown must outlive the process
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_cooldown_survives_a_fresh_guard(db_client):
+    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo=repo)
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    # A redeploy: brand-new guard, same durable store, still inside cooldown.
+    reborn = _guard(repo=repo)
+    verdict = (await _send(reborn, n=1, text="ping", start=BASE + timedelta(seconds=30)))[0]
+    assert verdict.admit is False
+    assert verdict.reason == "cooling"
+    assert verdict.tier == 1
+
+
+async def test_tier_transitions_are_written_through(db_client):
+    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo=repo)
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    rows = await repo.find_open()
+    assert len(rows) == 1
+    assert rows[0].tier == 1
+    assert rows[0].channel == "narramessenger"
+    assert rows[0].agent_id == "agt_1"
+    assert rows[0].cooldown_until is not None
+
+
+async def test_a_dead_repository_fails_open(db_client):
+    """The guard is not an authorization gate. If its durable store is
+    unreachable, traffic flows — the in-memory half still works."""
+
+    class _DeadRepo:
+        async def get(self, session_key):
+            raise RuntimeError("db down")
+
+        async def upsert_state(self, session_key, updates):
+            raise RuntimeError("db down")
+
+    guard = _guard(repo=_DeadRepo())
+    verdict = (await _send(guard, n=1, text="hello", start=BASE))[0]
+    assert verdict.admit is True
+
+    # ...and the memory-only breaker still trips.
+    assert any(not v.admit for v in await _send(guard, n=12, text="ping", start=BASE))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Observability surface
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_open_session_count_is_a_standing_state():
+    guard = _guard()
+    assert guard.open_session_count() == 0
+    await _send(guard, n=12, text="ping", start=BASE)
+    assert guard.open_session_count() == 1
+
+
+async def test_verdict_carries_the_evidence_for_the_audit_row():
+    guard = _guard()
+    verdicts = await _send(guard, n=12, text="ping", start=BASE)
+    trip = [v for v in verdicts if v.transition == "tripped"][0]
+    assert trip.window_count >= 10
+    assert trip.dup_ratio >= 0.8
+    assert trip.session_key == "narramessenger|room1|peer1"
+
+
+async def test_content_fingerprint_is_stable_and_scoped():
+    a = content_fingerprint("room", "sender", "hello")
+    assert a == content_fingerprint("room", "sender", "hello")
+    assert a != content_fingerprint("room", "other", "hello")
+    assert a != content_fingerprint("other", "sender", "hello")
+    assert content_fingerprint("room", "sender", "") == ""

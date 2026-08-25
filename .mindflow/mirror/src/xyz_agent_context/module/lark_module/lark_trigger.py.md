@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — Lark 必须自己挂 ingress 熔断器
+
+本类 override 了 `_process_message` 且**不调 `super()`**（它把
+`_subscribe_loop` / `_worker` / `_build_and_run_agent` 一并接管了），所以
+[[channel_trigger_base.py]] 里那处 `_ingress_admitted` 调用**覆盖不到 Lark**。
+闸门必须在这里再写一遍，位置同样是「unbound / echo / empty 三道闸门之后」。
+
+这行看起来像可以删掉的重复代码，实际删掉就是 Lark 单独失去熔断器而其他渠道
+都还有——`test_ingress_guard_all_paths.py::test_lark_gates_its_own_path`
+按名字钉住它，并且在 Lark 哪天真的改成委托 `super()` 时会提示去简化测试而
+不是留一个冗余闸门。
 
 ## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
 

@@ -96,6 +96,59 @@ class TestDirectProtocolContent:
             assert marker in COMMUNICATION_PROTOCOL_DIRECT
 
 
+class TestDirectProtocolLoopBreaker:
+    """2026-08-24, after the 8/14 ping-pong incident.
+
+    The group protocol has had a loop-breaker since 2026-03. The DM
+    protocol never did — it was written to cure the OPPOSITE failure
+    (0802: too much silence) — so on the one room type where two agents
+    can be alone together, the model was told replying is the default and
+    given no exit.
+    """
+
+    def test_direct_protocol_now_has_a_loop_breaker(self):
+        assert "### Breaking a Loop" in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_loop_breaker_names_repetition_as_the_trigger(self):
+        text = COMMUNICATION_PROTOCOL_DIRECT
+        assert "the same thing is being said again and again" in text
+        assert "STOP. Do not reply." in text
+
+    def test_loop_breaker_covers_an_agent_on_the_far_side(self):
+        """The 8/14 loop was two agents in a DM: 'they are waiting and
+        will think I'm broken' — the reason replying is the default —
+        is simply false when nobody is waiting."""
+        assert "another agent" in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_loop_breaker_does_not_reinstate_the_group_defaults(self):
+        """The whole risk of adding silence language back into the DM
+        protocol is regressing 0802. It must stay a carve-out, never a
+        default."""
+        for marker in GROUP_ONLY_MARKERS:
+            assert marker not in COMMUNICATION_PROTOCOL_DIRECT
+        assert "Replying is the default." in COMMUNICATION_PROTOCOL_DIRECT
+        assert "This does NOT weaken the default above." in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_runtime_gate_exists_for_the_agent_peer_case(self):
+        """Prompt and runtime must agree. The fallback only asks 'was a
+        reply tool called', so permitting silence in the prompt without a
+        matching runtime gate would just move the loop from the model to
+        the platform."""
+        from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+            _should_run_helper_llm_fallback,
+        )
+
+        mode, reason = _should_run_helper_llm_fallback(
+            working_source="narramessenger",
+            agent_loop_response=[],
+            cancellation=None,
+            is_direct_message=True,
+            is_agent_peer=True,
+        )
+        assert mode is None
+        assert reason == "agent_peer_no_fallback"
+
+
 class TestGroupProtocolUnchanged:
     def test_group_protocol_keeps_all_discipline(self):
         """The group path is the tuned 2026-03 rule set — this change must

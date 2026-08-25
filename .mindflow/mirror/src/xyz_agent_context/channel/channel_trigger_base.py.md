@@ -1,8 +1,49 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — ingress 熔断器接线：为什么是三个挂载点而不是一个
+
+新增 [[ingress_guard.py]] 的调用面。守卫本体的设计理由在它自己的 mirror 里；
+这里只记与本文件有关的两件事。
+
+**一、没有单一 chokepoint，所以 seam 是方法不是位置。**
+接线前的假设是「`_process_message` 就是那个咽喉」。实际情况：
+
+- Slack / Telegram / Discord / WeChat：Telegram / WeChat 也 override 了，
+  但都调 `super()._process_message` → 继承本类的闸门
+- **Lark**：override 且**不调 `super()`**（它连 `_subscribe_loop` / `_worker`
+  一起接管了）→ 必须在 [[lark_trigger.py]] 单独挂一份
+- **Matrix**：调 `super()`，但 `group_silent` 分支**在此之前 return**，而那条
+  路仍然跑记忆管线 → 那个分支要单独挂
+- **托管模式**：整条原生接收路径都不走 → [[managed_channel_ingress.py]] 自挂
+
+所以抽了 `_ingress_admitted(credential, message)` 作为**唯一的 seam**，四处
+调它，再用 `test_ingress_guard_all_paths.py` 钉住「每个自己实现
+`_process_message` 的类，要么调 seam，要么调 `super()`」。这条测试第一次跑
+就抓出了 Telegram / WeChat / Matrix 三个此前没被数进来的 override —— 与
+`build_trigger_extra_data` 当年那次是同一个缺陷类（N 份手抄），修法也同一个。
+
+**二、闸门插在 unbound / echo / empty 之后。**
+回声是 agent 自己发的，空消息是解析器没认出来的。把它们计进对端频率，等于
+让 agent 自己把自己熔断掉。
+
+**其余改动**：
+- `is_agent_peer(message)` 新 override hook，默认 False。**一个定义喂三个
+  消费方**：熔断阈值收紧、DM 兜底禁用（[[step_3_agent_loop.py]]）、DM prompt
+  措辞（[[channel_prompts.py]]）。三处各问一次是它们漂移的开始。
+- `_content_fingerprint` 的哈希搬去 `ingress_guard.content_fingerprint`，
+  **门控留在本类**：`CONTENT_DEDUP_WINDOW_SECONDS` 管的是「平台是否用新 id
+  重投」，与熔断器问的问题无关，不能一起解开。
+- `health_snapshot()` / `_maybe_heartbeat()` 加
+  `ingress_breaker_open_count` / `_cooling_count`。**报数不报 key**——
+  session key 里有 chat_id 和 sender_id，`/healthz` 不是列举谁在跟谁说话的
+  地方，身份留在 audit 表。
+- `_run_cleanup` 加 `channel_ingress_breaker` 的保留期清扫（只扫 tier=0 的行）。
+- `INGRESS_*` 全套类属性 tunable，沿用本文件「类属性而非构造参数，子类一行
+  覆盖」的既有惯例。
 
 ## 2026-08-21 — record_turn 接线 chat_id + chat_type（PR-2 自动 reach 记录）
 

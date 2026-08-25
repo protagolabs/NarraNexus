@@ -495,6 +495,16 @@ def test_synthesize_managed_message_maps_contract_fields():
 
 
 class _FakeTrigger:
+    # These tests exercise the BUSINESS-hook routing (claim / authorize /
+    # inbox / error fallback), not the ingress breaker — so the breaker is
+    # switched off here rather than half-faked. Its own managed-path
+    # coverage is `test_managed_ingress_breaker` below, which uses a real
+    # ChannelTriggerBase subclass.
+    INGRESS_GUARD_ENABLED = False
+
+    def is_agent_peer(self, message):
+        return False
+
     def __init__(self):
         self.before_calls = []
         self.after_calls = []
@@ -1690,3 +1700,135 @@ async def test_files_write_audit_cleanup_runs_once_per_day(monkeypatch):
     await files_mod._audit_files_write("a", path="p2", ok=True, size=1)
     assert len(appended) == 2
     assert cleaned == [files_mod._AUDIT_RETENTION_DAYS]  # once, not twice
+
+
+# ---------------------------------------------------------------------------
+# Managed-path ingress circuit breaker (2026-08-24)
+#
+# Managed mode bypasses the ENTIRE native receive path — no _subscribe_loop,
+# no dedup store, no worker queue, no _process_message — so the base class's
+# guard (built in start(), which managed mode never calls) can never fire
+# here. Without its own call site the Manyfold surface would be the one
+# unprotected way into the pipeline.
+# ---------------------------------------------------------------------------
+
+
+class _GuardedTrigger(ChannelTriggerBase):
+    """Real subclass — the guard is built from its own class attributes,
+    so this also pins that managed and native share one set of knobs."""
+
+    channel_name = "wechat"
+    brand_display = "WeChat"
+    working_source = WorkingSource.WECHAT
+
+    INGRESS_RATE_THRESHOLD = 5
+    INGRESS_DUP_RATIO_THRESHOLD = 0.5
+
+    async def connect(self, credential):  # pragma: no cover
+        yield {}
+
+    def parse_event(self, raw):  # pragma: no cover
+        return None
+
+    async def is_echo(self, message, credential):  # pragma: no cover
+        return False
+
+    async def resolve_sender_name(self, sender_id, credential):  # pragma: no cover
+        return sender_id
+
+    def create_context_builder(self, message, credential, agent_id):  # pragma: no cover
+        return None
+
+    async def load_active_credentials(self):  # pragma: no cover
+        return []
+
+    async def managed_before_run(self, **kw):
+        return True, ""
+
+
+async def _managed_send(ingress, n, *, text="ping"):
+    """Feed n identical managed turns; return how many were admitted."""
+    admitted = 0
+    for i in range(n):
+        allow, _ = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input=text,
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        admitted += 1 if allow else 0
+    return admitted
+
+
+async def test_managed_ingress_breaker_stops_a_repeat_storm(monkeypatch):
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = await _managed_send(ingress, 12)
+    assert admitted < 12, "managed mode must not be the unguarded way in"
+
+
+async def test_managed_ingress_breaker_leaves_real_conversation_alone(monkeypatch):
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = 0
+    for i in range(30):
+        allow, _ = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input=f"a genuinely different message {i}",
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        admitted += 1 if allow else 0
+    assert admitted == 30
+
+
+async def test_managed_deny_answers_with_a_receipt(monkeypatch):
+    """A denied managed turn creates no run, so the platform needs an
+    answer — silence there reads as the platform never being called."""
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    receipts = []
+    for i in range(12):
+        allow, receipt = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input="ping",
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        if not allow:
+            receipts.append(receipt)
+    assert receipts, "expected at least one deny"
+    assert all(r for r in receipts), "every deny must carry a receipt"
+
+
+async def test_managed_turn_stamps_agent_peer_onto_the_tag(monkeypatch):
+    """Native turns get this in build_trigger_extra_data; managed turns
+    never run a context builder, so without the stamp step_3 reads every
+    managed A2A DM as a human conversation."""
+
+    class _AgentPeerTrigger(_GuardedTrigger):
+        def is_agent_peer(self, message):
+            return True
+
+    trig = _AgentPeerTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    extra = _tagged_extra()
+    await ingress.before_run(
+        working_source=WorkingSource.WECHAT,
+        agent_id="a1",
+        user_input="hello",
+        trigger_extra_data=extra,
+        db=object(),
+    )
+    assert extra["channel_tag"]["is_agent_peer"] is True

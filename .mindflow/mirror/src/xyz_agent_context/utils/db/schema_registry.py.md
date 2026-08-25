@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `channel_ingress_breaker` 新表（ingress 熔断器的持久状态）
+
+注册 `channel_ingress_breaker`：[[ingress_guard.py]] 的落库那一半，每个会话键
+`channel|chat_id|sender_id` 一行。
+
+**只在层级变迁时写。** 驱动变迁的滑窗计数和内容指纹留在进程内存——为 10
+分钟就过期的数据每条入站消息写一行是纯写放大。必须活过进程的是**冷却**：
+8/14 那个乒乓循环跑了 70+ 小时，期间任何一次重新部署都会把已经隔离 24 小时
+的对端重新放行。
+
+列：`session_key`(VARCHAR(320) UNIQUE，= 32+128+128 三段加两个分隔符)、
+`channel`(VARCHAR(32))、`agent_id`/`chat_id`/`sender_id`(VARCHAR(128))、
+`tier`(INT，0=闭合，N=已跳闸 N 次的升级记忆)、`cooldown_until`(DATETIME(6))、
+`suppressed_count`(INT，**每次跳闸清零**，所以它回答「这一次隔离挡下了多少」)、
+`last_reason`(VARCHAR(64))、`last_tripped_at`、`created_at`/`updated_at`。
+索引 `uk_channel_ingress_breaker_key`(unique)、`..._cooldown`、`..._updated`。
+
+保留期由 [[channel_trigger_base.py]] 的 `_run_cleanup` 顺带扫，**只删
+`tier = 0` 的行**——带升级记忆的行正是我们承诺要记住的东西。
+
+**坑（清扫实现踩过）**：sqlite 把 `updated_at` 回读成
+`2026-08-24T10:29:33.197094+00:00`（isoformat 默认 'T'），与
+`channel_seen_messages` 那种空格形式的 cutoff 字符串比较时排序全反，
+`updated_at < %s` 一条都匹配不上却静默报告删了 0 行。时间比较改在 Python
+里用 `dialect_time.event_time_str` 做。
 
 ## 2026-08-21 — events 加复合索引 `idx_events_user_state`
 

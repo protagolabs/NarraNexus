@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/module/managed_channel_ingress.py
-last_verified: 2026-08-10
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 托管路径自带 ingress 熔断器
+
+托管模式绕开**整条**原生接收路径（无 `_subscribe_loop` / dedup store /
+worker 队列 / `_process_message`），而 [[ingress_guard.py]] 在
+`ChannelTriggerBase.start()` 里构造——托管模式从不调 `start()`。两件事叠起来
+的结果是：不单独接线的话，**Manyfold 面会是唯一一条没设防的入口**。
+
+所以协调器自己持有 per-channel 的 guard（`self._guards`），并且**通过
+`trigger._build_ingress_guard(db)` 构造，不手抄那七个阈值**——某个渠道收紧
+自己的数字时要两条路一起收紧。`test_managed_guard_reuses_the_channel_tunables`
+钉住这一点。
+
+**失败语义显式选 open**：本文件的既有要求是每个 managed gate 都要明确选边
+（narramessenger 的 authorize hook 是 fail-closed，因为它**是**授权门）。
+熔断器是限流不是授权，guard 抛异常 / 建不出来 → 放行。
+
+**闸门排在业务 hook 之前**：已经隔离掉的对话不该每条消息还去做一次授权
+往返。
+
+**`is_agent_peer` 也要在这里盖章**：原生路径在 `build_trigger_extra_data` 里
+写进 `channel_tag`，托管路径不跑 context builder，不盖的话
+[[step_3_agent_loop.py]] 会把每一个托管 A2A DM 都读成人类对话，兜底回复在
+最容易成环的那个面上保持武装。这行用 try/except 包住并降级为 False——理由
+和 `_stamp_turn_envelope` 包住 `managed_reply_kwargs` 完全一样：一个坏到答不出
+「对面是不是机器」的 trigger，代价应该是这一轮少一层收紧，不是整个渠道塌掉。
+（`_Boom` 那个测试双第一次跑就抓到了这个漏包。）
 
 ## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B;review 后直写重构)
 

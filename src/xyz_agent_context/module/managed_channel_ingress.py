@@ -32,11 +32,15 @@ from typing import Any, Optional
 from loguru import logger
 
 from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_INGRESS_BREAKER_CLEARED,
+    EVENT_INGRESS_BREAKER_TRIPPED,
+    EVENT_INGRESS_DROPPED_BREAKER,
     EVENT_MANAGED_ATTACHMENTS,
     EVENT_MANAGED_INGRESS_DENIED,
     EVENT_MANAGED_INGRESS_SILENT,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.ingress_guard import IngressGuard, content_fingerprint
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
@@ -107,6 +111,13 @@ class ManagedChannelIngress:
 
     def __init__(self) -> None:
         self._triggers: dict[str, Optional[ChannelTriggerBase]] = {}
+        # One ingress breaker per channel. Managed mode bypasses the whole
+        # native receive path — no _subscribe_loop, no dedup store, no
+        # worker queue, no _process_message — so the base class's guard
+        # (built in start(), which managed mode never calls) can never fire
+        # here. Without this the entire Manyfold surface would be the one
+        # unprotected way in.
+        self._guards: dict[str, IngressGuard] = {}
 
     def _trigger(self, channel: str) -> Optional[ChannelTriggerBase]:
         if channel in self._triggers:
@@ -127,6 +138,111 @@ class ManagedChannelIngress:
                 )
         self._triggers[channel] = trigger
         return trigger
+
+    def _guard(
+        self, channel: str, trigger: Optional[ChannelTriggerBase], db: Any
+    ) -> Optional[IngressGuard]:
+        """Lazily build this channel's breaker from ITS OWN tunables.
+
+        Built through ``trigger._build_ingress_guard`` rather than by
+        hand-copying the seven thresholds, so a channel that tightens its
+        numbers tightens them on both paths. No trigger (class missing /
+        construction failed) → no guard: the deny paths that fire when the
+        trigger is unavailable are authorization concerns, not rate ones.
+        """
+        if channel in self._guards:
+            return self._guards[channel]
+        if trigger is None or not getattr(trigger, "INGRESS_GUARD_ENABLED", False):
+            return None
+        try:
+            guard = trigger._build_ingress_guard(db)
+        except Exception as e:  # noqa: BLE001 — a broken trigger fails open
+            logger.warning(
+                f"managed ingress: building the guard for {channel} failed "
+                f"({type(e).__name__}: {e}) — channel runs unguarded"
+            )
+            return None
+        self._guards[channel] = guard
+        return guard
+
+    async def _ingress_admitted(
+        self,
+        *,
+        db: Any,
+        channel: str,
+        trigger: Optional[ChannelTriggerBase],
+        agent_id: str,
+        message: ParsedMessage,
+        trigger_extra_data: dict,
+    ) -> tuple[bool, str]:
+        """Managed-mode twin of ``ChannelTriggerBase._ingress_admitted``.
+
+        Returns ``(allow, receipt)`` to match the surrounding gate's shape;
+        the receipt is what the caller answers the platform with when no
+        run is created.
+
+        Fails OPEN, explicitly (the mirror doc requires each managed gate
+        to pick a side): this is a rate guard, not an authorization gate,
+        so a broken guard must not black out a channel.
+        """
+        guard = self._guard(channel, trigger, db)
+        if guard is None:
+            return True, ""
+        try:
+            verdict = await guard.admit(
+                agent_id=agent_id,
+                channel=channel,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                fingerprint=content_fingerprint(
+                    message.chat_id, message.sender_id, message.content
+                ),
+                is_agent_peer=trigger.is_agent_peer(message) if trigger else False,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"managed ingress: guard raised for {channel} "
+                f"({type(e).__name__}: {e}) — failing open"
+            )
+            return True, ""
+
+        event: Optional[str] = None
+        if verdict.transition in ("tripped", "escalated"):
+            event = EVENT_INGRESS_BREAKER_TRIPPED
+        elif verdict.transition in ("probe", "recovered"):
+            event = EVENT_INGRESS_BREAKER_CLEARED
+        elif not verdict.admit:
+            event = EVENT_INGRESS_DROPPED_BREAKER
+        if event is not None:
+            await self._audit(
+                db,
+                channel,
+                event,
+                agent_id=agent_id,
+                message_id=_wire_message_id(trigger_extra_data),
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details=verdict.audit_details(),
+            )
+        if verdict.transition in ("tripped", "escalated") and agent_id:
+            try:
+                from xyz_agent_context.services.background_llm_alerts import (
+                    alert_ingress_breaker_tripped,
+                )
+
+                await alert_ingress_breaker_tripped(
+                    agent_id=agent_id,
+                    db=db,
+                    channel=(trigger.brand_display if trigger else channel) or channel,
+                    verdict=verdict,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"managed ingress: breaker owner alert failed ({type(e).__name__}: {e})"
+                )
+        if verdict.admit:
+            return True, ""
+        return False, "conversation temporarily rate-limited (repeat storm)"
 
     async def before_run(
         self,
@@ -169,6 +285,45 @@ class ManagedChannelIngress:
                 return False, receipt
             return True, ""
         message = synthesize_managed_message(trigger_extra_data, user_input)
+
+        # Stamp "is the far side a machine?" onto the wire channel_tag.
+        # Native turns get it in build_trigger_extra_data; managed turns
+        # never run a context builder, so without this step_3 reads every
+        # managed A2A DM as a human conversation and the invent-a-reply
+        # fallback stays armed on exactly the surface where it loops.
+        if trigger is not None:
+            tag = trigger_extra_data.get("channel_tag")
+            if isinstance(tag, dict):
+                # Degrade to False rather than raise, same stance as
+                # _stamp_turn_envelope's managed_reply_kwargs call: a
+                # trigger too broken to answer "is this a machine?" must
+                # cost this turn its DM-fallback tightening, not take the
+                # whole channel down. False is the safe direction — it
+                # keeps the pre-existing behaviour.
+                try:
+                    tag["is_agent_peer"] = trigger.is_agent_peer(message)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"managed ingress: is_agent_peer failed for {channel} "
+                        f"({type(e).__name__}: {e}); treating as human"
+                    )
+                    tag["is_agent_peer"] = False
+
+        # Ingress circuit breaker, BEFORE the channel's business hook and
+        # before any run is constructed. Ordered ahead of the business gate
+        # deliberately: a conversation we have already isolated should not
+        # cost an authorization round-trip per message.
+        admitted, breaker_receipt = await self._ingress_admitted(
+            db=db,
+            channel=channel,
+            trigger=trigger,
+            agent_id=agent_id,
+            message=message,
+            trigger_extra_data=trigger_extra_data,
+        )
+        if not admitted:
+            return False, breaker_receipt
+
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:
             allow, receipt = await trigger.managed_before_run(

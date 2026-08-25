@@ -1808,6 +1808,15 @@ class LarkTrigger(ChannelTriggerBase):
             )
             return
 
+        # Ingress circuit breaker. Lark owns this whole method and never
+        # calls ``super()._process_message``, so the base class's call site
+        # cannot cover it — the gate has to be re-stated here. That is
+        # exactly the drift ``test_ingress_guard_all_paths`` exists to
+        # catch; if this line is ever deleted, Lark silently loses the
+        # breaker while every other channel keeps it.
+        if not await self._ingress_admitted(cred, message):
+            return
+
         # Resolve sender name + sanitize
         sender_name = message.sender_name
         if (not sender_name or sender_name == UNKNOWN_SENDER_NAME) and message.sender_id:
@@ -1944,6 +1953,7 @@ class LarkTrigger(ChannelTriggerBase):
             sender_id=message.sender_id,
             chat_id=message.chat_id,
             chat_name=message.raw.get("chat_name", ""),
+            is_agent_peer=self.is_agent_peer(message),
         )
         tagged_prompt = (
             f"{channel_tag.format()}\n"

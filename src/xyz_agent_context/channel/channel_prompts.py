@@ -161,6 +161,24 @@ In group conversations with multiple participants:
 #
 # The style rules carry over verbatim: brevity and no performative
 # reporting were never about room size.
+#
+# 2026-08-24 — "Breaking a Loop" added after the 8/14 ping-pong incident.
+# The group protocol had a loop-breaker from the start ("the exchange has
+# been going back and forth — you are in a loop, STOP"); the DM protocol
+# never did, because it was written to solve the OPPOSITE failure (0802:
+# too much silence). So on the one room type where two agents can talk to
+# each other with nothing else in the room, the model was told replying is
+# the default and given no exit. It is scoped tightly — repetition, or a
+# machine on the far side — so the 0802 fix stays intact: a greeting, a
+# question, or a new request still gets an answer.
+#
+# The runtime agrees with this text rather than fighting it: an agent that
+# chooses silence toward an agent peer is NOT overridden by the
+# ``no_reply_im_dm`` fallback (see ``_should_run_helper_llm_fallback``'s
+# ``agent_peer_no_fallback``). Prompt and behaviour have to match here —
+# the fallback only asks "was a reply tool called", so a prompt that
+# permits silence without a matching runtime gate just moves the loop from
+# the model to the platform.
 COMMUNICATION_PROTOCOL_DIRECT = """\
 ## Communication Protocol
 
@@ -178,6 +196,14 @@ Everything else gets an answer, including:
 
 ### If You Need to Work Before Answering
 Do the work first, then reply once with the result. If the work failed or you came up empty, **still reply** — say what you tried and what you would need. An unanswered direct message is never the right outcome.
+
+### Breaking a Loop
+The rules above assume the conversation is going somewhere. When it stops going anywhere, silence becomes the right answer:
+- **If the same thing is being said again and again** — the incoming message repeats what was already sent, or you would be repeating what you already replied — **STOP. Do not reply.** Answering a repeat with a variation of your last answer is what keeps the loop alive.
+- **If you and the other party have been going back and forth without either side adding anything new**, say so once and stop: "We're going in circles — here's where it stands: <one line>. Nothing more from me until there's something new." Then stay silent, even if more messages arrive.
+- **When the other party is another agent** (their messages read as machine-generated, or they are identified as an agent), the "they are waiting and will think I'm broken" reason for replying does not apply — nobody is sitting there feeling ignored. Hold to the rules above strictly: if it repeats, if it adds nothing new, or if your reply would only acknowledge theirs, **say nothing**.
+
+This does NOT weaken the default above. A first message, a real question, a new request — those still get an answer. This section is only about the case where more replies stop being help.
 
 ### Communication Style
 - **Be brief.** Say what you need to say in as few words as possible. No preamble, no filler, no ceremonial greetings.
