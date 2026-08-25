@@ -26,6 +26,35 @@ profile 仍然停在「第一次见面」，所以它**自己的上下文里没�
    UPDATE 是我们的 bug 或基础设施问题，不是用户换个 key 能修的，为它打扰
    用户是 alarm fatigue。
 
+**review 后补的几件（PR#360）：**
+
+- **owner 解析走 `AgentRepository.resolve_owner`**，不再手搓
+  `get_one("agents", ...)`。仓库里那个 resolver 的 docstring 明写「the ONE
+  answer」，`backend/routes/channels/wechat.py` 还留了一条明确禁令——第一版
+  在这里开了第四份副本，正是 PR #258 收敛掉的那种漂移。它区分 `""`（agent
+  不存在）与 `None`（查询本身失败），**不要**用 `or ""` 把两者塌回去。
+- **`infer_persona` 的三档语义**：`None` = 调用失败 / `""` = 跑通了但没有
+  要改的 / 有值 = 新鲜。第一版只修了失败那档，「跑通但输出为空」仍然回吐
+  当前 persona——调用方原样写回，日志打「persona updated」，还是假成功，
+  只修了一半。
+- **两个 audit service 名**：LLM 失败走 `background_llm`（可能打扰 owner），
+  DB 写入失败走 `social_network_memory`（只落审计行）。「记忆为什么停更」
+  的排查要覆盖两个名字。
+- **调用方那一侧也报**：`social_network_module` 里主实体创建失败
+  （`create_primary_entity`，最重的一处——建不出来整个 turn 的记忆更新全部
+  跳过）和逐实体处理失败（`process_mentioned_entity`，覆盖第三方实体创建、
+  tags/aliases 合并、以及 Stage-1 的**读**失败）现在都留审计行。铁律 #8：
+  记忆写入并不只在本文件里。
+  **前提**：内层八个 handler 自己报过且都不 re-raise，所以外层 except 只会
+  看到「不是它们报过的」失败，今天不存在双报——**日后谁给内层加 re-raise，
+  必须同时处理这个前提**。
+- **`service_audit` 没有保留期**，而本次改动把最热路径的写入量放大到每回合
+  最多 5 行（summary / extraction / dedup / compression / persona）。这是
+  **有意接受**的：`background_llm` 早就是同样的无界 error-only 命名空间，
+  且铁律 #15 说得清楚——用户挑了不稳的模型是他的权利，平台自己扛下这个写入
+  量。真要加保留期是独立改动（`ServiceAuditRepository` 补
+  `cleanup_older_than_days`，沿用 `AUDIT_RETENTION_DAYS = 30`）。
+
 **几个不是「顺手」的细节：**
 
 - `decide_merge_or_create` 失败时 fallback 到 CREATE_NEW，形状是对的（宁可

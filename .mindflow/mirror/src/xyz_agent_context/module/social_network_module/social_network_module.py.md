@@ -15,6 +15,20 @@ last_verified: 2026-08-25
 - `new_persona` 为 `None` 时不回写。原实现失败时返回**当前** persona 再原样
   写回，一次 no-op 写入和一次成功刷新无从分辨。
 
+**调用方自己这一侧也不再静默吞（PR#360 review 补）**：主实体创建失败
+（`create_primary_entity`——最重的一处，建不出来则本回合 summary / 计数 /
+persona 全部不发生，此前零证据）和 `_process_mentioned_entities` 的逐实体
+失败（`process_mentioned_entity`——覆盖第三方实体创建、tags/aliases 合并，
+以及 Stage-1 的**读**失败：读失败会让每个被提及实体都判为全新，每回合新建
+重复节点）现在都留审计行。
+
+顺带修掉一个错标签：dedup 管线的外层 except 打的是
+`Batch entity extraction failed`，是从抽取那条 handler 复制来的，会把排查
+直接引到错误的 LLM 调用上。以及同一个 traceback 被 `logger.exception` 连打
+两次。
+
+这些 except **必须继续不抛**——hook 挂掉会连带影响 Step-6 回调。
+
 五个调用点都显式传 `agent_id=self.agent_id`——下游的 owner 告警要靠它反查
 `agents.created_by`。预审时把这些参数的默认值去掉了（铁律 #2）：留着默认值
 等于给「忘记传」开一条静默降级的路，而那条路会正好抵消这次改动的全部价值。

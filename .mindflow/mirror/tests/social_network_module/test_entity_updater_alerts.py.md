@@ -1,5 +1,5 @@
 ---
-code_file: tests/module/social_network/test_entity_updater_alerts.py
+code_file: tests/social_network_module/test_entity_updater_alerts.py
 stub: false
 last_verified: 2026-08-25
 ---

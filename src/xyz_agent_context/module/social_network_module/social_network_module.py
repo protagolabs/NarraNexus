@@ -56,6 +56,7 @@ from xyz_agent_context.module.social_network_module._entity_updater import (
     infer_persona,
     update_entity_persona,
     extract_mentioned_entities,
+    _report_write_failure,
 )
 
 
@@ -546,7 +547,16 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     logger.info(f"            ✓ Created minimal entity for {user_id}")
                     entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
                 except Exception as e:
+                    # The heaviest failure on this path: no primary entity
+                    # means the summary, the counter and the persona all
+                    # skip this turn — "memory stopped updating" with, until
+                    # now, zero durable trace.
                     logger.exception(f"Failed to create entity: {e}")
+                    await _report_write_failure(
+                        operation="create_primary_entity", error=e,
+                        entity_id=user_id, instance_id=instance_id,
+                        agent_id=self.agent_id,
+                    )
                     return
 
             primary_name = entity.entity_name or user_id if entity else user_id
@@ -619,7 +629,17 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             try:
                 await self._process_mentioned_entities(repo, instance_id, mentioned)
             except Exception as e:
-                logger.warning(f"            Batch entity extraction failed (non-critical): {e}")
+                # NOT "batch entity extraction" — that label was copied from
+                # the extract_mentioned_entities handler and sent whoever
+                # read it to the wrong LLM call. This is the dedup/write
+                # pipeline. Per-entity failures are already reported inside
+                # _process_mentioned_entities; this outer catch only sees
+                # what that loop could not (and must keep not raising —
+                # a dying hook would take Step-6 callbacks with it).
+                logger.warning(
+                    f"            Mentioned-entity dedup pipeline failed "
+                    f"(non-critical): {e}"
+                )
 
             # NOTE: entity writes above (add/update via SocialNetworkRepository)
             # now land directly in the unified memory_entity store — the repo IS
@@ -630,7 +650,6 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         except Exception as e:
             logger.exception(f"Error in hook_after_event_execution: {e}")
-            logger.exception(e)
 
         logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
 
@@ -752,7 +771,18 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                         f"{mentioned_entity.name} ({entity_id_candidate})"
                     )
             except Exception as e:
+                # Covers every write in this loop: creating the mentioned
+                # entity itself, the tags/aliases merges, and the Stage-1
+                # name/alias LOOKUP. A failed lookup is the quiet one —
+                # no match found means "brand new", so every turn forks
+                # another duplicate node, the same shredding the dedup
+                # handler reports for its own failures.
                 logger.warning(f"            Failed to process entity '{mentioned_entity.name}': {e}")
+                await _report_write_failure(
+                    operation="process_mentioned_entity", error=e,
+                    entity_id=entity_id_candidate, instance_id=instance_id,
+                    agent_id=self.agent_id,
+                )
 
     # ============================================================================= MCP Server
 

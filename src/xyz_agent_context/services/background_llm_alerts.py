@@ -70,8 +70,18 @@ async def alert_background_llm_failure(
 ) -> None:
     """Record a background LLM failure and, if credential-class, notify the owner.
 
-    ``source`` is a short label ("narrative_update", "entity_summary",
-    "memory_extraction") that lands in the audit detail and the notice title.
+    ``source`` is a short label that lands in the audit detail and the
+    notice title. Known values, kept complete on purpose — an operator
+    reading this list is how "which sources exist?" gets answered:
+    ``narrative_update``, ``post_turn_hooks``, ``memory_extraction``, and
+    the social-network memory chain's ``entity_summary`` /
+    ``entity_dedup`` / ``entity_extraction`` / ``description_compression``
+    / ``persona_inference``.
+
+    NOTE the same chain also writes DB-write failures under a DIFFERENT
+    audit service, ``social_network_memory`` (they are not LLM failures and
+    do not page an owner). "Why did memory stop updating?" therefore spans
+    two service names — see ``_entity_updater.py``'s mirror doc.
     Never raises — an observer must not break the observed path (incident
     lesson #3's corollary: the alerter is best-effort).
     """
