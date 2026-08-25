@@ -45,7 +45,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.memory._memory_impl.retrieval import (
+from xyz_agent_context.memory.bm25 import (
     bm25_explain,
     bm25_rank,
 )

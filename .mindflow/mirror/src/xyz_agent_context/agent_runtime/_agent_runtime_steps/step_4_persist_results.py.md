@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 冻结来源分标签(PR #361 round 2, M1)
+
+`is_default` 合流了两个冻结来源(legacy 桶行 / 本轮判"无持久话题"),
+但日志标签不再共用:真桶行在**有**持久话题的轮次上曾被记成
+"no_durable_topic"——那是排查路由投诉时唯一的现场证据行。现在按
+`ctx.no_durable_topic` 分为 `no_durable_topic` / `default_bucket`,
+行为(is_default 分支)不变。
+
 
 ## 2026-08-18 (review 修正) — 两个 helper 合并成一个遍历
 

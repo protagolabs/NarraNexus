@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 脱敏第四层(字符串容器)+ 去重计数(PR #361 round 2)
+
+I1:round-1 的 kv 检查被 `isinstance(dict|list)` 挡住,字符串值里的
+`LARK_APP_SECRET=...`(key 无害、值无前缀、类型是 str)三层全放行——与 C1
+同一血径,不同容器。修复:kv 正则改为无条件跑在渲染文本上,但分隔符后
+必须跟 ≥8 字符的**值形状** token——这条约束就是"散文提到 token 不被吃"
+的保证("token 用量"后面没有 :=值,不命中),测试双向钉死。
+M7:`build_action_digest` 的去重从静默跳过改为计数折叠(行尾 `(×N)`)——
+"连续重试 3 次"和"跑了一次"是不同的 turn 状态,且 `_fit_to_budget` 已
+承诺不静默丢内容,去重不该是唯一例外。
+
 
 ## 2026-08-21 — 嵌套凭据脱敏（独立审查 Critical #1）
 

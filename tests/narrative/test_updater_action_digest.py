@@ -370,3 +370,25 @@ def test_prose_mentioning_the_word_token_is_not_redacted():
     assert "token 用量" in digest
     assert "password 策略" in digest
     assert "<redacted>" not in digest
+
+
+def test_kv_secret_inside_a_plain_string_value_is_redacted():
+    """Fourth layer of F5 (PR #361 review round 2, I1): the kv-shaped check
+    was gated on isinstance(dict|list), so a STRING value carrying
+    `LARK_APP_SECRET=...` — under an innocuous key like `command`, with a
+    prefix-less value the shape regex cannot recognise — passed all three
+    layers. Same blood path as C1, different container."""
+    digest = build_action_digest([
+        _call("Bash", {
+            "command": "export LARK_APP_SECRET=o0dhSTRINGsecretMUSTnotLEAKRoZ && ./deploy.sh",
+        }),
+        _output("ok"),
+        _call("mcp__lark_module__lark_call", {
+            "body": '{"app_id": "cli_x", "app_secret": "o0dhJSONstringMUSTnotLEAK9RoZ"}',
+        }),
+        _output('{"success": true}'),
+    ])
+
+    assert "o0dhSTRINGsecretMUSTnotLEAKRoZ" not in digest
+    assert "o0dhJSONstringMUSTnotLEAK9RoZ" not in digest
+    assert "<redacted>" in digest

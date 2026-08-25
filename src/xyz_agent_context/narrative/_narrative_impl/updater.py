@@ -130,17 +130,20 @@ _ERROR_OUTPUT_RE = re.compile(
 
 _REDACTED = "<redacted>"
 
-# Secret KEY NAMES in key-value position inside serialized structures.
-# `_SECRET_KEY_RE` alone sees only the TOP-LEVEL argument key, so
-# `{"args": {"app_secret": ...}}` used to sail through: the nested name was
-# never checked and a Lark app_secret is a prefix-less alphanumeric string
-# `_SECRET_VALUE_RE` cannot recognise (independent review 2026-08-21, C1).
-# Deliberately shaped as `"key":` / `key=` rather than a bare substring so a
-# plain prose VALUE that merely mentions the word "token" is not eaten —
-# losing a turn's nouns is the recall gap the digest exists to close.
+# Secret KEY NAMES in key-value position, checked on the RENDERED TEXT of
+# every value. `_SECRET_KEY_RE` alone sees only the TOP-LEVEL argument key,
+# so `{"args": {"app_secret": ...}}` sailed through (review round 1, C1) —
+# and gating this check on isinstance(dict|list) left the same hole for a
+# STRING value carrying `LARK_APP_SECRET=...` under an innocuous key like
+# `command` (review round 2, I1). A Lark app_secret is a prefix-less
+# alphanumeric string `_SECRET_VALUE_RE` cannot recognise, so the kv shape
+# is the only signal. Two properties keep prose safe ("token 用量" must NOT
+# be eaten — losing a turn's nouns is the recall gap the digest closes):
+# the separator (`:` / `=`) is required, and it must be followed by a
+# value-shaped run of at least 8 chars.
 _SECRET_KV_RE = re.compile(
     r"[\"']?(?:[\w.-]*(?:secret|token|password|passwd|api_key|apikey|"
-    r"credential|private_key)[\w.-]*)[\"']?\s*[:=]",
+    r"credential|private_key)[\w.-]*)[\"']?\s*[:=]\s*[\"']?[\w./+-]{8,}",
     re.I,
 )
 
@@ -159,11 +162,11 @@ def _render_argument(key: str, value: Any) -> str:
     """Apply the three-bucket argument policy: redact / cap / tail-keep."""
     text = _stringify(value)
 
-    if _SECRET_KEY_RE.search(key) or _SECRET_VALUE_RE.search(text):
-        return _REDACTED
-    # Structured values get the kv-shaped key check on their serialized text;
-    # plain strings stay on the value regex alone (see _SECRET_KV_RE above).
-    if isinstance(value, (dict, list)) and _SECRET_KV_RE.search(text):
+    if (
+        _SECRET_KEY_RE.search(key)
+        or _SECRET_VALUE_RE.search(text)
+        or _SECRET_KV_RE.search(text)
+    ):
         return _REDACTED
 
     if _PATH_KEY_RE.search(key) and len(text) > _ARG_VALUE_CAP:
@@ -224,7 +227,8 @@ def build_action_digest(event_log: List[EventLogEntry]) -> str:
         40.1% of events, which must not get an empty heading.
     """
     lines: List[str] = []
-    seen: set = set()
+    seen: dict = {}  # line -> index into `lines`, so a repeat can be counted
+    repeats: dict = {}  # line -> occurrence count
     pending_index = 0
     outcomes: List[Optional[str]] = []
 
@@ -246,12 +250,22 @@ def build_action_digest(event_log: List[EventLogEntry]) -> str:
 
         line = _render_tool_call(content, outcome)
         if line in seen:
+            # Identical repeats are collapsed but COUNTED: "retried 3 times"
+            # and "ran once" are different turn states, and _fit_to_budget
+            # already refuses to drop content silently — dedup should not be
+            # the one place that does.
+            repeats[line] += 1
             continue
-        seen.add(line)
+        seen[line] = len(lines)
+        repeats[line] = 1
         lines.append(line)
 
     if not lines:
         return ""
+
+    for line, count in repeats.items():
+        if count > 1:
+            lines[seen[line]] = f"{line} (×{count})"
 
     return _fit_to_budget(lines)
 

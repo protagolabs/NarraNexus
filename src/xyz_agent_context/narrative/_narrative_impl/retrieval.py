@@ -610,7 +610,7 @@ class NarrativeRetrieval:
         keeps the ORIGINAL query text: what the user said is the record, and
         what BM25 scored is derivable from it by this same function.
         """
-        from xyz_agent_context.memory._memory_impl.retrieval import (
+        from xyz_agent_context.memory.bm25 import (
             bm25_explain,
             bm25_snippet,
         )

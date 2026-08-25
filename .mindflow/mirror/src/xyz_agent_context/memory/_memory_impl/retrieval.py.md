@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/memory/_memory_impl/retrieval.py
-last_verified: 2026-08-12
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 域外消费者改走公共门面 `memory/bm25.py`(PR #361 round 2, M2)
+
+`tokenize/bm25_rank/bm25_explain/bm25_snippet` 事实上是跨域契约
+(narrative 路由逐位重放、job_repository 排序都靠它),但域外 import 一直
+打在本私有路径上——重构 `memory/` 的人看不到任何"这是对外契约"的信号。
+新增纯再导出模块 [[../bm25.py]],四个域外消费点全部改走它;本文件内部
+消费者不变。改签名前先看 bm25.py 的 docstring 列的契约清单。
+
 
 ## 2026-08-12 — BM25 算术抽成一份，新增 `bm25_explain` / `bm25_snippet`
 

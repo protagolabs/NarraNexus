@@ -123,7 +123,7 @@ async def llm_judge_unified(
                 "## Existing Topics:\n\n(none — this user has no existing "
                 "topics that overlap this message)\n\n"
             )
-        if search_candidates:
+        else:
             user_input += "## Existing Topics:\n\n"
             for i, candidate in enumerate(search_candidates):
                 user_input += f"[Topic-{i}] {candidate['name']}\n"

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — no_topic 判据抽成共享常量 `_NO_DURABLE_TOPIC_RUBRIC`(PR #361 round 2, I2)
+
+两份 judge prompt 的**第三次**静默分叉被 review 抓到:P1 校准(两条压倒
+规则+三反例+边界/平局规则)只写进了主变体,participant 变体(IM 群聊、
+被邀用户的每一轮)一直用未校准判据裁决——而那个判据的实测误判率是
+20.8%(M6),且该路径回放语料照不到。修复:判据抽成一份常量,f-string
+插进两份 prompt(两份都无字面花括号,已验证);三个校准锚点测试改为对
+两个常量循环断言,分叉第四次发生时测试先红。participant 独有的判定
+优先级(participant 高于一切)与 matched_index 取值差异**刻意不抽**。
+
 
 ## 2026-08-21 — 八类目词表从两个 judge prompt 移除(推翻 08-16 的"必须留着")
 

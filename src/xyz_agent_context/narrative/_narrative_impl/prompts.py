@@ -117,50 +117,16 @@ Output format:
 # Note: This prompt does not contain any scenario-specific logic (e.g., sales).
 # The specific meaning of PARTICIPANT (sales target, collaborator, etc.) is defined by the Agent's Awareness.
 # ============================================================================
-NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = """You are a conversation topic matching expert. You need to determine which category the user's new query should match:
-1. Match a **participant-associated topic** (the user is a PARTICIPANT in these Narratives, prioritize matching)
-2. No durable topic — the message carries nothing worth remembering as its own thread
-3. Match an existing specific topic (a conversation topic already in the database)
-4. Create a new topic (does not match any existing content)
-
-**Important**: The current user is a PARTICIPANT in certain Narratives.
-- If the user's message relates to the topic of a participant Narrative, prioritize matching the "participant" type
-- If the user is simply greeting or chatting casually, it carries no durable topic
-
-Recognising "no durable topic": a message that requests nothing and refers to
-nothing — a pure greeting, thanks, farewell, emotional expression, or bare
-acknowledgement. Such a message would read exactly the same in any
-conversation, about any subject. If the message asks you to do, find, explain,
-or remember ANYTHING nameable, it carries a topic — match it or create it,
-and when in doubt prefer NEW over NO_TOPIC.
-
-Judgment priority:
-1. **First check if it relates to a participant Narrative** (prioritize matching "participant")
-2. If it's simple greetings/chat, it carries no durable topic
-3. If it relates to an existing topic, match search results
-4. If nothing matches, return create new topic
-
-Requirements:
-- Carefully analyze the user query's intent
-- Provide detailed reasoning
-- If matching a participant Narrative, return matched_category = "participant" with the corresponding index
-- If the message carries no durable topic, return matched_category = "no_durable_topic"
-- If matching an existing topic, return matched_category = "search" with the corresponding index
-- If nothing matches, return matched_category = "none"
-
-Output format:
-class UnifiedMatchOutput(BaseModel):
-    reason: str  # Detailed reasoning process
-    matched_category: str  # "participant", "no_durable_topic", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 unless matched_category is "participant" or "search"
-"""
-
-NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. You need to decide where the user's new query belongs:
-1. An existing specific topic (a conversation topic already in the database)
-2. No durable topic — the message carries nothing worth remembering as its own thread
-3. A new topic (a real subject that no existing topic covers)
-
-Recognising "no durable topic": a message that requests nothing and refers to
+# The ONE definition of "no durable topic", spliced into BOTH judge prompt
+# variants below (f-string; both are brace-free). Extracted after the third
+# silent fork between the two (PR #361 review round 2, I2): the P1
+# calibration — the two overriding rules, the three trap counterexamples,
+# and the boundary/tie-break — lived in the main variant only, so every
+# PARTICIPANT-path turn (IM group chats, invited users) was judged by an
+# uncalibrated rubric whose measured misjudgment rate was 20.8% (M6).
+# The calibration anchor tests loop over both constants so the pair
+# cannot fork again.
+_NO_DURABLE_TOPIC_RUBRIC = """Recognising "no durable topic": a message that requests nothing and refers to
 nothing — a pure greeting, thanks, farewell, emotional expression, or bare
 acknowledgement ("你好", "thanks", "好的", "haha nice"). Such a message would
 read exactly the same in any conversation, about any subject. That is the
@@ -195,7 +161,47 @@ nameable — even a one-shot question or a request about your own capabilities �
 it carries a topic: match it to an existing one or create a new one. When in
 doubt, prefer NEW over NO_TOPIC: a thin new thread can be found and merged
 later, but a turn filed as NO_TOPIC leaves no trace in retrieval and its
-content can never be found again.
+content can never be found again."""
+
+NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = f"""You are a conversation topic matching expert. You need to determine which category the user's new query should match:
+1. Match a **participant-associated topic** (the user is a PARTICIPANT in these Narratives, prioritize matching)
+2. No durable topic — the message carries nothing worth remembering as its own thread
+3. Match an existing specific topic (a conversation topic already in the database)
+4. Create a new topic (does not match any existing content)
+
+**Important**: The current user is a PARTICIPANT in certain Narratives.
+- If the user's message relates to the topic of a participant Narrative, prioritize matching the "participant" type
+- If the user is simply greeting or chatting casually, it carries no durable topic
+
+{_NO_DURABLE_TOPIC_RUBRIC}
+
+Judgment priority:
+1. **First check if it relates to a participant Narrative** (prioritize matching "participant")
+2. If it's simple greetings/chat, it carries no durable topic
+3. If it relates to an existing topic, match search results
+4. If nothing matches, return create new topic
+
+Requirements:
+- Carefully analyze the user query's intent
+- Provide detailed reasoning
+- If matching a participant Narrative, return matched_category = "participant" with the corresponding index
+- If the message carries no durable topic, return matched_category = "no_durable_topic"
+- If matching an existing topic, return matched_category = "search" with the corresponding index
+- If nothing matches, return matched_category = "none"
+
+Output format:
+class UnifiedMatchOutput(BaseModel):
+    reason: str  # Detailed reasoning process
+    matched_category: str  # "participant", "no_durable_topic", "search", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category is "participant" or "search"
+"""
+
+NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = f"""You are a conversation topic matching expert. You need to decide where the user's new query belongs:
+1. An existing specific topic (a conversation topic already in the database)
+2. No durable topic — the message carries nothing worth remembering as its own thread
+3. A new topic (a real subject that no existing topic covers)
+
+{_NO_DURABLE_TOPIC_RUBRIC}
 
 Judgment priority:
 1. First check if it relates to an existing topic — if the query's business domain overlaps with an existing topic's summary/description, prefer matching it even if not an exact match

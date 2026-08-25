@@ -524,8 +524,16 @@ async def step_4_persist_results(
             )
             is_main = (i == 0) and not is_default  # Metadata-frozen turns are not the main Narrative
 
+            # Two freeze sources share one branch but must NOT share one
+            # label: a legacy default-bucket row on a turn that DOES carry a
+            # durable topic would otherwise be logged as "no_durable_topic" —
+            # the one line of scene evidence a routing complaint gets.
             if is_default:
-                update_type = "no_durable_topic"
+                update_type = (
+                    "no_durable_topic"
+                    if getattr(ctx, "no_durable_topic", False)
+                    else "default_bucket"
+                )
             elif is_main:
                 update_type = "main"
             else:

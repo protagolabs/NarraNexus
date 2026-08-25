@@ -141,21 +141,30 @@ def test_judge_instructions_carry_the_p1_no_topic_narrowing():
     M6 number stops meaning what it meant when it was measured.
 
     Pre-registration: `data/replay_runs/2026-08-19/P1_CALIBRATION_PREREGISTRATION.md`
+
+    2026-08-25 (PR #361 round 2, I2): asserted on BOTH judge prompt variants —
+    the participant variant had silently missed the whole calibration (third
+    fork between the pair), so the rubric is now one shared constant and
+    these anchors loop.
     """
-    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
-    assert "is NEW,\n  never NO_TOPIC" in text or "is NEW, never NO_TOPIC" in text.replace("\n  ", " ")
-    assert "Never prefer NO_TOPIC merely to avoid creating a topic" in text
+    for text in (prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,
+                 prompts.NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS):
+        flat = " ".join(text.split())
+        assert "is NEW, never NO_TOPIC" in flat
+        assert "Never prefer NO_TOPIC merely to avoid creating a topic" in flat
 
 
 def test_judge_instructions_carry_the_three_trap_counterexamples():
     """The three shapes the 08-19 survey found the judge losing turns on:
     a polite opener wrapping a request, a bare imperative, and a rule set for
     the future. Each is stated as a counter-example because the abstract rule
-    above it demonstrably did not transfer on its own."""
-    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
-    assert "polite opener" in text.lower()
-    assert "bare imperative" in text.lower()
-    assert "from now on" in text.lower()
+    above it demonstrably did not transfer on its own. Looped over both
+    variants since the rubric became a shared constant (round 2, I2)."""
+    for text in (prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,
+                 prompts.NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS):
+        assert "polite opener" in text.lower()
+        assert "bare imperative" in text.lower()
+        assert "from now on" in text.lower()
 
 
 def test_no_topic_boundary_is_request_based_not_taxonomy_based():
@@ -170,11 +179,12 @@ def test_no_topic_boundary_is_request_based_not_taxonomy_based():
     NEW, because a thin new thread is recoverable while a frozen misfiled
     turn feeds the identity-wash hijack.
     """
-    text = prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS
-    flat = " ".join(text.split())
-    assert "requests nothing and refers to nothing" in flat
-    assert "prefer NEW over NO_TOPIC" in flat
-    assert "USER'S OWN work" not in flat  # the old exemption frame is gone
+    for text in (prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,
+                 prompts.NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS):
+        flat = " ".join(text.split())
+        assert "requests nothing and refers to nothing" in flat
+        assert "prefer NEW over NO_TOPIC" in flat
+        assert "USER'S OWN work" not in flat  # the old exemption frame is gone
 
 
 def test_judge_instructions_no_longer_offer_buckets_as_a_target():

@@ -124,7 +124,7 @@ def service_no_topic(monkeypatch):
         created=[],
     )
     spy.session = SimpleNamespace(
-        last_query="上一句", last_response="上一条回复",
+        last_query="previous message", last_response="previous reply",
         current_narrative_id=None, query_count=0,
         last_query_time=__import__("datetime").datetime.now(
             __import__("datetime").timezone.utc
@@ -195,7 +195,7 @@ def service_continuity(monkeypatch):
         rows={"nar_real": real, "nar_bucket": bucket},
     )
     spy.session = SimpleNamespace(
-        last_query="上一句", last_response="上一条回复",
+        last_query="previous message", last_response="previous reply",
         current_narrative_id="nar_real", query_count=0,
         last_query_time=__import__("datetime").datetime.now(
             __import__("datetime").timezone.utc
