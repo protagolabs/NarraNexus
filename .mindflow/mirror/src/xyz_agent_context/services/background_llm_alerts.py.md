@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/services/background_llm_alerts.py
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — ingress 通知：改掉假承诺 + 加基数上限（review I2/I5）
+
+**I2 · 文案说了假话。** 原文告诉 owner「这个会话的消息会被**记录**下来，
+只是不处理」。实际上闸门在 inbox 写入**之前**返回，被 drop 的消息不进
+inbox、不进 message 表；唯一留下的是一条 `channel_trigger_audit` 行，
+`details` 里只有 session_key / tier / 计数 / 比率，**不含内容**。owner 读到
+那句话会以为「等 24 小时回去翻就行」，于是选择不干预，24 小时后什么都翻
+不到。这是 owner 面向的承诺，不是内部注释。改成实话：不处理、不留内容、
+审计里只有条数与时间。
+
+**I5 · 通知基数无上限。** 去重键是 per-session 的（有意：两个不同的失控
+对端是两件事），但 session 基数由**外部输入**决定——`chat_id` / `sender_id`
+都来自平台侧。任何允许陌生人私聊的渠道上，N 个发送者各自刷满阈值就是 N 条
+收件箱通知。告警疲劳一旦形成不可逆，而这个通道正是本 PR 用来解决
+「70 小时没人知道」的唯一人肉出口。
+
+加 per-agent 配额（`INGRESS_NOTICE_QUOTA_PER_AGENT`），超出后只记 warning。
+**配额只限制 inbox 通知，绝不限制 `ServiceAuditor` 那条审计写入**——审计面
+必须无损（教训 #5），被配给的是人肉通道不是证据链。
+
+`_ingress_notice_quota` 和 `_notify_cooldown` 里 `ingress:` 那一类 key 都做
+惰性清扫：别用一个新的无界 dict 去修一个无界 dict。
 
 ## 2026-08-24 — 新增 `alert_ingress_breaker_tripped`
 

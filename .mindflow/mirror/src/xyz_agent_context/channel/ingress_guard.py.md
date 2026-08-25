@@ -137,6 +137,67 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
 [[channel_audit_events.py]] 的三个事件常量、
 `background_llm_alerts.alert_ingress_breaker_tripped`（owner 通知）。
 
+## 2026-08-25 — PR#358 review 修的两个真问题
+
+### 会话键漏了 `agent_id`（阻塞级）
+
+**一个 trigger 实例服务全部凭据**：`_subscriber_creds` 里每个 agent 一份，
+同一条房间事件扇出到每个成员 agent 的 client，`_process_message` 因此**每个
+agent 各跑一次**。这不是边缘情况——[[channel_dedup_store.py]] 的 docstring
+早就写明「a Matrix room event fanned out to every member agent's client and
+must each be processed」，它自己的三层缓存全部按 agent 分区。
+
+而第一版的会话键不含 `agent_id`，于是这 N 次 `admit()` 落到**同一个**
+`_SessionState`：`count` 变成 N 倍真实条数，而指纹
+`sha256(chat_id|sender_id|content)` 三个分量在 N 次调用里完全相同 → N 份
+逐字重复。重复率变成 `1 − 1/N`，**与内容无关**，只由房间里我方 agent 的
+数量决定。
+
+实测（生产默认阈值）：
+
+| 房间里我方 agent 数 | 对端发几条**各不相同**的消息就跳闸 |
+|---|---|
+| 1 | 不跳闸 ✅ |
+| 2 | 10 条 |
+| 3 | 7 条 |
+| 5 | 4 条 |
+
+跳闸后房间里**所有** agent 一起对该发送者失聪，冷却一路升到 24h。这直接
+推翻了本设计「内容各异结构性免疫」的核心论证——免疫在单 agent 房间成立，
+在多 agent 房间不成立，而多 agent 房间正是 A2A / team room 的一等场景。
+
+修法：`agent_id` 进键，与 dedup 层同一个分区策略。列宽 320 → 448
+（419 是四段加三个分隔符的实际需要）。**列宽这件事 SQLite 看不见**：TEXT
+永不截断，本地全绿，只有 MySQL 侧才会因为长键截断让两个 agent 的行撞唯一
+索引、互相覆盖。
+
+### 「只放行一条探测」是假的（I1）
+
+`_half_open` 放行探测的同时 `events.clear()`，而跳闸判据要求窗口内攒满
+`rate_bar`。所以每个冷却周期实际放行的是 **1 条探测 + rate_bar − 1 条**，
+每条都跑完整管线、每条回复又是对面的一条新入站消息。文档、docstring、
+测试名三处都写「只放行一条」，代码做的是另一回事。
+
+原来的两条测试恰好都绕开了这个分支：一条只发 1 条消息（断言不到第 2 条），
+一条发满 12 条但只断言「最终升级了」、不断言中间放行了几条。
+
+修法走**真半开**：跳闸时快照当时窗口里的指纹集合（`trip_fingerprints`，
+有上界），探测消息命中就**当场重新跳闸**。比「放行一条再观察」更省：指纹
+本身就是「复读还在继续」的证据，不需要再烧一次管线去确认。内容确实是新的
+则清空记忆、恢复正常计数——冷却 24 小时后第一句真话不该被罚。
+
+重启后 `trip_fingerprints` 为空（纯内存），那一次探测退回旧行为。可接受：
+持久化那一半守住的是冷却本身，那才是关键。
+
+**修的过程中自己引入过一次回归**：重新跳闸路径上先把 `state.suppressed`
+清零再调 `_trip`，导致上一轮冷却吸收的条数被丢掉，升级的 audit 行会声称
+自己什么都没挡下。已修并加测试钉住。
+
+### 顺带
+
+`warm_start()`（见「坑」一节）和 `cooling_session_count()` 都补上了可注入
+时钟——本文件其余部分早就是这个约定，这两处是漏网的。
+
 ## 预审补的两个洞（2026-08-25）
 
 写完跑绿之后对着 diff 又审了一遍，抓到两个测试覆盖不到的问题——都不是错误
@@ -179,5 +240,10 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
 - **每次 drop 必须留 audit 行**（`ingress_dropped_breaker`，逐条写）。
   「机器人怎么六小时不说话了」必须能从 DB 回答；静默 return 正是让原事故
   跑了 70 小时没人发现的那类盲区。
+- **`warm_start()` 必须在 `start()` 里跑**。两个观测面读的都是**内存**计数，
+  重启后 `_sessions` 是空的——库里有 50 条 `tier > 0`、10 条还在 24h 冷却，
+  `/healthz` 照样报 0。发布一次 = 看板重新变绿，同时一堆会话仍然是聋的，
+  正好打掉本设计反复引用的事故教训 #4。顺带也修掉「重启后要等该会话再次
+  说话，冷却才恢复」的窗口。
 - **`open_session_count()` / `cooling_session_count()` 是常驻状态**，进
   `health_snapshot()` 和心跳。事故教训 #4：熔断不能只有 trip 那一行。

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 导出 `ChannelIngressBreaker` 与 `session_key`
+
+ingress 熔断器的持久状态模型与**会话键的单一定义**，见
+[[channel_ingress_breaker_schema.py]]。`session_key` 一并导出是刻意的：内存
+缓存、DB 行、audit 轨迹必须用同一把钥匙指同一个对话，各拼各的是它们对不上
+的开始。纯新增导出，无其他改动。
 
 ## 2026-08-17 — 导出 `normalize_agent_text` / `agent_field_matches`
 

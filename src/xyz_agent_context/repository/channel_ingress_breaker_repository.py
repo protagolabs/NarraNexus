@@ -5,7 +5,7 @@
 @description: Data access for the message-ingress circuit breaker.
 
 CRUD over ``channel_ingress_breaker`` (one row per session key
-``channel|chat_id|sender_id``). ``IngressGuard`` owns every escalation
+``agent_id|channel|chat_id|sender_id``). ``IngressGuard`` owns every escalation
 decision; this layer only reads and writes rows — the same split as
 ``AgentCircuitBreakerRepository`` and its breaker service.
 
@@ -117,11 +117,19 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         The age comparison happens in PYTHON, not in the WHERE clause. The
         two dialects do not agree on how ``updated_at`` is spelled: sqlite
         round-trips it as ``2026-08-24T10:29:33.197094+00:00`` (isoformat
-        default, 'T' separator) while the space-form cutoff string that
-        ``channel_seen_messages`` compares against sorts BELOW every 'T'
-        row — an ``updated_at < %s`` predicate silently matches nothing and
-        the sweep reports a contented 0 forever. ``event_time_str`` is the
-        DB layer's existing answer to exactly this asymmetry.
+        default, 'T' separator) while a space-form cutoff string sorts
+        differently at that one character.
+
+        Precisely: string comparison is left-to-right, so the 'T'-vs-space
+        difference at index 10 only decides the outcome when the date part
+        is IDENTICAL. Cross-day comparisons are unaffected; rows on the
+        cutoff's own calendar day compare as newer than they are and
+        survive a sweep they should not. Narrow — but it is exactly the
+        case a same-day retention test hits, which is how the first
+        version of this method reported deleting 0 rows.
+
+        ``event_time_str`` is the DB layer's existing answer to this
+        asymmetry, and normalising both sides removes the edge entirely.
 
         Returns:
             Number of rows deleted (best-effort; 0 on driver error).

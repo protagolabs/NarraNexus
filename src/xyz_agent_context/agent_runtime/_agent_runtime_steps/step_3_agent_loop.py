@@ -358,13 +358,23 @@ IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
 _im_dm_fallback_history: dict[str, list[float]] = {}
 
 
-def _fallback_conversation_key(channel_tag: dict) -> str:
-    """Identity for fallback rate limiting: one conversation, one budget."""
+def _fallback_conversation_key(channel_tag: dict, agent_id: str = "") -> str:
+    """Identity for fallback rate limiting: one conversation, one budget.
+
+    Keyed by agent as well, matching the ingress breaker's session key.
+    This module-level map is shared by every agent in the runtime process,
+    and while today the gate only fires on DMs (where one of our agents is
+    alone in the room, so ``room_id`` cannot collide), that is a property
+    of the current caller, not of the key. If the gate ever widens beyond
+    DMs, an agent-blind key would let agent A's three fallbacks silently
+    gag agent B in the same room — the same defect that made the ingress
+    breaker trip on distinct traffic.
+    """
     channel = str(channel_tag.get("channel", "") or "")
     room_id = str(channel_tag.get("room_id", "") or "")
     if not channel and not room_id:
         return ""
-    return f"{channel}:{room_id}"
+    return f"{agent_id}:{channel}:{room_id}"
 
 
 def _recent_fallback_count(key: str) -> int:

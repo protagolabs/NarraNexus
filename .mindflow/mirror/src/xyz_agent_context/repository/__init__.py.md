@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-08-19
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 导出 `ChannelIngressBreakerRepository`
+
+ingress 熔断器的持久层入口，见
+[[channel_ingress_breaker_repository.py]]。纯新增导出，无其他改动。
+
 ## 2026-08-19 — 导出 `GatewayKeyMisuseRepository`
 
 网关 key 异常/越权使用事件（`gateway_key_misuse` 表）的命中写方进公共导出面

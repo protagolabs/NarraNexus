@@ -33,14 +33,31 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-def session_key(channel: str, chat_id: str, sender_id: str) -> str:
-    """The breaker's identity: "who is speaking, in which room, on which
-    channel".
+def session_key(
+    agent_id: str, channel: str, chat_id: str, sender_id: str
+) -> str:
+    """The breaker's identity: "who is speaking to WHOM, in which room, on
+    which channel".
 
     Single definition so the in-memory cache, the DB row, and the audit
     trail can never key the same conversation three different ways.
+
+    ``agent_id`` is part of the key, matching how ``ChannelDedupStore``
+    partitions its own layers — and for the same reason. One trigger
+    instance serves EVERY bound credential, and a single room event fans
+    out to every member agent's client, so ``_process_message`` runs once
+    per agent for what a human sees as one message.
+
+    Leaving ``agent_id`` out (the first version of this file) collapsed
+    those N calls onto one session: the window counted N x the real
+    traffic, and since the fingerprint is also agent-independent, all N
+    copies read as verbatim repeats. The duplicate ratio became
+    ``1 - 1/N`` — a function of how many of OUR agents sit in the room,
+    not of what the sender actually said. Five agents in a room tripped
+    the breaker on a human's fourth DISTINCT message, and every agent in
+    the room went deaf to them for up to 24h.
     """
-    return f"{channel}|{chat_id}|{sender_id}"
+    return f"{agent_id}|{channel}|{chat_id}|{sender_id}"
 
 
 class ChannelIngressBreaker(BaseModel):

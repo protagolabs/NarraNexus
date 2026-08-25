@@ -96,6 +96,11 @@ _MAX_EVENTS_PER_SESSION = 4096
 # coordinator has no cleanup tick of its own to hang it on.
 _PRUNE_EVERY_ADMITS = 1000
 
+# Cap on the fingerprint set carried from a trip into its half-open probe.
+# A repeat storm is low-cardinality by definition (that is what made it a
+# storm), so this only bounds the pathological case.
+_MAX_TRIP_FINGERPRINTS = 64
+
 
 def content_fingerprint(chat_id: str, sender_id: str, content: str) -> str:
     """Stable identity of a message's CONTENT within one conversation.
@@ -177,6 +182,11 @@ class _SessionState:
     # Start of the current clean streak — the anchor for tier decay.
     clean_since: Optional[datetime] = None
     loaded: bool = False
+    # The fingerprints that were in the window when this session last
+    # tripped. A half-open probe carrying one of these is the same recital
+    # resuming, and must re-trip on the spot rather than re-earning a whole
+    # rate_bar's worth of pipeline runs first. Bounded — see _trip.
+    trip_fingerprints: set = field(default_factory=set)
 
 
 class IngressGuard:
@@ -246,7 +256,7 @@ class IngressGuard:
         if self._admits_since_prune >= _PRUNE_EVERY_ADMITS:
             self._admits_since_prune = 0
             self.prune_idle(now)
-        key = session_key(channel, chat_id, sender_id)
+        key = session_key(agent_id, channel, chat_id, sender_id)
         state = self._sessions.get(key)
         if state is None:
             state = _SessionState()
@@ -267,7 +277,8 @@ class IngressGuard:
                     is_agent_peer=is_agent_peer,
                 )
             return await self._half_open(
-                key, state, now, agent_id, channel, chat_id, sender_id, is_agent_peer
+                key, state, now, agent_id, channel, chat_id, sender_id,
+                fingerprint, is_agent_peer,
             )
 
         # 2. Record and evaluate the window.
@@ -323,6 +334,64 @@ class IngressGuard:
             if s.cooldown_until is not None and now < s.cooldown_until
         )
 
+    async def warm_start(
+        self, channel: str, now: Optional[datetime] = None
+    ) -> int:
+        """Load this channel's still-isolated sessions back into memory.
+
+        Two things were broken without it, both of which undercut the
+        reason the durable table exists:
+
+        1. ``health_snapshot`` and the heartbeat read the IN-MEMORY counts.
+           After a restart ``_sessions`` is empty, so a process holding 50
+           isolated conversations — 10 of them mid-24h-cooldown — reported
+           ``ingress_breaker_open_count: 0``. Deploy, and the dashboard
+           goes green while the conversations stay deaf. That is precisely
+           the L2-health blind spot (incident lesson #4) this design cites.
+        2. A reloaded cooldown only revived when that key next spoke. The
+           row was right; nothing read it until the damage was already
+           being re-done.
+
+        Cheap by construction: rows only exist for sessions that have
+        tripped, and closed ones are swept by retention.
+
+        Returns the number of sessions restored.
+        """
+        if self._repo is None:
+            return 0
+        try:
+            rows = await self._repo.find_open(channel)
+        except Exception as e:  # noqa: BLE001 — never block startup
+            logger.warning(
+                f"IngressGuard: warm start failed for {channel} "
+                f"({type(e).__name__}: {e}) — counts will fill in lazily"
+            )
+            return 0
+
+        now = now or utc_now()
+        restored = 0
+        for row in rows:
+            if not row.session_key or row.session_key in self._sessions:
+                continue
+            state = _SessionState()
+            state.loaded = True
+            state.tier = row.tier or 0
+            state.suppressed = row.suppressed_count or 0
+            cooldown_until = row.cooldown_until
+            if cooldown_until is not None:
+                if cooldown_until.tzinfo is None:
+                    cooldown_until = cooldown_until.replace(tzinfo=now.tzinfo)
+                if now < cooldown_until:
+                    state.cooldown_until = cooldown_until
+            self._sessions[row.session_key] = state
+            restored += 1
+        if restored:
+            logger.info(
+                f"IngressGuard[{channel}]: restored {restored} isolated "
+                f"sessions from the durable store"
+            )
+        return restored
+
     def prune_idle(self, now: Optional[datetime] = None) -> int:
         """Drop in-memory state for conversations that have gone quiet.
 
@@ -356,14 +425,23 @@ class IngressGuard:
             )
         return len(stale)
 
-    def forget(self, channel: str, chat_id: str, sender_id: str) -> None:
-        """Drop a session's in-memory state (credential unbound, room left).
+    def forget_agent(self, agent_id: str) -> int:
+        """Drop every in-memory session belonging to one agent.
 
-        Deliberately does NOT delete the durable row: memory is a cache of
-        the DB here, not the other way round, and a re-bind must not hand
-        a re-offender a fresh budget.
+        Called when an agent's subscriber stops (credential unbound, or
+        shutdown). ``prune_idle`` cannot cover this: it deliberately keeps
+        sessions carrying escalation memory, so an unbound agent's tripped
+        conversations would sit in memory for the life of the process.
+
+        Deliberately does NOT delete the durable rows: memory is a cache of
+        the DB here, not the other way round, and a re-bind must not hand a
+        re-offender a fresh budget.
         """
-        self._sessions.pop(session_key(channel, chat_id, sender_id), None)
+        prefix = f"{agent_id}|"
+        stale = [k for k in self._sessions if k.startswith(prefix)]
+        for key in stale:
+            del self._sessions[key]
+        return len(stale)
 
     # ── Internals ─────────────────────────────────────────────────────
 
@@ -439,8 +517,21 @@ class IngressGuard:
         count: int,
         ratio: float,
         is_agent_peer: bool,
+        reason_hint: str = "",
     ) -> IngressVerdict:
         was_open = state.tier > 0
+        # Snapshot what this session was saying when it tripped, so the
+        # half-open probe can recognise the recital resuming. Capped: a
+        # storm is by definition low-cardinality, and an unbounded set here
+        # would be one more per-session leak.
+        if state.events:
+            state.trip_fingerprints = {
+                fp for _, fp in state.events if fp
+            }
+            if len(state.trip_fingerprints) > _MAX_TRIP_FINGERPRINTS:
+                state.trip_fingerprints = set(
+                    list(state.trip_fingerprints)[:_MAX_TRIP_FINGERPRINTS]
+                )
         state.tier += 1
         cooldown = self._schedule[min(state.tier - 1, len(self._schedule) - 1)]
         state.cooldown_until = now + timedelta(seconds=cooldown)
@@ -452,7 +543,9 @@ class IngressGuard:
         state.events.clear()
 
         transition = "escalated" if was_open else "tripped"
-        reason = "agent_peer_repeat_storm" if is_agent_peer else "repeat_storm"
+        reason = reason_hint or (
+            "agent_peer_repeat_storm" if is_agent_peer else "repeat_storm"
+        )
         logger.error(
             f"IngressGuard {transition}: {key} tier={state.tier} "
             f"count={count} dup_ratio={ratio:.2f} agent_peer={is_agent_peer} "
@@ -494,20 +587,54 @@ class IngressGuard:
         channel: str,
         chat_id: str,
         sender_id: str,
+        fingerprint: str,
         is_agent_peer: bool,
     ) -> IngressVerdict:
-        """Cooldown elapsed: let exactly one message through as a probe.
+        """Cooldown elapsed: probe with exactly one message.
 
         The tier is KEPT — same reasoning as ``_breaker_release`` on the
         credential breaker. A session that clears its cooldown and
         immediately resumes reciting must land on the next step of the
         schedule, not restart at five minutes; otherwise a persistent
         loop oscillates at the cheapest tier forever.
+
+        **The probe is judged, not just counted.** The first version
+        cleared the window and returned, which meant re-tripping required
+        re-earning a whole ``rate_bar`` — so every cooldown actually let
+        20 (agent) or 60 (human) full pipeline runs through, each
+        producing another outbound message. "Exactly one probe" was true
+        of the admission and false of the consequence. If the probe
+        carries a fingerprint this session was reciting when it tripped,
+        that IS the loop resuming and it re-trips immediately.
+
+        A genuinely new message does not re-trip: it clears the memory and
+        resumes ordinary counting, so a person whose first sentence after
+        a 24h cooldown is real conversation is not punished for it.
+
+        After a restart ``trip_fingerprints`` is empty (memory-only), so
+        the first probe of a reloaded session falls back to the
+        re-earn-the-window behaviour. Acceptable: the durable half already
+        held the cooldown, which is the part that mattered.
         """
         suppressed = state.suppressed
         state.cooldown_until = None
+
+        if fingerprint and fingerprint in state.trip_fingerprints:
+            # NOTE: do not zero ``state.suppressed`` before this call —
+            # ``_trip`` reads it as the count the ENDING isolation absorbed
+            # and reports it on the verdict (then zeroes it for the new
+            # one). Resetting here first silently dropped that number, so
+            # an escalation's audit row claimed it had absorbed nothing.
+            state.events.clear()
+            return await self._trip(
+                key, state, now, agent_id, channel, chat_id, sender_id,
+                count=1, ratio=1.0, is_agent_peer=is_agent_peer,
+                reason_hint="probe_repeated",
+            )
+
         state.suppressed = 0
         state.events.clear()
+        state.trip_fingerprints = set()
         state.clean_since = now
 
         logger.info(

@@ -56,8 +56,9 @@ _notify_cooldown: Dict[str, float] = {}
 
 
 def reset_alert_state() -> None:
-    """Clear the in-process cooldown map. For tests / explicit resets."""
+    """Clear the in-process cooldown maps. For tests / explicit resets."""
     _notify_cooldown.clear()
+    _ingress_notice_quota.clear()
 
 
 async def alert_background_llm_failure(
@@ -292,6 +293,43 @@ async def alert_agent_transient_streak(
 # Audit plane for the message-ingress circuit breaker.
 _INGRESS_AUDIT_SERVICE = "ingress_breaker"
 
+# Detailed ingress notices one AGENT may receive per cooldown window before
+# they collapse into a single "and N more" line.
+#
+# The per-session dedup below is deliberate — two runaway peers are two
+# things the owner needs to know about — but session cardinality is driven
+# by EXTERNAL input (chat_id / sender_id come from the platform), so on any
+# channel that allows strangers to DM, N senders tripping means N inbox
+# notices. Alert fatigue on this channel is not recoverable: it is the only
+# human-facing exit we have for "nobody knew for 70 hours".
+INGRESS_NOTICE_QUOTA_PER_AGENT = 3
+
+# agent_id -> [monotonic timestamps of detailed notices sent]
+_ingress_notice_quota: Dict[str, list] = {}
+
+
+def _ingress_quota_spend(agent_id: str) -> tuple[bool, int]:
+    """Claim one detailed-notice slot. Returns (allowed, suppressed_count).
+
+    Prunes as it goes: the quota map is keyed by agent (bounded), but the
+    lists inside are not, and this PR already had to fix two same-shaped
+    unbounded maps.
+    """
+    now = time.monotonic()
+    cutoff = now - ALERT_COOLDOWN_SECONDS
+    for key in [
+        k for k, ts in _ingress_notice_quota.items() if not ts or ts[-1] < cutoff
+    ]:
+        _ingress_notice_quota.pop(key, None)
+
+    stamps = [t for t in _ingress_notice_quota.get(agent_id, []) if t >= cutoff]
+    if len(stamps) >= INGRESS_NOTICE_QUOTA_PER_AGENT:
+        _ingress_notice_quota[agent_id] = stamps
+        return False, len(stamps)
+    stamps.append(now)
+    _ingress_notice_quota[agent_id] = stamps
+    return True, len(stamps)
+
 
 async def alert_ingress_breaker_tripped(
     *,
@@ -343,8 +381,28 @@ async def alert_ingress_breaker_tripped(
     # through four tiers is one story.
     cooldown_key = f"ingress:{verdict.session_key}"
     now = time.monotonic()
+    # Prune this class of key as we go — it is the only one in this map
+    # whose cardinality is set by external senders rather than by how many
+    # agents exist.
+    for key in [
+        k
+        for k, t in _notify_cooldown.items()
+        if k.startswith("ingress:") and now - t >= ALERT_COOLDOWN_SECONDS
+    ]:
+        _notify_cooldown.pop(key, None)
     last = _notify_cooldown.get(cooldown_key)
     if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
+        return
+
+    # Quota is claimed AFTER the audit write above: the evidence chain must
+    # stay lossless (lesson #5); what we ration is the human channel.
+    allowed, _spent = _ingress_quota_spend(agent_id)
+    if not allowed:
+        logger.warning(
+            f"[ingress-breaker] owner notice suppressed by quota for agent "
+            f"{agent_id} ({verdict.session_key}) — audit row still written"
+        )
+        _notify_cooldown[cooldown_key] = now
         return
 
     peer = "another agent" if verdict.is_agent_peer else "a sender"
@@ -358,10 +416,13 @@ async def alert_ingress_breaker_tripped(
             f"on, so this platform has stopped feeding that ONE conversation "
             f"into the agent for {window}.\n\n"
             f"Nothing else is affected: the agent keeps running, and every "
-            f"other conversation on every channel is untouched. Messages from "
-            f"this conversation are recorded but not processed until the "
-            f"window elapses, at which point one message is let through to "
-            f"re-test.\n\n"
+            f"other conversation on every channel is untouched.\n\n"
+            f"Messages arriving from this conversation during the window are "
+            f"NOT processed and their content is NOT kept — only a record "
+            f"that they arrived (count and time) lands in the audit trail. "
+            f"When the window elapses, the next message is examined: if it "
+            f"repeats what was being said before, the pause extends; "
+            f"anything genuinely new resumes the conversation.\n\n"
             f"If the repetition was intentional, no action is needed — it "
             f"clears itself once the conversation returns to normal."
         )

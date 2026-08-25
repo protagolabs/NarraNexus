@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — hook 里接住「失败」与「空结果」的区分
+
+[[_entity_updater.py]] 把 `summarize_new_entity_info` / `infer_persona` 改成
+返回 `Optional[str]`（`None` = 调用失败），本文件是唯一调用方，负责把这个
+区分**用起来**：
+
+- `new_summary is None` → 记一条 warning 并跳过描述写入（失败已在下游上报），
+  与 `""`（LLM 跑通了但没找到值得记的东西）分开处理。原来两者都是 `""`，
+  于是一把过期的 helper key 和一次平淡的对话在日志里长得一模一样。
+- `new_persona` 为 `None` 时不回写。原实现失败时返回**当前** persona 再原样
+  写回，一次 no-op 写入和一次成功刷新无从分辨。
+
+五个调用点都显式传 `agent_id=self.agent_id`——下游的 owner 告警要靠它反查
+`agents.created_by`。预审时把这些参数的默认值去掉了（铁律 #2）：留着默认值
+等于给「忘记传」开一条静默降级的路，而那条路会正好抵消这次改动的全部价值。
 
 ## 2026-08-21 — `extract_and_update_entity_info` 支持 create-only 名字键(PR-2 预审 Important)
 

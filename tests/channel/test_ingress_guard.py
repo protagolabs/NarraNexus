@@ -195,13 +195,20 @@ async def test_messages_during_cooldown_are_suppressed_and_counted():
 
 
 async def test_cooldown_expiry_admits_exactly_one_probe():
+    """A NEW message after the cooldown is the probe.
+
+    (Originally this test sent the same "ping" the session had been
+    reciting and still expected a probe — which is exactly how it missed
+    that the probe was admitted without being judged. A repeated probe now
+    re-trips; see the half-open section below.)
+    """
     guard = _guard()
     await _send(guard, n=12, text="ping", start=BASE)
 
     # Well past the cooldown: it starts at the TRIPPING message, which is
     # some seconds into the burst, not at BASE.
     after = BASE + timedelta(seconds=SCHEDULE[0] + 60)
-    probe = (await _send(guard, n=1, text="ping", start=after))[0]
+    probe = (await _send(guard, n=1, text="a new subject", start=after))[0]
     assert probe.admit is True
     assert probe.transition == "probe"
     assert probe.reason == "cooldown_expired"
@@ -315,7 +322,9 @@ async def test_verdict_carries_the_evidence_for_the_audit_row():
     trip = [v for v in verdicts if v.transition == "tripped"][0]
     assert trip.window_count >= 10
     assert trip.dup_ratio >= 0.8
-    assert trip.session_key == "narramessenger|room1|peer1"
+    assert trip.session_key == "agt_1|narramessenger|room1|peer1", (
+        "the session key is per-AGENT — one trigger serves every credential"
+    )
 
 
 async def test_content_fingerprint_is_stable_and_scoped():
@@ -394,3 +403,153 @@ async def test_a_pruned_session_reloads_its_durable_state(db_client):
     verdict = (await _send(guard, n=1, text="ping", start=BASE + timedelta(seconds=30)))[0]
     assert verdict.admit is False
     assert verdict.tier == 1
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Multi-agent fan-out — one trigger serves EVERY bound credential
+# ─────────────────────────────────────────────────────────────────────
+
+async def _fanout(guard, *, agents, texts, start=BASE, is_agent_peer=True):
+    """One room event reaches every member agent's client, so the trigger
+    runs _process_message once per agent — see ChannelDedupStore's own
+    agent partitioning for the same scenario."""
+    verdicts = []
+    for k, body in enumerate(texts):
+        for agent_id in agents:
+            verdicts.append(
+                await guard.admit(
+                    agent_id=agent_id,
+                    channel="narramessenger",
+                    chat_id="!room",
+                    sender_id="@peer",
+                    fingerprint=content_fingerprint("!room", "@peer", body),
+                    is_agent_peer=is_agent_peer,
+                    now=start + timedelta(seconds=k * 3),
+                )
+            )
+    return verdicts
+
+
+async def test_fanout_to_many_agents_does_not_fake_a_repeat_storm():
+    """THE regression for the missing agent_id in the session key.
+
+    Without it the window counted N x the real traffic and — because the
+    fingerprint is also agent-independent — all N copies read as verbatim
+    repeats. dup_ratio became 1 - 1/N: a function of how many of OUR
+    agents sit in the room, not of what the sender said. Five agents made
+    a human's fourth DISTINCT message trip the breaker, and the whole room
+    went deaf to them for up to 24h.
+    """
+    for n_agents in (1, 2, 3, 5):
+        guard = _guard()
+        agents = [f"agt_{i}" for i in range(n_agents)]
+        verdicts = await _fanout(
+            guard,
+            agents=agents,
+            texts=[f"a genuinely different message {k}" for k in range(40)],
+        )
+        assert all(v.admit for v in verdicts), (
+            f"{n_agents} agents in the room turned distinct traffic into a "
+            f"repeat storm"
+        )
+        assert all(v.dup_ratio == 0.0 for v in verdicts), (
+            "the duplicate ratio must describe the SENDER, not our headcount"
+        )
+
+
+async def test_each_agent_gets_its_own_session():
+    """Two agents, same room, same sender: two independent breakers."""
+    guard = _guard()
+    keys = {
+        (
+            await guard.admit(
+                agent_id=agent_id,
+                channel="narramessenger",
+                chat_id="!room",
+                sender_id="@peer",
+                fingerprint=content_fingerprint("!room", "@peer", "hi"),
+                now=BASE,
+            )
+        ).session_key
+        for agent_id in ("agt_a", "agt_b")
+    }
+    assert len(keys) == 2
+
+
+async def test_a_real_storm_still_trips_under_fanout():
+    """The fix must not buy immunity by making the breaker blind."""
+    guard = _guard()
+    verdicts = await _fanout(
+        guard, agents=["agt_a", "agt_b"], texts=["same line"] * 40
+    )
+    assert any(not v.admit for v in verdicts)
+
+
+async def test_one_agent_tripping_does_not_deafen_its_roommates():
+    guard = _guard()
+    for i in range(30):
+        await guard.admit(
+            agent_id="agt_noisy",
+            channel="narramessenger",
+            chat_id="!room",
+            sender_id="@peer",
+            fingerprint=content_fingerprint("!room", "@peer", "same line"),
+            is_agent_peer=True,
+            now=BASE + timedelta(seconds=i),
+        )
+    quiet = await guard.admit(
+        agent_id="agt_quiet",
+        channel="narramessenger",
+        chat_id="!room",
+        sender_id="@peer",
+        fingerprint=content_fingerprint("!room", "@peer", "same line"),
+        is_agent_peer=True,
+        now=BASE + timedelta(seconds=31),
+    )
+    assert quiet.admit is True
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Half-open: the probe is JUDGED, not merely counted
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_a_resumed_recital_retrips_on_the_probe_itself():
+    """"Exactly one probe" used to be true of the admission and false of
+    the consequence: clearing the window meant re-tripping required
+    re-earning a whole rate_bar, so each cooldown let 10 (here) full
+    pipeline runs through, each producing another outbound message."""
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    after = BASE + timedelta(seconds=SCHEDULE[0] + 60)
+    verdicts = await _send(guard, n=5, text="ping", start=after)
+
+    admitted = [v for v in verdicts if v.admit]
+    assert not admitted, (
+        f"{len(admitted)} messages got through a cooldown that had already "
+        f"been earned — the fingerprint IS the evidence the recital "
+        f"resumed, so no pipeline run is needed to confirm it"
+    )
+    retrip = verdicts[0]
+    assert retrip.transition == "escalated"
+    assert retrip.reason == "probe_repeated"
+    assert retrip.tier == 2
+
+
+async def test_a_genuinely_new_message_is_not_punished_after_a_cooldown():
+    """A person whose first sentence after a 24h cooldown is real
+    conversation must not be re-isolated for it."""
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    after = BASE + timedelta(seconds=SCHEDULE[0] + 60)
+    probe = (await _send(guard, n=1, text="something completely new", start=after))[0]
+    assert probe.admit is True
+    assert probe.transition == "probe"
+
+    # ...and normal conversation continues to flow.
+    more = await _send(
+        guard, n=5, text=lambda i: f"still talking {i}",
+        start=after + timedelta(seconds=10),
+    )
+    assert all(v.admit for v in more)

@@ -36,7 +36,6 @@ below.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -645,6 +644,11 @@ class ChannelTriggerBase(ABC):
 
         if self.INGRESS_GUARD_ENABLED:
             self._ingress_guard = self._build_ingress_guard(db)
+            # Restore still-isolated conversations BEFORE serving traffic,
+            # so /healthz and the heartbeat report the real standing state
+            # from the first beat instead of an all-clear that only becomes
+            # true again once every isolated sender happens to speak.
+            await self._ingress_guard.warm_start(self.channel_name)
 
         # Initial retention sweep.
         await self._run_cleanup()

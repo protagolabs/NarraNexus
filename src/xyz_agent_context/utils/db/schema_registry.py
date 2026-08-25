@@ -2069,9 +2069,14 @@ _register(
         name="channel_ingress_breaker",
         columns=[
             Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            # channel|chat_id|sender_id — see schema/channel_ingress_breaker_schema.session_key().
-            # 320 = the three parts (32 + 128 + 128) plus the two separators.
-            Column("session_key", "TEXT", "VARCHAR(320)", nullable=False, unique=True),
+            # agent_id|channel|chat_id|sender_id — see
+            # schema/channel_ingress_breaker_schema.session_key().
+            # 419 = the four parts (128 + 32 + 128 + 128) plus three
+            # separators; 448 leaves headroom. Sizing this too small is a
+            # SQLite-invisible bug: TEXT never truncates, so a short MySQL
+            # key would only show up on dev, where two agents' rows would
+            # collide on the unique index and overwrite each other.
+            Column("session_key", "TEXT", "VARCHAR(448)", nullable=False, unique=True),
             Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
             Column("agent_id", "TEXT", "VARCHAR(128)"),
             Column("chat_id", "TEXT", "VARCHAR(128)"),

@@ -25,6 +25,12 @@ from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any
 
 
+# Trailing segment appended by ``format()`` when the sender is another
+# agent. A literal rather than a flag word so ``parse()`` can strip it
+# unambiguously, and so it reads as English to the model.
+AGENT_PEER_MARKER = "agent sender"
+
+
 @dataclass
 class ChannelTag:
     """
@@ -63,10 +69,23 @@ class ChannelTag:
             [Direct · Alice · user_alice]
             [Lark · Research Agent · ou_research_open_id · oc_room_id_123]
             [Job · Daily Report · job_daily_report_001]
+            [Narramessenger · Liam · @agent-x:h · !room · agent sender]
+
+        The trailing ``agent sender`` marker is how the MODEL learns the
+        far side is a machine. Without it the DM protocol's loop-breaker
+        clause ("or they are identified as an agent") could never fire —
+        the flag reached the ingress breaker and the fallback gate, but
+        the one consumer that has to ACT on it was reading nothing.
+
+        Appended only when true, so the overwhelming majority of tags are
+        byte-identical to before (they also land in chat history, and a
+        format change there would make old and new turns disagree).
         """
         parts = [self.channel.capitalize(), self.sender_name, self.sender_id]
         if self.room_id:
             parts.append(self.room_id)
+        if self.is_agent_peer:
+            parts.append(AGENT_PEER_MARKER)
         return f"[{' · '.join(parts)}]"
 
     def to_dict(self) -> Dict[str, Any]:
@@ -110,11 +129,20 @@ class ChannelTag:
         if len(parts) < 3:
             return None
 
+        # Strip the agent marker before positional reading — otherwise a
+        # room-less agent tag would parse "agent sender" as the room_id.
+        is_agent_peer = bool(parts and parts[-1] == AGENT_PEER_MARKER)
+        if is_agent_peer:
+            parts = parts[:-1]
+        if len(parts) < 3:
+            return None
+
         return ChannelTag(
             channel=parts[0].lower(),
             sender_name=parts[1],
             sender_id=parts[2],
             room_id=parts[3] if len(parts) > 3 else "",
+            is_agent_peer=is_agent_peer,
         )
 
     # === Factory methods for common trigger sources ===

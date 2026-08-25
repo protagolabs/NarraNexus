@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/schema/channel_tag.py
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — `format()` 带上 agent 标记（review I3）
+
+`is_agent_peer` 上线时声称有三个消费方：熔断阈值、DM 兜底门、DM prompt。
+前两个接线了，**第三个只有文字没有信号**——字段进了 `to_dict()`（供 step_3
+读），但真正拼进 agent 输入的 `format()` 完全没提。于是 DM 协议新增的
+loop-breaker 第三条「or they are identified as an agent」对模型永远为假，
+模型只能靠「读起来像机器生成的」自行猜测——而这恰恰是 8/14 那两个 agent
+没做到的事。
+
+修法：`format()` 在 `is_agent_peer` 为真时追加一段 `AGENT_PEER_MARKER`
+（`agent sender`）。选 `format()` 而不是在四个 `tagged_prompt` 拼接点各加
+一行，是因为那正是「N 份手抄」缺陷类；`format()` 是唯一定义，5 个调用点
+一次覆盖。
+
+**只在为真时追加**：这些字符串也会进聊天历史，无条件改格式会让新旧轮次
+前后不一致。绝大多数会话逐字不变。
+
+`parse()` 一并改：先剥掉尾部标记再按位置读，否则一个**没有 room_id** 的
+agent tag 会把 `agent sender` 当成 room_id。（`parse()` 目前在 src/backend
+里零调用，但留着一个会解错的反解析函数是给下一个人挖坑。）
 
 ## 2026-08-24 — 新增 `is_agent_peer`
 

@@ -183,3 +183,73 @@ class TestTemplateWiring:
         tests/channel/test_channel_prompts_path_rules.py also pins —
         asserted here so a careless protocol split fails fast."""
         assert "## File & Path Rules for IM Delivery" in CHANNEL_MESSAGE_EXECUTION_TEMPLATE
+
+
+class TestAgentPeerReachesTheModel:
+    """The prompt clause "or they are identified as an agent" needs a
+    signal, not just text.
+
+    `is_agent_peer` shipped with three claimed consumers: the ingress
+    breaker's thresholds, the DM fallback gate, and the prompt. The first
+    two were wired; the third was only prose, so the clause could never
+    fire and the model was left to guess from writing style — exactly what
+    the two agents in the 8/14 loop failed to do.
+    """
+
+    def test_an_agent_sender_is_marked_in_the_tag(self):
+        from xyz_agent_context.schema.channel_tag import (
+            AGENT_PEER_MARKER,
+            ChannelTag,
+        )
+
+        tag = ChannelTag(
+            channel="narramessenger",
+            sender_name="Liam",
+            sender_id="@agent-x:h",
+            room_id="!room",
+            is_agent_peer=True,
+        )
+        assert AGENT_PEER_MARKER in tag.format()
+
+    def test_a_human_sender_tag_is_byte_identical_to_before(self):
+        """The marker is appended only when true — these strings also land
+        in chat history, and a format change would make old and new turns
+        disagree."""
+        from xyz_agent_context.schema.channel_tag import ChannelTag
+
+        tag = ChannelTag(
+            channel="lark",
+            sender_name="Alice",
+            sender_id="ou_1",
+            room_id="oc_1",
+        )
+        assert tag.format() == "[Lark · Alice · ou_1 · oc_1]"
+
+    def test_the_marker_survives_a_round_trip(self):
+        from xyz_agent_context.schema.channel_tag import ChannelTag
+
+        tag = ChannelTag(
+            channel="narramessenger",
+            sender_name="Liam",
+            sender_id="@agent-x:h",
+            room_id="!room",
+            is_agent_peer=True,
+        )
+        back = ChannelTag.parse(tag.format())
+        assert back is not None
+        assert back.is_agent_peer is True
+        assert back.room_id == "!room"
+
+    def test_a_room_less_agent_tag_does_not_parse_the_marker_as_a_room(self):
+        from xyz_agent_context.schema.channel_tag import ChannelTag
+
+        tag = ChannelTag(
+            channel="wechat",
+            sender_name="Bot",
+            sender_id="wx1",
+            is_agent_peer=True,
+        )
+        back = ChannelTag.parse(tag.format())
+        assert back is not None
+        assert back.room_id == "", "the marker must not be read as a room id"
+        assert back.is_agent_peer is True

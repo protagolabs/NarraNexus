@@ -256,7 +256,7 @@ async def decide_merge_or_create(
     candidate_summary: str,
     candidate_aliases: List[str],
     existing_entities: List[SocialNetworkEntity],
-    agent_id: str = "",
+    agent_id: str,
 ) -> tuple[str, Optional[SocialNetworkEntity]]:
     """
     Use LLM to decide if a candidate entity matches any of the existing entities.
@@ -453,7 +453,7 @@ Extract all OTHER social entities mentioned:"""
 
 
 async def summarize_new_entity_info(
-    input_content: str, final_output: str, agent_id: str = ""
+    input_content: str, final_output: str, agent_id: str
 ) -> Optional[str]:
     """
     Call LLM to summarize key points of a conversation round.
@@ -500,7 +500,7 @@ async def append_to_entity_description(
     entity_id: str,
     instance_id: str,
     new_info: str,
-    agent_id: str = "",
+    agent_id: str,
 ) -> None:
     """
     Append information to entity_description (cumulative, not overwriting).
@@ -542,7 +542,7 @@ async def append_to_entity_description(
 # over name / description / tags / aliases.
 
 
-async def compress_description(long_description: str, agent_id: str = "") -> str:
+async def compress_description(long_description: str, agent_id: str) -> str:
     """Compress overly long description via LLM re-summarization.
 
     Falls back to a hard truncation when the LLM is unavailable. That
@@ -630,7 +630,8 @@ async def infer_persona(
     awareness: str = "",
     job_info: str = "",
     recent_conversation: str = "",
-    agent_id: str = "",
+    *,
+    agent_id: str,
 ) -> Optional[str]:
     """
     Infer Persona using LLM.
