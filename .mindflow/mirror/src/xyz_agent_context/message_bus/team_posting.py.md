@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_posting.py
-last_verified: 2026-08-17
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 级联上限 4 → 30，可用 env 覆盖
+
+`MAX_TEAM_AGENT_HOPS` 从 4 提到默认 **30**，并由 `_resolve_hop_cap()` 读环境变量
+`TEAM_MAX_AGENT_HOPS` 覆盖。原因：4 跳太小，普通 team 任务需要多于四次不被打断的
+agent 往返才能完成，房间到第 4 跳就剥 @mention、链断、干等人工。它**仍是有限的防
+死循环保险丝**（runaway agent-to-agent @storm 是真实事故类，见 Liam A2A 死循环），
+所以覆盖值为空 / 不可解析 / ≤0 时一律回落默认，**永不把保险丝关掉**；因为该值直接进
+`bus_messages` 上的 SQL `LIMIT`，超过上限 500 会被 clamp（防手滑多打一个零把几行扫描
+变成十万行）。窗口 `LIMIT MAX_TEAM_AGENT_HOPS + 2` 与所有测试都从常量派生，抬值自洽。
+常量是模块导入期求值，改 env 需重启 workers。env 见 `.env.example` 的
+「Team autonomous-round budget」段。
 
 ## 2026-08-17 — errand 记账随发帖一起搬进来
 

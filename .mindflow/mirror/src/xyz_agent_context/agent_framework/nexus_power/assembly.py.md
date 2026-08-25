@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/assembly.py
-last_verified: 2026-08-17
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — wait 座位接线 + `_steer_channels`(**steerable-flag** 门,非 inlet 身份)
+
+`run_turn_events` 里构造共享 `WaitState()` 并 `LoopAssembly(wait=...)` 穿进去——`wait_for_input` 工具写它、loop 在 WAIT 边界读它,是"工具→loop"的唯一接线点(同 expression_nudge 教训)。post_init 缺省挂空 `WaitState`。**`wait: WaitRequest` 只让构造点被类型检查**;loop 侧经 `Any` assembly 读 `a.wait.pending`,静态查不到,故 clamp 靠运行期 `WaitRequest.request`(见 [[protocols.py]] I2)。
+**`_steer_channels(steerable: bool, wait_state)` 纯函数**(模块级、可单测):仅当 **`TurnOptions.steerable` 为真**才暴露 `WaitChannel`。**关键订正**:门**不能**判 inlet 身份——默认的 subprocess `runner.main()` 每轮无条件挂一个 `QueueSteeringInlet`(只在可控轮被喂),所以"有没有挂 inlet"恒为真、`steering is None` 在生产上永不成立。steerable 由 orchestrator 是否注册 `SteerChannel` 决定(`nexus_agent._build_request_payload` 写 `steer_channel is not None`),经 `TurnOptions.steerable` 跨序列化边界带过来。非可控轮暴露该工具=agent 一调就在无人喂的队列上阻塞满 clamp(缺省 60s、最长 300s)。DRAIN 与此正交:空 inlet 无论可控与否都 drain 成空。刻意不做注册表。回归打**生产臂**:`test_steering_wiring.test_wait_tool_is_hidden_on_a_non_steerable_run_even_with_an_inlet_mounted`(挂真 inlet + steerable=False → 工具不可见)+ `test_wait_for_input.test_steer_channels_are_gated_on_the_steerable_flag`。
+
+## 2026-08-21 — steering inlet 接线(live 注入的顶层入口)
+
+`run_turn_events` 新增 `steering: SteeringInlet | None = None`,原样接进
+`LoopAssembly(steering=...)`;`None` 由 assembly 的 post_init 挂 `NullSteeringInlet`
+（现状不变）。与 expression_nudge 那条同理:这是"活的 steering inlet → loop"的唯一接线点。
+关键区别——steering 是**活对象(带队列),不走 TurnRequest 的 JSON 序列化**:transport 层
+（本地 runner / 云端 executor)在进程内构造并喂它,顶层入口只负责穿线。drain 行为见
+[[loop.py]] DRAIN_STEERING + [[steering.py]] QueueSteeringInlet。
+（附带订正:上条"run_turn_events 无测试入口"已不再成立——`test_steering_wiring.py`
+用 monkeypatch 假 loop 驱动 run_turn_events,锁住这条接线。）
 
 ## 2026-08-17 — 动态尾巴里，来源声明领在回复提醒之前
 
@@ -54,4 +70,4 @@ expansions 之后取值,起跑展开授予的回复工具也算),装配时冻结
 
 # assembly — 唯一装配点:TurnRequest 进、类型化事件流出
 
-LoopAssembly 是循环的全部依赖(硬组件无默认、策略缝带默认,R1:装配复杂度有意集中于此文件);run_turn_events 是框架顶层入口:装配→初始展开→跑循环。TurnRequest 整包可 JSON 序列化,这是 runner 跨进程传输的前提。测试用 dataclasses.replace 换件,永不 patch。坑:harness system 消息插在平台前导 system 段末尾(_insert_harness),不能追加在 user 之后;output_schema v1 显式 fail loud(schema 诚实)。
+LoopAssembly 是循环的全部依赖(硬组件无默认、策略缝带默认,R1:装配复杂度有意集中于此文件);run_turn_events 是框架顶层入口:装配→初始展开→跑循环。TurnRequest 整包可 JSON 序列化,这是 runner 跨进程传输的前提。测试换件分两档:loop 层用 dataclasses.replace(assembly 可注入);**顶层 run_turn_events 自己造 assembly、调用方注入不进去,入口测试改为 patch 它函数体内的懒导入符号——因此这些函数内导入必须保持懒加载**(谁把 NexusPowerLoop/LiteLLMModelClient 提到模块顶层,入口测试的 patch 就拦不住,真 loop 会去打真 provider)。坑:harness system 消息插在平台前导 system 段末尾(_insert_harness),不能追加在 user 之后;output_schema v1 显式 fail loud(schema 诚实)。

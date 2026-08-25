@@ -1,8 +1,64 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 (review) — 前缀补 usr_、扇出加上限、include 用 Literal
+
+- **C2 前缀补 `usr_`**:`_PEER_SCOPE_PREFIXES` 原为 `("agent_", TEAM_ROOM_OWNER_PREFIX)`,漏了人在
+  team 房间发言这条**最主流**路径——`teams.py` 以 `from_agent="usr_<uid>"` 发,turn 落在 `usr_<uid>`
+  实例里,被前缀过滤整条滤掉(相对上一轮是功能回退)。补 `USER_SENDER_PREFIX`(=`usr_`)。`usr_` 是 bus
+  **sender** 前缀、不是真实 user_id 前缀(真实 user_id 裸值),故加它不会把别人私聊拉回来;行级
+  `working_source` 闸保留作 fail-closed 第二道(覆盖 local 模式 X-User-Id 恰以 `usr_` 开头的边角)。
+- **I3 扇出上限**:peer 实例集按 `_MAX_PEER_ACTIVITY_INSTANCES=200`(get_by_agent 是 created_at DESC,取切片)
+  截断并 `logger.info`,不静默丢。上限远大于任何现实翻页深度,正常 owner 的 `total_count` 不受影响。长期
+  正解是把活动流改读 events 索引,而非逐实例扫 memory JSON。
+- **M1 include 用 Literal**:`include: Literal["chat","activity","all"]` 交给 FastAPI 校验(非法值 422、大小写敏感),
+  删掉手写 normalize;`want_activity = include != "chat"`。
+- **N1 owner-notify 行按 scope 分流(行为改动)**:同一条带 `owner_notify_content` 的 assistant 行,
+  `message_type` 现在是 **scope 的函数**——
+  - **owner scope**:保持 `message_type="chat"`,原文进**对话** tab(agent 自己的 IM turn 主动汇报 owner,
+    长期既有行为,不变)。
+  - **peer scope(A2A/team)**:强制改标 `message_type="activity"`(`content` 仍是**原文、不折叠成
+    `Background activity (...)`**),否则这行两个 tab 都进不去——对话 tab 从不读 peer 实例,活动流又只留
+    `message_type=='activity'`,`"chat"` 型行两边皆无。改标后进 **Activity Log**。
+  原文放行**不等于**泄露对端正文:bus 侧 handler 的 `owner_visible_reply_tool_names=("send_message_to_user_directly",)`
+  (`message_bus/__init__.py`)保证 `owner_notify_content` 只可能来自 owner-notify 工具、不可能是给 peer 的回复,
+  所以「原文给 owner」是语义正确而非隐私回退。改动用 `peer_scoped` 收口,勿写成「所有 owner_notify 都走 activity」
+  (会误导下一个人删掉 `peer_scoped` 判据 → N1 回退)。用例:`test_owner_notify_on_peer_turn_reaches_activity_verbatim`
+  (activity 见原文 + chat 不见 + 该行自身 peer 正文仍不外泄)。
+
+## 2026-08-21 — Activity Log 纳入 A2A/team 活动:owner-only + 前缀收口 + 两条流各自分页
+
+`get_simple_chat_history` 同时喂前端的「对话」tab 与「Activity Log」tab(`ChatPanel` 按
+`message_type === 'activity'` 客户端分流)。A2A 与 team 的 turn 经 `MessageBusTrigger` 以
+`user_id = sender_agent_id`(对端 agent id / `TEAM_ROOM_OWNER_PREFIX+team_id`,**非 owner**)
+跑 runtime,落在 peer-scoped 的 ChatModule 实例里;原来只查 `get_by_agent_and_user(agent_id, owner)`,
+这些实例永远匹配不上 owner,Activity Log 一条 A2A/team 活动都看不到。
+
+三层设计:
+
+1. **owner-only 拉取。** 仅当 `want_activity` 且 caller 是 owner(`resolve_owner`==caller,
+   `None`/`""` 皆 fail-closed 退回旧行为)才用 `get_by_agent(agent_id, module_class="ChatModule")`
+   补 peer 实例;`resolve_owner` 也只在需要活动流时才查,`include=chat` 的热轮询不多付一次。
+2. **数据面前缀收口(不是逐行丢)。** peer 实例集只取 `user_id.startswith(_PEER_SCOPE_PREFIXES)`
+   =`("agent_", TEAM_ROOM_OWNER_PREFIX)`——只有 A2A/team scope,**其他真实用户与该 agent 的私聊
+   连 memory 都不会被读**(此前"其余全拿、逐行 continue"会 2N+1 次查询读别人私聊)。循环里
+   `if peer_scoped and working_source not in _A2A_TEAM_SOURCES: continue` 保留为第二道 fail-closed 闸。
+3. **两条流各自分页(C1)。** 对话行与活动行原来挤在同一个 `all_messages`、共用一个 `limit` 尾切,
+   前端拿到 20 条后才拆两个 tab。peer/team 是**无上限**的流,灌进来会把 owner 的「对话」tab 顶空、
+   轮询还把已渲染的聊天行换掉。改为端点新增 `include=chat|activity|all`:按 `message_type` 是否
+   `activity` 先分流、各自 `limit`/`offset`/`total_count`。`ChatPanel` 的对话 tab 请求 `chat`、
+   inner tab 请求 `activity`;`useAutoRefresh.tickBgMessages` 只订阅 `chat`,peer 活动不再误触发
+   "有新回复"toast/滚动。`all` 保留旧语义给其他调用方。
+
+`_A2A_TEAM_SOURCES` 引用 `hook_schema.BUS_PRODUCED_SOURCES`(与 `chat_module` 同一来源,新增 bus
+传输一处改全生效);`_USER_FACING_SOURCES` 一并提到模块级。对端正文从不逐字外泄(普通 peer 行折叠成
+`Background activity (...)`;`owner_notify_content` 的按 scope 放行见上「2026-08-21 (review)」的 **N1** 条目)。
+夹具:`tests/backend/test_activity_log_a2a_visibility.py`
+(owner 见 message_bus+a2a 折叠行、`include=all` 钉住前缀+行级两道隔离、非 owner 零泄漏、活动洪流下
+`include=chat` 对话不被饿死)。
 
 ## 2026-08-19 — tool_output 配名走 tool_call_id;"unknown" 两个源头都治
 

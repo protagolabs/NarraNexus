@@ -129,6 +129,7 @@ def build_agent_loop_request(
     turn_profile: Optional[dict[str, Any]] = None,
     extra_accessible_roots: Optional[list[str]] = None,
     origin_declaration: str = "",
+    run_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -137,6 +138,16 @@ def build_agent_loop_request(
     disconnect. Provider configs are snapshotted here so the scoped creds
     cross the boundary explicitly (they normally ride a ContextVar).
 
+    ``run_id`` (optional) makes the run STEERABLE: it is the correlation
+    handle a later ``POST /steer`` uses to reach THIS run's inbound queue in
+    the executor. It MUST be unguessable (the caller mints a
+    ``secrets.token_hex``), because ``/steer`` is unauthenticated like
+    ``/agent-loop``: an unguessable handle is what keeps a direct caller from
+    injecting a message into another tenant's live turn — the same "the body
+    names only a resource the caller already holds" property the module
+    docstring guards. ``None`` (the default) = a non-steerable run, byte-for-
+    byte the old body (the key is omitted, not sent null, so an OLD executor
+    that never reads it is unaffected).
     """
     body: dict[str, Any] = {
         "framework": framework,
@@ -173,4 +184,22 @@ def build_agent_loop_request(
         "origin_declaration": origin_declaration or "",
         "provider_configs": serialize_provider_configs(),
     }
+    # Steerable only when a handle is supplied. Omit the key entirely otherwise
+    # (not a null): an executor that predates /steer simply never sees it, and
+    # the non-steerable body stays identical to before this field existed.
+    if run_id is not None:
+        body["run_id"] = run_id
     return body
+
+
+#: The wire frame the runner already understands for one live injection (see
+#: ``runner.parse_steer_line``): the provider message wrapped under ``"steer"``.
+#: ``POST /steer``'s body is this same frame plus the ``run_id`` that names the
+#: target run — so the executor unwraps ``steer`` and feeds it to that run's
+#: inbound queue exactly as the local stdin transport does.
+def build_steer_request(*, run_id: str, steer_msg: dict[str, Any]) -> dict[str, Any]:
+    """The JSON body for ``POST /steer``: one injection for the live run
+    ``run_id``. ``steer_msg`` is the already-rendered provider message (it may
+    carry the private ``STEER_ID_KEY`` for consumption tracking — passed through
+    verbatim, the executor's inlet strips it before the model sees it)."""
+    return {"run_id": run_id, "steer": steer_msg}

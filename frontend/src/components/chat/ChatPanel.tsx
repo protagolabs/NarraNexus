@@ -26,9 +26,10 @@ import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn, formatChatTimestamp } from '@/lib/utils';
+import { cn, formatChatTimestamp, generateId } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { streamForTab } from '@/lib/chatStreams';
 import { chatDayInfo } from '@/lib/chatDays';
 import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
@@ -37,6 +38,7 @@ import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
 import { ProcessPanel } from './ProcessPanel';
 import { SegmentedReply } from './SegmentedReply';
+import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
@@ -199,11 +201,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Chat history state (from DB)
-  const [historyMessages, setHistoryMessages] = useState<SimpleChatMessage[]>([]);
+  // Chat history state (from DB). The conversation and the Activity Log are two
+  // independently-paginated streams; each keeps its OWN rows / total / loaded
+  // flag keyed by include, so switching tabs neither clears the other stream
+  // nor refetches one already loaded (the active stream is `historyInclude`).
+  const [historyByStream, setHistoryByStream] =
+    useState<Record<'chat' | 'activity', SimpleChatMessage[]>>({ chat: [], activity: [] });
+  const [loadedByStream, setLoadedByStream] =
+    useState<Record<'chat' | 'activity', boolean>>({ chat: false, activity: false });
+  const [totalByStream, setTotalByStream] =
+    useState<Record<'chat' | 'activity', number>>({ chat: 0, activity: 0 });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [historyTotalCount, setHistoryTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -225,7 +233,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     currentSteps: _rtSteps,
     currentToolCalls: _rtToolCalls,
     currentEvents: _rtEvents,
-    isStreaming, addUserMessage, startStreaming,
+    resumedRun,
+    currentRunId,
+    isStreaming, addUserMessage, addSteerMessage, markSteerRejected, startStreaming,
+    currentSteerable,
     setActiveAgent,
   } = useChatStore();
 
@@ -273,7 +284,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   const [fastMode, setFastMode] = useFastMode(agentId);
 
-  const { run, reconnect, stop, isLoading } = useAgentWebSocket({
+  const { run, reconnect, stop, steer, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
@@ -314,11 +325,46 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
 
+  // Conversation and Activity Log are two independently-paginated streams
+  // (backend `include`): the inner tab IS the Activity Log, everything else is
+  // the conversation. Fetching per-tab keeps a busy agent's activity flood from
+  // eating the conversation tab's page budget, and keeps peer/team activity off
+  // the "new reply" scroll/notify path on the conversation tab.
+  const historyInclude = streamForTab(chatTab);
+
+  // Active-stream views + writers. Downstream code (loadMore, poll, timeline,
+  // loadMore-trigger) reads these unchanged; the writers target the active
+  // stream's slot so a tab switch touches only that stream.
+  const historyMessages = historyByStream[historyInclude];
+  const historyLoaded = loadedByStream[historyInclude];
+  const historyTotalCount = totalByStream[historyInclude];
+  const setHistoryMessages = useCallback(
+    (v: SimpleChatMessage[] | ((prev: SimpleChatMessage[]) => SimpleChatMessage[])) =>
+      setHistoryByStream((p) => ({
+        ...p,
+        [historyInclude]:
+          typeof v === 'function'
+            ? (v as (prev: SimpleChatMessage[]) => SimpleChatMessage[])(p[historyInclude])
+            : v,
+      })),
+    [historyInclude],
+  );
+  const setHistoryTotalCount = useCallback(
+    (n: number) => setTotalByStream((p) => ({ ...p, [historyInclude]: n })),
+    [historyInclude],
+  );
+  const setHistoryLoaded = useCallback(
+    (b: boolean) => setLoadedByStream((p) => ({ ...p, [historyInclude]: b })),
+    [historyInclude],
+  );
+
   const loadChatHistory = useCallback(async () => {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
     try {
-      const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+      const response = await api.getSimpleChatHistory(
+        agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+      );
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
@@ -334,11 +380,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       setIsLoadingHistory(false);
       setHistoryLoaded(true);
     }
-  }, [agentId, userId]);
+  }, [agentId, userId, historyInclude]);
 
   // Use ref for historyMessages length to avoid recreating loadMoreHistory on every poll
   const historyLengthRef = useRef(0);
   historyLengthRef.current = historyMessages.length;
+
+  // Per-stream high-water timestamp for the "new messages arrived" poll check.
+  // Keyed by include so switching tabs never compares against the other
+  // stream's latest (which would suppress or spuriously fire the poll).
+  const lastHistoryTimestampRef =
+    useRef<Record<'chat' | 'activity', string>>({ chat: '', activity: '' });
 
   const loadMoreHistory = useCallback(async () => {
     if (!agentId || !userId || isLoadingMore) return;
@@ -350,7 +402,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const response = await api.getSimpleChatHistory(
-        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
+        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current, historyInclude,
       );
       if (response.success && response.messages.length > 0) {
         // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for
@@ -377,43 +429,60 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agentId, userId, historyTotalCount, isLoadingMore]);
+  }, [agentId, userId, historyTotalCount, isLoadingMore, historyInclude]);
 
-  // Reload when the agent changes OR a data wipe bumps historyRefreshTick.
+  // One loader effect, two jobs, no double-fetch on mount (N3):
+  //  • agent change / data wipe (the identity key moves) → reset BOTH streams
+  //    and load the active one; the inactive stream loads lazily on tab switch.
+  //  • same agent, tab switched → load the newly-active stream only if it has
+  //    not loaded yet (already-loaded → instant, no clear / refetch / scroll
+  //    reset — the friction the per-stream split removes).
   const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
+  const historyIdentityRef = useRef('');
   useEffect(() => {
-    if (agentId && userId) {
-      setHistoryMessages([]);
-      setHistoryLoaded(false);
-      setHistoryTotalCount(0);
+    if (!agentId || !userId) return;
+    const identity = `${agentId}|${userId}|${historyRefreshTick}`;
+    if (historyIdentityRef.current !== identity) {
+      historyIdentityRef.current = identity;
+      setHistoryByStream({ chat: [], activity: [] });
+      setLoadedByStream({ chat: false, activity: false });
+      setTotalByStream({ chat: 0, activity: 0 });
+      lastHistoryTimestampRef.current = { chat: '', activity: '' };
       shouldAutoScrollRef.current = true;
       loadChatHistory();
+      return;
     }
-  }, [agentId, userId, loadChatHistory, historyRefreshTick]);
+    if (!loadedByStream[historyInclude]) loadChatHistory();
+    // loadChatHistory intentionally excluded: it re-identifies with
+    // historyInclude and is captured fresh each render; listing it would just
+    // re-run this effect without changing what it does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, historyRefreshTick, historyInclude]);
 
   // ── Poll for new background messages ────────────────
-  const lastHistoryTimestampRef = useRef<string>('');
   useEffect(() => {
     if (!agentId || !userId || !historyLoaded) return;
 
     if (historyMessages.length > 0) {
       const last = historyMessages[historyMessages.length - 1];
-      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current) {
-        lastHistoryTimestampRef.current = last.timestamp;
+      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current[historyInclude]) {
+        lastHistoryTimestampRef.current[historyInclude] = last.timestamp;
       }
     }
 
     const poll = async () => {
       if (document.hidden) return;
       try {
-        const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+        const response = await api.getSimpleChatHistory(
+          agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+        );
         if (!response.success || response.messages.length === 0) return;
 
         const latestMsg = response.messages[response.messages.length - 1];
         const latestTs = latestMsg.timestamp || '';
 
-        if (latestTs > lastHistoryTimestampRef.current) {
-          lastHistoryTimestampRef.current = latestTs;
+        if (latestTs > lastHistoryTimestampRef.current[historyInclude]) {
+          lastHistoryTimestampRef.current[historyInclude] = latestTs;
           // Merge: keep older loaded history, replace only the tail (latest page)
           setHistoryMessages((prev) => {
             if (prev.length <= HISTORY_PAGE_SIZE) {
@@ -437,9 +506,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     };
 
+    // Poll once immediately so switching back to an already-loaded stream
+    // refreshes right away instead of showing data up to 12s stale (N4). The
+    // high-water + document.hidden guards inside `poll` make this a no-op when
+    // nothing new arrived.
+    void poll();
     const timer = setInterval(poll, 12_000);
     return () => clearInterval(timer);
-  }, [agentId, userId, historyLoaded]);
+  }, [agentId, userId, historyLoaded, historyInclude]);
 
   // ── Build unified timeline ──────────────────────────
   // History (DB) + session (chatStore) merged + de-duplicated. The dedup
@@ -594,6 +668,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const uploadAttachments = useCallback(
     async (files: File[], opts?: { source?: 'recording' | 'upload' }) => {
       if (!agentId || !userId || files.length === 0) return;
+      // A mid-run steer is text-only (v1): an attachment can't be folded into a
+      // live turn. The attach + mic buttons are already disabled while
+      // streaming, but drag-drop and paste reach here directly — so gate the
+      // single funnel every upload path flows through. We block BEFORE the
+      // network upload, so nothing is orphaned on the backend and no dead chip
+      // appears that could never be sent. Surface a dismissible notice instead
+      // of silently swallowing the drop.
+      if (isLoading) {
+        setTranscriptionNotice(t('chat.composer.attachDuringRun'));
+        return;
+      }
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
@@ -664,7 +749,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }
       }
     },
-    [agentId, userId, t],
+    [agentId, userId, t, isLoading],
   );
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -737,9 +822,37 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const handleSubmit = async () => {
     const trimmed = (composerRef.current?.getText() ?? '').trim();
     const hasContent = trimmed.length > 0 || pendingAttachments.length > 0;
-    if (!hasContent || isLoading || !agentId || !userId || uploadingCount > 0) return;
+    if (!hasContent || !agentId || !userId || uploadingCount > 0) return;
 
     const content = trimmed;
+
+    // Mid-run follow-up: a run is streaming. The composer stays editable during a
+    // run (draft-while-running), so we DO reach here — but only a steerable run
+    // sends: fold the message into the SAME turn. A non-steerable run returns
+    // silently, leaving the draft to be sent once the run ends (the pre-steer
+    // behavior). Attachments are not supported mid-run in v1 — a steer is text only.
+    if (isLoading) {
+      if (!currentSteerable || trimmed.length === 0) return;
+      // generateId, not crypto.randomUUID (undefined on non-secure http://<ip>
+      // contexts — the repo's productAnalytics/utils already guard this).
+      const clientMsgId = generateId();
+      const sent = steer(agentId, content, clientMsgId);
+      // Always add the bubble so the user gets feedback either way. On send it's
+      // 'queued' (the backend acks it merged/rejected). If the socket was no
+      // longer steerable (sent===false: CONNECTING/CLOSING/closed) mark it
+      // rejected right away rather than dropping silently. Attachments are NOT
+      // cleared — a steer is text-only (v1), so they stay for the next message.
+      addSteerMessage(agentId, content, clientMsgId);
+      if (sent) {
+        composerRef.current?.clear();
+        shouldAutoScrollRef.current = true;
+        initialScrollPendingRef.current = true;
+      } else {
+        markSteerRejected(agentId, clientMsgId, 'not_sent');
+      }
+      return;
+    }
+
     const attachmentsToSend = pendingAttachments;
     composerRef.current?.clear();
     setPendingAttachments([]);
@@ -1050,6 +1163,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
+              {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                  replay below is the SAME run continuing after a refresh /
+                  reconnect — label it, with elapsed anchored to the run's
+                  real start, so it cannot be read as a fresh generation.
+                  runId must match the streaming turn (review #349 M4): the
+                  anchor may only badge ITS run — if a second start-stream
+                  path ever appears, a stale anchor stays invisible instead
+                  of silently badging someone else's turn. */}
+              {resumedRun && resumedRun.runId === currentRunId && (
+                <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+              )}
               {/* Live view shows answers only: the process is in the
                   ProcessPanel above the composer. Painting it here too
                   would render the same thinking/tools twice.
@@ -1225,13 +1349,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId ?? '__none__'}
             ref={composerRef}
             agentId={agentId}
+            // Editable whenever an agent is selected — including during a run
+            // (draft-while-running is a pre-existing capability; Composer.tsx's
+            // contract is "disabled === no agent"). SENDING is what's gated: a
+            // steerable run folds the text in, a non-steerable run holds the
+            // draft until it ends (see handleSubmit). Only the placeholder
+            // changes to invite a mid-run follow-up when steerable.
             disabled={!agentId}
             placeholder={
               !agentId
                 ? t('chat.composer.selectAgentFirst')
                 : isDragging
                   ? t('chat.composer.dropFile')
-                  : t('chat.composer.placeholder')
+                  : isLoading && currentSteerable
+                    ? t('chat.composer.steerPlaceholder')
+                    : t('chat.composer.placeholder')
             }
             onSubmit={stableSubmit}
             onEmptyChange={setComposerEmpty}
@@ -1239,6 +1371,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             onDragLeave={stableDragLeave}
             onDrop={stableDrop}
             onPaste={stablePaste}
+            // A steerable run overlays TWO buttons (Stop + steer Send); every
+            // other state overlays one. Tell the input how much right padding
+            // to reserve so typed text never slides under the steer button.
+            trailingSlots={isStreaming && currentSteerable ? 2 : 1}
           />
           {/* Send / Stop — vertically centered at the right edge of the
               textarea. The send (↵) button rests neutral gray and lights up in
@@ -1247,15 +1383,44 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               composer has content (text or an attachment), not merely on
               focus/hover. Stop stays oxblood (danger). */}
           {isStreaming ? (
-            <Button
-              variant="danger"
-              size="icon"
-              onClick={() => agentId && stop(agentId)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
-              title="Stop generation"
-            >
-              <Square className="w-4 h-4 fill-current" />
-            </Button>
+            <>
+              {/* On a STEERABLE run, a mid-run send button sits left of Stop so
+                  mouse/touch users have a real submit target (not Enter-only —
+                  mobile keyboards often make Enter a newline). Its disabled does
+                  NOT include isLoading (we ARE streaming); handleSubmit folds the
+                  text into the current turn. Non-steerable runs show only Stop. */}
+              {currentSteerable && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleSubmit}
+                  // A steer is TEXT-only, and handleSubmit returns on empty text,
+                  // so gate purely on `composerEmpty` — NO attachment escape here
+                  // (an attachment-only steer would light the button but do
+                  // nothing). The fresh-run button below keeps its attachment
+                  // escape; the two are distinct.
+                  disabled={composerEmpty || !agentId || uploadingCount > 0}
+                  className={cn(
+                    'absolute right-12 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
+                    !composerEmpty
+                      ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
+                      : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
+                  )}
+                  title={t('chat.steer.sendTitle')}
+                >
+                  <CornerDownLeft className="w-4 h-4" />
+                </Button>
+              )}
+              <Button
+                variant="danger"
+                size="icon"
+                onClick={() => agentId && stop(agentId)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
+                title="Stop generation"
+              >
+                <Square className="w-4 h-4 fill-current" />
+              </Button>
+            </>
           ) : (
             <Button
               variant="ghost"

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -79,15 +79,20 @@ within) that team's chat.
   get an "imported" badge. Deleting a team only unlinks members — the agents
   themselves are not deleted (the confirm copy says so).
 
-## 2026-07-21 — default-responder picker
+## 2026-07-21 — team-lead picker (was "default responder")
 
-Added a "Default responder" `<select>` (Auto = earliest member, or pick a current member) that
-saves `lead_agent_id` via `updateTeam`. Backs the no-@mention routing in backend [[teams]].
-`""` clears back to Auto. New i18n keys `teams.defaultResponderLabel|Auto|Hint`.
+Added a `<select>` (Auto = earliest member, or pick a current member) that saves `lead_agent_id`
+via `updateTeam`. Backs the no-@mention routing in backend [[teams]]. `""` clears back to Auto.
+i18n keys `teams.leadLabel|leadAuto|leadHint`.
+
+**2026-08-20**: relabeled "默认负责人 / Default responder" → "组长 / Team lead" and renamed the
+keys `defaultResponder*` → `lead*` so the setter matches the room's 组长 badge (the label
+mismatch was why users couldn't find how to set the lead). The lead is now also settable
+in-room from the roster — see [[TeamRosterPanel.tsx]] `onSetLead`.
 
 ## 2026-07-22 — clear team data lives in the sidebar ⋮ menu (not here)
 
 "Clear data" is intentionally NOT in this modal — to mirror agents (whose clear-data is only
 in the row ⋮ menu), it lives in the team row's [[TeamRowMenu]] → [[AgentList]] renders
-[[ClearTeamDataDialog]]. This modal keeps only rename/color/intro/members/default-responder
+[[ClearTeamDataDialog]]. This modal keeps only rename/color/intro/members/team-lead
 + delete.

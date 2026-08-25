@@ -1,9 +1,40 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-08-10
+last_verified: 2026-08-21
 stub: false
 ---
 
+## 2026-08-21 — 新增 event_type `cull_skipped_busy` + `cull_disabled`
+
+空闲回收器选中了一个用户，又因为**别的进程里有 run 活着**而退让时写入
+（[[executor_reaper.py]]）。**无需迁移**（event_type 是 VARCHAR(32) 字符串
+约定）。
+
+怎么读这个指标：每一行 = 一个 2026-08-21 之前的回收器**会当场掐死的在途
+run**，是跨进程护栏的 L3 度量。只有**真实 run id** 会落这张表 —— "判不出来"
+（recording 开关被拉、DB 拨不通）只打日志不写行，其中 DB 拨不通那种本来也
+写不进去（要用的正是刚失败的那个 client）。所以**这里是零不等于护栏没事**；
+突然掉到零要去查护栏是不是没跑，而不是当成问题消失了（事故教训 #4/#5）。
+
+`cull_disabled` 是配套的另一半：**整轮**候选的判活全部读不出来（回收器停摆）
+时写一行，**按轮不按候选**。刻意与 `cull_skipped_busy` 分开 —— 把"判不出来"
+混进那个指标会让它的 `run_id` 列出现 `unknown`，"救下了几个 run"就没法读了。
+**能落行的成因不止 kill switch**：`live_run_elsewhere` 的 `except` 罩着
+`get_db_client()` 和 `first_live_run_id()` 两段，拿到了 client 只是 `events`
+那次读失败（锁等待、权限、表被锁）时，往 `instance_executor_audit` 的 insert
+完全可能成功。只有 DB **完全**拨不通那种确实落不进来（要用的正是刚失败的那个
+client）。所以成因写进 `detail.recording_disabled`，行本身自证 —— 否则 on-call
+看到 `cull_disabled` 会直奔 `NARRANEXUS_RUN_RECORDING_DISABLED`，而真实成因可能
+在 DB 侧，白跑一趟。
+
+这个 event 证明停摆、但不穷尽停摆：另一半靠 reaper 的周期警告和
+`/api/admin/runtime/status` 里 `executor_reaper` 那一段（`stale` / `task_error`
+/ `blind_passes`）。
+
+**写入与警告同一个节拍限频**（`_BLIND_WARN_EVERY`）：每轮一行会让行数变成**停摆
+时长**的函数（120s 间隔 ⇒ 720 行/天，kill switch 忘关一个月约 2.2 万行），正是本
+系列在 `_CullVeto` 里刻意避开的形状（那里避的是 run 时长）。第一个全瞎轮立刻落
+一行（`(blind_passes-1) % N == 0` 在 1 时为真），最有价值的那条不延后。
 ## 2026-08-10 — 新增 event_type `mcp_auth_denied` + `mcp_auth_tokenless`（MCP caller auth）
 
 `mcp_auth_denied`：验签身份对不属于自己的 agent_id 发起工具调用时写入

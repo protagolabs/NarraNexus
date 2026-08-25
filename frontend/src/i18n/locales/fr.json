@@ -179,7 +179,9 @@
           "paused": "en pause"
         },
         "turnOff": "Désactiver",
-        "turnOn": "Activer"
+        "turnOn": "Activer",
+        "awaitingReply": "en attente de réponse",
+        "nameSep": ", "
       },
       "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
       "uploadFailed": "Impossible d’envoyer « {{name}} ».",

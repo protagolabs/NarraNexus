@@ -55,6 +55,13 @@ NON_TRANSACTING_USER_STATUSES: frozenset[str] = frozenset(
 
 # ===== Social Network Entity =====
 
+#: Column width of `social_network_entities.entity_name` on MySQL
+#: (VARCHAR(255); TEXT on SQLite). Writers that persist a caller-controlled
+#: name truncate to this so an over-long value cannot fail the write with a
+#: 1406 on MySQL. Mirrors the DDL in `utils/db/schema_registry.py`.
+ENTITY_NAME_MAX_LEN = 255
+
+
 class SocialNetworkEntity(BaseModel):
     """
     Social Network Entity data model

@@ -1,8 +1,32 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-08-14
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `_format_dt` 补上时区契约(#349 I1 根因)
+
+MySQL DATETIME(6) 剥 tzinfo → driver 还回 naive datetime → 原来的
+`isoformat()` 吐无后缀串,浏览器 `Date.parse` 按**本地时区**解——
+run_reconnect 帧的 `started_at`/`input_timestamp` 在云端整体偏移观看者
+的 UTC offset(SQLite 往返自带 `+00:00`,本地永远复现不出)。naive 值
+现在补 `timezone.utc` 再 isoformat。**不能**换 `format_for_api`:它截到
+整秒,而 `input_timestamp` 与落库聊天行的去重依赖毫秒级一致(帧注释
+明写)。前端侧的容错解析器是 [[../../frontend/src/lib/backendTs]]。
+
+## 2026-08-24 — 单聊运行中插话:`_listen_for_control`(原 `_listen_for_stop`)加 `steer` + SteerChannel 接线
+
+`_listen_for_stop` 改名 `_listen_for_control`,除 `stop`/`force_stop` 外新收 `{"action":"steer","input_content","client_msg_id"?}`:owner 运行中再发一句 → `SteerChannel.push(SteerInjection(source="owner_chat",...))` 折进**同一 run**,而非起新 run。空/非字符串 input 忽略(坏控制行不扰动 run);steer **绝不** cancel(那是 stop 的活)。
+接线:`cancellation` 之后建 `steer_channel = SteerChannel(agent_id, channel_id="chat")` 并挂 `on_consumed`→给前端发 `{"type":"steer_consumed","ids":[...]}`;listener 收这个 channel + user_id;`BackgroundRun(..., steering=steer_channel)`([[background_run.py]]);run_id 出来后 `steer_channel.run_id = bg.run_id`(仅日志用)。三态气泡:push 后回 `{"type":"steer_queued","client_msg_id}`(→queued),消费后 `steer_consumed`(→merged)。
+**单聊 vs bus 区别**:2 通目走**同一 WS**(前端往开着的 run WS 发),故**不需 RunRegistry/surface 路由**(WS 直接握 channel);**不落 steer_inbox**(ephemeral,in-flight;`run_id` 在 injection 上是 cosmetic,render/push 不读);run 结束前未消费 → 前端凭无 `steer_consumed` 兜底(重发为新 run)。**依赖 #354**(cloud `RemoteAgentLoopDriver` 传 steering)才在 prod 生效;dev/本地 in-process 即可。`owner_chat` 不装 `STEER_PROVENANCE_RULE`(owner 是可信权威,无冒充/提权面,与 team 不同)。
+
+### 2026-08-24(审后补)— 上限 / 能力门 / reconnect
+
+steer 分支抽成纯函数 `_route_steer(ws, channel, user_id, data, steerable)`(可单测),补齐审查三条:
+* **上限(Critical)**:ephemeral 绕开 `steer_inbox` 的有界写边,故在 WS 侧**重加同两条上限**,常量**从 `steer_inbox_repository` import**(单一定义、防漂移):单条 `MAX_CONTENT_BYTES=128KB`、每 run 未消费 `MAX_UNCONSUMED_PER_RUN=500`;`client_msg_id` 限长 `_MAX_CLIENT_MSG_ID_LEN=128`(超长→自铸,不塞进 `STEER_ID_KEY`)。超限=**显式 `{"type":"steer_rejected","client_msg_id","reason"}` 帧**(`too_large`/`too_many_pending`),**push 之前**判、**绝不截断/静默丢**(否则乐观气泡永挂,比不做还糟)、拒绝路径**不发 `steer_queued``。
+* **能力门(Important;审后订正)**:`_resolve_run_steerable(agent_id)` **问真 driver 的 `capabilities()`**(协商接缝),**不**硬编码 framework 名。关键:steerability 是 **driver** 的属性不是 framework 名的——`get_agent_loop_driver` 只要有 executor/broker URL 就一律返 `RemoteAgentLoopDriver`(cloud 上 `BROKER_URL` 恒设,默认值也生效),而它(未上 #354 时)**不声明 steering**;所以 cloud 上 nexus_power(默认 framework)跑的是 remote driver、`steerable` 若按名判会**错报 True**→气泡永挂。故按 `get_agent_loop_driver` 的 remote-vs-in-process 选择读所选 driver 的 `capabilities()`;remote 判据用**规范函数 `executor_seam_active()`**([[broker_client.py]],`AGENT_EXECUTOR_URL` 或 broker,`get_agent_loop_driver` 自己也是这个单一真值——不再手抄裸 env,其 docstring 明写「只查静态 var 曾让云端 guard 上成死码」)。`capabilities()` 与 URL 无关,故用占位 URL 选中 remote driver 类而不碰 broker(且 remote 臂 `RemoteAgentLoopDriver` 构造无副作用)。`run_started` 帧带 `steerable`(前端显/隐输入框),listener 对不可 steer 的 run 回 `steer_rejected reason=framework_no_steering`。best-effort,解析失败→False(安全)。回归 `test_steerability_asks_the_actual_driver_not_the_framework_name`(cloud+nexus_power 但 remote 无 steering→False;local→True)。**这条同时对 #354 前后成立**:上 #354 后 remote driver 对 nexus_power 声明 steering→cloud 也 True。
+* **reconnect(Important)**:`run_reconnect` 帧带 `steerable=false`——重连的观察 WS **不持有** run 的 SteerChannel(它在原 WS handler 作用域),故前端隐藏输入,不发会永挂的 steer。重连侧回折 steer 是 follow-up(需 run 经 active_runs 暴露其 channel)。
+* **持久化(Important,记为 follow-up)**:owner 这句 steer 走 ephemeral,**不落 chat memory / event_stream**。其**效果**经 assistant 回复被 `hook_persist_turn` 保存;但**字面消息**刷新后不在历史、下轮 chat memory 也没有——消费时补写 chat memory(去重 optimistic 气泡)是**独立 follow-up**。已在 [[steer_schema.py]] docstring 标注「owner_chat 首落地不走 inbox」以免文档与代码分叉。
 
 ## 2026-08-14 — chat fast mode: 首包可带 fast_mode
 

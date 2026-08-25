@@ -1,10 +1,20 @@
 ---
 code_file: frontend/src/components/artifacts/kindRegistry.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
 
 # kindRegistry.ts — kind 能力注册表(单一事实源)
+
+## 2026-08-21 — `downloadExt` 变 optional + 新增 `downloadExtFor`(深圳复测 .bin bug)
+
+office-live 与 x-url 原来写死 `downloadExt: 'bin'`——但 office-live 一个
+kind 盖 pptx/docx/xlsx 三种文件,**不存在**单一静态扩展名,'bin' 就是
+「pptx 下载得 .bin」的直接来源。改法:`downloadExt` 变 optional
+(缺席 = 该 kind 无单一自然扩展名),消费方一律走 `downloadExtFor(artifact)`
+——静态 ext 优先(kind 描述 entry 语义,.markdown 指针仍下成 .md),
+缺则取 `file_path` 扩展名(alnum≤16 净化,它要进文件名),最后 'bin'。
+钉在 [[__tests__/kindRegistry.test.ts]](含敌意扩展名用例)。
 
 ## 为什么存在
 

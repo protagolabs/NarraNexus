@@ -1,9 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/driver.py
-last_verified: 2026-07-27
+last_verified: 2026-08-24
 stub: false
 ---
 
+
+## 2026-08-24 — remote driver **按 framework 声明 steering**(取代 2026-08-22 节「remote 空集/降级」)
+
+2026-08-22 节的「remote HTTP driver 刻意保持空集、remote run 降级成新 turn」**已反转**。`capabilities()` 的 Protocol docstring 相应改了:remote driver 现对**可 steer 的 framework(nexus_power)返回 `{"steering"}`**、其余返回空集——它经 executor `/steer` + `steer_consumed` 帧承载 steering(见 [[remote_driver.py]] / [[executor_service.py]]),故答案**按 framework 而定**,不是一刀切空集。register 判据 `"steering" in driver.capabilities()` 不变;真正变的是 remote 那条臂现在对 nexus_power 为真。契约测试改名为 `test_steering_capability_is_declared_where_it_can_be_honored`(nexus_power remote 有、claude_code/codex_cli remote 无)。本文件本轮**只改 docstring**。
+
+## 2026-08-22 — 空协商缝有了第一个消费者:steering
+
+PR #351 起,`capabilities()` 不再是"全员空集"。`NexusAgent` 声明
+`{"event_log", "steering"}`(见 [[nexus_agent.py]]),remote HTTP driver **刻意**保持空集(活 steer channel
+过不了网络,见 [[remote_driver.py]])。三点契约:
+
+- **缝有了消费者**:orchestrator 以 `"steering" in driver.capabilities()` 为 register 判据——本地/桌面(可载活
+  channel)起可 steer 的 run,remote 降级成新起 turn。判据是**活的**,不再是"预留空缝"。
+- **声明字符串本身就是契约**:拼错(`"Steering"`/`"steer"`)不会报错,只会让 orchestrator 静默判"这个 driver
+  不支持 steering",本地路径也一起退化——所以 `driver.py` docstring 把 vocabulary 从"参考"改成了**强制**约束。
+- **契约测试形态变了**:`test_driver_contract.py` 那条 `assert caps == set()`(本节旧版说的"钉住整个表面")已
+  换成 `test_all_drivers_declare_only_known_vocabulary`(只准声明 planned vocabulary 内的字符串)+
+  `test_steering_capability_is_declared_where_it_can_be_honored`(正反两侧钉死;远程臂在 2026-08-24 已从"必须空"
+  改成"按 framework:nexus_power 有、claude/codex 无",见上方新节)。`driver.py` 本轮**只改 docstring、零行为改动**,不触发铁律 #10 的阻塞条件——本节是纠正下方 2026-07-27
+  节里已被 #351 变假的"全部返回空集/钉住整个表面"两句陈述(Tier-2 是时间序日志,加新节覆盖,不改写历史节)。
 
 ## 2026-07-27 — driver 表面一致化：capabilities() 空协商缝 + 签名整形
 

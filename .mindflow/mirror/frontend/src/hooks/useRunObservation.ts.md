@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/hooks/useRunObservation.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — startedAt 解析改走 [[../lib/backendTs]](#349 I1)
+
+`run_reconnect.started_at` 原来裸 `Date.parse`——云端 MySQL 发的是
+naive-UTC 串,会被按本地时区解;今天没有 UI 读 `startedAt`,但字段注释
+承诺 "elapsed anchor",谁先渲染谁先偏 480 分钟(CST)。与 wsManager 的
+同字段消费点共用一份解析规则,「两个面不能漂移」的 docstring 承诺重新
+成立。测试补了 naive 形状用例(原有的 'Z' 用例钉的是后端不发的形状,
+永远绿)。
 
 ## 2026-07-31 (三次) — 退避阶梯只认进展帧 + fatal 协议错停梯（review R2 #2）
 

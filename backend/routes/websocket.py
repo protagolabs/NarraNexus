@@ -28,7 +28,9 @@ import asyncio
 import json
 import traceback
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import uuid4 as _uuid4
 import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
@@ -51,6 +53,12 @@ from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
+from xyz_agent_context.schema.steer_schema import SteerInjection
+from xyz_agent_context.repository.steer_inbox_repository import (
+    MAX_CONTENT_BYTES,
+    MAX_UNCONSUMED_PER_RUN,
+)
 from xyz_agent_context.analytics import track
 from xyz_agent_context.analytics.events import (
     EVENT_MESSAGE_ACCEPTED,
@@ -69,6 +77,60 @@ router = APIRouter()
 
 # WebSocket close codes (RFC 6455 + application-specific)
 WS_CLOSE_POLICY_VIOLATION = 1008  # auth failure / policy violation
+
+#: A client-supplied steer correlation id is only a UI-side handle; cap its
+#: length so it cannot be an unbounded string smuggled into the message dict's
+#: STEER_ID_KEY. Over-length / blank → we mint a fresh id instead of rejecting.
+_MAX_CLIENT_MSG_ID_LEN = 128
+
+async def _resolve_run_steerable(agent_id: str) -> bool:
+    """Whether THIS run can drain a mid-run steer — asked of the ACTUAL driver's
+    ``capabilities()`` (the negotiation seam), NOT a hardcoded framework list.
+
+    Steerability is the DRIVER's property, not the framework name's: on cloud the
+    broker routes every run through ``RemoteAgentLoopDriver`` (``BROKER_URL`` is
+    always set in compose), which declares ``steering`` only once the /steer
+    transport ships and only for the frameworks its executor can drain; locally
+    (no broker) an in-process driver runs. So a nexus_power slot is steerable
+    in-process but NOT over a remote executor that lacks the transport — a
+    framework-name check would wrongly say "steerable" on the cloud default path
+    and hang the client's bubble. We reproduce ``get_agent_loop_driver``'s
+    remote-vs-in-process choice with the SAME signal (a broker / executor URL is
+    configured) and read the resulting driver's ``capabilities()``.
+    ``capabilities()`` is URL-independent, so a placeholder executor URL selects
+    the remote driver class without touching the broker.
+
+    Best-effort: any resolution error → False (advertise not-steerable rather
+    than promise a capability we might not have — the safe direction, no hung
+    bubble)."""
+    try:
+        from xyz_agent_context.agent_framework.providers.model_identity import (
+            resolve_agent_model_identity,
+        )
+        from xyz_agent_context.agent_framework.loop.driver import get_agent_loop_driver
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            executor_seam_active,
+        )
+
+        db = await get_db_client()
+        framework = (await resolve_agent_model_identity(agent_id, db)).framework
+        # Remote-vs-in-process from the CANONICAL signal — executor_seam_active()
+        # (both AGENT_EXECUTOR_URL and the broker), the single source
+        # get_agent_loop_driver's own choice keys on. Not re-derived from raw env
+        # here (its docstring warns that checking only the static var shipped a
+        # dead cloud guard once). A placeholder executor URL just selects the
+        # remote driver CLASS; capabilities() never dials it (and on the remote
+        # arm RemoteAgentLoopDriver's construction is side-effect-free).
+        remote = executor_seam_active()
+        driver = get_agent_loop_driver(
+            framework,
+            executor_url=("steer-capability-probe" if remote else None),
+            working_path="/tmp",
+        )
+        return "steering" in driver.capabilities()
+    except Exception as e:  # noqa: BLE001 — never let a capability probe break a run
+        logger.warning(f"[steer] steerability probe failed for {agent_id}: {e}")
+        return False
 
 
 async def _record_message_accepted(
@@ -313,6 +375,13 @@ async def _handle_reconnect(
         await websocket.send_json({
             "type": "run_reconnect",
             "run_id": run_id,
+            # A reconnected session cannot steer: the run's live SteerChannel
+            # lives in the ORIGINAL WS handler's scope, which this observer WS
+            # does not hold. Advertise steerable=false so the client hides the
+            # mid-run input (rather than sending a steer that would hang with no
+            # ack). Folding a reconnect-side steer back into the run is a
+            # follow-up (needs the run to expose its channel via active_runs).
+            "steerable": False,
             "state": events_row.get("state") or "unknown",
             "started_at": _format_dt(events_row.get("started_at")),
             "tool_call_count": events_row.get("tool_call_count") or 0,
@@ -549,21 +618,118 @@ async def _follow_run_from_db(
 
 
 def _format_dt(value: Any) -> Optional[str]:
-    """ISO format for any datetime / string value, None passes through."""
+    """ISO format for any datetime / string value, None passes through.
+
+    Timezone contract (review #349 I1): DB datetimes are UTC, but MySQL's
+    DATETIME(6) strips tzinfo, so the driver hands back a NAIVE value —
+    ``isoformat()`` alone then emits an offset-less string that a browser's
+    ``Date.parse`` reads as LOCAL time, skewing every consumer by the
+    viewer's UTC offset (SQLite round-trips ``+00:00`` and hides the bug
+    locally). A naive datetime gets ``timezone.utc`` attached before
+    formatting. NOT ``format_for_api``: that helper truncates to whole
+    seconds, and ``input_timestamp`` must match the persisted chat row by
+    exact millisecond (see the run_reconnect frame comment).
+    """
     if value is None:
         return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
 
 
-async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken) -> None:
-    """
-    Background listener: watches for a stop signal from the client.
+async def _route_steer(
+    websocket: WebSocket, steer_channel: Any, user_id: str, data: dict,
+    steerable: bool = False,
+) -> None:
+    """Route one ``{"action":"steer"}`` frame into the run's SteerChannel, under
+    the SAME two bounds the durable ``steer_inbox`` write edge enforces —
+    imported from that repository so there is ONE definition, not a chat-side
+    copy that can drift. The ephemeral chat channel skips ``steer_inbox``, so
+    without re-imposing them here a client could push unbounded count/size into
+    an in-process queue (deploy iron rule #4 / iron rule #16).
 
-    Runs concurrently with the agent loop. When the client sends
-    {"action": "stop"}, triggers the cancellation token which
-    propagates through the entire execution pipeline.
+    Over-limit is REJECTED with an explicit ``steer_rejected`` frame the client
+    can render (never truncated, never silently dropped — a silent drop leaves
+    the optimistic bubble hung forever, which is worse than no bound). Rejection
+    happens BEFORE the push and never emits ``steer_queued``."""
+    content = data.get("input_content")
+    if not isinstance(content, str) or not content.strip():
+        return  # a blank/garbage steer never disturbs the run
+
+    # A client id is only a UI handle; over-length / blank → mint one rather than
+    # smuggle an unbounded string into the message dict's STEER_ID_KEY.
+    raw_id = data.get("client_msg_id")
+    msg_id = raw_id if isinstance(raw_id, str) and 0 < len(raw_id) <= _MAX_CLIENT_MSG_ID_LEN else _uuid4().hex
+
+    async def _reject(reason: str) -> None:
+        with suppress(Exception):
+            await websocket.send_json(
+                {"type": "steer_rejected", "client_msg_id": msg_id, "reason": reason}
+            )
+
+    if not steerable:
+        # This agent's framework never drains a steer, so accepting it would hang
+        # the bubble forever with no ack. Reject explicitly (the client should
+        # already have hidden the input off the run_started `steerable` flag; this
+        # is the backend backstop that turns a silent no-op into a diagnosable
+        # fact). NOT a model/slot suggestion (iron rule #15) — only an honest
+        # capability report.
+        await _reject("framework_no_steering")
+        return
+    if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
+        await _reject("too_large")  # matches steer_inbox's REJECTED-over-width, never truncate
+        return
+    if steer_channel.qsize() >= MAX_UNCONSUMED_PER_RUN:
+        await _reject("too_many_pending")  # backlog cap — the client backs off, nothing dropped
+        return
+
+    # run_id here is cosmetic (render/push ignore it; it names the steer_inbox row,
+    # which the ephemeral chat channel does not use).
+    #
+    # source="owner_chat" is DELIBERATELY exempt from the STEER_PROVENANCE_RULE
+    # anti-forge prompt the bus installs for source="team": that rule exists so a
+    # TEAMMATE cannot make the model read their words as the owner's (a privilege
+    # boundary between two distinct authorities). Here the sender IS the owner —
+    # the sole authority on their own agent — so there is no boundary to forge
+    # across and no impersonation surface; the rule would be a no-op. (If a future
+    # producer routes a NON-owner into this channel, that rule becomes required.)
+    inj = SteerInjection(
+        run_id=steer_channel.run_id or "chat",
+        msg_id=msg_id,
+        content=content,
+        sender_id=user_id,
+        source="owner_chat",
+    )
+    await steer_channel.push(inj)
+    # Echo the id back so the client flips that bubble to "queued" and later
+    # matches the steer_consumed ack to it.
+    with suppress(Exception):
+        await websocket.send_json({"type": "steer_queued", "client_msg_id": msg_id})
+
+
+async def _listen_for_control(
+    websocket: WebSocket,
+    cancellation: CancellationToken,
+    steer_channel: Any,
+    user_id: str,
+    steerable: bool = False,
+) -> None:
+    """
+    Background listener: watches for control signals from the client.
+
+    Runs concurrently with the agent loop. Handles:
+    * {"action": "stop"} / {"action": "force_stop"} → triggers the cancellation
+      token, which propagates through the entire execution pipeline.
+    * {"action": "steer", "input_content": str, "client_msg_id"?: str} → pushes
+      the message into ``steer_channel`` so it folds into THIS run at the next
+      step boundary (the owner's mid-run follow-up) instead of starting a fresh
+      run. The push is non-blocking; consumption is reported later out-of-band
+      via the channel's ``on_consumed`` (the ``steer_consumed`` frame). A blank
+      or non-string input is ignored — a bad control line never disturbs the run.
 
     Any WS close — whether truly client-initiated (tab close, navigate),
     a transport-level drop (network blip), or uvicorn's own ping-timeout
@@ -618,6 +784,9 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
                     })
                 cancellation.cancel("User force-stopped (escalation)")
                 return
+            if action == "steer":
+                await _route_steer(websocket, steer_channel, user_id, data, steerable)
+                continue
     except WebSocketDisconnect as e:
         # Phase C (2026-05-13) — WS disconnect NO LONGER cancels the
         # agent. Iron rule #14: agent runs are first-class and live
@@ -922,9 +1091,33 @@ async def websocket_agent_run(websocket: WebSocket):
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
         # never triggers cancel (iron rule #14). The only cancel paths are
-        # explicit user stop (via _listen_for_stop) and run shutdown on
+        # explicit user stop (via _listen_for_control) and run shutdown on
         # backend exit.
         cancellation = CancellationToken()
+
+        # ---- Live steering: the owner can fold a follow-up into the run ----
+        # A SteerChannel this WS pushes into when the client sends
+        # {"action":"steer", ...} while the run is in flight, so the message
+        # rides THIS run (drained at the next step boundary) instead of starting
+        # a fresh one. On consumption the loop reports which pushes it read; we
+        # relay that (`steer_consumed`) so the client's "queued" bubble can flip
+        # to "merged" (the three-state bubble). Created before the listener and
+        # handed to BackgroundRun below; both share this one object.
+        steer_channel = SteerChannel(agent_id=request.agent_id, channel_id="chat")
+
+        async def _relay_steer_consumed(ids: list, _latest: object) -> None:
+            # The producer-side cursor watermark (_latest) is a bus concept; for
+            # the ephemeral chat channel we only forward the consumed ids so the
+            # client marks those bubbles merged.
+            with suppress(Exception):
+                await websocket.send_json({"type": "steer_consumed", "ids": ids})
+
+        steer_channel.on_consumed = _relay_steer_consumed
+
+        # Can this agent's framework actually drain a steer? Advertised on
+        # run_started (the client hides the mid-run input when not) and enforced
+        # in the listener (reject rather than hang the bubble). Resolved once here.
+        run_steerable = await _resolve_run_steerable(request.agent_id)
 
         # ---- Heartbeat task ----
         # WS-level heartbeat for browser ping/pong. Independent of the
@@ -945,8 +1138,12 @@ async def websocket_agent_run(websocket: WebSocket):
 
         heartbeat_task = asyncio.create_task(heartbeat_loop())
 
-        # ---- Start stop listener (Task B) ----
-        stop_listener = asyncio.create_task(_listen_for_stop(websocket, cancellation))
+        # ---- Start control listener (Task B): stop / force_stop / steer ----
+        stop_listener = asyncio.create_task(
+            _listen_for_control(
+                websocket, cancellation, steer_channel, request.user_id, run_steerable
+            )
+        )
 
         import time as _time
         _ws_start = _time.monotonic()
@@ -978,6 +1175,7 @@ async def websocket_agent_run(websocket: WebSocket):
                 db=db_client_for_bg,
                 active_runs=websocket.app.state.active_runs,
                 cancellation=cancellation,
+                steering=steer_channel,
             )
 
             # Kick off the agent run task. It self-registers in
@@ -1003,10 +1201,17 @@ async def websocket_agent_run(websocket: WebSocket):
             # never got set (rare — only if Step 0 crashed before
             # yielding) — in that case bg.run_id is None.
             if bg.run_id:
+                # Label the steer channel now the run id exists (used only for
+                # the overflow-warning log line; render/push never read it).
+                steer_channel.run_id = bg.run_id
                 with suppress(Exception):
                     await websocket.send_json({
                         "type": "run_started",
                         "run_id": bg.run_id,
+                        # The client shows the mid-run input box only when the
+                        # run's framework can drain a steer (else the bubble would
+                        # hang). Capability report only — never a slot suggestion.
+                        "steerable": run_steerable,
                     })
                 await _record_run_started(
                     user_id=request.user_id,

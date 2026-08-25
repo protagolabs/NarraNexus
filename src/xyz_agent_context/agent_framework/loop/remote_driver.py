@@ -40,13 +40,17 @@ the ceiling to ``_MAX_STREAM_BYTES`` (aligned with the SDK's own
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import secrets
 from typing import Any, AsyncGenerator
 
 from loguru import logger
 
 from xyz_agent_context.agent_runtime.executor_protocol import (
     build_agent_loop_request,
+    build_steer_request,
 )
 from xyz_agent_context.agent_framework.loop.cancellation_view import (
     CancellationView,
@@ -54,6 +58,29 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
 from xyz_agent_context.agent_framework.loop.executor_errors import (
     ExecutorUnreachableError,
 )
+
+#: How often the steer pump re-checks cancellation while waiting on the run's
+#: queue — bounds how long after turn-end the pump lingers, without busy-spin.
+_STEER_POLL_S = 0.2
+
+#: Per-POST timeout for /steer. The shared session has total=None (the
+#: /agent-loop stream runs for hours), so a /steer POST would otherwise inherit
+#: NO timeout and could hang the pump forever on a stalled executor. A steer is
+#: small and same-network, so a tight bound is safe; a timeout is treated as
+#: transient (the pump keeps draining) rather than terminal.
+_STEER_POST_TIMEOUT_S = 30.0
+
+#: Which frameworks' in-container driver can actually honor live steering. Only
+#: nexus_power drains a steering inlet (adapters/nexus/nexus_agent.py declares
+#: {"event_log","steering"}); claude_code / codex_cli return the base contract
+#: (adapters/claude/sdk.py, adapters/codex/*), so a steer POSTed to their
+#: executor would queue with nothing to drain it. RemoteAgentLoopDriver is the
+#: ONE remote shell for every framework, so it must reflect the WRAPPED driver's
+#: capability, not a blanket yes. The authoritative source is the in-container
+#: driver's own capabilities(); this static set mirrors it (safe under the
+#: submodule-pin lockstep) and the executor's GET /capabilities is the explicit
+#: probe if a framework's answer ever needs to be confirmed at runtime.
+_STEER_CAPABLE_FRAMEWORKS = frozenset({"nexus_power"})
 
 
 # Ceiling for a single NDJSON event line pulled from the executor. Chosen
@@ -66,41 +93,111 @@ from xyz_agent_context.agent_framework.loop.executor_errors import (
 _MAX_STREAM_BYTES = 50 * 1024 * 1024
 
 
-def _decode_event(raw: bytes) -> dict[str, Any]:
-    """Parse one NDJSON line from the executor stream.
-
-    On an ``{"error": ...}`` frame, raises ``RuntimeError`` for
-    step_3's except path to capture (same behaviour as the local
-    driver's exceptions surface). On an ``{"event": ...}`` frame,
-    returns the event dict itself so the caller can yield it.
-    """
-    msg = json.loads(raw)
-    if "error" in msg:
-        err = msg["error"]
-        raise RuntimeError(
-            f"{err.get('type', 'Error')}: {err.get('message', '')}"
-        )
-    return msg["event"]
-
-
 class RemoteAgentLoopDriver:
     """Runs the agent loop on the remote Executor service."""
 
     def __init__(self, framework: str, working_path: str, executor_url: str):
         self.framework = framework
         self.working_path = str(working_path)
-        self._url = executor_url.rstrip("/") + "/agent-loop"
+        base = executor_url.rstrip("/")
+        self._url = base + "/agent-loop"
+        self._steer_url = base + "/steer"
 
     def capabilities(self) -> set[str]:
-        """Base contract only. See ``AgentLoopDriver.capabilities``.
+        """``{"steering"}`` for a steer-capable framework (nexus_power), else the
+        base contract (empty) — the remote hop now carries live steering for the
+        frameworks whose in-container driver can drain it: this driver POSTs each
+        injection to the executor's ``/steer`` and forwards the loop's
+        ``steer_consumed`` back to the orchestrator's channel (see ``agent_loop``).
 
-        Deliberately NOT delegated to the wrapped in-container driver:
-        that would cost an extra HTTP round-trip per query, and until a
-        capability exists whose behaviour spans the remote hop there is
-        nothing to negotiate. Revisit when the first real capability
-        ships (it will need a /capabilities executor endpoint).
+        Framework-AWARE, not a blanket yes: ``RemoteAgentLoopDriver`` is the one
+        remote shell for every framework, and only nexus_power drains a steering
+        inlet (claude_code / codex_cli return the base contract, so a steer sent
+        to their executor would queue with nothing to read it). See
+        ``_STEER_CAPABLE_FRAMEWORKS`` for the source-of-truth note.
+
+        Declared statically rather than probed over HTTP: the executor image and
+        this code deploy in lockstep (submodule pin), so a running orchestrator's
+        remote executor always has ``/steer``; a delivery that still fails (a
+        version-skew window, the run already ended) degrades visibly — the
+        injection is logged undelivered and, never acked, resurfaces as a fresh
+        turn (iron rule #16). The ``/capabilities`` endpoint is the explicit probe
+        if a framework's answer ever needs runtime confirmation; per-turn probing
+        is pure latency here.
         """
-        return set()
+        return {"steering"} if self.framework in _STEER_CAPABLE_FRAMEWORKS else set()
+
+    async def _handle_frame(self, line: bytes, steer_channel: Any) -> dict[str, Any] | None:
+        """One NDJSON frame from the executor → the event dict to yield, or
+        ``None`` for a control frame handled here.
+
+        Three frame types cross the wire (executor_service): ``{"event": …}``
+        (yield it), ``{"error": …}`` (raise ``RuntimeError``, the same surface as
+        the local driver's relayed error), and ``{"steer_consumed": [ids]}`` — the
+        remote twin of the local runner's steer_consumed stdout line. The loop in
+        the executor reported which steer_inbox rows it drained; forward them to
+        the orchestrator's real ``SteerChannel`` so the producer advances its
+        cursor on CONSUMPTION (not on push), then swallow the frame — it is a
+        transient control signal, never turn output."""
+        frame = json.loads(line)
+        if "error" in frame:
+            err = frame["error"]
+            raise RuntimeError(f"{err.get('type', 'Error')}: {err.get('message', '')}")
+        if "steer_consumed" in frame:
+            if steer_channel is not None:
+                await steer_channel.deliver_consumed(list(frame["steer_consumed"]))
+            return None
+        return frame["event"]
+
+    async def _pump_steer(
+        self, session: Any, run_id: str, steer_channel: Any, cancel_view: CancellationView
+    ) -> None:
+        """Drain the run's ``SteerChannel`` and POST each injection to ``/steer``
+        until the turn ends (cancelled) or delivery breaks — the remote twin of
+        the local stdin steer pump.
+
+        A failed delivery is LOGGED, never raised: the injection was not consumed
+        (no ``steer_consumed`` comes back for it), so the producer never acks it
+        and it resurfaces as a fresh turn — never lost, and never taking the turn
+        down (iron rule #16). EVERY per-POST failure is treated as transient — a
+        non-200 (e.g. a per-run 404, the run just ended), a per-POST timeout, or a
+        connection-level error — and the pump keeps draining rather than stopping:
+        unlike the local pump's ``BrokenPipeError`` (which means the runner PROCESS
+        is gone, so the turn is over), a ``/steer`` POST rides its OWN short-lived
+        connection, separate from the long-running ``/agent-loop`` stream, so a
+        connector blip / transient refuse there does NOT imply the run ended. The
+        pump therefore stops only on cancellation (turn end, via the caller's
+        ``finally``); when the executor really is gone the ``/agent-loop`` stream
+        ends and cancels this pump anyway."""
+        import aiohttp
+
+        while not cancel_view.requested():
+            try:
+                msg = await asyncio.wait_for(steer_channel.queue.get(), timeout=_STEER_POLL_S)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                async with session.post(
+                    self._steer_url,
+                    json=build_steer_request(run_id=run_id, steer_msg=msg),
+                    timeout=aiohttp.ClientTimeout(total=_STEER_POST_TIMEOUT_S),
+                ) as r:
+                    if r.status != 200:
+                        logger.warning(
+                            f"[RemoteAgentLoop] /steer {r.status} run={run_id} — "
+                            f"injection not delivered (resurfaces as a fresh turn)"
+                        )
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Transient (a per-POST timeout or a connection blip on the
+                # separate /steer connection). Keep pumping — this injection
+                # resurfaces; later ones may still land. The pump ends only when
+                # the turn does (cancellation), never on a single failed POST.
+                logger.warning(
+                    f"[RemoteAgentLoop] /steer POST failed run={run_id}: "
+                    f"{type(e).__name__}: {e} — injection not delivered (resurfaces); "
+                    f"pump continues"
+                )
+                continue
 
     async def agent_loop(
         self,
@@ -115,6 +212,36 @@ class RemoteAgentLoopDriver:
         import aiohttp
 
         _cancel_view = CancellationView(cancellation)
+        # A live SteerChannel is carried over the HTTP hop: this run gets an
+        # unguessable id in the request body, a pump POSTs each injection to the
+        # executor's /steer under that id, and the executor's steer_consumed
+        # frames are forwarded back to this channel below. The id is minted with
+        # `secrets` (not a guessable counter) because /steer is unauthenticated
+        # like /agent-loop — an unguessable handle is what stops a direct caller
+        # from injecting into a run they never started. None channel → no id →
+        # a non-steerable request, byte-for-byte the old body.
+        steer_channel = kwargs.get("steering")
+        # Steer this run only if BOTH a channel was handed in AND this framework's
+        # in-container driver can actually drain it (nexus_power). If the
+        # orchestrator handed a channel for a non-steer-capable framework
+        # (claude_code / codex_cli), do NOT mint a run_id or pump — the executor
+        # would queue steers nothing reads. Left un-pumped, those injections are
+        # never consumed → never acked → resurface as a fresh turn (never lost).
+        steerable = steer_channel is not None and "steering" in self.capabilities()
+        if steer_channel is not None and not steerable:
+            # A channel was handed in but THIS framework's in-container driver
+            # cannot drain it (claude_code / codex_cli). Make the degradation
+            # VISIBLE — the un-pumped injections are never consumed → never acked
+            # → resurface as a fresh turn (never lost), but ops must be able to
+            # see "cloud steering is a no-op for this framework" rather than only
+            # notice a growing in-flight queue. Replaces the pre-framework-gate
+            # blanket warning this driver used to log.
+            logger.warning(
+                f"[RemoteAgentLoop] steering supplied for framework "
+                f"{self.framework!r}, whose executor driver does not drain it — "
+                f"injections will not be delivered (resurface as fresh turns)"
+            )
+        run_id = secrets.token_hex(16) if steerable else None
         # turn_profile arrives as the in-process pydantic model; the wire
         # wants its dict form (JSON body).
         _profile = kwargs.get("turn_profile")
@@ -133,6 +260,7 @@ class RemoteAgentLoopDriver:
             turn_profile=_profile,
             extra_accessible_roots=kwargs.get("extra_accessible_roots"),
             origin_declaration=kwargs.get("origin_declaration") or "",
+            run_id=run_id,
         )
 
         # No total timeout: agent loops can run for hours (binding rule
@@ -146,48 +274,79 @@ class RemoteAgentLoopDriver:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(self._url, json=body) as resp:
                     resp.raise_for_status()
-                    # Manual line accumulation on ``iter_any()``: aiohttp's line
-                    # iterator (``async for raw_line in resp.content``) hits
-                    # ``LineTooLong`` at 131 KiB, which is BELOW a single
-                    # base64-image event line (150-400 KiB). ``iter_any`` yields
-                    # whatever bytes have arrived without any parsing, so we own
-                    # the line boundary and can raise up to ``_MAX_STREAM_BYTES``.
-                    buf = bytearray()
-                    async for chunk in resp.content.iter_any():
-                        # Cooperative cancellation: if the orchestrator's token
-                        # fired, stop pulling — exiting the `async with` aborts
-                        # the request, which the executor observes as disconnect.
-                        if _cancel_view.requested():
-                            logger.info("[RemoteAgentLoop] cancelled — aborting stream")
-                            return
-                        if not chunk:
-                            continue
-                        buf.extend(chunk)
-                        while True:
-                            nl = buf.find(b"\n")
-                            if nl < 0:
-                                break
-                            line = bytes(buf[:nl]).strip()
-                            del buf[: nl + 1]
-                            if not line:
+                    # A steerable run pumps injections to /steer for the life of
+                    # the stream. Started only AFTER the POST is accepted (so a
+                    # rejected turn never pumps), and cancelled in the finally
+                    # BEFORE the session closes (so no put outlives its session).
+                    pump = (
+                        asyncio.create_task(
+                            self._pump_steer(session, run_id, steer_channel, _cancel_view)
+                        )
+                        if steer_channel is not None and run_id is not None
+                        else None
+                    )
+                    try:
+                        # Manual line accumulation on ``iter_any()``: aiohttp's line
+                        # iterator (``async for raw_line in resp.content``) hits
+                        # ``LineTooLong`` at 131 KiB, which is BELOW a single
+                        # base64-image event line (150-400 KiB). ``iter_any`` yields
+                        # whatever bytes have arrived without any parsing, so we own
+                        # the line boundary and can raise up to ``_MAX_STREAM_BYTES``.
+                        buf = bytearray()
+                        async for chunk in resp.content.iter_any():
+                            # Cooperative cancellation: if the orchestrator's token
+                            # fired, stop pulling — exiting the `async with` aborts
+                            # the request, which the executor observes as disconnect.
+                            if _cancel_view.requested():
+                                logger.info("[RemoteAgentLoop] cancelled — aborting stream")
+                                return
+                            if not chunk:
                                 continue
-                            yield _decode_event(line)
-                        if len(buf) > _MAX_STREAM_BYTES:
-                            # Preserve the aiohttp-style failure mode (raise
-                            # rather than silently truncate) but at a ceiling
-                            # aligned with the SDK, so a genuinely malformed
-                            # stream still fails fast.
-                            raise RuntimeError(
-                                f"[RemoteAgentLoop] event line exceeded "
-                                f"{_MAX_STREAM_BYTES} bytes without a newline "
-                                f"(buf={len(buf)})"
-                            )
-                    # Trailing bytes without a final newline: the executor
-                    # should terminate its NDJSON stream cleanly, but tolerate
-                    # a missing trailing "\n" rather than losing the last event.
-                    tail = bytes(buf).strip()
-                    if tail:
-                        yield _decode_event(tail)
+                            buf.extend(chunk)
+                            while True:
+                                nl = buf.find(b"\n")
+                                if nl < 0:
+                                    break
+                                line = bytes(buf[:nl]).strip()
+                                del buf[: nl + 1]
+                                if not line:
+                                    continue
+                                event = await self._handle_frame(line, steer_channel)
+                                if event is not None:
+                                    yield event
+                            if len(buf) > _MAX_STREAM_BYTES:
+                                # Preserve the aiohttp-style failure mode (raise
+                                # rather than silently truncate) but at a ceiling
+                                # aligned with the SDK, so a genuinely malformed
+                                # stream still fails fast.
+                                raise RuntimeError(
+                                    f"[RemoteAgentLoop] event line exceeded "
+                                    f"{_MAX_STREAM_BYTES} bytes without a newline "
+                                    f"(buf={len(buf)})"
+                                )
+                        # Trailing bytes without a final newline: the executor
+                        # should terminate its NDJSON stream cleanly, but tolerate
+                        # a missing trailing "\n" rather than losing the last event.
+                        tail = bytes(buf).strip()
+                        if tail:
+                            event = await self._handle_frame(tail, steer_channel)
+                            if event is not None:
+                                yield event
+                    finally:
+                        if pump is not None:
+                            pump.cancel()
+                            # Settle the pump here so its cancellation never
+                            # surfaces as a "Task was destroyed but it is pending"
+                            # warning — and so a pump that died on an UNEXPECTED
+                            # error (not the ClientError/TimeoutError it handles)
+                            # is logged, never re-raised into the turn: a steer
+                            # transport bug must not take the whole turn down.
+                            try:
+                                await pump
+                            except asyncio.CancelledError:
+                                pass  # expected — cancelled at turn end
+                            except Exception as e:  # noqa: BLE001 — pump is best-effort
+                                logger.warning(f"[RemoteAgentLoop] steer pump died: {e!r}")
         except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError) as e:
             # The executor connection failed — either it could not be
             # established (container down / not yet up → ClientConnectorError,
@@ -201,7 +360,7 @@ class RemoteAgentLoopDriver:
             # the circuit breaker's set).
             #
             # Deliberately NOT caught here (so they flow as before): the
-            # RuntimeError from ``_decode_event`` on an ``{"error":...}`` frame
+            # RuntimeError from ``_handle_frame`` on an ``{"error":...}`` frame
             # (a USER LLM error the executor relayed) and the ``_MAX_STREAM_BYTES``
             # RuntimeError — both are RuntimeError, not aiohttp ClientError, so
             # this except never touches them. ``ClientResponseError`` from

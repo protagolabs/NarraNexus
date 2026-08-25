@@ -179,7 +179,9 @@
           "paused": "en pausa"
         },
         "turnOff": "Desactivar",
-        "turnOn": "Activar"
+        "turnOn": "Activar",
+        "awaitingReply": "esperando respuesta",
+        "nameSep": ", "
       },
       "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
       "uploadFailed": "No se pudo subir «{{name}}».",

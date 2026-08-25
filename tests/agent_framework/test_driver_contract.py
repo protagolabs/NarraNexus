@@ -17,6 +17,7 @@ import inspect
 import pytest
 
 from xyz_agent_context.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
+from xyz_agent_context.agent_framework.adapters.nexus.nexus_agent import NexusAgent
 from xyz_agent_context.agent_framework.loop.driver import AgentLoopDriver
 from xyz_agent_context.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
@@ -31,6 +32,15 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     _CODEX_AVAILABLE = False
 
+# The full planned capability vocabulary from AgentLoopDriver.capabilities().
+# Every capability any driver declares must come from here — a typo like
+# "Steering" or "steer" would silently make the orchestrator treat a run as
+# non-steerable (see test below), so pin the vocabulary in CI.
+_CAPABILITY_VOCABULARY = {
+    "steering", "plan", "resume", "fork", "sleep", "subagent_announce",
+    "event_log", "interrupt_soft", "raw_context", "arg_streaming",
+}
+
 
 def _drivers():
     ds = [
@@ -40,6 +50,10 @@ def _drivers():
             working_path="./",
             executor_url="http://127.0.0.1:9",
         ),
+        # working_path="/tmp" and NO warmup() — construction alone must not spawn
+        # a runner process (prewarm needs a running loop, which these sync tests
+        # lack, so it self-skips). Keeps the #312 test-duration win.
+        NexusAgent(working_path="/tmp"),
     ]
     if _CODEX_AVAILABLE:
         ds.append(CodexSDKv2(working_path="./"))
@@ -57,18 +71,40 @@ def test_all_drivers_satisfy_runtime_checkable_protocol():
 # ---------------- capabilities() negotiation hook -------------------
 
 
-def test_all_drivers_expose_capabilities_returning_a_set():
-    """The empty negotiation seam: existing drivers declare nothing yet
-    (behaviour identical to today); a future driver declares e.g.
-    {"steering", "plan", "resume"} and orchestrator/frontend switch
-    features on it. No consumer exists yet — this pins the surface."""
+def test_all_drivers_declare_only_known_vocabulary():
+    """The negotiation seam has a live consumer now (the orchestrator gates
+    steerability on ``"steering" in capabilities()``). A driver may declare
+    capabilities, but only strings from the planned vocabulary — anything else
+    is a typo that would silently mis-negotiate."""
     for d in _drivers():
         caps = d.capabilities()
         assert isinstance(caps, set), type(d).__name__
-        assert caps == set(), (
-            f"{type(d).__name__} declares {caps!r}; existing drivers must "
-            "declare nothing until the corresponding feature actually ships"
+        unknown = caps - _CAPABILITY_VOCABULARY
+        assert not unknown, (
+            f"{type(d).__name__} declares unknown capabilities {unknown!r} — "
+            f"not in the planned vocabulary {_CAPABILITY_VOCABULARY!r}"
         )
+
+
+def test_steering_capability_is_declared_where_it_can_be_honored():
+    """The contract that gates live steering. NexusAgent CAN carry a live steer
+    channel (in-process queue / subprocess stdin pump) and declares ``steering``.
+    The remote HTTP driver carries steering over the hop (POSTs each injection to
+    the executor's ``/steer`` and forwards ``steer_consumed`` back — see
+    RemoteAgentLoopDriver.agent_loop), but ONLY for a framework whose in-container
+    driver can actually drain it: nexus_power YES, claude_code / codex_cli NO
+    (their SDKs return the base contract, so a steer would queue unread). The
+    remote shell is one class for every framework, so it must reflect the wrapped
+    driver's capability, not a blanket yes. A typo on either side ('Steering',
+    'steer') would silently flip the gate."""
+    assert "steering" in NexusAgent(working_path="/tmp").capabilities()
+
+    def _remote(fw):
+        return RemoteAgentLoopDriver(framework=fw, working_path="./", executor_url="http://127.0.0.1:9")
+
+    assert "steering" in _remote("nexus_power").capabilities()  # can honor it
+    assert "steering" not in _remote("claude_code").capabilities()  # cannot — must not claim it
+    assert "steering" not in _remote("codex_cli").capabilities()
 
 
 def test_protocol_declares_capabilities_default():

@@ -1,8 +1,50 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — `stop_executor` 返回"到底停了没有"
+
+broker 现在会在**容器自报有在途工作**时拒绝停机，返回 200 + `status: "busy"`。
+它看得见这一侧看不见的持有者 —— office-watch 会话跑在容器**内部**、不留 run 行，
+所以编排侧的 oracle（events 表）会把这个用户读成空闲。
+
+因此拒绝是**正常结果而非错误**，调用方必须能和成功区分开：当成停了的话，
+[[executor_reaper.py]] 会把该用户的 idle 戳丢掉，那个从没被停掉的容器就再也不会被
+重新考虑（"claim 了但没动手"那类泄漏，见 #340）。返回 `bool` 而不是抛异常，是因为
+它本来就不是错误路径。
+
+没配 broker 时返回 `True`：没有要停的东西，也没有要让调用方继续持有的东西。
+
+## 2026-08-21 — `ensure_executor` 带上 `allow_stale_replace`
+
+同一根因（2026-07-31 prod 误杀在途 run）的**第二个杀手**：broker 的 stale 镜像
+替换。本模块只负责**运**这个判决，不产生它 —— 它是传输客户端，"这个用户此刻忙
+不忙"是编排侧 DB 里的事实，判决由掌握上下文的那一层给：step 3 见
+[[step_3_agent_loop.py]] 的 `_ensure_executor_for_run`（排除提问者自己），
+**prewarm 也传** —— 它不是 run，而且它整个存在的理由就是把冷启动搬到用户等待之外，
+留默认 `False` 会让镜像替换被推迟到用户的这一轮里全额付掉。**注意不是"容器上没人"**：
+判决只覆盖 recorded run，容器里可能有活着的 office-watch 会话，见
+[[narramessenger.py]] 2026-08-21 条目里的残留风险。
+
+真正必须保持默认 `False` 的是 office_watch 代理（[[proxy.py]]）：那是活着的会话，
+但**不是 recorded run**，判决函数看不见它 —— 传 `True` 等于授权 broker 把用户正在
+用的容器拆掉。判决函数因此叫 `no_live_recorded_run_for`（说证据）而不是
+"…is_safe"（说结论）。
+
+**默认 `False` 是两个方向上都安全的那一侧**：它只可能**推迟**镜像滚动，绝不会
+杀 run。所以漏传只会降级不会出事，两仓部署顺序反了也不掉 run（新 broker + 老
+编排 = 镜像暂时不滚；老 broker + 新编排 = 多一个它不认识的字段，pydantic 忽略）。
+
+**命名只 gate 这一个理由**：broker 还有别的替换理由（容器拨不通、容量周转），
+那些必须保持无条件 —— 拨不通的容器上没有可被打断的 run，拒绝替换只会把用户钉死
+在一个死容器上。
+
+响应里的 `stale_replace_deferred` **必须响**（`logger.warning`）：推迟是对的，但
+不能是静默的 —— 用户会在旧 executor 代码上多跑至少一轮，而 wire-protocol 变更后
+的旧 executor 是**不报错地**降级（2026-07 mcp_servers 改名让旧 executor 拿到空
+MCP 集）。它在下一次"没有在途 run"的 ensure 上自愈。
 
 ## 2026-08-11 — `executor_healthy` 转公开（去重健康探测）
 

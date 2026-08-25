@@ -281,6 +281,13 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
     `disallowed_tools` strips the schema on both frameworks, so an overlap means
     the reply reminder names a tool the model cannot see: nothing reaches the
     room, every turn, silently.
+
+    NB (2026-08-20): the historical bug above was a MessageBusModule team turn.
+    That module no longer drops a send verb by trigger channel — on an ordinary
+    bus turn it suppresses nothing, so the overlap it could produce is trivially
+    empty. The guard still bites where suppression is real: patrol (both verbs
+    off) and ChatModule (the inapplicable owner register off). It is the
+    coherence invariant that is asserted, not the old message_bus drop.
     """
     from unittest.mock import MagicMock
 
@@ -351,7 +358,8 @@ async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeyp
     A patrol turn carries the team-room marker too — it happens in a room — and
     on that marker alone `message_team` is declared as the turn's default reply
     tool and named by both frameworks' reply reminders. The patrol prompt, three
-    lines up, says "write it as plain text (do NOT call message_team)". On
+    lines up, says "write it as plain text (do NOT call message_team or
+    message_agent — neither of those two calls is available on this turn)". On
     NexusPower it got worse than a contradiction: the mute-turn nudge fires when
     a turn closes with no reply-tool call, which for patrol is the SPECIFIED
     outcome, and the nudge's text tells the lead to call the forbidden tool. If

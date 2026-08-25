@@ -538,6 +538,34 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   );
   const leadName = leadAgentId ? nameOf(leadAgentId) : null;
 
+  // Designate the team lead straight from the roster, where the badge is
+  // shown — the setter used to live only in the buried "default responder"
+  // select of the Edit-Team modal. Optimistic: reflect it immediately, roll
+  // back if the PATCH fails. A later activity poll reconciles either way.
+  //
+  // The in-flight ref rejects a second click before the first PATCH resolves:
+  // without it the second call's `prev` snapshot would be the first click's
+  // optimistic value, so a failure would roll back to the wrong (intermediate)
+  // lead instead of the original.
+  const settingLeadRef = useRef(false);
+  const handleSetLead = useCallback(
+    async (agentId: string) => {
+      if (settingLeadRef.current) return;
+      settingLeadRef.current = true;
+      const prev = leadAgentId;
+      setLeadAgentId(agentId);
+      try {
+        const res = await api.updateTeam(teamId, { lead_agent_id: agentId });
+        if (!res.success) setLeadAgentId(prev);
+      } catch {
+        setLeadAgentId(prev);
+      } finally {
+        settingLeadRef.current = false;
+      }
+    },
+    [teamId, leadAgentId],
+  );
+
   const toggleRoster = useCallback((agentId: string) => {
     setRosterExpandedId((cur) => (cur === agentId ? null : agentId));
   }, []);
@@ -805,7 +833,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     <div className="flex h-full min-h-0">
       <div className="flex h-full flex-1 flex-col min-h-0">
       {/* Member bar — team identity + the roster of agents in this room. */}
-      <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
+      <div className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-2.5 border-b border-[var(--nm-hairline)]">
         <span
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ backgroundColor: accent }}
@@ -823,7 +851,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         {/* Roster — the user (carbon/human) sits first, then the team's agents
             (silicon). The user is a participant in this room, so their avatar
             belongs in the bar alongside the agents. */}
-        <div className="flex items-center gap-1.5 ml-2 overflow-x-auto">
+        <div className="flex min-w-0 items-center gap-1.5 ml-2 overflow-x-auto">
           <span title={t('chat.team.youTitle', { name: userLabel })} className="shrink-0">
             <RingAvatar species="carbon" label={(userLabel || '?').slice(0, 2)} size="sm" />
           </span>
@@ -831,7 +859,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             <span className="w-px h-5 bg-[var(--nm-hairline)] mx-0.5 shrink-0" aria-hidden />
           )}
           {members.map((m) => {
-            // The default responder wears a dot: "who answers when I address
+            // The team lead wears a dot: "who answers when I address
             // nobody" is otherwise invisible, and it is the single most useful
             // thing to know about a room you just opened.
             const isLead = m.agent_id === leadAgentId;
@@ -870,19 +898,26 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           type="button"
           onClick={() => toggleDrawerTab('members')}
           aria-pressed={drawerTab === 'members'}
+          data-testid="members-toggle"
           title={t('chat.team.roster.title')}
           aria-label={t('chat.team.roster.title')}
           className={cn(
-            'shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
             drawerTab === 'members' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
           )}
         >
           <Users2 className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.roster.title')}</span>
         </button>
 
         {/* The addressing rules, on demand. The empty room's hero states them
             once; after the first message this is the only way back to them. */}
-        <div className="relative ml-auto shrink-0" ref={guideRef}>
+        {/* Right-side controls as one wrap-group: on desktop they sit at the
+            end of the bar; on a phone the whole group drops to a second line
+            (member bar is flex-wrap) and wraps within itself, so no toggle is
+            ever clipped by MainLayout's overflow-hidden. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 ml-auto">
+        <div className="relative shrink-0" ref={guideRef}>
           <button
             type="button"
             onClick={() => setGuideOpen((v) => !v)}
@@ -907,6 +942,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           type="button"
           onClick={() => toggleDrawerTab('artifacts')}
           aria-pressed={drawerTab === 'artifacts'}
+          data-testid="artifacts-toggle"
           title={t('rail.artifacts')}
           aria-label={t('rail.artifacts')}
           className={cn(
@@ -915,6 +951,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ArtifactsGlyph className="w-3.5 h-3.5" strokeWidth={1.8} />
+          <span className="text-[11px]">{t('rail.artifacts')}</span>
           {wsArtifacts.length > 0 && (
             <span className="text-[10px] font-mono">{wsArtifacts.length}</span>
           )}
@@ -947,12 +984,14 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         >
           <ClipboardList className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.bulletin.title')}</span>
           {(bulletin?.usage.entry_count ?? 0) > 0 && (
             <span className="text-[10px] font-mono" data-testid="bulletin-count">
               {bulletin?.usage.entry_count}
             </span>
           )}
         </button>
+        </div>
       </div>
 
       {/* Two panes: the conversation on the left, the standing roster on the
@@ -1329,6 +1368,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               onToggle={toggleRoster}
               accent={accent}
               onOpenSettings={() => navigate(`/app/teams/${teamId}`)}
+              onSetLead={handleSetLead}
               className="flex h-full w-full"
             />
           )}

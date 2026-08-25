@@ -158,6 +158,20 @@ class NexusPowerPrompts:
             "question instead."
         )
 
+    @classmethod
+    def wait_timed_out(cls, seconds: int) -> str:
+        """The timeout message injected when a ``wait_for_input`` wait elapses with
+        nothing arriving (loop WAIT boundary). Tells the agent the wait is over
+        so it wraps up rather than assuming it is still waiting — and names the
+        alternative (wait again) without pushing it, so a genuinely-idle turn
+        closes instead of spinning."""
+        return (
+            f"You waited {seconds}s and no new message arrived. Wrap up this "
+            "turn now — end with a brief reply if the situation calls for one. "
+            "Only call `wait_for_input` again if a reply is still genuinely "
+            "expected; do not wait repeatedly with nothing happening."
+        )
+
     # ---- section rosters (order is contract: reordering breaks every
     # user's cache prefix and requires explicit review) ----------------
 

@@ -52,7 +52,9 @@
     "composer": {
       "selectAgentFirst": "Select an agent first…",
       "dropFile": "Drop file to attach…",
-      "placeholder": "Type a message or / for skills…"
+      "placeholder": "Type a message or / for skills…",
+      "steerPlaceholder": "Add to this run — your reply folds into the current turn…",
+      "attachDuringRun": "Can't attach while the agent is running — send text now, or wait for it to finish to add a file."
     },
     "fastMode": {
       "label": "Fast",
@@ -212,7 +214,9 @@
           "paused": "paused"
         },
         "turnOff": "Turn off",
-        "turnOn": "Turn on"
+        "turnOn": "Turn on",
+        "awaitingReply": "awaiting reply",
+        "nameSep": ", "
       },
       "bulletin": {
         "title": "Bulletin",
@@ -237,6 +241,7 @@
         "clearedNotice": "Bulletin cleared"
       },
       "leadBadge": "lead",
+      "setLead": "Make lead",
       "expand": "Show more",
       "collapse": "Show less",
       "today": "Today",
@@ -274,7 +279,8 @@
       "preparingWorkspace": "Preparing workspace…",
       "buildingContext": "Building context…",
       "thinking": "Thinking…",
-      "acting": "Acting…"
+      "acting": "Acting…",
+      "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {
       "viewLoop": "view what it did",
@@ -346,7 +352,21 @@
       "modelFramework": "Model & framework",
       "switchAgent": "Switch agent"
     },
-    "composerPrivacyHint": "Avoid sharing sensitive personal information."
+    "composerPrivacyHint": "Avoid sharing sensitive personal information.",
+    "steer": {
+      "sendTitle": "Send into this run (Enter)",
+      "queued": "Queued…",
+      "merged": "Folded into this run",
+      "rejected": "Not sent — {{reason}}",
+      "reason": {
+        "too_large": "message too long",
+        "too_many_pending": "too many pending",
+        "framework_no_steering": "this agent can't take mid-run input",
+        "not_sent": "connection wasn't ready",
+        "run_ended": "the run finished first",
+        "unknown": "couldn't be delivered"
+      }
+    }
   },
   "awareness": {
     "common": {
@@ -1328,9 +1348,9 @@
     "saveChanges": "Save changes",
     "deleteTeam": "Delete team",
     "membersLabel": "Members ({{selected}} / {{total}})",
-    "defaultResponderLabel": "Default responder",
-    "defaultResponderAuto": "Auto (earliest-joined member)",
-    "defaultResponderHint": "Who answers a team message that doesn't @mention anyone. They can @mention a teammate to hand off.",
+    "leadLabel": "Team lead",
+    "leadAuto": "Auto (earliest-joined member)",
+    "leadHint": "The team lead answers a message that doesn't @mention anyone, and can @mention a teammate to hand off. You can also set the lead directly from a member's card in the room.",
     "noAgents": "No agents in your account.",
     "remove": "Remove",
     "add": "Add",

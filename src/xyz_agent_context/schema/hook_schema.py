@@ -230,6 +230,20 @@ class WorkingSource(str, Enum):
 # the path the Owner-Relay directive itself recommends (2026-08-03 review).
 BUS_ERRAND_TURN_SOURCE = "message_bus_errand"
 
+#: working_source values MessageBusTrigger produces for peer-agent (A2A) and
+#: team turns — the single source of truth for "a bus-produced turn". Consumers
+#: that special-case these (the Activity Log's peer surfacing, chat_module's
+#: activity summary) import this instead of re-hardcoding the pair, so adding a
+#: new bus transport updates every consumer at once. Values (not enum members)
+#: because the stored working_source is a JSON string.
+#:
+#: NOTE: today ``_invoke_runtime`` writes MESSAGE_BUS for EVERY bus turn
+#: (A2A DM, team room, team patrol) — production never emits ``"a2a"``. The
+#: A2A member is kept as a reserved slot for a future dedicated transport, so
+#: any consumer already handles it. Tests that assert on ``"a2a"`` are pinning
+#: this contract, not exercising a live path.
+BUS_PRODUCED_SOURCES = (WorkingSource.A2A.value, WorkingSource.MESSAGE_BUS.value)
+
 
 @dataclass
 class HookExecutionContext:

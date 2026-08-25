@@ -37,6 +37,7 @@ import {
   useState,
 } from 'react';
 import { Textarea } from '@/components/ui';
+import { cn } from '@/lib/utils';
 import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
 
 export interface ComposerHandle {
@@ -66,6 +67,12 @@ interface ComposerProps {
   onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
   onDrop: (e: React.DragEvent<HTMLElement>) => void;
   onPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  /** How many action buttons overlay the textarea's right edge. The textarea
+   *  reserves right padding so text never slides under them: 1 button (Send, or
+   *  Stop alone) → pr-12; 2 buttons (a steerable run shows Stop + a steer Send)
+   *  → pr-24. ChatPanel owns the buttons, so it tells the input how much room to
+   *  keep. Defaults to 1 (the everyday single-button layout). */
+  trailingSlots?: 1 | 2;
 }
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 400;
@@ -82,6 +89,7 @@ export const Composer = memo(
       onDragLeave,
       onDrop,
       onPaste,
+      trailingSlots = 1,
     },
     ref,
   ) {
@@ -243,7 +251,14 @@ export const Composer = memo(
           // hover(border-strong)/focus(ink) treatments are no longer pinned
           // back to the hairline. Height is managed by the autosize effect;
           // max-h caps it at ~a third of the viewport before it scrolls.
-          className="nx-composer-input block min-h-[52px] max-h-[min(320px,35vh)] overflow-y-auto py-[14px] pr-12 leading-[24px] resize-none bg-[color:var(--nm-card)]"
+          className={cn(
+            'nx-composer-input block min-h-[52px] max-h-[min(320px,35vh)] overflow-y-auto py-[14px] leading-[24px] resize-none bg-[color:var(--nm-card)]',
+            // Reserve room for the button(s) pinned over the right edge so typed
+            // text never slides underneath them. 2 buttons (steerable run:
+            // Stop @ right-2 + steer Send @ right-12, each w-9) span 8–84px, so
+            // pr-24 (96px); the single-button default spans 8–44px → pr-12.
+            trailingSlots === 2 ? 'pr-24' : 'pr-12',
+          )}
           rows={1}
         />
       </div>

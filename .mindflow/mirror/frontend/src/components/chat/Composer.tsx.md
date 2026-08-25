@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `trailingSlots` prop:右侧内边距随按钮数走
+
+新增可选 prop `trailingSlots?: 1 | 2`(默认 1)。textarea 右侧压着 ChatPanel 绝对定位的动作键,
+文本必须让位不能滑到键底下:1 颗键(平时的发送键,或流式态单独的 Stop)→ `pr-12`(8–44px);
+steerable 运行中并排 2 颗(Stop @ `right-2` + steer 发送键 @ `right-12`,各 `w-9`,占 8–84px)→ `pr-24`(96px)。
+ChatPanel 持有按钮,故由它在 `isStreaming && currentSteerable` 时传 `2`、其余传 `1`。布局数字
+(`pr-*` ↔ `right-*`+`w-*`)本来分散在两文件里彼此耦合;这个 prop 把「留多宽」收敛成一个显式契约,
+下次往这排加键改这一处即可。className 从常量串改为 `cn(...)` 拼接。
 
 ## 2026-08-19 — 输入框随内容增高
 

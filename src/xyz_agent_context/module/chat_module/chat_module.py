@@ -29,7 +29,10 @@ from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
-from xyz_agent_context.schema.hook_schema import is_plain_text_turn
+from xyz_agent_context.schema.hook_schema import (
+    BUS_PRODUCED_SOURCES,
+    is_plain_text_turn,
+)
 
 # Schema
 from xyz_agent_context.schema import (
@@ -539,7 +542,7 @@ class ChatModule(XYZBaseModule):
 
         if working_source == "job":
             return "Ran a scheduled job"
-        if working_source in ("message_bus", "a2a"):
+        if working_source in BUS_PRODUCED_SOURCES:
             # No "Replied to X" arm: a turn that delivered anything recovers its
             # text upstream and is written as a real assistant row, so it never
             # reaches this summary. Keeping a branch that cannot run would leave
@@ -1194,23 +1197,41 @@ class ChatModule(XYZBaseModule):
         # so we subtract 1ms; the fallback (no event) uses now()-1ms which
         # also stays below the user message stamped a moment later.
         if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
-            greeting = await self._resolve_bootstrap_greeting()
-            base_dt = (
-                params.event.created_at
-                if params.event is not None and params.event.created_at is not None
-                else utc_now()
-            )
-            # Shared row builder (chat_module owns the shape + timestamp rule) so
-            # this lazy prepend and the step_1 provision-time seed stay identical.
+            # First-contact scope is per-(agent, user), NOT per-instance
+            # (Shenzhen-r2 B2): every new narrative brings a fresh empty
+            # instance, and prepending here on each one re-greeted mid-
+            # conversation — the extra assistant row rendered as a second
+            # reply to the user's question. Sibling history = already
+            # greeted; skip.
             from xyz_agent_context.module.chat_module._chat_writes import (
+                agent_chat_has_history,
                 build_bootstrap_greeting_row,
             )
-            messages.append(
-                build_bootstrap_greeting_row(
-                    greeting, base_dt, instance_id, event_id=params.event_id
+            already_greeted = False
+            if self.db is not None:
+                try:
+                    already_greeted = await agent_chat_has_history(
+                        self.db, self.agent_id, self.user_id
+                    )
+                except Exception as e:  # noqa: BLE001 — best-effort; worst case is a re-greet
+                    logger.warning(f"ChatModule: sibling-history check failed: {e}")
+            if not already_greeted:
+                greeting = await self._resolve_bootstrap_greeting()
+                base_dt = (
+                    params.event.created_at
+                    if params.event is not None and params.event.created_at is not None
+                    else utc_now()
                 )
-            )
-            logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
+                # Shared row builder (chat_module owns the shape + timestamp
+                # rule) so this lazy prepend and the step_1 provision-time
+                # seed stay identical. NO event_id: the greeting belongs to no
+                # run — stamping the current run's id made it share the
+                # (role, event_id) identity the frontend timeline dedups on
+                # with the turn's REAL reply (the other half of B2).
+                messages.append(
+                    build_bootstrap_greeting_row(greeting, base_dt, instance_id)
+                )
+                logger.debug("ChatModule: Prepended bootstrap greeting as first assistant message")
 
         # Append this conversation
         # Get working_source (execution source: chat/job/a2a)

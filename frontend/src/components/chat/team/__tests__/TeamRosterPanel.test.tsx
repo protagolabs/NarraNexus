@@ -163,6 +163,27 @@ describe('TeamRosterPanel', () => {
     expect(getEventLogMock).not.toHaveBeenCalled();
   });
 
+  test('offers "set lead" on an expanded non-lead member, wired to onSetLead', () => {
+    const onSetLead = vi.fn();
+    // a3 is idle-never-ran (no event-log fetch) and is NOT the lead (a1 is).
+    renderPanel({ expandedId: 'a3', onSetLead });
+    const btn = screen.getByTestId('set-lead-a3');
+    expect(btn.textContent).toContain('chat.team.setLead');
+    fireEvent.click(btn);
+    expect(onSetLead).toHaveBeenCalledWith('a3');
+  });
+
+  test('does not offer "set lead" on the current lead', () => {
+    const onSetLead = vi.fn();
+    renderPanel({ expandedId: 'a1', onSetLead });
+    expect(screen.queryByTestId('set-lead-a1')).toBeNull();
+  });
+
+  test('no "set lead" affordance at all when onSetLead is not provided', () => {
+    renderPanel({ expandedId: 'a3' });
+    expect(screen.queryByTestId('set-lead-a3')).toBeNull();
+  });
+
   test('zero members renders the empty state', () => {
     const onOpenSettings = vi.fn();
     render(

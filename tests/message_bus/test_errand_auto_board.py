@@ -797,7 +797,11 @@ def test_the_team_prompt_names_the_alternatives_to_a_promise():
     )
 
     assert "Do not promise future delivery" in text
-    assert "ENDS your turn" in text
+    # The reason the promise cannot be kept — decoupled 2026-08-21 from the old
+    # "sending this message ENDS your turn", which read as "one send and you're
+    # done" and contradicted the cross-channel capability granted elsewhere. The
+    # Dunhuang prohibition and its exits (below) are unchanged.
+    assert "Nothing of yours keeps running once this turn ends" in text
     # The three exits.
     assert "finish the work in THIS turn" in text
     assert "how far you got" in text

@@ -131,6 +131,18 @@ class TurnOptions(BaseModel):
     # calls (while expressive tools exist) gets one steering nudge and
     # one more step. Voice turns set this via TurnProfile.voice_fast().
     expression_nudge: bool = False
+    # Is this run STEERABLE — did the orchestrator register a live SteerChannel
+    # for it? This is the orchestrator's decision carried EXPLICITLY across the
+    # serialization boundary, because it cannot be inferred here: the subprocess
+    # runner mounts a QueueSteeringInlet on EVERY turn (fed only on a steerable
+    # one), so "an inlet is mounted" is always true and cannot gate anything. The
+    # `wait_for_input` tool is exposed ONLY when this is True — on a non-steerable
+    # run nothing can ever feed the inlet, so a wait would block to no purpose
+    # (see assembly._steer_channels). DRAIN is unaffected: an empty inlet drains
+    # to nothing whether or not the run is steerable. Default False = a plain run
+    # exposes no wait tool; an OLD payload without the field degrades to that
+    # safe state (no 300s block), never to a wrongly-armed wait.
+    steerable: bool = False
     # System-prompt surface. String literal on purpose: contracts is the
     # wire layer and never imports the PromptMode enum from impl; the
     # assembler converts. "full" = the previously hardwired default.

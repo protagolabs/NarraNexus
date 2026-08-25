@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — `_BEHAVIOUR` 的 DM 指令改为服从 Communication Protocol
+
+原文第 1 条是**无条件**的「In direct messages, every message is for you —
+reply normally.」，没有任何例外条款。它与 [[channel_prompts.py]] 新增的
+`### Breaking a Loop` 出现在同一个上下文窗口里，而模块级指令更「贴身」
+（讲的就是这个渠道怎么用工具），模型仲裁时很可能压过通用协议——出口就在
+8/14 事故所在的这条链路上被自家 prompt 抵消。
+
+改成一句**引用**：「reply normally, subject to **Breaking a Loop** in the
+Communication Protocol above」。
+
+**只引用、不复制正文**。把 loop 规则抄进模块 prompt 就是两份文案，下次改
+协议必漂移——本仓已经为「静态 bus 规则与 team 房间 prompt 互相矛盾」付过
+一次学费。`TestModulePromptsDoNotContradictTheProtocol` 两侧都钉：引用必须
+在、规则正文必须**不**在。
+
+Slack / Discord 的同类措辞是「every **relevant** message」，本身留了余地，
+未改动。
 
 ## 2026-08-06 — auto review 收口（PR #247 两轮意见）
 

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/openai_agents.py
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — helper 调用子相位计时（诊断埋点，无行为变化）
+
+`llm_function` 里把一次 helper 调用拆成子相位计时，回答「一次 helper LLM 慢在哪」：
+是模型/网络（`llm.helper.api_agents_sdk` 或 `llm.helper.api_fallback`），还是 SDK 包装
+开销——每次新建 `AsyncOpenAI` 客户端的 `llm.helper.client_build`、记账写库的
+`llm.helper.record_cost`。外加入口一条 `[HelperTiming] llm_function start` INFO 打出
+`model / input_chars / output_type`。**纯 `timed()` 包裹既有 `await` + 一条 log，零控制
+流改动**。缘起：叙事门 continuity/unified-match 两个 helper 在生产被感知「十几秒」，而裸打
+litellm 只有 2-3s，怀疑差距在 SDK 包装层（连接不复用/记账）——此埋点用来坐实。
 
 ## 2026-08-03 — 接上 [[_prompt_probe]]（默认关闭的诊断挂点）
 

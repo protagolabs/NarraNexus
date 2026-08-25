@@ -38,7 +38,7 @@ import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { downloadFile } from '@/lib/download';
-import { KIND_REGISTRY } from './kindRegistry';
+import { KIND_REGISTRY, downloadExtFor } from './kindRegistry';
 
 function safeFilename(title: string, ext: string): string {
   // Strip path-illegal punctuation. Control chars are filtered by codepoint
@@ -69,7 +69,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
     artifact.artifact_id,
     artifact.updated_at,
   );
-  const ext = KIND_REGISTRY[artifact.kind]?.downloadExt ?? 'bin';
+  const ext = downloadExtFor(artifact);
 
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);

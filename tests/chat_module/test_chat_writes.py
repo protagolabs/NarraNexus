@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from xyz_agent_context.module.chat_module._chat_writes import (
+    agent_chat_has_history,
     build_bootstrap_greeting_row,
     seed_bootstrap_greeting,
 )
@@ -101,3 +102,76 @@ async def test_seed_is_idempotent_on_nonempty_instance(db_client):
     msgs = mem.get("messages", [])
     assert len(msgs) == 1  # unchanged
     assert all(m["meta_data"].get("bootstrap") is not True for m in msgs)
+
+
+# ---- per-(agent,user) scope: the Shenzhen-r2 "two replies" bug ----------
+
+
+async def _register_chat_instance(db_client, instance_id: str, agent: str, user: str):
+    await db_client.insert(
+        "module_instances",
+        {
+            "instance_id": instance_id,
+            "module_class": "ChatModule",
+            "agent_id": agent,
+            "user_id": user,
+            "status": "active",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_seed_skips_when_a_sibling_instance_already_has_history(db_client):
+    """Shenzhen-r2 B2: every new narrative creates a fresh EMPTY chat
+    instance, and the per-instance guard alone re-seeded the greeting there —
+    the extra assistant row popped in near the user's question and read as a
+    second reply. The greeting is a first-contact affordance: once the agent
+    has ANY chat history with this user, no instance is ever seeded again."""
+    agent, user = "a_sib", "u_sib"
+    await _register_chat_instance(db_client, "chat_sib_a", agent, user)
+    await _register_chat_instance(db_client, "chat_sib_b", agent, user)
+    repo = EventMemoryRepository(agent, user, db_client)
+    await repo.add_instance_json_format_memory(
+        "ChatModule",
+        "chat_sib_a",
+        {"messages": [
+            {"role": "user", "content": "name yourself", "meta_data": {"timestamp": utc_now().isoformat()}},
+            {"role": "assistant", "content": "done", "meta_data": {"timestamp": utc_now().isoformat()}},
+        ]},
+    )
+
+    wrote = await seed_bootstrap_greeting(
+        db_client, agent, user, "chat_sib_b", "Greetings!", utc_now()
+    )
+
+    assert wrote is False
+    mem = await repo.search_instance_json_format_memory("ChatModule", "chat_sib_b")
+    assert not (mem or {}).get("messages")
+
+
+@pytest.mark.asyncio
+async def test_seed_still_fires_on_true_first_contact_with_registered_instances(db_client):
+    """The sibling scan must not false-positive on registered-but-empty
+    instances — a genuinely fresh agent still gets its greeting."""
+    agent, user = "a_fresh", "u_fresh"
+    await _register_chat_instance(db_client, "chat_fresh_a", agent, user)
+    wrote = await seed_bootstrap_greeting(
+        db_client, agent, user, "chat_fresh_a", "Greetings!", utc_now()
+    )
+    assert wrote is True
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_has_history_scopes_by_agent_and_user(db_client):
+    """Another agent's (or another user's) history must not suppress this
+    agent's first greeting."""
+    await _register_chat_instance(db_client, "chat_other_a", "a_other", "u_x")
+    repo = EventMemoryRepository("a_other", "u_x", db_client)
+    await repo.add_instance_json_format_memory(
+        "ChatModule",
+        "chat_other_a",
+        {"messages": [{"role": "user", "content": "hi", "meta_data": {"timestamp": utc_now().isoformat()}}]},
+    )
+    assert await agent_chat_has_history(db_client, "a_other", "u_x") is True
+    assert await agent_chat_has_history(db_client, "a_new", "u_x") is False
+    assert await agent_chat_has_history(db_client, "a_other", "u_y") is False

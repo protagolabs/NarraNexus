@@ -346,10 +346,20 @@ class OpenAIAgentsSDK:
         max_tokens = get_max_output_tokens(model_name)
 
         # Build AsyncOpenAI client
+        # [HelperTiming] Diagnostic-only: split the helper call into its
+        # sub-phases (client build / API call / cost record) so a slow helper
+        # LLM turn can be attributed to the model vs the SDK wrapper. Pure
+        # observability — no control flow changes.
+        logger.info(
+            f"[HelperTiming] llm_function start model={model_name} "
+            f"input_chars={len(instructions) + len(user_input)} "
+            f"output_type={output_type.__name__ if output_type else 'None'}"
+        )
         client_kwargs: dict = {"api_key": openai_config.api_key}
         if openai_config.base_url:
             client_kwargs["base_url"] = openai_config.base_url
-        openai_client = AsyncOpenAI(**client_kwargs)
+        with timed("llm.helper.client_build", slow_threshold_ms=500):
+            openai_client = AsyncOpenAI(**client_kwargs)
 
         logger.debug(
             f"[HelperLLM] Calling: model={model_name}, "
@@ -368,11 +378,13 @@ class OpenAIAgentsSDK:
         cap_key = _capability_key(model_name)
         if output_type and cap_key not in _structured_output_blocklist:
             try:
-                result = await self._try_agents_sdk(
-                    openai_client, model_name, instructions, user_input,
-                    output_type, max_tokens, reasoning_effort,
-                )
-                await self._record_cost(result, model_name, agent_id, db)
+                with timed("llm.helper.api_agents_sdk"):
+                    result = await self._try_agents_sdk(
+                        openai_client, model_name, instructions, user_input,
+                        output_type, max_tokens, reasoning_effort,
+                    )
+                with timed("llm.helper.record_cost", slow_threshold_ms=500):
+                    await self._record_cost(result, model_name, agent_id, db)
                 _last_llm_call_info.set(
                     {"model": model_name, "structured": "agents_sdk"}
                 )
@@ -402,10 +414,11 @@ class OpenAIAgentsSDK:
                     )
 
         # Fallback: direct chat completion + manual JSON parsing
-        result = await self._fallback_chat_completion(
-            openai_client, model_name, instructions, user_input,
-            output_type, max_tokens, reasoning_effort,
-        )
+        with timed("llm.helper.api_fallback"):
+            result = await self._fallback_chat_completion(
+                openai_client, model_name, instructions, user_input,
+                output_type, max_tokens, reasoning_effort,
+            )
         if not output_type:
             structured_mode = "no_schema"
         elif first_attempt_failed:

@@ -26,6 +26,7 @@ import { useConfigStore } from '@/stores';
 import { useArtifactStore, type ArtifactChangedEvent } from '@/stores/artifactStore';
 import { useChatStore } from '@/stores/chatStore';
 import { translateReconnectFrame } from '@/services/wsManager';
+import { parseBackendTs } from '@/lib/backendTs';
 import type { Step, TurnEvent } from '@/types';
 
 /**
@@ -144,8 +145,11 @@ export function applyObservationFrame(
     // mid-run drop + backoff reopen would stack the whole trace twice
     // (tool_output rows append unconditionally; thinking would merge
     // doubled content).
-    const startedRaw = raw.started_at as string | null | undefined;
-    const startedMs = startedRaw ? Date.parse(startedRaw) : NaN;
+    // parseBackendTs, not Date.parse (review #349 I1): cloud MySQL emits a
+    // NAIVE-UTC string that bare Date.parse reads as local time — this
+    // elapsed anchor would be off by the viewer's UTC offset the day a UI
+    // starts rendering it.
+    const startedMs = parseBackendTs(raw.started_at as string | null | undefined);
     return {
       ...INITIAL,
       status: 'live',
