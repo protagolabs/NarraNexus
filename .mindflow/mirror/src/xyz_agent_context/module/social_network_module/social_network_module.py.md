@@ -27,6 +27,14 @@ persona 全部不发生，此前零证据）和 `_process_mentioned_entities` �
 直接引到错误的 LLM 调用上。以及同一个 traceback 被 `logger.exception` 连打
 两次。
 
+**测试在 [[test_memory_write_audit_wiring.py]]**，注意它 patch 的是**本模块**
+的 `_report_write_failure` 绑定——本文件是模块顶层 import，patch
+`_entity_updater` 的同名属性对这两处无效，断言会对着空列表静静通过。
+
+`entity_id_candidate` 的赋值提到了 `try` **外**：except 里要用它上报，留在
+try 内第一行等于让错误路径依赖它自己没出错（第一轮迭代会从 except 里抛
+`NameError` 连带丢掉本批剩余实体；后续迭代会把失败记到上一个实体头上）。
+
 这些 except **必须继续不抛**——hook 挂掉会连带影响 Step-6 回调。
 
 五个调用点都显式传 `agent_id=self.agent_id`——下游的 owner 告警要靠它反查

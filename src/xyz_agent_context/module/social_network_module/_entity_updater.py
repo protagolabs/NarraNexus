@@ -224,8 +224,14 @@ async def _report_write_failure(
     ``agent_id`` is optional here, unlike the required ``agent_id`` on the
     functions above, and the asymmetry is deliberate: there it prevents a
     silent degradation (a missing owner means the alert never reaches a
-    human), here it only makes the audit row easier to query. Two of the
-    three call sites genuinely do not have one.
+    human), here it only makes the audit row easier to query.
+
+    Three of the five call sites pass it today
+    (``append_to_entity_description`` plus the two in
+    ``social_network_module``). The other two —
+    ``update_interaction_stats`` and ``update_entity_persona`` — simply
+    have not threaded it down yet; their caller does have one. That is a
+    to-do, not a property of those call sites.
 
     ``redact_secrets`` matches what ``background_llm_alerts`` does before
     every audit write — one redaction policy per audit table, not two.
@@ -238,7 +244,14 @@ async def _report_write_failure(
             "agent_id": agent_id,
             "entity_id": entity_id,
             "instance_id": instance_id,
-            "error": redact_secrets(error),
+            # Class name kept INSIDE the redaction, not dropped: for a DB
+            # failure ``OperationalError`` (lock/timeout) and
+            # ``IntegrityError`` (unique clash) call for different
+            # responses, and some exceptions — ``asyncio.TimeoutError()``
+            # — stringify to "", which would file an audit row saying only
+            # that something failed. ``redact_secrets`` still covers the
+            # whole string.
+            "error": redact_secrets(f"{type(error).__name__}: {error}"),
         }
     )
 

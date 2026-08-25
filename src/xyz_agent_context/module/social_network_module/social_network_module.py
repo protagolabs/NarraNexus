@@ -678,8 +678,16 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         )
 
         for mentioned_entity in mentioned:
+            # Outside the try on purpose: the except below reports with this
+            # id, so leaving the assignment as the try's first statement
+            # made the error path depend on it having succeeded — first
+            # iteration would raise NameError from inside the except (taking
+            # the rest of the batch with it), later ones would file the
+            # failure under the PREVIOUS entity's id. ``name`` is a required
+            # pydantic ``str``, so this cannot raise today; the point is that
+            # the error path should not rest on that.
+            entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
             try:
-                entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
                 candidate_aliases = getattr(mentioned_entity, 'aliases', [])
                 candidate_familiarity = getattr(mentioned_entity, 'familiarity', 'known_of')
 
