@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
 
@@ -25,6 +25,10 @@ stub: false
 [[channel_trigger_base.py]] 的 `is_agent_peer` seam 填。它**和 room_type 走
 同一个信封**——这样一个忘了填信封的渠道是整个失去 DM 兜底，而不是拿到一个
 半武装的版本（room_type 当年就栽在这上面，见 2026-08-06 那条）。
+
+**计数器也会被清理**（预审补）：`_recent_fallback_count` 只清它被问到的那个
+键，所以一个只兜底过一次、之后再没消息的房间会留到进程结束。与
+[[ingress_guard.py]] 的 `_sessions` 是同一个形状的洞，投递计数时顺带扫一遍。
 
 **计数器进程内即可**，键 `f"{channel}:{room_id}"`，抄
 [[background_llm_alerts.py]] 的 `_notify_cooldown` 惯例。它是抑制启发式，

@@ -148,3 +148,55 @@ def test_same_room_on_two_channels_is_two_conversations():
     a = _fallback_conversation_key({"channel": "telegram", "room_id": "123"})
     b = _fallback_conversation_key({"channel": "slack", "room_id": "123"})
     assert a != b
+
+
+# ── Memory ────────────────────────────────────────────────────────────
+
+def _step3_module():
+    """The MODULE, not the same-named function.
+
+    ``_agent_runtime_steps/__init__`` re-exports a ``step_3_agent_loop``
+    function, so ``from ... import step_3_agent_loop`` hands back the
+    function and every module-attribute access fails with a confusing
+    "'function' object has no attribute ...".
+    """
+    import importlib
+
+    return importlib.import_module(
+        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+
+def test_history_does_not_grow_without_bound():
+    """`_recent_fallback_count` only cleans the key it is asked about, so
+    a room that gets one fallback and never another would keep its entry
+    for the life of the process — same unbounded-growth shape as the
+    ingress guard's session map."""
+    step3 = _step3_module()
+
+    reset_im_dm_fallback_history()
+    for i in range(500):
+        _record_fallback_delivery(f"telegram:room{i}")
+
+    # Everything is inside the window, so nothing is droppable yet.
+    assert len(step3._im_dm_fallback_history) == 500
+
+    # Age them all out, then record one more.
+    for stamps in step3._im_dm_fallback_history.values():
+        stamps[:] = [t - step3.IM_DM_FALLBACK_WINDOW_SECONDS - 1 for t in stamps]
+    _record_fallback_delivery("telegram:fresh")
+
+    assert len(step3._im_dm_fallback_history) == 1
+    assert "telegram:fresh" in step3._im_dm_fallback_history
+    reset_im_dm_fallback_history()
+
+
+def test_pruning_keeps_a_conversation_that_is_still_inside_its_window():
+    step3 = _step3_module()
+
+    reset_im_dm_fallback_history()
+    _record_fallback_delivery("telegram:live")
+    _record_fallback_delivery("telegram:other")
+    assert _recent_fallback_count("telegram:live") == 1
+    assert len(step3._im_dm_fallback_history) == 2
+    reset_im_dm_fallback_history()

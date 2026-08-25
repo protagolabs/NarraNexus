@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/ingress_guard.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # ingress_guard.py — 「这条消息值不值得处理」
@@ -136,6 +136,36 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
 **下游**：`ChannelIngressBreakerRepository`（落库）、
 [[channel_audit_events.py]] 的三个事件常量、
 `background_llm_alerts.alert_ingress_breaker_tripped`（owner 通知）。
+
+## 预审补的两个洞（2026-08-25）
+
+写完跑绿之后对着 diff 又审了一遍，抓到两个测试覆盖不到的问题——都不是错误
+逻辑，是**长跑内存**，而铁律 #14 明确说长跑是一等场景。
+
+**`_sessions` 无界增长。** 每见过一个会话键就留一个 `_SessionState`（各挂
+一条 deque）永不释放。冒烟验证：5000 个只说过一句话的陌生人 → 5000 条状态
+全留着、零个在熔断中。`forget()` 当时写了但**没有任何人调用**。
+
+修法是 `prune_idle()` + `admit` 里每 1000 次摊还调用一次。**摊还而不是每条
+清**：清扫是 O(sessions)，每条消息付一次就把热路径从 O(1) 变成 O(n)。放在
+`admit` 里而不是挂 `_run_cleanup`，是因为托管路径根本没有自己的清扫 tick。
+
+**只有真正什么都没带的会话可以丢**：tier=0、不在冷却、窗口内无事件。丢掉
+一个闭合会话是无损的——它的 DB 行还在，下次这个键再说话时懒加载读回来
+（`test_a_pruned_session_reloads_its_durable_state` 钉这一点）。带着 tier
+或冷却的会话正是我们承诺要记住的东西，清扫不能变成提前遗忘的后门。
+
+**`suppressed_count` 是条死列。** 内存计数器在冷却期间正常累加，但热路径
+不写库（这是对的），而 `_trip` 和 `_half_open` 两个写入点**都写 0**——于是
+这一列在库里永远是 0，schema 注释承诺的「本轮冷却挡下了多少条」从 SQL 根本
+问不出来。冒烟验证：verdict 报告 52，库里写着 0。
+
+修法：`_half_open` 写**真实吸收数**。那是唯一能写的时刻——探测发生时这个数
+恰好完整，之后内存清零；`_trip` 继续写 0 是对的，新一轮隔离从零开始算。
+
+顺带修的：`cooling_session_count()` 原本内部硬用 `utc_now()`，与本文件
+「时钟可注入」的其余部分不一致，也导致它没法用合成时钟断言。改成收同样的
+`now` 参数。
 
 ## 坑
 

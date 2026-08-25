@@ -324,3 +324,73 @@ async def test_content_fingerprint_is_stable_and_scoped():
     assert a != content_fingerprint("room", "other", "hello")
     assert a != content_fingerprint("other", "sender", "hello")
     assert content_fingerprint("room", "sender", "") == ""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Memory: a long-running process must not accumulate strangers
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_idle_sessions_do_not_accumulate_forever():
+    """Every conversation the guard has ever seen used to keep a
+    _SessionState (with its deque) for the life of the process. Trigger
+    processes are designed to run for days — binding rule #14 makes
+    "only matters after 200 hours" not a defence."""
+    guard = _guard()
+    for i in range(2500):
+        await guard.admit(
+            agent_id="agt_1",
+            channel="slack",
+            chat_id=f"C{i}",
+            sender_id=f"U{i}",
+            fingerprint=content_fingerprint(f"C{i}", f"U{i}", "hi"),
+            now=BASE + timedelta(seconds=i),
+        )
+    assert len(guard._sessions) < 2500, "one-time senders must not be retained"
+
+
+async def test_pruning_never_drops_a_cooling_session():
+    """The whole point of the durable tier is not forgetting. Pruning
+    memory must not become a back door that forgets it early."""
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE, chat_id="noisy")
+    during = BASE + timedelta(seconds=60)
+    assert guard.cooling_session_count(during) == 1
+
+    guard.prune_idle(BASE + timedelta(days=7))
+    assert guard.cooling_session_count(during) == 1, "a live cooldown is not idle"
+    assert guard.open_session_count() == 1
+
+
+async def test_pruning_never_drops_escalation_memory():
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    # Long after the cooldown lapsed, but the tier is what we promised to keep.
+    guard.prune_idle(BASE + timedelta(days=30))
+    assert guard.open_session_count() == 1
+
+
+async def test_pruning_keeps_a_live_window():
+    """Mid-conversation state must survive a sweep that happens to land
+    between two messages."""
+    guard = _guard()
+    await _send(guard, n=3, text=lambda i: f"msg {i}", start=BASE)
+    guard.prune_idle(BASE + timedelta(seconds=10))
+    assert len(guard._sessions) == 1
+
+
+async def test_a_pruned_session_reloads_its_durable_state(db_client):
+    """Dropping a closed session is only lossless because the DB row
+    survives and is re-read lazily."""
+    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo=repo)
+    await _send(guard, n=12, text="ping", start=BASE)
+
+    # Force the in-memory copy out, keeping the durable one.
+    guard._sessions.clear()
+
+    verdict = (await _send(guard, n=1, text="ping", start=BASE + timedelta(seconds=30)))[0]
+    assert verdict.admit is False
+    assert verdict.tier == 1

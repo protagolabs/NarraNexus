@@ -81,6 +81,21 @@ DEFAULT_RECOVERY_WINDOWS = 2
 # sender from growing the deque without bound between evictions.
 _MAX_EVENTS_PER_SESSION = 4096
 
+# How often (in admitted messages) to sweep idle sessions out of memory.
+#
+# Without this the guard leaks: every (channel, chat_id, sender_id) it ever
+# sees keeps a _SessionState forever, each holding a deque. A person who
+# says one thing and never returns costs the same as a live conversation.
+# Long-running trigger processes are a first-class scenario (binding rule
+# #14), so "it only matters after a few hundred hours" is not a defence —
+# that is exactly the uptime these processes are designed for.
+#
+# Amortised rather than per-message: the sweep is O(sessions), so paying it
+# once every N messages keeps the hot path O(1). It runs on both the native
+# and the managed path because it lives in admit() — the managed
+# coordinator has no cleanup tick of its own to hang it on.
+_PRUNE_EVERY_ADMITS = 1000
+
 
 def content_fingerprint(chat_id: str, sender_id: str, content: str) -> str:
     """Stable identity of a message's CONTENT within one conversation.
@@ -194,6 +209,7 @@ class IngressGuard:
         self._schedule = schedule_seconds or DEFAULT_SCHEDULE_SECONDS
         self._recovery_windows = max(1, recovery_windows)
         self._sessions: Dict[str, _SessionState] = {}
+        self._admits_since_prune = 0
 
     # ── Public surface ────────────────────────────────────────────────
 
@@ -226,6 +242,10 @@ class IngressGuard:
             return (lessons #3/#5).
         """
         now = now or utc_now()
+        self._admits_since_prune += 1
+        if self._admits_since_prune >= _PRUNE_EVERY_ADMITS:
+            self._admits_since_prune = 0
+            self.prune_idle(now)
         key = session_key(channel, chat_id, sender_id)
         state = self._sessions.get(key)
         if state is None:
@@ -288,14 +308,53 @@ class IngressGuard:
         """
         return sum(1 for s in self._sessions.values() if s.tier > 0)
 
-    def cooling_session_count(self) -> int:
-        """Sessions whose ingress is suppressed right now."""
-        now = utc_now()
+    def cooling_session_count(self, now: Optional[datetime] = None) -> int:
+        """Sessions whose ingress is suppressed right now.
+
+        Takes the same injectable clock as ``admit`` — a count that reads
+        the wall clock while the state under it was built on a synthetic
+        one cannot be asserted on, and "is this conversation cooling?" has
+        exactly one right answer per instant.
+        """
+        now = now or utc_now()
         return sum(
             1
             for s in self._sessions.values()
             if s.cooldown_until is not None and now < s.cooldown_until
         )
+
+    def prune_idle(self, now: Optional[datetime] = None) -> int:
+        """Drop in-memory state for conversations that have gone quiet.
+
+        A session is droppable only when it is carrying NOTHING worth
+        keeping: closed (``tier`` 0), not cooling, and with no events left
+        inside the window. Anything else — an active window, a live
+        cooldown, or escalation memory — is exactly what we promised to
+        remember, so it stays.
+
+        Dropping a closed session is lossless by construction: its durable
+        row (if it ever had one) stays in the DB and is re-read lazily the
+        next time that key speaks.
+
+        Returns the number of sessions dropped.
+        """
+        now = now or utc_now()
+        cutoff = now - timedelta(seconds=self._window)
+        stale = [
+            key
+            for key, s in self._sessions.items()
+            if s.tier <= 0
+            and s.cooldown_until is None
+            and (not s.events or s.events[-1][0] < cutoff)
+        ]
+        for key in stale:
+            del self._sessions[key]
+        if stale:
+            logger.debug(
+                f"IngressGuard: pruned {len(stale)} idle sessions "
+                f"({len(self._sessions)} retained)"
+            )
+        return len(stale)
 
     def forget(self, channel: str, chat_id: str, sender_id: str) -> None:
         """Drop a session's in-memory state (credential unbound, room left).
@@ -359,7 +418,7 @@ class IngressGuard:
             return 0, 0.0
         distinct = 0
         seen: set[str] = set()
-        for idx, (_, fp) in enumerate(state.events):
+        for _, fp in state.events:
             if not fp:
                 distinct += 1  # unfingerprintable → never a duplicate
                 continue
@@ -463,7 +522,14 @@ class IngressGuard:
                 "chat_id": chat_id,
                 "sender_id": sender_id,
                 "cooldown_until": None,
-                "suppressed_count": 0,
+                # The isolation that just ended absorbed this many messages.
+                # This is the ONLY moment the number can be persisted: the
+                # hot path deliberately never writes, so if we wrote 0 here
+                # (as the first version did) the column would hold 0 for
+                # its entire life and the "how much did this cooldown
+                # swallow?" question it exists to answer would be
+                # unanswerable from SQL.
+                "suppressed_count": suppressed,
                 "last_reason": "cooldown_expired",
             },
         )

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/managed_channel_ingress.py
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
 
@@ -19,6 +19,12 @@ worker 队列 / `_process_message`），而 [[ingress_guard.py]] 在
 **失败语义显式选 open**：本文件的既有要求是每个 managed gate 都要明确选边
 （narramessenger 的 authorize hook 是 fail-closed，因为它**是**授权门）。
 熔断器是限流不是授权，guard 抛异常 / 建不出来 → 放行。
+
+**已知取舍（预审记录）**：`self._guards` 按 channel 缓存，guard 持有的是
+**首次**传入的 db client。`get_db_client()` 是 per-event-loop 的池，正常进程
+里不会变；万一变了（loop 关闭重建），旧 client 的调用会失败 → 被 repository
+吞掉 → 守卫退回纯内存工作。选择不重建 guard，是因为重建会丢掉内存里的滑窗和
+冷却——用一个降级换另一个更糟的降级不划算。
 
 **闸门排在业务 hook 之前**：已经隔离掉的对话不该每条消息还去做一次授权
 往返。

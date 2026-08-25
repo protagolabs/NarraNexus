@@ -390,6 +390,25 @@ def _record_fallback_delivery(key: str) -> None:
     if not key:
         return
     _im_dm_fallback_history.setdefault(key, []).append(time.monotonic())
+    _prune_fallback_history()
+
+
+def _prune_fallback_history() -> None:
+    """Drop conversations whose deliveries have all aged out.
+
+    ``_recent_fallback_count`` only cleans the key it was asked about, so
+    a room that gets one fallback and never another would keep its entry
+    for the life of the process. Small, but the same unbounded-growth
+    shape as the ingress guard's session map, and these processes are
+    designed to run for days (binding rule #14).
+    """
+    cutoff = time.monotonic() - IM_DM_FALLBACK_WINDOW_SECONDS
+    for key in [
+        k
+        for k, stamps in _im_dm_fallback_history.items()
+        if not stamps or stamps[-1] < cutoff
+    ]:
+        _im_dm_fallback_history.pop(key, None)
 
 
 def reset_im_dm_fallback_history() -> None:

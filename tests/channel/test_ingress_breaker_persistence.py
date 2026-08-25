@@ -149,3 +149,41 @@ async def test_the_window_itself_is_not_persisted(db_client):
             now=BASE + timedelta(seconds=i),
         )
     assert await repo.get(KEY) is None
+
+
+async def test_the_absorbed_count_is_persisted_when_the_isolation_ends(db_client):
+    """`suppressed_count` exists to answer "how much did this cooldown
+    swallow?". The hot path deliberately never writes, so the probe is the
+    only moment that number can reach the DB — writing 0 there (as the
+    first version did) left the column stuck at 0 for its whole life.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await _storm(guard)
+
+    # 50 messages arrive while the conversation is isolated.
+    await _storm(guard, start=BASE + timedelta(seconds=60), n=50)
+
+    probe = (await _storm(guard, start=BASE + timedelta(seconds=400), n=1))[0]
+    assert probe.transition == "probe"
+    assert probe.suppressed >= 50
+
+    row = await repo.get(KEY)
+    assert row.suppressed_count == probe.suppressed, (
+        "the durable column must agree with what the verdict reported"
+    )
+
+
+async def test_a_fresh_trip_resets_the_absorbed_count(db_client):
+    """Each isolation reports its OWN absorption, not a lifetime total."""
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await _storm(guard)
+    await _storm(guard, start=BASE + timedelta(seconds=60), n=50)
+    await _storm(guard, start=BASE + timedelta(seconds=400), n=1)  # probe
+
+    # Re-offend: escalates, and the new isolation starts from zero.
+    await _storm(guard, start=BASE + timedelta(seconds=500))
+    row = await repo.get(KEY)
+    assert row.tier == 2
+    assert row.suppressed_count == 0
