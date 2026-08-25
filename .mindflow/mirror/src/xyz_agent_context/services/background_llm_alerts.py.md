@@ -4,6 +4,22 @@ last_verified: 2026-08-25
 stub: false
 ---
 
+## 2026-08-25（下午）— ingress 通知层整个拆出本文件
+
+**本页下方两条 2026-08-25 的 ingress 条目描述的代码已不在这个文件里。**
+`alert_ingress_breaker_tripped` / `_send_ingress_digest` /
+`_ingress_quota_spend` / `INGRESS_NOTICE_QUOTA_PER_AGENT` 全部删除，本文件
+回到只承载 LLM 后台失败与 agent 熔断两类告警。
+
+范围决定（PR#358 第三轮 review 后，Owner 拍板）：ingress 熔断的 P1 目标是
+**止血**，无损证据链由 `channel_trigger_audit` 的三个事件承担，收件箱通知
+是锦上添花。而这一层在两轮 review 里稳定产出 6 条 finding（配额、汇总、
+文案、去重槽），是这个 PR 不收敛的主因之一。拆出去单独做透。
+
+**缺口是真实的**：owner 现在没有关于 ingress 熔断的主动推送，只能从审计表
+或 `/healthz` 发现。重做时的六个坑记在
+`reference/self_notebook/todo/2026-08-25-ingress-breaker-owner-notice.md`。
+
 ## 2026-08-25 — ingress 通知：改掉假承诺 + 加基数上限（review I2/I5）
 
 **I2 · 文案说了假话。** 原文告诉 owner「这个会话的消息会被**记录**下来，

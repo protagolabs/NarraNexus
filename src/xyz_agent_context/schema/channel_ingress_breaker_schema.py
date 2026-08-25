@@ -13,7 +13,7 @@ subscriber fast-death breaker in ``channel/channel_trigger_base.py``:
 - Fast-death breaker → "my own credential is broken, stop restarting it"
 - **Ingress breaker** → "the messages arriving are not worth processing"
 
-One row per session key ``channel|chat_id|sender_id``. Only TIER TRANSITIONS
+One row per session key ``agent_id|channel|chat_id|sender_id``. Only TIER TRANSITIONS
 are written here; the sliding-window counters and content fingerprints that
 drive those transitions stay in process memory (a row per inbound message
 would be pure write amplification). What must survive a restart is the
@@ -33,15 +33,23 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-# Per-component clamp. ``chat_id`` / ``sender_id`` come from the platform
-# with no length contract of their own, so the column width (VARCHAR(448),
-# sized as 128+32+128+128 plus separators) rested on an assumption rather
-# than a guarantee. On a MySQL deployment with strict mode disabled an
-# over-long key would be silently truncated, letting two different
-# conversations collide on the unique index and overwrite each other's
-# tier and cooldown. Clamping here makes the arithmetic true by
-# construction.
-_MAX_KEY_PART = 128
+# Per-component clamps, mirroring each column's own width in
+# ``schema_registry``. ``chat_id`` / ``sender_id`` come from the platform
+# with no length contract of their own, so the key's width otherwise rests
+# on an assumption: on a MySQL deployment with strict mode disabled an
+# over-long key is silently truncated, letting two different conversations
+# collide on the unique index and overwrite each other's tier and cooldown.
+#
+# These must be PER-COLUMN, not one number for all four. Clamping every
+# part to 128 (the first attempt) allows 4*128 + 3 = 515 — over the 448
+# the column was sized for, because ``channel`` is only VARCHAR(32). The
+# comment claiming the arithmetic was "true by construction" was written
+# without running the multiplication; ``test_session_key_cannot_overflow``
+# now derives the bound from the registry instead of restating it here.
+_MAX_AGENT_ID = 128
+_MAX_CHANNEL = 32
+_MAX_CHAT_ID = 128
+_MAX_SENDER_ID = 128
 
 
 def session_key(
@@ -69,7 +77,12 @@ def session_key(
     the room went deaf to them for up to 24h.
     """
     return "|".join(
-        part[:_MAX_KEY_PART] for part in (agent_id, channel, chat_id, sender_id)
+        (
+            agent_id[:_MAX_AGENT_ID],
+            channel[:_MAX_CHANNEL],
+            chat_id[:_MAX_CHAT_ID],
+            sender_id[:_MAX_SENDER_ID],
+        )
     )
 
 

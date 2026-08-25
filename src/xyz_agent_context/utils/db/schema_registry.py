@@ -2049,7 +2049,7 @@ _register(
 # ----------------------------------------------------------------------------
 # channel_ingress_breaker — message-ingress circuit breaker (2026-08-24)
 #
-# One row per session key `channel|chat_id|sender_id`. Written ONLY on tier
+# One row per session key `agent_id|channel|chat_id|sender_id`. Written ONLY on tier
 # transitions: the sliding-window message counts and content fingerprints
 # that drive those transitions live in process memory, because a row per
 # inbound message is pure write amplification for data that expires in ten

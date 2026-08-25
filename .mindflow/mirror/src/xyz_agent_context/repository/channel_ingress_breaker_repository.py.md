@@ -28,7 +28,7 @@ last_verified: 2026-08-25
 
 ## 为什么存在
 
-`channel_ingress_breaker`（每个会话键 `channel|chat_id|sender_id` 一行）的
+`channel_ingress_breaker`（每个会话键 `agent_id|channel|chat_id|sender_id` 一行）的
 CRUD。[[ingress_guard.py]] 拥有全部升级逻辑，这一层只读写行——与
 [[agent_circuit_breaker_repository.py]] 和它的熔断器服务是同一种分工。
 

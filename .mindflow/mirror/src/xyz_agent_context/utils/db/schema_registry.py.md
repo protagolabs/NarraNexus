@@ -21,7 +21,7 @@ stub: false
 ## 2026-08-24 — `channel_ingress_breaker` 新表（ingress 熔断器的持久状态）
 
 注册 `channel_ingress_breaker`：[[ingress_guard.py]] 的落库那一半，每个会话键
-`channel|chat_id|sender_id` 一行。
+`agent_id|channel|chat_id|sender_id` 一行。
 
 **只在层级变迁时写。** 驱动变迁的滑窗计数和内容指纹留在进程内存——为 10
 分钟就过期的数据每条入站消息写一行是纯写放大。必须活过进程的是**冷却**：

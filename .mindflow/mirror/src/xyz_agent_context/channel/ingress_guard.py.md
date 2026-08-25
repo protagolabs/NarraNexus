@@ -4,6 +4,18 @@ stub: false
 last_verified: 2026-08-25
 ---
 
+## 2026-08-25（第三轮 review）— suppressed 播种 + 通知层拆出
+
+**`suppressed` 不再从 `suppressed_count` 播种。** M9 把这一列的语义改成
+「**上一轮**隔离吸收了多少」，但 `_load()` / `warm_start()` 仍拿它给
+**下一轮**的内存计数器播种——于是这个数会在懒加载/重启后虚高，并跨轮累加。
+重载后我们其实并不知道之前丢了多少，诚实的做法是从 0 数起；那一列继续为
+SQL 保留已完成隔离的数字。
+
+**owner 通知层已整个拆出**（见 [[background_llm_alerts.py]]）。熔断器本体、
+四个挂载点、三个 audit 事件、`/healthz` 计数全部保留——止血能力不受影响，
+少的是「事中推送」。
+
 ## 2026-08-25（第二轮 review）— 修复自己制造的债
 
 上一轮的修复 commit 自己引入了这一批。记下来是因为它们**重复了上一轮刚
@@ -169,8 +181,8 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
 **一个 base seam + 一个 grep 级守卫测试**。
 
 **下游**：`ChannelIngressBreakerRepository`（落库）、
-[[channel_audit_events.py]] 的三个事件常量、
-`background_llm_alerts.alert_ingress_breaker_tripped`（owner 通知）。
+[[channel_audit_events.py]] 的三个事件常量。
+（owner 通知那一路已于 2026-08-25 拆出，见本页最新条目。）
 
 ## 2026-08-25 — PR#358 review 修的两个真问题
 

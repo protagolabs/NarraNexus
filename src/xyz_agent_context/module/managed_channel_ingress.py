@@ -224,22 +224,6 @@ class ManagedChannelIngress:
                 sender_id=message.sender_id,
                 details=verdict.audit_details(),
             )
-        if verdict.transition in ("tripped", "escalated") and agent_id:
-            try:
-                from xyz_agent_context.services.background_llm_alerts import (
-                    alert_ingress_breaker_tripped,
-                )
-
-                await alert_ingress_breaker_tripped(
-                    agent_id=agent_id,
-                    db=db,
-                    channel=(trigger.brand_display if trigger else channel) or channel,
-                    verdict=verdict,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    f"managed ingress: breaker owner alert failed ({type(e).__name__}: {e})"
-                )
         if verdict.admit:
             return True, ""
         return False, "conversation temporarily rate-limited (repeat storm)"

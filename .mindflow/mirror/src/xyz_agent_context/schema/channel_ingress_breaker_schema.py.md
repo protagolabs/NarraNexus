@@ -4,6 +4,17 @@ stub: false
 last_verified: 2026-08-25
 ---
 
+## 2026-08-25（第三轮 review）— 钳制改成 per-column，算术由测试推导
+
+上一条写的「`_MAX_KEY_PART = 128` 让 419/448 由构造保证」**是错的**：
+四个分量统一钳到 128 允许 `4*128 + 3 = 515`，超过列宽 448——因为 `channel`
+其实只有 VARCHAR(32)。那句「由构造保证」是没做乘法就写下的。
+
+改成 per-column 钳制（128/32/128/128），最坏键长 419。更重要的是
+`test_session_key_cannot_overflow_its_column` 现在用
+`schema_registry.varchar_width()` **从 DDL 推导**这个上界，而不是在注释里
+再复述一遍数字——注释与 schema 漂移正是这次的失败方式。
+
 ## 2026-08-25 — 会话键改成四段（含 `agent_id`），并钳制分量长度
 
 **键是 `session_key(agent_id, channel, chat_id, sender_id)`**，不再是三段。

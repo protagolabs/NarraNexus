@@ -394,7 +394,8 @@ class IngressGuard:
             state = _SessionState()
             state.loaded = True
             state.tier = row.tier or 0
-            state.suppressed = row.suppressed_count or 0
+            # NOT seeded from ``row.suppressed_count`` — see _load().
+            state.suppressed = 0
             cooldown_until = row.cooldown_until
             if cooldown_until is not None:
                 if cooldown_until.tzinfo is None:
@@ -486,7 +487,15 @@ class IngressGuard:
         if row is None:
             return
         state.tier = row.tier or 0
-        state.suppressed = row.suppressed_count or 0
+        # NOT seeded from ``row.suppressed_count``: since M9 that column
+        # records what the PREVIOUS isolation absorbed, so using it here
+        # would start the NEXT isolation's counter part-way up and make
+        # the figure accumulate across rounds — inflating exactly the
+        # number the escalation notice puts in the headline. After a
+        # reload we honestly do not know what was dropped before, so we
+        # count from zero; the durable column keeps the finished number
+        # for SQL.
+        state.suppressed = 0
         cooldown_until = row.cooldown_until
         if cooldown_until is not None:
             if cooldown_until.tzinfo is None:

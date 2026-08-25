@@ -313,3 +313,30 @@ async def test_warm_start_survives_a_broken_store(db_client):
 
     guard = _guard(_DeadRepo())
     assert await guard.warm_start("narramessenger") == 0
+
+
+async def test_session_key_cannot_overflow_its_column():
+    """The key's width must be DERIVED from the DDL, not asserted next to it.
+
+    The first clamp used one number (128) for all four parts, which allows
+    4*128 + 3 = 515 — over the 448 the column was sized for, because
+    ``channel`` is only VARCHAR(32). The comment above it claimed the
+    arithmetic was "true by construction"; nobody had run the
+    multiplication. This test runs it, against the registry, so the claim
+    cannot drift from the schema again.
+    """
+    from xyz_agent_context.schema.channel_ingress_breaker_schema import session_key
+    from xyz_agent_context.utils.db.schema_registry import varchar_width
+
+    worst = session_key("a" * 4000, "b" * 4000, "c" * 4000, "d" * 4000)
+    limit = varchar_width("channel_ingress_breaker", "session_key")
+    assert len(worst) <= limit, (
+        f"a maximal key is {len(worst)} chars but session_key is "
+        f"VARCHAR({limit}) — on a MySQL deployment without strict mode this "
+        f"truncates, and two conversations collide on the unique index"
+    )
+
+    # And each component stays inside its own column too.
+    parts = dict(zip(("agent_id", "channel", "chat_id", "sender_id"), worst.split("|")))
+    for name, value in parts.items():
+        assert len(value) <= varchar_width("channel_ingress_breaker", name), name

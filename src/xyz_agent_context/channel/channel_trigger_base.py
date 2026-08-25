@@ -2378,36 +2378,6 @@ class ChannelTriggerBase(ABC):
             sender_id=message.sender_id,
             details=verdict.audit_details(),
         )
-        if verdict.transition in ("tripped", "escalated"):
-            await self._alert_owner_ingress_breaker(verdict, agent_id)
-
-    async def _alert_owner_ingress_breaker(
-        self, verdict: IngressVerdict, agent_id: str
-    ) -> None:
-        """Tell the owner their agent just stopped listening to someone.
-
-        Silence the owner cannot explain is its own incident: the whole
-        point of tripping is that a conversation goes dark, and nobody
-        should have to read audit rows to find out why.
-        """
-        if not agent_id or self._db is None:
-            return
-        try:
-            from xyz_agent_context.services.background_llm_alerts import (
-                alert_ingress_breaker_tripped,
-            )
-
-            await alert_ingress_breaker_tripped(
-                agent_id=agent_id,
-                db=self._db,
-                channel=self.brand_display or self.channel_name,
-                verdict=verdict,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                f"{type(self).__name__}: ingress breaker owner alert failed: "
-                f"{type(e).__name__}: {e}"
-            )
 
     async def _audit(self, event_type: str, **kwargs) -> None:
         if self._audit_repo is None:
