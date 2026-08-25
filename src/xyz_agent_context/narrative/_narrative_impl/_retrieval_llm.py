@@ -6,7 +6,6 @@
 
 Extracted from retrieval.py. Contains:
 - LLM output schema definitions
-- Single-match confirmation (llm_confirm)
 - Unified multi-candidate judgment (llm_judge_unified)
 
 These are pure LLM judgment functions with no dependency on NarrativeRetrieval state.
@@ -14,7 +13,6 @@ These are pure LLM judgment functions with no dependency on NarrativeRetrieval s
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -23,27 +21,12 @@ from loguru import logger
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from ..config import config
 from .prompts import (
-    NARRATIVE_SINGLE_MATCH_INSTRUCTIONS,
     NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS,
     NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,
 )
 
 
 # ===== LLM output schema definitions =====
-
-class RelationType(Enum):
-    """Narrative relation type"""
-    CONTINUATION = "continuation"
-    REFERENCE = "reference"
-    OTHER = "other"
-
-
-class NarrativeMatchOutput(BaseModel):
-    """LLM Narrative match output structure"""
-    reason: str
-    matched_index: int
-    relation_type: RelationType
-
 
 class UnifiedMatchOutput(BaseModel):
     """
@@ -52,58 +35,11 @@ class UnifiedMatchOutput(BaseModel):
     Used for the output of the llm_judge_unified function.
     """
     reason: str  # Detailed reasoning process
-    matched_category: str  # "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "search", "no_durable_topic", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 
 
 # ===== LLM judgment functions =====
-
-async def llm_confirm(query: str, candidates: List[dict]) -> dict:
-    """
-    LLM single-match confirmation
-
-    Used by retrieve_or_create for simple binary confirmation.
-
-    Args:
-        query: User query
-        candidates: Candidate list [{"id", "name", "query"}]
-
-    Returns:
-        {"matched_id": str/None, "reason": str}
-    """
-    if not candidates:
-        return {"matched_id": None, "reason": "No candidates"}
-
-    try:
-        instructions = NARRATIVE_SINGLE_MATCH_INSTRUCTIONS
-
-        # Build candidate topic list
-        user_input = ""
-        for index, candidate in enumerate(candidates):
-            user_input += f"Topic {index}: {candidate.get('name', 'Untitled')}\nDescription: {candidate.get('query', '')}\n\n"
-        user_input += f"User's new query: {query}"
-
-        sdk = get_helper_sdk()
-        result = await sdk.llm_function(
-            instructions=instructions,
-            user_input=user_input,
-            output_type=NarrativeMatchOutput,
-            model=config.NARRATIVE_JUDGE_LLM_MODEL,
-            reasoning_effort=config.NARRATIVE_JUDGE_LLM_REASONING_EFFORT or None,
-        )
-        output: NarrativeMatchOutput = result.final_output
-
-        # Both continuation and reference are considered a match; also check index bounds
-        if output.relation_type in (RelationType.CONTINUATION, RelationType.REFERENCE):
-            if 0 <= output.matched_index < len(candidates):
-                return {"matched_id": candidates[output.matched_index]["id"], "reason": output.reason}
-            logger.warning(f"LLM returned matched_index={output.matched_index} out of range [0, {len(candidates)})")
-        return {"matched_id": None, "reason": output.reason or "New topic"}
-
-    except Exception as e:
-        logger.warning(f"LLM confirmation failed: {e}")
-        return {"matched_id": None, "reason": f"LLM call failed: {str(e)}"}
-
 
 async def llm_judge_unified(
     query: str,
@@ -127,8 +63,23 @@ async def llm_judge_unified(
             "reason": str
         }
     """
-    if not search_candidates and not default_candidates and not participant_candidates:
-        return {"matched_id": None, "matched_type": None, "reason": "No candidates"}
+    # NO early return on an empty candidate set — deliberately.
+    #
+    # It used to bail out here with `matched_type=None`, which the caller reads
+    # as "nothing matched, so create". That was harmless only because eight
+    # default buckets were always in the menu, so the branch was unreachable.
+    # Bucket governance (C-1) emptied the menu and thereby ACTIVATED it, with
+    # the worst possible aim: a contentless message has near-zero term overlap,
+    # so an empty pool is precisely the case where the verdict matters most.
+    # Live probe 2026-08-16: a bare "哈哈哈" opened a new thread while the
+    # session held a good anchor, and an ephemeral voice turn created a
+    # narrative against its own no-trace contract.
+    #
+    # "No candidates" is not an answer to "does this turn carry a durable
+    # topic". Only the model can answer that, and with an empty menu its answer
+    # is exactly the binary we need: `no_durable_topic` (land it anchor-first)
+    # or `none` (a real new subject deserves a thread). The extra helper call
+    # buys the decision that was previously being made wrongly for free.
 
     has_participant_context = participant_candidates and len(participant_candidates) > 0
 
@@ -150,7 +101,10 @@ async def llm_judge_unified(
                 user_input += f"Description: {candidate['description']}\n"
                 user_input += "\n"
 
-        # 1. Default Narratives
+        # 1. Default Narratives — empty under bucket governance (C-1). The
+        # eight category names still reach the model, as VOCABULARY inside the
+        # instructions, so it can still recognise "no durable topic"; what it
+        # can no longer do is file the turn INTO one of them.
         if default_candidates:
             user_input += "## Default Topic Types:\n\n"
             for i, candidate in enumerate(default_candidates):
@@ -160,18 +114,49 @@ async def llm_judge_unified(
                     user_input += f"Examples: {', '.join(candidate['examples'][:3])}\n"
                 user_input += "\n"
 
-        # 2. Search results (BM25 keyword candidates)
-        if search_candidates:
+        # 2. Search results (BM25 keyword candidates). The header is rendered
+        # even when the list is empty: with nothing to match against, the model
+        # must be told that explicitly rather than left to infer it from a
+        # section that simply is not there.
+        if not search_candidates:
+            user_input += (
+                "## Existing Topics:\n\n(none — this user has no existing "
+                "topics that overlap this message)\n\n"
+            )
+        else:
             user_input += "## Existing Topics:\n\n"
             for i, candidate in enumerate(search_candidates):
                 user_input += f"[Topic-{i}] {candidate['name']}\n"
                 user_input += f"Description: {candidate['description']}\n"
                 user_input += f"Similarity score: {candidate['score']:.2f}\n"
+                # WHY it scored that. The score is a per-candidate-set BM25
+                # value squashed into (0,1), so it carries no absolute meaning
+                # and hides the difference between "matched the topic" and
+                # "matched 帮/查/一/下". These two lines are what let the judge
+                # answer "none of these" on a crowded set of frame-word
+                # collisions instead of picking the least-bad row.
+                if candidate.get('matched_terms'):
+                    user_input += f"Matched terms: {', '.join(candidate['matched_terms'])}\n"
                 if candidate.get('matched_content'):
                     user_input += f"Matched content:\n{candidate['matched_content']}\n"
-                    logger.info(f"[Phase 1] Candidate {i} added matched_content ({len(candidate['matched_content'])} chars)")
-                else:
-                    logger.debug(f"[Phase 1] Candidate {i} has no matched_content")
+                elif candidate.get('raw_score', 0.0) > 0:
+                    # A candidate with a real BM25 score hit at least one query
+                    # term, so its evidence cannot legitimately be empty. This
+                    # branch spent 2026-04-15 → 2026-08-12 as the ONLY branch
+                    # (the writer was deleted while the reader lived in this
+                    # file, and its `logger.debug` sibling fired every turn for
+                    # four months without anyone reading it); if it fires now,
+                    # the wiring broke again. Candidates at raw_score 0.0 are
+                    # the participant narratives merged in at a synthetic score
+                    # — they never went through BM25 and owe nothing, so they
+                    # must not trip this alarm (incident lesson #3: an alarm
+                    # that cries wolf gets silenced, and then it is gone).
+                    logger.warning(
+                        f"[NarrativeJudge] search candidate {i} "
+                        f"({candidate.get('id')}) scored "
+                        f"{candidate.get('raw_score')} but carries no BM25 "
+                        f"evidence — rank_pool → _llm_unified_match wiring is broken"
+                    )
                 user_input += "\n"
 
         user_input += f"## User's New Query:\n{query}\n\n"
@@ -199,6 +184,17 @@ async def llm_judge_unified(
                 }
             else:
                 logger.warning(f"LLM returned participant index={output.matched_index} out of range")
+
+        elif output.matched_category == "no_durable_topic":
+            # A verdict about the TURN, carrying no destination. The caller
+            # (retrieval -> NarrativeService.select) decides where it lands;
+            # see the anchor-first rule in select().
+            logger.info(f"LLM: no durable topic this turn — {output.reason[:120]}")
+            return {
+                "matched_id": None,
+                "matched_type": "no_topic",
+                "reason": output.reason,
+            }
 
         elif output.matched_category == "default":
             if 0 <= output.matched_index < len(default_candidates):

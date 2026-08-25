@@ -15,13 +15,16 @@ from uuid import uuid4
 
 from loguru import logger
 
+from ..config import config
 from ..models import (
     Narrative,
     NarrativeActor,
     NarrativeActorType,
     NarrativeInfo,
     NarrativeType,
+    PROVISIONAL_SUMMARY_PREFIXES,
 )
+from xyz_agent_context.utils.text import truncate_text
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
@@ -197,11 +200,25 @@ class NarrativeCRUD:
                 NarrativeActor(id=agent_id, type=NarrativeActorType.AGENT),
             ]
 
-        # Create Narrative Info
+        # Create Narrative Info.
+        #
+        # `description` is CLAMPED here rather than at any one call site: this
+        # is the single funnel every writer passes through — routing's
+        # `create_from_query`, the LLM's `create_narrative` signal in
+        # `step_4_persist_results` (text straight from tool arguments), and the
+        # HTTP route. Prod carries descriptions up to 198,398 characters, and
+        # `description` is in the BM25 index while the updater never rewrites
+        # it, so an unbounded write here is a permanent fossil. Its two
+        # siblings at the routing call site were already truncated; this one
+        # was not.
+        #
+        # `current_summary` is a PLACEHOLDER, not a record — see
+        # `models.PROVISIONAL_SUMMARY_PREFIXES`, which the retirement rule
+        # reads so a thread whose updater never succeeds keeps its description.
         narrative_info = NarrativeInfo(
             name=title,
-            description=description,
-            current_summary=f"Newly created Narrative: {title}",
+            description=truncate_text(description, config.DESCRIPTION_MAX_LENGTH),
+            current_summary=f"{PROVISIONAL_SUMMARY_PREFIXES[0]}{title}",
             actors=actors,
         )
 

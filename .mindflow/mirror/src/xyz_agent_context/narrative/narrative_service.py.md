@@ -1,9 +1,64 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-14
+last_verified: 2026-08-21
 stub: false
 ---
 
+# narrative_service.py — Narrative 统一门面
+
+## 2026-08-20 — 会话锚点开始参与免审决策(Q 层)
+
+`select()` 现在把 `session.current_narrative_id` 与 `is_user_chat` 一起传进
+`retrieve_top_k`。**为什么在这一层读锚点**:Session 的所有权在这里,
+下面的检索层不该知道什么是 Session(那会把一个纯排序层绑到会话模型上)。
+
+调用点顺序上有一个必须记住的事实:走到 `retrieve_top_k` 时
+`is_continuous` 一定是 False(否则上面就 return 了)。所以"锚点存在但
+continuity 说不连续"是**结构性的**,不是两层打架 —— 引用审计数字时别把它
+读成缺陷,那是选择偏差。
+
+`is_user_chat=False` 的分支与本文件末尾那段"只有用户发起的轮次才写
+`current_narrative_id`"是**同一个设计的两端**:后台 trigger 没有锚点,
+所以锚点规则对它们不适用。改任何一端都要同时看另一端。
+
+## 2026-08-16 — 无持久话题的落点：anchor-first（C-1 方案 ④-A′）
+
+judge 回答的是关于**这一轮**的问题（"这里有没有值得单独成线的东西"），它**不给
+目的地**。目的地由新的 `_land_no_topic_turn` 决定，规则与 `step_1_fast_select`
+早已定稿的形状**刻意保持一致**，避免快慢两条路对"没内容的一轮该去哪"产生分歧：
+
+1. **有真实线锚点 → 复用，且不碰它的检索面**。任务中间的一句"你好"属于那个任务
+   （标注协议 R1），用户也指望 agent 还记得在干什么。关键在"不碰"：
+   `NARRATIVE_LLM_UPDATE_INTERVAL=1`，让 updater 跑起来意味着每句寒暄花一次
+   helper 调用，并且 name/summary/keywords 是**全量覆盖**——一句"你好"足以把工作
+   线改名。
+2. **无锚点 + durable → 建线**。聊天历史端点是按 narrative 取的、ChatModule
+   instance 挂在 narrative 上，这里裸跑会让首次接触的一轮**从用户自己的历史里消
+   失**。新建的线不是垃圾：它成为锚点，随着真实话题浮现由 updater 改名。
+3. **无锚点 + ephemeral（voice/F28）→ 裸跑**。刻意为之：不留痕迹，好让下一条打字
+   消息的连续性判定"就像这轮语音没发生过"。
+
+三种落点在审计里可分辨（`no_topic_anchored` / `new_created` / `no_topic_bare`），
+因为本批次最大的风险是碎片化，而只有 `new_created` 那一支会真的多出一条线。
+
+## 2026-08-21 — `is_reusable_anchor()`：锚点复用判定收敛为一份定义
+
+独立审查（Important #3）发现"锚点是不是可复用的线"这一判断以字面量形式散在两处
+（`select()` 连续性守卫、`_land_no_topic_turn`），而快路径 `step_1_fast_select`
+根本没有这个检查——慢路径每轮把桶锚 session 推出桶、快路径每轮把它钉回去，两条
+路互相拆台（C-1 上线时 26.4% 的 prod 用户轮以桶为主叙事，这批 session 真实存在）。
+现在收敛为模块级 `is_reusable_anchor(narrative)`，三个读点共用；语义带回滚开关：
+`NARRATIVE_DEFAULT_BUCKETS_ENABLED=True` 时桶重新成为可复用容器（旧世界语义）。
+
+## 2026-08-16 — 连续性不得锁在 default 桶上（C-1 方案 ⑤）
+
+`select()` 在跑连续性检测**之前**先看锚点：锚点是 `is_special == "default"` 的行
+就直接不跑这一层（不是跑完再忽略——那是一次白花的 helper 往返）。桶是**对某一轮
+的判断**，不是一条线，没有"延续"可言。实测：重演 155 个落桶轮里 **59 个**是被连
+续性按在桶里的，最长连锁 11 轮，而这些轮次全都不可召回。
+
+与 C-2 那条 prompt 改动（`prompts.py`）配套：两者合起来才截断闭环
+`停进桶 → 容器规则判 False → 重走检索 → 冻结模板 raw=0 → 又落回桶`。
 ## 2026-08-14 — 撤回 query_units/新线旗标（supersede 下一条）
 
 `query_units` 与 `FastSelectResult.related/suggests_new_thread` 删除
@@ -154,7 +209,6 @@ anchor, so it's the narrative the user is actually looking at.
 - 配套：[[step_4_persist_results.py]] 4.5 也加了同样的 source 判断，
   确保 `last_response` 同样只在 chat run 时被覆盖。
 
-# narrative_service.py — Narrative 统一门面
 
 ## 为什么存在
 
@@ -185,3 +239,22 @@ AgentRuntime 在编排流水线时不应该知道"向量检索是怎么做的"�
 `select()` 返回 `NarrativeSelectionResult`，不是 `List[Narrative]`——新代码如果直接当列表用会报属性错误。正确用法是 `result.narratives[0]` 取主 Narrative。
 
 `session` 参数是**可变引用**：`select()` 内部会直接修改 `session.current_narrative_id`、`session.last_query` 等字段，调用方必须在 `select()` 之后再调用 `session_service.save_session(session)` 来持久化，否则下一次请求看到的 session 还是旧状态。
+
+## 2026-08-16 — `_land_no_topic_turn` 的建线分支签名修正
+
+`create_from_query` 的真实签名是
+`(query, user_id, agent_id, narrative_type)`，`narrative_type` 必填。
+`_land_no_topic_turn` 漏了它 → 每一个走到"无锚点 + durable → 建线"的真实轮次
+都 `TypeError`。真机 2026-08-16 崩在这里。
+
+**为什么单测没抓到**：fixture 手写了一个三参数的 `create_from_query` double，
+**把错的调用形状固化成了"契约"**。现已改为
+`create_autospec(NarrativeRetrieval, instance=True).create_from_query`——
+签名由真实方法强制，调用错了测试就红。
+
+同一次修正还发现 `service_no_topic` fixture 没 stub 连续性检测器，导致这套
+单测**在真打 helper LLM**（110 秒 → 0.09 秒）。单测不得依赖供应商。
+
+一般教训（与 step_4 那条"内存对象撒谎"同源）：**stub 掉的边界就是 bug 的
+藏身处**。只 stub 你不拥有的东西（网络、时钟、DB），永远不要 stub 正在被测的
+那段逻辑；double 的签名要从真实符号推导，不要手写。

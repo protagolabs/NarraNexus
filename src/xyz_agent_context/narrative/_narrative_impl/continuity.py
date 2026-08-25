@@ -153,11 +153,21 @@ class ContinuityDetector:
             is_default_narrative = current_narrative.is_special == "default"
             narrative_type_label = "[Special Default Narrative]" if is_default_narrative else "[Regular Narrative]"
 
+            # The birth certificate is shown only while the thread has no real
+            # summary yet — see Narrative.description_if_unsummarised. Once a
+            # summary exists the description is a frozen creation-time prompt
+            # (prod: up to 198,398 chars) asserting, in the present tense, a
+            # topic the thread may have left long ago. The LABEL goes with it:
+            # an empty "- Description:" reads to the LLM as "this thread has no
+            # description", which is a different claim than not mentioning it.
+            birth_certificate = current_narrative.description_if_unsummarised()
+            description_line = (
+                f"\n- Description: {birth_certificate}" if birth_certificate else ""
+            )
             narrative_context = f"""
 Current Narrative Information:
 {narrative_type_label}
-- Name: {current_narrative.narrative_info.name}
-- Description: {current_narrative.narrative_info.description}
+- Name: {current_narrative.narrative_info.name}{description_line}
 - Current Summary: {current_narrative.narrative_info.current_summary}
 - Topic Keywords: {', '.join(current_narrative.topic_keywords) if current_narrative.topic_keywords else 'None'}
 

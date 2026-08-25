@@ -1,5 +1,10 @@
 # prompts_index.py
 
+## 2026-08-25 — 移除 `NARRATIVE_SINGLE_MATCH_INSTRUCTIONS` 索引行
+
+随该常量在 PR #361 中删除(唯一消费链 `llm_confirm` 是零入口闭环)。
+本文件聚合再导出的意图不变。
+
 Centralized index of all prompt constants in the project — one import to see every prompt, with IDE-navigable references to their source files.
 
 ## Why it exists

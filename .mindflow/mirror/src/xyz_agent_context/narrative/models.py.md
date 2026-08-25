@@ -1,13 +1,88 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
 
+# models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-08-20 — description 是出生证,不是病历(墓碑字段修复)
+
+新增 `Narrative.description_if_unsummarised()`,`searchable_text()` 只经它读
+description。规则:**summary 是真病历时,出生证完全退出读取**(不是截断后继续读)。
+
+**病**:description 创建时抄触发输入原文写一次、updater 永不重写,却在 BM25 索引里。
+全表实测(1,381 条非 default):**291 条(21.1%)超 1500 字符,max 198,398**,
+索引里 description 文本合计 2.5 MB。BM25 的 IDF/avgdl 在候选池自身上算,
+一条 6KB 脏文档同时抬 avgdl(压死所有正常文档的长度归一化)并给自己灌进
+大量可匹配 token —— 630 条真实判决离线重算:含化石的池免审率 **41.0%**
+vs 不含 **14.5%**,3.7 倍,把它本该服务的臂级测量整个盖住。
+
+**为什么是"退休"而不是"截断"**:截断后的化石仍是化石 —— 它仍在用现在时断言
+一个可能几个月前就离开的话题。干跑对照(见
+`data/replay_runs/2026-08-20/DESCRIPTION_RETIREMENT_DRYRUN.md`):
+退休把 bloat 组压到 8.8% / max top1 152.6,截断 512 只到 15.3% / 252.1。
+
+**条件为什么是"summary 非空"而不是"updater 跑过一次"**:updater 异步且会失败
+(D-9 helper 哑火期出生的线永远拿不到 summary)。条件式规则自愈 ——
+病历写出来→出生证退休;病历难产→出生证继续顶着,线不隐形。
+
+### `PROVISIONAL_SUMMARY_PREFIXES` 是这条规则的地雷区
+
+`NarrativeCRUD.create` **不留空** `current_summary`,它写
+`"Newly created Narrative: {title}"`;default 桶写 `"This is a default …"`。
+所以"summary 非空"**不等于**"这条线有病历"。按字面实现的话,出生证会
+**在出生瞬间退休**,而自愈分支一次都不会触发 —— 恰好在它被设计来保护的
+那个场景上失效。这个坑是读代码发现的,干跑测不到(干跑用的是跑批结束时的
+字段状态,全是真 summary)。
+
+前缀只有一处定义,写方(crud)与读方(本文件)同一份;两份字面量会静默漂开,
+而唯一症状是**新线悄悄变得找不到**。
+
+
+## 2026-08-20 — `RoutingAudit` 多两列,而且它们不是重复列
+
+`bypass_score_gate` + `bypass_reason`。
+
+**为什么不复用 `gate_short_circuit` 一列了事**:那一列的语义从第一天就是
+"这一轮跳过了 judge",Q 上线后它仍然如实表达这件事(所以**没有**发生
+铁律 #6 禁止的"静默改变既有列语义")。但 floor+margin **单独**的判定
+从此不再等于它 —— 而那正是层 2 要标定的序列。
+少了 `bypass_score_gate`,Q 上线那天就是分数门分布停止积累的那天,
+下一个决策会没有数据。两列内容不同,不是冗余。
+
+`bypass_reason` 是**稳定机器码**(七个值,见 routing_gate 的 mirror),
+拿它 join `judge_category` 就能回答"被锚点规则拒掉的那些轮,judge 最后判了什么"
+—— 即这条规则值不值。所以它必须是枚举式短码,不是自由文本;
+自由文本在 `gate_reason` 里(那一列现在存 `BypassDecision.detail`)。
+
+## 2026-08-16 — NarrativeSelectionResult.no_durable_topic（C-1）
+
+judge 的"这一轮没有可沉淀话题"是一个**关于轮次的标签**，不是目的地。它带着空的
+narrative 列表从 retrieval 返回，由 `NarrativeService.select` 决定落点
+（anchor-first）；随后一路传到 `step_4`，在那里的含义是**把 event 记上，但不许这
+一轮改写这条线的检索面**——一句寒暄不能给它打断的工作改名。
 ## 2026-08-14 — `RoutingAudit` 新增四个耗时字段
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，默认 `None`（= 这一层
 没跑），永远不用 0。理由见字段旁注释与 `narrative_routing_audit_repository`。
+
+## 2026-08-12 — `NarrativeSearchResult` 带上匹配证据；`topic_hint` 定性为墓碑
+
+`matched_terms` / `matched_snippet` 两个新字段：BM25 命中的词（按贡献降序）和它们在
+被打分文本里的上下文。填充点是 [[retrieval.py|_narrative_impl/rank_pool]]，消费点是
+LLM 判官。放在这个模型上而不是另造一个载体，是因为它和 `raw_score` 是**同一次
+BM25 计算的三个输出** —— 分数、分数的来源、来源的上下文，分开传就会分开腐烂。
+participant narrative 从不经过 BM25（合成中性分入池），两个字段留空。
+
+`topic_hint` 的注释从"Topic hint/summary"改成它的**真实语义**：创建时由
+`_create_narrative` 写入的被截断的第一句 query，2026-06-09 之后永不更新。同时
+类 docstring 里的 "Routing Index: topic_hint, topic_keywords (BM25)" 是**错的** ——
+BM25 打的是 `searchable_text()`，而它不含 topic_hint，已改。写下这条是因为字段名
+和旧注释合起来会让人以为它是"当前话题摘要"，而 B2 就是这么发生的：判官被喂了三个
+月前的第一句话（见 [[retrieval.py]] 2026-08-12）。它作为**创建时来源**展示是诚实的
+（`backend/routes/me.py` 的 timeline 卡片），作为**当前状态**参与任何决策都不是。
+
 ## 2026-08-07 — `Narrative.searchable_text()`：BM25 文本面的唯一定义
 
 原来有两份拷贝：`retrieval.load_pool`（`" ".join`）和 `crud._index_narrative`
@@ -64,7 +139,6 @@ prompt，但**判据不能用它**：`s/(s+1)` 压缩了候选之间的间距，
 > 2026-05-29：删除 `EpisodeResult`，并从 `NarrativeSearchResult` 去掉
 > `episode_summaries` / `episode_contents` 字段（EverMemOS 整体移除）。
 
-# models.py — Narrative 模块所有数据模型的唯一来源
 
 ## 为什么存在
 

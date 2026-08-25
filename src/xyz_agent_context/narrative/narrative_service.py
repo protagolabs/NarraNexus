@@ -60,6 +60,31 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     return input_content
 
 
+def is_reusable_anchor(narrative) -> bool:
+    """Is this anchored narrative a thread a turn may simply stay on?
+
+    THE one definition, consumed by all three anchor-reuse decision points —
+    the continuity guard in ``select()``, the no-topic landing in
+    ``_land_no_topic_turn``, and ``step_1_fast_select``'s session reuse. The
+    independent review (2026-08-21, Important #3) caught the fast path missing
+    the check the slow path had: sessions still anchored to a legacy default
+    bucket (26.4% of prod user turns at C-1 ship time) were re-pinned to the
+    bucket every fast turn while the slow path pushed them out — two paths
+    fighting over the same invariant, because it lived as two literals.
+
+    A default bucket stops being a reusable thread when C-1 governance is on;
+    with the rollback flag flipped, buckets are containers again and reuse is
+    the old, intended behaviour.
+    """
+    from .config import config
+
+    if narrative is None:
+        return False
+    return not (
+        narrative.is_special == "default"
+        and not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
+    )
+
 
 @dataclass(frozen=True)
 class FastSelectResult:
@@ -311,6 +336,25 @@ class NarrativeService:
                     if session.current_narrative_id:
                         current_narrative = await self._crud.load_by_id(session.current_narrative_id)
 
+                    # C-1 slice 5: a default bucket is a VERDICT about some
+                    # earlier turn, not a thread — there is nothing to
+                    # continue. Left to itself the continuity tier held 59 of
+                    # the replay's 155 bucket-resident turns there, in chains
+                    # up to 11 turns long, and every one of those turns is
+                    # unrecallable (a bucket's retrieval surface never
+                    # updates). Skip the tier outright rather than ask and
+                    # ignore: the answer costs a full helper round trip.
+                    if (
+                        current_narrative is not None
+                        and not is_reusable_anchor(current_narrative)
+                    ):
+                        logger.info(
+                            "[NarrativeSelect] anchor is a default bucket — "
+                            "routing this turn instead of continuing it"
+                        )
+                        detector = None
+
+                if detector:
                     _t_continuity = _perf.monotonic()
                     with timed("narrative.continuity_detect") as t:
                         result = await detector.detect(
@@ -362,6 +406,7 @@ class NarrativeService:
 
         audit: Optional[RoutingAudit] = None
         audit_snapshots: dict = {}
+        no_durable_topic = False
 
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
@@ -371,7 +416,20 @@ class NarrativeService:
                     query=query_text,
                     user_id=user_id,
                     agent_id=agent_id,
-                    top_k=max_narratives
+                    top_k=max_narratives,
+                    # The bypass rule needs to know what thread we are already
+                    # in: skipping the judge is only allowed for a turn that
+                    # STAYS there. Reading the anchor here rather than inside
+                    # the retrieval tier keeps Session ownership in one place —
+                    # the tier below has no business knowing what a Session is.
+                    anchor_narrative_id=(
+                        session.current_narrative_id if session else None
+                    ),
+                    # Background triggers deliberately never advance that
+                    # anchor (see the Session update block at the end of this
+                    # method), so they have none to match and the anchor rule
+                    # does not apply to them.
+                    is_user_chat=is_user_chat,
                 )
             _retrieve_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
             narratives = retrieval_result.narratives
@@ -380,6 +438,24 @@ class NarrativeService:
             retrieval_method = retrieval_result.retrieval_method
             audit = retrieval_result.audit
             audit_snapshots = retrieval_result.audit_snapshots
+            no_durable_topic = retrieval_result.no_durable_topic
+
+            if no_durable_topic:
+                narratives, selection_method, selection_reason, is_new = (
+                    await self._land_no_topic_turn(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        query_text=query_text,
+                        session=session,
+                        reason=selection_reason,
+                    )
+                )
+                if audit is not None:
+                    audit.selection_method = selection_method
+                    audit.chosen_narrative_id = (
+                        narratives[0].id if narratives else None
+                    )
+                    audit.is_new = is_new
             if audit is not None:
                 audit.retrieve_ms = _retrieve_ms
         else:
@@ -428,9 +504,86 @@ class NarrativeService:
             narratives=narratives,
             selection_reason=selection_reason,
             selection_method=selection_method,
+            no_durable_topic=no_durable_topic,
             is_new=(selection_method == "new_created"),
             best_score=None,
             retrieval_method=retrieval_method,
+        )
+
+    async def _land_no_topic_turn(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        query_text: str,
+        session: Optional[ConversationSession],
+        reason: str,
+    ) -> tuple:
+        """Place a turn the judge called "no durable topic" (C-1, plan 4-A').
+
+        The judge answered a question about the TURN ("is there anything here
+        worth remembering as its own thread?"); it did not name a destination.
+        This is where the destination is decided, and the rule is anchor-first
+        — deliberately the same shape ``step_1_fast_select`` already settled on
+        for the fast path, so the two paths cannot drift into disagreeing about
+        where a contentless turn belongs:
+
+        1. **A live anchor on a real thread → reuse it.** A "你好" in the middle
+           of a task belongs to the task (annotation protocol R1), and the user
+           expects the agent to still know what they were doing. The thread's
+           retrieval surface is NOT touched — see ``no_durable_topic`` on
+           NarrativeSelectionResult for why a greeting must never get to rename
+           the work it interrupted.
+        2. **No anchor → create.** Chat history endpoints are
+           narrative-scoped and the ChatModule instance hangs off the narrative,
+           so running bare here would make a first-contact turn vanish from the
+           user's own history. The created thread is not junk: it becomes the
+           anchor, and the updater renames it as the real subject emerges.
+
+        A third branch (ephemeral surface → run bare, `no_topic_bare`) was
+        REMOVED on review (2026-08-21, Important #2): every ephemeral
+        TurnProfile also selects the bm25_top1 fast path, so this method never
+        received anything but "durable" — the branch was unreachable in
+        production and a test was pinning behaviour the system could not
+        exhibit (the exact `matched_content` failure shape this batch
+        cleaned up elsewhere). If an ephemeral profile ever takes the slow
+        path, re-add it deliberately, wired from TurnProfile at the two
+        `select()` call sites in step_1_select_narrative.
+
+        Returns ``(narratives, selection_method, reason, is_new)``.
+        """
+        anchor_id = getattr(session, "current_narrative_id", None) if session else None
+        if anchor_id:
+            anchored = await self._crud.load_by_id(anchor_id)
+            # A bucket anchor is not a thread to reuse (slice 5 already refused
+            # to continue one); fall through and let the turn land properly.
+            if is_reusable_anchor(anchored):
+                logger.info(
+                    f"[NarrativeSelect] no durable topic — reusing anchor "
+                    f"{anchored.id} without touching its surface"
+                )
+                return (
+                    [anchored],
+                    "no_topic_anchored",
+                    f"No durable topic; kept on the active thread: {reason}",
+                    False,
+                )
+
+        created = await self._retrieval.create_from_query(
+            query=query_text,
+            user_id=user_id,
+            agent_id=agent_id,
+            narrative_type=NarrativeType.CHAT,
+        )
+        logger.info(
+            f"[NarrativeSelect] no durable topic and no anchor — created "
+            f"{created.id} so the turn stays in history"
+        )
+        return (
+            [created],
+            "new_created",
+            f"No durable topic, no thread to keep it on: {reason}",
+            True,
         )
 
     # =========================================================================

@@ -1205,7 +1205,7 @@ class JobRepository(BaseRepository[JobModel]):
         """BM25 keyword search over jobs (title + description + payload) — the
         non-vector replacement for search_semantic (unified-memory refactor).
         Reuses the MemoryEngine's bm25_rank; scores normalized into (0,1)."""
-        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+        from xyz_agent_context.memory.bm25 import bm25_rank
 
         filters = {"agent_id": agent_id}
         if user_id:

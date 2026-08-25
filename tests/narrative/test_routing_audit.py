@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+from xyz_agent_context.memory.bm25 import bm25_rank
 from xyz_agent_context.narrative.models import RoutingAudit, RoutingCandidate
 from xyz_agent_context.repository.narrative_routing_audit_repository import (
     NarrativeRoutingAuditRepository,

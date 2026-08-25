@@ -155,6 +155,26 @@ class DynamicSummaryEntry(BaseModel):
     references: List[str] = []  # Referenced other event_ids
 
 
+# Summaries that mean "the updater has not written one yet". `NarrativeCRUD.create`
+# pre-fills `current_summary` rather than leaving it empty, and
+# `default_narratives` does the same for the eight buckets, so "the summary is
+# non-empty" is NOT the same question as "this thread has a real record".
+#
+# This matters precisely for the case the retirement rule exists to protect: the
+# async updater can fail (D-9 helper outage), and a thread whose summary is still
+# the creation placeholder has nothing but its description to describe itself. A
+# naive non-empty test would retire the birth certificate at the instant of
+# birth and that thread would score zero against the very query that created it.
+#
+# ONE definition, imported by both the writer and this reader — two copies of
+# the literal would rot apart silently, and the only symptom would be new
+# threads quietly becoming unfindable.
+PROVISIONAL_SUMMARY_PREFIXES = (
+    "Newly created Narrative: ",
+    "This is a default ",
+)
+
+
 class Narrative(BaseModel):
     """
     Narrative = Routing Metadata for a storyline
@@ -166,7 +186,7 @@ class Narrative(BaseModel):
 
     Field categories:
     - Identity: id, type, agent_id
-    - Routing Index: topic_hint, topic_keywords (BM25)
+    - Routing Index: topic_keywords (BM25, via searchable_text())
     - Orchestration Config: active_instances, instance_history_ids
     - References Only: event_ids
     - Metadata: created_at, updated_at
@@ -199,7 +219,14 @@ class Narrative(BaseModel):
 
     # ===== Routing Index =====
     topic_keywords: List[str] = []  # Topic keywords
-    topic_hint: str = ""  # Topic hint/summary
+    # Written ONCE by `_create_narrative` (the truncated first query) and never
+    # updated since the 2026-06-09 unified-memory refactor removed its update
+    # machinery. It is therefore creation-time provenance, NOT current state:
+    # 84% empty on the local dev DB, and where non-empty it can be months stale
+    # or a `[:50]` cut through the middle of an open_id. Display it as "what
+    # started this thread" (backend/routes/me.py does) — never feed it to a
+    # routing decision or a prompt; use `narrative_info.current_summary`.
+    topic_hint: str = ""  # Creation-time first query, frozen
 
     # ===== Metadata =====
     created_at: datetime  # Narrative creation time
@@ -211,6 +238,47 @@ class Narrative(BaseModel):
 
     # ===== Special Markers =====
     is_special: str = "other"  # Special marker field, default value is "other"
+
+    def description_if_unsummarised(self) -> str:
+        """The birth certificate — readable ONLY until the medical record exists.
+
+        `description` is written once at creation from the raw triggering input
+        and is never rewritten by the updater, yet it sits in the BM25 index and
+        in the continuity prompt. Measured on all 1,381 non-default prod
+        narratives (2026-08-20): **291 (21.1%) are over 1,500 characters and the
+        longest is 198,398** — a thread born on a 5KB scheduled-task prompt has
+        that 5KB welded into its retrieval surface forever. BM25 computes IDF and
+        avgdl over the candidate pool itself, so one such document both crushes
+        every normal candidate's length normalisation and hands itself a large
+        pool of matchable tokens: offline re-scoring of 630 real decisions put
+        the bypass rate at 41.0% for pools containing one against 14.5% without.
+
+        FULL RETIREMENT, not truncate-and-keep-reading. A truncated fossil is
+        still a fossil: it still asserts, in the present tense, a topic the
+        thread may have left months ago.
+
+        The condition is "the thread has a REAL summary", NOT "the updater has
+        run": the updater is async and can fail, so a thread born during a
+        helper outage never gets one. Keying on the record rather than on the
+        writer makes the rule self-healing — record written, birth certificate
+        retires; record stillborn, birth certificate keeps standing in and the
+        thread does not go invisible.
+
+        "Real" excludes the creation placeholders (see
+        `PROVISIONAL_SUMMARY_PREFIXES`): `NarrativeCRUD.create` pre-fills
+        `current_summary`, so a literal non-empty test would retire the birth
+        certificate at the instant of birth and defeat the self-healing branch
+        entirely.
+
+        Every read of the raw field is on an allow-list pinned by
+        `tests/narrative/test_description_retirement.py`, so a fourth read site
+        cannot quietly bypass this.
+        """
+        info = self.narrative_info
+        summary = (getattr(info, "current_summary", "") or "").strip()
+        if summary and not summary.startswith(PROVISIONAL_SUMMARY_PREFIXES):
+            return ""
+        return getattr(info, "description", "") or ""
 
     def searchable_text(self) -> str:
         """The text that represents this narrative to search — the ONE definition.
@@ -228,13 +296,20 @@ class Narrative(BaseModel):
 
         It lives on the model because retrieval imports crud; a shared helper in
         either of them would be a circular import.
+
+        `description` enters only through `description_if_unsummarised()`, which
+        retires it once the thread has a real summary. Before 2026-08-20 the raw
+        field went in unconditionally and a 198KB creation-time prompt could own
+        an entire pool's IDF table.
         """
         info = self.narrative_info
         return " ".join(
             p for p in (
                 getattr(info, "name", "") or "",
                 getattr(info, "current_summary", "") or "",
-                getattr(info, "description", "") or "",
+                # Retires as soon as there is a summary — see
+                # `description_if_unsummarised`.
+                self.description_if_unsummarised(),
                 " ".join(self.topic_keywords or []),
             ) if p
         )
@@ -313,6 +388,18 @@ class NarrativeSearchResult(BaseModel):
     # the pool with a synthetic neutral similarity and never had a BM25 score,
     # keep 0.0 here so they cannot trip the gate.
     raw_score: float = 0.0
+    # WHY this candidate scored what it scored, carried forward to the LLM
+    # arbitration tier. A score alone is not just uninformative, it is
+    # misleading: request-frame characters (帮/查/一/下) accumulate real BM25
+    # weight under per-character CJK tokenization, so a semantically unrelated
+    # narrative can reach a squashed 0.91 with zero topic-bearing overlap. The
+    # judge runs exactly when the gate found candidates CROWDED, i.e. when
+    # distinguishing substance from politeness is the whole decision — see
+    # `_narrative_impl/retrieval.rank_pool`, which fills both from the same
+    # BM25 pass that produced `raw_score` (no extra IO, no extra DB read).
+    # Participant narratives never went through BM25 and stay empty.
+    matched_terms: List[str] = []  # Query terms by descending contribution
+    matched_snippet: str = ""  # Context windows where the top terms occur
 
 
 class RoutingCandidate(BaseModel):
@@ -359,6 +446,20 @@ class RoutingAudit(BaseModel):
     gate_top1_raw: Optional[float] = None
     gate_top2_raw: Optional[float] = None
     gate_margin: Optional[float] = None
+    # WHY the score gate needs its own column now that the anchor rule can
+    # override it: `gate_short_circuit` keeps its original meaning — "this turn
+    # skipped the judge" — so the two are NOT duplicates. `bypass_score_gate`
+    # is floor+margin ALONE, which is the series the next layer has to
+    # calibrate against. Without it, the day the anchor rule shipped would be
+    # the day the score-gate distribution stopped accumulating in prod, and the
+    # decision that needs it would have no data.
+    bypass_score_gate: Optional[bool] = None
+    # Which rule decided, as a stable code: anchor_match | anchor_miss |
+    # no_anchor | score_gate | participant_present | background_scope |
+    # no_candidates. Joined against `judge_category` this answers "what did the
+    # judge actually say about the turns the anchor rule refused to let
+    # through" — i.e. whether the rule is paying for itself.
+    bypass_reason: str = ""
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False
@@ -402,6 +503,15 @@ class NarrativeSelectionResult(BaseModel):
     best_score: Optional[float] = None  # Best match score (if any)
     scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
     retrieval_method: str = ""  # Retrieval method: "session" (continuity) | "keyword" (BM25)
+
+    # The judge's "this turn carries no durable topic" verdict (C-1). It is a
+    # LABEL about the turn, not a destination: the retrieval tier returns it
+    # with an EMPTY narrative list and NarrativeService.select decides where the
+    # turn lands (anchor-first — reuse the live thread, else create on durable
+    # surfaces, else run bare). It also travels to step_4, where it means "file
+    # the event but do NOT let this turn rewrite the thread's retrieval
+    # surface" — a greeting must never rename the work it interrupted.
+    no_durable_topic: bool = False
 
     # ===== Routing audit (E1) — transient, never persisted on this object =====
     # The retrieval tier fills the BM25/gate/judge half; NarrativeService.select

@@ -1,9 +1,55 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
 
+## 2026-08-20 — 免审改由锚点决定(Q 层)
+
+`_retrieve_top_k` 的 `if gate.short_circuit and not has_participant_narratives`
+换成 `evaluate_bypass(...)` 的一个决定。两个实现细节值得记:
+
+1. **`top1_narrative_id` 不是 `search_results[0]`。** participant 合并会在排序后
+   追加合成 0.5 分的条目并按 similarity 重排,所以 0 号位可能是一条**从未过
+   BM25**的线。锚点比对必须拿**关键词赢家**(`max(..., key=raw_score)`,
+   且 `raw_score > 0`),否则比的是噪声。
+2. **`gate_reason` 现在存 `BypassDecision.detail`**,分数门自己的句子被包在
+   里面(`score_gate` 分支直接透传 `gate.reason`)。要机器可分组的口径请用
+   新的 `bypass_reason` 列。
+
+范围与代价见 routing_gate 的 mirror。
+
+## 2026-08-20 — BM25 的查询面清理(K 层)
+
+`rank_pool` 在喂给 `bm25_explain` 之前先 `strip_routing_prefix(query)`。
+
+**为什么剥在 `rank_pool` 里、不在调用点**:这里是 narrative 路由**唯一**的 BM25
+入口,`retrieve_top_k` / `keyword_search` / `select_fast` 全部经过它,一处生效
+三处受益;而且这个方法的既有契约是"重放与实时判决跑逐位相同的代码",把剥离放在
+函数内部,重放依然逐位可复现。**审计行仍存原始 `query_text`** —— 用户说了什么是
+记录,BM25 打的是什么由同一个函数从记录推导得出。
+
+`create_from_query` 的 name / description 也改用剥离后的文本(见 updater 的
+mirror:磁铁线的另一半来自建线命名)。`topic_keywords` 那一行**没动**,A-kw 未定。
+
+实测依据:`specs/2026-08-20-bm25-gate-redesign-research.md` §2.8 / §R2.1。
+
+## 2026-08-16 — default 桶退出路由（C-1 方案 ④）
+
+三处过滤，全部挂 `config.NARRATIVE_DEFAULT_BUCKETS_ENABLED`：
+
+- `load_pool`：桶不再进 BM25 池。它的 `searchable_text()` 是冻结模板、**永远不可能
+  正当地赢下一个查询**，但它照样通过 IDF/avgdl 影响别人的分数，还能自己短路 gate
+  （重演里实测 2 轮）。把它请出池子，后面几件事才谈得上诚实。
+- `_ensure_default_narratives`：不再为新 (agent,user) 播种。存量行不动（铁律 #6）。
+- `_llm_unified_match`：不再向 judge 传 `default_candidates`。八条固定项**还带
+  Examples**、对最多三条动态项——这是一份会自己回答自己的菜单（实测 judge 60% 的
+  裁决选了桶，其中 63/93 次池里明明有真实候选）。
+
+新增第 4.5 段返回分支：judge 判 `no_topic` 时**带空列表返回**，不在这里创建。
+落点取决于 session 锚点与该 surface 是否持久化历史，这两件事在 retrieval 内部不可
+知——决定权在 `NarrativeService.select`（见其 mirror 的 anchor-first 条目）。在这
+里创建，正是本批次要消灭的碎片化。
 ## 2026-08-14 — `_create_narrative` 公开更名 `create_from_query`
 
 行为零变化，纯改名+两处内部调用同步。动机：NarrativeService.create_fast
@@ -46,6 +92,54 @@ participant 查询（`_get_participant_narratives`）与 `load_pool` 互不喂�
 的问题恰恰是「BM25 会不会成为瓶颈」。`tests/narrative/test_retrieval_concurrency.py::
 test_keyword_ms_excludes_the_participant_read` 用一个慢 250ms 的 participant 查询锁住这
 条。`judge_ms` 在被判决路径的唯一出口处设置，同文件有测试断言判决路径非 NULL。
+
+## 2026-08-12 — judge 拿到 BM25 证据（B1）+ 候选标签只有一份（B2）
+
+**B1 —— 判官以前只看到一个数字，而那个数字会骗人。** 候选喂给
+[[_retrieval_llm.py]] 的信息是 `Similarity score: 0.91`。这个数是
+`s/(s+1)` 压出来的，压之前的 IDF 在候选集自身上算，**绝对值没有跨 agent
+意义**；更要命的是中文按字切 unigram，请求框架字（帮/查/一/下/天）会实打实
+攒出分数。实测本地一条 query「帮我查一下明天上海的天气怎么样」对一条会议纪要
+narrative 打出 raw 10.67，逐词分解 **100% 来自框架字**，承载话题的
+明/上/海/气/样 贡献恰好 0 —— 压缩后显示 0.914。而闸门把这一轮交给判官的**原因
+恰恰是候选拥挤**（top1/top2 = 1.08 < 2.0）：系统在最需要精细判别的时刻，交出去
+的是最粗的信息。
+
+修法是把已经算出来的东西传下去，不是新增计算：`rank_pool` 改调
+[[retrieval.py|memory 的 bm25_explain]]（同一套算术，分数到最后一位都相同，
+额外拿到每个词的贡献），填进 `NarrativeSearchResult.matched_terms` /
+`matched_snippet`，`_llm_unified_match` 组候选时带上 `matched_content`。
+**零新增 IO、零新增 DB 查询** —— 被打分的文本此刻正在手上，而事后重建是不可能
+的（[[updater.py]] 每轮全量重写且不留历史）。成本是判官那 45% 轮次里每候选多
+约 200 字 prompt。
+
+读取侧的代码从 2026-03-06 就写好了，写入侧 2026-04-15 被删（数据源换成
+episode_summaries），两侧在不同文件里，于是 `if candidate.get('matched_content')`
+**忠实地走了将近 4 个月的 else 分支**，`logger.debug("has no matched_content")`
+每轮都在打 —— 警报一直响，没人听。现在 else 分支改成 `logger.warning`：search
+候选必然来自 BM25，snippet 不可能合法为空，它再响就是接线又断了。
+
+**B2 —— 同一件事两份实现，只改了一份。** participant 分支读
+`narrative.topic_hint`，而 50 行以上的 search 分支 2026-04-15 就改读
+`narrative_info` 了。`topic_hint` 在 2026-06-09 unified-memory 重构后是**创建时
+写一次的墓碑字段**（本地库 84% 为空）。于是判官看到的是
+`[Participant-0] Untitled / Description:`（空的那 84%），或者 72 个 event 的活跃
+线索被它三个月前第一句话描述，或者 `[:50]` 正好切在 open_id 中间。**而这条通道
+是强制走判官的**（别人邀请你参与的任务不该输给你自己 narrative 的一个高 BM25
+分），标签盲了等于这一轮的判断盲了。
+
+修法不是「把 participant 分支改成和 search 一样」—— 那样下次还会漂。新增模块级
+`_candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
+函数**；`test_participant_and_search_branches_share_one_labeller` 钉的是两条分支
+**输出相等**，所以将来任何单边修改都会红。同时删掉 `_prepare_candidates`（第三份
+拷贝，也在读 topic_hint）及其整个死代码簇。
+
+`topic_hint` 至此在路由层与 narrative prompt 层零读取，只剩
+`_create_narrative` 的那次写入 + `backend/routes/me.py` 的前端展示 —— 后者是
+诚实的（它展示的正是"这条线索是从哪句话开始的"）。测试
+`test_no_narrative_labelling_path_reads_the_frozen_topic_hint` 用 AST 检查
+Load 上下文的属性读，写入不算。
+
 ## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
 
 `_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。
@@ -115,3 +209,12 @@ prod 轮次实测**短路 87.5%**，第三层等于死代码，误路由直接�
   范围内。
 - `dynamic_summary` 无上限累积，narrative 越大可检索文本越长、越容易赢下任意
   查询——正反馈。同样是已知问题，见诊断报告（本次未修）。
+- **participant narrative 会在判官 prompt 里出现两次**（2026-08-12 发现，未修）。
+  Step 1.5 把它们并进 `search_results`（合成相似度 0.5）再整体重排，于是
+  `search_results[:3]` 可能含 participant 行 —— 它同时出现在 `## Participant-
+  Associated Topics` 和 `## Existing Topics` 两个块里。BM25 分弱的轮次（正是走判官
+  的轮次）0.5 很容易挤进 top-3，所以这不是罕见路径。改前两处标签不同
+  （topic_hint vs narrative_info），改后**完全相同**，重复因此更显眼。没在本次修，
+  因为动候选构成会改判官的 index 映射与闸门输入，属第二波（C1）的风险面。
+  直接后果之一：这类行 `raw_score == 0.0`，所以"缺证据"告警必须按 `raw_score > 0`
+  过滤，否则每个 participant 轮次都误报（见 [[_retrieval_llm.py]]）。

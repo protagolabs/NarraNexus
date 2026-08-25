@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.py
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
+
+# narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
+
+## 2026-08-20 — `_to_row` 多写两列(免审决策)
+
+`bypass_score_gate` 按 `continuity_is_continuous` 的同一套写法处理:
+`None` 原样传,不强转 0 —— **NULL 的含义是"这一轮没走到分数门"**
+(比如 continuity 提前返回、或池是空的),写 0 会让它读起来像"分数门判否",
+那是两件不同的事。
+
+`bypass_reason` 是短码字符串,空串表示这一轮没有免审决策可记。
 
 ## 2026-08-14 — 四列 per-tier 耗时
 
@@ -43,7 +54,6 @@ snapshot writes"）。
   计数搬进测试，生产访问全部走 `insert` / `get` / `get_by_ids` 这些双方言安全的
   client helper。
 
-# narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
 
 ## 为什么存在
 

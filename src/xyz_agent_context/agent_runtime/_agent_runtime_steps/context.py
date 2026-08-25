@@ -89,6 +89,10 @@ class RunContext:
     agent_data: Optional[Dict[str, Any]] = None
     event: Optional["Event"] = None
     narrative_list: List["Narrative"] = field(default_factory=list)
+    # The routing tier judged this turn to carry no durable topic (C-1). The
+    # turn may still be FILED on a thread (the active one), but it must not be
+    # allowed to rewrite that thread's retrieval surface — step_4 reads this.
+    no_durable_topic: bool = False
     module_list: List[Any] = field(default_factory=list)
     session: Optional["Session"] = None
     awareness: str = ""  # Agent self-awareness content

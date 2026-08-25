@@ -2864,6 +2864,13 @@ _register(
             Column("gate_top1_raw", "REAL", "DOUBLE"),
             Column("gate_top2_raw", "REAL", "DOUBLE"),
             Column("gate_margin", "REAL", "DOUBLE"),
+            # The bypass decision, split from the score gate on purpose.
+            # `gate_short_circuit` stays "did this turn skip the judge";
+            # `bypass_score_gate` is floor+margin alone, so the score-gate
+            # distribution keeps accumulating for calibration even on the turns
+            # the anchor rule denies. `bypass_reason` is which rule decided.
+            Column("bypass_score_gate", "INTEGER", "TINYINT(1)"),
+            Column("bypass_reason", "TEXT", "VARCHAR(32)"),
             # tier 3 — LLM arbitration
             Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("judge_category", "TEXT", "VARCHAR(32)"),

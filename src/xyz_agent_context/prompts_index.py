@@ -33,7 +33,6 @@ from xyz_agent_context.narrative._narrative_impl.prompts import (
     ACTOR_TYPE_SYSTEM_DESCRIPTION,     # SYSTEM actor description
     NARRATIVE_MAIN_PROMPT_TEMPLATE,    # Narrative main system prompt template
     CONTINUITY_DETECTION_INSTRUCTIONS,  # Narrative attribution/matching prompt
-    NARRATIVE_SINGLE_MATCH_INSTRUCTIONS,  # Single-candidate Narrative matching prompt
     NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS,  # Unified matching prompt (with PARTICIPANT)
     NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,  # Unified matching prompt (without PARTICIPANT)
     NARRATIVE_UPDATE_INSTRUCTIONS,     # Narrative metadata incremental update prompt

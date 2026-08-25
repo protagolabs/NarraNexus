@@ -4,6 +4,8 @@ last_verified: 2026-08-21
 stub: false
 ---
 
+# schema_registry.py
+
 ## 2026-08-21 — events 加复合索引 `idx_events_user_state`
 
 服务 [[run_recorder.py]] `first_live_run_id` 的 `(user_id, state)` 查询
@@ -11,6 +13,19 @@ stub: false
 再逐行过滤 state，长期用户等于每次都为自己的全部历史买单 —— 越重度的账号越
 吃亏，而 events 从不清理，只会越来越长。纯新增索引，`auto_migrate()` 幂等
 补上，不触铁律 #6。
+
+## 2026-08-20 — `narrative_routing_audit` 加两列(纯增量)
+
+`bypass_score_gate INTEGER/TINYINT(1)` + `bypass_reason TEXT/VARCHAR(32)`,
+两个 dialect 都填了,两列都可空。
+
+**可空是硬要求,不是风格**:prod 上这张表已有 26,922 行早于这两列,
+`ALTER TABLE ADD COLUMN ... NOT NULL`(无默认值)在活表上会失败。
+铁律 #6 的"只做增量"在这里的具体形态就是这个。
+`VARCHAR(32)` 对得上七个短码里最长的 `participant_present`(19 字符),
+测试里钉了这个宽度 —— MySQL 非严格 sql_mode 下超长是**静默截断**,
+而这一列正是下一轮标定的 GROUP BY 键。
+
 ## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
 
 - **列宽 128→64（I2，武装前必改）**：`user_id` 原为 `VARCHAR(128)`，与全仓 id 规范不符
@@ -131,7 +146,6 @@ live 写入没有对应的 bus 行，NOT NULL 会逼写入方编一个 id，而�
 
 拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
 合成一个字段会让每个读者各自再解析一遍。
-
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：
@@ -754,7 +768,6 @@ the intended Part B retrieval surface for ChatModule history was
 never wired up. Letting the writer succeed silently lets embeddings
 accumulate for whatever surface gets built later.
 
-# schema_registry.py
 
 Single source of truth for every database table — define columns once, run on both SQLite and MySQL, migrate automatically.
 

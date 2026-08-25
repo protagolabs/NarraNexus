@@ -35,6 +35,15 @@ def _narrative(nid: str):
 
 
 def _selection(narratives):
+    """Stand-in for `NarrativeSelectionResult`.
+
+    `no_durable_topic` is not optional padding: `step_1_select_narrative` reads
+    it unconditionally to set `ctx.no_durable_topic`, which decides whether §4.4
+    freezes the narrative's retrieval surface for the turn. The real model
+    defaults it to False, so production is safe; a double that omits it only
+    breaks the test. Do not drop it, and do not "fix" the read site with a
+    getattr default — that would hide a genuinely thin double next time.
+    """
     return SimpleNamespace(
         narratives=narratives,
         scores={},
@@ -42,6 +51,7 @@ def _selection(narratives):
         selection_method="keyword",
         is_new=False,
         retrieval_method="keyword",
+        no_durable_topic=False,
     )
 
 

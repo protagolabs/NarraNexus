@@ -252,9 +252,11 @@ async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monke
     result = await retrieval.retrieve_top_k(
         query="hello", user_id="u1", agent_id="a1", top_k=3,
         narrative_type=NarrativeType.CHAT,
+        anchor_narrative_id="nar_hit",
     )
 
     assert result.audit.gate_short_circuit is True, "precondition: it short-circuited"
+    assert result.audit.bypass_reason == "anchor_match"
     assert result.audit.judge_ms is None, (
         "a decision that never entered the judge recorded a judge cost — "
         "NULL no longer means 'this tier did not run'"

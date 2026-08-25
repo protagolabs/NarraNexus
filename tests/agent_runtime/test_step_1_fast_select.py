@@ -49,9 +49,11 @@ def _ctx(**overrides):
     return RunContext(**base)
 
 
-def _narrative(nid: str, name: str = "N"):
+def _narrative(nid: str, name: str = "N", is_special: str = "other"):
     return SimpleNamespace(
-        id=nid, narrative_info=SimpleNamespace(name=name, current_summary="s")
+        id=nid,
+        is_special=is_special,
+        narrative_info=SimpleNamespace(name=name, current_summary="s"),
     )
 
 
@@ -370,3 +372,34 @@ async def test_bare_miss_also_writes_an_audit_row(monkeypatch):
     assert kwargs["chosen_narrative_id"] is None
     assert kwargs["retrieval_method"] == "bm25_fast"
     assert kwargs["top1_raw"] is None
+
+
+@pytest.mark.asyncio
+async def test_bucket_anchor_is_not_reused_on_the_fast_path(monkeypatch):
+    """Independent review 2026-08-21, Important #3: the slow path refuses to
+    continue a default-bucket anchor (slice 5), but the fast path reused it
+    unconditionally — re-pinning the session to the bucket every turn, with no
+    judge and no self-healing exit. 26.4% of prod user turns had a bucket as
+    their main narrative when C-1 shipped, so these sessions are real. A
+    bucket anchor must be treated like a vanished anchor row: anchorless
+    re-probe, then create for durable chat."""
+    bucket = _narrative("nar_bucket", "GreetingAndCourtesy", is_special="default")
+    created = _narrative("nar_new", "New")
+    service = _service(
+        load_narrative_from_db=AsyncMock(return_value=bucket),
+        create_fast=AsyncMock(return_value=created),
+    )
+    session_service = SimpleNamespace(save_session=AsyncMock())
+    monkeypatch.setattr(mod, "_ensure_user_chat_instance", AsyncMock(return_value="c1"))
+
+    ctx = _ctx(session=_session(current_narrative_id="nar_bucket"),
+               turn_profile=_durable_profile())
+    messages = await _drain(mod.step_1_fast_select(ctx, service, session_service))
+
+    # The bucket is never handed back as this turn's narrative...
+    assert ctx.narrative_list == [created]
+    # ...the anchorless retry ran (two select_fast calls: probe + retry)...
+    assert service.select_fast.await_count == 2
+    # ...and the session anchor was rewritten off the bucket.
+    assert ctx.session.current_narrative_id == "nar_new"
+    assert messages[-1].details["retrieval_method"] == "bm25_fast_created"

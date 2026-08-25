@@ -25,7 +25,7 @@ from ..models import (
     RoutingCandidate,
 )
 from .crud import NarrativeCRUD
-from .routing_gate import evaluate_gate
+from .routing_gate import evaluate_bypass, evaluate_gate
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -34,19 +34,50 @@ from .default_narratives import (
 from xyz_agent_context.utils.logging import timed
 
 # Use common utilities from utils
-from xyz_agent_context.utils.text import extract_keywords, truncate_text
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from ._retrieval_llm import (
-    RelationType,
-    NarrativeMatchOutput,
-    UnifiedMatchOutput,
-    llm_confirm,
-    llm_judge_unified,
+from xyz_agent_context.utils.text import (
+    extract_keywords,
+    strip_routing_prefix,
+    truncate_text,
 )
+from xyz_agent_context.utils.db.db_factory import get_db_client
+from ._retrieval_llm import llm_judge_unified
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.repository import NarrativeRepository
+
+# How much of a candidate reaches the judge. The judge prompt is rebuilt from
+# scratch on every crowded turn, so each of these is paid per candidate per
+# judged turn — hence bounded here rather than "whatever fits".
+MAX_MATCHED_TERMS = 5  # Terms shown per candidate, highest contribution first
+CANDIDATE_DESC_MAX_CHARS = 300  # Summary excerpt shown per candidate
+
+
+def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
+    """The (name, description) a narrative shows the LLM judge — ONE definition.
+
+    Every branch that assembles a judge candidate goes through here. That is
+    the actual fix, not an aesthetic one: the search branch and the PARTICIPANT
+    branch of `_llm_unified_match` were two implementations of this same
+    decision, 50 lines apart, and on 2026-04-15 only the search branch was
+    moved onto the live `narrative_info` fields. The PARTICIPANT branch kept
+    reading `topic_hint`, which the 2026-06-09 unified-memory refactor then
+    froze into a write-once-at-creation tombstone — 84% empty on the local dev
+    DB, and stale wherever it is not. Measured worst cases: a 72-event
+    narrative described to the judge by its first sentence from three months
+    earlier, and one whose label was a `[:50]` cut through the middle of an
+    open_id. That branch FORCES the judge to run (a task someone invited the
+    user into must not lose to a keyword hit on the user's own narrative), so
+    a blind label there decides the turn.
+
+    "Untitled" with an empty description is the honest answer for a narrative
+    whose metadata the async updater has not written yet; a frozen creation-time
+    hint is not, because it reads to the LLM as current fact.
+    """
+    info = narrative.narrative_info
+    name = (info.name if info and info.name else "") or "Untitled"
+    summary = (info.current_summary if info and info.current_summary else "")
+    return name, summary[:CANDIDATE_DESC_MAX_CHARS]
 
 
 class NarrativeRetrieval:
@@ -83,7 +114,10 @@ class NarrativeRetrieval:
         user_id: str,
         agent_id: str,
         top_k: int,
-        narrative_type: NarrativeType = NarrativeType.CHAT
+        narrative_type: NarrativeType = NarrativeType.CHAT,
+        *,
+        anchor_narrative_id: Optional[str] = None,
+        is_user_chat: bool = True,
     ) -> NarrativeSelectionResult:
         """Retrieve Top-K Narratives, and record the evidence behind the choice.
 
@@ -102,7 +136,9 @@ class NarrativeRetrieval:
         )
         snapshots: dict = {}
         result = await self._retrieve_top_k(
-            query, user_id, agent_id, top_k, narrative_type, audit, snapshots
+            query, user_id, agent_id, top_k, narrative_type, audit, snapshots,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
         )
         audit.selection_method = result.selection_method
         audit.retrieval_method = result.retrieval_method
@@ -121,6 +157,9 @@ class NarrativeRetrieval:
         narrative_type: NarrativeType,
         audit: "RoutingAudit",
         snapshots: dict,
+        *,
+        anchor_narrative_id: Optional[str],
+        is_user_chat: bool,
     ) -> NarrativeSelectionResult:
         """
         Retrieve Top-K Narratives (two-tier threshold + LLM unified judgment)
@@ -273,14 +312,45 @@ class NarrativeRetrieval:
             raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
             margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
         )
-        audit.gate_short_circuit = gate.short_circuit and not has_participant_narratives
-        audit.gate_reason = gate.reason
+        # Which narrative BM25 actually wants. NOT `search_results[0]`: the
+        # participant merge above appends entries with a synthetic 0.5
+        # similarity and re-sorts on that, so position 0 can be a narrative
+        # that never went through bm25 at all. The bypass rule has to compare
+        # the KEYWORD winner against the anchor or it would compare noise.
+        keyword_leader = max(
+            search_results, key=lambda r: r.raw_score, default=None
+        )
+        top1_narrative_id = (
+            keyword_leader.narrative_id
+            if keyword_leader is not None and keyword_leader.raw_score > 0
+            else None
+        )
+        # Second decision, separate from strength: may this turn skip review at
+        # all? A bypass is only ever allowed to KEEP a turn where it already
+        # was — see routing_gate.evaluate_bypass for the prod measurement
+        # behind that (92.5% of bypasses were already doing exactly that, and
+        # all of the hijack risk lives in the other 7.5%).
+        bypass = evaluate_bypass(
+            gate,
+            top1_narrative_id=top1_narrative_id,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+            has_participant_narratives=has_participant_narratives,
+        )
+        # `gate_short_circuit` keeps its original meaning — "this turn skipped
+        # the judge" — so it now reflects the bypass decision, not floor+margin.
+        # `bypass_score_gate` is what preserves the floor/margin series for the
+        # next calibration round.
+        audit.gate_short_circuit = bypass.granted
+        audit.bypass_score_gate = gate.short_circuit
+        audit.bypass_reason = bypass.reason
+        audit.gate_reason = bypass.detail
         audit.gate_top1_raw = gate.top1_raw
         audit.gate_top2_raw = gate.top2_raw
         # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
         audit.gate_margin = gate.margin if gate.margin != float("inf") else None
-        if gate.short_circuit and not has_participant_narratives:
-            logger.info(f"[NarrativeSelect] high confidence — {gate.reason}")
+        if bypass.granted:
+            logger.info(f"[NarrativeSelect] high confidence — {bypass.detail}")
             narratives = []
             for result in search_results[:top_k]:
                 narrative = await self._crud.load_by_id(result.narrative_id)
@@ -289,7 +359,7 @@ class NarrativeRetrieval:
 
             return NarrativeSelectionResult(
                 narratives=narratives,
-                selection_reason=f"High confidence match: {gate.reason}",
+                selection_reason=f"High confidence match: {bypass.detail}",
                 selection_method="high_confidence",
                 is_new=False,
                 best_score=best_score,
@@ -299,7 +369,10 @@ class NarrativeRetrieval:
             )
 
         if search_results:
-            logger.info(f"[NarrativeSelect] deferring to LLM — {gate.reason}")
+            logger.info(
+                f"[NarrativeSelect] deferring to LLM ({bypass.reason}) — "
+                f"{bypass.detail}"
+            )
 
         # P0-4: If user has PARTICIPANT Narratives, force LLM judgment
         if has_participant_narratives:
@@ -379,6 +452,17 @@ class NarrativeRetrieval:
             agent_id: Agent ID
             user_id: User ID
         """
+        # C-1: buckets are no longer routing containers, so a new (agent,user)
+        # pair must not acquire eight of them. This is the SEEDING half of the
+        # change; existing rows are left untouched (binding rule #6) and simply
+        # stop being loaded into the pool above.
+        if not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED:
+            logger.debug(
+                "Default buckets disabled — skipping seeding for "
+                f"agent {agent_id} + user {user_id}"
+            )
+            return
+
         # Use Repository to check if default Narratives already exist (lazy import to avoid circular dependency)
         from xyz_agent_context.repository import NarrativeRepository
         db_client = await get_db_client()
@@ -489,9 +573,18 @@ class NarrativeRetrieval:
         no history kept.
         """
         narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        keep_buckets = config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
         return [
             (n.id, n.searchable_text(), n.is_special == "default")
             for n in narratives
+            # C-1: a bucket's searchable_text is a frozen factory template, so
+            # it can never legitimately WIN a query — but it still shifts every
+            # other candidate's score through IDF/avgdl, and it can short-
+            # circuit the gate on its own (measured: 2 turns in the replay).
+            # Dropping it from the pool is what makes the rest of the batch
+            # honest. Existing rows stay in the DB; only routing stops seeing
+            # them.
+            if keep_buckets or n.is_special != "default"
         ]
 
     @staticmethod
@@ -501,20 +594,52 @@ class NarrativeRetrieval:
         top_k: int,
     ) -> List[NarrativeSearchResult]:
         """Rank an already-loaded pool. Pure — no DB, so the audit replay and
-        the live decision run byte-identical code."""
-        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
+        the live decision run byte-identical code.
 
-        scores = bm25_rank(query, [(nid, text) for nid, text, _ in pool])
-        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-        return [
-            NarrativeSearchResult(
+        Ranks via ``bm25_explain`` rather than ``bm25_rank``: same arithmetic
+        and the same score to the last bit, but it also hands back WHICH query
+        terms earned that score. That evidence travels to the LLM judge
+        (`_llm_unified_match`), and this is the only moment it is free — the
+        scored text is in hand here, and reconstructing it later is impossible
+        because the async updater rewrites it wholesale with no history.
+
+        The routing prefix is stripped HERE, not at the call sites, so every
+        BM25 consumer inherits it — `retrieve_top_k`, `keyword_search`, and
+        `select_fast` through it — and so a replay that goes through this
+        method still reproduces the live decision byte for byte. The audit row
+        keeps the ORIGINAL query text: what the user said is the record, and
+        what BM25 scored is derivable from it by this same function.
+        """
+        from xyz_agent_context.memory.bm25 import (
+            bm25_explain,
+            bm25_snippet,
+        )
+
+        # "[From <sender>] " is routing metadata, not topic evidence: it is
+        # present on 96% of prod queries and carries 100% of the score on the
+        # worst of them (audit 768, `[From Liam] 👊` -> 5.66 from `from`+`liam`
+        # alone, the emoji tokenising to nothing). The judge and the continuity
+        # tier still read the untouched text — they can tell a name from a
+        # topic, BM25 cannot. See utils.text.strip_routing_prefix.
+        explained = bm25_explain(
+            strip_routing_prefix(query), [(nid, text) for nid, text, _ in pool]
+        )
+        texts = {nid: text for nid, text, _ in pool}
+        ranked = sorted(
+            explained.items(), key=lambda kv: kv[1][0], reverse=True
+        )[:top_k]
+        results = []
+        for i, (nid, (score, contributions)) in enumerate(ranked):
+            terms = [term for term, _ in contributions]
+            results.append(NarrativeSearchResult(
                 narrative_id=nid,
-                similarity_score=s / (s + 1.0),
+                similarity_score=score / (score + 1.0),
                 rank=i + 1,
-                raw_score=s,
-            )
-            for i, (nid, s) in enumerate(ranked)
-        ]
+                raw_score=score,
+                matched_terms=terms[:MAX_MATCHED_TERMS],
+                matched_snippet=bm25_snippet(texts[nid], terms),
+            ))
+        return results
 
     async def keyword_search(
         self,
@@ -526,8 +651,10 @@ class NarrativeRetrieval:
         """BM25 keyword retrieval over the agent's narratives — the non-vector
         BM25 keyword search over the agent's narratives.
 
-        Ranks each narrative by query overlap on its name + current_summary +
-        description + topic_keywords, using the same BM25 the MemoryEngine uses.
+        Ranks each narrative by query overlap on `Narrative.searchable_text()`
+        (the ONE definition of the retrieval surface — restating the field list
+        here is how it drifted last time), using the same BM25 the MemoryEngine
+        uses.
         Scores are normalized monotonically into (0,1) so the existing two-tier
         threshold still applies: weak matches fall through to the LLM tier;
         strong keyword matches may direct-return.
@@ -587,24 +714,28 @@ class NarrativeRetrieval:
         for result in search_results:
             narrative = await self._crud.load_by_id(result.narrative_id)
             if narrative:
-                # Use narrative_info for candidate info (no episode_summaries after decoupling)
-                candidate_name = (
-                    narrative.narrative_info.name
-                    if narrative.narrative_info and narrative.narrative_info.name
-                    else (narrative.topic_hint[:50] if narrative.topic_hint else "Untitled")
-                )
-                candidate_desc = (
-                    narrative.narrative_info.current_summary[:300]
-                    if narrative.narrative_info and narrative.narrative_info.current_summary
-                    else (narrative.topic_hint[:100] if narrative.topic_hint else "")
-                )
+                candidate_name, candidate_desc = _candidate_labels(narrative)
 
+                # The BM25 evidence, carried through from rank_pool. Without it
+                # the judge sees only `Similarity score: 0.91` — a number that
+                # can be 100% request-frame characters, on the very turns the
+                # gate handed over BECAUSE the candidates were crowded.
+                #
+                # `raw_score` rides along un-rendered, as the marker for "this
+                # candidate came from BM25 and therefore OWES evidence": step
+                # 1.5 merges participant narratives into `search_results` at a
+                # synthetic 0.5 similarity, so this list is not purely
+                # BM25-sourced and the missing-evidence alarm downstream would
+                # otherwise cry wolf on every participant turn.
                 search_candidates.append({
                     "id": narrative.id,
                     "type": "search",
                     "name": candidate_name,
                     "description": candidate_desc,
                     "score": result.similarity_score,
+                    "raw_score": result.raw_score,
+                    "matched_terms": result.matched_terms,
+                    "matched_content": result.matched_snippet,
                 })
 
         logger.debug(f"[NarrativeSelect] Prepared {len(search_candidates)} search candidates for LLM judge")
@@ -613,7 +744,17 @@ class NarrativeRetrieval:
         from xyz_agent_context.repository import NarrativeRepository
         db_client = await get_db_client()
         repo = NarrativeRepository(db_client)
-        default_narratives = await repo.get_default_narratives(agent_id, user_id)
+        # C-1: with buckets governed, the judge gets real threads only. The
+        # eight category names move into the instructions as vocabulary (see
+        # prompts.NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS) — a menu of eight fixed
+        # entries WITH worked examples against at most three dynamic ones was a
+        # menu that answered itself (measured: 60% of judge verdicts picked a
+        # bucket, and 63 of those 93 had a real candidate available).
+        default_narratives = (
+            await repo.get_default_narratives(agent_id, user_id)
+            if config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
+            else []
+        )
 
         default_candidates = []
         for narrative in default_narratives:
@@ -635,11 +776,16 @@ class NarrativeRetrieval:
         participant_candidates = []
         if participant_narratives:
             for narrative in participant_narratives:
+                # Same labeller as the search branch above — no matched_terms /
+                # matched_content: these never went through BM25 (they enter at
+                # a synthetic neutral score), and inventing evidence for them
+                # would be worse than showing none.
+                candidate_name, candidate_desc = _candidate_labels(narrative)
                 participant_candidates.append({
                     "id": narrative.id,
                     "type": "participant",  # P0-4: Changed to "participant"
-                    "name": narrative.topic_hint[:50] if narrative.topic_hint else "Untitled",
-                    "description": narrative.topic_hint[:100] if narrative.topic_hint else "",
+                    "name": candidate_name,
+                    "description": candidate_desc,
                 })
             logger.info(f"P0-4: Added {len(participant_candidates)} PARTICIPANT candidates to LLM judgment")
 
@@ -724,6 +870,27 @@ class NarrativeRetrieval:
                     # evermemos_memories removed — EverMemOS decoupled from narrative selection
                 )
 
+        # 4.5 (C-1) "No durable topic" — a verdict about the TURN, not a
+        # destination. The retrieval tier deliberately stops here with an empty
+        # list instead of creating: where such a turn lands depends on the
+        # session anchor and on whether the surface persists history, and
+        # neither is knowable from inside retrieval. NarrativeService.select
+        # owns that decision (anchor-first). Creating here is exactly the
+        # fragmentation this batch exists to avoid — a "你好" must not open a
+        # thread while the user's real work thread is one lookup away.
+        if llm_result.get("matched_type") == "no_topic":
+            logger.info("LLM: no durable topic this turn — deferring the landing")
+            return NarrativeSelectionResult(
+                narratives=[],
+                selection_reason=f"No durable topic: {llm_result.get('reason', '')}",
+                selection_method="no_topic",
+                is_new=False,
+                no_durable_topic=True,
+                best_score=best_score,
+                scores=all_scores,
+                retrieval_method=retrieval_method,
+            )
+
         # 5. No match, create new Narrative
         logger.info("LLM determined no match with any Narrative, creating new topic")
         new_narrative = await self.create_from_query(
@@ -742,26 +909,6 @@ class NarrativeRetrieval:
             scores=all_scores,
             retrieval_method=retrieval_method,
         )
-
-    async def _prepare_candidates(
-        self,
-        search_results: List[NarrativeSearchResult]
-    ) -> List[dict]:
-        """Prepare candidate list for LLM confirmation"""
-        candidates = []
-        for result in search_results:
-            narrative = await self._crud.load_by_id(result.narrative_id)
-            if narrative:
-                candidates.append({
-                    "id": narrative.id,
-                    "name": narrative.topic_hint[:30] if narrative.topic_hint else "Untitled",
-                    "query": narrative.topic_hint[:50] if narrative.topic_hint else "",
-                })
-        return candidates
-
-    async def _llm_confirm(self, query: str, candidates: List[dict]) -> dict:
-        """LLM match confirmation — delegates to _retrieval_llm module"""
-        return await llm_confirm(query, candidates)
 
     async def _llm_judge_unified(
         self,
@@ -833,15 +980,41 @@ class NarrativeRetrieval:
         agent_id: str,
         narrative_type: NarrativeType
     ) -> Narrative:
-        """Create a new Narrative from the query (BM25 routing surface only)."""
+        """Create a new Narrative from the query (BM25 routing surface only).
+
+        NAME and DESCRIPTION are built from the query with the channel routing
+        prefix removed. Naming a thread "[From <sender>] ..." turns it into a
+        magnet for every later message from that channel: the sender tokens
+        then sit in the thread's OWN retrieval surface at a low in-pool df, so
+        the next message matches its own line and skips the judge (prod audit
+        1492 reached margin 357.79 exactly this way; four such lines exist in
+        prod today). `topic_keywords` is deliberately left on the raw query —
+        that field has an undecided two-writer design (A-kw) and is read-only
+        for this change.
+        """
         # Extract keywords (the BM25 routing surface)
         topic_keywords = extract_keywords(query)
 
+        # The naming surface, without the channel label. Falls back to the raw
+        # query when a message is nothing BUT a prefix — an unnamed thread is
+        # worse than a slightly noisy name.
+        naming_text = strip_routing_prefix(query).strip() or query
+
         # Generate topic hint
-        topic_hint = truncate_text(query, config.SUMMARY_MAX_LENGTH)
+        topic_hint = truncate_text(naming_text, config.SUMMARY_MAX_LENGTH)
 
         # Generate title
-        title = truncate_text(query, 30)
+        title = truncate_text(naming_text, 30)
+
+        # And the description. Its two siblings above were truncated and it was
+        # not, which is how prod ended up with a 198,398-character description
+        # welded into a BM25 index that the updater never rewrites. Bounded here
+        # AND clamped again in `_crud.create` — the call site states the intent,
+        # the funnel covers the other two writers (the LLM's create_narrative
+        # signal and the HTTP route).
+        description = truncate_text(
+            f"Created based on query: {naming_text}", config.DESCRIPTION_MAX_LENGTH
+        )
 
         # Create Narrative
         narrative = await self._crud.create(
@@ -849,10 +1022,14 @@ class NarrativeRetrieval:
             user_id=user_id,
             narrative_type=narrative_type,
             title=title,
-            description=f"Created based on query: {query}"
+            description=description
         )
 
-        # BM25 routing surface (name + summary + topic_keywords). Embedding
+        # BM25 routing surface. `searchable_text()` is the one definition:
+        # name + current_summary + (description, only while unsummarised) +
+        # topic_keywords. The old comment here listed three fields and omitted
+        # description, which is how it stayed a tombstone in the index for two
+        # months without anyone noticing. Embedding
         # fields (routing_embedding / embedding_updated_at / VectorStore /
         # embeddings_store) are retired — narrative routing is vector-free.
         narrative.topic_keywords = topic_keywords

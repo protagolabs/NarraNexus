@@ -174,6 +174,35 @@ class NarrativeConfig:
     # Recommended: 6
     MAX_EVENTS_IN_CONTEXT = 6
 
+    # ==================== Default buckets (C-1 governance) ====================
+    # The eight seeded "default" narratives (GreetingAndCourtesy, …) stop being
+    # routing CONTAINERS when this is False — they leave the BM25 pool, leave
+    # the judge's candidate menu, and are no longer seeded for new (agent,user)
+    # pairs. The verdict "this turn carries no durable topic" survives as
+    # `matched_category = "no_durable_topic"`. (The eight names were initially
+    # kept in the judge prompts as recognition vocabulary; 2026-08-21 live
+    # testing showed the taxonomy itself teaching classify-and-dump, so the
+    # names are gone from ALL prompts — pinned by
+    # test_judge_instructions_dropped_the_eight_category_names.)
+    #
+    # Why they had to go (measured, spec 2026-08-14-default-bucket-governance):
+    #   - 26.4% of prod user turns and 27.0% of a real prod slice's chat turns
+    #     had a bucket as their MAIN narrative, and 9080/9080 buckets platform-
+    #     wide still carry their factory summary — a bucket never accumulates a
+    #     retrieval surface, so a topic filed into one can never be recalled.
+    #   - The eight rows also perturbed 9.7% of top-1 BM25 results just by
+    #     sitting in the pool (IDF/avgdl are computed over the set handed in).
+    #
+    # False is the shipping value. Flipping to True restores the CONTAINER
+    # side only (seeding, pool, menu offer) — it does NOT bring back the old
+    # taxonomy-carrying prompts, which were removed separately on 2026-08-21;
+    # a FULL rollback to the old world is this flag PLUS reverting the two
+    # taxonomy-removal prompt commits. Existing bucket ROWS are never deleted
+    # either way — binding rule #6.
+    NARRATIVE_DEFAULT_BUCKETS_ENABLED = (
+        _env("NARRATIVE_DEFAULT_BUCKETS_ENABLED", "0") == "1"
+    )
+
     # ==================== Narrative LLM Dynamic Update ====================
     # Use LLM to update Narrative metadata every N Events (name, current_summary,
     # actors, topic_keywords, dynamic_summary). Default 1 = every Event; raise to
@@ -203,6 +232,22 @@ class NarrativeConfig:
     # Description: Maximum character count for topic_hint
     # Recommended: 200
     SUMMARY_MAX_LENGTH = 200
+
+    # Hard cap on a stored `narrative_info.description`, applied in
+    # `NarrativeCRUD.create` — the ONE funnel all three writers pass through
+    # (routing's `create_from_query`, the LLM's `create_narrative` signal in
+    # `step_4_persist_results`, and the HTTP route). Fixing only the routing
+    # door would leave two open, and the LLM one takes its text straight from
+    # tool arguments.
+    #
+    # 512, deliberately NOT SUMMARY_MAX_LENGTH: the eight curated default-bucket
+    # descriptions reach the LLM judge, and `GreetingAndCourtesy` is 206
+    # characters — a 200 cap would silently truncate frozen prompt content.
+    # 512 clears every bucket and still clamps only the pathological tail
+    # (prod non-default: 55% are under 200 chars, 21% are over 1,500,
+    # max 198,398). A test pins the "does not clip a bucket" property so a
+    # later "let's align these two constants" cannot quietly break it.
+    DESCRIPTION_MAX_LENGTH = 512
 
     # ==================== Hierarchical Structure (Reserved for Phase 2) ====================
 

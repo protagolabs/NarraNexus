@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 冻结来源分标签(PR #361 round 2, M1)
+
+`is_default` 合流了两个冻结来源(legacy 桶行 / 本轮判"无持久话题"),
+但日志标签不再共用:真桶行在**有**持久话题的轮次上曾被记成
+"no_durable_topic"——那是排查路由投诉时唯一的现场证据行。现在按
+`ctx.no_durable_topic` 分为 `no_durable_topic` / `default_bucket`,
+行为(is_default 分支)不变。
+
 
 ## 2026-08-18 (review 修正) — 两个 helper 合并成一个遍历
 
@@ -61,6 +70,66 @@ owner 面的工具有两个名字，判据从写死一个改成「这个来源�
 是 `reply_owner`，其余全是 `notify_owner`。写死任一个，都会在用另一个的表面上把成功的
 回复读成「没回复」。
 
+## 2026-08-16 — 没有 narrative 的一轮不等于没有东西要存（D-10）
+
+早退条件从 `not main_narrative or not execution_result` 收窄为
+`not execution_result`，4.0/4.1/4.2/4.4 各自加 `if main_narrative is not None`。
+
+**"没有 narrative"这件事本身是设计**：ephemeral（voice/F28）就是要不留痕迹，好让
+下一条打字消息的连续性判定像这轮没发生过；④-A′ 的"无锚点 + ephemeral"也落在这里。
+**不是设计的**是那条早退顺手带走的两段 event 级记账：
+
+- **4.3** `update_event_in_db(final_output / event_log / module_instances)` +
+  `MemoryEngine.index` —— events 行永远没有回复正文，`remember` 永远搜不到这轮
+- **4.6** `record_cost` —— token 烧了、回复发了、**成本不入账**
+
+这两段跟"这轮属于哪条线"没有任何关系。ephemeral 要的是不留**线**，不是不留**账**。
+（核实过：配额扣减不在这条路上——`record_cost` 只写 `cost_records`，扣减在
+provider driver 层随 LLM 调用发生。所以这是统计/账目缺口，不是收入漏损。）
+
+4.5 保持原样即可：它本来就 `if main_narrative:` 才写 `current_narrative_id`，
+`last_response` 无条件写——正是裸跑轮需要的（有话给下一轮比，锚点不指向不存在的线）。
+
+`current_round` / `total_toolcalls` / `unique_narratives` 提到函数顶部给了"没有可
+数的东西"的默认值，因为它们原来在 4.1/4.2/4.4 里赋值、却在末尾的完成消息里被读。
+
+顺带把 4.4 的冻结触发条件从"这行是不是 default 桶"改成"**这一轮有没有持久话题**"
+（`ctx.no_durable_topic`）——同一个分支，诚实的触发条件。
+## 2026-08-12 — §4.3 回写 `event_log`，不再只回写 `final_output`
+
+§4.3 一直只把一个字段同步回内存里的 Event：
+
+```python
+ctx.event.final_output = execution_result.final_output
+```
+
+而 `ctx.event` 是 §0 用 `event_log=[]` 造出来的（`_event_impl/crud.py`），
+**从创建到运行结束都没人给它赋过值**。于是 §4.3 之后所有拿 `ctx.event` 的下游
+（§4.4 的 narrative 更新、§5 的 hooks）被告知"这一轮什么都没干"—— 内存对象和刚
+写进库里的那一行**互相矛盾**。
+
+这个半同步已经咬过一次：2026-08-05 那条记录里的幽灵行，正是从这个内存对象复制
+出来的，签名里就有 `event_log='[]'`。
+
+第二次是 A1（narrative 抽取不看工具调用）。修 A1 时给 updater 加了
+`build_action_digest(event.event_log)`，把这一轮的工具动作压进检索面 —— 但
+`event.event_log` 是空的，**整个改动在生产上是个静默空转**，而单元测试因为自己
+手工构造 Event 全都是绿的。
+
+改动是一行，与既有的 `final_output` 回写并排：
+
+```python
+ctx.event.final_output = execution_result.final_output
+ctx.event.event_log = event_log_entries
+```
+
+钉住它的测试：`tests/agent_runtime/test_step4_event_log_sync.py`。其中
+`test_synced_event_log_reaches_the_action_digest` 是**穿过真实 step_4** 跑的，
+不是手工构造 Event —— 这是唯一能让"内存对象撒谎"这类 bug 露头的测法。
+
+**给后来者的一般教训**：把库里更新过的字段回写内存对象时，**要么全部回写，要么
+一个都别回写**。挑一个回写最危险 —— 对象看起来是新鲜的，实际只有你当时关心的那
+个字段是新鲜的。
 ## 2026-08-05 — §4.4 一轮只写一行 Event（0802「对话时序错乱」根因）
 
 §4.4 原来对 `ctx.narrative_list[1:]`（辅助 Narrative）逐条调
