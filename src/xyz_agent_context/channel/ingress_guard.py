@@ -352,15 +352,34 @@ class IngressGuard:
            row was right; nothing read it until the damage was already
            being re-done.
 
-        Cheap by construction: rows only exist for sessions that have
-        tripped, and closed ones are swept by retention.
+        Loads only the sessions still INSIDE a cooldown.
+
+        The first version loaded every ``tier > 0`` row and justified it
+        with "closed ones are swept by retention" — which has the relation
+        backwards: retention sweeps ``tier = 0`` EXCLUSIVELY, and this
+        loads ``tier > 0`` exclusively, so the two never intersect. A
+        session that trips once and goes quiet keeps its row forever (tier
+        decay needs further ``admit()`` calls it will never get), so
+        "every open row" is a lifetime trip log, not a current state.
+        Loading it would make both the footprint and
+        ``open_session_count()`` climb with every deploy — turning I4's
+        "reports 0 after a restart" into "reports a growing historical
+        total", which is just as useless for "how many are isolated now".
+
+        The escalation memory does NOT need preloading: ``_load()`` fetches
+        it lazily at the only moment it matters — when that key speaks
+        again. What preloading buys is the observability surface, and that
+        surface only ever meant "currently suppressed".
 
         Returns the number of sessions restored.
         """
         if self._repo is None:
             return 0
+        now = now or utc_now()
         try:
-            rows = await self._repo.find_open(channel)
+            rows = await self._repo.find_open(
+                channel, cooling_only=True, now=now
+            )
         except Exception as e:  # noqa: BLE001 — never block startup
             logger.warning(
                 f"IngressGuard: warm start failed for {channel} "
@@ -368,7 +387,6 @@ class IngressGuard:
             )
             return 0
 
-        now = now or utc_now()
         restored = 0
         for row in rows:
             if not row.session_key or row.session_key in self._sessions:
@@ -387,7 +405,7 @@ class IngressGuard:
             restored += 1
         if restored:
             logger.info(
-                f"IngressGuard[{channel}]: restored {restored} isolated "
+                f"IngressGuard[{channel}]: restored {restored} cooling "
                 f"sessions from the durable store"
             )
         return restored
@@ -560,7 +578,14 @@ class IngressGuard:
                 "sender_id": sender_id,
                 "tier": state.tier,
                 "cooldown_until": state.cooldown_until,
-                "suppressed_count": 0,
+                # What the isolation that just ENDED absorbed. On a first
+                # trip that is 0; on an escalation from a half-open probe
+                # it is the real count, and that is the only path where a
+                # non-zero value is ever produced — writing 0 here left the
+                # column dead for exactly the scenario it was added for.
+                # (``state.suppressed`` is separately zeroed above, for the
+                # new isolation.)
+                "suppressed_count": suppressed_before,
                 "last_reason": reason,
                 "last_tripped_at": now,
             },

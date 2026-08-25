@@ -125,8 +125,8 @@ def test_fallback_stops_at_the_burst_limit():
 # ── The counter itself ────────────────────────────────────────────────
 
 def test_counter_is_scoped_per_conversation():
-    a = _fallback_conversation_key({"channel": "narramessenger", "room_id": "!a"})
-    b = _fallback_conversation_key({"channel": "narramessenger", "room_id": "!b"})
+    a = _fallback_conversation_key({"channel": "narramessenger", "room_id": "!a"}, "agt_1")
+    b = _fallback_conversation_key({"channel": "narramessenger", "room_id": "!b"}, "agt_1")
     assert a != b
 
     _record_fallback_delivery(a)
@@ -138,16 +138,32 @@ def test_counter_is_scoped_per_conversation():
 def test_counter_ignores_an_unidentifiable_conversation():
     """No channel and no room → no key. Counting every such turn under one
     shared bucket would let unrelated channels starve each other."""
-    key = _fallback_conversation_key({})
+    key = _fallback_conversation_key({}, "agt_1")
     assert key == ""
     _record_fallback_delivery(key)
     assert _recent_fallback_count(key) == 0
 
 
 def test_same_room_on_two_channels_is_two_conversations():
-    a = _fallback_conversation_key({"channel": "telegram", "room_id": "123"})
-    b = _fallback_conversation_key({"channel": "slack", "room_id": "123"})
+    a = _fallback_conversation_key({"channel": "telegram", "room_id": "123"}, "agt_1")
+    b = _fallback_conversation_key({"channel": "slack", "room_id": "123"}, "agt_1")
     assert a != b
+
+
+def test_two_agents_in_one_room_get_separate_budgets():
+    """The key is agent-scoped. Today the gate only fires on DMs (one of
+    our agents alone in the room), so this cannot bite yet — but the map
+    is module-level and shared by every agent in the runtime process, so
+    the moment the gate widens beyond DMs an agent-blind key would let
+    agent A's three fallbacks silently gag agent B."""
+    a = _fallback_conversation_key({"channel": "slack", "room_id": "C1"}, "agt_a")
+    b = _fallback_conversation_key({"channel": "slack", "room_id": "C1"}, "agt_b")
+    assert a != b
+
+    _record_fallback_delivery(a)
+    _record_fallback_delivery(a)
+    _record_fallback_delivery(a)
+    assert _recent_fallback_count(b) == 0
 
 
 # ── Memory ────────────────────────────────────────────────────────────

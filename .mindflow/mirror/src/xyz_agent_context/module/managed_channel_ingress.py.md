@@ -4,6 +4,21 @@ last_verified: 2026-08-25
 stub: false
 ---
 
+## 2026-08-25 — 托管侧**不做** warm_start（记录在案的决定，不是遗漏）
+
+原生路径在 `start()` 里 `await guard.warm_start(...)`，托管侧没有。这是
+有意的，不是「一个 seam 四个挂载点」在这里破了：
+
+- `_guard()` 是**同步**、按需懒建，托管协调器没有 `start()` 那样的异步启动
+  钩子可挂；
+- 更根本的是**托管侧没有要喂的东西**：warm_start 买来的只有观测面
+  （`health_snapshot` / 心跳），而托管模式没有这类常驻观测面；
+- 冷却本身跨重启依然生效——靠 `_load()` 逐 key 懒加载，那与预热无关。
+
+**将来 Manyfold 长出自己的 `/healthz` 时这条要重新评估**，否则缺口会以
+「托管渠道永远报 0」的形式回来，而 `test_ingress_guard_all_paths` 钉的是
+`_ingress_admitted`，钉不住生命周期钩子的对齐。
+
 ## 2026-08-24 — 托管路径自带 ingress 熔断器
 
 托管模式绕开**整条**原生接收路径（无 `_subscribe_loop` / dedup store /

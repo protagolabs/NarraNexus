@@ -293,8 +293,8 @@ async def alert_agent_transient_streak(
 # Audit plane for the message-ingress circuit breaker.
 _INGRESS_AUDIT_SERVICE = "ingress_breaker"
 
-# Detailed ingress notices one AGENT may receive per cooldown window before
-# they collapse into a single "and N more" line.
+# Detailed ingress notices one AGENT may receive per cooldown window. Past
+# it, further pauses collapse into one digest notice (_send_ingress_digest).
 #
 # The per-session dedup below is deliberate — two runaway peers are two
 # things the owner needs to know about — but session cardinality is driven
@@ -329,6 +329,58 @@ def _ingress_quota_spend(agent_id: str) -> tuple[bool, int]:
     stamps.append(now)
     _ingress_notice_quota[agent_id] = stamps
     return True, len(stamps)
+
+
+async def _send_ingress_digest(
+    agent_id: str, owner_user_id: str, channel: str, spent: int
+) -> None:
+    """One collapsed notice per agent per window, once the detail quota is
+    spent.
+
+    Without it the quota was a mute button: past the third session the
+    owner got nothing at all — no summary, no count, no pointer to the
+    audit trail, just a ``logger.warning`` that rotates away. That
+    reproduces this PR's own founding problem ("nobody knew for 70 hours")
+    at a per-session scale, which is why the quota cannot simply drop.
+
+    Bounded the same way the detail notices are: one digest per agent per
+    ``ALERT_COOLDOWN_SECONDS``, deduped through the shared cooldown map, so
+    fixing an unbounded channel does not open a new one.
+    """
+    digest_key = f"ingress-digest:{agent_id}"
+    now = time.monotonic()
+    last = _notify_cooldown.get(digest_key)
+    if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
+        return
+    try:
+        db = await get_db_client()
+        content = (
+            f"This agent has paused more conversations on {channel} than "
+            f"fit in one notification. You have already been told about "
+            f"{spent} of them; further pauses in this window are recorded "
+            f"but not sent individually.\n\n"
+            f"Every pause — including the ones not listed here — is in the "
+            f"audit trail under service `ingress_breaker`, with the "
+            f"conversation, the message count and the repeat ratio that "
+            f"triggered it.\n\n"
+            f"A burst of these usually means one sender is talking to many "
+            f"of your agents, or a broken client is retrying."
+        )
+        await InboxRepository(db).create_message(
+            user_id=owner_user_id,
+            message_id=f"ingressdg_{uuid.uuid4().hex[:16]}",
+            title=f"Several conversations paused on {channel}",
+            content=content,
+            message_type=InboxMessageType.SYSTEM_NOTICE,
+            source=MessageSource(type="ingress_breaker_digest", id=agent_id),
+        )
+        _notify_cooldown[digest_key] = now
+        logger.warning(
+            f"[ingress-breaker] sent digest to owner {owner_user_id} for "
+            f"agent {agent_id} (quota spent after {spent} detailed notices)"
+        )
+    except Exception as e:  # noqa: BLE001 — notification is best-effort
+        logger.warning(f"[ingress-breaker] digest notice failed: {e}")
 
 
 async def alert_ingress_breaker_tripped(
@@ -396,35 +448,53 @@ async def alert_ingress_breaker_tripped(
 
     # Quota is claimed AFTER the audit write above: the evidence chain must
     # stay lossless (lesson #5); what we ration is the human channel.
-    allowed, _spent = _ingress_quota_spend(agent_id)
+    allowed, spent = _ingress_quota_spend(agent_id)
     if not allowed:
-        logger.warning(
-            f"[ingress-breaker] owner notice suppressed by quota for agent "
-            f"{agent_id} ({verdict.session_key}) — audit row still written"
-        )
-        _notify_cooldown[cooldown_key] = now
+        # Deliberately NOT arming this session's dedup slot: it never got a
+        # notice, so it must stay eligible for one when the quota frees up.
+        # (Arming it here meant a quota-suppressed trip was silently
+        # skipped for the rest of the window as well.)
+        await _send_ingress_digest(agent_id, owner_user_id, channel, spent)
         return
 
     peer = "another agent" if verdict.is_agent_peer else "a sender"
     minutes = int(verdict.cooldown_seconds // 60)
     window = f"{minutes} minutes" if minutes < 120 else f"{minutes // 60} hours"
-    try:
-        content = (
+    if verdict.reason == "probe_repeated":
+        # The state machine's evidence for this transition is "one message
+        # matched a fingerprint from the trip" — so window_count is 1 and
+        # the ratio is 1.0, correctly, in the audit row. Rendering those
+        # numbers to a person produced "sent 1 messages that were 100%
+        # repeats of each other", which reads as an over-sensitive breaker
+        # while actually describing the opposite: a pause that absorbed
+        # dozens of messages and was resumed verbatim the moment it ended.
+        opening = (
+            f"On {channel}, {peer} resumed the very same message once the "
+            f"pause ended. During that pause this platform absorbed "
+            f"{verdict.suppressed} messages from the conversation, so the "
+            f"pause has been extended to {window}.\n\n"
+        )
+    else:
+        opening = (
             f"On {channel}, {peer} sent {verdict.window_count} messages that "
             f"were {int(verdict.dup_ratio * 100)}% repeats of each other. That "
             f"pattern does not produce new information for the agent to act "
             f"on, so this platform has stopped feeding that ONE conversation "
             f"into the agent for {window}.\n\n"
-            f"Nothing else is affected: the agent keeps running, and every "
-            f"other conversation on every channel is untouched.\n\n"
-            f"Messages arriving from this conversation during the window are "
-            f"NOT processed and their content is NOT kept — only a record "
-            f"that they arrived (count and time) lands in the audit trail. "
-            f"When the window elapses, the next message is examined: if it "
-            f"repeats what was being said before, the pause extends; "
-            f"anything genuinely new resumes the conversation.\n\n"
-            f"If the repetition was intentional, no action is needed — it "
-            f"clears itself once the conversation returns to normal."
+        )
+    try:
+        content = (
+            opening
+            + "Nothing else is affected: the agent keeps running, and every "
+            "other conversation on every channel is untouched.\n\n"
+            "Messages arriving from this conversation during the window are "
+            "NOT processed and their content is NOT kept — only a record "
+            "that they arrived (count and time) lands in the audit trail. "
+            "When the window elapses, the next message is examined: if it "
+            "repeats what was being said before, the pause extends; "
+            "anything genuinely new resumes the conversation.\n\n"
+            "If the repetition was intentional, no action is needed — it "
+            "clears itself once the conversation returns to normal."
         )
         await InboxRepository(db).create_message(
             user_id=owner_user_id,

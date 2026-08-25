@@ -358,7 +358,7 @@ IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
 _im_dm_fallback_history: dict[str, list[float]] = {}
 
 
-def _fallback_conversation_key(channel_tag: dict, agent_id: str = "") -> str:
+def _fallback_conversation_key(channel_tag: dict, agent_id: str) -> str:
     """Identity for fallback rate limiting: one conversation, one budget.
 
     Keyed by agent as well, matching the ingress breaker's session key.
@@ -1031,7 +1031,7 @@ async def _stream_fallback_recovery(
                 # never landed on the far side, so it must not spend this
                 # conversation's fallback budget.
                 _record_fallback_delivery(
-                    _fallback_conversation_key(channel_tag or {})
+                    _fallback_conversation_key(channel_tag or {}, agent_id)
                 )
                 fallback_full = text
                 yield ProgressMessage(
@@ -1850,7 +1850,9 @@ async def step_3_agent_loop(
         # the DM protocol while the decision logged group_room).
         channel_envelope = _channel_turn_envelope(context)
         _envelope_tag = channel_envelope.get("channel_tag") or {}
-        _fallback_key = _fallback_conversation_key(_envelope_tag)
+        _fallback_key = _fallback_conversation_key(
+            _envelope_tag, ctx.agent_id or ""
+        )
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,

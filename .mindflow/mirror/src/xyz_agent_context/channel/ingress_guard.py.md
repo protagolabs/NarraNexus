@@ -4,6 +4,41 @@ stub: false
 last_verified: 2026-08-25
 ---
 
+## 2026-08-25（第二轮 review）— 修复自己制造的债
+
+上一轮的修复 commit 自己引入了这一批。记下来是因为它们**重复了上一轮刚
+教过的同一类错误**：把断言性的散文和代码同时写下，写的是打算做成的样子，
+然后从不回头验证。
+
+**`forget_agent()` 又一次没有调用方。** 上一轮发现 `forget()` 零调用、据此
+加了 `prune_idle`；这一轮把它改名 `forget_agent` 并把 docstring 写得更肯定
+（「Called when an agent's subscriber stops」）——**依然零调用方**。现在真的
+接在 [[channel_trigger_base.py]] 的 `_stop_subscriber` 上，并且
+`test_ingress_guard_all_paths.py` 新增了一条守卫：guard 的生命周期方法必须
+真的有调用方。死代码带着一句「Called when …」比没有这个方法更糟——下一个人
+会以为解绑路径已经清理过了。
+
+**`warm_start` 的量级论证是反的。** docstring 原话「closed ones are swept
+by retention」，而 retention **只**扫 `tier = 0`，warm_start **只**加载
+`tier > 0`——两者永不相交。跳闸一次后再不说话的会话，tier 降不下来（衰减
+需要它继续 `admit()`），行永远不被删、每次启动被拉回内存、`prune_idle`
+因 tier>0 不驱逐。结果是把一张只增不删的表整个搬进内存，而且
+`open_session_count()` 会随部署次数单调虚高——I4 要修的是「重启后谎报 0」，
+修完变成「长期虚高」，同样答不了「现在有多少会话被隔离」。
+
+改成只加载 `cooling_only=True`。**升级记忆不需要预热**——`_load()` 在该
+会话再次说话时懒加载，那正是它起作用的唯一时刻；预热买来的只有观测面，
+而观测面从来只指「当前被隔离」。
+
+**`suppressed_count` 第三次没落对。** 预审时修了「两个写入点都写 0」，
+但这轮新增的重跳路径走 `_trip`，而 `_trip` 那处仍写 0——于是唯一真正会攒下
+`suppressed` 的路径（持久循环）落库还是 0。现在 `_trip` 落
+`suppressed_before`（内存里为下一轮隔离清零不变）。
+
+**键的分量加了 128 钳制**：448 原本只是注释里的算术，`chat_id` /
+`sender_id` 来自平台侧没有长度契约。见
+[[channel_ingress_breaker_schema.py]]。
+
 # ingress_guard.py — 「这条消息值不值得处理」
 
 ## 为什么存在

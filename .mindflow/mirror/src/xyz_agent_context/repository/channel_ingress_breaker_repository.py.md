@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/repository/channel_ingress_breaker_repository.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — 键改四段；方言解释更正；`find_open` 加 `cooling_only`
+
+**① 键**：每行对应 `agent_id|channel|chat_id|sender_id`（本页下方旧条目写的
+三段已过时）。
+
+**② 方言解释更正**（这一条重要，因为旧说法本身就是被判定为错的）：
+旧条目断言「空格形式的 cutoff 排序低于所有 'T' 开头的行，`updated_at < %s`
+会一条都匹配不上」。**这句话说过头了。** 字符串是逐字符比较的，`'T'`(0x54)
+与 `' '`(0x20) 的差异只在**日期部分完全相同**时才决定结果：跨天比较一律
+正确，只有 cutoff 当天的行会被判成比实际新而逃过清扫。范围很窄——但同日
+保留期测试恰好命中的就是它，这正是本方法第一版报告「删除 0 行」的原因。
+改用 `event_time_str` 归一化两侧后这个边界完全消失。
+
+**③ `find_open(cooling_only=...)`**：这张表只在 `tier > 0` 那一侧增长——
+`cleanup_older_than_days` **只**扫 `tier = 0`，而跳闸一次后再不说话的会话
+永远等不到 `_maybe_recover` 需要的 `admit()` 调用，tier 降不下来。所以
+「所有 tier>0 的行」更接近一份**历史跳闸流水**而不是当前状态查询。
+`warm_start` 因此只取 `cooling_only=True`（当前仍在冷却的），否则内存占用
+和 `/healthz` 的计数会随部署次数单调上升。
+
 # channel_ingress_breaker_repository.py — ingress 熔断器状态数据访问
 
 ## 为什么存在

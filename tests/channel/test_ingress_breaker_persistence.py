@@ -237,9 +237,21 @@ async def test_warm_start_restores_the_standing_state_after_a_restart(db_client)
     assert reborn.cooling_session_count(BASE + timedelta(seconds=60)) == 1
 
 
-async def test_warm_start_does_not_resurrect_an_elapsed_cooldown(db_client):
-    """Escalation memory is kept; a cooldown that has already run out is
-    not re-imposed."""
+async def test_warm_start_skips_a_session_whose_cooldown_has_elapsed(db_client):
+    """Preloading is for the OBSERVABILITY surface, which only ever meant
+    "currently suppressed" — so a lapsed row is not loaded at all.
+
+    Loading every ``tier > 0`` row (the first version) would have made
+    both the footprint and ``open_session_count()`` climb with every
+    deploy: retention sweeps ``tier = 0`` exclusively, and a session that
+    trips once then goes quiet never gets the ``admit()`` calls tier decay
+    needs, so its row lives forever. "Reports 0 after a restart" would
+    have become "reports a growing historical total" — equally useless
+    for "how many are isolated right now".
+
+    The escalation memory is not lost: ``_load()`` fetches it at the only
+    moment it matters, when that key speaks again (asserted below).
+    """
     repo = ChannelIngressBreakerRepository(db_client)
     await repo.upsert_state(
         KEY,
@@ -251,10 +263,45 @@ async def test_warm_start_does_not_resurrect_an_elapsed_cooldown(db_client):
         },
     )
     guard = _guard(repo)
-    await guard.warm_start("narramessenger", now=BASE)
+    restored = await guard.warm_start("narramessenger", now=BASE)
 
-    assert guard.open_session_count() == 1, "the tier is remembered"
-    assert guard.cooling_session_count() == 0, "the cooldown is over"
+    assert restored == 0
+    assert guard.open_session_count() == 0, "a lapsed row is not current state"
+
+    # ...but the tier is still there the moment the conversation resumes.
+    await _storm(guard, start=BASE, n=1, text="hello again")
+    assert guard.open_session_count() == 1, "escalation memory lazily reloaded"
+
+
+async def test_warm_start_does_not_inflate_with_history(db_client):
+    """A long-lived deployment accumulates trip rows; the standing-state
+    count must not accumulate with them."""
+    repo = ChannelIngressBreakerRepository(db_client)
+    for i in range(20):
+        await repo.upsert_state(
+            f"agt_{i}|narramessenger|!room|@peer",
+            {
+                "channel": "narramessenger",
+                "agent_id": f"agt_{i}",
+                "tier": 1,
+                "cooldown_until": BASE - timedelta(days=3),
+            },
+        )
+    # One conversation is genuinely still isolated.
+    await repo.upsert_state(
+        "agt_live|narramessenger|!room|@peer",
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_live",
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(hours=20),
+        },
+    )
+
+    guard = _guard(repo)
+    assert await guard.warm_start("narramessenger", now=BASE) == 1
+    assert guard.open_session_count() == 1
+    assert guard.cooling_session_count(BASE) == 1
 
 
 async def test_warm_start_survives_a_broken_store(db_client):

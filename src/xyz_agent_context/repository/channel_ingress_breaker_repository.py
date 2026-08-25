@@ -17,7 +17,7 @@ this repository.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -85,12 +85,27 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
                 f"{type(e).__name__}: {e} — in-memory state still enforced"
             )
 
-    async def find_open(self, channel: Optional[str] = None) -> List[ChannelIngressBreaker]:
-        """Every session currently carrying escalation memory (``tier`` > 0).
+    async def find_open(
+        self,
+        channel: Optional[str] = None,
+        *,
+        cooling_only: bool = False,
+        now: Optional[datetime] = None,
+    ) -> List[ChannelIngressBreaker]:
+        """Sessions carrying escalation memory (``tier`` > 0).
 
-        Feeds the standing-state observability surfaces (``health_snapshot``
-        and the heartbeat): isolation is a state, not just the one row
-        written at trip time (incident lesson #4).
+        ``cooling_only`` narrows that to the ones whose cooldown has not
+        elapsed — i.e. conversations that are suppressed RIGHT NOW.
+
+        The distinction matters because this table only ever grows on the
+        ``tier > 0`` side: ``cleanup_older_than_days`` sweeps ``tier = 0``
+        rows exclusively, and a session that trips once and never speaks
+        again never gets the ``admit()`` calls ``_maybe_recover`` needs to
+        walk it back down. So "every row with tier > 0" is closer to a
+        lifetime trip log than to a current-state query, and loading it
+        into memory on every start would make both the process footprint
+        and ``open_session_count()`` climb monotonically with uptime and
+        deploy count.
         """
         filters: Dict[str, Any] = {}
         if channel:
@@ -104,7 +119,21 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
             )
             return []
         entities = [self._row_to_entity(r) for r in rows if r]
-        return [e for e in entities if (e.tier or 0) > 0]
+        open_rows = [e for e in entities if (e.tier or 0) > 0]
+        if not cooling_only:
+            return open_rows
+
+        moment = now or utc_now()
+        still_cooling = []
+        for e in open_rows:
+            until = e.cooldown_until
+            if until is None:
+                continue
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=moment.tzinfo)
+            if moment < until:
+                still_cooling.append(e)
+        return still_cooling
 
     async def cleanup_older_than_days(self, days: int) -> int:
         """Delete CLOSED rows (``tier`` = 0) untouched for ``days``.

@@ -937,6 +937,13 @@ class ChannelTriggerBase(ABC):
             task.cancel()
         agent_id = getattr(cred, "agent_id", "") if cred else ""
         app_id = getattr(cred, "app_id", "") if cred else key
+        # Release this agent's ingress sessions. ``prune_idle`` cannot do
+        # it: it deliberately keeps sessions carrying escalation memory, so
+        # an unbound agent's tripped conversations would otherwise sit in
+        # memory for the life of the process. The durable rows stay — a
+        # re-bind must not hand a re-offender a fresh budget.
+        if self._ingress_guard is not None and agent_id:
+            self._ingress_guard.forget_agent(agent_id)
         logger.info(f"{type(self).__name__}: stopped subscriber for {key}")
         await self._audit(
             EVENT_SUBSCRIBER_STOPPED,

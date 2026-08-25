@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/schema/channel_ingress_breaker_schema.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — 会话键改成四段（含 `agent_id`），并钳制分量长度
+
+**键是 `session_key(agent_id, channel, chat_id, sender_id)`**，不再是三段。
+（本页下方 2026-08-24 那条写的三段版本已过时，以本条为准。）
+
+理由：一个 trigger 实例服务全部凭据，同一条房间事件按 agent 扇出，
+`_process_message` 每个 agent 各跑一次——与 [[channel_dedup_store.py]] 分区
+的理由完全相同，那份 docstring 早写明「a Matrix room event fanned out to
+every member agent's client and must each be processed」。漏掉 `agent_id`
+会让重复率变成 `1 − 1/N`（N = 房间里我方 agent 数），与内容无关；实测 5 个
+agent 的房间里对端发 4 条**各不相同**的消息就跳闸。详见
+[[ingress_guard.py]] 的 2026-08-25 条目。
+
+**`_MAX_KEY_PART = 128` 逐分量钳制**：`chat_id` / `sender_id` 来自平台侧、
+没有自己的长度契约，所以列宽 448 原本只是一个注释里的算术假设。strict mode
+被关掉的 MySQL 部署上，超长键会被静默截断，让两个不同会话撞同一行、互相
+覆盖 tier 和 cooldown。钳制让那个算术**由构造保证**而不是靠假设。
+
 # channel_ingress_breaker_schema.py — ingress 熔断器的持久状态模型
 
 ## 为什么存在

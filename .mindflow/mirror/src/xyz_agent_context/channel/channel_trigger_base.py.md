@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — `start()` 预热 ingress 熔断器；`_stop_subscriber` 释放会话
+
+**① `start()` 里 `await self._ingress_guard.warm_start(channel_name)`。**
+这是本页 2026-08-24 条目里那两个 health 计数**在重启之后是否可信**的全部
+前提：两个观测面读的都是**内存**，重启后 `_sessions` 是空的，所以库里有
+50 条 tier>0、10 条还在 24h 冷却，`/healthz` 照样报 0——发布一次看板就重新
+变绿，而那些会话仍然是聋的。
+
+预热**只加载仍在冷却的行**（`cooling_only`）。加载全部 tier>0 会把 I4 的
+「重启后谎报 0」换成「随部署次数单调虚高」，因为那张表只增不删（retention
+只扫 tier=0）。升级记忆不需要预热——`_load()` 在该会话再次说话时懒加载，
+那正是它起作用的时刻。
+
+**② `_stop_subscriber` 里 `forget_agent(agent_id)`。**
+`prune_idle` 刻意保留带升级记忆的会话，所以解绑凭据后那些会话会驻留到进程
+结束。持久行不删（re-bind 不该给惯犯发新预算）。
+`test_ingress_guard_all_paths.py` 新增了一条守卫：**guard 的生命周期方法
+必须真的有调用方**——`forget()` / `forget_agent()` 前后两次都是「写了
+docstring 声称有人调、实际零调用」，这条测试把那类假承诺变成红灯。
 
 ## 2026-08-24 — ingress 熔断器接线：为什么是三个挂载点而不是一个
 

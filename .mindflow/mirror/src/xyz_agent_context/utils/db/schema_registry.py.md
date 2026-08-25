@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — `channel_ingress_breaker.session_key` 改 VARCHAR(448)、键含 agent_id
+
+键是四段 `agent_id|channel|chat_id|sender_id`。
+**419 = 128 + 32 + 128 + 128 加三个分隔符**，列宽取 448 留头寸。
+（本页 2026-08-24 那条写的 `VARCHAR(320)` / 「三段加两个分隔符」已过时。）
+
+原本漏了 `agent_id` 会造成误熔断，见
+[[channel_ingress_breaker_schema.py]] 与 [[ingress_guard.py]]。
+
+**列宽窄了是 SQLite 看不见的 bug**（这条教训保留）：TEXT 永不截断，本地
+全绿，只有 MySQL 侧才会因长键截断让两个 agent 的行撞唯一索引互相覆盖。
+现在 `session_key()` 还对四个分量各做 128 的钳制，让 419 这个算术由构造
+保证而不是靠「平台不会给超长 id」的假设。
 
 ## 2026-08-24 — `channel_ingress_breaker` 新表（ingress 熔断器的持久状态）
 
@@ -14,7 +28,7 @@ stub: false
 8/14 那个乒乓循环跑了 70+ 小时，期间任何一次重新部署都会把已经隔离 24 小时
 的对端重新放行。
 
-列：`session_key`(VARCHAR(320) UNIQUE，= 32+128+128 三段加两个分隔符)、
+列：`session_key`(**当时**为 VARCHAR(320)、三段；2026-08-25 改为 VARCHAR(448)、四段含 agent_id，见本页最新条目)、
 `channel`(VARCHAR(32))、`agent_id`/`chat_id`/`sender_id`(VARCHAR(128))、
 `tier`(INT，0=闭合，N=已跳闸 N 次的升级记忆)、`cooldown_until`(DATETIME(6))、
 `suppressed_count`(INT，**每次跳闸清零**，所以它回答「这一次隔离挡下了多少」)、

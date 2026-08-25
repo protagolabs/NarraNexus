@@ -33,6 +33,17 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+# Per-component clamp. ``chat_id`` / ``sender_id`` come from the platform
+# with no length contract of their own, so the column width (VARCHAR(448),
+# sized as 128+32+128+128 plus separators) rested on an assumption rather
+# than a guarantee. On a MySQL deployment with strict mode disabled an
+# over-long key would be silently truncated, letting two different
+# conversations collide on the unique index and overwrite each other's
+# tier and cooldown. Clamping here makes the arithmetic true by
+# construction.
+_MAX_KEY_PART = 128
+
+
 def session_key(
     agent_id: str, channel: str, chat_id: str, sender_id: str
 ) -> str:
@@ -57,7 +68,9 @@ def session_key(
     the breaker on a human's fourth DISTINCT message, and every agent in
     the room went deaf to them for up to 24h.
     """
-    return f"{agent_id}|{channel}|{chat_id}|{sender_id}"
+    return "|".join(
+        part[:_MAX_KEY_PART] for part in (agent_id, channel, chat_id, sender_id)
+    )
 
 
 class ChannelIngressBreaker(BaseModel):

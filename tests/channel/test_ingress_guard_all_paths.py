@@ -129,3 +129,49 @@ def test_every_channel_answers_the_agent_peer_question(cls):
 def test_guard_is_built_during_start():
     source = _code(ChannelTriggerBase.start)
     assert "_build_ingress_guard(" in source
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Docstrings that name a caller must have one
+#
+# This PR shipped `forget()` with "called when a credential is unbound"
+# and no caller; the fix renamed it to `forget_agent()`, restated the
+# claim more firmly, and STILL had no caller. A method nobody calls is
+# dead code; a method nobody calls whose docstring says otherwise makes
+# the next person believe a cleanup path exists.
+# ─────────────────────────────────────────────────────────────────────
+
+LIFECYCLE_METHODS_THAT_CLAIM_A_CALLER = ["forget_agent", "warm_start", "prune_idle"]
+
+
+@pytest.mark.parametrize("method", LIFECYCLE_METHODS_THAT_CLAIM_A_CALLER)
+def test_guard_lifecycle_hooks_are_actually_called(method):
+    from xyz_agent_context.channel import ingress_guard as guard_mod
+
+    guard_src = _code_of_module(guard_mod)
+    assert f"def {method}(" in guard_src, f"{method} no longer exists — update this list"
+
+    callers = []
+    for mod in (
+        "xyz_agent_context.channel.channel_trigger_base",
+        "xyz_agent_context.module.managed_channel_ingress",
+        "xyz_agent_context.channel.ingress_guard",
+    ):
+        import importlib
+
+        src = _code_of_module(importlib.import_module(mod))
+        # Skip the definition itself.
+        src = src.replace(f"def {method}(", "")
+        if f".{method}(" in src or f"self.{method}(" in src:
+            callers.append(mod)
+    assert callers, (
+        f"IngressGuard.{method}() has no caller in src/. Either wire it up "
+        f"or delete it — its docstring tells the next person a path exists."
+    )
+
+
+def _code_of_module(mod) -> str:
+    import inspect
+
+    lines = inspect.getsource(mod).splitlines()
+    return "\n".join(ln for ln in lines if not ln.strip().startswith("#"))
