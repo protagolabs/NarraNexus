@@ -189,7 +189,7 @@ async def test_create_branch_calls_create_from_query_correctly(monkeypatch):
 
     narratives, method, reason, is_new = await svc._land_no_topic_turn(
         agent_id="agent_x", user_id="user_x", query_text="你好",
-        session=None, reason="stub", narrative_persistence="durable",
+        session=None, reason="stub",
     )
 
     assert is_new is True and [n.id for n in narratives] == ["nar_new"]

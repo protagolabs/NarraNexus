@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 嵌套凭据脱敏（独立审查 Critical #1）
+
+`_render_argument` 原来只对**顶层**参数 key 跑 `_SECRET_KEY_RE`；dict/list 值经
+`json.dumps` 直通，嵌套的 `{"args": {"app_secret": ...}}` 两层正则都抓不到
+（Lark app_secret 是无前缀字母数字串，`_SECRET_VALUE_RE` 不识别），而 `args`
+恰好在 `_BODY_ARG_KEYS` 的 800 字符大额度里。这条路径是本分支才打通的
+（event_log 同步之前 digest 恒为空），泄漏形态是"一次 tool_call 参数 → 摘要 →
+helper LLM → narratives 行 → 之后每轮系统提示词"，且无回收路径。
+修复：新增 `_SECRET_KV_RE`（键值形状 `"key":`/`key=`，非裸子串），**只对
+dict/list 值的序列化文本**启用——纯字符串值仍只走 value 正则，防止把
+"帮我查 token 用量" 这类正文误伤成 `<redacted>`（那正是 digest 要救的名词）。
+两侧各有测试钉住：嵌套必脱敏、正文提及必不脱敏。
+
 
 ## 2026-08-20 — 线名不再带频道标签(K 层)
 

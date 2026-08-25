@@ -130,6 +130,20 @@ _ERROR_OUTPUT_RE = re.compile(
 
 _REDACTED = "<redacted>"
 
+# Secret KEY NAMES in key-value position inside serialized structures.
+# `_SECRET_KEY_RE` alone sees only the TOP-LEVEL argument key, so
+# `{"args": {"app_secret": ...}}` used to sail through: the nested name was
+# never checked and a Lark app_secret is a prefix-less alphanumeric string
+# `_SECRET_VALUE_RE` cannot recognise (independent review 2026-08-21, C1).
+# Deliberately shaped as `"key":` / `key=` rather than a bare substring so a
+# plain prose VALUE that merely mentions the word "token" is not eaten —
+# losing a turn's nouns is the recall gap the digest exists to close.
+_SECRET_KV_RE = re.compile(
+    r"[\"']?(?:[\w.-]*(?:secret|token|password|passwd|api_key|apikey|"
+    r"credential|private_key)[\w.-]*)[\"']?\s*[:=]",
+    re.I,
+)
+
 
 def _stringify(value: Any) -> str:
     """Render an argument value as text without assuming it is a string."""
@@ -146,6 +160,10 @@ def _render_argument(key: str, value: Any) -> str:
     text = _stringify(value)
 
     if _SECRET_KEY_RE.search(key) or _SECRET_VALUE_RE.search(text):
+        return _REDACTED
+    # Structured values get the kv-shaped key check on their serialized text;
+    # plain strings stay on the value regex alone (see _SECRET_KV_RE above).
+    if isinstance(value, (dict, list)) and _SECRET_KV_RE.search(text):
         return _REDACTED
 
     if _PATH_KEY_RE.search(key) and len(text) > _ARG_VALUE_CAP:
@@ -171,7 +189,11 @@ def _render_tool_call(content: dict, outcome: Optional[str]) -> str:
         else []
     )
 
-    line = f"- {tool_name}: " + ", ".join(rendered) if rendered else f"- {tool_name}"
+    line = (
+        f"- {tool_name}: " + ", ".join(rendered)
+        if rendered
+        else f"- {tool_name}"
+    )
     if outcome:
         line = f"{line} -> {outcome}"
 
@@ -543,7 +565,13 @@ class NarrativeUpdater:
         # Current Narrative information
         context_parts.append("## Current Narrative Information")
         context_parts.append(f"- Name: {narrative.narrative_info.name}")
-        context_parts.append(f"- Description: {narrative.narrative_info.description}")
+        # Read-side cap: 291 prod rows carry >1,500-char frozen descriptions
+        # (max 198,398) that the write-side cap never backfills. Here the
+        # description is the object BEING updated, so clamping loses nothing.
+        context_parts.append(
+            "- Description: "
+            f"{narrative.narrative_info.description[:config.DESCRIPTION_MAX_LENGTH]}"
+        )
         context_parts.append(f"- Current Summary: {narrative.narrative_info.current_summary}")
         context_parts.append(f"- Keywords: {', '.join(narrative.topic_keywords or [])}")
         context_parts.append("")

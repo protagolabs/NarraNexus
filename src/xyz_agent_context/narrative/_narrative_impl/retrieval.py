@@ -651,8 +651,10 @@ class NarrativeRetrieval:
         """BM25 keyword retrieval over the agent's narratives — the non-vector
         BM25 keyword search over the agent's narratives.
 
-        Ranks each narrative by query overlap on its name + current_summary +
-        description + topic_keywords, using the same BM25 the MemoryEngine uses.
+        Ranks each narrative by query overlap on `Narrative.searchable_text()`
+        (the ONE definition of the retrieval surface — restating the field list
+        here is how it drifted last time), using the same BM25 the MemoryEngine
+        uses.
         Scores are normalized monotonically into (0,1) so the existing two-tier
         threshold still applies: weak matches fall through to the LLM tier;
         strong keyword matches may direct-return.

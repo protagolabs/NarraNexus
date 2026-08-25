@@ -7,11 +7,14 @@ The batch is four changes that only make sense together (spec
 `2026-08-14-default-bucket-governance-design.md`):
 
   4  default narratives stop being routing CONTAINERS (out of the BM25 pool,
-     out of the judge's candidate menu, no longer seeded) while their eight
-     category names stay in the judge's instructions as VOCABULARY.
+     out of the judge's candidate menu, no longer seeded). The eight category
+     names were initially kept as prompt VOCABULARY; 2026-08-21 live testing
+     showed the taxonomy teaching classify-and-dump, so they are gone from
+     every prompt (see test_judge_instructions_dropped_the_eight_category_names).
   4' the "no durable topic" verdict lands anchor-first: reuse the session's
-     real thread without touching its retrieval surface; create only when
-     there is no anchor and the surface is durable; run bare otherwise.
+     real thread without touching its retrieval surface; create when there is
+     no anchor. (A third ephemeral/run-bare branch was removed on review
+     2026-08-21 — unreachable in production; see _land_no_topic_turn.)
   5  continuity may never hold a turn on a default bucket.
   C2 the continuity prompt stops deciding by container type.
 
@@ -295,24 +298,6 @@ async def test_no_topic_without_anchor_on_durable_surface_creates(service_no_top
     assert result.narratives, "a durable surface must never run bare"
 
 
-@pytest.mark.asyncio
-async def test_no_topic_without_anchor_on_ephemeral_surface_runs_bare(
-    service_no_topic,
-):
-    """Voice (F28) deliberately leaves no trace so the next typed message
-    continuity-checks as if the voice turn never happened."""
-    svc, spy = service_no_topic
-    spy.anchor = None
-
-    result = await svc.select(
-        agent_id="agent_x", user_id="user_x", input_content="你好",
-        session=spy.session, narrative_persistence="ephemeral",
-    )
-
-    assert result.narratives == []
-    assert result.is_new is False
-
-
 # ===================================================================== #
 # 5 · continuity may not hold a turn on a bucket                        #
 # ===================================================================== #
@@ -434,12 +419,5 @@ async def test_landing_choice_is_visible_in_the_audit_row(service_no_topic):
         session=spy.session,
     )
 
-    spy.anchor = None
-    bare = await svc.select(
-        agent_id="agent_x", user_id="user_x", input_content="你好",
-        session=spy.session, narrative_persistence="ephemeral",
-    )
-
     assert anchored.selection_method == "no_topic_anchored"
     assert created.selection_method == "new_created"
-    assert bare.selection_method == "no_topic_bare"

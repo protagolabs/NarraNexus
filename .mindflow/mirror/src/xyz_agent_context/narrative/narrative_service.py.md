@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -40,6 +40,15 @@ judge 回答的是关于**这一轮**的问题（"这里有没有值得单独成
 
 三种落点在审计里可分辨（`no_topic_anchored` / `new_created` / `no_topic_bare`），
 因为本批次最大的风险是碎片化，而只有 `new_created` 那一支会真的多出一条线。
+
+## 2026-08-21 — `is_reusable_anchor()`：锚点复用判定收敛为一份定义
+
+独立审查（Important #3）发现"锚点是不是可复用的线"这一判断以字面量形式散在两处
+（`select()` 连续性守卫、`_land_no_topic_turn`），而快路径 `step_1_fast_select`
+根本没有这个检查——慢路径每轮把桶锚 session 推出桶、快路径每轮把它钉回去，两条
+路互相拆台（C-1 上线时 26.4% 的 prod 用户轮以桶为主叙事，这批 session 真实存在）。
+现在收敛为模块级 `is_reusable_anchor(narrative)`，三个读点共用；语义带回滚开关：
+`NARRATIVE_DEFAULT_BUCKETS_ENABLED=True` 时桶重新成为可复用容器（旧世界语义）。
 
 ## 2026-08-16 — 连续性不得锁在 default 桶上（C-1 方案 ⑤）
 

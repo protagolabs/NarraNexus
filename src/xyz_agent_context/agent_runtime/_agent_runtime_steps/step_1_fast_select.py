@@ -54,7 +54,10 @@ from typing import TYPE_CHECKING, AsyncGenerator, Optional
 
 from loguru import logger
 
-from xyz_agent_context.narrative.narrative_service import resolve_retrieval_text
+from xyz_agent_context.narrative.narrative_service import (
+    is_reusable_anchor,
+    resolve_retrieval_text,
+)
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 
 from .step_1_select_narrative import (
@@ -168,6 +171,17 @@ async def step_1_fast_select(
         # in narrative/config.py), and a misfiled turn is recoverable
         # while a fragmented thread is not.
         narrative = await narrative_service.load_narrative_from_db(anchor_id)
+        if narrative is not None and not is_reusable_anchor(narrative):
+            # A legacy default-bucket anchor is not a thread to reuse — the
+            # slow path already refuses to continue one (slice 5), and
+            # re-pinning it here every fast turn would undo that with no
+            # judge and no self-healing exit (independent review 2026-08-21).
+            # Treat it exactly like a vanished anchor row.
+            logger.info(
+                f"[step_1_fast] anchor {anchor_id} is a default bucket — "
+                "retrying anchorless instead of reusing it"
+            )
+            narrative = None
         if narrative is not None:
             retrieval_method = "session_fast"
         else:

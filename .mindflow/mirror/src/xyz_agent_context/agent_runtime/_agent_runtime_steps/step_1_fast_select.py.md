@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_fast_select.py
 stub: false
-last_verified: 2026-08-14
+last_verified: 2026-08-21
 ---
+
+## 2026-08-21 — 桶锚点不复用（独立审查 Important #3 的修复端）
+
+`load_narrative_from_db(anchor_id)` 之后加一道 `is_reusable_anchor()` 检查
+（定义在 [[narrative_service.py]]）：legacy default 桶锚点按"锚点行已消失"
+处理——落回无锚重探，durable chat 随后 create_fast 并把 session 锚改写到新线。
+没有这道检查时，快路径会把仍锚在桶上的 session 每轮重新钉回桶里（无 judge、
+无自愈出口），把慢路径 slice 5 的拒绝整个抵消掉。测试：
+tests/agent_runtime/test_step_1_fast_select.py::test_bucket_anchor_is_not_reused_on_the_fast_path。
+
 
 ## 2026-08-14 — 持锚点不创建（实测终案，supersede 新线门条目）
 

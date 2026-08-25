@@ -60,6 +60,31 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     return input_content
 
 
+def is_reusable_anchor(narrative) -> bool:
+    """Is this anchored narrative a thread a turn may simply stay on?
+
+    THE one definition, consumed by all three anchor-reuse decision points —
+    the continuity guard in ``select()``, the no-topic landing in
+    ``_land_no_topic_turn``, and ``step_1_fast_select``'s session reuse. The
+    independent review (2026-08-21, Important #3) caught the fast path missing
+    the check the slow path had: sessions still anchored to a legacy default
+    bucket (26.4% of prod user turns at C-1 ship time) were re-pinned to the
+    bucket every fast turn while the slow path pushed them out — two paths
+    fighting over the same invariant, because it lived as two literals.
+
+    A default bucket stops being a reusable thread when C-1 governance is on;
+    with the rollback flag flipped, buckets are containers again and reuse is
+    the old, intended behaviour.
+    """
+    from .config import config
+
+    if narrative is None:
+        return False
+    return not (
+        narrative.is_special == "default"
+        and not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
+    )
+
 
 @dataclass(frozen=True)
 class FastSelectResult:
@@ -249,7 +274,6 @@ class NarrativeService:
         is_user_chat: bool = True,
         retrieval_anchor: Optional[str] = None,
         trigger: str = "",
-        narrative_persistence: str = "durable",
     ) -> NarrativeSelectionResult:
         """
         Select the appropriate Narratives
@@ -322,8 +346,7 @@ class NarrativeService:
                     # ignore: the answer costs a full helper round trip.
                     if (
                         current_narrative is not None
-                        and current_narrative.is_special == "default"
-                        and not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
+                        and not is_reusable_anchor(current_narrative)
                     ):
                         logger.info(
                             "[NarrativeSelect] anchor is a default bucket — "
@@ -425,7 +448,6 @@ class NarrativeService:
                         query_text=query_text,
                         session=session,
                         reason=selection_reason,
-                        narrative_persistence=narrative_persistence,
                     )
                 )
                 if audit is not None:
@@ -496,7 +518,6 @@ class NarrativeService:
         query_text: str,
         session: Optional[ConversationSession],
         reason: str,
-        narrative_persistence: str,
     ) -> tuple:
         """Place a turn the judge called "no durable topic" (C-1, plan 4-A').
 
@@ -513,14 +534,21 @@ class NarrativeService:
            retrieval surface is NOT touched — see ``no_durable_topic`` on
            NarrativeSelectionResult for why a greeting must never get to rename
            the work it interrupted.
-        2. **No anchor, durable surface → create.** Chat history endpoints are
+        2. **No anchor → create.** Chat history endpoints are
            narrative-scoped and the ChatModule instance hangs off the narrative,
            so running bare here would make a first-contact turn vanish from the
            user's own history. The created thread is not junk: it becomes the
            anchor, and the updater renames it as the real subject emerges.
-        3. **No anchor, ephemeral surface (voice/F28) → run bare.** Deliberate:
-           the turn leaves no trace so the next typed message continuity-checks
-           as if the voice turn never happened.
+
+        A third branch (ephemeral surface → run bare, `no_topic_bare`) was
+        REMOVED on review (2026-08-21, Important #2): every ephemeral
+        TurnProfile also selects the bm25_top1 fast path, so this method never
+        received anything but "durable" — the branch was unreachable in
+        production and a test was pinning behaviour the system could not
+        exhibit (the exact `matched_content` failure shape this batch
+        cleaned up elsewhere). If an ephemeral profile ever takes the slow
+        path, re-add it deliberately, wired from TurnProfile at the two
+        `select()` call sites in step_1_select_narrative.
 
         Returns ``(narratives, selection_method, reason, is_new)``.
         """
@@ -529,7 +557,7 @@ class NarrativeService:
             anchored = await self._crud.load_by_id(anchor_id)
             # A bucket anchor is not a thread to reuse (slice 5 already refused
             # to continue one); fall through and let the turn land properly.
-            if anchored is not None and anchored.is_special != "default":
+            if is_reusable_anchor(anchored):
                 logger.info(
                     f"[NarrativeSelect] no durable topic — reusing anchor "
                     f"{anchored.id} without touching its surface"
@@ -541,26 +569,22 @@ class NarrativeService:
                     False,
                 )
 
-        if narrative_persistence == "durable":
-            created = await self._retrieval.create_from_query(
-                query=query_text,
-                user_id=user_id,
-                agent_id=agent_id,
-                narrative_type=NarrativeType.CHAT,
-            )
-            logger.info(
-                f"[NarrativeSelect] no durable topic and no anchor — created "
-                f"{created.id} so the turn stays in history"
-            )
-            return (
-                [created],
-                "new_created",
-                f"No durable topic, no thread to keep it on: {reason}",
-                True,
-            )
-
-        logger.info("[NarrativeSelect] no durable topic, ephemeral surface — bare")
-        return ([], "no_topic_bare", f"No durable topic: {reason}", False)
+        created = await self._retrieval.create_from_query(
+            query=query_text,
+            user_id=user_id,
+            agent_id=agent_id,
+            narrative_type=NarrativeType.CHAT,
+        )
+        logger.info(
+            f"[NarrativeSelect] no durable topic and no anchor — created "
+            f"{created.id} so the turn stays in history"
+        )
+        return (
+            [created],
+            "new_created",
+            f"No durable topic, no thread to keep it on: {reason}",
+            True,
+        )
 
     # =========================================================================
     # Update Features

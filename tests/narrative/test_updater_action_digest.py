@@ -329,3 +329,44 @@ async def test_build_update_context_omits_the_section_when_no_tools_ran():
 
     assert "Actions taken this turn" not in context
     assert "Agent Response: Sure, here you go." in context
+
+
+def test_nested_credentials_inside_a_dict_argument_are_redacted():
+    """Third layer of F5 (independent review 2026-08-21, Critical #1): the
+    key-name check used to see only TOP-LEVEL argument keys. A dict value —
+    and `args` is the most common nested-dict carrier, with the generous
+    800-char body cap — serialized straight through `json.dumps`, so
+    `{"args": {"app_secret": ...}}` sailed past both regexes: the key check
+    never saw the nested name, and a Lark app_secret is a prefix-less
+    alphanumeric string the value regex cannot recognise. This was newly
+    reachable in this branch: before event_log sync, the digest was always
+    built from [].
+    """
+    digest = build_action_digest([
+        _call("mcp__lark_module__lark_bind", {
+            "args": {
+                "app_id": "cli_a1b2c3d4",
+                "app_secret": "o0dhNESTEDsecretMUSTnotLEAK99RoZ",
+            },
+        }),
+        _output('{"success": true}'),
+    ])
+
+    assert "o0dhNESTEDsecretMUSTnotLEAK99RoZ" not in digest
+    assert "<redacted>" in digest
+
+
+def test_prose_mentioning_the_word_token_is_not_redacted():
+    """The guard for the fix above: the kv-shaped text check must not eat a
+    plain string VALUE that merely mentions a secret-ish word. Losing this
+    turn's nouns is exactly the recall gap the digest exists to close."""
+    digest = build_action_digest([
+        _call("mcp__chat_module__send_message", {
+            "content": "帮我查一下这个月的 token 用量和 password 策略",
+        }),
+        _output('{"success": true}'),
+    ])
+
+    assert "token 用量" in digest
+    assert "password 策略" in digest
+    assert "<redacted>" not in digest
