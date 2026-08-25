@@ -130,3 +130,46 @@ class TestTemplateWiring:
         tests/channel/test_channel_prompts_path_rules.py also pins —
         asserted here so a careless protocol split fails fast."""
         assert "## File & Path Rules for IM Delivery" in CHANNEL_MESSAGE_EXECUTION_TEMPLATE
+
+
+class TestDirectProtocolLoopBreaker:
+    """2026-08-25, after the 8/14 ping-pong incident.
+
+    The group protocol has had a loop-breaker since 2026-03. The DM
+    protocol never did — it was written to cure the OPPOSITE failure
+    (0802: too much silence) — so on the one room type where two agents
+    can be alone together, the model was told replying is the default and
+    given no exit. Two agents recited at each other for 70+ hours.
+    """
+
+    def test_direct_protocol_now_has_a_loop_breaker(self):
+        assert "### Breaking a Loop" in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_loop_breaker_names_repetition_as_the_trigger(self):
+        text = COMMUNICATION_PROTOCOL_DIRECT
+        assert "the same thing is being said again and again" in text
+        assert "STOP. Do not reply." in text
+
+    def test_loop_breaker_covers_a_machine_on_the_far_side(self):
+        """"They are waiting and will think I'm broken" — the reason
+        replying is the default — is simply false when nobody is waiting."""
+        assert "read as machine-generated" in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_loop_breaker_does_not_reinstate_the_group_defaults(self):
+        """The whole risk of putting silence language back into the DM
+        protocol is regressing 0802. It must stay a carve-out, never a
+        default."""
+        for marker in GROUP_ONLY_MARKERS:
+            assert marker not in COMMUNICATION_PROTOCOL_DIRECT
+        assert "Replying is the default." in COMMUNICATION_PROTOCOL_DIRECT
+        assert "This does NOT weaken the default above." in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_the_narrow_acknowledgment_carve_out_survives(self):
+        """The 2026-08-06 owner decision (silence is right for a bare
+        "谢谢") must not be swallowed by the new section."""
+        assert "pure acknowledgment" in COMMUNICATION_PROTOCOL_DIRECT
+
+    def test_group_protocol_is_untouched(self):
+        """This PR must not edit the tuned 2026-03 group rule set."""
+        assert "### Breaking a Loop" not in COMMUNICATION_PROTOCOL_GROUP
+        assert "you are in a loop, STOP" in COMMUNICATION_PROTOCOL_GROUP

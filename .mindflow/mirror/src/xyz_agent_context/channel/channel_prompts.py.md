@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — DM 协议补 loop-breaker
+
+群聊协议从 2026-03 起就有 loop-breaker（「来回拉锯 = 你在循环里，STOP」）。
+DM 协议一直没有——因为它是为**相反**的故障写的（0802 事故：太安静，一句
+hello 换来沉默），全文的主张是「回复是默认」。于是在唯一一种**两个 agent
+可以单独待着**的房型里，模型被告知必须回复，且没有给出口。8/14 那次两个
+agent 在 NarraMessenger DM 里复读了 70+ 小时、6.6 万条消息。
+
+新增 `### Breaking a Loop`，三条：内容重复就停、来回拉锯说一次然后闭嘴、
+对面读起来像机器时不适用「人家在等着、会以为我坏了」这条理由。
+
+**口子开得很窄，并显式写一句「这不削弱上面的默认」**——把 0802 的修复保住
+是这次改动的最大风险点。`TestDirectProtocolLoopBreaker` 正反两侧都钉：
+新段落存在、群聊那套沉默默认**没有**混进来、`pure acknowledgment` 那个
+2026-08-06 的窄口子仍在、群聊协议一个字没动。
+
+**「对面是不是机器」目前交给模型自己读消息判断**——平台还没有这个信号。
+信号落地（`ChannelTag.is_agent_peer`）后，这一条会换成确定版本而不是推测
+版本。**在信号存在之前不写「被识别为 agent」**：prompt 里留一条永远走不到
+的分支，会让下一个人以为这条路已经通了。
+
+拆分背景见 `reference/self_notebook/plans/2026-08-25-ingress-breaker-split.md`。
 
 ## 2026-08-21 — 指令 #5 收窄:不再让 agent 手写渠道 reach(PR-2 预审 Important)
 
