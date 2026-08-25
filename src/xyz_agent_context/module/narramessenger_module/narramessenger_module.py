@@ -128,7 +128,9 @@ the bind command.
 _BEHAVIOUR = """\
 ### Behaviour
 
-1. In **direct messages**, every message is for you — reply normally.
+1. In **direct messages**, every message is for you — reply normally,
+   subject to **Breaking a Loop** in the Communication Protocol above.
+   (Reference only — the rule itself lives there, in one place.)
 2. In **group rooms** you SEE every message (silently ingested into your
    conversation memory even when you weren't summoned), but you only
    REPLY when directly @-mentioned. When you are @-mentioned, you may
