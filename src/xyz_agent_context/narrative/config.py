@@ -178,9 +178,12 @@ class NarrativeConfig:
     # The eight seeded "default" narratives (GreetingAndCourtesy, …) stop being
     # routing CONTAINERS when this is False — they leave the BM25 pool, leave
     # the judge's candidate menu, and are no longer seeded for new (agent,user)
-    # pairs. Their eight category names survive as VOCABULARY in the judge's
-    # instructions: the verdict "this turn carries no durable topic" is still
-    # expressed with them, it just no longer names a row to file the turn into.
+    # pairs. The verdict "this turn carries no durable topic" survives as
+    # `matched_category = "no_durable_topic"`. (The eight names were initially
+    # kept in the judge prompts as recognition vocabulary; 2026-08-21 live
+    # testing showed the taxonomy itself teaching classify-and-dump, so the
+    # names are gone from ALL prompts — pinned by
+    # test_judge_instructions_dropped_the_eight_category_names.)
     #
     # Why they had to go (measured, spec 2026-08-14-default-bucket-governance):
     #   - 26.4% of prod user turns and 27.0% of a real prod slice's chat turns
@@ -190,9 +193,12 @@ class NarrativeConfig:
     #   - The eight rows also perturbed 9.7% of top-1 BM25 results just by
     #     sitting in the pool (IDF/avgdl are computed over the set handed in).
     #
-    # False is the shipping value; flip to True to restore the old behaviour
-    # wholesale (same-harness before/after, or a one-line rollback). Existing
-    # bucket ROWS are never deleted either way — binding rule #6.
+    # False is the shipping value. Flipping to True restores the CONTAINER
+    # side only (seeding, pool, menu offer) — it does NOT bring back the old
+    # taxonomy-carrying prompts, which were removed separately on 2026-08-21;
+    # a FULL rollback to the old world is this flag PLUS reverting the two
+    # taxonomy-removal prompt commits. Existing bucket ROWS are never deleted
+    # either way — binding rule #6.
     NARRATIVE_DEFAULT_BUCKETS_ENABLED = (
         _env("NARRATIVE_DEFAULT_BUCKETS_ENABLED", "0") == "1"
     )

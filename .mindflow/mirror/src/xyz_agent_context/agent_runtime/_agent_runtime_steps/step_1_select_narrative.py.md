@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-08-20
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 把路由的"无持久话题"判决抄上 ctx(冻结契约的置位端)
+
+`ctx.no_durable_topic = bool(selection_result and
+selection_result.no_durable_topic)` —— 契约的消费端与完整语义见
+[[context.py]] 2026-08-21 条目与 [[step_4_persist_results.py]]。这里只记
+置位端的一条纪律:**必须无条件赋值(含 False)**,不能只在为真时才写 ——
+ctx 可能被复用,漏写会让上一轮的冻结判决泄漏到下一轮。
+
 ## 2026-08-20 — 开局把 bootstrap 问候语 seed 进 head narrative 实例（只一次）
 
 选完 narrative、`_ensure_user_chat_instance` 建好每个 narrative 的 chat 实例后，对

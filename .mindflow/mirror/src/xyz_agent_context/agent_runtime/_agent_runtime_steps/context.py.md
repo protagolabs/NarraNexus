@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — `no_durable_topic` 字段:路由判决→持久化冻结的跨层契约(④-A′)
+
+新字段 `no_durable_topic: bool = False`,由 step_1 从 `selection_result` 抄入,
+**唯一消费者是 step_4:523** —— 为真时该轮跳过 updater(叙事的
+name/summary/keywords 不因寒暄被改写),事件本身照常落库。三条语义必须一起记:
+
+1. **按轮判定,不是按线** —— 同一条线的下一轮若是实质内容,updater 照常运行
+   (B7 实测:4 条"生而冻结"的首轮线 4/4 后来都拿到了真摘要)。
+2. **step_4 用 `getattr(ctx, "no_durable_topic", False)` 读** —— 老代码树
+   没有此字段时行为退化为"不冻结",这是重演装置 --src-root 指旧树时的
+   正确语义(装置 v2.1 曾因漏抄这半句契约损失过两卷的测量效度)。
+3. 冻结的下游代价已定价(B7FINAL 观测 6:冻结过的簇后续零重叠 +22~26pp)——
+   这是 M6 修复三选一的输入,不是本字段的 bug。
+
 
 ## 2026-08-06 — voice fast mode: TurnProfile 管道（缺省=现状）
 
