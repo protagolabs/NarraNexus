@@ -382,6 +382,9 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  agent_framework?: string;
+  model?: string;
+  bound_channels: string[];
   bootstrap_active?: boolean;
   /** Per-agent first-run greeting (Arena etc.); falls back to the generic
    *  constant when absent. Must match the DB-persisted greeting so the
@@ -724,6 +727,9 @@ export interface QueueCounts {
   blocked: number;
   paused: number;
   failed: number;
+  cooling: number;
+  paused_no_quota: number;
+  blocked_failed: number;
   total: number;
 }
 

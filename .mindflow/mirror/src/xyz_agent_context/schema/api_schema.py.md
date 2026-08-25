@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-30
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — AgentInfo 增加绑定 Channel 摘要
+
+`AgentInfo.bound_channels` 是默认空列表的只读渠道名数组,由 agents 列表接口批量
+投影。它只表达凭据/绑定存在,不携带凭据内容或健康状态;其他用户的 public Agent
+必须保持空数组。
+
+## 2026-08-24 — AgentInfo 增加有效 Framework / Model 投影
+
+`AgentInfo.agent_framework` / `model` 是只读、可空的 Agent 主模型槽摘要,由
+`backend/routes/auth.py::get_agents` 按「agent override > owner default」批量解析。
+它们不新增存储语义,也不替代完整的 per-agent llm-config 响应;这里只为目录表避免
+N+1 请求而提供轻量投影。
 
 ## 2026-07-30 — Cost*/EventLogMeta 加缓存两桶字段
 

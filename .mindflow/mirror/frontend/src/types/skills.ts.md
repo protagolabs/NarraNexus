@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/skills.ts
-last_verified: 2026-07-21
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — Marketplace defaults 响应
+
+默认 Skill 端点与搜索端点复用同一个卡片形状，但响应只包含 `items`，因此保留独立响应类型，避免调用方伪造搜索分页字段。
 
 ## 2026-07-21 — Marketplace 类型(stage 7)
 

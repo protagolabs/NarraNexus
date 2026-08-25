@@ -8,6 +8,9 @@
     "local": "محلي",
     "settings": "الإعدادات",
     "system": "النظام",
+    "messenger": "المراسلة",
+    "messengerTitle": "أحدث المحادثات مع جميع الوكلاء والفرق",
+    "messengerEmpty": "لا توجد محادثات حتى الآن",
     "clearHistory": "مسح السجل",
     "logout": "تسجيل الخروج",
     "poweredBy": "NetMind AI Research",
@@ -270,10 +273,8 @@
       "ops": "عمليات"
     },
     "header": {
-      "sessionLabel": "الجلسة · {{time}}",
-      "agentDetailTitle": "تفاصيل الوكيل",
-      "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
-      "modelFramework": "النموذج وإطار العمل"
+      "viewProfile": "عرض الملف الشخصي للوكيل",
+      "detailMenuTitle": "تفاصيل الوكيل — اللوحات"
     },
     "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
   },
@@ -1252,7 +1253,6 @@
       "publicAgent": "عام",
       "noTeamsLabel": "لا توجد فرق بعد",
       "noTeamsHint": "أنشئ فريقًا من قائمة جديد في الشريط الجانبي.",
-      "manageTeam": "إدارة",
       "teamsTip": "أنشئ الفرق من قائمة جديد؛ هنا يمكنك إعادة التسمية وتغيير اللون وتحرير الأعضاء."
     },
     "createUser": {
@@ -1772,6 +1772,7 @@
       "configSectionTitle": "الإعدادات",
       "skillsLabel": "المهارات",
       "skillsSelectedCount": "تم اختيار {{count}}",
+      "skillIncludedByDefault": "مضمّنة افتراضيًا",
       "skillsPlaceholder": "اختر المهارات…",
       "skillsSearchPlaceholder": "ابحث عن المهارات…",
       "skillsNoResults": "لم يتم العثور على مهارات",

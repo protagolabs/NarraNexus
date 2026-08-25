@@ -16,9 +16,11 @@ interface DialogProps {
   children: ReactNode;
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl';
+  /** Card background override — defaults to the NM paper-raised tone. */
+  bg?: string;
 }
 
-export function Dialog({ isOpen, onClose, title, children, className, size = 'md' }: DialogProps) {
+export function Dialog({ isOpen, onClose, title, children, className, size = 'md', bg = 'var(--nm-raised)' }: DialogProps) {
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       onClose();
@@ -71,7 +73,7 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
             )}
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: 'var(--nm-raised)',
+              background: bg,
               border: '1px solid var(--nm-hairline)',
               borderRadius: 'var(--radius-xl)',
               boxShadow: 'var(--nm-elev-3)',

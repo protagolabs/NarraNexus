@@ -1,10 +1,19 @@
 ---
 code_file: backend/routes/dashboard/_schema.py
-last_verified: 2026-04-13
+last_verified: 2026-08-25
 stub: false
 ---
 
 # backend/routes/dashboard/_schema.py — Intent
+
+## 2026-08-25 — 可恢复 Job 状态与调度字段对齐路由
+
+`PendingJob` 必须接受路由真实发出的全部非运行 live states，包括
+`cooling`、`paused_no_quota`、`blocked_failed`；漏掉任一值都会让 Pydantic 在
+FastAPI response serialization 阶段抛 ValidationError，使整个
+`/agents-status` 变成 500。调度字段使用当前 β 协议 `next_run_at` +
+`next_run_timezone`，不保留已退役的 `next_run_time`。`QueueCounts` 同步保留这三类
+计数，避免路由聚合后又被响应模型静默丢弃。
 
 ## 为什么存在
 Pydantic 响应类型的**唯一真相源**（SSOT）for `GET /api/dashboard/agents-status`。
@@ -27,6 +36,6 @@ Pydantic 响应类型的**唯一真相源**（SSOT）for `GET /api/dashboard/age
 ## Gotcha
 - **TS 类型手工复刻**：后端加字段若忘了同步 `frontend/src/types/api.ts`，`tsc` 不报错（TS 对多余字段宽容）。没有自动化契约测试。加字段 checklist：改这里 → 改 types/api.ts → 跑 tsc。
 - `running_count_bucket` 的字面值列表（`'0' | '1-2' | '3-5' | '6-10' | '10+'`）和 `dashboard/_helpers.py::bucket_count` 的输出是**隐式耦合**——改其中一个必须改另一个。
-- `JobQueueStatus` 的 5 个值和 `_dashboard_helpers._LIVE_JOB_STATES`（去掉 `running`）**必须对齐**——改枚举两处都要动。
+- `JobQueueStatus` 的 8 个值和 `_dashboard_helpers._LIVE_JOB_STATES`（去掉 `running`）**必须对齐**——改枚举两处都要动。
 - 字段添加到 `OwnedAgentStatus` 时若是 owner-only：务必用 `ConfigDict(extra='forbid')` 保护 `PublicAgentStatus`（已做），并在 `tests/backend/test_dashboard_v21.py::test_v21_public_variant_still_locked_down` 的 `forbidden` 集合里加上新字段名，否则白名单漏检。
 - `stale_instances` 是 owner-only 字段——`PublicAgentStatus` 不含它（已受 `extra='forbid'` 保护）。如果前端需要展示 zombie badge，必须从 `owned_by_viewer=true` 的响应分支读取。

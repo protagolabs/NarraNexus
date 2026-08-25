@@ -1,6 +1,6 @@
 /**
  * @file_name: QueueBar.tsx
- * @description: v2.3 — stacked bar + counts for all 6 live job states.
+ * @description: Stacked bar and counts for every live job queue state.
  * Compact mode (inline in collapsed card) shows bar + total + the
  * worrying states (failed/blocked) labeled in plain English. Full mode
  * shows all states with labels under the bar.
@@ -15,16 +15,24 @@ const SEGMENT_CLS: Record<keyof Omit<QueueCounts, 'total'>, string> = {
   blocked: 'bg-[var(--color-warning)]',
   paused: 'bg-[var(--color-warning)]',
   failed: 'bg-[var(--color-error)]',
+  cooling: 'bg-[var(--color-warning)]',
+  paused_no_quota: 'bg-[var(--color-warning)]',
+  blocked_failed: 'bg-[var(--color-error)]',
 };
 
 const ORDER: Array<keyof Omit<QueueCounts, 'total'>> = [
-  'running', 'active', 'pending', 'blocked', 'paused', 'failed',
+  'running', 'active', 'pending', 'cooling', 'blocked', 'paused',
+  'paused_no_quota', 'blocked_failed', 'failed',
 ];
 
 export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compact?: boolean }) {
   const { t } = useTranslation();
-  const labelShort = (key: keyof Omit<QueueCounts, 'total'>): string =>
-    t(`dashboard.jobState.${key}`);
+  const labelShort = (key: keyof Omit<QueueCounts, 'total'>): string => {
+    if (key === 'paused_no_quota') return t('jobs.status.pausedNoQuota');
+    if (key === 'blocked_failed') return t('jobs.status.blockedFailed');
+    if (key === 'cooling') return t('jobs.status.cooling');
+    return t(`dashboard.jobState.${key}`);
+  };
   if (!queue || queue.total === 0) {
     return null;
   }

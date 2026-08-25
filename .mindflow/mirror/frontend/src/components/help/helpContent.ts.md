@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/help/helpContent.ts
-last_verified: 2026-08-06
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — Squads 锚点替换已删除的 agent-list / team-section
+
+`sidebar.agent-list`("Agents, grouped by team")和 `sidebar.team-section`
+("A team section")两条注释所指的 DOM 锚点(`AgentList.tsx` 里的
+section 标签、`AgentGroupSection.tsx` 里的 team 行)随侧栏聊天列表一起删除
+了,合并成一条指向新 `sidebar.squads` 锚点([[../layout/Sidebar.tsx]] 的
+Squads 导航行)的注释。`sidebar.manage-agents` 的文案从 "Dashboard" 改成
+"Agents",跟同一锚点现在的按钮文案对齐。见
+[[../layout/Sidebar.tsx]] 2026-08-24 条目。
 
 ## 2026-08-06 — Chat UI v4 锚点跟随
 

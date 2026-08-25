@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-24 — `/app/agents/:agentId` Profile 路由
+
+新增懒加载 [[../../pages/AgentProfilePage.tsx]] 路由,与静态
+`/app/agents/new` 并存。React Router 的静态段优先级保证 `new` 不会被当作
+Agent ID;Dashboard 行点击进入动态 Profile。
+
+## 2026-08-20 — /app/agents/new 路由
+
+新增 CreateAgentPage 懒加载路由,紧跟 teams/new 之后(见
+[[../../pages/CreateAgentPage.tsx]])。侧栏 New 菜单的 Create agent
+从一键建空白 Agent 改跳这里。
 
 ## 2026-08-06 (3) — /app/account 路由
 

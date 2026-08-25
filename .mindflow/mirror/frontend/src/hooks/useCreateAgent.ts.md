@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/useCreateAgent.ts
-last_verified: 2026-06-16
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -8,18 +8,21 @@ stub: false
 
 ## Why it exists
 
-Agent creation is triggered from two places: the sidebar `AgentList`
-button and the `OnboardingChecklist` card. Before this hook the logic
-lived only in `AgentList.handleCreateAgent`; duplicating it into the
+Agent creation is triggered from three places: the sidebar `AgentList`
+button, the `OnboardingChecklist` card, and the full `CreateAgentPage`
+form (`pages/CreateAgentPage.tsx`). Before this hook the logic lived
+only in `AgentList.handleCreateAgent`; duplicating it into the
 checklist would have let the two drift (forget `setActiveAgent`, forget
 the onboarding side effect, etc.). The hook is the single create path.
 
 ## What it owns
 
-1. `api.createAgent` call — accepts optional `{ teamId }` (#43); when a
-   `teamId` is provided, the call passes it through to the backend and, on
-   success, refreshes the teams store so the new agent appears under that team
-   immediately without a full agents-list reload.
+1. `api.createAgent` call — accepts optional `{ name, description, teamId }`.
+   `name`/`description` are left undefined by every quick-add call site (blank
+   agent), and populated by `CreateAgentPage`. `teamId` (#43): when the
+   sidebar "Add agent" is clicked under a team, the call passes it through to
+   the backend and, on success, refreshes the teams store so the new agent
+   appears under that team immediately without a full agents-list reload.
 2. Store wiring — prepend to `configStore.agents`, set it active in both
    `configStore` (agentId) and `chatStore` (setActiveAgent, clears badge)
 3. Onboarding side effect — fires `markOnboardingStep('first_agent_created')`
@@ -34,3 +37,7 @@ its failure is swallowed so it can never block or error agent creation.
 **Stores read via `getState()`, not hook subscriptions.** `createAgent` is
 a `useCallback` with an empty dep array; reading the stores imperatively
 inside keeps the callback stable and avoids stale-closure bugs.
+
+The locally prepended `AgentInfo` carries the response's `bound_channels`
+field. A newly created Agent normally receives `[]`; copying the response
+keeps the store object aligned with the directory API contract immediately.

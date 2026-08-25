@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 (2) — sessionLabel 计算删除
+
+[[ChatHeader.tsx]] 不再渲染 "session · 时间" 标签(Owner:没有实际用处)。
+跟着删掉这边的 `sessionLabel` useMemo(读 `visibleTimeline` 最后一条时间戳、
+调 `formatChatTimestamp`)和传给 `<ChatHeader>` 的 `sessionLabel` prop。
+`formatChatTimestamp` 定义本身没删——`MessengerSection.tsx` 还在用。
+
+## 2026-08-25 — AgentLlmConfigPanel 从 ChatPanel 里摘除
+
+[[ChatHeader.tsx]] 的 ⋯ 菜单删掉了 Model & framework 入口（Agent Profile
+页的 Settings → "Model & Framework" 已经是它的对等入口，聊天侧留着是纯
+重复）。因为那是这个面板在聊天侧唯一的开门方式，ChatPanel 这边跟着清空:
+`agentCfgOpen`/`setAgentCfgOpen` state、`<AgentLlmConfigPanel>` 挂载、
+`modelReloadKey`/`setModelReloadKey`、`AgentLlmConfigPanel` 的 import 全部
+删除；`<ChatHeader>` 不再传 `onOpenAgentConfig`。`ComposerModelBadge` 的
+`reloadKey` prop 本来就是为了让这个面板保存后能通知 badge 重新读取模型，
+入口没了就一并删掉——badge 现在只接 `agentId`，自己的快捷切换逻辑不变。
+下方"2026-07-09"条目描述的挂载方式已经不成立，仅作历史记录保留。
 
 ## 2026-08-06 (2) — lastMessageId
 
@@ -23,7 +42,8 @@ isLatest(meta 行常显);bootstrap greeting 气泡固定 isLatest。
 - 气泡改 v4 纸面填色(见 [[MessageBubble.tsx]]);流式 live 气泡的内联
   样式同步改为 paper + hairline + silicon 左描边,nm-bubble-ai 不再用于
   单聊(团队聊天仍在用)。
-- sessionLabel:头部 mono 侧标 "会话 · <最近消息时间>"。
+- sessionLabel:头部 mono 侧标 "会话 · <最近消息时间>"。(已于
+  2026-08-25 (2) 移除。)
 - AgentLlmConfigPanel 的入口从头部 Sliders 图标移到 ⋯ 菜单底部。
 last_verified: 2026-08-10
 last_verified: 2026-08-14
@@ -130,7 +150,11 @@ agent switch and the panel showed stale (already-deleted) messages. The poll
 loop can't cover this: it early-returns when the server returns zero messages,
 so it never clears a now-empty history on its own.
 
-## 2026-07-09 — hosts the per-agent model/framework panel
+## 2026-07-09 — hosts the per-agent model/framework panel (superseded 2026-08-25)
+
+> **Superseded** — see the 2026-08-25 entry above. ChatPanel no longer mounts
+> AgentLlmConfigPanel at all; kept below only as history of why the plumbing
+> existed in the first place.
 
 ChatPanel now owns the per-agent [[AgentLlmConfigPanel]]: a ⚙ (SlidersHorizontal)
 ghost icon button sits in the header's right cluster, LEFT of the cost chip

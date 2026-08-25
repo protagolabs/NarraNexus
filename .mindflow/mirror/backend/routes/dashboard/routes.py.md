@@ -1,10 +1,16 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-07-30
+last_verified: 2026-08-25
 stub: false
 ---
 
 # backend/routes/dashboard/routes.py — Intent
+
+## 2026-08-25 — 状态枚举与响应模型必须同步
+
+主聚合会把 8 个非运行 live states 全部写入 `pending_jobs.queue_status`。该集合与
+`_schema.PendingJob` 是运行时硬契约：路由新增状态却未同步响应模型时，合法 Job
+数据会在 FastAPI 序列化阶段使整个轮询请求变成 500，而不是只影响单个 Agent。
 
 ## 为什么存在
 `GET /api/dashboard/agents-status` 端点 + v2.1/v2.1.1/v2.1.2 新加的一组懒加载详情端点和 job mutation 端点。Dashboard 前端所有 HTTP 调用的唯一后端入口。

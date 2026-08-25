@@ -334,6 +334,11 @@ export function MainLayout() {
     location.pathname !== '/app/chat' &&
     location.pathname !== '/app';
 
+  // Full-page forms that already own a top-right Cancel/Create action bar of
+  // their own (CreateAgentPage) — the generic floating X would sit right on
+  // top of that and read as a second, redundant close control.
+  const hasOwnCloseControl = location.pathname.startsWith('/app/agents/');
+
   // Preload all data when component mounts or when agentId/userId changes
   useEffect(() => {
     if (agentId && userId) {
@@ -423,16 +428,19 @@ export function MainLayout() {
         <main className="flex-1 min-w-0 overflow-hidden relative z-10">
           {/* Close button — sub-pages (Dashboard / Settings / System …) open
               over the chat with no obvious way back, so dock an X top-right
-              that returns to the conversation. */}
-          <button
-            type="button"
-            onClick={() => navigate('/app/chat')}
-            title={t('layout.subPage.closeTitle')}
-            aria-label={t('layout.subPage.closeAriaLabel')}
-            className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+              that returns to the conversation. Skipped on pages that already
+              own a top-right Cancel/Create action bar (hasOwnCloseControl). */}
+          {!hasOwnCloseControl && (
+            <button
+              type="button"
+              onClick={() => navigate('/app/chat')}
+              title={t('layout.subPage.closeTitle')}
+              aria-label={t('layout.subPage.closeAriaLabel')}
+              className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* v2.2 G1: inner Suspense so lazy sub-pages (DashboardPage etc.)
               don't trigger the App-level full-screen spinner that hides the
               Sidebar. The skeleton mirrors the dashboard grid shape. */}

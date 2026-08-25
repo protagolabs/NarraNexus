@@ -15,6 +15,8 @@ ApiClient，让 UI 全链路可渲染。**契约**：方法集必须与 api.ts �
 
 ## 变更史
 
+- 2026-08-24 — mock `createAgent` 返回的 `AgentInfo` 补
+  `bound_channels: []`,对齐 agents API 的必填目录摘要。
 - 2026-07-20 — 补 `useSubscription` 桩（api.useSubscription 有了第一个真实
   调用方——[[NetmindAccountPanel]] 的 Link it now 按钮——按"方法集同步"
   契约补齐）。

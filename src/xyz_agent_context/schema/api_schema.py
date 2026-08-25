@@ -89,6 +89,15 @@ class AgentInfo(BaseModel):
     created_at: Optional[str] = None
     is_public: bool = False
     created_by: Optional[str] = None
+    # Effective agent-slot runtime identity. A per-agent override wins over
+    # the owner's user_slots row; resolved in bulk by GET /api/auth/agents so
+    # directory UIs do not need one llm-config request per agent.
+    agent_framework: Optional[str] = None
+    model: Optional[str] = None
+    # Names of credential-backed channels bound to this owned agent. Presence
+    # means bound even when the credential is currently inactive. Public
+    # agents owned by another user always expose an empty list.
+    bound_channels: List[str] = Field(default_factory=list)
     bootstrap_active: bool = False
     # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
     # set by scenario provisioners like Arena onboarding). None → the frontend

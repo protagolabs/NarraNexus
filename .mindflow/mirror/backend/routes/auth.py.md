@@ -1,8 +1,32 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-13
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `/api/auth/agents` 批量投影 Channel 绑定
+
+Agent 目录新增 `bound_channels`,由 `get_agents` 对 7 个凭据/绑定表执行一次
+`UNION ALL` 查询生成,查询次数随 Channel 类型固定,不会随 Agent 数量增长。
+当前覆盖 Lark、Slack、Telegram、WeChat、NarraMessenger、Discord 和 Home
+Assistant。只读取 `agent_id` 与渠道常量,不读取或返回任何 token/credential。
+
+“bound”按凭据行是否存在判断,因此 disabled/inactive 绑定仍会出现;运行健康状态
+不属于这个摘要。隐私边界比 Agent 可见性更严格:只有 `created_by == 当前用户`
+的 Agent 会参与查询,其他用户的 public Agent 一律返回空数组,避免泄露集成元数据。
+
+## 2026-08-24 — agents 列表批量富集有效 Framework / Model
+
+`GET /api/auth/agents` 在已有 active-run 与 last-assistant 两个批量富集之外,
+增加两条有界查询:一次取列表内 `agent_slots(slot_name='agent')`,一次按 owner 集合
+取 `user_slots(slot_name='agent')`;逐 Agent 以 override 优先、owner default 兜底,
+写入 `AgentInfo.agent_framework/model`。没有任何 slot 时 framework 沿用运行时默认
+`claude_code`,model 为 null。
+
+这份投影专供 Agent 目录表使用;不能改成前端逐行请求
+`/{agent_id}/llm-config`,否则 60 个 Agent 就会制造 60 个额外 HTTP 请求。任一富集
+查询失败沿用列表接口的 fail-soft 习惯:记录 warning,保留默认 framework/null model,
+不让配置展示拖垮 agents 主列表。
 
 ## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
 

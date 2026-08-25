@@ -8,6 +8,9 @@
     "local": "ローカル",
     "settings": "設定",
     "system": "システム",
+    "messenger": "メッセンジャー",
+    "messengerTitle": "すべてのエージェントとチームの最近の会話",
+    "messengerEmpty": "まだ会話がありません",
     "clearHistory": "履歴を消去",
     "logout": "ログアウト",
     "poweredBy": "NetMind AI Research",
@@ -266,10 +269,8 @@
       "ops": "回の操作"
     },
     "header": {
-      "sessionLabel": "セッション · {{time}}",
-      "agentDetailTitle": "エージェント詳細",
-      "detailMenuTitle": "エージェント詳細 — パネル",
-      "modelFramework": "モデルとフレームワーク"
+      "viewProfile": "エージェントのプロフィールを表示",
+      "detailMenuTitle": "エージェント詳細 — パネル"
     },
     "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。"
   },
@@ -1248,7 +1249,6 @@
       "publicAgent": "公開",
       "noTeamsLabel": "チームがまだありません",
       "noTeamsHint": "サイドバーの New メニューから作成できます。",
-      "manageTeam": "管理",
       "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。"
     },
     "createUser": {
@@ -1768,6 +1768,7 @@
       "configSectionTitle": "設定",
       "skillsLabel": "スキル",
       "skillsSelectedCount": "{{count}} 件選択中",
+      "skillIncludedByDefault": "デフォルトで含まれます",
       "skillsPlaceholder": "スキルを選択…",
       "skillsSearchPlaceholder": "スキルを検索…",
       "skillsNoResults": "スキルが見つかりません",

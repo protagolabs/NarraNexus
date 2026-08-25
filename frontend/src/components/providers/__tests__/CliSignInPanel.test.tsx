@@ -53,7 +53,10 @@ describe('CliSignInPanel', () => {
         onComplete={() => {}}
       />,
     )
-    await screen.findByText(/Added as a NarraNexus provider/i)
+    // "Added" is now a checkmark icon (aria-label) rather than visible
+    // sentence text — the card design collapsed the confirmation line
+    // into the icon (2026-08-25).
+    await screen.findByLabelText(/Added as a NarraNexus provider/i)
     expect(screen.queryByText('Add as Provider')).not.toBeInTheDocument()
   })
 

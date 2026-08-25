@@ -163,4 +163,7 @@ tauri/src-tauri/resources/lark-skills/
 
 # NexusPower per-turn event logs (written next to the agent CWD)
 .nexus_power/
+
+# Superpowers brainstorming visual-companion scratch files
+.superpowers/
 tauri/src-tauri/Cargo.lock

@@ -2,17 +2,18 @@
  * Sidebar — Chat UI v4 three-zone shell.
  *
  * Zone 1: logo + collapse (panel icon). Zone 2: global nav (New / Export /
- * Dashboard / Marketplace / Settings) then the Chats list (teams + agents,
- * owned by AgentList — the sidebar stays "a shell, not a list owner").
- * Zone 3: the user row opening an account popover (workspace / account /
- * billing / subscription / theme / language / logout) + the Find Us entry.
+ * Dashboard / Marketplace / Settings) then the Messenger quick-switcher
+ * (teams + agents, merged most-recent-first — owned by MessengerSection;
+ * the sidebar stays "a shell, not a list owner"). Zone 3: the user row
+ * opening an account popover (workspace / account / billing / subscription
+ * / theme / language / logout) + the Find Us entry.
  *
  * Collapse hides the whole aside (uiStore.sidebarCollapsed); the expand
  * button renders in the chat header / a floating chip, outside this tree.
  */
 
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
@@ -22,7 +23,9 @@ import {
   Monitor,
   Cloud,
   RotateCcw,
-  LayoutDashboard,
+  Search,
+  Bot,
+  Users2,
   Store,
   Upload,
   User,
@@ -41,7 +44,7 @@ import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useCreateAgent, useAgentImported } from '@/hooks';
+import { useAgentImported } from '@/hooks';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import {
   useConfigStore,
@@ -51,10 +54,9 @@ import {
   useUIStore,
 } from '@/stores';
 import { cn } from '@/lib/utils';
-import { ScrollArea } from '@/components/ui';
-import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
+import { MessengerSection } from './MessengerSection';
 import { FIND_US_URL } from './TopBar';
 
 // v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
@@ -75,6 +77,10 @@ const prefetchDashboard = () => {
 const NAV_ROW =
   'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-row-hover)] hover:text-[var(--nm-ink)]';
 const NAV_ROW_ACTIVE = 'bg-[var(--nm-row-active)] text-[var(--nm-ink)]';
+// Group header above Workspace / Configure — same mono/uppercase treatment as
+// AGENTS/TEAMS category headers used elsewhere in the app.
+const NAV_SECTION_LABEL =
+  'px-2 pt-2.5 pb-0.5 text-[10px] font-mono uppercase tracking-wider text-[var(--nm-ink30)]';
 
 export function Sidebar() {
   const [showModePopup, setShowModePopup] = useState(false);
@@ -93,6 +99,12 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
+  // The Agents/Squads nav rows both route to /app/dashboard; ?view= picks the
+  // tab, so the sidebar and the page's own segmented toggle stay in sync.
+  const dashboardView = searchParams.get('view') === 'teams' ? 'teams' : 'agents';
+  const onDashboard = location.pathname === '/app/dashboard';
 
   const { userId, displayName, logout } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
@@ -103,7 +115,6 @@ export function Sidebar() {
   const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
-  const { createAgent, creating: creatingAgent } = useCreateAgent();
   const handleImportApplied = useAgentImported();
   // Import-from-other-source is local-only: the scanner reads the user's
   // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
@@ -261,13 +272,21 @@ export function Sidebar() {
 
       {/* ── Zone 2a: global nav ─────────────────────────────────────────── */}
       <div className="px-2 pb-2 flex flex-col gap-px border-b border-[var(--nm-hairline)]">
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          title={t('sidebar.searchChatsTitle')}
+          className={NAV_ROW}
+        >
+          <Search className="w-4 h-4 shrink-0" />
+          {t('sidebar.search')}
+        </button>
         <span data-help-id="sidebar.create-agent">
           <CreateMenu
-            onCreateAgent={() => void createAgent()}
+            onCreateAgent={() => navigate('/app/agents/new')}
             onCreateTeam={() => navigate('/app/teams/new')}
             onImportBundle={() => navigate('/app/bundle/import')}
             onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
-            disabled={creatingAgent}
           />
         </span>
         <button
@@ -282,23 +301,38 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          onClick={() => navigate('/app/dashboard')}
-          onMouseEnter={prefetchDashboard}
-          onFocus={prefetchDashboard}
-          data-help-id="sidebar.manage-agents"
-          className={cn(NAV_ROW, location.pathname === '/app/dashboard' && NAV_ROW_ACTIVE)}
-        >
-          <LayoutDashboard className="w-4 h-4 shrink-0" />
-          {t('sidebar.dashboard')}
-        </button>
-        <button
-          type="button"
           onClick={() => navigate('/app/marketplace')}
           className={cn(NAV_ROW, location.pathname === '/app/marketplace' && NAV_ROW_ACTIVE)}
         >
           <Store className="w-4 h-4 shrink-0" />
           {t('sidebar.marketplace')}
         </button>
+
+        <span className={NAV_SECTION_LABEL}>{t('sidebar.sectionWorkspace')}</span>
+        <button
+          type="button"
+          onClick={() => navigate('/app/dashboard?view=agents')}
+          onMouseEnter={prefetchDashboard}
+          onFocus={prefetchDashboard}
+          data-help-id="sidebar.manage-agents"
+          className={cn(NAV_ROW, onDashboard && dashboardView === 'agents' && NAV_ROW_ACTIVE)}
+        >
+          <Bot className="w-4 h-4 shrink-0" />
+          {t('sidebar.agents')}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/app/dashboard?view=teams')}
+          onMouseEnter={prefetchDashboard}
+          onFocus={prefetchDashboard}
+          data-help-id="sidebar.squads"
+          className={cn(NAV_ROW, onDashboard && dashboardView === 'teams' && NAV_ROW_ACTIVE)}
+        >
+          <Users2 className="w-4 h-4 shrink-0" />
+          {t('sidebar.teams')}
+        </button>
+
+        <span className={NAV_SECTION_LABEL}>{t('sidebar.sectionConfigure')}</span>
         <button
           type="button"
           onClick={() => navigate('/app/settings')}
@@ -320,10 +354,14 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* ── Zone 2b: Chats (teams + agents, owned by AgentList) ─────────── */}
-      <ScrollArea className="flex-1">
-        <AgentList />
-      </ScrollArea>
+      {/* ── Zone 2b: Messenger — the chat roster used to live here
+          (AgentList); Agents/Squads above now own management as dashboard
+          tables, so this zone is just the read-only quick-switcher. It's
+          flex-1 so it fills every pixel down to the footer: collapsed, that
+          reads as blank space below the row (same as the old bare spacer);
+          expanded, the agent list itself grows into that space instead of
+          being capped short of it. */}
+      <MessengerSection />
 
       {/* ── Zone 3: user row + account popover + Find Us ────────────────── */}
       <div className="p-2 border-t border-[var(--nm-hairline)] relative">

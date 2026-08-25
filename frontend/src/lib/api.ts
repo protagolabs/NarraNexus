@@ -56,6 +56,7 @@ import type {
   SkillOperationResponse,
   SkillStudyResponse,
   MarketplaceSearchResponse,
+  MarketplaceDefaultsResponse,
   MarketplaceSkillDetail,
   MarketplaceInstallResponse,
   SkillUpdateInfo,
@@ -1170,6 +1171,10 @@ class ApiClient {
     );
   }
 
+  async getMarketplaceDefaultSkills(): Promise<MarketplaceDefaultsResponse> {
+    return this.request<MarketplaceDefaultsResponse>('/api/marketplace/skills/defaults');
+  }
+
   async getMarketplaceSkillDetail(skillId: string): Promise<MarketplaceSkillDetail> {
     return this.request<MarketplaceSkillDetail>(
       `/api/marketplace/skills/${encodeURIComponent(skillId)}`
@@ -2074,14 +2079,22 @@ class ApiClient {
     });
     if (!resp.ok) {
       // Try to parse a structured error so callers can act on it (B6 sensitive zip flow)
-      let detail: any = null;
-      try { detail = (await resp.json()).detail; } catch {}
-      const err: any = new Error(
-        detail?.message || `Export failed: ${resp.status}`
+      type ExportErrorDetail = { message?: string; error_code?: string; hits?: string[] };
+      let detail: ExportErrorDetail | null = null;
+      try {
+        const payload = await resp.json() as { detail?: ExportErrorDetail };
+        detail = payload.detail ?? null;
+      } catch {
+        detail = null;
+      }
+      const err = Object.assign(
+        new Error(detail?.message || `Export failed: ${resp.status}`),
+        {
+          status: resp.status,
+          ...(detail?.error_code ? { code: detail.error_code } : {}),
+          ...(detail?.hits ? { hits: detail.hits } : {}),
+        },
       );
-      if (detail?.error_code) err.code = detail.error_code;
-      if (detail?.hits) err.hits = detail.hits;
-      err.status = resp.status;
       throw err;
     }
     const cd = resp.headers.get('Content-Disposition') || '';
@@ -2253,7 +2266,6 @@ const _realApi = new ApiClient();
 
 export const api: ApiClient = MOCK_ENABLED
   ? (() => {
-      // eslint-disable-next-line no-console
       console.info(
         '%c[MOCK]',
         'background:#111214;color:#fff;padding:2px 6px;border-radius:0;',

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/providers/CliSignInPanel.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
 
@@ -9,10 +9,10 @@ stub: false
 这个组件是从 [[ProviderSettings]] 的 "oauth" 标签页里机械抽取出来的独立组
 件：Claude Code Login 卡片（OS 凭证态 + provider 记录态 + setup-token 粘贴
 流程）和 Codex CLI Login 卡片（同样的两层态，但没有 Tauri 自动化，只有终端
-提示）。**注意**：这次抽取只是把渲染逻辑和状态搬进新文件，并让它在独立场
-景下可运行、可测；把 `ProviderSettings.tsx` 里那段原地渲染换成
-`<CliSignInPanel />` 调用是后续任务（计划里的 Task 7）的工作，本文件对应
-的这次改动**尚未**触碰 `ProviderSettings.tsx`。
+提示）。`ProviderSettings.tsx` 现在已经换成 `<CliSignInPanel />` 调用（见该
+文件对 `refreshConfig` 的传参），Settings 页面和 Create Agent 向导的 CLI
+登录步骤共享同一份实现——这也是这次视觉改版（见下）同时影响两处界面的原
+因。
 
 直接动机同 [[CustomEndpointForm]]：即将新增的 Create Agent 向导需要一个
 "CLI 登录" 的添加方式（Claude Code / Codex CLI 的 OAuth 登录），跟 Settings
@@ -72,3 +72,29 @@ Create Agent 向导（可能只关心这一步刚添加的 provider）都能直�
 - `providers` prop 只读两个字段（`source` / `auth_type`）,调用方传入的对
   象即使带其它字段（比如完整的 `ProviderSummary`）也兼容——组件不会因为
   多余字段报错,只是忽略。
+
+## 视觉布局（2026-08-25）
+
+跟用户过了几轮 HTML 设计稿（品牌图标不带背景方块、状态放右侧、"Added" 从
+一句话收成一个 `Check` 图标 + `aria-label`）之后落地的样式改版——**状态机
+和 handler 完全没动**，只是把渲染结构从"标题 + 分段说明文字"重排成"单行
+卡片 + 可展开的 Advanced 折叠区"：
+
+- 每个 provider 一张 `<Card variant="bordered">`：裸图标（`ClaudeBrandIcon`
+  / `OpenAIBrandIcon`，来自 `ModelBrandIcons.tsx`，不再是文字标题下的自由
+  段落）+ 标题 + 右侧状态/操作,单行。
+- Claude 卡片的 Re-login / Logout 按钮、web-mode 兜底提示、以及
+  setup-token 表单,全部收进一个 `<details>` 折扣区,用纯图标（`ChevronRight`,
+  无文字标签,不用 `title` 悬浮提示）触发。**setup-token 表单在任何登录态
+  下都可展开**——它本来就不依赖 CLI 登录状态（见上面"依赖"一节）,收进折
+  叠区不代表它只在已登录时可用。
+- Codex 卡片没有折叠区：它本来就没有 Re-login/Logout 或 setup-token,唯一
+  的终端提示句（`codexTerminalHint` / `codexInstallHint`）保持常驻展示,跟
+  改版前行为一致。
+- "已添加"的确认从一句话（`addedAsProvider` / `codexAddedAsProvider`）变
+  成一个 `Check` 图标 + 该文案作为 `aria-label`——文案本身没删,i18n key 也
+  没变,只是不再以可见文本渲染。`CliSignInPanel.test.tsx` 里原本用
+  `findByText(/Added as a NarraNexus provider/i)` 断言的那个测试因此改成
+  了 `findByLabelText`,断言意图不变（"已添加后按钮消失,出现确认态"）。
+- 没有引入"移除 provider"之类的新按钮——设计稿草稿里出现过,但代码里从
+  来没有对应的 handler,加上就是新逻辑,超出了"只改前端"的范围。

@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-06
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-24 — Agent 子页自行提供返回路径
+
+`hasOwnCloseControl` 从只识别 `/app/agents/new` 扩展为整个
+`/app/agents/` 前缀。Create 页已有 Cancel,Profile 页已有返回 Agents 的
+breadcrumb;二者都不再叠加 MainLayout 的浮动 X。其他 sub-page 行为不变。
+
+## 2026-08-20 — sub-page 浮动 X 按需跳过
+
+新增 `hasOwnCloseControl`（目前只匹配 `/app/agents/new`）——
+[[../../pages/CreateAgentPage.tsx]] 自己在底部有 Cancel/Create 操作条，
+`isSubPage` 分支原本无条件渲染的 top-4 right-4 浮动 X 会跟它重复，条件
+渲染跳过。其余 sub-page（Dashboard/Settings/System/CreateTeamPage 等）
+不受影响，X 仍在。以后哪个整页表单自带完整的取消/关闭路径，往这个
+pathname 判断里加一条即可，不需要动 isSubPage 本身（它还控制
+Outlet 是否走 `<main>` + Suspense 包装）。
 
 ## 2026-08-06 (5) — 抽屉 inset + artifacts 50vw
 

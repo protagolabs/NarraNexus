@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/CreateAgentPage.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 默认 Skills 直接包含，不再由创建页重复安装
+
+后端 provisioning 本来就会自动安装 marketplace defaults；创建页此前把用户在列表里选到的默认项再次逐个 POST，和 provisioning 形成竞态，后端返回的 409 `already installed` 被误记成部分配置失败。现在页面启动时读取 [[../lib/api.ts]] 的 defaults 接口，把这些 Skills 作为不可取消的“默认包含”项展示；提交时只安装用户额外选择的非默认 Skills。集合合并、去重和 409 幂等判断集中在 [[../lib/createAgentSkills.ts]]，避免页面 JSX 承担集合规则。
+
+如果 defaults 读取临时失败，创建本身仍可继续，后端仍会安装默认 Skills；安装请求收到 409 时也视为成功，作为跨请求竞态的最终兜底。
 
 ## 2026-08-24 (14) — 改成 2 步向导：Step 1 选/连 Provider，Step 2 才是原来那 4 个框
 

@@ -23,10 +23,9 @@ import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
-import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn, formatChatTimestamp } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { chatDayInfo } from '@/lib/chatDays';
@@ -230,10 +229,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
-  // Per-agent model/framework panel, opened from the header. A bump on save
-  // tells the composer model chip to re-read the (possibly changed) model.
-  const [agentCfgOpen, setAgentCfgOpen] = useState(false);
-  const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -512,16 +507,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
     return null;
   }, [visibleTimeline]);
-
-  // v4 header side label: "session · <last activity time>" — the most recent
-  // visible message anchors the label; empty until history lands.
-  const sessionLabel = useMemo(() => {
-    const last = visibleTimeline.length
-      ? visibleTimeline[visibleTimeline.length - 1]
-      : null;
-    if (!last?.timestamp) return '';
-    return t('chat.header.sessionLabel', { time: formatChatTimestamp(last.timestamp) });
-  }, [visibleTimeline, t]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -861,20 +846,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* v4 header — agent-name protagonist + session label; Chat / Inner
-          Thoughts segmented toggle; Jobs / Inbox / Artifacts / Cost entries
-          and the ⋯ detail menu (doors only — panels unchanged). Hidden on
-          mobile: the top strip shows the breadcrumb there and the tab pair
-          below stands in. */}
+      {/* v4 header — agent-name protagonist; Chat / Inner Thoughts segmented
+          toggle; Jobs / Inbox / Artifacts / Cost entries and the ⋯ detail
+          menu (doors only — panels unchanged). Hidden on mobile: the top
+          strip shows the breadcrumb there and the tab pair below stands in. */}
       <ChatHeader
         agentId={agentId}
         agentName={currentAgent?.name || agentId || 'AI'}
-        sessionLabel={sessionLabel}
         isStreaming={isStreaming}
         currentSteps={currentSteps}
         chatTab={chatTab}
         onChatTabChange={setChatTab}
-        onOpenAgentConfig={() => setAgentCfgOpen(true)}
       />
 
       {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
@@ -1048,7 +1030,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                agentName={currentAgent?.name || agentId}
                 isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
@@ -1377,21 +1358,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onToggle={setFastMode}
               disabled={!agentId}
             />
-            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+            <ComposerModelBadge agentId={agentId} />
           </div>
         </div>
       </div>
       </div>
-
-      {/* Per-agent model & framework panel (opened from the header). */}
-      {agentId && (
-        <AgentLlmConfigPanel
-          agentId={agentId}
-          isOpen={agentCfgOpen}
-          onClose={() => setAgentCfgOpen(false)}
-          onSaved={() => setModelReloadKey((k) => k + 1)}
-        />
-      )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic
           button when the availability probe came back false — we surface

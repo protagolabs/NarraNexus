@@ -8,6 +8,9 @@
     "local": "로컬",
     "settings": "설정",
     "system": "시스템",
+    "messenger": "메신저",
+    "messengerTitle": "모든 에이전트와 팀의 최근 대화",
+    "messengerEmpty": "아직 대화가 없습니다",
     "clearHistory": "기록 지우기",
     "logout": "로그아웃",
     "poweredBy": "NetMind AI Research",
@@ -266,10 +269,8 @@
       "ops": "회 작업"
     },
     "header": {
-      "sessionLabel": "세션 · {{time}}",
-      "agentDetailTitle": "에이전트 상세",
-      "detailMenuTitle": "에이전트 상세 — 패널",
-      "modelFramework": "모델 및 프레임워크"
+      "viewProfile": "에이전트 프로필 보기",
+      "detailMenuTitle": "에이전트 상세 — 패널"
     },
     "composerPrivacyHint": "민감한 개인정보는 공유하지 마세요."
   },
@@ -1248,7 +1249,6 @@
       "publicAgent": "공개",
       "noTeamsLabel": "아직 팀이 없습니다",
       "noTeamsHint": "사이드바의 새로 만들기 메뉴에서 만드세요.",
-      "manageTeam": "관리",
       "teamsTip": "팀은 사이드바 새로 만들기 메뉴에서 생성하고, 여기서 이름·색상·멤버를 편집합니다."
     },
     "createUser": {
@@ -1768,6 +1768,7 @@
       "configSectionTitle": "구성",
       "skillsLabel": "스킬",
       "skillsSelectedCount": "{{count}}개 선택됨",
+      "skillIncludedByDefault": "기본 포함",
       "skillsPlaceholder": "스킬 선택…",
       "skillsSearchPlaceholder": "스킬 검색…",
       "skillsNoResults": "스킬을 찾을 수 없습니다",

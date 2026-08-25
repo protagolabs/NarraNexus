@@ -24,16 +24,20 @@ export function useCreateAgent() {
   /** Create a fresh agent, wire it into the stores, select it. Returns the
    *  new agent_id on success, or null on failure.
    *
+   *  `opts.name` / `opts.description`: left undefined by every quick-add call
+   *  site (sidebar button, onboarding checklist) for the blank-agent flow;
+   *  the full Create Agent page (`pages/CreateAgentPage.tsx`) passes both.
+   *
    *  `opts.teamId` (#43): when the sidebar "Add agent" is clicked under a
    *  team, the new agent is attached to it server-side; we then refresh the
    *  teams store so it shows under that team instead of Ungrouped. */
   const createAgent = useCallback(
-    async (opts?: { teamId?: string }): Promise<string | null> => {
+    async (opts?: { name?: string; description?: string; teamId?: string }): Promise<string | null> => {
       const { userId, agents, setAgents, setAgentId } = useConfigStore.getState();
       const { setActiveAgent } = useChatStore.getState();
       setCreating(true);
       try {
-        const res = await api.createAgent(userId, undefined, undefined, {
+        const res = await api.createAgent(userId, opts?.name, opts?.description, {
           teamId: opts?.teamId,
         });
         if (res.success && res.agent) {
@@ -44,6 +48,7 @@ export function useCreateAgent() {
             status: res.agent.status,
             created_at: res.agent.created_at,
             created_by: userId,
+            bound_channels: res.agent.bound_channels,
             bootstrap_active: res.agent.bootstrap_active,
           };
           setAgents([newAgent, ...agents]);

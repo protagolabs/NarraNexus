@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/ui/popover.tsx
-last_verified: 2026-05-18
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — `style` prop was silently wiping the panel background
+
+Bug: `PopoverContent` set its own `style={{background: ...}}` and then
+spread `{...props}` (which can include a caller `style`) AFTER it in JSX —
+object-spread semantics mean the later one wins wholesale, not merges. The
+first caller to ever pass its own `style` prop
+([[../../pages/CreateAgentPage.tsx]]'s `IconSelect`, matching its dropdown
+width to `--radix-popover-trigger-width`) got a fully transparent, borderless
+popover — background/border/radius/shadow/color all silently gone, list
+items rendering see-through over whatever was underneath. Fixed by
+destructuring `style` out of `props` and spreading it INTO the base style
+object (`{ background: ..., ...style }`) instead of letting a full
+replacement happen. Any future caller passing `style` to `PopoverContent`
+now only overrides the specific keys it sets, same as `className` already
+did via `cn()`.
 
 # popover.tsx — Radix Popover with NM design system styling
 

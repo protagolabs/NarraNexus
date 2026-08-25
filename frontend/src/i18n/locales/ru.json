@@ -8,6 +8,9 @@
     "local": "Локально",
     "settings": "Настройки",
     "system": "Система",
+    "messenger": "Мессенджер",
+    "messengerTitle": "Последние беседы со всеми агентами и командами",
+    "messengerEmpty": "Пока нет разговоров",
     "clearHistory": "Очистить историю",
     "logout": "Выйти",
     "poweredBy": "NetMind AI Research",
@@ -268,10 +271,8 @@
       "ops": "опер."
     },
     "header": {
-      "sessionLabel": "сессия · {{time}}",
-      "agentDetailTitle": "Детали агента",
-      "detailMenuTitle": "Детали агента — панели",
-      "modelFramework": "Модель и фреймворк"
+      "viewProfile": "Просмотреть профиль агента",
+      "detailMenuTitle": "Детали агента — панели"
     },
     "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией."
   },
@@ -1250,7 +1251,6 @@
       "publicAgent": "публичный",
       "noTeamsLabel": "Команд пока нет",
       "noTeamsHint": "Создайте её через меню «Создать» в боковой панели.",
-      "manageTeam": "Управлять",
       "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников."
     },
     "createUser": {
@@ -1770,6 +1770,7 @@
       "configSectionTitle": "Конфигурация",
       "skillsLabel": "Навыки",
       "skillsSelectedCount": "Выбрано: {{count}}",
+      "skillIncludedByDefault": "Включено по умолчанию",
       "skillsPlaceholder": "Выбрать навыки…",
       "skillsSearchPlaceholder": "Поиск навыков…",
       "skillsNoResults": "Навыки не найдены",

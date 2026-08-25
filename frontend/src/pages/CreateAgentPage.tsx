@@ -69,6 +69,11 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { getModelBrandIcon, getProtocolBrandIcon } from '@/lib/modelBrandIcons';
 import {
+  getIncludedSkills,
+  getManuallyInstalledSkills,
+  isAlreadyInstalledSkillError,
+} from '@/lib/createAgentSkills';
+import {
   AGENT_FRAMEWORKS,
   getModelsForSlot,
   defaultHelperModel,
@@ -263,6 +268,7 @@ export default function CreateAgentPage() {
   const [skillQuery, setSkillQuery] = useState('');
   const [skillInput, setSkillInput] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<Map<string, MarketplaceSkillItem>>(new Map());
+  const [defaultSkills, setDefaultSkills] = useState<MarketplaceSkillItem[]>([]);
   const [skillsOpen, setSkillsOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
@@ -278,6 +284,16 @@ export default function CreateAgentPage() {
   }, [skillInput]);
 
   const { data: skillResults, isLoading: skillsLoading } = useMarketplaceSearch(skillQuery, skillsOpen);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.getMarketplaceDefaultSkills()
+      .then((response) => {
+        if (!cancelled) setDefaultSkills(response.items ?? []);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,6 +376,7 @@ export default function CreateAgentPage() {
   };
 
   const toggleSkill = (item: MarketplaceSkillItem) => {
+    if (defaultSkills.some((skill) => skill.skill_id === item.skill_id)) return;
     setSelectedSkills((prev) => {
       const next = new Map(prev);
       if (next.has(item.skill_id)) next.delete(item.skill_id);
@@ -402,6 +419,15 @@ export default function CreateAgentPage() {
     setConnectedChannels((prev) => new Set(prev).add(key));
     setExpandedChannel(null);
   };
+
+  const defaultSkillIds = useMemo(
+    () => new Set(defaultSkills.map((skill) => skill.skill_id)),
+    [defaultSkills],
+  );
+  const includedSkillsList = useMemo(
+    () => getIncludedSkills(defaultSkills, selectedSkills),
+    [defaultSkills, selectedSkills],
+  );
 
   const canCreate = name.trim().length > 0 && !busy;
 
@@ -514,12 +540,13 @@ export default function CreateAgentPage() {
         }
       }
 
-      // Skills — best-effort per pick.
-      for (const skillId of selectedSkills.keys()) {
+      // Backend provisioning owns default skills. Only explicitly selected,
+      // non-default skills are installed here.
+      for (const skill of getManuallyInstalledSkills(selectedSkills, defaultSkillIds)) {
         try {
-          await api.installMarketplaceSkill(skillId, agentId);
-        } catch {
-          failures.push(selectedSkills.get(skillId)?.name || skillId);
+          await api.installMarketplaceSkill(skill.skill_id, agentId);
+        } catch (installError) {
+          if (!isAlreadyInstalledSkillError(installError)) failures.push(skill.name);
         }
       }
 
@@ -538,10 +565,8 @@ export default function CreateAgentPage() {
     name, description, agentDraft, helperDraft, framework,
     agentInitial, helperInitial, frameworkInitial,
     discordDraft, telegramDraft, slackDraft, larkDraft, haDraft, narramessengerDraft, connectedChannels,
-    selectedSkills, createAgent, notifyError, navigate, t,
+    selectedSkills, defaultSkillIds, createAgent, notifyError, navigate, t,
   ]);
-
-  const selectedSkillsList = useMemo(() => Array.from(selectedSkills.values()), [selectedSkills]);
 
   return (
     <Dialog
@@ -1098,8 +1123,8 @@ export default function CreateAgentPage() {
                       className={cn(selectCls, 'flex items-center justify-between text-left')}
                     >
                       <span>
-                        {selectedSkills.size > 0
-                          ? t('pages.createAgent.skillsSelectedCount', { count: selectedSkills.size })
+                        {includedSkillsList.length > 0
+                          ? t('pages.createAgent.skillsSelectedCount', { count: includedSkillsList.length })
                           : t('pages.createAgent.skillsPlaceholder')}
                       </span>
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--nm-ink30)]" />
@@ -1127,12 +1152,14 @@ export default function CreateAgentPage() {
                         </div>
                       ) : (
                         skillResults!.items.map((item) => {
-                          const checked = selectedSkills.has(item.skill_id);
+                          const isDefault = defaultSkillIds.has(item.skill_id);
+                          const checked = isDefault || selectedSkills.has(item.skill_id);
                           return (
                             <label
                               key={item.skill_id}
                               className={cn(
-                                'flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 transition-colors',
+                                'flex items-start gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 transition-colors',
+                                isDefault ? 'cursor-default' : 'cursor-pointer',
                                 checked ? 'bg-[var(--nm-card)]' : 'hover:bg-[var(--nm-card)]',
                               )}
                               onClick={() => toggleSkill(item)}
@@ -1151,6 +1178,11 @@ export default function CreateAgentPage() {
                                 <span className="block truncate text-[12.5px] font-medium text-[var(--nm-ink)]">
                                   {item.name}
                                 </span>
+                                {isDefault && (
+                                  <span className="block text-[10.5px] text-[var(--nm-ink50)]">
+                                    {t('pages.createAgent.skillIncludedByDefault')}
+                                  </span>
+                                )}
                                 {item.description && (
                                   <span className="block truncate text-[11px] text-[var(--nm-ink30)]">
                                     {item.description}
@@ -1164,14 +1196,19 @@ export default function CreateAgentPage() {
                     </div>
                   </PopoverContent>
                 </Popover>
-                {selectedSkillsList.length > 0 && (
+                {includedSkillsList.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {selectedSkillsList.map((s) => (
+                    {includedSkillsList.map((s) => (
                       <span
                         key={s.skill_id}
                         className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--nm-card)] px-2 py-0.5 text-[11px] text-[var(--nm-ink)] border border-[var(--nm-hairline)]"
                       >
                         {s.name}
+                        {defaultSkillIds.has(s.skill_id) && (
+                          <span className="text-[var(--nm-ink50)]">
+                            · {t('pages.createAgent.skillIncludedByDefault')}
+                          </span>
+                        )}
                       </span>
                     ))}
                   </div>

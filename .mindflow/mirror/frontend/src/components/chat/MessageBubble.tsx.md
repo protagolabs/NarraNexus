@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — Chat UI v4:answer 去气泡去头像（"answer as text"）
+
+Assistant 的**正常回复**不再是气泡：去掉 `--nm-paper` 填色、hairline 边、
+左侧 3px silicon 描边、`px-3.5 py-2.5` 内边距和 `max-w-[85%]` 宽度限制，
+改成 `block w-full` 的纯文本流（只保留 `color: var(--nm-ink)`）。同时
+assistant 侧的 `RingAvatar` 整体移除——只有 user 自己的轮次还保留纸面
+气泡 + carbon 头像。这**局部覆盖**了 2026-08-06「own/AI 气泡填色改纸面」
+的决策：user 侧结论不变，AI 侧从"纸面+描边"进一步退到"无卡片"。
+
+**isError 分支不受影响**：报错气泡仍是实心 `--color-error` 填充 +
+padding/rounded/`max-w-[85%]`，因为这是需要用户注意的标记状态，不是普通
+回复——`isPlainAssistant = !isUser && !message.isError` 是这条分界线。
+错误气泡同样不带头像（之前 assistant 头像就与 isError 共享同一个
+`RingAvatar`，现在两者一起没了）。
+
+**`agentName` prop 随之整个删除**：2026-05-20 引入它是为了让 assistant
+头像 label 显示 agent 名字前两个字；assistant 头像本身已经不存在，这个
+prop 变成死代码，一并从 `MessageBubbleProps` 和 `ChatPanel.tsx` 的两处
+调用点（历史消息渲染 + bootstrap greeting 分支未受影响，本来就没传）
+删掉。**下游影响**：`[[ChatPanel.tsx]]` 的调用点简化，不再需要
+`currentAgent?.name` 传给这个组件（该值在别处，如 `ChatHeader`，仍在用）。
+
+只影响 1:1 Agent 对话（`ChatPanel` → `MessageBubble`）；团队群聊
+`[[TeamMessageBubble.tsx]]` 是独立组件，未触碰，样式仍是原来的气泡。
 
 ## 2026-08-18 — 试过恒定列宽(w-full),当天撤回
 

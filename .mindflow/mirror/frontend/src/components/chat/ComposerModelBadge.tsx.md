@@ -4,6 +4,17 @@ last_verified: 2026-07-28
 stub: false
 ---
 
+## 2026-08-25 — `reloadKey` prop 删除,唯一 bumper 已消失
+
+[[ChatHeader.tsx]] 的 ⋯ 菜单和 [[ChatPanel.tsx]] 都摘掉了
+`AgentLlmConfigPanel` 入口(Owner:已在 Agent Profile 页有对等入口,聊天侧
+是纯重复)。`reloadKey` 存在的唯一理由就是"那个面板保存后 bump 一下让
+badge 重新读取模型"——bumper 没了,这个 prop 也跟着删,不留"以后可能用得上"
+的空壳。`ComposerModelBadge` 现在只接 `agentId`,`load()` 的 useEffect
+依赖数组从 `[load, reloadKey]` 收窄成 `[load]`。下方 2026-07-09 条目里
+"``reloadKey`` bumps when the header panel saves" 这句已不再成立,面板
+本身也不再挂在 [[ChatPanel]] 里,详见其 mirror md。
+
 ## 2026-07-28 — free-tier 锁整个拿掉
 
 那个「免费期间渲染只读 chip」的提前返回删除了，连同 `freeTierModel` state 和

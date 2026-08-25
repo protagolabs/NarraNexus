@@ -17,7 +17,7 @@ const PopoverAnchor = PopoverPrimitive.Anchor;
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = 'center', sideOffset = 6, ...props }, ref) => (
+>(({ className, align = 'center', sideOffset = 6, style, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
       ref={ref}
@@ -34,12 +34,17 @@ const PopoverContent = React.forwardRef<
         'data-[side=top]:slide-in-from-bottom-1',
         className
       )}
+      // `style` is merged, not spread-replaced: a caller passing e.g. just
+      // `{ width }` (IconSelect matching its trigger width) must not wipe
+      // out the panel's own background/border/shadow — that silently
+      // produced a fully transparent popover the one time a caller did this.
       style={{
         background: 'var(--nm-raised)',
         border: '1px solid var(--nm-hairline)',
         borderRadius: 'var(--radius-md)',
         boxShadow: 'var(--nm-elev-2)',
         color: 'var(--nm-ink)',
+        ...style,
       }}
       {...props}
     />

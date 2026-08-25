@@ -102,6 +102,10 @@ export interface MarketplaceSearchResponse {
   limit: number;
 }
 
+export interface MarketplaceDefaultsResponse {
+  items: MarketplaceSkillItem[];
+}
+
 export interface MarketplaceSkillDetail {
   entry: MarketplaceSkillItem;
   versions: { version: string; status: string; published_at?: string | null }[];

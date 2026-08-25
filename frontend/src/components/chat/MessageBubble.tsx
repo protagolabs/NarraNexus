@@ -41,14 +41,13 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
-  agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
   /** Latest message in the visible stream — its meta row (time) stays
    *  visible; every other row reveals meta on hover only (claude.ai
    *  convention, Owner 2026-08-06). */
   isLatest?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName, isLatest = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, isLatest = false }: MessageBubbleProps) {
   const { t, i18n } = useTranslation();
   // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
   const navigate = useNavigate();
@@ -242,13 +241,17 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     URL.revokeObjectURL(url);
   }, [message.content, message.timestamp]);
 
-  // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
-  // Assistant avatar mirrors the sidebar AgentList: first 2 chars of the
-  // agent name (falling back to 'AI' only when no name is available),
-  // instead of a hardcoded 'A'.
-  const avatarLabel = isUser
-    ? (userId || 'U').slice(0, 1)
-    : (message.role === 'assistant' ? (agentName?.slice(0, 2) || 'AI') : '?');
+  // NM: only the user's own turn shows a Carbon ring avatar (see
+  // isPlainAssistant below — the assistant side no longer has one).
+  const avatarLabel = (userId || 'U').slice(0, 1);
+
+  // v4 answer-as-text: only the user's own turn keeps the paper bubble +
+  // avatar. An assistant reply renders as plain flowing text with no card,
+  // no stripe, no avatar — matching the reference "answer has no bubble"
+  // layout. The error bubble is the one assistant case that keeps the card
+  // treatment, since it's a flagged state the user needs to notice, not an
+  // ordinary reply.
+  const isPlainAssistant = !isUser && !message.isError;
 
   return (
     <div
@@ -257,28 +260,26 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* NM RingAvatar — carbon for human, silicon for AI. Hidden on mobile
-          (both sides) to give the bubbles the full width; the species color on
-          the bubble itself still distinguishes who's speaking. */}
-      <RingAvatar
-        species={isUser ? 'carbon' : 'silicon'}
-        label={avatarLabel}
-        size="sm"
-        className="shrink-0 hidden md:inline-flex"
-      />
+      {/* NM RingAvatar — user's own turn only. Assistant replies render as
+          plain text with no avatar (see isPlainAssistant above); the error
+          bubble also skips it since the red card already flags the state. */}
+      {isUser && (
+        <RingAvatar
+          species="carbon"
+          label={avatarLabel}
+          size="sm"
+          className="shrink-0 hidden md:inline-flex"
+        />
+      )}
 
       {/* Content */}
       <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
         <div
           className={cn(
-            'relative inline-block max-w-[85%] text-left',
-            // Bubbles shrink to their content on BOTH sides — a w-full
-            // reading-column variant was tried 2026-08-18 and reverted the
-            // same day: short replies stranded a field of empty paper on
-            // the right. Keep shrink-to-fit.
-            'px-3.5 py-2.5',
-            'rounded-[var(--radius-lg)]',
-            'transition-colors duration-150',
+            'relative text-left transition-colors duration-150',
+            isPlainAssistant
+              ? 'block w-full'
+              : 'inline-block max-w-[85%] px-3.5 py-2.5 rounded-[var(--radius-lg)]',
           )}
           style={
             isUser
@@ -300,16 +301,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                     border: '1px solid var(--color-error)',
                   }
                 : {
-                    // AI bubble — v4 paper treatment: plain paper fill,
-                    // hairline border, 3px silicon stripe on the LEFT edge.
-                    // Species signal = stripe + avatar ring; markdown code /
-                    // table fills keep their default paper-warm surfaces
-                    // (the old silicon-soft fill + nm-bubble-ai rebinding
-                    // are retired with it).
-                    background: 'var(--nm-paper)',
+                    // Plain assistant text — no card, no stripe. Ink color
+                    // still pinned explicitly so it doesn't inherit a stray
+                    // color from an ancestor.
                     color: 'var(--nm-ink)',
-                    border: '1px solid var(--nm-hairline)',
-                    borderLeft: '3px solid var(--color-silicon)',
                   }
           }
         >

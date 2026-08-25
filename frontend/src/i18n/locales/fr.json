@@ -8,6 +8,9 @@
     "local": "Local",
     "settings": "Paramètres",
     "system": "Système",
+    "messenger": "Messagerie",
+    "messengerTitle": "Conversations récentes de tous les agents et équipes",
+    "messengerEmpty": "Aucune conversation pour le moment",
     "clearHistory": "Effacer l'historique",
     "logout": "Déconnexion",
     "poweredBy": "NetMind AI Research",
@@ -266,10 +269,8 @@
       "ops": "ops"
     },
     "header": {
-      "sessionLabel": "session · {{time}}",
-      "agentDetailTitle": "Détail de l'agent",
-      "detailMenuTitle": "Détail de l'agent — panneaux",
-      "modelFramework": "Modèle & framework"
+      "viewProfile": "Voir le profil de l'agent",
+      "detailMenuTitle": "Détail de l'agent — panneaux"
     },
     "composerPrivacyHint": "Évitez de partager des informations personnelles sensibles."
   },
@@ -1248,7 +1249,6 @@
       "publicAgent": "public",
       "noTeamsLabel": "Pas encore d'équipes",
       "noTeamsHint": "Créez-en une depuis le menu Nouveau de la barre latérale.",
-      "manageTeam": "Gérer",
       "teamsTip": "Créez des équipes depuis le menu Nouveau ; renommez, recolorez et modifiez les membres ici."
     },
     "createUser": {
@@ -1768,6 +1768,7 @@
       "configSectionTitle": "Configuration",
       "skillsLabel": "Compétences",
       "skillsSelectedCount": "{{count}} sélectionnée(s)",
+      "skillIncludedByDefault": "Inclus par défaut",
       "skillsPlaceholder": "Sélectionner des compétences…",
       "skillsSearchPlaceholder": "Rechercher des compétences…",
       "skillsNoResults": "Aucune compétence trouvée",

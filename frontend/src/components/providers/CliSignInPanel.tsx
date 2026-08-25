@@ -8,10 +8,20 @@
  * `providers` only needs source+auth_type — the caller passes whatever
  * subset of its provider wallet it already has in state, this component
  * derives "already added" purely from that.
+ *
+ * Layout (2026-08-25): each provider is one bordered row-card — bare brand
+ * icon, name, status/action on the right. Re-login/Logout and the
+ * setup-token form (independent of CLI login state) live behind a
+ * chevron-disclosure so the default view stays a single line per
+ * provider; nothing about the state machine below changed, only how it's
+ * laid out.
  */
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronRight, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Card } from '@/components/ui/Card'
+import { ClaudeBrandIcon, OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
 import { addProvider, fetchClaudeStatus, fetchCodexStatus, type ProviderCliStatus } from './providerApi'
 
@@ -203,8 +213,17 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
     }
   }
 
+  const claudeDotClass = cn('inline-block w-1.5 h-1.5 rounded-full shrink-0',
+    claudeStatus?.logged_in ? 'bg-[var(--color-success)]' :
+    claudeStatus?.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+  )
+  const codexDotClass = cn('inline-block w-1.5 h-1.5 rounded-full shrink-0',
+    codexStatus?.logged_in ? 'bg-[var(--color-success)]' :
+    codexStatus?.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+  )
+
   return (
-    <>
+    <div className="space-y-2">
       {/* ---- Claude Code Login Card ----
         *
         * The card surfaces TWO independent pieces of state and lets the
@@ -212,87 +231,92 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
         *
         *   1. OS credential state — owned by the `claude` CLI and
         *      stored in `~/.claude/.credentials.json`. Drives
-        *      Login / Re-login / Logout buttons.
+        *      Login / Re-login / Logout.
         *
         *   2. Provider record state — owned by NarraNexus and stored
         *      in `user_providers`. Drives the "Add as Provider" /
-        *      "Remove" affordance.
+        *      added-checkmark affordance.
         *
         * Earlier versions hid the entire login UI once `hasClaude`
         * was true, which prevented account switching, re-auth after
         * token expiry, and viewing the active account. Decoupling
         * the two layers means a user can re-login, switch accounts,
         * or sign out without first having to delete the provider.
+        *
+        * The setup-token form doesn't depend on either layer above (it
+        * bypasses the CLI's credential store entirely — see the
+        * macOS Keychain divergence noted on the section below), so the
+        * disclosure stays available regardless of login/install state.
         */}
-      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
-        <div className="flex items-center gap-2 mb-1">
-          <h4 className="text-sm font-medium text-[var(--text-primary)]">
+      <Card variant="bordered" className="overflow-hidden">
+        <div className="flex items-center gap-2.5 px-4 py-3">
+          <ClaudeBrandIcon
+            className={cn('w-[18px] h-[18px] shrink-0',
+              claudeStatus && !claudeStatus.logged_in && !claudeStatus.cli_installed && 'opacity-35')}
+          />
+          <span className="text-sm font-semibold text-[var(--text-primary)] shrink-0">
             {t('settings.provider.claudeLoginTitle')}
-          </h4>
-        </div>
-        <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
+          </span>
 
-        {!claudeStatus && (
-          <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</p>
-        )}
+          <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
+            {!claudeStatus && (
+              <span className="text-xs text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</span>
+            )}
 
-        {claudeStatus && (
-          <div className="space-y-3">
-            {/* ---- Section A: OS credential state ---- */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn('inline-block w-2 h-2 rounded-full',
-                  claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
-                  claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
-                )} />
-                <span className="text-sm text-[var(--text-secondary)]">
+            {claudeStatus && (
+              <>
+                <span className={claudeDotClass} />
+                <span className="text-sm text-[var(--text-secondary)] truncate">
                   {claudeStatus.logged_in
-                    ? <>{t('settings.provider.loggedIn')}{claudeStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{claudeStatus.email}</span></> : null}</>
+                    ? <>{t('settings.provider.loggedIn')}{claudeStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono text-[var(--text-primary)]">{claudeStatus.email}</span></> : null}</>
                     : claudeStatus.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
                 </span>
                 {claudeStatus.logged_in && claudeStatus.expires_at && (
-                  <span className="text-xs text-[var(--text-tertiary)]">
+                  <span className="text-xs text-[var(--text-tertiary)] shrink-0">
                     {t('settings.provider.expires', { date: formatExpiresAt(claudeStatus.expires_at) })}
                   </span>
                 )}
-              </div>
 
-              {/* Action buttons. Always visible when CLI is installed
-                * + Tauri — never hidden behind a provider-record check. */}
-              {claudeStatus.cli_installed && isTauri() && (
-                <div className="flex gap-2 flex-wrap">
-                  {claudeStatus.logged_in ? (
-                    <>
-                      <button onClick={handleClaudeLogin}
-                        disabled={claudeLoggingIn || claudeLoggingOut}
-                        className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-50 transition-colors">
-                        {claudeLoggingIn
-                          ? (claudeLoginRemaining !== null
-                              ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
-                              : t('settings.provider.reLoggingIn'))
-                          : t('settings.provider.reLogin')}
-                      </button>
-                      <button onClick={handleClaudeLogout}
-                        disabled={claudeLoggingIn || claudeLoggingOut}
-                        className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
-                        {claudeLoggingOut ? t('settings.provider.loggingOut') : t('settings.provider.logout')}
-                      </button>
-                    </>
+                {/* Primary action: Login when signed out (Tauri only —
+                  * the OAuth flow needs the Rust-side child process),
+                  * or the Add-as-Provider / added-checkmark once signed
+                  * in. Re-login/Logout move to the disclosure below
+                  * once already signed in — they're maintenance, not
+                  * the primary action anymore. */}
+                {!claudeStatus.logged_in && claudeStatus.cli_installed && isTauri() && (
+                  <button onClick={handleClaudeLogin}
+                    disabled={claudeLoggingIn}
+                    className="px-3 py-1.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50 shrink-0">
+                    {claudeLoggingIn
+                      ? (claudeLoginRemaining !== null
+                          ? t('settings.provider.loggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                          : t('settings.provider.loggingIn'))
+                      : t('settings.provider.loginWithClaude')}
+                  </button>
+                )}
+                {claudeStatus.logged_in && (
+                  claudeTokenConnected || hasClaude ? (
+                    <Check className="w-4 h-4 text-[var(--color-success)] shrink-0" aria-label={t('settings.provider.addedAsProvider')} />
                   ) : (
-                    <button onClick={handleClaudeLogin}
-                      disabled={claudeLoggingIn}
-                      className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
-                      {claudeLoggingIn
-                        ? (claudeLoginRemaining !== null
-                            ? t('settings.provider.loggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
-                            : t('settings.provider.loggingIn'))
-                        : t('settings.provider.loginWithClaude')}
+                    <button onClick={handleAddClaudeOAuth}
+                      className="px-3 py-1.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors shrink-0">
+                      {t('settings.provider.addAsProvider')}
                     </button>
-                  )}
-                </div>
-              )}
+                  )
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
-              {/* Web-mode fallback: no Tauri IPC, user goes to terminal. */}
+        {claudeStatus && (
+          <details className="group">
+            <summary className="flex justify-end px-4 pb-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="w-3.5 h-3.5 text-[var(--text-tertiary)] transition-transform group-open:rotate-90" />
+            </summary>
+            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-[var(--border-subtle)]">
+              {/* Web-mode / not-installed fallback hints — no Tauri IPC
+                * available, terminal is the only path. */}
               {!isTauri() && (
                 <p className="text-sm text-[var(--text-tertiary)]">
                   {claudeStatus.cli_installed
@@ -305,163 +329,123 @@ export function CliSignInPanel({ providers, onComplete }: CliSignInPanelProps) {
                   {t('settings.provider.cliNotInBundle')}
                 </p>
               )}
-            </div>
-
-            {/* ---- Section B: Provider record state ---- */}
-            <div className="pt-2 border-t border-[var(--border-subtle)]">
-              {claudeTokenConnected ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.setupTokenConnected')}</span>
+              {/* Re-login / Logout — maintenance actions once already
+                * signed in via the Tauri-automated flow. */}
+              {claudeStatus.logged_in && claudeStatus.cli_installed && isTauri() && (
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={handleClaudeLogin}
+                    disabled={claudeLoggingIn || claudeLoggingOut}
+                    className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-50 transition-colors">
+                    {claudeLoggingIn
+                      ? (claudeLoginRemaining !== null
+                          ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                          : t('settings.provider.reLoggingIn'))
+                      : t('settings.provider.reLogin')}
+                  </button>
+                  <button onClick={handleClaudeLogout}
+                    disabled={claudeLoggingIn || claudeLoggingOut}
+                    className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
+                    {claudeLoggingOut ? t('settings.provider.loggingOut') : t('settings.provider.logout')}
+                  </button>
                 </div>
-              ) : hasClaude ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.addedAsProvider')}</span>
-                </div>
-              ) : claudeStatus.logged_in ? (
-                <button onClick={handleAddClaudeOAuth}
-                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                  {t('settings.provider.addAsProvider')}
-                </button>
-              ) : (
-                <p className="text-sm text-[var(--text-tertiary)]">
-                  {t('settings.provider.loginToAdd')}
-                </p>
               )}
-            </div>
 
-            {/* ---- Section C: setup-token connect / replace ----
-              *
-              * The token transport bypasses the CLI's login state and
-              * credential store entirely (the macOS Keychain divergence
-              * made staged host credentials unreadable to the runtime
-              * CLI — 2026-07-23 incident), so it is the recommended way
-              * to connect a subscription. Shown for BOTH states: not
-              * connected (recommend) and connected (allow yearly token
-              * replacement).
-              */}
-            <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {claudeTokenConnected
-                  ? t('settings.provider.setupTokenReplaceHint')
-                  : t('settings.provider.setupTokenHint')}
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={setupToken}
-                  onChange={(e) => setSetupToken(e.target.value)}
-                  placeholder={t('settings.provider.setupTokenPlaceholder')}
-                  className="flex-1 px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                />
-                <button
-                  onClick={handleSaveSetupToken}
-                  disabled={savingSetupToken || !setupToken.trim()}
-                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
-                >
-                  {savingSetupToken
-                    ? t('settings.provider.setupTokenSaving')
-                    : t('settings.provider.setupTokenSave')}
-                </button>
+              {/* Setup-token connect / replace — independent of every
+                * state above (see file header + mirror doc). Shown
+                * whenever claudeStatus has loaded at all. */}
+              <div className="space-y-2">
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {claudeTokenConnected
+                    ? t('settings.provider.setupTokenReplaceHint')
+                    : t('settings.provider.setupTokenHint')}
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={setupToken}
+                    onChange={(e) => setSetupToken(e.target.value)}
+                    placeholder={t('settings.provider.setupTokenPlaceholder')}
+                    className="flex-1 px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                  />
+                  <button
+                    onClick={handleSaveSetupToken}
+                    disabled={savingSetupToken || !setupToken.trim()}
+                    className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
+                  >
+                    {savingSetupToken
+                      ? t('settings.provider.setupTokenSaving')
+                      : t('settings.provider.setupTokenSave')}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </details>
         )}
-      </div>
+      </Card>
 
       {/* ---- Codex CLI Login Card ----
         *
-        * Parallel to "Claude Code Login" above. Same two-layer
-        * model:
-        *   1. OS credential state — owned by the `codex` CLI and
-        *      stored in `~/.codex/auth.json`. Login is a terminal
-        *      action (`codex login` opens a browser); we surface
-        *      status only — no Tauri IPC for codex yet, so the
-        *      card always shows the "run codex login" hint.
-        *   2. Provider record state — owned by NarraNexus and
-        *      stored in `user_providers`. Drives "Add as Provider"
-        *      / "Added ✓" affordance.
-        *
-        * Once added as a provider, the Codex OAuth credential
-        * becomes assignable to the agent slot. The backend
-        * auto-installs ``@openai/codex`` when the user picks
-        * "Codex CLI" as the Agent Framework, so by the time the
-        * user sees this card the binary is usually already on
-        * PATH.
+        * Parallel to "Claude Code Login" above, but Codex has no Tauri
+        * automation at all (see mirror doc) — the terminal hint is
+        * always shown, and there's no Re-login/Logout or setup-token
+        * disclosure to tuck away, so this card has no chevron.
         */}
-      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
-        <div className="flex items-center gap-2 mb-1">
-          <h4 className="text-sm font-medium text-[var(--text-primary)]">
+      <Card variant="bordered" className="overflow-hidden">
+        <div className="flex items-center gap-2.5 px-4 py-3">
+          <OpenAIBrandIcon
+            className={cn('w-[16px] h-[16px] shrink-0',
+              codexStatus && !codexStatus.logged_in && !codexStatus.cli_installed && 'opacity-35')}
+          />
+          <span className="text-sm font-semibold text-[var(--text-primary)] shrink-0">
             {t('settings.provider.codexLoginTitle')}
-          </h4>
-        </div>
-        <p className="text-sm text-[var(--text-tertiary)] mb-3">
-          {t('settings.provider.codexOauthDesc')}
-        </p>
+          </span>
 
-        {!codexStatus && (
-          <p className="text-sm text-[var(--text-tertiary)]">
-            {t('settings.provider.checkingStatus')}
-          </p>
-        )}
+          <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
+            {!codexStatus && (
+              <span className="text-xs text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</span>
+            )}
 
-        {codexStatus && (
-          <div className="space-y-3">
-            {/* ---- Section A: OS credential state ---- */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn('inline-block w-2 h-2 rounded-full',
-                  codexStatus.logged_in ? 'bg-[var(--color-success)]' :
-                  codexStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
-                )} />
-                <span className="text-sm text-[var(--text-secondary)]">
+            {codexStatus && (
+              <>
+                <span className={codexDotClass} />
+                <span className="text-sm text-[var(--text-secondary)] truncate">
                   {codexStatus.logged_in
-                    ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                    ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono text-[var(--text-primary)]">{codexStatus.email}</span></> : null}</>
                     : codexStatus.cli_installed
                       ? t('settings.provider.notLoggedIn')
                       : t('settings.provider.cliNotInstalled')}
                 </span>
                 {codexStatus.logged_in && codexStatus.expires_at && (
-                  <span className="text-xs text-[var(--text-tertiary)]">
+                  <span className="text-xs text-[var(--text-tertiary)] shrink-0">
                     {t('settings.provider.expires', { date: formatExpiresAt(codexStatus.expires_at) })}
                   </span>
                 )}
-              </div>
 
-              {/* Always show terminal hint. Codex CLI's OAuth flow
-                * opens a browser when `codex login` runs; we don't
-                * shell out via Tauri yet (unlike claude). */}
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {codexStatus.cli_installed
-                  ? t('settings.provider.codexTerminalHint')
-                  : t('settings.provider.codexInstallHint')}
-              </p>
-            </div>
-
-            {/* ---- Section B: Provider record state ---- */}
-            <div className="pt-2 border-t border-[var(--border-subtle)]">
-              {hasCodex ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.codexAddedAsProvider')}</span>
-                </div>
-              ) : codexStatus.logged_in ? (
-                <button onClick={handleAddCodexOAuth}
-                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                  {t('settings.provider.addAsProvider')}
-                </button>
-              ) : (
-                <p className="text-sm text-[var(--text-tertiary)]">
-                  {t('settings.provider.codexLoginToAdd')}
-                </p>
-              )}
-            </div>
+                {codexStatus.logged_in && (
+                  hasCodex ? (
+                    <Check className="w-4 h-4 text-[var(--color-success)] shrink-0" aria-label={t('settings.provider.codexAddedAsProvider')} />
+                  ) : (
+                    <button onClick={handleAddCodexOAuth}
+                      className="px-3 py-1.5 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors shrink-0">
+                      {t('settings.provider.addAsProvider')}
+                    </button>
+                  )
+                )}
+              </>
+            )}
           </div>
+        </div>
+
+        {codexStatus && (
+          <p className="px-4 pb-3 -mt-1 text-sm text-[var(--text-tertiary)]">
+            {codexStatus.cli_installed
+              ? t('settings.provider.codexTerminalHint')
+              : t('settings.provider.codexInstallHint')}
+          </p>
         )}
-      </div>
+      </Card>
 
       {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
-    </>
+    </div>
   )
 }

@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-11
+last_verified: 2026-08-25
 stub: true
 ---
+
+## 2026-08-25 — Dashboard QueueCounts 对齐全部 live states
+
+`QueueCounts` 增加 `cooling`、`paused_no_quota`、`blocked_failed`,与后端状态路由
+和既有 `JobQueueStatus` 联合类型一致。这样前端不会把响应中的可恢复状态计数当作
+不存在；`DashboardPendingJob` 的 β 时间字段继续保持 `next_run_at` + timezone。
+
+## 2026-08-24 — AgentInfo 对齐绑定 Channel 摘要
+
+`AgentInfo.bound_channels: string[]` 对齐后端 `/api/auth/agents` 的批量渠道投影,
+Dashboard 用它渲染已绑定渠道品牌图标,不再逐 Agent 请求各 credential endpoint。
+
+## 2026-08-24 — AgentInfo 对齐有效 Framework / Model
+
+`AgentInfo` 增加可选 `agent_framework` / `model`,与后端 agents 列表的轻量配置
+投影一致。Dashboard 直接消费它们,不在浏览器端对每个 Agent 发 llm-config 请求。
 
 ## 2026-08-11 — ApiResponse 加可选 `message`
 

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/mock/fixtures.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-25
 stub: false
 ---
 
@@ -16,6 +16,9 @@ stub: false
 
 ## 变更史
 
+- 2026-08-25 — mock QueueCounts 补齐 resilience 状态字段，保持与 Dashboard API 契约一致。
+- 2026-08-24 — mock Agent 补齐必填 `bound_channels`;Atlas/Scribe 带少量绑定,
+  让 demo 模式的 Dashboard Channels 列能展示真实品牌图标。
 - 2026-07-30 — `mockCostSummary` 补 `cache_read_tokens` /
   `cache_creation_tokens`(total / by_model / daily 三层),跟随 CostSummary
   加缓存桶字段。数值按真实形态配比:缓存读远大于未缓存输入,demo 里

@@ -140,7 +140,7 @@ async def agents_status(request: Request, response: Response):
         }
         queue_counts["total"] = sum(queue_counts.values())
 
-        # v2.1.1: pending_jobs surfaces all 5 non-running live states with
+        # v2.1.1: pending_jobs surfaces every non-running live state with
         # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
         seen_job_ids: set[str] = set()

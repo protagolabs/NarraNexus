@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — Marketplace defaults 读取
+
+新增默认 Skill 列表的只读调用，供 [[../../pages/CreateAgentPage.tsx]] 在创建前展示后端 provisioning 一定会自动安装的项目。这个读取不改变安装责任：默认项仍由后端自动 provision，前端只用返回值做展示与显式安装请求去重。
 
 ## 2026-08-14 — `getTeamChat` 有三种模式
 

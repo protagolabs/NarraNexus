@@ -5,13 +5,17 @@
  * @description: The v4 chat header — the agent's name is the protagonist.
  *
  * Left: sidebar-expand button (only while the sidebar is collapsed), agent
- * ring avatar, agent-name button (opens the detail menu) and a mono
- * "session · <time>" label. Right: the Chat / Inner Thoughts segmented
- * toggle, entry icons for Jobs / Inbox / Artifacts (with live badges from
- * the bookmark registry), the cost popover, and a ⋯ detail menu listing
- * every agent panel (Awareness / Workspace / Channels / Skills / MCP /
- * Smart Home | Network / Memory) plus the per-agent model & framework
- * panel.
+ * ring avatar + agent-name button (navigates to the agent's profile page).
+ * Right: the Chat / Inner Thoughts segmented toggle, entry icons for
+ * Jobs / Inbox / Artifacts (with live badges from the bookmark registry),
+ * the cost popover, and a ⋯ detail
+ * menu listing the remaining agent panels (Workspace / Channels / Skills /
+ * MCP / Smart Home). Awareness, Network/Memory, and Model & framework were
+ * all dropped from this menu (2026-08-25) — they're now reachable from the
+ * agent's Profile page, so keeping a second door to the same rooms here
+ * was pure duplication. The ⋯ menu is the only entry point for that panel
+ * drawer — the avatar/name button is a plain navigation link, not a
+ * second way to open it.
  *
  * This component is ENTRY POINTS ONLY: every item opens the same bookmark
  * drawer panels that the retired right-edge BookmarkStrip used to open
@@ -21,14 +25,8 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ChevronDown,
-  MoreVertical,
-  ListTodo,
-  Inbox,
-  PanelLeft,
-  SlidersHorizontal,
-} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MoreVertical, ListTodo, Inbox, PanelLeft } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { ExecutionPopover } from './ExecutionPopover';
@@ -45,17 +43,10 @@ import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
 
-/** Detail-menu layout: config panels first, then the Narra/Nexus pair —
- *  mirrors the retired strip's category order, flattened into one menu. */
-const DETAIL_GROUP_A: AtomicTabId[] = [
-  'awareness',
-  'workspace',
-  'channels',
-  'skills',
-  'mcp',
-  'smarthome',
-];
-const DETAIL_GROUP_B: AtomicTabId[] = ['social', 'memory'];
+/** Detail-menu layout: config panels only. Awareness and the Network/Memory
+ *  pair are dropped here — they now live on the agent's Profile page and
+ *  don't need a second door. */
+const DETAIL_GROUP_A: AtomicTabId[] = ['workspace', 'channels', 'skills', 'mcp', 'smarthome'];
 
 const ALL_TAB_DEFS = STRIP_CATEGORIES.flatMap((c) => c.tabs);
 
@@ -66,28 +57,28 @@ function tabDef(id: AtomicTabId) {
 export interface ChatHeaderProps {
   agentId: string | null;
   agentName: string;
-  /** Mono side label, e.g. "session · 09:41". Empty string hides it. */
-  sessionLabel: string;
   isStreaming: boolean;
   currentSteps: Step[];
   chatTab: 'conversation' | 'inner';
   onChatTabChange: (tab: 'conversation' | 'inner') => void;
-  /** Opens the per-agent model & framework panel (AgentLlmConfigPanel). */
-  onOpenAgentConfig: () => void;
 }
 
 export function ChatHeader({
   agentId,
   agentName,
-  sessionLabel,
   isStreaming,
   currentSteps,
   chatTab,
   onChatTabChange,
-  onOpenAgentConfig,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [detailOpen, setDetailOpen] = useState(false);
+
+  const goToProfile = () => {
+    if (!agentId) return;
+    navigate(`/app/agents/${encodeURIComponent(agentId)}`, { state: { from: 'chat' } });
+  };
 
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
@@ -114,7 +105,7 @@ export function ChatHeader({
       className="hidden md:flex items-center justify-between gap-3 px-4 min-h-[52px] shrink-0 border-b"
       style={{ borderColor: 'var(--nm-hairline)' }}
     >
-      {/* Left — expand + agent identity + session label */}
+      {/* Left — expand + agent identity */}
       <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
         {sidebarCollapsed && (
           <button
@@ -127,31 +118,25 @@ export function ChatHeader({
             <PanelLeft className="h-4 w-4" />
           </button>
         )}
-        <RingAvatar
-          species="silicon"
-          label={(agentName || 'AI').slice(0, 2)}
-          size="sm"
-          className="shrink-0"
-        />
         <button
           type="button"
-          onClick={() => setDetailOpen((v) => !v)}
-          title={t('chat.header.agentDetailTitle')}
+          onClick={goToProfile}
+          title={t('chat.header.viewProfile')}
           className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-1.5 py-0.5 transition-colors hover:bg-[var(--nm-paper-warm)] shrink-0"
         >
+          <RingAvatar
+            species="silicon"
+            label={(agentName || 'AI').slice(0, 2)}
+            size="sm"
+            className="shrink-0"
+          />
           {/* Same family as the sidebar row that shows this same name — the
               header keeps its lead role via size + weight, not a second
               typeface (design_system.md §4.1: display is for large titles). */}
           <span className="font-[family-name:var(--font-sans)] text-base font-semibold text-[var(--nm-ink)] truncate max-w-[220px]">
             {agentName}
           </span>
-          <ChevronDown className="h-3.5 w-3.5 text-[var(--nm-ink30)]" />
         </button>
-        {sessionLabel && (
-          <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--nm-ink30)] truncate">
-            {sessionLabel}
-          </span>
-        )}
       </div>
 
       {/* Right — streaming chip, segmented toggle, entry icons, detail ⋯ */}
@@ -240,25 +225,6 @@ export function ChatHeader({
                   {DETAIL_GROUP_A.map((id) => (
                     <DetailItem key={id} id={id} onOpen={openPanel} />
                   ))}
-                  <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                  {DETAIL_GROUP_B.map((id) => (
-                    <DetailItem key={id} id={id} onOpen={openPanel} />
-                  ))}
-                  <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
-                  {/* Per-agent model & framework — the panel formerly behind
-                      the header sliders icon; the composer chip stays the
-                      quick model switch. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDetailOpen(false);
-                      onOpenAgentConfig();
-                    }}
-                    className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
-                  >
-                    <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
-                    {t('chat.header.modelFramework')}
-                  </button>
                 </div>
               </>
             )}
@@ -281,9 +247,6 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
   const { t } = useTranslation();
   const def = tabDef(id);
   const Icon = def.icon;
-  // "Social Network" reads as "Network" here (v4 mock) — reuse the strip's
-  // short label key.
-  const labelKey = id === 'social' && def.stripLabelKey ? def.stripLabelKey : def.labelKey;
   return (
     <button
       type="button"
@@ -294,7 +257,7 @@ function DetailItem({ id, onOpen }: { id: AtomicTabId; onOpen: (id: AtomicTabId)
       className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
     >
       <Icon className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
-      {t(labelKey, def.label)}
+      {t(def.labelKey, def.label)}
     </button>
   );
 }
