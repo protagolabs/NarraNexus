@@ -371,21 +371,32 @@ SKIP_REASON_FALLBACK_RATE_LIMITED = "fallback_rate_limited"
 # How many platform-written DM replies one conversation may receive inside
 # IM_DM_FALLBACK_WINDOW_SECONDS.
 #
-# Derived from the 8/14 traffic shape rather than picked: that loop ran
-# ~66k messages over ~70h — one every ~4s sustained, and far faster in
-# bursts. A machine ping-pong therefore clears 100+ per ten minutes. A
-# human conversation, even against a model that systematically forgets the
-# reply tool (binding rule #15 says that is the user's choice, not ours to
-# fix), produces single digits in that window.
+# Sized against the 8/14 traffic shape: that loop ran ~66k messages over
+# ~70h — one every ~4s sustained, faster in bursts — so a machine
+# ping-pong clears 100+ in a ten-minute window.
 #
-# The first version used 3, which sat inside the HUMAN range: a person
-# talking to a weak model would hit it in one ordinary exchange and then
-# get nothing at all — the 0802 symptom ("sent hello, got silence"), and
-# harder to diagnose than the original because the first few replies did
-# arrive. 20 separates the two populations with room to spare, and every
-# hit now leaves an audit row (see ``_audit_fallback_suppressed``) so the
-# number can be revisited against data instead of intuition.
-IM_DM_FALLBACK_BURST_LIMIT = 20
+# The bar has been walked up twice, and both earlier numbers were wrong in
+# the same direction, so the reasoning is worth keeping:
+#
+#   3  — sat squarely in the HUMAN range. One ordinary exchange against a
+#        model that forgets the reply tool (binding rule #15: the user's
+#        choice, not ours to fix) exhausted it, and the person then got
+#        nothing — the 0802 symptom, harder to spot than the original
+#        because the first few replies did arrive.
+#   20 — justified as "a human produces single digits in this window".
+#        That premise does not hold on IM: this counts TURNS whose model
+#        skipped the reply tool, and people split one thought across three
+#        to five short messages — which on Lark and Matrix are separate
+#        turns (DEBOUNCE_WINDOW_MS = 0, no merging). 20 works out to one
+#        per 30s, i.e. five exchanges of four messages. That is an active
+#        conversation, not an extreme.
+#
+# 50 is one per 12s sustained for ten minutes, with the model failing every
+# single time — out of reach for a person on IM, and still half the rate a
+# fed machine loop produces. Every hit leaves an audit row
+# (``_audit_fallback_suppressed``), so this can now be re-set from data
+# rather than from another estimate of what humans do.
+IM_DM_FALLBACK_BURST_LIMIT = 50
 IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
 
 # f"{agent_id}:{channel}:{room_id}" -> monotonic timestamps of deliveries.
@@ -466,9 +477,34 @@ def _prune_fallback_history() -> None:
 # Audit plane for "the platform chose not to speak".
 _FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
 
+# One audit row per (conversation, reason) per this window. The WRITE RATE
+# here is set by the far side, not by us: every inbound DM whose turn ends
+# without a reply tool would otherwise write a row. In a fed conversation
+# that is ~130 rows per ten minutes from a single peer (8/14's shape minus
+# the 20 the gate lets through), and ``service_audit`` has no retention
+# sweep at all — one runaway conversation would multiply that table's daily
+# growth several times over, with rows that are near-identical and whose
+# diagnostic value collapses after the first one.
+#
+# ``window_count`` in the payload already answers "how many did this window
+# suppress", so cooling the WRITE loses nothing. Keyed by reason as well as
+# conversation: the two gates are different facts and must not eat each
+# other's slot.
+_FALLBACK_AUDIT_COOLDOWN_SECONDS = 600.0
+_fallback_audit_cooldown: dict[str, float] = {}
+
+# Reused rather than constructed per call — it is stateless apart from the
+# service name and its own lazy db handle.
+_fallback_auditor = None
+
 
 async def _audit_fallback_suppressed(
-    *, reason: str, agent_id: str, channel_tag: dict, window_count: int
+    *,
+    reason: str,
+    agent_id: str,
+    channel_tag: dict,
+    window_count: int,
+    conversation_key: str,
 ) -> None:
     """Leave a DB row when a gate silences a reply that would have gone out.
 
@@ -489,10 +525,19 @@ async def _audit_fallback_suppressed(
     (binding rule #3), and ``ServiceAuditor`` acquires its own db lazily.
     Never raises — an observer must not break the observed.
     """
+    now = time.monotonic()
+    cooldown_key = f"{reason}:{conversation_key}"
+    last = _fallback_audit_cooldown.get(cooldown_key)
+    if last is not None and now - last < _FALLBACK_AUDIT_COOLDOWN_SECONDS:
+        return
     try:
-        from xyz_agent_context.services.service_audit import ServiceAuditor
+        global _fallback_auditor
+        if _fallback_auditor is None:
+            from xyz_agent_context.services.service_audit import ServiceAuditor
 
-        await ServiceAuditor(_FALLBACK_AUDIT_SERVICE).event(
+            _fallback_auditor = ServiceAuditor(_FALLBACK_AUDIT_SERVICE)
+
+        await _fallback_auditor.event(
             reason,
             {
                 "agent_id": agent_id,
@@ -502,13 +547,23 @@ async def _audit_fallback_suppressed(
                 "window_count": window_count,
             },
         )
+        # Armed only after a successful write, so a transient DB blip does
+        # not silence this conversation for the rest of the window.
+        _fallback_audit_cooldown[cooldown_key] = now
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
         logger.warning(f"[FALLBACK] suppression audit failed: {e}")
 
 
 def reset_im_dm_fallback_history() -> None:
-    """Clear the in-process fallback history. For tests / explicit resets."""
+    """Clear the in-process fallback state. For tests / explicit resets.
+
+    Covers the audit cooldown too: it is module-level state with the same
+    order-dependence hazard, and splitting the reset would recreate exactly
+    the implicit-initial-value problem the directory-wide fixture exists to
+    remove.
+    """
     _im_dm_fallback_history.clear()
+    _fallback_audit_cooldown.clear()
 
 
 def _has_organic_reply(
@@ -1941,6 +1996,7 @@ async def step_3_agent_loop(
         _fallback_key = _fallback_conversation_key(
             _envelope_tag, ctx.agent_id or ""
         )
+        _recent_fallback = _recent_fallback_count(_fallback_key)
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,
@@ -1952,7 +2008,7 @@ async def step_3_agent_loop(
             # channel that forgets to populate the envelope loses the DM
             # fallback entirely rather than getting it half-armed.
             is_agent_peer=bool(_envelope_tag.get("is_agent_peer", False)),
-            recent_fallback_count=_recent_fallback_count(_fallback_key),
+            recent_fallback_count=_recent_fallback,
         )
         # One unconditional line per turn recording what the recovery slot
         # decided AND the room type it decided on. The prompt and this
@@ -1984,7 +2040,11 @@ async def step_3_agent_loop(
                 reason=skip_reason,
                 agent_id=ctx.agent_id or "",
                 channel_tag=_envelope_tag,
-                window_count=_recent_fallback_count(_fallback_key),
+                # The value the DECISION saw. Recomputing here can differ:
+                # the window slides, so the audit row would explain the
+                # skip with a number that did not cause it.
+                window_count=_recent_fallback,
+                conversation_key=_fallback_key,
             )
         if fallback_mode is not None:
             logger.warning(

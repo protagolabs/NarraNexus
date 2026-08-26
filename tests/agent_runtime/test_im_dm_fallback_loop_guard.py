@@ -26,14 +26,22 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop impo
     _should_run_helper_llm_fallback,
     reset_im_dm_fallback_history,
 )
+from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    SKIP_REASON_AGENT_PEER,
+    SKIP_REASON_FALLBACK_RATE_LIMITED,
+)
 from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStatus
 
 
-@pytest.fixture(autouse=True)
-def _clean_history():
-    reset_im_dm_fallback_history()
-    yield
-    reset_im_dm_fallback_history()
+def _step3():
+    """The MODULE — ``_agent_runtime_steps/__init__`` re-exports a function
+    of the same name, so a plain ``from ... import step_3_agent_loop`` hands
+    back the function."""
+    import importlib
+
+    return importlib.import_module(
+        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
 
 
 def _idle_progress() -> ProgressMessage:
@@ -136,8 +144,13 @@ def test_counter_is_scoped_per_conversation():
 
 
 def test_counter_ignores_an_unidentifiable_conversation():
-    """No channel and no room → no key. Counting every such turn under one
-    shared bucket would let unrelated channels starve each other."""
+    """No room → no key.
+
+    (The predicate used to be "no channel AND no room". ``channel`` is
+    always set — it is the trigger's own name — so that made the empty-room
+    case fall through to a per-CHANNEL bucket where unrelated DMs would
+    starve each other's budget, which is the opposite of what this carve-out
+    is for.)"""
     key = _fallback_conversation_key({}, "agt_1")
     assert key == ""
     _record_fallback_delivery(key)
@@ -356,3 +369,128 @@ def test_the_key_is_normalised_inside_the_function():
     buckets that never meet and the gate would silently never fire."""
     assert _fallback_conversation_key({"channel": "c", "room_id": "r"}, None) == \
         _fallback_conversation_key({"channel": "c", "room_id": "r"}, "")
+
+
+# ── The audit row ─────────────────────────────────────────────────────
+#
+# `_audit_fallback_suppressed` is the only reason this gate is diagnosable
+# after the fact: `fallback_rate_limited` fires off an in-process window a
+# restart wipes, and the person on the other end just sees the assistant
+# stop answering. If the write never happens, "the audit never ran" and
+# "the audit ran and the table is empty" look identical afterwards — the
+# failure is invisible precisely when it is needed.
+
+
+async def test_a_suppressed_turn_writes_one_audit_row(monkeypatch):
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            self.service = service
+
+        async def event(self, event_type, detail=None):
+            rows.append((self.service, event_type, detail))
+
+    # Patch the CLASS the module imports lazily, and clear the cached
+    # instance so the patched one is used. Letting the real ServiceAuditor
+    # run would `await get_db_client()`, fail, and get swallowed by the
+    # never-raise handler — the assertion would pass having tested nothing.
+    import xyz_agent_context.services.service_audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+
+    await _step3()._audit_fallback_suppressed(
+        reason=SKIP_REASON_AGENT_PEER,
+        agent_id="agt_1",
+        channel_tag={"channel": "narramessenger", "room_id": "!r",
+                     "is_agent_peer": True},
+        window_count=7,
+        conversation_key="agt_1:narramessenger:!r",
+    )
+
+    assert len(rows) == 1
+    service, event_type, detail = rows[0]
+    assert service == _step3()._FALLBACK_AUDIT_SERVICE
+    assert event_type == SKIP_REASON_AGENT_PEER
+    assert {"agent_id", "channel", "room_id", "is_agent_peer", "window_count"} <= set(detail)
+    assert detail["window_count"] == 7
+    assert detail["room_id"] == "!r"
+
+
+async def test_the_audit_is_cooled_per_conversation_and_reason(monkeypatch):
+    """The write rate is set by the far side, not by us."""
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append((event_type, detail))
+
+    import xyz_agent_context.services.service_audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+
+    async def _fire(reason, key):
+        await _step3()._audit_fallback_suppressed(
+            reason=reason, agent_id="a", channel_tag={"channel": "c", "room_id": "r"},
+            window_count=1, conversation_key=key,
+        )
+
+    for _ in range(5):
+        await _fire(SKIP_REASON_AGENT_PEER, "a:c:r1")
+    assert len(rows) == 1, "a fed conversation must not write a row per turn"
+
+    await _fire(SKIP_REASON_AGENT_PEER, "a:c:r2")
+    assert len(rows) == 2, "a different conversation has its own slot"
+
+    await _fire(SKIP_REASON_FALLBACK_RATE_LIMITED, "a:c:r1")
+    assert len(rows) == 3, (
+        "the two gates are different facts — one must not eat the other's slot"
+    )
+
+
+async def test_a_failed_audit_write_does_not_arm_the_cooldown(monkeypatch):
+    """A transient DB blip must not silence this conversation for the rest
+    of the window."""
+    calls = []
+
+    class _BoomThenOk:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            calls.append(event_type)
+            if len(calls) == 1:
+                raise RuntimeError("db down")
+
+    import xyz_agent_context.services.service_audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _BoomThenOk)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+
+    for _ in range(2):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER, agent_id="a",
+            channel_tag={"channel": "c", "room_id": "r"},
+            window_count=1, conversation_key="a:c:r",
+        )
+    assert len(calls) == 2, "the first (failed) write must not arm the cooldown"
+
+
+def test_only_the_two_new_reasons_are_audited():
+    """The other three skips are recomputable from the turn itself, so
+    auditing them would be noise. Pinned because "let's just audit all
+    five" is an easy and wrong cleanup."""
+    import inspect
+
+    src = inspect.getsource(_step3().step_3_agent_loop)
+    marker = "if skip_reason in ("
+    assert marker in src
+    window = src[src.index(marker): src.index(marker) + 200]
+    assert "SKIP_REASON_AGENT_PEER" in window
+    assert "SKIP_REASON_FALLBACK_RATE_LIMITED" in window
+    assert "already_replied_via_tool" not in window
