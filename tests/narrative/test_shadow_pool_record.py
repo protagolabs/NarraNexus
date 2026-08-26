@@ -528,4 +528,10 @@ async def test_a_background_continuation_turn_is_not_recorded(
         "otherwise the no-recording assertion below tests nothing"
     )
     assert not row["candidates"], "a background turn must not pay the recorder"
-    assert row["pool_is_shadow"] in (0, None)
+    assert row["pool_is_shadow"] == 0  # write side int()-coerces; never NULL
+    assert row["is_user_chat"] == 0, (
+        "the second discriminator column must be honest on background rows — "
+        "it is assigned in select()'s common tail, and losing that (an early "
+        "return, a moved _write_audit) would silently count background "
+        "continuation turns into the decision population"
+    )

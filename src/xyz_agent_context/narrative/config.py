@@ -174,8 +174,11 @@ class NarrativeConfig:
     # Even with the switch ON, background-triggered continuation turns
     # (job / message_bus / IM webhook, ~30% of dev turns) stay 0 by scope —
     # the instrument records user-chat turns only. Population queries must
-    # pair this column with `is_user_chat`; a ~70% coverage read over all
-    # continuation turns is the designed scope, not a lost window.
+    # pair this column with `is_user_chat`. Coverage over ALL continuation
+    # turns will sit meaningfully below 100% by design (chat is 69% and
+    # message_bus 30% of all dev turns, measured — but the background share
+    # of CONTINUATION turns specifically has not been); read the real split
+    # with GROUP BY is_user_chat, not against a fixed number.
     NARRATIVE_SHADOW_POOL_RECORD = _env("NARRATIVE_SHADOW_POOL_RECORD", "1") == "1"
 
     # Number of Narratives added to Context

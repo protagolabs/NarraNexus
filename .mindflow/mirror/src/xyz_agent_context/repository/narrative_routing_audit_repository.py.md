@@ -9,7 +9,9 @@ stub: false
 ## 2026-08-26 — `_to_row` 多写一列 `pool_is_shadow`(切片 0)
 
 标记这一行的池是**只记录、没决策**的(continuity 判 yes 的轮次)。
-`WHERE pool_is_shadow = 0` 是决策人群,`= 1` 是"如果当时问了 gate,它会怎么说"。
+`WHERE pool_is_shadow = 0 AND is_user_chat = 1` 是决策人群,`= 1` 是
+"如果当时问了 gate,它会怎么说"。后台触发的续接轮同样落 0(仪器只记
+用户聊天轮),单看这一列区分不出来——人群判别是两列共同。
 
 ### 它为什么可以 `int()` 强转,而上面那条 8-20 的约定说不能
 

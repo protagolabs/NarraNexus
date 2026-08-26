@@ -485,8 +485,15 @@ class RoutingAudit(BaseModel):
     # keep the column's default 0 while carrying no pool and NULL gate
     # columns. So `= 0` alone holds two populations; the discriminator is
     # this column PLUS `is_user_chat`. Any cross-population query must add
-    # `is_user_chat = 1`, and coverage reads (`pool_is_shadow=1` over
-    # continuation turns) will sit near ~70% by design, not from loss.
+    # `is_user_chat = 1`. Coverage reads (`pool_is_shadow=1` over ALL
+    # continuation turns) will sit meaningfully below 100% by design —
+    # background triggers are ~30% of all dev turns (measured), but their
+    # share of CONTINUATION turns has not been; read the real split with
+    # GROUP BY is_user_chat rather than comparing against a fixed number.
+    # (A third, negligible source of 0 on a user-chat continuation row: the
+    # recorder itself failed — always accompanied by a
+    # [narrative.shadow_pool] warning, and distinguishable via
+    # selection_method = "continuous" with empty candidates.)
     pool_is_shadow: bool = False
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────

@@ -708,7 +708,9 @@ class NarrativeRetrieval:
         # `gate_short_circuit` is NOT set. It means "the gate skipped the
         # judge", and here the gate decided nothing — filling it would redefine
         # the column for every existing reader (binding rule #6). Populations
-        # are told apart by `pool_is_shadow` and nothing else.
+        # are told apart by `pool_is_shadow` together with `is_user_chat` —
+        # the instrument is scoped to user-chat turns, so a background
+        # continuation row is an honest 0 here, never a poolless 1.
 
     async def load_pool(
         self,

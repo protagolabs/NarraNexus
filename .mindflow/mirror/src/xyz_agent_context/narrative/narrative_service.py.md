@@ -17,7 +17,9 @@ test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
 须同步此条与该测试。**连带语义(review round 2 I1)**:收窄后
 `pool_is_shadow = 0` 一侧同时装着"决策行"和"后台续接轮"两种行,
 人群判别从单列变为 **`pool_is_shadow` + `is_user_chat` 两列共同**;
-全体续接轮上的覆盖率读数 ~70% 是设计范围,不是仪器丢数。
+全体续接轮上的覆盖率按设计明显低于 100%,真实比例用
+`GROUP BY is_user_chat` 查(后台轮占全部轮次 ~30% 是实测,占续接轮的
+比例未测),别对固定数字比。
 `_record_shadow_pool` 链上的 `is_user_chat` 参数现恒为 True
 (调用点守卫过),保留是为将来放开后台轮只改守卫一处。
 
