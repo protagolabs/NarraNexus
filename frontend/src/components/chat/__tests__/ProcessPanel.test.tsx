@@ -74,15 +74,52 @@ describe('ProcessPanel', () => {
     expect(screen.getByText(/Starting up/)).toBeInTheDocument();
   });
 
-  it('pipeline 阶段行收进面板（加载上下文/构建上下文）', () => {
-    render(<ProcessPanel events={[]} steps={[step('1', 'completed'), step('3')]} />);
-    expect(screen.getByText(/Loading context/)).toBeInTheDocument();
+  // Phase names must match what the backend actually does at each step:
+  // step 1 = narrative selection (not "loading context"), step 3 = context
+  // build, step 3.4 = the model actually running (the honest "entered the
+  // agent loop" marker). See processShared PHASE_LABEL_KEYS.
+  it('pipeline 阶段行按真实语义命名（选择叙事/加载模块/同步实例/构建上下文/运行 Agent）', () => {
+    render(
+      <ProcessPanel
+        events={[]}
+        steps={[
+          step('1', 'completed'), step('2', 'completed'),
+          step('2.5', 'completed'), step('3'), step('3.4'),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Selecting narrative/)).toBeInTheDocument();
+    expect(screen.getByText(/Loading modules/)).toBeInTheDocument();
+    expect(screen.getByText(/Syncing instances/)).toBeInTheDocument();
     expect(screen.getByText(/Building context/)).toBeInTheDocument();
+    expect(screen.getByText(/Running agent/)).toBeInTheDocument();
+    // The old mislabels — step 1 "Loading context", step 2 "Loading
+    // resources" — are gone.
+    expect(screen.queryByText(/Loading context/)).toBeNull();
+    expect(screen.queryByText(/Loading resources/)).toBeNull();
   });
 
-  it('工具子步骤（3.4.x）不重复出现在阶段行里', () => {
-    render(<ProcessPanel events={events} steps={[step('3'), step('3.4.1')]} />);
+  // Only the whitelisted top-level phases render as rows. Tool sub-steps
+  // (3.4.x), the 3.5 final-thinking echo, and post-answer housekeeping
+  // (4 persist / 5 hooks) are NOT "what's happening now" phases — leaking
+  // their raw English backend titles into the panel is the bug this guards.
+  it('只渲染白名单阶段：工具子步(3.4.x)与收尾步骤(3.5/4/5)不进阶段行', () => {
+    render(
+      <ProcessPanel
+        events={events}
+        steps={[
+          step('3'), step('3.4'), step('3.4.1'),
+          step('3.5', 'completed'), step('4'), step('5'),
+        ]}
+      />,
+    );
     expect(screen.queryByText('Step 3.4.1')).toBeNull();
+    expect(screen.queryByText('Step 3.5')).toBeNull();
+    expect(screen.queryByText('Step 4')).toBeNull();
+    expect(screen.queryByText('Step 5')).toBeNull();
+    // The real run-agent phase still shows, localized — never the raw title.
+    expect(screen.getByText(/Running agent/)).toBeInTheDocument();
+    expect(screen.queryByText('Step 3.4')).toBeNull();
   });
 
   describe('折叠', () => {

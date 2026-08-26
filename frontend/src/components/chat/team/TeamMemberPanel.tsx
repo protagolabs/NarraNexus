@@ -34,6 +34,7 @@ import {
   LiveCursorRow,
   LiveDot,
   PHASE_LABEL_KEYS,
+  PHASE_ORDER,
   PhaseRow,
   ProcessEventRows,
 } from '../process/processShared';
@@ -158,10 +159,11 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     return undefined;
   }, [observation.events]);
 
-  // Tool sub-steps are already tool rows — repeating them as phases
-  // would double every call (same rule ProcessPanel applies).
+  // Only the whitelisted top-level phases (same rule ProcessPanel applies):
+  // tool sub-steps are already tool rows, and housekeeping/echo steps aren't
+  // phases — this also keeps raw English backend titles out of the panel.
   const phases = useMemo(
-    () => observation.steps.filter((s) => !s.step.startsWith('3.4')),
+    () => observation.steps.filter((s) => PHASE_ORDER.includes(s.step)),
     [observation.steps],
   );
 

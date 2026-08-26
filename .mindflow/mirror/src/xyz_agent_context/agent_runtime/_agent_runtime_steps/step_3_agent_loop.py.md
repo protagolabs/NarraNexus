@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — step 3 拆成「构建上下文」与「运行 Agent」两个相位
+
+原来 3.1/3.2/3.3/3.4 全部 `yield` 同一条 `step="3", title="Execute
+Agent Loop"`。问题：这条在 3.1 之前就发，此刻 context 还没建、messages
+还没抽、LLM 一个字没吐，用户却看到"进入 agent loop"——名字**超前**。
+而且 3.1~3.4 共用一条相位行，"还在准备"和"真在跑 LLM"无法区分。
+
+现在拆两相位（模块级常量固定 step id，是与前端的跨文件契约）：
+- `PHASE_BUILD_CONTEXT`（step `"3"`, title `"Build Context"`）——3.1/3.2/3.3
+  的上下文组装。
+- `PHASE_RUN_AGENT`（step `"3.4"`, title `"Run Agent"`）——3.4 起 LLM 真正
+  运行，这才是诚实的"进入 loop"标记。loop 结束时发 `3.4` 自身 COMPLETED
+  落定该行（原来发的是 `step="3"` "Agent Loop Complete"）。
+
+前端 [[processShared]] 的 `PHASE_ORDER`/`PHASE_LABEL_KEYS` 白名单这两个
+step id，工具子步继续以 `{PHASE_RUN_AGENT_STEP}.{n}`（`3.4.x`）嵌在
+run-agent 相位下（response_processor 侧）；[[run_recorder]] 在 tool_call
+上盖同一 derived 标签 `step.3.4_Run Agent`，保 `current_stage` 一致。
+契约测试见 `test_step3_splits_build_context_from_run_agent_phase`。
 
 ## 2026-08-21 — `_ensure_executor_for_run`：判决在这一层算
 

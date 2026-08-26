@@ -39,6 +39,7 @@ import type { Step, TurnEvent } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   PHASE_LABEL_KEYS,
+  PHASE_ORDER,
   LiveCursorRow,
   LiveDot,
   PhaseRow,
@@ -98,10 +99,13 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
     [process],
   );
 
-  // Pre-loop pipeline phases. Tool sub-steps (3.4.x) are already the
-  // panel's tool rows — repeating them as phases would double every call.
+  // The top-level pipeline phases, whitelisted (PHASE_ORDER). Tool sub-steps
+  // (3.4.x) are already the panel's tool rows; the 3.5 final-thinking echo and
+  // post-answer housekeeping (4/5) aren't "what's happening now" — and only
+  // whitelisted ids have localized labels, so this also stops raw English
+  // backend titles from leaking in.
   const phases = useMemo(
-    () => steps.filter((s) => !s.step.startsWith('3.4')),
+    () => steps.filter((s) => PHASE_ORDER.includes(s.step)),
     [steps],
   );
 

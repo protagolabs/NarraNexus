@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/chat/process/processShared.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 阶段名对齐真实语义 + 新增 PHASE_ORDER 白名单
+
+`PHASE_LABEL_KEYS` 过去整体错位一格：step 1（叙事选择）显示「加载上下
+文」、step 2（模块加载）显示「加载资源」、step 3（**Execute Agent
+Loop**，其实已进 loop）显示「构建上下文」。现在按后端每步真实动作命名：
+1=选择叙事 / 2=加载模块 / 2.5=同步实例 / 3=构建上下文 / **3.4=运行
+Agent**（新增，对应后端把 step 3 拆成「构建上下文(3)」和「运行 Agent
+(3.4)」两个相位——见 [[step_3_agent_loop]] 的 `PHASE_*_STEP`）。
+
+新增导出 `PHASE_ORDER`（`0/1/2/2.5/3/3.4`）作为**白名单**：只有这些
+顶层相位画成阶段行。工具子步 `3.4.x`、`3.5` 最终思考回声、收尾 `4/5`
+都不是「现在在干嘛」，白名单同时杜绝未映射 step 的原始英文 title 泄漏。
+[[ProcessPanel]] 与 [[TeamMemberPanel]] 都改用它（改一处两边跟，铁律 #8）。
 
 ## 2026-07-31 — 终端语言三件套沉淀（LiveDot / PhaseRow / LiveCursorRow）
 

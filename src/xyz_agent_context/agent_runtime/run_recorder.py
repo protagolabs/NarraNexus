@@ -438,10 +438,18 @@ class RunRecorder:
         if kind == "tool_call":
             self.tool_call_count += 1
             await self._write_stream_row("tool_call", _extract_tool_call_payload(event))
+            # A tool call means the model is running: stamp the SAME label the
+            # run-agent progress phase derives (step_3_agent_loop
+            # PHASE_RUN_AGENT, "step.3.4_Run Agent"). Kept identical so
+            # current_stage doesn't flap between two strings for one phase.
+            # Mirror it into the in-memory field too, same as the progress
+            # branch below — otherwise self.current_stage goes stale through a
+            # tool-heavy phase.
+            self.current_stage = "step.3.4_Run Agent"
             await self._update_events_row({
                 "tool_call_count": self.tool_call_count,
                 "last_event_at": utc_now(),
-                "current_stage": "step.3_agent_loop",
+                "current_stage": self.current_stage,
             }, context="tool_call bump")
         elif kind == "tool_output":
             await self._write_stream_row("tool_output", _extract_tool_output_payload(event))

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — tool_call 的 current_stage 对齐 run-agent 相位
+
+tool_call bump 里硬编码的 `current_stage` 从 `"step.3_agent_loop"` 改成
+`"step.3.4_Run Agent"`。原值与 progress 事件 `_extract_progress_stage`
+推导出的 `"step.3_Execute Agent Loop"` **两个字符串打架**，同一个 loop
+阶段在 `events.current_stage` 里来回跳。现在与 [[step_3_agent_loop]] 的
+`PHASE_RUN_AGENT`（step `3.4`）derived 标签逐字一致，一个相位一个值。
+测试 `test_tool_call_stamps_the_run_agent_stage`。
 
 ## 2026-08-21 — `first_live_run_id`：跨进程"这个用户忙不忙"的唯一口径
 

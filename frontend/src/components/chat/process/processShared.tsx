@@ -12,16 +12,29 @@ import type { TFunction } from 'i18next';
 import { Loader2 } from 'lucide-react';
 import type { Step, TurnEvent } from '@/types';
 
-/** Pipeline step id → i18n label. Same mapping the message-area
- *  indicator used before it moved in here. Unknown ids fall back to the
- *  backend-provided title. */
+/** Pipeline step id → i18n label. The labels name what the backend
+ *  ACTUALLY does at each step (step ids from step_3_agent_loop /
+ *  the runtime steps), so the panel never says "loading context" while
+ *  the backend is selecting a narrative, nor "building context" while the
+ *  model is already running. Unknown ids fall back to the backend title. */
 export const PHASE_LABEL_KEYS: Record<string, string> = {
-  '0': 'chat.execution.initializing',
-  '1': 'chat.execution.loadingContext',
-  '2': 'chat.execution.loadingResources',
-  '2.5': 'chat.execution.preparingWorkspace',
-  '3': 'chat.execution.buildingContext',
+  '0': 'chat.execution.initializing',       // step 0  Initialization
+  '1': 'chat.execution.selectingNarrative', // step 1  Narrative Selection
+  '2': 'chat.execution.loadingModules',     // step 2  Module Loading
+  '2.5': 'chat.execution.syncingInstances', // step 2.5 Sync Instance Changes
+  '3': 'chat.execution.buildingContext',    // step 3  Build Context (3.1/3.2/3.3)
+  '3.4': 'chat.execution.runningAgent',     // step 3.4 Run Agent (LLM loop)
 };
+
+/** The top-level pipeline phases shown as rows, in display order. This is a
+ *  whitelist on purpose: everything else the backend yields under step 3+
+ *  (tool sub-steps "3.4.x", the "3.5" final-thinking echo, post-answer
+ *  housekeeping "4" persist / "5" hooks) is NOT "what the agent is doing to
+ *  answer you" — it belongs in the tool rows or the reply bubble. Whitelisting
+ *  also keeps raw English backend titles from leaking into the panel for any
+ *  unmapped step id. Kept in sync with the backend phase step ids
+ *  (step_3_agent_loop PHASE_BUILD_CONTEXT_STEP / PHASE_RUN_AGENT_STEP). */
+export const PHASE_ORDER = ['0', '1', '2', '2.5', '3', '3.4'];
 
 /** "mcp__chat_module__get_chat_history" → "get_chat_history" — same
  *  friendly-name rule TurnTimeline uses; the namespace is debug detail. */

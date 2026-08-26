@@ -77,6 +77,24 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
+# Step 3 splits into two user-visible phases so the process panel can tell
+# "still assembling context" from "the model is actually running". The old
+# single "Execute Agent Loop" phase was emitted BEFORE context was even built
+# (3.1/3.2/3.3), so users saw "entered the agent loop" while the heavy context
+# engineering was still ahead — misleading. Now:
+#   * PHASE_BUILD_CONTEXT (step "3")  — 3.1/3.2/3.3 context assembly
+#   * PHASE_RUN_AGENT     (step "3.4") — the LLM loop is actually running
+# These step ids are a cross-file contract: the frontend whitelists them
+# (ProcessPanel PHASE_ORDER / processShared PHASE_LABEL_KEYS) and tool
+# sub-steps nest under the run-agent phase as f"{PHASE_RUN_AGENT_STEP}.{n}"
+# (see response_processor). run_recorder stamps the same derived label
+# ("step.3.4_Run Agent") on tool_call so events.current_stage stays coherent.
+PHASE_BUILD_CONTEXT_STEP = "3"
+PHASE_BUILD_CONTEXT_TITLE = "Build Context"
+PHASE_RUN_AGENT_STEP = "3.4"
+PHASE_RUN_AGENT_TITLE = "Run Agent"
+
+
 def _dispatch_identity_token(ensured, user_id) -> str | None:
     """The identity token to stamp into this turn's MCP headers, or None.
 
@@ -1285,9 +1303,9 @@ async def step_3_agent_loop(
 
     # ============================================================================= Step 3: Narrative Smart Agent Loop
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
-        description="Build context and run Agent Loop (CASE1: implicit orchestration)",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description="Assemble context for the Agent Loop (CASE1: implicit orchestration)",
         status=ProgressStatus.RUNNING,
         substeps=substeps
     )
@@ -1303,8 +1321,8 @@ async def step_3_agent_loop(
     logger.debug("ContextRuntime initialized")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description="[3.1] ContextRuntime initialization complete",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1326,8 +1344,8 @@ async def step_3_agent_loop(
     logger.debug("ContextRuntime execution completed")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description=f"[3.2] Context build complete: {len(context.messages)} messages",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1346,19 +1364,22 @@ async def step_3_agent_loop(
     logger.debug(f"context.messages count={len(messages)}")
     logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description=f"[3.3] Extraction complete: {len(messages)} messages",
         status=ProgressStatus.RUNNING,
         substeps=substeps
     )
 
     # ------------- 3.4: Run Agent Loop -------------
+    # Context is built and messages are extracted — the model actually starts
+    # running here. This is the honest "entered the agent loop" marker, a
+    # phase distinct from context assembly above (see PHASE_RUN_AGENT_STEP).
     substeps.append("[3.4] ⏳ Agent Loop running...")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_RUN_AGENT_STEP,
+        title=PHASE_RUN_AGENT_TITLE,
         description="[3.4] Agent Loop running...",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1818,10 +1839,11 @@ async def step_3_agent_loop(
         }
     )
 
-    # Step 3 complete
+    # Run-agent phase complete — settle the 3.4 row the loop-start opened,
+    # not step 3 (which is the now-finished context-build phase).
     yield ProgressMessage(
-        step="3",
-        title="Agent Loop Complete",
+        step=PHASE_RUN_AGENT_STEP,
+        title=PHASE_RUN_AGENT_TITLE,
         description=f"✓ Complete: {state.response_count} responses, {len(state.final_output)} chars output",
         status=ProgressStatus.COMPLETED,
         details={
