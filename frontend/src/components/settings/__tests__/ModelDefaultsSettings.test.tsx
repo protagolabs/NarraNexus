@@ -362,6 +362,21 @@ test('no apply dialog when there are zero overrides', async () => {
   expect(screen.queryByTestId('apply-confirm-btn')).not.toBeInTheDocument();
 });
 
+test('a failing override-stats fetch does not turn a successful save into an error', async () => {
+  // The stats GET is a pure preview; the default is already saved. A flaky GET
+  // must not render a "save failed" state (it lived in the same try before).
+  mockGetSlotOverrideStats.mockRejectedValue(new Error('boom'));
+  await renderLoaded();
+  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
+  );
+  await waitFor(() => expect(mockSetProviderSlot).toHaveBeenCalled());
+  await waitFor(() => expect(mockGetSlotOverrideStats).toHaveBeenCalled());
+  expect(screen.queryByText('pages.settings.modelDefaults.saveFailed')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('apply-confirm-btn')).not.toBeInTheDocument();
+});
+
 test('cloud non-staff can select the free-tier card in both slots', async () => {
   // The bug this pins: `p.source !== 'netmind'` was inlined in four filters,
   // so when the free tier gained its own source the card was registered,

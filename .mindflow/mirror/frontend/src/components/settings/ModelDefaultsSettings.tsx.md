@@ -13,6 +13,11 @@ state 弹出 [[ApplyDefaultsToAgentsDialog]]。零覆盖则什么都不弹，保
 clear-to-inherit。这是「改默认 → 覆盖手动调整」需求的入口，改默认本身仍只写
 owner 默认，是否应用到 agent 完全由用户在弹框里选。
 
+stats 预览拉取单独包 try/catch：保存已成功后，flaky 的 override-stats GET
+（`request()` 非 2xx 会 throw）不得把 UI 翻成「保存失败」，失败就静默不弹框。
+`onApply` 里 `applySlotsToAgents` 也自带 catch，避免异常穿透到无 catch 的
+Dialog.apply() 造成未处理 rejection。
+
 ## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
 
 框架下拉从 `AGENT_FRAMEWORKS` 换成

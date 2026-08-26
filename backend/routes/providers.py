@@ -806,14 +806,17 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     agents, so they revert to inheriting the owner default on their next run.
     Semantics = clear-to-inherit (not stamp-a-snapshot)."""
     uid = _get_user_id(request)
+    # Validate ALL slot names up front — fail-closed, so a bad name never
+    # leaves a partial clear behind (no delete happens before validation).
+    valid = {s.value for s in SlotName}
+    bad = [s for s in req.slots if s not in valid]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"Invalid slot(s): {bad}")
     db = await get_db_client()
     svc = AgentSlotService(db)
     cleared: dict[str, int] = {}
-    try:
-        for slot in req.slots:
-            cleared[slot] = await svc.clear_owner_agents_slot(uid, slot)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    for slot in req.slots:
+        cleared[slot] = await svc.clear_owner_agents_slot(uid, slot)
     logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
     return {"success": True, "data": {"cleared": cleared}}
 

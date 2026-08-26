@@ -112,6 +112,17 @@ async def test_apply_to_agents_rejects_bad_slot(client, db):
 
 
 @pytest.mark.asyncio
+async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
+    # A valid slot alongside a bad one must NOT be partially cleared: the whole
+    # request is rejected up front, before any delete.
+    await _seed(db, "a1", "owner1", slot="agent")
+    r = client.post("/api/providers/slots/apply-to-agents",
+                    json={"slots": ["agent", "bogus"]}, headers=OWNER)
+    assert r.status_code == 400
+    assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is not None
+
+
+@pytest.mark.asyncio
 async def test_agents_overview(client, db):
     await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
                                    "provider_id": "p1", "model": "def-a",

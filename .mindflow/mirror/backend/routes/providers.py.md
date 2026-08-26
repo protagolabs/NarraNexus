@@ -11,7 +11,8 @@ stub: false
 
 - `GET /slots/override-stats` → 各槽有多少 agent 存在覆盖（确认框影响面）。
 - `POST /slots/apply-to-agents` `{slots:[...]}` → 逐槽 clear-to-inherit，返回
-  实际清除数；未知槽名 → 400。
+  实际清除数。**fail-closed**：进入清除循环前先校验全部槽名，任一非法即
+  400、不产生部分删除。
 - `GET /slots/agents-overview` → 一次拿全 agent 的 effective 模型 + inherit
   标记，喂 Dashboard 折叠行 model chip（免 per-agent N+1）。
 

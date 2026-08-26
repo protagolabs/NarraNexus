@@ -225,10 +225,15 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
       // Offer to push the new default onto existing agents (clear-to-inherit).
-      const statsResp = await api.getSlotOverrideStats();
-      const s = statsResp.data;
-      if (s && (s.agent > 0 || s.helper_llm > 0)) {
-        setApplyStats(s); // opens the dialog
+      // Isolated try/catch: the save already succeeded, so a flaky stats GET
+      // must NOT flip the UI to an error state — it just skips the dialog.
+      try {
+        const s = (await api.getSlotOverrideStats()).data;
+        if (s && (s.agent > 0 || s.helper_llm > 0)) {
+          setApplyStats(s); // opens the dialog
+        }
+      } catch {
+        /* preview failed — the default is saved; just don't offer the dialog */
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
@@ -527,8 +532,15 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           stats={applyStats}
           onClose={() => setApplyStats(null)}
           onApply={async (slots) => {
-            const r = await api.applySlotsToAgents(slots);
-            if (!r.success) setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+            // request() throws on non-2xx, so catch here — the dialog's apply()
+            // has no catch of its own and would otherwise leave an unhandled
+            // rejection with the dialog stuck open.
+            try {
+              const r = await api.applySlotsToAgents(slots);
+              if (!r.success) setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
+            }
           }}
         />
       )}
