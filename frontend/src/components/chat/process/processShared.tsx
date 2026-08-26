@@ -26,15 +26,35 @@ export const PHASE_LABEL_KEYS: Record<string, string> = {
   '3.4': 'chat.execution.runningAgent',     // step 3.4 Run Agent (LLM loop)
 };
 
-/** The top-level pipeline phases shown as rows, in display order. This is a
+/** The step ids that render as phase rows — DERIVED from PHASE_LABEL_KEYS so
+ *  there is one source of truth (add a phase in one place, not two). It's a
  *  whitelist on purpose: everything else the backend yields under step 3+
  *  (tool sub-steps "3.4.x", the "3.5" final-thinking echo, post-answer
  *  housekeeping "4" persist / "5" hooks) is NOT "what the agent is doing to
  *  answer you" — it belongs in the tool rows or the reply bubble. Whitelisting
- *  also keeps raw English backend titles from leaking into the panel for any
- *  unmapped step id. Kept in sync with the backend phase step ids
- *  (step_3_agent_loop PHASE_BUILD_CONTEXT_STEP / PHASE_RUN_AGENT_STEP). */
-export const PHASE_ORDER = ['0', '1', '2', '2.5', '3', '3.4'];
+ *  also keeps raw English backend titles from leaking in for any unmapped id.
+ *  A Set for membership only: display order is the arrival order of `steps`,
+ *  NOT this collection. */
+export const PHASE_STEP_IDS = new Set(Object.keys(PHASE_LABEL_KEYS));
+
+/** Is this phase row settled (✓) rather than running (spinner)? The backend
+ *  keeps early phases "running" until the turn ends, so ordering is the honest
+ *  signal: a phase is done once its own status says so, OR a later phase has
+ *  started, OR (for the pre-loop phases, step < 3.4) any process event has
+ *  arrived. Shared by ProcessPanel and TeamMemberPanel — same rule both sides
+ *  (铁律 #8) — and BOTH must pass the UNFILTERED steps so the "a later phase
+ *  started" check can see run-agent/housekeeping ids beyond the whitelist.
+ *  `parseFloat('3.4.1') === 3.4` (second dot truncated), so a tool sub-step
+ *  never prematurely settles the 3.4 row — intentional; don't segment-compare. */
+export function phaseSettled(
+  phase: Step,
+  allSteps: Step[],
+  hasProcessEvents: boolean,
+): boolean {
+  if (phase.status === 'completed') return true;
+  const n = parseFloat(phase.step);
+  return allSteps.some((s) => parseFloat(s.step) > n) || (hasProcessEvents && n < 3.4);
+}
 
 /** "mcp__chat_module__get_chat_history" → "get_chat_history" — same
  *  friendly-name rule TurnTimeline uses; the namespace is debug detail. */

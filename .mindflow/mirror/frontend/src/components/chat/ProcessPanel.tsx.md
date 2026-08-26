@@ -7,10 +7,11 @@ stub: false
 ## 2026-08-26 — 阶段行改白名单过滤（PHASE_ORDER）
 
 `phases` 过滤从黑名单 `!startsWith('3.4')` 换成白名单
-`PHASE_ORDER.includes(step)`（见 [[processShared]]）。动机：旧黑名单只挡
-工具子步 `3.4.x`，却放行了 `3.5` 最终思考回声、`4` 持久化、`5` hooks
-——它们没有 i18n 映射，直接把后端英文 title 泄漏成阶段行。白名单只画
-`0/1/2/2.5/3/3.4` 六个真实相位。`phaseDone` 的 `n<3.4` 判据不变：
+`PHASE_STEP_IDS.has(step)`（见 [[processShared]]，从 `PHASE_LABEL_KEYS`
+派生）。动机：旧黑名单只挡工具子步 `3.4.x`，却放行了 `3.5` 最终思考回声、
+`4` 持久化、`5` hooks——它们没有 i18n 映射，直接把后端英文 title 泄漏成
+阶段行。白名单只画 `0/1/2/2.5/3/3.4` 六个真实相位。落定判据改用共享
+`phaseSettled(phase, steps, process.length>0)`（传**未过滤**的 steps）：
 step 3（构建上下文）在工具事件出现时判完成；step 3.4（运行 Agent）由
 后端在 loop 结束时发的自身 COMPLETED 落定。
 

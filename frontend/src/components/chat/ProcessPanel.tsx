@@ -39,7 +39,8 @@ import type { Step, TurnEvent } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   PHASE_LABEL_KEYS,
-  PHASE_ORDER,
+  PHASE_STEP_IDS,
+  phaseSettled,
   LiveCursorRow,
   LiveDot,
   PhaseRow,
@@ -105,19 +106,15 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
   // whitelisted ids have localized labels, so this also stops raw English
   // backend titles from leaking in.
   const phases = useMemo(
-    () => steps.filter((s) => PHASE_ORDER.includes(s.step)),
+    () => steps.filter((s) => PHASE_STEP_IDS.has(s.step)),
     [steps],
   );
 
-  // A phase is settled once its own status says so or a later phase has
-  // started (the backend keeps early phases "running" until the turn
-  // ends, so ordering is the honest signal).
-  const phaseDone = (phase: Step): boolean => {
-    if (phase.status === 'completed') return true;
-    const n = parseFloat(phase.step);
-    return steps.some((s) => parseFloat(s.step) > n) ||
-      (process.length > 0 && n < 3.4);
-  };
+  // Settled-vs-running is the shared rule (processShared.phaseSettled), fed
+  // the UNFILTERED steps so "a later phase started" sees ids beyond the
+  // whitelist (e.g. housekeeping 4/5 settling the last visible phase).
+  const phaseDone = (phase: Step): boolean =>
+    phaseSettled(phase, steps, process.length > 0);
 
   // Plans are full snapshots: each update replaces the previous one
   // wholesale, so take the last.

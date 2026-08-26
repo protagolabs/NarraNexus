@@ -684,7 +684,13 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
       return {
         type: 'progress',
         timestamp: Date.now(),
-        step: (p?.step as string) ?? '3.4',
+        // Fallback only when a replayed tool frame lacks its own step id.
+        // Must NOT be the bare run-agent phase id '3.4' — that would upsert
+        // onto the real run-agent phase row (chatStore/useRunObservation key
+        // by step id). A '3.4.x'-shaped sub-step id parseFloats to 3.4 (loop
+        // logic unchanged) but is excluded from PHASE_STEP_IDS, so it renders
+        // as a tool row, never a phase row.
+        step: (p?.step as string) ?? '3.4.replay',
         title: (p?.title as string) ?? 'Tool call',
         description: 'Executing...',
         status: 'running',
@@ -701,7 +707,13 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
       return {
         type: 'progress',
         timestamp: Date.now(),
-        step: (p?.step as string) ?? '3.4',
+        // Fallback only when a replayed tool frame lacks its own step id.
+        // Must NOT be the bare run-agent phase id '3.4' — that would upsert
+        // onto the real run-agent phase row (chatStore/useRunObservation key
+        // by step id). A '3.4.x'-shaped sub-step id parseFloats to 3.4 (loop
+        // logic unchanged) but is excluded from PHASE_STEP_IDS, so it renders
+        // as a tool row, never a phase row.
+        step: (p?.step as string) ?? '3.4.replay',
         title: (p?.title as string) ?? 'Tool output',
         description: '✓ Execution completed',
         status: 'completed',

@@ -52,6 +52,10 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
 
+from xyz_agent_context.schema import (
+    PHASE_RUN_AGENT_STEP,
+    PHASE_RUN_AGENT_TITLE,
+)
 from xyz_agent_context.utils.timezone import utc_now
 
 if TYPE_CHECKING:
@@ -439,13 +443,16 @@ class RunRecorder:
             self.tool_call_count += 1
             await self._write_stream_row("tool_call", _extract_tool_call_payload(event))
             # A tool call means the model is running: stamp the SAME label the
-            # run-agent progress phase derives (step_3_agent_loop
-            # PHASE_RUN_AGENT, "step.3.4_Run Agent"). Kept identical so
-            # current_stage doesn't flap between two strings for one phase.
-            # Mirror it into the in-memory field too, same as the progress
-            # branch below — otherwise self.current_stage goes stale through a
-            # tool-heavy phase.
-            self.current_stage = "step.3.4_Run Agent"
+            # run-agent progress phase derives. DERIVED from the shared phase
+            # constants via the same _extract_progress_stage rule the progress
+            # branch uses — not a hand-copied literal — so a rename of the
+            # phase title can't silently reopen the "current_stage flaps
+            # between two strings for one phase" bug. Mirror into the in-memory
+            # field too (same as the progress branch below), else
+            # self.current_stage goes stale through a tool-heavy phase.
+            self.current_stage = _extract_progress_stage(
+                {"step": PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE}
+            )
             await self._update_events_row({
                 "tool_call_count": self.tool_call_count,
                 "last_event_at": utc_now(),

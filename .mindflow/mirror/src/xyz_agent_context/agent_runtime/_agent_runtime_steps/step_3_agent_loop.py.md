@@ -11,7 +11,9 @@ Agent Loop"`。问题：这条在 3.1 之前就发，此刻 context 还没建、
 还没抽、LLM 一个字没吐，用户却看到"进入 agent loop"——名字**超前**。
 而且 3.1~3.4 共用一条相位行，"还在准备"和"真在跑 LLM"无法区分。
 
-现在拆两相位（模块级常量固定 step id，是与前端的跨文件契约）：
+现在拆两相位（常量定义在叶子 schema 模块 [[runtime_message]]，本文件
+import；这样 [[run_recorder]] 能从同一份常量派生 `current_stage` 而不触发
+循环 import —— 本包 `__init__` 会 eager import 本文件）：
 - `PHASE_BUILD_CONTEXT`（step `"3"`, title `"Build Context"`）——3.1/3.2/3.3
   的上下文组装。
 - `PHASE_RUN_AGENT`（step `"3.4"`, title `"Run Agent"`）——3.4 起 LLM 真正

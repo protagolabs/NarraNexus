@@ -198,7 +198,9 @@ def test_step3_splits_build_context_from_run_agent_phase():
     from "in the loop". These step ids are the cross-file contract the
     frontend whitelists (ProcessPanel PHASE_ORDER / processShared
     PHASE_LABEL_KEYS) and the tool sub-steps nest under (``3.4.{n}``)."""
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    # Canonical home is the leaf schema module (importable by both the emitter
+    # and run_recorder without a circular import).
+    from xyz_agent_context.schema import (
         PHASE_BUILD_CONTEXT_STEP,
         PHASE_BUILD_CONTEXT_TITLE,
         PHASE_RUN_AGENT_STEP,
@@ -232,8 +234,11 @@ def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
     # @timed wraps it — unwrap to the real generator before reading source.
     src = inspect.getsource(inspect.unwrap(step_3_agent_loop))
 
-    # The old single-phase title must not be emitted anywhere in the body.
+    # The old single-phase title must not be emitted anywhere in the body...
     assert "Execute Agent Loop" not in src
+    # ...nor the old loop-completion title (the emit that used to settle on
+    # step 3; reverting the run-agent COMPLETED back to it turns this red).
+    assert "Agent Loop Complete" not in src
     # Both phases are wired through the named constants.
     for token in (
         "PHASE_BUILD_CONTEXT_STEP",
@@ -242,6 +247,9 @@ def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
         "PHASE_RUN_AGENT_TITLE",
     ):
         assert token in src, f"emit wiring dropped {token}"
-    # The run-agent phase settles with its own COMPLETED (loop end), so its
-    # row doesn't hang running forever.
-    assert "ProgressStatus.COMPLETED" in src
+    # The run-agent phase is emitted BOTH as RUNNING (loop start) and its OWN
+    # COMPLETED (loop end), so its panel row settles instead of hanging
+    # forever. `step=PHASE_RUN_AGENT_STEP` (the emit form, not the bare
+    # constant name in a comment) must appear at least twice — revert either
+    # emit and the count drops below 2.
+    assert src.count("step=PHASE_RUN_AGENT_STEP") >= 2

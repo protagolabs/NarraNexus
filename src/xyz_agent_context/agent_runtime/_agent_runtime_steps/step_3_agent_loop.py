@@ -28,6 +28,10 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
     EXECUTOR_INFRA_ERROR_TYPE,
+    PHASE_BUILD_CONTEXT_STEP,
+    PHASE_BUILD_CONTEXT_TITLE,
+    PHASE_RUN_AGENT_STEP,
+    PHASE_RUN_AGENT_TITLE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 
@@ -76,23 +80,10 @@ _DEFAULT_MAX_TOTAL = 32768
 _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
-
-# Step 3 splits into two user-visible phases so the process panel can tell
-# "still assembling context" from "the model is actually running". The old
-# single "Execute Agent Loop" phase was emitted BEFORE context was even built
-# (3.1/3.2/3.3), so users saw "entered the agent loop" while the heavy context
-# engineering was still ahead — misleading. Now:
-#   * PHASE_BUILD_CONTEXT (step "3")  — 3.1/3.2/3.3 context assembly
-#   * PHASE_RUN_AGENT     (step "3.4") — the LLM loop is actually running
-# These step ids are a cross-file contract: the frontend whitelists them
-# (ProcessPanel PHASE_ORDER / processShared PHASE_LABEL_KEYS) and tool
-# sub-steps nest under the run-agent phase as f"{PHASE_RUN_AGENT_STEP}.{n}"
-# (see response_processor). run_recorder stamps the same derived label
-# ("step.3.4_Run Agent") on tool_call so events.current_stage stays coherent.
-PHASE_BUILD_CONTEXT_STEP = "3"
-PHASE_BUILD_CONTEXT_TITLE = "Build Context"
-PHASE_RUN_AGENT_STEP = "3.4"
-PHASE_RUN_AGENT_TITLE = "Run Agent"
+# Step-3 phase identity (PHASE_BUILD_CONTEXT / PHASE_RUN_AGENT) lives in the
+# leaf schema module `schema/runtime_message.py` so run_recorder can derive
+# events.current_stage from the SAME constants without a circular import (this
+# package's __init__ eager-imports step_3_agent_loop). Imported above.
 
 
 def _dispatch_identity_token(ensured, user_id) -> str | None:
