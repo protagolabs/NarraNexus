@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-26
 ---
+
+## 2026-08-26 — `is_agent_peer` 覆写：从 MXID 读出来
+
+平台把 agent 身份铸成 `@agent-<id>:<homeserver>`（见
+[[_narramessenger_service.py]] 的 `_MATRIX_USER_RE`），所以在这个渠道
+「对面是不是机器」是**前缀判断**而不是猜测。新增模块级常量
+`AGENT_MXID_PREFIX` 承载这个拼法。
+
+这是最需要它的渠道：它是唯一一个两个 agent 会常规地进行 1:1 对话、且房间
+里没有别人的地方。
 
 ## 2026-08-13（管线二审后）— 原文补发已摘除 + 认领键归一叶子名
 

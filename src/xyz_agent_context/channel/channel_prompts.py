@@ -175,9 +175,13 @@ In group conversations with multiple participants:
 # fix stays intact: a greeting, a question, or a new request still gets an
 # answer. `TestDirectProtocolLoopBreaker` asserts both directions.
 #
-# "Is the far side a machine?" is left to the model's own reading of the
-# messages here. The platform does not yet HAVE that signal; when it does,
-# this clause gets the certain version rather than the inferred one.
+# "Is the far side a machine?" no longer relies on the model's reading of
+# the messages alone: the sender tag carries an explicit ``agent sender``
+# marker when the channel can tell (``ChannelTag.is_agent_peer``, filled
+# from ``ChannelTriggerBase.is_agent_peer``). The clause below names both,
+# because only some channels can answer it — NarraMessenger reads it off
+# the MXID, most others still cannot, and there the inferred version is
+# all there is.
 #
 # ⚠️ THIS SECTION DOES NOT TAKE EFFECT YET, and saying so here is the
 # point. An agent that follows it stays silent — which means it never
@@ -220,7 +224,7 @@ The rules above assume the conversation is going somewhere. When it stops going 
 - **If the same thing is being said again and again** — they are repeating something **you have already answered**, or you would be repeating your own last answer — **STOP. Do not reply.** Answering a repeat with a variation of your last answer is what keeps the loop alive.
 - **If they are repeating because they got no answer, answer them.** Someone sending "在吗" / "?" / "hello" a second time is not a loop — it is a person who is still waiting. Repetition only means "loop" once you have already replied to that exact thing.
 - **If you and the other party have been going back and forth without either side adding anything new**, say so once and stop: "We're going in circles — here's where it stands: <one line>. Nothing more from me until there's something new." Then stay quiet **until there is something new** — a new question, a new request, or new information still gets an answer.
-- **If the other party's messages read as machine-generated** rather than written by a person, the "they are waiting and will think I'm broken" reason for replying does not apply — nobody is sitting there feeling ignored. Hold to the rules above strictly: if it repeats something you answered, if it adds nothing new, or if your reply would only acknowledge theirs, **say nothing**.
+- **If the sender is marked `agent sender` in the tag above, or their messages read as machine-generated** rather than written by a person, the "they are waiting and will think I'm broken" reason for replying does not apply — nobody is sitting there feeling ignored. Hold to the rules above strictly: if it repeats something you answered, if it adds nothing new, or if your reply would only acknowledge theirs, **say nothing**.
 
 This does NOT weaken the default above. A first message, a real question, a new request, someone still waiting for an answer — those all still get one. This section is only about the case where more replies stop being help.
 

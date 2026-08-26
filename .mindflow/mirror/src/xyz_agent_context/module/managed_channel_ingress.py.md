@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/managed_channel_ingress.py
-last_verified: 2026-08-10
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 托管路径自己盖 `is_agent_peer`
+
+原生路径在 `build_trigger_extra_data` 里填，托管路径**不跑 context
+builder**，所以那条填充够不到它。不盖的话，每一个托管 A2A DM 对下游都读作
+人类对话。
+
+用 try/except 包住并降级为 False，与 `_stamp_turn_envelope` 包住
+`managed_reply_kwargs` 同一个理由：一个坏到答不出「对面是不是机器」的
+trigger，代价应该是这一轮少一个信号，不是整个渠道塌掉。False 也正是此前
+的行为。
 
 ## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B;review 后直写重构)
 

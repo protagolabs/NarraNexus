@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 ---
+
+## 2026-08-26 — `is_agent_peer` seam
+
+新增可覆写 hook，默认 False（多数渠道每个发送者都是人，猜错这个方向不改变
+任何处理，只是少给模型一个提示）。[[matrix_trigger.py]] 覆写它。
+
+**答案在这里产生一次**，因为只有 trigger 层知道各平台的身份约定；然后搭
+[[channel_tag.py]] 走到上层，让消费方读同一个定义而不是各自再推一遍。
+必须纯且便宜——每条消息都会调。
+
+本类里两个 `ChannelTag` 构造点（单条消息 + 静默批）都填了。
+`test_agent_peer_signal.py` 有一条守卫：**每个 ChannelTag 构造点的数量必须
+等于填充数量**——漏填不会报错，只会静静地报「这是人」，正是
+`build_trigger_extra_data` 当年那个缺陷类（四处手抄、新键只加了一处）。
 
 ## 2026-08-21 — record_turn 接线 chat_id + chat_type（PR-2 自动 reach 记录）
 

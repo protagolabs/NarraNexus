@@ -414,6 +414,20 @@ class ChannelTriggerBase(ABC):
     def should_start_subscriber(self, credential: Any) -> bool:
         return True
 
+    # Override hook — is the far side of this message another agent rather
+    # than a human? Default False: on most channels every sender is a
+    # person, and guessing wrong in that direction changes nothing.
+    # NarraMessenger overrides it because its Matrix user ids carry the
+    # answer (``@agent-<id>:<homeserver>``).
+    #
+    # Answered HERE, once, because only the trigger layer knows each
+    # platform's identity convention. The answer travels on ``ChannelTag``
+    # so consumers above the trigger — starting with the prompt — read one
+    # definition instead of each re-deriving it. MUST be pure and cheap:
+    # it runs per message.
+    def is_agent_peer(self, message: ParsedMessage) -> bool:
+        return False
+
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
     # Subclass implementations typically call ``mgr.set_enabled(agent_id,
@@ -1591,6 +1605,7 @@ class ChannelTriggerBase(ABC):
             sender_name=sender_name,
             sender_id=message.sender_id,
             room_id=message.chat_id,
+            is_agent_peer=self.is_agent_peer(message),
         )
         tagged_prompt = (
             f"{channel_tag.format()}\n"
@@ -1798,6 +1813,7 @@ class ChannelTriggerBase(ABC):
             sender_name=anchor_sender_name,
             sender_id=anchor_msg.sender_id,
             room_id=chat_id,
+            is_agent_peer=self.is_agent_peer(anchor_msg),
         )
 
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id

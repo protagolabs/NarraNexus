@@ -169,6 +169,28 @@ class ManagedChannelIngress:
                 return False, receipt
             return True, ""
         message = synthesize_managed_message(trigger_extra_data, user_input)
+
+        # Stamp "is the far side a machine?" onto the wire channel_tag.
+        # Native turns get it inside build_trigger_extra_data; managed turns
+        # never run a context builder, so without this every managed A2A DM
+        # reads as a human conversation to everything downstream.
+        #
+        # Degrades to False rather than raising, same stance as
+        # _stamp_turn_envelope's managed_reply_kwargs call: a trigger too
+        # broken to answer this must cost the turn one signal, not take the
+        # whole channel down. False is also the pre-existing behaviour.
+        if trigger is not None:
+            tag = trigger_extra_data.get("channel_tag")
+            if isinstance(tag, dict):
+                try:
+                    tag["is_agent_peer"] = trigger.is_agent_peer(message)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"managed ingress: is_agent_peer failed for {channel} "
+                        f"({type(e).__name__}: {e}); treating as human"
+                    )
+                    tag["is_agent_peer"] = False
+
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:
             allow, receipt = await trigger.managed_before_run(
