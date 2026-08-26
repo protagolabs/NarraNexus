@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/services/background_llm_alerts.py
-last_verified: 2026-07-13
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — source 标签枚举补全（行为未变）
+
+`alert_background_llm_failure` 的 docstring 原本只列了三个 source，而
+[[_entity_updater.py]] 这次接线新增了四个（`entity_dedup` /
+`entity_extraction` / `description_compression` / `persona_inference`）。
+运维照 docstring 那张清单去查会漏掉它们。
+
+**补充（同轮 review）**：旧 docstring 列的三个 source 里，`memory_extraction`
+**从来没有任何代码发出过**——全仓只有那一行 docstring 命中。一个查出零行的
+标签没法让运维分辨「这条链健康」还是「标签被改名了」，正是这份清单想消灭的
+那种摩擦，已删除并注明原因。清单旁边加了一句纪律：**新增 source 必须同一个
+commit 同步这里**，否则下一个接线的人还会漏（这一轮就漏了四个）。
+
+同时写明：**同一条因果链有两个 audit service 名**——LLM 失败走
+`background_llm`，DB 写入失败走 `social_network_memory`（不是 LLM 失败、
+也不打扰 owner）。「记忆为什么停更」的排查要覆盖两个名字。
+
+本文件代码行为未变，仅补文档。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
