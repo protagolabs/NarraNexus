@@ -179,23 +179,30 @@ class ManagedChannelIngress:
         # _stamp_turn_envelope's managed_reply_kwargs call: a trigger too
         # broken to answer this must cost the turn one signal, not take the
         # whole channel down. False is also the pre-existing behaviour.
-        if trigger is not None:
-            tag = trigger_extra_data.get("channel_tag")
-            if isinstance(tag, dict):
-                # Written only when TRUE, matching ``ChannelTag.to_dict``'s
-                # "falsy fields do not appear" rule — otherwise managed
-                # turns would carry ``"is_agent_peer": false`` in their
-                # persisted tag while native turns carry no key at all, a
-                # difference with no meaning that a future snapshot diff
-                # would trip over.
-                try:
-                    if trigger.is_agent_peer(message):
-                        tag["is_agent_peer"] = True
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(
-                        f"managed ingress: is_agent_peer failed for {channel} "
-                        f"({type(e).__name__}: {e}); treating as human"
-                    )
+        # ``trigger is None`` already returned above, so there is no None
+        # branch here — an extra one only invites a "cleanup" that takes
+        # the stamping with it.
+        tag = trigger_extra_data.get("channel_tag")
+        if isinstance(tag, dict):
+            # Written only when TRUE, matching ``ChannelTag.to_dict``'s
+            # "falsy fields do not appear" rule — otherwise managed turns
+            # would carry ``"is_agent_peer": false`` in their persisted tag
+            # while native turns carry no key at all, a difference with no
+            # meaning that a future snapshot diff would trip over. The
+            # except branch writes nothing for the same reason: a missing
+            # key already reads as False everywhere.
+            #
+            # This stamps the DICT. What the model reads is rebuilt from it
+            # by ``retag_managed_input`` after these hooks — remove either
+            # half and the signal never reaches the model.
+            try:
+                if trigger.is_agent_peer(message):
+                    tag["is_agent_peer"] = True
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"managed ingress: is_agent_peer failed for {channel} "
+                    f"({type(e).__name__}: {e}); treating as human"
+                )
 
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:

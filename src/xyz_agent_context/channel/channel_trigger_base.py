@@ -423,8 +423,12 @@ class ChannelTriggerBase(ABC):
     # Answered HERE, once, because only the trigger layer knows each
     # platform's identity convention. The answer travels on ``ChannelTag``
     # so consumers above the trigger — starting with the prompt — read one
-    # definition instead of each re-deriving it. MUST be pure and cheap:
-    # it runs per message.
+    # definition instead of each re-deriving it.
+    #
+    # Contract for overrides: depend on ``message`` ONLY — no ``self``, no
+    # I/O, no awaits. It runs per message, and the guard test calls it
+    # unbound; an override that reaches for ``self`` would surface there as
+    # a confusing AttributeError rather than as "you broke the contract".
     def is_agent_peer(self, message: ParsedMessage) -> bool:
         return False
 

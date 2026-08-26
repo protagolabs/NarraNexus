@@ -4,16 +4,40 @@ last_verified: 2026-08-26
 stub: false
 ---
 
+## 2026-08-26（下午）— 这里盖的是**字典**，模型看不到
+
+⚠️ **本文件的 gotcha，从这一侧进来的人必须先知道**：这里的盖章只写
+`trigger_extra_data["channel_tag"]` 这个**字典**。而模型读的是
+`build_inbound_run_context` 早就渲染好的那个字符串——它在这些 hooks
+**之前**就定型了。
+
+让信号真正到达模型的是 [[openai_compat.py]] 在 hooks **之后**调的
+[[sync.py]] `retag_managed_input`（用已盖章的字典重建那一行）。
+**两者缺一，这个信号就到不了模型。**
+
+这不是假想：上一轮 review 抓到的正是这个 Critical——盖章在，但发生在渲染
+之后，于是托管 A2A DM 的 tag 与人类对话逐字节相同，而 DM 协议里那条
+「若标记为 `agent sender`」成了模型永远走不到的分支。而
+`MatrixTrigger.is_agent_peer` 是全仓唯一答得出这个问题的实现，
+NarraMessenger 又恰好跑在托管模式下——受影响面正是这个信号唯一有用的地方。
+
+所以**删掉或挪动 `retag_managed_input` 会原地复现那个 Critical**。
+`test_agent_peer_signal.py` 里那条端到端断言（真的调 `before_run`，不是手抄
+盖章逻辑）是这条链的回归防线。
+
 ## 2026-08-26 — 托管路径自己盖 `is_agent_peer`
 
 原生路径在 `build_trigger_extra_data` 里填，托管路径**不跑 context
 builder**，所以那条填充够不到它。不盖的话，每一个托管 A2A DM 对下游都读作
 人类对话。
 
-用 try/except 包住并降级为 False，与 `_stamp_turn_envelope` 包住
-`managed_reply_kwargs` 同一个理由：一个坏到答不出「对面是不是机器」的
-trigger，代价应该是这一轮少一个信号，不是整个渠道塌掉。False 也正是此前
-的行为。
+用 try/except 包住，与 `_stamp_turn_envelope` 包住 `managed_reply_kwargs`
+同一个理由：一个坏到答不出「对面是不是机器」的 trigger，代价应该是这一轮
+少一个信号，不是整个渠道塌掉。
+
+**只在为真时写键**（不是「降级为 False」——代码里现在没有任何一处写 `False`，
+except 分支什么都不写）。与 `ChannelTag.to_dict` 丢假值同一条规则，所以托管
+turn 与原生 turn 持久化的 tag 键集合一致；键缺失在下游本来就读作 False。
 
 ## 2026-08-10 — 托管入站生命周期落审计(batch-2 §B;review 后直写重构)
 

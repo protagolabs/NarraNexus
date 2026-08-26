@@ -73,13 +73,22 @@ _PROVIDER_WORKING_SOURCE: dict[str, WorkingSource] = {
 
 
 def _ctx_str(ctx: dict, key: str) -> str:
-    """Coerce a channel_context value to a stripped string ('' when absent).
+    """Coerce a channel_context value to a single-line stripped string
+    ('' when absent).
+
     The platform side is TypeScript — ints/None slip through easily and must
-    never break dispatch."""
+    never break dispatch.
+
+    Internal whitespace is COLLAPSED, not just trimmed: the sender tag is a
+    single-line protocol (``[Channel · Name · Id · Room]``) and these values
+    go straight into it. A display name containing a newline — the platform
+    forwards Matrix display names verbatim — would split the tag across two
+    lines, in chat history and in whatever reads it back.
+    """
     value = ctx.get(key)
     if value is None:
         return ""
-    return str(value).strip()
+    return " ".join(str(value).split())
 
 
 _FALSY_STRINGS = frozenset({"false", "0", "no", "off", ""})
@@ -178,7 +187,7 @@ def build_inbound_run_context(
     return ws, f"{tag.format()}\n{user_input}", trigger_extra_data
 
 
-def retag_managed_input(trigger_extra_data: dict, run_input: str) -> str:
+def retag_managed_input(trigger_extra_data: dict, user_input: str) -> str:
     """Re-render the tag line after the ingress hooks have stamped it.
 
     ``build_inbound_run_context`` has to render the tag to build
@@ -198,17 +207,25 @@ def retag_managed_input(trigger_extra_data: dict, run_input: str) -> str:
     definition. Hand-writing the marker at a second site is exactly the
     "N hand-rolled copies" shape this signal was built to avoid.
 
-    Returns ``run_input`` unchanged when there is nothing to re-render: a
-    plain Manyfold turn carries no ``channel_tag``, and a first line that is
-    not a tag is left alone.
+    Rebuilds from ``user_input`` with the SAME expression
+    ``build_inbound_run_context`` uses, rather than operating on the string
+    it produced. Doing string surgery on the rendered form (splitting the
+    first line, checking it starts with "[" and ends with "]") looked
+    tidier and had a hole: ``sender_name`` is a platform-supplied display
+    name and ``_ctx_str`` only strips the ends, so a name containing a
+    newline makes ``tag.format()`` itself span two lines — the "first line"
+    then does not end in "]", the re-render is skipped, and the marker
+    disappears SILENTLY. The party who benefits from that marker
+    disappearing is the agent on the other side, and it controls its own
+    display name.
+
+    Returns ``user_input`` unchanged when there is nothing to render: a
+    plain Manyfold turn carries no ``channel_tag``.
     """
     tag_dict = trigger_extra_data.get("channel_tag")
     if not isinstance(tag_dict, dict) or not tag_dict:
-        return run_input
-    head, sep, rest = run_input.partition("\n")
-    if not (head.startswith("[") and head.endswith("]")):
-        return run_input
-    return f"{ChannelTag.from_dict(tag_dict).format()}{sep}{rest}"
+        return user_input
+    return f"{ChannelTag.from_dict(tag_dict).format()}\n{user_input}"
 
 
 def _require_manyfold_auth(request: Request) -> None:

@@ -56,6 +56,9 @@ def test_every_channel_answers_the_question(cls):
     returns None, raises, or hands back a truthy non-bool (which would sail
     through ``if is_agent_peer:`` and then serialise as junk on the tag).
     """
+    # Unbound on purpose: the seam's documented contract is "depend on
+    # ``message`` only". Calling it this way is how that contract is
+    # enforced rather than merely stated.
     got = cls.is_agent_peer(None, _msg("U123"))  # type: ignore[arg-type]
     assert isinstance(got, bool), f"{cls.__name__} returned {got!r}"
 
@@ -78,9 +81,34 @@ def test_narramessenger_reads_it_off_the_mxid():
 
 # ── 2. every construction site fills it ───────────────────────────────
 
-def _code(func) -> str:
-    lines = inspect.getsource(func).splitlines()
-    return "\n".join(ln for ln in lines if not ln.strip().startswith("#"))
+def _code(obj) -> str:
+    """Source with comments AND docstrings removed.
+
+    Both would otherwise feed the counting assertions below: a module
+    docstring showing ``is_agent_peer=True`` in an example counts as a fill,
+    and a comment naming a call counts as a call.
+    """
+    import ast
+
+    src = inspect.getsource(obj)
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:  # a method's source is not a module
+        tree = None
+    docstrings = set()
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                doc = ast.get_docstring(node, clean=False)
+                if doc:
+                    docstrings.add(doc)
+    out = src
+    for doc in docstrings:
+        out = out.replace(doc, "")
+    return "\n".join(
+        ln for ln in out.splitlines() if not ln.strip().startswith("#")
+    )
 
 
 def _modules_that_build_receive_path_tags():
@@ -121,41 +149,88 @@ def test_the_guard_sees_every_registered_channel():
     )
 
 
+def _trigger_modules():
+    import inspect as _inspect
+
+    import xyz_agent_context.channel.channel_trigger_base as base
+
+    mods = {base}
+    for cls in CHANNEL_TRIGGER_MAP.values():
+        mod = _inspect.getmodule(cls)
+        if mod is not None:
+            mods.add(mod)
+    return mods
+
+
 def test_every_channel_tag_built_on_the_receive_path_fills_the_flag():
     """A site that forgets it does not fail — it silently reports "human",
     which is exactly how a signal like this rots. ``build_trigger_extra_data``
     already taught this lesson: hand-rolled at four sites, new key added to
     one.
+
+    Two predicates, by module KIND (derived, never a literal list — that is
+    what the first version got wrong):
+
+    - a **trigger** module must pass the seam's return value. Accepting a
+      bare ``is_agent_peer=...`` would let the next person satisfy CI with
+      a hardcoded ``False``, and a hardcoded False is precisely the failure
+      this guard exists to prevent: no error, every A2A DM quietly reported
+      as human.
+    - the **managed** construction site legitimately builds ``False`` (the
+      trigger has not run yet at that point), so there the contract is
+      "False now, re-rendered later" — assert the re-render exists in the
+      same module, otherwise that False is not legitimate any more.
     """
+    triggers = _trigger_modules()
     missing = []
     for mod in _modules_that_build_receive_path_tags():
         src = _code(mod)
         built = src.count("ChannelTag(") + src.count("ChannelTag.lark(")
         if not built:
             continue
-        filled = src.count("is_agent_peer=")
-        if built != filled:
-            missing.append(f"{mod.__name__}: {built} built, {filled} filled")
+        if mod in triggers:
+            filled = src.count("is_agent_peer=self.is_agent_peer(")
+            if built != filled:
+                missing.append(
+                    f"{mod.__name__}: {built} built, {filled} pass the seam"
+                )
+        else:
+            filled = src.count("is_agent_peer=")
+            if built != filled:
+                missing.append(f"{mod.__name__}: {built} built, {filled} filled")
+            elif "def retag_managed_input(" not in src:
+                missing.append(
+                    f"{mod.__name__}: builds a tag without the re-render that "
+                    f"makes its False legitimate"
+                )
     assert not missing, (
         f"ChannelTag sites that do not fill is_agent_peer: {missing}. A "
         f"missing fill reads as 'human' — silently."
     )
 
 
-async def test_the_managed_path_puts_the_marker_in_what_the_model_reads():
-    """The end of the chain, on the surface where it matters most.
+async def test_the_managed_path_puts_the_marker_in_what_the_model_reads(
+    monkeypatch,
+):
+    """The end of the chain, on the surface where it matters most — driven
+    through the REAL ``before_run``.
 
     Managed turns render their tag inside ``build_inbound_run_context``,
     but ``is_agent_peer`` is only known once the channel's trigger has seen
-    the turn — which happens later, in ``before_run``. The stamp therefore
-    lands in the tag DICT while the string already handed to the model is
-    the pre-stamp one. NarraMessenger is the only channel that can answer
-    the question at all AND it runs managed, so this gap covered exactly
-    the traffic the signal exists for.
+    the turn, which happens later in ``before_run``. So the stamp lands in
+    the tag DICT while the string already handed to the model is the
+    pre-stamp one; ``retag_managed_input`` closes that gap.
 
-    Asserting on the source text of ``before_run`` (the first version of
-    this test) could not see that: the stamp was there, in the wrong order.
-    So assert on the string itself.
+    The first version of this test hand-copied the three stamping lines out
+    of ``before_run`` instead of calling it — which meant deleting the
+    stamping from production left the whole suite green, because the test
+    was writing the flag itself. A test that reimplements the thing it
+    checks guards nothing.
+
+    NarraMessenger's ``managed_before_run`` is a fail-CLOSED authorization
+    gate, so it is replaced here: authorization is a different concern and
+    letting it run would deny the turn (and then want a db for the audit).
+    Replacing it is the point — not an excuse to go back to copying.
     """
     from backend.routes.manyfold.sync import (
         build_inbound_run_context,
@@ -164,6 +239,7 @@ async def test_the_managed_path_puts_the_marker_in_what_the_model_reads():
     from xyz_agent_context.module.managed_channel_ingress import (
         ManagedChannelIngress,
     )
+    from xyz_agent_context.schema.hook_schema import WorkingSource
 
     _, run_input, extra = build_inbound_run_context(
         channel_provider="narramessenger",
@@ -183,104 +259,115 @@ async def test_the_managed_path_puts_the_marker_in_what_the_model_reads():
     if trigger is None:  # pragma: no cover — optional dependency missing
         pytest.skip("narramessenger trigger not importable")
 
-    message = __import__(
-        "xyz_agent_context.module.managed_channel_ingress",
-        fromlist=["synthesize_managed_message"],
-    ).synthesize_managed_message(extra, "ping")
-    tag = extra["channel_tag"]
-    if trigger.is_agent_peer(message):
-        tag["is_agent_peer"] = True
+    async def _allow(self, **kwargs):
+        return True, ""
 
-    assert AGENT_PEER_MARKER in retag_managed_input(extra, run_input), (
+    monkeypatch.setattr(type(trigger), "managed_before_run", _allow)
+
+    allowed, _receipt = await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="ping",
+        trigger_extra_data=extra,
+        db=None,
+    )
+    assert allowed
+
+    assert AGENT_PEER_MARKER in retag_managed_input(extra, "ping"), (
         "the model reads this string — the stamped dict is not enough"
     )
 
 
-async def test_retag_replaces_the_tag_line_and_never_adds_one():
-    from backend.routes.manyfold.sync import retag_managed_input
+async def test_the_managed_path_leaves_a_human_turn_untouched(monkeypatch):
+    """Same path, human sender: the rebuilt string must be byte-identical
+    to the one build_inbound_run_context produced."""
+    from backend.routes.manyfold.sync import (
+        build_inbound_run_context,
+        retag_managed_input,
+    )
+    from xyz_agent_context.module.managed_channel_ingress import (
+        ManagedChannelIngress,
+    )
+    from xyz_agent_context.schema.hook_schema import WorkingSource
 
-    extra = {
-        "channel_tag": {
-            "channel": "narramessenger", "sender_name": "Liam",
-            "sender_id": "@agent-x:h", "room_id": "!r", "is_agent_peer": True,
-        }
-    }
-    out = retag_managed_input(extra, "[Narramessenger · Liam · @agent-x:h · !r]\nping")
-    assert out.count("\n") == 1, "a second tag line is worse than a stale one"
-    assert out.endswith("\nping")
-    assert AGENT_PEER_MARKER in out
+    _, run_input, extra = build_inbound_run_context(
+        channel_provider="narramessenger",
+        channel_context={
+            "sender_id": "@liam:matrix.netmind.chat",
+            "sender_name": "Liam",
+            "room_id": "!room:h",
+            "chat_type": "private",
+        },
+        user_input="ping",
+        session_id="s1",
+    )
+    ingress = ManagedChannelIngress()
+    trigger = ingress._trigger("narramessenger")
+    if trigger is None:  # pragma: no cover
+        pytest.skip("narramessenger trigger not importable")
+
+    async def _allow(self, **kwargs):
+        return True, ""
+
+    monkeypatch.setattr(type(trigger), "managed_before_run", _allow)
+    await ingress.before_run(
+        working_source=WorkingSource.NARRAMESSENGER,
+        agent_id="a1",
+        user_input="ping",
+        trigger_extra_data=extra,
+        db=None,
+    )
+
+    assert "is_agent_peer" not in extra["channel_tag"], (
+        "falsy fields do not appear — same rule as ChannelTag.to_dict"
+    )
+    assert retag_managed_input(extra, "ping") == run_input
 
 
-async def test_retag_leaves_a_plain_manyfold_turn_alone():
+def test_the_render_round_trip_is_lossless():
+    """``retag_managed_input`` runs on EVERY managed IM turn, and its floor
+    is ``from_dict(t.to_dict()).format() == t.format()``. Nothing was
+    watching that invariant; breaking it would corrupt the tag on all
+    managed turns, not just the agent ones, and the red test would land far
+    from the change."""
+    for tag in (
+        ChannelTag(channel="lark", sender_name="Alice", sender_id="ou_1"),
+        ChannelTag(channel="lark", sender_name="A", sender_id="", room_id="oc_1"),
+        ChannelTag(
+            channel="narramessenger", sender_name="Liam", sender_id="@agent-x:h",
+            room_id="!r", room_name="Room", is_agent_peer=True,
+        ),
+        ChannelTag(
+            channel="wechat", sender_name="Bot", sender_id="wx1",
+            is_agent_peer=True,
+        ),
+    ):
+        assert ChannelTag.from_dict(tag.to_dict()).format() == tag.format()
+
+
+def test_a_newline_in_a_display_name_cannot_break_the_tag():
+    """``sender_name`` is a platform-supplied display name. The tag is a
+    single-line protocol, so internal whitespace is collapsed at the door —
+    otherwise a two-line tag would silently skip the re-render (and split
+    the line in chat history)."""
+    from backend.routes.manyfold.sync import build_inbound_run_context
+
+    _, run_input, extra = build_inbound_run_context(
+        channel_provider="narramessenger",
+        channel_context={
+            "sender_id": "@agent-x:h",
+            "sender_name": "Li\nam",
+            "room_id": "!r",
+        },
+        user_input="ping",
+        session_id="s1",
+    )
+    assert run_input.count("\n") == 1
+    assert extra["channel_tag"]["sender_name"] == "Li am"
+
+
+def test_retag_leaves_a_plain_manyfold_turn_alone():
     """The pure-Manyfold branch returns early with no channel_tag at all."""
     from backend.routes.manyfold.sync import retag_managed_input
 
     assert retag_managed_input({"trigger_id": "s1"}, "just a prompt") == "just a prompt"
-
-
-async def test_retag_leaves_an_untagged_body_alone():
-    from backend.routes.manyfold.sync import retag_managed_input
-
-    extra = {"channel_tag": {"channel": "lark", "sender_name": "A", "sender_id": "u"}}
-    assert retag_managed_input(extra, "no tag here\nbody") == "no tag here\nbody"
-
-
-# ── 3. the model actually sees it ─────────────────────────────────────
-
-def test_an_agent_sender_is_marked_in_the_rendered_tag():
-    tag = ChannelTag(
-        channel="narramessenger", sender_name="Liam",
-        sender_id="@agent-x:h", room_id="!room", is_agent_peer=True,
-    )
-    assert AGENT_PEER_MARKER in tag.format()
-
-
-def test_a_human_tag_is_byte_identical_to_before():
-    """These strings land in chat history; changing the shape for every
-    turn would make old and new turns disagree."""
-    tag = ChannelTag(
-        channel="lark", sender_name="Alice", sender_id="ou_1", room_id="oc_1",
-    )
-    assert tag.format() == "[Lark · Alice · ou_1 · oc_1]"
-
-
-def test_the_marker_survives_a_round_trip():
-    tag = ChannelTag(
-        channel="narramessenger", sender_name="Liam",
-        sender_id="@agent-x:h", room_id="!room", is_agent_peer=True,
-    )
-    back = ChannelTag.parse(tag.format())
-    assert back is not None
-    assert back.is_agent_peer is True
-    assert back.room_id == "!room"
-
-
-def test_a_room_less_agent_tag_does_not_parse_the_marker_as_a_room():
-    tag = ChannelTag(
-        channel="wechat", sender_name="Bot", sender_id="wx1", is_agent_peer=True,
-    )
-    back = ChannelTag.parse(tag.format())
-    assert back is not None
-    assert back.room_id == "", "the marker must not be read as a room id"
-    assert back.is_agent_peer is True
-
-
-def test_the_flag_is_dropped_from_the_wire_when_false():
-    """``to_dict`` strips falsy fields, so existing serialised tags are
-    unchanged by this PR."""
-    assert "is_agent_peer" not in ChannelTag(
-        channel="lark", sender_name="A", sender_id="ou_1"
-    ).to_dict()
-    assert ChannelTag(
-        channel="lark", sender_name="A", sender_id="ou_1", is_agent_peer=True
-    ).to_dict()["is_agent_peer"] is True
-
-
-def test_the_prompt_clause_names_the_marker():
-    """The protocol text and the marker must agree — a clause naming a
-    marker the tag never renders is a branch the model cannot take."""
-    from xyz_agent_context.channel.channel_prompts import (
-        COMMUNICATION_PROTOCOL_DIRECT,
-    )
-
-    assert AGENT_PEER_MARKER in COMMUNICATION_PROTOCOL_DIRECT

@@ -23,7 +23,16 @@ A2A DM 里，模型拿到的 tag 与人类对话逐字节相同，而 DM 协议�
 `ChannelTag.format()` 这一个渲染定义——在托管侧手写 `agent sender` 就退回成
 「N 份手抄」了。顺带让 `ChannelTag.from_dict` 从死代码变成有调用点。
 
-无 `channel_tag` 的纯 Manyfold turn、以及首行不是 tag 的正文，都原样返回。
+**用 `user_input` 重建整串**，而不是对渲染好的字符串做手术。第一版切首行、
+判断它以 `[` 开头 `]` 结尾——`sender_name` 是平台转发的 display name，
+`_ctx_str` 当时只削首尾，一个**名字里带换行**的昵称就会让 `tag.format()` 自己
+跨两行，于是首行不以 `]` 结尾、重渲被跳过、标记**静默消失**。而希望这个标记
+消失的正是对面那个 agent，它恰好控制自己的昵称。
+
+配套把 `_ctx_str` 改成折叠内部空白：tag 是**单行协议**，带换行的昵称在别处
+（chat history）也是雷。
+
+无 `channel_tag` 的纯 Manyfold turn 原样返回。
 
 ## 2026-08-10(review 修)— env 委托 + 全败还原批次
 
