@@ -152,7 +152,9 @@ class NarrativeConfig:
 
     # Slice 0 instrument: record the BM25 pool on continuity turns too, where
     # `select` used to return before the retrieval tier ran. Default ON — the
-    # measurement is the whole point, it costs two DB reads against a setup
+    # measurement is the whole point, it costs two DB reads + one
+    # snapshot-dedup SELECT (steady state ~1 INSERT), and the shadow row's
+    # candidates_json carries the full pool (10KB-scale) against a setup
     # phase whose p50 is 8.5 SECONDS, and it decides nothing.
     #
     # It has a switch because every comparable governance toggle in this batch

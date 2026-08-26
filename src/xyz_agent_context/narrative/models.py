@@ -496,8 +496,15 @@ class RoutingAudit(BaseModel):
     # skips the judge entirely, and storing 0 there would drag every "cost of
     # arbitration" query toward nothing, destroying the exact comparison these
     # columns exist to make.
+    # SHADOW ROWS (pool_is_shadow=1, slice 0) change one dimension:
+    # `retrieve_ms` there holds ONLY the instrument's own tier-2 cost — the
+    # judge never ran. Same column, two magnitudes; any cross-population cost
+    # aggregate MUST filter on pool_is_shadow first, or the continuation
+    # majority's ~13ms rows dilute "how expensive is arbitration" exactly the
+    # way the paragraph above warns a stored 0 would. `keyword_ms` is the one
+    # cost column with an identical definition in both populations.
     continuity_ms: Optional[int] = None   # tier 1 LLM (continuity detect)
-    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k)
+    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k); shadow rows: tier 2 only
     keyword_ms: Optional[int] = None      # BM25 pool load + rank
     judge_ms: Optional[int] = None        # tier 3 LLM (unified match)
 

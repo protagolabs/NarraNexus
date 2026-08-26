@@ -489,7 +489,13 @@ class NarrativeService:
             # the audit repository already states — but a failure in the
             # DECISION path above still propagates, because it is outside this
             # block.
-            if config.NARRATIVE_SHADOW_POOL_RECORD:
+            # User-chat only: background triggers (job / message_bus / IM
+            # webhook) have no session anchor by design, so their shadow rows
+            # answer nothing about the shutter's releasable population
+            # (bypass_reason would be background_scope on every one) while
+            # still paying the recording cost — ~30% of dev turns are
+            # message_bus. Deliberate scope, not an omission.
+            if config.NARRATIVE_SHADOW_POOL_RECORD and is_user_chat:
                 await self._record_shadow_pool(
                     query_text=query_text, user_id=user_id, agent_id=agent_id,
                     session=session, is_user_chat=is_user_chat,

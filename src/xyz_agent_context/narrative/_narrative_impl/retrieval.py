@@ -236,7 +236,7 @@ class NarrativeRetrieval:
         # anyone arriving here to make selection faster should go there — see
         # the `continuity_ms` / `judge_ms` columns on narrative_routing_audit,
         # which exist to make that obvious without re-deriving it.
-        scored = await self._score_and_record(
+        scored = await self._score_pool(
             query, user_id, agent_id,
             top_k=top_k,
             anchor_narrative_id=anchor_narrative_id,
@@ -267,7 +267,7 @@ class NarrativeRetrieval:
         # force LLM judgment regardless: they carry a synthetic neutral score,
         # and a high BM25 hit on the user's OWN narrative should not win over
         # the task they were invited into (P0-4). Both verdicts come from
-        # `_score_and_record`, the same pass the shadow recorder uses.
+        # `_score_pool`, the same pass the shadow recorder uses.
         gate, bypass = scored.gate, scored.bypass
         # `gate_short_circuit` keeps its original meaning — "this turn skipped
         # the judge" — so it now reflects the bypass decision, not floor+margin.
@@ -499,7 +499,7 @@ class NarrativeRetrieval:
 
         return candidates, snapshots
 
-    async def _score_and_record(
+    async def _score_pool(
         self,
         query: str,
         user_id: str,
@@ -669,17 +669,22 @@ class NarrativeRetrieval:
         time a column is added, and the one this replaces was already missing
         `gate_reason` on the day it was written.
 
-        Cost is the same two reads the real path pays and they are AWAITED, not
-        fired and forgotten: a bare `create_task` here would swallow its own
-        exceptions into a GC warning and race the audit write that is supposed
-        to carry its output (incident lesson #2). The elapsed time lands in
+        Cost is the same two reads the real path pays, PLUS what the recording
+        itself newly triggers downstream: the audit write's snapshot dedup (one
+        SELECT over the pool's hashes; steady state ~1 INSERT, a cold pool's
+        first turn up to ~100) and a full-pool candidates_json on the row
+        (~100 entries, 10KB-scale) — capacity, not latency, is the real line
+        item. Everything is AWAITED, not fired and forgotten: a bare
+        `create_task` here would swallow its own exceptions into a GC warning
+        and race the audit write that is supposed to carry its output
+        (incident lesson #2). The elapsed time lands in
         `audit.retrieve_ms`, which is empty on shadow rows today and whose
         meaning — how long the retrieval tier took — fits exactly, so the
         instrument carries its own L3 observability instead of a hand-measured
         number in a docstring.
         """
         _t_retrieve = _perf.monotonic()
-        scored = await self._score_and_record(
+        scored = await self._score_pool(
             query, user_id, agent_id,
             top_k=top_k,
             anchor_narrative_id=anchor_narrative_id,

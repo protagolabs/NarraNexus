@@ -318,8 +318,8 @@ async def test_the_shadow_column_is_registered_on_both_dialects() -> None:
 #
 # Finding #2 was "the instrument re-implements the real path instead of sharing
 # code with it, and has already drifted in three places". The fix is a shared
-# `_score_and_record`. These tests pin the three drifts SHUT, so the next edit
-# to the scoring段 cannot silently re-open them — a review memory is not a
+# `_score_pool`. These tests pin the three drifts SHUT, so the next edit
+# to the scoring section cannot silently re-open them — a review memory is not a
 # mechanism.
 
 
@@ -399,16 +399,16 @@ async def test_both_paths_score_through_the_same_helper(
     one cause: the instrument re-implemented the real path instead of sharing
     it. Asserting each symptom separately would leave the cause alive, so this
     asserts the cause is gone: BOTH paths go through one helper, with the same
-    `top_k`. A future edit to the scoring段 now cannot reach only one of them.
+    `top_k`. A future edit to the scoring section now cannot reach only one of them.
     """
     calls: list[dict] = []
-    original = service._retrieval._score_and_record
+    original = service._retrieval._score_pool
 
     async def _spy(*a, **kw):
         calls.append(dict(kw))
         return await original(*a, **kw)
 
-    monkeypatch.setattr(service._retrieval, "_score_and_record", _spy)
+    monkeypatch.setattr(service._retrieval, "_score_pool", _spy)
     await _shadow_and_decision_rows(service, db_client, monkeypatch)
 
     assert len(calls) == 2, (
@@ -458,8 +458,6 @@ async def test_a_failed_recorder_leaves_no_orphan_snapshot(
     # built, which is the only point at which an orphan snapshot could exist.
     # Failing earlier is why the first version of this test passed without
     # proving anything.
-    real_bypass = service._retrieval.__class__.__module__
-
     def _boom(*a, **kw):
         raise RuntimeError("scoring exploded after the pool was recorded")
 
@@ -504,3 +502,27 @@ async def test_the_instrument_has_an_env_switch(service, db_client, monkeypatch)
     assert result.narratives[0].id == anchor.id
     assert not row["candidates"], "the switch did not stop the recording"
     assert not row["pool_is_shadow"]
+
+
+@pytest.mark.asyncio
+async def test_a_background_continuation_turn_is_not_recorded(
+    service, db_client, monkeypatch
+):
+    """PR #365 review M4: background triggers have no session anchor by
+    design, so their shadow rows cannot answer the shutter's releasable-
+    population question (bypass_reason would be background_scope on every
+    one) — they would only pay the recording cost, and message_bus alone is
+    ~30% of dev turns. The scope is user chat; this pin keeps that a
+    mechanism instead of a default."""
+    anchor, _others = await _seed(service)
+    _continuous(service, monkeypatch)
+
+    result = await service.select(
+        AGENT, USER, "那第二步呢", session=_session(anchor.id),
+        trigger="job", is_user_chat=False,
+    )
+
+    assert result.narratives, "the decision path itself is untouched"
+    row = await _row(db_client)
+    assert not row["candidates"], "a background turn must not pay the recorder"
+    assert row["pool_is_shadow"] in (0, None)

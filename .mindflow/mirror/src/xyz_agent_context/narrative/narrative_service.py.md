@@ -4,6 +4,17 @@ last_verified: 2026-08-26
 stub: false
 ---
 
+## 2026-08-26 — 影子记录收窄到用户聊天轮(PR #365 review M4,刻意决定)
+
+后台触发(job/message_bus/IM webhook)按设计无会话锚点,其影子行对
+"快门在用户对话上的可释放人群"恒无贡献(bypass_reason 必为
+background_scope),却照付记录成本——message_bus 单独占 dev 轮次 ~30%。
+守卫改为 `NARRATIVE_SHADOW_POOL_RECORD and is_user_chat`,测试
+test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
+而非遗漏;若将来要拿后台轮当"continuity 误判"的证据面,重新放开时
+须同步此条与该测试。
+
+
 # narrative_service.py — Narrative 统一门面
 
 ## 2026-08-25 — 续接轮也记池(切片 0),但判决一个字不改
@@ -26,7 +37,8 @@ monkeypatch 掉再跑同一轮,逐字段比对决策列。**一个会改变被�
 在一段不可能抛异常的赋值块里一次提交 —— 所以没有清单可漂。
 
 **开关**:`config.NARRATIVE_SHADOW_POOL_RECORD`(env,缺省开)。加它的理由不是
-延迟(~13.5ms 对着这条路径 p50 8.5 秒的 setup 阶段可以忽略),而是**回滚粒度**:
+延迟(~13.5ms+快照去重 SELECT,对着这条路径 p50 8.5 秒的 setup 阶段可以忽略;
+真实代价是容量——影子行 candidates_json 带整池,10KB 级/行),而是**回滚粒度**:
 这一批每一个同类治理开关都是 env 门控的,没有开关就意味着关掉仪器要改代码 +
 重新发布两种运行模式(铁律 #7)。⚠ 关闭态下 `pool_is_shadow` 恒为 0,与
 "续接轮从来没有池"**在数据上不可区分** —— 关了要记下窗口,表事后告诉不了你。

@@ -2894,6 +2894,10 @@ _register(
             # short-circuited decision skips the judge, and a 0 there would
             # make "how expensive is arbitration" answer far too low, which is
             # precisely the comparison these columns exist to support.
+            # Shadow rows (pool_is_shadow=1) hold the instrument's own tier-2
+            # cost in retrieve_ms — filter on pool_is_shadow before any
+            # cross-population aggregate, or the continuation majority's ~13ms
+            # dilutes the arbitration numbers the same way a stored 0 would.
             Column("continuity_ms", "INTEGER", "INT"),
             Column("retrieve_ms", "INTEGER", "INT"),
             Column("keyword_ms", "INTEGER", "INT"),
