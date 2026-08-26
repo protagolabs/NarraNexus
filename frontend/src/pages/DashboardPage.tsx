@@ -48,10 +48,11 @@ import { Sparkline } from '@/components/dashboard/Sparkline';
 import { RecentFeed } from '@/components/dashboard/RecentFeed';
 import { MetricsRow } from '@/components/dashboard/MetricsRow';
 import { AgentModelCard } from '@/components/dashboard/AgentModelCard';
+import { AgentModelChip } from '@/components/dashboard/AgentModelChip';
 import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { cn } from '@/lib/utils';
-import type { AgentStatus, OwnedAgentStatus } from '@/types';
+import type { AgentStatus, OwnedAgentStatus, AgentModelOverview } from '@/types';
 
 // The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
 // App.tsx's route-level split) so opening /app/dashboard doesn't drag the
@@ -114,6 +115,24 @@ export function DashboardPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [llmCfgAgentId, setLlmCfgAgentId] = useState<string | null>(null);
   const [modelReloadKey, setModelReloadKey] = useState(0);
+  const [modelOverview, setModelOverview] = useState<AgentModelOverview>({});
+
+  // One bulk fetch of every owned agent's effective model for the collapsed
+  // row chip (avoids a per-agent llm-config N+1); refetched after an edit saves.
+  useEffect(() => {
+    let alive = true;
+    api
+      .getAgentsModelOverview()
+      .then((r) => {
+        if (alive && r.success && r.data) setModelOverview(r.data.agents);
+      })
+      .catch(() => {
+        /* chip just renders nothing */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [modelReloadKey]);
   const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
   const [filterTeam, setFilterTeam] = useState<string>(''); // '' / 'untagged' / 'imported' / <team_id>
   const [filterText, setFilterText] = useState('');
@@ -731,6 +750,7 @@ export function DashboardPage() {
                             <span className="min-w-0 flex flex-col gap-px">
                               <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{a.name || a.agent_id}</span>
                               <span className="font-mono text-[10px] text-[var(--nm-ink30)] truncate">{a.agent_id}</span>
+                              <AgentModelChip agentId={a.agent_id} entry={modelOverview[a.agent_id]} />
                             </span>
                           </span>
                           <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--nm-ink70)]">

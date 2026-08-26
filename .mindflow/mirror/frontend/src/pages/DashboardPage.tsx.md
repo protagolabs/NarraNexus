@@ -11,6 +11,10 @@ stub: false
 [[AgentLlmConfigPanel]]（列表场景用 `string|null` 存「当前编辑哪个 agent」，
 不是单个 bool——多行各自可开）。保存后 `modelReloadKey++` 触发卡片重拉。
 
+折叠行名字列下挂 [[AgentModelChip]]，数据来自页面级单次
+`api.getAgentsModelOverview()`（`modelOverview` state，随 `modelReloadKey` 刷新）
+——一次拿全 agent 的 effective 模型，免 per-agent N+1。
+
 ## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
 
 Owner 要求「智能体管理」(=本页,zh title 就叫智能体管理)的视图切换改成
