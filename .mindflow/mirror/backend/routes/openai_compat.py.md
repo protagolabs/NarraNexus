@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-17
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 托管 turn 在 `before_run` 之后重渲 tag 行
+
+`run_input` 在 `build_inbound_run_context` 里就定型了，而给 tag 盖
+`is_agent_peer` 的是后面的 ingress hooks——详见 [[sync.py]] 的同日条目。
+所以这里在 hooks 之后补一次 `retag_managed_input`。
+
+**放在 deny 早返回之后**：被拒的 turn 永远不会到达模型，为它重渲一次只是
+语义噪声。`retrieval_anchor` / `trigger_id` / `manyfold_attachments` 都不受
+影响——重渲只碰 `run_input` 的第一行。
 
 ## 2026-08-10 — managed turn 的 route/duration 进审计(batch-2 §B)
 

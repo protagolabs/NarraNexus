@@ -134,11 +134,16 @@ def build_inbound_run_context(
     sender_name = _ctx_str(ctx, "sender_name") or sender_id or "user"
     room_id = _ctx_str(ctx, "room_id")
     source_message_id = _ctx_str(ctx, "source_message_id")
+    # ``is_agent_peer`` cannot be answered here — only the channel's own
+    # trigger knows the platform's identity convention, and it does not run
+    # until the ingress hooks. Built False, then the tag LINE is re-rendered
+    # by ``retag_managed_input`` once the hooks have stamped the dict.
     tag = ChannelTag(
         channel=ws.value,
         sender_name=sender_name,
         sender_id=sender_id,
         room_id=room_id,
+        is_agent_peer=False,
     )
     trigger_extra_data: dict[str, Any] = {
         "channel_tag": tag.to_dict(),
@@ -171,6 +176,39 @@ def build_inbound_run_context(
         if cleaned:
             trigger_extra_data["manyfold_attachments"] = cleaned
     return ws, f"{tag.format()}\n{user_input}", trigger_extra_data
+
+
+def retag_managed_input(trigger_extra_data: dict, run_input: str) -> str:
+    """Re-render the tag line after the ingress hooks have stamped it.
+
+    ``build_inbound_run_context`` has to render the tag to build
+    ``run_input``, but some of what belongs ON that tag is only known once
+    the channel's trigger has looked at the turn — ``is_agent_peer`` is the
+    first such field. The stamp lands in
+    ``trigger_extra_data["channel_tag"]`` (a dict), which meant the dict and
+    the string the model actually reads disagreed: the model was handed a
+    tag identical to a human conversation's while the DM protocol's
+    loop-breaker clause names the very marker that was missing.
+
+    So: render once early (the string has to exist), then **replace** that
+    one line here once the dict is final. Replace, never prepend — a second
+    tag line would be worse than a stale one.
+
+    Rendering still goes through ``ChannelTag.format()``, the single
+    definition. Hand-writing the marker at a second site is exactly the
+    "N hand-rolled copies" shape this signal was built to avoid.
+
+    Returns ``run_input`` unchanged when there is nothing to re-render: a
+    plain Manyfold turn carries no ``channel_tag``, and a first line that is
+    not a tag is left alone.
+    """
+    tag_dict = trigger_extra_data.get("channel_tag")
+    if not isinstance(tag_dict, dict) or not tag_dict:
+        return run_input
+    head, sep, rest = run_input.partition("\n")
+    if not (head.startswith("[") and head.endswith("]")):
+        return run_input
+    return f"{ChannelTag.from_dict(tag_dict).format()}{sep}{rest}"
 
 
 def _require_manyfold_auth(request: Request) -> None:

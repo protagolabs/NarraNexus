@@ -182,14 +182,20 @@ class ManagedChannelIngress:
         if trigger is not None:
             tag = trigger_extra_data.get("channel_tag")
             if isinstance(tag, dict):
+                # Written only when TRUE, matching ``ChannelTag.to_dict``'s
+                # "falsy fields do not appear" rule — otherwise managed
+                # turns would carry ``"is_agent_peer": false`` in their
+                # persisted tag while native turns carry no key at all, a
+                # difference with no meaning that a future snapshot diff
+                # would trip over.
                 try:
-                    tag["is_agent_peer"] = trigger.is_agent_peer(message)
+                    if trigger.is_agent_peer(message):
+                        tag["is_agent_peer"] = True
                 except Exception as e:  # noqa: BLE001
                     logger.warning(
                         f"managed ingress: is_agent_peer failed for {channel} "
                         f"({type(e).__name__}: {e}); treating as human"
                     )
-                    tag["is_agent_peer"] = False
 
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:

@@ -54,6 +54,7 @@ from pydantic import BaseModel, Field
 
 from backend.routes.manyfold.sync import (
     build_inbound_run_context,
+    retag_managed_input,
     execute_job_once,
     parse_run_job_control,
 )
@@ -651,6 +652,11 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 created_ts=created_ts,
                 stream=body.stream,
             )
+        # The hooks above are what puts ``is_agent_peer`` on the tag, and
+        # ``run_input`` was rendered before they ran — so re-render that one
+        # line now that the tag dict is final. Deliberately after the deny
+        # early-return: a rejected turn never reaches a model.
+        run_input = retag_managed_input(trigger_extra_data, run_input)
         # Platform-ingested attachments → native Attachment protocol
         # (store + index + STT) so the marker pipeline works unchanged.
         # Never raises; a broken ref degrades that file to text-only.

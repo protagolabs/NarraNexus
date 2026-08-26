@@ -116,6 +116,11 @@ class ChannelTag:
         Supported formats:
             [Channel · Name · ID]
             [Channel · Name · ID · RoomID]
+            [Channel · Name · ID · agent sender]
+            [Channel · Name · ID · RoomID · agent sender]
+
+        The trailing marker is stripped before the positional read, so a
+        room-less agent tag does not parse "agent sender" as the room id.
 
         Args:
             tag_str: Text tag string

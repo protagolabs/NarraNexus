@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-10
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `retag_managed_input`：盖章之后重渲 tag 行
+
+`build_inbound_run_context` 必须先渲染 tag 才能拼出 `run_input`，但 tag 上
+有些字段**要等渠道自己的 trigger 看过这一轮才知道**——`is_agent_peer` 是
+第一个这样的字段（只有 trigger 层知道各平台的身份约定）。
+
+顺序是：`:612` 渲染 → `:639` `before_run` 把 `is_agent_peer` 盖进
+`trigger_extra_data["channel_tag"]` **字典** → `:702` 把**早就定型的**
+`run_input` 送进 agent。**字典被改了，模型读的那个字符串没有。**
+
+后果正好落在这个信号最该生效的地方：`MatrixTrigger.is_agent_peer` 是全仓
+唯一能真答出这个问题的实现，而 NarraMessenger 就跑在托管模式下。于是托管
+A2A DM 里，模型拿到的 tag 与人类对话逐字节相同，而 DM 协议里那条
+「若标记为 `agent sender`」是一条**永远走不到的分支**。
+
+修法：**替换**那一行，不新拼一行（两行 tag 比一行过时的更糟），且仍然只走
+`ChannelTag.format()` 这一个渲染定义——在托管侧手写 `agent sender` 就退回成
+「N 份手抄」了。顺带让 `ChannelTag.from_dict` 从死代码变成有调用点。
+
+无 `channel_tag` 的纯 Manyfold turn、以及首行不是 tag 的正文，都原样返回。
 
 ## 2026-08-10(review 修)— env 委托 + 全败还原批次
 

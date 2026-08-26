@@ -48,7 +48,16 @@ def _msg(sender_id: str) -> ParsedMessage:
     "cls", sorted(CHANNEL_TRIGGER_MAP.values(), key=lambda c: c.__name__)
 )
 def test_every_channel_answers_the_question(cls):
-    assert callable(getattr(cls, "is_agent_peer", None))
+    """Feed each channel a message and check what comes back.
+
+    ``callable(getattr(cls, "is_agent_peer"))`` — the first version — could
+    never fail: the base class defines it, so every subclass inherits
+    something callable. Actually calling it catches an override that
+    returns None, raises, or hands back a truthy non-bool (which would sail
+    through ``if is_agent_peer:`` and then serialise as junk on the tag).
+    """
+    got = cls.is_agent_peer(None, _msg("U123"))  # type: ignore[arg-type]
+    assert isinstance(got, bool), f"{cls.__name__} returned {got!r}"
 
 
 def test_the_default_is_human():
@@ -74,23 +83,57 @@ def _code(func) -> str:
     return "\n".join(ln for ln in lines if not ln.strip().startswith("#"))
 
 
+def _modules_that_build_receive_path_tags():
+    """Derived from the trigger registry, not hardcoded.
+
+    The first version listed three modules by hand and therefore could not
+    see the fourth construction site (``backend/routes/manyfold/sync.py``)
+    — the one whose tag is what the model actually reads. A guard whose
+    coverage is a literal list gives the false comfort of "CI will catch
+    me" while a new channel walks straight past it.
+    """
+    import importlib
+    import inspect as _inspect
+
+    import xyz_agent_context.channel.channel_trigger_base as base
+
+    mods = {base}
+    for cls in CHANNEL_TRIGGER_MAP.values():
+        mod = _inspect.getmodule(cls)
+        if mod is not None:
+            mods.add(mod)
+    # The managed/platform-forwarded path lives in backend, and its tag is
+    # the one the model reads on that surface.
+    mods.add(importlib.import_module("backend.routes.manyfold.sync"))
+    return sorted(mods, key=lambda m: m.__name__)
+
+
+def test_the_guard_sees_every_registered_channel():
+    """CHANNEL_TRIGGER_MAP is defensively imported (a channel whose optional
+    dependency is missing is skipped silently). If that happens in CI, the
+    guard below would quietly stop checking that channel."""
+    from xyz_agent_context.module.channel_trigger_map import (
+        REGISTERED_TRIGGER_CLASS_NAMES,
+    )
+
+    assert len(CHANNEL_TRIGGER_MAP) == len(REGISTERED_TRIGGER_CLASS_NAMES), (
+        "a channel failed to import — the fill guard is running blind on it"
+    )
+
+
 def test_every_channel_tag_built_on_the_receive_path_fills_the_flag():
     """A site that forgets it does not fail — it silently reports "human",
     which is exactly how a signal like this rots. ``build_trigger_extra_data``
     already taught this lesson: hand-rolled at four sites, new key added to
     one.
     """
-    import xyz_agent_context.channel.channel_trigger_base as base
-    import xyz_agent_context.module.lark_module.lark_trigger as lark
-    import xyz_agent_context.module.narramessenger_module.matrix_trigger as matrix
-
     missing = []
-    for mod in (base, lark, matrix):
+    for mod in _modules_that_build_receive_path_tags():
         src = _code(mod)
-        # Every ChannelTag(...) / ChannelTag.lark(...) on these modules is a
-        # receive-path tag; count them against the fills.
         built = src.count("ChannelTag(") + src.count("ChannelTag.lark(")
-        filled = src.count("is_agent_peer=self.is_agent_peer(")
+        if not built:
+            continue
+        filled = src.count("is_agent_peer=")
         if built != filled:
             missing.append(f"{mod.__name__}: {built} built, {filled} filled")
     assert not missing, (
@@ -99,15 +142,87 @@ def test_every_channel_tag_built_on_the_receive_path_fills_the_flag():
     )
 
 
-def test_managed_mode_stamps_the_flag_too():
-    """Managed turns never run a context builder, so the native fill cannot
-    reach them; without its own stamp every managed A2A DM reads as a human
-    conversation."""
+async def test_the_managed_path_puts_the_marker_in_what_the_model_reads():
+    """The end of the chain, on the surface where it matters most.
+
+    Managed turns render their tag inside ``build_inbound_run_context``,
+    but ``is_agent_peer`` is only known once the channel's trigger has seen
+    the turn — which happens later, in ``before_run``. The stamp therefore
+    lands in the tag DICT while the string already handed to the model is
+    the pre-stamp one. NarraMessenger is the only channel that can answer
+    the question at all AND it runs managed, so this gap covered exactly
+    the traffic the signal exists for.
+
+    Asserting on the source text of ``before_run`` (the first version of
+    this test) could not see that: the stamp was there, in the wrong order.
+    So assert on the string itself.
+    """
+    from backend.routes.manyfold.sync import (
+        build_inbound_run_context,
+        retag_managed_input,
+    )
     from xyz_agent_context.module.managed_channel_ingress import (
         ManagedChannelIngress,
     )
 
-    assert "is_agent_peer" in _code(ManagedChannelIngress.before_run)
+    _, run_input, extra = build_inbound_run_context(
+        channel_provider="narramessenger",
+        channel_context={
+            "sender_id": "@agent-e7726996:matrix.netmind.chat",
+            "sender_name": "Liam",
+            "room_id": "!room:h",
+            "chat_type": "private",
+        },
+        user_input="ping",
+        session_id="s1",
+    )
+    assert AGENT_PEER_MARKER not in run_input, "nothing can know it this early"
+
+    ingress = ManagedChannelIngress()
+    trigger = ingress._trigger("narramessenger")
+    if trigger is None:  # pragma: no cover — optional dependency missing
+        pytest.skip("narramessenger trigger not importable")
+
+    message = __import__(
+        "xyz_agent_context.module.managed_channel_ingress",
+        fromlist=["synthesize_managed_message"],
+    ).synthesize_managed_message(extra, "ping")
+    tag = extra["channel_tag"]
+    if trigger.is_agent_peer(message):
+        tag["is_agent_peer"] = True
+
+    assert AGENT_PEER_MARKER in retag_managed_input(extra, run_input), (
+        "the model reads this string — the stamped dict is not enough"
+    )
+
+
+async def test_retag_replaces_the_tag_line_and_never_adds_one():
+    from backend.routes.manyfold.sync import retag_managed_input
+
+    extra = {
+        "channel_tag": {
+            "channel": "narramessenger", "sender_name": "Liam",
+            "sender_id": "@agent-x:h", "room_id": "!r", "is_agent_peer": True,
+        }
+    }
+    out = retag_managed_input(extra, "[Narramessenger · Liam · @agent-x:h · !r]\nping")
+    assert out.count("\n") == 1, "a second tag line is worse than a stale one"
+    assert out.endswith("\nping")
+    assert AGENT_PEER_MARKER in out
+
+
+async def test_retag_leaves_a_plain_manyfold_turn_alone():
+    """The pure-Manyfold branch returns early with no channel_tag at all."""
+    from backend.routes.manyfold.sync import retag_managed_input
+
+    assert retag_managed_input({"trigger_id": "s1"}, "just a prompt") == "just a prompt"
+
+
+async def test_retag_leaves_an_untagged_body_alone():
+    from backend.routes.manyfold.sync import retag_managed_input
+
+    extra = {"channel_tag": {"channel": "lark", "sender_name": "A", "sender_id": "u"}}
+    assert retag_managed_input(extra, "no tag here\nbody") == "no tag here\nbody"
 
 
 # ── 3. the model actually sees it ─────────────────────────────────────

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 ---
+
+## 2026-08-26 — ChannelTag 构造点填 `is_agent_peer`
+
+Lark **走基类默认**（恒 False）：这个渠道没有 `@agent-` 那样铸死的身份约定，
+猜出来的实现会把这个 seam 从「事实」降级成「猜测」，与 Matrix 那条的价值
+定位冲突。所以只填、不覆写。
+
+填这一行是为了满足「**每个 ChannelTag 构造点都填**」这个契约，
+`test_agent_peer_signal.py` 有一条计数守卫在盯。今天它的运行时效果为零
+（`format()` 输出逐字节不变），所以看起来像一行没用的 False——**别清理它**，
+清掉之后这个渠道会静静地退出守卫覆盖，而漏填的表现只是「报成人类」，不报错。
 
 ## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
 
