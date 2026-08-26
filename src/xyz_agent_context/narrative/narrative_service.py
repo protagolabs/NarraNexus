@@ -471,6 +471,29 @@ class NarrativeService:
                 retrieval_method=retrieval_method,
                 chosen_narrative_id=narratives[0].id if narratives else None,
             )
+            # Slice 0 — record the pool this turn never consulted.
+            #
+            # The verdict above is already final: `narratives`,
+            # `selection_method` and `chosen_narrative_id` are set and nothing
+            # below may touch them. What the recorder adds is the one thing the
+            # merged-routing design cannot get anywhere else — the shutter's
+            # releasable population on continuity turns, currently bounded only
+            # at 6%-39% because these rows carry no pool to reconstruct from.
+            #
+            # Awaited on purpose (~13.5ms, two DB reads): a `create_task` here
+            # would race the audit write below and turn any failure into a GC
+            # warning nobody reads (incident lesson #2).
+            #
+            # The guard is scoped to the instrument and nothing else. Losing a
+            # measurement is cheaper than failing a user's turn — the same rule
+            # the audit repository already states — but a failure in the
+            # DECISION path above still propagates, because it is outside this
+            # block.
+            await self._record_shadow_pool(
+                query_text=query_text, user_id=user_id, agent_id=agent_id,
+                session=session, is_user_chat=is_user_chat,
+                audit=audit, snapshots=audit_snapshots,
+            )
 
         # Update Session (using main Narrative).
         # Only user-initiated runs (chat) write to last_query / last_response /
@@ -726,6 +749,55 @@ class NarrativeService:
             await NarrativeRoutingAuditRepository(db).record(audit, snapshots)
         except Exception as e:  # noqa: BLE001 — the observer must not break the observed
             logger.warning(f"[narrative.audit] not recorded: {type(e).__name__}: {e}")
+
+    async def _record_shadow_pool(
+        self,
+        *,
+        query_text: str,
+        user_id: str,
+        agent_id: str,
+        session,
+        is_user_chat: bool,
+        audit: RoutingAudit,
+        snapshots: dict,
+    ) -> None:
+        """Fill a continuity turn's audit row with the pool it never consulted.
+
+        A thin seam over ``NarrativeRetrieval.record_pool_only`` so the failure
+        boundary is one named place rather than a bare try/except inline in
+        ``select``. It exists to be monkeypatched off in the invariance test:
+        that test runs the same turn with and without it and asserts the
+        decided fields are identical, which is the property that makes this an
+        instrument rather than a change.
+        """
+        try:
+            await self._retrieval.record_pool_only(
+                query_text, user_id, agent_id,
+                anchor_narrative_id=(
+                    session.current_narrative_id if session else None
+                ),
+                is_user_chat=is_user_chat,
+                audit=audit,
+                snapshots=snapshots,
+            )
+        except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+            # Narrow by construction: only the recorder runs inside this block,
+            # and a half-filled pool is worse than none (a replay would compute
+            # IDF over a partial candidate set), so the row is reset to the
+            # shape it had before slice 0 rather than left mid-write.
+            audit.candidates.clear()
+            audit.pool_is_shadow = False
+            audit.gate_top1_raw = None
+            audit.gate_top2_raw = None
+            audit.gate_margin = None
+            audit.bypass_score_gate = None
+            audit.bypass_reason = ""
+            audit.keyword_ms = None
+            logger.warning(
+                f"[narrative.shadow_pool] recording failed (agent={agent_id}): "
+                f"{type(e).__name__}: {e} (verdict unaffected; row falls back "
+                f"to the pre-slice-0 shape)"
+            )
 
     def _get_continuity_detector(self) -> Optional[ContinuityDetector]:
         """Get the continuity detector (lazy loaded)"""

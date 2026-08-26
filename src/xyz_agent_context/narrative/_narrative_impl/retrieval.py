@@ -555,6 +555,87 @@ class NarrativeRetrieval:
                 is_participant=True,
             ))
 
+    async def record_pool_only(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        *,
+        anchor_narrative_id: Optional[str],
+        is_user_chat: bool,
+        audit: "RoutingAudit",
+        snapshots: dict,
+    ) -> None:
+        """Build and score the pool for the RECORD, deciding nothing (slice 0).
+
+        `NarrativeService.select` returns before the retrieval tier whenever
+        continuity says yes, so those turns have never carried a pool. That is
+        the single reason the zero-LLM shutter's releasable population is only
+        bounded at 6%-39% of continuity turns: a 3x band that is reconstruction
+        slack rather than signal (`specs/2026-08-25-merged-routing-design.md`
+        §2.2). This method closes the gap by doing exactly what the real path
+        does, and then handing the result to nobody.
+
+        NOT a decision path. Nothing here is returned, and the caller must not
+        read anything but the audit. The verdict fields it fills are labelled
+        as hypothetical by `audit.pool_is_shadow`.
+
+        Deliberately NOT calling `_ensure_default_narratives`: that CREATES
+        rows, and an instrument must not write business data to observe. Under
+        C-1 governance buckets do not enter the pool anyway, so the recorded
+        pool is the one the real path would have scored.
+
+        Cost is the same two reads the real path pays — measured at ~13.5ms
+        per turn — and they are awaited, not fired and forgotten: a bare
+        `create_task` here would swallow its own exceptions into a GC warning
+        and race the audit write that is supposed to carry its output
+        (incident lesson #2).
+        """
+        participant_narratives, pool = await asyncio.gather(
+            self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
+            self.load_pool(agent_id, user_id),
+        )
+        _t_rank = _perf.monotonic()
+        search_results = self.rank_pool(
+            query, pool, max(config.NARRATIVE_SEARCH_TOP_K, 3)
+        )
+        audit.keyword_ms = int((_perf.monotonic() - _t_rank) * 1000)
+
+        self._record_pool(
+            audit, snapshots, pool, search_results, participant_narratives
+        )
+
+        gate = evaluate_gate(
+            [r.raw_score for r in search_results],
+            raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
+            margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
+        )
+        keyword_leader = max(
+            search_results, key=lambda r: r.raw_score, default=None
+        )
+        bypass = evaluate_bypass(
+            gate,
+            top1_narrative_id=(
+                keyword_leader.narrative_id
+                if keyword_leader is not None and keyword_leader.raw_score > 0
+                else None
+            ),
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+            has_participant_narratives=bool(participant_narratives),
+        )
+
+        audit.pool_is_shadow = True
+        audit.gate_top1_raw = gate.top1_raw
+        audit.gate_top2_raw = gate.top2_raw
+        audit.gate_margin = gate.margin if gate.margin != float("inf") else None
+        audit.bypass_score_gate = gate.short_circuit
+        audit.bypass_reason = bypass.reason
+        audit.gate_reason = bypass.detail
+        # `gate_short_circuit` is NOT set. It means "the gate skipped the
+        # judge", and here the gate decided nothing — filling it would redefine
+        # the column for every existing reader (binding rule #6).
+
     async def load_pool(
         self,
         agent_id: str,

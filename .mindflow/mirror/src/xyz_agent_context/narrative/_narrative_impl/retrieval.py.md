@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-20
+last_verified: 2026-08-25
 stub: false
 ---
 
@@ -170,6 +170,25 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
+
+## 2026-08-25 — `record_pool_only`:建池、打分、然后交给没有人(切片 0)
+
+新增一个**零决策**方法。它做的事与真实路径逐字相同(participant 查询 + `load_pool`
+并发、`rank_pool`、`_record_pool`、`evaluate_gate`、`evaluate_bypass`),
+差别只有一个:**什么都不返回**,结果只落进 audit 行。
+
+**为什么需要它**:`NarrativeService.select` 在 continuity 判 yes 时提前返回,
+于是这些轮次从来没有池。这是零 LLM 快门的可释放人群只能圈到
+**6%(下界)–39%(上界)** 的唯一原因 —— 3 倍带宽是重构松弛,不是信号。
+见 `specs/2026-08-25-merged-routing-design.md` §2.2。
+
+**刻意不调 `_ensure_default_narratives`**:那个函数会**创建**行,而仪器不该为了观测
+去写业务数据。C-1 治理下桶本来就不进池,所以记下来的池就是真实路径会打分的那个池。
+
+**同步 await,不是 fire-and-forget**:两次 DB 读、实测 ~13.5ms/轮。
+`create_task` 在这里会把异常吞成一条 GC 警告,还会与下面那次 audit 写入抢跑
+(事故教训 #2)。
+
 
 ## 为什么存在
 

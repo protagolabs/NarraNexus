@@ -1,10 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 stub: false
 ---
 
 # schema_registry.py
+
+## 2026-08-25 — `narrative_routing_audit.pool_is_shadow`(纯增量)
+
+`INTEGER` / `TINYINT(1)`,可空。标记"这一行的池是只记录、没决策的"(续接轮)。
+可空有两个理由:prod 存量行早于它(铁律 #6,活表上 `NOT NULL` 无默认值会失败),
+以及对任何过滤它的查询来说 NULL 与 0 同义。
+
+语义细节与"为什么 `gate_short_circuit` 保持 NULL"见 [[models.py]] 的 8-25 条。
 
 ## 2026-08-21 — events 加复合索引 `idx_events_user_state`
 

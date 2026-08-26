@@ -460,6 +460,25 @@ class RoutingAudit(BaseModel):
     # judge actually say about the turns the anchor rule refused to let
     # through" — i.e. whether the rule is paying for itself.
     bypass_reason: str = ""
+    # Slice 0. True when the pool on this row was built for the RECORD ONLY and
+    # decided nothing — a continuity turn, where `select` used to return before
+    # the retrieval tier ran at all.
+    #
+    # Without it every gate aggregate silently mixes two populations. With it,
+    # `WHERE pool_is_shadow = 0` is "decisions" and `= 1` is "what the shutter
+    # would have said on the turns continuity already answered" — which is the
+    # measurement the merged-routing design needs and could not get: the
+    # shutter's releasable population is currently bounded at 6%-39%, a 3x band
+    # that is reconstruction slack, not signal, precisely because these rows
+    # carried no pool.
+    #
+    # NOTE the deliberate asymmetry with `gate_short_circuit`: that column means
+    # "the gate skipped the judge", and on a shadow row the gate skipped
+    # nothing, so it stays NULL exactly as it is today (binding rule #6 — an
+    # existing column does not quietly change meaning). The hypothetical verdict
+    # goes to `bypass_score_gate` / `bypass_reason`, which have no legacy
+    # readers.
+    pool_is_shadow: bool = False
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False

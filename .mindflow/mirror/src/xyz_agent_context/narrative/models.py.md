@@ -1,10 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-20
+last_verified: 2026-08-25
 stub: false
 ---
 
 # models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-08-25 — `pool_is_shadow`(切片 0 的分群标志)
+
+`RoutingAudit` 加一列:这一行的池是**只记录、没参与决策**的(continuity 判 yes 的轮次)。
+
+**为什么非要一个标志**:没有它,任何对 gate 列的聚合都会把两个人群混在一起 ——
+"真决策"与"如果当时问了 gate 它会怎么说"。有了它,
+`WHERE pool_is_shadow = 0` 是决策,`= 1` 是快门在续接轮上的可释放人群,
+而后者正是合并设计拿不到的那个数(现在只能圈到 6%–39%,3 倍带宽全是重构松弛)。
+
+**与 `gate_short_circuit` 的刻意不对称(铁律 #6)**:那一列的含义是
+"gate 让这一轮跳过了 judge"。影子行里 gate 什么都没决定,所以它**保持 NULL**,
+与今天逐字节一致 —— 不给既有读者改语义。假设性判决落在
+`bypass_score_gate` / `bypass_reason`,那两列是本批次自己加的,没有历史读者。
+
 
 ## 2026-08-20 — description 是出生证,不是病历(墓碑字段修复)
 

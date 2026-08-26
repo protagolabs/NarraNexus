@@ -1,10 +1,27 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-21
+last_verified: 2026-08-25
 stub: false
 ---
 
 # narrative_service.py — Narrative 统一门面
+
+## 2026-08-25 — 续接轮也记池(切片 0),但判决一个字不改
+
+continuity 短路那条分支里,原本只 new 一个空的 `RoutingAudit`;现在多 await 一次
+`_record_shadow_pool`。**判决在此之前就已经定死**(`narratives` /
+`selection_method` / `chosen_narrative_id` 都已赋值),记录器碰不到它们。
+
+**不变性由测试钉死**:`test_shadow_pool_record.py` 里那条
+`test_the_verdict_is_byte_identical_with_and_without_the_recorder` 把记录器
+monkeypatch 掉再跑同一轮,逐字段比对决策列。**一个会改变被测对象的仪器不如没有**,
+所以这条断言是这个文件存在的理由,不是附加项。
+
+**失败边界是一个具名的窄口子**:`_record_shadow_pool` 里的 try/except 只包住记录器
+本身,决策路径的异常照常往上抛。捕获后会把 audit 行**重置回切片 0 之前的形状**
+(清空 candidates、gate 列归 None)—— 半填的池比没有池更糟,重放会在残缺候选集上
+算 IDF。
+
 
 ## 2026-08-20 — 会话锚点开始参与免审决策(Q 层)
 

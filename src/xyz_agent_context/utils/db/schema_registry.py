@@ -2871,6 +2871,10 @@ _register(
             # the anchor rule denies. `bypass_reason` is which rule decided.
             Column("bypass_score_gate", "INTEGER", "TINYINT(1)"),
             Column("bypass_reason", "TEXT", "VARCHAR(32)"),
+            # Slice 0: this row's pool was recorded, not consulted (a continuity
+            # turn). Nullable because prod rows predate it, and because NULL and
+            # 0 mean the same thing to every query that filters on it.
+            Column("pool_is_shadow", "INTEGER", "TINYINT(1)"),
             # tier 3 — LLM arbitration
             Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("judge_category", "TEXT", "VARCHAR(32)"),
