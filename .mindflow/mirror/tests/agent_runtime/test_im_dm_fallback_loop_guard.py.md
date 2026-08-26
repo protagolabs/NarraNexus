@@ -1,7 +1,7 @@
 ---
 code_file: tests/agent_runtime/test_im_dm_fallback_loop_guard.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 ---
 # test_im_dm_fallback_loop_guard.py — 兜底不能变成乒乓引擎
 
@@ -20,6 +20,6 @@ last_verified: 2026-08-24
 **两半各自都是绿的而链条是断的**——prompt 说一套、运行时做一套，没有任何
 测试会失败。同组还钉住 #359 留下的旧警告不得残留。
 
-计数器按 `channel:room_id` 分桶：一个吵闹的房间不能把别的房间也堵上；
+计数器按 `agent_id:channel:room_id` 分桶：一个吵闹的房间不能把别的房间也堵上；
 拿不到身份时返回空 key 并**不计数**，否则所有无法识别的对话会挤进同一个
 共享桶里互相饿死。

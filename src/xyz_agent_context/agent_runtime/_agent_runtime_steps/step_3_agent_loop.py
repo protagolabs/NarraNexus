@@ -361,10 +361,34 @@ _NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
 # A suppression heuristic, deliberately kept in-process (a restart resets
 # it) like ``background_llm_alerts``' cooldown map. It bounds a burst, not
 # a long-running loop — nothing here survives a restart.
-IM_DM_FALLBACK_BURST_LIMIT = 3
+# Skip reasons for the two gates. Constants, not literals: the assertion
+# that ``channel_prompts``' explanation still names them has to move when
+# the name moves, or it degrades into "the old word is still in a stale
+# comment" and stops catching drift.
+SKIP_REASON_AGENT_PEER = "agent_peer_no_fallback"
+SKIP_REASON_FALLBACK_RATE_LIMITED = "fallback_rate_limited"
+
+# How many platform-written DM replies one conversation may receive inside
+# IM_DM_FALLBACK_WINDOW_SECONDS.
+#
+# Derived from the 8/14 traffic shape rather than picked: that loop ran
+# ~66k messages over ~70h — one every ~4s sustained, and far faster in
+# bursts. A machine ping-pong therefore clears 100+ per ten minutes. A
+# human conversation, even against a model that systematically forgets the
+# reply tool (binding rule #15 says that is the user's choice, not ours to
+# fix), produces single digits in that window.
+#
+# The first version used 3, which sat inside the HUMAN range: a person
+# talking to a weak model would hit it in one ordinary exchange and then
+# get nothing at all — the 0802 symptom ("sent hello, got silence"), and
+# harder to diagnose than the original because the first few replies did
+# arrive. 20 separates the two populations with room to spare, and every
+# hit now leaves an audit row (see ``_audit_fallback_suppressed``) so the
+# number can be revisited against data instead of intuition.
+IM_DM_FALLBACK_BURST_LIMIT = 20
 IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
 
-# f"{channel}:{room_id}" -> monotonic timestamps of recent deliveries.
+# f"{agent_id}:{channel}:{room_id}" -> monotonic timestamps of deliveries.
 _im_dm_fallback_history: dict[str, list[float]] = {}
 
 
@@ -378,9 +402,20 @@ def _fallback_conversation_key(channel_tag: dict, agent_id: str) -> str:
     the gate ever widens beyond DMs, an agent-blind key would let agent A's
     three fallbacks silently gag agent B in the same room.
     """
+    # Normalised HERE, not at the call sites: the key is computed in two
+    # places (decision and record) and they must agree byte for byte. One
+    # site adding ``or ""`` and the other not would give ``":ch:room"`` vs
+    # ``"None:ch:room"`` — two buckets that never meet, so the gate simply
+    # never fires, with no error and no log.
+    agent_id = str(agent_id or "")
     channel = str(channel_tag.get("channel", "") or "")
     room_id = str(channel_tag.get("room_id", "") or "")
-    if not channel and not room_id:
+    # No conversation identity → do not count. ``channel`` is always set
+    # (it is the trigger's own ``channel_name``), so requiring BOTH to be
+    # empty made the empty-room case fall through to a per-CHANNEL bucket
+    # where unrelated DMs would starve each other's budget — the very
+    # thing the empty-key carve-out exists to prevent.
+    if not room_id:
         return ""
     return f"{agent_id}:{channel}:{room_id}"
 
@@ -426,6 +461,49 @@ def _prune_fallback_history() -> None:
         if not stamps or stamps[-1] < cutoff
     ]:
         _im_dm_fallback_history.pop(key, None)
+
+
+# Audit plane for "the platform chose not to speak".
+_FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
+
+
+async def _audit_fallback_suppressed(
+    *, reason: str, agent_id: str, channel_tag: dict, window_count: int
+) -> None:
+    """Leave a DB row when a gate silences a reply that would have gone out.
+
+    The three pre-existing skip reasons are all RECOMPUTABLE from the turn
+    itself (room type, fatal frames, reply-tool frames — all in
+    ``agent_loop_response`` and the envelope). These two are not:
+    ``fallback_rate_limited`` fires off a purely in-process sliding window
+    that a restart wipes. Once the container recycles or the logs rotate,
+    "how many replies did we suppress for this room" is gone.
+
+    That matters because what the person on the other end sees is the 0802
+    symptom — the assistant stopped answering — and the owner has to be
+    able to answer "why". Incident lesson #5: logs rotate and greps miss;
+    DB rows do neither.
+
+    Goes through ``ServiceAuditor`` rather than the channel audit table on
+    purpose: this file must not reach into the channel layer's internals
+    (binding rule #3), and ``ServiceAuditor`` acquires its own db lazily.
+    Never raises — an observer must not break the observed.
+    """
+    try:
+        from xyz_agent_context.services.service_audit import ServiceAuditor
+
+        await ServiceAuditor(_FALLBACK_AUDIT_SERVICE).event(
+            reason,
+            {
+                "agent_id": agent_id,
+                "channel": str(channel_tag.get("channel", "") or ""),
+                "room_id": str(channel_tag.get("room_id", "") or ""),
+                "is_agent_peer": bool(channel_tag.get("is_agent_peer", False)),
+                "window_count": window_count,
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        logger.warning(f"[FALLBACK] suppression audit failed: {e}")
 
 
 def reset_im_dm_fallback_history() -> None:
@@ -585,9 +663,9 @@ def _should_run_helper_llm_fallback(
         # Checked AFTER the two above so the reason we report is the most
         # specific one true of this turn.
         if is_agent_peer:
-            return None, "agent_peer_no_fallback"
+            return None, SKIP_REASON_AGENT_PEER
         if recent_fallback_count >= IM_DM_FALLBACK_BURST_LIMIT:
-            return None, "fallback_rate_limited"
+            return None, SKIP_REASON_FALLBACK_RATE_LIMITED
         return "no_reply_im_dm", ""
 
     if has_fatal and has_reply:
@@ -1895,6 +1973,18 @@ async def step_3_agent_loop(
             logger.info(
                 f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
                 f"(captured_error={captured_error!r})"
+            )
+        # Only the two NEW reasons audit: the other skips are recomputable
+        # from the turn, these two describe the platform deciding to stay
+        # quiet — one of them off state no one can reconstruct later.
+        if skip_reason in (
+            SKIP_REASON_AGENT_PEER, SKIP_REASON_FALLBACK_RATE_LIMITED
+        ):
+            await _audit_fallback_suppressed(
+                reason=skip_reason,
+                agent_id=ctx.agent_id or "",
+                channel_tag=_envelope_tag,
+                window_count=_recent_fallback_count(_fallback_key),
             )
         if fallback_mode is not None:
             logger.warning(

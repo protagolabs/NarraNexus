@@ -274,8 +274,85 @@ def test_the_source_no_longer_claims_the_section_is_inert():
 
     from xyz_agent_context.channel import channel_prompts
 
+    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+        SKIP_REASON_AGENT_PEER,
+        SKIP_REASON_FALLBACK_RATE_LIMITED,
+    )
+
     src = inspect.getsource(channel_prompts)
     assert "DOES NOT TAKE EFFECT YET" not in src
-    # ...but it must still say what is and is not closed.
-    assert "agent_peer_no_fallback" in src
-    assert "fallback_rate_limited" in src
+    # Reference the CONSTANTS, not copies of their values: asserting the
+    # literals would stay green after a rename, because the stale comment
+    # still contains the old word — which is the drift this claims to catch.
+    assert SKIP_REASON_AGENT_PEER in src
+    assert SKIP_REASON_FALLBACK_RATE_LIMITED in src
+
+
+# ── The envelope → decision hop ───────────────────────────────────────
+#
+# Every test above calls `_should_run_helper_llm_fallback` with
+# `is_agent_peer=True` directly, so none of them checks that the key name
+# on the wire matches the one read here. This file's own comments record
+# TWO incidents that died exactly on this hop — `ctx` passed where
+# `context` was meant (the whole IM DM fallback was dead code), and the
+# envelope added to one of four construction sites. Both were all-green.
+
+
+def test_the_flag_survives_the_envelope_hop():
+    from types import SimpleNamespace
+
+    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+        _channel_turn_envelope,
+    )
+    from xyz_agent_context.channel.channel_prompts import ROOM_TYPE_DIRECT
+    from xyz_agent_context.schema.channel_tag import ChannelTag
+
+    # Built through ChannelTag.to_dict() on purpose — hand-writing the dict
+    # would let a key rename drift both sides together and pin nothing.
+    tag = ChannelTag(
+        channel="narramessenger", sender_name="Liam", sender_id="@agent-x:h",
+        room_id="!r", is_agent_peer=True,
+    )
+    context = SimpleNamespace(
+        ctx_data=SimpleNamespace(
+            extra_data={
+                "channel_tag": tag.to_dict(),
+                "channel_room_type": ROOM_TYPE_DIRECT,
+            }
+        )
+    )
+
+    envelope = _channel_turn_envelope(context)
+    mode, reason = _should_run_helper_llm_fallback(
+        working_source="narramessenger",
+        agent_loop_response=[_idle_progress()],
+        cancellation=None,
+        is_direct_message=(
+            envelope.get("channel_room_type") == ROOM_TYPE_DIRECT
+        ),
+        is_agent_peer=bool(
+            (envelope.get("channel_tag") or {}).get("is_agent_peer", False)
+        ),
+    )
+    assert mode is None
+    assert reason == "agent_peer_no_fallback"
+
+
+def test_a_conversation_without_a_room_is_not_counted():
+    """`channel` is always set (it is the trigger's own name), so the
+    empty-key carve-out hinges on `room_id` alone. Without this, an empty
+    room falls into a per-CHANNEL bucket where unrelated DMs starve each
+    other's budget."""
+    assert _fallback_conversation_key({"channel": "telegram"}, "agt_1") == ""
+    assert _fallback_conversation_key({}, "agt_1") == ""
+    assert _fallback_conversation_key(
+        {"channel": "telegram", "room_id": "r1"}, "agt_1"
+    ) == "agt_1:telegram:r1"
+
+
+def test_the_key_is_normalised_inside_the_function():
+    """Decision side and record side compute this key independently; if one
+    normalised `agent_id` and the other did not, they would address two
+    buckets that never meet and the gate would silently never fire."""
+    assert _fallback_conversation_key({"channel": "c", "room_id": "r"}, None) == \
+        _fallback_conversation_key({"channel": "c", "room_id": "r"}, "")
