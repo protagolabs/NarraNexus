@@ -9,7 +9,7 @@ Narrative update implementation
 Features:
 1. update_with_event: Update Narrative with an Event
 2. LLM dynamic update: Asynchronously update name, current_summary, actors, topic_keywords
-3. build_action_digest: compress this turn's tool actions into the update context
+3. build_action_digest: compress this turn's tool actions (no production caller — see C3 in its docstring)
 """
 
 from __future__ import annotations
@@ -206,7 +206,19 @@ def _render_tool_call(content: dict, outcome: Optional[str]) -> str:
 
 
 def build_action_digest(event_log: List[EventLogEntry]) -> str:
-    """
+    """NO PRODUCTION CALLER as of 2026-08-26 (C3 — deliberate, not dead code
+    by neglect): its one consumer, the updater-context insertion, was removed
+    after PR2_CROWDING_ANALYSIS measured that feeding tool actions to the
+    updater renamed continuity anchors and broke a net 24 correct
+    continuations per exam (McNemar p=0.0002). The digest's designated
+    consumer is the supplementary retrieval-terms field (step 2,
+    pre-registered benefit criteria; shared with the A-kw rescue-terms
+    design, capped per source). The machinery — four-layer secret redaction
+    hardened across two review rounds, budget, dedup counting — is kept
+    because deleting and re-writing it for step 2 would discard that
+    hardening. If step 2 is abandoned, delete this whole section (rule #2).
+
+    
     Compress one turn's tool actions into a compact, noun-dense block.
 
     Only ``tool_call`` entries produce output. ``thinking`` is dropped (82.7% of
@@ -610,16 +622,18 @@ class NarrativeUpdater:
         if event.final_output:
             context_parts.append(f"Agent Response: {event.final_output[:500]}")
 
-        # What the agent actually DID this turn (defect A1). final_output is the
-        # agent's self-report; when the answer was delivered through a channel
-        # tool it degrades to "already sent" and carries none of the turn's
-        # nouns. This section is what makes those nouns reachable by BM25 next
-        # turn. Omitted entirely when no tool ran — no empty heading.
-        action_digest = build_action_digest(event.event_log)
-        if action_digest:
-            context_parts.append("")
-            context_parts.append("## Actions taken this turn")
-            context_parts.append(action_digest)
+        # C3 — the action digest is deliberately NOT fed to this context.
+        # It was, briefly (defect A1's fix): the goal was getting the turn's
+        # tool nouns onto the BM25 surface. But the updater's output IS the
+        # continuity anchor — continuity.py reads the same four fields to
+        # describe "the thread you are in" every turn — so digest content
+        # here made the updater rename threads after their latest tool call,
+        # and continuity then judged normal follow-ups as topic switches:
+        # same-line rate 65.3% -> 56.8% on anchor-rewritten rows (McNemar
+        # p=0.0002), net 24 correct continuations broken per exam
+        # (PR2_CROWDING_ANALYSIS, 2026-08-26). The nouns' designated home is
+        # a supplementary retrieval-terms field continuity does not read
+        # (step 2, pre-registered) — never this context.
 
         return "\n".join(context_parts)
 

@@ -1,7 +1,7 @@
 """
 @file_name: test_updater_action_digest.py
 @date: 2026-08-12
-@description: Tests for the "Actions taken this turn" section the narrative
+@description: Tests for build_action_digest (the tool-action compressor) and
 updater feeds to the helper LLM (defect A1).
 
 Before A1 the updater read only ``Event.final_output``. When an agent delivers
@@ -302,7 +302,21 @@ def test_agent_final_output_entry_is_not_duplicated():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_build_update_context_includes_the_actions_section():
+async def test_build_update_context_never_includes_the_actions_section():
+    """C3 (PR2_CROWDING_ANALYSIS, 2026-08-26): digest content must never
+    reach the updater context. The updater's output IS the continuity
+    anchor — continuity reads the same four fields (name / description /
+    summary / keywords) to describe "the thread you are in" every turn, so
+    feeding tool actions here made the updater RENAME threads after their
+    most recent tool call ("团队群聊自我介绍" became "深圳天气查询") and
+    continuity then judged the user's normal follow-up as a topic switch:
+    same-line rate 65.3% -> 56.8% on anchor-rewritten rows (McNemar
+    p=0.0002), a net 24 correct continuations broken per exam, the broken
+    turns adopted by OTHER existing lines (54/55). The digest machinery
+    itself stays (see build_action_digest's docstring for its designated
+    step-2 consumer); this pin is about the one entry point that poisons
+    the anchor.
+    """
     updater = updater_mod.NarrativeUpdater("agent_test")
     event = _event(
         [
@@ -315,20 +329,10 @@ async def test_build_update_context_includes_the_actions_section():
 
     context = await updater._build_update_context(_narrative(), event)
 
-    assert "## Actions taken this turn" in context
-    assert "web.log" in context
-    assert "looking around" not in context
-
-
-@pytest.mark.asyncio
-async def test_build_update_context_omits_the_section_when_no_tools_ran():
-    updater = updater_mod.NarrativeUpdater("agent_test")
-    event = _event([_thinking("no tools needed")], final_output="Sure, here you go.")
-
-    context = await updater._build_update_context(_narrative(), event)
-
     assert "Actions taken this turn" not in context
-    assert "Agent Response: Sure, here you go." in context
+    assert "web.log" not in context
+    # The rest of the context is untouched by the removal.
+    assert "Agent Response: Good" in context
 
 
 def test_nested_credentials_inside_a_dict_argument_are_redacted():

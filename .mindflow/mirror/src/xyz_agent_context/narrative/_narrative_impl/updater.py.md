@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — C3:digest 从 updater 上下文摘除(它在给 continuity 锚点改名)
+
+A1 的修法(把工具动作摘要喂给 updater)有一个没人排查过的第二读者:
+updater 写的四个字段(name/description/summary/keywords)同时是
+**continuity 每轮读的锚点描述**。digest 让 updater 把线改名成最近的工具
+动作("团队群聊自我介绍"→"深圳天气查询"),continuity 读到改名后的锚点,
+把用户的正常延续判成换话题——锚点被改写的行同线率 65.3%→56.8%
+(McNemar p=0.0002,未改写行 p=0.60,自带对照),每卷净打断 24 次正确
+延续,被打断轮 54/55 落进**别的既有线**(PR2_CROWDING_ANALYSIS)。
+
+摘除的只有 `_build_update_context` 的那一段插入(伤害唯一入口)。
+**digest 机器整体保留且当前无生产调用方**——这是刻意状态不是遗漏:
+它的指定消费者是"补充检索词字段"(第二步,收益判据需预注册;与 A-kw
+救援词字段合流,封顶按来源分区)。若第二步被放弃,整段按铁律 #2 删除。
+教训归档:**给字段加新写入源之前,先画全它的读者清单**——description
+墓碑(BM25+continuity+主 prompt 三读者)、本案(BM25+continuity 双读者)
+已是同一课的第二次学费。
+
 
 ## 2026-08-25 — 脱敏第四层(字符串容器)+ 去重计数(PR #361 round 2)
 
