@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/schema/channel_tag.py
-last_verified: 2026-04-10
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 新增 `is_agent_peer` + `format()` 渲染标记
+
+「对面是不是另一个 agent」由 [[channel_trigger_base.py]] 的 `is_agent_peer`
+seam 填。**带在 ChannelTag 上而不是下游现推**：只有 trigger 层知道各平台的
+身份约定，而需要这个答案的地方（先是 prompt，之后是回复决策层）都在
+`ParsedMessage` 够不到的高度。
+
+`format()` 在为真时追加 `AGENT_PEER_MARKER`（`agent sender`）——这是模型
+**唯一**能看到这个信号的途径。选 `format()` 而不是在四个 `tagged_prompt`
+拼接点各加一行，是因为那正是「N 份手抄」缺陷类；`format()` 是唯一定义。
+
+**只在为真时追加**：这些字符串也会进聊天历史，无条件改格式会让新旧轮次
+前后不一致。`to_dict()` 本来就丢假值，所以已有的序列化 tag 一字不变。
+
+`parse()` 一并改：先剥掉尾部标记再按位置读，否则一个**没有 room_id** 的
+agent tag 会把 `agent sender` 当成 room_id。
 
 # channel_tag.py
 

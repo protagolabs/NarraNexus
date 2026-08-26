@@ -1944,6 +1944,7 @@ class LarkTrigger(ChannelTriggerBase):
             sender_id=message.sender_id,
             chat_id=message.chat_id,
             chat_name=message.raw.get("chat_name", ""),
+            is_agent_peer=self.is_agent_peer(message),
         )
         tagged_prompt = (
             f"{channel_tag.format()}\n"

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — loop-breaker 第三条换成确定版本
+
+PR-1 时刻意写的是「对方的消息**读起来像**机器生成」，并在注释里说明平台
+还没有这个信号、有了再换确定版本。信号现在有了
+（[[channel_tag.py]] 的 `is_agent_peer`，`format()` 渲染成 `agent sender`），
+所以这一条改成**两者都说**：标记在就用标记，不在就仍然靠读。
+
+**两者都保留是必要的**，不是保险起见：只有部分渠道答得出这个问题
+（NarraMessenger 从 MXID 读，多数渠道仍然答不出），那些渠道上推测版本就是
+全部。
+
+⚠️ 本页 2026-08-25 那条「这一段目前还不生效」**仍然成立**——它指的是
+`no_reply_im_dm` 兜底会把沉默改写成一条回复，那道运行时门是另一个 PR 的事。
 
 ## 2026-08-25 — DM 协议补 loop-breaker
 

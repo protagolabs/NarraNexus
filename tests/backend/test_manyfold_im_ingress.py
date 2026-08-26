@@ -1690,3 +1690,96 @@ async def test_files_write_audit_cleanup_runs_once_per_day(monkeypatch):
     await files_mod._audit_files_write("a", path="p2", ok=True, size=1)
     assert len(appended) == 2
     assert cleaned == [files_mod._AUDIT_RETENTION_DAYS]  # once, not twice
+
+
+# ---------------------------------------------------------------------------
+# The agent-sender marker has to survive the ROUTE, not just the helper
+#
+# Every other test for this drives `retag_managed_input` directly. None of
+# them notices if the route stops calling it — and the route is the only
+# place that can, because `run_input` is rendered before the ingress hooks
+# know whether the sender is an agent. Delete the call and those tests stay
+# green while the marker silently vanishes from what the model reads, which
+# is exactly the defect this whole signal was added to close.
+# ---------------------------------------------------------------------------
+
+
+async def test_route_renders_the_agent_marker_into_what_the_model_reads(
+    compat_app, monkeypatch
+):
+    from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER
+
+    async def _allow(self, **kwargs):
+        return True, ""
+
+    from xyz_agent_context.module.managed_channel_ingress import (
+        get_managed_channel_ingress,
+    )
+
+    # The process-wide singleton is what the route uses; patching the
+    # trigger CLASS covers it whichever instance is cached.
+    trigger = get_managed_channel_ingress()._trigger("narramessenger")
+    if trigger is None:  # pragma: no cover — optional dependency missing
+        pytest.skip("narramessenger trigger not importable")
+    monkeypatch.setattr(type(trigger), "managed_before_run", _allow)
+
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "ping"}],
+            "stream": False,
+            "channel_provider": "narramessenger",
+            "channel_context": {
+                "sender_id": "@agent-e7726996:matrix.netmind.chat",
+                "sender_name": "Liam",
+                "room_id": "!room:h",
+                "chat_type": "private",
+            },
+        },
+    )
+    assert resp.status_code == 200
+
+    run = _FakeBackgroundRun.instances[-1]
+    assert run.drive_kwargs is not None, "the turn never reached a run"
+    assert AGENT_PEER_MARKER in run.drive_kwargs["input_content"], (
+        "the route dropped the marker — run_input is rendered before the "
+        "hooks know the sender is an agent, so the route must re-render it"
+    )
+
+
+async def test_route_leaves_a_human_managed_turn_unmarked(compat_app, monkeypatch):
+    from xyz_agent_context.schema.channel_tag import AGENT_PEER_MARKER
+
+    async def _allow(self, **kwargs):
+        return True, ""
+
+    from xyz_agent_context.module.managed_channel_ingress import (
+        get_managed_channel_ingress,
+    )
+
+    # The process-wide singleton is what the route uses; patching the
+    # trigger CLASS covers it whichever instance is cached.
+    trigger = get_managed_channel_ingress()._trigger("narramessenger")
+    if trigger is None:  # pragma: no cover
+        pytest.skip("narramessenger trigger not importable")
+    monkeypatch.setattr(type(trigger), "managed_before_run", _allow)
+
+    resp = await _post_completions(
+        compat_app,
+        {
+            "model": "agent_x",
+            "messages": [{"role": "user", "content": "ping"}],
+            "stream": False,
+            "channel_provider": "narramessenger",
+            "channel_context": {
+                "sender_id": "@liam:matrix.netmind.chat",
+                "sender_name": "Liam",
+                "room_id": "!room:h",
+                "chat_type": "private",
+            },
+        },
+    )
+    assert resp.status_code == 200
+    run = _FakeBackgroundRun.instances[-1]
+    assert AGENT_PEER_MARKER not in run.drive_kwargs["input_content"]
