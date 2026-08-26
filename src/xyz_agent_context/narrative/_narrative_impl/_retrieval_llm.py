@@ -20,6 +20,7 @@ from loguru import logger
 
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from ..config import config
+from . import routing_blocks
 from .prompts import (
     NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS,
     NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS,
@@ -93,13 +94,13 @@ async def llm_judge_unified(
         # Build candidate list
         user_input = ""
 
-        # 0. PARTICIPANT Narratives - placed first to emphasize importance
-        if participant_candidates:
-            user_input += "## Participant-Associated Topics (user is a PARTICIPANT):\n\n"
-            for i, candidate in enumerate(participant_candidates):
-                user_input += f"[Participant-{i}] {candidate['name']}\n"
-                user_input += f"Description: {candidate['description']}\n"
-                user_input += "\n"
+        # 0. PARTICIPANT Narratives - placed first to emphasize importance.
+        # Rendered by the shared block (routing_blocks) so the merged router
+        # cannot become a second, drifting copy of this section — the exact
+        # failure this file has already paid for twice.
+        user_input += routing_blocks.render_participant_candidates(
+            participant_candidates or []
+        ).text
 
         # 1. Default Narratives — empty under bucket governance (C-1). The
         # eight category names still reach the model, as VOCABULARY inside the
@@ -114,50 +115,18 @@ async def llm_judge_unified(
                     user_input += f"Examples: {', '.join(candidate['examples'][:3])}\n"
                 user_input += "\n"
 
-        # 2. Search results (BM25 keyword candidates). The header is rendered
-        # even when the list is empty: with nothing to match against, the model
-        # must be told that explicitly rather than left to infer it from a
-        # section that simply is not there.
-        if not search_candidates:
-            user_input += (
-                "## Existing Topics:\n\n(none — this user has no existing "
-                "topics that overlap this message)\n\n"
-            )
-        else:
-            user_input += "## Existing Topics:\n\n"
-            for i, candidate in enumerate(search_candidates):
-                user_input += f"[Topic-{i}] {candidate['name']}\n"
-                user_input += f"Description: {candidate['description']}\n"
-                user_input += f"Similarity score: {candidate['score']:.2f}\n"
-                # WHY it scored that. The score is a per-candidate-set BM25
-                # value squashed into (0,1), so it carries no absolute meaning
-                # and hides the difference between "matched the topic" and
-                # "matched 帮/查/一/下". These two lines are what let the judge
-                # answer "none of these" on a crowded set of frame-word
-                # collisions instead of picking the least-bad row.
-                if candidate.get('matched_terms'):
-                    user_input += f"Matched terms: {', '.join(candidate['matched_terms'])}\n"
-                if candidate.get('matched_content'):
-                    user_input += f"Matched content:\n{candidate['matched_content']}\n"
-                elif candidate.get('raw_score', 0.0) > 0:
-                    # A candidate with a real BM25 score hit at least one query
-                    # term, so its evidence cannot legitimately be empty. This
-                    # branch spent 2026-04-15 → 2026-08-12 as the ONLY branch
-                    # (the writer was deleted while the reader lived in this
-                    # file, and its `logger.debug` sibling fired every turn for
-                    # four months without anyone reading it); if it fires now,
-                    # the wiring broke again. Candidates at raw_score 0.0 are
-                    # the participant narratives merged in at a synthetic score
-                    # — they never went through BM25 and owe nothing, so they
-                    # must not trip this alarm (incident lesson #3: an alarm
-                    # that cries wolf gets silenced, and then it is gone).
-                    logger.warning(
-                        f"[NarrativeJudge] search candidate {i} "
-                        f"({candidate.get('id')}) scored "
-                        f"{candidate.get('raw_score')} but carries no BM25 "
-                        f"evidence — rank_pool → _llm_unified_match wiring is broken"
-                    )
-                user_input += "\n"
+        # 2. Search results (BM25 keyword candidates), through the shared
+        # renderer. The header is emitted even when the list is empty: with
+        # nothing to match against, the model must be TOLD, not left to infer it
+        # from a section that simply is not there. WHY each row scored — the
+        # matched terms and the snippet — is the load-bearing part; see
+        # routing_blocks.render_search_candidates.
+        user_input += routing_blocks.render_search_candidates(
+            search_candidates or [],
+            header=routing_blocks.JUDGE_MENU_HEADER,
+            empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
+            include_score=True,
+        ).text
 
         user_input += f"## User's New Query:\n{query}\n\n"
         user_input += "Please determine which candidate the user query should match, or create a new topic."

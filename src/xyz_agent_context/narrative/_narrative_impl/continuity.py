@@ -19,6 +19,7 @@ from loguru import logger
 from ..models import ConversationSession, ContinuityResult
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from ..config import config as narrative_config
+from . import routing_blocks
 from .prompts import CONTINUITY_DETECTION_INSTRUCTIONS
 
 
@@ -146,35 +147,15 @@ class ContinuityDetector:
         """Call LLM to determine if the query belongs to the same Narrative."""
         instructions = CONTINUITY_DETECTION_INSTRUCTIONS
 
-        # Build user input
-        narrative_context = ""
-        if current_narrative:
-            # Check if this is a special default Narrative
-            is_default_narrative = current_narrative.is_special == "default"
-            narrative_type_label = "[Special Default Narrative]" if is_default_narrative else "[Regular Narrative]"
-
-            # The birth certificate is shown only while the thread has no real
-            # summary yet — see Narrative.description_if_unsummarised. Once a
-            # summary exists the description is a frozen creation-time prompt
-            # (prod: up to 198,398 chars) asserting, in the present tense, a
-            # topic the thread may have left long ago. The LABEL goes with it:
-            # an empty "- Description:" reads to the LLM as "this thread has no
-            # description", which is a different claim than not mentioning it.
-            birth_certificate = current_narrative.description_if_unsummarised()
-            description_line = (
-                f"\n- Description: {birth_certificate}" if birth_certificate else ""
-            )
-            narrative_context = f"""
-Current Narrative Information:
-{narrative_type_label}
-- Name: {current_narrative.narrative_info.name}{description_line}
-- Current Summary: {current_narrative.narrative_info.current_summary}
-- Topic Keywords: {', '.join(current_narrative.topic_keywords) if current_narrative.topic_keywords else 'None'}
-
-Note: If this is a [Special Default Narrative], its boundaries are very strict. Once the user mentions specific objects, tasks, or ongoing topics, it should be judged as not belonging to the current Narrative.
-"""
-        else:
-            narrative_context = "\nNo current Narrative information (this is a new session or no history)\n"
+        # Build user input. The anchored-thread block is rendered by the
+        # shared block (routing_blocks) — byte for byte what this method used to
+        # build inline, and pinned as such by test. It is shared because the
+        # merged router describes the same thread to the same model, and every
+        # previous copy of one of these descriptions drifted (see the file
+        # header there).
+        narrative_context = routing_blocks.render_anchor_context(
+            current_narrative
+        ).text
 
         # Build Agent Awareness context
         awareness_context = ""
@@ -195,26 +176,15 @@ Note: The Agent's role and characteristics may influence how Narratives are cate
         clean_current = current_query
         clean_response = previous_response
 
-        # The "previous turn" is whatever the user last SAW in their chat box.
-        # Two shapes:
-        #   - normal: user asked X, agent replied Y → judge current vs that.
-        #   - proactive: the agent messaged the user unprompted (e.g. from a
-        #     scheduled job); there is no prior user query, only the agent's
-        #     message. A short reply ("好"/"yes") is then almost certainly
-        #     answering THAT message — make the prompt say so explicitly.
-        if clean_previous:
-            previous_turn = (
-                f"Previous conversation turn:\n"
-                f"User asked: {clean_previous}\n"
-                f"Agent's reply/reasoning: {clean_response}"
-            )
-        else:
-            previous_turn = (
-                "Previous turn (the agent messaged the user proactively — "
-                "there was no prior user query; the user's current message is "
-                "most likely replying to this):\n"
-                f"Agent said to user: {clean_response}"
-            )
+        # The "previous turn" is whatever the user last SAW in their chat box,
+        # in one of two shapes (normal exchange / the agent messaging the user
+        # unprompted from a scheduled job). Both live in the shared block, for
+        # the same reason as the anchor context above — the merged router needs
+        # exactly this text, and the proactive variant is the kind of detail a
+        # copy loses.
+        previous_turn = routing_blocks.render_previous_turn(
+            clean_previous, clean_response
+        ).text
 
         user_input = f"""{previous_turn}
 {narrative_context}{awareness_context}

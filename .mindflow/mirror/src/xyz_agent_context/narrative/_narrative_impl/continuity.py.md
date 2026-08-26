@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 锚点块与上一轮块改由共享块渲染(prompt 字节不变)
+
+`narrative_context` 与 `previous_turn` 两段的拼装搬进 [[routing_blocks]]。
+**continuity 的 user_input 一个字节没动**,包括出生证退休那条逻辑
+(`description_if_unsummarised()` 返回空则整行消失)、`[Special Default
+Narrative]` 标签、结尾那句关于桶边界的 Note,以及**agent 主动消息变体**
+(没有上一轮用户提问时那段"the agent messaged the user proactively")。
+golden 断言在 `test_merged_routing_prompt.py`。
+
+为什么动一个被实测数字钉着的文件:合并调用需要**同样**这两段文本,而主动
+消息变体正是拷贝最容易丢的那种细节 —— 它只在定时任务给用户发过消息、
+用户回一句"好"的轮次出现,回放语料里几乎照不到。共享而不是复制,是让第四个
+消费者不可能悄悄丢掉它。
+
+**continuity 的判定行为一点没变**:它仍然是两次调用路径上的第一 tier,
+只在 `NARRATIVE_MERGED_ROUTING_ENABLED=0` 时被调用(开时 `select()` 在它
+之前就提前 return 了)。
+
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 `self.sdk` is now `get_helper_sdk()`. NOTE: on the anthropic helper the
