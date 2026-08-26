@@ -88,8 +88,23 @@ recent / last_heartbeat，没有 delete），现有基线只是几个 poller 的
 
 按 `(reason, 会话键)` 做 10 分钟冷却。**键必须含 reason**——两道门是两件不同
 的事，共用一个槽会让后发生的被前一件吃掉。`window_count` 已经在 payload 里，
-所以冷却不丢诊断力。**写失败不占冷却槽**，否则一次 DB 抖动会让这个对话在
-整个窗口里失声。
+所以冷却不丢诊断力。**写失败不占冷却槽** —— 但这需要 `ServiceAuditor.event()` 报告成败：它
+**永不抛**（`_emit` 内部就吞了），所以第一版据「没抛异常」arm 冷却，实际是
+DB 抖一下这个对话整窗失声，而配套那条测试用一个**会抛的 fake** 钉绿了一个
+只有 fake 才具备的性质。`event()` 现在返回 bool（仍然不抛——观察者不能打断
+被观察者），冷却只在**落库成功**后 arm。
+
+**`window_count` 不是压制量**。它数的是窗口内**成功投递**数，所以对
+`agent_peer_no_fallback` 恒为 0（那道门拦在投递之前）、对
+`fallback_rate_limited` 恒等于上限。两个都是构造决定的常数。真正回答「这一
+窗压了多少」的是 `suppressed_since_last_row`，写成功后清零——不清就变成终身
+累计，而这些行存在的意义就是让阈值**下次能按数据重定**。
+
+**冷却 map 与计数器都要剪枝**：key 含 `room_id`（对端给的），而
+`agent_peer_no_fallback` 在 A2A 对话里**每一轮**都命中，不需要任何异常条件。
+`_prune_fallback_audit_state` 用审计自己的窗口，**不复用限流窗口常量**（今天
+都是 600 但是两件事），也**不挂到 `_prune_fallback_history`**——那个只在投递
+成功那条路上跑，而被 gate 1 拦下的对话永远不投递，恰好是增长最快的那一半。
 
 冷却 map 与 `_im_dm_fallback_history` 一起进 `reset_im_dm_fallback_history()`
 ——拆开重置就是又造一处依赖执行顺序的隐性初值。

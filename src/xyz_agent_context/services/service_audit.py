@@ -59,22 +59,39 @@ class ServiceAuditor:
             self._repo = ServiceAuditRepository(await get_db_client())
         return self._repo
 
-    async def _emit(self, event_type: str, detail: Any = None) -> None:
+    async def _emit(self, event_type: str, detail: Any = None) -> bool:
+        """Write one row. Returns whether it landed.
+
+        Still never raises — an observer must not break the observed, and
+        every caller here relies on that. But swallowing the exception used
+        to also swallow the OUTCOME, so a caller could not tell "written"
+        from "the DB was down". A caller that caches a decision on the
+        strength of a successful write (see the DM fallback gate's audit
+        cooldown) was silently caching it on failures too.
+        """
         try:
             repo = await self._get_repo()
             await repo.record(self.service, event_type, detail)
+            return True
         except Exception as e:  # noqa: BLE001 — observer never breaks observed
             logger.warning(f"[ServiceAudit] {self.service}/{event_type} failed: {e}")
+            return False
 
-    async def event(self, event_type: str, detail: Any = None) -> None:
+    async def event(self, event_type: str, detail: Any = None) -> bool:
         """Emit an arbitrary named audit event.
 
         The public door onto ``_emit`` for callers that need an event name
         outside the started/stopped/error/heartbeat lifecycle (e.g. a tool
         booking ``inbox_write_failed``). Like the rest, it never raises —
         an observer must not break the observed.
+
+        Returns whether the row landed. Most callers ignore it; a caller
+        that caches a decision because it believes the row was written
+        ("only audit this conversation once per window") must not cache it
+        on a failed write, and before this returned a value it could not
+        tell the difference.
         """
-        await self._emit(event_type, detail)
+        return await self._emit(event_type, detail)
 
     async def started(self, detail: Any = None) -> None:
         await self._emit(EVENT_STARTED, detail)

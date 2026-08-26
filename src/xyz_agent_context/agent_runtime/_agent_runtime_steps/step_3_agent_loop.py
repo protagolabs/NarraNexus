@@ -349,18 +349,6 @@ def _channel_turn_envelope(ctx) -> dict:
 # channel recipient waiting on the other end.
 _NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
 
-# How many platform-written DM replies one conversation may receive inside
-# IM_DM_FALLBACK_WINDOW_SECONDS before the fallback stops arming.
-#
-# The fallback exists for an OVERSIGHT — the agent meant to reply and
-# forgot the tool. Oversights are occasional. A conversation generating
-# them steadily is not being helped by a fourth invented reply; it is
-# being fed, and every fallback we emit lands as an inbound message on
-# the other side.
-#
-# A suppression heuristic, deliberately kept in-process (a restart resets
-# it) like ``background_llm_alerts``' cooldown map. It bounds a burst, not
-# a long-running loop — nothing here survives a restart.
 # Skip reasons for the two gates. Constants, not literals: the assertion
 # that ``channel_prompts``' explanation still names them has to move when
 # the name moves, or it degrades into "the old word is still in a stale
@@ -369,7 +357,14 @@ SKIP_REASON_AGENT_PEER = "agent_peer_no_fallback"
 SKIP_REASON_FALLBACK_RATE_LIMITED = "fallback_rate_limited"
 
 # How many platform-written DM replies one conversation may receive inside
-# IM_DM_FALLBACK_WINDOW_SECONDS.
+# IM_DM_FALLBACK_WINDOW_SECONDS before the fallback stops arming.
+#
+# The fallback exists for an OVERSIGHT — the agent meant to reply and
+# forgot the tool. Oversights are occasional; a conversation generating
+# them steadily is being fed, and every fallback we emit lands as an
+# inbound message on the far side. A suppression heuristic, deliberately
+# in-process (a restart resets it) like ``background_llm_alerts``' cooldown
+# map: it bounds a burst, not a long-running loop.
 #
 # Sized against the 8/14 traffic shape: that loop ran ~66k messages over
 # ~70h — one every ~4s sustained, faster in bursts — so a machine
@@ -493,9 +488,80 @@ _FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
 _FALLBACK_AUDIT_COOLDOWN_SECONDS = 600.0
 _fallback_audit_cooldown: dict[str, float] = {}
 
+# How many turns this (reason, conversation) suppressed since its last
+# audit row. ``window_count`` cannot answer that — it counts successful
+# DELIVERIES, so it is structurally 0 for ``agent_peer_no_fallback`` (that
+# gate stops the turn before any delivery) and pinned at the burst limit
+# for ``fallback_rate_limited``. Both are constants, and the whole point of
+# these rows was to make the threshold re-settable from data.
+_fallback_suppressed_since_row: dict[str, int] = {}
+
 # Reused rather than constructed per call — it is stateless apart from the
 # service name and its own lazy db handle.
 _fallback_auditor = None
+
+
+def _prune_fallback_audit_state(now: float) -> None:
+    """Drop cooldown slots whose window has passed, and their counters.
+
+    Same hazard `_prune_fallback_history` was written for, one map over:
+    the key contains ``room_id``, which the far side supplies, and
+    ``agent_peer_no_fallback`` fires on EVERY turn of an A2A conversation
+    — no error condition needed. So an agent talking to many peers leaves
+    one permanent entry per room in a process designed to run for days
+    (binding rule #14).
+
+    Deliberately NOT hung off ``_prune_fallback_history``: that runs on the
+    delivery path, and a conversation stopped by gate 1 never delivers, so
+    exactly the half that grows fastest would never be swept.
+
+    Uses the audit cooldown's own window, not the rate limiter's. They are
+    both 600s today and they are different things; sharing the constant is
+    how one gets changed and silently drags the other with it.
+    """
+    stale = [
+        k
+        for k, t in _fallback_audit_cooldown.items()
+        if now - t >= _FALLBACK_AUDIT_COOLDOWN_SECONDS
+    ]
+    for k in stale:
+        _fallback_audit_cooldown.pop(k, None)
+        _fallback_suppressed_since_row.pop(k, None)
+
+
+async def _maybe_audit_fallback_skip(
+    *,
+    skip_reason: str,
+    agent_id: str,
+    channel_tag: dict,
+    window_count: int,
+    conversation_key: str,
+) -> bool:
+    """Decide whether this skip deserves an audit row, and write it.
+
+    Named and separated from the generator so the WHITELIST is testable.
+    Three of the five skip reasons are recomputable from the turn itself
+    (room type, fatal frames, reply-tool frames), so auditing them would be
+    noise; the two gate reasons are not, and one of them fires off state a
+    restart erases.
+
+    Returns whether a row was attempted — the caller ignores it, tests do
+    not. Inline in the generator this decision could only be checked by
+    reading source text, and "let's just audit all five" is an easy and
+    wrong cleanup for someone to make.
+    """
+    if skip_reason not in (
+        SKIP_REASON_AGENT_PEER, SKIP_REASON_FALLBACK_RATE_LIMITED
+    ):
+        return False
+    await _audit_fallback_suppressed(
+        reason=skip_reason,
+        agent_id=agent_id,
+        channel_tag=channel_tag,
+        window_count=window_count,
+        conversation_key=conversation_key,
+    )
+    return True
 
 
 async def _audit_fallback_suppressed(
@@ -526,10 +592,19 @@ async def _audit_fallback_suppressed(
     Never raises — an observer must not break the observed.
     """
     now = time.monotonic()
-    cooldown_key = f"{reason}:{conversation_key}"
-    last = _fallback_audit_cooldown.get(cooldown_key)
-    if last is not None and now - last < _FALLBACK_AUDIT_COOLDOWN_SECONDS:
-        return
+    # No conversation identity → no cooling. Keying an empty identity would
+    # put every unidentifiable turn in ONE slot, so the first would mute
+    # the audit for all the others — the shared-bucket shape the rate-limit
+    # key had removed one round ago. These turns should be rare; if they
+    # are not, the rows themselves are the evidence.
+    cooldown_key = f"{reason}:{conversation_key}" if conversation_key else ""
+    if cooldown_key:
+        _fallback_suppressed_since_row[cooldown_key] = (
+            _fallback_suppressed_since_row.get(cooldown_key, 0) + 1
+        )
+        last = _fallback_audit_cooldown.get(cooldown_key)
+        if last is not None and now - last < _FALLBACK_AUDIT_COOLDOWN_SECONDS:
+            return
     try:
         global _fallback_auditor
         if _fallback_auditor is None:
@@ -537,19 +612,37 @@ async def _audit_fallback_suppressed(
 
             _fallback_auditor = ServiceAuditor(_FALLBACK_AUDIT_SERVICE)
 
-        await _fallback_auditor.event(
+        wrote = await _fallback_auditor.event(
             reason,
             {
                 "agent_id": agent_id,
                 "channel": str(channel_tag.get("channel", "") or ""),
                 "room_id": str(channel_tag.get("room_id", "") or ""),
                 "is_agent_peer": bool(channel_tag.get("is_agent_peer", False)),
+                # Successful deliveries in the window. NOT the suppression
+                # count — this is 0 for agent_peer_no_fallback and equal to
+                # the burst limit for fallback_rate_limited, by
+                # construction. Carried to line the row up against the
+                # rate-limiter's own state.
                 "window_count": window_count,
+                # The number this row exists to report.
+                "suppressed_since_last_row": _fallback_suppressed_since_row.get(
+                    cooldown_key, 0
+                ),
             },
         )
-        # Armed only after a successful write, so a transient DB blip does
-        # not silence this conversation for the rest of the window.
+        # Armed on a LANDED write, not merely on "nothing was raised":
+        # ``event()`` never raises (its ``_emit`` swallows), so keying off
+        # the absence of an exception armed the cooldown on DB failures
+        # too — the conversation then went unaudited for the rest of the
+        # window even if the DB recovered a second later.
+        if not wrote or not cooldown_key:
+            return
         _fallback_audit_cooldown[cooldown_key] = now
+        # Cleared only after the count reached the DB, or a failed write
+        # would drop a whole window's worth of suppressions.
+        _fallback_suppressed_since_row[cooldown_key] = 0
+        _prune_fallback_audit_state(now)
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
         logger.warning(f"[FALLBACK] suppression audit failed: {e}")
 
@@ -562,8 +655,14 @@ def reset_im_dm_fallback_history() -> None:
     the implicit-initial-value problem the directory-wide fixture exists to
     remove.
     """
+    global _fallback_auditor
     _im_dm_fallback_history.clear()
     _fallback_audit_cooldown.clear()
+    _fallback_suppressed_since_row.clear()
+    # The dirtiest of the three: it caches a ServiceAuditor, which caches a
+    # repository, which caches a db handle. A test that patches
+    # ServiceAuditor gets the stale instance without this.
+    _fallback_auditor = None
 
 
 def _has_organic_reply(
@@ -2030,22 +2129,17 @@ async def step_3_agent_loop(
                 f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
                 f"(captured_error={captured_error!r})"
             )
-        # Only the two NEW reasons audit: the other skips are recomputable
-        # from the turn, these two describe the platform deciding to stay
-        # quiet — one of them off state no one can reconstruct later.
-        if skip_reason in (
-            SKIP_REASON_AGENT_PEER, SKIP_REASON_FALLBACK_RATE_LIMITED
-        ):
-            await _audit_fallback_suppressed(
-                reason=skip_reason,
-                agent_id=ctx.agent_id or "",
-                channel_tag=_envelope_tag,
-                # The value the DECISION saw. Recomputing here can differ:
-                # the window slides, so the audit row would explain the
-                # skip with a number that did not cause it.
-                window_count=_recent_fallback,
-                conversation_key=_fallback_key,
-            )
+        # Whitelisting lives in the helper so it is behaviour-testable.
+        # ``window_count`` is the value the DECISION saw — recomputing here
+        # can differ, since the window slides, and the row would then
+        # explain the skip with a number that did not cause it.
+        await _maybe_audit_fallback_skip(
+            skip_reason=skip_reason,
+            agent_id=ctx.agent_id or "",
+            channel_tag=_envelope_tag,
+            window_count=_recent_fallback,
+            conversation_key=_fallback_key,
+        )
         if fallback_mode is not None:
             logger.warning(
                 f"[FALLBACK] mode={fallback_mode} "

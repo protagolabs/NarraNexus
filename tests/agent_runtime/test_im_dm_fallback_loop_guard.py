@@ -180,27 +180,11 @@ def test_two_agents_in_one_room_get_separate_budgets():
 
 
 # ── Memory ────────────────────────────────────────────────────────────
-
-def _step3_module():
-    """The MODULE, not the same-named function.
-
-    ``_agent_runtime_steps/__init__`` re-exports a ``step_3_agent_loop``
-    function, so ``from ... import step_3_agent_loop`` hands back the
-    function and every module-attribute access fails with a confusing
-    "'function' object has no attribute ...".
-    """
-    import importlib
-
-    return importlib.import_module(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
-    )
-
-
 def test_history_does_not_grow_without_bound():
     """`_recent_fallback_count` only cleans the key it is asked about, so
     a room that gets one fallback and never another would keep its entry
     for the life of the process."""
-    step3 = _step3_module()
+    step3 = _step3()
 
     reset_im_dm_fallback_history()
     for i in range(500):
@@ -220,7 +204,7 @@ def test_history_does_not_grow_without_bound():
 
 
 def test_pruning_keeps_a_conversation_that_is_still_inside_its_window():
-    step3 = _step3_module()
+    step3 = _step3()
 
     reset_im_dm_fallback_history()
     _record_fallback_delivery("telegram:live")
@@ -390,6 +374,7 @@ async def test_a_suppressed_turn_writes_one_audit_row(monkeypatch):
 
         async def event(self, event_type, detail=None):
             rows.append((self.service, event_type, detail))
+            return True  # the real one returns whether the row landed
 
     # Patch the CLASS the module imports lazily, and clear the cached
     # instance so the patched one is used. Letting the real ServiceAuditor
@@ -428,6 +413,7 @@ async def test_the_audit_is_cooled_per_conversation_and_reason(monkeypatch):
 
         async def event(self, event_type, detail=None):
             rows.append((event_type, detail))
+            return True
 
     import xyz_agent_context.services.service_audit as audit_mod
 
@@ -455,21 +441,28 @@ async def test_the_audit_is_cooled_per_conversation_and_reason(monkeypatch):
 
 async def test_a_failed_audit_write_does_not_arm_the_cooldown(monkeypatch):
     """A transient DB blip must not silence this conversation for the rest
-    of the window."""
+    of the window.
+
+    The first version of this test made its fake RAISE — which the real
+    ``ServiceAuditor.event`` never does (``_emit`` swallows). So it pinned
+    a property only the fake had, while production armed the cooldown on
+    every failed write. ``event`` now reports the outcome, and the fake
+    reports it the same way.
+    """
+    outcomes = [False, True]
     calls = []
 
-    class _BoomThenOk:
+    class _FailsThenWorks:
         def __init__(self, service):
             pass
 
         async def event(self, event_type, detail=None):
-            calls.append(event_type)
-            if len(calls) == 1:
-                raise RuntimeError("db down")
+            calls.append(detail)
+            return outcomes[len(calls) - 1]
 
     import xyz_agent_context.services.service_audit as audit_mod
 
-    monkeypatch.setattr(audit_mod, "ServiceAuditor", _BoomThenOk)
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _FailsThenWorks)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
 
     for _ in range(2):
@@ -479,18 +472,153 @@ async def test_a_failed_audit_write_does_not_arm_the_cooldown(monkeypatch):
             window_count=1, conversation_key="a:c:r",
         )
     assert len(calls) == 2, "the first (failed) write must not arm the cooldown"
+    assert calls[1]["suppressed_since_last_row"] == 2, (
+        "a failed write must not drop the window's suppression count"
+    )
 
 
-def test_only_the_two_new_reasons_are_audited():
+async def test_the_real_auditor_reports_its_outcome(monkeypatch):
+    """The contract the fakes above imitate, checked on the real class.
+
+    Asserting the ``-> bool`` ANNOTATION (the first version) proved
+    nothing: dropping the ``return True`` while leaving the annotation in
+    place kept it green, and that is exactly the production bug this whole
+    round is about.
+    """
+    from xyz_agent_context.services.service_audit import ServiceAuditor
+
+    class _OkRepo:
+        async def record(self, *a, **k):
+            return None
+
+    class _BoomRepo:
+        async def record(self, *a, **k):
+            raise RuntimeError("db down")
+
+    auditor = ServiceAuditor("test_plane")
+
+    async def _ok(self):
+        return _OkRepo()
+
+    async def _boom(self):
+        return _BoomRepo()
+
+    monkeypatch.setattr(type(auditor), "_get_repo", _ok)
+    assert await auditor.event("e", {"k": 1}) is True
+
+    monkeypatch.setattr(type(auditor), "_get_repo", _boom)
+    # Still never raises — that contract is unchanged — but now it says so.
+    assert await auditor.event("e", {"k": 1}) is False
+
+
+async def test_each_audit_row_reports_only_what_happened_since_the_last(
+    monkeypatch,
+):
+    """`suppressed_since_last_row` must reset on a landed write.
+
+    Without the reset it becomes a lifetime total, and "how hard was this
+    conversation being suppressed in the last window" — the question these
+    rows exist to answer — silently turns into "how hard has it ever been".
+    """
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append(detail["suppressed_since_last_row"])
+            return True
+
+    import xyz_agent_context.services.service_audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+
+    # A fake clock rather than a zero cooldown. Zeroing the cooldown ALSO
+    # makes every entry immediately stale, so the pruner wipes the counter
+    # and the reset-on-write behaviour becomes unobservable — the setup
+    # would hide the very thing under test.
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(
+        _step3().time, "monotonic", lambda: clock["t"]
+    )
+    cooldown = _step3()._FALLBACK_AUDIT_COOLDOWN_SECONDS
+
+    async def _suppress():
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER, agent_id="a",
+            channel_tag={"channel": "c", "room_id": "r"},
+            window_count=0, conversation_key="a:c:r",
+        )
+
+    # The first suppression writes straight away — a conversation going
+    # quiet should show up immediately, not one cooldown later.
+    await _suppress()
+    assert rows == [1]
+
+    # Two more inside the cooldown: no rows, but they are counted.
+    await _suppress()
+    await _suppress()
+    assert rows == [1]
+
+    # Past the cooldown, the next one writes and reports the three
+    # suppressions since the last row — not the five since the start.
+    clock["t"] += cooldown + 1
+    await _suppress()
+    assert rows == [1, 3], f"counter is accumulating across rows: {rows}"
+
+
+async def test_only_the_two_new_reasons_are_audited(monkeypatch):
     """The other three skips are recomputable from the turn itself, so
-    auditing them would be noise. Pinned because "let's just audit all
-    five" is an easy and wrong cleanup."""
+    auditing them would be noise. Pinned as BEHAVIOUR, not by reading the
+    generator's source: "let's just audit all five" is an easy and wrong
+    cleanup, and a source-string assertion cannot tell whether the branch
+    is reachable.
+    """
+    written = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            written.append(event_type)
+            return True
+
+    import xyz_agent_context.services.service_audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+
+    audited, skipped = [], []
+    for i, reason in enumerate([
+        SKIP_REASON_AGENT_PEER,
+        SKIP_REASON_FALLBACK_RATE_LIMITED,
+        "already_replied_via_tool",
+        "group_room_may_stay_silent",
+        "fatal_no_invented_reply",
+        "non_chat_trigger",
+    ]):
+        did = await _step3()._maybe_audit_fallback_skip(
+            skip_reason=reason, agent_id="a",
+            channel_tag={"channel": "c", "room_id": f"r{i}"},
+            window_count=0, conversation_key=f"a:c:r{i}",
+        )
+        (audited if did else skipped).append(reason)
+
+    assert audited == [SKIP_REASON_AGENT_PEER, SKIP_REASON_FALLBACK_RATE_LIMITED]
+    assert len(written) == 2
+    assert "already_replied_via_tool" in skipped
+
+
+def test_the_generator_dispatches_through_the_whitelist_helper():
+    """The one hop the tests above cannot reach — the call itself, deep in
+    the generator's skip branch. This file's comments record two incidents
+    that died exactly on this kind of hop, both all-green, so the residual
+    is named rather than left implicit.
+    """
     import inspect
 
     src = inspect.getsource(_step3().step_3_agent_loop)
-    marker = "if skip_reason in ("
-    assert marker in src
-    window = src[src.index(marker): src.index(marker) + 200]
-    assert "SKIP_REASON_AGENT_PEER" in window
-    assert "SKIP_REASON_FALLBACK_RATE_LIMITED" in window
-    assert "already_replied_via_tool" not in window
+    assert "_maybe_audit_fallback_skip(" in src
