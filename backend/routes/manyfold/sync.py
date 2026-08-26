@@ -194,18 +194,14 @@ def retag_managed_input(trigger_extra_data: dict, user_input: str) -> str:
     ``run_input``, but some of what belongs ON that tag is only known once
     the channel's trigger has looked at the turn — ``is_agent_peer`` is the
     first such field. The stamp lands in
-    ``trigger_extra_data["channel_tag"]`` (a dict), which meant the dict and
-    the string the model actually reads disagreed: the model was handed a
+    ``trigger_extra_data["channel_tag"]`` (a dict), so without this the
+    dict and the string the model actually reads disagree: the model gets a
     tag identical to a human conversation's while the DM protocol's
-    loop-breaker clause names the very marker that was missing.
+    loop-breaker clause names the very marker that is missing.
 
-    So: render once early (the string has to exist), then **replace** that
-    one line here once the dict is final. Replace, never prepend — a second
-    tag line would be worse than a stale one.
-
-    Rendering still goes through ``ChannelTag.format()``, the single
-    definition. Hand-writing the marker at a second site is exactly the
-    "N hand-rolled copies" shape this signal was built to avoid.
+    Rendering goes through ``ChannelTag.format()``, the single definition.
+    Hand-writing the marker at a second site is exactly the "N hand-rolled
+    copies" shape this signal was built to avoid.
 
     Rebuilds from ``user_input`` with the SAME expression
     ``build_inbound_run_context`` uses, rather than operating on the string

@@ -97,23 +97,28 @@ def _code(obj) -> str:
     import ast
 
     src = inspect.getsource(obj)
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:  # a method's source is not a module
-        tree = None
-    docstrings = set()
-    if tree is not None:
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                 ast.AsyncFunctionDef)):
-                doc = ast.get_docstring(node, clean=False)
-                if doc:
-                    docstrings.add(doc)
-    out = src
-    for doc in docstrings:
-        out = out.replace(doc, "")
+    lines = src.splitlines()
+    # Blank out docstrings by LINE RANGE, not by string replace: what
+    # ``ast.get_docstring`` hands back is the parsed value, while the source
+    # holds the pre-escape form — any docstring with an escape or implicit
+    # concatenation would silently fail to match and stay in the text.
+    drop: set[int] = set()
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                and isinstance(first.value.value, str):
+            drop.update(range(first.lineno - 1, (first.end_lineno or first.lineno)))
     return "\n".join(
-        ln for ln in out.splitlines() if not ln.strip().startswith("#")
+        ln
+        for i, ln in enumerate(lines)
+        if i not in drop and not ln.strip().startswith("#")
     )
 
 

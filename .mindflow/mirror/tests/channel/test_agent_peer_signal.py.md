@@ -43,10 +43,35 @@ trigger 模块必须传 seam 的返回值（否则下一个人可以用硬编码
 （那时 trigger 还没跑），但必须同时存在重渲——少了重渲，这个 False 就不再
 合法。`_code()` 用 `ast` 把 docstring 也剥掉，避免注释/示例进计数。
 
-做过五次变异验证：拿掉 Lark 填充 → 计数守卫红；把 Lark 的 seam 调用换成硬
+做过六次变异验证：拿掉 Lark 填充 → 计数守卫红；把 Lark 的 seam 调用换成硬
 编码 `False` → 红；把 `retag` 变 no-op → 托管行为断言红；把 `retag` 改名
-（托管那处 False 失去合法性）→ 红；**删掉生产代码里整段盖章 → 红**（这条是
-第 2 个坑的回归防线）。
+（托管那处 False 失去合法性）→ 红；**删掉生产代码里整段盖章 → 红**（第 2 个
+坑的回归防线）；**删掉 route 里那行重渲调用 → 红**（见下）。
+
+## 第 3 个坑：用截断改这个文件，静默删掉 7 条测试
+
+第 3 轮 review 抓到的：上一次改这个文件用的是「在标记串处截断」，把标记点
+之后的内容整段砍掉，误删 7 条——其中包括
+`test_the_prompt_clause_names_the_marker`（**这个 PR 自己写下的失败判据**：
+prompt 字面量与 `AGENT_PEER_MARKER` 之间唯一的链接）和「不会拼出第二行 tag」
+那条守卫。
+
+而当时看到「15 passed」就过了。**绿灯不等于完整**——存活的那些照样通过，
+数量掉了 5 条没人发现。
+
+改这个文件之后**必须对比测试名集合**，不是只看通过数：
+
+```
+comm -23 <(git show HEAD:<file> | grep -oE "^(async )?def test_[a-z_]+" | sort) \
+         <(grep -oE "^(async )?def test_[a-z_]+" <file> | sort)
+```
+
+## route 那一环在 tests/backend 里
+
+「route 真的调了 `retag_managed_input`」不在本文件——本文件所有 retag 断言都
+是直接调那个函数，删掉 route 里的调用照样全绿。那一环由
+[[test_manyfold_im_ingress.py]] 的两条真实端点测试盯着
+（ASGITransport + `compat_app`，断言标记出现在 `drive` 的 `input_content` 里）。
 
 最后一条钉的是 **prompt 文案与标记必须一致**——协议里点名一个 tag 从不渲染
 的标记，等于给模型留一条走不到的分支。

@@ -32,6 +32,11 @@ A2A DM 里，模型拿到的 tag 与人类对话逐字节相同，而 DM 协议�
 配套把 `_ctx_str` 改成折叠内部空白：tag 是**单行协议**，带换行的昵称在别处
 （chat history）也是雷。
 
+**注意折叠面比 tag 大**：`_ctx_str` 同时喂着 `room_id` / `source_message_id`
+/ `thread_id` / `reply_token`，而 `trigger_id` 由 `source_message_id` 拼出来
+并进审计行。这些都是 ID，内部带空白本身就是病态输入，折叠对它们无害——但
+**如果哪天有渠道的 ID 合法地含空白，这里要先分字段处理再动**。
+
 无 `channel_tag` 的纯 Manyfold turn 原样返回。
 
 ## 2026-08-10(review 修)— env 委托 + 全败还原批次

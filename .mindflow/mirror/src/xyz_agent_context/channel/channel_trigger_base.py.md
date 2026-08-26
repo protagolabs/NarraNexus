@@ -13,6 +13,14 @@ last_verified: 2026-08-26
 [[channel_tag.py]] 走到上层，让消费方读同一个定义而不是各自再推一遍。
 必须纯且便宜——每条消息都会调。
 
+**契约是「实现只依赖 `message`」**，写在 docstring 里，并由守卫测试用
+unbound 调用（`cls.is_agent_peer(None, msg)`）间接强制。
+
+有人会问为什么不直接 `@staticmethod` 让语言来管——**考虑过，暂不做**：改
+签名要动五个填充点和 Matrix 覆写，而且要先确认没有哪个渠道将来真的需要
+`self`（若需要，该松的是这条约束本身而不是实现）。放到 seam 的消费方都落地
+之后再一起清。
+
 本类里两个 `ChannelTag` 构造点（单条消息 + 静默批）都填了。
 `test_agent_peer_signal.py` 有一条守卫：**每个 ChannelTag 构造点的数量必须
 等于填充数量**——漏填不会报错，只会静静地报「这是人」，正是
