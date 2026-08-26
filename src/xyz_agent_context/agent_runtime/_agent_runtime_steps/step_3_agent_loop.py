@@ -476,15 +476,19 @@ _FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
 # here is set by the far side, not by us: every inbound DM whose turn ends
 # without a reply tool would otherwise write a row. In a fed conversation
 # that is ~130 rows per ten minutes from a single peer (8/14's shape minus
-# the 20 the gate lets through), and ``service_audit`` has no retention
-# sweep at all — one runaway conversation would multiply that table's daily
-# growth several times over, with rows that are near-identical and whose
-# diagnostic value collapses after the first one.
+# the burst limit the gate lets through), and ``service_audit`` has no
+# retention sweep at all — one runaway conversation would multiply that
+# table's daily growth several times over, with rows that are
+# near-identical and whose diagnostic value collapses after the first one.
 #
-# ``window_count`` in the payload already answers "how many did this window
-# suppress", so cooling the WRITE loses nothing. Keyed by reason as well as
-# conversation: the two gates are different facts and must not eat each
-# other's slot.
+# Cooling the WRITE is only lossless because the row carries
+# ``suppressed_since_last_row`` (below). ``window_count`` cannot stand in
+# for it: that counts successful DELIVERIES, so it is 0 for
+# ``agent_peer_no_fallback`` and pinned at the limit for
+# ``fallback_rate_limited``, by construction.
+#
+# Keyed by reason as well as conversation: the two gates are different
+# facts and must not eat each other's slot.
 _FALLBACK_AUDIT_COOLDOWN_SECONDS = 600.0
 _fallback_audit_cooldown: dict[str, float] = {}
 
@@ -494,7 +498,20 @@ _fallback_audit_cooldown: dict[str, float] = {}
 # gate stops the turn before any delivery) and pinned at the burst limit
 # for ``fallback_rate_limited``. Both are constants, and the whole point of
 # these rows was to make the threshold re-settable from data.
-_fallback_suppressed_since_row: dict[str, int] = {}
+# (count, last_touch_monotonic). The timestamp is what makes this map
+# reclaimable: the counter must OUTLIVE the cooldown slot — the number it
+# holds is exactly what accumulated while that slot was armed, which is
+# what the next row exists to report. So it cannot be swept on the
+# cooldown's schedule; it is swept when the conversation itself goes
+# quiet, which is the only moment the number stops being owed to anyone.
+_fallback_suppressed_since_row: dict[str, tuple[int, float]] = {}
+# Strictly longer than the cooldown, and that is the whole point. The
+# pending count comes due the moment the cooldown expires — the next
+# suppression writes a row and reports it. Sweeping the counter on the
+# cooldown's own window would reclaim the debt at the exact instant it is
+# owed. 2x leaves a full window of slack for the conversation to resume
+# and collect it, while still bounding the map.
+_FALLBACK_SUPPRESSED_RETENTION_SECONDS = _FALLBACK_AUDIT_COOLDOWN_SECONDS * 2
 
 # Reused rather than constructed per call — it is stateless apart from the
 # service name and its own lazy db handle.
@@ -519,13 +536,21 @@ def _prune_fallback_audit_state(now: float) -> None:
     both 600s today and they are different things; sharing the constant is
     how one gets changed and silently drags the other with it.
     """
-    stale = [
+    for k in [
         k
         for k, t in _fallback_audit_cooldown.items()
         if now - t >= _FALLBACK_AUDIT_COOLDOWN_SECONDS
-    ]
-    for k in stale:
+    ]:
         _fallback_audit_cooldown.pop(k, None)
+    # Separate schedule, on purpose — see the map's own comment. Keyed off
+    # last touch, so an active conversation keeps its pending count no
+    # matter how many cooldown windows elapse, and a dead one is reclaimed
+    # even if its audit row never landed (the failure path increments too).
+    for k in [
+        k
+        for k, (_, touched) in _fallback_suppressed_since_row.items()
+        if now - touched >= _FALLBACK_SUPPRESSED_RETENTION_SECONDS
+    ]:
         _fallback_suppressed_since_row.pop(k, None)
 
 
@@ -545,9 +570,11 @@ async def _maybe_audit_fallback_skip(
     noise; the two gate reasons are not, and one of them fires off state a
     restart erases.
 
-    Returns whether a row was attempted — the caller ignores it, tests do
-    not. Inline in the generator this decision could only be checked by
-    reading source text, and "let's just audit all five" is an easy and
+    Returns whether the reason is one this plane audits — NOT whether a
+    row landed (``_audit_fallback_suppressed`` may still cool it away or
+    fail to write). The caller ignores it; tests use it to pin the
+    whitelist. Inline in the generator that decision could only be checked
+    by reading source text, and "let's just audit all five" is an easy and
     wrong cleanup for someone to make.
     """
     if skip_reason not in (
@@ -592,6 +619,13 @@ async def _audit_fallback_suppressed(
     Never raises — an observer must not break the observed.
     """
     now = time.monotonic()
+    # Swept on EVERY call, not only after a landed write. The counter grows
+    # on the failure path too (it increments before the write is even
+    # attempted), so hanging the sweep off success means a DB outage — the
+    # exact condition under which these maps grow fastest — is when nothing
+    # reclaims them. That is the same shape as the cooldown map one round
+    # ago, on the map added to fix it.
+    _prune_fallback_audit_state(now)
     # No conversation identity → no cooling. Keying an empty identity would
     # put every unidentifiable turn in ONE slot, so the first would mute
     # the audit for all the others — the shared-bucket shape the rate-limit
@@ -600,7 +634,8 @@ async def _audit_fallback_suppressed(
     cooldown_key = f"{reason}:{conversation_key}" if conversation_key else ""
     if cooldown_key:
         _fallback_suppressed_since_row[cooldown_key] = (
-            _fallback_suppressed_since_row.get(cooldown_key, 0) + 1
+            _fallback_suppressed_since_row.get(cooldown_key, (0, now))[0] + 1,
+            now,
         )
         last = _fallback_audit_cooldown.get(cooldown_key)
         if last is not None and now - last < _FALLBACK_AUDIT_COOLDOWN_SECONDS:
@@ -627,8 +662,8 @@ async def _audit_fallback_suppressed(
                 "window_count": window_count,
                 # The number this row exists to report.
                 "suppressed_since_last_row": _fallback_suppressed_since_row.get(
-                    cooldown_key, 0
-                ),
+                    cooldown_key, (0, now)
+                )[0],
             },
         )
         # Armed on a LANDED write, not merely on "nothing was raised":
@@ -641,8 +676,7 @@ async def _audit_fallback_suppressed(
         _fallback_audit_cooldown[cooldown_key] = now
         # Cleared only after the count reached the DB, or a failed write
         # would drop a whole window's worth of suppressions.
-        _fallback_suppressed_since_row[cooldown_key] = 0
-        _prune_fallback_audit_state(now)
+        _fallback_suppressed_since_row[cooldown_key] = (0, now)
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
         logger.warning(f"[FALLBACK] suppression audit failed: {e}")
 

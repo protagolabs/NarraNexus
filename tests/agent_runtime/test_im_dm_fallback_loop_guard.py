@@ -33,6 +33,28 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop impo
 from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStatus
 
 
+import xyz_agent_context.services.service_audit as audit_mod
+
+
+def _install_fake_clock(monkeypatch, start: float) -> dict:
+    """Freeze step_3's clock WITHOUT touching the stdlib `time` module.
+
+    `step_3` does `import time`, so patching `time.monotonic` would patch
+    it for the asyncio event loop too — every timeout and sleep in the
+    process would read a frozen clock. Rebinding the name inside step_3's
+    own namespace confines the fake to the code under test.
+    """
+    clock = {"t": start}
+
+    class _FakeTime:
+        @staticmethod
+        def monotonic() -> float:
+            return clock["t"]
+
+    monkeypatch.setattr(_step3(), "time", _FakeTime)
+    return clock
+
+
 def _step3():
     """The MODULE — ``_agent_runtime_steps/__init__`` re-exports a function
     of the same name, so a plain ``from ... import step_3_agent_loop`` hands
@@ -380,8 +402,6 @@ async def test_a_suppressed_turn_writes_one_audit_row(monkeypatch):
     # instance so the patched one is used. Letting the real ServiceAuditor
     # run would `await get_db_client()`, fail, and get swallowed by the
     # never-raise handler — the assertion would pass having tested nothing.
-    import xyz_agent_context.services.service_audit as audit_mod
-
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
 
@@ -398,7 +418,17 @@ async def test_a_suppressed_turn_writes_one_audit_row(monkeypatch):
     service, event_type, detail = rows[0]
     assert service == _step3()._FALLBACK_AUDIT_SERVICE
     assert event_type == SKIP_REASON_AGENT_PEER
-    assert {"agent_id", "channel", "room_id", "is_agent_peer", "window_count"} <= set(detail)
+    assert {
+        "agent_id",
+        "channel",
+        "room_id",
+        "is_agent_peer",
+        "window_count",
+        "suppressed_since_last_row",
+    } <= set(detail), (
+        "a field the owner reads to answer 'why did it go quiet' was "
+        f"dropped from the payload: {sorted(detail)}"
+    )
     assert detail["window_count"] == 7
     assert detail["room_id"] == "!r"
 
@@ -414,8 +444,6 @@ async def test_the_audit_is_cooled_per_conversation_and_reason(monkeypatch):
         async def event(self, event_type, detail=None):
             rows.append((event_type, detail))
             return True
-
-    import xyz_agent_context.services.service_audit as audit_mod
 
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
@@ -459,8 +487,6 @@ async def test_a_failed_audit_write_does_not_arm_the_cooldown(monkeypatch):
         async def event(self, event_type, detail=None):
             calls.append(detail)
             return outcomes[len(calls) - 1]
-
-    import xyz_agent_context.services.service_audit as audit_mod
 
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _FailsThenWorks)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
@@ -530,8 +556,6 @@ async def test_each_audit_row_reports_only_what_happened_since_the_last(
             rows.append(detail["suppressed_since_last_row"])
             return True
 
-    import xyz_agent_context.services.service_audit as audit_mod
-
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
 
@@ -539,10 +563,7 @@ async def test_each_audit_row_reports_only_what_happened_since_the_last(
     # makes every entry immediately stale, so the pruner wipes the counter
     # and the reset-on-write behaviour becomes unobservable — the setup
     # would hide the very thing under test.
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(
-        _step3().time, "monotonic", lambda: clock["t"]
-    )
+    clock = _install_fake_clock(monkeypatch, 1000.0)
     cooldown = _step3()._FALLBACK_AUDIT_COOLDOWN_SECONDS
 
     async def _suppress():
@@ -586,8 +607,6 @@ async def test_only_the_two_new_reasons_are_audited(monkeypatch):
             written.append(event_type)
             return True
 
-    import xyz_agent_context.services.service_audit as audit_mod
-
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
 
@@ -622,3 +641,142 @@ def test_the_generator_dispatches_through_the_whitelist_helper():
 
     src = inspect.getsource(_step3().step_3_agent_loop)
     assert "_maybe_audit_fallback_skip(" in src
+
+
+async def test_both_audit_maps_are_reclaimed_when_a_conversation_goes_quiet(
+    monkeypatch,
+):
+    """Neither audit map may grow without bound in a days-long process.
+
+    Both are keyed by `room_id`, which the far side supplies, and gate 1
+    fires on EVERY turn of an A2A conversation — no error needed. Binding
+    rule #14 makes "runs for days" the normal case, so an unbounded
+    per-room map is a leak, not a theoretical one.
+    """
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            return True
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    clock = _install_fake_clock(monkeypatch, 1000.0)
+
+    for i in range(40):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": f"room-{i}"},
+            window_count=0,
+            conversation_key=f"a:c:room-{i}",
+        )
+
+    assert len(_step3()._fallback_audit_cooldown) == 40
+    assert len(_step3()._fallback_suppressed_since_row) == 40
+
+    # Every conversation goes quiet. One more turn, from a fresh room, is
+    # the only thing that runs the sweep — it must reclaim both maps.
+    clock["t"] += _step3()._FALLBACK_SUPPRESSED_RETENTION_SECONDS + 1
+    await _step3()._audit_fallback_suppressed(
+        reason=SKIP_REASON_AGENT_PEER,
+        agent_id="a",
+        channel_tag={"channel": "c", "room_id": "later"},
+        window_count=0,
+        conversation_key="a:c:later",
+    )
+
+    assert list(_step3()._fallback_audit_cooldown) == ["agent_peer_no_fallback:a:c:later"]
+    assert list(_step3()._fallback_suppressed_since_row) == [
+        "agent_peer_no_fallback:a:c:later"
+    ]
+
+
+async def test_the_counter_is_reclaimed_even_when_the_audit_write_never_lands(
+    monkeypatch,
+):
+    """The failure path increments too, so it must be swept too.
+
+    A DB outage is the condition under which these maps grow fastest: no
+    write lands, so no cooldown ever arms, so every single turn increments
+    the counter. Hanging the sweep off a successful write — which is where
+    it started this round — means the one situation that needs reclaiming
+    is the one where reclaiming never runs.
+    """
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            return False  # never lands; ServiceAuditor swallows the cause
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    clock = _install_fake_clock(monkeypatch, 1000.0)
+
+    for i in range(30):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": f"room-{i}"},
+            window_count=0,
+            conversation_key=f"a:c:room-{i}",
+        )
+
+    assert not _step3()._fallback_audit_cooldown, "a failed write must not arm cooling"
+    assert len(_step3()._fallback_suppressed_since_row) == 30
+
+    clock["t"] += _step3()._FALLBACK_SUPPRESSED_RETENTION_SECONDS + 1
+    await _step3()._audit_fallback_suppressed(
+        reason=SKIP_REASON_AGENT_PEER,
+        agent_id="a",
+        channel_tag={"channel": "c", "room_id": "later"},
+        window_count=0,
+        conversation_key="a:c:later",
+    )
+    assert list(_step3()._fallback_suppressed_since_row) == [
+        "agent_peer_no_fallback:a:c:later"
+    ]
+
+
+async def test_an_unidentifiable_conversation_still_gets_a_row_every_time(
+    monkeypatch,
+):
+    """No conversation key → no cooling, and no state left behind.
+
+    Cooling these would put every unidentifiable turn in one shared slot,
+    where the first would mute the audit for all the others. That shared
+    bucket is exactly the defect the rate-limit key was fixed for, so it
+    must not be reintroduced on the audit plane.
+    """
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append(detail)
+            return True
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    _install_fake_clock(monkeypatch, 1000.0)
+
+    for _ in range(3):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": ""},
+            window_count=0,
+            conversation_key="",
+        )
+
+    assert len(rows) == 3, "an unidentifiable turn must never be cooled away"
+    # `suppressed_since_last_row` is structurally 0 here: with nothing
+    # cooled, no row is ever owed a backlog. The field stays in the payload
+    # so its absence never has to be distinguished from a zero.
+    assert [r["suppressed_since_last_row"] for r in rows] == [0, 0, 0]
+    assert not _step3()._fallback_audit_cooldown
+    assert not _step3()._fallback_suppressed_since_row
