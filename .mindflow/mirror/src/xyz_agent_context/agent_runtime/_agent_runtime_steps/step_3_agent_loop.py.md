@@ -25,6 +25,37 @@ step id，工具子步继续以 `{PHASE_RUN_AGENT_STEP}.{n}`（`3.4.x`）嵌在
 run-agent 相位下（response_processor 侧）；[[run_recorder]] 在 tool_call
 上盖同一 derived 标签 `step.3.4_Run Agent`，保 `current_stage` 一致。
 契约测试见 `test_step3_splits_build_context_from_run_agent_phase`。
+## 2026-08-26 — DM 兜底加两道前置门
+
+`no_reply_im_dm` 在 agent 没调回复工具时用 helper LLM **替它编一条回复发
+出去**，此前只问「有没有调过回复工具」。8/14 事故里它没上场，但换个剧本
+它自己就是一台乒乓引擎——**每条兜底落到对面都是一条新的入站消息**。
+
+- **`agent_peer_no_fallback`**：对端是 agent 一律不编。`message_bus` 从一
+  开始就有这条排除（「不能替 agent 回答 peer agent」），但 A2A 对话也走 IM
+  渠道，那条路上这个排除从来没生效过。信号来自
+  [[channel_tag.py]] 的 `is_agent_peer`。
+- **`fallback_rate_limited`**：同一对话近期兜底次数超限则停止武装。兜底是
+  为**疏忽**准备的（本想回、忘了调工具），而疏忽是偶发的。
+
+**两个 reason 的检查顺序在 `has_reply` / `has_fatal` 之后**：报告要说最具体
+的那个——对端是 agent 但这轮已经有机回复过，应该报
+`already_replied_via_tool`（实际发生的事），不是我们本来也会拒绝的事。
+
+**限流键含 `agent_id`**：这张 map 是模块级、被进程内所有 agent 共享。今天
+限流只在 DM 生效（房间里只有我方一个 agent，`room_id` 天然不撞），但那是
+调用方的性质不是键的性质。**在投递成功时才计数**——渠道没发出去的兜底没有
+落到对面，不该花掉这个对话的额度。
+
+## 这一条接通了 #359 留下的断链
+
+#359 给 DM 协议加了「可以沉默」，并在源码里留了警告说它**不生效**：沉默
+= 不调回复工具 = 正好命中本文件的 `no_reply_im_dm`，平台照样发一条。
+
+现在**对 agent 对端完全接通**（选择沉默 = 真的沉默）；**对人类 DM 只是设了
+上限**，因为 `no_reply_im_dm` 本身就是 0802 的修复本体，为人类也关掉它等于
+把「有人发 hello 却没有任何回应」修回去。[[channel_prompts.py]] 里那段警告
+按 #359 的要求在本次改写成了准确版本，而不是简单删掉宣布胜利。
 
 ## 2026-08-21 — `_ensure_executor_for_run`：判决在这一层算
 
