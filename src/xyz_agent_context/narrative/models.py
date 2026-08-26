@@ -496,6 +496,52 @@ class RoutingAudit(BaseModel):
     # like a switch-off row.)
     pool_is_shadow: bool = False
 
+    # ── merged routing (one call instead of two) ─────────────────────────
+    # Filled only when NARRATIVE_MERGED_ROUTING_ENABLED is on. On the two-call
+    # path they all stay NULL, which is what makes "which world was this row
+    # decided in" answerable without joining anything.
+    #
+    # `merged_call` marks the PATH, not the LLM: a turn the shutter released
+    # took the merged path and asked nobody, so it carries merged_call=1 with
+    # `merged_verdict` empty and `merged_ms` NULL.
+    merged_call: bool = False
+    # continue_anchor | match | participant | new | no_topic | failed.
+    # `failed` is deliberately a value rather than an absence: "the model was
+    # asked and could not be used" and "no model was asked" are different rows,
+    # and only the first one is a provider problem.
+    merged_verdict: str = ""
+    # SELF time of the merged call — it nests nothing. Stated because
+    # `retrieve_ms` DOES nest `judge_ms` and that ambiguity sent two readers to
+    # the same wrong conclusion ("routing spends 6 seconds in the database");
+    # see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
+    merged_ms: Optional[int] = None
+    # Characters of rendered prompt. The x-axis of the latency model: the input
+    # budget's numbers are only convertible to milliseconds if production
+    # records what it actually sent.
+    merged_input_chars: Optional[int] = None
+    # Comma-separated section codes that hit their read-side cap
+    # (prev_response / prev_query / anchor_summary / awareness / query /
+    # participants). Empty when nothing was clamped — a silently shortened
+    # prompt is one nobody can explain afterwards.
+    merged_truncated: str = ""
+
+    # ── the anchor's standing in BM25 (the §3.2 instrument) ──────────────
+    # Merging removes a defence that was never named: on the two-call path a
+    # continuity turn never built a menu, so a foreign thread could not reach
+    # the prompt. Now it can, and the anchor is injected unconditionally to
+    # compensate. These three columns are the only way to ever measure how often
+    # that injection was the sole reason the anchor was on the ballot —
+    # reconstructing it later is impossible, because the async updater rewrites
+    # the scored text with no history.
+    #
+    # rank: 1-based among candidates that scored, NULL when the anchor scored
+    # nothing (which is 8.2%-49.3% of continuity turns in the replay arms).
+    anchor_bm25_rank: Optional[int] = None
+    anchor_raw_score: Optional[float] = None
+    # Would the anchor have been on the menu WITHOUT the unconditional
+    # injection? False here is the case §3.2 exists for.
+    anchor_in_menu: Optional[bool] = None
+
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False
     judge_category: str = ""        # participant | default | search | none
@@ -519,8 +565,16 @@ class RoutingAudit(BaseModel):
     # majority's ~13ms rows dilute "how expensive is arbitration" exactly the
     # way the paragraph above warns a stored 0 would. `keyword_ms` is the one
     # cost column with an identical definition in both populations.
+    # MERGED ROWS (merged_call=1) are a THIRD population with the same shape as
+    # a shadow row and none of its caveats: `retrieve_ms` holds the BM25 pass
+    # only, because on that path the LLM is a separate tier with its own column
+    # (`merged_ms`) — so the filter is `pool_is_shadow = 0 AND merged_call = 0`
+    # for "tiers 2+3 together", and `merged_ms` for the merged call's own cost.
+    # Three magnitudes in one column is the point at which it stops being worth
+    # sharing; a future batch should split out `retrieve_self_ms` rather than
+    # add a fourth (todo/2026-08-25-retrieve-ms-nests-judge-ms.md).
     continuity_ms: Optional[int] = None   # tier 1 LLM (continuity detect)
-    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k); shadow rows: tier 2 only
+    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k); shadow AND merged rows: tier 2 only
     keyword_ms: Optional[int] = None      # BM25 pool load + rank
     judge_ms: Optional[int] = None        # tier 3 LLM (unified match)
 

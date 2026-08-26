@@ -225,6 +225,170 @@ class UnifiedMatchOutput(BaseModel):
 """
 
 # ============================================================================
+# Merged routing — ONE call answers "does this continue?" and "then where?"
+# Used in merged_router.build_merged_prompt(), behind
+# NARRATIVE_MERGED_ROUTING_ENABLED.
+#
+# Why a new prompt rather than a longer judge prompt: the judge has no concept
+# of "the thread you are already on". Its `search` exit cannot distinguish
+# "confirmed the continuation" from "happened to pick the anchor out of a
+# menu", and those two have different downstream meanings (the first is not a
+# thread switch and must not be audited as one). So the anchor is a separate
+# section with a separate verdict.
+#
+# What it deliberately does NOT re-litigate: `_NO_DURABLE_TOPIC_RUBRIC` is
+# spliced in verbatim. The 2026-08-21 adjudication put the marginal return of
+# re-wording it at zero (all four hard misjudgements were shapes the rubric
+# already excludes in as many words), while one tie-break sentence bought
+# +0.186 fragmentation. Merged routing changes WHO asks, not what the words say.
+# ============================================================================
+
+#: The half both variants share, extracted on day one. The participant pair has
+#: forked silently three times (the last caught in PR #361 review round 2), and
+#: the fix that ended it — one constant, spliced into both, with anchor tests
+#: looping over the pair — is the arrangement this prompt is born into rather
+#: than one it earns after its own third fork.
+_MERGED_ROUTING_CORE = """You decide, in one step, where the user's current message belongs.
+
+**The asymmetry — read this before anything else**
+
+The conversation is already on a thread (shown below as the anchored thread).
+Staying on that thread is the DEFAULT answer. The keyword menu is evidence for
+LEAVING it, never evidence for staying: two consecutive messages in one
+continuous thread routinely share no words at all, so an anchored thread that
+appears nowhere in the menu — or scores nothing — is the normal case, not a
+signal. Word overlap is a necessary but not sufficient condition for switching:
+a menu row must overlap to be considered, and overlapping is not by itself a
+reason to move.
+
+Concretely: never leave the anchored thread because a menu row looks lexically
+closer. Leave it only when the message pursues a different business goal.
+
+**Judgment granularity — business intent level**
+
+- Judge at the business intent / goal level, NOT at the message-detail level.
+- Sub-topic shifts, progress updates, status reports, acknowledgements and
+  follow-up instructions within the same business goal all belong to the SAME
+  thread.
+- Different channels or senders do NOT define thread boundaries — only the
+  business content does.
+- Only decide "different" when the user introduces a genuinely new, unrelated
+  business intent.
+
+**The previous turn decides most of these**
+
+- If the Agent's own reply introduced a sub-topic and the user is following up
+  on it, that is still the same thread — including when the user's message
+  would be unreadable without that reply ("讲第一个", "the second one", "why?").
+- If the Agent's reply closed a topic and the user opens an unrelated one, that
+  is not the same thread.
+- Long elapsed time is weak evidence on its own; combined with a changed
+  subject it points away from the anchored thread.
+
+**If the anchored thread is a legacy container**
+
+A thread labelled [Special Default Narrative] is a legacy container: its name
+describes a SHAPE of message rather than a subject, so there is usually little
+for a substantive message to continue. Reach that conclusion from the content,
+never as a rule applied because of the label — if the user is plainly carrying
+on from the previous turn, the thread continues even there.
+
+**How to read the menu**
+
+Each row shows which query terms matched and where. Judge on those terms: a row
+carried entirely by frame words (帮/查/一/下, "the", "how", "me") is a lexical
+accident, not a topic match."""
+
+
+_MERGED_ROUTING_OUTPUT_CONTRACT = """Requirements:
+- Give your reasoning, then exactly one verdict.
+- match_index is 0-based and refers to the section your verdict names. Use -1
+  for every verdict that names no candidate.
+- Never invent an index. If the answer you want has no candidate behind it,
+  the answer is new or no_topic."""
+
+
+NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER = (
+    "You are a conversation thread router."
+)
+
+MERGED_ROUTING_INSTRUCTIONS = f"""{NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER}
+
+{_MERGED_ROUTING_CORE}
+
+**Your four answers**
+
+- continue_anchor — the message belongs to the anchored thread shown below.
+  This is the default; choose it whenever the message pursues the same business
+  goal, follows up on the Agent's last reply, or cannot be read without it.
+- match — the message belongs to one of the menu threads instead. Give its
+  index. Requires a real subject overlap, not just shared words.
+- new — the message introduces a real subject that neither the anchored thread
+  nor any menu thread covers.
+- no_topic — the message carries nothing worth remembering as its own thread.
+
+{_NO_DURABLE_TOPIC_RUBRIC}
+
+Priority when you are torn:
+1. Same business goal as the anchored thread → continue_anchor.
+2. Otherwise, a menu thread whose subject genuinely covers the message → match.
+3. Otherwise, decide whether the message carries a durable topic at all:
+   a real subject → new; nothing to remember → no_topic.
+
+{_MERGED_ROUTING_OUTPUT_CONTRACT}
+
+Output format:
+class MergedRoutingOutput(BaseModel):
+    reason: str        # your reasoning
+    verdict: str       # "continue_anchor", "match", "new", or "no_topic"
+    match_index: int   # 0-based index into the menu, -1 unless verdict is "match"
+"""
+
+MERGED_ROUTING_WITH_PARTICIPANT_INSTRUCTIONS = f"""{NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER}
+
+{_MERGED_ROUTING_CORE}
+
+**This user is a PARTICIPANT in other threads**
+
+Someone else started those threads and invited this user into them. They are
+listed in their own section, ahead of the keyword menu, and that order is the
+priority rule: a task the user was invited into outranks a keyword hit on the
+user's own thread. It does NOT outrank the anchored thread — if the message
+continues what the conversation is already doing, continue_anchor still wins.
+
+**Your five answers**
+
+- continue_anchor — the message belongs to the anchored thread shown below.
+  This is the default; choose it whenever the message pursues the same business
+  goal, follows up on the Agent's last reply, or cannot be read without it.
+- participant — the message is about one of the participant-associated threads.
+  Give its index within that section.
+- match — the message belongs to one of the keyword menu threads. Give its
+  index within the menu.
+- new — the message introduces a real subject that none of the above covers.
+- no_topic — the message carries nothing worth remembering as its own thread.
+
+{_NO_DURABLE_TOPIC_RUBRIC}
+
+Priority when you are torn:
+1. Same business goal as the anchored thread → continue_anchor.
+2. Otherwise, a participant-associated thread the message is about → participant.
+3. Otherwise, a keyword menu thread whose subject genuinely covers the message
+   → match.
+4. Otherwise, decide whether the message carries a durable topic at all:
+   a real subject → new; nothing to remember → no_topic.
+
+{_MERGED_ROUTING_OUTPUT_CONTRACT}
+
+Output format:
+class MergedRoutingOutput(BaseModel):
+    reason: str        # your reasoning
+    verdict: str       # "continue_anchor", "participant", "match", "new", or "no_topic"
+    match_index: int   # 0-based index into the section your verdict names, else -1
+"""
+
+
+# ============================================================================
 # Narrative Update - Narrative metadata incremental update prompt
 # Used in NarrativeUpdater._call_llm_for_update()
 # ============================================================================

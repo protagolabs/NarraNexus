@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time as _perf
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
@@ -32,6 +32,7 @@ from .routing_gate import (
     evaluate_bypass,
     evaluate_gate,
 )
+from .routing_gate import shutter_opens
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -107,6 +108,50 @@ class ScoredPool:
     keyword_ms: int
     best_score: Optional[float]
     all_scores: Dict[str, float]
+
+
+@dataclass(frozen=True)
+class MergedRoutingPrep:
+    """A scored pool plus where the ANCHOR placed in it.
+
+    Thin wrapper over `ScoredPool` rather than a second scoring pass: merged
+    routing needs exactly what the two-tier path and the shadow recorder need,
+    plus three numbers about one particular candidate. Wrapping keeps
+    `_score_pool` the one definition of "what a BM25 pass produces" — the
+    property PR #365 review round 1 was about.
+
+    The anchor's standing is here and not in `ScoredPool` because `ScoredPool`
+    deliberately knows nothing about sessions, and "the anchor" is a session
+    concept.
+    """
+
+    scored: "ScoredPool"
+    #: 1-based among candidates that actually scored; None when the anchor
+    #: scored nothing (8.2%-49.3% of continuity turns in the replay arms) or
+    #: when there is no anchor at all.
+    anchor_bm25_rank: Optional[int]
+    anchor_raw_score: Optional[float]
+    #: Would the anchor have been on the menu WITHOUT the unconditional
+    #: injection? False is the case §3.2 exists for.
+    anchor_in_menu: Optional[bool]
+
+    @property
+    def bypass(self) -> BypassDecision:
+        return self.scored.bypass
+
+    @property
+    def ranked(self) -> List[NarrativeSearchResult]:
+        return self.scored.search_results
+
+    @property
+    def participant_narratives(self) -> List[Narrative]:
+        return self.scored.participant_narratives
+
+    @property
+    def shutter_granted(self) -> bool:
+        """May this turn skip the LLM entirely? `evaluate_bypass`'s
+        `anchor_match` verdict and nothing else — see routing_gate."""
+        return shutter_opens(self.scored.bypass)
 
 
 class NarrativeRetrieval:
@@ -508,6 +553,7 @@ class NarrativeRetrieval:
         top_k: int,
         anchor_narrative_id: Optional[str],
         is_user_chat: bool,
+        rank_depth: Optional[int] = None,
     ) -> "ScoredPool":
         """One BM25 scoring pass — the ONE definition, shared by both callers.
 
@@ -527,6 +573,16 @@ class NarrativeRetrieval:
         `is_participant` is permanently false for every candidate the P0-4
         rule is about, and a constraint that lives in one function cannot be
         violated by only one of two call sites.
+
+        `rank_depth` overrides how deep the ranking is kept. The two-tier path
+        needs a top-K slice and nothing more; merged routing needs the WHOLE
+        scoring set, because it records where the ANCHOR placed and a truncated
+        slice cannot tell "the anchor ranked below the cut" from "the anchor
+        scored nothing" — one is a §3.2 data point, the other is a NULL, and
+        conflating them corrupts the only production instrument that question
+        has. `bm25_explain` returns only candidates that actually matched, so
+        the depth is bounded by "how many threads share a word with this
+        message", not by pool size.
 
         `_ensure_default_narratives` is deliberately NOT part of this: it
         CREATES rows, the recording path must not write business data to
@@ -571,7 +627,10 @@ class NarrativeRetrieval:
             # keyword_search stays the public seam for select_fast.
             _t_rank = _perf.monotonic()
             search_results = self.rank_pool(
-                query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
+                query, pool,
+                rank_depth
+                if rank_depth is not None
+                else max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
             )
             _rank_ms = int((_perf.monotonic() - _t_rank) * 1000)
 
@@ -637,6 +696,168 @@ class NarrativeRetrieval:
             all_scores={r.narrative_id: r.similarity_score
                         for r in search_results},
         )
+
+    async def prepare_merged_routing(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        *,
+        anchor_narrative_id: Optional[str],
+        is_user_chat: bool,
+        audit: "RoutingAudit",
+        snapshots: dict,
+        menu_size: int,
+    ) -> MergedRoutingPrep:
+        """BM25 first, and everything decidable without an LLM answered with it.
+
+        Same scoring pass as the other two callers (`_score_pool`); what differs
+        is WHEN, and therefore what the answer can be used for. On the two-call
+        path this work happened only after continuity had already said no —
+        which is why the shutter's releasable population could never be
+        measured, and why slice 0 had to record it separately at all.
+
+        Fills the audit's tier-2 half in place, including ``gate_short_circuit``,
+        which keeps its established meaning ("this turn skipped LLM arbitration
+        because floor+margin plus identity said so"): the shutter IS that rule
+        moved one tier earlier, so giving it a different column would fork one
+        fact into two. Binding rule #6 cuts both ways — an existing column must
+        not change meaning, and it must not silently stop accumulating either.
+
+        NOT a shadow row: this pool decides. `pool_is_shadow` stays False.
+        """
+        _t_retrieve = _perf.monotonic()
+        scored = await self._score_pool(
+            query, user_id, agent_id,
+            top_k=menu_size,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+            # The whole scoring set: see `rank_depth` in `_score_pool`. 100 is
+            # `load_pool`'s own limit, so this cannot truncate a real pool.
+            rank_depth=100,
+        )
+        elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
+
+        # Where the anchor placed among candidates that ACTUALLY SCORED, in
+        # BM25 order. Not the position in `search_results`: the participant
+        # merge re-sorts that list on a synthetic 0.5 similarity, so a
+        # participant thread can sit above a real keyword hit there — ranking
+        # the anchor against that would be ranking it against noise.
+        scoring = sorted(
+            (r for r in scored.search_results if r.raw_score > 0),
+            key=lambda r: r.raw_score,
+            reverse=True,
+        )
+        anchor_rank: Optional[int] = None
+        anchor_score: Optional[float] = None
+        anchor_in_menu: Optional[bool] = None
+        if anchor_narrative_id:
+            anchor_score = 0.0
+            anchor_in_menu = anchor_narrative_id in [
+                r.narrative_id for r in scoring[:menu_size]
+            ]
+            for position, result in enumerate(scoring, start=1):
+                if result.narrative_id == anchor_narrative_id:
+                    anchor_rank = position
+                    anchor_score = result.raw_score
+                    break
+
+        # ── commit block: pure assignment, cannot raise ──────────────────
+        audit.candidates.extend(scored.candidates)
+        snapshots.update(scored.snapshots)
+        audit.keyword_ms = scored.keyword_ms
+        audit.retrieve_ms = elapsed_ms
+        audit.gate_top1_raw = scored.gate.top1_raw
+        audit.gate_top2_raw = scored.gate.top2_raw
+        # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
+        audit.gate_margin = (
+            scored.gate.margin if scored.gate.margin != float("inf") else None
+        )
+        audit.bypass_score_gate = scored.gate.short_circuit
+        audit.bypass_reason = scored.bypass.reason
+        audit.gate_reason = scored.bypass.detail
+        audit.gate_short_circuit = shutter_opens(scored.bypass)
+        audit.anchor_bm25_rank = anchor_rank
+        audit.anchor_raw_score = anchor_score
+        audit.anchor_in_menu = anchor_in_menu
+
+        return MergedRoutingPrep(
+            scored=scored,
+            anchor_bm25_rank=anchor_rank,
+            anchor_raw_score=anchor_score,
+            anchor_in_menu=anchor_in_menu,
+        )
+
+    async def build_menu_candidates(
+        self, results: Sequence[NarrativeSearchResult]
+    ) -> List[dict]:
+        """Load and label the menu rows a routing prompt will show.
+
+        Goes through `_candidate_labels` — the ONE definition of what a
+        candidate shows a model. The judge's two branches were two copies of
+        that decision once, and only one of them was ever fixed; a third copy
+        here is how that repeats.
+        """
+        candidates: List[dict] = []
+        for result in results:
+            narrative = await self._crud.load_by_id(result.narrative_id)
+            if narrative is None:
+                continue
+            name, description = _candidate_labels(narrative)
+            candidates.append({
+                "id": narrative.id,
+                "type": "search",
+                "name": name,
+                "description": description,
+                "score": result.similarity_score,
+                "raw_score": result.raw_score,
+                "matched_terms": result.matched_terms,
+                "matched_content": result.matched_snippet,
+            })
+        return candidates
+
+    def build_participant_candidates(
+        self, narratives: Sequence[Narrative]
+    ) -> List[dict]:
+        """Label PARTICIPANT threads for a prompt. Same labeller, and
+        deliberately no evidence fields: these never went through BM25 (they
+        enter at a synthetic neutral score), and inventing evidence for them
+        would be worse than showing none."""
+        candidates: List[dict] = []
+        for narrative in narratives:
+            name, description = _candidate_labels(narrative)
+            candidates.append({
+                "id": narrative.id,
+                "type": "participant",
+                "name": name,
+                "description": description,
+            })
+        return candidates
+
+    async def assemble_match_landing(
+        self,
+        matched_id: str,
+        search_results: Sequence[NarrativeSearchResult],
+        top_k: int,
+    ) -> List[Narrative]:
+        """The chosen thread first, then the rest of the ranked set.
+
+        Extracted from `_llm_unified_match`'s search branch so the merged router
+        lands a `match` verdict through the SAME executor. The whole shape of
+        this batch is "change the decider, keep the executors" — a second copy
+        of this loop would be the first crack in that.
+        """
+        narratives: List[Narrative] = []
+        matched = await self._crud.load_by_id(matched_id)
+        if matched:
+            narratives.append(matched)
+        for result in search_results[:top_k]:
+            if result.narrative_id == matched_id:
+                continue
+            narrative = await self._crud.load_by_id(result.narrative_id)
+            if narrative and len(narratives) < top_k:
+                narratives.append(narrative)
+        return narratives
 
     async def record_pool_only(
         self,
@@ -1002,19 +1223,13 @@ class NarrativeRetrieval:
                 )
 
             elif matched_type == "search":
-                # Matched a search result, return Top-K list
+                # Matched a search result, return Top-K list. The assembly moved
+                # into `assemble_match_landing` so the merged router lands its
+                # own `match` verdict through this exact executor.
                 logger.info(f"LLM matched search result: {matched_id}")
-                narratives = []
-                matched_narrative = await self._crud.load_by_id(matched_id)
-                if matched_narrative:
-                    narratives.append(matched_narrative)
-
-                # Add other candidates (excluding already matched)
-                for result in search_results[:top_k]:
-                    if result.narrative_id != matched_id:
-                        narrative = await self._crud.load_by_id(result.narrative_id)
-                        if narrative and len(narratives) < top_k:
-                            narratives.append(narrative)
+                narratives = await self.assemble_match_landing(
+                    matched_id, search_results, top_k
+                )
 
                 return NarrativeSelectionResult(
                     narratives=narratives,

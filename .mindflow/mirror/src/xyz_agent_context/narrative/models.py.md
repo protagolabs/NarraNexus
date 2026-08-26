@@ -6,6 +6,42 @@ stub: false
 
 # models.py — Narrative 模块所有数据模型的唯一来源
 
+## 2026-08-26 — `RoutingAudit` 的合并路由八列(全部可空、纯增量)
+
+`merged_call / merged_verdict / merged_ms / merged_input_chars /
+merged_truncated / anchor_bm25_rank / anchor_raw_score / anchor_in_menu`。
+两两之间的语义分工值得记,因为它们很容易被当成重复列:
+
+- **`merged_call` 标的是"走了哪条路",不是"叫了 LLM"**。被快门放行的轮次
+  走的是合并路径却没问任何模型 ⇒ `merged_call=1` + `merged_verdict` 空 +
+  `merged_ms` NULL。
+- **`merged_verdict='failed'` 是一个值,不是缺失**。"问了模型但答案不能用"
+  与"没问模型"是两种不同的行,只有前者是 provider 问题。
+- **`merged_ms` 明写自耗时,不嵌套任何东西** —— 因为 `retrieve_ms` 确实嵌套
+  `judge_ms`,而那个歧义把两位读者送到了同一个错误结论("路由有 6 秒花在
+  数据库上",工单 `todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。
+- **`merged_input_chars` 是延迟模型的 x 轴**。输入预算表上的每个数字要能换算
+  成毫秒,就必须有生产侧记录"实际发出去多长"。
+- **`anchor_bm25_rank` / `anchor_raw_score` / `anchor_in_menu` 是 §3.2 的
+  唯一生产侧仪器**:合并拆掉了"续接轮根本不构造菜单"这层没被命名的防线,
+  锚点无条件注入是补偿 —— 而"这次注入是不是锚点在票上的唯一原因"事后**无法
+  重建**(异步 updater 全量重写被打分的文本且不留历史)。`rank` 为 NULL 表示
+  锚点本轮零分,那是续接轮里 8.2%–49.3% 的常态。
+
+**`retrieve_ms` 现在有第三个人群,必须一起写下来**:两次调用路径上它
+**包含** `judge_ms`;影子行上它只有 tier-2(仪器自耗);**合并行上它也只有
+tier-2** —— 因为那条路上 LLM 有自己的列(`merged_ms`)。于是"tiers 2+3 合计"
+的过滤条件是 `pool_is_shadow = 0 AND merged_call = 0`。
+一列三个量纲已经是共享的极限,**下一批要拆 `retrieve_self_ms`,不要再加第四个**
+(工单 `todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。钉子:
+`test_retrieve_ms_on_a_merged_row_is_the_bm25_pass_alone`(慢 stub,断言慢调用
+不漏进 `retrieve_ms`)。
+
+沿用既有列的部分刻意不加新列:`bypass_reason` 就是快门的短码,
+`bypass_score_gate` 继续独立积累 floor/margin 分布,`gate_short_circuit` 保持
+"这一轮跳过了 LLM 仲裁"的原义(快门就是那条规则挪早了)。一个事实拆成两列
+才是本仓反复付过学费的坏味道。
+
 ## 2026-08-25 — `pool_is_shadow`(切片 0 的分群标志)
 
 `RoutingAudit` 加一列:这一行的池是**只记录、没参与决策**的(continuity 判 yes 的轮次)。

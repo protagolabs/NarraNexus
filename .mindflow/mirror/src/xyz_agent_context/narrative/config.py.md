@@ -4,6 +4,31 @@ last_verified: 2026-08-26
 stub: false
 ---
 
+## 2026-08-26 — `NARRATIVE_MERGED_ROUTING_ENABLED` + 合并 prompt 的输入预算
+
+新开关(缺省 `0`)控制**路由结构**:开时 BM25 每轮先跑,然后要么零 LLM 快门,
+要么一次合并调用;关时是今天的 continuity→judge 两次串行。
+
+**注释里把回滚范围写准了**,这是吸取桶开关的教训(那条注释一度声称"翻回 True
+即完整回滚",而 taxonomy prompt 已被单独删除、回不来,被 PR #361 review 抓到)。
+这次:翻回 `0` **只**回滚路由结构,而且本批**没有别的东西需要回滚** —— 合并
+prompt 常量关时无引用;共享渲染块对 continuity/judge 字节相同(有测试钉);
+审计列纯增量、关时恒 NULL。
+
+**与桶开关互斥,启动即 raise**(`_reject_untested_flag_combination`,模块导入
+时执行)。理由不是洁癖:合并 prompt 的锚点位建立在"桶不是可续接锚点"
+(`is_reusable_anchor`)这条性质上,两个都开则该保证消失,而**那个世界从未被
+测量过** —— 所有臂、所有干跑、所有 prod 数字都是桶关着取的。启动失败的代价
+是一次重启;静默的代价是一次没人能解释的路由判决,而且正好落在冻结锚点 +
+身份夺舍那个形状上。
+
+**输入预算五个常量**(`MERGED_*_MAX_CHARS` / `MERGED_PARTICIPANT_MAX_CANDIDATES`)
+是**读侧**上限:只裁 prompt 看到的内容,不改任何存储字段,全部保头。为什么
+两次调用时代不需要:那时每个 tier 只读字段的一个子集,而锚点块只在有锚点的
+轮次渲染;合并 prompt 每一轮都渲染全套,于是"某个字段偶尔很长"从一个 tier 的
+坏运气变成每一轮的延迟与账单。退役条件立单在
+`todo/2026-08-26-merged-routing-flag-retirement-condition.md`。
+
 ## 2026-08-16 — NARRATIVE_DEFAULT_BUCKETS_ENABLED（C-1 default 桶治理）
 
 八条播种叙事（GreetingAndCourtesy…）**不再是路由容器**。开关为 False（出厂值）

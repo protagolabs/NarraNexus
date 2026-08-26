@@ -23,6 +23,40 @@ test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
 `_record_shadow_pool` 链上的 `is_user_chat` 参数现恒为 True
 (调用点守卫过),保留是为将来放开后台轮只改守卫一处。
 
+## 2026-08-26 — 合并调用:一次判决取代 continuity+judge(开关缺省关)
+
+`select()` 顶部多一条**提前 return**:`NARRATIVE_MERGED_ROUTING_ENABLED` 开时
+走 `_select_merged`。刻意是提前 return 而不是把分支织进方法体 —— 它下面的
+所有代码就是今天的两次调用路径**原样**,于是"开关关 = 今天的行为"是一条
+可以读出来的性质,不是一句要人相信的话(测试 `test_with_the_switch_off_the_
+two_call_path_is_untouched` 连 `build_merged_prompt` 都设成地雷)。
+
+**为什么值得做**(spec `2026-08-25-merged-routing-design.md` §4):prod 7 天
+真人轮 n=189 里 43 轮付两次调用,串行 p50 8,924ms / 均值 13,004ms,而整个
+非 LLM 检索层均值 47.6ms。唯一有分量的杠杆是往返次数。**"检索花 6 秒"是
+误归因**(`retrieve_ms` 包含 `judge_ms`,被相加了两遍),别再去修它。
+
+`_select_merged` 的形状:
+1. BM25 每轮先跑(`prepare_merged_routing`,~14ms 本地)
+2. **零 LLM 快门** = `evaluate_bypass` 的 `anchor_match` 判决挪到 continuity
+   之前,判据一个字没改 → `selection_method="anchor_confirmed"`
+3. 否则**一次**合并调用,五个出口(continue_anchor / match / participant /
+   new / no_topic)
+4. **落点全是既有执行器**:锚点直接返回 / `assemble_match_landing`(judge 自己
+   的 search 落点)/ `create_from_query` / `_land_no_topic_turn`。换决策者,
+   不换执行者 —— 所以 step_1、step_4、ChatModule 完全不知道上游变了
+   (`test_downstream_cannot_tell_who_decided`)
+
+**兜底是这里最不能动的地方**(rule 6):合并调用异常 / 超时 / verdict 不在契约
+内 / index 越界 → **有可续接锚点就留在锚点**(`merged_fallback_anchor`),
+无锚点才允许新建(`merged_fallback_new`,同样打标)。D19 两记实锤都是
+"决策层失败→掉进新建→新线成为锚点→updater 逐轮改写它的身份"这个形状,
+所以"失败就当新话题"这条捷径永久封死。
+
+`_advance_session_anchor` 从 `select()` 抽成静态方法,两条路共用:锚点推进
+规则以两份字面量存在,正是快慢两路当初就同一条不变量打架的原因(独立审查
+2026-08-21 Important #3),第二个决策者就是第二次机会。
+
 ## 2026-08-25 — 续接轮也记池(切片 0),但判决一个字不改
 
 continuity 短路那条分支里,原本只 new 一个空的 `RoutingAudit`;现在多 await 一次

@@ -16,12 +16,37 @@ append 进 `agent_slot_clear_audit`，让误操作**可追溯、可据此恢复*
 需要时再补读侧 API + TTL。由 [[slot_service]] 的批量清除写入。双方言列已填全，
 四个快照列可空（NULL 原样透传）。
 
+## 2026-08-26 — `narrative_routing_audit` 的合并路由八列(纯增量)
+
+`merged_call` / `merged_verdict` / `merged_ms` / `merged_input_chars` /
+`merged_truncated` / `anchor_bm25_rank` / `anchor_raw_score` /
+`anchor_in_menu`,双方言齐备、**全部可空**。可空的两个理由与
+`pool_is_shadow` 一样:prod 存量行早于它们(铁律 #6,活表上 `NOT NULL`
+无默认值的 ALTER 会失败),而且对每一个按它们过滤的查询来说,NULL 与 0 的
+含义本来就该不同 —— NULL 是"这一行不是合并路径决策的"。
+
+**`retrieve_ms` 现在有第三个人群,必须一起写下来**:两次调用路径上它
+**包含** `judge_ms`;影子行上它只有 tier-2(仪器自耗);**合并行上它也只有
+tier-2** —— 因为那条路上 LLM 有自己的列(`merged_ms`)。于是"tiers 2+3 合计"
+的过滤条件是 `pool_is_shadow = 0 AND merged_call = 0`。
+一列三个量纲已经是共享的极限,**下一批要拆 `retrieve_self_ms`,不要再加第四个**
+(工单 `todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。钉子:
+`test_retrieve_ms_on_a_merged_row_is_the_bm25_pass_alone`(慢 stub,断言慢调用
+不漏进 `retrieve_ms`)。
+
+`merged_ms` 的列注释里明写**自耗时、不嵌套任何东西**,是因为 `retrieve_ms`
+确实嵌套 `judge_ms`,而三列并排都叫 `*_ms`、没有任何地方写着谁包着谁,已经
+把两位读者送到同一个错误结论(工单
+`todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。并排的耗时列要么互斥,
+要么显式声明嵌套。
+
 ## 2026-08-26 — 影子行改变 retrieve_ms 的量纲(PR #365 review I2)
 
 `pool_is_shadow=1` 的行上 `retrieve_ms` 只含仪器自身的 tier-2 耗时
 (judge 未运行);跨人群成本聚合必须先按 `pool_is_shadow` 过滤,否则续接轮
 多数人群的 ~13ms 会稀释仲裁成本读数。`keyword_ms` 是唯一两人群定义相同、
 可直接比较的成本列。in-code 契约注释(本文件与 models.py)已同步此语义。
+(合并路径上它是第三人群——见上一条。)
 
 ## 2026-08-25 — `narrative_routing_audit.pool_is_shadow`(纯增量)
 

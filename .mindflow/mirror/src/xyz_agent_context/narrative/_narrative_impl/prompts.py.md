@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 合并路由的两份 prompt(第一天就上配对纪律)
+
+新增 `_MERGED_ROUTING_CORE`(共享核心)+ `MERGED_ROUTING_INSTRUCTIONS` /
+`MERGED_ROUTING_WITH_PARTICIPANT_INSTRUCTIONS`(主版 / participant 版),
+`_NO_DURABLE_TOPIC_RUBRIC` **原样**splice 进两份。
+
+**为什么一出生就是共享常量 + 双变体循环断言**:participant 那一对已经静默
+分叉三次(最后一次 PR #361 round 2 的 I2),修法是"一份常量、两处 splice、
+锚点测试对两个常量循环"。新 prompt 直接生在这个安排里,不必先挣一次自己的
+第三次分叉。八类目名缺席断言、判据锚点、三条独门判据锚点都对新常量循环。
+
+**核心里写死的东西**(每条都有测试钉):
+1. **不对称性铁规**(§3.2 的 prompt 落地):停在锚点是**默认**;菜单是**换线**
+   的证据,从来不是留下的证据;词面重合是换线的**必要不充分**条件。
+   数据依据:续接轮 26.2%–71.6% 锚点不在 BM25 top-3,8.2%–49.3% 锚点零分 ——
+   "同簇后续轮零词面重叠"是常态而非信号。
+2. **continuity 的三条独门判据折进 continue_anchor 选项说明**:业务意图级
+   粒度、**agent 自己的回答引出的追问算续接**、遗留桶标签规则。continuity
+   作为决策者被替换了,只有它的 prompt 说过的东西必须活下来 —— 尤其第二条,
+   真机上正是它缺席导致三问三线碎片化(agent_846942113533 轮 3)。
+3. **no_topic 判据一字不改**。2026-08-21 的裁定摆着:调词的边际收益已归零
+   (四条硬误判全是判据明文排除的形态),而一句倾斜句换来碎片化 +0.186。
+   合并改的是**谁在问**,不是话怎么说。
+
+`participant` 出口**只在** participant 变体里出现:给一个背后没有候选的出口
+等于邀请一个越界 index(而越界 index 在实现里等于一次失败兜底)。
 
 ## 2026-08-25 — no_topic 判据抽成共享常量 `_NO_DURABLE_TOPIC_RUBRIC`(PR #361 round 2, I2)
 

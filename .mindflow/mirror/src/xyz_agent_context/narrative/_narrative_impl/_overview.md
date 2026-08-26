@@ -1,6 +1,6 @@
 ---
 code_dir: src/xyz_agent_context/narrative/_narrative_impl/
-last_verified: 2026-08-12
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -10,7 +10,7 @@ stub: false
 
 这是 `narrative/` 包的内部引擎室，不对外导出。所有外部调用都经过 `NarrativeService` 门面，`_narrative_impl/` 的类不能被包外代码直接实例化（名称前缀 `_` 就是这个约定）。
 
-九个文件各司其职：数据库 CRUD、候选召回、数值闸门、LLM 判定、后台摘要更新、连续性
+十一个文件各司其职：数据库 CRUD、候选召回、数值闸门、LLM 判定、后台摘要更新、连续性
 检测、默认 Narrative 管理、Instance 依赖处理、Prompt 构建。这种细粒度切分是为了让每个
 文件足够专注，可以独立修改而不影响其他部分。
 
@@ -32,9 +32,30 @@ stub: false
 | `default_narratives.py` | 系统预置的 8 个默认 Narrative 的定义和初始化逻辑 |
 | `prompt_builder.py` | 把 Narrative 序列化成 LLM prompt 片段（稳定半 / turn 半） |
 | `prompts.py` | LLM 调用的静态 prompt 模板 |
+| `routing_blocks.py` | 路由 prompt 的四个共享渲染块(锚点线 / 上一轮 / 菜单 / participant);三个 tier 共用,continuity 与 judge 的文本字节相同 |
+| `merged_router.py` | 合并调用:一次 helper 调用同时回答"续不续"和"去哪儿"(`NARRATIVE_MERGED_ROUTING_ENABLED` 缺省关) |
 
 > `default_narratives.py` 与 `instance_handler.py` **还没有 mirror md**（本次未补：
 > 没读过它们，写出来会是凑数的文档）。谁下次动这两个文件，按铁律 #10 顺手补上。
+
+## 2026-08-26 — 合并调用进来之后的内部依赖方向
+
+新增两个文件,方向是**单向向下**,不许反过来:
+
+```
+merged_router.py ──> routing_blocks.py <── continuity.py
+       │                    ↑
+       │                    └────────────── _retrieval_llm.py
+       └──> prompts.py(合并常量)   routing_gate.py(shutter_opens)
+```
+
+`routing_blocks.py` **不依赖** config / DB / LLM —— 预算常量由调用方传进来,
+所以它是纯函数、可以逐字节 golden 测。这条方向性是"字节相同"这个契约能被
+测出来的前提;哪天让它自己去读 config,continuity 的 prompt 就会跟着开关变。
+
+`merged_router.py` 只被 `narrative_service._select_merged` 调用;
+`_narrative_impl/__init__.py` **不导出**这两个新文件(私有实现层的约定),
+服务层按需 function-level import。
 
 ## 和外部目录的协作
 

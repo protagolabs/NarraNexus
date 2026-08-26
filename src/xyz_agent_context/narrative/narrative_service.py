@@ -86,6 +86,24 @@ def is_reusable_anchor(narrative) -> bool:
     )
 
 
+def _minutes_since(session: Optional[ConversationSession]) -> Optional[float]:
+    """Minutes since the previous turn, or None when there was none.
+
+    Naive timestamps are read as UTC — the same guard the continuity tier
+    applies, for the same reason: a naive `last_query_time` from an older row
+    would otherwise make the subtraction raise, and the merged call would fail
+    into its fallback for a formatting reason.
+    """
+    if session is None or session.last_query_time is None:
+        return None
+    from datetime import datetime, timezone
+
+    last = session.last_query_time
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last).total_seconds() / 60.0
+
+
 @dataclass(frozen=True)
 class FastSelectResult:
     """Outcome of one fast-path BM25 probe (``select_fast``).
@@ -311,6 +329,24 @@ class NarrativeService:
         # trigger provided one; else the raw input_content. See 2026-06-01 design.
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
+        # Merged routing (off by default): BM25 runs FIRST, then either a
+        # zero-LLM shutter or ONE call answers both questions the rest of this
+        # method asks serially. An early return rather than a branch woven
+        # through the body — everything below it is the two-call path exactly as
+        # it was, which is what makes "flag off = today's behaviour" a property
+        # you can read instead of a claim you have to trust.
+        if config.NARRATIVE_MERGED_ROUTING_ENABLED:
+            return await self._select_merged(
+                agent_id=agent_id,
+                user_id=user_id,
+                query_text=query_text,
+                max_narratives=max_narratives,
+                session=session,
+                awareness=awareness,
+                is_user_chat=is_user_chat,
+                trigger=trigger,
+            )
+
         # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into
         # the "everything else" bucket.
@@ -505,18 +541,7 @@ class NarrativeService:
                     audit=audit, snapshots=audit_snapshots,
                 )
 
-        # Update Session (using main Narrative).
-        # Only user-initiated runs (chat) write to last_query / last_response /
-        # current_narrative_id — background trigger runs (job / message_bus /
-        # lark / callback) must leave these fields untouched so the *next*
-        # user message gets its continuity judged against the previous user
-        # exchange, not against whatever cron job or bus ping ran in between.
-        if session and narratives and is_user_chat:
-            from datetime import datetime, timezone
-            session.last_query = query_text
-            session.current_narrative_id = narratives[0].id
-            session.query_count += 1
-            session.last_query_time = datetime.now(timezone.utc)
+        self._advance_session_anchor(session, query_text, narratives, is_user_chat)
 
         logger.info(f"[NarrativeSelect] completed: {len(narratives)} Narratives, method={selection_method}")
 
@@ -539,6 +564,292 @@ class NarrativeService:
             selection_method=selection_method,
             no_durable_topic=no_durable_topic,
             is_new=(selection_method == "new_created"),
+            best_score=None,
+            retrieval_method=retrieval_method,
+        )
+
+    @staticmethod
+    def _advance_session_anchor(
+        session: Optional[ConversationSession],
+        query_text: str,
+        narratives: List[Narrative],
+        is_user_chat: bool,
+    ) -> None:
+        """Move the continuity anchor to the thread this turn landed on.
+
+        Only user-initiated runs (chat) write `last_query` /
+        `current_narrative_id` — background trigger runs (job / message_bus /
+        lark / callback) must leave them untouched so the NEXT user message gets
+        its continuity judged against the previous user exchange rather than
+        against whatever cron job or bus ping ran in between.
+
+        Extracted because both routing paths must obey it identically. The
+        anchor rule living as two literals is exactly how the fast path and the
+        slow path ended up fighting over the same invariant (independent review,
+        2026-08-21, Important #3), and a second decider is a second chance at
+        that.
+        """
+        if not (session and narratives and is_user_chat):
+            return
+        from datetime import datetime, timezone
+
+        session.last_query = query_text
+        session.current_narrative_id = narratives[0].id
+        session.query_count += 1
+        session.last_query_time = datetime.now(timezone.utc)
+
+    async def _select_merged(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        query_text: str,
+        max_narratives: int,
+        session: Optional[ConversationSession],
+        awareness: Optional[str],
+        is_user_chat: bool,
+        trigger: str,
+    ) -> NarrativeSelectionResult:
+        """One decision per turn: BM25 first, then a shutter or ONE call.
+
+        WHY (specs/2026-08-25-merged-routing-design.md §4)
+
+        The two-call path asks continuity ("does this continue?") and then, if
+        that says no, the judge ("so where does it go?"). Prod, 7 days,
+        is_user_chat=1, n=189: 43 turns paid for both, serial p50 8,924ms / mean
+        13,004ms, while the entire non-LLM half of routing is 47.6ms mean. The
+        only lever with anything behind it is the number of round trips.
+
+        THE DECIDER CHANGES, THE EXECUTORS DO NOT
+
+        Every landing below is a pre-existing code path: the continuity landing
+        (return the anchor), `assemble_match_landing` (the judge's own search
+        landing), `create_from_query`, `_land_no_topic_turn`. Downstream —
+        step_1, step_4, the ChatModule — reads `narratives` / `is_new` /
+        `no_durable_topic` / `retrieval_method` and never branches on
+        `selection_method`, so nothing outside this file learns there was a
+        change.
+
+        WHAT THIS OPENS, AND WHAT PAYS FOR IT (§3.2)
+
+        On the two-call path a continuity turn returned before the retrieval
+        tier: no pool, no menu, no way for a foreign thread to reach a prompt.
+        That was an unnamed defence, and it is the one that held the p07 hijack
+        specimen for eleven turns. Merging removes it, so the anchored thread is
+        injected into the prompt unconditionally and deduplicated out of the
+        menu, and `anchor_bm25_rank` / `anchor_in_menu` are recorded on every row
+        so the compensation can actually be measured in production instead of
+        assumed.
+        """
+        from .config import config
+        from xyz_agent_context.utils.logging import timed
+        from ._narrative_impl.merged_router import (
+            MergedRoutingInput,
+            VERDICT_CONTINUE_ANCHOR,
+            VERDICT_MATCH,
+            VERDICT_NEW,
+            VERDICT_NO_TOPIC,
+            VERDICT_PARTICIPANT,
+            decide,
+            pick_menu,
+            resolve_choice,
+        )
+
+        audit = RoutingAudit(
+            agent_id=agent_id, user_id=user_id, query_text=query_text,
+            trigger=trigger, is_user_chat=is_user_chat,
+        )
+        # The PATH, not the LLM: a turn the shutter releases took this path and
+        # asked nobody.
+        audit.merged_call = True
+        snapshots: dict = {}
+
+        anchor: Optional[Narrative] = None
+        anchor_id = session.current_narrative_id if session else None
+        if anchor_id:
+            anchor = await self._crud.load_by_id(anchor_id)
+        # THE one definition, shared with the fast path and the no-topic
+        # landing: a legacy default bucket is a verdict about an earlier turn,
+        # not a thread anyone may continue.
+        continuable = is_reusable_anchor(anchor)
+
+        with timed("narrative.merged.prepare"):
+            prep = await self._retrieval.prepare_merged_routing(
+                query=query_text,
+                user_id=user_id,
+                agent_id=agent_id,
+                # Passed only when it is a thread the turn could legitimately
+                # stay on, so the shutter cannot open onto a container.
+                anchor_narrative_id=anchor.id if (anchor and continuable) else None,
+                is_user_chat=is_user_chat,
+                audit=audit,
+                snapshots=snapshots,
+                menu_size=config.MERGED_MENU_SIZE,
+            )
+
+        narratives: List[Narrative] = []
+        selection_method = ""
+        selection_reason = ""
+        retrieval_method = ""
+        is_new = False
+        no_durable_topic = False
+
+        # `anchor_match` is the only verdict that opens the shutter, and it is
+        # unreachable without the anchor id passed above — so the `anchor is not
+        # None` half is belt-and-braces, and it is written as a CONDITION rather
+        # than a comment because the alternative (asserting it in prose and
+        # indexing anyway) is how a "cannot happen" becomes a None in a list.
+        if prep.shutter_granted and anchor is not None:
+            narratives = [anchor]
+            selection_method = "anchor_confirmed"
+            selection_reason = f"Confirmed the anchored thread: {prep.bypass.detail}"
+            retrieval_method = "session"
+            logger.info(f"[NarrativeSelect] shutter — {prep.bypass.detail}")
+        else:
+            excluded: set = set(
+                n.id for n in prep.participant_narratives
+            )
+            if anchor is not None:
+                excluded.add(anchor.id)
+            menu_results = pick_menu(
+                prep.ranked, exclude_ids=excluded, limit=config.MERGED_MENU_SIZE
+            )
+            routing_input = MergedRoutingInput(
+                query=query_text,
+                anchor=anchor,
+                anchor_is_continuable=bool(anchor is not None and continuable),
+                previous_query=(session.last_query or "") if session else "",
+                previous_response=(session.last_response or "") if session else "",
+                minutes_since_previous=_minutes_since(session),
+                menu=await self._retrieval.build_menu_candidates(menu_results),
+                participants=self._retrieval.build_participant_candidates(
+                    prep.participant_narratives
+                ),
+                awareness=awareness,
+            )
+
+            with timed("narrative.merged.decide") as t:
+                decision = await decide(routing_input)
+                # Tag the timer with the model the helper LLM actually used
+                # (resolved deep in the SDK; read back via its contextvar).
+                from xyz_agent_context.agent_framework.adapters.openai_agents import (
+                    get_last_llm_call_info,
+                )
+                info = get_last_llm_call_info()
+                if info:
+                    t.tag(**info)
+
+            audit.merged_verdict = decision.verdict
+            audit.merged_ms = decision.elapsed_ms
+            if decision.prompt is not None:
+                audit.merged_input_chars = decision.prompt.input_chars
+                audit.merged_truncated = ",".join(decision.prompt.truncated)
+
+            if not decision.ok:
+                # RULE 6 — a failure is not a verdict. Two production incidents
+                # (D19) had this exact shape: the deciding tier failed, the
+                # failure fell through to creation, the created thread became
+                # the anchor, and the updater rewrote it until the lexical
+                # evidence agreed. So: stay where we already were, flagged; and
+                # where there is nowhere to stay, create — but never silently,
+                # never as a switch.
+                if anchor is not None and continuable:
+                    narratives = [anchor]
+                    selection_method = "merged_fallback_anchor"
+                    selection_reason = (
+                        f"Merged routing unavailable, held the anchored thread: "
+                        f"{decision.reason}"
+                    )
+                    retrieval_method = "session"
+                else:
+                    created = await self._retrieval.create_from_query(
+                        query=query_text, user_id=user_id, agent_id=agent_id,
+                        narrative_type=NarrativeType.CHAT,
+                    )
+                    narratives = [created]
+                    selection_method = "merged_fallback_new"
+                    selection_reason = (
+                        f"Merged routing unavailable and no thread to hold the "
+                        f"turn: {decision.reason}"
+                    )
+                    retrieval_method = "keyword"
+                    is_new = True
+
+            elif decision.verdict == VERDICT_CONTINUE_ANCHOR:
+                narratives = [anchor] if anchor else []
+                selection_method = "merged_continue"
+                selection_reason = f"Continued the anchored thread: {decision.reason}"
+                retrieval_method = "session"
+
+            elif decision.verdict in (VERDICT_MATCH, VERDICT_PARTICIPANT):
+                chosen_id = resolve_choice(decision, routing_input)
+                if decision.verdict == VERDICT_MATCH:
+                    # The judge's own landing, called rather than copied. The
+                    # trailing rows are context for the agent prompt and come
+                    # from the menu: the anchored thread the model just left is
+                    # deliberately not re-appended as context for leaving it.
+                    narratives = await self._retrieval.assemble_match_landing(
+                        chosen_id or "", menu_results, max_narratives
+                    )
+                    selection_method = "merged_match"
+                    selection_reason = f"Switched to an existing thread: {decision.reason}"
+                else:
+                    matched = (
+                        await self._crud.load_by_id(chosen_id) if chosen_id else None
+                    )
+                    narratives = [matched] if matched else []
+                    selection_method = "merged_participant"
+                    selection_reason = (
+                        f"Matched a thread the user participates in: {decision.reason}"
+                    )
+                retrieval_method = "keyword"
+
+            elif decision.verdict == VERDICT_NEW:
+                created = await self._retrieval.create_from_query(
+                    query=query_text, user_id=user_id, agent_id=agent_id,
+                    narrative_type=NarrativeType.CHAT,
+                )
+                narratives = [created]
+                selection_method = "merged_new"
+                selection_reason = f"A new subject: {decision.reason}"
+                retrieval_method = "keyword"
+                is_new = True
+
+            elif decision.verdict == VERDICT_NO_TOPIC:
+                # The verdict carries no destination; `_land_no_topic_turn` owns
+                # that, anchor-first, and its freeze semantics are untouched — a
+                # greeting must never rename the work it interrupted.
+                no_durable_topic = True
+                retrieval_method = "keyword"
+                narratives, selection_method, selection_reason, is_new = (
+                    await self._land_no_topic_turn(
+                        agent_id=agent_id, user_id=user_id, query_text=query_text,
+                        session=session, reason=decision.reason,
+                    )
+                )
+
+        self._advance_session_anchor(session, query_text, narratives, is_user_chat)
+
+        logger.info(
+            f"[NarrativeSelect] merged: {len(narratives)} Narratives, "
+            f"method={selection_method}"
+        )
+
+        audit.selection_method = selection_method
+        audit.retrieval_method = retrieval_method
+        audit.chosen_narrative_id = narratives[0].id if narratives else None
+        audit.is_new = is_new
+        # `continuity_ms` / `judge_ms` stay NULL: those tiers did not run, and a
+        # 0 there would read as "the tier is free" — the opposite of true. The
+        # merged call's own cost is `merged_ms`, which nests nothing.
+        await self._write_audit(audit, snapshots)
+
+        return NarrativeSelectionResult(
+            narratives=narratives,
+            selection_reason=selection_reason,
+            selection_method=selection_method,
+            no_durable_topic=no_durable_topic,
+            is_new=is_new,
             best_score=None,
             retrieval_method=retrieval_method,
         )

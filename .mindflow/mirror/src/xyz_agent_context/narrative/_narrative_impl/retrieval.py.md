@@ -4,6 +4,34 @@ last_verified: 2026-08-26
 stub: false
 ---
 
+## 2026-08-26 — `prepare_merged_routing`:合并路由的检索侧入口(复用 `_score_pool`)
+
+合并路由不再自己走一遍 gather/rank/gate/bypass —— 它调**同一个** `_score_pool`,
+外面只包一层 `MergedRoutingPrep`,加三个关于**某一个候选**(锚点)的数字。
+这正是 PR #365 review round 1 定下的形状:一次打分只有一份定义。
+
+**给 `_score_pool` 加了一个参数 `rank_depth`**,只有合并路径传(=100,
+`load_pool` 自己的上限,真实池不可能被截)。两次调用路径要的是 top-K 切片,
+而合并路径要**全量打分集**,因为它要记"锚点排第几":切片过的列表**分不出**
+"锚点排在切口之外"与"锚点零分" —— 前者是 §3.2 的一个数据点,后者是 NULL,
+混起来就毁掉这个问题在生产侧唯一的仪器。`bm25_explain` 只返回真的命中了的
+候选,所以深度由"有多少条线跟这句话共享词"决定,不由池规模决定。
+
+**锚点排名在"真的有分"的候选里按 BM25 序算**,不是在 `search_results` 的
+位置里算:participant 合并会按合成的 0.5 相似度重排那个列表,于是一条
+participant 线可能坐在真实词法命中之上 —— 拿那个序给锚点排名等于拿噪声排名。
+
+**`gate_short_circuit` 照旧写"这一轮跳过了 LLM 仲裁"**。快门就是那条规则挪早
+一层,给它另开一列会把一个事实分叉成两个(铁律 #6 两头都管:既有列不许改义,
+也不许被改名后悄悄停止积累)。**这不是影子行**:这个池做了决策,
+`pool_is_shadow` 保持 False。
+
+同批抽出两个候选构造器(`build_menu_candidates` / `build_participant_candidates`,
+都走 `_candidate_labels` 这**一份**"候选给模型看什么"的定义)与一个落点执行器
+(`assemble_match_landing` —— judge 的 search 落点,现在合并的 `match` 走同一份)。
+理由同一条:**换决策者,不换执行者**。
+
+
 ## 2026-08-26 — `_score_pool`:一次打分,两个调用方(切片 0 + review 收口)
 
 `retrieve_top_k`(做决策)与 `record_pool_only`(只记录)现在**共用同一段**:
