@@ -12,21 +12,34 @@ updater 写的四个字段(name/description/summary/keywords)同时是
 动作("团队群聊自我介绍"→"深圳天气查询"),continuity 读到改名后的锚点,
 把用户的正常延续判成换话题——锚点被改写的行同线率 65.3%→56.8%
 (McNemar p=0.0002,未改写行 p=0.60,自带对照),每卷净打断 24 次正确
-延续,被打断轮 54/55 落进**别的既有线**(PR2_CROWDING_ANALYSIS)。
+延续,被打断轮 54/55 落进**别的既有线**(作者侧原始数据:重演批
+2026-08-26 的 PR2_CROWDING_ANALYSIS)。
 
 不止摘除插入:digest 机器**整段删除**(约 255 行 + 16 条测试),
 独立审查按铁律 #2 裁定——无调用方的 public 函数带着完整测试留在库里,
 正是曾两次被删的 dead-fork 形态;代码在 git 历史里,恢复只需一条
-`git show a9260baa4:...`。第二步(补充检索词字段:BM25 读、continuity
-永不读、按来源封顶)的设计与恢复指针在
-`reference/self_notebook/todo/2026-08-26-digest-step2-recovery.md`。
-残余未测量:user input / final_output 走同一条改名路径
-(`_apply_llm_update` 无条件覆写),摘除后的残余改写率见
-`todo/2026-08-26-residual-anchor-rename-rate.md`;结构性防线 b
-(锚点稳定性约束)在 `todo/2026-08-21-frozen-anchor-identity-wash-hijack.md`。
+`git show a9260baa4:...`。
+
+**第二步(digest 的指定后继)的字段契约,在此为准**:新增一个
+**补充检索词字段**——BM25 的 searchable_text 读它,**continuity 永远
+不读**(C3 的结构化形态);每个写入来源(digest 词/A-kw 救援词/未来
+来源)各自封顶,防单一来源淹没词面;上线前**收益判据必须预注册**——
+digest 自身的收益本就弱(动作词仅占金标线 BM25 分数 3.4~4.4%,
+recall@3 持平),词面缺口须先重新证明。
+
+**残余(未测量,如实声明)**:user input / `final_output[:500]` 走的是
+同一条改名路径(`_apply_llm_update` 无条件覆写 name/summary/keywords),
+摘除 digest 后还剩多少改写率、其同线率代价多大,**没有数**;测法 =
+与 digest 调查同口径的重演 + 按"锚点被改写行"分层 McNemar。结构性
+防线 b = 锚点稳定性约束:线已有真实 summary 后,无换话题证据不重写
+`name`(`current_summary` 必须继续逐轮走,只有身份锚字段需要稳定)。
+
 回归钉:`tests/narrative/test_updater_context_sections.py` 把
-`_build_update_context` 的分节标题钉成三项闭合清单——新增任何进
-updater 上下文的输入都会撞它,逼一次 C3 对照。
+`_build_update_context` 渲染的**每一行的前缀**钉成闭合清单(标题行
+原样、`Key: value` 行取键、动态摘要序号行归一为一项)——任何新增的
+`context_parts.append(...)`,无论是新小节还是挂在既有小节下的裸行,
+都必然改变清单撞红,逼一次 C3 对照;`web.log not in context` 作第二道
+内容层守卫。
 教训归档:**给字段加新写入源之前,先画全它的读者清单**——description
 墓碑(BM25+continuity+主 prompt 三读者)、本案(BM25+continuity 双读者)
 已是同一课的第二次学费。

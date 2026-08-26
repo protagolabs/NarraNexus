@@ -15,11 +15,15 @@ steps. That half-sync has already cost us once — the 0802 "对话时序错乱"
 report was phantom event rows carrying `event_log='[]'`, copied from this same
 in-memory object (see `test_step4_event_attribution.py`).
 
-It bites again at defect A1: the narrative updater now reads `event.event_log`
-to put the turn's tool actions into the retrieval surface. Reading it off a
-stale in-memory object makes A1 a silent no-op in production while every unit
-test — which builds its own Event — stays green. These tests pin the sync so
-that cannot happen quietly.
+It bit a second time at defect A1 (2026-08-12): the narrative updater briefly
+read `event.event_log` to put the turn's tool actions into the retrieval
+surface, and reading it off the stale in-memory object made that fix a silent
+no-op in production while every unit test — building its own Event — stayed
+green. That consumer is gone: the digest was deleted 2026-08-26 after it was
+measured renaming continuity anchors (C3, see the tombstone in updater.py).
+The sync's living consumers are the persisted `events` row and the section-5
+hooks; these tests pin the sync for them, so a half-synced object cannot lie
+to a downstream reader quietly again.
 """
 from __future__ import annotations
 
@@ -98,8 +102,8 @@ async def turn(request):
             changes_summary={},
         ),
         execution_result=PathExecutionResult(
-            # The A1 shape: the answer went out through a tool, so the agent's
-            # own final_output is a meta-comment carrying none of the nouns.
+            # The A1-shaped turn: the answer went out through a tool, so the
+            # agent's own final_output is a meta-comment carrying no nouns.
             final_output="Good — I've already sent the findings.",
             execution_steps=EXECUTION_STEPS,
             response_count=1,

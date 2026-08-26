@@ -46,18 +46,22 @@ if TYPE_CHECKING:
 # reader: the updater's output IS the continuity anchor, and digest content
 # made the updater rename threads after their latest tool call — continuity
 # then judged normal follow-ups as topic switches (same-line rate 65.3% ->
-# 56.8% on anchor-rewritten rows, McNemar p=0.0002; net 24 correct
-# continuations broken per exam). Full study:
-# reference/self_notebook/data/replay_runs/2026-08-26/PR2_CROWDING_ANALYSIS.md
+# 56.8% on anchor-rewritten rows, McNemar p=0.0002 with untouched rows flat
+# at p=0.60 as the built-in control; net 24 correct continuations broken per
+# replay exam; author-side raw data: replay run 2026-08-26,
+# PR2_CROWDING_ANALYSIS).
 #
 # The whole section (build_action_digest, its four-layer secret redaction,
 # budget, dedup counting — ~255 lines plus tests) is DELETED per rule #2, not
 # parked: an uncalled public function with rich tests is exactly how a next
-# reader re-wires it and reproduces C3. It lives at commit a9260baa4; the
-# planned consumer is a supplementary retrieval-terms field continuity does
-# not read (step 2, pre-registered benefit criteria, capped per source,
-# shared with the A-kw rescue-terms design) — see
-# reference/self_notebook/todo/2026-08-26-digest-step2-recovery.md.
+# reader re-wires it and reproduces C3. It lives at commit a9260baa4. The
+# planned successor (step 2) is a SUPPLEMENTARY RETRIEVAL-TERMS FIELD with
+# this contract: BM25's searchable_text reads it, continuity NEVER does;
+# each writing source (digest terms, A-kw rescue terms, future sources) gets
+# its own cap so no single source floods the surface; and its benefit
+# criteria must be pre-registered before it ships — the digest's own benefit
+# was weak (action-only terms were 3.4-4.4% of gold-line BM25 mass,
+# recall@3 flat), so the retrieval gap must be re-proven first.
 
 # ============================================================================
 # LLM Output Schema
@@ -372,11 +376,12 @@ class NarrativeUpdater:
         # of this file). NOTE the residual: final_output and user input above
         # flow through the SAME rename path (_apply_llm_update overwrites
         # name/summary/keywords unconditionally each round), and their rename
-        # rate after this removal is UNMEASURED — see
-        # todo/2026-08-26-residual-anchor-rename-rate.md. The structural
-        # guard (anchor-stability: an established name is not rewritten
-        # without topic-change evidence) is defense line b in
-        # todo/2026-08-21-frozen-anchor-identity-wash-hijack.md.
+        # rate after this removal is UNMEASURED — to be measured with the
+        # same replay + McNemar protocol as the digest study, stratified by
+        # anchor-rewritten rows. The structural option is an anchor-stability
+        # guard in _apply_llm_update: once a line has a real summary, do not
+        # rewrite `name` without topic-change evidence (current_summary must
+        # stay per-turn — only the identity-anchor field needs stability).
 
         return "\n".join(context_parts)
 
