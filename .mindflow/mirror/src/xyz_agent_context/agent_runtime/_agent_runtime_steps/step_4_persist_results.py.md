@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -123,9 +123,14 @@ ctx.event.final_output = execution_result.final_output
 ctx.event.event_log = event_log_entries
 ```
 
-钉住它的测试：`tests/agent_runtime/test_step4_event_log_sync.py`。其中
-`test_synced_event_log_reaches_the_action_digest` 是**穿过真实 step_4** 跑的，
-不是手工构造 Event —— 这是唯一能让"内存对象撒谎"这类 bug 露头的测法。
+钉住它的测试：`tests/agent_runtime/test_step4_event_log_sync.py`。它们都是
+**穿过真实 step_4** 跑的，不是手工构造 Event —— 这是唯一能让"内存对象撒谎"
+这类 bug 露头的测法。内容保真（`web.log` 在、thinking 条目在）由
+`test_synced_event_log_carries_the_turn_content_faithfully` 断言。
+（历史注：这里原来还有一条 `..._reaches_the_action_digest`，随 digest
+机器在 2026-08-26 整段删除而退役 —— digest 被测出改写 continuity 锚点，
+见 updater.py.md 的 2026-08-26 条目。同步本身与它的守卫不受影响：
+同步的活着的消费者是持久化行与 §5 hooks。）
 
 **给后来者的一般教训**：把库里更新过的字段回写内存对象时，**要么全部回写，要么
 一个都别回写**。挑一个回写最危险 —— 对象看起来是新鲜的，实际只有你当时关心的那

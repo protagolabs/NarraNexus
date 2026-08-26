@@ -32,7 +32,6 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results
     step_4_persist_results,
 )
 from xyz_agent_context.narrative import EventService, NarrativeService
-from xyz_agent_context.narrative._narrative_impl.updater import build_action_digest
 from xyz_agent_context.narrative.models import TriggerType
 from xyz_agent_context.schema import ExecutionPath, PathExecutionResult
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -134,21 +133,26 @@ async def test_in_memory_event_log_is_synced_after_step_4(turn):
     ]
 
 
-async def test_synced_event_log_reaches_the_action_digest(turn):
-    """The A1 payoff, driven through the real step instead of a hand-built Event.
+async def test_synced_event_log_carries_the_turn_content_faithfully(turn):
+    """Content fidelity of the sync, asserted on the synced log itself.
 
-    Without the sync this digest is empty and the narrative's retrieval surface
-    keeps none of the turn's nouns — the exact production no-op A1 exists to
-    prevent.
+    This used to be asserted through build_action_digest — deleted at
+    a9260baa4^.. (C3: digest content renamed continuity anchors; see the
+    tombstone in updater.py). The sync's living consumers are the persisted
+    row and the section-5 hooks, and what still matters is that the CONTENT
+    survives the round trip — a length/type match alone would pass with
+    truncated bodies.
     """
     await _run_step_4(turn)
 
-    digest = build_action_digest(turn.ctx.event.event_log)
-
-    assert digest, "no actions extracted — event_log did not reach the updater"
-    assert "web.log" in digest
-    assert "端口" in digest
-    assert "where would the deploy script live" not in digest  # thinking dropped
+    log = turn.ctx.event.event_log
+    tool_texts = " ".join(
+        str(e.content) for e in log if e.type in ("tool_call", "tool_output")
+    )
+    assert "web.log" in tool_texts
+    assert "端口" in tool_texts
+    thinking = [e for e in log if e.type == "thinking"]
+    assert thinking, "thinking entries are part of the synced log"
 
 
 async def test_in_memory_event_log_matches_the_persisted_row(turn):

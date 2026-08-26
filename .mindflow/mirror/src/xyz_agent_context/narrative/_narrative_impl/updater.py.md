@@ -14,13 +14,27 @@ updater 写的四个字段(name/description/summary/keywords)同时是
 (McNemar p=0.0002,未改写行 p=0.60,自带对照),每卷净打断 24 次正确
 延续,被打断轮 54/55 落进**别的既有线**(PR2_CROWDING_ANALYSIS)。
 
-摘除的只有 `_build_update_context` 的那一段插入(伤害唯一入口)。
-**digest 机器整体保留且当前无生产调用方**——这是刻意状态不是遗漏:
-它的指定消费者是"补充检索词字段"(第二步,收益判据需预注册;与 A-kw
-救援词字段合流,封顶按来源分区)。若第二步被放弃,整段按铁律 #2 删除。
+不止摘除插入:digest 机器**整段删除**(约 255 行 + 16 条测试),
+独立审查按铁律 #2 裁定——无调用方的 public 函数带着完整测试留在库里,
+正是曾两次被删的 dead-fork 形态;代码在 git 历史里,恢复只需一条
+`git show a9260baa4:...`。第二步(补充检索词字段:BM25 读、continuity
+永不读、按来源封顶)的设计与恢复指针在
+`reference/self_notebook/todo/2026-08-26-digest-step2-recovery.md`。
+残余未测量:user input / final_output 走同一条改名路径
+(`_apply_llm_update` 无条件覆写),摘除后的残余改写率见
+`todo/2026-08-26-residual-anchor-rename-rate.md`;结构性防线 b
+(锚点稳定性约束)在 `todo/2026-08-21-frozen-anchor-identity-wash-hijack.md`。
+回归钉:`tests/narrative/test_updater_context_sections.py` 把
+`_build_update_context` 的分节标题钉成三项闭合清单——新增任何进
+updater 上下文的输入都会撞它,逼一次 C3 对照。
 教训归档:**给字段加新写入源之前,先画全它的读者清单**——description
 墓碑(BM25+continuity+主 prompt 三读者)、本案(BM25+continuity 双读者)
 已是同一课的第二次学费。
+
+> 下方 2026-08-25 / 2026-08-21 / 2026-08-12(A1)三条与 digest 相关的
+> 条目自本日起为**历史记录**:它们描述的 `build_action_digest`、四层
+> 脱敏与预算裁剪已随本次删除离开代码库,保留是为了讲清"为什么当初
+> 这样建、为什么后来拆"。
 
 
 ## 2026-08-25 — 脱敏第四层(字符串容器)+ 去重计数(PR #361 round 2)
@@ -34,7 +48,6 @@ M7:`build_action_digest` 的去重从静默跳过改为计数折叠(行尾 `(×N
 "连续重试 3 次"和"跑了一次"是不同的 turn 状态,且 `_fit_to_budget` 已
 承诺不静默丢内容,去重不该是唯一例外。
 
-
 ## 2026-08-21 — 嵌套凭据脱敏（独立审查 Critical #1）
 
 `_render_argument` 原来只对**顶层**参数 key 跑 `_SECRET_KEY_RE`；dict/list 值经
@@ -47,7 +60,6 @@ helper LLM → narratives 行 → 之后每轮系统提示词"，且无回收路
 dict/list 值的序列化文本**启用——纯字符串值仍只走 value 正则，防止把
 "帮我查 token 用量" 这类正文误伤成 `<redacted>`（那正是 digest 要救的名词）。
 两侧各有测试钉住：嵌套必脱敏、正文提及必不脱敏。
-
 
 ## 2026-08-20 — 线名不再带频道标签(K 层)
 
