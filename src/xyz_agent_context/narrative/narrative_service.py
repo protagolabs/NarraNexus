@@ -480,7 +480,9 @@ class NarrativeService:
             # releasable population on continuity turns, currently bounded only
             # at 6%-39% because these rows carry no pool to reconstruct from.
             #
-            # Awaited on purpose (~13.5ms, two DB reads): a `create_task` here
+            # Awaited on purpose (~13.5ms: two DB reads + one snapshot-dedup
+            # SELECT; the real line item is the shadow row's full-pool
+            # candidates_json, 10KB-scale): a `create_task` here
             # would race the audit write below and turn any failure into a GC
             # warning nobody reads (incident lesson #2).
             #
@@ -786,6 +788,11 @@ class NarrativeService:
         could never be taken, and the missing annotation is what hid that.
         (The similar-looking guard in ``_land_no_topic_turn`` is real — that
         path genuinely can be reached without a session.)
+
+        ``is_user_chat`` is always True here — the call site guards on it —
+        so ``evaluate_bypass``'s background_scope branch is unreachable on
+        this chain. The parameter stays so that re-opening background turns
+        later is a one-line change to the guard, not a plumbing change.
 
         The except clause is one log line and nothing else. It used to reset the
         nine fields the recorder writes, from a list kept by hand, which was

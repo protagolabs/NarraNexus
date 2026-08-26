@@ -4,15 +4,14 @@ last_verified: 2026-08-26
 stub: false
 ---
 
+# schema_registry.py
+
 ## 2026-08-26 — 影子行改变 retrieve_ms 的量纲(PR #365 review I2)
 
 `pool_is_shadow=1` 的行上 `retrieve_ms` 只含仪器自身的 tier-2 耗时
 (judge 未运行);跨人群成本聚合必须先按 `pool_is_shadow` 过滤,否则续接轮
 多数人群的 ~13ms 会稀释仲裁成本读数。`keyword_ms` 是唯一两人群定义相同、
 可直接比较的成本列。in-code 契约注释(本文件与 models.py)已同步此语义。
-
-
-# schema_registry.py
 
 ## 2026-08-25 — `narrative_routing_audit.pool_is_shadow`(纯增量)
 

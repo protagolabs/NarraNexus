@@ -171,6 +171,11 @@ class NarrativeConfig:
     # off therefore reads as "the shutter has no releasable population on
     # continuity turns" rather than "we did not look". If you turn it off,
     # write down the window — the table cannot tell you afterwards.
+    # Even with the switch ON, background-triggered continuation turns
+    # (job / message_bus / IM webhook, ~30% of dev turns) stay 0 by scope —
+    # the instrument records user-chat turns only. Population queries must
+    # pair this column with `is_user_chat`; a ~70% coverage read over all
+    # continuation turns is the designed scope, not a lost window.
     NARRATIVE_SHADOW_POOL_RECORD = _env("NARRATIVE_SHADOW_POOL_RECORD", "1") == "1"
 
     # Number of Narratives added to Context

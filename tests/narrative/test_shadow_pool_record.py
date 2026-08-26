@@ -504,7 +504,6 @@ async def test_the_instrument_has_an_env_switch(service, db_client, monkeypatch)
     assert not row["pool_is_shadow"]
 
 
-@pytest.mark.asyncio
 async def test_a_background_continuation_turn_is_not_recorded(
     service, db_client, monkeypatch
 ):
@@ -524,5 +523,9 @@ async def test_a_background_continuation_turn_is_not_recorded(
 
     assert result.narratives, "the decision path itself is untouched"
     row = await _row(db_client)
+    assert row["selection_method"] == "continuous", (
+        "precondition: this must be a background CONTINUATION turn — "
+        "otherwise the no-recording assertion below tests nothing"
+    )
     assert not row["candidates"], "a background turn must not pay the recorder"
     assert row["pool_is_shadow"] in (0, None)

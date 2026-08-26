@@ -464,8 +464,9 @@ class RoutingAudit(BaseModel):
     # decided nothing — a continuity turn, where `select` used to return before
     # the retrieval tier ran at all.
     #
-    # Without it every gate aggregate silently mixes two populations. With it,
-    # `WHERE pool_is_shadow = 0` is "decisions" and `= 1` is "what the shutter
+    # Without it every gate aggregate silently mixes two populations. With it —
+    # AND `is_user_chat = 1`, see below — `WHERE pool_is_shadow = 0` is
+    # "decisions" and `= 1` is "what the shutter
     # would have said on the turns continuity already answered" — which is the
     # measurement the merged-routing design needs and could not get: the
     # shutter's releasable population is currently bounded at 6%-39%, a 3x band
@@ -478,6 +479,14 @@ class RoutingAudit(BaseModel):
     # existing column does not quietly change meaning). The hypothetical verdict
     # goes to `bypass_score_gate` / `bypass_reason`, which have no legacy
     # readers.
+    #
+    # SCOPE (user-chat only): background-triggered continuation turns (job /
+    # message_bus / IM webhook, ~30% of dev turns) are NOT recorded — they
+    # keep the column's default 0 while carrying no pool and NULL gate
+    # columns. So `= 0` alone holds two populations; the discriminator is
+    # this column PLUS `is_user_chat`. Any cross-population query must add
+    # `is_user_chat = 1`, and coverage reads (`pool_is_shadow=1` over
+    # continuation turns) will sit near ~70% by design, not from loss.
     pool_is_shadow: bool = False
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
