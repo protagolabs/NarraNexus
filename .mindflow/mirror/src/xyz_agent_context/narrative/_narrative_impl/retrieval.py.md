@@ -10,7 +10,7 @@ stub: false
 `gather(participant, load_pool)` → `rank_pool` → participant 合并/重排/重编号 →
 `_build_pool_record` → `evaluate_gate` → `evaluate_bypass`,返回一个 inert 的
 `ScoredPool`。两个调用方的**唯一差别是之后往 audit 抄哪几列**。
-(review round 3 补:`record_pool_only` commit block 里的人群判别注释从
+(2026-08-26 补:`record_pool_only` commit block 里的人群判别注释从
 "pool_is_shadow and nothing else" 改为两列口径——收窄后后台续接轮也落 0,
 判别是 `pool_is_shadow` + `is_user_chat` 共同,权威表述在 models.py 列契约。)
 

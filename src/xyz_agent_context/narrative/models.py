@@ -491,9 +491,9 @@ class RoutingAudit(BaseModel):
     # share of CONTINUATION turns has not been; read the real split with
     # GROUP BY is_user_chat rather than comparing against a fixed number.
     # (A third, negligible source of 0 on a user-chat continuation row: the
-    # recorder itself failed — always accompanied by a
-    # [narrative.shadow_pool] warning, and distinguishable via
-    # selection_method = "continuous" with empty candidates.)
+    # recorder itself failed — identifiable ONLY by the accompanying
+    # [narrative.shadow_pool] warning; the row itself is shaped exactly
+    # like a switch-off row.)
     pool_is_shadow: bool = False
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────

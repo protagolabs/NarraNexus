@@ -14,7 +14,7 @@ background_scope),却照付记录成本——message_bus 单独占 dev 轮次 ~3
 守卫改为 `NARRATIVE_SHADOW_POOL_RECORD and is_user_chat`,测试
 test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
 而非遗漏;若将来要拿后台轮当"continuity 误判"的证据面,重新放开时
-须同步此条与该测试。**连带语义(review round 2 I1)**:收窄后
+须同步此条与该测试。**连带语义(收窄的连带面)**:收窄后
 `pool_is_shadow = 0` 一侧同时装着"决策行"和"后台续接轮"两种行,
 人群判别从单列变为 **`pool_is_shadow` + `is_user_chat` 两列共同**;
 全体续接轮上的覆盖率按设计明显低于 100%,真实比例用
