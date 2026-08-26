@@ -196,8 +196,8 @@ def test_step3_splits_build_context_from_run_agent_phase():
     """The pipeline exposes context assembly and the model actually running
     as two DISTINCT phases, so the process panel can tell "still preparing"
     from "in the loop". These step ids are the cross-file contract the
-    frontend whitelists (ProcessPanel PHASE_ORDER / processShared
-    PHASE_LABEL_KEYS) and the tool sub-steps nest under (``3.4.{n}``)."""
+    frontend whitelists (processShared PHASE_STEP_IDS / PHASE_LABEL_KEYS) and
+    the tool sub-steps nest under (``3.4.{n}``)."""
     # Canonical home is the leaf schema module (importable by both the emitter
     # and run_recorder without a circular import).
     from xyz_agent_context.schema import (

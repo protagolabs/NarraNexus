@@ -20,7 +20,7 @@ import；这样 [[run_recorder]] 能从同一份常量派生 `current_stage` 而
   运行，这才是诚实的"进入 loop"标记。loop 结束时发 `3.4` 自身 COMPLETED
   落定该行（原来发的是 `step="3"` "Agent Loop Complete"）。
 
-前端 [[processShared]] 的 `PHASE_ORDER`/`PHASE_LABEL_KEYS` 白名单这两个
+前端 [[processShared]] 的 `PHASE_STEP_IDS`/`PHASE_LABEL_KEYS` 白名单这两个
 step id，工具子步继续以 `{PHASE_RUN_AGENT_STEP}.{n}`（`3.4.x`）嵌在
 run-agent 相位下（response_processor 侧）；[[run_recorder]] 在 tool_call
 上盖同一 derived 标签 `step.3.4_Run Agent`，保 `current_stage` 一致。

@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-08-18
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
+
+新增 4 个跨文件契约常量:`PHASE_BUILD_CONTEXT_STEP="3"` /
+`PHASE_BUILD_CONTEXT_TITLE="Build Context"` / `PHASE_RUN_AGENT_STEP="3.4"` /
+`PHASE_RUN_AGENT_TITLE="Run Agent"`。step 3 拆成「构建上下文(3)」和「运行
+Agent(3.4)」两个相位(诚实的『进入 loop』标记),详见 [[step_3_agent_loop]]。
+
+**为什么住在这个 leaf schema 模块**——和上面 `AUTH_EXPIRED_ERROR_TYPE` /
+`EXECUTOR_INFRA_ERROR_TYPE` 完全同一个理由:两个消费方都要 import 且不能
+成环。[[step_3_agent_loop]] **发**这些相位;[[run_recorder]] 从**同一份**常量
+派生 `events.current_stage`(`_extract_progress_stage({"step":
+PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE})`),而 `run_recorder`
+**不能**从 `step_3_agent_loop` 导——`_agent_runtime_steps/__init__` 会 eager
+import 它、它又反向依赖 runtime 层,正是本文件下方 marker 记过的那条环。
+经 `schema/__init__` 转发到公共面。前端 [[processShared]] 的 `PHASE_STEP_IDS`
+/ `PHASE_LABEL_KEYS` 白名单跟这两个 step id 对齐(跨栈契约)。
 
 ## 2026-07-30 — `AgentThinking.monologue` 字段（独白经消息流可见）
 

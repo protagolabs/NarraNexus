@@ -4,7 +4,7 @@ last_verified: 2026-08-26
 stub: false
 ---
 
-## 2026-08-26 — 阶段行改白名单过滤（PHASE_ORDER）
+## 2026-08-26 — 阶段行改白名单过滤（PHASE_STEP_IDS）
 
 `phases` 过滤从黑名单 `!startsWith('3.4')` 换成白名单
 `PHASE_STEP_IDS.has(step)`（见 [[processShared]]，从 `PHASE_LABEL_KEYS`

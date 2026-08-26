@@ -100,7 +100,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
     [process],
   );
 
-  // The top-level pipeline phases, whitelisted (PHASE_ORDER). Tool sub-steps
+  // The top-level pipeline phases, whitelisted (PHASE_STEP_IDS). Tool sub-steps
   // (3.4.x) are already the panel's tool rows; the 3.5 final-thinking echo and
   // post-answer housekeeping (4/5) aren't "what's happening now" — and only
   // whitelisted ids have localized labels, so this also stops raw English

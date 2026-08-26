@@ -4,7 +4,7 @@ last_verified: 2026-08-26
 stub: false
 ---
 
-## 2026-08-26 — 阶段名对齐真实语义 + 新增 PHASE_ORDER 白名单
+## 2026-08-26 — 阶段名对齐真实语义 + 新增 PHASE_STEP_IDS 白名单
 
 `PHASE_LABEL_KEYS` 过去整体错位一格：step 1（叙事选择）显示「加载上下
 文」、step 2（模块加载）显示「加载资源」、step 3（**Execute Agent

@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `translateReconnectFrame` 回放兜底 step id 不得撞相位 id
+
+`tool_call` / `tool_output` 回放帧在 payload 解析失败(`safeParseJson` 返 null)
+时,合成 progress 的 step id 兜底值从 `'3.4'` 改成 `'3.4.replay'`。
+
+**这是一条约束,不是流水账**:`'3.4'` 是 run-agent 相位的 id。currentSteps
+按 step id upsert([[chatStore]] / [[useRunObservation]]),裸 `'3.4'` 会**覆盖
+真正的 run-agent 相位行**——`tool_output` 分支合成的是 `status:'completed'`,
+于是直播中途面板显示「Agent 运行中… ✓」。兜底值必须是 `3.4.x` 形状的子步:
+`parseFloat('3.4.replay')` 仍是 3.4(落定逻辑不变),但不在
+[[processShared]] 的 `PHASE_STEP_IDS` 白名单里,永远渲染成工具行、绝不成相位
+行。**谁把它当冗余魔法字符串「清理」回 `'3.4'`,就复现上面的 bug。**
+测试 `wsManager.reconnect.test.ts` 钉住「不得撞相位 id」这条约束本身。
 
 ## 2026-08-24 (review #349) — 续接锚点只认 running;时间戳解析归一
 
