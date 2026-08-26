@@ -64,9 +64,9 @@ profile 仍然停在「第一次见面」，所以它**自己的上下文里没�
 - `compress_description` 失败时返回截断值，**看起来是成功的**，但静默丢掉了
   切口之后的全部内容，所以照样上报。
 - `owner_user_id` 在这条路上拿不到（hook 是脱钩后台任务，比解析 owner 的地方
-  低好几层），所以 `_report_llm_failure` 从 `agents.created_by` 现查——
-  和 `agent_runtime` 在 resolver 早退时的兜底同一个写法。查不到也没关系，
-  告警的审计层照样落行。
+  低好几层），所以 `_report_llm_failure` 要反查——走
+  `AgentRepository.resolve_owner`（见上方 2026-08-25 那条，**不要**手搓
+  `get_one("agents", ...)`）。查不到也没关系，告警的审计层照样落行。
 
 ## 2026-08-17 — 记一个已知缺口：`should_update_persona` 的 change-signal 只认英文
 

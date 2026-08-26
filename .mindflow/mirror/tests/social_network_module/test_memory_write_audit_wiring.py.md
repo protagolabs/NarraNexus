@@ -23,6 +23,28 @@ last_verified: 2026-08-25
 
 这个坑不写下来，下一个加测试的人会先撞一次「patch 了但 calls 是空的」。
 
+## 两处刻意不用「刚好能过」的写法
+
+- **repo 走显式实参，不绕私有属性**。`_process_mentioned_entities(self, repo, …)`
+  本来就收 repo；先塞进 `module._social_repo` 再读回来是多一跳，还给一个声明
+  为 `Optional[SocialNetworkRepository]` 的属性赋了假对象。
+- **`kwargs["name"]` 而不是 `.get` 链**。真实调用是
+  `search_by_name_or_alias(instance_id=…, name=…)`；用
+  `kwargs.get("name") or kwargs.get("entity_name") or ""` 的话，关键字一旦
+  改名，`seen` 会静静填满 `""` 而 `len(seen) == 2` 照样通过——那条断言就从
+  「两个实体都被查了」退化成「被调用了两次」。这正是这个 PR 两轮都在打的
+  「绿灯但没测到」。
+
+`operation` 断言的是 [[social_network_module.py]] 的**模块级常量值**，
+不是 `inspect.getsource` 的子串匹配——读源码的测试在「调用被删但字面量留在
+注释里」时是绿的，在「上报抽进 helper」时是红的，两个方向都错。
+
+## 已知缺口
+
+`create_primary_entity` 只有拼写和常量被钉住，**没有行为测试**——它的调用点
+在 `hook_after_event_execution` 的 `if not entity:` 分支里，要跑起来得把整条
+hook 立起来。这一条是本 PR 里唯一没被行为验证的上报路径。
+
 ## 钉住了什么
 
 - 两个 `operation` 的拼写（运维几周后 grep 的就是它）

@@ -55,12 +55,15 @@ def audited(monkeypatch):
     return rows
 
 
-def _module(repo) -> SocialNetworkModule:
-    module = SocialNetworkModule(
+def _module() -> SocialNetworkModule:
+    """``_process_mentioned_entities`` takes ``repo`` as an explicit
+    argument, so the fake goes in through the front door. (Assigning it to
+    the typed ``_social_repo`` attribute and reading it back would be one
+    extra hop, and would put a stand-in on a declared
+    ``Optional[SocialNetworkRepository]``.)"""
+    return SocialNetworkModule(
         agent_id="agent_mine", database_client=None, instance_id="sn_1"
     )
-    module._social_repo = repo
-    return module
 
 
 class _StageOneBoom:
@@ -71,12 +74,11 @@ class _StageOneBoom:
         raise RuntimeError("database is locked")
 
 
-@pytest.mark.asyncio
 async def test_mentioned_entity_failure_is_audited(audited):
-    module = _module(_StageOneBoom())
+    module, repo = _module(), _StageOneBoom()
 
     await module._process_mentioned_entities(
-        module._social_repo, "sn_1", [ExtractedEntity(name="Bob")]
+        repo, "sn_1", [ExtractedEntity(name="Bob")]
     )
 
     assert len(audited) == 1
@@ -90,14 +92,13 @@ async def test_mentioned_entity_failure_is_audited(audited):
     )
 
 
-@pytest.mark.asyncio
 async def test_each_failing_entity_gets_its_own_row_with_its_own_id(audited):
     """Pins the `entity_id_candidate` binding: a stale value here would file
     every failure under whichever entity happened to be processed first."""
-    module = _module(_StageOneBoom())
+    module, repo = _module(), _StageOneBoom()
 
     await module._process_mentioned_entities(
-        module._social_repo,
+        repo,
         "sn_1",
         [ExtractedEntity(name="Bob"), ExtractedEntity(name="Alice Smith")],
     )
@@ -105,7 +106,6 @@ async def test_each_failing_entity_gets_its_own_row_with_its_own_id(audited):
     assert [r["entity_id"] for r in audited] == ["entity_bob", "entity_alice_smith"]
 
 
-@pytest.mark.asyncio
 async def test_one_failing_entity_does_not_abort_the_batch(audited):
     """The loop must keep going — and must keep auditing — after one entity
     fails, or a single bad row silently drops the rest of the batch."""
@@ -113,18 +113,22 @@ async def test_one_failing_entity_does_not_abort_the_batch(audited):
 
     class _BoomOnBob:
         async def search_by_name_or_alias(self, **kwargs):
-            name = kwargs.get("name") or kwargs.get("entity_name") or ""
+            # ``kwargs["name"]`` on purpose, not a ``.get`` chain: if the
+            # real call's keyword is ever renamed this must raise, not
+            # quietly record "" and let `len(seen) == 2` below decay from
+            # "both entities were looked up" into "it was called twice".
+            name = kwargs["name"]
             seen.append(name)
-            if "Bob" in str(kwargs):
+            if name == "Bob":
                 raise RuntimeError("database is locked")
             return []
 
         async def add_entity(self, **kwargs):
             return None
 
-    module = _module(_BoomOnBob())
+    module, repo = _module(), _BoomOnBob()
     await module._process_mentioned_entities(
-        module._social_repo,
+        repo,
         "sn_1",
         [ExtractedEntity(name="Bob"), ExtractedEntity(name="Carol")],
     )
@@ -133,12 +137,20 @@ async def test_one_failing_entity_does_not_abort_the_batch(audited):
     assert len(seen) == 2, "the batch must continue past the failing entity"
 
 
-@pytest.mark.asyncio
-async def test_the_two_caller_side_operations_are_the_expected_names(audited):
-    """`operation` is what an operator greps weeks later; pin both spellings
-    so a typo cannot ship green."""
-    import inspect
+async def test_the_two_caller_side_operations_are_the_expected_names():
+    """`operation` is what an operator greps weeks later, so pin both
+    spellings by VALUE.
 
-    src = inspect.getsource(snm)
-    assert 'operation="create_primary_entity"' in src
-    assert 'operation="process_mentioned_entity"' in src
+    This used to grep ``inspect.getsource(snm)``, which is green when the
+    call is deleted but the literal survives in a comment, and red when the
+    reporting moves into a helper. Asserting the constants also removes the
+    duplicate-knowledge of writing each string in the source and again here.
+
+    ``create_primary_entity`` still has no behaviour test — its call site
+    sits inside ``hook_after_event_execution``'s ``if not entity:`` branch,
+    which needs the whole hook stood up. This pins the spelling and that
+    the constant is what the call site uses; the branch itself is not
+    exercised.
+    """
+    assert snm._OP_CREATE_PRIMARY_ENTITY == "create_primary_entity"
+    assert snm._OP_PROCESS_MENTIONED_ENTITY == "process_mentioned_entity"

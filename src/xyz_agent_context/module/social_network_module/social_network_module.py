@@ -59,6 +59,14 @@ from xyz_agent_context.module.social_network_module._entity_updater import (
     _report_write_failure,
 )
 
+# ``operation`` values for the caller-side memory-write audit rows. Module
+# constants rather than inline literals so the test can assert the VALUE
+# instead of grepping this file's source text — a source-reading test goes
+# green when the call is deleted but the string survives in a comment, and
+# red when the call moves to a helper.
+_OP_CREATE_PRIMARY_ENTITY = "create_primary_entity"
+_OP_PROCESS_MENTIONED_ENTITY = "process_mentioned_entity"
+
 
 def social_instance_not_found_msg(agent_id: str) -> str:
     """The one canonical "agent has no SocialNetworkModule instance" message.
@@ -553,7 +561,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     # now, zero durable trace.
                     logger.exception(f"Failed to create entity: {e}")
                     await _report_write_failure(
-                        operation="create_primary_entity", error=e,
+                        operation=_OP_CREATE_PRIMARY_ENTITY, error=e,
                         entity_id=user_id, instance_id=instance_id,
                         agent_id=self.agent_id,
                     )
@@ -787,7 +795,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 # handler reports for its own failures.
                 logger.warning(f"            Failed to process entity '{mentioned_entity.name}': {e}")
                 await _report_write_failure(
-                    operation="process_mentioned_entity", error=e,
+                    operation=_OP_PROCESS_MENTIONED_ENTITY, error=e,
                     entity_id=entity_id_candidate, instance_id=instance_id,
                     agent_id=self.agent_id,
                 )
