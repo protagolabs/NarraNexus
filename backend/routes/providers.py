@@ -42,6 +42,8 @@ from xyz_agent_context.utils.deployment_mode import (
     is_power_login_enabled,
 )
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
+from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 
@@ -770,6 +772,60 @@ async def validate_slots(request: Request):
     service = await _get_service()
     errors = await service.validate_slots(uid)
     return {"success": True, "errors": errors, "all_configured": len(errors) == 0}
+
+
+# =============================================================================
+# Owner-scoped bulk slot ops — "apply default model to all my agents"
+# =============================================================================
+#
+# The owner default lives in ``user_slots``; each agent may pin a per-agent
+# override in ``agent_slots``. Changing the default does NOT touch existing
+# overrides, so these endpoints let the owner (a) see how many agents override
+# and (b) clear those overrides so they fall back to inheriting the new
+# default (clear-to-inherit; NOT a value snapshot). ``agents-overview`` feeds
+# the Dashboard model chip in one call (no per-agent N+1).
+
+
+class ApplyToAgentsRequest(BaseModel):
+    slots: list[str]
+
+
+@router.get("/slots/override-stats")
+async def slot_override_stats(request: Request):
+    """How many of the caller's agents hold a per-agent override, per slot —
+    the blast radius shown before a bulk 'apply defaults to all agents'."""
+    uid = _get_user_id(request)
+    db = await get_db_client()
+    stats = await AgentSlotService(db).count_owner_overrides(uid)
+    return {"success": True, "data": stats}
+
+
+@router.post("/slots/apply-to-agents")
+async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
+    """Clear the given slots' per-agent overrides across ALL the caller's
+    agents, so they revert to inheriting the owner default on their next run.
+    Semantics = clear-to-inherit (not stamp-a-snapshot)."""
+    uid = _get_user_id(request)
+    db = await get_db_client()
+    svc = AgentSlotService(db)
+    cleared: dict[str, int] = {}
+    try:
+        for slot in req.slots:
+            cleared[slot] = await svc.clear_owner_agents_slot(uid, slot)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
+    return {"success": True, "data": {"cleared": cleared}}
+
+
+@router.get("/slots/agents-overview")
+async def slot_agents_overview(request: Request):
+    """Effective (agent + helper_llm) model per owned agent, in one call —
+    feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
+    uid = _get_user_id(request)
+    db = await get_db_client()
+    overview = await AgentSlotService(db).owner_agents_overview(uid)
+    return {"success": True, "data": {"agents": overview}}
 
 
 # =============================================================================

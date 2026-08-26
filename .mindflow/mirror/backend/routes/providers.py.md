@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-08-06
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
+
+新增三个 owner 范围端点，都经 `_get_user_id` 定身份、委托
+[[slot_service]] 的批量方法（本人 agent 天然隔离）：
+
+- `GET /slots/override-stats` → 各槽有多少 agent 存在覆盖（确认框影响面）。
+- `POST /slots/apply-to-agents` `{slots:[...]}` → 逐槽 clear-to-inherit，返回
+  实际清除数；未知槽名 → 400。
+- `GET /slots/agents-overview` → 一次拿全 agent 的 effective 模型 + inherit
+  标记，喂 Dashboard 折叠行 model chip（免 per-agent N+1）。
+
+为让测试可 monkeypatch，`get_db_client` 由函数内局部 import 提升为模块顶层
+import（旧端点内的局部 import 保留、互不影响）。这三个端点服务于「改默认→
+一键应用到全体」与「Dashboard 就地看/改单 agent 模型」两个前端功能。
 
 ## 2026-08-06 — NetMind token 的 401 不再等于"会话死了"
 
