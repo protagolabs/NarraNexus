@@ -115,6 +115,7 @@ class NarrativeRoutingAuditRepository:
                 else int(audit.bypass_score_gate)
             ),
             "bypass_reason": audit.bypass_reason,
+            "pool_is_shadow": int(audit.pool_is_shadow),
             "judge_ran": int(audit.judge_ran),
             "judge_category": audit.judge_category,
             "judge_matched_id": audit.judge_matched_id,

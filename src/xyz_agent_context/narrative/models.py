@@ -460,6 +460,41 @@ class RoutingAudit(BaseModel):
     # judge actually say about the turns the anchor rule refused to let
     # through" — i.e. whether the rule is paying for itself.
     bypass_reason: str = ""
+    # Slice 0. True when the pool on this row was built for the RECORD ONLY and
+    # decided nothing — a continuity turn, where `select` used to return before
+    # the retrieval tier ran at all.
+    #
+    # Without it every gate aggregate silently mixes two populations. With it —
+    # AND `is_user_chat = 1`, see below — `WHERE pool_is_shadow = 0` is
+    # "decisions" and `= 1` is "what the shutter
+    # would have said on the turns continuity already answered" — which is the
+    # measurement the merged-routing design needs and could not get: the
+    # shutter's releasable population is currently bounded at 6%-39%, a 3x band
+    # that is reconstruction slack, not signal, precisely because these rows
+    # carried no pool.
+    #
+    # NOTE the deliberate asymmetry with `gate_short_circuit`: that column means
+    # "the gate skipped the judge", and on a shadow row the gate skipped
+    # nothing, so it stays NULL exactly as it is today (binding rule #6 — an
+    # existing column does not quietly change meaning). The hypothetical verdict
+    # goes to `bypass_score_gate` / `bypass_reason`, which have no legacy
+    # readers.
+    #
+    # SCOPE (user-chat only): background-triggered continuation turns (job /
+    # message_bus / IM webhook, ~30% of dev turns) are NOT recorded — they
+    # keep the column's default 0 while carrying no pool and NULL gate
+    # columns. So `= 0` alone holds two populations; the discriminator is
+    # this column PLUS `is_user_chat`. Any cross-population query must add
+    # `is_user_chat = 1`. Coverage reads (`pool_is_shadow=1` over ALL
+    # continuation turns) will sit meaningfully below 100% by design —
+    # background triggers are ~30% of all dev turns (measured), but their
+    # share of CONTINUATION turns has not been; read the real split with
+    # GROUP BY is_user_chat rather than comparing against a fixed number.
+    # (A third, negligible source of 0 on a user-chat continuation row: the
+    # recorder itself failed — identifiable ONLY by the accompanying
+    # [narrative.shadow_pool] warning; the row itself is shaped exactly
+    # like a switch-off row.)
+    pool_is_shadow: bool = False
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False
@@ -477,8 +512,15 @@ class RoutingAudit(BaseModel):
     # skips the judge entirely, and storing 0 there would drag every "cost of
     # arbitration" query toward nothing, destroying the exact comparison these
     # columns exist to make.
+    # SHADOW ROWS (pool_is_shadow=1, slice 0) change one dimension:
+    # `retrieve_ms` there holds ONLY the instrument's own tier-2 cost — the
+    # judge never ran. Same column, two magnitudes; any cross-population cost
+    # aggregate MUST filter on pool_is_shadow first, or the continuation
+    # majority's ~13ms rows dilute "how expensive is arbitration" exactly the
+    # way the paragraph above warns a stored 0 would. `keyword_ms` is the one
+    # cost column with an identical definition in both populations.
     continuity_ms: Optional[int] = None   # tier 1 LLM (continuity detect)
-    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k)
+    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k); shadow rows: tier 2 only
     keyword_ms: Optional[int] = None      # BM25 pool load + rank
     judge_ms: Optional[int] = None        # tier 3 LLM (unified match)
 

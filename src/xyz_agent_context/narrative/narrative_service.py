@@ -471,6 +471,39 @@ class NarrativeService:
                 retrieval_method=retrieval_method,
                 chosen_narrative_id=narratives[0].id if narratives else None,
             )
+            # Slice 0 — record the pool this turn never consulted.
+            #
+            # The verdict above is already final: `narratives`,
+            # `selection_method` and `chosen_narrative_id` are set and nothing
+            # below may touch them. What the recorder adds is the one thing the
+            # merged-routing design cannot get anywhere else — the shutter's
+            # releasable population on continuity turns, currently bounded only
+            # at 6%-39% because these rows carry no pool to reconstruct from.
+            #
+            # Awaited on purpose (~13.5ms: two DB reads + one snapshot-dedup
+            # SELECT; the real line item is the shadow row's full-pool
+            # candidates_json, 10KB-scale): a `create_task` here
+            # would race the audit write below and turn any failure into a GC
+            # warning nobody reads (incident lesson #2).
+            #
+            # The guard is scoped to the instrument and nothing else. Losing a
+            # measurement is cheaper than failing a user's turn — the same rule
+            # the audit repository already states — but a failure in the
+            # DECISION path above still propagates, because it is outside this
+            # block.
+            # User-chat only: background triggers (job / message_bus / IM
+            # webhook) have no session anchor by design, so their shadow rows
+            # answer nothing about the shutter's releasable population
+            # (bypass_reason would be background_scope on every one) while
+            # still paying the recording cost — ~30% of dev turns are
+            # message_bus. Deliberate scope, not an omission.
+            if config.NARRATIVE_SHADOW_POOL_RECORD and is_user_chat:
+                await self._record_shadow_pool(
+                    query_text=query_text, user_id=user_id, agent_id=agent_id,
+                    session=session, is_user_chat=is_user_chat,
+                    top_k=max_narratives,
+                    audit=audit, snapshots=audit_snapshots,
+                )
 
         # Update Session (using main Narrative).
         # Only user-initiated runs (chat) write to last_query / last_response /
@@ -726,6 +759,63 @@ class NarrativeService:
             await NarrativeRoutingAuditRepository(db).record(audit, snapshots)
         except Exception as e:  # noqa: BLE001 — the observer must not break the observed
             logger.warning(f"[narrative.audit] not recorded: {type(e).__name__}: {e}")
+
+    async def _record_shadow_pool(
+        self,
+        *,
+        query_text: str,
+        user_id: str,
+        agent_id: str,
+        session: ConversationSession,
+        is_user_chat: bool,
+        top_k: int,
+        audit: RoutingAudit,
+        snapshots: dict,
+    ) -> None:
+        """Fill a continuity turn's audit row with the pool it never consulted.
+
+        A thin seam over ``NarrativeRetrieval.record_pool_only`` so the failure
+        boundary is one named place rather than a bare try/except inline in
+        ``select``. It exists to be monkeypatched off in the invariance test:
+        that test runs the same turn with and without it and asserts the
+        decided fields are identical, which is the property that makes this an
+        instrument rather than a change.
+
+        ``session`` is NOT Optional here. Reaching this branch requires
+        ``narratives`` to be non-empty, and the only assignment to it is guarded
+        by ``if is_continuous and session and session.current_narrative_id``, so
+        both are known-true. The old ``if session else None`` was a branch that
+        could never be taken, and the missing annotation is what hid that.
+        (The similar-looking guard in ``_land_no_topic_turn`` is real — that
+        path genuinely can be reached without a session.)
+
+        ``is_user_chat`` is always True here — the call site guards on it —
+        so ``evaluate_bypass``'s background_scope branch is unreachable on
+        this chain. The parameter stays so that re-opening background turns
+        later is a one-line change to the guard, not a plumbing change.
+
+        The except clause is one log line and nothing else. It used to reset the
+        nine fields the recorder writes, from a list kept by hand, which was
+        already missing ``gate_reason`` on the day it was written and did not
+        roll back snapshots at all (leaving orphan rows in
+        ``narrative_text_snapshots``). ``record_pool_only`` is now
+        all-or-nothing, so there is no list left to drift.
+        """
+        try:
+            await self._retrieval.record_pool_only(
+                query_text, user_id, agent_id,
+                top_k=top_k,
+                anchor_narrative_id=session.current_narrative_id,
+                is_user_chat=is_user_chat,
+                audit=audit,
+                snapshots=snapshots,
+            )
+        except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+            logger.warning(
+                f"[narrative.shadow_pool] recording failed (agent={agent_id}): "
+                f"{type(e).__name__}: {e} (verdict unaffected; the row keeps "
+                f"its pre-slice-0 shape)"
+            )
 
     def _get_continuity_detector(self) -> Optional[ContinuityDetector]:
         """Get the continuity detector (lazy loaded)"""

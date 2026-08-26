@@ -1,8 +1,63 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `_score_pool`:一次打分,两个调用方(切片 0 + review 收口)
+
+`retrieve_top_k`(做决策)与 `record_pool_only`(只记录)现在**共用同一段**:
+`gather(participant, load_pool)` → `rank_pool` → participant 合并/重排/重编号 →
+`_build_pool_record` → `evaluate_gate` → `evaluate_bypass`,返回一个 inert 的
+`ScoredPool`。两个调用方的**唯一差别是之后往 audit 抄哪几列**。
+(2026-08-26 补:`record_pool_only` commit block 里的人群判别注释从
+"pool_is_shadow and nothing else" 改为两列口径——收窄后后台续接轮也落 0,
+判别是 `pool_is_shadow` + `is_user_chat` 共同,权威表述在 models.py 列契约。)
+
+**为什么必须共用而不是并列两份**:切片 0 的全部价值等于"影子行与决策行可比",
+而手抄的保真度在**引入它的同一个 commit 里就已经漂了三处** ——
+打分切片 3 对 6(切片外候选一律记 `raw_score=0.0`,于是第 4–6 名在影子行是 0、
+在决策行是真分)、`keyword_ms` 一侧不含池读、桶前提只在一侧成立。
+逐条修症状会留下病因;抽取才是修病因。
+钉子:`test_both_paths_score_through_the_same_helper` 断言两条路径都经过它、
+且 `top_k` 相同。
+
+**participant 合并留在 helper 内部,不是外部**:`_build_pool_record` 必须在合并
+**之后**调用,否则 `is_participant` 对每一条 P0-4 候选恒为 false —— 这正是那条
+规则关心的候选。把这个顺序约束关进一个函数里,两个调用点就都违反不了它。
+
+**`_ensure_default_narratives` 刻意不进 helper**:它会**创建**行,记录路径不该
+为了观测去写业务数据。附带一个**有条件**的前提(此前写成了无条件断言):
+`NARRATIVE_DEFAULT_BUCKETS_ENABLED=0`(出货值)下桶不进池,所以记下来的池就是
+决策路径会打分的那个池;该 flag 若被打开,对尚未 seed 的 (agent,user),影子池
+会缺那 8 条桶。窗口很窄(续接轮意味着上一轮已经 seed 过),但不是空的。
+
+## 2026-08-26 — `_record_pool` → `_build_pool_record`(纯函数)
+
+改成**返回** `(candidates, snapshots)` 而不是就地写 audit 与调用方的 dict。
+这让记录可以**要么全写要么不写**:此前失败会留下半填的行,以及
+`narrative_text_snapshots` 里没有任何 audit 行引用的孤儿快照(实测一次失败留 4 条)。
+影子路径原本用一份**手抄的"记录器写了哪些列"清单**来回滚,而那份清单在写下来的
+当天就漏了 `gate_reason`。**需要手工同步的清单一定会漂;把工作返回出来就没有清单了。**
+
+
+## 2026-08-25 — `record_pool_only`:建池、打分、然后交给没有人(切片 0)
+
+新增一个**零决策**方法:续接轮(continuity 判 yes)也把池建出来、打完分、
+写进 audit 行,但什么都不返回、什么都不决定。打分段与真实路径**共用
+`_score_pool`**(见上方 2026-08-26 条——最初版本是手抄复制,
+review 收口时改为共用,那次收口就是共用条目的由来)。
+
+**为什么需要它**:`NarrativeService.select` 在 continuity 判 yes 时提前返回,
+于是这些轮次从来没有池。这是零 LLM 快门的可释放人群只能圈到
+**6%(下界)–39%(上界)** 的唯一原因 —— 3 倍带宽是重构松弛,不是信号。
+见 `reference/self_notebook/specs/2026-08-25-merged-routing-design.md` §2.2。
+
+**刻意不调 `_ensure_default_narratives`**:那个函数会**创建**行,而仪器不该
+为了观测去写业务数据(桶前提是有条件的,见 2026-08-26 条)。
+
+**同步 await,不是 fire-and-forget**:`create_task` 在这里会把异常吞成一条
+GC 警告,还会与随后的 audit 写入抢跑(事故教训 #2)。
 
 ## 2026-08-20 — 免审改由锚点决定(Q 层)
 
@@ -142,7 +197,7 @@ Load 上下文的属性读，写入不算。
 
 ## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
 
-`_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。
+`_searchable_text` 静态方法删除，`load_pool` 和 `_build_pool_record`(时名 `_record_pool`)都改调模型方法。
 详见 [[models.py]]：这个定义必须和 `crud._index_narrative` 严格同一份，否则路由
 和 `remember` 会不一致。
 

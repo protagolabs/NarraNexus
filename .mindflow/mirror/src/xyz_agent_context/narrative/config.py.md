@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -74,6 +74,26 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 > 检索现在无条件走本地 VectorStore，没有外部检索后端开关。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
+
+## 2026-08-26 — `NARRATIVE_SHADOW_POOL_RECORD`(切片 0 仪器开关,缺省开)
+
+续接轮要不要也把 BM25 池打分记下来。**只控记录,不控决策** ——
+翻它不改变任何一轮的落点。
+
+**为什么给它开关**:理由不是延迟(两次 DB 读+一次快照去重 SELECT(稳态 ~1 INSERT)~13.5ms,外加影子行 candidates_json 带整池(10KB 级)的表容量增长——对着这条路径 p50 8.5 秒的
+setup 阶段可以忽略),而是**回滚粒度**。这一批每一个同类治理开关都是 env 门控的
+(下面的 `NARRATIVE_DEFAULT_BUCKETS_ENABLED` 就是),没有开关意味着关掉仪器要改
+代码 + 重新发布两种运行模式(铁律 #7)。
+
+**回滚**:`NARRATIVE_SHADOW_POOL_RECORD=0` + 重启。
+**人群口径(2026-08-26 补)**:开着的稳态下后台触发续接轮也恒为
+`pool_is_shadow=0`(仪器只记用户聊天轮),分析须叠 `is_user_chat=1`;
+in-code ⚠ 注释同步了这一句。
+
+⚠ **关闭态在数据上不可区分**:关掉后 `pool_is_shadow` 恒为 0,这与"续接轮从来
+没有池"是同一个形状。于是那段窗口读起来会是"快门在续接轮上没有可释放人群",
+而不是"我们那段时间没在看"。**要关就把窗口记下来,表事后告诉不了你。**
+
 
 ## 2026-08-20 — 新增 `DESCRIPTION_MAX_LENGTH = 512`
 

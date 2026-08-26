@@ -1,10 +1,42 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
 
 # models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-08-25 — `pool_is_shadow`(切片 0 的分群标志)
+
+`RoutingAudit` 加一列:这一行的池是**只记录、没参与决策**的(continuity 判 yes 的轮次)。
+
+**为什么非要一个标志**:没有它,任何对 gate 列的聚合都会把两个人群混在一起 ——
+"真决策"与"如果当时问了 gate 它会怎么说"。有了它,
+`WHERE pool_is_shadow = 0 AND is_user_chat = 1` 是决策,`= 1` 是快门在
+**用户聊天**续接轮上的可释放人群,
+而后者正是合并设计拿不到的那个数(现在只能圈到 6%–39%,3 倍带宽全是重构松弛)。
+
+**`retrieve_ms` 不再能分群**:它现在在影子行也有值(仪器自己的耗时),
+所以任何靠 `retrieve_ms IS NULL` 区分人群的历史查询都失效了;且**同一列在两个
+人群里量纲不同**(决策行=tier2+3 含 judge,影子行=仅 tier2 仪器自身 ~13ms),
+不带 `pool_is_shadow` 过滤的跨人群成本聚合会被续接轮多数人群稀释——正是
+in-code 注释警告"存 0 会低估仲裁成本"的同一失效模式。
+**判别口径(2026-08-26 收窄后修订)**:仪器只记用户聊天轮,后台触发的
+续接轮(约 dev 轮次 30%)不记录、恒为 0——所以 `= 0` 一侧装着"决策行"和
+"后台续接轮"两种行,人群判别是 **`pool_is_shadow` + `is_user_chat` 两列
+共同**,任何跨人群查询必须叠 `is_user_chat = 1`;全体续接轮上的覆盖率
+按设计明显低于 100%(后台触发占全部 dev 轮次 ~30% 是实测数,但它在
+**续接轮**里的占比没测过——后台轮从不推进 session 锚点,continuity
+命中结构不同),真实比例用 `GROUP BY is_user_chat` 查,别对着固定数字比。
+`=0` 的用户聊天续接行还有第三种可忽略来源:记录器自身失败——**只能**靠
+`[narrative.shadow_pool]` warning 识别;行本身的形状与"开关关闭窗口"的行
+完全相同(continuous+空 candidates 区分不了这两者)。
+
+**与 `gate_short_circuit` 的刻意不对称(铁律 #6)**:那一列的含义是
+"gate 让这一轮跳过了 judge"。影子行里 gate 什么都没决定,所以它**保持 NULL**,
+与今天逐字节一致 —— 不给既有读者改语义。假设性判决落在
+`bypass_score_gate` / `bypass_reason`,那两列是本批次自己加的,没有历史读者。
+
 
 ## 2026-08-20 — description 是出生证,不是病历(墓碑字段修复)
 
