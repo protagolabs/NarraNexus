@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 就地看/改单 agent 模型
+
+展开行在运行状态之后追加 [[AgentModelCard]]（懒加载 per-agent llm-config），其
+「编辑」把 `llmCfgAgentId` 置为该 agent，页面末尾据此挂载共享
+[[AgentLlmConfigPanel]]（列表场景用 `string|null` 存「当前编辑哪个 agent」，
+不是单个 bool——多行各自可开）。保存后 `modelReloadKey++` 触发卡片重拉。
 
 ## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
 
