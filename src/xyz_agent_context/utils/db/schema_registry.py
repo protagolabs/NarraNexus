@@ -2872,8 +2872,12 @@ _register(
             Column("bypass_score_gate", "INTEGER", "TINYINT(1)"),
             Column("bypass_reason", "TEXT", "VARCHAR(32)"),
             # Slice 0: this row's pool was recorded, not consulted (a continuity
-            # turn). Nullable because prod rows predate it, and because NULL and
-            # 0 mean the same thing to every query that filters on it.
+            # turn). Nullable ONLY for the rows that predate the column — the
+            # write side never produces NULL (`RoutingAudit.pool_is_shadow` is a
+            # plain bool with no "did not run" third state, unlike
+            # `bypass_score_gate`). So on the READ side, NULL and 0 mean the
+            # same thing and a filter must treat them alike; see
+            # `mirror/.../narrative_routing_audit_repository.py.md` 2026-08-26.
             Column("pool_is_shadow", "INTEGER", "TINYINT(1)"),
             # tier 3 — LLM arbitration
             Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),

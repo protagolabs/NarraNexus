@@ -150,6 +150,27 @@ class NarrativeConfig:
     # Purpose: Can put Top-3 into Context for Agent reference (optional)
     NARRATIVE_SEARCH_TOP_K = 3
 
+    # Slice 0 instrument: record the BM25 pool on continuity turns too, where
+    # `select` used to return before the retrieval tier ran. Default ON — the
+    # measurement is the whole point, it costs two DB reads against a setup
+    # phase whose p50 is 8.5 SECONDS, and it decides nothing.
+    #
+    # It has a switch because every comparable governance toggle in this batch
+    # has one (`NARRATIVE_DEFAULT_BUCKETS_ENABLED` below), and without it
+    # turning the instrument off means a code change plus re-publishing BOTH
+    # run modes (binding rule #7).
+    #
+    # ROLLBACK: `NARRATIVE_SHADOW_POOL_RECORD=0` and restart. The decision path
+    # is untouched either way — this only stops the recording.
+    #
+    # ⚠ READ THIS BEFORE ANALYSING A WINDOW: with the switch off,
+    # `pool_is_shadow` is 0 on every row, which is INDISTINGUISHABLE in the
+    # data from "continuity turns never had a pool". A period with the switch
+    # off therefore reads as "the shutter has no releasable population on
+    # continuity turns" rather than "we did not look". If you turn it off,
+    # write down the window — the table cannot tell you afterwards.
+    NARRATIVE_SHADOW_POOL_RECORD = _env("NARRATIVE_SHADOW_POOL_RECORD", "1") == "1"
+
     # Number of Narratives added to Context
     # Description: Upper limit of Narratives returned by select()
     # Recommended: 3 (1 main Narrative + 2 auxiliary references)

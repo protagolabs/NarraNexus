@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -18,6 +18,193 @@ stub: false
    新的 `bypass_reason` 列。
 
 范围与代价见 routing_gate 的 mirror。
+
+## 2026-08-20 — BM25 的查询面清理(K 层)
+
+`rank_pool` 在喂给 `bm25_explain` 之前先 `strip_routing_prefix(query)`。
+
+**为什么剥在 `rank_pool` 里、不在调用点**:这里是 narrative 路由**唯一**的 BM25
+入口,`retrieve_top_k` / `keyword_search` / `select_fast` 全部经过它,一处生效
+三处受益;而且这个方法的既有契约是"重放与实时判决跑逐位相同的代码",把剥离放在
+函数内部,重放依然逐位可复现。**审计行仍存原始 `query_text`** —— 用户说了什么是
+记录,BM25 打的是什么由同一个函数从记录推导得出。
+
+`create_from_query` 的 name / description 也改用剥离后的文本(见 updater 的
+mirror:磁铁线的另一半来自建线命名)。`topic_keywords` 那一行**没动**,A-kw 未定。
+
+实测依据:`specs/2026-08-20-bm25-gate-redesign-research.md` §2.8 / §R2.1。
+
+## 2026-08-16 — default 桶退出路由（C-1 方案 ④）
+
+三处过滤，全部挂 `config.NARRATIVE_DEFAULT_BUCKETS_ENABLED`：
+
+- `load_pool`：桶不再进 BM25 池。它的 `searchable_text()` 是冻结模板、**永远不可能
+  正当地赢下一个查询**，但它照样通过 IDF/avgdl 影响别人的分数，还能自己短路 gate
+  （重演里实测 2 轮）。把它请出池子，后面几件事才谈得上诚实。
+- `_ensure_default_narratives`：不再为新 (agent,user) 播种。存量行不动（铁律 #6）。
+- `_llm_unified_match`：不再向 judge 传 `default_candidates`。八条固定项**还带
+  Examples**、对最多三条动态项——这是一份会自己回答自己的菜单（实测 judge 60% 的
+  裁决选了桶，其中 63/93 次池里明明有真实候选）。
+
+新增第 4.5 段返回分支：judge 判 `no_topic` 时**带空列表返回**，不在这里创建。
+落点取决于 session 锚点与该 surface 是否持久化历史，这两件事在 retrieval 内部不可
+知——决定权在 `NarrativeService.select`（见其 mirror 的 anchor-first 条目）。在这
+里创建，正是本批次要消灭的碎片化。
+## 2026-08-14 — `_create_narrative` 公开更名 `create_from_query`
+
+行为零变化，纯改名+两处内部调用同步。动机：NarrativeService.create_fast
+（chat fast mode durable miss 路径）需要同一套查询式创建（BM25 路由面
+一致），跨 facade 调私有方法不如给它正名。
+
+
+## 2026-08-14 — 两个独立读并发 + `keyword_ms` / `judge_ms` 落审计
+
+**先说结论，免得误导后来人**：这个并行**不是**叙事选择的延迟修复。实测（本地真机
+`[TIMED]`，改造前的 span 名）：`ensure_defaults` 4.3ms、participant 查询 3.1ms、
+`keyword_search` 4.5ms——三者合计 12ms，而 setup 段 p50 是 **8.5 秒**。
+
+**span 名已变**：两个独立读并发之后，原 `narrative.retrieve.participant_query` 改名
+`narrative.retrieve.independent_reads`，量的是 max(participant, pool)。拿旧名去 grep
+历史日志做前后对照会得零命中——而"扒日志做前后对照"正是本项目自己示范并写在下面的
+方法。
+
+真正的成本是两侧的 helper LLM：continuity ~3.9s、unified judge ~4.7s。谁来这里想让
+选择变快，应该去看那两个。
+
+**`ensure_defaults` 不能进 gather**，这是**正确性**约束不是偏好：它在默认 narrative
+缺失时会**创建**它们，pool 读若与创建竞争，BM25 候选集会静默漏掉它们——那是错答案不是
+慢答案。`tests/narrative/test_retrieval_concurrency.py` 第一条就锁这个顺序。
+
+participant 查询（`_get_participant_narratives`）与 `load_pool` 互不喂给对方，所以并发。**裸协程直接进 gather，不包
+`create_task`**：gather 本身就并发调度，自己持 Task 句柄只会白多两个对象。变异检验证实：
+包不包 create_task 行为一致，退回**纯串行**才会让「重叠」那条测试挂。
+
+（更正一处早先写反的说法：`gather(return_exceptions=False)` **不会**取消未完成的兄弟协程
+——官方文档明示。所以"少一条『一个失败后另一个还活着』的路径"是错的；实际代价只是一次
+已无人接收的 DB 读继续跑完，不会产生教训 #2 那种 GC warning。）
+
+`return_exceptions` 保持默认 False：任一读失败意味着候选集**不完整**，拿剩下的自信地路由
+是"把错答案打扮成对答案"。
+
+`keyword_ms` 严格等于 **pool 读 + rank**，不含它现在并排跑的 participant 查询：
+`load_pool` 在 gather 内用 `_load_pool_timed` 单独计时，与 `_rank_ms` 相加。第一版把
+时钟起点放在 gather 之前，于是这一列把 participant 的耗时记到了 BM25 头上——而它要回答
+的问题恰恰是「BM25 会不会成为瓶颈」。`tests/narrative/test_retrieval_concurrency.py::
+test_keyword_ms_excludes_the_participant_read` 用一个慢 250ms 的 participant 查询锁住这
+条。`judge_ms` 在被判决路径的唯一出口处设置，同文件有测试断言判决路径非 NULL。
+
+## 2026-08-12 — judge 拿到 BM25 证据（B1）+ 候选标签只有一份（B2）
+
+**B1 —— 判官以前只看到一个数字，而那个数字会骗人。** 候选喂给
+[[_retrieval_llm.py]] 的信息是 `Similarity score: 0.91`。这个数是
+`s/(s+1)` 压出来的，压之前的 IDF 在候选集自身上算，**绝对值没有跨 agent
+意义**；更要命的是中文按字切 unigram，请求框架字（帮/查/一/下/天）会实打实
+攒出分数。实测本地一条 query「帮我查一下明天上海的天气怎么样」对一条会议纪要
+narrative 打出 raw 10.67，逐词分解 **100% 来自框架字**，承载话题的
+明/上/海/气/样 贡献恰好 0 —— 压缩后显示 0.914。而闸门把这一轮交给判官的**原因
+恰恰是候选拥挤**（top1/top2 = 1.08 < 2.0）：系统在最需要精细判别的时刻，交出去
+的是最粗的信息。
+
+修法是把已经算出来的东西传下去，不是新增计算：`rank_pool` 改调
+[[retrieval.py|memory 的 bm25_explain]]（同一套算术，分数到最后一位都相同，
+额外拿到每个词的贡献），填进 `NarrativeSearchResult.matched_terms` /
+`matched_snippet`，`_llm_unified_match` 组候选时带上 `matched_content`。
+**零新增 IO、零新增 DB 查询** —— 被打分的文本此刻正在手上，而事后重建是不可能
+的（[[updater.py]] 每轮全量重写且不留历史）。成本是判官那 45% 轮次里每候选多
+约 200 字 prompt。
+
+读取侧的代码从 2026-03-06 就写好了，写入侧 2026-04-15 被删（数据源换成
+episode_summaries），两侧在不同文件里，于是 `if candidate.get('matched_content')`
+**忠实地走了将近 4 个月的 else 分支**，`logger.debug("has no matched_content")`
+每轮都在打 —— 警报一直响，没人听。现在 else 分支改成 `logger.warning`：search
+候选必然来自 BM25，snippet 不可能合法为空，它再响就是接线又断了。
+
+**B2 —— 同一件事两份实现，只改了一份。** participant 分支读
+`narrative.topic_hint`，而 50 行以上的 search 分支 2026-04-15 就改读
+`narrative_info` 了。`topic_hint` 在 2026-06-09 unified-memory 重构后是**创建时
+写一次的墓碑字段**（本地库 84% 为空）。于是判官看到的是
+`[Participant-0] Untitled / Description:`（空的那 84%），或者 72 个 event 的活跃
+线索被它三个月前第一句话描述，或者 `[:50]` 正好切在 open_id 中间。**而这条通道
+是强制走判官的**（别人邀请你参与的任务不该输给你自己 narrative 的一个高 BM25
+分），标签盲了等于这一轮的判断盲了。
+
+修法不是「把 participant 分支改成和 search 一样」—— 那样下次还会漂。新增模块级
+`_candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
+函数**；`test_participant_and_search_branches_share_one_labeller` 钉的是两条分支
+**输出相等**，所以将来任何单边修改都会红。同时删掉 `_prepare_candidates`（第三份
+拷贝，也在读 topic_hint）及其整个死代码簇。
+
+`topic_hint` 至此在路由层与 narrative prompt 层零读取，只剩
+`_create_narrative` 的那次写入 + `backend/routes/me.py` 的前端展示 —— 后者是
+诚实的（它展示的正是"这条线索是从哪句话开始的"）。测试
+`test_no_narrative_labelling_path_reads_the_frozen_topic_hint` 用 AST 检查
+Load 上下文的属性读，写入不算。
+
+## 2026-08-07 — 文本面上移到 `Narrative.searchable_text()`
+
+`_searchable_text` 静态方法删除，`load_pool` 和 `_record_pool` 都改调模型方法。
+详见 [[models.py]]：这个定义必须和 `crud._index_narrative` 严格同一份，否则路由
+和 `remember` 会不一致。
+
+## 2026-08-07 — 池子拆出 `load_pool` / `rank_pool`，为的是审计能精确重放
+
+`keyword_search` 内部原来一口气做完「读 narrative → 拼文本 → BM25」。现在拆成
+`load_pool`（读 + 拼，返回 `(id, text, is_default)`）和 `rank_pool`（纯函数打分），
+`keyword_search` 保持签名不变——它是 `select_fast` 依赖的公开接缝。
+
+拆的原因不是整洁，是**审计必须存下被打分的那份文本和完整池子**：`bm25_rank` 的
+IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组数。2026-08-07 实测 452
+条真实本地 query，仅仅移除 8 条 default narrative 就让 top-1 翻转 9.7%、闸门决策
+翻转 5.8%——那 8 条语义上毫不相关，却真实地改变了排序。
+
+`retrieve_top_k` 变成薄包装，内层是 `_retrieve_top_k`。这么做是因为决策出口有 7 个
+（本方法 + `_llm_unified_match`），在每个出口分别拼装审计是必然会腐烂的记账——将来
+加一个分支就静默失去可观测性，而这正是这张表要终结的失败模式。外层只在**一个地方**
+盖上结局章。
+
+判官的 `reason` 原文也存下来了：它是流水线里唯一的语义检查，而它的推理过程以前只
+活在一个进 loguru 的 f-string 里。
+
+
+## 2026-08-06 — `_keyword_search` 转正为公开 `keyword_search`
+
+F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
+# _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
+
+## 2026-08-26 — `_score_and_record`:一次打分,两个调用方(切片 0 + review 收口)
+
+`retrieve_top_k`(做决策)与 `record_pool_only`(只记录)现在**共用同一段**:
+`gather(participant, load_pool)` → `rank_pool` → participant 合并/重排/重编号 →
+`_build_pool_record` → `evaluate_gate` → `evaluate_bypass`,返回一个 inert 的
+`ScoredPool`。两个调用方的**唯一差别是之后往 audit 抄哪几列**。
+
+**为什么必须共用而不是并列两份**:切片 0 的全部价值等于"影子行与决策行可比",
+而手抄的保真度在**引入它的同一个 commit 里就已经漂了三处** ——
+打分切片 3 对 6(切片外候选一律记 `raw_score=0.0`,于是第 4–6 名在影子行是 0、
+在决策行是真分)、`keyword_ms` 一侧不含池读、桶前提只在一侧成立。
+逐条修症状会留下病因;抽取才是修病因。
+钉子:`test_both_paths_score_through_the_same_helper` 断言两条路径都经过它、
+且 `top_k` 相同。
+
+**participant 合并留在 helper 内部,不是外部**:`_build_pool_record` 必须在合并
+**之后**调用,否则 `is_participant` 对每一条 P0-4 候选恒为 false —— 这正是那条
+规则关心的候选。把这个顺序约束关进一个函数里,两个调用点就都违反不了它。
+
+**`_ensure_default_narratives` 刻意不进 helper**:它会**创建**行,记录路径不该
+为了观测去写业务数据。附带一个**有条件**的前提(此前写成了无条件断言):
+`NARRATIVE_DEFAULT_BUCKETS_ENABLED=0`(出货值)下桶不进池,所以记下来的池就是
+决策路径会打分的那个池;该 flag 若被打开,对尚未 seed 的 (agent,user),影子池
+会缺那 8 条桶。窗口很窄(续接轮意味着上一轮已经 seed 过),但不是空的。
+
+## 2026-08-26 — `_record_pool` → `_build_pool_record`(纯函数)
+
+改成**返回** `(candidates, snapshots)` 而不是就地写 audit 与调用方的 dict。
+这让记录可以**要么全写要么不写**:此前失败会留下半填的行,以及
+`narrative_text_snapshots` 里没有任何 audit 行引用的孤儿快照(实测一次失败留 4 条)。
+影子路径原本用一份**手抄的"记录器写了哪些列"清单**来回滚,而那份清单在写下来的
+当天就漏了 `gate_reason`。**需要手工同步的清单一定会漂;把工作返回出来就没有清单了。**
+
+## 2026-08-25 — `record_pool_only`:建池、打分、然后交给没有人(切片 0)
 
 ## 2026-08-20 — BM25 的查询面清理(K 层)
 

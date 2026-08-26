@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -14,6 +14,10 @@ stub: false
 "真决策"与"如果当时问了 gate 它会怎么说"。有了它,
 `WHERE pool_is_shadow = 0` 是决策,`= 1` 是快门在续接轮上的可释放人群,
 而后者正是合并设计拿不到的那个数(现在只能圈到 6%–39%,3 倍带宽全是重构松弛)。
+
+**人群判别只认这一列**:`retrieve_ms` 现在在影子行也有值(仪器自己的耗时),
+所以任何靠 `retrieve_ms IS NULL` 区分人群的历史查询都失效了 —— 判别统一收敛到
+`pool_is_shadow`,这也正是它存在的理由。
 
 **与 `gate_short_circuit` 的刻意不对称(铁律 #6)**:那一列的含义是
 "gate 让这一轮跳过了 judge"。影子行里 gate 什么都没决定,所以它**保持 NULL**,

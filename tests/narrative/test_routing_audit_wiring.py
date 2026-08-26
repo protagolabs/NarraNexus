@@ -137,7 +137,7 @@ async def test_participants_reach_the_audit_from_the_live_call_site(
 ):
     """The call site must thread participants in, not just be able to.
 
-    A unit test of `_record_pool` cannot catch this: pass the participants
+    A unit test of `_build_pool_record` cannot catch this: pass the participants
     directly and it behaves. The defect lives one level up — recording the
     pool BEFORE the participant merge, which is what the first cut did.
     """

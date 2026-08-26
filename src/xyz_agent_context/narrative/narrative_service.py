@@ -489,11 +489,13 @@ class NarrativeService:
             # the audit repository already states — but a failure in the
             # DECISION path above still propagates, because it is outside this
             # block.
-            await self._record_shadow_pool(
-                query_text=query_text, user_id=user_id, agent_id=agent_id,
-                session=session, is_user_chat=is_user_chat,
-                audit=audit, snapshots=audit_snapshots,
-            )
+            if config.NARRATIVE_SHADOW_POOL_RECORD:
+                await self._record_shadow_pool(
+                    query_text=query_text, user_id=user_id, agent_id=agent_id,
+                    session=session, is_user_chat=is_user_chat,
+                    top_k=max_narratives,
+                    audit=audit, snapshots=audit_snapshots,
+                )
 
         # Update Session (using main Narrative).
         # Only user-initiated runs (chat) write to last_query / last_response /
@@ -756,8 +758,9 @@ class NarrativeService:
         query_text: str,
         user_id: str,
         agent_id: str,
-        session,
+        session: ConversationSession,
         is_user_chat: bool,
+        top_k: int,
         audit: RoutingAudit,
         snapshots: dict,
     ) -> None:
@@ -769,34 +772,36 @@ class NarrativeService:
         that test runs the same turn with and without it and asserts the
         decided fields are identical, which is the property that makes this an
         instrument rather than a change.
+
+        ``session`` is NOT Optional here. Reaching this branch requires
+        ``narratives`` to be non-empty, and the only assignment to it is guarded
+        by ``if is_continuous and session and session.current_narrative_id``, so
+        both are known-true. The old ``if session else None`` was a branch that
+        could never be taken, and the missing annotation is what hid that.
+        (The similar-looking guard in ``_land_no_topic_turn`` is real — that
+        path genuinely can be reached without a session.)
+
+        The except clause is one log line and nothing else. It used to reset the
+        nine fields the recorder writes, from a list kept by hand, which was
+        already missing ``gate_reason`` on the day it was written and did not
+        roll back snapshots at all (leaving orphan rows in
+        ``narrative_text_snapshots``). ``record_pool_only`` is now
+        all-or-nothing, so there is no list left to drift.
         """
         try:
             await self._retrieval.record_pool_only(
                 query_text, user_id, agent_id,
-                anchor_narrative_id=(
-                    session.current_narrative_id if session else None
-                ),
+                top_k=top_k,
+                anchor_narrative_id=session.current_narrative_id,
                 is_user_chat=is_user_chat,
                 audit=audit,
                 snapshots=snapshots,
             )
         except Exception as e:  # noqa: BLE001 — the observer must not break the observed
-            # Narrow by construction: only the recorder runs inside this block,
-            # and a half-filled pool is worse than none (a replay would compute
-            # IDF over a partial candidate set), so the row is reset to the
-            # shape it had before slice 0 rather than left mid-write.
-            audit.candidates.clear()
-            audit.pool_is_shadow = False
-            audit.gate_top1_raw = None
-            audit.gate_top2_raw = None
-            audit.gate_margin = None
-            audit.bypass_score_gate = None
-            audit.bypass_reason = ""
-            audit.keyword_ms = None
             logger.warning(
                 f"[narrative.shadow_pool] recording failed (agent={agent_id}): "
-                f"{type(e).__name__}: {e} (verdict unaffected; row falls back "
-                f"to the pre-slice-0 shape)"
+                f"{type(e).__name__}: {e} (verdict unaffected; the row keeps "
+                f"its pre-slice-0 shape)"
             )
 
     def _get_continuity_detector(self) -> Optional[ContinuityDetector]:

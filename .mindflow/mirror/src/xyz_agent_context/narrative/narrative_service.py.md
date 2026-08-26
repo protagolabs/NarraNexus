@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
 
@@ -18,9 +18,24 @@ monkeypatch 掉再跑同一轮,逐字段比对决策列。**一个会改变被�
 所以这条断言是这个文件存在的理由,不是附加项。
 
 **失败边界是一个具名的窄口子**:`_record_shadow_pool` 里的 try/except 只包住记录器
-本身,决策路径的异常照常往上抛。捕获后会把 audit 行**重置回切片 0 之前的形状**
-(清空 candidates、gate 列归 None)—— 半填的池比没有池更糟,重放会在残缺候选集上
-算 IDF。
+本身,决策路径的异常照常往上抛。
+
+**except 里只剩一行 log**(2026-08-26 review 收口):原先那 8 行"把 audit 重置回
+切片 0 之前的形状"是一份手抄的字段清单,写下来的当天就漏了 `gate_reason`,而且
+根本没回滚快照。现在 `record_pool_only` 是原子的 —— 会失败的活全部先算完,最后
+在一段不可能抛异常的赋值块里一次提交 —— 所以没有清单可漂。
+
+**开关**:`config.NARRATIVE_SHADOW_POOL_RECORD`(env,缺省开)。加它的理由不是
+延迟(~13.5ms 对着这条路径 p50 8.5 秒的 setup 阶段可以忽略),而是**回滚粒度**:
+这一批每一个同类治理开关都是 env 门控的,没有开关就意味着关掉仪器要改代码 +
+重新发布两种运行模式(铁律 #7)。⚠ 关闭态下 `pool_is_shadow` 恒为 0,与
+"续接轮从来没有池"**在数据上不可区分** —— 关了要记下窗口,表事后告诉不了你。
+
+**`session` 在这里不是 Optional**:进入这条分支要求 `narratives` 非空,而它唯一的
+赋值处被 `if is_continuous and session and session.current_narrative_id` 守着。
+原先的 `if session else None` 是一条永远走不到的分支,而缺失的类型标注正好掩盖了
+这一点。(`_land_no_topic_turn` 里那个形似的守卫是**真的** —— 那条路径确实可能
+没有 session。)
 
 
 ## 2026-08-20 — 会话锚点开始参与免审决策(Q 层)

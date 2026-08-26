@@ -4,7 +4,7 @@
 @description: A continuity turn must record the BM25 pool it never consulted —
 and must decide exactly what it decided before.
 
-WHY (specs/2026-08-25-merged-routing-design.md §2)
+WHY (reference/self_notebook/specs/2026-08-25-merged-routing-design.md §2)
 
 The zero-LLM shutter's releasable population is bounded at 6% (lower) to 39%
 (upper) of continuity turns — a 3x band that is almost entirely reconstruction
@@ -259,9 +259,13 @@ async def test_the_recorder_is_awaited_not_fired_and_forgotten(
     seen: dict = {}
     original = service._retrieval.record_pool_only
 
-    async def _spy(*a, **kw):
-        await original(*a, **kw)
-        audit = kw.get("audit") or a[-2]
+    async def _spy(*a, audit, **kw):
+        # `audit` is keyword-only on `record_pool_only`, so name it here rather
+        # than reaching for a positional slot. The first cut used
+        # `kw.get("audit") or a[-2]`, whose fallback could never run and would
+        # have silently indexed the wrong argument if the signature ever
+        # changed — a dead branch masking an assumption (2026-08-26 review).
+        await original(*a, audit=audit, **kw)
         seen["candidates_at_return"] = len(audit.candidates)
 
     monkeypatch.setattr(service._retrieval, "record_pool_only", _spy, raising=False)
@@ -308,3 +312,195 @@ async def test_the_shadow_column_is_registered_on_both_dialects() -> None:
         "prod rows predate this column; NOT NULL would fail ALTER TABLE on a "
         "live table (binding rule #6)"
     )
+
+
+# ---------------- review round 1 · the nails the refactor must hold ---------
+#
+# Finding #2 was "the instrument re-implements the real path instead of sharing
+# code with it, and has already drifted in three places". The fix is a shared
+# `_score_and_record`. These tests pin the three drifts SHUT, so the next edit
+# to the scoring段 cannot silently re-open them — a review memory is not a
+# mechanism.
+
+
+async def _wide_pool(service):
+    """Eight threads that ALL share tokens with the probe query.
+
+    A four-narrative pool cannot tell a slice of 3 from a slice of 6 — the
+    first version of this test passed for exactly that reason. The scoring
+    slice only bites when more than six candidates score above zero.
+    """
+    anchor = await service.create_narrative(
+        agent_id=AGENT, user_id=USER, title="部署脚本报错排查 第一步", description="",
+    )
+    for i in range(7):
+        await service.create_narrative(
+            agent_id=AGENT, user_id=USER,
+            title=f"部署脚本报错排查 第{i}步 回归验证", description="",
+        )
+    return anchor
+
+
+async def _shadow_and_decision_rows(service, db_client, monkeypatch):
+    """One continuity turn and one routed turn against the SAME pool."""
+    anchor = await _wide_pool(service)
+    _continuous(service, monkeypatch)
+    probe = "部署脚本报错排查第二步回归验证"
+    await service.select(AGENT, USER, probe, session=_session(anchor.id),
+                         trigger="chat", is_user_chat=True)
+    shadow = await _row(db_client)
+
+    _continuous(service, monkeypatch, verdict=False)
+    monkeypatch.setattr(
+        service._retrieval, "_llm_judge_unified",
+        AsyncMock(return_value={"matched_type": "none", "matched_id": None,
+                                "reason": "stub"}),
+    )
+    await service.select(AGENT, USER, probe, session=_session(anchor.id),
+                         trigger="chat", is_user_chat=True)
+    decision = await _row(db_client)
+    return shadow, decision
+
+
+async def test_both_populations_score_the_same_candidate_slice(
+    service, db_client, monkeypatch
+):
+    """Review #3: the shadow slice was 3 and the decision slice was 6.
+
+    `_build_pool_record` gives every candidate OUTSIDE the slice `raw_score =
+    0.0`, so ranks 4-6 read as "scored nothing" on a shadow row and as their
+    real score on a decision row. That is the same column meaning two different
+    things in the two populations — in the one table whose entire purpose is
+    that the two are comparable.
+    """
+    shadow, decision = await _shadow_and_decision_rows(service, db_client, monkeypatch)
+
+    def scored(row):
+        return sorted(c["raw_score"] for c in row["candidates"] if c["raw_score"] > 0)
+
+    assert len(scored(decision)) > 3, (
+        f"fixture does not exercise the defect: only {len(scored(decision))} "
+        f"candidates scored, so a slice of 3 and a slice of 6 are the same"
+    )
+    assert len(scored(shadow)) == len(scored(decision)), (
+        f"scoring slice differs: shadow kept {len(scored(shadow))} non-zero "
+        f"scores, decision kept {len(scored(decision))}"
+    )
+    assert scored(shadow) == pytest.approx(scored(decision))
+
+
+async def test_both_paths_score_through_the_same_helper(
+    service, db_client, monkeypatch
+):
+    """Review #2, the mechanism rather than the symptom.
+
+    `keyword_ms` drifted (shadow timed only the ranking), the scoring slice
+    drifted (3 vs 6), and the bucket precondition drifted — three symptoms of
+    one cause: the instrument re-implemented the real path instead of sharing
+    it. Asserting each symptom separately would leave the cause alive, so this
+    asserts the cause is gone: BOTH paths go through one helper, with the same
+    `top_k`. A future edit to the scoring段 now cannot reach only one of them.
+    """
+    calls: list[dict] = []
+    original = service._retrieval._score_and_record
+
+    async def _spy(*a, **kw):
+        calls.append(dict(kw))
+        return await original(*a, **kw)
+
+    monkeypatch.setattr(service._retrieval, "_score_and_record", _spy)
+    await _shadow_and_decision_rows(service, db_client, monkeypatch)
+
+    assert len(calls) == 2, (
+        f"expected the shadow turn and the decision turn to share the helper, "
+        f"got {len(calls)} call(s)"
+    )
+    assert calls[0]["top_k"] == calls[1]["top_k"], (
+        f"the two populations ask for different slices: "
+        f"{calls[0]['top_k']} vs {calls[1]['top_k']}"
+    )
+
+
+async def test_the_instrument_reports_its_own_cost(service, db_client, monkeypatch):
+    """Review #4: slice 0 adds two DB reads to the synchronous path of every
+    continuity turn, and nothing measured them. `retrieve_ms` is empty on
+    shadow rows today and its meaning — "how long did the retrieval tier take"
+    — fits exactly, so the instrument becomes self-observable without a new
+    column (which would double the mirror-sync obligation all over again)."""
+    anchor, _ = await _seed(service)
+    _continuous(service, monkeypatch)
+    await service.select(AGENT, USER, "那第二步呢", session=_session(anchor.id),
+                         trigger="chat", is_user_chat=True)
+    row = await _row(db_client)
+    assert row["retrieve_ms"] is not None, (
+        "the instrument's own cost is not in any column — verifying '~13.5ms' "
+        "would mean measuring it by hand again"
+    )
+
+
+async def test_a_failed_recorder_leaves_no_orphan_snapshot(
+    service, db_client, monkeypatch
+):
+    """Review #5 + #9: the rollback was a hand-copied list of "which columns did
+    the recorder write", and it was already missing `gate_reason` in the commit
+    that introduced it. Snapshots were not rolled back at all, so a failure left
+    text rows in `narrative_text_snapshots` that no audit row referenced.
+
+    The fix is not a longer list — it is all-or-nothing, so there is no list to
+    drift.
+    """
+    anchor, _ = await _seed(service)
+    _continuous(service, monkeypatch)
+
+    before = await db_client.get("narrative_text_snapshots", {})
+
+    # Fail LATE — after the pool has been read and the candidate records
+    # built, which is the only point at which an orphan snapshot could exist.
+    # Failing earlier is why the first version of this test passed without
+    # proving anything.
+    real_bypass = service._retrieval.__class__.__module__
+
+    def _boom(*a, **kw):
+        raise RuntimeError("scoring exploded after the pool was recorded")
+
+    monkeypatch.setattr(
+        "xyz_agent_context.narrative._narrative_impl.retrieval.evaluate_bypass",
+        _boom,
+    )
+
+    result = await service.select(AGENT, USER, "那第二步呢",
+                                  session=_session(anchor.id),
+                                  trigger="chat", is_user_chat=True)
+    assert result.selection_method == "continuous"
+
+    row = await _row(db_client)
+    assert not row["candidates"]
+    assert not row["pool_is_shadow"]
+    after = await db_client.get("narrative_text_snapshots", {})
+    assert len(after) == len(before), (
+        f"{len(after) - len(before)} orphan snapshot(s) survived a failed "
+        f"recording"
+    )
+
+
+async def test_the_instrument_has_an_env_switch(service, db_client, monkeypatch):
+    """Review #10: every comparable governance switch in this batch is env-gated
+    with a written rollback path (`NARRATIVE_DEFAULT_BUCKETS_ENABLED`). Without
+    one, turning the instrument off means a code change plus re-publishing both
+    run modes (binding rule #7)."""
+    from xyz_agent_context.narrative.config import config as narrative_config
+
+    anchor, _ = await _seed(service)
+    _continuous(service, monkeypatch)
+    monkeypatch.setattr(
+        narrative_config, "NARRATIVE_SHADOW_POOL_RECORD", False, raising=False
+    )
+
+    result = await service.select(AGENT, USER, "那第二步呢",
+                                  session=_session(anchor.id),
+                                  trigger="chat", is_user_chat=True)
+    row = await _row(db_client)
+    assert result.selection_method == "continuous"
+    assert result.narratives[0].id == anchor.id
+    assert not row["candidates"], "the switch did not stop the recording"
+    assert not row["pool_is_shadow"]

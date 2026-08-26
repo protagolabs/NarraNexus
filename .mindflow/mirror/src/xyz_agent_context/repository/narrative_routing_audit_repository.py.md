@@ -1,10 +1,36 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.py
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
 
 # narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
+
+## 2026-08-26 — `_to_row` 多写一列 `pool_is_shadow`(切片 0)
+
+标记这一行的池是**只记录、没决策**的(continuity 判 yes 的轮次)。
+`WHERE pool_is_shadow = 0` 是决策人群,`= 1` 是"如果当时问了 gate,它会怎么说"。
+
+### 它为什么可以 `int()` 强转,而上面那条 8-20 的约定说不能
+
+两条并不矛盾,差别在**模型侧有没有第三态**:
+
+| 列 | 模型字段 | 有没有"这一轮没跑"这个态 | 写库 |
+|---|---|---|---|
+| `bypass_score_gate` | `Optional[bool]`,默认 `None` | **有** —— 这一轮压根没走到分数门 | `None` 原样传 |
+| `pool_is_shadow` | `bool`,默认 `False` | **没有** —— 要么是影子行,要么不是 | `int()` 强转,永不为 NULL |
+
+所以 8-20 那条"`None` 原样传、不强转 0"约束的是**带第三态的列**;
+`pool_is_shadow` 语义上是二值的,把不存在的 NULL 态造出来反而会让读侧多一个
+无意义的分支。
+
+### 与 schema_registry 侧"可空 / NULL 与 0 同义"那句的关系
+
+那句描述的是**读侧**:DB 列可空**只为存量行**(prod 上 26,922 行早于这一列,
+活表上 `ALTER TABLE ADD COLUMN ... NOT NULL` 无默认值会失败,铁律 #6),
+于是过滤查询必须把 NULL 与 0 当同一件事。
+**写侧永不产生 NULL,读侧必须容忍 NULL** —— 两句都成立,针对的不是同一侧。
+下一轮 review 若再把它读成矛盾,请指回这张表。
 
 ## 2026-08-20 — `_to_row` 多写两列(免审决策)
 

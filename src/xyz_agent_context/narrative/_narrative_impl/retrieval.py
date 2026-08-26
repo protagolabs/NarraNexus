@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import time as _perf
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
@@ -25,7 +26,12 @@ from ..models import (
     RoutingCandidate,
 )
 from .crud import NarrativeCRUD
-from .routing_gate import evaluate_bypass, evaluate_gate
+from .routing_gate import (
+    BypassDecision,
+    GateDecision,
+    evaluate_bypass,
+    evaluate_gate,
+)
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -78,6 +84,29 @@ def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
     name = (info.name if info and info.name else "") or "Untitled"
     summary = (info.current_summary if info and info.current_summary else "")
     return name, summary[:CANDIDATE_DESC_MAX_CHARS]
+
+
+@dataclass(frozen=True)
+class ScoredPool:
+    """Everything one BM25 scoring pass produces — and nothing about what to do
+    with it.
+
+    Deliberately inert: no audit, no session, no decision. The deciding path
+    and the recording path differ only in which of these fields they copy into
+    the audit row afterwards, which is the property that makes the two
+    populations comparable at all. In-process value object, so a dataclass
+    rather than a pydantic model — it never crosses a wire.
+    """
+
+    search_results: List[NarrativeSearchResult]
+    participant_narratives: List[Narrative]
+    gate: GateDecision
+    bypass: BypassDecision
+    candidates: List[RoutingCandidate]
+    snapshots: Dict[str, str]
+    keyword_ms: int
+    best_score: Optional[float]
+    all_scores: Dict[str, float]
 
 
 class NarrativeRetrieval:
@@ -207,136 +236,39 @@ class NarrativeRetrieval:
         # anyone arriving here to make selection faster should go there — see
         # the `continuity_ms` / `judge_ms` columns on narrative_routing_audit,
         # which exist to make that obvious without re-deriving it.
-        async def _load_pool_timed():
-            """`load_pool` plus its own elapsed ms.
-
-            Timed separately because the two reads now overlap: the enclosing
-            span measures max(participant, pool), which is the right number for
-            "how long did this step take" and the WRONG one for `keyword_ms`,
-            whose documented meaning is "BM25 pool load + rank". Without this,
-            a slow participant query would be charged to BM25.
-            """
-            _t0 = _perf.monotonic()
-            result = await self.load_pool(agent_id, user_id)
-            return result, int((_perf.monotonic() - _t0) * 1000)
-
-        # Named for what it measures. It was `narrative.retrieve.participant_query`
-        # while wrapping only that query; once the pool read joined it, the old
-        # name would have made a cross-PR comparison of `[TIMED]` history read a
-        # scope change as a performance change — using the very method this
-        # branch demonstrates.
-        with timed("narrative.retrieve.independent_reads"):
-            # Coroutines straight into gather — no `create_task` wrapper.
-            # gather already schedules them concurrently, and holding our own
-            # Task handles would only add two objects for nothing.
-            #
-            # `return_exceptions` stays at its default False: either read
-            # failing means the candidate set is INCOMPLETE, and routing
-            # confidently on the remainder would be a wrong answer dressed as
-            # a right one. The caller must see it. (Note: gather does NOT
-            # cancel the sibling on first exception — the surviving read runs
-            # to completion with nobody to receive it. Harmless here, one
-            # wasted DB round trip.)
-            participant_narratives, (pool, _pool_ms) = await asyncio.gather(
-                self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
-                _load_pool_timed(),
-            )
+        scored = await self._score_and_record(
+            query, user_id, agent_id,
+            top_k=top_k,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+        )
+        search_results = scored.search_results
+        participant_narratives = scored.participant_narratives
         has_participant_narratives = len(participant_narratives) > 0
         if has_participant_narratives:
             logger.info(f"P0-4: User is a PARTICIPANT in {len(participant_narratives)} Narratives")
-
-        # Step 1: Search for candidate Narratives by KEYWORD (BM25 over each
-        # narrative's name + summary + topic keywords). BM25 casts the net
-        # over the agent's real narratives — including non-default ones — then
-        # the LLM unified-match tier below arbitrates. Reuses the same BM25 the
-        # MemoryEngine uses, so narrative routing and memory recall share one
-        # ranking implementation. Zero vectors.
-        with timed("narrative.retrieve.keyword_search"):
-            # `pool` was loaded above, alongside the participant query.
-            # rank_pool rather than keyword_search: the audit needs the WHOLE
-            # pool with the exact text that was scored, and BM25's IDF/avgdl
-            # are computed over that set, so a top-K slice cannot be replayed.
-            # keyword_search stays the public seam for select_fast.
-            _t_rank = _perf.monotonic()
-            search_results = self.rank_pool(
-                query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
-            )
-            _rank_ms = int((_perf.monotonic() - _t_rank) * 1000)
-        # Pool read + ranking, and nothing else — the participant query it now
-        # runs alongside is a different question and must not be charged here.
-        # This column answers "is BM25 ever the problem?"; mixing in an
-        # unrelated read is how it would answer wrongly.
-        audit.keyword_ms = _pool_ms + _rank_ms
+        # Pool read + ranking, and nothing else — the participant query it runs
+        # alongside is a different question and must not be charged here. This
+        # column answers "is BM25 ever the problem?"; mixing in an unrelated
+        # read is how it would answer wrongly.
+        audit.keyword_ms = scored.keyword_ms
+        audit.candidates.extend(scored.candidates)
+        snapshots.update(scored.snapshots)
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
-        # Step 1.5 (P0-4): Add PARTICIPANT Narratives to candidate list (if not already in search results)
-        # This is key: participant_narratives come from Narratives created by other users; keyword search won't return them
-        existing_narrative_ids = {r.narrative_id for r in search_results}
-        for narrative in participant_narratives:
-            if narrative.id not in existing_narrative_ids:
-                # Embeddings retired: participant narratives enter the candidate
-                # pool with a neutral score; the LLM unified-match tier below
-                # arbitrates their relevance. (No cosine scoring.)
-                search_results.append(NarrativeSearchResult(
-                    narrative_id=narrative.id,
-                    similarity_score=0.5,
-                    rank=999
-                ))
-                logger.info(f"  Added PARTICIPANT Narrative: {narrative.id} (neutral score 0.5)")
-
-        # Re-sort (by similarity descending) and update rank
-        search_results.sort(key=lambda x: x.similarity_score, reverse=True)
-        for i, result in enumerate(search_results):
-            result.rank = i + 1
-
-        # Freeze the candidate set AFTER the participant merge, not before:
-        # participant narratives are appended post-ranking with a synthetic
-        # neutral score, so recording earlier would drop them entirely and
-        # leave `is_participant` permanently false — losing exactly the
-        # candidates the P0-4 priority rule is about.
-        self._record_pool(audit, snapshots, pool, search_results, participant_narratives)
-
         # Step 2: Two-tier threshold judgment
-        best_score = search_results[0].similarity_score if search_results else None
-        all_scores = {r.narrative_id: r.similarity_score for r in search_results}
+        best_score = scored.best_score
+        all_scores = scored.all_scores
 
         # First tier: high confidence - return Top-K directly.
         # The gate reads RAW BM25, not the squashed similarity — see
         # routing_gate.evaluate_gate for why. Participant narratives still
         # force LLM judgment regardless: they carry a synthetic neutral score,
         # and a high BM25 hit on the user's OWN narrative should not win over
-        # the task they were invited into (P0-4).
-        gate = evaluate_gate(
-            [r.raw_score for r in search_results],
-            raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
-            margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
-        )
-        # Which narrative BM25 actually wants. NOT `search_results[0]`: the
-        # participant merge above appends entries with a synthetic 0.5
-        # similarity and re-sorts on that, so position 0 can be a narrative
-        # that never went through bm25 at all. The bypass rule has to compare
-        # the KEYWORD winner against the anchor or it would compare noise.
-        keyword_leader = max(
-            search_results, key=lambda r: r.raw_score, default=None
-        )
-        top1_narrative_id = (
-            keyword_leader.narrative_id
-            if keyword_leader is not None and keyword_leader.raw_score > 0
-            else None
-        )
-        # Second decision, separate from strength: may this turn skip review at
-        # all? A bypass is only ever allowed to KEEP a turn where it already
-        # was — see routing_gate.evaluate_bypass for the prod measurement
-        # behind that (92.5% of bypasses were already doing exactly that, and
-        # all of the hijack risk lives in the other 7.5%).
-        bypass = evaluate_bypass(
-            gate,
-            top1_narrative_id=top1_narrative_id,
-            anchor_narrative_id=anchor_narrative_id,
-            is_user_chat=is_user_chat,
-            has_participant_narratives=has_participant_narratives,
-        )
+        # the task they were invited into (P0-4). Both verdicts come from
+        # `_score_and_record`, the same pass the shadow recorder uses.
+        gate, bypass = scored.gate, scored.bypass
         # `gate_short_circuit` keeps its original meaning — "this turn skipped
         # the judge" — so it now reflects the bypass decision, not floor+margin.
         # `bypass_score_gate` is what preserves the floor/margin series for the
@@ -501,15 +433,23 @@ class NarrativeRetrieval:
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
 
     @classmethod
-    def _record_pool(
+    def _build_pool_record(
         cls,
-        audit: "RoutingAudit",
-        snapshots: dict,
         pool: List[Tuple[str, str, bool]],
         search_results: List[NarrativeSearchResult],
         participant_narratives: Optional[List[Narrative]] = None,
-    ) -> None:
-        """Freeze the candidate set into the audit, with the text that was scored.
+    ) -> Tuple[List[RoutingCandidate], Dict[str, str]]:
+        """Build the candidate set and its snapshots — a PURE function.
+
+        Returns rather than mutates so a caller can make the whole recording
+        atomic. The previous version appended straight into `audit.candidates`
+        and the caller's `snapshots` dict, which meant a failure part-way
+        through left a half-written row AND orphan rows in
+        `narrative_text_snapshots` that no audit row referenced. The shadow
+        recorder answered that with a hand-copied list of "which fields to
+        reset", which was already missing `gate_reason` in the commit that
+        introduced it. A list that must be kept in sync is a list that drifts;
+        returning the work instead removes the list.
 
         Every BM25 pool member is recorded, including the ones that scored
         zero — they still shaped the ranking through IDF and avgdl, so a
@@ -525,6 +465,8 @@ class NarrativeRetrieval:
             text_hash,
         )
 
+        candidates: List[RoutingCandidate] = []
+        snapshots: Dict[str, str] = {}
         scored = {r.narrative_id: r.raw_score for r in search_results}
         participants = {n.id: n for n in (participant_narratives or [])}
         seen: set = set()
@@ -533,7 +475,7 @@ class NarrativeRetrieval:
             h = text_hash(text)
             snapshots[h] = text
             seen.add(nid)
-            audit.candidates.append(RoutingCandidate(
+            candidates.append(RoutingCandidate(
                 narrative_id=nid,
                 text_hash=h,
                 raw_score=scored.get(nid, 0.0),
@@ -547,7 +489,7 @@ class NarrativeRetrieval:
             text = narrative.searchable_text()
             h = text_hash(text)
             snapshots[h] = text
-            audit.candidates.append(RoutingCandidate(
+            candidates.append(RoutingCandidate(
                 narrative_id=nid,
                 text_hash=h,
                 raw_score=0.0,
@@ -555,54 +497,104 @@ class NarrativeRetrieval:
                 is_participant=True,
             ))
 
-    async def record_pool_only(
+        return candidates, snapshots
+
+    async def _score_and_record(
         self,
         query: str,
         user_id: str,
         agent_id: str,
         *,
+        top_k: int,
         anchor_narrative_id: Optional[str],
         is_user_chat: bool,
-        audit: "RoutingAudit",
-        snapshots: dict,
-    ) -> None:
-        """Build and score the pool for the RECORD, deciding nothing (slice 0).
+    ) -> "ScoredPool":
+        """One BM25 scoring pass — the ONE definition, shared by both callers.
 
-        `NarrativeService.select` returns before the retrieval tier whenever
-        continuity says yes, so those turns have never carried a pool. That is
-        the single reason the zero-LLM shutter's releasable population is only
-        bounded at 6%-39% of continuity turns: a 3x band that is reconstruction
-        slack rather than signal (`specs/2026-08-25-merged-routing-design.md`
-        §2.2). This method closes the gap by doing exactly what the real path
-        does, and then handing the result to nobody.
+        `retrieve_top_k` (which decides) and `record_pool_only` (which only
+        records) used to be two hand-written copies of this sequence, and the
+        copies had already drifted three ways in the commit that created them:
+        a scoring slice of 3 against 6, a `keyword_ms` that excluded the pool
+        read on one side, and a bucket precondition that only held on one.
+        Slice 0's entire value is that the two populations are comparable, and
+        a promise of comparability kept by hand is not kept.
 
-        NOT a decision path. Nothing here is returned, and the caller must not
-        read anything but the audit. The verdict fields it fills are labelled
-        as hypothetical by `audit.pool_is_shadow`.
+        Returns everything a caller might need and writes NOTHING — no audit,
+        no snapshots dict, no session. That is what lets each caller commit the
+        result in a single block that cannot fail half-way (see
+        `_build_pool_record`), and it is why the participant merge lives HERE
+        rather than in the callers: the record must be built AFTER the merge or
+        `is_participant` is permanently false for every candidate the P0-4
+        rule is about, and a constraint that lives in one function cannot be
+        violated by only one of two call sites.
 
-        Deliberately NOT calling `_ensure_default_narratives`: that CREATES
-        rows, and an instrument must not write business data to observe. Under
-        C-1 governance buckets do not enter the pool anyway, so the recorded
-        pool is the one the real path would have scored.
+        `_ensure_default_narratives` is deliberately NOT part of this: it
+        CREATES rows, the recording path must not write business data to
+        observe, and only the deciding path has a reason to seed.
 
-        Cost is the same two reads the real path pays — measured at ~13.5ms
-        per turn — and they are awaited, not fired and forgotten: a bare
-        `create_task` here would swallow its own exceptions into a GC warning
-        and race the audit write that is supposed to carry its output
-        (incident lesson #2).
+        One consequence, stated conditionally because it depends on a flag:
+        under `NARRATIVE_DEFAULT_BUCKETS_ENABLED=0` (the shipping value)
+        buckets never enter the pool, so the recorded pool IS the pool the
+        deciding path would have scored. If that flag is turned back on, a
+        shadow pool for an (agent,user) that has never been seeded is missing
+        the eight buckets the deciding path would have created and counted into
+        IDF/avgdl. The window is narrow — a continuity turn means the previous
+        turn already ran the seeding — but it is not empty: flipping the flag
+        between two turns hits it.
         """
-        participant_narratives, pool = await asyncio.gather(
-            self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
-            self.load_pool(agent_id, user_id),
-        )
-        _t_rank = _perf.monotonic()
-        search_results = self.rank_pool(
-            query, pool, max(config.NARRATIVE_SEARCH_TOP_K, 3)
-        )
-        audit.keyword_ms = int((_perf.monotonic() - _t_rank) * 1000)
+        async def _load_pool_timed():
+            _t0 = _perf.monotonic()
+            result = await self.load_pool(agent_id, user_id)
+            return result, int((_perf.monotonic() - _t0) * 1000)
 
-        self._record_pool(
-            audit, snapshots, pool, search_results, participant_narratives
+        with timed("narrative.retrieve.independent_reads"):
+            # Coroutines straight into gather — no `create_task` wrapper.
+            # gather already schedules them concurrently, and holding our own
+            # Task handles would only add two objects for nothing.
+            #
+            # `return_exceptions` stays at its default False: either read
+            # failing means the candidate set is INCOMPLETE, and routing
+            # confidently on the remainder would be a wrong answer dressed as
+            # a right one. The caller must see it. (Note: gather does NOT
+            # cancel the sibling on first exception — the surviving read runs
+            # to completion with nobody to receive it. Harmless here, one
+            # wasted DB round trip.)
+            participant_narratives, (pool, _pool_ms) = await asyncio.gather(
+                self._get_participant_narratives(user_id=user_id, agent_id=agent_id),
+                _load_pool_timed(),
+            )
+
+        with timed("narrative.retrieve.keyword_search"):
+            # rank_pool rather than keyword_search: the audit needs the WHOLE
+            # pool with the exact text that was scored, and BM25's IDF/avgdl
+            # are computed over that set, so a top-K slice cannot be replayed.
+            # keyword_search stays the public seam for select_fast.
+            _t_rank = _perf.monotonic()
+            search_results = self.rank_pool(
+                query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
+            )
+            _rank_ms = int((_perf.monotonic() - _t_rank) * 1000)
+
+        # P0-4: PARTICIPANT narratives join the candidate list at a synthetic
+        # neutral score — keyword search cannot return them, they belong to
+        # other users' threads.
+        existing_narrative_ids = {r.narrative_id for r in search_results}
+        for narrative in participant_narratives:
+            if narrative.id not in existing_narrative_ids:
+                search_results.append(NarrativeSearchResult(
+                    narrative_id=narrative.id,
+                    similarity_score=0.5,
+                    rank=999
+                ))
+                logger.info(f"  Added PARTICIPANT Narrative: {narrative.id} (neutral score 0.5)")
+
+        search_results.sort(key=lambda x: x.similarity_score, reverse=True)
+        for i, result in enumerate(search_results):
+            result.rank = i + 1
+
+        # AFTER the merge, never before — see the class docstring above.
+        candidates, snapshots = self._build_pool_record(
+            pool, search_results, participant_narratives
         )
 
         gate = evaluate_gate(
@@ -610,6 +602,11 @@ class NarrativeRetrieval:
             raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
             margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
         )
+        # Which narrative BM25 actually wants. NOT `search_results[0]`: the
+        # participant merge above appends entries with a synthetic 0.5
+        # similarity and re-sorts on that, so position 0 can be a narrative
+        # that never went through bm25 at all. The bypass rule has to compare
+        # the KEYWORD winner against the anchor or it would compare noise.
         keyword_leader = max(
             search_results, key=lambda r: r.raw_score, default=None
         )
@@ -624,17 +621,89 @@ class NarrativeRetrieval:
             is_user_chat=is_user_chat,
             has_participant_narratives=bool(participant_narratives),
         )
+        return ScoredPool(
+            search_results=search_results,
+            participant_narratives=participant_narratives,
+            gate=gate,
+            bypass=bypass,
+            candidates=candidates,
+            snapshots=snapshots,
+            # "Pool read + ranking, and nothing else" — the documented meaning
+            # of `keyword_ms`, now produced in one place so it cannot mean
+            # something different on a shadow row.
+            keyword_ms=_pool_ms + _rank_ms,
+            best_score=(search_results[0].similarity_score
+                        if search_results else None),
+            all_scores={r.narrative_id: r.similarity_score
+                        for r in search_results},
+        )
 
+    async def record_pool_only(
+        self,
+        query: str,
+        user_id: str,
+        agent_id: str,
+        *,
+        top_k: int,
+        anchor_narrative_id: Optional[str],
+        is_user_chat: bool,
+        audit: "RoutingAudit",
+        snapshots: dict,
+    ) -> None:
+        """Score the pool for the RECORD, deciding nothing (slice 0).
+
+        `NarrativeService.select` returns before the retrieval tier whenever
+        continuity says yes, so those turns have never carried a pool. That is
+        the single reason the zero-LLM shutter's releasable population is only
+        bounded at 6%-39% of continuity turns: a 3x band that is
+        reconstruction slack rather than signal
+        (`reference/self_notebook/specs/2026-08-25-merged-routing-design.md`
+        §2.2). This closes the gap by running the same scoring pass the real
+        path runs, and handing the result to nobody.
+
+        ALL-OR-NOTHING. Everything that can fail happens before the first line
+        of the commit block below, so a failure leaves the audit row exactly as
+        it was — no half-filled pool, and no orphan rows in
+        `narrative_text_snapshots`. There is deliberately no "reset the fields
+        the recorder wrote" list: such a list has to be updated by hand every
+        time a column is added, and the one this replaces was already missing
+        `gate_reason` on the day it was written.
+
+        Cost is the same two reads the real path pays and they are AWAITED, not
+        fired and forgotten: a bare `create_task` here would swallow its own
+        exceptions into a GC warning and race the audit write that is supposed
+        to carry its output (incident lesson #2). The elapsed time lands in
+        `audit.retrieve_ms`, which is empty on shadow rows today and whose
+        meaning — how long the retrieval tier took — fits exactly, so the
+        instrument carries its own L3 observability instead of a hand-measured
+        number in a docstring.
+        """
+        _t_retrieve = _perf.monotonic()
+        scored = await self._score_and_record(
+            query, user_id, agent_id,
+            top_k=top_k,
+            anchor_narrative_id=anchor_narrative_id,
+            is_user_chat=is_user_chat,
+        )
+        elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
+
+        # ── commit block: pure assignment, cannot raise ──────────────────
+        audit.candidates.extend(scored.candidates)
+        snapshots.update(scored.snapshots)
         audit.pool_is_shadow = True
-        audit.gate_top1_raw = gate.top1_raw
-        audit.gate_top2_raw = gate.top2_raw
-        audit.gate_margin = gate.margin if gate.margin != float("inf") else None
-        audit.bypass_score_gate = gate.short_circuit
-        audit.bypass_reason = bypass.reason
-        audit.gate_reason = bypass.detail
+        audit.keyword_ms = scored.keyword_ms
+        audit.retrieve_ms = elapsed_ms
+        audit.gate_top1_raw = scored.gate.top1_raw
+        audit.gate_top2_raw = scored.gate.top2_raw
+        audit.gate_margin = (scored.gate.margin
+                             if scored.gate.margin != float("inf") else None)
+        audit.bypass_score_gate = scored.gate.short_circuit
+        audit.bypass_reason = scored.bypass.reason
+        audit.gate_reason = scored.bypass.detail
         # `gate_short_circuit` is NOT set. It means "the gate skipped the
         # judge", and here the gate decided nothing — filling it would redefine
-        # the column for every existing reader (binding rule #6).
+        # the column for every existing reader (binding rule #6). Populations
+        # are told apart by `pool_is_shadow` and nothing else.
 
     async def load_pool(
         self,
