@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 保存默认后可一键应用到全体 agent
+
+`apply()` 保存 owner 默认成功后，多拉一次 `api.getSlotOverrideStats()`；若旗下
+有 agent 存在覆盖（agent 或 helper_llm 计数 > 0），把 stats 塞进 `applyStats`
+state 弹出 [[ApplyDefaultsToAgentsDialog]]。零覆盖则什么都不弹，保存路径与旧
+行为一致（只写 user_slots）。确认后调 `api.applySlotsToAgents(slots)` 做
+clear-to-inherit。这是「改默认 → 覆盖手动调整」需求的入口，改默认本身仍只写
+owner 默认，是否应用到 agent 完全由用户在弹框里选。
 
 ## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
 

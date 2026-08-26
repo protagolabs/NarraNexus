@@ -18,6 +18,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui';
+import { ApplyDefaultsToAgentsDialog } from './ApplyDefaultsToAgentsDialog';
+import type { SlotOverrideStats } from '@/types/api';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
@@ -74,6 +76,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [helperDraft, setHelperDraft] = useState<HelperDraft>(EMPTY_HELPER);
   const [agentInitial, setAgentInitial] = useState<AgentDraft>(EMPTY_AGENT);
   const [helperInitial, setHelperInitial] = useState<HelperDraft>(EMPTY_HELPER);
+  const [applyStats, setApplyStats] = useState<SlotOverrideStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
@@ -221,6 +224,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       await load();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      // Offer to push the new default onto existing agents (clear-to-inherit).
+      const statsResp = await api.getSlotOverrideStats();
+      const s = statsResp.data;
+      if (s && (s.agent > 0 || s.helper_llm > 0)) {
+        setApplyStats(s); // opens the dialog
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -511,6 +520,18 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       )}
 
       {noticeDialog}
+
+      {applyStats && (
+        <ApplyDefaultsToAgentsDialog
+          isOpen
+          stats={applyStats}
+          onClose={() => setApplyStats(null)}
+          onApply={async (slots) => {
+            const r = await api.applySlotsToAgents(slots);
+            if (!r.success) setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+          }}
+        />
+      )}
     </div>
   );
 }

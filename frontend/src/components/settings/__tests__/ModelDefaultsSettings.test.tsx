@@ -42,12 +42,18 @@ const mockGetProviders = vi.fn();
 const mockGetAgentFramework = vi.fn();
 const mockSetAgentFramework = vi.fn();
 const mockGetMyQuota = vi.fn();
+const mockSetProviderSlot = vi.fn();
+const mockGetSlotOverrideStats = vi.fn();
+const mockApplySlotsToAgents = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
     getAgentFramework: (...a: unknown[]) => mockGetAgentFramework(...a),
     setAgentFramework: (...a: unknown[]) => mockSetAgentFramework(...a),
     getMyQuota: (...a: unknown[]) => mockGetMyQuota(...a),
+    setProviderSlot: (...a: unknown[]) => mockSetProviderSlot(...a),
+    getSlotOverrideStats: (...a: unknown[]) => mockGetSlotOverrideStats(...a),
+    applySlotsToAgents: (...a: unknown[]) => mockApplySlotsToAgents(...a),
   },
 }));
 
@@ -109,6 +115,15 @@ beforeEach(() => {
   });
   // Default: free tier not active (local/exhausted) — panel behaves as before.
   mockGetMyQuota.mockReset().mockResolvedValue({ enabled: false });
+  mockSetProviderSlot.mockReset().mockResolvedValue({ success: true });
+  mockGetSlotOverrideStats.mockReset().mockResolvedValue({
+    success: true,
+    data: { agent: 3, helper_llm: 0, total_agents: 5 },
+  });
+  mockApplySlotsToAgents.mockReset().mockResolvedValue({
+    success: true,
+    data: { cleared: { agent: 3 } },
+  });
 });
 
 afterEach(() => {
@@ -317,6 +332,34 @@ test('switching framework drops the binding only when the backend cleared it', a
   fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
   await waitFor(() => expect(providerSelect.value).toBe(''));
   expect(save).toBeDisabled();
+});
+
+test('after saving a changed default, the apply-to-agents dialog appears when overrides exist', async () => {
+  await renderLoaded();
+  // Pick a provider for the agent slot — this also auto-fills the model, so the
+  // slot becomes valid + dirty in one change (see ModelDefaultsSettings agent
+  // provider onChange).
+  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
+  );
+  await waitFor(() => expect(mockSetProviderSlot).toHaveBeenCalledWith('agent', expect.any(Object)));
+  await waitFor(() => expect(mockGetSlotOverrideStats).toHaveBeenCalled());
+  expect(await screen.findByTestId('apply-confirm-btn')).toBeInTheDocument();
+});
+
+test('no apply dialog when there are zero overrides', async () => {
+  mockGetSlotOverrideStats.mockResolvedValue({
+    success: true,
+    data: { agent: 0, helper_llm: 0, total_agents: 5 },
+  });
+  await renderLoaded();
+  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
+  );
+  await waitFor(() => expect(mockGetSlotOverrideStats).toHaveBeenCalled());
+  expect(screen.queryByTestId('apply-confirm-btn')).not.toBeInTheDocument();
 });
 
 test('cloud non-staff can select the free-tier card in both slots', async () => {
