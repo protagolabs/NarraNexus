@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/ExecutionPopover.tsx
-last_verified: 2026-07-03
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — phase 标签走 PHASE_LABEL_KEYS，两面不再打架
+
+此前 chip 和步骤列表直接渲染后端原始 `title`（带 emoji 的英文
+"Execute Agent Loop" 等），而 [[ProcessPanel]] 对同一 step 显示本地化
+label —— 同一时刻两个 surface 文案不一致。现在通过 `stepLabel()` 走
+[[processShared]] 的 `PHASE_LABEL_KEYS`：顶层相位显示与 ProcessPanel
+相同的本地化名；真正的子步（工具 `3.4.x`、fallback）没有映射，保留自己
+的后端 title —— 那正是这个"详细窥视"面板要暴露的细节。`currentStage`
+芯片同样改走 `stepLabel`。
 
 ## 2026-07-03 — current-stage chip (not a fake fraction) + surfaced detail
 

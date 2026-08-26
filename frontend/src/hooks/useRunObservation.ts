@@ -88,7 +88,9 @@ export interface RunObservationSnapshot {
   endState: string | null;
   /** Process blocks in arrival order (thinking / tool_call / tool_output / plan). */
   events: TurnEvent[];
-  /** Pre-loop pipeline phases (step 0..3), upserted by step id. */
+  /** Pipeline phases (step 0..3.4, build-context → run-agent), upserted by
+   *  step id. Which of these render as rows is decided by the consumer's
+   *  whitelist (processShared PHASE_STEP_IDS), not here. */
   steps: Step[];
   /** epoch ms the run started (from the run_reconnect metadata frame). */
   startedAt: number | null;

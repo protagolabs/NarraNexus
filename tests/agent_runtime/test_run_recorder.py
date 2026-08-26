@@ -226,6 +226,37 @@ async def test_progress_rows_replayable(db_client):
 
 
 @pytest.mark.asyncio
+async def test_tool_call_stamps_the_run_agent_stage(db_client):
+    """A tool_call means the model is running — current_stage must match the
+    run-agent progress phase's derived label, not the old ``step.3_agent_loop``
+    that disagreed with the progress-derived stage and made
+    ``events.current_stage`` flap between two strings for one phase.
+
+    Asserted against the SHARED phase constants (derived the same way the
+    recorder derives it), not a hand-copied literal: a rename of
+    PHASE_RUN_AGENT_TITLE that forgot to update the recorder would turn this
+    red instead of silently reopening the flap bug."""
+    from xyz_agent_context.schema import (
+        PHASE_RUN_AGENT_STEP,
+        PHASE_RUN_AGENT_TITLE,
+    )
+
+    await _seed_events_row(db_client, "evt_stage")
+    rec = RunRecorder(db=db_client)
+    await rec.record(_step0_progress("evt_stage"))
+    await rec.record({
+        "type": "progress", "step": "3.4.1", "title": "🔧 Read",
+        "details": {"tool_name": "Read", "arguments": {"file": "x"}},
+    })
+    row = await db_client.get_one("events", {"event_id": "evt_stage"})
+    expected = f"step.{PHASE_RUN_AGENT_STEP}_{PHASE_RUN_AGENT_TITLE}"
+    assert row["current_stage"] == expected
+    # Pin the concrete value too, so a bug in the derivation rule is caught.
+    assert row["current_stage"] == "step.3.4_Run Agent"
+    await _stop(rec)
+
+
+@pytest.mark.asyncio
 async def test_sweep_flips_only_heartbeat_dead_rows(db_client):
     fresh = utc_now()
     stale = utc_now() - timedelta(seconds=600)

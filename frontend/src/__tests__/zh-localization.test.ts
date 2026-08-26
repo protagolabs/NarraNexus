@@ -16,7 +16,7 @@ describe('Chinese localization completeness', () => {
     expect(zh.pages.setup.welcome).not.toBe(en.pages.setup.welcome);
     expect(zh.chat.bootstrapGreeting).not.toBe(en.chat.bootstrapGreeting);
     expect(zh.chat.securityReminder).not.toBe(en.chat.securityReminder);
-    expect(zh.chat.execution.loadingContext).not.toBe(en.chat.execution.loadingContext);
+    expect(zh.chat.execution.selectingNarrative).not.toBe(en.chat.execution.selectingNarrative);
     expect(zh.pages.settings.modelDefaults.reasoningEffort).not.toBe(
       en.pages.settings.modelDefaults.reasoningEffort,
     );
@@ -66,7 +66,7 @@ describe('Chinese localization completeness', () => {
     // indicator into ProcessPanel (2026-07-30), whose phase-label map now
     // lives in the shared render pieces — assert it there.
     const processShared = source('../components/chat/process/processShared.tsx');
-    expect(processShared).toContain("'chat.execution.loadingContext'");
+    expect(processShared).toContain("'chat.execution.selectingNarrative'");
     expect(chatPanel).not.toContain("return 'Loading context...'");
     expect(agentConfig).toContain(
       "t('pages.settings.modelDefaults.reasoningEffort')",

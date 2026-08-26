@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — tool_call 的 current_stage 对齐 run-agent 相位
+
+tool_call bump 里的 `current_stage` 从硬编码 `"step.3_agent_loop"` 改成
+**从共享相位常量派生**：`_extract_progress_stage({"step":
+PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE})`（常量来自叶子模块
+[[runtime_message]]，不能从 [[step_3_agent_loop]] 导——它被本包 `__init__`
+eager import 会成环）。原硬编码值与 progress 事件推导出的
+`"step.3_Execute Agent Loop"` **两个字符串打架**，同一 loop 阶段在
+`events.current_stage` 里来回跳。派生后天然与 progress 相位逐字一致，一个
+相位一个值，且相位改名不会再悄悄复活打架。同时同步 in-memory
+`self.current_stage`（与 progress 分支对齐）。测试
+`test_tool_call_stamps_the_run_agent_stage`（对着常量断言）。
 
 ## 2026-08-21 — `first_live_run_id`：跨进程"这个用户忙不忙"的唯一口径
 

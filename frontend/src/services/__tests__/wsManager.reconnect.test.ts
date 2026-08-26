@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { wsManager } from '../wsManager';
+import { wsManager, translateReconnectFrame } from '../wsManager';
 import { useChatStore } from '@/stores/chatStore';
+import { PHASE_STEP_IDS } from '@/components/chat/process/processShared';
 
 // ---- Mock WebSocket ----------------------------------------------------
 class MockWebSocket {
@@ -262,4 +263,31 @@ describe('wsManager A3 — auto-reconnect on passive disconnect', () => {
     vi.advanceTimersByTime(1000); // now 2s elapsed
     expect(MockWebSocket.instances).toHaveLength(3);
   });
+});
+
+describe('translateReconnectFrame — replayed tool frame fallback step id', () => {
+  // When a replayed tool_call/tool_output frame's payload can't be parsed,
+  // the synthesized progress falls back to a step id. It must NOT be the bare
+  // run-agent phase id '3.4': currentSteps upsert by step id, so a bare '3.4'
+  // would overwrite the real run-agent PHASE row (a tool_output carries
+  // status:'completed' → "Agent 运行中… ✓" mid-run). The fallback must be a
+  // '3.4.x'-shaped sub-step: parseFloat still 3.4 (loop logic unchanged) but
+  // NOT in PHASE_STEP_IDS, so it renders as a tool row, never a phase row.
+  // Pinning the CONSTRAINT, not the literal '3.4.replay' spelling.
+  it.each(['tool_call', 'tool_output'] as const)(
+    'an unparseable %s replay frame falls back to a non-phase step id',
+    (kind) => {
+      const frame = translateReconnectFrame({
+        type: 'replay',
+        kind,
+        payload: 'not-json{',
+      }) as { step: string } | null;
+      expect(frame).not.toBeNull();
+      expect(frame!.step).not.toBe('3.4');
+      expect(PHASE_STEP_IDS.has(frame!.step)).toBe(false);
+      // Still parses to the run-agent numeric band, so phaseDone logic is
+      // unchanged — only the phase-row collision is avoided.
+      expect(parseFloat(frame!.step)).toBe(3.4);
+    },
+  );
 });
