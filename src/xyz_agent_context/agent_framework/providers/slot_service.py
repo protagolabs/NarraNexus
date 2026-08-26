@@ -206,5 +206,83 @@ class AgentSlotService:
             filters["slot_name"] = slot_name
         await self.db.delete("agent_slots", filters)
 
+    async def _owner_agent_ids(self, owner_id: str) -> list[str]:
+        """agent_id list owned by ``owner_id`` (agents.created_by)."""
+        rows = await self.db.get("agents", {"created_by": owner_id})
+        return [r["agent_id"] for r in rows or [] if r and r.get("agent_id")]
+
+    async def count_owner_overrides(self, owner_id: str) -> Dict[str, int]:
+        """Per-slot count of how many of ``owner_id``'s agents hold an override.
+
+        Returns ``{"agent": N, "helper_llm": M, "total_agents": T}`` — used by
+        the Model-Defaults confirm dialog to show the blast radius before a
+        bulk apply.
+        """
+        agent_ids = await self._owner_agent_ids(owner_id)
+        counts: Dict[str, int] = {
+            SlotName.AGENT.value: 0,
+            SlotName.HELPER_LLM.value: 0,
+            "total_agents": len(agent_ids),
+        }
+        for aid in agent_ids:
+            rows = await self.db.get("agent_slots", {"agent_id": aid})
+            for r in rows or []:
+                slot = r.get("slot_name")
+                if slot in counts:
+                    counts[slot] += 1
+        return counts
+
+    async def clear_owner_agents_slot(self, owner_id: str, slot_name: str) -> int:
+        """Delete the ``slot_name`` override for EVERY agent owned by
+        ``owner_id`` — reverting those agents to inherit the owner default on
+        their next run. Returns the number of agents that actually had a row.
+
+        ``db.delete`` has no IN semantics, so this deletes per agent_id; the
+        cost is one lookup + one delete per owned agent, which is bounded by
+        the owner's agent count.
+        """
+        if slot_name not in [s.value for s in SlotName]:
+            raise ValueError(f"Invalid slot: {slot_name}")
+        cleared = 0
+        for aid in await self._owner_agent_ids(owner_id):
+            existing = await self.db.get_one(
+                "agent_slots", {"agent_id": aid, "slot_name": slot_name}
+            )
+            if existing:
+                await self.db.delete(
+                    "agent_slots", {"agent_id": aid, "slot_name": slot_name}
+                )
+                cleared += 1
+        return cleared
+
+    async def owner_agents_overview(self, owner_id: str) -> Dict[str, dict]:
+        """Effective (agent + helper_llm) model per owned agent, in ONE pass.
+
+        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool},
+        "helper_llm": {...}}}``. ``inheriting`` is True when the agent has no
+        override row for that slot and falls back to the owner default. Feeds
+        the Dashboard model chip without an N+1 of per-agent llm-config calls.
+        """
+        owner_rows = await self.db.get("user_slots", {"user_id": owner_id})
+        owner_default = {
+            r.get("slot_name"): (r.get("model") or "")
+            for r in owner_rows or []
+        }
+        out: Dict[str, dict] = {}
+        for aid in await self._owner_agent_ids(owner_id):
+            override_rows = await self.db.get("agent_slots", {"agent_id": aid})
+            override_by_slot = {
+                r.get("slot_name"): (r.get("model") or "")
+                for r in override_rows or []
+            }
+            slots_view: Dict[str, dict] = {}
+            for slot in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
+                if slot in override_by_slot:
+                    slots_view[slot] = {"model": override_by_slot[slot], "inheriting": False}
+                else:
+                    slots_view[slot] = {"model": owner_default.get(slot, ""), "inheriting": True}
+            out[aid] = slots_view
+        return out
+
 
 __all__ = ["AgentSlotService"]

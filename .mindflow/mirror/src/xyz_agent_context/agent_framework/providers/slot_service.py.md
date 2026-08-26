@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-07-31
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — owner 范围的批量继承化 + Dashboard overview
+
+单 agent 覆盖读写之外，新增三个 **owner 范围** 方法（都用
+`agents.created_by` 圈定本人 agent，跨 owner 天然隔离）：
+
+- `count_owner_overrides(owner_id)` → `{agent, helper_llm, total_agents}`：
+  Model-Defaults「应用到所有 agent」确认框的影响面预览。
+- `clear_owner_agents_slot(owner_id, slot_name)`：把某槽的 per-agent 覆盖在
+  owner 名下**全部**删掉（clear-to-inherit——回到继承 owner 默认，下次解析
+  生效，不动运行中 loop）。`db.delete` 无 IN 语义，故逐 agent_id 等值删；
+  返回真正清掉的 agent 数。
+- `owner_agents_overview(owner_id)` → `{agent_id: {slot: {model, inheriting}}}`：
+  一次拿全 agent 的 effective 模型 + inherit 标记，喂 Dashboard 折叠行的
+  model chip，避免 per-agent llm-config 的 N+1。
+
+这三者支撑「改默认→一键应用到全体」与「Dashboard 就地看/改单 agent 模型」
+两个前端功能；语义刻意是**清除覆盖**而非盖写快照，未来 owner 默认再变时
+被清过的 agent 会自动跟随。
 
 ## 2026-07-31 — 继承到「订阅凭据 ↔ 框架」这条新规则
 
