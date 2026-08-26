@@ -50,7 +50,12 @@ vi.mock('@/stores', () => ({
 }));
 vi.mock('@/hooks', () => ({ useCreateAgent: () => ({ creating: false, createAgent }) }));
 vi.mock('@/lib/api', () => ({
-  api: { getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: [] }), deleteAgent: vi.fn() },
+  api: {
+    getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: [] }),
+    deleteAgent: vi.fn(),
+    getAgentsModelOverview: vi.fn().mockResolvedValue({ success: true, data: { agents: {} } }),
+    getAgentLlmConfig: vi.fn().mockResolvedValue({ success: true, data: { slots: {} } }),
+  },
 }));
 vi.mock('@/lib/tauri', () => ({
   setTrayBadge: vi.fn().mockResolvedValue(undefined),
