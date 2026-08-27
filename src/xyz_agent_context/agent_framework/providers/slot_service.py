@@ -38,6 +38,18 @@ from xyz_agent_context.agent_framework.providers.user_service import (
 from xyz_agent_context.schema.provider_schema import SlotConfig, SlotName
 
 
+def _is_effective_override(row: Optional[dict]) -> bool:
+    """Whether an ``agent_slots`` row actually shadows the owner default.
+
+    A framework-only / empty-``provider_id`` stub is NOT an effective override:
+    the runtime resolver (``driver.resolver._apply_agent_overrides``) and the
+    per-agent llm-config endpoint (``routes.agents.llm_config._slot_view``)
+    both skip empty-provider rows, so the owner-level counters must too — else
+    the collapsed-row chip and the expanded card disagree on the same agent.
+    """
+    return bool(row and row.get("provider_id"))
+
+
 class AgentSlotService:
     """CRUD for per-agent slot overrides (``agent_slots``)."""
 
@@ -205,6 +217,141 @@ class AgentSlotService:
         if slot_name:
             filters["slot_name"] = slot_name
         await self.db.delete("agent_slots", filters)
+
+    async def _owner_agent_ids(self, owner_id: str) -> list[str]:
+        """agent_id list owned by ``owner_id`` (agents.created_by).
+
+        Projects to ``agent_id`` only — the ``agents`` table carries a fat
+        ``agent_metadata`` MEDIUMTEXT column we would otherwise ship and
+        discard on every call.
+        """
+        rows = await self.db.get(
+            "agents", {"created_by": owner_id}, fields=["agent_id"]
+        )
+        return [r["agent_id"] for r in rows or [] if r and r.get("agent_id")]
+
+    async def count_owner_overrides(self, owner_id: str) -> Dict[str, int]:
+        """Per-slot count of how many of ``owner_id``'s agents hold an
+        *effective* override (a row whose provider_id is set), plus the owner's
+        total agent count.
+
+        Returns ``{<slot>: N for each SlotName, "total_agents": T}`` — used by
+        the Model-Defaults confirm dialog to show the blast radius before a
+        bulk apply. DB cost is 1 (agents) + N (one agent_slots read per owned
+        agent); it is not a single query.
+        """
+        agent_ids = await self._owner_agent_ids(owner_id)
+        per_slot: Dict[str, int] = {s.value: 0 for s in SlotName}
+        for aid in agent_ids:
+            rows = await self.db.get("agent_slots", {"agent_id": aid})
+            for r in rows or []:
+                slot = r.get("slot_name")
+                if slot in per_slot and _is_effective_override(r):
+                    per_slot[slot] += 1
+        return {**per_slot, "total_agents": len(agent_ids)}
+
+    async def clear_owner_agents_slots(
+        self, owner_id: str, slot_names: list[str]
+    ) -> Dict[str, int]:
+        """Clear each of ``slot_names`` for EVERY agent owned by ``owner_id``,
+        reverting those agents to inherit the owner default on their next run.
+        Returns ``{slot_name: cleared_count}``.
+
+        The whole request is validated fail-closed FIRST (an unknown slot name
+        raises ``ValueError`` before any delete, so a bad name never leaves a
+        partial clear behind), slot names are order-preserving-deduped, and the
+        owner's agent list is fetched ONCE and reused across slots — the
+        orchestration lives here, not in the route.
+
+        Fail-closed covers VALIDATION only: a runtime failure mid-loop (a DB
+        blip, an audit insert that raises) can still leave an earlier agent
+        cleared. That is recoverable — every deleted row was snapshotted to
+        ``agent_slot_clear_audit`` before its delete, and re-running is
+        idempotent (an already-cleared ``(agent_id, slot_name)`` is a no-op).
+        """
+        valid = {s.value for s in SlotName}
+        slots = list(dict.fromkeys(slot_names))  # order-preserving dedup
+        bad = [s for s in slots if s not in valid]
+        if bad:
+            raise ValueError(f"Invalid slot(s): {bad}")
+        agent_ids = await self._owner_agent_ids(owner_id)
+        return {s: await self._clear_one_slot(owner_id, s, agent_ids) for s in slots}
+
+    async def _clear_one_slot(
+        self, owner_id: str, slot_name: str, agent_ids: list[str]
+    ) -> int:
+        """Delete ``slot_name`` for the given ``agent_ids``, returning how many
+        actually had a row.
+
+        ALL rows for ``(agent_id, slot_name)`` are deleted, including any
+        framework-only / empty-provider stub (those exist precisely to be
+        cleared — only counting/display treat them as "not an override").
+        Every deleted row is snapshotted into ``agent_slot_clear_audit`` BEFORE
+        the delete, so an irreversible bulk clear stays recoverable — the
+        snapshot passes NULL through verbatim (no ``or ""``) so a source
+        ``agent_framework``/``params_json`` of NULL ("inherit" / "all auto")
+        stays distinguishable from an empty string on restore. ``db.delete``
+        has no IN semantics, so this deletes per agent_id.
+        """
+        cleared = 0
+        for aid in agent_ids:
+            existing = await self.db.get_one(
+                "agent_slots", {"agent_id": aid, "slot_name": slot_name}
+            )
+            if not existing:
+                continue
+            await self.db.insert(
+                "agent_slot_clear_audit",
+                {
+                    "user_id": owner_id,
+                    "agent_id": aid,
+                    "slot_name": slot_name,
+                    "provider_id": existing.get("provider_id"),
+                    "model": existing.get("model"),
+                    "agent_framework": existing.get("agent_framework"),
+                    "params_json": existing.get("params_json"),
+                },
+            )
+            await self.db.delete(
+                "agent_slots", {"agent_id": aid, "slot_name": slot_name}
+            )
+            cleared += 1
+        return cleared
+
+    async def owner_agents_overview(self, owner_id: str) -> Dict[str, dict]:
+        """Effective (agent + helper_llm) model per owned agent.
+
+        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool},
+        "helper_llm": {...}}}``. ``inheriting`` is True when the agent has no
+        *effective* override row for that slot (no row, or a stub with empty
+        provider_id) and falls back to the owner default — matching the
+        runtime resolver and the per-agent llm-config endpoint.
+
+        Serves the Dashboard chip via ONE HTTP call instead of a per-agent
+        llm-config request; the DB layer is still 1 (agents) + N (one
+        agent_slots read per owned agent), bounded by the owner's agent count.
+        """
+        owner_rows = await self.db.get("user_slots", {"user_id": owner_id})
+        owner_default = {
+            r.get("slot_name"): (r.get("model") or "")
+            for r in owner_rows or []
+        }
+        out: Dict[str, dict] = {}
+        for aid in await self._owner_agent_ids(owner_id):
+            override_rows = await self.db.get("agent_slots", {"agent_id": aid})
+            override_by_slot = {
+                r.get("slot_name"): (r.get("model") or "")
+                for r in override_rows or []
+                if _is_effective_override(r)
+            }
+            slots_view: Dict[str, dict] = {}
+            for slot in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
+                if slot in override_by_slot:
+                    slots_view[slot] = {"model": override_by_slot[slot], "inheriting": False}
+                else:
+                    slots_view[slot] = {"model": owner_default.get(slot, ""), "inheriting": True}
+            out[aid] = slots_view
+        return out
 
 
 __all__ = ["AgentSlotService"]

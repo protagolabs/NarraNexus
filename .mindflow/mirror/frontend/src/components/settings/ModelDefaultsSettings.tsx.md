@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 保存默认后可一键应用到全体 agent
+
+`apply()` 保存 owner 默认成功后，多拉一次 `api.getSlotOverrideStats()`；若旗下
+有 agent 存在覆盖（agent 或 helper_llm 计数 > 0），把 stats 塞进 `applyStats`
+state 弹出 [[ApplyDefaultsToAgentsDialog]]。零覆盖则什么都不弹，保存路径与旧
+行为一致（只写 user_slots）。确认后调 `api.applySlotsToAgents(slots)` 做
+clear-to-inherit。这是「改默认 → 覆盖手动调整」需求的入口，改默认本身仍只写
+owner 默认，是否应用到 agent 完全由用户在弹框里选。
+
+stats 预览拉取单独包 try/catch：保存已成功后，flaky 的 override-stats GET
+（`request()` 非 2xx 会 throw）不得把 UI 翻成「保存失败」，失败就静默不弹框。
+`onApply` 里 `applySlotsToAgents` 也自带 catch，避免异常穿透到无 catch 的
+Dialog.apply() 造成未处理 rejection。
+
+**2026-08-27 auto-review 修正**：在 `load()` 重置快照**前**捕获本次改动的槽
+（`dirtySlots`），传给弹框；仅当**改过的槽**有覆盖才弹（helper-only 改动不会
+拿主槽的数字吓人）。`onApply` 成功后用 `showNotice` 回显结果，不再静默关闭（不可逆操作要有结果
+反馈）。
+
+**2026-08-27 (r2)**：通知标题用独立 key `applyDoneTitle`（不再复用确认框的
+`applyTitle`，避免一 key 两语义）；回显文案 `applyDone` 措辞不再承诺与预览数字
+严格相等（预览按有效覆盖数、实际清除含 stub 行，将来可能不同）。`dirtySlots`
+state 收成 `Array<'agent'|'helper_llm'>`。
 
 ## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
 

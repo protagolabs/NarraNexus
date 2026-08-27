@@ -1344,3 +1344,18 @@ export interface AgentSlotView {
   override: AgentSlotEffective | null;
   owner_default: AgentSlotEffective | null;
 }
+
+// ── owner-scoped bulk slot ops (Model Defaults "apply to all agents") ──────
+export interface SlotOverrideStats {
+  agent: number;
+  helper_llm: number;
+  total_agents: number;
+}
+
+/** Per owned-agent effective model per slot, for the Dashboard model chip. */
+export interface AgentModelOverview {
+  [agentId: string]: {
+    agent: { model: string; inheriting: boolean };
+    helper_llm: { model: string; inheriting: boolean };
+  };
+}

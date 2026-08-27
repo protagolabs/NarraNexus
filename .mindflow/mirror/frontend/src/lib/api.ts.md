@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-21
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — owner 级 bulk slot 方法
+
+新增三个薄封装方法对应 `/api/providers/slots/*`：`getSlotOverrideStats`
+（确认框影响面）、`applySlotsToAgents(slots)`（clear-to-inherit 批量应用）、
+`getAgentsModelOverview`（Dashboard chip 单次拉全 agent effective 模型）。均走
+统一 `request<T>()`，Mock Proxy 自动透传。
 
 ## 2026-08-21 — getSimpleChatHistory 加 include 流选择参数
 

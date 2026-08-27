@@ -1638,7 +1638,19 @@
       "noTeamsLabel": "还没有团队",
       "noTeamsHint": "从侧栏 New 菜单创建一个。",
       "manageTeam": "管理",
-      "teamsTip": "通过侧栏 New 菜单创建团队；在这里重命名、改色、编辑成员。"
+      "teamsTip": "通过侧栏 New 菜单创建团队；在这里重命名、改色、编辑成员。",
+      "modelCard": {
+        "title": "模型配置",
+        "agentSlot": "主模型（agent）",
+        "helperSlot": "Helper",
+        "inherit": "继承默认",
+        "override": "已覆盖",
+        "effort": "思考强度={{value}}"
+      },
+      "modelChip": {
+        "inherit": "默认",
+        "override": "自定义"
+      }
     },
     "createUser": {
       "title": "创建新用户",
@@ -1733,7 +1745,19 @@
         "cloudNetmindOnlyNote": "当前云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型。",
         "cloudNetmindOnlyLink": "想体验请下载本地桌面版 →",
         "cloudFrameworkLocked": "该框架通过共享的 CLI 登录认证，因此云端仅管理员可用。Claude Code 与 NexusPower-beta 在云端均可正常使用，其余框架请使用本地桌面版。",
-        "cloudFrameworkLockedTitle": "云端为管理员专用"
+        "cloudFrameworkLockedTitle": "云端为管理员专用",
+        "applyTitle": "默认模型已更新",
+        "applyBody": "应用 = 清除这些 agent 的手动覆盖，让它们继承新默认；以后你再改默认，它们也会自动跟随。",
+        "applyAgentSlot": "主模型槽（agent）",
+        "applyHelperSlot": "Helper 槽（helper_llm）",
+        "noOverrides": "无覆盖",
+        "willClear": "将清除 {{n}} 个 agent",
+        "applyRunningNote": "运行中的 agent 会在下一轮生效，不会打断当前运行。",
+        "saveDefaultOnly": "仅保存默认",
+        "applyToChecked": "应用到勾选的 agent",
+        "applyTotalNote": "你共有 {{total}} 个 agent。",
+        "applyDone": "已清除每个 agent 的覆盖——涉及 {{n}} 个 agent。",
+        "applyDoneTitle": "已清除覆盖"
       },
       "updates": {
         "label": "应用更新",
@@ -2690,7 +2714,8 @@
     "actionFailedTitle": "没成功",
     "savedTo": "已保存到 {{path}}",
     "downloadFailed": "下载失败：{{error}}",
-    "doneTitle": "已完成"
+    "doneTitle": "已完成",
+    "edit": "编辑"
   },
   "toast": {
     "view": "查看",

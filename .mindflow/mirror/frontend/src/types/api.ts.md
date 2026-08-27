@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — bulk slot 类型
+
+`SlotOverrideStats`（各槽覆盖数 + total_agents，喂确认框）与
+`AgentModelOverview`（per-agent 每槽 effective model + inheriting，喂 Dashboard
+chip），经 `@/types` barrel 暴露给 `lib/api.ts`。
 
 ## 2026-08-19 — `UpdateAgentResponse` 补两个可选字段
 

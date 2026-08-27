@@ -55,8 +55,19 @@ MULTIPART_FRAMING_MARGIN = _MB
 #: context; a bigger body is not a conversation (review #334 r6 I1).
 MAX_CHAT_COMPLETIONS_BYTES = 8 * _MB
 
+#: apply-to-agents body is {"slots": ["agent","helper_llm"]} — a tiny fixed
+#: shape (the Pydantic max_length caps the element count, but that only runs
+#: after buffering; this is the byte cap that runs in the middleware, before
+#: FastAPI parks the body in memory). 4 KB is two orders of magnitude of slack.
+MAX_APPLY_TO_AGENTS_BYTES = 4 * 1024
+
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/providers/slots/apply-to-agents$"),
+        MAX_APPLY_TO_AGENTS_BYTES,
+    ),
     (
         frozenset({"PUT"}),
         re.compile(r"^/api/agents/[^/]+/artifacts/[^/]+/content$"),
