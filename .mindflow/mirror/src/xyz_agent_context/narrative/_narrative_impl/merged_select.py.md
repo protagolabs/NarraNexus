@@ -24,7 +24,7 @@ MERGED_MENU_SIZE 管。钉:test_the_menu_knob_does_not_shrink_the_match_landing�
 截断标记由本文件补进 merged_truncated(渲染器不再见到被切的尾巴)。
 钉子:`test_rule6_an_index_into_the_unrendered_participant_tail_is_refused`。
 BM25 准备段改调 [[merged_prep]] 的模块函数(round 2 I6);LLM 计时打标改走
-`agent_framework.llm_call_tagging.tag_last_llm_call`(I4,三处拷贝收敛)。
+`agent_framework.llm.call_tagging.tag_last_llm_call`(I4,三处拷贝收敛)。
 
 ## 为什么存在
 

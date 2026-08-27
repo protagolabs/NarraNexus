@@ -100,6 +100,17 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
 
+## 2026-08-27(round 4)— 回滚契约补真话 + 退役条件内联(I3/M5)
+
+**I3**:candidates_json 的 raw_score 精度随全深度排名(round 3 I1)对
+**两臂同时**变化,且不受开关控制——回滚段落原来的"nothing else needs
+undoing"是又一次"承诺了做不到的回滚"(桶开关注释犯过的同一课)。现在
+第四条 bullet 写明:审计序列在部署日有台阶,跨部署窗口的"多少候选得分"
+类分析必须按部署时间切窗(读法同 SHADOW_POOL_RECORD 的 ⚠ 注)。
+.env.example 同句同步。**M5**:退役四条件(考卷过/prod 开 14 天未回滚/
+五种 verdict+至少一次 fallback 走过真机/Owner 决议老路不复活)从
+"指向本地工单的指针"改为内联——决定 flag 何时可删的事实必须仓内可读。
+
 ## 2026-08-27(round 3)— NARRATIVE_POOL_LIMIT 归位通用检索段 + env 化
 
 它是**所有路径**上 load_pool 的取数上限,不是合并旋钮——原先放在合并段,

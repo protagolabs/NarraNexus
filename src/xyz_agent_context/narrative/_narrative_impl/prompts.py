@@ -224,30 +224,10 @@ class UnifiedMatchOutput(BaseModel):
     matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 """
 
-# ============================================================================
-# Merged routing — ONE call answers "does this continue?" and "then where?"
-# Used in merged_router.build_merged_prompt(), behind
-# NARRATIVE_MERGED_ROUTING_ENABLED.
-#
-# Why a new prompt rather than a longer judge prompt: the judge has no concept
-# of "the thread you are already on". Its `search` exit cannot distinguish
-# "confirmed the continuation" from "happened to pick the anchor out of a
-# menu", and those two have different downstream meanings (the first is not a
-# thread switch and must not be audited as one). So the anchor is a separate
-# section with a separate verdict.
-#
-# What it deliberately does NOT re-litigate: `_NO_DURABLE_TOPIC_RUBRIC` is
-# spliced in verbatim. The 2026-08-21 adjudication put the marginal return of
-# re-wording it at zero (all four hard misjudgements were shapes the rubric
-# already excludes in as many words), while one tie-break sentence bought
-# +0.186 fragmentation. Merged routing changes WHO asks, not what the words say.
-# ============================================================================
+# Merged-routing instructions live in prompts_merged.py (round-3 split);
+# _NO_DURABLE_TOPIC_RUBRIC stays HERE because both judge variants splice it
+# verbatim — one copy is the whole point (PR #361 round 2, I2).
 
-#: The half both variants share, extracted on day one. The participant pair has
-#: forked silently three times (the last caught in PR #361 review round 2), and
-#: the fix that ended it — one constant, spliced into both, with anchor tests
-#: looping over the pair — is the arrangement this prompt is born into rather
-#: than one it earns after its own third fork.
 # ============================================================================
 # Narrative Update - Narrative metadata incremental update prompt
 # Used in NarrativeUpdater._call_llm_for_update()

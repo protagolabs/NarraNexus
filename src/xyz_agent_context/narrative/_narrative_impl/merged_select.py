@@ -184,7 +184,7 @@ async def select_merged(
 
         with timed("narrative.merged.decide") as t:
             decision = await decide(routing_input)
-            # Post-call by contract — see llm_call_tagging's docstring.
+            # Post-call by contract — see call_tagging's docstring.
             tag_last_llm_call(t)
 
         audit.merged_verdict = decision.verdict
@@ -317,13 +317,22 @@ async def _land(
             retrieval_method="keyword",
             is_new=True,
         )
-    assert decision.verdict == VERDICT_NO_TOPIC, decision.verdict
-    # The verdict carries no destination; `_land_no_topic_turn` owns that,
-    # anchor-first, and its freeze semantics are untouched — a greeting must
-    # never rename the work it interrupted.
-    return await service._land_no_topic_turn(
+    if decision.verdict == VERDICT_NO_TOPIC:
+        # The verdict carries no destination; `_land_no_topic_turn` owns that,
+        # anchor-first, and its freeze semantics are untouched — a greeting
+        # must never rename the work it interrupted.
+        return await service._land_no_topic_turn(
+            agent_id=agent_id, user_id=user_id, query_text=query_text,
+            session=session, reason=decision.reason,
+        )
+    # Unreachable while decide() validates verdicts — but an assert would be
+    # stripped under python -O and fall through to None (review round 4, M6),
+    # so the honest terminal branch for a verdict that got past validation is
+    # the same one every other failure takes.
+    return await _land_failure(
+        service, anchor=anchor, continuable=continuable,
+        reason=f"unhandled verdict: {decision.verdict}",
         agent_id=agent_id, user_id=user_id, query_text=query_text,
-        session=session, reason=decision.reason,
     )
 
 

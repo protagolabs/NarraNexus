@@ -75,6 +75,7 @@ def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
     summary = (info.current_summary if info and info.current_summary else "")
     return name, summary[:CANDIDATE_DESC_MAX_CHARS]
 
+
 async def build_menu_candidates(
     crud: "NarrativeCRUD", results: Sequence[NarrativeSearchResult]
 ) -> List[dict]:
@@ -103,6 +104,7 @@ async def build_menu_candidates(
         })
     return candidates
 
+
 def build_participant_candidates(
     narratives: Sequence[Narrative],
 ) -> List[dict]:
@@ -120,6 +122,7 @@ def build_participant_candidates(
             "description": description,
         })
     return candidates
+
 
 async def assemble_match_landing(
     crud: "NarrativeCRUD",
@@ -145,6 +148,7 @@ async def assemble_match_landing(
         if narrative and len(narratives) < top_k:
             narratives.append(narrative)
     return narratives
+
 
 async def load_participant_landing(
     crud: "NarrativeCRUD", matched_id: Optional[str]

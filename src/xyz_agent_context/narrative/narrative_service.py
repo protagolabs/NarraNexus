@@ -367,7 +367,7 @@ class NarrativeService:
                         )
                         # Tag the timer with the model the helper LLM
                         # actually used inside detector.detect (post-call by
-                        # contract — see llm_call_tagging's docstring).
+                        # contract — see call_tagging's docstring).
                         tag_last_llm_call(t)
                     _continuity_ms = int((_perf.monotonic() - _t_continuity) * 1000)
                     logger.debug(f"Continuity detection reason: {result.reason}")

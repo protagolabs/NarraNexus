@@ -278,7 +278,7 @@ snippet 只算头部切片(prompt 证据,唯一贵的部分)。两臂从此同�
 `assemble_match_landing` / `load_participant_landing`。`load_pool` 的
 fetch 上限与合并全量排名深度合一为 `config.NARRATIVE_POOL_LIMIT`(I5:
 双字面量靠注释保持相等,池扩到 200 时排名在 100 截断会让
-anchor_bm25_rank 的 NULL 语义说谎)。计时打标改走 llm_call_tagging(I4)。
+anchor_bm25_rank 的 NULL 语义说谎)。计时打标改走 call_tagging(I4)。
 
 ## 2026-08-27 — participant 落地共用 + anchor_in_menu 反事实校准(review Minor 3/6)
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import time as _perf
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
@@ -34,7 +34,6 @@ from .routing_gate import (
     evaluate_bypass,
     evaluate_gate,
 )
-from .routing_gate import shutter_opens
 from .landings import (
     _candidate_labels,
     assemble_match_landing,
@@ -314,7 +313,7 @@ class NarrativeRetrieval:
                 )
                 # Tag with the model + structured-output mode the SDK ended
                 # up using inside _llm_unified_match (post-call by contract —
-                # see llm_call_tagging's docstring).
+                # see call_tagging's docstring).
                 tag_last_llm_call(t)
                 # Set before returning, not after: this is the only exit from
                 # the judged path, and `retrieve_top_k` stamps the outcome onto

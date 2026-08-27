@@ -263,12 +263,26 @@ class NarrativeConfig:
     #     the flag is off;
     #   * the shared prompt blocks (`routing_blocks.py`) render the continuity
     #     tier's and the judge's text byte for byte — pinned by test;
-    #   * the audit columns are additive and simply stay NULL.
+    #   * the audit columns are additive and simply stay NULL;
+    #   * ⚠ ONE thing changed for BOTH arms and is NOT flag-controlled:
+    #     candidates_json[].raw_score precision. Ranking now runs at full pool
+    #     depth on every path (round 3, I1), so rank-7+ pool members carry
+    #     their real BM25 score where they used to record a hard 0.0. Prompts
+    #     are byte-identical either way; the AUDIT series has a step change at
+    #     this deploy. Any "how many candidates scored" analysis over a window
+    #     that straddles it must split at the deploy timestamp — same reading
+    #     rule as NARRATIVE_SHADOW_POOL_RECORD's window note above.
     # (Stated this precisely because the bucket flag's comment claimed a full
     # rollback it could not deliver, and PR #361 review caught it.)
     #
-    # Retirement condition:
-    # `todo/2026-08-26-merged-routing-flag-retirement-condition.md`.
+    # Retirement (delete the flag AND the two-call path, not the new one)
+    # when ALL of: ① the merged exam passes its pre-registration (p07 hijack
+    # 0/22 veto, DIVERTED=0, calls −≥15%); ② the flag has run ON in prod for
+    # 14 days with no flag rollback; ③ prod audit shows all five verdicts plus
+    # at least one merged_fallback_* on merged_call=1 rows (an untravelled
+    # fallback is unverified); ④ the Owner rules the two-call path need not be
+    # revivable. Full checklist: todo/2026-08-26-merged-routing-flag-
+    # retirement-condition.md (author-local).
     NARRATIVE_MERGED_ROUTING_ENABLED = (
         _env("NARRATIVE_MERGED_ROUTING_ENABLED", "0") == "1"
     )
