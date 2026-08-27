@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm_call_tagging import tag_last_llm_call
+
 from ..config import config
 from ..models import (
     Narrative,
@@ -33,7 +35,6 @@ from .routing_gate import (
     evaluate_gate,
 )
 from .routing_gate import shutter_opens
-from .merged_router import pick_menu
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -109,50 +110,6 @@ class ScoredPool:
     keyword_ms: int
     best_score: Optional[float]
     all_scores: Dict[str, float]
-
-
-@dataclass(frozen=True)
-class MergedRoutingPrep:
-    """A scored pool plus where the ANCHOR placed in it.
-
-    Thin wrapper over `ScoredPool` rather than a second scoring pass: merged
-    routing needs exactly what the two-tier path and the shadow recorder need,
-    plus three numbers about one particular candidate. Wrapping keeps
-    `_score_pool` the one definition of "what a BM25 pass produces" — the
-    property PR #365 review round 1 was about.
-
-    The anchor's standing is here and not in `ScoredPool` because `ScoredPool`
-    deliberately knows nothing about sessions, and "the anchor" is a session
-    concept.
-    """
-
-    scored: "ScoredPool"
-    #: 1-based among candidates that actually scored; None when the anchor
-    #: scored nothing (8.2%-49.3% of continuity turns in the replay arms) or
-    #: when there is no anchor at all.
-    anchor_bm25_rank: Optional[int]
-    anchor_raw_score: Optional[float]
-    #: Would the anchor have been on the menu WITHOUT the unconditional
-    #: injection? False is the case §3.2 exists for.
-    anchor_in_menu: Optional[bool]
-
-    @property
-    def bypass(self) -> BypassDecision:
-        return self.scored.bypass
-
-    @property
-    def ranked(self) -> List[NarrativeSearchResult]:
-        return self.scored.search_results
-
-    @property
-    def participant_narratives(self) -> List[Narrative]:
-        return self.scored.participant_narratives
-
-    @property
-    def shutter_granted(self) -> bool:
-        """May this turn skip the LLM entirely? `evaluate_bypass`'s
-        `anchor_match` verdict and nothing else — see routing_gate."""
-        return shutter_opens(self.scored.bypass)
 
 
 class NarrativeRetrieval:
@@ -378,15 +335,10 @@ class NarrativeRetrieval:
                     retrieval_method=retrieval_method,  # Pass retrieval method
                     audit=audit,
                 )
-                # Tag with the model + structured-output mode the SDK
-                # ended up using inside _llm_unified_match → llm_judge_unified
-                # → sdk.llm_function. See adapters.openai_agents.get_last_llm_call_info.
-                from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                    get_last_llm_call_info,
-                )
-                info = get_last_llm_call_info()
-                if info:
-                    t.tag(**info)
+                # Tag with the model + structured-output mode the SDK ended
+                # up using inside _llm_unified_match (post-call by contract —
+                # see llm_call_tagging's docstring).
+                tag_last_llm_call(t)
                 # Set before returning, not after: this is the only exit from
                 # the judged path, and `retrieve_top_k` stamps the outcome onto
                 # the same audit object afterwards.
@@ -698,108 +650,6 @@ class NarrativeRetrieval:
                         for r in search_results},
         )
 
-    async def prepare_merged_routing(
-        self,
-        query: str,
-        user_id: str,
-        agent_id: str,
-        *,
-        anchor_narrative_id: Optional[str],
-        is_user_chat: bool,
-        audit: "RoutingAudit",
-        snapshots: dict,
-        menu_size: int,
-    ) -> MergedRoutingPrep:
-        """BM25 first, and everything decidable without an LLM answered with it.
-
-        Same scoring pass as the other two callers (`_score_pool`); what differs
-        is WHEN, and therefore what the answer can be used for. On the two-call
-        path this work happened only after continuity had already said no —
-        which is why the shutter's releasable population could never be
-        measured, and why slice 0 had to record it separately at all.
-
-        Fills the audit's tier-2 half in place, including ``gate_short_circuit``,
-        which keeps its established meaning ("this turn skipped LLM arbitration
-        because floor+margin plus identity said so"): the shutter IS that rule
-        moved one tier earlier, so giving it a different column would fork one
-        fact into two. Binding rule #6 cuts both ways — an existing column must
-        not change meaning, and it must not silently stop accumulating either.
-
-        NOT a shadow row: this pool decides. `pool_is_shadow` stays False.
-        """
-        _t_retrieve = _perf.monotonic()
-        scored = await self._score_pool(
-            query, user_id, agent_id,
-            top_k=menu_size,
-            anchor_narrative_id=anchor_narrative_id,
-            is_user_chat=is_user_chat,
-            # The whole scoring set: see `rank_depth` in `_score_pool`. 100 is
-            # `load_pool`'s own limit, so this cannot truncate a real pool.
-            rank_depth=100,
-        )
-        elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
-
-        # Where the anchor placed among candidates that ACTUALLY SCORED, in
-        # BM25 order. Not the position in `search_results`: the participant
-        # merge re-sorts that list on a synthetic 0.5 similarity, so a
-        # participant thread can sit above a real keyword hit there — ranking
-        # the anchor against that would be ranking it against noise.
-        scoring = sorted(
-            (r for r in scored.search_results if r.raw_score > 0),
-            key=lambda r: r.raw_score,
-            reverse=True,
-        )
-        anchor_rank: Optional[int] = None
-        anchor_score: Optional[float] = None
-        anchor_in_menu: Optional[bool] = None
-        if anchor_narrative_id:
-            anchor_score = 0.0
-            # The counterfactual must apply the REAL menu rule (review round
-            # minor 6): `pick_menu` excludes participant threads, and a
-            # participant that also scored would otherwise occupy a
-            # `scoring[:menu_size]` slot and squeeze the anchor out — reading
-            # as "the anchor needed the injection" when it did not. The anchor
-            # itself is NOT excluded: whether it makes the menu is the question.
-            counterfactual_menu = pick_menu(
-                scored.search_results,
-                exclude_ids={n.id for n in scored.participant_narratives},
-                limit=menu_size,
-            )
-            anchor_in_menu = anchor_narrative_id in [
-                r.narrative_id for r in counterfactual_menu
-            ]
-            for position, result in enumerate(scoring, start=1):
-                if result.narrative_id == anchor_narrative_id:
-                    anchor_rank = position
-                    anchor_score = result.raw_score
-                    break
-
-        # ── commit block: pure assignment, cannot raise ──────────────────
-        audit.candidates.extend(scored.candidates)
-        snapshots.update(scored.snapshots)
-        audit.keyword_ms = scored.keyword_ms
-        audit.retrieve_ms = elapsed_ms
-        audit.gate_top1_raw = scored.gate.top1_raw
-        audit.gate_top2_raw = scored.gate.top2_raw
-        # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
-        audit.gate_margin = (
-            scored.gate.margin if scored.gate.margin != float("inf") else None
-        )
-        audit.bypass_score_gate = scored.gate.short_circuit
-        audit.bypass_reason = scored.bypass.reason
-        audit.gate_reason = scored.bypass.detail
-        audit.gate_short_circuit = shutter_opens(scored.bypass)
-        audit.anchor_bm25_rank = anchor_rank
-        audit.anchor_raw_score = anchor_score
-        audit.anchor_in_menu = anchor_in_menu
-
-        return MergedRoutingPrep(
-            scored=scored,
-            anchor_bm25_rank=anchor_rank,
-            anchor_raw_score=anchor_score,
-            anchor_in_menu=anchor_in_menu,
-        )
-
     async def build_menu_candidates(
         self, results: Sequence[NarrativeSearchResult]
     ) -> List[dict]:
@@ -974,7 +824,9 @@ class NarrativeRetrieval:
         the scored text is rewritten wholesale by the async LLM updater with
         no history kept.
         """
-        narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        narratives = await self._crud.load_by_agent_user(
+            agent_id, user_id, limit=config.NARRATIVE_POOL_LIMIT
+        )
         keep_buckets = config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
         return [
             (n.id, n.searchable_text(), n.is_special == "default")

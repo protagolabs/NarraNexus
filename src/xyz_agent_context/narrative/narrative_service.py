@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm_call_tagging import tag_last_llm_call
+
 from .models import (
     ConversationSession,
     Event,
@@ -65,7 +67,7 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
 # so the merged-path orchestration can consume them without an upward import.
 # Re-exported here unchanged: `step_1_fast_select` imports `is_reusable_anchor`
 # from this module, and that public seam stays.
-from ._narrative_impl.anchor_rules import is_reusable_anchor  # noqa: E402
+from ._narrative_impl.anchor_rules import is_reusable_anchor
 
 
 @dataclass(frozen=True)
@@ -364,15 +366,9 @@ class NarrativeService:
                             awareness=awareness
                         )
                         # Tag the timer with the model the helper LLM
-                        # actually ended up using inside detector.detect
-                        # (resolution happens deep in OpenAIAgentsSDK —
-                        # we read it back via the contextvar set there).
-                        from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                            get_last_llm_call_info,
-                        )
-                        info = get_last_llm_call_info()
-                        if info:
-                            t.tag(**info)
+                        # actually used inside detector.detect (post-call by
+                        # contract — see llm_call_tagging's docstring).
+                        tag_last_llm_call(t)
                     _continuity_ms = int((_perf.monotonic() - _t_continuity) * 1000)
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous

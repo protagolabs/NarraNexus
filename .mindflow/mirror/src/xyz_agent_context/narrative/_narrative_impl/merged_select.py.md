@@ -6,6 +6,16 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-08-27(round 2)— participant 入口截断 + prep 迁至 merged_prep
+
+**I1**:契约按 `inp.participants` 校验索引,渲染只显示前 8 条——幻觉出的
+`participant #11` 会落到从未上票的线且审计无从区分。现在入口先切前缀
+(顺序=P0-4 优先级,只许前缀切片),**进 input 的 = prompt 显示的**;
+截断标记由本文件补进 merged_truncated(渲染器不再见到被切的尾巴)。
+钉子:`test_rule6_an_index_into_the_unrendered_participant_tail_is_refused`。
+BM25 准备段改调 [[merged_prep]] 的模块函数(round 2 I6);LLM 计时打标改走
+`agent_framework.llm_call_tagging.tag_last_llm_call`(I4,三处拷贝收敛)。
+
 ## 为什么存在
 
 review 2026-08-27 Important 2:narrative_service.py 越过 800 行上限后又

@@ -24,6 +24,8 @@ from typing import List, Optional, TYPE_CHECKING
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm_call_tagging import tag_last_llm_call
+
 from ..config import config
 from ..models import (
     ConversationSession,
@@ -33,6 +35,7 @@ from ..models import (
     RoutingAudit,
 )
 from .anchor_rules import is_reusable_anchor, minutes_since
+from .merged_prep import prepare_merged_routing
 from .merged_router import (
     MergedRoutingDecision,
     MergedRoutingInput,
@@ -42,9 +45,9 @@ from .merged_router import (
     VERDICT_NO_TOPIC,
     VERDICT_PARTICIPANT,
     decide,
-    pick_menu,
     resolve_choice,
 )
+from .routing_gate import pick_menu
 
 if TYPE_CHECKING:
     from ..narrative_service import NarrativeService
@@ -132,7 +135,8 @@ async def select_merged(
     continuable = is_reusable_anchor(anchor)
 
     with timed("narrative.merged.prepare"):
-        prep = await service._retrieval.prepare_merged_routing(
+        prep = await prepare_merged_routing(
+            service._retrieval,
             query=query_text,
             user_id=user_id,
             agent_id=agent_id,
@@ -165,6 +169,19 @@ async def select_merged(
         menu_results = pick_menu(
             prep.ranked, exclude_ids=excluded, limit=config.MERGED_MENU_SIZE
         )
+        # The contract validates indices against inp.participants, so what
+        # enters the input must be exactly what the prompt shows (review
+        # round 2, I1: the renderer capped at 8 while the contract accepted
+        # [0, N) — a hallucinated index into the unrendered tail would land a
+        # turn on a thread that was never on the ballot). Prefix slice only:
+        # the ORDER is the P0-4 priority rule.
+        all_participants = service._retrieval.build_participant_candidates(
+            prep.participant_narratives
+        )
+        shown_participants = all_participants[
+            : config.MERGED_PARTICIPANT_MAX_CANDIDATES
+        ]
+        participants_cut = len(all_participants) > len(shown_participants)
         routing_input = MergedRoutingInput(
             query=query_text,
             anchor=anchor,
@@ -173,28 +190,25 @@ async def select_merged(
             previous_response=(session.last_response or "") if session else "",
             minutes_since_previous=minutes_since(session),
             menu=await service._retrieval.build_menu_candidates(menu_results),
-            participants=service._retrieval.build_participant_candidates(
-                prep.participant_narratives
-            ),
+            participants=shown_participants,
             awareness=awareness,
         )
 
         with timed("narrative.merged.decide") as t:
             decision = await decide(routing_input)
-            # Tag the timer with the model the helper LLM actually used
-            # (resolved deep in the SDK; read back via its contextvar).
-            from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                get_last_llm_call_info,
-            )
-            info = get_last_llm_call_info()
-            if info:
-                t.tag(**info)
+            # Post-call by contract — see llm_call_tagging's docstring.
+            tag_last_llm_call(t)
 
         audit.merged_verdict = decision.verdict
         audit.merged_ms = decision.elapsed_ms
         if decision.prompt is not None:
             audit.merged_input_chars = decision.prompt.input_chars
-            audit.merged_truncated = ",".join(decision.prompt.truncated)
+            truncated = list(decision.prompt.truncated)
+            # Entry truncation (above) means the renderer never sees the cut,
+            # so the audit flag is raised here instead of lost.
+            if participants_cut and "participants" not in truncated:
+                truncated.append("participants")
+            audit.merged_truncated = ",".join(truncated)
 
         landing = await _land(
             service,

@@ -40,6 +40,7 @@ from xyz_agent_context.narrative._narrative_impl import (
     prompts,
     routing_blocks,
 )
+from xyz_agent_context.narrative._narrative_impl import routing_gate
 from xyz_agent_context.narrative._narrative_impl.merged_router import (
     MergedRoutingInput,
     build_merged_prompt,
@@ -313,7 +314,7 @@ def test_rule5_the_anchor_is_removed_from_the_menu():
                               rank=2, raw_score=1.0),
     ]
 
-    menu = merged_router.pick_menu(ranked, exclude_ids={"nar_anchor"}, limit=3)
+    menu = routing_gate.pick_menu(ranked, exclude_ids={"nar_anchor"}, limit=3)
 
     assert [r.narrative_id for r in menu] == ["nar_other"]
 
@@ -328,7 +329,7 @@ def test_rule5_a_participant_thread_is_excluded_from_the_menu_too():
                               rank=2, raw_score=1.0),
     ]
 
-    menu = merged_router.pick_menu(ranked, exclude_ids={"nar_task"}, limit=3)
+    menu = routing_gate.pick_menu(ranked, exclude_ids={"nar_task"}, limit=3)
 
     assert [r.narrative_id for r in menu] == ["nar_other"]
 
@@ -343,7 +344,7 @@ def test_rule5_a_zero_scoring_candidate_never_reaches_the_menu():
                               rank=2, raw_score=0.0),
     ]
 
-    menu = merged_router.pick_menu(ranked, exclude_ids=set(), limit=3)
+    menu = routing_gate.pick_menu(ranked, exclude_ids=set(), limit=3)
 
     assert [r.narrative_id for r in menu] == ["nar_a"]
 
@@ -355,7 +356,7 @@ def test_rule5_the_menu_is_capped_at_the_configured_size():
         for i in range(6)
     ]
 
-    menu = merged_router.pick_menu(ranked, exclude_ids=set(), limit=3)
+    menu = routing_gate.pick_menu(ranked, exclude_ids=set(), limit=3)
 
     assert [r.narrative_id for r in menu] == ["nar_0", "nar_1", "nar_2"]
 
@@ -436,10 +437,12 @@ def test_budget_caps_are_config_knobs_not_literals():
 
 
 def test_the_prompt_reports_its_own_size():
-    """The x-axis of the latency model. Without it, "+1K chars ≈ +N ms" has
-    nothing to multiply in production."""
+    """The x-axis of the latency model. It must count EVERYTHING the call
+    sends: the instructions vary by variant, and the variant correlates with
+    the turn shape being measured — a user_input-only count would bias the
+    slope, not just offset it (review round 2, I2)."""
     prompt = build_merged_prompt(_input())
-    assert prompt.input_chars == len(prompt.user_input)
+    assert prompt.input_chars == len(prompt.instructions) + len(prompt.user_input)
 
 
 def test_the_menu_shows_evidence_not_a_cross_pool_score():
@@ -486,11 +489,18 @@ def test_every_variant_shares_the_routing_core(kwargs):
 
 
 @pytest.mark.parametrize("kwargs", _MERGED_VARIANTS, ids=_variant_id)
-def test_every_variant_states_the_asymmetry_rule(kwargs):
-    """§3.2 in prompt form: BM25 can CONFIRM a continuation, never veto one."""
+def test_the_asymmetry_rule_exists_exactly_when_there_is_an_anchor(kwargs):
+    """§3.2 in prompt form: BM25 can CONFIRM a continuation, never veto one —
+    but only a turn WITH a continuable anchor may be told "staying is the
+    default" (review round 2, C1: the sentence used to be unconditional, and
+    on anchorless/bucket turns it invited the one verdict the contract
+    refuses). "Necessary but not sufficient" is anchor-independent and stays
+    in every variant."""
     flat = " ".join(prompts.build_merged_instructions(**kwargs).split())
-    assert "Staying on that thread is the DEFAULT" in flat
-    assert "evidence for LEAVING" in flat
+    continuable = kwargs["anchor_is_continuable"]
+    assert ("Staying on that thread is the DEFAULT" in flat) == continuable
+    assert ("evidence for LEAVING" in flat) == continuable
+    assert ("No thread to stay on" in flat) == (not continuable)
     assert "necessary but not sufficient" in flat
 
 
@@ -504,7 +514,12 @@ def test_every_variant_carries_the_continuity_only_criteria(kwargs):
     lives in ANCHOR_NOT_CONTINUABLE_NOTE, rendered exactly when it applies."""
     flat = " ".join(prompts.build_merged_instructions(**kwargs).split())
     assert "business intent" in flat
-    assert "the Agent's own reply" in flat
+    # The follow-up-to-the-agent's-reply rule presupposes a thread to continue;
+    # the anchorless fragment carries its own elliptical-reading line instead.
+    if kwargs["anchor_is_continuable"]:
+        assert "the Agent's own reply" in flat
+    else:
+        assert "elliptical message" in flat
     assert "legacy container" in merged_router.ANCHOR_NOT_CONTINUABLE_NOTE
 
 

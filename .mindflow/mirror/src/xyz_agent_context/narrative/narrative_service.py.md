@@ -15,7 +15,8 @@ stub: false
 定义下沉到 `_narrative_impl/anchor_rules.py`(impl 不得上行 import),
 本文件 re-export `is_reusable_anchor` 保住 step_1_fast_select 的公共
 import 面——**仍是唯一定义**。select() 的 no-topic 落点只取 Landing 的
-四个决定字段,flag-off 字节路径不变。
+四个决定字段,flag-off 字节路径不变。(round 2 补:continuity 计时的
+LLM 型号打标改走 `agent_framework.llm_call_tagging`,三份拷贝收敛。)
 
 ## 2026-08-26 — 影子记录收窄到用户聊天轮(PR #365 review M4,刻意决定)
 

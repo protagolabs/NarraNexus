@@ -515,9 +515,11 @@ class RoutingAudit(BaseModel):
     # the same wrong conclusion ("routing spends 6 seconds in the database");
     # see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
     merged_ms: Optional[int] = None
-    # Characters of rendered prompt. The x-axis of the latency model: the input
-    # budget's numbers are only convertible to milliseconds if production
-    # records what it actually sent.
+    # EVERY character the call sent — instructions AND user input. The x-axis
+    # of the latency model: instructions vary by variant and the variant
+    # correlates with the turn shape, so a user_input-only count would bias
+    # the slope (review round 2, I2), and the input budgets are only
+    # convertible to milliseconds if production records what it actually sent.
     merged_input_chars: Optional[int] = None
     # Comma-separated section codes that hit their read-side cap
     # (prev_response / prev_query / anchor_summary / awareness / query /

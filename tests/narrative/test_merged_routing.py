@@ -656,6 +656,56 @@ async def test_the_offered_verdicts_are_derived_from_the_input():
     )
 
 
+async def test_rule6_an_index_into_the_unrendered_participant_tail_is_refused(
+    service, db_client, merged_on, monkeypatch
+):
+    """Review round 2, I1: the renderer capped participants at 8 while the
+    contract accepted [0, N) — a hallucinated index into the unrendered tail
+    would land the turn on a thread that was never on the ballot, audited as
+    a legitimate merged_participant. What enters MergedRoutingInput is now
+    exactly what the prompt shows (prefix slice — the ORDER is the P0-4
+    priority), so index 9 with 10 invitations and 8 shown must fail, and the
+    cut must surface in merged_truncated."""
+    from xyz_agent_context.narrative._narrative_impl import merged_prep
+    from xyz_agent_context.narrative._narrative_impl.retrieval import ScoredPool
+
+    anchor, _ = await _seed(service)
+    ten = []
+    for i in range(10):
+        n = await service.create_narrative(
+            agent_id=AGENT, user_id=f"user_owner_{i}",
+            title=f"Invited task {i}", description="",
+        )
+        ten.append(n)
+
+    real_prepare = merged_prep.prepare_merged_routing
+
+    async def _prepare_with_ten(retrieval, query, user_id, agent_id, **kw):
+        prep = await real_prepare(retrieval, query, user_id, agent_id, **kw)
+        object.__setattr__(prep.scored, "participant_narratives", ten)
+        return prep
+
+    monkeypatch.setattr(
+        "xyz_agent_context.narrative._narrative_impl.merged_select."
+        "prepare_merged_routing",
+        _prepare_with_ten,
+    )
+    _sdk(monkeypatch, verdict=merged_router.VERDICT_PARTICIPANT, index=9)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_fallback_anchor", (
+        "index 9 points past the 8 rendered rows — refusing it is the "
+        "contract; landing it would route to a thread never on the ballot"
+    )
+    row = await _row(db_client)
+    assert row["merged_verdict"] == merged_router.VERDICT_FAILED
+    assert "participants" in (row["merged_truncated"] or "")
+
+
 # ===================================================================== #
 # Instruments and contracts                                             #
 # ===================================================================== #
@@ -674,8 +724,12 @@ async def test_the_merged_row_records_what_it_cost_and_what_it_read(
 
     row = await _row(db_client)
     assert row["merged_ms"] is not None
-    assert row["merged_input_chars"] == len(sdk.calls[0]["user_input"]), (
-        "the latency model's x-axis: ms per 1K chars needs the chars recorded"
+    assert row["merged_input_chars"] == (
+        len(sdk.calls[0]["instructions"]) + len(sdk.calls[0]["user_input"])
+    ), (
+        "the latency model's x-axis counts EVERYTHING the call sends — "
+        "instructions vary by variant and the variant correlates with the "
+        "turn shape (review round 2, I2)"
     )
     assert row["candidates"], "the pool that produced the menu is on the row"
     assert row["bypass_score_gate"] is not None, (

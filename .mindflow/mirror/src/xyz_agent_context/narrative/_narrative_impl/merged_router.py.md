@@ -6,6 +6,15 @@ stub: false
 
 # merged_router.py — 一次调用同时回答"续不续"和"去哪儿"
 
+## 2026-08-27(round 2)— pick_menu 迁出 + input_chars 计全量
+
+`pick_menu` 是纯规则(排序/去重/零分过滤),搬去 [[routing_gate]] 与快门
+同住——它住在 LLM 模块里曾迫使 retrieval 反向 import 决策层(round 2 I6)。
+`MergedRoutingPrompt.input_chars` 从只计 user_input 改为
+instructions+user_input:指令随 2×2 变体变化数百字符,而变体与被测轮型
+相关——漏计是斜率系数上的偏差,不是常数偏移(I2);merged_truncated 仍只
+覆盖 user_input 侧(指令不受读侧预算),口径差已注明。
+
 ## 2026-08-27 — `allowed_verdicts`:本轮供什么,契约就收什么(review Critical 1)
 
 `_contract_violation` 原来单独硬编码"锚点不可续时拒 continue_anchor",而

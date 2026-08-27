@@ -15,6 +15,7 @@ from typing import Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 from loguru import logger
+from .anchor_rules import minutes_since
 
 from ..models import ConversationSession, ContinuityResult
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
@@ -109,14 +110,15 @@ class ContinuityDetector:
                 reason="new_session"
             )
 
-        # Calculate time elapsed
-        # Ensure last_query_time is offset-aware (if naive, assume UTC)
-        last_query_time = session.last_query_time
-        if last_query_time.tzinfo is None:
-            last_query_time = last_query_time.replace(tzinfo=timezone.utc)
-
-        time_elapsed = (datetime.now(timezone.utc) - last_query_time).total_seconds()
-        time_minutes = time_elapsed / 60.0
+        # THE one elapsed-time definition, shared with the merged path
+        # (anchor_rules.minutes_since; naive timestamps read as UTC). The
+        # explicit 0.0 default replaces a latent crash: a session with text
+        # but no last_query_time used to hit AttributeError OUTSIDE the try
+        # below — pre-existing, collected while unifying (review round 2, I3).
+        # The rendered prompt text is byte-identical whenever the value exists.
+        time_minutes = minutes_since(session)
+        if time_minutes is None:
+            time_minutes = 0.0
 
         try:
             return await self._call_llm(

@@ -182,6 +182,16 @@ update 都重写 `narrative_info.name`（与 current_summary 同源、同频）�
 
 # prompts.py — narrative 子系统的全部 prompt 常量
 
+## 2026-08-27(round 2)— 共享核心自己也在邀请被拒的 verdict(C1 残留)
+
+上一轮把答案表参数化了,但共享核心块里"Staying on that thread is the
+DEFAULT answer"仍是无条件的——无锚点/桶锚点的轮上,user_input 说"不能续",
+核心却说"留下是默认"。拆法:核心只留锚点无关的两块(业务意图粒度、
+读菜单+"词面重合必要不充分");不对称性段落+上一轮判据块 →
+`_MERGED_CORE_WITH_ANCHOR`(仅可续时渲染);不可续时渲染对称的
+`_MERGED_CORE_WITHOUT_ANCHOR`(自带省略式读法一行)。变体测试同步:
+DEFAULT 句 = 仅可续变体断言有、不可续断言无。
+
 ## 为什么存在
 
 narrative 子系统有多个 LLM 消费面：主 system prompt 的 Narrative 段

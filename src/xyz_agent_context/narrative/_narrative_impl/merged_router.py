@@ -175,9 +175,16 @@ class MergedRoutingPrompt:
 
     @property
     def input_chars(self) -> int:
-        """The latency model's x-axis. Recorded per row so "+1K chars ≈ +N ms"
-        has something to multiply in production."""
-        return len(self.user_input)
+        """Every character this call sends — instructions AND user input.
+
+        The instructions vary by variant (answer table 2-5 entries, priority
+        list 2-4 lines, participant preamble present or not), and the variant
+        correlates with the turn shape being measured — omitting them would
+        bias the latency slope's x axis, not just offset it (review round 2,
+        I2). `merged_truncated` covers only the user-input side: instructions
+        are not subject to the read-side budgets.
+        """
+        return len(self.instructions) + len(self.user_input)
 
 
 @dataclass(frozen=True)
@@ -190,37 +197,6 @@ class MergedRoutingDecision:
     match_index: int
     elapsed_ms: int
     prompt: Optional[MergedRoutingPrompt] = None
-
-
-def pick_menu(
-    ranked: Sequence[NarrativeSearchResult],
-    *,
-    exclude_ids: Iterable[str],
-    limit: int,
-) -> List[NarrativeSearchResult]:
-    """The menu rows: highest-scoring threads that are neither the anchor nor a
-    participant, and that actually scored.
-
-    Three exclusions, three different reasons:
-      * the ANCHOR has its own section — rendered twice it reads as two
-        candidates, and the asymmetry ("staying is the default, the menu is
-        evidence for leaving") collapses into a four-way beauty contest;
-      * a PARTICIPANT thread has its own section and its own priority rule;
-        letting it also be a keyword row is precisely the fusion P0-4 forbids
-        (today's judge does render some of them twice — that is not a shape to
-        carry forward);
-      * a ZERO score means zero term overlap, so the row carries no evidence for
-        switching, which is the only thing the menu is for.
-    """
-    excluded = set(exclude_ids)
-    out: List[NarrativeSearchResult] = []
-    for result in sorted(ranked, key=lambda r: r.raw_score, reverse=True):
-        if result.narrative_id in excluded or result.raw_score <= 0:
-            continue
-        out.append(result)
-        if len(out) >= limit:
-            break
-    return out
 
 
 def build_merged_prompt(inp: MergedRoutingInput) -> MergedRoutingPrompt:

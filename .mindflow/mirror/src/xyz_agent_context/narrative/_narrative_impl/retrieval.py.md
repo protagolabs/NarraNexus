@@ -254,6 +254,17 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
 
+## 2026-08-27(round 2)— 合并准备段迁出,反向依赖解除(I6)
+
+`MergedRoutingPrep` + `prepare_merged_routing` 整体迁往 [[merged_prep]]
+(本文件已 1400+ 行,且曾为反事实菜单 import merged_router——executor
+依赖 decider 的反向边)。`pick_menu` 归 [[routing_gate]](纯规则)。
+留在本文件的是各 decider 共享的 executor:`_score_pool`、loaders、
+`assemble_match_landing` / `load_participant_landing`。`load_pool` 的
+fetch 上限与合并全量排名深度合一为 `config.NARRATIVE_POOL_LIMIT`(I5:
+双字面量靠注释保持相等,池扩到 200 时排名在 100 截断会让
+anchor_bm25_rank 的 NULL 语义说谎)。计时打标改走 llm_call_tagging(I4)。
+
 ## 2026-08-27 — participant 落地共用 + anchor_in_menu 反事实校准(review Minor 3/6)
 
 `load_participant_landing`:judge 与合并路径的 participant 落地收敛为

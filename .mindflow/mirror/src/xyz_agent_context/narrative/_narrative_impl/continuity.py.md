@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -31,6 +31,15 @@ see AnthropicHelperSDK._resolve_model.
 
 
 # continuity.py — LLM-based "does this query continue the current Narrative?"
+
+## 2026-08-27 — 时间差计算收编到共享定义(round 2 I3)
+
+内联的"距上一轮多少分钟 + naive→UTC 兜底"改调
+[[anchor_rules]].minutes_since——与合并路径同一份定义,防两条决策路对
+"过了多久"给出不同答案(routing_blocks 记的三次静默分叉正是这么长出来
+的)。顺带收掉一个既有雷:session 有文本但 last_query_time 为 None 时,
+旧代码在 try 之外 AttributeError;现在显式取 0.0。值存在时渲染文本
+逐字不变(continuity 字节恒等契约不受影响)。
 
 ## 2026-08-20 — 连续性 prompt 不再展示化石 description
 

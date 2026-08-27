@@ -304,6 +304,14 @@ class NarrativeConfig:
     # P0-4 priority rule, so trimming to fit must not reorder.
     MERGED_PARTICIPANT_MAX_CANDIDATES = int(_env("NARRATIVE_MERGED_PARTICIPANT_MAX_CANDIDATES", "8"))
 
+    # The BM25 candidate pool's size — `load_pool`'s fetch limit AND the
+    # merged path's full-ranking depth. ONE constant on purpose (review round
+    # 2, I5): the two used to be twin literals held equal by a comment, and
+    # raising the pool to 200 without the rank depth would silently truncate
+    # `anchor_bm25_rank` at 100 — NULL there is DEFINED as "the anchor scored
+    # nothing", so a truncation reads as a lie in the §3.2 instrument.
+    NARRATIVE_POOL_LIMIT = 100
+
     # Keyword menu rows. Three, as in the two-tier judge (`search_results[:3]`)
     # — this batch changes the decider, not the menu size, so a menu-size change
     # would confound the arm.

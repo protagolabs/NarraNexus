@@ -100,6 +100,12 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
 
+## 2026-08-27(round 2)— NARRATIVE_POOL_LIMIT(I5)
+
+`load_pool` 的 fetch 上限与合并路径的全量排名深度曾是两处字面量 100,
+靠一句注释维系相等——池扩容而排名不跟,`anchor_bm25_rank` 会在 100 处
+静默截断,而它的 NULL 被定义为"锚点零分"。合一为一个常量,默认值原样。
+
 ## 2026-08-27 — MERGED_* 预算走 _env + 组合禁令的可读报错(review Minor 7/9)
 
 六个合并 prompt 预算(prev_response/anchor_summary/awareness/query/

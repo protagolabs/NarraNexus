@@ -46,7 +46,9 @@ point.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Iterable, List, Optional, Sequence
+
+from ..models import NarrativeSearchResult
 
 
 @dataclass(frozen=True)
@@ -331,3 +333,34 @@ def shutter_opens(bypass: BypassDecision) -> bool:
     a real-pool arm, not a unit test.
     """
     return bypass.granted and bypass.reason == SHUTTER_REASON
+
+
+def pick_menu(
+    ranked: Sequence[NarrativeSearchResult],
+    *,
+    exclude_ids: Iterable[str],
+    limit: int,
+) -> List[NarrativeSearchResult]:
+    """The menu rows: highest-scoring threads that are neither the anchor nor a
+    participant, and that actually scored.
+
+    Three exclusions, three different reasons:
+      * the ANCHOR has its own section — rendered twice it reads as two
+        candidates, and the asymmetry ("staying is the default, the menu is
+        evidence for leaving") collapses into a four-way beauty contest;
+      * a PARTICIPANT thread has its own section and its own priority rule;
+        letting it also be a keyword row is precisely the fusion P0-4 forbids
+        (today's judge does render some of them twice — that is not a shape to
+        carry forward);
+      * a ZERO score means zero term overlap, so the row carries no evidence for
+        switching, which is the only thing the menu is for.
+    """
+    excluded = set(exclude_ids)
+    out: List[NarrativeSearchResult] = []
+    for result in sorted(ranked, key=lambda r: r.raw_score, reverse=True):
+        if result.narrative_id in excluded or result.raw_score <= 0:
+            continue
+        out.append(result)
+        if len(out) >= limit:
+            break
+    return out

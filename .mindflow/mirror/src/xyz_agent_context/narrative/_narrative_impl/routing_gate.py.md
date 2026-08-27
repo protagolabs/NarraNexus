@@ -1,10 +1,16 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/routing_gate.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
 # routing_gate.py — 「BM25 够不够格自己拍板」的判据
+
+## 2026-08-27 — `pick_menu` 迁入(round 2 I6)
+
+菜单规则(排除锚点/participant、零分过滤、按 raw_score 取前 N)与快门
+同属"纯规则层",从 merged_router 迁来——它在 LLM 模块里迫使 retrieval
+反向 import 决策层。三处排除的三个理由随函数 docstring 原样迁移。
 
 ## 2026-08-26 — `shutter_opens`:同一条规则,提前一个 tier
 
