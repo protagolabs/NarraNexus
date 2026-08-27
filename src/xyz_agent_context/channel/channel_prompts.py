@@ -183,24 +183,28 @@ In group conversations with multiple participants:
 # the MXID, most others still cannot, and there the inferred version is
 # all there is.
 #
-# ⚠️ THIS SECTION DOES NOT TAKE EFFECT YET, and saying so here is the
-# point. An agent that follows it stays silent — which means it never
-# calls the channel's reply tool, which is exactly the condition
-# ``_should_run_helper_llm_fallback`` treats as "the agent forgot to
-# reply": ``no_reply_im_dm`` then has helper_llm write a reply and the
-# platform delivers it (step_3_agent_loop.py, the ``is_im_dm`` branch).
-# Every IM channel's 1:1 DM is on that path — ``_NO_FALLBACK_WORKING_SOURCES``
-# only excludes ``message_bus`` and ``job``.
+# How much of this actually takes effect, precisely — because "the agent
+# stays silent" and "nothing is sent" are not the same thing here.
 #
-# So on the room type this section was written for, the net behaviour
-# change today is roughly zero: the reply still goes out, just written by
-# the fallback slot instead of the agent. The prompt half is landed first
-# deliberately (it is reviewable on its own), but the runtime half — a
-# narrow "this turn was judged a loop" suppression in that fallback — is
-# what makes it real.
+# An agent that follows this section never calls the channel's reply tool,
+# which is exactly the condition ``_should_run_helper_llm_fallback`` reads
+# as "the agent forgot to reply": ``no_reply_im_dm`` then has helper_llm
+# write one and the platform delivers it. Every IM channel's 1:1 DM is on
+# that path — ``_NO_FALLBACK_WORKING_SOURCES`` only excludes
+# ``message_bus`` and ``job``. So silence alone does not stop a reply.
 #
-# Do NOT read this section as live behaviour until that gate exists.
-# Whoever adds it should delete this warning in the same commit.
+# Two gates now sit in front of that fallback (step_3_agent_loop.py):
+#   - ``agent_peer_no_fallback``  — the far side is another agent, so
+#     nothing is invented. The A2A case, which is what the 8/14 incident
+#     was, is FULLY closed: chosen silence is real silence.
+#   - ``fallback_rate_limited``   — a conversation that has already been
+#     handed IM_DM_FALLBACK_BURST_LIMIT platform-written replies inside the
+#     window stops getting them.
+#
+# For a HUMAN DM the fallback still fires, up to that burst limit. That is
+# deliberate: the fallback IS the 0802 fix, and cutting it for humans would
+# reopen "person sends hello, gets nothing". So on a human conversation
+# this section bounds a loop rather than stopping it dead.
 COMMUNICATION_PROTOCOL_DIRECT = """\
 ## Communication Protocol
 

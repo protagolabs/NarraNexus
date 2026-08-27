@@ -80,3 +80,23 @@ def capture_run_context(monkeypatch):
         return captured, runtime
 
     return _capture
+
+
+@pytest.fixture(autouse=True)
+def _reset_im_dm_fallback_history():
+    """The DM fallback rate limiter keeps module-level state.
+
+    Scoped to the whole directory, not just the file that tests it:
+    ``test_im_dm_fallback_delivery_e2e.py`` drives a real delivery and so
+    appends to that map without knowing it. Leaving the reset in one file
+    means the next test that asserts on the map's size inherits an initial
+    value that depends on execution order — the most expensive kind of
+    flake to debug.
+    """
+    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+        reset_im_dm_fallback_history,
+    )
+
+    reset_im_dm_fallback_history()
+    yield
+    reset_im_dm_fallback_history()

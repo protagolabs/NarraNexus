@@ -59,8 +59,16 @@ class ServiceAuditRepository:
         service: str,
         event_type: str,
         detail: Any = None,
-    ) -> None:
-        """Best-effort audit write. Never raises into the caller."""
+    ) -> bool:
+        """Best-effort audit write. Never raises; reports whether it landed.
+
+        The outcome matters because a caller can cache a decision on the
+        strength of a successful write — ``ServiceAuditor._emit`` exposes
+        this as its own return value, and the DM fallback gate arms an
+        audit cooldown from it. Swallowing the exception AND the outcome
+        made "row written" indistinguishable from "the insert failed", so
+        that cooldown was armed on DB failures too.
+        """
         try:
             await self._db.insert(
                 self.TABLE,
@@ -70,11 +78,13 @@ class ServiceAuditRepository:
                     "detail": self._to_detail(detail),
                 },
             )
+            return True
         except Exception as e:  # noqa: BLE001 — audit writes are advisory
             logger.warning(
                 f"ServiceAudit write failed ({service}/{event_type}): "
                 f"{type(e).__name__}: {e} (row dropped; audit is advisory)"
             )
+            return False
 
     async def recent(
         self,
