@@ -29,8 +29,8 @@ export function AgentModelChip({ agentId, entry }: Props) {
       </span>
       <span className={inheriting ? 'text-[var(--nm-ink30)]' : 'text-[var(--color-warning)]'}>
         {inheriting
-          ? t('pages.dashboard.modelCard.inherit', 'default')
-          : t('pages.dashboard.modelCard.override', 'custom')}
+          ? t('pages.dashboard.modelChip.inherit', 'default')
+          : t('pages.dashboard.modelChip.override', 'custom')}
       </span>
     </span>
   );

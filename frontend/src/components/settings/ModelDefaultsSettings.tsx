@@ -77,6 +77,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [agentInitial, setAgentInitial] = useState<AgentDraft>(EMPTY_AGENT);
   const [helperInitial, setHelperInitial] = useState<HelperDraft>(EMPTY_HELPER);
   const [applyStats, setApplyStats] = useState<SlotOverrideStats | null>(null);
+  const [applyDirtySlots, setApplyDirtySlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
@@ -204,6 +205,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     }
     setApplying(true);
     setError('');
+    // Capture which slots changed BEFORE load() resets the initial snapshots —
+    // only these are offered in the apply-to-agents dialog.
+    const dirtySlots: string[] = [
+      ...(agentChanged ? ['agent'] : []),
+      ...(helperChanged ? ['helper_llm'] : []),
+    ];
     try {
       if (agentChanged) {
         const r = await api.setProviderSlot('agent', {
@@ -229,7 +236,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       // must NOT flip the UI to an error state — it just skips the dialog.
       try {
         const s = (await api.getSlotOverrideStats()).data;
-        if (s && (s.agent > 0 || s.helper_llm > 0)) {
+        // Only offer the dialog if a slot the user CHANGED has overrides.
+        const dirtyHasOverrides =
+          (dirtySlots.includes('agent') && (s?.agent ?? 0) > 0) ||
+          (dirtySlots.includes('helper_llm') && (s?.helper_llm ?? 0) > 0);
+        if (s && dirtyHasOverrides) {
+          setApplyDirtySlots(dirtySlots);
           setApplyStats(s); // opens the dialog
         }
       } catch {
@@ -530,6 +542,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
         <ApplyDefaultsToAgentsDialog
           isOpen
           stats={applyStats}
+          dirtySlots={applyDirtySlots}
           onClose={() => setApplyStats(null)}
           onApply={async (slots) => {
             // request() throws on non-2xx, so catch here — the dialog's apply()
@@ -537,7 +550,16 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
             // rejection with the dialog stuck open.
             try {
               const r = await api.applySlotsToAgents(slots);
-              if (!r.success) setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+              if (!r.success) {
+                setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+                return;
+              }
+              // Echo the irreversible result so it isn't a silent close.
+              const cleared = Object.values(r.data?.cleared ?? {}).reduce((a, b) => a + b, 0);
+              void showNotice({
+                title: t('pages.settings.modelDefaults.applyTitle', 'Default model updated'),
+                message: t('pages.settings.modelDefaults.applyDone', 'Cleared overrides on {{n}} agents.', { n: cleared }),
+              });
             } catch (e) {
               setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
             }

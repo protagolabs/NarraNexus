@@ -13,3 +13,9 @@ stub: false
 关闭、不动 agent。文案明示对运行中 agent 下次解析生效、不打断当前运行（守
 铁律 #14/#15，平台不做打断源）。复用 `@/components/ui` 的 `Dialog`
 （`isOpen`/`onClose`/`title`/`size`）+ `DialogContent`/`DialogFooter`。
+
+**2026-08-27 auto-review 修正**：新增 `dirtySlots` prop——只渲染用户这次实际
+改过的槽（helper-only 改动绝不把主模型槽摆出来可勾选，避免误删）。加一行
+「你共有 N 个 agent」（`total_agents`，知情同意）。`willClear` 改用 i18next
+原生插值 `t(key,{n})`，不再手写 `.replace('{{n}}')`。全部文案已注册 i18n key
+（en + zh 全量）。

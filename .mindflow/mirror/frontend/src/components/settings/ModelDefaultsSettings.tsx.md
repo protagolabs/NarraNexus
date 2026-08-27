@@ -18,6 +18,11 @@ stats 预览拉取单独包 try/catch：保存已成功后，flaky 的 override-
 `onApply` 里 `applySlotsToAgents` 也自带 catch，避免异常穿透到无 catch 的
 Dialog.apply() 造成未处理 rejection。
 
+**2026-08-27 auto-review 修正**：在 `load()` 重置快照**前**捕获本次改动的槽
+（`dirtySlots`），传给弹框；仅当**改过的槽**有覆盖才弹（helper-only 改动不会
+拿主槽的数字吓人）。`onApply` 成功后用 `showNotice` 回显「已清除 N 个 agent
+的覆盖」，不再静默关闭（不可逆操作要有结果反馈）。
+
 ## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
 
 框架下拉从 `AGENT_FRAMEWORKS` 换成

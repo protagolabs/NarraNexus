@@ -117,8 +117,18 @@ export function DashboardPage() {
   const [modelReloadKey, setModelReloadKey] = useState(0);
   const [modelOverview, setModelOverview] = useState<AgentModelOverview>({});
 
+  // A VALUE key over the owned-agent id set — refetch the overview when an
+  // agent is created/removed (so a new agent gets its chip), but NOT on every
+  // poll tick. Using rosterAgents itself would fire per tick (new array ref)
+  // and turn the 1+N-query overview into a request storm.
+  const rosterIdsKey = useMemo(
+    () => rosterAgents.map((a) => a.agent_id).sort().join(','),
+    [rosterAgents],
+  );
+
   // One bulk fetch of every owned agent's effective model for the collapsed
-  // row chip (avoids a per-agent llm-config N+1); refetched after an edit saves.
+  // row chip (avoids a per-agent llm-config N+1); refetched after an edit saves
+  // or when the owned-agent set changes.
   useEffect(() => {
     let alive = true;
     api
@@ -132,7 +142,7 @@ export function DashboardPage() {
     return () => {
       alive = false;
     };
-  }, [modelReloadKey]);
+  }, [modelReloadKey, rosterIdsKey]);
   const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
   const [filterTeam, setFilterTeam] = useState<string>(''); // '' / 'untagged' / 'imported' / <team_id>
   const [filterText, setFilterText] = useState('');

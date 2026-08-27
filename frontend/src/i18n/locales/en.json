@@ -1638,7 +1638,19 @@
       "noTeamsLabel": "No teams yet",
       "noTeamsHint": "Create one from the New menu in the sidebar.",
       "manageTeam": "Manage",
-      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here."
+      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here.",
+      "modelCard": {
+        "title": "Model config",
+        "agentSlot": "Main (agent)",
+        "helperSlot": "Helper",
+        "effortLabel": "effort",
+        "inherit": "inherits default",
+        "override": "overridden"
+      },
+      "modelChip": {
+        "inherit": "default",
+        "override": "custom"
+      }
     },
     "createUser": {
       "title": "Create New User",
@@ -1733,7 +1745,18 @@
         "cloudNetmindOnlyNote": "The cloud version runs on your NetMind account — models from your own API keys are not available here.",
         "cloudNetmindOnlyLink": "Download the local desktop version to use your own keys →",
         "cloudFrameworkLocked": "This framework signs in through a shared CLI login, so it is staff-only in cloud. Claude Code and NexusPower-beta both work here — the others are available in the local desktop version.",
-        "cloudFrameworkLockedTitle": "Staff only in cloud"
+        "cloudFrameworkLockedTitle": "Staff only in cloud",
+        "applyTitle": "Default model updated",
+        "applyBody": "Apply = clear these agents’ manual overrides so they inherit the new default; future default changes will follow too.",
+        "applyAgentSlot": "Main model (agent)",
+        "applyHelperSlot": "Helper (helper_llm)",
+        "noOverrides": "no overrides",
+        "willClear": "{{n}} agents will be cleared",
+        "applyRunningNote": "Running agents take effect on their next turn; the current run is not interrupted.",
+        "saveDefaultOnly": "Save default only",
+        "applyToChecked": "Apply to selected agents",
+        "applyTotalNote": "You have {{total}} agents in total.",
+        "applyDone": "Cleared overrides on {{n}} agents."
       },
       "updates": {
         "label": "App updates",
@@ -2690,7 +2713,8 @@
     "actionFailedTitle": "That didn’t work",
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
-    "doneTitle": "Done"
+    "doneTitle": "Done",
+    "edit": "Edit"
   },
   "toast": {
     "view": "View",

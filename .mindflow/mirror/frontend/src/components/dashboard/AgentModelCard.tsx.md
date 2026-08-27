@@ -11,3 +11,6 @@ inherit/override 徽章，右上「编辑」按钮通过 `onEdit` 让 [[Dashboar
 共享的 [[AgentLlmConfigPanel]]。数据走既有 `GET /api/agents/{id}/llm-config`，
 **懒加载**（组件随展开行挂载才拉），`reloadKey` 变化（编辑保存后）重新拉取。
 本身不写任何配置——写操作全在 AgentLlmConfigPanel 里。
+
+**2026-08-27**：所有文案（title/agentSlot/helperSlot/inherit/override + effort
+标签）均走注册的 i18n key（en + zh 全量），不再有裸英文字面量。

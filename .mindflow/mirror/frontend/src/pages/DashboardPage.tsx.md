@@ -13,7 +13,11 @@ stub: false
 
 折叠行名字列下挂 [[AgentModelChip]]，数据来自页面级单次
 `api.getAgentsModelOverview()`（`modelOverview` state，随 `modelReloadKey` 刷新）
-——一次拿全 agent 的 effective 模型，免 per-agent N+1。
+——用一次 HTTP 调用替代 per-agent 的 llm-config 请求（后端 DB 层仍每 agent
+一次查询，见 [[slot_service]]）。effect 依赖 `modelReloadKey` + 一个对
+roster agent id 集合的**值 key**（`rosterIdsKey`），这样新建/删除 agent 会触发
+一次重拉给新 agent 上 chip，但不会随轮询 tick 变成请求风暴（别把 agents 数组
+本身放进依赖）。
 
 ## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
 
