@@ -150,6 +150,37 @@ class NarrativeConfig:
     # Purpose: Can put Top-3 into Context for Agent reference (optional)
     NARRATIVE_SEARCH_TOP_K = 3
 
+    # Slice 0 instrument: record the BM25 pool on continuity turns too, where
+    # `select` used to return before the retrieval tier ran. Default ON — the
+    # measurement is the whole point, it costs two DB reads + one
+    # snapshot-dedup SELECT (steady state ~1 INSERT), and the shadow row's
+    # candidates_json carries the full pool (10KB-scale) against a setup
+    # phase whose p50 is 8.5 SECONDS, and it decides nothing.
+    #
+    # It has a switch because every comparable governance toggle in this batch
+    # has one (`NARRATIVE_DEFAULT_BUCKETS_ENABLED` below), and without it
+    # turning the instrument off means a code change plus re-publishing BOTH
+    # run modes (binding rule #7).
+    #
+    # ROLLBACK: `NARRATIVE_SHADOW_POOL_RECORD=0` and restart. The decision path
+    # is untouched either way — this only stops the recording.
+    #
+    # ⚠ READ THIS BEFORE ANALYSING A WINDOW: with the switch off,
+    # `pool_is_shadow` is 0 on every row, which is INDISTINGUISHABLE in the
+    # data from "continuity turns never had a pool". A period with the switch
+    # off therefore reads as "the shutter has no releasable population on
+    # continuity turns" rather than "we did not look". If you turn it off,
+    # write down the window — the table cannot tell you afterwards.
+    # Even with the switch ON, background-triggered continuation turns
+    # (job / message_bus / IM webhook, ~30% of dev turns) stay 0 by scope —
+    # the instrument records user-chat turns only. Population queries must
+    # pair this column with `is_user_chat`. Coverage over ALL continuation
+    # turns will sit meaningfully below 100% by design (chat is 69% and
+    # message_bus 30% of all dev turns, measured — but the background share
+    # of CONTINUATION turns specifically has not been); read the real split
+    # with GROUP BY is_user_chat, not against a fixed number.
+    NARRATIVE_SHADOW_POOL_RECORD = _env("NARRATIVE_SHADOW_POOL_RECORD", "1") == "1"
+
     # Number of Narratives added to Context
     # Description: Upper limit of Narratives returned by select()
     # Recommended: 3 (1 main Narrative + 2 auxiliary references)

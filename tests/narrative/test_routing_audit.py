@@ -183,11 +183,16 @@ def test_record_pool_captures_participants_not_in_the_bm25_pool():
     audit = RoutingAudit(agent_id="agent_test", user_id="user_test", query_text=_QUERY)
     snapshots: dict = {}
 
-    NarrativeRetrieval._record_pool(
-        audit, snapshots, pool,
+    # `_build_pool_record` returns instead of mutating (2026-08-26 review #5):
+    # the caller commits candidates and snapshots together, so a failure
+    # part-way through cannot leave a half-written row or an orphan snapshot.
+    candidates, built = NarrativeRetrieval._build_pool_record(
+        pool,
         [NarrativeSearchResult(narrative_id="nar_a", similarity_score=0.9, rank=1, raw_score=9.0)],
         [invited],
     )
+    audit.candidates.extend(candidates)
+    snapshots.update(built)
 
     by_id = {c.narrative_id: c for c in audit.candidates}
     assert "nar_invited" in by_id, "participant candidate missing from the audit"

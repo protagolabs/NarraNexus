@@ -1,8 +1,54 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/updater.py
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — C3:digest 从 updater 上下文摘除(它在给 continuity 锚点改名)
+
+A1 的修法(把工具动作摘要喂给 updater)有一个没人排查过的第二读者:
+updater 写的四个字段(name/description/summary/keywords)同时是
+**continuity 每轮读的锚点描述**。digest 让 updater 把线改名成最近的工具
+动作("团队群聊自我介绍"→"深圳天气查询"),continuity 读到改名后的锚点,
+把用户的正常延续判成换话题——锚点被改写的行同线率 65.3%→56.8%
+(McNemar p=0.0002,未改写行 p=0.60,自带对照),每卷净打断 24 次正确
+延续,被打断轮 54/55 落进**别的既有线**(作者侧原始数据:重演批
+2026-08-26 的 PR2_CROWDING_ANALYSIS)。
+
+不止摘除插入:digest 机器**整段删除**(约 255 行 + 16 条测试),
+独立审查按铁律 #2 裁定——无调用方的 public 函数带着完整测试留在库里,
+正是曾两次被删的 dead-fork 形态;代码在 git 历史里,恢复只需一条
+`git show a9260baa4:...`。
+
+**第二步(digest 的指定后继)的字段契约,在此为准**:新增一个
+**补充检索词字段**——BM25 的 searchable_text 读它,**continuity 永远
+不读**(C3 的结构化形态);每个写入来源(digest 词/A-kw 救援词/未来
+来源)各自封顶,防单一来源淹没词面;上线前**收益判据必须预注册**——
+digest 自身的收益本就弱(动作词仅占金标线 BM25 分数 3.4~4.4%,
+recall@3 持平),词面缺口须先重新证明。
+
+**残余(未测量,如实声明)**:user input / `final_output[:500]` 走的是
+同一条改名路径(`_apply_llm_update` 无条件覆写 name/summary/keywords),
+摘除 digest 后还剩多少改写率、其同线率代价多大,**没有数**;测法 =
+与 digest 调查同口径的重演 + 按"锚点被改写行"分层 McNemar。结构性
+防线 b = 锚点稳定性约束:线已有真实 summary 后,无换话题证据不重写
+`name`(`current_summary` 必须继续逐轮走,只有身份锚字段需要稳定)。
+
+回归钉:`tests/narrative/test_updater_context_sections.py` 把
+`_build_update_context` 渲染的**每一行的前缀**钉成闭合清单(标题行
+原样、`Key: value` 行取键、动态摘要序号行归一为一项)——任何新增的
+`context_parts.append(...)`,无论是新小节还是挂在既有小节下的裸行,
+都必然改变清单撞红,逼一次 C3 对照;`web.log not in context` 作第二道
+内容层守卫。
+教训归档:**给字段加新写入源之前,先画全它的读者清单**——description
+墓碑(BM25+continuity+主 prompt 三读者)、本案(BM25+continuity 双读者)
+已是同一课的第二次学费。
+
+> 下方 2026-08-25 / 2026-08-21 / 2026-08-12(A1)三条与 digest 相关的
+> 条目自本日起为**历史记录**:它们描述的 `build_action_digest`、四层
+> 脱敏与预算裁剪已随本次删除离开代码库,保留是为了讲清"为什么当初
+> 这样建、为什么后来拆"。
+
 
 ## 2026-08-25 — 脱敏第四层(字符串容器)+ 去重计数(PR #361 round 2)
 
@@ -14,7 +60,6 @@ I1:round-1 的 kv 检查被 `isinstance(dict|list)` 挡住,字符串值里的
 M7:`build_action_digest` 的去重从静默跳过改为计数折叠(行尾 `(×N)`)——
 "连续重试 3 次"和"跑了一次"是不同的 turn 状态,且 `_fit_to_budget` 已
 承诺不静默丢内容,去重不该是唯一例外。
-
 
 ## 2026-08-21 — 嵌套凭据脱敏（独立审查 Critical #1）
 
@@ -28,7 +73,6 @@ helper LLM → narratives 行 → 之后每轮系统提示词"，且无回收路
 dict/list 值的序列化文本**启用——纯字符串值仍只走 value 正则，防止把
 "帮我查 token 用量" 这类正文误伤成 `<redacted>`（那正是 digest 要救的名词）。
 两侧各有测试钉住：嵌套必脱敏、正文提及必不脱敏。
-
 
 ## 2026-08-20 — 线名不再带频道标签(K 层)
 

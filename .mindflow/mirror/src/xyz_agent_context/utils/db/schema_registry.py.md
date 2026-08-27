@@ -4,15 +4,36 @@ last_verified: 2026-08-27
 stub: false
 ---
 
+# schema_registry.py
+
 ## 2026-08-27 — 新表 agent_slot_clear_audit
 
 owner 级「应用默认到全体 agent」会不可逆地删 `agent_slots` 行。删除前把每行
 快照（user_id/agent_id/slot_name/provider_id/model/agent_framework/params_json）
 append 进 `agent_slot_clear_audit`，让误操作可追溯/可恢复（DB 留痕胜过只写
-日志——docker 日志会在 restart 时轮转）。由 [[slot_service]]
-`clear_owner_agents_slot` 写入。双方言列已填全。
+日志——docker 日志会在 restart 时轮转）。由 [[slot_service]] 的批量清除写入。
+双方言列已填全，四个快照列可空。
 
-# schema_registry.py
+## 2026-08-26 — 影子行改变 retrieve_ms 的量纲(PR #365 review I2)
+
+`pool_is_shadow=1` 的行上 `retrieve_ms` 只含仪器自身的 tier-2 耗时
+(judge 未运行);跨人群成本聚合必须先按 `pool_is_shadow` 过滤,否则续接轮
+多数人群的 ~13ms 会稀释仲裁成本读数。`keyword_ms` 是唯一两人群定义相同、
+可直接比较的成本列。in-code 契约注释(本文件与 models.py)已同步此语义。
+
+## 2026-08-25 — `narrative_routing_audit.pool_is_shadow`(纯增量)
+
+`INTEGER` / `TINYINT(1)`,可空。标记"这一行的池是只记录、没决策的"(续接轮)。
+可空有两个理由:prod 存量行早于它(铁律 #6,活表上 `NOT NULL` 无默认值会失败),
+以及对任何过滤它的查询来说 NULL 与 0 同义。
+
+语义细节与"为什么 `gate_short_circuit` 保持 NULL"见 [[models.py]] 的 8-25 条。
+
+**"可空 / NULL 与 0 同义"针对的是读侧,不是写侧**(2026-08-26 review #1):
+写侧永不产生 NULL(`RoutingAudit.pool_is_shadow` 是普通 bool,没有
+`bypass_score_gate` 那种"这一轮没跑"的第三态),可空**只为存量行**;
+于是读侧的过滤查询必须把 NULL 与 0 当同一件事。两句都成立,针对的不是同一侧。
+完整对照表见 [[narrative_routing_audit_repository.py]] 的 8-26 条。
 
 ## 2026-08-21 — events 加复合索引 `idx_events_user_state`
 
