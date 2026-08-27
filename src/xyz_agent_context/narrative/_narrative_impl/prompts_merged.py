@@ -128,16 +128,21 @@ _MERGED_PARTICIPANT_ANCHOR_SENTENCE = """ It does NOT outrank the anchored
 thread — if the message continues what the conversation is already doing,
 continue_anchor still wins."""
 
-_PRIORITY_CONTINUE = "Same business goal as the anchored thread → continue_anchor."
+_PRIORITY_CONTINUE = (
+    "Answer continue_anchor when the message pursues the same business goal "
+    "as the anchored thread."
+)
 _PRIORITY_PARTICIPANT = (
-    "A participant-associated thread the message is about → participant."
+    "Answer participant when the message is about one of the "
+    "participant-associated threads."
 )
 _PRIORITY_MATCH = (
-    "A menu thread whose subject genuinely covers the message → match."
+    "Answer match when a menu thread's subject genuinely covers the message."
 )
 _PRIORITY_TAIL = (
-    "Decide whether the message carries a durable topic at all:\n"
-    "   a real subject → new; nothing to remember → no_topic."
+    "If none of the above applies, decide whether the message carries a\n"
+    "   durable topic at all: a real subject → new; nothing to remember →\n"
+    "   no_topic."
 )
 
 
@@ -176,13 +181,12 @@ def build_merged_instructions(
     if with_menu:
         priority_items.append(_PRIORITY_MATCH)
     priority_items.append(_PRIORITY_TAIL)
-    lines = []
-    for i, item in enumerate(priority_items, start=1):
-        if i == 1:
-            lines.append(f"{i}. {item}")
-        else:
-            lines.append(f"{i}. Otherwise, {item[0].lower()}{item[1:]}")
-    priority_lines = "\n".join(lines)
+    # Complete sentences, numbered — the order IS the rule ("first match
+    # wins"), so no lexical splicing is needed to say "otherwise" (round 8,
+    # M4: the spliced form left fragments from item 2 on).
+    priority_lines = "\n".join(
+        f"{i}. {item}" for i, item in enumerate(priority_items, start=1)
+    )
 
     participant_section = ""
     if with_participants:
@@ -211,7 +215,7 @@ def build_merged_instructions(
 
 {_NO_DURABLE_TOPIC_RUBRIC}
 
-Priority when you are torn:
+Priority when you are torn (first match wins):
 {priority_lines}
 
 {_MERGED_ROUTING_OUTPUT_CONTRACT}

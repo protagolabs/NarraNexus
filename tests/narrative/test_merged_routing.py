@@ -903,6 +903,11 @@ async def test_downstream_cannot_tell_who_decided(
     assert result.retrieval_method
     assert result.is_new is False
     assert result.no_durable_topic is False
+    # The observability surface is downstream too (round 8, I2): select()
+    # leaves these empty at its own exit, so the merged arm must match —
+    # a panel that shows scores on one arm only outs the decider.
+    assert result.best_score is None
+    assert result.scores == {}
     assert session.current_narrative_id == anchor.id, (
         "the session anchor advances by the same rule on both paths"
     )

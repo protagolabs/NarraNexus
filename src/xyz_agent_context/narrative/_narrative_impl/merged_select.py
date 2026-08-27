@@ -256,11 +256,12 @@ async def select_merged(
         selection_method=landing.method,
         no_durable_topic=landing.no_durable_topic,
         is_new=landing.is_new,
-        # Same fill as the two-call path (round 6, minor 1): the developer
-        # narrative panel reads these, and "nothing downstream learns there
-        # was a change" includes the observability surface.
-        best_score=prep.scored.best_score,
-        scores=prep.scored.all_scores,
+        # Empty like the two-call path: select() drops retrieval_result's
+        # best_score/scores at its own exit, so the panel's score labels are
+        # absent on BOTH arms. Round 6's review claimed the two-call path
+        # fills them — it does not (round 8, I2, verified at the select()
+        # return) — and matching a wrong claim had INVERTED the difference.
+        best_score=None,
         retrieval_method=landing.retrieval_method,
     )
 

@@ -270,25 +270,21 @@ def render_participant_candidates(
     candidates: Sequence[dict],
     *,
     header: str = PARTICIPANT_HEADER,
-    max_candidates: Optional[int] = None,
 ) -> Rendered:
     """Threads the user was INVITED into — rendered first, by priority (P0-4).
 
-    The cap takes a PREFIX and says so: the order is the priority rule, so
-    re-ranking to fit a budget would silently overrule it.
+    Renders EXACTLY what it is given — deliberately no cap parameter (round
+    8, I1): the one cut lives at the merged path's entry, where the same
+    list also bounds the contract's index check. A renderer-side cap would
+    be the one-kwarg switch that re-opens the ballot/render split (round 2,
+    I1), and rule #2 does not keep switches around for the sake of it.
     """
     if not candidates:
         return Rendered("")
 
-    shown: List[dict] = list(candidates)
-    truncated: Tuple[str, ...] = ()
-    if max_candidates is not None and len(shown) > max_candidates:
-        shown = shown[:max_candidates]
-        truncated = ("participants",)
-
     out = [f"{header}\n\n"]
-    for i, candidate in enumerate(shown):
+    for i, candidate in enumerate(candidates):
         out.append(f"[Participant-{i}] {candidate['name']}\n")
         out.append(f"Description: {candidate['description']}\n")
         out.append("\n")
-    return Rendered("".join(out), truncated)
+    return Rendered("".join(out))

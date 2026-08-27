@@ -53,21 +53,29 @@ review 2026-08-27 Important 2:narrative_service.py 越过 800 行上限后又
 
 ## 结构
 
-- `Landing`(frozen dataclass,6 字段一次构造)——每个 verdict 分支返回
-  一个完整 Landing,新增 result 字段漏赋会在构造点炸,不再静默取默认值。
-  `_land_no_topic_turn`(仍在 service,select() 也用)同样返回它;select()
-  只取四个决定字段,保住 flag-off 字节路径。
-- `select_merged(service, ...)` 主编排:BM25 prepare → 快门或一次 LLM →
-  `_land` 按 verdict 分发 → 会话锚点推进 → audit 落库。**决策语义与
-  搬迁前逐字一致**(设计注释原样随迁)。
-- `_land_failure`:RULE 6(失败不是判决)单独成函;participant 落地改走
-  `NarrativeRetrieval.load_participant_landing`(review Minor 3,judge 与
-  合并同一 executor)。
+- `select_merged(crud, retrieval, write_audit, *, ...)` 主编排(round 7 起
+  收**三个显式协作者**,不再收 service 实例):BM25 prepare(经
+  [[merged_prep]])→ 快门或一次 LLM → `_land(crud, retrieval, ...)` 按
+  verdict 分发 → `anchor_rules.advance_session_anchor` → `write_audit`。
+  service 侧只剩同名薄委托,传 `self._crud/_retrieval/_write_audit`。
+- 五个 verdict 的落点全部经 [[landings]] 的执行器(`Landing` 值对象也
+  住在那里):`assemble_match_landing` / `load_participant_landing` /
+  `land_no_topic`(直调模块函数,不绕 service)/ `create_from_query`
+  (retrieval 方法)。**决策语义与最初搬迁时逐字一致**。
+- `_land_failure`:RULE 6(失败不是判决)单独成函,prompt 拼装失败与
+  provider 失败同归此处(日志文案区分两者)。
 
 ## 坑
 
-- `is_reusable_anchor` / `minutes_since` 从 [[anchor_rules]] 导入——
-  **必须保持唯一定义**(2026-08-21 review Important 3 的产物),别在这里
-  长出第二份。
-- 传入的是 service 实例(运行时协作),类型只在 TYPE_CHECKING 下引——
-  impl 不得在 import 期上行依赖 service 模块。
+- `is_reusable_anchor` / `minutes_since` / `advance_session_anchor` 从
+  [[anchor_rules]] 导入——**必须保持唯一定义**(2026-08-21 review
+  Important 3 的产物),别在这里长出第二份。
+- participant 的入口截断(前缀切片,P0-4 顺序)是**唯一一刀**:进
+  MergedRoutingInput 的 = prompt 渲染的 = 契约校验的;渲染器已无 cap
+  形参(round 8 I1),别把它加回去。
+- 落点必须构造**完整的 Landing**——六字段一次给齐,漏一个在构造点炸,
+  这正是当初拆出本文件的理由之一。
+- best_score / scores 与两调用臂**同样留空**(select() 在自己的出口就
+  丢弃它们;round 6 审查断言相反,round 8 实核纠正)——面板分数标签在
+  两臂都不出现,改任何一侧前先看 test_downstream_cannot_tell_who_decided
+  的钉子。
