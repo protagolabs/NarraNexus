@@ -21,7 +21,7 @@ and ``minutes_since`` stay ONE definition each (anchor_rules.py), shared with
 
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, Sequence, TYPE_CHECKING
 
 from loguru import logger
 
@@ -30,6 +30,7 @@ from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
 from ..config import config
 from ..models import (
     ConversationSession,
+    NarrativeSearchResult,
     Narrative,
     NarrativeSelectionResult,
     NarrativeType,
@@ -63,11 +64,14 @@ from .merged_router import (
 from .routing_gate import pick_menu
 
 if TYPE_CHECKING:
-    from ..narrative_service import NarrativeService
+    from .crud import NarrativeCRUD
+    from .retrieval import NarrativeRetrieval
 
 
 async def select_merged(
-    service: "NarrativeService",
+    crud: "NarrativeCRUD",
+    retrieval: "NarrativeRetrieval",
+    write_audit,
     *,
     agent_id: str,
     user_id: str,
@@ -123,7 +127,7 @@ async def select_merged(
     anchor: Optional[Narrative] = None
     anchor_id = session.current_narrative_id if session else None
     if anchor_id:
-        anchor = await service._crud.load_by_id(anchor_id)
+        anchor = await crud.load_by_id(anchor_id)
     # THE one definition, shared with the fast path and the no-topic
     # landing: a legacy default bucket is a verdict about an earlier turn,
     # not a thread anyone may continue.
@@ -131,7 +135,7 @@ async def select_merged(
 
     with timed("narrative.merged.prepare"):
         prep = await prepare_merged_routing(
-            service._retrieval,
+            retrieval,
             query=query_text,
             user_id=user_id,
             agent_id=agent_id,
@@ -182,7 +186,7 @@ async def select_merged(
             previous_query=(session.last_query or "") if session else "",
             previous_response=(session.last_response or "") if session else "",
             minutes_since_previous=minutes_since(session),
-            menu=await build_menu_candidates(service._crud, menu_results),
+            menu=await build_menu_candidates(crud, menu_results),
             participants=shown_participants,
             awareness=awareness,
         )
@@ -215,10 +219,9 @@ async def select_merged(
             if anchor is None or r.narrative_id != anchor.id
         ]
         landing = await _land(
-            service,
+            crud, retrieval,
             decision=decision,
             routing_input=routing_input,
-            menu_results=menu_results,
             landing_pool=landing_pool,
             anchor=anchor,
             continuable=continuable,
@@ -245,7 +248,7 @@ async def select_merged(
     # `continuity_ms` / `judge_ms` stay NULL: those tiers did not run, and a
     # 0 there would read as "the tier is free" — the opposite of true. The
     # merged call's own cost is `merged_ms`, which nests nothing.
-    await service._write_audit(audit, snapshots)
+    await write_audit(audit, snapshots)
 
     return NarrativeSelectionResult(
         narratives=landing.narratives,
@@ -263,12 +266,12 @@ async def select_merged(
 
 
 async def _land(
-    service: "NarrativeService",
+    crud: "NarrativeCRUD",
+    retrieval: "NarrativeRetrieval",
     *,
     decision: MergedRoutingDecision,
     routing_input: MergedRoutingInput,
-    menu_results,
-    landing_pool,
+    landing_pool: Sequence[NarrativeSearchResult],
     anchor: Optional[Narrative],
     continuable: bool,
     session: Optional[ConversationSession],
@@ -280,7 +283,7 @@ async def _land(
     """Dispatch one decision to its landing. Each branch is a whole Landing."""
     if not decision.ok:
         return await _land_failure(
-            service, anchor=anchor, continuable=continuable,
+            retrieval, anchor=anchor, continuable=continuable,
             reason=decision.reason, agent_id=agent_id, user_id=user_id,
             query_text=query_text,
         )
@@ -298,7 +301,7 @@ async def _land(
         # answers to MAX_NARRATIVES_IN_CONTEXT alone — never to the menu knob.
         return Landing(
             narratives=await assemble_match_landing(
-                service._crud, chosen_id or "", landing_pool, max_narratives
+                crud, chosen_id or "", landing_pool, max_narratives
             ),
             method="merged_match",
             reason=f"Switched to an existing thread: {decision.reason}",
@@ -307,13 +310,13 @@ async def _land(
     if decision.verdict == VERDICT_PARTICIPANT:
         chosen_id = resolve_choice(decision, routing_input)
         return Landing(
-            narratives=await load_participant_landing(service._crud, chosen_id),
+            narratives=await load_participant_landing(crud, chosen_id),
             method="merged_participant",
             reason=f"Matched a thread the user participates in: {decision.reason}",
             retrieval_method="keyword",
         )
     if decision.verdict == VERDICT_NEW:
-        created = await service._retrieval.create_from_query(
+        created = await retrieval.create_from_query(
             query=query_text, user_id=user_id, agent_id=agent_id,
             narrative_type=NarrativeType.CHAT,
         )
@@ -329,7 +332,7 @@ async def _land(
         # anchor-first, and its freeze semantics are untouched — a greeting
         # must never rename the work it interrupted.
         return await land_no_topic(
-            service._crud, service._retrieval,
+            crud, retrieval,
             agent_id=agent_id, user_id=user_id, query_text=query_text,
             session=session, reason=decision.reason, anchor=anchor,
         )
@@ -338,14 +341,14 @@ async def _land(
     # so the honest terminal branch for a verdict that got past validation is
     # the same one every other failure takes.
     return await _land_failure(
-        service, anchor=anchor, continuable=continuable,
+        retrieval, anchor=anchor, continuable=continuable,
         reason=f"unhandled verdict: {decision.verdict}",
         agent_id=agent_id, user_id=user_id, query_text=query_text,
     )
 
 
 async def _land_failure(
-    service: "NarrativeService",
+    retrieval: "NarrativeRetrieval",
     *,
     anchor: Optional[Narrative],
     continuable: bool,
@@ -371,7 +374,7 @@ async def _land_failure(
             ),
             retrieval_method="session",
         )
-    created = await service._retrieval.create_from_query(
+    created = await retrieval.create_from_query(
         query=query_text, user_id=user_id, agent_id=agent_id,
         narrative_type=NarrativeType.CHAT,
     )

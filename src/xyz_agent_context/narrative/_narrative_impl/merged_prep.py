@@ -12,9 +12,9 @@ the layering said "executor depends on decider". `pick_menu` now lives in
 merged-specific preparation, and retrieval keeps only the executors every
 decider shares (`_score_pool`, the loaders, the landings).
 
-Takes the `NarrativeRetrieval` instance as its first argument — same
-collaboration shape as `merged_select`'s service argument: runtime object,
-type imported under TYPE_CHECKING only, no import-time upward dependency.
+Takes the `NarrativeRetrieval` instance as its first argument — a
+collaborator, passed by the caller: runtime object, type imported under
+TYPE_CHECKING only, no import-time upward dependency.
 """
 
 from __future__ import annotations

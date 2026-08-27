@@ -21,8 +21,14 @@ itself, so the tag helper must be invoked at the call site, after the await
 
 from __future__ import annotations
 
+from typing import Protocol
 
-def tag_last_llm_call(timer) -> None:
+
+class _Taggable(Protocol):
+    def tag(self, **kwargs) -> None: ...
+
+
+def tag_last_llm_call(timer: _Taggable) -> None:
     """Tag `timer` with the last helper-LLM call's resolved info, if any.
 
     `timer` is the object yielded by `utils.logging.timed(...)` (anything

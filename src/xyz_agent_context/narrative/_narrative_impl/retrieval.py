@@ -510,8 +510,11 @@ class NarrativeRetrieval:
         (`snippet_depth` below), which is where the cost lived.
 
         `_ensure_default_narratives` is deliberately NOT part of this: it
-        CREATES rows, the recording path must not write business data to
-        observe, and only the deciding path has a reason to seed.
+        CREATES rows, and the recording path must not write business data to
+        observe. The merged path decides yet never seeds either — safe
+        because the boot gate guarantees buckets are OFF whenever merged is
+        ON, and seeding is a no-op with buckets off (two distant facts, held
+        together by config._reject_untested_flag_combination; round 7, M6).
 
         One consequence, stated conditionally because it depends on a flag:
         under `NARRATIVE_DEFAULT_BUCKETS_ENABLED=0` (the shipping value)

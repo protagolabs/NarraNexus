@@ -554,7 +554,7 @@ class NarrativeService:
         from ._narrative_impl.merged_select import select_merged
 
         return await select_merged(
-            self,
+            self._crud, self._retrieval, self._write_audit,
             agent_id=agent_id,
             user_id=user_id,
             query_text=query_text,

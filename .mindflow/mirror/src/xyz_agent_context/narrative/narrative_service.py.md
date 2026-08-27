@@ -6,6 +6,12 @@ stub: false
 
 # narrative_service.py — Narrative 统一门面
 
+## 2026-08-27(round 7)— 委托改传三个协作者
+
+`_select_merged` 薄委托现在传 `self._crud, self._retrieval,
+self._write_audit`——impl 的上行私有依赖清零(round 5 收到 3 个,本轮
+连那 3 个也改为显式参数)。
+
 ## 2026-08-27(round 5)— 上行私有依赖收敛到三个(I3)
 
 merged_select 对 service 私有成员的语义依赖从 5 个收到 3 个

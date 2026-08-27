@@ -25,7 +25,9 @@ from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING
 from ..models import Narrative, NarrativeSearchResult, NarrativeType
 
 if TYPE_CHECKING:
+    from ..models import ConversationSession
     from .crud import NarrativeCRUD
+    from .retrieval import NarrativeRetrieval
 
 
 CANDIDATE_DESC_MAX_CHARS = 300  # Summary excerpt shown per candidate
@@ -86,6 +88,8 @@ async def build_menu_candidates(
     that decision once, and only one of them was ever fixed; a third copy
     here is how that repeats.
     """
+    from xyz_agent_context.memory.bm25 import bm25_snippet
+
     candidates: List[dict] = []
     for result in results:
         narrative = await crud.load_by_id(result.narrative_id)
@@ -102,8 +106,6 @@ async def build_menu_candidates(
             # load-bearing half of the evidence and tripping the wiring-broken
             # alarm downstream. Computing it here is exact and costs at most
             # menu_size snippet calls, only on merged turns that hit the case.
-            from xyz_agent_context.memory.bm25 import bm25_snippet
-
             matched_content = bm25_snippet(
                 narrative.searchable_text(), list(result.matched_terms)
             )
@@ -180,12 +182,12 @@ async def load_participant_landing(
 
 async def land_no_topic(
     crud: "NarrativeCRUD",
-    retrieval,
+    retrieval: "NarrativeRetrieval",
     *,
     agent_id: str,
     user_id: str,
     query_text: str,
-    session,
+    session: Optional["ConversationSession"],
     reason: str,
     anchor: Optional[Narrative] = None,
 ) -> Landing:

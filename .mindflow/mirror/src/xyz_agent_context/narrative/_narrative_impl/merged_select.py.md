@@ -6,6 +6,17 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-08-27(round 7)— 收显式协作者,不再收整个 service(I1)
+
+`select_merged(service)` 是同批三个 impl 模块里唯一反向拿调用方的——
+merged_prep 收 retrieval、landings 收 crud,包内先例(default_narratives
+文件头)也明说这样避免与 service 的环。签名改为
+`select_merged(crud, retrieval, write_audit, *, ...)`;`_land` 收
+`(crud, retrieval)`,`_land_failure` 收 `retrieval`;TYPE_CHECKING 不再
+import NarrativeService。收益:可脱离完整 service 单测,且 service 新增
+私有状态不再自动暴露给编排层。死参数 menu_results 移除(round 3 I2 的
+结论"落点池不是选票"不再留反证线索);landing_pool 补类型标注。
+
 ## 2026-08-27(round 6)— 观测面补齐 + 直调落点
 
 best_score / scores 照两调用路径同样填充(minor 1:"下游无感"包括
