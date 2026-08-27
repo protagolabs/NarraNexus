@@ -4,6 +4,33 @@ stub: false
 last_verified: 2026-08-27
 ---
 
+## 2026-08-27（第一轮 review）— tier 衰减补上「时间」这一半
+
+`_maybe_recover` 只从 `admit()` 里跑，所以它只在会话**继续说话**时降级。
+跳到 tier 3 之后就沉默的会话，tier 永远停在 3——没有任何轮询，重启后
+`_load` 原样读回。这正是 `_maybe_recover` 自己 docstring 说要防的那件事
+（「一年前抖了一分钟的会话永远背着一个能升到 24 小时的 tier」），却只实现了
+「一直在说话」那一半。
+
+同一个缺陷还锁死了这张表：`cleanup_older_than_days` **刻意只扫 `tier = 0`**
+（带着升级记忆的行正是我们答应要记住的），所以卡在 tier > 0 的行永远无法回收。
+`warm_start` 的 `cooling_only` 优化是在绕开这个后果，不是在治它（铁律 #5）。
+
+`_load` 现在按沉默时长**追补衰减**：`steps = 沉默 // 衰减步长`，一次补齐而不是
+一次一级——半年前的行不该需要半年的重启才能回零。归零时写回，行随即进入
+清扫面，两个问题一次解决。
+
+**锚点是新列 `tier_changed_at`，两个看起来能用的邻居都不行**：
+- `last_tripped_at` 在 `_maybe_recover` 降级时**不变**，用它会把已经付过的
+  沉默再算一遍，衰减过头——而衰减过头等于给再犯者更便宜的冷却，正是 tier
+  要阻止的事；
+- `updated_at` 由仓储用**墙钟**盖章，而这个状态机跑在调用方传入的 `now` 上，
+  两者在任何非墙钟的调用者那里都对不上。
+
+三条边界由测试钉着：冷却期内**绝不**衰减（tier 3 的 7200s 冷却比 1200s 的
+衰减步长长，存在「既在隔离中又已过一步」的时间窗）；追补按步数成比例；
+recover 也刷新锚点。
+
 ## 2026-08-27 — 本文件合入时是**死代码**，这是刻意的
 
 拆分方案把熔断器分成两个 PR：本文件（状态机 + 表 + repository + 验收回放）
@@ -40,11 +67,16 @@ SQL 保留已完成隔离的数字。
 
 **`forget_agent()` 又一次没有调用方。** 上一轮发现 `forget()` 零调用、据此
 加了 `prune_idle`；这一轮把它改名 `forget_agent` 并把 docstring 写得更肯定
-（「Called when an agent's subscriber stops」）——**依然零调用方**。现在真的
-接在 [[channel_trigger_base.py]] 的 `_stop_subscriber` 上，并且
-`test_ingress_guard_all_paths.py` 新增了一条守卫：guard 的生命周期方法必须
-真的有调用方。死代码带着一句「Called when …」比没有这个方法更糟——下一个人
-会以为解绑路径已经清理过了。
+（「Called when an agent's subscriber stops」）——**依然零调用方**。
+
+**本次合入时它仍然零调用方**，docstring 已改成未来时。接线 PR 会把它接到
+[[channel_trigger_base.py]] 的 `_stop_subscriber` 上，并由
+`test_ingress_guard_all_paths.py`（同样随接线 PR 落地）加一条守卫：guard 的
+生命周期方法必须真的有调用方。
+
+死代码带着一句「Called when …」比没有这个方法更糟——下一个人会以为解绑路径
+已经清理过了。这一段本身就是在记录这个教训，而它的第一版**用同样的方式又犯
+了一次**：把接线写成了已完成。
 
 **`warm_start` 的量级论证是反的。** docstring 原话「closed ones are swept
 by retention」，而 retention **只**扫 `tier = 0`，warm_start **只**加载
@@ -190,7 +222,8 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
    原生 chokepoint
 
 **没有单一 chokepoint 是本次接线的核心事实**。调研一开始以为只有 Lark 是
-例外，`test_ingress_guard_all_paths.py` 一跑就抓出 Telegram / WeChat / Matrix
+例外，`test_ingress_guard_all_paths.py`（随接线 PR 落地）一跑就抓出
+Telegram / WeChat / Matrix
 也各自 override 了 `_process_message`（只是都调了 `super()`）。这类
 「N 份手抄」正是 [[channel_trigger_base.py]] mirror 里
 `build_trigger_extra_data` 那条教训的同一个缺陷类，答案也一样：

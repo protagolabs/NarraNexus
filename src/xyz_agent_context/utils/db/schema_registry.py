@@ -2120,6 +2120,16 @@ _register(
             Column("suppressed_count", "INTEGER", "INT", nullable=False, default="0"),
             Column("last_reason", "TEXT", "VARCHAR(64)"),
             Column("last_tripped_at", "TEXT", "DATETIME(6)"),
+            # When `tier` last MOVED, in the guard's own clock. Distinct
+            # from both neighbours on purpose:
+            #   `last_tripped_at` stands still while the tier walks back
+            #   down, so anchoring decay there would re-credit silence that
+            #   has already been paid out;
+            #   `updated_at` is stamped by the repository with wall-clock
+            #   time, while the guard runs on a caller-supplied `now` — one
+            #   column cannot be both row bookkeeping and state-machine
+            #   time.
+            Column("tier_changed_at", "TEXT", "DATETIME(6)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

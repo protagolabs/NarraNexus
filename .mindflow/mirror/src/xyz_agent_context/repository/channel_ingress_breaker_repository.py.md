@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/repository/channel_ingress_breaker_repository.py
 stub: false
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27（第一轮 review）— 只增不删这件事治了根因，`find_open` 加上界
+
+本文档此前写着这张表「更接近一份终身跳闸日志」——那不是这张表的性质，是
+`tier > 0` 的行没有衰减路径导致的**症状**。`cleanup_older_than_days` 只扫
+`tier = 0` 是对的（带升级记忆的行正是要记住的），缺的是让沉默的会话把 tier
+降回 0。现在 [[ingress_guard]] 的 `_load` 按沉默时长追补衰减并在归零时写回，
+这类行自然进入清扫面。
+
+`find_open` 加了显式上限（`_FIND_OPEN_LIMIT`）。`tier > 0` 与「是否仍在冷却」
+都在 Python 侧筛，所以没有上限就是每个进程启动一次无上界全表读。**截断必须
+出声**：短结果和完整结果长得一模一样，`warm_start` 会报出一个悄悄偏少的
+「当前被隔离数」——静默截断永远会被读成「全都加载了」。
+
+`upsert_state` 仍是「先读后写」，非原子。同一 session key（含 `agent_id`）的
+写入实际只来自单个 trigger 进程的单条协程，撞唯一索引的异常也被兜住、只丢
+一次持久化而内存侧仍在执行冷却（fail-open 是这里正确的一侧）。若托管路径与
+原生路径将来同时服务同一 agent，改用仓库已有的 upsert 写法，比加锁便宜。
 
 ## 2026-08-25 — 键改四段；方言解释更正；`find_open` 加 `cooling_only`
 

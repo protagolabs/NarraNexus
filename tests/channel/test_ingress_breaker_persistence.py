@@ -308,7 +308,7 @@ async def test_warm_start_survives_a_broken_store(db_client):
     """Startup must not depend on it."""
 
     class _DeadRepo:
-        async def find_open(self, channel=None):
+        async def find_open(self, channel=None, *, cooling_only=False, now=None):
             raise RuntimeError("db down")
 
     guard = _guard(_DeadRepo())
@@ -340,3 +340,220 @@ async def test_session_key_cannot_overflow_its_column():
     parts = dict(zip(("agent_id", "channel", "chat_id", "sender_id"), worst.split("|")))
     for name, value in parts.items():
         assert len(value) <= varchar_width("channel_ingress_breaker", name), name
+
+
+async def test_a_session_that_went_silent_ages_its_tier_down(db_client):
+    """Escalation memory must expire with TIME, not only with traffic.
+
+    `_maybe_recover` runs from `admit()`, so it walks a tier down only
+    while the session KEEPS TALKING. A session that trips and then goes
+    quiet is never visited again: nothing polls, and the durable row is
+    read back verbatim. The tier would stand for the life of the row.
+
+    That is the failure `_maybe_recover`'s own docstring names — a
+    conversation that misbehaved once carrying a 24h-capable tier forever,
+    so the first bad minute a year later costs a day.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await _storm(_guard(repo))  # trips to tier 1
+
+    guard = _guard(repo)
+    step = guard._decay_step_seconds
+
+    # Comes back after enough silence for exactly one step.
+    verdict = (
+        await _storm(guard, start=BASE + timedelta(seconds=step + 60), n=1)
+    )[0]
+
+    assert verdict.admit is True
+    assert verdict.tier == 0, (
+        "silence past one decay step must have aged the tier down, not "
+        f"handed the session back its escalation memory: tier={verdict.tier}"
+    )
+
+
+async def test_ageing_down_to_zero_makes_the_row_sweepable(db_client):
+    """The other half of the same defect: `cleanup_older_than_days`
+    deliberately sweeps only `tier = 0`, so a session stuck above zero is
+    a row nothing can ever reclaim. Ageing must be written back."""
+    repo = ChannelIngressBreakerRepository(db_client)
+    await _storm(_guard(repo))
+
+    row = await repo.get(KEY)
+    assert row is not None and row.tier == 1
+
+    guard = _guard(repo)
+    await _storm(guard, start=BASE + timedelta(seconds=guard._decay_step_seconds + 60), n=1)
+
+    row = await repo.get(KEY)
+    assert row is not None
+    assert row.tier == 0, "the durable row still carries a tier nothing can sweep"
+    assert row.last_reason == "aged_out"
+
+
+async def test_many_silent_steps_age_down_by_many_tiers(db_client):
+    """The catch-up is proportional to the silence, not one step per load.
+
+    A row six months old must not need six months of restarts to come
+    back to zero.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": None,
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+
+    later = BASE + timedelta(seconds=guard._decay_step_seconds * 3 + 60)
+    verdict = (await _storm(guard, start=later, n=1))[0]
+    assert verdict.tier == 0, f"three steps of silence, tier={verdict.tier}"
+
+
+async def test_ageing_never_releases_a_session_still_in_its_cooldown(db_client):
+    """Decaying inside the cooldown would end the isolation early — the one
+    thing this state exists to hold. The 8/14 loop ran 70+ hours; a reload
+    partway through must not shorten the sentence."""
+    repo = ChannelIngressBreakerRepository(db_client)
+    await _storm(_guard(repo))  # tier 1, cooldown 300s from BASE
+
+    guard = _guard(repo)
+    verdict = (await _storm(guard, start=BASE + timedelta(seconds=120), n=1))[0]
+
+    assert verdict.admit is False, "still inside the cooldown"
+    assert verdict.tier == 1, "the tier must not have aged while isolated"
+
+
+async def test_ageing_does_not_run_while_the_isolation_is_still_in_force(db_client):
+    """Long cooldowns outlive a decay step, so the guard must be explicit.
+
+    At tier 3 the cooldown is 7200s while a decay step is 1200s. A reload
+    two thousand seconds in is therefore both "still isolated" and "past a
+    step" — the one timeline where ageing would cut the sentence short.
+    The 8/14 loop ran 70+ hours; a redeploy partway through must not
+    shorten it.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(seconds=7200),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+
+    mid = BASE + timedelta(seconds=guard._decay_step_seconds + 100)
+    assert mid < BASE + timedelta(seconds=7200), "the timeline must still be cooling"
+    verdict = (await _storm(guard, start=mid, n=1))[0]
+
+    assert verdict.admit is False, "still isolated"
+    assert verdict.tier == 3, (
+        f"ageing released the isolation early: tier={verdict.tier}"
+    )
+
+
+async def test_a_recovery_step_refreshes_the_decay_anchor(db_client):
+    """`_maybe_recover` and `_decay_for_silence` must not both bill the
+    same silence.
+
+    The anchor is `tier_changed_at`, and a recovery IS a tier change. If a
+    recovery left it standing, the next load would count the time already
+    paid out by `_maybe_recover` a second time and over-decay — handing a
+    re-offender a cheaper cooldown, which is what the tier exists to deny.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await _storm(guard)  # trips to tier 1 at BASE
+
+    tripped = await repo.get(KEY)
+    assert tripped is not None and tripped.tier_changed_at is not None
+
+    # Same instance throughout: the durable catch-up in `_load` only runs
+    # on a fresh guard, and it would zero this tier before `_maybe_recover`
+    # ever saw it. This is the "kept talking" half of the decay.
+    step = guard._decay_step_seconds
+    # The first message after the cooldown is the half-open probe; it
+    # starts the clean clock rather than earning a step.
+    await _storm(guard, start=BASE + timedelta(seconds=400), n=1, text="probe")
+    await _storm(guard, start=BASE + timedelta(seconds=400 + step + 60), n=1,
+                 text="unrelated")
+
+    row = await repo.get(KEY)
+    assert row is not None
+    assert row.last_reason == "recovered"
+    assert row.tier_changed_at is not None
+    assert row.tier_changed_at > tripped.tier_changed_at, (
+        "a recovery left the decay anchor at the trip time; the silence it "
+        "just consumed would be billed again on the next load"
+    )
+
+
+async def test_find_open_is_bounded_and_says_so_when_it_truncates():
+    """`tier > 0` and "still cooling" are both decided in Python, so an
+    unbounded query here is a full-table read on every process start.
+
+    The truncation must be loud: a short result reads exactly like a
+    complete one, and `warm_start` would report a standing-isolation count
+    that is quietly wrong — the same "looks like it covered everything"
+    shape a silent cap always has.
+    """
+    from loguru import logger
+
+    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+        _FIND_OPEN_LIMIT,
+    )
+
+    calls = []
+    lines = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
+    try:
+
+        class _FakeDb:
+            async def get(self, table, filters=None, **kwargs):
+                calls.append(kwargs)
+                return [
+                    {
+                        "session_key": f"k{i}",
+                        "channel": "slack",
+                        "agent_id": "a",
+                        "chat_id": "c",
+                        "sender_id": "s",
+                        "tier": 1,
+                        "cooldown_until": None,
+                        "suppressed_count": 0,
+                        "last_reason": None,
+                        "last_tripped_at": None,
+                        "tier_changed_at": None,
+                        "created_at": None,
+                        "updated_at": None,
+                    }
+                    for i in range(_FIND_OPEN_LIMIT + 50)
+                ]
+
+        repo = ChannelIngressBreakerRepository(_FakeDb())
+        rows = await repo.find_open("slack")
+    finally:
+        logger.remove(sink)
+
+    assert calls and calls[0].get("limit") is not None, (
+        "find_open issued an unbounded read"
+    )
+    assert len(rows) == _FIND_OPEN_LIMIT, f"cap not applied: {len(rows)}"
+    assert any("skipping the rest" in ln for ln in lines), (
+        f"the cap bit without saying so: {lines}"
+    )

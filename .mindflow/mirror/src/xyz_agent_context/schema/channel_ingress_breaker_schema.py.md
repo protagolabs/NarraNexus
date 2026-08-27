@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/channel_ingress_breaker_schema.py
 stub: false
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27 — 新增 `tier_changed_at`
+
+tier 上次变动的时刻，用 guard 的时钟。[[ingress_guard]] 的 `_load` 拿它做
+「沉默多久 → 该降几级」的锚点。为什么不是 `last_tripped_at` 或 `updated_at`，
+见 [[schema_registry]] 里那一段。
 
 ## 2026-08-25（第三轮 review）— 钳制改成 per-column，算术由测试推导
 

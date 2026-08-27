@@ -19,7 +19,14 @@ Three obligations, from the 2026-08-17 ingress design:
 
 The guard is driven directly rather than through a trigger: these are
 claims about the POLICY, and routing them through six channels' plumbing
-would test the plumbing. ``test_ingress_guard_all_paths`` covers wiring.
+would test the plumbing. Wiring will be covered by
+``test_ingress_guard_all_paths``, which lands with the wiring PR.
+
+The DELETION guard named above — the one that fails if the breaker is
+switched off — also lands there: it asserts on a trigger class attribute
+that does not exist until the guard is mounted. So the MUST-NOT-TRIP
+cases below are, in this commit, not yet protected against the breaker
+being disabled outright.
 """
 from __future__ import annotations
 
@@ -216,10 +223,8 @@ async def test_without_the_guard_the_incident_runs_the_full_pipeline():
     guarded, _ = await _replay(_guard(), messages, is_agent_peer=True)
 
     # "No guard" = the state of the world before this PR: nothing on the
-    # inbound path asked whether the message was worth processing.
-    unguarded = len(messages)
-
-    assert unguarded == len(messages)
-    assert guarded < unguarded * 0.05, (
+    # inbound path asked whether the message was worth processing, so every
+    # message ran the pipeline.
+    assert guarded < len(messages) * 0.05, (
         "the guard is not doing the work this file claims it does"
     )

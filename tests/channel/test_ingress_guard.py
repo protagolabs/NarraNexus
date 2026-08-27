@@ -22,6 +22,7 @@ import pytest
 
 from xyz_agent_context.channel.ingress_guard import (
     IngressGuard,
+    _PRUNE_EVERY_ADMITS,
     content_fingerprint,
 )
 
@@ -345,16 +346,37 @@ async def test_idle_sessions_do_not_accumulate_forever():
     processes are designed to run for days — binding rule #14 makes
     "only matters after 200 hours" not a defence."""
     guard = _guard()
-    for i in range(2500):
-        await guard.admit(
-            agent_id="agt_1",
-            channel="slack",
-            chat_id=f"C{i}",
-            sender_id=f"U{i}",
-            fingerprint=content_fingerprint(f"C{i}", f"U{i}", "hi"),
-            now=BASE + timedelta(seconds=i),
-        )
-    assert len(guard._sessions) < 2500, "one-time senders must not be retained"
+
+    async def _walk(lo, hi):
+        for i in range(lo, hi):
+            await guard.admit(
+                agent_id="agt_1",
+                channel="slack",
+                chat_id=f"C{i}",
+                sender_id=f"U{i}",
+                fingerprint=content_fingerprint(f"C{i}", f"U{i}", "hi"),
+                now=BASE + timedelta(seconds=i),
+            )
+
+    await _walk(0, 2500)
+    after_2500 = len(guard._sessions)
+    await _walk(2500, 5000)
+    after_5000 = len(guard._sessions)
+
+    # The property is "does not accumulate", so the check is that doubling
+    # the traffic does not grow what is retained. A fixed ceiling is the
+    # weaker test and easy to get wrong: the true bound is not the sweep
+    # interval alone but that PLUS the sessions still inside the window,
+    # which the sweep must not drop — 1101 here, so `<= 1000` fails for a
+    # correct implementation while `< 2500` passes for a broken one.
+    assert after_5000 <= after_2500, (
+        f"retained sessions grow with total traffic: "
+        f"{after_2500} -> {after_5000}"
+    )
+    # Still bounded, and stated in terms it is derived from rather than a
+    # literal: admits since the last sweep, plus one window of live ones.
+    ceiling = _PRUNE_EVERY_ADMITS + guard._window
+    assert after_5000 <= ceiling, f"{after_5000} retained, ceiling {ceiling}"
 
 
 async def test_pruning_never_drops_a_cooling_session():

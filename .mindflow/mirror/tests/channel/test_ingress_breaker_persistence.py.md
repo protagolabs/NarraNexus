@@ -1,8 +1,28 @@
 ---
 code_file: tests/channel/test_ingress_breaker_persistence.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27（第一轮 review）— 补上「沉默衰减」这条路
+
+新增五条，全部围绕 `_load` 的追补衰减（[[ingress_guard.py]]）：沉默一步后
+降级、归零后行变得可清扫、多步按比例一次补齐、**冷却期内绝不衰减**、recover
+也刷新锚点。
+
+后两条是刻意挑的时间轴，不挑就测不到：
+- tier 3 的冷却 7200s 比衰减步长 1200s 长，所以存在「既在隔离中又已过一步」
+  的窗口；不落在这个窗口里，「冷却期内也衰减」这个变异照样绿。
+- 追补衰减会在 `_load` 里抢先把 tier 归零，所以要测 `_maybe_recover` 必须用
+  **同一个实例持续说话**（不重新加载），且先用掉半开探测那一条。
+
+另修：`test_warm_start_survives_a_broken_store` 的假 repo 签名少了
+`cooling_only` / `now`，实际先抛 `TypeError` 而不是它想模拟的库错误——测试
+一直绿，但从没走到它声称在测的那条路上。
+
+`find_open` 的上限用假 db 驱动真仓储来钉：断言 `limit` 真的传下去了、结果
+真的被截到上限、且截断时**出声**。
+
 # test_ingress_breaker_persistence.py — 冷却必须活过进程
 
 钉 [[ingress_guard.py]] 的读写分层：滑窗纯内存、tier/冷却写穿。

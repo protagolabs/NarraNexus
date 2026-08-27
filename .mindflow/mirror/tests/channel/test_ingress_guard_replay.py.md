@@ -1,7 +1,7 @@
 ---
 code_file: tests/channel/test_ingress_guard_replay.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 ---
 # test_ingress_guard_replay.py — 设计文档 §6 的验收用例
 
@@ -17,4 +17,5 @@ job 批量 / 慢速重复 / 真实对话里的礼貌性重复，一条都不许�
 关掉的情况下**依然全绿**——它们只断言了消息被放行。
 
 直接驱动 guard 而不是穿过 trigger：这些是关于**策略**的断言，穿六个渠道的
-管道等于在测管道。接线由 [[test_ingress_guard_all_paths.py]] 覆盖。
+管道等于在测管道。接线将由 `test_ingress_guard_all_paths.py` 覆盖——**那个
+文件随接线 PR 落地，本次合入时不存在**。

@@ -54,7 +54,10 @@ from typing import Any, Deque, Dict, Optional, Tuple
 
 from loguru import logger
 
-from xyz_agent_context.schema.channel_ingress_breaker_schema import session_key
+from xyz_agent_context.schema.channel_ingress_breaker_schema import (
+    ChannelIngressBreaker,
+    session_key,
+)
 from xyz_agent_context.utils.timezone import utc_now
 
 # ── Defaults ──────────────────────────────────────────────────────────
@@ -447,8 +450,13 @@ class IngressGuard:
     def forget_agent(self, agent_id: str) -> int:
         """Drop every in-memory session belonging to one agent.
 
-        Called when an agent's subscriber stops (credential unbound, or
-        shutdown). ``prune_idle`` cannot cover this: it deliberately keeps
+        WILL be called when an agent's subscriber stops (credential
+        unbound, or shutdown) — there is no caller in this commit; the
+        guard lands before its wiring, on purpose. Stated as intent rather
+        than as fact because a "Called when ..." on a method nobody calls
+        reads as "the unbind path is already handled", and it is not.
+
+        ``prune_idle`` cannot cover this: it deliberately keeps
         sessions carrying escalation memory, so an unbound agent's tripped
         conversations would sit in memory for the life of the process.
 
@@ -502,6 +510,85 @@ class IngressGuard:
                 cooldown_until = cooldown_until.replace(tzinfo=now.tzinfo)
             if now < cooldown_until:
                 state.cooldown_until = cooldown_until
+        await self._decay_for_silence(key, state, row, now)
+
+
+    async def _decay_for_silence(
+        self,
+        key: str,
+        state: _SessionState,
+        row: ChannelIngressBreaker,
+        now: datetime,
+    ) -> None:
+        """Age the tier down for time spent silent, on lazy load.
+
+        ``_maybe_recover`` only runs from ``admit()``, so it decays a tier
+        solely while the session KEEPS TALKING. A session that tripped and
+        then went quiet keeps its tier forever: nothing polls, and the
+        durable row is read back verbatim on the next load. That is the
+        exact failure ``_maybe_recover``'s own docstring says it exists to
+        prevent — a conversation that misbehaved once carrying a 24h-capable
+        tier for the rest of its life — implemented for only half the cases.
+
+        It is also why the table never shrinks: ``cleanup_older_than_days``
+        deliberately sweeps only ``tier = 0`` rows, so a session stuck at
+        tier > 0 is a row that can never be reclaimed.
+
+        Anchored on ``tier_changed_at``, which exists for this and only
+        this. The two neighbouring columns both look like they would do and
+        both are wrong: ``last_tripped_at`` stands still while
+        ``_maybe_recover`` walks the tier down, so it would re-credit
+        silence already paid out and decay too far; ``updated_at`` is
+        stamped by the repository off the wall clock while this state
+        machine runs on a caller-supplied ``now``, so the two disagree
+        wherever the caller's clock is not wall time.
+        """
+        if state.tier <= 0:
+            return
+        # Never while still isolated. Decaying inside the cooldown would
+        # release the isolation early, which is the one thing this state is
+        # for. Note ``state.cooldown_until`` is only set above when it is
+        # still in the future, so this reads "the cooldown has elapsed".
+        if state.cooldown_until is not None:
+            return
+        anchor = row.tier_changed_at
+        if anchor is None:
+            # Only reachable for a row whose tier was never moved by this
+            # code path. Decaying from an unknown origin would be a guess.
+            return
+        if anchor.tzinfo is None:
+            anchor = anchor.replace(tzinfo=now.tzinfo)
+        steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
+        if steps <= 0:
+            return
+        before = state.tier
+        state.tier = max(0, state.tier - steps)
+        # Credit the silence that has already elapsed rather than leaving
+        # this None, or the first message back would start a fresh window
+        # before any further step could be earned.
+        state.clean_since = now
+        logger.info(
+            f"IngressGuard aged down on load: {key} "
+            f"tier={before} -> {state.tier} (silent {steps} steps)"
+        )
+        if state.tier == 0:
+            # Written back so the row becomes sweepable. Intermediate steps
+            # are not persisted: the anchor is unchanged, so a restart
+            # recomputes the same number — but a row stuck above zero is one
+            # ``cleanup_older_than_days`` can never take.
+            await self._persist(
+                key,
+                {
+                    "channel": row.channel or "",
+                    "agent_id": row.agent_id or "",
+                    "chat_id": row.chat_id or "",
+                    "sender_id": row.sender_id or "",
+                    "tier": 0,
+                    "cooldown_until": None,
+                    "last_reason": "aged_out",
+                    "tier_changed_at": now,
+                },
+            )
 
     def _record(self, state: _SessionState, now: datetime, fingerprint: str) -> None:
         state.events.append((now, fingerprint))
@@ -597,6 +684,7 @@ class IngressGuard:
                 "suppressed_count": suppressed_before,
                 "last_reason": reason,
                 "last_tripped_at": now,
+                "tier_changed_at": now,
             },
         )
         return IngressVerdict(
@@ -704,6 +792,14 @@ class IngressGuard:
             is_agent_peer=is_agent_peer,
         )
 
+    @property
+    def _decay_step_seconds(self) -> float:
+        """How long one tier step takes to decay. One definition, two
+        callers — ``_maybe_recover`` (session kept talking) and ``_load``
+        (session went silent and came back). Two copies of a decay rate is
+        two rates the day someone tunes one of them."""
+        return self._window * self._recovery_windows
+
     async def _maybe_recover(
         self,
         key: str,
@@ -725,7 +821,7 @@ class IngressGuard:
         if state.clean_since is None:
             state.clean_since = now
             return None
-        if (now - state.clean_since).total_seconds() < self._window * self._recovery_windows:
+        if (now - state.clean_since).total_seconds() < self._decay_step_seconds:
             return None
 
         state.tier -= 1
@@ -741,6 +837,7 @@ class IngressGuard:
                 "tier": state.tier,
                 "cooldown_until": None,
                 "last_reason": "recovered",
+                "tier_changed_at": now,
             },
         )
         return "recovered"

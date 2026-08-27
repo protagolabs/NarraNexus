@@ -115,5 +115,9 @@ class ChannelIngressBreaker(BaseModel):
     suppressed_count: int = 0
     last_reason: Optional[str] = None
     last_tripped_at: Optional[datetime] = None
+    # When ``tier`` last moved, in the guard's clock. The anchor for
+    # ageing a silent session's tier down — see
+    # ``IngressGuard._decay_for_silence``.
+    tier_changed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

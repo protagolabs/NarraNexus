@@ -1,8 +1,21 @@
 ---
 code_file: tests/channel/test_ingress_guard.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27（第一轮 review）— 空闲会话那条断言改成「不随流量增长」
+
+原断言是 `< 2500`（总 admit 数），清扫只丢掉一个会话它也绿。
+
+但 review 建议的 `<= _PRUNE_EVERY_ADMITS`（1000）**也是错的**：实测保留 1101。
+真实上界是「上次清扫以来新建的」（500）**加上**「还在窗口内因而不该被清掉的」
+（600）——后一项是正确行为，不是泄漏。
+
+与其反推一个脆的公式，改成钉真正的性质：**流量翻倍，保留数不增长**（跑 2500
+再跑 2500，比较两次）。另外留一条由常量推导的上界
+`_PRUNE_EVERY_ADMITS + window`，不写字面量。
+
 # test_ingress_guard.py — 熔断器状态机
 
 钉 [[ingress_guard.py]] 的 L2/L3 模型：进入条件取合取、按表升级、到期只放

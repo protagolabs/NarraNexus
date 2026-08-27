@@ -28,6 +28,12 @@ from xyz_agent_context.utils.timezone import utc_now
 
 from .base import BaseRepository
 
+# Upper bound on one `find_open` load. Sized well above any plausible
+# count of simultaneously-isolated sessions (a storm is by definition
+# low-cardinality) so it is a backstop, not a policy — and the caller is
+# told when it bites.
+_FIND_OPEN_LIMIT = 500
+
 
 class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
     """Repository for per-conversation ingress breaker state."""
@@ -111,13 +117,33 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         if channel:
             filters["channel"] = channel
         try:
-            rows = await self._db.get(self.table_name, filters=filters or None)
+            rows = await self._db.get(
+                self.table_name,
+                filters=filters or None,
+                # Bounded on purpose. `tier > 0` and "still cooling" are
+                # both decided in Python, so without a limit this is an
+                # unbounded full-table read on every process start. Newest
+                # cooldowns first, because a truncated load should keep the
+                # sessions most likely to still be isolated.
+                order_by="cooldown_until DESC",
+                limit=_FIND_OPEN_LIMIT + 1,
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"ChannelIngressBreakerRepository.find_open({channel}): "
                 f"{type(e).__name__}: {e}"
             )
             return []
+        if len(rows) > _FIND_OPEN_LIMIT:
+            # Never silently: a truncated result reads exactly like a
+            # complete one, and the caller (`warm_start`) would report a
+            # standing-isolation count that is quietly short.
+            logger.warning(
+                f"ChannelIngressBreakerRepository.find_open({channel}): more "
+                f"than {_FIND_OPEN_LIMIT} rows; loading the newest "
+                f"{_FIND_OPEN_LIMIT} and skipping the rest"
+            )
+            rows = rows[:_FIND_OPEN_LIMIT]
         entities = [self._row_to_entity(r) for r in rows if r]
         open_rows = [e for e in entities if (e.tier or 0) > 0]
         if not cooling_only:
