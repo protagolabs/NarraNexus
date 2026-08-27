@@ -12,17 +12,19 @@ import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import type { SlotOverrideStats } from '@/types/api';
 
+type SlotKey = 'agent' | 'helper_llm';
+
 interface Props {
   isOpen: boolean;
   stats: SlotOverrideStats;
   /** Slots the user actually changed this save — only these are offered, so a
    *  helper-only change never presents the main-model slot for clearing. */
-  dirtySlots: string[];
+  dirtySlots: SlotKey[];
   onClose: () => void;
   onApply: (slots: string[]) => Promise<void>;
 }
 
-const ALL_SLOTS: Array<{ key: 'agent' | 'helper_llm'; labelKey: string; fallback: string }> = [
+const ALL_SLOTS: Array<{ key: SlotKey; labelKey: string; fallback: string }> = [
   { key: 'agent', labelKey: 'pages.settings.modelDefaults.applyAgentSlot', fallback: 'Main model (agent)' },
   { key: 'helper_llm', labelKey: 'pages.settings.modelDefaults.applyHelperSlot', fallback: 'Helper (helper_llm)' },
 ];
@@ -33,6 +35,9 @@ export function ApplyDefaultsToAgentsDialog({ isOpen, stats, dirtySlots, onClose
   const [applying, setApplying] = useState(false);
   // Only offer the slots the user changed this save.
   const slots = ALL_SLOTS.filter((s) => dirtySlots.includes(s.key));
+  // Nothing to offer → render nothing (the caller only opens the dialog when a
+  // dirty slot has overrides, so this is a defensive guard for a second caller).
+  if (slots.length === 0) return null;
 
   const toggle = (slot: string) =>
     setChecked((prev) => {

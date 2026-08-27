@@ -77,7 +77,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [agentInitial, setAgentInitial] = useState<AgentDraft>(EMPTY_AGENT);
   const [helperInitial, setHelperInitial] = useState<HelperDraft>(EMPTY_HELPER);
   const [applyStats, setApplyStats] = useState<SlotOverrideStats | null>(null);
-  const [applyDirtySlots, setApplyDirtySlots] = useState<string[]>([]);
+  const [applyDirtySlots, setApplyDirtySlots] = useState<Array<'agent' | 'helper_llm'>>([]);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
@@ -207,9 +207,9 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     setError('');
     // Capture which slots changed BEFORE load() resets the initial snapshots —
     // only these are offered in the apply-to-agents dialog.
-    const dirtySlots: string[] = [
-      ...(agentChanged ? ['agent'] : []),
-      ...(helperChanged ? ['helper_llm'] : []),
+    const dirtySlots: Array<'agent' | 'helper_llm'> = [
+      ...(agentChanged ? ['agent' as const] : []),
+      ...(helperChanged ? ['helper_llm' as const] : []),
     ];
     try {
       if (agentChanged) {
@@ -557,8 +557,8 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
               // Echo the irreversible result so it isn't a silent close.
               const cleared = Object.values(r.data?.cleared ?? {}).reduce((a, b) => a + b, 0);
               void showNotice({
-                title: t('pages.settings.modelDefaults.applyTitle', 'Default model updated'),
-                message: t('pages.settings.modelDefaults.applyDone', 'Cleared overrides on {{n}} agents.', { n: cleared }),
+                title: t('pages.settings.modelDefaults.applyDoneTitle', 'Overrides cleared'),
+                message: t('pages.settings.modelDefaults.applyDone', 'Cleared per-agent overrides — {{n}} agents affected.', { n: cleared }),
               });
             } catch (e) {
               setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));

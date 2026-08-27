@@ -185,6 +185,46 @@ async def test_clear_snapshots_deleted_rows_to_audit():
 
 
 @pytest.mark.asyncio
+async def test_audit_preserves_null_agent_framework_and_params():
+    # A source row with agent_framework/params_json = NULL must snapshot as
+    # NULL (not ""), else "inherit"/"all auto" become indistinguishable from
+    # an empty string on restore.
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await db.insert(
+        "agent_slots",
+        {"agent_id": "a1", "slot_name": "agent", "provider_id": "p1",
+         "model": "m", "params_json": None, "agent_framework": None,
+         "created_at": "x", "updated_at": "x"},
+    )
+    await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    audit = await db.get_one("agent_slot_clear_audit", {"agent_id": "a1"})
+    assert audit["agent_framework"] is None
+    assert audit["params_json"] is None
+
+
+@pytest.mark.asyncio
+async def test_clear_owner_agents_slots_plural_validates_and_dedups():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_override(db, "a1", "agent")
+    # dedup: ["agent","agent"] clears once.
+    out = await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent", "agent"])
+    assert out == {"agent": 1}
+
+
+@pytest.mark.asyncio
+async def test_clear_owner_agents_slots_plural_fail_closed_bad_slot():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_override(db, "a1", "agent")
+    with pytest.raises(ValueError):
+        await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent", "bogus"])
+    # fail-closed: the valid slot was NOT cleared.
+    assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is not None
+
+
+@pytest.mark.asyncio
 async def test_clear_also_removes_stub_rows_but_still_snapshots():
     # clear deletes ALL rows for (agent,slot), stubs included (they exist to be
     # cleared) — only counting/display skip stubs, not the clear itself.

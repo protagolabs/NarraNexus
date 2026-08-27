@@ -166,7 +166,6 @@ _NO_BODY_CAP_EXEMPT = frozenset({
     "/api/providers",
     "/api/providers/agent-framework",
     "/api/providers/onboard",
-    "/api/providers/slots/apply-to-agents",  # slots list capped at len(SlotName) — small fixed-shape JSON
     "/api/providers/slots/{slot_name}",
     "/api/providers/sync-defaults",
     "/api/providers/test-config",

@@ -19,3 +19,7 @@ stub: false
 「你共有 N 个 agent」（`total_agents`，知情同意）。`willClear` 改用 i18next
 原生插值 `t(key,{n})`，不再手写 `.replace('{{n}}')`。全部文案已注册 i18n key
 （en + zh 全量）。
+
+**2026-08-27 (r2)**：`dirtySlots` 收成 `Array<'agent'|'helper_llm'>` 联合类型
+（拼错编译期报错，不再静默渲染空框）；无可选槽时 `return null` 兜底第二个
+调用方。

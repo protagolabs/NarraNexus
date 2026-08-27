@@ -20,8 +20,13 @@ Dialog.apply() 造成未处理 rejection。
 
 **2026-08-27 auto-review 修正**：在 `load()` 重置快照**前**捕获本次改动的槽
 （`dirtySlots`），传给弹框；仅当**改过的槽**有覆盖才弹（helper-only 改动不会
-拿主槽的数字吓人）。`onApply` 成功后用 `showNotice` 回显「已清除 N 个 agent
-的覆盖」，不再静默关闭（不可逆操作要有结果反馈）。
+拿主槽的数字吓人）。`onApply` 成功后用 `showNotice` 回显结果，不再静默关闭（不可逆操作要有结果
+反馈）。
+
+**2026-08-27 (r2)**：通知标题用独立 key `applyDoneTitle`（不再复用确认框的
+`applyTitle`，避免一 key 两语义）；回显文案 `applyDone` 措辞不再承诺与预览数字
+严格相等（预览按有效覆盖数、实际清除含 stub 行，将来可能不同）。`dirtySlots`
+state 收成 `Array<'agent'|'helper_llm'>`。
 
 ## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
 

@@ -1756,7 +1756,8 @@
         "saveDefaultOnly": "仅保存默认",
         "applyToChecked": "应用到勾选的 agent",
         "applyTotalNote": "你共有 {{total}} 个 agent。",
-        "applyDone": "已清除 {{n}} 个 agent 的覆盖。"
+        "applyDone": "已清除 per-agent 覆盖——涉及 {{n}} 个 agent。",
+        "applyDoneTitle": "已清除覆盖"
       },
       "updates": {
         "label": "应用更新",

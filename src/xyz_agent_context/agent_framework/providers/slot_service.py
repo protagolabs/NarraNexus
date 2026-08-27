@@ -218,7 +218,7 @@ class AgentSlotService:
             filters["slot_name"] = slot_name
         await self.db.delete("agent_slots", filters)
 
-    async def owner_agent_ids(self, owner_id: str) -> list[str]:
+    async def _owner_agent_ids(self, owner_id: str) -> list[str]:
         """agent_id list owned by ``owner_id`` (agents.created_by).
 
         Projects to ``agent_id`` only — the ``agents`` table carries a fat
@@ -240,7 +240,7 @@ class AgentSlotService:
         bulk apply. DB cost is 1 (agents) + N (one agent_slots read per owned
         agent); it is not a single query.
         """
-        agent_ids = await self.owner_agent_ids(owner_id)
+        agent_ids = await self._owner_agent_ids(owner_id)
         per_slot: Dict[str, int] = {s.value: 0 for s in SlotName}
         for aid in agent_ids:
             rows = await self.db.get("agent_slots", {"agent_id": aid})
@@ -250,31 +250,51 @@ class AgentSlotService:
                     per_slot[slot] += 1
         return {**per_slot, "total_agents": len(agent_ids)}
 
-    async def clear_owner_agents_slot(
-        self,
-        owner_id: str,
-        slot_name: str,
-        *,
-        agent_ids: Optional[list[str]] = None,
+    async def clear_owner_agents_slots(
+        self, owner_id: str, slot_names: list[str]
+    ) -> Dict[str, int]:
+        """Clear each of ``slot_names`` for EVERY agent owned by ``owner_id``,
+        reverting those agents to inherit the owner default on their next run.
+        Returns ``{slot_name: cleared_count}``.
+
+        The whole request is validated fail-closed FIRST (an unknown slot name
+        raises ``ValueError`` before any delete, so a bad name never leaves a
+        partial clear behind), slot names are order-preserving-deduped, and the
+        owner's agent list is fetched ONCE and reused across slots — the
+        orchestration lives here, not in the route.
+        """
+        valid = {s.value for s in SlotName}
+        slots = list(dict.fromkeys(slot_names))  # order-preserving dedup
+        bad = [s for s in slots if s not in valid]
+        if bad:
+            raise ValueError(f"Invalid slot(s): {bad}")
+        agent_ids = await self._owner_agent_ids(owner_id)
+        return {s: await self._clear_one_slot(owner_id, s, agent_ids) for s in slots}
+
+    async def clear_owner_agents_slot(self, owner_id: str, slot_name: str) -> int:
+        """Single-slot convenience wrapper over ``clear_owner_agents_slots``."""
+        if slot_name not in {s.value for s in SlotName}:
+            raise ValueError(f"Invalid slot: {slot_name}")
+        return await self._clear_one_slot(
+            owner_id, slot_name, await self._owner_agent_ids(owner_id)
+        )
+
+    async def _clear_one_slot(
+        self, owner_id: str, slot_name: str, agent_ids: list[str]
     ) -> int:
-        """Delete the ``slot_name`` override for EVERY agent owned by
-        ``owner_id`` — reverting those agents to inherit the owner default on
-        their next run. Returns the number of agents that actually had a row.
+        """Delete ``slot_name`` for the given ``agent_ids``, returning how many
+        actually had a row.
 
         ALL rows for ``(agent_id, slot_name)`` are deleted, including any
         framework-only / empty-provider stub (those exist precisely to be
         cleared — only counting/display treat them as "not an override").
         Every deleted row is snapshotted into ``agent_slot_clear_audit`` BEFORE
-        the delete, so an irreversible bulk clear stays recoverable.
-
-        ``agent_ids`` may be passed in to avoid re-reading the owner's agent
-        list once per slot; when omitted it is fetched. ``db.delete`` has no
-        IN semantics, so this deletes per agent_id.
+        the delete, so an irreversible bulk clear stays recoverable — the
+        snapshot passes NULL through verbatim (no ``or ""``) so a source
+        ``agent_framework``/``params_json`` of NULL ("inherit" / "all auto")
+        stays distinguishable from an empty string on restore. ``db.delete``
+        has no IN semantics, so this deletes per agent_id.
         """
-        if slot_name not in {s.value for s in SlotName}:
-            raise ValueError(f"Invalid slot: {slot_name}")
-        if agent_ids is None:
-            agent_ids = await self.owner_agent_ids(owner_id)
         cleared = 0
         for aid in agent_ids:
             existing = await self.db.get_one(
@@ -288,10 +308,10 @@ class AgentSlotService:
                     "user_id": owner_id,
                     "agent_id": aid,
                     "slot_name": slot_name,
-                    "provider_id": existing.get("provider_id") or "",
-                    "model": existing.get("model") or "",
-                    "agent_framework": existing.get("agent_framework") or "",
-                    "params_json": existing.get("params_json") or "",
+                    "provider_id": existing.get("provider_id"),
+                    "model": existing.get("model"),
+                    "agent_framework": existing.get("agent_framework"),
+                    "params_json": existing.get("params_json"),
                 },
             )
             await self.db.delete(
@@ -319,7 +339,7 @@ class AgentSlotService:
             for r in owner_rows or []
         }
         out: Dict[str, dict] = {}
-        for aid in await self.owner_agent_ids(owner_id):
+        for aid in await self._owner_agent_ids(owner_id):
             override_rows = await self.db.get("agent_slots", {"agent_id": aid})
             override_by_slot = {
                 r.get("slot_name"): (r.get("model") or "")

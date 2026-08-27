@@ -1756,7 +1756,8 @@
         "saveDefaultOnly": "Save default only",
         "applyToChecked": "Apply to selected agents",
         "applyTotalNote": "You have {{total}} agents in total.",
-        "applyDone": "Cleared overrides on {{n}} agents."
+        "applyDone": "Cleared per-agent overrides — {{n}} agents affected.",
+        "applyDoneTitle": "Overrides cleared"
       },
       "updates": {
         "label": "App updates",

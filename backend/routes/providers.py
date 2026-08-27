@@ -787,10 +787,11 @@ async def validate_slots(request: Request):
 
 
 class ApplyToAgentsRequest(BaseModel):
-    # A slot appears at most once and there are only len(SlotName) of them —
-    # cap the raw list so a body-field route can never be inflated into a
-    # huge per-agent loop (a duplicated slot amplifies nothing after dedup,
-    # but the cap keeps the buffered body itself a small fixed shape).
+    # Cap the LOOP CARDINALITY: there are only len(SlotName) slots and each
+    # appears at most once, so an inflated ["agent"]*N can't be turned into a
+    # huge per-agent loop. (This is a Pydantic check that runs AFTER the body
+    # is buffered, so it does NOT bound the byte size — the real byte cap for
+    # this route lives in body_size.BODY_CAPS.)
     slots: list[str] = Field(..., max_length=len(SlotName))
 
 
@@ -811,22 +812,15 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     agents, so they revert to inheriting the owner default on their next run.
     Semantics = clear-to-inherit (not stamp-a-snapshot)."""
     uid = _get_user_id(request)
-    # Validate ALL slot names up front — fail-closed, so a bad name never
-    # leaves a partial clear behind (no delete happens before validation).
-    valid = {s.value for s in SlotName}
-    slots = list(dict.fromkeys(req.slots))  # order-preserving dedup
-    bad = [s for s in slots if s not in valid]
-    if bad:
-        raise HTTPException(status_code=400, detail=f"Invalid slot(s): {bad}")
     from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
-    svc = AgentSlotService(db)
-    # Fetch the owner's agent list once and reuse it across slots, rather than
-    # re-reading it inside clear_owner_agents_slot per slot.
-    agent_ids = await svc.owner_agent_ids(uid)
-    cleared: dict[str, int] = {}
-    for slot in slots:
-        cleared[slot] = await svc.clear_owner_agents_slot(uid, slot, agent_ids=agent_ids)
+    # Validation (fail-closed on a bad slot), dedup, single agent-list fetch
+    # and per-slot clear all live in the service — the route just validates
+    # identity and delegates.
+    try:
+        cleared = await AgentSlotService(db).clear_owner_agents_slots(uid, req.slots)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
     return {"success": True, "data": {"cleared": cleared}}
 
