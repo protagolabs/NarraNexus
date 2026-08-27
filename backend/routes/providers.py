@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
@@ -43,7 +43,6 @@ from xyz_agent_context.utils.deployment_mode import (
 )
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
 from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 
@@ -199,8 +198,8 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -783,11 +782,16 @@ async def validate_slots(request: Request):
 # overrides, so these endpoints let the owner (a) see how many agents override
 # and (b) clear those overrides so they fall back to inheriting the new
 # default (clear-to-inherit; NOT a value snapshot). ``agents-overview`` feeds
-# the Dashboard model chip in one call (no per-agent N+1).
+# the Dashboard model chip in one HTTP call (the DB layer is still one
+# agent_slots read per owned agent, not a single query).
 
 
 class ApplyToAgentsRequest(BaseModel):
-    slots: list[str]
+    # A slot appears at most once and there are only len(SlotName) of them —
+    # cap the raw list so a body-field route can never be inflated into a
+    # huge per-agent loop (a duplicated slot amplifies nothing after dedup,
+    # but the cap keeps the buffered body itself a small fixed shape).
+    slots: list[str] = Field(..., max_length=len(SlotName))
 
 
 @router.get("/slots/override-stats")
@@ -795,6 +799,7 @@ async def slot_override_stats(request: Request):
     """How many of the caller's agents hold a per-agent override, per slot —
     the blast radius shown before a bulk 'apply defaults to all agents'."""
     uid = _get_user_id(request)
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     stats = await AgentSlotService(db).count_owner_overrides(uid)
     return {"success": True, "data": stats}
@@ -809,14 +814,19 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
     # Validate ALL slot names up front — fail-closed, so a bad name never
     # leaves a partial clear behind (no delete happens before validation).
     valid = {s.value for s in SlotName}
-    bad = [s for s in req.slots if s not in valid]
+    slots = list(dict.fromkeys(req.slots))  # order-preserving dedup
+    bad = [s for s in slots if s not in valid]
     if bad:
         raise HTTPException(status_code=400, detail=f"Invalid slot(s): {bad}")
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     svc = AgentSlotService(db)
+    # Fetch the owner's agent list once and reuse it across slots, rather than
+    # re-reading it inside clear_owner_agents_slot per slot.
+    agent_ids = await svc.owner_agent_ids(uid)
     cleared: dict[str, int] = {}
-    for slot in req.slots:
-        cleared[slot] = await svc.clear_owner_agents_slot(uid, slot)
+    for slot in slots:
+        cleared[slot] = await svc.clear_owner_agents_slot(uid, slot, agent_ids=agent_ids)
     logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
     return {"success": True, "data": {"cleared": cleared}}
 
@@ -826,6 +836,7 @@ async def slot_agents_overview(request: Request):
     """Effective (agent + helper_llm) model per owned agent, in one call —
     feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
     uid = _get_user_id(request)
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     overview = await AgentSlotService(db).owner_agents_overview(uid)
     return {"success": True, "data": {"agents": overview}}

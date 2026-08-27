@@ -21,12 +21,15 @@ class _FakeDB:
     def __init__(self):
         self.tables: dict[str, list[dict]] = defaultdict(list)
 
-    async def get(self, table, filters=None):
+    async def get(self, table, filters=None, fields=None, **_kw):
         filters = filters or {}
-        return [
+        rows = [
             r for r in self.tables[table]
             if all(r.get(k) == v for k, v in filters.items())
         ]
+        if fields:
+            rows = [{k: r.get(k) for k in fields} for r in rows]
+        return rows
 
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
@@ -134,3 +137,60 @@ async def test_owner_agents_overview_effective_and_inheriting():
     assert overview["a1"]["agent"] == {"model": "pinned-agent-model", "inheriting": False}
     assert overview["a1"]["helper_llm"] == {"model": "default-helper-model", "inheriting": True}
     assert overview["a2"]["agent"] == {"model": "default-agent-model", "inheriting": True}
+
+
+async def _mk_stub_override(db, agent_id, slot_name):
+    # An empty-provider framework-only stub row — must NOT read as an override.
+    await db.insert(
+        "agent_slots",
+        {"agent_id": agent_id, "slot_name": slot_name, "provider_id": "",
+         "model": "", "params_json": "{}", "agent_framework": "codex_cli",
+         "created_at": "2026-08-26T00:00:00+00:00",
+         "updated_at": "2026-08-26T00:00:00+00:00"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_stub_override_row_is_not_counted():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_stub_override(db, "a1", "agent")  # empty provider_id
+    stats = await AgentSlotService(db).count_owner_overrides("owner1")
+    assert stats == {"agent": 0, "helper_llm": 0, "total_agents": 1}
+
+
+@pytest.mark.asyncio
+async def test_stub_override_row_reads_as_inheriting_in_overview():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_user_slot(db, "owner1", "agent", "default-agent-model")
+    await _mk_stub_override(db, "a1", "agent")
+    overview = await AgentSlotService(db).owner_agents_overview("owner1")
+    # stub → inheriting, model comes from owner default (matches runtime/card).
+    assert overview["a1"]["agent"] == {"model": "default-agent-model", "inheriting": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_snapshots_deleted_rows_to_audit():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_override(db, "a1", "agent", model="pinned")
+    cleared = await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    assert cleared == 1
+    audit = await db.get("agent_slot_clear_audit", {"agent_id": "a1"})
+    assert len(audit) == 1
+    assert audit[0]["model"] == "pinned"
+    assert audit[0]["user_id"] == "owner1"
+    assert audit[0]["slot_name"] == "agent"
+
+
+@pytest.mark.asyncio
+async def test_clear_also_removes_stub_rows_but_still_snapshots():
+    # clear deletes ALL rows for (agent,slot), stubs included (they exist to be
+    # cleared) — only counting/display skip stubs, not the clear itself.
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_stub_override(db, "a1", "agent")
+    cleared = await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    assert cleared == 1
+    assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is None

@@ -13,8 +13,15 @@ stub: false
 - `POST /slots/apply-to-agents` `{slots:[...]}` → 逐槽 clear-to-inherit，返回
   实际清除数。**fail-closed**：进入清除循环前先校验全部槽名，任一非法即
   400、不产生部分删除。
-- `GET /slots/agents-overview` → 一次拿全 agent 的 effective 模型 + inherit
-  标记，喂 Dashboard 折叠行 model chip（免 per-agent N+1）。
+- `GET /slots/agents-overview` → 喂 Dashboard 折叠行 model chip：一次 HTTP
+  调用替代 per-agent llm-config 请求（DB 层非单查询，见 [[slot_service]]）。
+
+**2026-08-27 auto-review 修正**：`apply-to-agents` 的 `slots` 加
+`max_length=len(SlotName)` + 保序去重（`dict.fromkeys`），并登记进
+`test_body_size_gate` 豁免（小固定形状 JSON）——堵住「无界 list × per-agent
+循环」放大。owner 的 agent 列表在路由取一次、传给逐槽的 clear。
+`get_db_client` 统一回落到**函数内局部 import**（全仓主流、与 ~10 个
+source-patch 测试一致；模块顶层 import 会让那些测试连真库），而非模块顶层。
 
 为让测试可 monkeypatch，`get_db_client` 由函数内局部 import 提升为模块顶层
 import（旧端点内的局部 import 保留、互不影响）。这三个端点服务于「改默认→

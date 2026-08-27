@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-21
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 新表 agent_slot_clear_audit
+
+owner 级「应用默认到全体 agent」会不可逆地删 `agent_slots` 行。删除前把每行
+快照（user_id/agent_id/slot_name/provider_id/model/agent_framework/params_json）
+append 进 `agent_slot_clear_audit`，让误操作可追溯/可恢复（DB 留痕胜过只写
+日志——docker 日志会在 restart 时轮转）。由 [[slot_service]]
+`clear_owner_agents_slot` 写入。双方言列已填全。
 
 # schema_registry.py
 

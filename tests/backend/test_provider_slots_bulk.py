@@ -22,12 +22,15 @@ class _FakeDB:
     def __init__(self):
         self.tables: dict[str, list[dict]] = defaultdict(list)
 
-    async def get(self, table, filters=None):
+    async def get(self, table, filters=None, fields=None, **_kw):
         filters = filters or {}
-        return [
+        rows = [
             r for r in self.tables[table]
             if all(r.get(k) == v for k, v in filters.items())
         ]
+        if fields:
+            rows = [{k: r.get(k) for k in fields} for r in rows]
+        return rows
 
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
@@ -64,7 +67,12 @@ def client(monkeypatch, db):
 
     async def _get_db():
         return db
-    monkeypatch.setattr(providers_mod, "get_db_client", _get_db)
+    # Patch the SOURCE symbol (the endpoints import get_db_client locally at
+    # call time) — the codebase-wide pattern, shared with the ~10 other tests
+    # that source-patch db_factory.get_db_client.
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _get_db
+    )
 
     app.include_router(providers_mod.router, prefix="/api/providers")
     return TestClient(app, raise_server_exceptions=False)
@@ -109,6 +117,49 @@ async def test_apply_to_agents_rejects_bad_slot(client, db):
     r = client.post("/api/providers/slots/apply-to-agents",
                     json={"slots": ["bogus"]}, headers=OWNER)
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_apply_to_agents_caps_slots_length(client, db):
+    # slots list is capped at len(SlotName) via Pydantic — an inflated body is
+    # rejected with 422 before any DB work (C1 amplification guard).
+    r = client.post("/api/providers/slots/apply-to-agents",
+                    json={"slots": ["agent"] * 50}, headers=OWNER)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_apply_to_agents_dedups_slots(client, db):
+    await _seed(db, "a1", "owner1", slot="agent")
+    r = client.post("/api/providers/slots/apply-to-agents",
+                    json={"slots": ["agent", "agent"]}, headers=OWNER)
+    assert r.status_code == 200
+    assert r.json()["data"]["cleared"] == {"agent": 1}  # cleared once, not twice
+
+
+@pytest.mark.asyncio
+async def test_apply_to_agents_writes_audit_snapshot(client, db):
+    await _seed(db, "a1", "owner1", slot="agent", model="pinned-x")
+    r = client.post("/api/providers/slots/apply-to-agents",
+                    json={"slots": ["agent"]}, headers=OWNER)
+    assert r.status_code == 200
+    audit = await db.get("agent_slot_clear_audit", {"agent_id": "a1"})
+    assert len(audit) == 1 and audit[0]["model"] == "pinned-x"
+
+
+@pytest.mark.asyncio
+async def test_agents_overview_stub_row_reads_inheriting(client, db):
+    await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
+                                   "provider_id": "p1", "model": "def-a",
+                                   "params_json": "{}", "agent_framework": "nexus_power"})
+    await db.insert("agents", {"agent_id": "a1", "created_by": "owner1", "name": "a1"})
+    await db.insert("agent_slots", {"agent_id": "a1", "slot_name": "agent",
+                                    "provider_id": "", "model": "",
+                                    "params_json": "{}", "agent_framework": "codex_cli",
+                                    "created_at": "x", "updated_at": "x"})
+    r = client.get("/api/providers/slots/agents-overview", headers=OWNER)
+    ov = r.json()["data"]["agents"]
+    assert ov["a1"]["agent"] == {"model": "def-a", "inheriting": True}
 
 
 @pytest.mark.asyncio

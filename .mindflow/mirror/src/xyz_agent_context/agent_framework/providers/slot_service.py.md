@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — auto-review 修正（判据一致 / 审计 / 措辞诚实）
+
+- **有效覆盖判据统一**（模块级 `_is_effective_override(row)=bool(row and
+  row.get("provider_id"))`）：`count_owner_overrides` 和 `owner_agents_overview`
+  都用它，跳过空 `provider_id` 的 framework-only stub 行——与运行时
+  [[resolver]]（`_apply_agent_overrides` 跳空 provider）和 [[llm_config]]
+  `_slot_view` 一致，避免同一 agent 的 chip 与 card 打架。
+- **`clear_owner_agents_slot` 不套这个判据**：它按 `(agent_id, slot_name)` 删
+  全部行（stub 也删——stub 本就该被清）；只有计数/展示跳 stub。删除**前**把
+  行快照写进 `agent_slot_clear_audit`（不可逆批量删除的可追溯留痕，见
+  [[schema_registry]]）。
+- **N+1 措辞改诚实**：`owner_agents_overview` 免掉的是 **HTTP 层**（前端从 N 个
+  llm-config 请求变 1 个），DB 层仍是 1(agents)+N(每 agent 一次 agent_slots)。
+- **`owner_agent_ids` 加 `fields=["agent_id"]` 投影**（agents 表有 fat
+  `agent_metadata`，不再整行拉回丢弃）；改公开名供路由复用（apply 端点取一次
+  agent 列表传给逐槽的 clear，避免每槽重取）。
+- `count_owner_overrides` 用 `{s.value:0 for s in SlotName}` 生成 per-slot 计数
+  （不再硬编码两个槽名、total_agents 不再混进 per-slot 判断）。
 
 ## 2026-08-26 — owner 范围的批量继承化 + Dashboard overview
 
@@ -16,8 +35,8 @@ stub: false
   生效，不动运行中 loop）。`db.delete` 无 IN 语义，故逐 agent_id 等值删；
   返回真正清掉的 agent 数。
 - `owner_agents_overview(owner_id)` → `{agent_id: {slot: {model, inheriting}}}`：
-  一次拿全 agent 的 effective 模型 + inherit 标记，喂 Dashboard 折叠行的
-  model chip，避免 per-agent llm-config 的 N+1。
+  喂 Dashboard 折叠行 model chip，用一次 HTTP 调用替代 per-agent 的 llm-config
+  请求（DB 层仍每 agent 一次 agent_slots 查询——见 2026-08-27 修正）。
 
 这三者支撑「改默认→一键应用到全体」与「Dashboard 就地看/改单 agent 模型」
 两个前端功能；语义刻意是**清除覆盖**而非盖写快照，未来 owner 默认再变时

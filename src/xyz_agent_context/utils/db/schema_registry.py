@@ -1117,6 +1117,34 @@ _register(
     )
 )
 
+# 25c. agent_slot_clear_audit (append-only trail for bulk clear-to-inherit)
+# The owner-level "apply default to all agents" flow deletes agent_slots rows,
+# which is IRREVERSIBLE (provider_id/model/params/framework are gone). Before
+# each delete we snapshot the row here so a mistaken bulk clear is recoverable
+# and answerable ("which agents, what were they set to"). DB trail, not just a
+# log line (CLAUDE.md lesson #5: docker logs rotate on restart, DB rows don't).
+_register(
+    TableDef(
+        name="agent_slot_clear_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
+            # Snapshot of the deleted override row (what it was set to).
+            Column("provider_id", "TEXT", "VARCHAR(64)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("agent_framework", "TEXT", "VARCHAR(32)"),
+            Column("params_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_asca_user", ["user_id"]),
+            Index("idx_asca_agent", ["agent_id"]),
+        ],
+    )
+)
+
 # 26. bus_message_failures (composite primary key)
 _register(
     TableDef(
