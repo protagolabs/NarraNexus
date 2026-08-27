@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/_retrieval_llm.py
-last_verified: 2026-08-12
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 菜单与 participant 区改由共享块渲染(judge 输出字节不变)
+
+`## Participant-Associated Topics` 与 `## Existing Topics` 两段的拼装搬进
+[[routing_blocks]],本文件改为调用。**judge 的 prompt 一个字节没动**
+(`test_merged_routing_prompt.py` 里两条 golden 断言逐字节钉住,含空菜单那
+句"(none — …)")。
+
+为什么现在搬:合并调用是这两段文案的**第四个**消费者,而这个文件已经为
+"复制而非共享"付过两次学费(search / participant 两个分支的候选标签,
+2026-04-15 只修了一个;两份 judge prompt 的 no_topic 判据分叉三次)。第四份
+拷贝一定会以同样的方式分叉,只是这次是在一条会**每轮**执行的路上。
+
+那条"有分数却没有证据"的 `logger.warning` 跟着搬走了,行为不变 —— 包括它对
+`raw_score == 0` 的 participant 行**故意不响**(那些行没走过 BM25,不欠证据;
+误报会让人把报警关掉,然后报警就永远没了)。
+
 ## 2026-08-12 — 候选渲染出 BM25 证据；`llm_confirm` 死代码簇删除
 
 判官 prompt 的 search 候选块现在多两行：`Matched terms:`（按贡献降序，最多 5 个）

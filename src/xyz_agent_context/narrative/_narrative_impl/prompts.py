@@ -224,6 +224,10 @@ class UnifiedMatchOutput(BaseModel):
     matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 """
 
+# Merged-routing instructions live in prompts_merged.py (round-3 split);
+# _NO_DURABLE_TOPIC_RUBRIC stays HERE because both judge variants splice it
+# verbatim — one copy is the whole point (PR #361 round 2, I2).
+
 # ============================================================================
 # Narrative Update - Narrative metadata incremental update prompt
 # Used in NarrativeUpdater._call_llm_for_update()

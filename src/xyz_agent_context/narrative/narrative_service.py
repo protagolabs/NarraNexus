@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
+
 from .models import (
     ConversationSession,
     Event,
@@ -44,6 +46,7 @@ from ._narrative_impl import (
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.schema.module_schema import InstanceStatus
+    from ._narrative_impl.landings import Landing
 
 
 def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) -> str:
@@ -60,30 +63,11 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
     return input_content
 
 
-def is_reusable_anchor(narrative) -> bool:
-    """Is this anchored narrative a thread a turn may simply stay on?
-
-    THE one definition, consumed by all three anchor-reuse decision points —
-    the continuity guard in ``select()``, the no-topic landing in
-    ``_land_no_topic_turn``, and ``step_1_fast_select``'s session reuse. The
-    independent review (2026-08-21, Important #3) caught the fast path missing
-    the check the slow path had: sessions still anchored to a legacy default
-    bucket (26.4% of prod user turns at C-1 ship time) were re-pinned to the
-    bucket every fast turn while the slow path pushed them out — two paths
-    fighting over the same invariant, because it lived as two literals.
-
-    A default bucket stops being a reusable thread when C-1 governance is on;
-    with the rollback flag flipped, buckets are containers again and reuse is
-    the old, intended behaviour.
-    """
-    from .config import config
-
-    if narrative is None:
-        return False
-    return not (
-        narrative.is_special == "default"
-        and not config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
-    )
+# THE one definition each, moved to impl (review 2026-08-27, Important #2)
+# so the merged-path orchestration can consume them without an upward import.
+# Re-exported here unchanged: `step_1_fast_select` imports `is_reusable_anchor`
+# from this module, and that public seam stays.
+from ._narrative_impl.anchor_rules import advance_session_anchor, is_reusable_anchor
 
 
 @dataclass(frozen=True)
@@ -311,6 +295,24 @@ class NarrativeService:
         # trigger provided one; else the raw input_content. See 2026-06-01 design.
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
+        # Merged routing (off by default): BM25 runs FIRST, then either a
+        # zero-LLM shutter or ONE call answers both questions the rest of this
+        # method asks serially. An early return rather than a branch woven
+        # through the body — everything below it is the two-call path exactly as
+        # it was, which is what makes "flag off = today's behaviour" a property
+        # you can read instead of a claim you have to trust.
+        if config.NARRATIVE_MERGED_ROUTING_ENABLED:
+            return await self._select_merged(
+                agent_id=agent_id,
+                user_id=user_id,
+                query_text=query_text,
+                max_narratives=max_narratives,
+                session=session,
+                awareness=awareness,
+                is_user_chat=is_user_chat,
+                trigger=trigger,
+            )
+
         # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into
         # the "everything else" bucket.
@@ -364,15 +366,9 @@ class NarrativeService:
                             awareness=awareness
                         )
                         # Tag the timer with the model the helper LLM
-                        # actually ended up using inside detector.detect
-                        # (resolution happens deep in OpenAIAgentsSDK —
-                        # we read it back via the contextvar set there).
-                        from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                            get_last_llm_call_info,
-                        )
-                        info = get_last_llm_call_info()
-                        if info:
-                            t.tag(**info)
+                        # actually used inside detector.detect (post-call by
+                        # contract — see call_tagging's docstring).
+                        tag_last_llm_call(t)
                     _continuity_ms = int((_perf.monotonic() - _t_continuity) * 1000)
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
@@ -441,15 +437,19 @@ class NarrativeService:
             no_durable_topic = retrieval_result.no_durable_topic
 
             if no_durable_topic:
-                narratives, selection_method, selection_reason, is_new = (
-                    await self._land_no_topic_turn(
-                        agent_id=agent_id,
-                        user_id=user_id,
-                        query_text=query_text,
-                        session=session,
-                        reason=selection_reason,
-                    )
+                # Only the four decided fields are adopted: this path keeps
+                # its own retrieval_method (flag-off byte path unchanged).
+                landing = await self._land_no_topic_turn(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    query_text=query_text,
+                    session=session,
+                    reason=selection_reason,
                 )
+                narratives = landing.narratives
+                selection_method = landing.method
+                selection_reason = landing.reason
+                is_new = landing.is_new
                 if audit is not None:
                     audit.selection_method = selection_method
                     audit.chosen_narrative_id = (
@@ -505,18 +505,7 @@ class NarrativeService:
                     audit=audit, snapshots=audit_snapshots,
                 )
 
-        # Update Session (using main Narrative).
-        # Only user-initiated runs (chat) write to last_query / last_response /
-        # current_narrative_id — background trigger runs (job / message_bus /
-        # lark / callback) must leave these fields untouched so the *next*
-        # user message gets its continuity judged against the previous user
-        # exchange, not against whatever cron job or bus ping ran in between.
-        if session and narratives and is_user_chat:
-            from datetime import datetime, timezone
-            session.last_query = query_text
-            session.current_narrative_id = narratives[0].id
-            session.query_count += 1
-            session.last_query_time = datetime.now(timezone.utc)
+        advance_session_anchor(session, query_text, narratives, is_user_chat)
 
         logger.info(f"[NarrativeSelect] completed: {len(narratives)} Narratives, method={selection_method}")
 
@@ -543,6 +532,39 @@ class NarrativeService:
             retrieval_method=retrieval_method,
         )
 
+    async def _select_merged(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        query_text: str,
+        max_narratives: int,
+        session: Optional[ConversationSession],
+        awareness: Optional[str],
+        is_user_chat: bool,
+        trigger: str,
+    ) -> NarrativeSelectionResult:
+        """One decision per turn: BM25 first, then a shutter or ONE call.
+
+        Thin delegate — the orchestration lives in
+        `_narrative_impl/merged_select.py` (review 2026-08-27, Important #2:
+        two 250-line deciders side by side pushed this file past the 800-line
+        bound, and the landing fields were six loose locals per branch).
+        """
+        from ._narrative_impl.merged_select import select_merged
+
+        return await select_merged(
+            self._crud, self._retrieval, self._write_audit,
+            agent_id=agent_id,
+            user_id=user_id,
+            query_text=query_text,
+            max_narratives=max_narratives,
+            session=session,
+            awareness=awareness,
+            is_user_chat=is_user_chat,
+            trigger=trigger,
+        )
+
     async def _land_no_topic_turn(
         self,
         *,
@@ -551,72 +573,17 @@ class NarrativeService:
         query_text: str,
         session: Optional[ConversationSession],
         reason: str,
-    ) -> tuple:
-        """Place a turn the judge called "no durable topic" (C-1, plan 4-A').
+        anchor: Optional[Narrative] = None,
+    ) -> "Landing":
+        """Thin delegate — the landing executor lives with its four siblings
+        in `_narrative_impl/landings.py` (review round 5, I3). Kept here so
+        both routing paths and the existing tests share one call surface."""
+        from ._narrative_impl.landings import land_no_topic
 
-        The judge answered a question about the TURN ("is there anything here
-        worth remembering as its own thread?"); it did not name a destination.
-        This is where the destination is decided, and the rule is anchor-first
-        — deliberately the same shape ``step_1_fast_select`` already settled on
-        for the fast path, so the two paths cannot drift into disagreeing about
-        where a contentless turn belongs:
-
-        1. **A live anchor on a real thread → reuse it.** A "你好" in the middle
-           of a task belongs to the task (annotation protocol R1), and the user
-           expects the agent to still know what they were doing. The thread's
-           retrieval surface is NOT touched — see ``no_durable_topic`` on
-           NarrativeSelectionResult for why a greeting must never get to rename
-           the work it interrupted.
-        2. **No anchor → create.** Chat history endpoints are
-           narrative-scoped and the ChatModule instance hangs off the narrative,
-           so running bare here would make a first-contact turn vanish from the
-           user's own history. The created thread is not junk: it becomes the
-           anchor, and the updater renames it as the real subject emerges.
-
-        A third branch (ephemeral surface → run bare, `no_topic_bare`) was
-        REMOVED on review (2026-08-21, Important #2): every ephemeral
-        TurnProfile also selects the bm25_top1 fast path, so this method never
-        received anything but "durable" — the branch was unreachable in
-        production and a test was pinning behaviour the system could not
-        exhibit (the exact `matched_content` failure shape this batch
-        cleaned up elsewhere). If an ephemeral profile ever takes the slow
-        path, re-add it deliberately, wired from TurnProfile at the two
-        `select()` call sites in step_1_select_narrative.
-
-        Returns ``(narratives, selection_method, reason, is_new)``.
-        """
-        anchor_id = getattr(session, "current_narrative_id", None) if session else None
-        if anchor_id:
-            anchored = await self._crud.load_by_id(anchor_id)
-            # A bucket anchor is not a thread to reuse (slice 5 already refused
-            # to continue one); fall through and let the turn land properly.
-            if is_reusable_anchor(anchored):
-                logger.info(
-                    f"[NarrativeSelect] no durable topic — reusing anchor "
-                    f"{anchored.id} without touching its surface"
-                )
-                return (
-                    [anchored],
-                    "no_topic_anchored",
-                    f"No durable topic; kept on the active thread: {reason}",
-                    False,
-                )
-
-        created = await self._retrieval.create_from_query(
-            query=query_text,
-            user_id=user_id,
-            agent_id=agent_id,
-            narrative_type=NarrativeType.CHAT,
-        )
-        logger.info(
-            f"[NarrativeSelect] no durable topic and no anchor — created "
-            f"{created.id} so the turn stays in history"
-        )
-        return (
-            [created],
-            "new_created",
-            f"No durable topic, no thread to keep it on: {reason}",
-            True,
+        return await land_no_topic(
+            self._crud, self._retrieval,
+            agent_id=agent_id, user_id=user_id, query_text=query_text,
+            session=session, reason=reason, anchor=anchor,
         )
 
     # =========================================================================

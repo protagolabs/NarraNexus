@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 合并指令改为按轮拼装(review Critical 1)
+
+独立审查抓到一个必然自伤的组合:共享核心里"遗留容器也能续"的段落 +
+答案表把 continue_anchor 写死为 DEFAULT,而 `_contract_violation` 对
+"锚点不可续 + continue_anchor" 一律拒绝——模型顺着 prompt 答,答案必被
+拒,落点是 merged_fallback_new(正是文件头严防的 D19 形状)。修法:
+删掉那段"continues even there"(routing_blocks 删 `_LEGACY_BUCKET_NOTE`
+用的同一个理由,这次用在自己身上);两份字面量指令换成
+`build_merged_instructions(anchor_is_continuable, with_participants)` ——
+答案表、priority 列表、输出格式的 verdict 清单全部由同一次选择拼出,
+与 `merged_router.allowed_verdicts` 同源,**prompt 说有的 = 契约收的**。
+2×2 变体全走拼接不落字面量;测试从"双常量循环"升级为"四组合对 builder
+循环"+"每变体 offered==accepted"钉。遗留容器规则活在
+`ANCHOR_NOT_CONTINUABLE_NOTE`(恰在适用的轮渲染),不再进共享核心。
+
+## 2026-08-26 — 合并路由的 prompt(第一天就上配对纪律)
+
+新增 `_MERGED_ROUTING_CORE`(共享核心)+ 主版 / participant 版指令,
+`_NO_DURABLE_TOPIC_RUBRIC` **原样**splice 进两份。(08-27 起两份字面量
+已被上一条的 builder 取代,共享核心与判据不变。)
+
+**为什么一出生就是共享常量 + 变体循环断言**:participant 那一对已经静默
+分叉三次(最后一次 PR #361 round 2 的 I2),修法是"一份常量、多处 splice、
+锚点测试对变体循环"。新 prompt 直接生在这个安排里,不必先挣一次自己的
+第三次分叉。八类目名缺席断言、判据锚点、独门判据锚点都对变体循环。
+
+**核心里写死的东西**(每条都有测试钉):
+1. **不对称性铁规**(§3.2 的 prompt 落地):停在锚点是**默认**;菜单是**换线**
+   的证据,从来不是留下的证据;词面重合是换线的**必要不充分**条件。
+   数据依据:续接轮 26.2%–71.6% 锚点不在 BM25 top-3,8.2%–49.3% 锚点零分 ——
+   "同簇后续轮零词面重叠"是常态而非信号。
+2. **continuity 的独门判据折进核心/条件块**:业务意图级
+   粒度、**agent 自己的回答引出的追问算续接**(共享核心);遗留桶规则在
+   `ANCHOR_NOT_CONTINUABLE_NOTE`(08-27 起,见上一条)。continuity
+   作为决策者被替换了,只有它的 prompt 说过的东西必须活下来 —— 尤其第二条,
+   真机上正是它缺席导致三问三线碎片化(agent_846942113533 轮 3)。
+3. **no_topic 判据一字不改**。2026-08-21 的裁定摆着:调词的边际收益已归零
+   (四条硬误判全是判据明文排除的形态),而一句倾斜句换来碎片化 +0.186。
+   合并改的是**谁在问**,不是话怎么说。
+
+`participant` 出口**只在** participant 变体里出现:给一个背后没有候选的出口
+等于邀请一个越界 index(而越界 index 在实现里等于一次失败兜底)。
 
 ## 2026-08-25 — no_topic 判据抽成共享常量 `_NO_DURABLE_TOPIC_RUBRIC`(PR #361 round 2, I2)
 
@@ -138,6 +181,22 @@ update 都重写 `narrative_info.name`（与 current_summary 同源、同频）�
 与 STABLE 两处**，等价性由 `tests/narrative/test_narrative_prompt_split.py` 锁定。
 
 # prompts.py — narrative 子系统的全部 prompt 常量
+
+## 2026-08-27(round 3)— 合并段迁往 prompts_merged.py
+
+~220 行合并指令片段+composer 独立成文件;`_NO_DURABLE_TOPIC_RUBRIC`
+**留在本文件**(judge 变体也逐字 splice 它,唯一拷贝是全部意义),
+prompts_merged 反向 import 它。
+
+## 2026-08-27(round 2)— 共享核心自己也在邀请被拒的 verdict(C1 残留)
+
+上一轮把答案表参数化了,但共享核心块里"Staying on that thread is the
+DEFAULT answer"仍是无条件的——无锚点/桶锚点的轮上,user_input 说"不能续",
+核心却说"留下是默认"。拆法:核心只留锚点无关的两块(业务意图粒度、
+读菜单+"词面重合必要不充分");不对称性段落+上一轮判据块 →
+`_MERGED_CORE_WITH_ANCHOR`(仅可续时渲染);不可续时渲染对称的
+`_MERGED_CORE_WITHOUT_ANCHOR`(自带省略式读法一行)。变体测试同步:
+DEFAULT 句 = 仅可续变体断言有、不可续断言无。
 
 ## 为什么存在
 

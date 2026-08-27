@@ -6,6 +6,13 @@ stub: false
 
 # narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
 
+## 2026-08-26 — `_to_row` 多写合并路由八列
+
+`merged_call` / `anchor_in_menu` 走 `int()`(布尔列),其余六列**原样传**:
+`None` 必须活着落成 NULL —— "这一行是两次调用路径决策的"与"合并调用花了
+0ms"是两个不同的事实,强转 0 会让前者伪装成后者。与 `continuity_ms` /
+`judge_ms` 是同一条纪律,理由也同一条。
+
 ## 2026-08-26 — `_to_row` 多写一列 `pool_is_shadow`(切片 0)
 
 标记这一行的池是**只记录、没决策**的(continuity 判 yes 的轮次)。

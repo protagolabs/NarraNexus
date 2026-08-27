@@ -8,6 +8,8 @@ All tunable parameters are centralized in this file for easy experimentation and
 """
 import os
 
+from loguru import logger
+
 
 def _env(name: str, default: str) -> str:
     """Read an env override for a config knob, falling back to `default`.
@@ -150,6 +152,14 @@ class NarrativeConfig:
     # Purpose: Can put Top-3 into Context for Agent reference (optional)
     NARRATIVE_SEARCH_TOP_K = 3
 
+    # The BM25 candidate pool's size — `load_pool`'s fetch limit on EVERY
+    # path (flag on or off), not a merged-routing knob (review round 3, M3:
+    # it was first filed under the merged section, where tuning it looked
+    # arm-local). Ranking always runs at full pool depth (round 3, I1), so
+    # raising this raises both fetch and ranking together — no second
+    # constant to keep in step.
+    NARRATIVE_POOL_LIMIT = int(_env("NARRATIVE_POOL_LIMIT", "100"))
+
     # Slice 0 instrument: record the BM25 pool on continuity turns too, where
     # `select` used to return before the retrieval tier ran. Default ON — the
     # measurement is the whole point, it costs two DB reads + one
@@ -233,6 +243,93 @@ class NarrativeConfig:
     NARRATIVE_DEFAULT_BUCKETS_ENABLED = (
         _env("NARRATIVE_DEFAULT_BUCKETS_ENABLED", "0") == "1"
     )
+
+    # ==================== Merged routing (one call, four answers) ==========
+    # ON = BM25 runs FIRST on every turn, then either a zero-LLM shutter or ONE
+    # helper call decides both questions the two-tier path asks serially ("does
+    # this continue the thread?" then "so where does it go?").
+    #
+    # Why it is worth a flag at all (prod, 7 days, is_user_chat=1, n=189):
+    # 43 turns paid for BOTH calls, at a serial p50 of 8,924ms / mean 13,004ms.
+    # The non-LLM half of routing is 47.6ms mean — there is nothing else in
+    # there to fix, so the only lever is the number of round trips.
+    #
+    # ROLLBACK IS THE FLAG, and it rolls back exactly one thing: the ROUTING
+    # STRUCTURE (who decides, and in what order). Flipping it back to "0"
+    # restores the continuity → judge pair and stops the merged prompt from
+    # being built; it does NOT undo anything else in this batch, and nothing
+    # else in this batch needs undoing:
+    #   * the merged prompt constants are a NEW file section, unreferenced when
+    #     the flag is off;
+    #   * the shared prompt blocks (`routing_blocks.py`) render the continuity
+    #     tier's and the judge's text byte for byte — pinned by test;
+    #   * the audit columns are additive and simply stay NULL;
+    #   * ⚠ ONE thing changed for BOTH arms and is NOT flag-controlled:
+    #     candidates_json[].raw_score precision. Ranking now runs at full pool
+    #     depth on every path (round 3, I1), so rank-7+ pool members carry
+    #     their real BM25 score where they used to record a hard 0.0. Prompts
+    #     are byte-identical either way; the AUDIT series has a step change at
+    #     this deploy. Any "how many candidates scored" analysis over a window
+    #     that straddles it must split at the deploy timestamp — same reading
+    #     rule as NARRATIVE_SHADOW_POOL_RECORD's window note above.
+    # (Stated this precisely because the bucket flag's comment claimed a full
+    # rollback it could not deliver, and PR #361 review caught it.)
+    #
+    # Retirement (delete the flag AND the two-call path, not the new one)
+    # when ALL of: ① the merged exam passes its pre-registration (p07 hijack
+    # 0/22 veto, DIVERTED=0, calls −≥15%); ② the flag has run ON in prod for
+    # 14 days with no flag rollback; ③ prod audit shows all five verdicts plus
+    # at least one merged_fallback_* on merged_call=1 rows (an untravelled
+    # fallback is unverified); ④ the Owner rules the two-call path need not be
+    # revivable. Full checklist: todo/2026-08-26-merged-routing-flag-
+    # retirement-condition.md (author-local).
+    NARRATIVE_MERGED_ROUTING_ENABLED = (
+        _env("NARRATIVE_MERGED_ROUTING_ENABLED", "0") == "1"
+    )
+
+    # ---- the merged prompt's input budget (READ-SIDE ONLY) ----
+    # Caps on what the prompt SHOWS. Nothing here rewrites a stored field: same
+    # narrative row, same session, same message. All head-preserving — see
+    # `routing_blocks.clamp_head`.
+    #
+    # Why hard caps at all, when the two-tier path had none: continuity and the
+    # judge each read a SUBSET of these fields, and the anchor block was only
+    # rendered on turns that had an anchor. The merged prompt renders the whole
+    # set on EVERY routed turn, so an unbounded field is no longer one tier's
+    # bad turn — it is every turn's latency and every turn's bill.
+
+    # The agent's previous reply. The tension to keep in mind if you retune it:
+    # the referent of a follow-up ("讲第一个" / "the first one") almost always
+    # sits in the FIRST sentences of that reply, which is why the clamp keeps
+    # the head — but a long reply's tail is also where a closing question can
+    # live ("要不要我继续?"). 1500 covers the p90 of prod agent replies; raising
+    # it costs latency on every merged turn, so raise it against measured
+    # misroutes, not on principle.
+    MERGED_PREV_RESPONSE_MAX_CHARS = int(_env("NARRATIVE_MERGED_PREV_RESPONSE_MAX_CHARS", "1500"))
+
+    # The anchored thread's summary. `current_summary` has a soft bound in the
+    # updater prompt and NO hard bound anywhere — a verbose model walks straight
+    # through it, and this block is rendered on every merged turn.
+    MERGED_ANCHOR_SUMMARY_MAX_CHARS = int(_env("NARRATIVE_MERGED_ANCHOR_SUMMARY_MAX_CHARS", "2000"))
+
+    # Agent awareness. Deliberately smaller than the message cap: awareness is
+    # the agent's standing persona, and routing needs only enough of it to read
+    # the domain the agent works in.
+    MERGED_AWARENESS_MAX_CHARS = int(_env("NARRATIVE_MERGED_AWARENESS_MAX_CHARS", "1500"))
+
+    # This turn's message, and (same cap, same reason) the previous turn's — a
+    # generous ceiling that exists only to stop a pathological paste from
+    # dominating the call. A real message never approaches it.
+    MERGED_QUERY_MAX_CHARS = int(_env("NARRATIVE_MERGED_QUERY_MAX_CHARS", "4000"))
+
+    # PARTICIPANT threads shown. A prefix, never a re-ranking: the ORDER is the
+    # P0-4 priority rule, so trimming to fit must not reorder.
+    MERGED_PARTICIPANT_MAX_CANDIDATES = int(_env("NARRATIVE_MERGED_PARTICIPANT_MAX_CANDIDATES", "8"))
+
+    # Keyword menu rows. Three, as in the two-tier judge (`search_results[:3]`)
+    # — this batch changes the decider, not the menu size, so a menu-size change
+    # would confound the arm.
+    MERGED_MENU_SIZE = int(_env("NARRATIVE_MERGED_MENU_SIZE", "3"))
 
     # ==================== Narrative LLM Dynamic Update ====================
     # Use LLM to update Narrative metadata every N Events (name, current_summary,
@@ -340,5 +437,43 @@ class NarrativeConfig:
     LOG_SIMILARITY_SCORES = True
 
 
+def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
+    """Refuse to boot with bucket governance OFF-ness inverted under merging.
+
+    Merged routing is built on a property bucket governance provides: with
+    `NARRATIVE_DEFAULT_BUCKETS_ENABLED = False` a legacy default bucket is not a
+    reusable anchor (`is_reusable_anchor`), so it can never occupy the merged
+    prompt's anchor slot and `continue_anchor` can never re-pin a turn to a
+    container whose retrieval surface never updates.
+
+    Turn both on and that guarantee is gone — and NOTHING has ever measured that
+    world: every arm, every dry run and every prod number behind the merged
+    design was taken with buckets off. Failing here costs a startup; failing
+    silently costs a routing decision nobody can explain, on the exact shape
+    (frozen anchor, identity wash) that produced the p07 hijack.
+    """
+    if cfg.NARRATIVE_DEFAULT_BUCKETS_ENABLED and cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
+        # Deliberately still at import time: moving this to per-process
+        # preflights was weighed (review minor 9) and rejected — one missed
+        # entrypoint would disarm the gate for that process entirely, which is
+        # worse than an import-chain traceback. The CRITICAL line below is the
+        # readable part ops will actually see, printed before the raise.
+        logger.critical(
+            "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
+            "and NARRATIVE_DEFAULT_BUCKETS_ENABLED=1 cannot be combined — "
+            "set one of them to 0 in .env and restart."
+        )
+        raise RuntimeError(
+            "NARRATIVE_MERGED_ROUTING_ENABLED=1 with "
+            "NARRATIVE_DEFAULT_BUCKETS_ENABLED=1 is an untested combination: "
+            "merged routing relies on a default bucket NOT being a reusable "
+            "anchor. Turn one of them off."
+        )
+
+
 # Export config instance (singleton)
 config = NarrativeConfig()
+
+# At import, i.e. at process start — the earliest point at which this can be
+# answered, and long before a user's turn depends on the answer.
+_reject_untested_flag_combination(config)

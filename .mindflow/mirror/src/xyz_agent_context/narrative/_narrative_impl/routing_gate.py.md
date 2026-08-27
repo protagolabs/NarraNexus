@@ -1,9 +1,35 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/routing_gate.py
-last_verified: 2026-08-20
+last_verified: 2026-08-27
 stub: false
 ---
+
 # routing_gate.py — 「BM25 够不够格自己拍板」的判据
+
+## 2026-08-27 — `pick_menu` 迁入(round 2 I6)
+
+菜单规则(排除锚点/participant、零分过滤、按 raw_score 取前 N)与快门
+同属"纯规则层",从 merged_router 迁来——它在 LLM 模块里迫使 retrieval
+反向 import 决策层。三处排除的三个理由随函数 docstring 原样迁移。
+
+## 2026-08-26 — `shutter_opens`:同一条规则,提前一个 tier
+
+合并路由把 BM25 挪到最前,于是 `evaluate_bypass` 变成**第一次 LLM 调用之前**
+就能回答的问题。那就是零 LLM 快门的全部 —— 不是新规则,是既有规则换了位置。
+所以它被写成一个**对既有判决的谓词**,而不是一份新判据:快门放行率的标定
+就是免审规则的标定,两者不许分叉。
+
+只有 `anchor_match` 开门,三条排除项都是要点不是疏漏:
+- `background_scope` 在两次调用路径上**是放行的**(后台 trigger 按设计没有
+  会话锚点),但它只凭分数门放行、没有身份检查 ⇒ 正是快门必须不放的人群,
+  这些轮次改付一次合并调用;
+- `anchor_miss` 是**换线**,换线永不免审(B-7 p07:一次错判把 22 轮里的 20 轮
+  关进陌生人的线);
+- `participant_present` 让 P0-4 保持结构性。
+
+四臂实测:加上 margin 条件后"改变了结果的误放行"(DIVERTED)= 0/142、0/186、
+0/224、0/304;而每一条真的改变了结果的误确认,margin 都落在 **1.06–1.27** ——
+锚点只是**险胜**。这就是为什么快门读的是闸门的判决,永远不是原始总分。
 
 ## 2026-08-20 — 免审是第二个决策,且它不看分数(Q 层)
 

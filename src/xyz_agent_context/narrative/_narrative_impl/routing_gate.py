@@ -46,7 +46,9 @@ point.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Iterable, List, Optional, Sequence
+
+from ..models import NarrativeSearchResult
 
 
 @dataclass(frozen=True)
@@ -294,3 +296,71 @@ def evaluate_bypass(
             f"{gate.reason}"
         ),
     )
+
+
+# ── the same decision, one tier earlier: the zero-LLM shutter ───────────────
+#
+# Merged routing runs BM25 before anything else, which makes `evaluate_bypass`
+# answerable BEFORE the first LLM call rather than after it. That is the whole
+# shutter: not a new rule, the existing one relocated.
+#
+# `anchor_match` is the only verdict that opens it, and the exclusions are the
+# point rather than an oversight:
+#   * `background_scope` GRANTS a bypass on the two-call path (a background
+#     trigger has no session anchor by design), but it grants it on the score
+#     gate alone — no identity check — so it is exactly the population the
+#     shutter must not release. Those turns pay one merged call instead.
+#   * `anchor_miss` is a thread SWITCH, and a switch is never taken without a
+#     model. B-7 p07 is what one wrong switch costs: 20 of 22 turns held in a
+#     stranger's thread while the updater rewrote that thread's identity until
+#     the lexical evidence agreed.
+#   * `participant_present` keeps P0-4 structural.
+#
+# Measured on four replay arms: with the margin condition in place, bypasses
+# that CHANGED the outcome ("DIVERTED") were 0/142, 0/186, 0/224 and 0/304.
+# Every misconfirmation that did change an outcome sat at margin 1.06-1.27 —
+# which is why the shutter reads the gate's verdict and never the raw total.
+SHUTTER_REASON = "anchor_match"
+
+
+def shutter_opens(bypass: BypassDecision) -> bool:
+    """May this turn skip the LLM entirely and stay where it already is?
+
+    A predicate over an existing decision on purpose: it must be impossible for
+    the shutter and the two-call bypass to drift apart, because the calibration
+    behind the shutter's release rate IS the bypass rule's calibration. If this
+    ever needs a condition `evaluate_bypass` does not have, add it THERE — with
+    a real-pool arm, not a unit test.
+    """
+    return bypass.granted and bypass.reason == SHUTTER_REASON
+
+
+def pick_menu(
+    ranked: Sequence[NarrativeSearchResult],
+    *,
+    exclude_ids: Iterable[str],
+    limit: int,
+) -> List[NarrativeSearchResult]:
+    """The menu rows: highest-scoring threads that are neither the anchor nor a
+    participant, and that actually scored.
+
+    Three exclusions, three different reasons:
+      * the ANCHOR has its own section — rendered twice it reads as two
+        candidates, and the asymmetry ("staying is the default, the menu is
+        evidence for leaving") collapses into a four-way beauty contest;
+      * a PARTICIPANT thread has its own section and its own priority rule;
+        letting it also be a keyword row is precisely the fusion P0-4 forbids
+        (today's judge does render some of them twice — that is not a shape to
+        carry forward);
+      * a ZERO score means zero term overlap, so the row carries no evidence for
+        switching, which is the only thing the menu is for.
+    """
+    excluded = set(exclude_ids)
+    out: List[NarrativeSearchResult] = []
+    for result in sorted(ranked, key=lambda r: r.raw_score, reverse=True):
+        if result.narrative_id in excluded or result.raw_score <= 0:
+            continue
+        out.append(result)
+        if len(out) >= limit:
+            break
+    return out

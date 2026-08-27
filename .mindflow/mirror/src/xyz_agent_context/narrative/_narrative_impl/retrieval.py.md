@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-26 — `prepare_merged_routing`:合并路由的检索侧入口(复用 `_score_pool`)
+
+合并路由不再自己走一遍 gather/rank/gate/bypass —— 它调**同一个** `_score_pool`,
+外面只包一层 `MergedRoutingPrep`,加三个关于**某一个候选**(锚点)的数字。
+这正是 PR #365 review round 1 定下的形状:一次打分只有一份定义。
+
+**给 `_score_pool` 加了一个参数 `rank_depth`**(⚠ 已于 round 3 整个退役,
+见上方 2026-08-27 round 3 条目——排名恒为全深度,本段仅存为历史),
+当时只有合并路径传(=100,
+`load_pool` 自己的上限,真实池不可能被截)。两次调用路径要的是 top-K 切片,
+而合并路径要**全量打分集**,因为它要记"锚点排第几":切片过的列表**分不出**
+"锚点排在切口之外"与"锚点零分" —— 前者是 §3.2 的一个数据点,后者是 NULL,
+混起来就毁掉这个问题在生产侧唯一的仪器。`bm25_explain` 只返回真的命中了的
+候选,所以深度由"有多少条线跟这句话共享词"决定,不由池规模决定。
+
+**锚点排名在"真的有分"的候选里按 BM25 序算**,不是在 `search_results` 的
+位置里算:participant 合并会按合成的 0.5 相似度重排那个列表,于是一条
+participant 线可能坐在真实词法命中之上 —— 拿那个序给锚点排名等于拿噪声排名。
+
+**`gate_short_circuit` 照旧写"这一轮跳过了 LLM 仲裁"**。快门就是那条规则挪早
+一层,给它另开一列会把一个事实分叉成两个(铁律 #6 两头都管:既有列不许改义,
+也不许被改名后悄悄停止积累)。**这不是影子行**:这个池做了决策,
+`pool_is_shadow` 保持 False。
+
+同批抽出两个候选构造器(`build_menu_candidates` / `build_participant_candidates`,
+都走 `candidate_labels` 这**一份**"候选给模型看什么"的定义)与一个落点执行器
+(`assemble_match_landing` —— judge 的 search 落点,现在合并的 `match` 走同一份)。
+理由同一条:**换决策者,不换执行者**。
+
 
 ## 2026-08-26 — `_score_pool`:一次打分,两个调用方(切片 0 + review 收口)
 
@@ -184,7 +214,7 @@ episode_summaries），两侧在不同文件里，于是 `if candidate.get('matc
 分），标签盲了等于这一轮的判断盲了。
 
 修法不是「把 participant 分支改成和 search 一样」—— 那样下次还会漂。新增模块级
-`_candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
+`candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
 函数**；`test_participant_and_search_branches_share_one_labeller` 钉的是两条分支
 **输出相等**，所以将来任何单边修改都会红。同时删掉 `_prepare_candidates`（第三份
 拷贝，也在读 topic_hint）及其整个死代码簇。
@@ -225,6 +255,53 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
+
+## 2026-08-27(round 9)— ScoredPool→audit 收敛为一个提交函数(I2)
+
+三个臂(两调用/影子/合并)各抄了一份 10-14 行的记账块——`_score_pool`
+docstring 亲口记过这类手抄清单漂移的学费,本批次却又新增了第三份。
+`commit_scored_pool(audit, snapshots, scored, *, retrieve_ms, is_shadow,
+gate_short_circuit)` 是唯一提交块:纯赋值不可 raise;三处真实差异留给
+调用方——retrieve_ms 各臂定义不同(两调用嵌套 judge、传 None 稍后自己
+盖),gate_short_circuit **三态**(两调用=bypass 判决/影子=不写,铁律
+#6/合并=快门),anchor_* 是合并臂独有仪器不入共享块。下一个
+ScoredPool 派生列写这里,否则在某臂上永远 NULL。
+
+## 2026-08-27(round 3)— 排名全深度、snippet 只算头部;四个共享 executor 迁出
+
+**I1(要害)**:合并路径曾以 rank_depth=100 换取锚点排名,代价是每轮
+~94 次 `bm25_snippet`(全文 lower 拷贝)进同步路径,且两臂的
+candidates_json 精度不同(两调用臂切片外一律记 0.0)——跨臂对比在比
+苹果和橘子,事后不可回补(updater 整体重写文本)。修法不是调深度,
+是**拆开两件事**:`rank_pool_full` 全量排名(排序+轻对象,便宜)、
+snippet 只算头部切片(prompt 证据,唯一贵的部分)。两臂从此同精度,
+锚点仪器读真排名,`rank_depth` 机制整个退役(铁律 #2)。`rank_pool`
+保持公共形状(top-k 带 snippet),成为 full 版的薄切片。
+**I3**:`build_menu_candidates` / `build_participant_candidates` /
+`assemble_match_landing` / `load_participant_landing` + 唯一标签定义
+`candidate_labels` 迁往 [[landings]](内聚的"共享 executor"单元),
+本文件拉回 ~1200 行。
+
+## 2026-08-27(round 2)— 合并准备段迁出,反向依赖解除(I6)
+
+`MergedRoutingPrep` + `prepare_merged_routing` 整体迁往 [[merged_prep]]
+(本文件已 1400+ 行,且曾为反事实菜单 import merged_router——executor
+依赖 decider 的反向边)。`pick_menu` 归 [[routing_gate]](纯规则)。
+留在本文件的是各 decider 共享的 executor:`_score_pool`、loaders、
+`assemble_match_landing` / `load_participant_landing`。`load_pool` 的
+fetch 上限与合并全量排名深度合一为 `config.NARRATIVE_POOL_LIMIT`(I5:
+双字面量靠注释保持相等,池扩到 200 时排名在 100 截断会让
+anchor_bm25_rank 的 NULL 语义说谎)。计时打标改走 call_tagging(I4)。
+
+## 2026-08-27 — participant 落地共用 + anchor_in_menu 反事实校准(review Minor 3/6)
+
+`load_participant_landing`:judge 与合并路径的 participant 落地收敛为
+同一 loader(与 `assemble_match_landing` 同理——两个 decider、一个
+executor)。`anchor_in_menu` 的反事实从 `scoring[:menu_size]` 改为真实
+菜单规则 `pick_menu`(排除 participant 线、不排锚点):一条同时命中
+BM25 的 participant 线会占掉切片位把锚点挤出去,把"锚点本可上榜"记成
+False——§3.2 唯一的生产探针不能带这个偏差。routing_gate 的两条 import
+语句合并(Minor 4)。
 
 ## 为什么存在
 

@@ -2907,6 +2907,33 @@ _register(
             # same thing and a filter must treat them alike; see
             # `mirror/.../narrative_routing_audit_repository.py.md` 2026-08-26.
             Column("pool_is_shadow", "INTEGER", "TINYINT(1)"),
+            # merged routing — one call replaces the continuity/judge pair.
+            # All nullable and all additive: prod rows predate them. NULL means
+            # "written before this deploy"; the two-call path itself writes
+            # 0 / "" for merged_call / merged_verdict / merged_truncated — so
+            # read-side filters must be NULL-safe on BOTH dialects
+            # (`COALESCE(col,0) <> 1`; never `= 0`, which drops the whole
+            # pre-deploy baseline window, and never `IS NOT 1` — SQLite-only).
+            # `merged_call` marks the PATH; a turn released by the zero-LLM
+            # shutter has merged_call=1 with merged_verdict empty and merged_ms
+            # NULL (nothing was asked, so nothing was paid).
+            Column("merged_call", "INTEGER", "TINYINT(1)"),
+            Column("merged_verdict", "TEXT", "VARCHAR(32)"),
+            # SELF time. Says so explicitly because `retrieve_ms` nests
+            # `judge_ms` and the ambiguity cost two readers the same wrong
+            # conclusion — see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
+            Column("merged_ms", "INTEGER", "INT"),
+            # Rendered prompt size: the x-axis of the input→latency model.
+            Column("merged_input_chars", "INTEGER", "INT"),
+            # Which prompt sections hit their read-side cap, comma-separated.
+            Column("merged_truncated", "TEXT", "VARCHAR(128)"),
+            # The anchor's standing in BM25 at decision time — the ONLY
+            # production instrument for §3.2 (how often the unconditional anchor
+            # injection is the sole reason the anchored thread is on the
+            # ballot). NULL rank = the anchor scored nothing.
+            Column("anchor_bm25_rank", "INTEGER", "INT"),
+            Column("anchor_raw_score", "REAL", "DOUBLE"),
+            Column("anchor_in_menu", "INTEGER", "TINYINT(1)"),
             # tier 3 — LLM arbitration
             Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("judge_category", "TEXT", "VARCHAR(32)"),
@@ -2926,6 +2953,12 @@ _register(
             # cost in retrieve_ms — filter on pool_is_shadow before any
             # cross-population aggregate, or the continuation majority's ~13ms
             # dilutes the arbitration numbers the same way a stored 0 would.
+            # Merged rows (merged_call=1) are the same shape for a different
+            # reason: there the LLM has its own column, so retrieve_ms is the
+            # BM25 pass alone. "tiers 2+3 together" therefore means
+            # `COALESCE(pool_is_shadow,0) <> 1 AND COALESCE(merged_call,0) <> 1`
+            # (NULL-safe on both dialects — `= 0` silently drops every
+            # pre-deploy row; `IS NOT 1` parses only on SQLite).
             Column("continuity_ms", "INTEGER", "INT"),
             Column("retrieve_ms", "INTEGER", "INT"),
             Column("keyword_ms", "INTEGER", "INT"),

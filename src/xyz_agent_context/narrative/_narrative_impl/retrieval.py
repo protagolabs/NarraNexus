@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
+
 from ..config import config
 from ..models import (
     Narrative,
@@ -31,6 +33,11 @@ from .routing_gate import (
     GateDecision,
     evaluate_bypass,
     evaluate_gate,
+)
+from .landings import (
+    candidate_labels,
+    assemble_match_landing,
+    load_participant_landing,
 )
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
@@ -56,34 +63,6 @@ if TYPE_CHECKING:
 # scratch on every crowded turn, so each of these is paid per candidate per
 # judged turn — hence bounded here rather than "whatever fits".
 MAX_MATCHED_TERMS = 5  # Terms shown per candidate, highest contribution first
-CANDIDATE_DESC_MAX_CHARS = 300  # Summary excerpt shown per candidate
-
-
-def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
-    """The (name, description) a narrative shows the LLM judge — ONE definition.
-
-    Every branch that assembles a judge candidate goes through here. That is
-    the actual fix, not an aesthetic one: the search branch and the PARTICIPANT
-    branch of `_llm_unified_match` were two implementations of this same
-    decision, 50 lines apart, and on 2026-04-15 only the search branch was
-    moved onto the live `narrative_info` fields. The PARTICIPANT branch kept
-    reading `topic_hint`, which the 2026-06-09 unified-memory refactor then
-    froze into a write-once-at-creation tombstone — 84% empty on the local dev
-    DB, and stale wherever it is not. Measured worst cases: a 72-event
-    narrative described to the judge by its first sentence from three months
-    earlier, and one whose label was a `[:50]` cut through the middle of an
-    open_id. That branch FORCES the judge to run (a task someone invited the
-    user into must not lose to a keyword hit on the user's own narrative), so
-    a blind label there decides the turn.
-
-    "Untitled" with an empty description is the honest answer for a narrative
-    whose metadata the async updater has not written yet; a frozen creation-time
-    hint is not, because it reads to the LLM as current fact.
-    """
-    info = narrative.narrative_info
-    name = (info.name if info and info.name else "") or "Untitled"
-    summary = (info.current_summary if info and info.current_summary else "")
-    return name, summary[:CANDIDATE_DESC_MAX_CHARS]
 
 
 @dataclass(frozen=True)
@@ -107,6 +86,59 @@ class ScoredPool:
     keyword_ms: int
     best_score: Optional[float]
     all_scores: Dict[str, float]
+
+
+def commit_scored_pool(
+    audit: "RoutingAudit",
+    snapshots: Dict[str, str],
+    scored: "ScoredPool",
+    *,
+    retrieve_ms: Optional[int],
+    is_shadow: bool = False,
+    gate_short_circuit: Optional[bool] = None,
+) -> None:
+    """Stamp one ScoredPool onto one audit row — the ONE commit block.
+
+    Three call sites (two-call decider, shadow recorder, merged prep) had
+    grown three near-identical hand copies of these assignments (review
+    round 9, I2) — the exact drift `_score_pool`'s own docstring records
+    paying for once already ("a list that must be kept in sync is a list
+    that drifts"). The next ScoredPool-derived column gets written HERE or
+    it silently stays NULL on one arm, which reads as "this tier did not
+    run".
+
+    Pure assignment, cannot raise — callers rely on that for their
+    all-or-nothing recording.
+
+    The three legitimate differences stay with the callers:
+      * `retrieve_ms` — its DEFINITION differs per arm (two-call nests the
+        judge and stamps it later, so it passes None here; shadow and merged
+        are their own single segment);
+      * `is_shadow` — only the recorder's rows are shadow;
+      * `gate_short_circuit` — THREE-state on purpose: the two-call arm
+        writes the bypass verdict, the shadow arm must NOT write it at all
+        (rule #6 — the gate decided nothing there), the merged arm writes
+        the shutter. None means "leave the column untouched", never "write
+        False".
+    """
+    audit.candidates.extend(scored.candidates)
+    snapshots.update(scored.snapshots)
+    if is_shadow:
+        audit.pool_is_shadow = True
+    audit.keyword_ms = scored.keyword_ms
+    if retrieve_ms is not None:
+        audit.retrieve_ms = retrieve_ms
+    audit.gate_top1_raw = scored.gate.top1_raw
+    audit.gate_top2_raw = scored.gate.top2_raw
+    # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
+    audit.gate_margin = (
+        scored.gate.margin if scored.gate.margin != float("inf") else None
+    )
+    audit.bypass_score_gate = scored.gate.short_circuit
+    audit.bypass_reason = scored.bypass.reason
+    audit.gate_reason = scored.bypass.detail
+    if gate_short_circuit is not None:
+        audit.gate_short_circuit = gate_short_circuit
 
 
 class NarrativeRetrieval:
@@ -251,9 +283,14 @@ class NarrativeRetrieval:
         # alongside is a different question and must not be charged here. This
         # column answers "is BM25 ever the problem?"; mixing in an unrelated
         # read is how it would answer wrongly.
-        audit.keyword_ms = scored.keyword_ms
-        audit.candidates.extend(scored.candidates)
-        snapshots.update(scored.snapshots)
+        # retrieve_ms=None: this arm's retrieve_ms NESTS the judge and is
+        # stamped after it, not here. gate_short_circuit carries the bypass
+        # verdict — its original "skipped the judge" meaning.
+        commit_scored_pool(
+            audit, snapshots, scored,
+            retrieve_ms=None,
+            gate_short_circuit=scored.bypass.granted,
+        )
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
@@ -269,18 +306,9 @@ class NarrativeRetrieval:
         # the task they were invited into (P0-4). Both verdicts come from
         # `_score_pool`, the same pass the shadow recorder uses.
         gate, bypass = scored.gate, scored.bypass
-        # `gate_short_circuit` keeps its original meaning — "this turn skipped
-        # the judge" — so it now reflects the bypass decision, not floor+margin.
-        # `bypass_score_gate` is what preserves the floor/margin series for the
-        # next calibration round.
-        audit.gate_short_circuit = bypass.granted
-        audit.bypass_score_gate = gate.short_circuit
-        audit.bypass_reason = bypass.reason
-        audit.gate_reason = bypass.detail
-        audit.gate_top1_raw = gate.top1_raw
-        audit.gate_top2_raw = gate.top2_raw
-        # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
-        audit.gate_margin = gate.margin if gate.margin != float("inf") else None
+        # Gate/bypass columns were stamped by commit_scored_pool above;
+        # `bypass_score_gate` preserves the floor/margin series for the next
+        # calibration round, `gate_short_circuit` carries the bypass verdict.
         if bypass.granted:
             logger.info(f"[NarrativeSelect] high confidence — {bypass.detail}")
             narratives = []
@@ -332,15 +360,10 @@ class NarrativeRetrieval:
                     retrieval_method=retrieval_method,  # Pass retrieval method
                     audit=audit,
                 )
-                # Tag with the model + structured-output mode the SDK
-                # ended up using inside _llm_unified_match → llm_judge_unified
-                # → sdk.llm_function. See adapters.openai_agents.get_last_llm_call_info.
-                from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                    get_last_llm_call_info,
-                )
-                info = get_last_llm_call_info()
-                if info:
-                    t.tag(**info)
+                # Tag with the model + structured-output mode the SDK ended
+                # up using inside _llm_unified_match (post-call by contract —
+                # see call_tagging's docstring).
+                tag_last_llm_call(t)
                 # Set before returning, not after: this is the only exit from
                 # the judged path, and `retrieve_top_k` stamps the outcome onto
                 # the same audit object afterwards.
@@ -528,9 +551,19 @@ class NarrativeRetrieval:
         rule is about, and a constraint that lives in one function cannot be
         violated by only one of two call sites.
 
+        The ranking is kept at FULL depth for every caller (round 3, I1):
+        both arms' `candidates_json` must carry the same precision, and the
+        merged path's anchor instrument cannot tell "ranked below the cut"
+        from "scored nothing" on a truncated slice. Snippets — prompt
+        evidence, nothing else — are computed only for the head
+        (`snippet_depth` below), which is where the cost lived.
+
         `_ensure_default_narratives` is deliberately NOT part of this: it
-        CREATES rows, the recording path must not write business data to
-        observe, and only the deciding path has a reason to seed.
+        CREATES rows, and the recording path must not write business data to
+        observe. The merged path decides yet never seeds either — safe
+        because the boot gate guarantees buckets are OFF whenever merged is
+        ON, and seeding is a no-op with buckets off (two distant facts, held
+        together by config._reject_untested_flag_combination; round 7, M6).
 
         One consequence, stated conditionally because it depends on a flag:
         under `NARRATIVE_DEFAULT_BUCKETS_ENABLED=0` (the shipping value)
@@ -570,8 +603,9 @@ class NarrativeRetrieval:
             # are computed over that set, so a top-K slice cannot be replayed.
             # keyword_search stays the public seam for select_fast.
             _t_rank = _perf.monotonic()
-            search_results = self.rank_pool(
-                query, pool, max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K)
+            search_results = self.rank_pool_full(
+                query, pool,
+                snippet_depth=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
             )
             _rank_ms = int((_perf.monotonic() - _t_rank) * 1000)
 
@@ -693,18 +727,13 @@ class NarrativeRetrieval:
         elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
 
         # ── commit block: pure assignment, cannot raise ──────────────────
-        audit.candidates.extend(scored.candidates)
-        snapshots.update(scored.snapshots)
-        audit.pool_is_shadow = True
-        audit.keyword_ms = scored.keyword_ms
-        audit.retrieve_ms = elapsed_ms
-        audit.gate_top1_raw = scored.gate.top1_raw
-        audit.gate_top2_raw = scored.gate.top2_raw
-        audit.gate_margin = (scored.gate.margin
-                             if scored.gate.margin != float("inf") else None)
-        audit.bypass_score_gate = scored.gate.short_circuit
-        audit.bypass_reason = scored.bypass.reason
-        audit.gate_reason = scored.bypass.detail
+        # gate_short_circuit=None on purpose — see below.
+        commit_scored_pool(
+            audit, snapshots, scored,
+            retrieve_ms=elapsed_ms,
+            is_shadow=True,
+            gate_short_circuit=None,
+        )
         # `gate_short_circuit` is NOT set. It means "the gate skipped the
         # judge", and here the gate decided nothing — filling it would redefine
         # the column for every existing reader (binding rule #6). Populations
@@ -729,7 +758,9 @@ class NarrativeRetrieval:
         the scored text is rewritten wholesale by the async LLM updater with
         no history kept.
         """
-        narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        narratives = await self._crud.load_by_agent_user(
+            agent_id, user_id, limit=config.NARRATIVE_POOL_LIMIT
+        )
         keep_buckets = config.NARRATIVE_DEFAULT_BUCKETS_ENABLED
         return [
             (n.id, n.searchable_text(), n.is_special == "default")
@@ -744,14 +775,41 @@ class NarrativeRetrieval:
             if keep_buckets or n.is_special != "default"
         ]
 
-    @staticmethod
+    @classmethod
     def rank_pool(
+        cls,
         query: str,
         pool: List[Tuple[str, str, bool]],
         top_k: int,
     ) -> List[NarrativeSearchResult]:
-        """Rank an already-loaded pool. Pure — no DB, so the audit replay and
-        the live decision run byte-identical code.
+        """Top-k slice of `rank_pool_full`, snippets included — the public
+        shape `keyword_search` / `select_fast` and the replay tools consume."""
+        return cls.rank_pool_full(query, pool, snippet_depth=top_k)[:top_k]
+
+    @staticmethod
+    def rank_pool_full(
+        query: str,
+        pool: List[Tuple[str, str, bool]],
+        snippet_depth: int,
+    ) -> List[NarrativeSearchResult]:
+        """Rank an already-loaded pool — the FULL matched set, in one pass.
+
+        Pure — no DB, so the audit replay and the live decision run
+        byte-identical code.
+
+        The whole ranking is kept (review round 3, I1): a truncated slice
+        recorded rank-7+ candidates as raw_score 0.0, which made the two
+        arms' `candidates_json` carry different precision — the exact
+        cross-arm comparison this batch exists for — and could not tell "the
+        anchor ranked below the cut" from "the anchor scored nothing" in the
+        §3.2 instrument. Ranking 100 rows is cheap; what was NOT cheap was
+        `bm25_snippet` per row (a full text.lower() copy of searchable_text,
+        p99 in the KB range), so snippets — evidence for the PROMPT, nothing
+        else — are computed only for the first `snippet_depth` rows. A menu
+        row can still be drawn from beyond this window (`pick_menu` excludes
+        the anchor and scoring participants AFTER this ordering), so
+        `build_menu_candidates` backfills such a row's snippet lazily — every
+        row a model sees carries its evidence either way (round 6, I2).
 
         Ranks via ``bm25_explain`` rather than ``bm25_rank``: same arithmetic
         and the same score to the last bit, but it also hands back WHICH query
@@ -784,7 +842,7 @@ class NarrativeRetrieval:
         texts = {nid: text for nid, text, _ in pool}
         ranked = sorted(
             explained.items(), key=lambda kv: kv[1][0], reverse=True
-        )[:top_k]
+        )
         results = []
         for i, (nid, (score, contributions)) in enumerate(ranked):
             terms = [term for term, _ in contributions]
@@ -794,7 +852,9 @@ class NarrativeRetrieval:
                 rank=i + 1,
                 raw_score=score,
                 matched_terms=terms[:MAX_MATCHED_TERMS],
-                matched_snippet=bm25_snippet(texts[nid], terms),
+                matched_snippet=(
+                    bm25_snippet(texts[nid], terms) if i < snippet_depth else ""
+                ),
             ))
         return results
 
@@ -817,7 +877,7 @@ class NarrativeRetrieval:
         strong keyword matches may direct-return.
 
         Public seam: ``NarrativeService.select_fast`` (F28) depends on this
-        signature. ``retrieve_top_k`` uses ``load_pool`` + ``rank_pool``
+        signature. ``retrieve_top_k`` uses ``load_pool`` + ``rank_pool_full``
         directly so it can keep the pool for the audit.
         """
         return self.rank_pool(query, await self.load_pool(agent_id, user_id), top_k)
@@ -871,7 +931,7 @@ class NarrativeRetrieval:
         for result in search_results:
             narrative = await self._crud.load_by_id(result.narrative_id)
             if narrative:
-                candidate_name, candidate_desc = _candidate_labels(narrative)
+                candidate_name, candidate_desc = candidate_labels(narrative)
 
                 # The BM25 evidence, carried through from rank_pool. Without it
                 # the judge sees only `Similarity score: 0.91` — a number that
@@ -937,7 +997,7 @@ class NarrativeRetrieval:
                 # matched_content: these never went through BM25 (they enter at
                 # a synthetic neutral score), and inventing evidence for them
                 # would be worse than showing none.
-                candidate_name, candidate_desc = _candidate_labels(narrative)
+                candidate_name, candidate_desc = candidate_labels(narrative)
                 participant_candidates.append({
                     "id": narrative.id,
                     "type": "participant",  # P0-4: Changed to "participant"
@@ -988,10 +1048,10 @@ class NarrativeRetrieval:
             elif matched_type == "participant":
                 # P0-4: Matched a PARTICIPANT Narrative (task priority)
                 logger.info(f"LLM matched PARTICIPANT Narrative: {matched_id}")
-                matched_narrative = await self._crud.load_by_id(matched_id)
+                participant_landing = await load_participant_landing(self._crud, matched_id)
 
                 return NarrativeSelectionResult(
-                    narratives=[matched_narrative] if matched_narrative else [],
+                    narratives=participant_landing,
                     selection_reason=f"LLM matched PARTICIPANT Narrative: {reason}",
                     selection_method="participant_narrative_matched",
                     is_new=False,
@@ -1002,19 +1062,14 @@ class NarrativeRetrieval:
                 )
 
             elif matched_type == "search":
-                # Matched a search result, return Top-K list
+                # Matched a search result, return Top-K list. The assembly moved
+                # into `assemble_match_landing` so the merged router lands its
+                # own `match` verdict through this exact executor.
                 logger.info(f"LLM matched search result: {matched_id}")
-                narratives = []
-                matched_narrative = await self._crud.load_by_id(matched_id)
-                if matched_narrative:
-                    narratives.append(matched_narrative)
-
-                # Add other candidates (excluding already matched)
-                for result in search_results[:top_k]:
-                    if result.narrative_id != matched_id:
-                        narrative = await self._crud.load_by_id(result.narrative_id)
-                        if narrative and len(narratives) < top_k:
-                            narratives.append(narrative)
+                narratives = await assemble_match_landing(
+                    self._crud,
+                    matched_id, search_results, top_k
+                )
 
                 return NarrativeSelectionResult(
                     narratives=narratives,
