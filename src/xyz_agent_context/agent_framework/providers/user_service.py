@@ -283,6 +283,17 @@ class UserProviderService:
         # third copy was missed, so it raised "Unknown card_type" at the last
         # step. One source of truth makes that class of miss impossible.
         if card_type in _DUAL_PROVIDER_CONFIGS:
+            # An aggregator card with an empty key is guaranteed-broken, yet it
+            # used to save fine — the failure then surfaced runs later as
+            # provider 401s and read as anything but "the key you pasted was
+            # empty" (classic cause: an unset shell variable expanding to ""
+            # in a scripted call). Reject at the door with the real reason.
+            # netmind_free is exempt: its key is minted by the free-tier
+            # provisioner, not pasted by the user.
+            if card_type != "netmind_free" and not (api_key or "").strip():
+                raise ValueError(
+                    f"card_type '{card_type}' requires a non-empty api_key"
+                )
             # Check uniqueness (unless the caller is mid-replace).
             if not replace:
                 existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": card_type})
