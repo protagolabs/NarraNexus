@@ -1,10 +1,21 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
 # narrative_service.py — Narrative 统一门面
+
+## 2026-08-27 — 合并路径编排搬出(review Important 2)+ Landing 化
+
+`_select_merged` 的 255 行编排整体迁入
+`_narrative_impl/merged_select.py`,本文件只留薄委托;五个 verdict 落点
+与 `_land_no_topic_turn` 统一返回 frozen `Landing`(6 字段一次构造,
+新 result 字段漏赋在构造点炸)。`is_reusable_anchor` / `_minutes_since`
+定义下沉到 `_narrative_impl/anchor_rules.py`(impl 不得上行 import),
+本文件 re-export `is_reusable_anchor` 保住 step_1_fast_select 的公共
+import 面——**仍是唯一定义**。select() 的 no-topic 落点只取 Landing 的
+四个决定字段,flag-off 字节路径不变。
 
 ## 2026-08-26 — 影子记录收窄到用户聊天轮(PR #365 review M4,刻意决定)
 

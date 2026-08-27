@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/retrieval.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -253,6 +253,16 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
+
+## 2026-08-27 — participant 落地共用 + anchor_in_menu 反事实校准(review Minor 3/6)
+
+`load_participant_landing`:judge 与合并路径的 participant 落地收敛为
+同一 loader(与 `assemble_match_landing` 同理——两个 decider、一个
+executor)。`anchor_in_menu` 的反事实从 `scoring[:menu_size]` 改为真实
+菜单规则 `pick_menu`(排除 participant 线、不排锚点):一条同时命中
+BM25 的 participant 线会占掉切片位把锚点挤出去,把"锚点本可上榜"记成
+False——§3.2 唯一的生产探针不能带这个偏差。routing_gate 的两条 import
+语句合并(Minor 4)。
 
 ## 为什么存在
 

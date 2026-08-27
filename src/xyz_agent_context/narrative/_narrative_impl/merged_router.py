@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import time as _perf
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
+from typing import FrozenSet, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -59,8 +59,7 @@ from ..config import config
 from ..models import NarrativeSearchResult
 from . import routing_blocks
 from .prompts import (
-    MERGED_ROUTING_INSTRUCTIONS,
-    MERGED_ROUTING_WITH_PARTICIPANT_INSTRUCTIONS,
+    build_merged_instructions,
 )
 
 if TYPE_CHECKING:
@@ -108,7 +107,10 @@ class MergedRoutingOutput(BaseModel):
     """
 
     reason: str = Field(default="", description="Reasoning for the verdict")
-    verdict: str = Field(default="", description="continue_anchor|match|participant|new|no_topic")
+    verdict: str = Field(
+        default="",
+        description="one of the verdicts offered in the instructions",
+    )
     match_index: int = Field(default=-1, description="0-based index, -1 when none")
 
 
@@ -317,10 +319,9 @@ def build_merged_prompt(inp: MergedRoutingInput) -> MergedRoutingPrompt:
         f"\n## The user's current message\n{query_text}\n"
     )
 
-    instructions = (
-        MERGED_ROUTING_WITH_PARTICIPANT_INSTRUCTIONS
-        if inp.participants
-        else MERGED_ROUTING_INSTRUCTIONS
+    instructions = build_merged_instructions(
+        anchor_is_continuable=bool(inp.anchor is not None and inp.anchor_is_continuable),
+        with_participants=bool(inp.participants),
     )
     return MergedRoutingPrompt(
         instructions=instructions,
@@ -384,16 +385,34 @@ async def decide(inp: MergedRoutingInput) -> MergedRoutingDecision:
     )
 
 
+def allowed_verdicts(inp: MergedRoutingInput) -> FrozenSet[str]:
+    """The verdicts THIS turn actually offers — one derivation.
+
+    `build_merged_instructions` renders exactly these into the answer table,
+    and `_contract_violation` refuses anything outside them, so the prose and
+    the contract cannot disagree (review Critical 1: they used to — the shared
+    core offered continue_anchor on turns the contract was guaranteed to
+    refuse, and every obedient model landed in merged_fallback_new).
+    """
+    offered = {VERDICT_MATCH, VERDICT_NEW, VERDICT_NO_TOPIC}
+    if inp.anchor is not None and inp.anchor_is_continuable:
+        offered.add(VERDICT_CONTINUE_ANCHOR)
+    if inp.participants:
+        offered.add(VERDICT_PARTICIPANT)
+    return frozenset(offered)
+
+
 def _contract_violation(
     output: MergedRoutingOutput, inp: MergedRoutingInput
 ) -> Optional[str]:
     """Why this answer is unusable, or None if it is fine."""
     if output.verdict not in VALID_VERDICTS:
         return "unknown verdict"
-    if output.verdict == VERDICT_CONTINUE_ANCHOR and not inp.anchor_is_continuable:
-        # Either there is no anchor, or it is a legacy container. Both are
-        # stated in the prompt; picking it anyway is not an answer we can land.
-        return "continue_anchor with no continuable anchor"
+    if output.verdict not in allowed_verdicts(inp):
+        # The prompt did not offer this verdict on this turn (no continuable
+        # anchor, or no participant section) — picking it is not an answer we
+        # can land, and landing it anyway would be a guess.
+        return f"verdict '{output.verdict}' was not offered on this turn"
     if output.verdict == VERDICT_MATCH and not 0 <= output.match_index < len(inp.menu):
         return "match index outside the menu"
     if output.verdict == VERDICT_PARTICIPANT and not (

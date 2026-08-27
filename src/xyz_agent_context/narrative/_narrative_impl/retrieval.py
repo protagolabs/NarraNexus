@@ -33,6 +33,7 @@ from .routing_gate import (
     evaluate_gate,
 )
 from .routing_gate import shutter_opens
+from .merged_router import pick_menu
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -753,8 +754,19 @@ class NarrativeRetrieval:
         anchor_in_menu: Optional[bool] = None
         if anchor_narrative_id:
             anchor_score = 0.0
+            # The counterfactual must apply the REAL menu rule (review round
+            # minor 6): `pick_menu` excludes participant threads, and a
+            # participant that also scored would otherwise occupy a
+            # `scoring[:menu_size]` slot and squeeze the anchor out — reading
+            # as "the anchor needed the injection" when it did not. The anchor
+            # itself is NOT excluded: whether it makes the menu is the question.
+            counterfactual_menu = pick_menu(
+                scored.search_results,
+                exclude_ids={n.id for n in scored.participant_narratives},
+                limit=menu_size,
+            )
             anchor_in_menu = anchor_narrative_id in [
-                r.narrative_id for r in scoring[:menu_size]
+                r.narrative_id for r in counterfactual_menu
             ]
             for position, result in enumerate(scoring, start=1):
                 if result.narrative_id == anchor_narrative_id:
@@ -858,6 +870,18 @@ class NarrativeRetrieval:
             if narrative and len(narratives) < top_k:
                 narratives.append(narrative)
         return narratives
+
+    async def load_participant_landing(
+        self, matched_id: Optional[str]
+    ) -> List[Narrative]:
+        """The participant verdict's landing — one loader, both deciders.
+
+        Same reasoning as `assemble_match_landing`: the judge and the merged
+        router must land a participant verdict through the SAME executor, or
+        the first added line (trailing context, surface guard) forks them.
+        """
+        matched = await self._crud.load_by_id(matched_id) if matched_id else None
+        return [matched] if matched else []
 
     async def record_pool_only(
         self,
@@ -1209,10 +1233,10 @@ class NarrativeRetrieval:
             elif matched_type == "participant":
                 # P0-4: Matched a PARTICIPANT Narrative (task priority)
                 logger.info(f"LLM matched PARTICIPANT Narrative: {matched_id}")
-                matched_narrative = await self._crud.load_by_id(matched_id)
+                participant_landing = await self.load_participant_landing(matched_id)
 
                 return NarrativeSelectionResult(
-                    narratives=[matched_narrative] if matched_narrative else [],
+                    narratives=participant_landing,
                     selection_reason=f"LLM matched PARTICIPANT Narrative: {reason}",
                     selection_method="participant_narrative_matched",
                     is_new=False,

@@ -1,0 +1,35 @@
+---
+code_file: src/xyz_agent_context/narrative/_narrative_impl/merged_select.py
+last_verified: 2026-08-27
+stub: false
+---
+
+# merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
+
+## 为什么存在
+
+review 2026-08-27 Important 2:narrative_service.py 越过 800 行上限后又
+并排放进第二个 255 行 decider,且 5 个 verdict 分支各自手写 6 个松散局部
+变量,靠人眼保证赋齐。本文件是那次搬迁的落点:编排进 `_*_impl/`(本仓
+分层约定),service 只留薄委托 `_select_merged`。
+
+## 结构
+
+- `Landing`(frozen dataclass,6 字段一次构造)——每个 verdict 分支返回
+  一个完整 Landing,新增 result 字段漏赋会在构造点炸,不再静默取默认值。
+  `_land_no_topic_turn`(仍在 service,select() 也用)同样返回它;select()
+  只取四个决定字段,保住 flag-off 字节路径。
+- `select_merged(service, ...)` 主编排:BM25 prepare → 快门或一次 LLM →
+  `_land` 按 verdict 分发 → 会话锚点推进 → audit 落库。**决策语义与
+  搬迁前逐字一致**(设计注释原样随迁)。
+- `_land_failure`:RULE 6(失败不是判决)单独成函;participant 落地改走
+  `NarrativeRetrieval.load_participant_landing`(review Minor 3,judge 与
+  合并同一 executor)。
+
+## 坑
+
+- `is_reusable_anchor` / `minutes_since` 从 [[anchor_rules]] 导入——
+  **必须保持唯一定义**(2026-08-21 review Important 3 的产物),别在这里
+  长出第二份。
+- 传入的是 service 实例(运行时协作),类型只在 TYPE_CHECKING 下引——
+  impl 不得在 import 期上行依赖 service 模块。

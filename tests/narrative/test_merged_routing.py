@@ -605,6 +605,57 @@ async def test_rule6_a_bucket_anchor_is_not_a_thread_to_fall_back_onto(
     assert result.narratives[0].id != bucket.id
 
 
+async def test_rule6_continue_anchor_on_a_bucket_anchor_is_refused_not_landed(
+    service, db_client, merged_on, monkeypatch
+):
+    """The combination the review found uncovered: the model answers
+    continue_anchor while the anchor is a legacy container. The contract must
+    refuse it (a bucket is a verdict about an earlier turn, not a thread), and
+    the landing is the anchorless fallback — never the bucket itself."""
+    bucket = await service.create_narrative(
+        agent_id=AGENT, user_id=USER, title="GreetingAndCourtesy", description="",
+    )
+    bucket.is_special = "default"
+    await service.save_narrative_to_db(bucket)
+    _sdk(monkeypatch, verdict=merged_router.VERDICT_CONTINUE_ANCHOR, index=-1)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(bucket.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_fallback_new"
+    assert all(n.id != bucket.id for n in result.narratives)
+    row = await _row(db_client)
+    assert row["merged_verdict"] == merged_router.VERDICT_FAILED
+
+
+async def test_the_offered_verdicts_are_derived_from_the_input():
+    """One derivation, read by both the prompt fragments and the contract
+    check — so "which answers exist on this turn" cannot drift into a fifth
+    hand-written copy (review Critical 1, trap note)."""
+    base = dict(
+        query="q", previous_query="", previous_response="",
+        minutes_since_previous=None, menu=[], participants=[], awareness="",
+    )
+    bare = merged_router.MergedRoutingInput(
+        anchor=None, anchor_is_continuable=False, **base
+    )
+    assert merged_router.allowed_verdicts(bare) == frozenset(
+        {merged_router.VERDICT_MATCH, merged_router.VERDICT_NEW,
+         merged_router.VERDICT_NO_TOPIC}
+    )
+    with_part = merged_router.MergedRoutingInput(
+        anchor=None, anchor_is_continuable=False,
+        **{**base, "participants": [
+            {"id": "p", "type": "participant", "name": "n", "description": "d"}
+        ]},
+    )
+    assert merged_router.VERDICT_PARTICIPANT in merged_router.allowed_verdicts(
+        with_part
+    )
+
+
 # ===================================================================== #
 # Instruments and contracts                                             #
 # ===================================================================== #

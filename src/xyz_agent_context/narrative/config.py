@@ -8,6 +8,8 @@ All tunable parameters are centralized in this file for easy experimentation and
 """
 import os
 
+from loguru import logger
+
 
 def _env(name: str, default: str) -> str:
     """Read an env override for a config knob, falling back to `default`.
@@ -281,31 +283,31 @@ class NarrativeConfig:
     # live ("要不要我继续?"). 1500 covers the p90 of prod agent replies; raising
     # it costs latency on every merged turn, so raise it against measured
     # misroutes, not on principle.
-    MERGED_PREV_RESPONSE_MAX_CHARS = 1500
+    MERGED_PREV_RESPONSE_MAX_CHARS = int(_env("NARRATIVE_MERGED_PREV_RESPONSE_MAX_CHARS", "1500"))
 
     # The anchored thread's summary. `current_summary` has a soft bound in the
     # updater prompt and NO hard bound anywhere — a verbose model walks straight
     # through it, and this block is rendered on every merged turn.
-    MERGED_ANCHOR_SUMMARY_MAX_CHARS = 2000
+    MERGED_ANCHOR_SUMMARY_MAX_CHARS = int(_env("NARRATIVE_MERGED_ANCHOR_SUMMARY_MAX_CHARS", "2000"))
 
     # Agent awareness. Deliberately smaller than the message cap: awareness is
     # the agent's standing persona, and routing needs only enough of it to read
     # the domain the agent works in.
-    MERGED_AWARENESS_MAX_CHARS = 1500
+    MERGED_AWARENESS_MAX_CHARS = int(_env("NARRATIVE_MERGED_AWARENESS_MAX_CHARS", "1500"))
 
     # This turn's message, and (same cap, same reason) the previous turn's — a
     # generous ceiling that exists only to stop a pathological paste from
     # dominating the call. A real message never approaches it.
-    MERGED_QUERY_MAX_CHARS = 4000
+    MERGED_QUERY_MAX_CHARS = int(_env("NARRATIVE_MERGED_QUERY_MAX_CHARS", "4000"))
 
     # PARTICIPANT threads shown. A prefix, never a re-ranking: the ORDER is the
     # P0-4 priority rule, so trimming to fit must not reorder.
-    MERGED_PARTICIPANT_MAX_CANDIDATES = 8
+    MERGED_PARTICIPANT_MAX_CANDIDATES = int(_env("NARRATIVE_MERGED_PARTICIPANT_MAX_CANDIDATES", "8"))
 
     # Keyword menu rows. Three, as in the two-tier judge (`search_results[:3]`)
     # — this batch changes the decider, not the menu size, so a menu-size change
     # would confound the arm.
-    MERGED_MENU_SIZE = 3
+    MERGED_MENU_SIZE = int(_env("NARRATIVE_MERGED_MENU_SIZE", "3"))
 
     # ==================== Narrative LLM Dynamic Update ====================
     # Use LLM to update Narrative metadata every N Events (name, current_summary,
@@ -429,6 +431,16 @@ def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
     (frozen anchor, identity wash) that produced the p07 hijack.
     """
     if cfg.NARRATIVE_DEFAULT_BUCKETS_ENABLED and cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
+        # Deliberately still at import time: moving this to per-process
+        # preflights was weighed (review minor 9) and rejected — one missed
+        # entrypoint would disarm the gate for that process entirely, which is
+        # worse than an import-chain traceback. The CRITICAL line below is the
+        # readable part ops will actually see, printed before the raise.
+        logger.critical(
+            "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
+            "and NARRATIVE_DEFAULT_BUCKETS_ENABLED=1 cannot be combined — "
+            "set one of them to 0 in .env and restart."
+        )
         raise RuntimeError(
             "NARRATIVE_MERGED_ROUTING_ENABLED=1 with "
             "NARRATIVE_DEFAULT_BUCKETS_ENABLED=1 is an untested combination: "

@@ -1,10 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/merged_router.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
 # merged_router.py — 一次调用同时回答"续不续"和"去哪儿"
+
+## 2026-08-27 — `allowed_verdicts`:本轮供什么,契约就收什么(review Critical 1)
+
+`_contract_violation` 原来单独硬编码"锚点不可续时拒 continue_anchor",而
+指令字面量永远把 continue_anchor 列为默认——两边必然打架,模型照 prompt 答
+就落 merged_fallback_new(D19 形状)。现在 `allowed_verdicts(inp)` 是唯一
+推导:`build_merged_instructions` 渲染的答案表 = 它,契约拒收的补集 = 它。
+"哪些 verdict 合法"原来散在 4 处(prompt 散文/VALID_VERDICTS/
+_contract_violation/_select_merged 分支),现在散文与契约同源,VALID_VERDICTS
+只剩"是不是我们认识的词"这一层。`MergedRoutingOutput.verdict` 的 Field
+description 改为中性("one of the verdicts offered")——structured-output
+schema 也是 prompt 面,列全五个词等于第五份邀请函。
 
 ## 为什么存在
 

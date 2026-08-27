@@ -285,14 +285,6 @@ closer. Leave it only when the message pursues a different business goal.
 - Long elapsed time is weak evidence on its own; combined with a changed
   subject it points away from the anchored thread.
 
-**If the anchored thread is a legacy container**
-
-A thread labelled [Special Default Narrative] is a legacy container: its name
-describes a SHAPE of message rather than a subject, so there is usually little
-for a substantive message to continue. Reach that conclusion from the content,
-never as a rule applied because of the label — if the user is plainly carrying
-on from the previous turn, the thread continues even there.
-
 **How to read the menu**
 
 Each row shows which query terms matched and where. Judge on those terms: a row
@@ -312,78 +304,118 @@ NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER = (
     "You are a conversation thread router."
 )
 
-MERGED_ROUTING_INSTRUCTIONS = f"""{NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER}
+# ── merged-instruction fragments ────────────────────────────────────────────
+# One definition per answer; `build_merged_instructions` composes them by what
+# the turn actually offers. The answer table, the priority list, and the
+# output-format verdict list are all derived from the same selection, so a
+# verdict the contract will refuse can never be invited by the prose
+# (review Critical 1: the shared core used to list continue_anchor as "the
+# default" even when the anchor was a legacy container, and every model that
+# obeyed it landed in merged_fallback_new — the D19 shape).
 
-{_MERGED_ROUTING_CORE}
-
-**Your four answers**
-
-- continue_anchor — the message belongs to the anchored thread shown below.
+_MERGED_ANSWER_CONTINUE = """- continue_anchor — the message belongs to the anchored thread shown below.
   This is the default; choose it whenever the message pursues the same business
-  goal, follows up on the Agent's last reply, or cannot be read without it.
-- match — the message belongs to one of the menu threads instead. Give its
-  index. Requires a real subject overlap, not just shared words.
-- new — the message introduces a real subject that neither the anchored thread
-  nor any menu thread covers.
-- no_topic — the message carries nothing worth remembering as its own thread.
+  goal, follows up on the Agent's last reply, or cannot be read without it."""
 
-{_NO_DURABLE_TOPIC_RUBRIC}
+_MERGED_ANSWER_PARTICIPANT = """- participant — the message is about one of the participant-associated threads.
+  Give its index within that section."""
 
-Priority when you are torn:
-1. Same business goal as the anchored thread → continue_anchor.
-2. Otherwise, a menu thread whose subject genuinely covers the message → match.
-3. Otherwise, decide whether the message carries a durable topic at all:
-   a real subject → new; nothing to remember → no_topic.
+_MERGED_ANSWER_MATCH = """- match — the message belongs to one of the menu threads. Give its index
+  within the menu. Requires a real subject overlap, not just shared words."""
 
-{_MERGED_ROUTING_OUTPUT_CONTRACT}
+_MERGED_ANSWER_NEW = """- new — the message introduces a real subject that none of the threads above
+  covers."""
 
-Output format:
-class MergedRoutingOutput(BaseModel):
-    reason: str        # your reasoning
-    verdict: str       # "continue_anchor", "match", "new", or "no_topic"
-    match_index: int   # 0-based index into the menu, -1 unless verdict is "match"
-"""
+_MERGED_ANSWER_NO_TOPIC = """- no_topic — the message carries nothing worth remembering as its own thread."""
 
-MERGED_ROUTING_WITH_PARTICIPANT_INSTRUCTIONS = f"""{NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER}
-
-{_MERGED_ROUTING_CORE}
-
-**This user is a PARTICIPANT in other threads**
+_MERGED_PARTICIPANT_PREAMBLE = """**This user is a PARTICIPANT in other threads**
 
 Someone else started those threads and invited this user into them. They are
 listed in their own section, ahead of the keyword menu, and that order is the
 priority rule: a task the user was invited into outranks a keyword hit on the
-user's own thread. It does NOT outrank the anchored thread — if the message
-continues what the conversation is already doing, continue_anchor still wins.
+user's own thread."""
 
-**Your five answers**
+#: Appended to the preamble only when continuing is actually on offer — the
+#: sentence names continue_anchor, and naming it on a turn where the contract
+#: refuses it is the exact defect the builder exists to prevent.
+_MERGED_PARTICIPANT_ANCHOR_SENTENCE = """ It does NOT outrank the anchored
+thread — if the message continues what the conversation is already doing,
+continue_anchor still wins."""
 
-- continue_anchor — the message belongs to the anchored thread shown below.
-  This is the default; choose it whenever the message pursues the same business
-  goal, follows up on the Agent's last reply, or cannot be read without it.
-- participant — the message is about one of the participant-associated threads.
-  Give its index within that section.
-- match — the message belongs to one of the keyword menu threads. Give its
-  index within the menu.
-- new — the message introduces a real subject that none of the above covers.
-- no_topic — the message carries nothing worth remembering as its own thread.
+_PRIORITY_CONTINUE = "Same business goal as the anchored thread → continue_anchor."
+_PRIORITY_PARTICIPANT = (
+    "A participant-associated thread the message is about → participant."
+)
+_PRIORITY_MATCH = (
+    "A menu thread whose subject genuinely covers the message → match."
+)
+_PRIORITY_TAIL = (
+    "Decide whether the message carries a durable topic at all:\n"
+    "   a real subject → new; nothing to remember → no_topic."
+)
+
+
+def build_merged_instructions(
+    *, anchor_is_continuable: bool, with_participants: bool
+) -> str:
+    """Compose the merged-routing instructions for what THIS turn offers.
+
+    Composition, never four literals: the judge's two variants forked three
+    times because shared text was hand-copied (routing_blocks.py header), and
+    2×2 variants hand-written would fork faster.
+    """
+    answers = []
+    verdict_names = []
+    if anchor_is_continuable:
+        answers.append(_MERGED_ANSWER_CONTINUE)
+        verdict_names.append("continue_anchor")
+    if with_participants:
+        answers.append(_MERGED_ANSWER_PARTICIPANT)
+        verdict_names.append("participant")
+    answers += [_MERGED_ANSWER_MATCH, _MERGED_ANSWER_NEW, _MERGED_ANSWER_NO_TOPIC]
+    verdict_names += ["match", "new", "no_topic"]
+
+    priority_items = []
+    if anchor_is_continuable:
+        priority_items.append(_PRIORITY_CONTINUE)
+    if with_participants:
+        priority_items.append(_PRIORITY_PARTICIPANT)
+    priority_items.append(_PRIORITY_MATCH)
+    priority_items.append(_PRIORITY_TAIL)
+    priority_lines = "\n".join(
+        f"{i}. {'Otherwise, ' if i > 1 else ''}{item[0].lower() + item[1:] if i > 1 else item}"
+        for i, item in enumerate(priority_items, start=1)
+    )
+
+    participant_section = ""
+    if with_participants:
+        participant_section = _MERGED_PARTICIPANT_PREAMBLE
+        if anchor_is_continuable:
+            participant_section += _MERGED_PARTICIPANT_ANCHOR_SENTENCE
+        participant_section += "\n\n"
+
+    verdict_list = ", ".join(f'"{v}"' for v in verdict_names)
+    answer_count = len(answers)
+
+    return f"""{NARRATIVE_MERGED_ROUTING_INSTRUCTIONS_HEADER}
+
+{_MERGED_ROUTING_CORE}
+
+{participant_section}**Your {answer_count} answers**
+
+{chr(10).join(answers)}
 
 {_NO_DURABLE_TOPIC_RUBRIC}
 
 Priority when you are torn:
-1. Same business goal as the anchored thread → continue_anchor.
-2. Otherwise, a participant-associated thread the message is about → participant.
-3. Otherwise, a keyword menu thread whose subject genuinely covers the message
-   → match.
-4. Otherwise, decide whether the message carries a durable topic at all:
-   a real subject → new; nothing to remember → no_topic.
+{priority_lines}
 
 {_MERGED_ROUTING_OUTPUT_CONTRACT}
 
 Output format:
 class MergedRoutingOutput(BaseModel):
     reason: str        # your reasoning
-    verdict: str       # "continue_anchor", "participant", "match", "new", or "no_topic"
+    verdict: str       # one of: {verdict_list}
     match_index: int   # 0-based index into the section your verdict names, else -1
 """
 

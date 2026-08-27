@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -99,6 +99,16 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 > 检索现在无条件走本地 VectorStore，没有外部检索后端开关。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
+
+## 2026-08-27 — MERGED_* 预算走 _env + 组合禁令的可读报错(review Minor 7/9)
+
+六个合并 prompt 预算(prev_response/anchor_summary/awareness/query/
+participant/menu_size)从字面量改为 `int(_env("NARRATIVE_MERGED_...",
+默认))`——灰度期按实测 misroute 调参改 deploy 侧 .env 即可,默认值不变
+纯加法;.env.example 注释列全。组合禁令(buckets×merged 同开拒绝启动)
+**留在 import 期**:审查提议挪到各进程 preflight,但漏接一个入口 = 该
+进程闸门消失,比 import 链 traceback 更糟——折中为 raise 前先
+`logger.critical` 打一行人话(ops 真正会看到的那行),偏离处方已记录。
 
 ## 2026-08-26 — `NARRATIVE_SHADOW_POOL_RECORD`(切片 0 仪器开关,缺省开)
 
