@@ -2908,8 +2908,11 @@ _register(
             # `mirror/.../narrative_routing_audit_repository.py.md` 2026-08-26.
             Column("pool_is_shadow", "INTEGER", "TINYINT(1)"),
             # merged routing — one call replaces the continuity/judge pair.
-            # All nullable and all additive: prod rows predate them, and NULL is
-            # the honest value for "this row was decided on the two-call path".
+            # All nullable and all additive: prod rows predate them. NULL means
+            # "written before this deploy"; the two-call path itself writes
+            # 0 / "" for merged_call / merged_verdict / merged_truncated — so
+            # read-side filters must be NULL-safe (`IS NOT 1`, never `= 0`,
+            # which drops the whole pre-deploy baseline window).
             # `merged_call` marks the PATH; a turn released by the zero-LLM
             # shutter has merged_call=1 with merged_verdict empty and merged_ms
             # NULL (nothing was asked, so nothing was paid).
@@ -2952,7 +2955,8 @@ _register(
             # Merged rows (merged_call=1) are the same shape for a different
             # reason: there the LLM has its own column, so retrieve_ms is the
             # BM25 pass alone. "tiers 2+3 together" therefore means
-            # `pool_is_shadow = 0 AND merged_call = 0`.
+            # `pool_is_shadow IS NOT 1 AND merged_call IS NOT 1`
+            # (NULL-safe — `= 0` silently drops every pre-deploy row).
             Column("continuity_ms", "INTEGER", "INT"),
             Column("retrieve_ms", "INTEGER", "INT"),
             Column("keyword_ms", "INTEGER", "INT"),

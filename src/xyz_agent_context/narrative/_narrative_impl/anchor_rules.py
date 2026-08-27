@@ -61,3 +61,32 @@ def minutes_since(session: Optional["ConversationSession"]) -> Optional[float]:
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - last).total_seconds() / 60.0
+
+
+def advance_session_anchor(
+    session: Optional["ConversationSession"],
+    query_text: str,
+    narratives,
+    is_user_chat: bool,
+) -> None:
+    """Move the continuity anchor to the thread this turn landed on.
+
+    Only user-initiated runs (chat) write `last_query` /
+    `current_narrative_id` — background trigger runs (job / message_bus /
+    lark / callback) must leave them untouched so the NEXT user message gets
+    its continuity judged against the previous user exchange rather than
+    against whatever cron job or bus ping ran in between.
+
+    ONE definition because both routing paths must obey it identically. The
+    anchor rule living as two literals is exactly how the fast path and the
+    slow path ended up fighting over the same invariant (independent review,
+    2026-08-21, Important #3), and a second decider is a second chance at
+    that. Moved here from the service (round 5, I3): it is an anchor rule,
+    and its siblings already live in this module.
+    """
+    if not (session and narratives and is_user_chat):
+        return
+    session.last_query = query_text
+    session.current_narrative_id = narratives[0].id
+    session.query_count += 1
+    session.last_query_time = datetime.now(timezone.utc)

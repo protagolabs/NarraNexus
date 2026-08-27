@@ -27,7 +27,7 @@ participant 线可能坐在真实词法命中之上 —— 拿那个序给锚点
 `pool_is_shadow` 保持 False。
 
 同批抽出两个候选构造器(`build_menu_candidates` / `build_participant_candidates`,
-都走 `_candidate_labels` 这**一份**"候选给模型看什么"的定义)与一个落点执行器
+都走 `candidate_labels` 这**一份**"候选给模型看什么"的定义)与一个落点执行器
 (`assemble_match_landing` —— judge 的 search 落点,现在合并的 `match` 走同一份)。
 理由同一条:**换决策者,不换执行者**。
 
@@ -212,7 +212,7 @@ episode_summaries），两侧在不同文件里，于是 `if candidate.get('matc
 分），标签盲了等于这一轮的判断盲了。
 
 修法不是「把 participant 分支改成和 search 一样」—— 那样下次还会漂。新增模块级
-`_candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
+`candidate_labels(narrative) -> (name, description)`，**两条分支物理共用一个
 函数**；`test_participant_and_search_branches_share_one_labeller` 钉的是两条分支
 **输出相等**，所以将来任何单边修改都会红。同时删掉 `_prepare_candidates`（第三份
 拷贝，也在读 topic_hint）及其整个死代码簇。
@@ -266,7 +266,7 @@ snippet 只算头部切片(prompt 证据,唯一贵的部分)。两臂从此同�
 保持公共形状(top-k 带 snippet),成为 full 版的薄切片。
 **I3**:`build_menu_candidates` / `build_participant_candidates` /
 `assemble_match_landing` / `load_participant_landing` + 唯一标签定义
-`_candidate_labels` 迁往 [[landings]](内聚的"共享 executor"单元),
+`candidate_labels` 迁往 [[landings]](内聚的"共享 executor"单元),
 本文件拉回 ~1200 行。
 
 ## 2026-08-27(round 2)— 合并准备段迁出,反向依赖解除(I6)

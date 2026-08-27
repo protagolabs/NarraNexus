@@ -736,6 +736,32 @@ async def test_the_menu_knob_does_not_shrink_the_match_landing(
     assert all(n.id != anchor.id for n in result.narratives)
 
 
+async def test_rule6_a_prompt_assembly_failure_is_a_failure_not_a_dead_turn(
+    service, db_client, merged_on, monkeypatch
+):
+    """Review round 5, I2: rule 6 must cover assembly, not just the call.
+    Un-caught, a bad candidate field kills the user's whole turn on the
+    merged path while the two-call path degrades with a warning."""
+    anchor, _ = await _seed(service)
+    _sdk(monkeypatch, verdict=merged_router.VERDICT_CONTINUE_ANCHOR)
+
+    def _boom(inp):
+        raise KeyError("a candidate field went missing")
+
+    monkeypatch.setattr(merged_router, "build_merged_prompt", _boom)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_fallback_anchor"
+    assert [n.id for n in result.narratives] == [anchor.id]
+    row = await _row(db_client)
+    assert row["merged_verdict"] == merged_router.VERDICT_FAILED
+    assert row["merged_input_chars"] is None  # no prompt was built
+
+
 # ===================================================================== #
 # Instruments and contracts                                             #
 # ===================================================================== #

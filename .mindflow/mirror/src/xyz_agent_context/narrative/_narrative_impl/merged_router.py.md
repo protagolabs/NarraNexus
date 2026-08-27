@@ -85,9 +85,9 @@ index 越界,全部返回 `ok=False`,由调用方兜底把轮次留在原处。�
 
 ## 上下游关系
 
-- **被谁用**: `narrative_service._select_merged`(唯一调用方)
-- **依赖谁**: `routing_blocks`(四个共享渲染块)、`prompts` 的两份合并常量、
-  `helper_sdk`、`config` 的开关与预算常量
+- **被谁用**: `merged_select.select_merged`(唯一调用方;service 只持薄委托)
+- **依赖谁**: `routing_blocks`(四个共享渲染块)、`prompts_merged.build_merged_instructions`
+(按轮拼装,与 allowed_verdicts 同源)、`prompts._NO_DURABLE_TOPIC_RUBRIC`(经 prompts_merged)。
 - **测试**: `tests/narrative/test_merged_routing_prompt.py`(prompt 契约 +
   预算 + 双变体配对)、`tests/narrative/test_merged_routing.py`(流程 / 落点 /
   兜底)

@@ -12,7 +12,7 @@ inside a 1,300-line module, and `Landing` lived in merged_select — which
 forced the flag-off path to import the whole merged module (and its
 helper-SDK chain) for a six-field dataclass (M4).
 
-`_candidate_labels` moved WITH its four consumers — it is the ONE definition
+`candidate_labels` moved WITH its four consumers — it is the ONE definition
 of what a candidate shows a model, and it must not fork (the judge's two
 branches were two copies of that decision once, and only one was fixed).
 """
@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING
 
-from ..models import Narrative, NarrativeSearchResult
+from ..models import Narrative, NarrativeSearchResult, NarrativeType
 
 if TYPE_CHECKING:
     from .crud import NarrativeCRUD
@@ -49,7 +49,7 @@ class Landing:
     no_durable_topic: bool = False
 
 
-def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
+def candidate_labels(narrative: Narrative) -> Tuple[str, str]:
     """The (name, description) a narrative shows the LLM judge — ONE definition.
 
     Every branch that assembles a judge candidate goes through here. That is
@@ -81,7 +81,7 @@ async def build_menu_candidates(
 ) -> List[dict]:
     """Load and label the menu rows a routing prompt will show.
 
-    Goes through `_candidate_labels` — the ONE definition of what a
+    Goes through `candidate_labels` — the ONE definition of what a
     candidate shows a model. The judge's two branches were two copies of
     that decision once, and only one of them was ever fixed; a third copy
     here is how that repeats.
@@ -91,7 +91,7 @@ async def build_menu_candidates(
         narrative = await crud.load_by_id(result.narrative_id)
         if narrative is None:
             continue
-        name, description = _candidate_labels(narrative)
+        name, description = candidate_labels(narrative)
         candidates.append({
             "id": narrative.id,
             "type": "search",
@@ -114,7 +114,7 @@ def build_participant_candidates(
     would be worse than showing none."""
     candidates: List[dict] = []
     for narrative in narratives:
-        name, description = _candidate_labels(narrative)
+        name, description = candidate_labels(narrative)
         candidates.append({
             "id": narrative.id,
             "type": "participant",
@@ -161,3 +161,91 @@ async def load_participant_landing(
     """
     matched = await crud.load_by_id(matched_id) if matched_id else None
     return [matched] if matched else []
+
+
+async def land_no_topic(
+    crud: "NarrativeCRUD",
+    retrieval,
+    *,
+    agent_id: str,
+    user_id: str,
+    query_text: str,
+    session,
+    reason: str,
+    anchor: Optional[Narrative] = None,
+) -> Landing:
+    """Place a turn the decider called "no durable topic" (C-1, plan 4-A').
+
+    The decider answered a question about the TURN ("is there anything here
+    worth remembering as its own thread?"); it did not name a destination.
+    This is where the destination is decided, and the rule is anchor-first —
+    deliberately the same shape ``step_1_fast_select`` settled on for the
+    fast path, so the paths cannot drift into disagreeing about where a
+    contentless turn belongs:
+
+    1. **A live anchor on a real thread → reuse it.** A "你好" in the middle
+       of a task belongs to the task (annotation protocol R1), and the user
+       expects the agent to still know what they were doing. The thread's
+       retrieval surface is NOT touched — see ``no_durable_topic`` on
+       NarrativeSelectionResult for why a greeting must never get to rename
+       the work it interrupted.
+    2. **No anchor → create.** Chat history endpoints are narrative-scoped
+       and the ChatModule instance hangs off the narrative, so running bare
+       would make a first-contact turn vanish from the user's own history.
+       The created thread is not junk: it becomes the anchor, and the updater
+       renames it as the real subject emerges.
+
+    ``anchor`` is an optimisation only (round 5, M2): the merged path already
+    holds the loaded object, the flag-off path passes None and it is read
+    here. Reusability is judged HERE either way — trusting a caller's
+    "continuable" flag would fork the bucket rule between the two paths.
+
+    (An `ephemeral → run bare` third branch was removed on review 2026-08-21,
+    Important #2: unreachable in production — every ephemeral TurnProfile
+    takes the fast path. Re-add deliberately from TurnProfile if that changes.)
+
+    Moved from NarrativeService on review (round 5, I3): it is a landing
+    executor, and its four siblings already live in this module.
+    """
+    from loguru import logger
+
+    from .anchor_rules import is_reusable_anchor
+
+    anchor_id = getattr(session, "current_narrative_id", None) if session else None
+    if anchor_id:
+        anchored = anchor if (anchor is not None and anchor.id == anchor_id) \
+            else await crud.load_by_id(anchor_id)
+        # A bucket anchor is not a thread to reuse (slice 5 already refused
+        # to continue one); fall through and let the turn land properly.
+        if is_reusable_anchor(anchored):
+            logger.info(
+                f"[NarrativeSelect] no durable topic — reusing anchor "
+                f"{anchored.id} without touching its surface"
+            )
+            return Landing(
+                narratives=[anchored],
+                method="no_topic_anchored",
+                reason=f"No durable topic; kept on the active thread: {reason}",
+                retrieval_method="keyword",
+                is_new=False,
+                no_durable_topic=True,
+            )
+
+    created = await retrieval.create_from_query(
+        query=query_text,
+        user_id=user_id,
+        agent_id=agent_id,
+        narrative_type=NarrativeType.CHAT,
+    )
+    logger.info(
+        f"[NarrativeSelect] no durable topic and no anchor — created "
+        f"{created.id} so the turn stays in history"
+    )
+    return Landing(
+        narratives=[created],
+        method="new_created",
+        reason=f"No durable topic, no thread to keep it on: {reason}",
+        retrieval_method="keyword",
+        is_new=True,
+        no_durable_topic=True,
+    )

@@ -35,7 +35,7 @@ from .routing_gate import (
     evaluate_gate,
 )
 from .landings import (
-    _candidate_labels,
+    candidate_labels,
     assemble_match_landing,
     load_participant_landing,
 )
@@ -882,7 +882,7 @@ class NarrativeRetrieval:
         for result in search_results:
             narrative = await self._crud.load_by_id(result.narrative_id)
             if narrative:
-                candidate_name, candidate_desc = _candidate_labels(narrative)
+                candidate_name, candidate_desc = candidate_labels(narrative)
 
                 # The BM25 evidence, carried through from rank_pool. Without it
                 # the judge sees only `Similarity score: 0.91` — a number that
@@ -948,7 +948,7 @@ class NarrativeRetrieval:
                 # matched_content: these never went through BM25 (they enter at
                 # a synthetic neutral score), and inventing evidence for them
                 # would be worse than showing none.
-                candidate_name, candidate_desc = _candidate_labels(narrative)
+                candidate_name, candidate_desc = candidate_labels(narrative)
                 participant_candidates.append({
                     "id": narrative.id,
                     "type": "participant",  # P0-4: Changed to "participant"

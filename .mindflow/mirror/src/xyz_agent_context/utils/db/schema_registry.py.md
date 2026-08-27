@@ -28,7 +28,9 @@ append 进 `agent_slot_clear_audit`，让误操作**可追溯、可据此恢复*
 **`retrieve_ms` 现在有第三个人群,必须一起写下来**:两次调用路径上它
 **包含** `judge_ms`;影子行上它只有 tier-2(仪器自耗);**合并行上它也只有
 tier-2** —— 因为那条路上 LLM 有自己的列(`merged_ms`)。于是"tiers 2+3 合计"
-的过滤条件是 `pool_is_shadow = 0 AND merged_call = 0`。
+的过滤条件是 `pool_is_shadow IS NOT 1 AND merged_call IS NOT 1`——
+必须 NULL 安全:`= 0` 会把部署前的 NULL 行全部滤掉(即整个基线窗口),
+两次调用路径写的是 0/空串,只有部署前的行才是 NULL(round 5 I1)。
 一列三个量纲已经是共享的极限,**下一批要拆 `retrieve_self_ms`,不要再加第四个**
 (工单 `todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。钉子:
 `test_retrieve_ms_on_a_merged_row_is_the_bm25_pass_alone`(慢 stub,断言慢调用

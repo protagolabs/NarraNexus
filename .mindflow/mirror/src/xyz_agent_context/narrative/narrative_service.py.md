@@ -6,6 +6,14 @@ stub: false
 
 # narrative_service.py — Narrative 统一门面
 
+## 2026-08-27(round 5)— 上行私有依赖收敛到三个(I3)
+
+merged_select 对 service 私有成员的语义依赖从 5 个收到 3 个
+(_crud/_retrieval/_write_audit,审计写入留在 service 合理):
+`_land_no_topic_turn` 本体迁往 [[landings]](service 留同签名薄委托),
+`_advance_session_anchor` 迁往 [[anchor_rules]]。若再整理本文件私有成员,
+先看这两个 impl 模块的消费面。
+
 ## 2026-08-27 — 合并路径编排搬出(review Important 2)+ Landing 化
 
 `_select_merged` 的 255 行编排整体迁入

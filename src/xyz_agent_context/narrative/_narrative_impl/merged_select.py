@@ -35,7 +35,11 @@ from ..models import (
     NarrativeType,
     RoutingAudit,
 )
-from .anchor_rules import is_reusable_anchor, minutes_since
+from .anchor_rules import (
+    advance_session_anchor,
+    is_reusable_anchor,
+    minutes_since,
+)
 from .landings import (
     Landing,
     assemble_match_landing,
@@ -75,7 +79,7 @@ async def select_merged(
 ) -> NarrativeSelectionResult:
     """One decision per turn: BM25 first, then a shutter or ONE call.
 
-    WHY (specs/2026-08-25-merged-routing-design.md §4)
+    WHY (reference/self_notebook/specs/2026-08-25-merged-routing-design.md §4)
 
     The two-call path asks continuity ("does this continue?") and then, if
     that says no, the judge ("so where does it go?"). Prod, 7 days,
@@ -224,9 +228,7 @@ async def select_merged(
             max_narratives=max_narratives,
         )
 
-    service._advance_session_anchor(
-        session, query_text, landing.narratives, is_user_chat
-    )
+    advance_session_anchor(session, query_text, landing.narratives, is_user_chat)
 
     logger.info(
         f"[NarrativeSelect] merged: {len(landing.narratives)} Narratives, "
@@ -323,7 +325,7 @@ async def _land(
         # must never rename the work it interrupted.
         return await service._land_no_topic_turn(
             agent_id=agent_id, user_id=user_id, query_text=query_text,
-            session=session, reason=decision.reason,
+            session=session, reason=decision.reason, anchor=anchor,
         )
     # Unreachable while decide() validates verdicts — but an assert would be
     # stripped under python -O and fall through to None (review round 4, M6),

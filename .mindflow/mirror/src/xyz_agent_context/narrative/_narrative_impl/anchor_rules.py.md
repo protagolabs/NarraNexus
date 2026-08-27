@@ -6,6 +6,12 @@ stub: false
 
 # anchor_rules.py — "锚点可不可以直接续"的唯一定义 + 会话间隔
 
+## 2026-08-27(round 5)— advance_session_anchor 归队(I3)
+
+会话锚点推进是一条锚点规则,兄弟们都在本模块而它留在 service 上。搬入
+(纯函数,签名不变);select() 与 merged_select 直接调模块函数,service
+不再持有它。
+
 ## 为什么存在
 
 `is_reusable_anchor` 曾以两份字面量分别活在快慢路径里,两条路径为同一

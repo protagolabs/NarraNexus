@@ -4,7 +4,7 @@
 @description: One helper call that answers both routing questions — "does this
 message continue the thread?" and "if not, where does it go?".
 
-WHY (specs/2026-08-25-merged-routing-design.md §2-§4)
+WHY (reference/self_notebook/specs/2026-08-25-merged-routing-design.md §2-§4)
 
 The two questions were two serial LLM calls. On prod (7 days, is_user_chat=1,
 n=189) 43 turns paid for both, at a serial p50 of 8,924ms; the entire non-LLM
@@ -14,7 +14,7 @@ NUMBER OF ROUND TRIPS, and the two questions share almost all of their input.
 WHAT THIS FILE IS RESPONSIBLE FOR, AND WHAT IT IS NOT
 
 It builds one prompt and parses one answer. It does not decide where a turn
-lands: `NarrativeService._select_merged` owns that, and every landing it uses is
+lands: `merged_select.select_merged` owns that, and every landing it uses is
 a pre-existing executor (the continuity landing, the judge's match landing,
 `create_from_query`, `_land_no_topic_turn`). The decider changes; the executors
 do not.
@@ -156,7 +156,7 @@ class MergedRoutingInput:
     previous_query: str
     previous_response: str
     minutes_since_previous: Optional[float]
-    #: Judge-shaped candidate dicts (see `_candidate_labels`), already
+    #: Judge-shaped candidate dicts (see `landings.candidate_labels`), already
     #: deduplicated against the anchor and the participants by `pick_menu`.
     menu: List[dict] = field(default_factory=list)
     participants: List[dict] = field(default_factory=list)
@@ -311,7 +311,27 @@ async def decide(inp: MergedRoutingInput) -> MergedRoutingDecision:
     confident wrong routing — so both come back as `ok=False` and the caller
     keeps the turn where it already was.
     """
-    prompt = build_merged_prompt(inp)
+    try:
+        prompt = build_merged_prompt(inp)
+    except Exception as e:  # noqa: BLE001 — an assembly failure is not a verdict
+        # Rule 6 covers the WHOLE decider, assembly included (review round 5,
+        # I2): un-caught, a bad candidate field would kill the user's turn
+        # here, while the same defect on the two-call path is one warning and
+        # a degrade. Distinct log text from the call failure below — during
+        # the grey period, "our prompt bug" and "provider problem" must be
+        # tellable apart on the merged_verdict='failed' rows.
+        logger.warning(
+            f"[MergedRouting] prompt build failed: {type(e).__name__}: {e} "
+            f"(the turn stays where it was)"
+        )
+        return MergedRoutingDecision(
+            ok=False, verdict=VERDICT_FAILED,
+            reason=f"prompt build failed: {e}",
+            match_index=-1, elapsed_ms=0, prompt=None,
+        )
+    # Timing starts AFTER assembly, before the await: merged_ms is the CALL's
+    # self time (models.py), and folding assembly in would tilt the
+    # input_chars -> merged_ms regression this column exists to feed.
     started = _perf.monotonic()
     try:
         result = await get_helper_sdk().llm_function(
