@@ -182,6 +182,12 @@ update 都重写 `narrative_info.name`（与 current_summary 同源、同频）�
 
 # prompts.py — narrative 子系统的全部 prompt 常量
 
+## 2026-08-27(round 3)— 合并段迁往 prompts_merged.py
+
+~220 行合并指令片段+composer 独立成文件;`_NO_DURABLE_TOPIC_RUBRIC`
+**留在本文件**(judge 变体也逐字 splice 它,唯一拷贝是全部意义),
+prompts_merged 反向 import 它。
+
 ## 2026-08-27(round 2)— 共享核心自己也在邀请被拒的 verdict(C1 残留)
 
 上一轮把答案表参数化了,但共享核心块里"Staying on that thread is the

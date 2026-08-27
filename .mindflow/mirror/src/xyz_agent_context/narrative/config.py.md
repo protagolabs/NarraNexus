@@ -100,6 +100,12 @@ floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
 
+## 2026-08-27(round 3)— NARRATIVE_POOL_LIMIT 归位通用检索段 + env 化
+
+它是**所有路径**上 load_pool 的取数上限,不是合并旋钮——原先放在合并段,
+调它的人会以为只影响 merged 臂(M3)。排名现在恒为全池深度(I1),
+所以它不再有需要同步的孪生常量;补 env 覆盖与邻居一致。
+
 ## 2026-08-27(round 2)— NARRATIVE_POOL_LIMIT(I5)
 
 `load_pool` 的 fetch 上限与合并路径的全量排名深度曾是两处字面量 100,

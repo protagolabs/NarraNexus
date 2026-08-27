@@ -1,5 +1,5 @@
 """
-@file_name: llm_call_tagging.py
+@file_name: call_tagging.py
 @author: NetMind.AI
 @date: 2026-08-27
 @description: Tag a timer with the model the last helper LLM call actually
@@ -29,7 +29,7 @@ def tag_last_llm_call(timer) -> None:
     with a ``tag(**kwargs)`` method). Reads the adapter's contextvar set by
     the call that just returned; a missing value tags nothing.
     """
-    from .adapters.openai_agents import get_last_llm_call_info
+    from ..adapters.openai_agents import get_last_llm_call_info
 
     info = get_last_llm_call_info()
     if info:

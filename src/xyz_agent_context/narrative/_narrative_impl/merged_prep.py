@@ -77,8 +77,8 @@ class MergedRoutingPrep:
 
 
 async def prepare_merged_routing(
-retrieval: "NarrativeRetrieval",
-query: str,
+    retrieval: "NarrativeRetrieval",
+    query: str,
     user_id: str,
     agent_id: str,
     *,
@@ -111,10 +111,9 @@ query: str,
         top_k=menu_size,
         anchor_narrative_id=anchor_narrative_id,
         is_user_chat=is_user_chat,
-        # The whole scoring set: see `rank_depth` in `_score_pool`.
-        # Same constant as `load_pool`'s fetch limit BY CONSTRUCTION, so
-        # this cannot truncate a real pool (review round 2, I5).
-        rank_depth=config.NARRATIVE_POOL_LIMIT,
+        # Full-depth ranking is `_score_pool`'s only mode now (round 3, I1):
+        # the anchor instrument reads true ranks and both arms record the
+        # same precision, while snippets stay bounded to the head.
     )
     elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
 
@@ -178,4 +177,3 @@ query: str,
         anchor_raw_score=anchor_score,
         anchor_in_menu=anchor_in_menu,
     )
-

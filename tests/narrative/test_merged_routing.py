@@ -706,6 +706,36 @@ async def test_rule6_an_index_into_the_unrendered_participant_tail_is_refused(
     assert "participants" in (row["merged_truncated"] or "")
 
 
+async def test_the_menu_knob_does_not_shrink_the_match_landing(
+    service, db_client, merged_on, monkeypatch
+):
+    """Review round 3, I2: MERGED_MENU_SIZE is an env knob that caps the
+    BALLOT; the landing's trailing context must answer to
+    MAX_NARRATIVES_IN_CONTEXT alone. With the menu squeezed to 1, a match
+    verdict must still hand the ChatModule the same number of threads the
+    two-call path would."""
+    anchor, _foreign = await _seed(service)
+    # A second thread sharing the foreign query's subject, so the full
+    # ranking holds two scored non-anchor rows while the ballot holds one.
+    await service.create_narrative(
+        agent_id=AGENT, user_id=USER, title="纽约餐厅预订记录", description="",
+    )
+    monkeypatch.setattr(config, "MERGED_MENU_SIZE", 1)
+    _sdk(monkeypatch, verdict=merged_router.VERDICT_MATCH, index=0)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_match"
+    assert len(result.narratives) >= 2, (
+        "the landing shrank with the menu knob — trailing context must come "
+        "from the full ranking, not the ballot"
+    )
+    assert all(n.id != anchor.id for n in result.narratives)
+
+
 # ===================================================================== #
 # Instruments and contracts                                             #
 # ===================================================================== #

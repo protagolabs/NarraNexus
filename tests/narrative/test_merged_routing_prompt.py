@@ -40,6 +40,7 @@ from xyz_agent_context.narrative._narrative_impl import (
     prompts,
     routing_blocks,
 )
+from xyz_agent_context.narrative._narrative_impl import prompts_merged
 from xyz_agent_context.narrative._narrative_impl import routing_gate
 from xyz_agent_context.narrative._narrative_impl.merged_router import (
     MergedRoutingInput,
@@ -187,7 +188,7 @@ def test_rule1_no_variant_invites_continuing_a_legacy_container():
     not reintroduce it."""
     for continuable in (True, False):
         for with_participants in (True, False):
-            text = prompts.build_merged_instructions(
+            text = prompts_merged.build_merged_instructions(
                 anchor_is_continuable=continuable,
                 with_participants=with_participants,
             )
@@ -271,10 +272,10 @@ def test_rule4_the_participant_variant_is_the_one_that_states_the_priority():
     )
     without = build_merged_prompt(_input())
 
-    assert with_participant.instructions == prompts.build_merged_instructions(
+    assert with_participant.instructions == prompts_merged.build_merged_instructions(
         anchor_is_continuable=True, with_participants=True
     )
-    assert without.instructions == prompts.build_merged_instructions(
+    assert without.instructions == prompts_merged.build_merged_instructions(
         anchor_is_continuable=True, with_participants=False
     )
     assert "PARTICIPANT" in with_participant.instructions
@@ -480,12 +481,12 @@ def test_every_variant_shares_the_no_durable_topic_rubric(kwargs):
     """One constant, spliced into all — the fix that ended the third silent
     fork (PR #361 round 2, I2). The merged prompts join that arrangement on day
     one instead of earning their own fork first."""
-    assert prompts._NO_DURABLE_TOPIC_RUBRIC in prompts.build_merged_instructions(**kwargs)
+    assert prompts._NO_DURABLE_TOPIC_RUBRIC in prompts_merged.build_merged_instructions(**kwargs)
 
 
 @pytest.mark.parametrize("kwargs", _MERGED_VARIANTS, ids=_variant_id)
 def test_every_variant_shares_the_routing_core(kwargs):
-    assert prompts._MERGED_ROUTING_CORE in prompts.build_merged_instructions(**kwargs)
+    assert prompts_merged._MERGED_ROUTING_CORE in prompts_merged.build_merged_instructions(**kwargs)
 
 
 @pytest.mark.parametrize("kwargs", _MERGED_VARIANTS, ids=_variant_id)
@@ -496,7 +497,7 @@ def test_the_asymmetry_rule_exists_exactly_when_there_is_an_anchor(kwargs):
     on anchorless/bucket turns it invited the one verdict the contract
     refuses). "Necessary but not sufficient" is anchor-independent and stays
     in every variant."""
-    flat = " ".join(prompts.build_merged_instructions(**kwargs).split())
+    flat = " ".join(prompts_merged.build_merged_instructions(**kwargs).split())
     continuable = kwargs["anchor_is_continuable"]
     assert ("Staying on that thread is the DEFAULT" in flat) == continuable
     assert ("evidence for LEAVING" in flat) == continuable
@@ -512,7 +513,7 @@ def test_every_variant_carries_the_continuity_only_criteria(kwargs):
     container rule moved OUT of the core (review Critical 1: its "the thread
     continues even there" invited the one verdict the contract refuses) and
     lives in ANCHOR_NOT_CONTINUABLE_NOTE, rendered exactly when it applies."""
-    flat = " ".join(prompts.build_merged_instructions(**kwargs).split())
+    flat = " ".join(prompts_merged.build_merged_instructions(**kwargs).split())
     assert "business intent" in flat
     # The follow-up-to-the-agent's-reply rule presupposes a thread to continue;
     # the anchorless fragment carries its own elliptical-reading line instead.
@@ -527,7 +528,7 @@ def test_every_variant_carries_the_continuity_only_criteria(kwargs):
 def test_every_variant_dropped_the_eight_category_names(kwargs):
     """2026-08-21: the taxonomy was teaching classify-and-dump. A new prompt is
     exactly where it would come back."""
-    text = prompts.build_merged_instructions(**kwargs)
+    text = prompts_merged.build_merged_instructions(**kwargs)
     for category in (
         "GreetingAndCourtesy", "CasualChatOrEmotion", "JokeAndEntertainment",
         "AgentHelpAndCapability", "AgentPersonaConfiguration", "TaskLookup",
@@ -541,7 +542,7 @@ def test_every_variant_offers_exactly_what_the_contract_accepts(kwargs):
     """The answer table and the priority list are derived from the same
     selection `_contract_violation` enforces — a verdict is in the prose iff
     it is landable on that turn."""
-    text = prompts.build_merged_instructions(**kwargs)
+    text = prompts_merged.build_merged_instructions(**kwargs)
     assert (merged_router.VERDICT_CONTINUE_ANCHOR in text) == kwargs[
         "anchor_is_continuable"
     ]
@@ -557,10 +558,10 @@ def test_every_variant_offers_exactly_what_the_contract_accepts(kwargs):
 
 
 def test_only_the_participant_variant_offers_the_participant_verdict():
-    assert merged_router.VERDICT_PARTICIPANT in prompts.build_merged_instructions(
+    assert merged_router.VERDICT_PARTICIPANT in prompts_merged.build_merged_instructions(
         anchor_is_continuable=True, with_participants=True
     )
-    assert merged_router.VERDICT_PARTICIPANT not in prompts.build_merged_instructions(
+    assert merged_router.VERDICT_PARTICIPANT not in prompts_merged.build_merged_instructions(
         anchor_is_continuable=True, with_participants=False
     ), "offering a verdict with no candidates behind it invites an invalid index"
 

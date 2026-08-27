@@ -111,11 +111,12 @@ class ContinuityDetector:
             )
 
         # THE one elapsed-time definition, shared with the merged path
-        # (anchor_rules.minutes_since; naive timestamps read as UTC). The
-        # explicit 0.0 default replaces a latent crash: a session with text
-        # but no last_query_time used to hit AttributeError OUTSIDE the try
-        # below — pre-existing, collected while unifying (review round 2, I3).
-        # The rendered prompt text is byte-identical whenever the value exists.
+        # (anchor_rules.minutes_since; naive timestamps read as UTC). The 0.0
+        # default is DEFENSIVE, not a live bug fix: last_query_time is a
+        # required pydantic field, so the None branch is unreachable through
+        # any current constructor (review round 3, M6) — it exists so the
+        # shared helper's None contract has a stated answer here. The
+        # rendered prompt text is byte-identical whenever the value exists.
         time_minutes = minutes_since(session)
         if time_minutes is None:
             time_minutes = 0.0

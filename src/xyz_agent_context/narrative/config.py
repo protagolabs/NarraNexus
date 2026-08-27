@@ -152,6 +152,14 @@ class NarrativeConfig:
     # Purpose: Can put Top-3 into Context for Agent reference (optional)
     NARRATIVE_SEARCH_TOP_K = 3
 
+    # The BM25 candidate pool's size — `load_pool`'s fetch limit on EVERY
+    # path (flag on or off), not a merged-routing knob (review round 3, M3:
+    # it was first filed under the merged section, where tuning it looked
+    # arm-local). Ranking always runs at full pool depth (round 3, I1), so
+    # raising this raises both fetch and ranking together — no second
+    # constant to keep in step.
+    NARRATIVE_POOL_LIMIT = int(_env("NARRATIVE_POOL_LIMIT", "100"))
+
     # Slice 0 instrument: record the BM25 pool on continuity turns too, where
     # `select` used to return before the retrieval tier ran. Default ON — the
     # measurement is the whole point, it costs two DB reads + one
@@ -303,14 +311,6 @@ class NarrativeConfig:
     # PARTICIPANT threads shown. A prefix, never a re-ranking: the ORDER is the
     # P0-4 priority rule, so trimming to fit must not reorder.
     MERGED_PARTICIPANT_MAX_CANDIDATES = int(_env("NARRATIVE_MERGED_PARTICIPANT_MAX_CANDIDATES", "8"))
-
-    # The BM25 candidate pool's size — `load_pool`'s fetch limit AND the
-    # merged path's full-ranking depth. ONE constant on purpose (review round
-    # 2, I5): the two used to be twin literals held equal by a comment, and
-    # raising the pool to 200 without the rank depth would silently truncate
-    # `anchor_bm25_rank` at 100 — NULL there is DEFINED as "the anchor scored
-    # nothing", so a truncation reads as a lie in the §3.2 instrument.
-    NARRATIVE_POOL_LIMIT = 100
 
     # Keyword menu rows. Three, as in the two-tier judge (`search_results[:3]`)
     # — this batch changes the decider, not the menu size, so a menu-size change

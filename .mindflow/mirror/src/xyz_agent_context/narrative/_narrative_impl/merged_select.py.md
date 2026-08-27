@@ -6,6 +6,16 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-08-27(round 3)— landing 池与选票解耦;Landing 迁往 landings
+
+**I2**:match 落地曾复用 menu_results 当尾随上下文池——MERGED_MENU_SIZE
+是 env 旋钮,调成 1 会让 ChatModule 拿到的线从 3 条静默缩到 1 条,灰度期
+的"回答质量下降"会被错归因给 router。现在落地池 = 全量排名剔锚点
+(landing 深度只听 MAX_NARRATIVES_IN_CONTEXT),选票(渲染+契约)仍由
+MERGED_MENU_SIZE 管。钉:test_the_menu_knob_does_not_shrink_the_match_landing。
+`Landing` 与四个共享 executor 移居 [[landings]](M4:flag-off 路径不再
+为一个 6 字段 dataclass import 合并模块的 helper-SDK 链)。
+
 ## 2026-08-27(round 2)— participant 入口截断 + prep 迁至 merged_prep
 
 **I1**:契约按 `inp.participants` 校验索引,渲染只显示前 8 条——幻觉出的

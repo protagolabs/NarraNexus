@@ -62,7 +62,7 @@ def _install(retrieval, rec: _Recorder, *, pool_fails: bool = False,
     retrieval._ensure_default_narratives = _ensure  # type: ignore[assignment]
     retrieval._get_participant_narratives = _participants  # type: ignore[assignment]
     retrieval.load_pool = _pool  # type: ignore[assignment]
-    retrieval.rank_pool = lambda *a, **k: []  # type: ignore[assignment]
+    retrieval.rank_pool_full = lambda *a, **k: []  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monke
         rank=1,
         raw_score=config.NARRATIVE_MATCH_RAW_FLOOR + 5.0,
     )
-    retrieval.rank_pool = lambda *a, **k: [hit]  # type: ignore[assignment]
+    retrieval.rank_pool_full = lambda *a, **k: [hit]  # type: ignore[assignment]
 
     async def _judge_must_not_run(**kwargs):
         pytest.fail("the judge ran on a path that should have short-circuited")

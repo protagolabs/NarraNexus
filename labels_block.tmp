@@ -1,0 +1,25 @@
+def _candidate_labels(narrative: Narrative) -> Tuple[str, str]:
+    """The (name, description) a narrative shows the LLM judge — ONE definition.
+
+    Every branch that assembles a judge candidate goes through here. That is
+    the actual fix, not an aesthetic one: the search branch and the PARTICIPANT
+    branch of `_llm_unified_match` were two implementations of this same
+    decision, 50 lines apart, and on 2026-04-15 only the search branch was
+    moved onto the live `narrative_info` fields. The PARTICIPANT branch kept
+    reading `topic_hint`, which the 2026-06-09 unified-memory refactor then
+    froze into a write-once-at-creation tombstone — 84% empty on the local dev
+    DB, and stale wherever it is not. Measured worst cases: a 72-event
+    narrative described to the judge by its first sentence from three months
+    earlier, and one whose label was a `[:50]` cut through the middle of an
+    open_id. That branch FORCES the judge to run (a task someone invited the
+    user into must not lose to a keyword hit on the user's own narrative), so
+    a blind label there decides the turn.
+
+    "Untitled" with an empty description is the honest answer for a narrative
+    whose metadata the async updater has not written yet; a frozen creation-time
+    hint is not, because it reads to the LLM as current fact.
+    """
+    info = narrative.narrative_info
+    name = (info.name if info and info.name else "") or "Untitled"
+    summary = (info.current_summary if info and info.current_summary else "")
+    return name, summary[:CANDIDATE_DESC_MAX_CHARS]

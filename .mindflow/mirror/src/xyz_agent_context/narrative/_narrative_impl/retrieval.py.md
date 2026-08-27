@@ -254,6 +254,21 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
 
+## 2026-08-27(round 3)— 排名全深度、snippet 只算头部;四个共享 executor 迁出
+
+**I1(要害)**:合并路径曾以 rank_depth=100 换取锚点排名,代价是每轮
+~94 次 `bm25_snippet`(全文 lower 拷贝)进同步路径,且两臂的
+candidates_json 精度不同(两调用臂切片外一律记 0.0)——跨臂对比在比
+苹果和橘子,事后不可回补(updater 整体重写文本)。修法不是调深度,
+是**拆开两件事**:`rank_pool_full` 全量排名(排序+轻对象,便宜)、
+snippet 只算头部切片(prompt 证据,唯一贵的部分)。两臂从此同精度,
+锚点仪器读真排名,`rank_depth` 机制整个退役(铁律 #2)。`rank_pool`
+保持公共形状(top-k 带 snippet),成为 full 版的薄切片。
+**I3**:`build_menu_candidates` / `build_participant_candidates` /
+`assemble_match_landing` / `load_participant_landing` + 唯一标签定义
+`_candidate_labels` 迁往 [[landings]](内聚的"共享 executor"单元),
+本文件拉回 ~1200 行。
+
 ## 2026-08-27(round 2)— 合并准备段迁出,反向依赖解除(I6)
 
 `MergedRoutingPrep` + `prepare_merged_routing` 整体迁往 [[merged_prep]]

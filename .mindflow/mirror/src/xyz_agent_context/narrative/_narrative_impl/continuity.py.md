@@ -32,6 +32,12 @@ see AnthropicHelperSDK._resolve_model.
 
 # continuity.py — LLM-based "does this query continue the current Narrative?"
 
+## 2026-08-27(round 3 更正)— 0.0 兜底是防御性的,不是修活雷
+
+last_query_time 是 pydantic 必填字段,三个构造点都会在构造期
+ValidationError——"session 有文本但时间为 None"经由现有构造器不可达。
+兜底保留(共享 helper 的 None 契约在此处要有明确答案),注释已改口。
+
 ## 2026-08-27 — 时间差计算收编到共享定义(round 2 I3)
 
 内联的"距上一轮多少分钟 + naive→UTC 兜底"改调

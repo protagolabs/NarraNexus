@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import time as _perf
 from dataclasses import dataclass, field
-from typing import FrozenSet, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import FrozenSet, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -56,11 +56,8 @@ from pydantic import BaseModel, Field
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 
 from ..config import config
-from ..models import NarrativeSearchResult
 from . import routing_blocks
-from .prompts import (
-    build_merged_instructions,
-)
+from .prompts_merged import build_merged_instructions
 
 if TYPE_CHECKING:
     from ..models import Narrative

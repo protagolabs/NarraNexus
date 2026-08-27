@@ -1,10 +1,10 @@
 ---
-code_file: src/xyz_agent_context/agent_framework/llm_call_tagging.py
+code_file: src/xyz_agent_context/agent_framework/llm/call_tagging.py
 last_verified: 2026-08-27
 stub: false
 ---
 
-# llm_call_tagging.py — 计时器打 LLM 型号标的唯一入口
+# call_tagging.py — 计时器打 LLM 型号标的唯一入口
 
 ## 为什么存在
 

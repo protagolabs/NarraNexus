@@ -6,6 +6,12 @@ stub: false
 
 # merged_prep.py — 合并路径的 BM25 准备段(从 retrieval 迁出)
 
+## 2026-08-27(round 3)— rank_depth 退役
+
+全深度排名成为 `_score_pool` 唯一模式(snippet 只算头部),本文件不再
+传 rank_depth;锚点排名/在榜与否读的就是真全量。详见 [[retrieval]] 的
+round 3 条目。
+
 ## 为什么存在
 
 review 2026-08-27 round 2 I6:retrieval.py 越过 1,400 行,且为反事实菜单

@@ -8,9 +8,11 @@
 Moved out of NarrativeService on review (2026-08-27, Important #2): the
 service file had grown past the 800-line bound with two 250-line deciders
 side by side, and every verdict branch hand-assigned six loose locals. Here
-each landing is a small function returning a frozen ``Landing`` — six fields
-constructed at once, so a new ``NarrativeSelectionResult`` field cannot be
-silently defaulted on one verdict and set on another.
+each landing is a small function returning a frozen ``Landing`` (defined in
+landings.py so the flag-off path can use it without importing this module's
+helper-SDK chain) — six fields constructed at once, so a new
+``NarrativeSelectionResult`` field cannot be silently defaulted on one
+verdict and set on another.
 
 The service keeps a thin ``_select_merged`` delegate; ``is_reusable_anchor``
 and ``minutes_since`` stay ONE definition each (anchor_rules.py), shared with
@@ -19,12 +21,11 @@ and ``minutes_since`` stay ONE definition each (anchor_rules.py), shared with
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_call_tagging import tag_last_llm_call
+from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
 
 from ..config import config
 from ..models import (
@@ -35,6 +36,13 @@ from ..models import (
     RoutingAudit,
 )
 from .anchor_rules import is_reusable_anchor, minutes_since
+from .landings import (
+    Landing,
+    assemble_match_landing,
+    build_menu_candidates,
+    build_participant_candidates,
+    load_participant_landing,
+)
 from .merged_prep import prepare_merged_routing
 from .merged_router import (
     MergedRoutingDecision,
@@ -51,24 +59,6 @@ from .routing_gate import pick_menu
 
 if TYPE_CHECKING:
     from ..narrative_service import NarrativeService
-
-
-@dataclass(frozen=True)
-class Landing:
-    """Where one turn landed — every field a verdict must answer, at once.
-
-    The five merged verdict branches (and the no-topic landing in the
-    service) each construct this whole; the alternative — six loose locals
-    assigned per-branch — is how a new result field gets set on four verdicts
-    and silently defaulted on the fifth.
-    """
-
-    narratives: List[Narrative]
-    method: str
-    reason: str
-    retrieval_method: str
-    is_new: bool = False
-    no_durable_topic: bool = False
 
 
 async def select_merged(
@@ -175,9 +165,7 @@ async def select_merged(
         # [0, N) — a hallucinated index into the unrendered tail would land a
         # turn on a thread that was never on the ballot). Prefix slice only:
         # the ORDER is the P0-4 priority rule.
-        all_participants = service._retrieval.build_participant_candidates(
-            prep.participant_narratives
-        )
+        all_participants = build_participant_candidates(prep.participant_narratives)
         shown_participants = all_participants[
             : config.MERGED_PARTICIPANT_MAX_CANDIDATES
         ]
@@ -189,7 +177,7 @@ async def select_merged(
             previous_query=(session.last_query or "") if session else "",
             previous_response=(session.last_response or "") if session else "",
             minutes_since_previous=minutes_since(session),
-            menu=await service._retrieval.build_menu_candidates(menu_results),
+            menu=await build_menu_candidates(service._crud, menu_results),
             participants=shown_participants,
             awareness=awareness,
         )
@@ -210,11 +198,23 @@ async def select_merged(
                 truncated.append("participants")
             audit.merged_truncated = ",".join(truncated)
 
+        # The landing pool is NOT the ballot (review round 3, I2): menu_results
+        # is capped by MERGED_MENU_SIZE (an env knob) and excludes participants
+        # — reusing it for trailing context would let a menu-size tweak
+        # silently shrink what the ChatModule receives from 3 threads to 1.
+        # The two-call path lands from the full ranking; so does this one. The
+        # anchor stays excluded by design: the model just LEFT it, re-appending
+        # it as context for leaving would argue with the verdict.
+        landing_pool = [
+            r for r in prep.ranked
+            if anchor is None or r.narrative_id != anchor.id
+        ]
         landing = await _land(
             service,
             decision=decision,
             routing_input=routing_input,
             menu_results=menu_results,
+            landing_pool=landing_pool,
             anchor=anchor,
             continuable=continuable,
             session=session,
@@ -261,6 +261,7 @@ async def _land(
     decision: MergedRoutingDecision,
     routing_input: MergedRoutingInput,
     menu_results,
+    landing_pool,
     anchor: Optional[Narrative],
     continuable: bool,
     session: Optional[ConversationSession],
@@ -285,13 +286,12 @@ async def _land(
         )
     if decision.verdict == VERDICT_MATCH:
         chosen_id = resolve_choice(decision, routing_input)
-        # The judge's own landing, called rather than copied. The trailing
-        # rows are context for the agent prompt and come from the menu: the
-        # anchored thread the model just left is deliberately not re-appended
-        # as context for leaving it.
+        # The judge's own landing, called rather than copied. Trailing rows
+        # come from the FULL ranking (anchor excluded), so the context depth
+        # answers to MAX_NARRATIVES_IN_CONTEXT alone — never to the menu knob.
         return Landing(
-            narratives=await service._retrieval.assemble_match_landing(
-                chosen_id or "", menu_results, max_narratives
+            narratives=await assemble_match_landing(
+                service._crud, chosen_id or "", landing_pool, max_narratives
             ),
             method="merged_match",
             reason=f"Switched to an existing thread: {decision.reason}",
@@ -300,9 +300,7 @@ async def _land(
     if decision.verdict == VERDICT_PARTICIPANT:
         chosen_id = resolve_choice(decision, routing_input)
         return Landing(
-            narratives=await service._retrieval.load_participant_landing(
-                chosen_id
-            ),
+            narratives=await load_participant_landing(service._crud, chosen_id),
             method="merged_participant",
             reason=f"Matched a thread the user participates in: {decision.reason}",
             retrieval_method="keyword",

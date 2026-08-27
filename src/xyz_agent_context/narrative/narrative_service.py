@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_call_tagging import tag_last_llm_call
+from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
 
 from .models import (
     ConversationSession,
@@ -46,7 +46,7 @@ from ._narrative_impl import (
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.schema.module_schema import InstanceStatus
-    from ._narrative_impl.merged_select import Landing
+    from ._narrative_impl.landings import Landing
 
 
 def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) -> str:
@@ -640,7 +640,7 @@ class NarrativeService:
         it, so a new result field cannot be set on one path and silently
         defaulted on the other.
         """
-        from ._narrative_impl.merged_select import Landing
+        from ._narrative_impl.landings import Landing
         anchor_id = getattr(session, "current_narrative_id", None) if session else None
         if anchor_id:
             anchored = await self._crud.load_by_id(anchor_id)
