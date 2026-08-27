@@ -39,6 +39,7 @@ from .agent_repository import AgentRepository
 from .agent_registry_repository import AgentRegistryRepository
 from .agent_message_repository import AgentMessageRepository
 from .agent_circuit_breaker_repository import AgentCircuitBreakerRepository
+from .channel_ingress_breaker_repository import ChannelIngressBreakerRepository
 from .event_memory_repository import EventMemoryRepository
 
 # Instance-related Repositories (ModuleInstance decoupled)
@@ -85,6 +86,7 @@ __all__ = [
     # Agent Message
     "AgentMessageRepository",
     "AgentCircuitBreakerRepository",
+    "ChannelIngressBreakerRepository",
     "EventMemoryRepository",
     # MCP
     "MCPRepository",

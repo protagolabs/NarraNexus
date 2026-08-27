@@ -6,6 +6,26 @@ stub: false
 
 # schema_registry.py
 
+## 2026-08-27 — 新表 channel_ingress_breaker
+
+ingress 分级熔断的**层级状态**。一行一个会话键
+`agent_id|channel|chat_id|sender_id`，**只在层级变迁时写**：驱动变迁的滑窗
+计数和内容指纹留在进程内存里，每条入站消息写一次库是纯写放大，而那些数据
+十分钟就过期。必须扛住重启的是**冷却**——8/14 那个乒乓循环跑了 70+ 小时，
+期间任何一次重新部署都会把已经隔离掉的对端重新放进来。
+
+`session_key` 列宽 448：四段（128+32+128+128）加三个分隔符是 419，留了余量。
+**这个数字不能只写在注释里**——SQLite 的 TEXT 永不截断，MySQL 侧宽度不够只会
+在生产上表现为两个 agent 的行在唯一索引上互相覆盖。宽度由
+`varchar_width()` 从 DDL 推导并有测试钉着。
+
+`suppressed_count` 每次跳闸重置，回答的是「**这一轮**隔离吸收了多少」而不是
+一个没有意义的终身累计。
+
+保留期清扫**尚未挂上**：本次合入时没有任何写入方，接线 PR 才给它第一个写入
+方，届时同 commit 挂进 `ChannelTriggerBase._run_cleanup`。源码里那段注释写的
+是 NOT swept yet，不是描述成已完成。
+
 ## 2026-08-27 — 新表 agent_slot_clear_audit
 
 owner 级「应用默认到全体 agent」会不可逆地删 `agent_slots` 行。删除前把每行
