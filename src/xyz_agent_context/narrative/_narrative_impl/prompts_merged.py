@@ -142,7 +142,7 @@ _PRIORITY_TAIL = (
 
 
 def build_merged_instructions(
-    *, anchor_is_continuable: bool, with_participants: bool
+    *, anchor_is_continuable: bool, with_participants: bool, with_menu: bool = True
 ) -> str:
     """Compose the merged-routing instructions for what THIS turn offers.
 
@@ -158,15 +158,23 @@ def build_merged_instructions(
     if with_participants:
         answers.append(_MERGED_ANSWER_PARTICIPANT)
         verdict_names.append("participant")
-    answers += [_MERGED_ANSWER_MATCH, _MERGED_ANSWER_NEW, _MERGED_ANSWER_NO_TOPIC]
-    verdict_names += ["match", "new", "no_topic"]
+    if with_menu:
+        # An empty menu offers no index to give — listing `match` anyway is
+        # the round-2 Critical one door over: the prose invites a verdict the
+        # contract is guaranteed to refuse (review round 6, I3). The menu
+        # HEADER still renders its empty note; only the answer goes away.
+        answers.append(_MERGED_ANSWER_MATCH)
+        verdict_names.append("match")
+    answers += [_MERGED_ANSWER_NEW, _MERGED_ANSWER_NO_TOPIC]
+    verdict_names += ["new", "no_topic"]
 
     priority_items = []
     if anchor_is_continuable:
         priority_items.append(_PRIORITY_CONTINUE)
     if with_participants:
         priority_items.append(_PRIORITY_PARTICIPANT)
-    priority_items.append(_PRIORITY_MATCH)
+    if with_menu:
+        priority_items.append(_PRIORITY_MATCH)
     priority_items.append(_PRIORITY_TAIL)
     lines = []
     for i, item in enumerate(priority_items, start=1):

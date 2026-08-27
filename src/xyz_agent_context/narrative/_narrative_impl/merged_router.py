@@ -243,9 +243,12 @@ def build_merged_prompt(inp: MergedRoutingInput) -> MergedRoutingPrompt:
         )
     truncated.extend(anchor_block.truncated)
 
+    # No renderer-side cap (round 6, minor 2): inp.participants IS what the
+    # contract bounds on, so the entry truncation in merged_select is the one
+    # cut — re-capping here would let a different MergedRoutingInput
+    # constructor reopen the ballot/render split (round 2, I1).
     participants = routing_blocks.render_participant_candidates(
         inp.participants,
-        max_candidates=config.MERGED_PARTICIPANT_MAX_CANDIDATES,
     )
     truncated.extend(participants.truncated)
 
@@ -295,6 +298,7 @@ def build_merged_prompt(inp: MergedRoutingInput) -> MergedRoutingPrompt:
     instructions = build_merged_instructions(
         anchor_is_continuable=bool(inp.anchor is not None and inp.anchor_is_continuable),
         with_participants=bool(inp.participants),
+        with_menu=bool(inp.menu),
     )
     return MergedRoutingPrompt(
         instructions=instructions,
@@ -387,7 +391,9 @@ def allowed_verdicts(inp: MergedRoutingInput) -> FrozenSet[str]:
     core offered continue_anchor on turns the contract was guaranteed to
     refuse, and every obedient model landed in merged_fallback_new).
     """
-    offered = {VERDICT_MATCH, VERDICT_NEW, VERDICT_NO_TOPIC}
+    offered = {VERDICT_NEW, VERDICT_NO_TOPIC}
+    if inp.menu:
+        offered.add(VERDICT_MATCH)
     if inp.anchor is not None and inp.anchor_is_continuable:
         offered.add(VERDICT_CONTINUE_ANCHOR)
     if inp.participants:

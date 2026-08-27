@@ -92,6 +92,21 @@ async def build_menu_candidates(
         if narrative is None:
             continue
         name, description = candidate_labels(narrative)
+        matched_content = result.matched_snippet
+        if not matched_content and result.raw_score > 0 and result.matched_terms:
+            # A menu row from beyond the snippet head (review round 6, I2):
+            # `rank_pool_full` computes snippets only for the top rows of the
+            # BM25 ordering, but `pick_menu` selects AFTER excluding the
+            # anchor and scoring participants — exclude 4+ of the top 6 and a
+            # menu row arrives snippet-less, showing terms without the
+            # load-bearing half of the evidence and tripping the wiring-broken
+            # alarm downstream. Computing it here is exact and costs at most
+            # menu_size snippet calls, only on merged turns that hit the case.
+            from xyz_agent_context.memory.bm25 import bm25_snippet
+
+            matched_content = bm25_snippet(
+                narrative.searchable_text(), list(result.matched_terms)
+            )
         candidates.append({
             "id": narrative.id,
             "type": "search",
@@ -100,7 +115,7 @@ async def build_menu_candidates(
             "score": result.similarity_score,
             "raw_score": result.raw_score,
             "matched_terms": result.matched_terms,
-            "matched_content": result.matched_snippet,
+            "matched_content": matched_content,
         })
     return candidates
 

@@ -503,8 +503,9 @@ class RoutingAudit(BaseModel):
     # anchor_*); rows written BEFORE this deploy are NULL throughout. So a
     # filter must be NULL-safe: `merged_call = 0` evaluates NULL to false and
     # silently drops every pre-deploy row — which is the entire baseline
-    # window. Use `merged_call IS NOT 1` (review round 5, I1); same rule for
-    # `pool_is_shadow`.
+    # window. Use `COALESCE(merged_call, 0) <> 1` — the one form valid on BOTH
+    # dialects (`IS NOT 1` parses only on SQLite; MySQL throws 1064, review
+    # round 6, I1); same rule for `pool_is_shadow`.
     #
     # `merged_call` marks the PATH, not the LLM: a turn the shutter released
     # took the merged path and asked nobody, so it carries merged_call=1 with
@@ -576,8 +577,9 @@ class RoutingAudit(BaseModel):
     # a shadow row and none of its caveats: `retrieve_ms` holds the BM25 pass
     # only, because on that path the LLM is a separate tier with its own column
     # (`merged_ms`) — so the filter is
-    # `pool_is_shadow IS NOT 1 AND merged_call IS NOT 1` (NULL-safe: `= 0`
-    # drops every pre-deploy NULL row, i.e. the whole baseline window)
+    # `COALESCE(pool_is_shadow,0) <> 1 AND COALESCE(merged_call,0) <> 1`
+    # (NULL-safe on both dialects; `= 0` drops every pre-deploy NULL row —
+    # the whole baseline window — and `IS NOT 1` is SQLite-only)
     # for "tiers 2+3 together", and `merged_ms` for the merged call's own cost.
     # Three magnitudes in one column is the point at which it stops being worth
     # sharing; a future batch should split out `retrieve_self_ms` rather than

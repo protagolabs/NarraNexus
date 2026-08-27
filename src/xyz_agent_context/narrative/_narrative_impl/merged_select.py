@@ -42,6 +42,7 @@ from .anchor_rules import (
 )
 from .landings import (
     Landing,
+    land_no_topic,
     assemble_match_landing,
     build_menu_candidates,
     build_participant_candidates,
@@ -252,7 +253,11 @@ async def select_merged(
         selection_method=landing.method,
         no_durable_topic=landing.no_durable_topic,
         is_new=landing.is_new,
-        best_score=None,
+        # Same fill as the two-call path (round 6, minor 1): the developer
+        # narrative panel reads these, and "nothing downstream learns there
+        # was a change" includes the observability surface.
+        best_score=prep.scored.best_score,
+        scores=prep.scored.all_scores,
         retrieval_method=landing.retrieval_method,
     )
 
@@ -323,7 +328,8 @@ async def _land(
         # The verdict carries no destination; `_land_no_topic_turn` owns that,
         # anchor-first, and its freeze semantics are untouched — a greeting
         # must never rename the work it interrupted.
-        return await service._land_no_topic_turn(
+        return await land_no_topic(
+            service._crud, service._retrieval,
             agent_id=agent_id, user_id=user_id, query_text=query_text,
             session=session, reason=decision.reason, anchor=anchor,
         )

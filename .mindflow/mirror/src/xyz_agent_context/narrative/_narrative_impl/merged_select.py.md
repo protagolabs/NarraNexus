@@ -6,6 +6,13 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-08-27(round 6)— 观测面补齐 + 直调落点
+
+best_score / scores 照两调用路径同样填充(minor 1:"下游无感"包括
+开发者叙事面板);no_topic 落点直调 `landings.land_no_topic`
+(minor 3,不再绕 service 委托);participant 渲染器不再二次截断
+(minor 2:入口截断是唯一一刀,不变式从调用点约定升级为结构)。
+
 ## 2026-08-27(round 3)— landing 池与选票解耦;Landing 迁往 landings
 
 **I2**:match 落地曾复用 menu_results 当尾随上下文池——MERGED_MENU_SIZE

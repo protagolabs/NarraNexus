@@ -6,6 +6,15 @@ stub: false
 
 # landings.py — 所有 decider 共享的 executor + Landing 值对象
 
+## 2026-08-27(round 6)— 菜单行证据懒回填(I2)
+
+`pick_menu` 在 BM25 排序**之后**排除锚点与命中 BM25 的 participant,
+所以菜单行可能来自 snippet 头部窗口之外(matched_snippet 空)——词条
+在、证据的承重半边缺席,还会误触"wiring is broken"告警(狼来了 =
+真告警被静默,事故教训 #3)。`build_menu_candidates` 对
+raw_score>0 且无 snippet 的行按 `searchable_text()` 现算,至多
+menu_size 次、仅命中该形态的合并轮付费。
+
 ## 2026-08-27(round 5)— land_no_topic 归队 + candidate_labels 转正
 
 **I3**:`_land_no_topic_turn` 是落点执行器,四个兄弟都在这里而它留在

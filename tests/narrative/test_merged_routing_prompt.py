@@ -282,9 +282,13 @@ def test_rule4_the_participant_variant_is_the_one_that_states_the_priority():
     assert "participant" not in without.instructions
 
 
-def test_rule4_participants_are_capped_but_never_reordered():
-    """The cap is a read-side budget; the ORDER is the priority rule, so the
-    cap takes a prefix and says it did."""
+def test_rule4_the_prompt_renders_exactly_what_the_input_carries():
+    """The cut lives at ONE place — merged_select's entry (round 6, minor 2):
+    `inp.participants` is both the render source and the contract's index
+    bound, so the renderer must NOT re-cap. What enters is what shows, in
+    priority order (P0-4 forbids reordering). The entry cut itself is pinned
+    end-to-end by test_rule6_an_index_into_the_unrendered_participant_tail_
+    is_refused."""
     many = [
         {"id": f"nar_p{i}", "type": "participant", "name": f"任务 {i}",
          "description": ""}
@@ -292,12 +296,14 @@ def test_rule4_participants_are_capped_but_never_reordered():
     ]
     prompt = build_merged_prompt(_input(participants=many))
 
-    assert "任务 0" in prompt.user_input
-    assert (
-        f"任务 {config.MERGED_PARTICIPANT_MAX_CANDIDATES + 2}"
-        not in prompt.user_input
-    )
-    assert "participants" in prompt.truncated
+    for i in range(config.MERGED_PARTICIPANT_MAX_CANDIDATES + 3):
+        assert f"任务 {i}" in prompt.user_input, (
+            "the renderer re-capped — the ballot/render split (round 2, I1) "
+            "reopens for any constructor that skips the entry cut"
+        )
+    first = prompt.user_input.index("任务 0")
+    second = prompt.user_input.index("任务 1")
+    assert first < second  # order is the priority rule
 
 
 # ===================================================================== #
@@ -464,16 +470,20 @@ def test_the_menu_shows_evidence_not_a_cross_pool_score():
 #: All four composed variants (continuable × participant), by builder args —
 #: the review's trap note: variants multiply, literals fork; parametrize the
 #: BUILDER, never a list of module constants.
-_MERGED_VARIANTS = (
-    dict(anchor_is_continuable=True, with_participants=False),
-    dict(anchor_is_continuable=True, with_participants=True),
-    dict(anchor_is_continuable=False, with_participants=False),
-    dict(anchor_is_continuable=False, with_participants=True),
+_MERGED_VARIANTS = tuple(
+    dict(anchor_is_continuable=cont, with_participants=part, with_menu=menu)
+    for cont in (True, False)
+    for part in (True, False)
+    for menu in (True, False)
 )
 
 
 def _variant_id(kwargs):
-    return f"cont={kwargs['anchor_is_continuable']}-part={kwargs['with_participants']}"
+    return (
+        f"cont={kwargs['anchor_is_continuable']}"
+        f"-part={kwargs['with_participants']}"
+        f"-menu={kwargs['with_menu']}"
+    )
 
 
 @pytest.mark.parametrize("kwargs", _MERGED_VARIANTS, ids=_variant_id)
@@ -549,8 +559,14 @@ def test_every_variant_offers_exactly_what_the_contract_accepts(kwargs):
     assert (merged_router.VERDICT_PARTICIPANT in text) == kwargs[
         "with_participants"
     ]
+    # `match` is conditional too (round 6, I3): an empty menu offers no index
+    # to give, so listing it invited a guaranteed contract refusal. The bare
+    # word "match" occurs in unrelated prose ("terms matched", "match_index"),
+    # so the pin reads the answer-table bullet and the output-format verdict
+    # list — the two places an OFFER actually lives.
+    assert ("- match —" in text) == kwargs["with_menu"]
+    assert ('"match"' in text) == kwargs["with_menu"]
     for always in (
-        merged_router.VERDICT_MATCH,
         merged_router.VERDICT_NEW,
         merged_router.VERDICT_NO_TOPIC,
     ):

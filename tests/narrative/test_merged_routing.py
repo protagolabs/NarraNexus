@@ -641,9 +641,18 @@ async def test_the_offered_verdicts_are_derived_from_the_input():
     bare = merged_router.MergedRoutingInput(
         anchor=None, anchor_is_continuable=False, **base
     )
+    # An empty menu withdraws `match` too (round 6, I3): no index to give.
     assert merged_router.allowed_verdicts(bare) == frozenset(
-        {merged_router.VERDICT_MATCH, merged_router.VERDICT_NEW,
-         merged_router.VERDICT_NO_TOPIC}
+        {merged_router.VERDICT_NEW, merged_router.VERDICT_NO_TOPIC}
+    )
+    with_menu = merged_router.MergedRoutingInput(
+        anchor=None, anchor_is_continuable=False,
+        **{**base, "menu": [
+            {"id": "m", "type": "search", "name": "n", "description": "d"}
+        ]},
+    )
+    assert merged_router.VERDICT_MATCH in merged_router.allowed_verdicts(
+        with_menu
     )
     with_part = merged_router.MergedRoutingInput(
         anchor=None, anchor_is_continuable=False,
@@ -760,6 +769,37 @@ async def test_rule6_a_prompt_assembly_failure_is_a_failure_not_a_dead_turn(
     row = await _row(db_client)
     assert row["merged_verdict"] == merged_router.VERDICT_FAILED
     assert row["merged_input_chars"] is None  # no prompt was built
+
+
+async def test_a_menu_row_from_beyond_the_snippet_head_still_carries_evidence(
+    service, db_client
+):
+    """Review round 6, I2: pick_menu selects AFTER excluding the anchor and
+    scoring participants, so a menu row can come from past the snippet head
+    window with matched_snippet="". The snippet is the load-bearing half of
+    the evidence (terms alone mislead — the CJK frame-word collision), and a
+    bare row also trips the wiring-broken alarm. build_menu_candidates must
+    backfill it."""
+    from xyz_agent_context.narrative.models import NarrativeSearchResult
+    from xyz_agent_context.narrative._narrative_impl.landings import (
+        build_menu_candidates,
+    )
+
+    thread = await service.create_narrative(
+        agent_id=AGENT, user_id=USER, title="部署脚本报错排查", description="",
+    )
+    bare_row = NarrativeSearchResult(
+        narrative_id=thread.id, similarity_score=0.9, rank=7,
+        raw_score=9.0, matched_terms=["部署"], matched_snippet="",
+    )
+
+    candidates = await build_menu_candidates(service._crud, [bare_row])
+
+    assert candidates[0]["matched_content"], (
+        "a scored menu row reached the model without its evidence — the "
+        "snippet must be backfilled for rows beyond the head window"
+    )
+    assert "部署" in candidates[0]["matched_content"]
 
 
 # ===================================================================== #

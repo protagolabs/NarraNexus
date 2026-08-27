@@ -758,9 +758,11 @@ class NarrativeRetrieval:
         §3.2 instrument. Ranking 100 rows is cheap; what was NOT cheap was
         `bm25_snippet` per row (a full text.lower() copy of searchable_text,
         p99 in the KB range), so snippets — evidence for the PROMPT, nothing
-        else — are computed only for the first `snippet_depth` rows. Menu
-        sizes are far below any snippet_depth a caller passes, so every row a
-        model sees still carries its evidence.
+        else — are computed only for the first `snippet_depth` rows. A menu
+        row can still be drawn from beyond this window (`pick_menu` excludes
+        the anchor and scoring participants AFTER this ordering), so
+        `build_menu_candidates` backfills such a row's snippet lazily — every
+        row a model sees carries its evidence either way (round 6, I2).
 
         Ranks via ``bm25_explain`` rather than ``bm25_rank``: same arithmetic
         and the same score to the last bit, but it also hands back WHICH query
