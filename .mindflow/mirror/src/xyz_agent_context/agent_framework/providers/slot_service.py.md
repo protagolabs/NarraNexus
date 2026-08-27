@@ -10,7 +10,9 @@ stub: false
   `{slot: count}`，内部先全量校验(fail-closed)+保序去重+**一次**取 agent 列表，
   再逐槽调私有 `_clear_one_slot(owner_id, slot, agent_ids)`。路由回到一行委托，
   `_owner_agent_ids` 收回**私有**，不再有「路由取 ids 传进来」的性能参数（避免
-  下个批量端点照抄这个易漏形状）。单槽 `clear_owner_agents_slot` 保留为薄封装。
+  下个批量端点照抄这个易漏形状）。**唯一公开清除入口就是复数版**——单槽薄封装
+  已删（生产零调用者，留着只会成为「逐槽循环 + 每槽重取」的现成模板，铁律 #2）；
+  测试直接调复数版取 `out[slot]`。
 - **审计快照原样透传 NULL**（不再 `or ""`）：源行 `agent_framework`/`params_json`
   的 NULL（「继承」/「全自动」）与 `""` 语义不同，压平会毁掉恢复保真度；四个
   快照列本就可空，插 None 即写 NULL。

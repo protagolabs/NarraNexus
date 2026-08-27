@@ -67,7 +67,7 @@ export function AgentModelCard({ agentId, reloadKey, onEdit }: Props) {
               <span className="font-mono text-[var(--nm-ink)]">{eff?.model || '—'}</span>
               {eff?.reasoning_effort && (
                 <span className="text-[var(--nm-ink50)]">
-                  {t('pages.dashboard.modelCard.effortLabel', 'effort')}={eff.reasoning_effort}
+                  {t('pages.dashboard.modelCard.effort', 'effort={{value}}', { value: eff.reasoning_effort })}
                 </span>
               )}
               {view &&

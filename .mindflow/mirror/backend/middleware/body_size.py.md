@@ -4,14 +4,14 @@ last_verified: 2026-08-27
 stub: false
 ---
 
+# body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
+
 ## 2026-08-27 — apply-to-agents 真 cap
 
 `BODY_CAPS` 加一条 `POST /api/providers/slots/apply-to-agents` →
 `MAX_APPLY_TO_AGENTS_BYTES=4KB`。body 是 `{"slots":[...]}` 固定小形状；路由侧
 的 Pydantic `max_length` 只封循环基数（缓冲后才跑），字节上界只有这里（中间件、
 缓冲前）能封——所以它走真 cap 而非 `_NO_BODY_CAP_EXEMPT` 豁免。
-
-# body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
 
 ## 为什么存在
 

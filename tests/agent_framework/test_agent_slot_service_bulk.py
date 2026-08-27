@@ -102,7 +102,7 @@ async def test_clear_owner_agents_slot_clears_only_that_slot_own_agents():
     await _mk_override(db, "a2", "agent")
     await _mk_override(db, "b1", "agent")
 
-    cleared = await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    cleared = (await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent"]))["agent"]
     assert cleared == 2  # a1.agent + a2.agent
 
     # a1.helper_llm untouched
@@ -118,7 +118,7 @@ async def test_clear_owner_agents_slot_clears_only_that_slot_own_agents():
 async def test_clear_owner_agents_slot_rejects_bad_slot():
     db = _FakeDB()
     with pytest.raises(ValueError):
-        await AgentSlotService(db).clear_owner_agents_slot("owner1", "nope")
+        await AgentSlotService(db).clear_owner_agents_slots("owner1", ["nope"])
 
 
 @pytest.mark.asyncio
@@ -175,7 +175,7 @@ async def test_clear_snapshots_deleted_rows_to_audit():
     db = _FakeDB()
     await _mk_agent(db, "a1", "owner1")
     await _mk_override(db, "a1", "agent", model="pinned")
-    cleared = await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    cleared = (await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent"]))["agent"]
     assert cleared == 1
     audit = await db.get("agent_slot_clear_audit", {"agent_id": "a1"})
     assert len(audit) == 1
@@ -197,7 +197,7 @@ async def test_audit_preserves_null_agent_framework_and_params():
          "model": "m", "params_json": None, "agent_framework": None,
          "created_at": "x", "updated_at": "x"},
     )
-    await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent"])
     audit = await db.get_one("agent_slot_clear_audit", {"agent_id": "a1"})
     assert audit["agent_framework"] is None
     assert audit["params_json"] is None
@@ -231,6 +231,6 @@ async def test_clear_also_removes_stub_rows_but_still_snapshots():
     db = _FakeDB()
     await _mk_agent(db, "a1", "owner1")
     await _mk_stub_override(db, "a1", "agent")
-    cleared = await AgentSlotService(db).clear_owner_agents_slot("owner1", "agent")
+    cleared = (await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent"]))["agent"]
     assert cleared == 1
     assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is None

@@ -262,6 +262,12 @@ class AgentSlotService:
         partial clear behind), slot names are order-preserving-deduped, and the
         owner's agent list is fetched ONCE and reused across slots — the
         orchestration lives here, not in the route.
+
+        Fail-closed covers VALIDATION only: a runtime failure mid-loop (a DB
+        blip, an audit insert that raises) can still leave an earlier agent
+        cleared. That is recoverable — every deleted row was snapshotted to
+        ``agent_slot_clear_audit`` before its delete, and re-running is
+        idempotent (an already-cleared ``(agent_id, slot_name)`` is a no-op).
         """
         valid = {s.value for s in SlotName}
         slots = list(dict.fromkeys(slot_names))  # order-preserving dedup
@@ -270,14 +276,6 @@ class AgentSlotService:
             raise ValueError(f"Invalid slot(s): {bad}")
         agent_ids = await self._owner_agent_ids(owner_id)
         return {s: await self._clear_one_slot(owner_id, s, agent_ids) for s in slots}
-
-    async def clear_owner_agents_slot(self, owner_id: str, slot_name: str) -> int:
-        """Single-slot convenience wrapper over ``clear_owner_agents_slots``."""
-        if slot_name not in {s.value for s in SlotName}:
-            raise ValueError(f"Invalid slot: {slot_name}")
-        return await self._clear_one_slot(
-            owner_id, slot_name, await self._owner_agent_ids(owner_id)
-        )
 
     async def _clear_one_slot(
         self, owner_id: str, slot_name: str, agent_ids: list[str]

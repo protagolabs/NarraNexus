@@ -377,6 +377,23 @@ test('a failing override-stats fetch does not turn a successful save into an err
   expect(screen.queryByTestId('apply-confirm-btn')).not.toBeInTheDocument();
 });
 
+test('dialog is gated to CHANGED slots — overrides on an untouched slot do not trigger it', async () => {
+  // The user changes only the agent slot; the agent slot has 0 overrides but
+  // the (untouched) helper slot has 5. The dialog must NOT appear — it is
+  // gated on "a slot the user changed has overrides", not "any slot does".
+  mockGetSlotOverrideStats.mockResolvedValue({
+    success: true,
+    data: { agent: 0, helper_llm: 5, total_agents: 8 },
+  });
+  await renderLoaded();
+  fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'p_nm' } }); // agent slot dirty
+  fireEvent.click(
+    screen.getByRole('button', { name: 'pages.settings.modelDefaults.saveDefaults' }),
+  );
+  await waitFor(() => expect(mockGetSlotOverrideStats).toHaveBeenCalled());
+  expect(screen.queryByTestId('apply-confirm-btn')).not.toBeInTheDocument();
+});
+
 test('cloud non-staff can select the free-tier card in both slots', async () => {
   // The bug this pins: `p.source !== 'netmind'` was inlined in four filters,
   // so when the free tier gained its own source the card was registered,

@@ -1643,9 +1643,9 @@
         "title": "Model config",
         "agentSlot": "Main (agent)",
         "helperSlot": "Helper",
-        "effortLabel": "effort",
         "inherit": "inherits default",
-        "override": "overridden"
+        "override": "overridden",
+        "effort": "effort={{value}}"
       },
       "modelChip": {
         "inherit": "default",
