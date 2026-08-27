@@ -529,6 +529,18 @@ _fallback_suppressed_since_row: dict[str, _PendingTally] = {}
 # and collect it, while still bounding the map.
 _FALLBACK_SUPPRESSED_RETENTION_SECONDS = _FALLBACK_AUDIT_COOLDOWN_SECONDS * 2
 
+# How many closing rows one sweep may write. The number of conversations
+# that expire together is set by how many rooms the far side keeps open,
+# and the writes are sequential — an agent talking to a thousand peers,
+# then going quiet past the retention window, would land a thousand inserts
+# on whichever single turn happens to run the next sweep. Entries over the
+# cap are simply NOT popped, so the next sweep continues draining them;
+# they are already expired and holding them a little longer costs nothing.
+# Deliberately its own constant: it is a batch size, not a window, and the
+# two 600s windows above are already a standing lesson in what sharing a
+# constant between unrelated things costs.
+_FALLBACK_SETTLE_BATCH = 32
+
 # Reused rather than constructed per call — it is stateless apart from the
 # service name and its own lazy db handle.
 _fallback_auditor = None
@@ -577,9 +589,19 @@ def _prune_fallback_audit_state(now: float) -> list[_PendingTally]:
         for k, pending in _fallback_suppressed_since_row.items()
         if now - pending.touched >= _FALLBACK_SUPPRESSED_RETENTION_SECONDS
     ]:
-        pending = _fallback_suppressed_since_row.pop(k)
-        if pending.count > 0:
-            owed.append(pending)
+        pending = _fallback_suppressed_since_row[k]
+        if pending.count <= 0:
+            # Nothing owed, nothing to write — never capped, it costs
+            # nothing to reclaim.
+            _fallback_suppressed_since_row.pop(k, None)
+            continue
+        if len(owed) >= _FALLBACK_SETTLE_BATCH:
+            # Left in place, NOT popped and re-inserted: re-inserting would
+            # refresh ``touched`` and renew the retention window forever,
+            # which is the leak this sweep exists to prevent.
+            continue
+        _fallback_suppressed_since_row.pop(k, None)
+        owed.append(pending)
     return owed
 
 
@@ -643,15 +665,19 @@ async def _settle_reclaimed_tallies(owed: list[_PendingTally]) -> None:
     conversation that has been silent for the retention window has nothing
     left to trigger a retry, so re-adding it would leave a row that can
     only be settled by another settle-up — forever pending, forever swept.
-    A dropped closing row degrades to the warning below, which is the same
-    bargain every other write on this path already makes.
+
+    That makes a failed closing write UNRECOVERABLE: the tally is gone. So
+    the outcome is checked and logged WITH the number, which is the only
+    trace left of how much was lost. The repository's own failure log does
+    not carry it. ``event()`` never raises, so the ``except`` below covers
+    only the auditor construction — it is not the path a failed write takes.
     """
     if not owed:
         return
     try:
         auditor = _get_fallback_auditor()
         for pending in owed:
-            await auditor.event(
+            wrote = await auditor.event(
                 pending.reason,
                 {
                     "agent_id": pending.agent_id,
@@ -664,6 +690,12 @@ async def _settle_reclaimed_tallies(owed: list[_PendingTally]) -> None:
                     "final_tally": True,
                 },
             )
+            if not wrote:
+                logger.warning(
+                    f"[FALLBACK] settle-up row dropped, tally unrecoverable: "
+                    f"reason={pending.reason} room={pending.room_id!r} "
+                    f"tally={pending.count}"
+                )
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
         logger.warning(f"[FALLBACK] suppression settle-up failed: {e}")
 
@@ -703,6 +735,14 @@ async def _audit_fallback_suppressed(
     # reclaims them. That is the same shape as the cooldown map one round
     # ago, on the map added to fix it.
     owed = _prune_fallback_audit_state(now)
+    # Settled up front, before this conversation touches its own counter.
+    # These belong to OTHER conversations that have already ended, and they
+    # were popped by the sweep above — a path that skips this call drops
+    # them on the floor rather than deferring them. Doing it here also
+    # keeps "increment → cooldown check → debit" one unbroken synchronous
+    # stretch; an await in the middle of it reopens the interleaving the
+    # debit-before-write ordering was added to close.
+    await _settle_reclaimed_tallies(owed)
     # No conversation identity → no cooling. Keying an empty identity would
     # put every unidentifiable turn in ONE slot, so the first would mute
     # the audit for all the others — the shared-bucket shape the rate-limit
@@ -727,15 +767,6 @@ async def _audit_fallback_suppressed(
         prior = _fallback_suppressed_since_row.get(cooldown_key)
         reported = (prior.count if prior else 0) + 1
         _set_pending(reported)
-    # Settled before the cooldown early-return: these belong to OTHER
-    # conversations that have already ended, and cooling this one must not
-    # bury their closing rows.
-    #
-    # Awaiting a burst of closing writes here costs nothing the far side can
-    # feel: the only two reasons that reach this function both return
-    # ``fallback_mode=None`` from ``_should_run_helper_llm_fallback``, so a
-    # turn that gets here delivers no reply for this to sit in front of.
-    await _settle_reclaimed_tallies(owed)
     if cooldown_key:
         # Expiry is decided in one place — the sweep above already dropped
         # every slot past its window, using this same ``now``. Re-testing
@@ -767,6 +798,13 @@ async def _audit_fallback_suppressed(
                 "window_count": window_count,
                 # The number this row exists to report.
                 "suppressed_since_last_row": reported,
+                # Present on BOTH row shapes. Distinguishing them by the
+                # key's absence would make the obvious query
+                # (``-> '$.final_tally' = false``) match nothing, since
+                # JSON_EXTRACT returns SQL NULL for a missing key — and
+                # these rows exist to be queried by people who did not read
+                # this file.
+                "final_tally": False,
             },
         )
         # Armed on a LANDED write, not merely on "nothing was raised":

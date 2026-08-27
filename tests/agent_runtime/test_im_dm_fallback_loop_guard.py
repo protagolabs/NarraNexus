@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from loguru import logger
 
 from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     IM_DM_FALLBACK_BURST_LIMIT,
@@ -34,6 +35,16 @@ from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStat
 
 
 import xyz_agent_context.services.service_audit as audit_mod
+
+
+@pytest.fixture
+def log_lines():
+    """Loguru does not route through `caplog`; the repo's existing sink
+    fixture is the way these assertions are written elsewhere."""
+    lines: list[str] = []
+    sink_id = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
+    yield lines
+    logger.remove(sink_id)
 
 
 def _install_fake_clock(monkeypatch, start: float) -> dict:
@@ -701,15 +712,41 @@ async def test_both_audit_maps_are_reclaimed_when_a_conversation_goes_quiet(
     )
 
     assert list(_step3()._fallback_audit_cooldown) == ["agent_peer_no_fallback:a:c:later"]
-    assert list(_step3()._fallback_suppressed_since_row) == [
-        "agent_peer_no_fallback:a:c:later"
-    ]
-    # Reclaiming must SETTLE the debt, not discard it: 40 live rows, then
-    # 40 closing rows, then the new conversation's own row. Asserting the
+    # Reclaiming must SETTLE the debt, not discard it. Asserting the row
     # count is what stops the settle-up path from being a no-op that this
     # test would otherwise pass straight through.
-    settled = [r for r in rows if r.get("final_tally")]
-    assert len(settled) == 40, f"reclaimed conversations left unsettled: {len(rows)}"
+    #
+    # One sweep writes at most `_FALLBACK_SETTLE_BATCH` closing rows; the
+    # rest stay in the map, unpopped, and drain on later sweeps. So the
+    # first sweep is capped and the total is only reached by draining.
+    cap = _step3()._FALLBACK_SETTLE_BATCH
+    assert cap < 40, "this test needs the cap to actually bite"
+    settled = [r for r in rows if r["final_tally"]]
+    assert len(settled) == cap, f"the settle-up batch is unbounded: {len(settled)}"
+    assert len(_step3()._fallback_suppressed_since_row) == 40 - cap + 1
+
+    # Drained WITHOUT advancing the clock, and in a bounded number of
+    # sweeps. The over-cap entries are already past their retention window,
+    # so the very next sweep must take them. Popping them and putting them
+    # back would refresh `touched` and renew that window — and a drain loop
+    # that advanced the clock would hide exactly that, since the renewed
+    # entries would simply expire a second time.
+    sweeps = 0
+    while len([r for r in rows if r["final_tally"]]) < 40:
+        sweeps += 1
+        assert sweeps <= 40 // cap + 1, (
+            "over-cap entries are not draining on the next sweep — their "
+            "retention window is being renewed"
+        )
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": "drain"},
+            window_count=0,
+            conversation_key="a:c:drain",
+        )
+
+    settled = [r for r in rows if r["final_tally"]]
     assert {r["room_id"] for r in settled} == {f"room-{i}" for i in range(40)}
     assert all(r["suppressed_since_last_row"] == 1 for r in settled)
 
@@ -869,7 +906,7 @@ async def test_a_conversation_that_ends_inside_its_cooldown_still_reports_every_
     )
     # Closing rows must be distinguishable, or counting rows over-reports
     # each ended conversation by one.
-    assert [r.get("final_tally") for r in for_r] == [None, True]
+    assert [r["final_tally"] for r in for_r] == [False, True]
 
 
 async def test_two_interleaved_turns_do_not_report_the_same_suppression_twice(
@@ -922,3 +959,110 @@ async def test_two_interleaved_turns_do_not_report_the_same_suppression_twice(
     assert pending.count == 0, (
         f"the remainder must be self-consistent after both debits: {pending}"
     )
+
+
+async def test_a_cooled_turn_still_settles_other_conversations_debts(monkeypatch):
+    """Settle-up must not sit behind the cooldown early-return.
+
+    The reclaimed entries were popped by the sweep in this same call, so a
+    path that skips the settle-up does not defer them — it drops them. And
+    a cooled turn is the COMMON case on a busy agent: gate 1 fires on every
+    turn of an A2A conversation, so most turns find their own cooldown
+    armed and return early.
+
+    Without this, moving the settle-up below that `return` keeps the whole
+    suite green while the closing rows silently stop being written — the
+    "chain quietly unhooked, all tests still pass" shape this file has
+    already recorded twice.
+    """
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append(detail)
+            return True
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    clock = _install_fake_clock(monkeypatch, 1000.0)
+    cooldown = _step3()._FALLBACK_AUDIT_COOLDOWN_SECONDS
+    retention = _step3()._FALLBACK_SUPPRESSED_RETENTION_SECONDS
+
+    async def _suppress(room):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": room},
+            window_count=0,
+            conversation_key=f"a:c:{room}",
+        )
+
+    # Y leaves a debt behind: first turn lands a row and arms its cooldown,
+    # second turn is cooled away and accumulates.
+    await _suppress("Y")
+    await _suppress("Y")
+
+    # X starts late enough that Y is still inside its retention window here
+    # (so X's own turn does not settle Y), but early enough that X's
+    # cooldown is still armed at the moment of the turn under test.
+    clock["t"] = 1000.0 + retention - 100.0
+    await _suppress("X")
+    x_armed_at = clock["t"]
+    assert not [r for r in rows if r["final_tally"]], "Y settled too early"
+
+    # The turn under test: Y is now past retention, X is still cooled.
+    clock["t"] = 1000.0 + retention + 50.0
+    assert clock["t"] - x_armed_at < cooldown, "X must still be cooled"
+    before = len(rows)
+    await _suppress("X")
+
+    assert len(rows) == before + 1, (
+        "the cooled turn should have written nothing of its own, only Y's "
+        f"closing row: {rows[before:]}"
+    )
+    settled = [r for r in rows if r["final_tally"]]
+    assert [r["room_id"] for r in settled] == ["Y"]
+    assert settled[0]["suppressed_since_last_row"] == 1
+
+
+async def test_a_dropped_closing_row_says_how_much_was_lost(monkeypatch, log_lines):
+    """A failed closing write is unrecoverable, so it must leave the number.
+
+    The entry is already out of the map and is deliberately not put back,
+    so nothing will ever retry it. The repository logs its own failure but
+    does not carry `suppressed_since_last_row`, which makes this warning
+    the only trace of how much went missing.
+
+    `event()` never raises, so a settle-up that ignored the return value
+    would take the silent path here while its docstring claimed otherwise.
+    """
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            return False
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    clock = _install_fake_clock(monkeypatch, 1000.0)
+
+    _step3()._fallback_suppressed_since_row["agent_peer_no_fallback:a:c:r"] = (
+        _step3()._PendingTally(7, 1000.0, SKIP_REASON_AGENT_PEER, "a", "c", "r")
+    )
+    clock["t"] += _step3()._FALLBACK_SUPPRESSED_RETENTION_SECONDS + 1
+
+    await _step3()._audit_fallback_suppressed(
+        reason=SKIP_REASON_AGENT_PEER,
+        agent_id="a",
+        channel_tag={"channel": "c", "room_id": "other"},
+        window_count=0,
+        conversation_key="a:c:other",
+    )
+
+    dropped = [ln for ln in log_lines if "settle-up row dropped" in ln]
+    assert dropped, f"a lost tally left no trace: {log_lines}"
+    assert "tally=7" in dropped[0], f"the number itself was not logged: {dropped[0]}"
