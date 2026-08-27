@@ -71,8 +71,11 @@ class ServiceAuditor:
         """
         try:
             repo = await self._get_repo()
-            await repo.record(self.service, event_type, detail)
-            return True
+            # The repository swallows its own insert errors, so its return
+            # value — not the absence of an exception — is what says the row
+            # landed. Without it this would only ever report failures to
+            # ACQUIRE the db, and a dead insert would still read as written.
+            return await repo.record(self.service, event_type, detail)
         except Exception as e:  # noqa: BLE001 — observer never breaks observed
             logger.warning(f"[ServiceAudit] {self.service}/{event_type} failed: {e}")
             return False

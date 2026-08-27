@@ -14,7 +14,7 @@ import json
 import os
 import re
 import time
-from typing import AsyncGenerator, Any, Optional, Union, TYPE_CHECKING
+from typing import AsyncGenerator, Any, NamedTuple, Optional, Union, TYPE_CHECKING
 
 from loguru import logger
 from xyz_agent_context.utils.logging import timed
@@ -481,11 +481,13 @@ _FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
 # table's daily growth several times over, with rows that are
 # near-identical and whose diagnostic value collapses after the first one.
 #
-# Cooling the WRITE is only lossless because the row carries
-# ``suppressed_since_last_row`` (below). ``window_count`` cannot stand in
-# for it: that counts successful DELIVERIES, so it is 0 for
-# ``agent_peer_no_fallback`` and pinned at the limit for
-# ``fallback_rate_limited``, by construction.
+# Cooling the WRITE stays lossless because every suppressed turn is
+# accounted for by exactly one row: the cooled ones accumulate into
+# ``suppressed_since_last_row`` (below), and a conversation that ends
+# while still cooled is settled by ``_settle_reclaimed_tallies`` when its
+# tally is reclaimed. ``window_count`` cannot stand in for that: it counts
+# successful DELIVERIES, so it is 0 for ``agent_peer_no_fallback`` and
+# pinned at the limit for ``fallback_rate_limited``, by construction.
 #
 # Keyed by reason as well as conversation: the two gates are different
 # facts and must not eat each other's slot.
@@ -498,13 +500,27 @@ _fallback_audit_cooldown: dict[str, float] = {}
 # gate stops the turn before any delivery) and pinned at the burst limit
 # for ``fallback_rate_limited``. Both are constants, and the whole point of
 # these rows was to make the threshold re-settable from data.
-# (count, last_touch_monotonic). The timestamp is what makes this map
-# reclaimable: the counter must OUTLIVE the cooldown slot — the number it
-# holds is exactly what accumulated while that slot was armed, which is
-# what the next row exists to report. So it cannot be swept on the
-# cooldown's schedule; it is swept when the conversation itself goes
-# quiet, which is the only moment the number stops being owed to anyone.
-_fallback_suppressed_since_row: dict[str, tuple[int, float]] = {}
+# The timestamp is what makes this map reclaimable: the counter must
+# OUTLIVE the cooldown slot — the number it holds is exactly what
+# accumulated while that slot was armed, which is what the next row exists
+# to report. So it cannot be swept on the cooldown's schedule; it is swept
+# when the conversation goes quiet.
+#
+# The identity fields are carried here rather than parsed back out of the
+# key, because the key is ``f"{reason}:{agent_id}:{channel}:{room_id}"``
+# and a Matrix ``room_id`` contains colons of its own
+# (``!abc:matrix.example``). Splitting it back apart would silently
+# mis-attribute exactly the rooms this gate fires on most.
+class _PendingTally(NamedTuple):
+    count: int
+    touched: float
+    reason: str
+    agent_id: str
+    channel: str
+    room_id: str
+
+
+_fallback_suppressed_since_row: dict[str, _PendingTally] = {}
 # Strictly longer than the cooldown, and that is the whole point. The
 # pending count comes due the moment the cooldown expires — the next
 # suppression writes a row and reports it. Sweeping the counter on the
@@ -518,8 +534,17 @@ _FALLBACK_SUPPRESSED_RETENTION_SECONDS = _FALLBACK_AUDIT_COOLDOWN_SECONDS * 2
 _fallback_auditor = None
 
 
-def _prune_fallback_audit_state(now: float) -> None:
-    """Drop cooldown slots whose window has passed, and their counters.
+def _prune_fallback_audit_state(now: float) -> list[_PendingTally]:
+    """Drop cooldown slots and pending counters, on their own schedules.
+
+    Returns the reclaimed tallies that still owed a number, so the caller
+    can settle them. The counter has exactly one other way out — the next
+    suppression on the same conversation, once the cooldown has expired —
+    and a conversation that ENDS inside its cooldown window never gets
+    one. Without this return value the common case (a short A2A exchange:
+    gate 1 fires every turn, the whole thing is over in minutes) would
+    report its first turn and silently drop the rest, which is the
+    opposite of what these rows were added for.
 
     Same hazard `_prune_fallback_history` was written for, one map over:
     the key contains ``room_id``, which the far side supplies, and
@@ -546,12 +571,16 @@ def _prune_fallback_audit_state(now: float) -> None:
     # last touch, so an active conversation keeps its pending count no
     # matter how many cooldown windows elapse, and a dead one is reclaimed
     # even if its audit row never landed (the failure path increments too).
+    owed: list[_PendingTally] = []
     for k in [
         k
-        for k, (_, touched) in _fallback_suppressed_since_row.items()
-        if now - touched >= _FALLBACK_SUPPRESSED_RETENTION_SECONDS
+        for k, pending in _fallback_suppressed_since_row.items()
+        if now - pending.touched >= _FALLBACK_SUPPRESSED_RETENTION_SECONDS
     ]:
-        _fallback_suppressed_since_row.pop(k, None)
+        pending = _fallback_suppressed_since_row.pop(k)
+        if pending.count > 0:
+            owed.append(pending)
+    return owed
 
 
 async def _maybe_audit_fallback_skip(
@@ -591,6 +620,54 @@ async def _maybe_audit_fallback_skip(
     return True
 
 
+def _get_fallback_auditor():
+    """Lazily build the shared auditor. Also used by the settle-up path."""
+    global _fallback_auditor
+    if _fallback_auditor is None:
+        from xyz_agent_context.services.service_audit import ServiceAuditor
+
+        _fallback_auditor = ServiceAuditor(_FALLBACK_AUDIT_SERVICE)
+    return _fallback_auditor
+
+
+async def _settle_reclaimed_tallies(owed: list[_PendingTally]) -> None:
+    """Write one closing row per conversation reclaimed with a debt.
+
+    Marked ``final_tally`` so operations can tell a closing row from a live
+    suppression row: without the flag, counting rows would count each ended
+    conversation once more than it happened — the same over-report this
+    plane is being fixed for, pointed the other way.
+
+    Deliberately does NOT arm a cooldown, and deliberately does NOT put the
+    number back on a failed write. The entry is already out of the map; a
+    conversation that has been silent for the retention window has nothing
+    left to trigger a retry, so re-adding it would leave a row that can
+    only be settled by another settle-up — forever pending, forever swept.
+    A dropped closing row degrades to the warning below, which is the same
+    bargain every other write on this path already makes.
+    """
+    if not owed:
+        return
+    try:
+        auditor = _get_fallback_auditor()
+        for pending in owed:
+            await auditor.event(
+                pending.reason,
+                {
+                    "agent_id": pending.agent_id,
+                    "channel": pending.channel,
+                    "room_id": pending.room_id,
+                    # No live window exists for a reclaimed conversation;
+                    # 0 here would read as "measured zero deliveries".
+                    "window_count": None,
+                    "suppressed_since_last_row": pending.count,
+                    "final_tally": True,
+                },
+            )
+    except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        logger.warning(f"[FALLBACK] suppression settle-up failed: {e}")
+
+
 async def _audit_fallback_suppressed(
     *,
     reason: str,
@@ -625,34 +702,62 @@ async def _audit_fallback_suppressed(
     # exact condition under which these maps grow fastest — is when nothing
     # reclaims them. That is the same shape as the cooldown map one round
     # ago, on the map added to fix it.
-    _prune_fallback_audit_state(now)
+    owed = _prune_fallback_audit_state(now)
     # No conversation identity → no cooling. Keying an empty identity would
     # put every unidentifiable turn in ONE slot, so the first would mute
     # the audit for all the others — the shared-bucket shape the rate-limit
     # key had removed one round ago. These turns should be rare; if they
     # are not, the rows themselves are the evidence.
     cooldown_key = f"{reason}:{conversation_key}" if conversation_key else ""
-    if cooldown_key:
-        _fallback_suppressed_since_row[cooldown_key] = (
-            _fallback_suppressed_since_row.get(cooldown_key, (0, now))[0] + 1,
-            now,
+    # This row stands for one suppressed turn on top of whatever was
+    # pending, and for an unidentifiable turn it stands for exactly itself.
+    # One meaning for the field on every row: "how many turns does this row
+    # account for". A structural 0 on one class of rows would be the same
+    # defect ``window_count`` was called out for.
+    reported = 1
+    channel = str(channel_tag.get("channel", "") or "")
+    room_id = str(channel_tag.get("room_id", "") or "")
+
+    def _set_pending(count: int) -> None:
+        _fallback_suppressed_since_row[cooldown_key] = _PendingTally(
+            count, now, reason, agent_id, channel, room_id
         )
-        last = _fallback_audit_cooldown.get(cooldown_key)
-        if last is not None and now - last < _FALLBACK_AUDIT_COOLDOWN_SECONDS:
+
+    if cooldown_key:
+        prior = _fallback_suppressed_since_row.get(cooldown_key)
+        reported = (prior.count if prior else 0) + 1
+        _set_pending(reported)
+    # Settled before the cooldown early-return: these belong to OTHER
+    # conversations that have already ended, and cooling this one must not
+    # bury their closing rows.
+    #
+    # Awaiting a burst of closing writes here costs nothing the far side can
+    # feel: the only two reasons that reach this function both return
+    # ``fallback_mode=None`` from ``_should_run_helper_llm_fallback``, so a
+    # turn that gets here delivers no reply for this to sit in front of.
+    await _settle_reclaimed_tallies(owed)
+    if cooldown_key:
+        # Expiry is decided in one place — the sweep above already dropped
+        # every slot past its window, using this same ``now``. Re-testing
+        # the timestamp here would read as a second, independent criterion
+        # and invite the two from drifting apart.
+        if cooldown_key in _fallback_audit_cooldown:
             return
+        # Taken off the books BEFORE the await, and only once this turn is
+        # committed to writing. The cooldown is armed only after the write
+        # lands, so two turns of the same conversation can both find it
+        # unarmed and both write; debiting first means each row carries
+        # only what no other row has claimed. Debiting afterwards would let
+        # the second row re-report the turn the first one already carried.
+        # Put back below if the write does not land.
+        _set_pending(0)
     try:
-        global _fallback_auditor
-        if _fallback_auditor is None:
-            from xyz_agent_context.services.service_audit import ServiceAuditor
-
-            _fallback_auditor = ServiceAuditor(_FALLBACK_AUDIT_SERVICE)
-
-        wrote = await _fallback_auditor.event(
+        wrote = await _get_fallback_auditor().event(
             reason,
             {
                 "agent_id": agent_id,
-                "channel": str(channel_tag.get("channel", "") or ""),
-                "room_id": str(channel_tag.get("room_id", "") or ""),
+                "channel": channel,
+                "room_id": room_id,
                 "is_agent_peer": bool(channel_tag.get("is_agent_peer", False)),
                 # Successful deliveries in the window. NOT the suppression
                 # count — this is 0 for agent_peer_no_fallback and equal to
@@ -661,9 +766,7 @@ async def _audit_fallback_suppressed(
                 # rate-limiter's own state.
                 "window_count": window_count,
                 # The number this row exists to report.
-                "suppressed_since_last_row": _fallback_suppressed_since_row.get(
-                    cooldown_key, (0, now)
-                )[0],
+                "suppressed_since_last_row": reported,
             },
         )
         # Armed on a LANDED write, not merely on "nothing was raised":
@@ -671,23 +774,31 @@ async def _audit_fallback_suppressed(
         # the absence of an exception armed the cooldown on DB failures
         # too — the conversation then went unaudited for the rest of the
         # window even if the DB recovered a second later.
-        if not wrote or not cooldown_key:
+        if not cooldown_key:
+            return
+        if not wrote:
+            # The debit was optimistic; nothing reached the DB, so the
+            # turns go back on the books for the next row to carry.
+            current = _fallback_suppressed_since_row.get(cooldown_key)
+            _set_pending((current.count if current else 0) + reported)
             return
         _fallback_audit_cooldown[cooldown_key] = now
-        # Cleared only after the count reached the DB, or a failed write
-        # would drop a whole window's worth of suppressions.
-        _fallback_suppressed_since_row[cooldown_key] = (0, now)
     except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        if cooldown_key:
+            current = _fallback_suppressed_since_row.get(cooldown_key)
+            _set_pending((current.count if current else 0) + reported)
         logger.warning(f"[FALLBACK] suppression audit failed: {e}")
 
 
 def reset_im_dm_fallback_history() -> None:
     """Clear the in-process fallback state. For tests / explicit resets.
 
-    Covers the audit cooldown too: it is module-level state with the same
-    order-dependence hazard, and splitting the reset would recreate exactly
-    the implicit-initial-value problem the directory-wide fixture exists to
-    remove.
+    Covers all four pieces of module-level state — the rate-limit sliding
+    window, the audit cooldown slots, the pending suppression tallies, and
+    the lazily built ``ServiceAuditor`` singleton. Splitting the reset
+    would recreate exactly the implicit-initial-value problem the
+    directory-wide fixture exists to remove, so the list is kept whole
+    here; see the mirror for ``tests/agent_runtime/conftest.py``.
     """
     global _fallback_auditor
     _im_dm_fallback_history.clear()

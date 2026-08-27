@@ -20,6 +20,17 @@ stub: false
 
 **别把这理解成「可以抛了」**——返回 False 就是它报告失败的全部方式。
 
+**这条链上每一环都吞自己的异常，所以「没抛」在每一环都恒真。** 第一版
+`_emit` 只是 `await repo.record(...)` 然后 `return True`，而
+[[service_audit_repository]] 的 `record()` **自己就 catch 了 insert 异常**
+——于是「landed write」这个说法只覆盖了「拿不到 db handle」，插入失败照样报
+成功，上面那个冷却还是会在 DB 故障时被 arm。现在 `record()` 也返回 `bool`，
+`_emit` 直接把它透传出去。
+
+判据：这个性质必须能在**真实仓储**上验证，不能只在假货上。链级覆盖在
+`tests/services/test_service_audit_write_outcome.py`——它拿一个 insert 会抛
+的 db handle 驱动真的 `ServiceAuditRepository`。
+
 ## 2026-08-21 — 公开 `event(event_type, detail)`
 
 之前公开面只有 `started/stopped/error/heartbeat`,任意事件名要调私有 `_emit`。

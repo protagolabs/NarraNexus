@@ -16,6 +16,8 @@ cover. These tests pin the two new gates.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
@@ -24,11 +26,9 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop impo
     _record_fallback_delivery,
     _recent_fallback_count,
     _should_run_helper_llm_fallback,
-    reset_im_dm_fallback_history,
-)
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     SKIP_REASON_AGENT_PEER,
     SKIP_REASON_FALLBACK_RATE_LIMITED,
+    reset_im_dm_fallback_history,
 )
 from xyz_agent_context.schema import ErrorMessage, ProgressMessage, ProgressStatus
 
@@ -510,12 +510,18 @@ async def test_the_real_auditor_reports_its_outcome(monkeypatch):
     nothing: dropping the ``return True`` while leaving the annotation in
     place kept it green, and that is exactly the production bug this whole
     round is about.
+
+    The fakes here must return what the REAL repository returns. An earlier
+    version had ``record()`` return ``None`` — harmless while ``event()``
+    ignored it, and silently wrong the moment ``event()` started
+    propagating it. Chain-level coverage against the real repository lives
+    in ``tests/services/test_service_audit_write_outcome.py``.
     """
     from xyz_agent_context.services.service_audit import ServiceAuditor
 
     class _OkRepo:
         async def record(self, *a, **k):
-            return None
+            return True
 
     class _BoomRepo:
         async def record(self, *a, **k):
@@ -658,20 +664,27 @@ async def test_both_audit_maps_are_reclaimed_when_a_conversation_goes_quiet(
             pass
 
         async def event(self, event_type, detail=None):
+            rows.append(detail)
             return True
 
+    rows = []
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
     clock = _install_fake_clock(monkeypatch, 1000.0)
 
+    # Twice per room: the first lands a row and arms the cooldown, the
+    # second is cooled away and leaves a pending turn behind. A single
+    # suppression per room would settle its own debt on the spot and this
+    # test would pass without the settle-up path existing at all.
     for i in range(40):
-        await _step3()._audit_fallback_suppressed(
-            reason=SKIP_REASON_AGENT_PEER,
-            agent_id="a",
-            channel_tag={"channel": "c", "room_id": f"room-{i}"},
-            window_count=0,
-            conversation_key=f"a:c:room-{i}",
-        )
+        for _ in range(2):
+            await _step3()._audit_fallback_suppressed(
+                reason=SKIP_REASON_AGENT_PEER,
+                agent_id="a",
+                channel_tag={"channel": "c", "room_id": f"room-{i}"},
+                window_count=0,
+                conversation_key=f"a:c:room-{i}",
+            )
 
     assert len(_step3()._fallback_audit_cooldown) == 40
     assert len(_step3()._fallback_suppressed_since_row) == 40
@@ -691,6 +704,14 @@ async def test_both_audit_maps_are_reclaimed_when_a_conversation_goes_quiet(
     assert list(_step3()._fallback_suppressed_since_row) == [
         "agent_peer_no_fallback:a:c:later"
     ]
+    # Reclaiming must SETTLE the debt, not discard it: 40 live rows, then
+    # 40 closing rows, then the new conversation's own row. Asserting the
+    # count is what stops the settle-up path from being a no-op that this
+    # test would otherwise pass straight through.
+    settled = [r for r in rows if r.get("final_tally")]
+    assert len(settled) == 40, f"reclaimed conversations left unsettled: {len(rows)}"
+    assert {r["room_id"] for r in settled} == {f"room-{i}" for i in range(40)}
+    assert all(r["suppressed_since_last_row"] == 1 for r in settled)
 
 
 async def test_the_counter_is_reclaimed_even_when_the_audit_write_never_lands(
@@ -709,8 +730,10 @@ async def test_the_counter_is_reclaimed_even_when_the_audit_write_never_lands(
             pass
 
         async def event(self, event_type, detail=None):
+            attempts.append(detail)
             return False  # never lands; ServiceAuditor swallows the cause
 
+    attempts = []
     monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
     monkeypatch.setattr(_step3(), "_fallback_auditor", None)
     clock = _install_fake_clock(monkeypatch, 1000.0)
@@ -735,6 +758,12 @@ async def test_the_counter_is_reclaimed_even_when_the_audit_write_never_lands(
         window_count=0,
         conversation_key="a:c:later",
     )
+    # The settle-up was attempted and also failed. It must NOT put the
+    # number back: nothing would ever trigger a retry (the conversation has
+    # been silent for the whole retention window), so a re-added entry
+    # could only be settled by another settle-up — pending forever, swept
+    # forever, and the map is unbounded again.
+    assert [r for r in attempts if r.get("final_tally")], "settle-up never attempted"
     assert list(_step3()._fallback_suppressed_since_row) == [
         "agent_peer_no_fallback:a:c:later"
     ]
@@ -774,9 +803,122 @@ async def test_an_unidentifiable_conversation_still_gets_a_row_every_time(
         )
 
     assert len(rows) == 3, "an unidentifiable turn must never be cooled away"
-    # `suppressed_since_last_row` is structurally 0 here: with nothing
-    # cooled, no row is ever owed a backlog. The field stays in the payload
-    # so its absence never has to be distinguished from a zero.
-    assert [r["suppressed_since_last_row"] for r in rows] == [0, 0, 0]
+    # One caliber on every row: "how many suppressed turns does this row
+    # account for". Nothing is cooled here, so each row accounts for
+    # exactly its own turn. Writing 0 would make the field structurally
+    # constant on this class of rows — the defect `window_count` was
+    # called out for, reappearing under a different name.
+    assert [r["suppressed_since_last_row"] for r in rows] == [1, 1, 1]
     assert not _step3()._fallback_audit_cooldown
     assert not _step3()._fallback_suppressed_since_row
+
+
+async def test_a_conversation_that_ends_inside_its_cooldown_still_reports_every_turn(
+    monkeypatch,
+):
+    """The whole point of this field is re-deriving the threshold from data.
+
+    A 12-turn A2A exchange that finishes inside one cooldown window is the
+    COMMON shape, not an edge case: gate 1 fires on every turn of an A2A
+    conversation with no error condition needed. Turn 1 lands a row; turns
+    2-12 are cooled away; the conversation then ends. With no settle-up,
+    `SUM(suppressed_since_last_row)` reports 1 where the truth is 12, and
+    the shortfall grows with how short conversations are — so the metric
+    is worst exactly where the traffic is.
+    """
+    rows = []
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append(detail)
+            return True
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    clock = _install_fake_clock(monkeypatch, 1000.0)
+
+    for _ in range(12):
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": "r"},
+            window_count=0,
+            conversation_key="a:c:r",
+        )
+        clock["t"] += 4.0  # the 8/14 cadence, ~1 message per 4 seconds
+
+    assert len(rows) == 1, "the cooldown should have collapsed 12 turns into 1 row"
+
+    # The conversation ends. Some other conversation's turn is what runs
+    # the sweep — nothing here polls.
+    clock["t"] += _step3()._FALLBACK_SUPPRESSED_RETENTION_SECONDS + 1
+    await _step3()._audit_fallback_suppressed(
+        reason=SKIP_REASON_AGENT_PEER,
+        agent_id="a",
+        channel_tag={"channel": "c", "room_id": "elsewhere"},
+        window_count=0,
+        conversation_key="a:c:elsewhere",
+    )
+
+    for_r = [r for r in rows if r["room_id"] == "r"]
+    assert sum(r["suppressed_since_last_row"] for r in for_r) == 12, (
+        f"suppressed turns went missing: {for_r}"
+    )
+    # Closing rows must be distinguishable, or counting rows over-reports
+    # each ended conversation by one.
+    assert [r.get("final_tally") for r in for_r] == [None, True]
+
+
+async def test_two_interleaved_turns_do_not_report_the_same_suppression_twice(
+    monkeypatch,
+):
+    """The read-modify-write straddles the audit `await`.
+
+    The cooldown is armed only after the write lands, so two turns of the
+    same conversation that interleave across that await both see an unarmed
+    slot and both write a row. Debiting each row by what it carried keeps
+    the total honest; resetting the counter to 0 would let the second row
+    re-report the turn the first one already carried.
+    """
+    rows = []
+    gate = asyncio.Event()
+
+    class _Auditor:
+        def __init__(self, service):
+            pass
+
+        async def event(self, event_type, detail=None):
+            rows.append(detail)
+            await gate.wait()  # hold both writers inside the await
+            return True
+
+    monkeypatch.setattr(audit_mod, "ServiceAuditor", _Auditor)
+    monkeypatch.setattr(_step3(), "_fallback_auditor", None)
+    _install_fake_clock(monkeypatch, 1000.0)
+
+    async def _turn():
+        await _step3()._audit_fallback_suppressed(
+            reason=SKIP_REASON_AGENT_PEER,
+            agent_id="a",
+            channel_tag={"channel": "c", "room_id": "r"},
+            window_count=0,
+            conversation_key="a:c:r",
+        )
+
+    task_a = asyncio.create_task(_turn())
+    task_b = asyncio.create_task(_turn())
+    await asyncio.sleep(0)  # both reach the await
+    gate.set()
+    await asyncio.gather(task_a, task_b)
+
+    assert len(rows) == 2, "both turns raced past an unarmed cooldown"
+    assert sum(r["suppressed_since_last_row"] for r in rows) == 2, (
+        f"two turns accounted for more than two suppressions: {rows}"
+    )
+    pending = _step3()._fallback_suppressed_since_row["agent_peer_no_fallback:a:c:r"]
+    assert pending.count == 0, (
+        f"the remainder must be self-consistent after both debits: {pending}"
+    )
