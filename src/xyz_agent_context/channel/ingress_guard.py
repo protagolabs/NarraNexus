@@ -182,14 +182,39 @@ class _SessionState:
     tier: int = 0
     cooldown_until: Optional[datetime] = None
     suppressed: int = 0
-    # Start of the current clean streak — the anchor for tier decay.
+    # Start of the current clean streak — the anchor for tier decay while
+    # the session KEEPS TALKING.
     clean_since: Optional[datetime] = None
+    # When ``tier`` last moved, in memory. The mirror of the durable
+    # ``tier_changed_at`` column, kept so a session that has gone silent
+    # can be aged down without a reload: a tier > 0 session is pinned in
+    # ``_sessions`` by ``prune_idle``, so it never gets a second ``_load``.
+    tier_changed_at: Optional[datetime] = None
     loaded: bool = False
     # The fingerprints that were in the window when this session last
     # tripped. A half-open probe carrying one of these is the same recital
     # resuming, and must re-trip on the spot rather than re-earning a whole
     # rate_bar's worth of pipeline runs first. Bounded — see _trip.
     trip_fingerprints: set = field(default_factory=set)
+
+
+def _as_aware(
+    value: Optional[datetime], reference: datetime
+) -> Optional[datetime]:
+    """Normalise a possibly-naive timestamp against ``reference``'s zone.
+
+    SQLite hands these back as bare strings parsed into naive datetimes
+    while MySQL keeps the offset, so every read has to be normalised before
+    it is compared. Doing it in one place matters here specifically: the
+    comparison below sits in ``_load`` OUTSIDE its try/except (which only
+    wraps the repository read), so a ``TypeError`` from mixing naive and
+    aware would escape ``admit()`` and turn fail-open into fail-closed.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=reference.tzinfo)
+    return value
 
 
 class IngressGuard:
@@ -397,14 +422,17 @@ class IngressGuard:
             state = _SessionState()
             state.loaded = True
             state.tier = row.tier or 0
+            # Carried so the sweep can age these down once their cooldown
+            # elapses. Without it they are pinned at tier > 0 for the life
+            # of the process and ``open_session_count()`` drifts from
+            # "isolated now" back toward "tripped at some point" — the
+            # distortion this method's `cooling_only` load exists to avoid.
+            state.tier_changed_at = _as_aware(row.tier_changed_at, now)
             # NOT seeded from ``row.suppressed_count`` — see _load().
             state.suppressed = 0
-            cooldown_until = row.cooldown_until
-            if cooldown_until is not None:
-                if cooldown_until.tzinfo is None:
-                    cooldown_until = cooldown_until.replace(tzinfo=now.tzinfo)
-                if now < cooldown_until:
-                    state.cooldown_until = cooldown_until
+            cooldown_until = _as_aware(row.cooldown_until, now)
+            if cooldown_until is not None and now < cooldown_until:
+                state.cooldown_until = cooldown_until
             self._sessions[row.session_key] = state
             restored += 1
         if restored:
@@ -430,6 +458,23 @@ class IngressGuard:
         Returns the number of sessions dropped.
         """
         now = now or utc_now()
+        # Age silent sessions down FIRST, so the ones that reach tier 0
+        # become droppable in this same pass. Without it a tier > 0 session
+        # is pinned here forever: it is deliberately never dropped, so it
+        # never gets a second ``_load``, and ``_maybe_recover`` only runs
+        # for sessions that keep talking. ``open_session_count()`` — the L2
+        # metric this design offers against the 8/14 blind spot — would
+        # then drift from "isolated right now" toward "tripped at any point
+        # since the last deploy", in a process built to run for days
+        # (binding rule #14). That is the same distortion ``warm_start``
+        # takes pains to avoid, growing back from the other end.
+        #
+        # Memory-side only, because this method is sync and ``admit()``
+        # calls it without awaiting. The durable row is corrected by
+        # ``_decay_for_silence`` the next time that key speaks: the row is
+        # still tier > 0 with the same anchor, so it computes the same
+        # answer and writes ``aged_out``.
+        self._decay_silent_in_memory(now)
         cutoff = now - timedelta(seconds=self._window)
         stale = [
             key
@@ -477,8 +522,9 @@ class IngressGuard:
     ) -> None:
         """Lazily pull the durable row the first time we see a key.
 
-        One read per session key per process lifetime — the hot path never
-        touches the DB again.
+        One read per session key per process lifetime — plus, for a row
+        that ages out on the way in, one write. The hot path never touches
+        the DB again.
         """
         state.loaded = True
         if self._repo is None:
@@ -495,6 +541,12 @@ class IngressGuard:
         if row is None:
             return
         state.tier = row.tier or 0
+        # Carried into memory, not merely read for the decay below: without
+        # it a lazily-loaded session has no in-memory anchor, so
+        # ``prune_idle``'s sweep skips it forever and only sessions that
+        # tripped inside THIS process can ever be aged down — half of the
+        # gap that sweep was added to close.
+        state.tier_changed_at = _as_aware(row.tier_changed_at, now)
         # NOT seeded from ``row.suppressed_count``: since M9 that column
         # records what the PREVIOUS isolation absorbed, so using it here
         # would start the NEXT isolation's counter part-way up and make
@@ -504,12 +556,9 @@ class IngressGuard:
         # count from zero; the durable column keeps the finished number
         # for SQL.
         state.suppressed = 0
-        cooldown_until = row.cooldown_until
-        if cooldown_until is not None:
-            if cooldown_until.tzinfo is None:
-                cooldown_until = cooldown_until.replace(tzinfo=now.tzinfo)
-            if now < cooldown_until:
-                state.cooldown_until = cooldown_until
+        cooldown_until = _as_aware(row.cooldown_until, now)
+        if cooldown_until is not None and now < cooldown_until:
+            state.cooldown_until = cooldown_until
         await self._decay_for_silence(key, state, row, now)
 
 
@@ -545,19 +594,39 @@ class IngressGuard:
         """
         if state.tier <= 0:
             return
-        # Never while still isolated. Decaying inside the cooldown would
-        # release the isolation early, which is the one thing this state is
-        # for. Note ``state.cooldown_until`` is only set above when it is
-        # still in the future, so this reads "the cooldown has elapsed".
-        if state.cooldown_until is not None:
+        # The only place in this class that divides. Everything else here
+        # degrades rather than raises, and ``admit()`` is on the inbound
+        # path — letting a ZeroDivisionError out would turn fail-open into
+        # fail-closed and drop every message on the channel, which is the
+        # user-visible content loss binding rule #16 forbids.
+        if self._decay_step_seconds <= 0:
             return
-        anchor = row.tier_changed_at
+        anchor = _as_aware(row.tier_changed_at, now)
         if anchor is None:
             # Only reachable for a row whose tier was never moved by this
             # code path. Decaying from an unknown origin would be a guess.
             return
-        if anchor.tzinfo is None:
-            anchor = anchor.replace(tzinfo=now.tzinfo)
+        # Silence only starts when the isolation ENDS. ``tier_changed_at``
+        # is stamped at trip time and the cooldown runs from there, so
+        # counting from it bills the sentence itself as good behaviour —
+        # the same double-credit that ruled out ``last_tripped_at``. At
+        # tier 3 the cooldown alone is six decay steps, so a restart after
+        # it elapsed would zero the escalation memory outright and put a
+        # persistent loop back on the cheapest tier after every deploy.
+        #
+        # This matches the other half of the rule: ``_trip`` clears
+        # ``clean_since`` and ``_half_open`` sets it at the moment the
+        # cooldown expires, so the talking path never credits the cooldown
+        # either.
+        #
+        # It is ALSO the whole of "never decay while still isolated": with
+        # the anchor at the end of the cooldown, an unexpired cooldown puts
+        # the anchor in the future and ``steps`` can only come out zero. An
+        # extra "am I cooling right now?" check would read as a second,
+        # independent criterion and invite the two to drift apart.
+        served = _as_aware(row.cooldown_until, now)
+        if served is not None and served > anchor:
+            anchor = served
         steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
         if steps <= 0:
             return
@@ -567,6 +636,7 @@ class IngressGuard:
         # this None, or the first message back would start a fresh window
         # before any further step could be earned.
         state.clean_since = now
+        state.tier_changed_at = now
         logger.info(
             f"IngressGuard aged down on load: {key} "
             f"tier={before} -> {state.tier} (silent {steps} steps)"
@@ -588,6 +658,40 @@ class IngressGuard:
                     "last_reason": "aged_out",
                     "tier_changed_at": now,
                 },
+            )
+
+    def _decay_silent_in_memory(self, now: datetime) -> None:
+        """Same arithmetic as ``_decay_for_silence``, memory only.
+
+        Carries the same zero-step guard for the same reason: dividing by
+        zero on the inbound path would turn fail-open into fail-closed.
+        And the same end-of-isolation anchor, which is what keeps a session
+        still serving its cooldown from being released early — reaching the
+        decay from a sweep rather than a reload would not make that any
+        less wrong.
+        """
+        if self._decay_step_seconds <= 0:
+            return
+        for key, state in self._sessions.items():
+            if state.tier <= 0 or state.tier_changed_at is None:
+                continue
+            # Silence starts when the isolation ends, not when it began —
+            # which is also why no separate "still cooling" check is
+            # needed: an unexpired cooldown puts the anchor in the future
+            # and ``steps`` comes out zero. One criterion, one place.
+            anchor = state.tier_changed_at
+            if state.cooldown_until is not None and state.cooldown_until > anchor:
+                anchor = state.cooldown_until
+            steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
+            if steps <= 0:
+                continue
+            before = state.tier
+            state.tier = max(0, state.tier - steps)
+            state.tier_changed_at = now
+            state.clean_since = now
+            logger.info(
+                f"IngressGuard aged down while silent: {key} "
+                f"tier={before} -> {state.tier}"
             )
 
     def _record(self, state: _SessionState, now: datetime, fingerprint: str) -> None:
@@ -647,6 +751,7 @@ class IngressGuard:
                     list(state.trip_fingerprints)[:_MAX_TRIP_FINGERPRINTS]
                 )
         state.tier += 1
+        state.tier_changed_at = now
         cooldown = self._schedule[min(state.tier - 1, len(self._schedule) - 1)]
         state.cooldown_until = now + timedelta(seconds=cooldown)
         suppressed_before = state.suppressed
@@ -826,6 +931,7 @@ class IngressGuard:
 
         state.tier -= 1
         state.clean_since = now
+        state.tier_changed_at = now
         logger.info(f"IngressGuard recovered: {key} tier={state.tier}")
         await self._persist(
             key,

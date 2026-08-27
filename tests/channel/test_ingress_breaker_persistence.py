@@ -360,10 +360,12 @@ async def test_a_session_that_went_silent_ages_its_tier_down(db_client):
     guard = _guard(repo)
     step = guard._decay_step_seconds
 
-    # Comes back after enough silence for exactly one step.
-    verdict = (
-        await _storm(guard, start=BASE + timedelta(seconds=step + 60), n=1)
-    )[0]
+    # Comes back after enough silence for exactly one step. The clock
+    # starts when the ISOLATION ENDS (BASE + 300), not when it began:
+    # serving the cooldown is not silence, and counting it would bill the
+    # sentence as good behaviour.
+    start = BASE + timedelta(seconds=300 + step + 60)
+    verdict = (await _storm(guard, start=start, n=1))[0]
 
     assert verdict.admit is True
     assert verdict.tier == 0, (
@@ -383,7 +385,12 @@ async def test_ageing_down_to_zero_makes_the_row_sweepable(db_client):
     assert row is not None and row.tier == 1
 
     guard = _guard(repo)
-    await _storm(guard, start=BASE + timedelta(seconds=guard._decay_step_seconds + 60), n=1)
+    # Measured from the end of the 300s cooldown, not from the trip.
+    await _storm(
+        guard,
+        start=BASE + timedelta(seconds=300 + guard._decay_step_seconds + 60),
+        n=1,
+    )
 
     row = await repo.get(KEY)
     assert row is not None
@@ -503,20 +510,30 @@ async def test_a_recovery_step_refreshes_the_decay_anchor(db_client):
     )
 
 
-async def test_find_open_is_bounded_and_says_so_when_it_truncates():
-    """`tier > 0` and "still cooling" are both decided in Python, so an
-    unbounded query here is a full-table read on every process start.
+def _fake_open_rows(n, *, cooling):
+    return [
+        {
+            "session_key": f"k{i}",
+            "channel": "slack",
+            "agent_id": "a",
+            "chat_id": "c",
+            "sender_id": "s",
+            "tier": 1,
+            "cooldown_until": (BASE + timedelta(seconds=7200)) if cooling else None,
+            "suppressed_count": 0,
+            "last_reason": None,
+            "last_tripped_at": None,
+            "tier_changed_at": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+        for i in range(n)
+    ]
 
-    The truncation must be loud: a short result reads exactly like a
-    complete one, and `warm_start` would report a standing-isolation count
-    that is quietly wrong — the same "looks like it covered everything"
-    shape a silent cap always has.
-    """
+
+async def _capped_find_open(rows):
+    """Drive the real repository against a db handle that returns `rows`."""
     from loguru import logger
-
-    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
-        _FIND_OPEN_LIMIT,
-    )
 
     calls = []
     lines = []
@@ -526,34 +543,258 @@ async def test_find_open_is_bounded_and_says_so_when_it_truncates():
         class _FakeDb:
             async def get(self, table, filters=None, **kwargs):
                 calls.append(kwargs)
-                return [
-                    {
-                        "session_key": f"k{i}",
-                        "channel": "slack",
-                        "agent_id": "a",
-                        "chat_id": "c",
-                        "sender_id": "s",
-                        "tier": 1,
-                        "cooldown_until": None,
-                        "suppressed_count": 0,
-                        "last_reason": None,
-                        "last_tripped_at": None,
-                        "tier_changed_at": None,
-                        "created_at": None,
-                        "updated_at": None,
-                    }
-                    for i in range(_FIND_OPEN_LIMIT + 50)
-                ]
+                return rows
 
-        repo = ChannelIngressBreakerRepository(_FakeDb())
-        rows = await repo.find_open("slack")
+        out = await ChannelIngressBreakerRepository(_FakeDb()).find_open("slack")
     finally:
         logger.remove(sink)
+    return calls, out, lines
 
+
+async def test_find_open_is_bounded():
+    """`tier > 0` and "still cooling" are both decided in Python, so an
+    unbounded query here is a full-table read on every process start."""
+    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+        _FIND_OPEN_LIMIT,
+    )
+
+    calls, rows, _ = await _capped_find_open(
+        _fake_open_rows(_FIND_OPEN_LIMIT + 50, cooling=True)
+    )
     assert calls and calls[0].get("limit") is not None, (
         "find_open issued an unbounded read"
     )
     assert len(rows) == _FIND_OPEN_LIMIT, f"cap not applied: {len(rows)}"
-    assert any("skipping the rest" in ln for ln in lines), (
-        f"the cap bit without saying so: {lines}"
+
+
+async def test_the_cap_warns_only_when_a_candidate_could_have_been_cut():
+    """The warning has to be worth reading.
+
+    The cap is measured against the channel's TOTAL row count, and
+    `ORDER BY cooldown_until DESC` sorts NULLs last in both dialects — so
+    the tail that gets cut is normally exactly the rows this method would
+    have discarded anyway. Warning on row count alone fires on every boot
+    for any channel with a long trip history, nothing actually lost; and a
+    warning that cries wolf every boot gets filtered, after which a real
+    truncation is as invisible as a silent one.
+    """
+    from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+        _FIND_OPEN_LIMIT,
+    )
+
+    n = _FIND_OPEN_LIMIT + 50
+
+    _, _, quiet = await _capped_find_open(_fake_open_rows(n, cooling=False))
+    assert not [ln for ln in quiet if "WARNING" in ln], (
+        f"warned although the cut tail carried no cooldown: {quiet}"
+    )
+
+    _, _, loud = await _capped_find_open(_fake_open_rows(n, cooling=True))
+    assert [ln for ln in loud if "WARNING" in ln], (
+        f"the last kept row was still cooling and nothing was said: {loud}"
+    )
+
+
+
+async def test_serving_a_long_cooldown_is_not_credited_as_silence(db_client):
+    """The mirror of `test_ageing_does_not_run_while_...`, on the other side
+    of the cooldown boundary.
+
+    `tier_changed_at` is stamped when the session trips, and the cooldown
+    runs from there. Anchoring the catch-up on it counts the isolation
+    itself as good behaviour — and a high tier's cooldown is many decay
+    steps long. At tier 3 (7200s cooldown, 1200s step) that is six free
+    steps: the first message after the cooldown elapsed zeroes the
+    escalation memory outright, and a persistent loop goes back to the
+    cheapest 300s tier after every deploy.
+
+    That is what `test_a_restart_after_the_cooldown_admits_a_probe_at_the_kept_tier`
+    says it prevents; that test only passes on tier 1, whose 300s cooldown
+    is the one case of the four shorter than a single decay step.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(seconds=7200),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    assert 7200 > guard._decay_step_seconds, (
+        "the point of this test is a cooldown longer than a decay step"
+    )
+
+    # Just past the cooldown: nothing has been silent yet.
+    verdict = (await _storm(guard, start=BASE + timedelta(seconds=7300), n=1))[0]
+
+    assert verdict.admit is True, "the cooldown has elapsed; probe it"
+    assert verdict.tier == 3, (
+        "time spent isolated was credited as silence, so a re-offender "
+        f"restarts at the cheapest cooldown after a deploy: tier={verdict.tier}"
+    )
+
+
+async def test_a_zero_window_degrades_instead_of_raising(db_client):
+    """`admit()` must not be the one place in this class that raises.
+
+    `get` / `upsert_state` / `_persist` / `warm_start` / `_load` all
+    degrade rather than throw, because this guard sits on the inbound path
+    and is not an authorization gate. The decay arithmetic divides by
+    `window * recovery_windows`, so a zero window would send a
+    ZeroDivisionError out of `admit()` and drop every message on the
+    channel — the user-visible content loss binding rule #16 forbids, from
+    a value a per-channel config could plausibly carry.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 2,
+            "cooldown_until": None,
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    guard = IngressGuard(
+        repo=repo,
+        window_seconds=0,
+        rate_threshold=10,
+        dup_ratio_threshold=0.8,
+        schedule_seconds=(300.0, 1800.0, 7200.0, 86400.0),
+    )
+
+    verdict = await guard.admit(
+        agent_id="agt_1",
+        channel="narramessenger",
+        chat_id="!room",
+        sender_id="@agent-liam",
+        fingerprint=content_fingerprint("!room", "@agent-liam", "hi"),
+        now=BASE + timedelta(seconds=99999),
+    )
+    assert verdict is not None, "a zero window must degrade, not raise"
+
+
+async def test_a_load_time_age_down_is_not_billed_again_by_the_sweep(db_client):
+    """Two decay paths, one clock. They must not both charge for the same
+    silence.
+
+    `_load` ages the tier down from the durable anchor; `prune_idle` ages
+    it down from the in-memory one. If the load path does not move the
+    in-memory anchor forward, the very next sweep recomputes the same
+    elapsed time and takes another step — one step of silence spending
+    twice, which is the double-credit this anchor was introduced to stop,
+    arriving from the other direction.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": None,
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    guard = _guard(repo)
+    at = BASE + timedelta(seconds=guard._decay_step_seconds + 60)
+
+    verdict = (await _storm(guard, start=at, n=1))[0]
+    assert verdict.tier == 2, f"one step of silence, one step down: {verdict.tier}"
+
+    state = guard._sessions[KEY]
+    guard.prune_idle(at)
+    assert state.tier == 2, (
+        f"the sweep charged for the silence the load already spent: {state.tier}"
+    )
+
+
+async def test_the_sweep_can_age_down_a_session_it_only_read_from_the_db(db_client):
+    """A tier > 0 session is pinned in memory by `prune_idle` on purpose,
+    so it never gets a second `_load`. If the durable anchor is not carried
+    into memory when the row is first read, the sweep can only ever age
+    down sessions that tripped inside THIS process — and a long-running
+    trigger (binding rule #14) mostly holds sessions it loaded, not ones it
+    watched trip.
+
+    Observable through `open_session_count()`, the L2 metric this design
+    offers against the 8/14 blind spot: without the sweep reaching these,
+    it drifts from "isolated right now" toward "tripped since the last
+    deploy".
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 1,
+            "cooldown_until": None,
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    guard = _guard(repo)
+    step = guard._decay_step_seconds
+
+    # One message brings the row into memory without earning any decay.
+    await _storm(guard, start=BASE + timedelta(seconds=10), n=1)
+    assert guard.open_session_count() == 1
+
+    # Now only the sweep runs — no further traffic on this session.
+    guard.prune_idle(BASE + timedelta(seconds=10 + step + 60))
+    assert guard.open_session_count() == 0, (
+        "the sweep never reached a session loaded from the DB, so its tier "
+        "stands for the life of the process"
+    )
+
+
+async def test_warm_start_sessions_are_reachable_by_the_sweep(db_client):
+    """Same property on the other construction path.
+
+    `warm_start` loads only rows still cooling, which is what keeps
+    `open_session_count()` meaning "isolated now" rather than "ever
+    tripped". That guarantee only holds if those sessions can also LEAVE
+    the count once their cooldown elapses and the silence is served.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 1,
+            "cooldown_until": BASE + timedelta(seconds=300),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    guard = _guard(repo)
+    restored = await guard.warm_start("narramessenger", now=BASE + timedelta(seconds=60))
+    assert restored == 1
+    assert guard.open_session_count() == 1
+
+    step = guard._decay_step_seconds
+    guard.prune_idle(BASE + timedelta(seconds=300 + step + 60))
+    assert guard.open_session_count() == 0, (
+        "a warm-started session can never leave the standing-isolation "
+        "count, so the gauge climbs with uptime"
     )

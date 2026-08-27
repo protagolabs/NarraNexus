@@ -135,15 +135,33 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
             )
             return []
         if len(rows) > _FIND_OPEN_LIMIT:
-            # Never silently: a truncated result reads exactly like a
-            # complete one, and the caller (`warm_start`) would report a
-            # standing-isolation count that is quietly short.
-            logger.warning(
-                f"ChannelIngressBreakerRepository.find_open({channel}): more "
-                f"than {_FIND_OPEN_LIMIT} rows; loading the newest "
-                f"{_FIND_OPEN_LIMIT} and skipping the rest"
-            )
             rows = rows[:_FIND_OPEN_LIMIT]
+            # The cap is measured against the CHANNEL's total row count,
+            # because `tier > 0` and "still cooling" are both decided in
+            # Python. `ORDER BY cooldown_until DESC` puts NULLs last in
+            # both dialects, so the tail that gets cut is normally exactly
+            # the rows this method would have discarded anyway.
+            #
+            # So only shout when the last row we kept still carries a
+            # cooldown — the one case where a candidate could have been
+            # left outside the cap. Warning on row count alone would fire
+            # on every start for any channel with a long trip history,
+            # nothing actually lost, and a warning that cries wolf every
+            # boot gets filtered — after which a real truncation is just as
+            # invisible as a silent one.
+            last_kept = rows[-1] if rows else None
+            if last_kept and last_kept.get("cooldown_until"):
+                logger.warning(
+                    f"ChannelIngressBreakerRepository.find_open({channel}): hit "
+                    f"the {_FIND_OPEN_LIMIT}-row cap with the last kept row "
+                    f"still cooling — isolated sessions may have been skipped"
+                )
+            else:
+                logger.debug(
+                    f"ChannelIngressBreakerRepository.find_open({channel}): "
+                    f"capped at {_FIND_OPEN_LIMIT} rows; the tail carried no "
+                    f"cooldown, so no candidate was dropped"
+                )
         entities = [self._row_to_entity(r) for r in rows if r]
         open_rows = [e for e in entities if (e.tier or 0) > 0]
         if not cooling_only:

@@ -346,6 +346,10 @@ async def test_idle_sessions_do_not_accumulate_forever():
     processes are designed to run for days — binding rule #14 makes
     "only matters after 200 hours" not a defence."""
     guard = _guard()
+    # One message every _STEP_SECONDS. This cadence is not incidental: it
+    # converts the window from seconds into a session COUNT below, and the
+    # ceiling formula is wrong without it.
+    _STEP_SECONDS = 1
 
     async def _walk(lo, hi):
         for i in range(lo, hi):
@@ -355,28 +359,33 @@ async def test_idle_sessions_do_not_accumulate_forever():
                 chat_id=f"C{i}",
                 sender_id=f"U{i}",
                 fingerprint=content_fingerprint(f"C{i}", f"U{i}", "hi"),
-                now=BASE + timedelta(seconds=i),
+                now=BASE + timedelta(seconds=i * _STEP_SECONDS),
             )
 
-    await _walk(0, 2500)
-    after_2500 = len(guard._sessions)
-    await _walk(2500, 5000)
-    after_5000 = len(guard._sessions)
+    # Both sample points are exact multiples of the sweep interval, so both
+    # are read in the same phase (just-swept). Comparing a just-swept count
+    # against a mid-interval one would be comparing two different
+    # quantities, and would go red on a correct implementation as soon as
+    # anyone retuned _PRUNE_EVERY_ADMITS.
+    first, second = 2 * _PRUNE_EVERY_ADMITS, 4 * _PRUNE_EVERY_ADMITS
+    await _walk(0, first)
+    after_first = len(guard._sessions)
+    await _walk(first, second)
+    after_second = len(guard._sessions)
 
-    # The property is "does not accumulate", so the check is that doubling
-    # the traffic does not grow what is retained. A fixed ceiling is the
-    # weaker test and easy to get wrong: the true bound is not the sweep
-    # interval alone but that PLUS the sessions still inside the window,
-    # which the sweep must not drop — 1101 here, so `<= 1000` fails for a
-    # correct implementation while `< 2500` passes for a broken one.
-    assert after_5000 <= after_2500, (
+    # The property is "does not accumulate": doubling the traffic must not
+    # grow what is retained. A fixed ceiling alone is the weaker test and
+    # easy to get wrong — the true bound is not the sweep interval but that
+    # PLUS the sessions still inside the window, which the sweep must not
+    # drop.
+    assert after_second <= after_first, (
         f"retained sessions grow with total traffic: "
-        f"{after_2500} -> {after_5000}"
+        f"{after_first} -> {after_second}"
     )
-    # Still bounded, and stated in terms it is derived from rather than a
-    # literal: admits since the last sweep, plus one window of live ones.
-    ceiling = _PRUNE_EVERY_ADMITS + guard._window
-    assert after_5000 <= ceiling, f"{after_5000} retained, ceiling {ceiling}"
+    # Derived, not a literal, and in one unit: admits since the last sweep,
+    # plus however many sessions one window holds at this cadence.
+    ceiling = _PRUNE_EVERY_ADMITS + guard._window / _STEP_SECONDS
+    assert after_second <= ceiling, f"{after_second} retained, ceiling {ceiling}"
 
 
 async def test_pruning_never_drops_a_cooling_session():
@@ -387,7 +396,11 @@ async def test_pruning_never_drops_a_cooling_session():
     during = BASE + timedelta(seconds=60)
     assert guard.cooling_session_count(during) == 1
 
-    guard.prune_idle(BASE + timedelta(days=7))
+    # Swept while the cooldown is still running. The sweep also ages
+    # silent tiers down now, and that must never reach a session still
+    # serving its isolation — releasing it early is the one thing this
+    # state exists to prevent.
+    guard.prune_idle(during)
     assert guard.cooling_session_count(during) == 1, "a live cooldown is not idle"
     assert guard.open_session_count() == 1
 
@@ -396,9 +409,26 @@ async def test_pruning_never_drops_escalation_memory():
     guard = _guard()
     await _send(guard, n=12, text="ping", start=BASE)
 
-    # Long after the cooldown lapsed, but the tier is what we promised to keep.
-    guard.prune_idle(BASE + timedelta(days=30))
+    # After the cooldown lapsed but before a full decay step of silence has
+    # been earned: the tier is still owed, and a memory sweep must not be a
+    # back door that forgets it early.
+    #
+    # NOT "days later" — the tier is meant to decay, one step per N clean
+    # windows, "逐级降回，最终清零". An assertion that it survives 30 days
+    # of silence would be pinning the very defect this round removed, where
+    # a session that misbehaved once carried a 24h-capable tier for the
+    # life of the process.
+    step = guard._decay_step_seconds
+    guard.prune_idle(BASE + timedelta(seconds=300 + step - 60))
     assert guard.open_session_count() == 1
+
+    # And once the silence has actually been served, it goes.
+    guard.prune_idle(BASE + timedelta(seconds=300 + step + 60))
+    assert guard.open_session_count() == 0, (
+        "a session silent past a decay step still carries escalation memory "
+        "no restart is needed to clear; the row it corresponds to can never "
+        "be swept either"
+    )
 
 
 async def test_pruning_keeps_a_live_window():
@@ -575,3 +605,35 @@ async def test_a_genuinely_new_message_is_not_punished_after_a_cooldown():
         start=after + timedelta(seconds=10),
     )
     assert all(v.admit for v in more)
+
+
+async def test_the_in_memory_sweep_never_releases_an_active_isolation():
+    """The sweep ages silent tiers down; that must not reach a live cooldown.
+
+    A high tier's cooldown outlives a decay step (tier 3 is 7200s against a
+    1200s step), so "mid-isolation" and "past a step" overlap. Reaching the
+    decay from the sweep rather than from a reload does not make releasing
+    the isolation early any less wrong.
+    """
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)  # tier 1
+    # Escalate twice more so the cooldown is long enough to matter.
+    await _send(guard, n=12, text="ping", start=BASE + timedelta(seconds=400))
+    await _send(guard, n=12, text="ping", start=BASE + timedelta(seconds=2300))
+
+    state = next(iter(guard._sessions.values()))
+    assert state.tier >= 3, f"need a long cooldown for this test, tier={state.tier}"
+    assert state.cooldown_until is not None
+    mid = state.cooldown_until - timedelta(seconds=60)
+    assert (mid - state.tier_changed_at).total_seconds() > guard._decay_step_seconds, (
+        "the timeline must be both mid-isolation and past a decay step"
+    )
+
+    tier_before = state.tier
+    guard.prune_idle(mid)
+
+    assert state.tier == tier_before, (
+        f"the sweep aged a session down while it was still isolated: "
+        f"{tier_before} -> {state.tier}"
+    )
+    assert guard.cooling_session_count(mid) == 1
