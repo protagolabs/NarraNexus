@@ -6,6 +6,12 @@ stub: false
 
 # merged_prep.py — 合并路径的 BM25 准备段(从 retrieval 迁出)
 
+## 2026-08-27(round 9)— 反事实不再把锚点当 participant 排掉 + 记账走共享块
+
+anchor_in_menu 的排除集改为 participants − {anchor}:锚点自己能不能
+上榜正是仪器要问的问题,哪怕它同时是 participant 线(participant 落点
+后每一轮都是这个形状)。提交块改调 retrieval.commit_scored_pool。
+
 ## 2026-08-27(round 3)— rank_depth 退役
 
 全深度排名成为 `_score_pool` 唯一模式(snippet 只算头部),本文件不再

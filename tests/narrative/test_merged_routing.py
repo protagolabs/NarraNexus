@@ -802,6 +802,43 @@ async def test_a_menu_row_from_beyond_the_snippet_head_still_carries_evidence(
     assert "部署" in candidates[0]["matched_content"]
 
 
+async def test_an_anchor_that_is_also_a_participant_is_not_on_the_ballot_twice(
+    service, db_client, merged_on, monkeypatch
+):
+    """Review round 9, I1: after a participant landing, the landed thread is
+    the next turn's anchor AND still in the participant list. Unfiltered, it
+    rendered in two sections, two verdicts pointed at it, and a "stay" was
+    audited as a "switch" (merged_participant) — polluting the very columns
+    the flag exists to read. The participant SECTION must exclude the anchor;
+    participant index 0 must resolve to the OTHER invitation."""
+    anchor, _ = await _seed(service)
+    other = await service.create_narrative(
+        agent_id=AGENT, user_id="user_owner_x", title="Invited task", description="",
+    )
+
+    async def _participants(self, *, user_id, agent_id):
+        return [anchor, other]
+
+    from xyz_agent_context.narrative._narrative_impl.retrieval import (
+        NarrativeRetrieval,
+    )
+    monkeypatch.setattr(
+        NarrativeRetrieval, "_get_participant_narratives", _participants
+    )
+    _sdk(monkeypatch, verdict=merged_router.VERDICT_PARTICIPANT, index=0)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_participant"
+    assert result.narratives[0].id == other.id, (
+        "participant index 0 resolved to the anchor — it was on the ballot "
+        "twice, and a stay would be audited as a switch"
+    )
+
+
 # ===================================================================== #
 # Instruments and contracts                                             #
 # ===================================================================== #

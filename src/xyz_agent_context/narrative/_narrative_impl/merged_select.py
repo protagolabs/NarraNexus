@@ -174,7 +174,17 @@ async def select_merged(
         # [0, N) — a hallucinated index into the unrendered tail would land a
         # turn on a thread that was never on the ballot). Prefix slice only:
         # the ORDER is the P0-4 priority rule.
-        all_participants = build_participant_candidates(prep.participant_narratives)
+        # The anchor must not sit in the participant SECTION (review round 9,
+        # I1): after a participant landing the landed thread IS the next
+        # anchor, and unfiltered it renders twice, two verdicts point at it,
+        # and a "stay" gets audited as a "switch". Filter the RENDER/INDEX
+        # copy only — prep.participant_narratives itself feeds
+        # evaluate_bypass's participant_present rule and must stay whole.
+        participant_pool = [
+            n for n in prep.participant_narratives
+            if anchor is None or n.id != anchor.id
+        ]
+        all_participants = build_participant_candidates(participant_pool)
         shown_participants = all_participants[
             : config.MERGED_PARTICIPANT_MAX_CANDIDATES
         ]

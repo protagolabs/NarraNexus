@@ -23,8 +23,8 @@ import time as _perf
 from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 
-from ..config import config
 from ..models import Narrative, NarrativeSearchResult
+from .retrieval import commit_scored_pool
 from .routing_gate import BypassDecision, pick_menu, shutter_opens
 
 if TYPE_CHECKING:
@@ -137,10 +137,17 @@ async def prepare_merged_routing(
         # participant that also scored would otherwise occupy a
         # `scoring[:menu_size]` slot and squeeze the anchor out — reading
         # as "the anchor needed the injection" when it did not. The anchor
-        # itself is NOT excluded: whether it makes the menu is the question.
+        # itself is NOT excluded: whether it makes the menu is the question —
+        # including when the anchor is ALSO a participant thread (the turn
+        # after a participant landing; round 9, I1 — unfixed, this instrument
+        # recorded False for that whole population even when the anchor
+        # topped BM25).
         counterfactual_menu = pick_menu(
             scored.search_results,
-            exclude_ids={n.id for n in scored.participant_narratives},
+            exclude_ids=(
+                {n.id for n in scored.participant_narratives}
+                - {anchor_narrative_id}
+            ),
             limit=menu_size,
         )
         anchor_in_menu = anchor_narrative_id in [
@@ -153,20 +160,13 @@ async def prepare_merged_routing(
                 break
 
     # ── commit block: pure assignment, cannot raise ──────────────────
-    audit.candidates.extend(scored.candidates)
-    snapshots.update(scored.snapshots)
-    audit.keyword_ms = scored.keyword_ms
-    audit.retrieve_ms = elapsed_ms
-    audit.gate_top1_raw = scored.gate.top1_raw
-    audit.gate_top2_raw = scored.gate.top2_raw
-    # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
-    audit.gate_margin = (
-        scored.gate.margin if scored.gate.margin != float("inf") else None
+    commit_scored_pool(
+        audit, snapshots, scored,
+        retrieve_ms=elapsed_ms,
+        gate_short_circuit=shutter_opens(scored.bypass),
     )
-    audit.bypass_score_gate = scored.gate.short_circuit
-    audit.bypass_reason = scored.bypass.reason
-    audit.gate_reason = scored.bypass.detail
-    audit.gate_short_circuit = shutter_opens(scored.bypass)
+    # The §3.2 anchor instrument is merged-arm-only — not part of the shared
+    # commit block on purpose.
     audit.anchor_bm25_rank = anchor_rank
     audit.anchor_raw_score = anchor_score
     audit.anchor_in_menu = anchor_in_menu

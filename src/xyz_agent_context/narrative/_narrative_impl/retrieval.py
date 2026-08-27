@@ -88,6 +88,59 @@ class ScoredPool:
     all_scores: Dict[str, float]
 
 
+def commit_scored_pool(
+    audit: "RoutingAudit",
+    snapshots: Dict[str, str],
+    scored: "ScoredPool",
+    *,
+    retrieve_ms: Optional[int],
+    is_shadow: bool = False,
+    gate_short_circuit: Optional[bool] = None,
+) -> None:
+    """Stamp one ScoredPool onto one audit row — the ONE commit block.
+
+    Three call sites (two-call decider, shadow recorder, merged prep) had
+    grown three near-identical hand copies of these assignments (review
+    round 9, I2) — the exact drift `_score_pool`'s own docstring records
+    paying for once already ("a list that must be kept in sync is a list
+    that drifts"). The next ScoredPool-derived column gets written HERE or
+    it silently stays NULL on one arm, which reads as "this tier did not
+    run".
+
+    Pure assignment, cannot raise — callers rely on that for their
+    all-or-nothing recording.
+
+    The three legitimate differences stay with the callers:
+      * `retrieve_ms` — its DEFINITION differs per arm (two-call nests the
+        judge and stamps it later, so it passes None here; shadow and merged
+        are their own single segment);
+      * `is_shadow` — only the recorder's rows are shadow;
+      * `gate_short_circuit` — THREE-state on purpose: the two-call arm
+        writes the bypass verdict, the shadow arm must NOT write it at all
+        (rule #6 — the gate decided nothing there), the merged arm writes
+        the shutter. None means "leave the column untouched", never "write
+        False".
+    """
+    audit.candidates.extend(scored.candidates)
+    snapshots.update(scored.snapshots)
+    if is_shadow:
+        audit.pool_is_shadow = True
+    audit.keyword_ms = scored.keyword_ms
+    if retrieve_ms is not None:
+        audit.retrieve_ms = retrieve_ms
+    audit.gate_top1_raw = scored.gate.top1_raw
+    audit.gate_top2_raw = scored.gate.top2_raw
+    # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
+    audit.gate_margin = (
+        scored.gate.margin if scored.gate.margin != float("inf") else None
+    )
+    audit.bypass_score_gate = scored.gate.short_circuit
+    audit.bypass_reason = scored.bypass.reason
+    audit.gate_reason = scored.bypass.detail
+    if gate_short_circuit is not None:
+        audit.gate_short_circuit = gate_short_circuit
+
+
 class NarrativeRetrieval:
     """
     Narrative Retrieval
@@ -230,9 +283,14 @@ class NarrativeRetrieval:
         # alongside is a different question and must not be charged here. This
         # column answers "is BM25 ever the problem?"; mixing in an unrelated
         # read is how it would answer wrongly.
-        audit.keyword_ms = scored.keyword_ms
-        audit.candidates.extend(scored.candidates)
-        snapshots.update(scored.snapshots)
+        # retrieve_ms=None: this arm's retrieve_ms NESTS the judge and is
+        # stamped after it, not here. gate_short_circuit carries the bypass
+        # verdict — its original "skipped the judge" meaning.
+        commit_scored_pool(
+            audit, snapshots, scored,
+            retrieve_ms=None,
+            gate_short_circuit=scored.bypass.granted,
+        )
         retrieval_method = "keyword"
         logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
@@ -248,18 +306,9 @@ class NarrativeRetrieval:
         # the task they were invited into (P0-4). Both verdicts come from
         # `_score_pool`, the same pass the shadow recorder uses.
         gate, bypass = scored.gate, scored.bypass
-        # `gate_short_circuit` keeps its original meaning — "this turn skipped
-        # the judge" — so it now reflects the bypass decision, not floor+margin.
-        # `bypass_score_gate` is what preserves the floor/margin series for the
-        # next calibration round.
-        audit.gate_short_circuit = bypass.granted
-        audit.bypass_score_gate = gate.short_circuit
-        audit.bypass_reason = bypass.reason
-        audit.gate_reason = bypass.detail
-        audit.gate_top1_raw = gate.top1_raw
-        audit.gate_top2_raw = gate.top2_raw
-        # inf is not JSON/DOUBLE-safe; a lone candidate has an unbounded margin
-        audit.gate_margin = gate.margin if gate.margin != float("inf") else None
+        # Gate/bypass columns were stamped by commit_scored_pool above;
+        # `bypass_score_gate` preserves the floor/margin series for the next
+        # calibration round, `gate_short_circuit` carries the bypass verdict.
         if bypass.granted:
             logger.info(f"[NarrativeSelect] high confidence — {bypass.detail}")
             narratives = []
@@ -678,18 +727,13 @@ class NarrativeRetrieval:
         elapsed_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
 
         # ── commit block: pure assignment, cannot raise ──────────────────
-        audit.candidates.extend(scored.candidates)
-        snapshots.update(scored.snapshots)
-        audit.pool_is_shadow = True
-        audit.keyword_ms = scored.keyword_ms
-        audit.retrieve_ms = elapsed_ms
-        audit.gate_top1_raw = scored.gate.top1_raw
-        audit.gate_top2_raw = scored.gate.top2_raw
-        audit.gate_margin = (scored.gate.margin
-                             if scored.gate.margin != float("inf") else None)
-        audit.bypass_score_gate = scored.gate.short_circuit
-        audit.bypass_reason = scored.bypass.reason
-        audit.gate_reason = scored.bypass.detail
+        # gate_short_circuit=None on purpose — see below.
+        commit_scored_pool(
+            audit, snapshots, scored,
+            retrieve_ms=elapsed_ms,
+            is_shadow=True,
+            gate_short_circuit=None,
+        )
         # `gate_short_circuit` is NOT set. It means "the gate skipped the
         # judge", and here the gate decided nothing — filling it would redefine
         # the column for every existing reader (binding rule #6). Populations
@@ -833,7 +877,7 @@ class NarrativeRetrieval:
         strong keyword matches may direct-return.
 
         Public seam: ``NarrativeService.select_fast`` (F28) depends on this
-        signature. ``retrieve_top_k`` uses ``load_pool`` + ``rank_pool``
+        signature. ``retrieve_top_k`` uses ``load_pool`` + ``rank_pool_full``
         directly so it can keep the pool for the audit.
         """
         return self.rank_pool(query, await self.load_pool(agent_id, user_id), top_k)

@@ -256,6 +256,17 @@ IDF 和 avgdl 都在候选集自身上算，存 top-K 重放出来是另一组�
 F28 快速模式的 `NarrativeService.select_fast` 需要「BM25 top-1、零 LLM、零新建」的最小召回，直接依赖这个方法——service 层不允许下探 impl 私有名（review #6），故私有转公开。按铁律 #2 不留 `_keyword_search` 兼容别名。**它现在是被 service 依赖的公开接缝**：改签名/语义前先看 `narrative_service.select_fast`（含 NARRATIVE_MATCH_RAW_FLOOR 门槛逻辑）。
 # _narrative_impl/retrieval.py — 把一句用户输入路由到某条会话线
 
+## 2026-08-27(round 9)— ScoredPool→audit 收敛为一个提交函数(I2)
+
+三个臂(两调用/影子/合并)各抄了一份 10-14 行的记账块——`_score_pool`
+docstring 亲口记过这类手抄清单漂移的学费,本批次却又新增了第三份。
+`commit_scored_pool(audit, snapshots, scored, *, retrieve_ms, is_shadow,
+gate_short_circuit)` 是唯一提交块:纯赋值不可 raise;三处真实差异留给
+调用方——retrieve_ms 各臂定义不同(两调用嵌套 judge、传 None 稍后自己
+盖),gate_short_circuit **三态**(两调用=bypass 判决/影子=不写,铁律
+#6/合并=快门),anchor_* 是合并臂独有仪器不入共享块。下一个
+ScoredPool 派生列写这里,否则在某臂上永远 NULL。
+
 ## 2026-08-27(round 3)— 排名全深度、snippet 只算头部;四个共享 executor 迁出
 
 **I1(要害)**:合并路径曾以 rank_depth=100 换取锚点排名,代价是每轮

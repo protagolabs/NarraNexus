@@ -395,9 +395,12 @@ class NarrativeSearchResult(BaseModel):
     # narrative can reach a squashed 0.91 with zero topic-bearing overlap. The
     # judge runs exactly when the gate found candidates CROWDED, i.e. when
     # distinguishing substance from politeness is the whole decision — see
-    # `_narrative_impl/retrieval.rank_pool`, which fills both from the same
-    # BM25 pass that produced `raw_score` (no extra IO, no extra DB read).
-    # Participant narratives never went through BM25 and stay empty.
+    # `_narrative_impl/retrieval.rank_pool_full`, which fills both from the
+    # same BM25 pass that produced `raw_score` (no extra IO, no extra DB
+    # read). Participant narratives never went through BM25 and stay empty.
+    # `matched_snippet` is ALSO empty by design beyond rank_pool_full's
+    # snippet_depth head — any prompt consumer of deep rows must backfill it
+    # (the pattern: landings.build_menu_candidates; round 9, minor 2).
     matched_terms: List[str] = []  # Query terms by descending contribution
     matched_snippet: str = ""  # Context windows where the top terms occur
 

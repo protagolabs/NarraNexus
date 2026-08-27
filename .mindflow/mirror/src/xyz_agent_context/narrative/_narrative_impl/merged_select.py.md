@@ -6,6 +6,17 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-08-27(round 9)— 锚点不得同时坐在 participant 段(I1)
+
+participant 落点的下一轮,落点线既是锚点又在 participant 列表——
+不滤则同一条线渲染两段、两个 verdict 都指向它,"留下"被审计成"切线"
+(污染 flag 唯一要读的列)。修:渲染/索引用的 `participant_pool` 滤掉
+锚点;**prep.participant_narratives 本体不动**(evaluate_bypass 的
+participant_present 规则读它,滤本体是行为回归)。反事实侧同步:
+anchor_in_menu 的排除集不再把锚点当 participant 排掉(否则该人群恒
+False,§3.2 探针系统性说谎且不可回补)。钉:
+test_an_anchor_that_is_also_a_participant_is_not_on_the_ballot_twice。
+
 ## 2026-08-27(round 7)— 收显式协作者,不再收整个 service(I1)
 
 `select_merged(service)` 是同批三个 impl 模块里唯一反向拿调用方的——
