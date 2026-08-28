@@ -30,7 +30,7 @@ if [[ "${NEXUS_DEV_POWER_LOGIN:-1}" != "0" ]]; then
   export NETMIND_USE_SUBSCRIPTION_ENABLED="${NETMIND_USE_SUBSCRIPTION_ENABLED:-true}"
   export NETMIND_AUTH_API_URL="${NETMIND_AUTH_API_URL:-https://userauth.protago-dev.com}"
   export BILLING_API_BASE="${BILLING_API_BASE:-https://billing.api.protago-dev.com}"
-  export NETMIND_KEY_API_BASE="${NETMIND_KEY_API_BASE:-https://mind-web.protago-dev.com}"
+  export NETMIND_KEY_API_BASE="${NETMIND_KEY_API_BASE:-https://inference.api.protago-dev.com}"
   export NETMIND_INFERENCE_BASE="${NETMIND_INFERENCE_BASE:-https://test.api.netmind.ai/inference-api}"
   export VITE_ENABLE_POWER_LOGIN="${VITE_ENABLE_POWER_LOGIN:-true}"
 fi
