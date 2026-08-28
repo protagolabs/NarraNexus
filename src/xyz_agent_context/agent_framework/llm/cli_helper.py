@@ -298,7 +298,7 @@ class CliHelperSDK:
             # the key. Same derive.py truth table as every other producer;
             # source is the literal "codex_oauth" because this constructor
             # is codex by definition.
-            auth_ref=derive_auth_ref(_auth_type, "codex_oauth") or "",
+            auth_ref=derive_auth_ref("codex_oauth", _auth_type) or "",
         )
         _codex_token = _codex_ctx.set(_helper_codex)
         try:

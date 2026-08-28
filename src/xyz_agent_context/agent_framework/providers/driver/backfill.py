@@ -92,7 +92,7 @@ async def backfill_provider_metadata(db: "AsyncDatabaseClient") -> dict:
         # CLI-subscription sources ever get a sentinel) — no outer
         # driver_type filter needed, and both callers (here and
         # ProviderCard.from_row) share one truth table.
-        auth_ref = derive_auth_ref(row.get("auth_type"), row.get("source"))
+        auth_ref = derive_auth_ref(row.get("source"), row.get("auth_type"))
 
         # owner_user_id: local mode → always self-owned (= user_id).
         # Cloud mode system rows come in with owner_user_id IS NULL by

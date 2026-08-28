@@ -179,10 +179,18 @@ def _cli_subscription_row_fields(
         derive_driver_type,
     )
 
+    driver_type = derive_driver_type(source, auth_type, protocol)
+    if driver_type is None:
+        # A mistyped source would otherwise write driver_type=NULL —
+        # exactly the state this helper exists to eliminate. Fail loudly
+        # at the call site instead of producing a broken row.
+        raise ValueError(
+            f"not a CLI-subscription source: {source!r} (auth_type={auth_type!r})"
+        )
     return {
-        "driver_type": derive_driver_type(source, auth_type, protocol),
+        "driver_type": driver_type,
         "billing_policy": derive_billing_policy(source, auth_type),
-        "auth_ref": derive_auth_ref(auth_type, source) or "",
+        "auth_ref": derive_auth_ref(source, auth_type) or "",
     }
 
 

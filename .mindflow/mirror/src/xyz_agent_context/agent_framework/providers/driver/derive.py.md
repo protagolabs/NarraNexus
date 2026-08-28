@@ -4,6 +4,18 @@ last_verified: 2026-08-27
 stub: false
 ---
 
+## 2026-08-27(review 第 5 轮)— derive_auth_ref 签名改 (source, auth_type) 无默认值
+
+source 守卫落地后,省略 source 只会返回 None——这个默认值不存在正确
+用法,且参数序与兄弟函数(`derive_driver_type(source, auth_type,
+protocol)` / `derive_billing_policy(source, auth_type)`)相反,按位置
+并排调用时写反不报错、只产出空 auth_ref(P1 零信号复现)。现签名
+`(source, auth_type)`、无默认,漏传即 TypeError。**None 与 "" 的区分
+必须保留**:`from_row` 的 `or derive(...)`、`_cli_subscription_row_fields`
+的 `or ""`、`build_codex_config` 的 `or (card.auth_ref or "")` 三处都
+依赖 None 触发回落。真值表有直接的表驱动测试钉住
+(`test_derive_auth_ref_truth_table`,断言 `is None` 非 falsy)。
+
 ## 2026-08-27 — derive_auth_ref 的 source 守卫收进函数本体(P1 review 第 2 轮)
 
 旧真值表对任意 `auth=="oauth"` 的行默认发 **claude** 哨兵,靠调用方

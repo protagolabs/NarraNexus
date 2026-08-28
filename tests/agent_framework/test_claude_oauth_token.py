@@ -228,6 +228,44 @@ async def test_probe_misrouted_token_card_gets_source_verdict_not_token_advice()
     assert "not a Claude Code (OAuth) card" in health.detail
 
 
+@pytest.mark.parametrize(
+    ("source", "auth_type", "expected"),
+    [
+        # The only two cells that produce a sentinel:
+        ("claude_oauth", "oauth", "claude-cli:~/.claude/.credentials.json"),
+        ("codex_oauth", "oauth", "codex-cli:~/.codex/auth.json"),
+        # Case-insensitive on both axes:
+        ("Claude_OAuth", "OAuth", "claude-cli:~/.claude/.credentials.json"),
+        # oauth_token: the token IS the credential — None, never "".
+        ("claude_oauth", "oauth_token", None),
+        # Non-CLI sources with a free-string oauth auth_type (the round-2
+        # credential-confusion hole): must NOT inherit the host sentinel.
+        ("user", "oauth", None),
+        ("system", "oauth", None),
+        (None, "oauth", None),
+        ("", "oauth", None),
+        # Non-oauth auth types never derive:
+        ("claude_oauth", "api_key", None),
+        ("codex_oauth", "", None),
+        ("claude_oauth", None, None),
+    ],
+)
+def test_derive_auth_ref_truth_table(source, auth_type, expected):
+    """Direct table-driven pin on the single truth table every producer
+    (insert, read-time, backfill, codex config builders) now consumes.
+    Assertions use `is None`, not falsiness — three call sites depend on
+    the None-vs-\"\" distinction (review round 5, Important 2)."""
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
+        derive_auth_ref,
+    )
+
+    result = derive_auth_ref(source, auth_type)
+    if expected is None:
+        assert result is None
+    else:
+        assert result == expected
+
+
 def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
     """Rows inserted before 2026-08-27 carry auth_ref=NULL until a backend
     restart runs the startup backfill — ProviderCard.from_row derives the

@@ -22,6 +22,12 @@ codex_oauth 同款同批修。测试断言文案**不含** "auth_ref" 字符串�
 "run `claude setup-token`" 这种它执行不了的建议;现在 misroute 判定
 先于一切模式分支(测试:
 `test_probe_misrouted_token_card_gets_source_verdict_not_token_advice`)。
+第 5 轮定性:这条 token 误路由路径**当前用户不可达**(`verify_live` 的
+token 分支直接查 api_key、不调 probe;probe 的可达调用方只有 framework
+探针 stub 和 verify_live 的 host 分支),守卫属 defense-in-depth。
+**不要**给 verify_live 的 token 分支也加 source 守卫——那里用用户粘贴的
+token 真跑一次 CLI,绿就是绿才诚实。守卫比较已 `.lower()` 归一,与
+derive_auth_ref 同口径。
 
 ## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
 

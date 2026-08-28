@@ -15,6 +15,24 @@ claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver �
 `derive_auth_ref` 返回 None,helper 里 `or ""` 兜成空串,否则
 `_insert_provider` 的 `if key in data` 会跳过该列留下 NULL。
 
+第 5 轮加固:helper 对 `derive_driver_type` 返回 None 的 source 直接
+`raise ValueError`——拼错的 source 否则会静默写出 driver_type=NULL,
+正是本 P1 要消灭的状态。
+
+**已知取舍(review 第 5 轮 Important 4,待库上核实)**:`test_provider`
+的 legacy 兜底(driver_type NULL 时按 **protocol** 推 driver)与真值表
+`derive_driver_type`(按 **source** 推)不一致,误路由卡靠两个 driver
+里的 source 守卫顶回。更根治的做法是在兜底链里先试
+`derive_driver_type`,但那会改变 `source=user + protocol=openai` 遗留行
+的路由目标——**改之前必须先在生产库核实不存在"source 非 CLI 源却持有
+真实 CLI 凭证"的历史行**(代码推断大概率不存在:两条 OAuth 插入分支
+一直写 CLI source、唯一性检查也按 source 查,但这要在库上确认,不能只
+从代码推)。核实前维持"守卫双副本 + 协议兜底"现状;接第三个 CLI OAuth
+driver(如 gemini_cli)时记得两处都要加:driver 的 source 守卫 +
+`test_provider:1104` 的 protocol 三元分支。误路由 seam 有一条不 mock 的
+端到端测试钉着
+(`test_misrouted_custom_row_gets_source_verdict_through_test_provider`)。
+
 **拒绝过的方案**(review 第 3 轮建议 helper 改收整个 row dict):dict 键
 耦合 + reconnect 分支的 update dict 没有 source/protocol 键、还得造兜底,
 比显式三参更晦涩。真正的漂移风险(auth_type 表达式在 row 与 helper 调用

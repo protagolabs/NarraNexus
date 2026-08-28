@@ -124,7 +124,7 @@ class ProviderCard:
             # file sentinel must be invented for them. Persisting stays
             # the backfill's job; this is a view-level default only.
             auth_ref=row.get("auth_ref")
-            or derive_auth_ref(row.get("auth_type"), row.get("source")),
+            or derive_auth_ref(row.get("source"), row.get("auth_type")),
         )
 
 

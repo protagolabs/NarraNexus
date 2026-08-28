@@ -93,7 +93,7 @@ class CodexOAuthDriver(_DriverBase):
         # misrouted card an empty ref and the stager would silently
         # produce an empty CODEX_HOME.
         auth_type = (self.card.auth_type or "oauth")
-        auth_ref = derive_auth_ref(auth_type, "codex_oauth") or (
+        auth_ref = derive_auth_ref("codex_oauth", auth_type) or (
             self.card.auth_ref or ""
         )
         return CodexConfig(
@@ -232,7 +232,7 @@ class CodexOAuthDriver(_DriverBase):
         # test_provider's legacy fallback routes any openai-protocol
         # oauth row here when driver_type is NULL — never advise removal
         # for a card that was not a Codex CLI (OAuth) card to begin with.
-        if (self.card.source or "") != "codex_oauth":
+        if (self.card.source or "").lower() != "codex_oauth":
             return DriverHealth(
                 ok=False,
                 detail=(

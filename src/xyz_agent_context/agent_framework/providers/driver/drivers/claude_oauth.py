@@ -107,7 +107,7 @@ class ClaudeOAuthDriver(_DriverBase):
         # driver_type (its being NULL is the misroute's cause) — and
         # never advise removal: remove_provider wipes the card's
         # per-agent slot overrides.
-        if (self.card.source or "") != "claude_oauth":
+        if (self.card.source or "").lower() != "claude_oauth":
             return DriverHealth(
                 ok=False,
                 detail=(
