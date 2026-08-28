@@ -24,12 +24,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 
 const getProvidersMock = vi.fn();
-const addProviderMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  api: {
-    getProviders: (...a: unknown[]) => getProvidersMock(...a),
-    addProvider: (...a: unknown[]) => addProviderMock(...a),
-  },
+  api: { getProviders: (...a: unknown[]) => getProvidersMock(...a) },
   ApiError: class ApiError extends Error {},
 }));
 vi.mock('@/lib/productAnalytics', () => ({ captureProductEvent: vi.fn() }));
@@ -37,8 +33,9 @@ const navigateMock = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }));
 vi.mock('@/hooks', () => ({ useTheme: () => ({ isDark: false }) }));
 
+const addProviderCardMock = vi.fn();
 vi.mock('@/lib/providersApi', () => ({
-  providerErrorMessage: () => 'error',
+  addProviderCard: (...a: unknown[]) => addProviderCardMock(...a),
 }));
 
 let runtimeMode: 'local' | 'cloud-web' = 'local';
@@ -92,8 +89,8 @@ import { SetupPage } from '@/pages/SetupPage';
 beforeEach(() => {
   getProvidersMock.mockReset();
   getProvidersMock.mockResolvedValue({ success: true, data: { providers: {} } });
-  addProviderMock.mockReset();
-  addProviderMock.mockResolvedValue({ success: true });
+  addProviderCardMock.mockReset();
+  addProviderCardMock.mockResolvedValue({ ok: true, error: '' });
   navigateMock.mockReset();
 });
 
@@ -141,7 +138,10 @@ describe('SetupPage subscription surface', () => {
     fireEvent.click(screen.getByTestId('subscription-connect'));
 
     await waitFor(() =>
-      expect(addProviderMock).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
+      expect(addProviderCardMock).toHaveBeenCalledWith(
+        { card_type: 'claude_oauth' },
+        expect.any(Function),
+      ),
     );
     // Footer flips live — no collapse, no remount, no navigation.
     expect(await screen.findByText('Get Started')).toBeTruthy();

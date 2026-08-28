@@ -32,7 +32,7 @@
  * truthiness check would blank the local mode this component exists to
  * serve.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -80,32 +80,6 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
 }
 
 type CliStatus = CliStatusPayload;
-
-/** Whether this caller may use OAuth subscription cards. `null` while
- * the probe is in flight; false only for cloud non-staff. Callers use
- * it to hide entry points (e.g. the Sign-in tab) — the component itself
- * still self-explains when rendered anyway. */
-export function useOauthAllowed(): boolean | null {
-  const userId = useConfigStore((sel) => sel.userId);
-  const [allowed, setAllowed] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getClaudeStatus()
-      .then((res) => {
-        if (!cancelled) setAllowed(res.data?.allowed !== false);
-      })
-      .catch(() => {
-        // Probe failure is not a verdict — fail open, the backend 403
-        // still guards the actual write.
-        if (!cancelled) setAllowed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-  return allowed;
-}
 
 /** Status dot + identity line + optional expiry — shared by both cards.
  * One shape on purpose: editing the status line means editing it once. */
@@ -182,30 +156,51 @@ function ProviderRecordRow({
   );
 }
 
+/** One card's status probe failed — say so and offer a retry (an
+ * eternal "Checking status…" reads as a hang). Retry re-probes BOTH
+ * cards (one function, monotonic generation guard). */
+function StatusProbeFailedRow({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-3 text-sm text-[var(--text-tertiary)]">
+      <span>{t('settings.provider.statusProbeFailed')}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="underline underline-offset-2 hover:opacity-80 text-[var(--text-secondary)]"
+      >
+        {t('settings.provider.retry')}
+      </button>
+    </div>
+  );
+}
+
 interface SubscriptionConnectProps {
-  /** The claude_oauth provider row, if one exists (drives "Added ✓" /
-   * token-connected state). */
-  claudeCard: Pick<ProviderRow, 'auth_type'> | null | undefined;
-  /** Whether a codex_oauth provider row exists. */
-  hasCodex: boolean;
+  /** The user's provider rows — record-state derivation ("Added ✓" vs
+   * Add-as-Provider, token-connected) happens HERE, so the subscription
+   * source names live in exactly one file. Parents just hand over the
+   * list they already hold. */
+  providers: ProviderRow[];
   /** Parent-owned POST /api/providers — the parent refreshes its provider
-   * list inside, so record state (claudeCard / hasCodex) updates flow back
-   * down as props. Resolves true on success. */
+   * list inside, so record state updates flow back down as props.
+   * Resolves true on success. */
   addProvider: (body: Record<string, unknown>) => Promise<boolean>;
 }
 
 export function SubscriptionConnect({
-  claudeCard,
-  hasCodex,
+  providers,
   addProvider,
 }: SubscriptionConnectProps) {
   const { t } = useTranslation();
   const userId = useConfigStore((sel) => sel.userId);
 
-  const [claudeStatus, setClaudeStatus] = useState<CliStatus | null>(null);
-  const [codexStatus, setCodexStatus] = useState<CliStatus | null>(null);
-  // Both status probes failed — see refreshStatuses.
-  const [statusError, setStatusError] = useState(false);
+  // Tri-state per card: null = probing, 'error' = probe failed (that
+  // card shows its own retry line), payload = probed. Per-card on
+  // purpose — the two routes fail independently, and an early version
+  // only handled "both failed", leaving a single failure stuck on
+  // "Checking status…" forever.
+  const [claudeStatus, setClaudeStatus] = useState<CliStatus | null | 'error'>(null);
+  const [codexStatus, setCodexStatus] = useState<CliStatus | null | 'error'>(null);
   // Which card's Add-as-Provider POST is in flight ('' = none): the
   // buttons must go disabled + show a spinner, same lesson as the Test
   // buttons (an unresponsive button reads as frozen).
@@ -221,21 +216,32 @@ export function SubscriptionConnect({
   const [setupToken, setSetupToken] = useState('');
   const [savingSetupToken, setSavingSetupToken] = useState(false);
 
-  const hasClaude = claudeCard !== undefined && claudeCard !== null;
+  // Record-state derivation — the ONLY place in the frontend that spells
+  // the subscription source names (a third vendor means editing exactly
+  // this file). Each card may have its own connected predicate: claude's
+  // token transport keys off auth_type, not mere row existence.
+  const claudeCard = providers.find((prov) => prov.source === 'claude_oauth') ?? null;
+  const hasClaude = claudeCard !== null;
   // Token transport: no CLI login state, no Keychain — see Section C.
   const claudeTokenConnected = claudeCard?.auth_type === 'oauth_token';
+  const hasCodex = providers.some((prov) => prov.source === 'codex_oauth');
+
+  // Monotonic call id: a stale response (account switch, slow retry)
+  // must never overwrite a newer one. A generation counter instead of an
+  // unmount-cancel flag so a MANUAL retry is never self-cancelled.
+  const probeGeneration = useRef(0);
 
   const refreshStatuses = useCallback(async () => {
-    setStatusError(false);
+    const gen = ++probeGeneration.current;
+    setClaudeStatus(null);
+    setCodexStatus(null);
     const [claudeRes, codexRes] = await Promise.all([
       api.getClaudeStatus().catch(() => null),
       api.getCodexStatus().catch(() => null),
     ]);
-    if (claudeRes?.success && claudeRes.data) setClaudeStatus(claudeRes.data);
-    if (codexRes?.success && codexRes.data) setCodexStatus(codexRes.data);
-    // Both probes failing used to leave the cards on "Checking status…"
-    // forever with no way out but a page reload — surface it + retry.
-    if (!claudeRes?.success && !codexRes?.success) setStatusError(true);
+    if (gen !== probeGeneration.current) return;
+    setClaudeStatus(claudeRes?.success && claudeRes.data ? claudeRes.data : 'error');
+    setCodexStatus(codexRes?.success && codexRes.data ? codexRes.data : 'error');
   // userId: switching accounts must re-probe — `allowed` is per-user.
   }, [userId]);
 
@@ -324,10 +330,15 @@ export function SubscriptionConnect({
     }
   };
 
+  const claudePayload = typeof claudeStatus === 'object' ? claudeStatus : null;
+  const codexPayload = typeof codexStatus === 'object' ? codexStatus : null;
+
   // Cloud non-staff: the status routes said this caller may not use
   // OAuth cards — explain instead of blanking (see the header comment;
   // `=== false` on purpose, the flag is undefined on local/cloud-staff).
-  if (claudeStatus?.allowed === false || codexStatus?.allowed === false) {
+  // This gate stays AHEAD of the failure rows: a successful probe with
+  // allowed:false is a verdict, not a failure to retry.
+  if (claudePayload?.allowed === false || codexPayload?.allowed === false) {
     return (
       <p
         data-testid="subscription-cloud-managed"
@@ -335,21 +346,6 @@ export function SubscriptionConnect({
       >
         {t('settings.provider.oauthCloudManaged')}
       </p>
-    );
-  }
-
-  if (statusError) {
-    return (
-      <div className="flex items-center gap-3 text-sm text-[var(--text-tertiary)]">
-        <span>{t('settings.provider.statusProbeFailed')}</span>
-        <button
-          type="button"
-          onClick={refreshStatuses}
-          className="underline underline-offset-2 hover:opacity-80 text-[var(--text-secondary)]"
-        >
-          {t('settings.provider.retry')}
-        </button>
-      </div>
     );
   }
 
@@ -364,21 +360,24 @@ export function SubscriptionConnect({
         </div>
         <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
 
-        {!claudeStatus && (
+        {claudeStatus === null && (
           <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</p>
         )}
+        {claudeStatus === 'error' && (
+          <StatusProbeFailedRow onRetry={refreshStatuses} />
+        )}
 
-        {claudeStatus && (
+        {claudePayload && (
           <div className="space-y-3">
             {/* ---- Section A: OS credential state ---- */}
             <div className="space-y-2">
-              <CliStatusLine status={claudeStatus} />
+              <CliStatusLine status={claudePayload} />
 
               {/* Action buttons. Always visible when CLI is installed
                 * + Tauri — never hidden behind a provider-record check. */}
-              {claudeStatus.cli_installed && isTauri() && (
+              {claudePayload.cli_installed && isTauri() && (
                 <div className="flex gap-2 flex-wrap">
-                  {claudeStatus.logged_in ? (
+                  {claudePayload.logged_in ? (
                     <>
                       <button onClick={handleClaudeLogin}
                         disabled={claudeLoggingIn || claudeLoggingOut}
@@ -412,12 +411,12 @@ export function SubscriptionConnect({
               {/* Web-mode fallback: no Tauri IPC, user goes to terminal. */}
               {!isTauri() && (
                 <p className="text-sm text-[var(--text-tertiary)]">
-                  {claudeStatus.cli_installed
+                  {claudePayload.cli_installed
                     ? t('settings.provider.webModeInstalled')
                     : t('settings.provider.webModeNotInstalled')}
                 </p>
               )}
-              {!claudeStatus.cli_installed && isTauri() && (
+              {!claudePayload.cli_installed && isTauri() && (
                 <p className="text-sm text-[var(--text-tertiary)]">
                   {t('settings.provider.cliNotInBundle')}
                 </p>
@@ -430,7 +429,7 @@ export function SubscriptionConnect({
               addedLabel={t(claudeTokenConnected
                 ? 'settings.provider.setupTokenConnected'
                 : 'settings.provider.addedAsProvider')}
-              loggedIn={claudeStatus.logged_in}
+              loggedIn={claudePayload.logged_in}
               onAdd={handleAddClaudeOAuth}
               addLabel={t('settings.provider.addAsProvider')}
               addingLabel={t('settings.provider.addingProvider')}
@@ -495,23 +494,26 @@ export function SubscriptionConnect({
           {t('settings.provider.codexOauthDesc')}
         </p>
 
-        {!codexStatus && (
+        {codexStatus === null && (
           <p className="text-sm text-[var(--text-tertiary)]">
             {t('settings.provider.checkingStatus')}
           </p>
         )}
+        {codexStatus === 'error' && (
+          <StatusProbeFailedRow onRetry={refreshStatuses} />
+        )}
 
-        {codexStatus && (
+        {codexPayload && (
           <div className="space-y-3">
             {/* ---- Section A: OS credential state ---- */}
             <div className="space-y-2">
-              <CliStatusLine status={codexStatus} />
+              <CliStatusLine status={codexPayload} />
 
               {/* Always show terminal hint. Codex CLI's OAuth flow
                 * opens a browser when `codex login` runs; we don't
                 * shell out via Tauri yet (unlike claude). */}
               <p className="text-sm text-[var(--text-tertiary)]">
-                {codexStatus.cli_installed
+                {codexPayload.cli_installed
                   ? t('settings.provider.codexTerminalHint')
                   : t('settings.provider.codexInstallHint')}
               </p>
@@ -521,7 +523,7 @@ export function SubscriptionConnect({
             <ProviderRecordRow
               added={hasCodex}
               addedLabel={t('settings.provider.codexAddedAsProvider')}
-              loggedIn={codexStatus.logged_in}
+              loggedIn={codexPayload.logged_in}
               onAdd={handleAddCodexOAuth}
               addLabel={t('settings.provider.addAsProvider')}
               addingLabel={t('settings.provider.addingProvider')}

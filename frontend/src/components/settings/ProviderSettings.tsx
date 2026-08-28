@@ -30,8 +30,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useConfigStore } from '@/stores'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
-import { SubscriptionConnect, useOauthAllowed } from '@/components/settings/SubscriptionConnect'
-import { authFetch, providerApiUrl, providerErrorMessage } from '@/lib/providersApi'
+import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect'
+import { useOauthAllowed } from '@/components/settings/useOauthAllowed'
+import { addProviderCard, authFetch, providerApiUrl, type ProviderRow } from '@/lib/providersApi'
 import {
   MODEL_SUGGESTION_GROUPS,
   type ModelSuggestionGroup,
@@ -41,20 +42,9 @@ import {
 // Types
 // =============================================================================
 
-interface ProviderSummary {
-  provider_id: string
-  name: string
-  source: string
-  protocol: string
-  auth_type: string
-  is_active: boolean
-  models: string[]
-  api_key_masked?: string
-  base_url?: string
-  // NetMind account this key belongs to (captured at mint). Lets the user tell
-  // several keys from one broke account apart and top up the right one.
-  netmind_account_email?: string
-}
+// The row shape lives in providersApi.ProviderRow — one definition for
+// every consumer (this component used to declare its own copy).
+type ProviderSummary = ProviderRow
 
 
 // Preset quick-add moved to the shared OneKeyOnboard component (one-key
@@ -246,11 +236,6 @@ interface ProviderSettingsProps {
 export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderSettingsProps = {}) {
   const { t } = useTranslation()
   const userId = useConfigStore((s) => s.userId)
-  // Cloud non-staff may not add OAuth cards — hide the Sign-in tab
-  // entirely (an entry point to a gated panel reads as "page broke").
-  // null while probing / true elsewhere → tab visible (fail open; the
-  // backend 403 is the real boundary).
-  const oauthAllowed = useOauthAllowed()
 
   /** Build a provider API URL. Identity travels in headers (X-User-Id in
    * local, JWT in cloud) — not the query string. The previous version
@@ -309,6 +294,13 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   // Card-grid modals: the "+ Add provider" card opens the add modal (3 methods),
   // and clicking a provider card opens its detail modal.
   const [addModalOpen, setAddModalOpen] = useState(false)
+  // Cloud non-staff may not add OAuth cards — hide the Sign-in tab
+  // entirely (an entry point to a gated panel reads as "page broke").
+  // null while probing / true elsewhere → tab visible (fail open; the
+  // backend 403 is the real boundary). Deferred until the add modal
+  // opens: the status route spawns a real `claude auth status`
+  // subprocess on local — don't pay that for a closed modal.
+  const oauthAllowed = useOauthAllowed(addModalOpen)
   const [detailProviderId, setDetailProviderId] = useState<string | null>(null)
   // Add-provider modal is a two-step wizard: 'menu' shows the three methods,
   // then the chosen one fills the modal (with a back link). Avoids the old
@@ -345,23 +337,12 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   // The platform-funded card. Its presence is what makes the free-tier
   // explainer relevant — a bring-your-own-key user should not read it.
   const hasFreeTierCard = providerList.some((p) => p.source === 'netmind_free')
-  // claudeCard / hasCodex feed SubscriptionConnect (the extracted
-  // Sign-in tab); the CLI-status machinery lives inside that component.
-  const claudeCard = providerList.find((p) => p.source === 'claude_oauth')
-  const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
   // ---- Provider actions ----
   const addProvider = async (body: Record<string, unknown>) => {
     setError('')
-    try {
-      const res = await api.addProvider(body)
-      if (!res.success) { setError(res.detail || t('settings.provider.failed')); return false }
-    } catch (err: unknown) {
-      // Thrown ApiError = backend HTTPException; raw detail via the
-      // shared mapping (same copy as /setup).
-      setError(providerErrorMessage(err, t))
-      return false
-    }
+    const res = await addProviderCard(body, t)
+    if (!res.ok) { setError(res.error); return false }
     await refreshConfig()
     return true
   }
@@ -645,8 +626,7 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
 
           {addMethod === 'oauth' && (
             <SubscriptionConnect
-              claudeCard={claudeCard ?? null}
-              hasCodex={hasCodex}
+              providers={providerList}
               addProvider={addProvider}
             />
           )}

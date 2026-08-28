@@ -16,14 +16,12 @@ import { useEffect, useState } from 'react';
 import { Bot, Wrench, KeyRound } from 'lucide-react';
 import { PaperCard } from '@/components/nm';
 import { api } from '@/lib/api';
+import type { ProviderRow } from '@/lib/providersApi';
 
-interface ProviderInfo {
-  name: string;
-  source: string;
-  protocol: string;
-  api_key_masked?: string;
-  is_active: boolean;
-}
+// All fields come straight off the shared row type — no local shape,
+// no cast (a previous revision re-declared a narrower ProviderInfo and
+// needed an as-unknown-as double cast to consume getProviders).
+type ProviderInfo = ProviderRow;
 
 interface SlotInfo {
   config: { provider_id: string; model: string } | null;
@@ -88,10 +86,7 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
         ]);
         if (cancelled) return;
         if (prov.success && prov.data) {
-          // ProviderRow (the shared minimal shape) widens to this
-          // component's richer local ProviderInfo via unknown — the
-          // backend actually sends the extra fields.
-          setProviders((prov.data.providers ?? {}) as unknown as Record<string, ProviderInfo>);
+          setProviders(prov.data.providers ?? {});
           setSlots((prov.data.slots ?? {}) as Record<string, SlotInfo>);
         }
         if (fw.success && fw.data?.framework) {

@@ -19,7 +19,8 @@ API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Own
   SubscriptionConnect 内部按 status 路由的 `allowed === false` 自守
   (覆盖 Settings add modal 与一切调用方)。
 - **订阅连接不触发导航**(onConnected 已被删,见 SubscriptionConnect
-  mirror):本页 `addProvider` 走 [[providersApi]] 的 `postProvider`,
+  mirror):本页 `addProvider` 走 [[providersApi]] 的 `addProviderCard`
+  (经 ApiClient;postProvider 裸 fetch 稿已废弃),
   成功后**自己 `await probe()`**(页脚 + SubscriptionConnect 记录态)
   并 bump `providersVersion`(让 ProviderSettings 刷自己的网格)——
   各组件自刷,不依赖兄弟组件是否共同挂载。第一版曾绕行"bump → PS 重拉
@@ -27,9 +28,10 @@ API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Own
   GET)并指出它把 P0 正确性挂在共挂载约定上。onProvidersChanged 降级为
   兜底(覆盖用户从 PS 自己的 modal 加卡的场景)。自动跳转仍是 Owner
   否决项,别改回。
-- 第 3 轮:`addProvider` 走 `api.addProvider`(业务拒绝以 ApiError 抛出,
-  经 providerErrorMessage 取裸 detail);折叠开合时清 `subError`(旧错误
-  不该在重新展开时迎面)。**已知取舍**:一次订阅 add 触发 3 个 GET
+- 第 3/4 轮:`addProvider` 收敛为共享 `addProviderCard`(ApiClient +
+  统一错误文案);折叠开合时清 `subError`(旧错误不该在重新展开时迎面)。
+  SubscriptionConnect 的 props 改为 `providers` 列表——订阅 source 字面量
+  的派生只活在那个组件里,本页不再各写一份。**已知取舍**:一次订阅 add 触发 3 个 GET
   (probe + token 触发的 PS 重拉 + 其回调 probe)——review 判"不阻塞
   合并",收敛方案是 useProviders hook/store 让列表单一 owner,连同
   refreshToken/onProvidersChanged 一对 prop 一起消失,记为后续项。

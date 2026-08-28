@@ -482,7 +482,7 @@ class ApiClient {
     return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
-  // 语义搜索 Social Network Entities
+  // Semantic search over Social Network Entities
   async searchSocialNetwork(
     agentId: string,
     query: string,

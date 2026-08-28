@@ -21,10 +21,12 @@ tab),主卡 OneKeyOnboard 又是纯 API key 表单——订阅用户把 landing 
    claude 的 Login/Re-login/Logout 仅 Tauri(web 模式给终端提示),codex
    永远只给终端提示(无 Tauri IPC)。登录 600s 倒计时自动 SIGTERM
    (`cancelClaudeLogin`)的机制原样搬入。
-2. **Provider 记录态**(NarraNexus 自有):由 **props 下发**
-   (`claudeCard` / `hasCodex`),写入走 **parent 的 `addProvider`**——
-   parent 在成功后刷新自己的 provider 列表,记录态经 props 回流。本组件
-   只拥有 CLI 状态生命周期。
+2. **Provider 记录态**(NarraNexus 自有):props 是**原始 `providers`
+   列表**(第 4 轮:claudeCard/hasCodex 两个按厂商写死的 prop 被打回),
+   订阅 source 字面量的派生**只在本组件内**——接第三个订阅厂商只动
+   这一个文件;每张卡可以有自己的"已连接"判据(claude 的 token 运输层
+   看 auth_type,不是行存在性)。写入走 **parent 的 `addProvider`**,
+   parent 成功后刷新自己的列表,记录态经 props 回流。
 
 ## 无 onConnected(被删的死接口)
 
@@ -40,8 +42,9 @@ status 路由对 cloud 非 staff 返回 `allowed: false`(与 403 OAuth 卡型
 同一个谓词)。本组件读到任一 `allowed === false` 时渲染**一行说明**
 (oauthCloudManaged,testid subscription-cloud-managed)——第 2 轮版本
 return null,review 指出 Settings 的 Sign-in tab 会呈现"先闪后空白",
-读作页面坏了。同时导出 `useOauthAllowed()` hook(claude-status 探测,
-失败 fail-open true——探测失败不是判决,后端 403 才是边界):
+读作页面坏了。配套 `useOauthAllowed()` hook(第 4 轮拆到
+useOauthAllowed.ts 独立文件,带 `enabled` 参数推迟探测;失败 fail-open
+true——探测失败不是判决,后端 403 才是边界):
 ProviderSettings 用它把 Sign-in **tab 本身**从 tab 数组里去掉(入口层
 不该指向一个被门禁的面板)。判据必须 `=== false`:local 与 cloud-staff
 下该字段是 undefined,truthiness 判断会把本组件要修的 P0(本地订阅)
@@ -50,8 +53,12 @@ ProviderSettings 用它把 Sign-in **tab 本身**从 tab 数组里去掉(入口�
 
 ## 状态探测的失败面(第 3 轮 Minor 1/2/3)
 
-- 两条 status 探测都失败 → 显示 statusProbeFailed + Retry(此前永远停在
-  "Checking status…",唯一出路是刷新页面);Retry 不重置 allowed 门禁。
+- status 是**每卡三态**(null 探测中 / 'error' 失败行+Retry / payload)
+  ——第 3 轮只处理"两条都失败",单条 5xx 仍永卡"Checking status…",
+  第 4 轮打回。allowed 门排在失败态之前(探测成功 + allowed:false 是
+  判决不是失败);Retry 重probe 两条、不重置 allowed;响应用**单调
+  generation 计数**做 stale 守卫(不用 unmount-cancel——手动 Retry 不能
+  被自己取消)。测试:both-fail 两条 Retry 行 + single-fail 孪生用例。
 - Add as Provider 按钮 POST 期间 disabled + Loader2("Adding…")——与
   Test 按钮同一课:无响应按钮读作卡死。
 - status 探测的 useCallback 依赖 `userId`:allowed 是 per-user 的
@@ -74,6 +81,7 @@ setup-token 的"原位升级保槽位"注释与行为不变。两张卡有
 `data-testid`(claude-connect-card / codex-connect-card)——按钮文案共用
 同一 i18n key,测试必须 `within()` 限定。测试:
 `__tests__/SubscriptionConnect.test.tsx`(claude add / codex add /
-token 成功清输入 / 失败留输入 / allowed:false 渲染空 / local 双卡),
+token 成功清输入 / 失败留输入 / allowed:false 渲染**说明行** / 双 fail
+两条 Retry / 单 fail 孪生 / local 双卡),
 mock 的两个 status 路由返回**可区分**的 payload,防止 claude/codex
 断言互相顶替。

@@ -4,12 +4,12 @@ last_verified: 2026-08-28
 stub: false
 ---
 
-## 2026-08-28 — getProviders 类型收紧后的 cast 说明
+## 2026-08-28 — ProviderInfo 成为共享 ProviderRow 的别名
 
-`api.getProviders()` 的 providers 值类型收紧为共享 `ProviderRow`(最小
-形状);本组件的本地富类型 `ProviderInfo`(要求 is_active 等)经
-`as unknown as` 二段 cast——后端确实返回这些字段,只是共享类型故意只声明
-消费面。若 ProviderInfo 的字段进入更多消费者,应上移进 ProviderRow。
+`api.getProviders()` 的 providers 值类型是共享 `ProviderRow`;本组件的
+本地 `ProviderInfo` 改为它的别名,**双重 cast 已删除**(第 4 轮:窄共享
+类型 + 富本地类型的组合逼出过 `as unknown as`,等于关掉这一处的全部类型
+检查)。行字段的唯一定义在 [[providersApi]]。
 
 # ProviderSummaryCard.tsx — at-a-glance LLM wiring summary
 

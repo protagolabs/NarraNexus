@@ -34,7 +34,7 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { providerErrorMessage, type ProviderRow } from '@/lib/providersApi';
+import { addProviderCard, type ProviderRow } from '@/lib/providersApi';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useRuntimeStore } from '@/stores';
 
@@ -89,16 +89,9 @@ export function SetupPage() {
   // adds made through ProviderSettings' own modal.
   const addProvider = async (body: Record<string, unknown>): Promise<boolean> => {
     setSubError('');
-    try {
-      const res = await api.addProvider(body);
-      if (!res.success) {
-        setSubError(res.detail || t('settings.provider.failed'));
-        return false;
-      }
-    } catch (err: unknown) {
-      // Business rejections arrive as thrown ApiError (the backend uses
-      // HTTPException); providerErrorMessage extracts the raw detail.
-      setSubError(providerErrorMessage(err, t));
+    const res = await addProviderCard(body, t);
+    if (!res.ok) {
+      setSubError(res.error);
       return false;
     }
     await probe();
@@ -106,9 +99,9 @@ export function SetupPage() {
     return true;
   };
 
+  // Record-state derivation (which subscription cards exist) lives in
+  // SubscriptionConnect — this page only hands over the raw list.
   const providerList = Object.values(providers);
-  const claudeCard = providerList.find((p) => p.source === 'claude_oauth') ?? null;
-  const hasCodex = providerList.some((p) => p.source === 'codex_oauth');
 
   // react-hooks/set-state-in-effect flags probe's setStates, but every
   // set happens after an await — never synchronously in the effect body.
@@ -210,8 +203,7 @@ export function SetupPage() {
                         </p>
                       )}
                       <SubscriptionConnect
-                        claudeCard={claudeCard}
-                        hasCodex={hasCodex}
+                        providers={providerList}
                         addProvider={addProvider}
                       />
                     </div>

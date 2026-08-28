@@ -72,7 +72,7 @@ describe('SubscriptionConnect', () => {
   test('claude Add as Provider posts claude_oauth', async () => {
     const addProvider = vi.fn().mockResolvedValue(true);
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const claudeCard = await screen.findByTestId('claude-connect-card');
     fireEvent.click(within(claudeCard).getByText('Add as Provider'));
@@ -84,7 +84,7 @@ describe('SubscriptionConnect', () => {
   test('codex Add as Provider posts codex_oauth', async () => {
     const addProvider = vi.fn().mockResolvedValue(true);
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const codexCard = await screen.findByTestId('codex-connect-card');
     fireEvent.click(within(codexCard).getByText('Add as Provider'));
@@ -96,7 +96,7 @@ describe('SubscriptionConnect', () => {
   test('setup-token paste posts the token and clears the input on success', async () => {
     const addProvider = vi.fn().mockResolvedValue(true);
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const input = await screen.findByPlaceholderText(/sk-ant-oat/i);
     fireEvent.change(input, { target: { value: 'sk-ant-oat01-xyz' } });
@@ -113,7 +113,7 @@ describe('SubscriptionConnect', () => {
   test('failed setup-token keeps the input (so the user can retry)', async () => {
     const addProvider = vi.fn().mockResolvedValue(false);
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     const input = await screen.findByPlaceholderText(/sk-ant-oat/i);
     fireEvent.change(input, { target: { value: 'sk-ant-oat01-xyz' } });
@@ -129,7 +129,7 @@ describe('SubscriptionConnect', () => {
     );
     const addProvider = vi.fn();
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     // A silent blank reads as "the page broke" — the gate must explain
     // itself (review round 3, Important 2).
@@ -138,23 +138,38 @@ describe('SubscriptionConnect', () => {
     expect(screen.queryByTestId('codex-connect-card')).toBeNull();
   });
 
-  test('both status probes failing shows a retry line, not eternal "Checking status"', async () => {
+  test('both status probes failing shows retry lines, not eternal "Checking status"', async () => {
     claudeStatusMock.mockRejectedValue(new Error('down'));
     codexStatusMock.mockRejectedValue(new Error('down'));
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={vi.fn()} />,
+      <SubscriptionConnect providers={[]} addProvider={vi.fn()} />,
     );
-    expect(await screen.findByText('Retry')).toBeTruthy();
-    // Recovery: the retry re-probes and the cards appear.
+    const retries = await screen.findAllByText('Retry');
+    expect(retries.length).toBe(2);
+    // Recovery: any retry re-probes BOTH and the cards appear.
     mockStatuses(loggedIn('claude@example.com'), loggedIn('codex@example.com'));
-    fireEvent.click(screen.getByText('Retry'));
+    fireEvent.click(retries[0]);
     expect(await screen.findByTestId('claude-connect-card')).toBeTruthy();
+    expect(await screen.findByTestId('codex-connect-card')).toBeTruthy();
+  });
+
+  test('a SINGLE failing probe gets its own retry row while the other card renders', async () => {
+    // The first version only handled "both failed": one route 5xx-ing
+    // left that card on "Checking status…" forever (review round 4,
+    // Important 1). The two routes fail independently in practice.
+    codexStatusMock.mockRejectedValue(new Error('down'));
+    render(
+      <SubscriptionConnect providers={[]} addProvider={vi.fn()} />,
+    );
+    expect(await screen.findByTestId('claude-connect-card')).toBeTruthy();
+    expect(await screen.findByText('Retry')).toBeTruthy();
+    expect(screen.queryByText('Checking status...')).toBeNull();
   });
 
   test('local mode (allowed undefined) renders both cards', async () => {
     const addProvider = vi.fn();
     render(
-      <SubscriptionConnect claudeCard={null} hasCodex={false} addProvider={addProvider} />,
+      <SubscriptionConnect providers={[]} addProvider={addProvider} />,
     );
     expect(await screen.findByTestId('claude-connect-card')).toBeTruthy();
     expect(await screen.findByTestId('codex-connect-card')).toBeTruthy();

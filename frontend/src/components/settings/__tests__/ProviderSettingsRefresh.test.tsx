@@ -7,7 +7,7 @@
  * refreshToken prop is the signal: bumping it refetches the provider list.
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const authFetchMock = vi.fn();
 vi.mock('@/lib/providersApi', () => ({
@@ -27,7 +27,12 @@ vi.mock('@/components/settings/OneKeyOnboard', () => ({
 }));
 vi.mock('@/components/settings/SubscriptionConnect', () => ({
   SubscriptionConnect: () => null,
-  useOauthAllowed: () => true,
+}));
+// The tab-gate hook lives in its own module now; a variable-backed mock
+// so the tab-gate tests below can flip it per case.
+let oauthAllowedValue: boolean | null = true;
+vi.mock('@/components/settings/useOauthAllowed', () => ({
+  useOauthAllowed: () => oauthAllowedValue,
 }));
 vi.mock('@/lib/api', () => ({
   api: {},
@@ -47,6 +52,32 @@ const providerListCalls = () =>
   authFetchMock.mock.calls.filter(
     ([url]) => String(url) === 'http://test/api/providers',
   ).length;
+
+describe('ProviderSettings Sign-in tab gate', () => {
+  const openAddModal = async () => {
+    // The "+ Add provider" card opens the add modal that hosts the tabs.
+    fireEvent.click(await screen.findByText('Add a provider'));
+  };
+
+  test('cloud non-staff (allowed === false) has no Sign-in tab', async () => {
+    oauthAllowedValue = false;
+    render(<ProviderSettings />);
+    await openAddModal();
+    expect(screen.queryByText('CLI sign-in')).toBeNull();
+    // The other two methods stay.
+    expect(screen.getByText('API key')).toBeTruthy();
+  });
+
+  test('probing (null) keeps the Sign-in tab — a truthiness check would drop it for local users', async () => {
+    // Fail-open: `allowed` is undefined on local, so any truthiness
+    // check would drop the tab there — the exact P0 this PR fixes,
+    // inverted. Pin `=== false` semantics from the entry-point side too.
+    oauthAllowedValue = null;
+    render(<ProviderSettings />);
+    await openAddModal();
+    expect(screen.getByText('CLI sign-in')).toBeTruthy();
+  });
+});
 
 describe('ProviderSettings refreshToken', () => {
   test('bumping refreshToken refetches the provider list', async () => {
