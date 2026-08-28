@@ -31,7 +31,7 @@ import { useConfigStore } from '@/stores'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect'
-import { authFetch, postProvider, providerApiUrl } from '@/lib/providersApi'
+import { authFetch, postProvider, providerApiUrl, providerErrorMessage } from '@/lib/providersApi'
 import {
   MODEL_SUGGESTION_GROUPS,
   type ModelSuggestionGroup,
@@ -350,12 +350,7 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
     setError('')
     const res = await postProvider(body)
     if (!res.ok) {
-      // null detail = network-level failure (see postProvider).
-      setError(
-        res.detail === null
-          ? t('settings.provider.networkError')
-          : res.detail || t('settings.provider.failed'),
-      )
+      setError(providerErrorMessage(res.detail, t))
       return false
     }
     await refreshConfig()

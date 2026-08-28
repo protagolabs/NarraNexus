@@ -84,6 +84,68 @@ interface CliStatus {
   allowed?: boolean;
 }
 
+/** Status dot + identity line + optional expiry — shared by both cards.
+ * One shape on purpose: editing the status line means editing it once. */
+function CliStatusLine({ status }: { status: CliStatus }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className={cn('inline-block w-2 h-2 rounded-full',
+        status.logged_in ? 'bg-[var(--color-success)]' :
+        status.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+      )} />
+      <span className="text-sm text-[var(--text-secondary)]">
+        {status.logged_in
+          ? <>{t('settings.provider.loggedIn')}{status.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{status.email}</span></> : null}</>
+          : status.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
+      </span>
+      {status.logged_in && status.expires_at && (
+        <span className="text-xs text-[var(--text-tertiary)]">
+          {t('settings.provider.expires', { date: formatExpiresAt(status.expires_at) })}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Section B (provider record state), shared by both cards. Labels come
+ * in as PRE-TRANSLATED strings — the two cards use different i18n keys
+ * (addedAsProvider vs codexAddedAsProvider etc.); building keys by
+ * prefix here would silently fall back for codex. */
+function ProviderRecordRow({
+  added,
+  addedLabel,
+  loggedIn,
+  onAdd,
+  addLabel,
+  loginHint,
+}: {
+  added: boolean;
+  addedLabel: string;
+  loggedIn: boolean;
+  onAdd: () => void;
+  addLabel: string;
+  loginHint: string;
+}) {
+  return (
+    <div className="pt-2 border-t border-[var(--border-subtle)]">
+      {added ? (
+        <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+          <span>{'✓'}</span>
+          <span>{addedLabel}</span>
+        </div>
+      ) : loggedIn ? (
+        <button onClick={onAdd}
+          className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+          {addLabel}
+        </button>
+      ) : (
+        <p className="text-sm text-[var(--text-tertiary)]">{loginHint}</p>
+      )}
+    </div>
+  );
+}
+
 interface SubscriptionConnectProps {
   /** The claude_oauth provider row, if one exists (drives "Added ✓" /
    * token-connected state). */
@@ -230,22 +292,7 @@ export function SubscriptionConnect({
           <div className="space-y-3">
             {/* ---- Section A: OS credential state ---- */}
             <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn('inline-block w-2 h-2 rounded-full',
-                  claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
-                  claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
-                )} />
-                <span className="text-sm text-[var(--text-secondary)]">
-                  {claudeStatus.logged_in
-                    ? <>{t('settings.provider.loggedIn')}{claudeStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{claudeStatus.email}</span></> : null}</>
-                    : claudeStatus.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
-                </span>
-                {claudeStatus.logged_in && claudeStatus.expires_at && (
-                  <span className="text-xs text-[var(--text-tertiary)]">
-                    {t('settings.provider.expires', { date: formatExpiresAt(claudeStatus.expires_at) })}
-                  </span>
-                )}
-              </div>
+              <CliStatusLine status={claudeStatus} />
 
               {/* Action buttons. Always visible when CLI is installed
                 * + Tauri — never hidden behind a provider-record check. */}
@@ -298,28 +345,16 @@ export function SubscriptionConnect({
             </div>
 
             {/* ---- Section B: Provider record state ---- */}
-            <div className="pt-2 border-t border-[var(--border-subtle)]">
-              {claudeTokenConnected ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.setupTokenConnected')}</span>
-                </div>
-              ) : hasClaude ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.addedAsProvider')}</span>
-                </div>
-              ) : claudeStatus.logged_in ? (
-                <button onClick={handleAddClaudeOAuth}
-                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                  {t('settings.provider.addAsProvider')}
-                </button>
-              ) : (
-                <p className="text-sm text-[var(--text-tertiary)]">
-                  {t('settings.provider.loginToAdd')}
-                </p>
-              )}
-            </div>
+            <ProviderRecordRow
+              added={claudeTokenConnected || hasClaude}
+              addedLabel={t(claudeTokenConnected
+                ? 'settings.provider.setupTokenConnected'
+                : 'settings.provider.addedAsProvider')}
+              loggedIn={claudeStatus.logged_in}
+              onAdd={handleAddClaudeOAuth}
+              addLabel={t('settings.provider.addAsProvider')}
+              loginHint={t('settings.provider.loginToAdd')}
+            />
 
             {/* ---- Section C: setup-token connect / replace ----
               *
@@ -388,24 +423,7 @@ export function SubscriptionConnect({
           <div className="space-y-3">
             {/* ---- Section A: OS credential state ---- */}
             <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn('inline-block w-2 h-2 rounded-full',
-                  codexStatus.logged_in ? 'bg-[var(--color-success)]' :
-                  codexStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
-                )} />
-                <span className="text-sm text-[var(--text-secondary)]">
-                  {codexStatus.logged_in
-                    ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{codexStatus.email}</span></> : null}</>
-                    : codexStatus.cli_installed
-                      ? t('settings.provider.notLoggedIn')
-                      : t('settings.provider.cliNotInstalled')}
-                </span>
-                {codexStatus.logged_in && codexStatus.expires_at && (
-                  <span className="text-xs text-[var(--text-tertiary)]">
-                    {t('settings.provider.expires', { date: formatExpiresAt(codexStatus.expires_at) })}
-                  </span>
-                )}
-              </div>
+              <CliStatusLine status={codexStatus} />
 
               {/* Always show terminal hint. Codex CLI's OAuth flow
                 * opens a browser when `codex login` runs; we don't
@@ -418,23 +436,14 @@ export function SubscriptionConnect({
             </div>
 
             {/* ---- Section B: Provider record state ---- */}
-            <div className="pt-2 border-t border-[var(--border-subtle)]">
-              {hasCodex ? (
-                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-                  <span>{'✓'}</span>
-                  <span>{t('settings.provider.codexAddedAsProvider')}</span>
-                </div>
-              ) : codexStatus.logged_in ? (
-                <button onClick={handleAddCodexOAuth}
-                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                  {t('settings.provider.addAsProvider')}
-                </button>
-              ) : (
-                <p className="text-sm text-[var(--text-tertiary)]">
-                  {t('settings.provider.codexLoginToAdd')}
-                </p>
-              )}
-            </div>
+            <ProviderRecordRow
+              added={hasCodex}
+              addedLabel={t('settings.provider.codexAddedAsProvider')}
+              loggedIn={codexStatus.logged_in}
+              onAdd={handleAddCodexOAuth}
+              addLabel={t('settings.provider.addAsProvider')}
+              loginHint={t('settings.provider.codexLoginToAdd')}
+            />
           </div>
         )}
       </div>

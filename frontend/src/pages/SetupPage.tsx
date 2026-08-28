@@ -34,7 +34,7 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { postProvider, type ProviderRow } from '@/lib/providersApi';
+import { postProvider, providerErrorMessage, type ProviderRow } from '@/lib/providersApi';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useRuntimeStore } from '@/stores';
 
@@ -81,21 +81,20 @@ export function SetupPage() {
   };
 
   // Thin wrapper over the shared POST contract for the subscription
-  // card. On success it only bumps the refresh token: the chain is
-  // bump → ProviderSettings refetches → onProvidersChanged (= probe)
-  // updates THIS page too — one refresh pass, no duplicate requests.
+  // card. On success THIS page refreshes its own state directly (probe:
+  // footer + SubscriptionConnect record props) and bumps the token so
+  // ProviderSettings refetches its own "Your providers" grid — each
+  // component owns its refresh; nothing here relies on which siblings
+  // happen to be mounted. onProvidersChanged remains a fallback for
+  // adds made through ProviderSettings' own modal.
   const addProvider = async (body: Record<string, unknown>): Promise<boolean> => {
     setSubError('');
     const res = await postProvider(body);
     if (!res.ok) {
-      // null detail = network-level failure (see postProvider).
-      setSubError(
-        res.detail === null
-          ? t('settings.provider.networkError')
-          : res.detail || t('settings.provider.failed'),
-      );
+      setSubError(providerErrorMessage(res.detail, t));
       return false;
     }
+    await probe();
     setProvidersVersion((v) => v + 1);
     return true;
   };
@@ -104,7 +103,11 @@ export function SetupPage() {
   const claudeCard = providerList.find((p) => p.source === 'claude_oauth') ?? null;
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth');
 
+  // react-hooks/set-state-in-effect flags probe's setStates, but every
+  // set happens after an await — never synchronously in the effect body.
+  // Same pattern and suppression as IMChannelsSection.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     probe();
   }, []);
 

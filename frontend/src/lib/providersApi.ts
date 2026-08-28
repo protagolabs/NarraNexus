@@ -7,10 +7,12 @@
  * Exists because the SubscriptionConnect extraction gave the provider
  * endpoints three frontend callers (ProviderSettings, SubscriptionConnect,
  * SetupPage). What is shared here:
- *   - authFetch — DELEGATES identity to lib/authHeaders (the single parse
- *     point; an earlier draft hand-copied the localStorage parse and was
- *     weaker — no string guards — which is exactly how the 2026-05-18
- *     cross-user identity bug family starts).
+ *   - authFetch — DELEGATES identity to lib/authHeaders (the canonical
+ *     parse point; an earlier draft hand-copied the localStorage parse and
+ *     was weaker — no string guards — which is exactly how the 2026-05-18
+ *     cross-user identity bug family starts. Three legacy hand-parsers
+ *     still exist elsewhere: api.ts, arenaLanding.ts, artifactsApi.ts —
+ *     do not add a fourth).
  *   - postProvider — the POST /api/providers body/error contract, so the
  *     `detail` field mapping cannot drift between callers.
  *   - ProviderRow — the one row shape all three callers read.
@@ -55,11 +57,10 @@ export function authFetch(
  *
  * Returns the outcome only — NO side effects: the callers' refresh
  * choreography differs (ProviderSettings refetches its own list,
- * SetupPage bumps the refresh token) and must stay theirs. On failure,
- * `detail` distinguishes the two error classes the callers word
- * differently: `null` = network-level failure (map to networkError
- * copy), string = the backend's reason ('' when it gave none — map to
- * the generic failed copy). */
+ * SetupPage re-probes and bumps the refresh token) and must stay
+ * theirs. On failure, `detail` is `null` for a network-level failure
+ * and the backend's reason string otherwise ('' when it gave none);
+ * turn it into user copy with providerErrorMessage below. */
 export async function postProvider(
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; detail: string | null }> {
@@ -74,4 +75,16 @@ export async function postProvider(
   } catch {
     return { ok: false, detail: null };
   }
+}
+
+/** Map a failed postProvider result to user-facing copy — one mapping
+ * for every caller, so /setup and Settings never word the same failure
+ * differently. A non-empty backend `detail` is shown verbatim (it
+ * carries the actual reason); the two fallbacks are i18n keys. */
+export function providerErrorMessage(
+  detail: string | null,
+  t: (key: string) => string,
+): string {
+  if (detail === null) return t('settings.provider.networkError');
+  return detail || t('settings.provider.failed');
 }

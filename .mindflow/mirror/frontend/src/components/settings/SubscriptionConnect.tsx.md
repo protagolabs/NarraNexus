@@ -46,6 +46,14 @@ status 路由对 cloud 非 staff 返回 `allowed: false`(与 403 OAuth 卡型
 `mode !== 'cloud-web'` 外门(顺带隐藏区块标题;负向匹配让未 hydrate 的
 null mode 向 local 开放)。后端 403 始终是真正的安全边界。
 
+## 卡内子组件(review 第 2 轮 Minor 7)
+
+两张卡近百行的同构体收拢为文件内局部组件:`CliStatusLine`(状态点 +
+身份行 + 过期)与 `ProviderRecordRow`(记录态三分支)。**i18n 文案以
+已翻译字符串经 props 传入**——两卡 key 不同(addedAsProvider vs
+codexAddedAsProvider 等),在子组件里按前缀拼 key 会让 codex 文案静默
+回落。
+
 ## 搬运保真说明
 
 JSX(claude 卡 A/B/C 三段 + codex 卡)、`CLAUDE_LOGIN_TIMEOUT_SEC`、

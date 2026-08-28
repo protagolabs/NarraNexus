@@ -20,10 +20,17 @@ API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Own
   (覆盖 Settings add modal 与一切调用方)。
 - **订阅连接不触发导航**(onConnected 已被删,见 SubscriptionConnect
   mirror):本页 `addProvider` 走 [[providersApi]] 的 `postProvider`,
-  成功后只 bump `providersVersion`——刷新链路是 bump →
-  ProviderSettings 重拉 → onProvidersChanged(=probe)回流本页,
-  **单次刷新、无重复请求**。这是 Owner 明确的交互决策,别"顺手"改回
-  自动跳转。
+  成功后**自己 `await probe()`**(页脚 + SubscriptionConnect 记录态)
+  并 bump `providersVersion`(让 ProviderSettings 刷自己的网格)——
+  各组件自刷,不依赖兄弟组件是否共同挂载。第一版曾绕行"bump → PS 重拉
+  → 回调回流",review 第 2 轮证伪了其"省请求"的理由(两条路径都是两个
+  GET)并指出它把 P0 正确性挂在共挂载约定上。onProvidersChanged 降级为
+  兜底(覆盖用户从 PS 自己的 modal 加卡的场景)。自动跳转仍是 Owner
+  否决项,别改回。
+- **P0 招牌链路有测试了**(review 第 2 轮 Important 1):
+  setup-page-subscription.test 的子组件 mock 是**可交互的**,端到端断言
+  "连接订阅 → 页脚翻 Get Started → 不导航";getProvidersMock 首次调用
+  必须返回空(否则页脚断言会因错误原因通过)。
 - `probe` 是普通函数(ProviderSettings 用 ref 持回调,不再要求稳定
   引用);折叠时 re-probe 保留为兜底。
 - `providersVersion` state 在订阅卡每次成功 add 后 +1,作为

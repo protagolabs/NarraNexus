@@ -9,8 +9,12 @@ stub: false
 netmind 提到首位——组件头注释一直写着 "NetMind recommended",默认值却是
 anthropic,Owner 走查时点名。连带更新的测试:default 断言、Get Key link
 断言(先 NetMind 后切 anthropic)、OpenAI-key nudge 测试需先显式
-`selectProvider('anthropic')`(nudge 的触发条件对 netmind+openai 组合
-不成立,这是既有设计)。
+`selectProvider('anthropic')`(当时 nudge 谓词对 netmind+openai 组合不成立)。review 第 2 轮跟进:
+NetMind 成为默认后,"默认不动、粘 sk-proj key"成了最常见误操作,谓词
+加入 `providerType === 'netmind'`(NetMind 真实 key 是 32 位 hex、无
+sk- 前缀,prod 库核过实样)。**yunwu/openrouter 刻意不进谓词**——它们
+的合法 key 本就 sk- 开头,进了就会误报每一把好 key。测试:
+`OpenAI-looking key under the NetMind default shows the switch nudge`。
 
 ## 2026-07-21 — one-key setup follows the active locale
 

@@ -6,14 +6,22 @@
  * shape — OneKeyOnboard primary, everything else behind the collapsed
  * "Advanced setup" disclosure — but the fold now reveals the subscription
  * connect DIRECTLY (it used to be buried further inside ProviderSettings'
- * add modal → Sign in tab). On CLOUD the subscription block must not
- * render even with the fold open (the backend 403s OAuth card types for
- * non-staff — the UI must not advertise that path, direct /setup URL
- * visits included). Connecting does NOT auto-navigate; the footer flips
- * to "Get Started" via the live re-probe instead.
+ * add modal → Sign in tab). These tests pin SetupPage's own mode gate
+ * (mode !== 'cloud-web' — 'cloud-web' is the real AppMode value — hides
+ * the whole subscription section, heading included; a not-yet-hydrated
+ * null mode fails OPEN to local). The authoritative cloud gate lives
+ * inside SubscriptionConnect itself (statuses' allowed === false →
+ * renders nothing) and is pinned by that component's own tests — this
+ * file mocks the component, so it can only speak for the SetupPage layer.
+ *
+ * The child mocks are INTERACTIVE on purpose: the P0's signature
+ * behavior is the full chain "connect a subscription → the footer flips
+ * from Skip-for-now to Get Started, with no navigation" — a static-div
+ * mock cannot regress-test that chain.
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 
 const getProvidersMock = vi.fn();
 vi.mock('@/lib/api', () => ({
@@ -23,9 +31,13 @@ vi.mock('@/lib/productAnalytics', () => ({ captureProductEvent: vi.fn() }));
 const navigateMock = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }));
 vi.mock('@/hooks', () => ({ useTheme: () => ({ isDark: false }) }));
+
+const postProviderMock = vi.fn();
 vi.mock('@/lib/providersApi', () => ({
   providerApiUrl: (path = '') => `http://test/api/providers${path}`,
   authFetch: vi.fn(),
+  postProvider: (...a: unknown[]) => postProviderMock(...a),
+  providerErrorMessage: (detail: string | null) => detail || 'error',
 }));
 
 let runtimeMode: 'local' | 'cloud-web' = 'local';
@@ -39,11 +51,39 @@ vi.mock('@/stores', () => ({
 vi.mock('@/components/settings/OneKeyOnboard', () => ({
   OneKeyOnboard: () => <div data-testid="one-key-card" />,
 }));
-vi.mock('@/components/settings/ProviderSettings', () => ({
-  ProviderSettings: () => <div data-testid="provider-settings" />,
-}));
+// Interactive mock: exposes a button that drives the page's addProvider,
+// exactly like the real card's "Add as Provider" does.
 vi.mock('@/components/settings/SubscriptionConnect', () => ({
-  SubscriptionConnect: () => <div data-testid="subscription-connect" />,
+  SubscriptionConnect: ({
+    addProvider,
+  }: {
+    addProvider: (b: Record<string, unknown>) => Promise<boolean>;
+  }) => (
+    <button
+      data-testid="subscription-connect"
+      onClick={() => addProvider({ card_type: 'claude_oauth' })}
+    >
+      mock-connect
+    </button>
+  ),
+}));
+// Interactive mock: mirrors the real contract — refetch on refreshToken
+// change, then notify via onProvidersChanged (the fallback path).
+vi.mock('@/components/settings/ProviderSettings', () => ({
+  ProviderSettings: ({
+    refreshToken,
+    onProvidersChanged,
+  }: {
+    refreshToken?: number;
+    onProvidersChanged?: () => void;
+  }) => {
+    useEffect(() => {
+      onProvidersChanged?.();
+      // The real component refetches whenever the token bumps and then
+      // fires the callback; the mock reproduces just that observable.
+    }, [refreshToken, onProvidersChanged]);
+    return <div data-testid="provider-settings" />;
+  },
 }));
 
 import { SetupPage } from '@/pages/SetupPage';
@@ -51,13 +91,13 @@ import { SetupPage } from '@/pages/SetupPage';
 beforeEach(() => {
   getProvidersMock.mockReset();
   getProvidersMock.mockResolvedValue({ success: true, data: { providers: {} } });
+  postProviderMock.mockReset();
+  postProviderMock.mockResolvedValue({ ok: true, detail: '' });
   navigateMock.mockReset();
 });
 
 const expandAdvanced = () =>
-  fireEvent.click(
-    screen.getByText(/Advanced setup/, { exact: false }),
-  );
+  fireEvent.click(screen.getByText(/Advanced setup/, { exact: false }));
 
 describe('SetupPage subscription surface', () => {
   test('local mode: subscription connect is inside the fold, not the primary area', () => {
@@ -79,5 +119,32 @@ describe('SetupPage subscription surface', () => {
     expandAdvanced();
     expect(screen.getByTestId('provider-settings')).toBeTruthy();
     expect(screen.queryByTestId('subscription-connect')).toBeNull();
+  });
+
+  test('P0 chain: connecting a subscription flips the footer to Get Started without navigating', async () => {
+    runtimeMode = 'local';
+    // First call (mount probe): no providers → footer shows "Skip for
+    // now". Later calls (post-connect re-probe): one subscription card.
+    // The non-empty answer MUST be reserved for the later calls, or the
+    // footer assertion would pass for the wrong reason.
+    getProvidersMock.mockResolvedValueOnce({ success: true, data: { providers: {} } });
+    getProvidersMock.mockResolvedValue({
+      success: true,
+      data: { providers: { p1: { provider_id: 'p1', source: 'claude_oauth', auth_type: 'oauth' } } },
+    });
+
+    render(<SetupPage />);
+    expect(await screen.findByText('Skip for now')).toBeTruthy();
+
+    expandAdvanced();
+    fireEvent.click(screen.getByTestId('subscription-connect'));
+
+    await waitFor(() =>
+      expect(postProviderMock).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
+    );
+    // Footer flips live — no collapse, no remount, no navigation.
+    expect(await screen.findByText('Get Started')).toBeTruthy();
+    expect(screen.queryByText('Skip for now')).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

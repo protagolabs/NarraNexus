@@ -58,6 +58,19 @@ describe('OneKeyOnboard', () => {
     expect(onboardMock).toHaveBeenCalledWith('nm-key-123', 'netmind');
   });
 
+  test('OpenAI-looking key under the NetMind default shows the switch nudge', () => {
+    // Real NetMind keys are 32-hex with no sk- prefix, so an sk-* paste
+    // while the default is selected is the most likely first-run mistake.
+    render(<OneKeyOnboard onComplete={() => {}} />);
+    typeKey('sk-proj-abc123');
+
+    const nudge = screen.getByText(/Looks like an? OpenAI key/);
+    fireEvent.click(nudge);
+    expect(
+      (screen.getByRole('combobox') as HTMLSelectElement).value,
+    ).toBe('openai');
+  });
+
   test('OpenAI-looking key under Anthropic shows the switch nudge', () => {
     render(<OneKeyOnboard onComplete={() => {}} />);
     selectProvider('anthropic');

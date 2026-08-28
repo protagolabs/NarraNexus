@@ -108,10 +108,18 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
   const { confirm, dialog: confirmDialog } = useConfirm();
   const selected = ONE_KEY_PROVIDERS.find((p) => p.id === providerType)!;
   const detected = useMemo(() => detectOfficialType(apiKey), [apiKey]);
+  // NetMind joins the nudge sources because it is now the DEFAULT: real
+  // NetMind keys are 32-hex with no sk- prefix, so any sk-* pasted while
+  // NetMind is selected is a mis-pick worth flagging. Yunwu/OpenRouter
+  // stay OUT of the predicate on purpose — their legitimate keys DO
+  // start with sk-, and including them would flag every valid key.
   const mismatch =
     detected !== null &&
     detected !== providerType &&
-    (providerType === 'anthropic' || providerType === 'openai' || detected === 'anthropic');
+    (providerType === 'anthropic' ||
+      providerType === 'openai' ||
+      providerType === 'netmind' ||
+      detected === 'anthropic');
 
   const finishSuccess = (res: Awaited<ReturnType<typeof api.onboard>>) => {
     setApiKey('');
