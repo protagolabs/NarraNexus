@@ -163,6 +163,11 @@ _NO_BODY_CAP_EXEMPT = frozenset({
     "/api/notices/{message_id}/read",
     "/api/notifications/read-all",
     "/api/notifications/{notification_id}/read",
+    # plugin install/uninstall take NO request body — the plugin id is a path
+    # param and everything else is server-side (registry-pinned versions). A
+    # body cap would guard bytes that never arrive.
+    "/api/plugins/{plugin_id}/install",
+    "/api/plugins/{plugin_id}/uninstall",
     "/api/providers",
     "/api/providers/agent-framework",
     "/api/providers/onboard",
