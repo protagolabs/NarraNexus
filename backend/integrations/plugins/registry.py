@@ -5,15 +5,20 @@
 @description: The two installable plugins — Claude Code and Codex CLI —
               as a single lookup table keyed by plugin id (== framework name).
 
-Every literal version here has exactly one source of truth elsewhere:
-- claude-agent-sdk's pip pin mirrors pyproject.toml's ``claude-agent-sdk~=0.1.43``.
+Version pins here:
 - the npm CLI's pin is NOT re-typed — it is read from
   ``adapters.claude.cli_binary.PINNED_CLI_VERSION``, the same constant the
   agent loop uses to pick which binary to launch. Bumping that one constant
   keeps both users in sync automatically.
-- openai-codex's pip pin mirrors pyproject.toml's
-  ``openai-codex>=0.1.0b3,<0.2`` (pre-release floor, pinned exactly here
-  because the installer needs one concrete version to request, not a range).
+- the two pip pins (``claude-agent-sdk==0.1.43`` / ``openai-codex==0.1.0b3``)
+  are EXACT because the installer must request one concrete version, whereas
+  pyproject declares ranges (``~=0.1.43`` / ``>=0.1.0b3,<0.2``). They are NOT
+  auto-derived: the source of truth for what the CLOUD gets is ``uv.lock``
+  (currently 0.1.43 / 0.1.0b3, so the two agree today). Keep this exact-pin in
+  step with ``uv.lock`` on any bump — otherwise the cloud base install and a
+  local plugin install could land on different versions while both report
+  "installed". (A range-parse of pyproject here would only paper over that; the
+  real invariant is registry-pin == locked-version.)
 """
 from __future__ import annotations
 

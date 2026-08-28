@@ -128,16 +128,31 @@ def test_detect_reports_no_update_when_cli_version_matches_pin(plugin_home, monk
 
 
 @pytest.mark.asyncio
-async def test_uninstall_removes_node_prefix_tree(plugin_home):
-    from xyz_agent_context.agent_framework.plugin_paths import claude_cli_path, node_prefix
+async def test_uninstall_removes_only_the_package_not_the_whole_prefix(plugin_home, monkeypatch):
+    """Uninstall must `npm uninstall <pkg> --prefix`, NOT wipe the shared
+    node_prefix tree — otherwise a future second npm plugin in the same prefix
+    would be collateral damage. Delete the precise-uninstall change and this
+    goes red (it would rmtree instead of shelling npm)."""
+    from xyz_agent_context.agent_framework.plugin_paths import node_prefix
 
-    cli_path = claude_cli_path()
-    cli_path.parent.mkdir(parents=True, exist_ok=True)
-    cli_path.write_text("#!/bin/sh\necho fake claude\n")
+    captured_cmd: list[str] = []
+
+    async def fake_create_subprocess_exec(*cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return _FakeProcess([b"removed 1 package\n"])
+
+    monkeypatch.setattr(
+        "backend.integrations.plugins._installers.base.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
 
     installer = NpmPrefixInstaller()
     component = InstallComponent(kind="npm", requirement="@anthropic-ai/claude-code@2.1.220")
-
-    assert node_prefix().is_dir()
     await installer.uninstall(component)
-    assert not node_prefix().exists()
+
+    assert captured_cmd[0] == "npm"
+    assert "uninstall" in captured_cmd
+    assert "--prefix" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--prefix") + 1] == str(node_prefix())
+    # The bare package name (version stripped), never the whole prefix path.
+    assert captured_cmd[-1] == "@anthropic-ai/claude-code"

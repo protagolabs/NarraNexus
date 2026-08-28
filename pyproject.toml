@@ -91,12 +91,15 @@ dependencies = [
 # bundled `claude` CLI, so keeping BOTH out of the base install is the bulk of
 # the local slim-down.
 #
-# Cloud / CI images that must run every framework install this group EXPLICITLY
-# with `uv sync --extra plugins` — LOCKSTEP (铁律 #7) across:
+# Anything that must run/typecheck/test every framework installs this group
+# EXPLICITLY with `uv sync ... --extra plugins` — LOCKSTEP (铁律 #7) across:
+#   * .github/workflows/ci.yml            (this repo — BOTH `uv sync --dev`
+#     jobs; miss it and pyright reports missing imports + the agent_loop
+#     tests ERROR, i.e. this very PR's CI goes red)
 #   * docker/Dockerfile.manyfold          (this repo)
 #   * deploy repo docker/Dockerfile.executor, docker/Dockerfile.python
-# Miss one and that image's claude_code / codex_cli silently break (the SDK is
-# absent, the lazy driver factory raises ImportError at run time).
+# Miss one and that image/job's claude_code / codex_cli silently break (the SDK
+# is absent, the lazy driver factory raises ImportError at run time).
 #
 # `openai-codex` is beta-only and transitively pulls `openai-codex-cli-bin`
 # (the codex binary wheel); the `[tool.uv] prerelease = "if-necessary-or-explicit"`

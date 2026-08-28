@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from typing import AsyncIterator
 
@@ -35,6 +34,16 @@ def _pinned_version(requirement: str) -> str:
     if not match:
         raise ValueError(f"unsupported npm requirement (expected pkg@version): {requirement!r}")
     return match.group(1)
+
+
+def _package_name(requirement: str) -> str:
+    """Strip the trailing ``@<version>`` to get the bare package name
+    (``@anthropic-ai/claude-code@2.1.220`` -> ``@anthropic-ai/claude-code``)."""
+    req = requirement.strip()
+    match = _NPM_REQUIREMENT_VERSION_RE.search(req)
+    if not match:
+        raise ValueError(f"unsupported npm requirement (expected pkg@version): {requirement!r}")
+    return req[: match.start()]
 
 
 class NpmPrefixInstaller(PluginInstaller):
@@ -76,6 +85,11 @@ class NpmPrefixInstaller(PluginInstaller):
         return match.group(1) if match else None
 
     async def uninstall(self, component: InstallComponent) -> None:
-        target_dir = node_prefix()
-        if target_dir.is_dir():
-            shutil.rmtree(target_dir, ignore_errors=True)
+        # Remove ONLY this package (and let npm prune its deps + the .bin
+        # shim), rather than wiping the whole node_prefix tree — so a future
+        # second npm plugin sharing this prefix is not collateral. Symmetric
+        # with the pip installer, which also removes by package. npm is a no-op
+        # when the package is already absent, so this is safe to call twice.
+        cmd = ["npm", "uninstall", "--prefix", str(node_prefix()), _package_name(component.requirement)]
+        async for _line in stream_subprocess(cmd):
+            pass
