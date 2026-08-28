@@ -389,9 +389,11 @@ class Settings(BaseSettings):
     # NetMind Key-management API (generate/list inference API keys). This is a
     # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),
     # body is form-encoded, envelope is HTTP 200 + {success:false} on error.
-    # prod platform-api.netmind.ai; dev sets
-    # NETMIND_KEY_API_BASE=https://mind-web.protago-dev.com.
-    netmind_key_api_base: str = "https://platform-api.netmind.ai"
+    # Host migrated 2026-08-28 from the legacy Java gateway to the Python
+    # inference gateway; path/auth/params/response envelope are unchanged.
+    # prod inference.api.netmind.ai; dev sets
+    # NETMIND_KEY_API_BASE=https://inference.api.protago-dev.com.
+    netmind_key_api_base: str = "https://inference.api.netmind.ai"
 
     # NetMind inference base (chat/completions + messages). ONLY the
     # use-subscription (minted-key) path uses this: a key we mint via
