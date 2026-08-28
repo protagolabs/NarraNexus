@@ -32,15 +32,18 @@ function selectProvider(value: string) {
 }
 
 describe('OneKeyOnboard', () => {
-  test('defaults to Anthropic (official) and sends it explicitly', async () => {
+  test('defaults to NetMind (recommended) and sends it explicitly', async () => {
+    // Owner decision 2026-08-28: NetMind is the recommended one-key
+    // source and must be the default selection, listed first.
     onboardMock.mockResolvedValue({ success: true });
     const onComplete = vi.fn();
     render(<OneKeyOnboard onComplete={onComplete} />);
-    typeKey('sk-ant-abc123');
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('netmind');
+    typeKey('nm-key-123');
 
     fireEvent.click(screen.getByText('Start using NarraNexus'));
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
-    expect(onboardMock).toHaveBeenCalledWith('sk-ant-abc123', 'anthropic');
+    expect(onboardMock).toHaveBeenCalledWith('nm-key-123', 'netmind');
   });
 
   test('selecting NetMind sends provider_type netmind', async () => {
@@ -57,6 +60,7 @@ describe('OneKeyOnboard', () => {
 
   test('OpenAI-looking key under Anthropic shows the switch nudge', () => {
     render(<OneKeyOnboard onComplete={() => {}} />);
+    selectProvider('anthropic');
     typeKey('sk-proj-abc123');
 
     const nudge = screen.getByText(/Looks like an? OpenAI key/);
@@ -186,11 +190,12 @@ describe('OneKeyOnboard', () => {
 
   test('shows a Get Key link for the selected provider', () => {
     render(<OneKeyOnboard onComplete={() => {}} />);
-    const link = screen.getByText(/Get your Anthropic API key/).closest('a');
-    expect(link?.getAttribute('href')).toContain('console.anthropic.com');
+    // NetMind is the default selection now.
+    const link = screen.getByText(/Get your NetMind API key/).closest('a');
+    expect(link?.getAttribute('href')).toContain('netmind.ai');
 
-    selectProvider('netmind');
-    const link2 = screen.getByText(/Get your NetMind API key/).closest('a');
-    expect(link2?.getAttribute('href')).toContain('netmind.ai');
+    selectProvider('anthropic');
+    const link2 = screen.getByText(/Get your Anthropic API key/).closest('a');
+    expect(link2?.getAttribute('href')).toContain('console.anthropic.com');
   });
 });

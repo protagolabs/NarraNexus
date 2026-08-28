@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-28
 stub: false
 ---
+## 2026-08-28 — 订阅入折叠区首位,不自动跳转(P0:只配 subscription 走不通)
+
+原布局把订阅埋在三层下(Advanced 折叠 → add modal → Sign in tab),主卡
+OneKeyOnboard 又是纯 API key 表单,页脚 providerCount 只在挂载/折叠时
+探测——订阅用户配完只看得到 "Skip for now",把 landing 读成"必须绑
+API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Owner 手测
+后否决**:点 Add 直接进产品太突兀,且要保留原页面格式。终版:
+
+- 页面保持原格式(OneKeyOnboard 主卡 + 折叠区),但折叠区展开后
+  **第一眼就是订阅卡**([[SubscriptionConnect]]),不再需要进 add modal。
+  **仅 `mode === 'local'` 渲染**——云端不广告后端会 403 的路径(云端经
+  RootRedirect 本就不进 /setup,这里防的是直接 URL 访问)。
+- **订阅连接不触发导航**(不传 onConnected):本页瘦 `addProvider`
+  (走 [[providersApi]])成功后 re-probe,页脚实时翻成 "Get Started",
+  由用户自己离开。这是 Owner 明确的交互决策,别"顺手"改回自动跳转。
+- `probe` 改 useCallback 并作为 `onProvidersChanged` 传给
+  ProviderSettings——Advanced 开着时页脚也实时翻转,折叠时 re-probe
+  保留为兜底。**probe 必须保持稳定引用**(见 ProviderSettings mirror
+  的陷阱)。
+- `providersVersion` state 在订阅卡每次成功 add 后 +1,作为
+  `refreshToken` 传给 ProviderSettings——否则其自有的 "Your providers"
+  网格不知道该刷新(Owner 走查第 2 轮发现)。
+- 测试:`__tests__/setup-page-subscription.test.tsx`(折叠内 local
+  渲染 / cloud 展开也不渲染 / 展开不导航)。
+
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe
 
 整屏根改用 index.css 的 `.h-dvh-safe`（100vh 兜底 + 100dvh 覆盖），与

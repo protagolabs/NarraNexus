@@ -5,32 +5,59 @@
  * @description: First-time provider configuration page
  *
  * Shown after login when no LLM providers are configured yet (local
- * mode). The primary surface is the shared OneKeyOnboard card: pick a
- * provider (NetMind / Claude / OpenAI / Yunwu / OpenRouter), paste one
- * key, and everything (agent framework, provider, both slots) is wired
- * in one call. The full ProviderSettings stays available behind the
- * "Advanced setup" disclosure; configuring there enables the
- * "Get Started" footer button (re-probed when the disclosure toggles).
+ * mode). The primary surface is the shared OneKeyOnboard card (paste one
+ * API key, everything is wired in one call). The "Advanced setup"
+ * disclosure (collapsed by default — Owner-preferred layout) opens to:
+ *   - Subscription sign-in (SubscriptionConnect, LOCAL MODE ONLY):
+ *     Claude Code / Codex — no API key. P0 2026-08-28: this used to be
+ *     buried in ProviderSettings' add modal (Advanced → modal → Sign in
+ *     tab), so subscription-only users read the landing as "API key
+ *     required"; it is now the first thing the fold reveals. Connecting
+ *     does NOT auto-navigate — the footer flips to "Get Started" live
+ *     and the user leaves when ready. Cloud never renders it: the
+ *     backend 403s OAuth card types for non-staff, and the UI must not
+ *     advertise that path (direct /setup URL visits included).
+ *   - The full ProviderSettings surface.
+ *
+ * The footer re-probes on every provider change (onProvidersChanged),
+ * not just when the disclosure collapses.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronRight, SkipForward } from 'lucide-react';
 import { BetaBadge, Button, ScrollArea } from '@/components/ui';
-import { BracketSectionLabel } from '@/components/nm';
+import { BracketSectionLabel, PaperCard } from '@/components/nm';
 import { OneKeyOnboard } from '@/components/settings/OneKeyOnboard';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
+import { authFetch, providerApiUrl } from '@/lib/providersApi';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { useRuntimeStore } from '@/stores';
+
+interface SetupProviderSummary {
+  source?: string;
+  auth_type?: string;
+}
 
 export function SetupPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const mode = useRuntimeStore((s) => s.mode);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [providerCount, setProviderCount] = useState(0);
+  // Provider record state feeding SubscriptionConnect ("Added ✓" vs the
+  // Add-as-Provider button). Same probe as providerCount.
+  const [providers, setProviders] = useState<Record<string, SetupProviderSummary>>({});
+  const [subError, setSubError] = useState('');
+  // Bumped after every successful add through the subscription card, so
+  // ProviderSettings (which owns its own provider list) refetches too —
+  // otherwise "Your providers" showed stale data until remount.
+  const [providersVersion, setProvidersVersion] = useState(0);
 
   // Funnel: user reached the setup page. React StrictMode double-invokes
   // effects in dev, so a ref guard ensures setup_entered fires exactly once
@@ -46,20 +73,58 @@ export function SetupPage() {
   // through api.getProviders so identity travels in the X-User-Id /
   // JWT header — bare fetch used to send neither, and the backend
   // happily fell back to "first user in users table".
-  const probe = async () => {
+  // Stable reference on purpose: this is handed to ProviderSettings as
+  // onProvidersChanged, which sits in refreshConfig's deps — an inline
+  // arrow would re-create it every render and put the mount fetch in a
+  // loop (see the comment on refreshConfig's dep list).
+  const probe = useCallback(async () => {
     try {
       const data = await api.getProviders();
       if (data.success && data.data?.providers) {
         setProviderCount(Object.keys(data.data.providers).length);
+        setProviders(data.data.providers as Record<string, SetupProviderSummary>);
       }
     } catch {
       // Backend not ready — keep the skip affordance
     }
+  }, []);
+
+  // Thin POST /api/providers wrapper for the subscription card — same
+  // body contract as ProviderSettings' addProvider, but re-probing THIS
+  // page's provider state on success so the footer flips live.
+  const addProvider = async (body: Record<string, unknown>): Promise<boolean> => {
+    setSubError('');
+    try {
+      const res = await authFetch(providerApiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+      if (!res.success) {
+        setSubError(res.detail || t('settings.provider.failed'));
+        return false;
+      }
+      await probe();
+      setProvidersVersion((v) => v + 1);
+      return true;
+    } catch {
+      setSubError(t('settings.provider.networkError'));
+      return false;
+    }
   };
 
+  const providerList = Object.values(providers);
+  const claudeCard = providerList.find((p) => p.source === 'claude_oauth') ?? null;
+  const hasCodex = providerList.some((p) => p.source === 'codex_oauth');
+
+  // react-hooks/set-state-in-effect flags this because probe (now a
+  // useCallback so ProviderSettings can depend on it) sets state — but
+  // every set happens after an await, never synchronously in the effect
+  // body. Same pattern and suppression as IMChannelsSection.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     probe();
-  }, []);
+  }, [probe]);
 
   // Funnel: which event fires depends on WHICH button the user pressed, not
   // on provider count — "Skip for now" is a skip; the primary "Get Started"
@@ -71,8 +136,8 @@ export function SetupPage() {
 
   const toggleAdvanced = () => {
     setShowAdvanced((v) => {
-      // Re-probe when collapsing — the user may have configured
-      // providers inside Advanced, which enables "Get Started".
+      // Collapse-time re-probe kept as a belt-and-braces fallback; the
+      // live path is ProviderSettings' onProvidersChanged below.
       if (v) probe();
       return !v;
     });
@@ -104,7 +169,13 @@ export function SetupPage() {
           {/* Primary: one-key onboarding (shared with Settings) */}
           <OneKeyOnboard onComplete={() => finishSetup('setup_completed')} />
 
-          {/* Advanced: the full provider configuration surface */}
+          {/* Advanced (collapsed by default, Owner-preferred layout):
+            * subscription sign-in first (LOCAL ONLY — cloud 403s OAuth
+            * card types for non-staff, so the UI must not advertise it,
+            * direct /setup visits included), then the full provider
+            * configuration surface. Connecting a subscription does NOT
+            * auto-navigate: the footer flips to "Get Started" live (via
+            * probe / onProvidersChanged) and the user leaves when ready. */}
           <div className="mt-6">
             <button
               type="button"
@@ -120,8 +191,35 @@ export function SetupPage() {
               {t('pages.setup.advancedSetup')}
             </button>
             {showAdvanced && (
-              <div className="mt-4">
-                <ProviderSettings />
+              <div className="mt-4 flex flex-col gap-4">
+                {mode === 'local' && (
+                  <PaperCard padding="lg">
+                    <div className="flex flex-col gap-4">
+                      <div>
+                        <h2
+                          className="text-lg font-bold"
+                          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+                        >
+                          {t('pages.setup.subscriptionTitle')}
+                        </h2>
+                        <p className="text-sm mt-1" style={{ color: 'var(--nm-ink70)' }}>
+                          {t('pages.setup.subscriptionSubtitle')}
+                        </p>
+                      </div>
+                      {subError && (
+                        <p className="text-sm" role="alert" style={{ color: 'var(--color-error)' }}>
+                          {subError}
+                        </p>
+                      )}
+                      <SubscriptionConnect
+                        claudeCard={claudeCard}
+                        hasCodex={hasCodex}
+                        addProvider={addProvider}
+                      />
+                    </div>
+                  </PaperCard>
+                )}
+                <ProviderSettings onProvidersChanged={probe} refreshToken={providersVersion} />
               </div>
             )}
           </div>

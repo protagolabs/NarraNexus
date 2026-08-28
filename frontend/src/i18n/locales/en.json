@@ -1249,6 +1249,7 @@
       "modelsCount": "{{count}} model(s)",
       "test": "Test",
       "testConnection": "Test connection",
+      "testingConnection": "Testing…",
       "edit": "Edit",
       "delete": "Delete",
       "section2Title": "Global Default",
@@ -1669,7 +1670,9 @@
     "setup": {
       "oneKeyLabel": "Setup · One Key to Start",
       "welcome": "Welcome to NarraNexus",
-      "advancedSetup": "Advanced setup — OAuth, custom endpoints, per-slot models",
+      "subscriptionTitle": "Use a Claude or ChatGPT subscription",
+      "subscriptionSubtitle": "No API key needed — sign in with the subscription you already have.",
+      "advancedSetup": "Advanced setup — subscription sign-in, custom endpoints, per-slot models",
       "sectionLabel": "Setup · Configure LLM Providers",
       "title": "Configure LLM Providers",
       "subtitle": "Set up your API keys so NarraNexus can connect to language models.",

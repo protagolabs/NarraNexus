@@ -1,0 +1,444 @@
+/**
+ * @file_name: SubscriptionConnect.tsx
+ * @author: NarraNexus
+ * @date: 2026-08-28
+ * @description: Claude Code / Codex CLI subscription connect cards.
+ *
+ * Extracted verbatim from ProviderSettings' add-modal "Sign in" tab so the
+ * landing page (SetupPage) can offer subscription sign-in as a first-class
+ * peer of the API-key card — the P0 was subscription-only users reading the
+ * landing as "API key required" because this surface was buried three
+ * layers deep (Advanced → add modal → Sign in tab).
+ *
+ * Each card surfaces two DECOUPLED state layers (do not conflate them):
+ *   1. OS credential state — owned by the CLI (`claude` / `codex`),
+ *      probed via /api/providers/claude-status | codex-status. Drives the
+ *      Login / Re-login / Logout buttons (claude, Tauri only) and the
+ *      terminal hints.
+ *   2. Provider record state — owned by NarraNexus (user_providers rows).
+ *      Drives "Add as Provider" / "Added ✓" and the setup-token connect.
+ *
+ * The parent owns the provider list and the POST (addProvider) so its view
+ * refreshes on success; this component owns the CLI status lifecycle.
+ * `onConnected` fires ONLY after a successful subscription add/upgrade —
+ * SetupPage uses it to complete onboarding and enter the app.
+ *
+ * Cloud note: callers must not render this on cloud for non-staff — the
+ * backend 403s OAuth card types there (routes gate). SetupPage gates on
+ * mode === 'local'; the Settings add-modal relies on the status routes'
+ * `allowed` flag exactly as before the extraction.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { cn } from '@/lib/utils';
+import { authFetch, providerApiUrl } from '@/lib/providersApi';
+import {
+  isTauri,
+  triggerClaudeLogin,
+  triggerClaudeLogout,
+  cancelClaudeLogin,
+} from '@/lib/tauri';
+
+/** `claude auth login` blocks on a browser OAuth flow; abandoning the tab
+ * leaves the CLI on a dead callback server forever. Countdown then SIGTERM. */
+const CLAUDE_LOGIN_TIMEOUT_SEC = 600;
+
+function formatCountdown(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+/** Best-effort render of whatever expiry value the CLI handed us.
+ *
+ * The Claude Code CLI shifts schemas across minor versions: some builds
+ * emit ISO-8601 strings, others emit unix epoch (sec OR ms). We accept
+ * any of them. If parsing fails we just show the raw value rather than
+ * eating the field — the user still gets *something* useful. */
+function formatExpiresAt(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  let d: Date | null = null;
+  if (Number.isFinite(n) && n > 0) {
+    d = new Date(n < 1e12 ? n * 1000 : n);
+  } else {
+    const t = Date.parse(trimmed);
+    if (!Number.isNaN(t)) d = new Date(t);
+  }
+  if (!d || Number.isNaN(d.getTime())) return trimmed;
+  return d.toLocaleString();
+}
+
+interface CliStatus {
+  cli_installed: boolean;
+  logged_in: boolean;
+  email: string | null;
+  expires_at: string | null;
+  /** false only when the backend gated this caller out (cloud non-staff). */
+  allowed?: boolean;
+}
+
+interface SubscriptionConnectProps {
+  /** The claude_oauth provider row, if one exists (drives "Added ✓" /
+   * token-connected state). */
+  claudeCard: { auth_type?: string } | null | undefined;
+  /** Whether a codex_oauth provider row exists. */
+  hasCodex: boolean;
+  /** Parent-owned POST /api/providers — the parent refreshes its provider
+   * list inside, so record state (claudeCard / hasCodex) updates flow back
+   * down as props. Resolves true on success. */
+  addProvider: (body: Record<string, unknown>) => Promise<boolean>;
+  /** Fired after a subscription card was successfully added or upgraded. */
+  onConnected?: () => void;
+}
+
+export function SubscriptionConnect({
+  claudeCard,
+  hasCodex,
+  addProvider,
+  onConnected,
+}: SubscriptionConnectProps) {
+  const { t } = useTranslation();
+
+  const [claudeStatus, setClaudeStatus] = useState<CliStatus | null>(null);
+  const [codexStatus, setCodexStatus] = useState<CliStatus | null>(null);
+  const [claudeLoggingIn, setClaudeLoggingIn] = useState(false);
+  const [claudeLoggingOut, setClaudeLoggingOut] = useState(false);
+  // Seconds remaining on the login auto-abort timer, or null when no login
+  // is in flight (see the countdown effect below).
+  const [claudeLoginRemaining, setClaudeLoginRemaining] = useState<number | null>(null);
+
+  // Setup-token paste flow (`claude setup-token` → long-lived subscription
+  // token stored server-side, env-injected at spawn; no CLI login state).
+  const [setupToken, setSetupToken] = useState('');
+  const [savingSetupToken, setSavingSetupToken] = useState(false);
+
+  const hasClaude = claudeCard !== undefined && claudeCard !== null;
+  // Token transport: no CLI login state, no Keychain — see Section C.
+  const claudeTokenConnected = claudeCard?.auth_type === 'oauth_token';
+
+  const refreshStatuses = useCallback(async () => {
+    const [claudeRes, codexRes] = await Promise.all([
+      authFetch(providerApiUrl('/claude-status')).then((r) => r.json()).catch(() => null),
+      authFetch(providerApiUrl('/codex-status')).then((r) => r.json()).catch(() => null),
+    ]);
+    if (claudeRes?.success) setClaudeStatus(claudeRes.data);
+    if (codexRes?.success) setCodexStatus(codexRes.data);
+  }, []);
+
+  useEffect(() => {
+    refreshStatuses();
+  }, [refreshStatuses]);
+
+  // Login auto-abort timer. Set claudeLoginRemaining to N to start
+  // counting down to 0; reaching 0 fires cancelClaudeLogin which
+  // SIGTERMs the dangling `claude auth login` child on the Rust side.
+  // Setting it to null (e.g. on natural completion) clears the timer.
+  useEffect(() => {
+    if (claudeLoginRemaining === null) return;
+    if (claudeLoginRemaining <= 0) {
+      cancelClaudeLogin().catch((e) => console.error('cancelClaudeLogin failed:', e));
+      // Don't null it here — handleClaudeLogin's finally clears state
+      // once the trigger's await resolves with the SIGTERM exit code.
+      // Returning early prevents a re-fire next tick.
+      return;
+    }
+    const timer = setTimeout(
+      () => setClaudeLoginRemaining((r) => (r === null ? null : r - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [claudeLoginRemaining]);
+
+  const connect = async (body: Record<string, unknown>) => {
+    const ok = await addProvider(body);
+    if (ok) onConnected?.();
+    return ok;
+  };
+
+  const handleAddClaudeOAuth = async () => {
+    await connect({ card_type: 'claude_oauth' });
+  };
+
+  const handleSaveSetupToken = async () => {
+    const token = setupToken.trim();
+    if (!token) return;
+    setSavingSetupToken(true);
+    try {
+      // Same card_type; a non-empty api_key makes the backend store/upgrade
+      // the card as auth_type=oauth_token (reconnect-in-place keeps slots).
+      const ok = await connect({ card_type: 'claude_oauth', api_key: token });
+      if (ok) setSetupToken('');
+    } finally {
+      setSavingSetupToken(false);
+    }
+  };
+
+  const handleAddCodexOAuth = async () => {
+    await connect({ card_type: 'codex_oauth' });
+  };
+
+  const handleClaudeLogin = async () => {
+    setClaudeLoggingIn(true);
+    setClaudeLoginRemaining(CLAUDE_LOGIN_TIMEOUT_SEC);
+    try {
+      await triggerClaudeLogin();
+      // After login completes, refresh to pick up the new status
+      await refreshStatuses();
+    } catch (e) {
+      // SIGTERM from the timeout path also lands here (claude exits
+      // non-zero). The finally below resets state regardless.
+      console.error('Claude login failed:', e);
+    } finally {
+      setClaudeLoggingIn(false);
+      setClaudeLoginRemaining(null);
+    }
+  };
+
+  const handleClaudeLogout = async () => {
+    setClaudeLoggingOut(true);
+    try {
+      await triggerClaudeLogout();
+      await refreshStatuses();
+    } catch (e) {
+      console.error('Claude logout failed:', e);
+    } finally {
+      setClaudeLoggingOut(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* ---- Claude Code Login Card ---- */}
+      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+        <div className="flex items-center gap-2 mb-1">
+          <h4 className="text-sm font-medium text-[var(--text-primary)]">
+            {t('settings.provider.claudeLoginTitle')}
+          </h4>
+        </div>
+        <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
+
+        {!claudeStatus && (
+          <p className="text-sm text-[var(--text-tertiary)]">{t('settings.provider.checkingStatus')}</p>
+        )}
+
+        {claudeStatus && (
+          <div className="space-y-3">
+            {/* ---- Section A: OS credential state ---- */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn('inline-block w-2 h-2 rounded-full',
+                  claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
+                  claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+                )} />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  {claudeStatus.logged_in
+                    ? <>{t('settings.provider.loggedIn')}{claudeStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{claudeStatus.email}</span></> : null}</>
+                    : claudeStatus.cli_installed ? t('settings.provider.notLoggedIn') : t('settings.provider.cliNotInstalled')}
+                </span>
+                {claudeStatus.logged_in && claudeStatus.expires_at && (
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {t('settings.provider.expires', { date: formatExpiresAt(claudeStatus.expires_at) })}
+                  </span>
+                )}
+              </div>
+
+              {/* Action buttons. Always visible when CLI is installed
+                * + Tauri — never hidden behind a provider-record check. */}
+              {claudeStatus.cli_installed && isTauri() && (
+                <div className="flex gap-2 flex-wrap">
+                  {claudeStatus.logged_in ? (
+                    <>
+                      <button onClick={handleClaudeLogin}
+                        disabled={claudeLoggingIn || claudeLoggingOut}
+                        className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-50 transition-colors">
+                        {claudeLoggingIn
+                          ? (claudeLoginRemaining !== null
+                              ? t('settings.provider.reLoggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                              : t('settings.provider.reLoggingIn'))
+                          : t('settings.provider.reLogin')}
+                      </button>
+                      <button onClick={handleClaudeLogout}
+                        disabled={claudeLoggingIn || claudeLoggingOut}
+                        className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 text-[var(--color-error)] hover:bg-[var(--color-error)]/5 disabled:opacity-50 transition-colors">
+                        {claudeLoggingOut ? t('settings.provider.loggingOut') : t('settings.provider.logout')}
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={handleClaudeLogin}
+                      disabled={claudeLoggingIn}
+                      className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
+                      {claudeLoggingIn
+                        ? (claudeLoginRemaining !== null
+                            ? t('settings.provider.loggingInCountdown', { time: formatCountdown(claudeLoginRemaining) })
+                            : t('settings.provider.loggingIn'))
+                        : t('settings.provider.loginWithClaude')}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Web-mode fallback: no Tauri IPC, user goes to terminal. */}
+              {!isTauri() && (
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {claudeStatus.cli_installed
+                    ? t('settings.provider.webModeInstalled')
+                    : t('settings.provider.webModeNotInstalled')}
+                </p>
+              )}
+              {!claudeStatus.cli_installed && isTauri() && (
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {t('settings.provider.cliNotInBundle')}
+                </p>
+              )}
+            </div>
+
+            {/* ---- Section B: Provider record state ---- */}
+            <div className="pt-2 border-t border-[var(--border-subtle)]">
+              {claudeTokenConnected ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                  <span>{'✓'}</span>
+                  <span>{t('settings.provider.setupTokenConnected')}</span>
+                </div>
+              ) : hasClaude ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                  <span>{'✓'}</span>
+                  <span>{t('settings.provider.addedAsProvider')}</span>
+                </div>
+              ) : claudeStatus.logged_in ? (
+                <button onClick={handleAddClaudeOAuth}
+                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                  {t('settings.provider.addAsProvider')}
+                </button>
+              ) : (
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {t('settings.provider.loginToAdd')}
+                </p>
+              )}
+            </div>
+
+            {/* ---- Section C: setup-token connect / replace ----
+              *
+              * The token transport bypasses the CLI's login state and
+              * credential store entirely (the macOS Keychain divergence
+              * made staged host credentials unreadable to the runtime
+              * CLI — 2026-07-23 incident), so it is the recommended way
+              * to connect a subscription. Shown for BOTH states: not
+              * connected (recommend) and connected (allow yearly token
+              * replacement).
+              */}
+            <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
+              <p className="text-sm text-[var(--text-tertiary)]">
+                {claudeTokenConnected
+                  ? t('settings.provider.setupTokenReplaceHint')
+                  : t('settings.provider.setupTokenHint')}
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={setupToken}
+                  onChange={(e) => setSetupToken(e.target.value)}
+                  placeholder={t('settings.provider.setupTokenPlaceholder')}
+                  className="flex-1 px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                />
+                <button
+                  onClick={handleSaveSetupToken}
+                  disabled={savingSetupToken || !setupToken.trim()}
+                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
+                >
+                  {savingSetupToken
+                    ? t('settings.provider.setupTokenSaving')
+                    : t('settings.provider.setupTokenSave')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ---- Codex CLI Login Card ----
+        *
+        * Parallel to "Claude Code Login" above. Same two-layer model;
+        * login is a terminal action (`codex login` opens a browser); we
+        * surface status only — no Tauri IPC for codex yet. Once added as
+        * a provider, the Codex OAuth credential becomes assignable to the
+        * agent slot.
+        */}
+      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+        <div className="flex items-center gap-2 mb-1">
+          <h4 className="text-sm font-medium text-[var(--text-primary)]">
+            {t('settings.provider.codexLoginTitle')}
+          </h4>
+        </div>
+        <p className="text-sm text-[var(--text-tertiary)] mb-3">
+          {t('settings.provider.codexOauthDesc')}
+        </p>
+
+        {!codexStatus && (
+          <p className="text-sm text-[var(--text-tertiary)]">
+            {t('settings.provider.checkingStatus')}
+          </p>
+        )}
+
+        {codexStatus && (
+          <div className="space-y-3">
+            {/* ---- Section A: OS credential state ---- */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn('inline-block w-2 h-2 rounded-full',
+                  codexStatus.logged_in ? 'bg-[var(--color-success)]' :
+                  codexStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+                )} />
+                <span className="text-sm text-[var(--text-secondary)]">
+                  {codexStatus.logged_in
+                    ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                    : codexStatus.cli_installed
+                      ? t('settings.provider.notLoggedIn')
+                      : t('settings.provider.cliNotInstalled')}
+                </span>
+                {codexStatus.logged_in && codexStatus.expires_at && (
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {t('settings.provider.expires', { date: formatExpiresAt(codexStatus.expires_at) })}
+                  </span>
+                )}
+              </div>
+
+              {/* Always show terminal hint. Codex CLI's OAuth flow
+                * opens a browser when `codex login` runs; we don't
+                * shell out via Tauri yet (unlike claude). */}
+              <p className="text-sm text-[var(--text-tertiary)]">
+                {codexStatus.cli_installed
+                  ? t('settings.provider.codexTerminalHint')
+                  : t('settings.provider.codexInstallHint')}
+              </p>
+            </div>
+
+            {/* ---- Section B: Provider record state ---- */}
+            <div className="pt-2 border-t border-[var(--border-subtle)]">
+              {hasCodex ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                  <span>{'✓'}</span>
+                  <span>{t('settings.provider.codexAddedAsProvider')}</span>
+                </div>
+              ) : codexStatus.logged_in ? (
+                <button onClick={handleAddCodexOAuth}
+                  className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
+                  {t('settings.provider.addAsProvider')}
+                </button>
+              ) : (
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {t('settings.provider.codexLoginToAdd')}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SubscriptionConnect;

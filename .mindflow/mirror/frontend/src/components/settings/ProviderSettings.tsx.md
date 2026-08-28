@@ -1,7 +1,34 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-28
 ---
+
+## 2026-08-28 — Sign-in tab 抽出为 SubscriptionConnect(P0:landing 只配订阅走不通)
+
+add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
+连同 claude/codex status state、登录倒计时 effect、setup-token state、
+5 个 handler、formatCountdown/formatExpiresAt、CLAUDE_LOGIN_TIMEOUT_SEC)
+整体搬去 [[SubscriptionConnect]],tab 原位改为
+`<SubscriptionConnect claudeCard hasCodex addProvider/>`。动机:landing
+(SetupPage)要把订阅升为一等路径,逻辑必须单份。随行变化:
+
+- 本地 `authFetch` 提升为 [[providersApi]] 的共享导出(语义不变);
+  `providerUrl` 的 useCallback **留在组件内**(userId 依赖驱动
+  refreshConfig 重跑,是 re-render 语义不是 URL 语义)。
+- refreshConfig 不再拉 claude/codex status(归 SubscriptionConnect 自取),
+  只剩 provider 列表;新增可选 prop `onProvidersChanged`,每次成功刷新后
+  回调——SetupPage 用它做页脚实时翻转。**陷阱:该回调进了 refreshConfig
+  的 useCallback 依赖,调用方必须传稳定引用(useCallback),否则挂载
+  effect 会无限重拉**(源码注释已写)。
+- 再加可选 prop `refreshToken?: number`(Owner 走查第 2 轮):SetupPage
+  的订阅卡在本组件**外面**,经它 add 的卡不会路过 refreshConfig,
+  "Your providers" 网格一直陈旧;外部 bump token 即重拉。测试:
+  `__tests__/ProviderSettingsRefresh.test.tsx`(bump 重拉 / 同值不重拉)。
+- 文件 1254 → ~850 行。
+- Test 按钮加载态从静态 `'...'` 换成 Loader2 spinner + "Testing…" 文案
+  (详情弹窗 + Custom 表单两处;Owner 走查第 3 轮)——OAuth 卡的 Test
+  自 PR #375 起真跑一次 CLI(5-15s),静态三个点读起来像卡死。i18n 新键
+  `settings.provider.testingConnection`(en+zh)。
 
 ## 2026-07-30 — OAuth 卡隐藏 Edit models
 

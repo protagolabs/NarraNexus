@@ -34,6 +34,15 @@ interface OneKeyProvider {
 }
 
 const ONE_KEY_PROVIDERS: OneKeyProvider[] = [
+  // NetMind first: it is the recommended source and the DEFAULT selection
+  // (Owner decision 2026-08-28) — one NetMind key covers both protocols.
+  {
+    id: 'netmind',
+    labelKey: 'NetMind.AI Power',
+    keyName: 'NetMind',
+    descKey: 'settings.provider.netmindDesc',
+    getKeyUrl: 'https://www.netmind.ai/user/dashboard',
+  },
   {
     id: 'anthropic',
     labelKey: 'settings.provider.officialAnthropic',
@@ -47,13 +56,6 @@ const ONE_KEY_PROVIDERS: OneKeyProvider[] = [
     keyName: 'OpenAI',
     descKey: 'settings.provider.officialOpenaiDesc',
     getKeyUrl: 'https://platform.openai.com/api-keys',
-  },
-  {
-    id: 'netmind',
-    labelKey: 'NetMind.AI Power',
-    keyName: 'NetMind',
-    descKey: 'settings.provider.netmindDesc',
-    getKeyUrl: 'https://www.netmind.ai/user/dashboard',
   },
   {
     id: 'yunwu',
@@ -87,7 +89,7 @@ interface OneKeyOnboardProps {
 
 export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
   const { t } = useTranslation();
-  const [providerType, setProviderType] = useState<OnboardProviderType>('anthropic');
+  const [providerType, setProviderType] = useState<OnboardProviderType>('netmind');
   const [apiKey, setApiKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');

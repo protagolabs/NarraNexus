@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/settings/OneKeyOnboard.tsx
-last_verified: 2026-07-21
+last_verified: 2026-08-28
 stub: false
 ---
+## 2026-08-28 — 默认选中 NetMind,列表 NetMind 置顶(Owner 走查决定)
+
+`providerType` 初始值 anthropic → netmind,`ONE_KEY_PROVIDERS` 顺序
+netmind 提到首位——组件头注释一直写着 "NetMind recommended",默认值却是
+anthropic,Owner 走查时点名。连带更新的测试:default 断言、Get Key link
+断言(先 NetMind 后切 anthropic)、OpenAI-key nudge 测试需先显式
+`selectProvider('anthropic')`(nudge 的触发条件对 netmind+openai 组合
+不成立,这是既有设计)。
+
 ## 2026-07-21 — one-key setup follows the active locale
 
 All instructional, validation, confirmation, progress, and success copy now
