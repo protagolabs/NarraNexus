@@ -407,7 +407,11 @@ class AgentRuntime:
             # Set global cost tracking context so ALL LLM calls (narrative, job, social
             # network, module decisions, etc.) automatically record costs without needing
             # explicit agent_id/db parameters at each call site.
-            from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
+            from xyz_agent_context.utils.cost_tracker import (
+                clear_cost_context,
+                cost_event_scope,
+                set_cost_context,
+            )
             set_cost_context(agent_id, db_client)
 
             # Initialize the three major Services
@@ -480,8 +484,16 @@ class AgentRuntime:
 
             # Bind event_id once Step 0 has created the Event row, so that
             # every log line emitted by Steps 1-5 carries it.
+            #
+            # The ledger gets the same binding for the same reason: helper LLM
+            # calls (narrative selection, the shutter/decider, summarisation,
+            # post-turn hooks) never receive an event_id at their call site, so
+            # before this every one of them booked event_id=NULL and a per-turn
+            # token figure showed the main loop only. Both scopes unwind on the
+            # ExitStack, including the error path.
             if ctx.event is not None:
                 _trace_stack.enter_context(bind_event(event_id=str(ctx.event.id)))
+                _trace_stack.enter_context(cost_event_scope(str(ctx.event.id)))
 
             # Load LLM config based on the AGENT OWNER (not user_id).
             #

@@ -1,10 +1,40 @@
 ---
 code_file: src/xyz_agent_context/utils/cost_tracker.py
-last_verified: 2026-08-10
+last_verified: 2026-08-28
 stub: false
 ---
 
 # cost_tracker.py
+
+## 2026-08-28 — 账目认领轮次：`cost_event_scope`
+
+`event_id` 从来只有 step_4（`call_type="agent_loop"`）传得出来，**其余每一个
+helper 调用点都硬写 `event_id=None`** —— narrative 选择、shutter/decider、
+总结、post-turn hooks 全部记成"不属于任何一轮"。后果不是少一列元数据：
+`chat_history._build_event_meta` 按 `WHERE event_id = ?` 汇总单轮 token，于是
+它一直只数到主循环那一条，**helper 用得越多，单轮数字漏得越离谱**，而界面上
+看不出任何异常。
+
+修法沿用本文件已有的心智：既然 `(agent_id, db)` 能作为环境量漂到每个调用点，
+轮次也能。新增 `_cost_event_id` ContextVar + `cost_event_scope()`，
+`record_cost` 在 `event_id is None` 时回落到它。
+
+**为什么是独立的 ContextVar，而不是塞进 `_cost_context` 那个 tuple**：每个
+helper 调用点都写着 `_agent_id, _db = ctx`，加宽 tuple 要改遍所有解包点却换不
+来任何东西；何况两者生命周期本就不同——agent+db 覆盖一整个 worker pass，轮次
+只覆盖其中一轮。
+
+**`set_cost_context` 故意不动 event**：`step_3_agent_loop` 会在轮次中途重设
+一次 cost context 给它的兜底 helper，若在那里顺手清掉 event，这些 token 就正好
+掉出它们所属的那一轮。清理只发生在 `clear_cost_context`（finally 兜底，防止陈
+旧轮次 id 认领下一个调用者的花销）和 scope 退出时。
+
+**后台 Steps 5-6 天然正确**：它们由 `spawn` 在 scope 内创建，`create_task` 在
+创建时刻复制上下文，所以任务活得比 scope 长也仍带着这一轮的 id。读 ContextVar
+失败一律降级 None——本文件的铁律没变：observability, not flow control。
+
+上游：[[agent_runtime]] 在 Step 0 建出 Event 行后 `enter_context`。
+Tests：`tests/utils/test_cost_tracker_event_attribution.py`。
 
 ## 2026-08-10 — exact provider-card attribution
 

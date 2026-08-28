@@ -1,0 +1,127 @@
+/**
+ * Per-turn token usage in the Conversation view.
+ *
+ * The event-log response has carried `meta` (per-event token sums, cost,
+ * models, duration) since the run-card upgrade, but only the Inner Thoughts
+ * card rendered it — a user reading their own chat could see the agent-level
+ * 7-day total in the header popover and nothing per turn. The bubble already
+ * fetches the same response for its reasoning disclosure, so the chips cost
+ * no extra request.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+
+const getEventLogMock = vi.fn();
+
+vi.mock('@/lib/api', () => ({
+  api: { getEventLog: (...args: unknown[]) => getEventLogMock(...args) },
+}));
+
+import { MessageBubble } from '../MessageBubble';
+import type { ChatMessage } from '@/types';
+
+const message: ChatMessage = {
+  id: 'm1',
+  role: 'assistant',
+  content: 'done',
+  timestamp: 0,
+};
+
+const baseMeta = {
+  trigger: 'chat',
+  trigger_source: 'chat',
+  input_text: 'what did we ship this week',
+  final_output: 'done',
+  state: 'completed',
+  started_at: '2026-08-28 08:00:00',
+  finished_at: '2026-08-28 08:01:30',
+  duration_seconds: 90,
+  models: ['claude-opus-5'],
+  total_cost_usd: 0.0041,
+  input_tokens: 1250,
+  output_tokens: 300,
+  tool_call_count: 0,
+};
+
+function mockResponse(meta: Record<string, unknown>) {
+  getEventLogMock.mockResolvedValue({
+    success: true,
+    event_id: 'ev1',
+    thinking: 'planning',
+    tool_calls: [],
+    timeline: [{ type: 'thinking', content: 'planning' }],
+    meta,
+  });
+}
+
+function expand() {
+  render(
+    <MemoryRouter>
+      <MessageBubble message={message} eventId="ev1" agentId="a1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /reasoning/i }));
+}
+
+describe('MessageBubble per-turn run stats', () => {
+  beforeEach(() => getEventLogMock.mockReset());
+
+  it('shows this turn’s tokens, cost, duration and model', async () => {
+    mockResponse(baseMeta);
+    expand();
+
+    await waitFor(() => expect(screen.getByTestId('run-stat-chips')).toBeTruthy());
+    expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
+    expect(screen.getByText('$0.0041')).toBeTruthy();
+    expect(screen.getByText('1m 30s')).toBeTruthy();
+    expect(screen.getByText('claude-opus-5')).toBeTruthy();
+  });
+
+  it('counts the cache buckets into the input side', async () => {
+    // A cache-warm turn: 33 full-rate tokens, 869k actually read. Showing
+    // input_tokens alone here would under-report by ~4 orders of magnitude.
+    mockResponse({
+      ...baseMeta,
+      input_tokens: 33,
+      output_tokens: 19_528,
+      cache_read_tokens: 735_147,
+      cache_creation_tokens: 134_071,
+    });
+    expand();
+
+    await waitFor(() => expect(screen.getByText(/869\.3k.*19\.5k/)).toBeTruthy());
+  });
+
+  it('renders no chip row for a legacy turn with no ledger rows', async () => {
+    mockResponse({
+      ...baseMeta,
+      duration_seconds: null,
+      models: [],
+      total_cost_usd: null,
+      input_tokens: 0,
+      output_tokens: 0,
+    });
+    expand();
+
+    await waitFor(() => expect(getEventLogMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('run-stat-chips')).toBeNull();
+  });
+
+  it('survives a backend that returns no meta at all', async () => {
+    getEventLogMock.mockResolvedValue({
+      success: true,
+      event_id: 'ev1',
+      thinking: 'planning',
+      tool_calls: [],
+      timeline: [{ type: 'thinking', content: 'planning' }],
+    });
+    expand();
+
+    await waitFor(() => expect(getEventLogMock).toHaveBeenCalled());
+    expect(screen.queryByTestId('run-stat-chips')).toBeNull();
+    // The disclosure itself still renders — meta is additive, not required.
+    expect(screen.getByText('planning')).toBeTruthy();
+  });
+});

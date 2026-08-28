@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 单轮用量终于出现在 Conversation 里
+
+`/event-log` 的响应从运行卡片改版起就带着 `meta`（本轮 token / 花费 / 时长 /
+模型），但只有 Inner Thoughts 那张卡片渲染它：用户在自己的聊天里只能从顶部
+popover 看到 Agent 级 7 天汇总，看不到任何一轮的消耗。而这个气泡为了「查看
+推理」本来就在 fetch 同一个响应——`response.meta` 一直被丢掉。现在存进
+`eventLogMeta`，用共享的 [[RunStatChips]] 渲染。
+
+**为什么 chips 放在 disclosure 外面而不是里面**：同一次 fetch 可能把气泡升级
+成 segment 模式（`segmentsForRender` 一旦非空，disclosure 整块 unmount）。放
+里面的话，chips 会恰好在**有回复的那些轮次**上一闪就没——也就是最该看到它的
+那些轮次。
+
+**已知边界**：懒加载沿用原有触发点，用户点开一次「查看推理」才发请求（否则
+每条消息一个请求）。刚跑完、还带着实时数据的那一轮 `canLoadEventLog` 为
+false，chips 要等下次按历史加载时才出现。这是刻意不动的既有取舍——放宽触发
+条件会改变 `inlineEvents` 的数据源优先级，属于另一件事。
 
 ## 2026-08-24 — user 气泡三态尾标
 

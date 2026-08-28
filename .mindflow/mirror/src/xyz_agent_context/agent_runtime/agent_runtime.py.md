@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-17
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 账目也绑 event_id
+
+Step 0 建出 Event 行之后那处 `bind_event` 旁边，多挂一个
+`cost_event_scope(ctx.event.id)`，两者同挂在 `_trace_stack` 上，错误路径一起
+回退。
+
+理由和日志绑定是同一个：helper LLM 调用（narrative 选择、shutter/decider、
+总结、post-turn hooks）在自己的调用点根本拿不到 event_id，此前全部记
+`event_id=NULL`，导致单轮 token 只数得到主循环。绑定点必须在 Step 0 之后
+——Event 行此时才存在。详见 [[cost_tracker]] 同日条目。
 
 ## 2026-08-17 — 去掉 `on_plain_text_delivery`
 

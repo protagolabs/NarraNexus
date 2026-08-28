@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/tokenFormat.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 最后一份副本收编
+
+文件头上那条「InnerThoughtCard 仍有自己的 `formatTokens`，另行跟踪」的 NOTE
+可以销了。为 Conversation 视图抽 [[RunStatChips]] 时必须二选一，本文件的规则
+胜出，那张卡片的私有副本删除。至此"一个 token 数怎么显示"在用量界面上只有
+一处答案。
 
 # tokenFormat.ts — 用量界面的统一显示规则（求和 / 格式化 / 模型标签）
 
