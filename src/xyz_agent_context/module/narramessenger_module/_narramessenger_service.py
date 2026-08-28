@@ -12,9 +12,11 @@ bind token (the public token inside a link like
   2. Re-fetch the setup-guide (now at ``waiting_connection`` / ``connected``)
      and regex out the runtime **bearer** token, the **Matrix access token**,
      the Matrix user id, and the homeserver URL.
-  3. ``POST /bind-agent/runtime-ready?token=<bind_token>`` — completes the
-     Direct Matrix bind and returns the initial ``bind_room_id`` where the
-     owner will send the first test message.
+  3. ``POST /bind-agent/runtime-ready?token=<bind_token>`` with
+     ``{"platform": "nexus"}`` — completes the Direct Matrix bind, tags the
+     agent's origin platform on the NarraMessenger side, and returns the
+     initial ``bind_room_id`` where the owner will send the first test
+     message.
   4. Upsert the credential row with ``connection_mode='matrix'`` and both
      tokens → :class:`MatrixTrigger`'s credential watcher auto-starts syncing.
 
@@ -46,6 +48,12 @@ from ._narramessenger_credential_manager import (
 )
 
 _DEFAULT_BASE = "https://api.netmind.chat"
+
+# Origin tag sent to NarraMessenger on ``runtime-ready`` so their side can
+# label which platform an agent was bound from. Their field defaults to
+# ``"default"`` when the key is absent — which is exactly what every agent we
+# bound looked like before this was added.
+PLATFORM_TAG = "nexus"
 
 # `Authorization: Bearer <token>` — the runtime bearer in the connected guide's
 # Authentication section. First match wins (the Authentication block renders
@@ -229,8 +237,16 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             # (this call, initial bind) and ``/api/agent-runtime/direct-ready``
             # (bearer-authenticated, used only when upgrading FROM Gateway
             # BACK to Direct after an initial bind). Do not mix them.
+            # ``platform`` tags the agent's origin on the NarraMessenger side.
+            # It rides on runtime-ready (not report-profile) because this is
+            # the one call EVERY bind makes — report-profile is skipped
+            # whenever the guide already revealed the bearer — and because
+            # runtime-ready is the step that means "this agent is usable",
+            # which is what their label describes.
             ready = await _post_json(
-                session, f"{base}/bind-agent/runtime-ready?token={token}", None
+                session,
+                f"{base}/bind-agent/runtime-ready?token={token}",
+                {"platform": PLATFORM_TAG},
             )
             if not ready.get("ok"):
                 return {

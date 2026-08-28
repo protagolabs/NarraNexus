@@ -184,8 +184,13 @@ async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
     # Runtime-ready endpoint URL exact match — locks the "not
     # /api/agent-gateway/connect" contract.
     assert len(guide_scripts["post_calls"]) == 1
-    url, _body, _bearer = guide_scripts["post_calls"][0]
+    url, body, _bearer = guide_scripts["post_calls"][0]
     assert url == "https://api.netmind.chat/bind-agent/runtime-ready?token=yGO3BL"
+    # Platform tag: NarraMessenger marks the agent's origin from this call
+    # (their side defaults to "default" when it is absent). Locked here
+    # because a silently-dropped field looks identical to success on our
+    # end — the regression only shows up in THEIR agent list.
+    assert body == {"platform": svc.PLATFORM_TAG} == {"platform": "nexus"}
 
     # Credential upserted with Matrix-mode fields populated.
     assert len(fake_manager.upserts) == 1
@@ -317,3 +322,8 @@ async def test_do_bind_first_call_reports_profile_before_runtime_ready(
     # First call = report-profile, second = runtime-ready.
     assert "/bind-agent/report-profile" in guide_scripts["post_calls"][0][0]
     assert "/bind-agent/runtime-ready" in guide_scripts["post_calls"][1][0]
+    # report-profile keeps its own contract (name+bio only); the platform
+    # tag rides on runtime-ready, which is the one call every bind makes —
+    # report-profile is skipped whenever the bearer is already revealed.
+    assert set(guide_scripts["post_calls"][0][1]) == {"name", "bio"}
+    assert guide_scripts["post_calls"][1][1] == {"platform": "nexus"}
