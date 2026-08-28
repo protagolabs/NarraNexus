@@ -62,6 +62,24 @@ last_verified: 2026-08-28
 - `test_serving_a_long_cooldown_is_not_credited_as_silence` 末尾补一次
   `prune_idle`：它此前只证明了落库那一半，内存那一半是开的，用例却给出
   「已经防住了」的假象。
+
+## 2026-08-28（第四轮 review）— sweep 与探测的交叉
+
+新增两条、补强三条：
+
+- **sweep 降级过、随后来了探测**：两个条件单独都有用例，组合起来一条也没有，
+  而缺陷恰好只在交叉处触发（探测写新锚点却不写 tier → reload 拿到旧 tier 配
+  新锚点，服完的刑期长回来）。构造点与其它探测用例相同：**探测只能发生在进程
+  内**，会话须在仍冷却时先读进内存。
+- **只有隔离终点、没有 tier 锚点的行**：折叠合并成一份之后，这类行的行为
+  **变了**（此前算步数那条路对空锚点直接短路返回 0，读进内存那条路却回退到
+  终点，同一行两个答案）。这是行为修正不是重构，所以要有自己的守卫。
+- 两条 sweep 用例补 `assert KEY not in guard._sessions`：它们此前只证明了 tier
+  归零，而「条目是否真的被丢弃」那一半是开的——不被丢弃就永远不再 `_load`，
+  行也就永远修正不到 `aged_out`。
+- `test_warm_start_skips_a_session_whose_cooldown_has_elapsed` 的 setup 从
+  「冷却一天前结束」改成「刚结束 60 秒」：一天的沉默现在会正确地把 tier 衰减
+  掉，原 setup 等于让这条用例依赖缺陷存在。**改的是 setup 不是断言。**
 # test_ingress_breaker_persistence.py — 冷却必须活过进程
 
 钉 [[ingress_guard.py]] 的读写分层：滑窗纯内存、tier/冷却写穿。

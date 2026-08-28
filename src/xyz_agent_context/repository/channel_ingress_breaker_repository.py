@@ -116,6 +116,9 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         filters: Dict[str, Any] = {}
         if channel:
             filters["channel"] = channel
+        # One "now" per call — the cap's warning and the cooling filter
+        # below must not read two different moments.
+        moment = now or utc_now()
         try:
             rows = await self._db.get(
                 self.table_name,
@@ -142,15 +145,8 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
             # both dialects, so the tail that gets cut is normally exactly
             # the rows this method would have discarded anyway.
             #
-            # So only shout when the last row we kept still carries a
-            # cooldown — the one case where a candidate could have been
-            # left outside the cap. Warning on row count alone would fire
-            # on every start for any channel with a long trip history,
-            # nothing actually lost, and a warning that cries wolf every
-            # boot gets filtered — after which a real truncation is just as
-            # invisible as a silent one.
-            # What counts as "a candidate could have been cut" depends on
-            # which question the caller asked.
+            # What counts as "a candidate could have been cut" therefore
+            # depends on which question the caller asked.
             if not cooling_only:
                 # The candidate set is every tier > 0 row, and the tail
                 # this ORDER BY cuts is the NULL-cooldown ones — which can
@@ -162,17 +158,15 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
                     f"escalation memory may have been skipped"
                 )
             else:
-                # Only rows still cooling are candidates. NULLs sort last
-                # in both dialects, so the cut tail can only contain a
-                # candidate if the last row we KEPT is itself still
-                # cooling. An already-elapsed timestamp there means the cut
-                # rows were all past their cooldown — nothing lost, and
-                # warning anyway would fire on every start for any channel
-                # with a long trip history. A warning that cries wolf each
-                # boot gets filtered, after which a real truncation is as
-                # invisible as a silent one.
-                moment = now or utc_now()
-                last_kept = self._row_to_entity(rows[-1]).cooldown_until if rows else None
+                # Only rows still cooling are candidates, and NULLs sort
+                # last, so the cut tail can only contain one if the last
+                # row we KEPT is itself still cooling. An already-elapsed
+                # timestamp there means the cut rows were all past their
+                # cooldown — nothing lost, and warning anyway would fire on
+                # every start for any channel with a long trip history. A
+                # warning that cries wolf each boot gets filtered, after
+                # which a real truncation is as invisible as a silent one.
+                last_kept = self._row_to_entity(rows[-1]).cooldown_until
                 if last_kept is not None and last_kept.tzinfo is None:
                     last_kept = last_kept.replace(tzinfo=moment.tzinfo)
                 if last_kept is not None and last_kept > moment:
@@ -193,7 +187,6 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         if not cooling_only:
             return open_rows
 
-        moment = now or utc_now()
         still_cooling = []
         for e in open_rows:
             until = e.cooldown_until

@@ -666,9 +666,14 @@ async def test_a_probe_does_not_hand_the_cooldown_back_as_silence():
     ends = state.cooldown_until
     assert ends is not None
 
-    # A genuinely new message after the cooldown: admitted as a probe, tier
-    # deliberately kept.
-    after = ends + timedelta(seconds=50)
+    # A genuinely new message, arriving one full decay step AFTER the
+    # cooldown ended. That gap is what makes the choice observable: the
+    # anchor must be the isolation's END, so this probe leaves exactly one
+    # step of real silence on the books. Anchoring on `now` instead would
+    # erase it and the sweep below would take nothing — a 50s gap (the
+    # first version) gives 0 steps either way and cannot tell them apart.
+    step = guard._decay_step_seconds
+    after = ends + timedelta(seconds=step + 100)
     await _send(guard, n=1, text="something entirely different", start=after)
     tier_after_probe = state.tier
     assert tier_after_probe >= 3, "the probe should have kept the tier"
@@ -676,7 +681,14 @@ async def test_a_probe_does_not_hand_the_cooldown_back_as_silence():
 
     guard.prune_idle(after)
 
-    assert state.tier == tier_after_probe, (
-        "the sweep re-billed the served cooldown as silence and undid the "
-        f"probe's decision: {tier_after_probe} -> {state.tier}"
+    assert state.tier == tier_after_probe - 1, (
+        "one decay step of genuine silence elapsed between the cooldown "
+        "ending and the probe arriving; anchoring on the probe's own "
+        f"arrival would have thrown it away: {tier_after_probe} -> {state.tier}"
+    )
+
+    # And the served cooldown itself is still not billed: six more steps
+    # were inside it, and only the one real step was taken.
+    assert state.tier >= 2, (
+        f"the served cooldown was re-billed as silence: {state.tier}"
     )

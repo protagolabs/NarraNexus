@@ -259,7 +259,12 @@ async def test_warm_start_skips_a_session_whose_cooldown_has_elapsed(db_client):
             "channel": "narramessenger",
             "agent_id": "agt_1",
             "tier": 2,
-            "cooldown_until": BASE - timedelta(days=1),
+            # Lapsed, but only just. A day-old cooldown (the first version)
+            # meant a day of silence AFTER the isolation ended, which now
+            # correctly ages the tier out — the setup would then be pinning
+            # the absence of decay rather than the lazy reload this test is
+            # about.
+            "cooldown_until": BASE - timedelta(seconds=60),
         },
     )
     guard = _guard(repo)
@@ -607,6 +612,17 @@ async def test_the_cap_warns_only_when_a_candidate_could_have_been_cut():
         f"the last kept row was still cooling and nothing was said: {loud}"
     )
 
+    # The tail-is-NULL shape: `last_kept` comes back None rather than an
+    # elapsed timestamp. Same silent branch, different way in — it was the
+    # original quiet case and lost its coverage when the criterion moved
+    # from "non-null" to "still cooling".
+    _, _, null_tail = await _capped_find_open(
+        _fake_open_rows(n, cooling=False), cooling_only=True, now=during
+    )
+    assert not [ln for ln in null_tail if "WARNING" in ln], (
+        f"warned although the cut tail carried no cooldown at all: {null_tail}"
+    )
+
     # The other question: escalation memory, cooldown irrelevant.
     _, _, always = await _capped_find_open(
         _fake_open_rows(n, cooling=False), cooling_only=False
@@ -794,6 +810,14 @@ async def test_the_sweep_can_age_down_a_session_it_only_read_from_the_db(db_clie
         "the sweep never reached a session loaded from the DB, so its tier "
         "stands for the life of the process"
     )
+    # The other half: aged to 0 is not enough, the entry has to actually
+    # GO. While it is held, `state.loaded` stays True, `_load` never runs
+    # again, and the durable row is never corrected to `aged_out` — the
+    # justification for the sweep being memory-only.
+    assert KEY not in guard._sessions, (
+        "aged down but still held: the row it belongs to can never be "
+        "swept, which is the growth this whole path exists to stop"
+    )
 
 
 async def test_warm_start_sessions_are_reachable_by_the_sweep(db_client):
@@ -828,6 +852,10 @@ async def test_warm_start_sessions_are_reachable_by_the_sweep(db_client):
     assert guard.open_session_count() == 0, (
         "a warm-started session can never leave the standing-isolation "
         "count, so the gauge climbs with uptime"
+    )
+    assert KEY not in guard._sessions, (
+        "a warm-started session carries a non-null cooldown forever, so a "
+        "criterion of 'never had one' pins it in memory permanently"
     )
 
 
@@ -923,4 +951,98 @@ async def test_warm_start_carries_the_isolation_end_into_the_anchor(db_client):
     assert state.tier == 3, (
         "the sweep counted the served cooldown as silence, so a restart "
         f"during isolation still loses the tier: {state.tier}"
+    )
+
+
+async def test_a_probe_persists_the_tier_the_sweep_left_behind(db_client):
+    """`tier` and `tier_changed_at` are two halves of one fact.
+
+    The in-memory sweep is the only path that moves a tier without
+    persisting it, and its justification is that the row still says tier N
+    with an untouched anchor, so the next `_load` recomputes the same
+    answer. A probe that writes the new anchor but keeps the old tier
+    destroys that: the reload sees an old tier with a fresh anchor, the
+    served sentence grows back, and a session that had correctly decayed
+    to 0 picks its tier up again on the first message after a cooldown —
+    then jumps to tier+1 on its next real offence.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 1,
+            "cooldown_until": BASE + timedelta(seconds=300),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    # Held in memory across the cooldown boundary, or `_half_open` never
+    # runs (a lazy load after it lapsed just admits normally).
+    await _storm(guard, start=BASE + timedelta(seconds=60), n=1)
+    state = guard._sessions[KEY]
+
+    # The sweep ages it out, in memory only.
+    swept_at = BASE + timedelta(seconds=300 + guard._decay_step_seconds + 60)
+    guard._decay_silent_in_memory(swept_at)
+    assert state.tier == 0, f"setup: the sweep should have aged it out: {state.tier}"
+
+    # Now the probe fires on the same in-memory session.
+    verdict = (await _storm(guard, start=swept_at, n=1, text="brand new"))[0]
+    assert verdict.transition == "probe", f"expected the half-open probe: {verdict}"
+
+    row = await repo.get(KEY)
+    assert row is not None
+    assert row.tier == 0, (
+        f"the probe wrote a fresh anchor onto a stale tier: row={row.tier} "
+        f"memory={state.tier}"
+    )
+
+    reborn = _guard(repo)
+    later = (await _storm(reborn, start=swept_at + timedelta(seconds=60), n=1))[0]
+    assert later.tier == 0, (
+        f"the served sentence grew back across the reload: {later.tier}"
+    )
+
+
+async def test_a_row_with_no_anchor_still_decays_from_its_cooldown_end(db_client):
+    """A row that records an isolation end but no tier move.
+
+    The two halves of the fold used to disagree here: reading the row into
+    memory produced a non-null anchor (falling back to the cooldown end)
+    while the decay short-circuited on the null `tier_changed_at` and
+    returned zero steps — two answers for one row. With one definition,
+    both say "measure from the end of the isolation".
+
+    This is a behaviour CHANGE, not a refactor: such a row now decays.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 2,
+            "cooldown_until": BASE + timedelta(seconds=300),
+            "last_reason": "escalated",
+            # tier_changed_at deliberately absent.
+        },
+    )
+    guard = _guard(repo)
+    row = await repo.get(KEY)
+    assert row is not None and row.tier_changed_at is None, "setup: no anchor"
+
+    # Two decay steps of silence after the isolation ended.
+    at = BASE + timedelta(seconds=300 + guard._decay_step_seconds * 2 + 60)
+    verdict = (await _storm(guard, start=at, n=1))[0]
+
+    assert verdict.tier == 0, (
+        "a row carrying only an isolation end must decay from it, not be "
+        f"treated as having no origin at all: tier={verdict.tier}"
     )

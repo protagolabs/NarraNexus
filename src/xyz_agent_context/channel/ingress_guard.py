@@ -489,6 +489,19 @@ class IngressGuard:
         though the arithmetic is unaffected. The durable row is corrected
         the next time that key speaks.
 
+        "Droppable" means not cooling RIGHT NOW, not "never cooled":
+        ``cooldown_until`` is only ever cleared by a probe, so a criterion
+        of "never had one" would pin every session that has ever tripped.
+
+        One visible consequence of dropping: the next message from that key
+        reloads the row, and ``_load`` keeps only a cooldown still in the
+        future — so an elapsed one is not restored and the message takes
+        the ordinary counting path instead of arriving as a half-open
+        probe. Same shape as the post-restart behaviour ``_half_open``
+        already documents (an empty ``trip_fingerprints`` falls back to
+        re-earning the window); the durable tier is unaffected, which is
+        the half that matters.
+
         Returns the number of sessions dropped — decayed-but-still-held
         sessions are not counted.
         """
@@ -515,7 +528,14 @@ class IngressGuard:
             key
             for key, s in self._sessions.items()
             if s.tier <= 0
-            and s.cooldown_until is None
+            # "not cooling NOW", not "never had a cooldown". The field is
+            # only ever cleared by a probe, so every session that tripped,
+            # loaded while cooling, or came from ``warm_start`` carries a
+            # non-null value forever — i.e. exactly the sessions this sweep
+            # exists for would be pinned here permanently, and never get
+            # the second ``_load`` that corrects their durable row. Same
+            # predicate as ``cooling_session_count``.
+            and (s.cooldown_until is None or s.cooldown_until <= now)
             and (not s.events or s.events[-1][0] < cutoff)
         ]
         for key in stale:
@@ -701,17 +721,20 @@ class IngressGuard:
         letting a ZeroDivisionError out would turn fail-open into
         fail-closed and drop every message on the channel (binding
         rule #16).
+
+        A missing ``anchor`` is not a short circuit: the fold runs first,
+        so a row that records only an isolation end still measures from it.
+        Only when BOTH are absent is there no origin to measure from.
         """
+        # Before the fold, and not inside it: the step length is this
+        # class's business, not the anchor rule's.
         if self._decay_step_seconds <= 0:
             return 0
-        anchor = _as_aware(anchor, now)
+        anchor = _fold_isolation_end(anchor, isolation_end, now)
         if anchor is None:
-            # A tier that was never moved by this code path. Decaying from
-            # an unknown origin would be a guess.
+            # Neither a tier move nor an isolation end is recorded. Decaying
+            # from an unknown origin would be a guess.
             return 0
-        end = _as_aware(isolation_end, now)
-        if end is not None and end > anchor:
-            anchor = end
         steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
         return max(0, steps)
 
@@ -907,11 +930,9 @@ class IngressGuard:
         # ``cooldown_until``, so anchoring on anything else would give the
         # two paths different answers again. It also keeps the genuinely
         # silent gap between "cooldown elapsed" and "probe arrived".
-        ended = state.cooldown_until
-        if ended is not None and (
-            state.tier_changed_at is None or ended > state.tier_changed_at
-        ):
-            state.tier_changed_at = ended
+        state.tier_changed_at = _fold_isolation_end(
+            state.tier_changed_at, state.cooldown_until, now
+        )
         state.cooldown_until = None
 
         if fingerprint and fingerprint in state.trip_fingerprints:
@@ -944,10 +965,18 @@ class IngressGuard:
                 "chat_id": chat_id,
                 "sender_id": sender_id,
                 "cooldown_until": None,
-                # Persisted with the clearing, or the row loses the same
-                # anchor the in-memory copy just saved: `upsert_state` is a
-                # partial write, so `cooldown_until` really does become
-                # NULL and nothing else would carry the isolation's end.
+                # tier and its anchor go in the SAME write, as they do in
+                # ``_trip`` and ``_maybe_recover``. They are two halves of
+                # one fact ("what the tier is" / "when it last moved"), and
+                # the in-memory sweep is the one path that moves tier
+                # without persisting — its whole justification is that the
+                # row still says tier N with an untouched anchor, so the
+                # next ``_load`` recomputes the same answer. Writing only
+                # the new anchor here would hand that reload an old tier
+                # with a fresh anchor: the served sentence grows back, and
+                # a session that had correctly decayed to 0 quietly picks
+                # its tier up again on the first message after a cooldown.
+                "tier": state.tier,
                 "tier_changed_at": state.tier_changed_at,
                 # The isolation that just ended absorbed this many messages.
                 # This is the ONLY moment the number can be persisted: the
