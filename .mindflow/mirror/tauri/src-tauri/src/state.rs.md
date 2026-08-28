@@ -1,9 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-07-22
+last_verified: 2026-08-28
 ---
 
-## 2026-07-22 — four worker ServiceDefs collapsed into one `workers` service
+## 2026-08-28 — resolve_bundled_node_bins 也吐插件 CLI 目录
+
+Claude Code 从"自带"改成按需插件后，`resolve_bundled_node_bins()` 除了打包
+`resources/nodejs/{bin,node_modules/.bin}`，还 append
+`~/.narranexus/plugins/nodejs/node_modules/.bin`（尊重 `NARRANEXUS_PLUGIN_HOME`
+覆盖，与 [[plugin_paths]] 对齐）。这样桌面 OAuth 流（[[auth]] 的
+`claude auth login`）在用户装完插件后能在 PATH 上找到 `claude`。打包 node `bin`
+仍排在最前，保证插件 claude 的 `#!/usr/bin/env node` shebang 解析到我们的 node。
+注意：agent loop 本身**不靠 PATH**找 claude（cli_binary.py 用显式路径），此改动
+只服务 login 流与 lark/narra。
 
 Both factories replaced the four separate worker ServiceDefs (`poller` o3,
 `job_trigger` o4, `message_bus_trigger` o5, `channel_triggers` o6) with a SINGLE
