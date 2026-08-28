@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/codex_oauth.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(随 claude_oauth 同批)
@@ -9,8 +9,10 @@ last_verified: 2026-08-27
 同 claude_oauth.md 同日条目:内部列名不再进用户可见文案。分支按
 source 判别(review 第 3 轮),第 4 轮把守卫**提到 probe 顶部**——
 misroute 判定先于一切凭证检查,与 claude 侧(token 分支之前)对称。
-判 source 不判 driver_type。`test_codex_oauth_driver.py` 的 probe 测试
-断言不泄漏 "auth_ref" 且含 "re-add"。
+判 source 不判 driver_type。误路由文案须给出**正向动作**(引导新建
+Codex CLI (OAuth) 卡;2026-08-28 PR bot 轮——不得退回纯 check 措辞,
+也不得混用损坏支专属的 remove+re-add)。`test_codex_oauth_driver.py`
+的 probe 测试断言不泄漏 "auth_ref" 且含 "re-add"。
 
 另:`build_codex_config` 的强制 auth_ref 覆盖改走
 `derive_auth_ref("codex_oauth", auth_type)`(真值表副本清点,review

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/derive.py
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 stub: false
 ---
 
@@ -15,6 +15,11 @@ protocol)` / `derive_billing_policy(source, auth_type)`)相反,按位置
 的 `or ""`、`build_codex_config` 的 `or (card.auth_ref or "")` 三处都
 依赖 None 触发回落。真值表有直接的表驱动测试钉住
 (`test_derive_auth_ref_truth_table`,断言 `is None` 非 falsy)。
+2026-08-28(PR bot 轮):CLI 订阅源集合抽成模块常量
+`CLI_SUBSCRIPTION_SOURCES`(进 `__all__`),derive_auth_ref 的守卫与
+user_service `_cli_subscription_row_fields` 的 scope 守卫共用;加第三个
+CLI framework 时集合与 per-source 分支都要扩,helper 的非 None 兜底会把
+半成品扩展变成响亮的 ValueError 而非静默 driver_type=NULL 行。
 
 ## 2026-08-27 — derive_auth_ref 的 source 守卫收进函数本体(P1 review 第 2 轮)
 

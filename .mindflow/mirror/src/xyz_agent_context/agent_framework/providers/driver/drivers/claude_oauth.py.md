@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 stub: false
 ---
 
@@ -17,7 +17,10 @@ re-add Claude Code (OAuth) in Settings → LLM Providers"。前提:创建路径
 建议删卡是破坏性误导,改报 "not a Claude Code (OAuth) card"。**判
 source 不判 driver_type**——误路由的成因就是 driver_type 为 NULL。
 codex_oauth 同款同批修。测试断言文案**不含** "auth_ref" 字符串、误路由
-行**不含** "remove"。第 4 轮把 source 守卫**提到 `_is_token_mode()` 之前**
+行**不含** "remove"。误路由文案还必须给出**正向动作**(引导新建对应
+类型的卡,2026-08-28 PR bot 轮)——不得退回纯 check / 纯禁止措辞,
+"文案没给出路"正是本 P1 工单的原始体感;但也不得写成 remove + re-add,
+那是 `source==claude_oauth` 引用真损坏那一支的专属措辞,两支责任不同。第 4 轮把 source 守卫**提到 `_is_token_mode()` 之前**
 ——否则 `auth_type="oauth_token"` 的误路由卡会先落进 token 分支,拿到
 "run `claude setup-token`" 这种它执行不了的建议;现在 misroute 判定
 先于一切模式分支(测试:

@@ -178,12 +178,13 @@ def _cli_subscription_row_fields(
     the result (their branches key on source alone).
     """
     from xyz_agent_context.agent_framework.providers.driver.derive import (
+        CLI_SUBSCRIPTION_SOURCES,
         derive_auth_ref,
         derive_billing_policy,
         derive_driver_type,
     )
 
-    if (source or "").lower() not in ("claude_oauth", "codex_oauth"):
+    if (source or "").lower() not in CLI_SUBSCRIPTION_SOURCES:
         # Enforce the documented scope, not merely "classifiable":
         # derive_driver_type happily classifies source="user" as
         # custom_anthropic, and this helper would then stamp an
@@ -192,8 +193,19 @@ def _cli_subscription_row_fields(
         raise ValueError(
             f"not a CLI-subscription source: {source!r} (auth_type={auth_type!r})"
         )
+    driver_type = derive_driver_type(source, auth_type, protocol)
+    if driver_type is None:
+        # In-scope but unclassifiable = the membership set was extended
+        # before derive_driver_type grew the matching branch (the
+        # half-done gemini_cli scenario). Without this backstop the row
+        # would be written with driver_type=NULL — the exact state this
+        # helper exists to eliminate.
+        raise ValueError(
+            f"CLI-subscription source {source!r} has no derive_driver_type "
+            "branch — extend the truth table before wiring the card type"
+        )
     return {
-        "driver_type": derive_driver_type(source, auth_type, protocol),
+        "driver_type": driver_type,
         "billing_policy": derive_billing_policy(source, auth_type),
         "auth_ref": derive_auth_ref(source, auth_type) or "",
     }

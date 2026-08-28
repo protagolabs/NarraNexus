@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 stub: false
 ---
 
@@ -19,8 +19,13 @@ claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver �
 claude_oauth/codex_oauth)直接 `raise ValueError`。注意判据是 scope
 而非"可分类"——`derive_driver_type("user","oauth","anthropic")` 会返回
 `custom_anthropic`,按 None 判挡不住 "user",helper 会给不该服务的卡
-盖上 external_oauth;PR bot 轮的 raise 测试暴露了这一点(测试:
-`test_cli_subscription_row_fields_raises_on_unknown_source`)。
+盖上 external_oauth;PR bot 轮的 raise 测试暴露了这一点。scope 守卫用
+derive.py 的 `CLI_SUBSCRIPTION_SOURCES` 共享集合(不再是本地元组副本),
+且 **scope 判断与非 None 兜底并列、都要留**:前者挡 scope 外的 source,
+后者挡"集合已扩、derive_driver_type 分支未跟"的半成品扩展(否则
+`_insert_provider` 会写出 driver_type=NULL)。测试:
+`test_cli_subscription_row_fields_raises_on_out_of_scope_source` /
+`..._raises_on_half_wired_source`。
 
 **已知取舍(review 第 5 轮 Important 4,待库上核实)**:`test_provider`
 的 legacy 兜底(driver_type NULL 时按 **protocol** 推 driver)与真值表

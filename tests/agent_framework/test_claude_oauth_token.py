@@ -500,17 +500,36 @@ async def test_add_claude_oauth_host_cli_row_is_complete_at_insert():
     assert row["billing_policy"] == "external_oauth"
 
 
-def test_cli_subscription_row_fields_raises_on_unknown_source():
-    """A mistyped source must fail loudly at the call site — writing
-    driver_type=NULL is exactly the state the helper exists to eliminate.
-    This guard is the only backstop for the NEXT CLI-OAuth card type
-    (e.g. gemini_cli) wired through here."""
+def test_cli_subscription_row_fields_raises_on_out_of_scope_source():
+    """The guard enforces the documented SCOPE, not mere classifiability:
+    derive_driver_type happily classifies source='user' as custom_anthropic,
+    so a None check alone would let the helper stamp external_oauth billing
+    onto a card it must not serve."""
     from xyz_agent_context.agent_framework.providers.user_service import (
         _cli_subscription_row_fields,
     )
 
     with pytest.raises(ValueError):
         _cli_subscription_row_fields("user", "oauth", "anthropic")
+
+
+def test_cli_subscription_row_fields_raises_on_half_wired_source(monkeypatch):
+    """The gemini_cli drift scenario: a source added to
+    CLI_SUBSCRIPTION_SOURCES before derive_driver_type grew its branch must
+    raise loudly — otherwise _insert_provider would write driver_type=NULL,
+    the exact state this helper exists to eliminate."""
+    from xyz_agent_context.agent_framework.providers.driver import derive
+    from xyz_agent_context.agent_framework.providers.user_service import (
+        _cli_subscription_row_fields,
+    )
+
+    monkeypatch.setattr(
+        derive,
+        "CLI_SUBSCRIPTION_SOURCES",
+        frozenset({"claude_oauth", "codex_oauth", "gemini_cli"}),
+    )
+    with pytest.raises(ValueError, match="derive_driver_type"):
+        _cli_subscription_row_fields("gemini_cli", "oauth", "openai")
 
 
 # ---------------------------------------------------------------------------

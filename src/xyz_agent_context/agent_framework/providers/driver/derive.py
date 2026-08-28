@@ -122,6 +122,14 @@ def derive_billing_policy(
 # the value is portable across OSes (Linux / macOS / Windows have
 # different home dirs).
 CLAUDE_CLI_CREDENTIALS_REF = "claude-cli:~/.claude/.credentials.json"
+
+# The two CLI-subscription sources — the single membership set shared by
+# derive_auth_ref's guard and user_service's _cli_subscription_row_fields.
+# Adding a third CLI framework (e.g. gemini_cli) means extending BOTH this
+# set and the per-source branches below; the helper's non-None backstop
+# turns a half-done extension into a loud ValueError instead of a silent
+# driver_type=NULL row.
+CLI_SUBSCRIPTION_SOURCES = frozenset({"claude_oauth", "codex_oauth"})
 CODEX_CLI_CREDENTIALS_REF = "codex-cli:~/.codex/auth.json"
 
 
@@ -152,13 +160,11 @@ def derive_auth_ref(
     """
     auth = (auth_type or "").lower()
     src = (source or "").lower()
-    if auth != "oauth":
+    if auth != "oauth" or src not in CLI_SUBSCRIPTION_SOURCES:
         return None
     if src == "codex_oauth":
         return CODEX_CLI_CREDENTIALS_REF
-    if src == "claude_oauth":
-        return CLAUDE_CLI_CREDENTIALS_REF
-    return None
+    return CLAUDE_CLI_CREDENTIALS_REF
 
 
 def resolve_claude_credentials_path(auth_ref: Optional[str]) -> Optional[Path]:
@@ -302,4 +308,5 @@ __all__ = [
     "pick_default_model",
     "CLAUDE_CLI_CREDENTIALS_REF",
     "CODEX_CLI_CREDENTIALS_REF",
+    "CLI_SUBSCRIPTION_SOURCES",
 ]
