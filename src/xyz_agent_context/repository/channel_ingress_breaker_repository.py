@@ -217,9 +217,18 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         no error, no warning, discovered only when someone goes looking.
 
         No row cap here, unlike ``find_open``: that one runs on every
-        process start and its result is held in memory, while this runs
-        once per cleanup tick and keeps nothing. A cap would also make
-        "deleted" a partial answer with no way to say so.
+        process start and its result is held in memory, while this keeps
+        nothing. A cap would also make "deleted" a partial answer with no
+        way to say so.
+
+        Two callers, and the second one matters for that argument: besides
+        the trigger's background cleanup tick, ``ManagedChannelIngress``
+        calls this from the ingress path (throttled to once per
+        process-day) because managed-only deployments have no background
+        loop. So this can run inside a user turn. What keeps that bounded
+        is not a cap but ``IngressGuard._persist`` being write-through ON
+        TRANSITION ONLY — the table holds sessions that have stormed, not
+        messages.
 
         The age comparison happens in PYTHON, not in the WHERE clause. The
         two dialects do not agree on how ``updated_at`` is spelled: sqlite

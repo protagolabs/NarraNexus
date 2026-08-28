@@ -4,6 +4,24 @@ last_verified: 2026-08-28
 stub: false
 ---
 
+
+## 2026-08-28（接线）— `channel_ingress_breaker` 现在有**两个**清扫者
+
+本页 2026-08-24 那条写的「保留期由 [[channel_trigger_base.py]] 的
+`_run_cleanup` 顺带扫」**已过时**，两处都不再准确：
+
+1. 那条清扫现在**按自己的 `channel_name` 作用域**扫，不再覆盖全表。保留期是
+   按 trigger 声明的类属性（与 `DEDUP_RETENTION_DAYS` /
+   `AUDIT_RETENTION_DAYS` 并列，Lark 与 Matrix 已经在覆写后两个），不带作用域
+   等于「谁先 tick 谁说了算」。
+2. 多了第二个清扫者：[[managed_channel_ingress.py]] 的
+   `_sweep_breaker_rows`，骑在 ingress 路径上按进程日节流。**必须是两个**——
+   基类那条有作用域之后，纯托管部署里没有任何东西会碰这些行。
+
+两者都只删 `tier = 0`，且**都读该渠道 trigger 自己的
+`INGRESS_BREAKER_RETENTION_DAYS`**。托管那条第一版读的是基类值，等于把刚立下
+的 per-trigger 语义在另一个接收面上再拆一次：原生按 90 天留、托管按 30 天删，
+同一张表同一个 channel 两个口径。
 # schema_registry.py
 
 ## 2026-08-27 — 新表 channel_ingress_breaker

@@ -13,6 +13,20 @@ last_verified: 2026-08-28
 **事件名只有一份**。参数化跑 `transition` 全部取值断言 `audit_event()` 的映射，
 再加一条 grep：两个调用方都不许出现那三个事件常量——重新长出一个
 `if transition == ...` 时，它连编译出一个名字来比较都做不到。
+
+## 2026-08-28（接线 review 二轮）— 名字要说实话，范围要收窄
+
+`test_both_surfaces_read_the_same_event_from_the_verdict` 改名
+`test_the_verdict_owns_the_event_mapping`：它构造 verdict 直接调
+`audit_event()`，**两个面一个都没跑**。真正保证两面一致的是那条源码级检查，
+名字claim 了它没有的端到端覆盖。
+
+那条源码级检查从「整个模块」收窄到**两个写入函数**：`/healthz` 计数或某段
+docstring 正当地点名 `ingress_breaker_tripped` 时，原来的范围会以「映射正在
+漂回调用点」的理由拦下一个与映射无关的改动，而报错信息把人引向错的方向。
+
+新增穷尽断言：`INGRESS_TRANSITIONS` 每个成员都要映射得到事件（见
+[[ingress_guard.py]]）。
 # test_ingress_breaker_audit_trail.py — 铁律 #16 的那道门槛
 
 ## 为什么单独一个文件

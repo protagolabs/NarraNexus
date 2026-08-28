@@ -177,6 +177,13 @@ def _trigger_modules():
 # Argument names that mean "the entire serialised tag", as opposed to one
 # field of it. Kept explicit so adding a rehydrator is a deliberate edit
 # here rather than an accident of how many parameters it happens to take.
+#
+# The trade is deliberate: a rehydrator whose argument is NOT on this list
+# (``from_json(s)``, ``of(blob)``) gets treated as a builder and this test
+# demands it fill the flag — a loud, explained failure. The previous
+# criterion failed the other way, silently letting a future single-FIELD
+# factory out of the guard. So: adding a rehydrator means either naming
+# its argument from this list, or adding the new name to it.
 _WHOLE_PAYLOAD_ARG_NAMES = {"data", "raw", "payload", "tag_str", "serialised"}
 
 

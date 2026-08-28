@@ -32,6 +32,21 @@ last_verified: 2026-08-28
 `_GuardedTrigger` 就是这样）会让 agent 对端按默认的 20 判定，风暴**根本不跳
 闸**，而我第一版正是这么写的，失败信息还是「storm never tripped」这种看起来
 像被测代码坏了的样子。
+
+## 2026-08-28（接线 review 二轮）— 保留期天数与 guard 开关
+
+**断言必须让基类值和覆写值不同**。原来的 fake 不覆写
+`INGRESS_BREAKER_RETENTION_DAYS`，那么「断言等于 trigger 的值」在**两种实现下
+都为真**——正是同一轮里 agent 阈值那条测试刚踩过的形状。现在 fake 覆写成 7 天
+再断言等于 7，写死基类值的变异当场红。
+
+**patch 目标随 import 位置**。生产代码把 `ChannelIngressBreakerRepository` 提到
+模块级之后（与同文件的 `ChannelTriggerAuditRepository` 一致），patch 也要打在
+模块上。打错的话什么都没 patch 到，真 repository 被调用、`calls` 为空，测试红在
+「managed rows are never swept」上——读起来像被测代码坏了。
+
+新增：熔断器关掉的渠道**不该被扫**。它写不出行，那次查询必然为空，而它发生在
+用户消息的路径上。
 # test_manyfold_im_ingress.py — 托管 IM 入站的映射与 route 接线
 
 覆盖 `build_inbound_run_context` 的 provider 映射（channel_provider /

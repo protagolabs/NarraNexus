@@ -39,6 +39,9 @@ from xyz_agent_context.channel.channel_audit_events import (
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
 from xyz_agent_context.channel.ingress_guard import IngressGuard, content_fingerprint
+from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+    ChannelIngressBreakerRepository,
+)
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
@@ -167,7 +170,9 @@ class ManagedChannelIngress:
         self._guards[channel] = guard
         return guard
 
-    async def _sweep_breaker_rows(self, db: Any, channel: str) -> None:
+    async def _sweep_breaker_rows(
+        self, db: Any, channel: str, trigger: ChannelTriggerBase
+    ) -> None:
         """Age out this channel's closed breaker rows, once per process-day.
 
         The coordinator has no periodic loop of its own, so the sweep rides
@@ -179,20 +184,36 @@ class ManagedChannelIngress:
         reclaimed when a NATIVE trigger for the same channel happens to run
         in the same process. A managed-only deployment would keep them
         forever, which is the growth the retention window exists to stop.
+
+        The window comes from the trigger, the same way ``_guard`` takes
+        its seven thresholds from ``trigger.build_ingress_guard`` — one
+        source for both receive faces.
         """
+        # After the guard check, not before: a channel with the breaker
+        # switched off has no rows to sweep, and scanning a table it never
+        # writes to once per process-day is pure waste.
+        if self._guard(channel, trigger, db) is None:
+            return
         now = time.monotonic()
         if now < self._breaker_sweep_next.get(channel, 0.0):
             return
+        # Armed BEFORE the attempt, deliberately: a failing DB must not be
+        # retried on every message for the rest of the day.
         self._breaker_sweep_next[channel] = now + 24 * 3600
         try:
-            from xyz_agent_context.repository import (
-                ChannelIngressBreakerRepository,
-            )
-
             deleted = await ChannelIngressBreakerRepository(
                 db
             ).cleanup_older_than_days(
-                ChannelTriggerBase.INGRESS_BREAKER_RETENTION_DAYS, channel=channel
+                # THIS trigger's window, not the base class's. The constant
+                # is declared per-trigger exactly like the seven threshold
+                # knobs beside it (and like DEDUP_/AUDIT_RETENTION_DAYS,
+                # which Lark and Matrix already override), so reading the
+                # base value here would reinstate the same defect the
+                # channel scoping just removed — only across receive faces
+                # instead of across channels: native ticks keep 90 days,
+                # managed ticks delete at 30, same table, same channel.
+                trigger.INGRESS_BREAKER_RETENTION_DAYS,
+                channel=channel,
             )
             if deleted:
                 logger.info(
@@ -356,7 +377,7 @@ class ManagedChannelIngress:
         # before any run is constructed. Ordered ahead of the business gate
         # deliberately: a conversation we have already isolated should not
         # cost an authorization round-trip per message.
-        await self._sweep_breaker_rows(db, channel)
+        await self._sweep_breaker_rows(db, channel, trigger)
         admitted, breaker_receipt = await self._ingress_admitted(
             db=db,
             channel=channel,

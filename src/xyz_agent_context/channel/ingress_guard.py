@@ -130,6 +130,26 @@ def content_fingerprint(chat_id: str, sender_id: str, content: str) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 
+# Every transition worth a durable row. Kept as data rather than as four
+# string literals scattered through the state machine: ``audit_event()``
+# maps these to audit events, and an unmapped value fails silently — both
+# receive faces simply write nothing. A test asserts the set is fully
+# mapped, so adding a transition without mapping it goes red here instead
+# of going missing from the DB.
+TRANSITION_TRIPPED = "tripped"
+TRANSITION_ESCALATED = "escalated"
+TRANSITION_PROBE = "probe"
+TRANSITION_RECOVERED = "recovered"
+INGRESS_TRANSITIONS: frozenset = frozenset(
+    {
+        TRANSITION_TRIPPED,
+        TRANSITION_ESCALATED,
+        TRANSITION_PROBE,
+        TRANSITION_RECOVERED,
+    }
+)
+
+
 @dataclass(frozen=True)
 class IngressVerdict:
     """One decision, plus the evidence behind it.
@@ -144,8 +164,11 @@ class IngressVerdict:
     session_key: str
     tier: int = 0
     reason: str = "ok"
-    # None for the ordinary case. "tripped" / "escalated" / "probe" /
-    # "recovered" mark the four moments worth an audit row and a log line.
+    # None for the ordinary case; otherwise one of ``INGRESS_TRANSITIONS``
+    # — the moments worth an audit row and a log line. The set is data, not
+    # a comment, so a test can assert that every member maps to an event:
+    # an unmapped value returns None from ``audit_event()`` and then
+    # NEITHER receive face writes a row, which is silent by construction.
     transition: Optional[str] = None
     window_count: int = 0
     dup_ratio: float = 0.0
@@ -184,9 +207,9 @@ class IngressVerdict:
             EVENT_INGRESS_DROPPED_BREAKER,
         )
 
-        if self.transition in ("tripped", "escalated"):
+        if self.transition in (TRANSITION_TRIPPED, TRANSITION_ESCALATED):
             return EVENT_INGRESS_BREAKER_TRIPPED
-        if self.transition in ("probe", "recovered"):
+        if self.transition in (TRANSITION_PROBE, TRANSITION_RECOVERED):
             return EVENT_INGRESS_BREAKER_CLEARED
         # Deliberately NOT folded together with "should the caller drop
         # this message" — the native gate returns ``verdict.admit`` and the
@@ -896,7 +919,7 @@ class IngressGuard:
         state.clean_since = None
         state.events.clear()
 
-        transition = "escalated" if was_open else "tripped"
+        transition = TRANSITION_ESCALATED if was_open else TRANSITION_TRIPPED
         reason = reason_hint or (
             "agent_peer_repeat_storm" if is_agent_peer else "repeat_storm"
         )
@@ -1062,7 +1085,7 @@ class IngressGuard:
             session_key=key,
             tier=state.tier,
             reason="cooldown_expired",
-            transition="probe",
+            transition=TRANSITION_PROBE,
             suppressed=suppressed,
             is_agent_peer=is_agent_peer,
         )
@@ -1117,7 +1140,7 @@ class IngressGuard:
                 "tier_changed_at": now,
             },
         )
-        return "recovered"
+        return TRANSITION_RECOVERED
 
     async def _persist(self, key: str, updates: Dict[str, Any]) -> None:
         """Write-through on transition only. Never raises: losing the

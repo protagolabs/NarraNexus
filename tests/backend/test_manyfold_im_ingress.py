@@ -2005,10 +2005,20 @@ async def test_managed_rows_age_out_without_a_native_trigger(monkeypatch):
             calls.append((days, channel))
             return 0
 
-    import xyz_agent_context.repository as repo_pkg
+    # Patched on the module, like the sibling `ChannelTriggerAuditRepository`
+    # right beside it. If the production import ever moves back inside the
+    # function this stops patching anything and the test fails on "never
+    # swept" — which reads like the code broke rather than the patch.
+    monkeypatch.setattr(ingress_mod, "ChannelIngressBreakerRepository", _Repo)
 
-    monkeypatch.setattr(repo_pkg, "ChannelIngressBreakerRepository", _Repo)
-    trig = _GuardedTrigger()
+    class _ShortRetention(_GuardedTrigger):
+        # NOT the base class's 30. With the default the assertion below is
+        # true whichever value the sweep reads, so it would pass on the
+        # implementation this test exists to reject — the same shape as the
+        # agent-threshold test that "passed" while the storm never tripped.
+        INGRESS_BREAKER_RETENTION_DAYS = 7
+
+    trig = _ShortRetention()
     monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
     ingress = ingress_mod.ManagedChannelIngress()
 
@@ -2016,6 +2026,11 @@ async def test_managed_rows_age_out_without_a_native_trigger(monkeypatch):
 
     assert calls, "managed rows are never swept"
     assert calls[0][1] == "wechat", f"the sweep is not channel-scoped: {calls[0]}"
+    assert calls[0][0] == 7, (
+        "the managed sweep read the base class's window instead of this "
+        f"trigger's, so native and managed ticks disagree about the same "
+        f"rows: {calls[0]}"
+    )
     # Throttled: three turns, one sweep. Sweeping per message would put a
     # full-table read on the hot path.
     assert len(calls) == 1, f"the sweep is not throttled: {len(calls)} calls"
@@ -2061,4 +2076,39 @@ async def test_the_managed_gate_gets_the_agent_peer_answer(monkeypatch):
     assert trips[0]["details"]["is_agent_peer"] is True, (
         "the gate judged an agent peer on the human thresholds — the signal "
         "never reached it"
+    )
+
+
+async def test_a_channel_with_the_breaker_off_is_not_swept(monkeypatch):
+    """The sweep runs after the guard check, not before it.
+
+    A channel with `INGRESS_GUARD_ENABLED` off never writes a breaker row,
+    so scanning that table for it once per process-day is a query that can
+    only ever return nothing — and it would sit on the ingress path of a
+    user's message to do it.
+    """
+    calls = []
+
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def cleanup_older_than_days(self, days, channel=None):
+            calls.append((days, channel))
+            return 0
+
+    monkeypatch.setattr(ingress_mod, "ChannelIngressBreakerRepository", _Repo)
+
+    class _GuardOff(_GuardedTrigger):
+        INGRESS_GUARD_ENABLED = False
+
+    trig = _GuardOff()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = await _managed_send(ingress, 12)
+
+    assert admitted == 12, "with the breaker off nothing may be suppressed"
+    assert not calls, (
+        f"swept a table this channel never writes to: {calls}"
     )

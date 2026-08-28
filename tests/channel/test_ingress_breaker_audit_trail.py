@@ -185,14 +185,13 @@ _TRANSITIONS = [None, "tripped", "escalated", "probe", "recovered"]
 
 @pytest.mark.parametrize("transition", _TRANSITIONS)
 @pytest.mark.parametrize("admit", [True, False])
-def test_both_surfaces_read_the_same_event_from_the_verdict(transition, admit):
-    """Neither call site may re-derive the event name.
+def test_the_verdict_owns_the_event_mapping(transition, admit):
+    """The mapping itself, checked on the verdict.
 
-    Asserted by source, because the alternative — running both paths for
-    every transition — needs two whole harnesses to compare one string.
-    The grep is precise about what it forbids: the event constants must
-    not be reachable at either call site, so a reintroduced `if
-    transition == ...` cannot compile a name to compare.
+    Deliberately NOT named "both surfaces": this constructs a verdict and
+    calls `audit_event()`, it does not run either receive path. What
+    guarantees the two agree is the source-level check below — a name
+    claiming end-to-end coverage it does not have is worse than no name.
     """
     from xyz_agent_context.channel.ingress_guard import IngressVerdict
 
@@ -216,16 +215,33 @@ def test_both_surfaces_read_the_same_event_from_the_verdict(transition, admit):
 
 
 def test_neither_call_site_keeps_its_own_copy_of_the_mapping():
-    """The two writers must ask the verdict, not decide for themselves."""
+    """The two writers must ask the verdict, not decide for themselves.
+
+    Scoped to the two functions that write, not to whole modules: a
+    `/healthz` counter or a docstring naming `ingress_breaker_tripped`
+    elsewhere in either file is perfectly legitimate, and failing on it
+    would report "the mapping is drifting" about a change that has nothing
+    to do with the mapping.
+    """
     import inspect
 
-    from xyz_agent_context.channel import channel_trigger_base
-    from xyz_agent_context.module import managed_channel_ingress
+    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+    from xyz_agent_context.module.managed_channel_ingress import (
+        ManagedChannelIngress,
+    )
 
-    for mod in (channel_trigger_base, managed_channel_ingress):
-        src = inspect.getsource(mod)
+    writers = {
+        "ChannelTriggerBase._audit_ingress_verdict": (
+            ChannelTriggerBase._audit_ingress_verdict
+        ),
+        "ManagedChannelIngress._ingress_admitted": (
+            ManagedChannelIngress._ingress_admitted
+        ),
+    }
+    for name, fn in writers.items():
+        src = inspect.getsource(fn)
         assert "verdict.audit_event()" in src, (
-            f"{mod.__name__} does not ask the verdict which event this is"
+            f"{name} does not ask the verdict which event this is"
         )
         for const in (
             "EVENT_INGRESS_BREAKER_TRIPPED",
@@ -233,9 +249,9 @@ def test_neither_call_site_keeps_its_own_copy_of_the_mapping():
             "EVENT_INGRESS_DROPPED_BREAKER",
         ):
             assert const not in src, (
-                f"{mod.__name__} names {const} directly — the mapping is "
-                f"drifting back into the call sites, and a new transition "
-                f"will reach one surface and not the other"
+                f"{name} names {const} directly — the mapping is drifting "
+                f"back into the call sites, and a new transition will reach "
+                f"one surface and not the other"
             )
 
 
@@ -283,4 +299,36 @@ async def test_retention_only_sweeps_its_own_channel(db_client):
     assert channels == {"someone_else"}, (
         f"another channel's rows were deleted by this channel's tick: "
         f"{channels}"
+    )
+
+
+def test_every_transition_the_guard_produces_maps_to_an_event():
+    """Adding a transition without mapping it must go red HERE.
+
+    Collapsing the mapping into one place moved the drift point rather
+    than removing it: the new risk is a value that reaches neither face.
+    `audit_event()` returns None for it and both writers skip the row, so
+    the failure is "the DB has no record of it" — discovered by whoever
+    goes looking during an incident.
+
+    `admit=True` on purpose: with `admit=False` the "not admitted" branch
+    would hand back a drop event for any unmapped value and this assertion
+    would be vacuously true.
+    """
+    from xyz_agent_context.channel.ingress_guard import (
+        INGRESS_TRANSITIONS,
+        IngressVerdict,
+    )
+
+    unmapped = [
+        t
+        for t in sorted(INGRESS_TRANSITIONS)
+        if IngressVerdict(
+            admit=True, session_key="a|c|r|s", tier=1, reason="ok", transition=t
+        ).audit_event()
+        is None
+    ]
+    assert not unmapped, (
+        f"these transitions write no audit row on either receive face: "
+        f"{unmapped}"
     )
