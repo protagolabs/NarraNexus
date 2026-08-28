@@ -14,8 +14,8 @@ review 判定 providersApi 的裸 fetch 版本是"同一资源的第二套客户
 "API error 400:" 前缀的 message;`providerErrorMessage`(providersApi)
 基于它做统一映射。`getProviders` 的 providers 值类型从
 `Record<string, unknown>` 收紧为 `Record<string, ProviderRow>`(type-only
-import 自 providersApi,无运行时环;ProviderSummaryCard 的本地富类型经
-unknown 二段 cast)。
+import 自 providersApi,无运行时环;ProviderSummaryCard 的 ProviderInfo 现为
+ProviderRow 别名,cast 已删)。
 
 ## 2026-08-26 — owner 级 bulk slot 方法
 

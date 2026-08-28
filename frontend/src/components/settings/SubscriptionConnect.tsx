@@ -425,7 +425,7 @@ export function SubscriptionConnect({
 
             {/* ---- Section B: Provider record state ---- */}
             <ProviderRecordRow
-              added={claudeTokenConnected || hasClaude}
+              added={hasClaude}
               addedLabel={t(claudeTokenConnected
                 ? 'settings.provider.setupTokenConnected'
                 : 'settings.provider.addedAsProvider')}

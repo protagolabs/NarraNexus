@@ -18,7 +18,11 @@ confirmSessionDeath,2026-08-02 事故正是本资源)和 FastAPI detail 提取�
   `=== false`)。第 4 轮:ProviderRow 从"最窄可选形状"改为**唯一的行
   类型**(收编 ProviderSettings 的 ProviderSummary 超集字段,按后端实际
   契约标注可选性)——窄形状逼出过 `as unknown as` 双重 cast,把"有类型"
-  演成了"没类型"。三份行形状 → 一份;别再本地重declare。
+  演成了"没类型"。三份行形状 → 一份;别再本地重declare。PR bot 轮补漏:agentFramework.ts
+藏着第四份(三个 chat/settings 消费方 cast 进它),现同为别名、cast 全删
+——"唯一行类型"至此才真正成立。providerErrorMessage 对 **422**(FastAPI
+校验错误,detail 是 JSON 数组)回落 generic failed 文案,不把原始数组当
+用户文案渲染。
 - `addProviderCard(body, t)` — POST + 错误文案的**唯一**包装(两个调用方
   曾各抄一份 try/catch);**无刷新副作用**(各调用方自刷是明确决策)。
 - `providerErrorMessage(err, t)` — api.addProvider 失败(抛 ApiError)

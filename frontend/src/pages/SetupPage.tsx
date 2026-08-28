@@ -73,7 +73,7 @@ export function SetupPage() {
       const data = await api.getProviders();
       if (data.success && data.data?.providers) {
         setProviderCount(Object.keys(data.data.providers).length);
-        setProviders(data.data.providers as Record<string, ProviderRow>);
+        setProviders(data.data.providers);
       }
     } catch {
       // Backend not ready — keep the skip affordance

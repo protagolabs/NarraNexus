@@ -93,7 +93,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
         api.getProviders(),
         api.getAgentFramework(),
       ]);
-      const provMap = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
       const slots = (provRes?.data?.slots ?? {}) as Record<string, { config?: SlotCfg | null }>;
       const a = slots.agent?.config ?? null;

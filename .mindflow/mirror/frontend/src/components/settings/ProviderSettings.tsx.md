@@ -9,7 +9,7 @@ add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
 连同 claude/codex status state、登录倒计时 effect、setup-token state、
 5 个 handler、formatCountdown/formatExpiresAt、CLAUDE_LOGIN_TIMEOUT_SEC)
 整体搬去 [[SubscriptionConnect]],tab 原位改为
-`<SubscriptionConnect claudeCard hasCodex addProvider/>`。动机:landing
+`<SubscriptionConnect providers addProvider/>`(第 4 轮定稿的 props)。动机:landing
 (SetupPage)要把订阅升为一等路径,逻辑必须单份。随行变化:
 
 - 身份 fetch 收敛进 [[providersApi]](其 authFetch 委托 [[authHeaders]]

@@ -62,6 +62,10 @@ export function providerErrorMessage(
   t: (key: string) => string,
 ): string {
   if (err instanceof ApiError) {
+    // 422 = FastAPI validation errors: detail is a JSON array, not user
+    // copy — fall back to the generic message (the raw detail stays on
+    // the console via the thrown error's message for whoever debugs).
+    if (err.status === 422) return t('settings.provider.failed');
     return err.detail || t('settings.provider.failed');
   }
   return t('settings.provider.networkError');
