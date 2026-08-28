@@ -1,8 +1,17 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-20
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — plugins_router 注册
+
+新增 `from backend.routes.plugins.routes import router as plugins_router` 和
+`app.include_router(plugins_router, tags=["Plugins"])`。router 自带 prefix
+`/api/plugins`（`include_router` 不传 prefix），与 `admin_*` 系列同 pattern。
+挂载 Settings → Plugins 面板需要的三个端点（list/install/uninstall），服务于
+local/desktop 把 Claude Code / Codex CLI 从基础安装拆成按需插件的改造。见
+[[backend/routes/plugins/routes.py]]。
 
 ## 2026-08-19 — admin_warn_router 注册
 

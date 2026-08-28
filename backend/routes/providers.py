@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_suggested_models,
     OFFICIAL_BASE_URLS,
 )
+from xyz_agent_context.agent_framework.plugin_paths import framework_installed
 from xyz_agent_context.schema.provider_schema import (
     LLMConfig,
     SlotName,
@@ -1051,6 +1052,16 @@ async def get_agent_framework(request: Request):
         "data": {
             "framework": framework,
             "supported": list(_SUPPORTED_AGENT_FRAMEWORKS),
+            # Richer per-framework status for the plugin-aware Settings
+            # picker: nexus_power is built-in (always available);
+            # claude_code/codex_cli report whether their plugin package is
+            # present (cloud images pre-install these in the base
+            # environment, so framework_installed reports True there too —
+            # see plugin_paths.framework_installed).
+            "frameworks": [
+                {"name": fw, "available": framework_installed(fw)}
+                for fw in _SUPPORTED_AGENT_FRAMEWORKS
+            ],
             "probe": probe,
         },
     }
@@ -1091,6 +1102,19 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
                 f"Unknown framework {body.framework!r}. "
                 f"Supported: {list(_SUPPORTED_AGENT_FRAMEWORKS)}"
             ),
+        )
+
+    # Fail-closed: a local/desktop user cannot switch onto a framework whose
+    # plugin isn't installed yet — that would otherwise surface as a much
+    # later, harder-to-diagnose FrameworkNotInstalledError out of
+    # get_agent_loop_driver the next time they send a message. nexus_power
+    # is exempt (framework_installed always reports True for it); on cloud,
+    # framework_installed also reports True for claude_code/codex_cli
+    # (their SDKs ship in the base image), so this never blocks cloud users.
+    if body.framework != "nexus_power" and not framework_installed(body.framework):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Framework '{body.framework}' plugin is not installed",
         )
 
     # Verify the wheel-bundled codex binary is present on opt-in. The
