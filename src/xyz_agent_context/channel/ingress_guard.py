@@ -217,6 +217,27 @@ def _as_aware(
     return value
 
 
+def _fold_isolation_end(
+    anchor: Optional[datetime],
+    isolation_end: Optional[datetime],
+    reference: datetime,
+) -> Optional[datetime]:
+    """The later of a tier's last move and the end of its isolation.
+
+    Used when a durable row is read into memory: ``state.cooldown_until``
+    only ever holds a cooldown still in the future, so an elapsed one has
+    to be folded into the anchor here or its record is lost. Mirrors the
+    same "later of the two" rule ``_steps_of_silence`` applies.
+    """
+    anchor = _as_aware(anchor, reference)
+    end = _as_aware(isolation_end, reference)
+    if anchor is None:
+        return end
+    if end is not None and end > anchor:
+        return end
+    return anchor
+
+
 class IngressGuard:
     """Per-conversation ingress breaker, shared by every channel.
 
@@ -427,6 +448,12 @@ class IngressGuard:
             # of the process and ``open_session_count()`` drifts from
             # "isolated now" back toward "tripped at some point" — the
             # distortion this method's `cooling_only` load exists to avoid.
+            # No fold here, unlike ``_load``: this method loads with
+            # ``cooling_only=True``, so every row it sees still has its
+            # cooldown in the future and it lands in
+            # ``state.cooldown_until`` below — where ``_steps_of_silence``
+            # folds it anyway. Folding twice would be a second copy of the
+            # rule that no test could tell apart from the first.
             state.tier_changed_at = _as_aware(row.tier_changed_at, now)
             # NOT seeded from ``row.suppressed_count`` — see _load().
             state.suppressed = 0
@@ -455,7 +482,15 @@ class IngressGuard:
         row (if it ever had one) stays in the DB and is re-read lazily the
         next time that key speaks.
 
-        Returns the number of sessions dropped.
+        Also ages silent tiers down first (in memory only), so a session
+        whose escalation memory has expired becomes droppable on the same
+        pass. That is a real change of state, not just reclamation — a
+        caller that reschedules this method changes when tiers decay, even
+        though the arithmetic is unaffected. The durable row is corrected
+        the next time that key speaks.
+
+        Returns the number of sessions dropped — decayed-but-still-held
+        sessions are not counted.
         """
         now = now or utc_now()
         # Age silent sessions down FIRST, so the ones that reach tier 0
@@ -546,7 +581,14 @@ class IngressGuard:
         # ``prune_idle``'s sweep skips it forever and only sessions that
         # tripped inside THIS process can ever be aged down — half of the
         # gap that sweep was added to close.
-        state.tier_changed_at = _as_aware(row.tier_changed_at, now)
+        # Folded with the row's cooldown end even when that has already
+        # elapsed. ``state.cooldown_until`` below deliberately keeps only a
+        # FUTURE cooldown, so without this the in-memory anchor would drop
+        # back to trip time and the next sweep would undo, milliseconds
+        # later, the decay this same load just declined to apply.
+        state.tier_changed_at = _fold_isolation_end(
+            row.tier_changed_at, row.cooldown_until, now
+        )
         # NOT seeded from ``row.suppressed_count``: since M9 that column
         # records what the PREVIOUS isolation absorbed, so using it here
         # would start the NEXT isolation's counter part-way up and make
@@ -594,40 +636,7 @@ class IngressGuard:
         """
         if state.tier <= 0:
             return
-        # The only place in this class that divides. Everything else here
-        # degrades rather than raises, and ``admit()`` is on the inbound
-        # path — letting a ZeroDivisionError out would turn fail-open into
-        # fail-closed and drop every message on the channel, which is the
-        # user-visible content loss binding rule #16 forbids.
-        if self._decay_step_seconds <= 0:
-            return
-        anchor = _as_aware(row.tier_changed_at, now)
-        if anchor is None:
-            # Only reachable for a row whose tier was never moved by this
-            # code path. Decaying from an unknown origin would be a guess.
-            return
-        # Silence only starts when the isolation ENDS. ``tier_changed_at``
-        # is stamped at trip time and the cooldown runs from there, so
-        # counting from it bills the sentence itself as good behaviour —
-        # the same double-credit that ruled out ``last_tripped_at``. At
-        # tier 3 the cooldown alone is six decay steps, so a restart after
-        # it elapsed would zero the escalation memory outright and put a
-        # persistent loop back on the cheapest tier after every deploy.
-        #
-        # This matches the other half of the rule: ``_trip`` clears
-        # ``clean_since`` and ``_half_open`` sets it at the moment the
-        # cooldown expires, so the talking path never credits the cooldown
-        # either.
-        #
-        # It is ALSO the whole of "never decay while still isolated": with
-        # the anchor at the end of the cooldown, an unexpired cooldown puts
-        # the anchor in the future and ``steps`` can only come out zero. An
-        # extra "am I cooling right now?" check would read as a second,
-        # independent criterion and invite the two to drift apart.
-        served = _as_aware(row.cooldown_until, now)
-        if served is not None and served > anchor:
-            anchor = served
-        steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
+        steps = self._steps_of_silence(row.tier_changed_at, row.cooldown_until, now)
         if steps <= 0:
             return
         before = state.tier
@@ -660,29 +669,67 @@ class IngressGuard:
                 },
             )
 
-    def _decay_silent_in_memory(self, now: datetime) -> None:
-        """Same arithmetic as ``_decay_for_silence``, memory only.
+    def _steps_of_silence(
+        self,
+        anchor: Optional[datetime],
+        isolation_end: Optional[datetime],
+        now: datetime,
+    ) -> int:
+        """How many decay steps of SILENCE this session has earned.
 
-        Carries the same zero-step guard for the same reason: dividing by
-        zero on the inbound path would turn fail-open into fail-closed.
-        And the same end-of-isolation anchor, which is what keeps a session
-        still serving its cooldown from being released early — reaching the
-        decay from a sweep rather than a reload would not make that any
-        less wrong.
+        One definition, two callers — the durable load path and the
+        in-memory sweep. They previously carried a copy each, reading
+        ``row.*`` and ``state.*`` respectively, and the copies drifted:
+        the same sentence about "the later of the two" landed on two
+        different facts because the two sources hold different values for
+        ``cooldown_until``. Keeping the rule in one place is what makes
+        "they agree" a property of the code rather than of a comment.
+
+        Silence starts when the isolation ENDS. ``tier_changed_at`` is
+        stamped at trip time and the cooldown runs from there, so counting
+        from it bills the sentence itself as good behaviour — the same
+        double-credit that ruled out ``last_tripped_at``. At tier 3 the
+        cooldown alone is six steps.
+
+        This is ALSO the whole of "never decay while still isolated": an
+        unexpired cooldown puts the anchor in the future, so the result can
+        only be zero. A separate "am I cooling right now?" check would read
+        as a second, independent criterion and invite the two to drift.
+
+        Returns 0 — never raises — when the step length is zero. That is
+        the only division in this class, and it sits under ``admit()``:
+        letting a ZeroDivisionError out would turn fail-open into
+        fail-closed and drop every message on the channel (binding
+        rule #16).
         """
         if self._decay_step_seconds <= 0:
-            return
+            return 0
+        anchor = _as_aware(anchor, now)
+        if anchor is None:
+            # A tier that was never moved by this code path. Decaying from
+            # an unknown origin would be a guess.
+            return 0
+        end = _as_aware(isolation_end, now)
+        if end is not None and end > anchor:
+            anchor = end
+        steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
+        return max(0, steps)
+
+    def _decay_silent_in_memory(self, now: datetime) -> None:
+        """The sweep half of the decay. Shares ``_steps_of_silence`` with
+        the durable path, so the two cannot disagree about what counts as
+        silence — they did, once, and that is why the rule moved out.
+
+        Memory only: ``prune_idle`` is sync and ``admit()`` does not await
+        it. The durable row is corrected by ``_decay_for_silence`` the next
+        time that key speaks.
+        """
         for key, state in self._sessions.items():
-            if state.tier <= 0 or state.tier_changed_at is None:
+            if state.tier <= 0:
                 continue
-            # Silence starts when the isolation ends, not when it began —
-            # which is also why no separate "still cooling" check is
-            # needed: an unexpired cooldown puts the anchor in the future
-            # and ``steps`` comes out zero. One criterion, one place.
-            anchor = state.tier_changed_at
-            if state.cooldown_until is not None and state.cooldown_until > anchor:
-                anchor = state.cooldown_until
-            steps = int((now - anchor).total_seconds() // self._decay_step_seconds)
+            steps = self._steps_of_silence(
+                state.tier_changed_at, state.cooldown_until, now
+            )
             if steps <= 0:
                 continue
             before = state.tier
@@ -844,6 +891,27 @@ class IngressGuard:
         held the cooldown, which is the part that mattered.
         """
         suppressed = state.suppressed
+        # Fold the isolation's END into the decay anchor BEFORE destroying
+        # it. ``cooldown_until`` is the only record of when the sentence
+        # finished, and this line is where it stops existing — after which
+        # ``_steps_of_silence`` would fall back to ``tier_changed_at``
+        # (trip time) and count the whole cooldown as silence. At tier 3
+        # that is six free steps, so the very next sweep would zero the
+        # escalation memory a few milliseconds after this probe
+        # deliberately kept it. A far side that storms, waits out the
+        # cooldown, sends one new message and storms again would then sit
+        # on the cheapest tier forever — exactly what this method's
+        # docstring says it prevents.
+        #
+        # The END, not ``now``: the durable path reads the row's
+        # ``cooldown_until``, so anchoring on anything else would give the
+        # two paths different answers again. It also keeps the genuinely
+        # silent gap between "cooldown elapsed" and "probe arrived".
+        ended = state.cooldown_until
+        if ended is not None and (
+            state.tier_changed_at is None or ended > state.tier_changed_at
+        ):
+            state.tier_changed_at = ended
         state.cooldown_until = None
 
         if fingerprint and fingerprint in state.trip_fingerprints:
@@ -876,6 +944,11 @@ class IngressGuard:
                 "chat_id": chat_id,
                 "sender_id": sender_id,
                 "cooldown_until": None,
+                # Persisted with the clearing, or the row loses the same
+                # anchor the in-memory copy just saved: `upsert_state` is a
+                # partial write, so `cooldown_until` really does become
+                # NULL and nothing else would carry the isolation's end.
+                "tier_changed_at": state.tier_changed_at,
                 # The isolation that just ended absorbed this many messages.
                 # This is the ONLY moment the number can be persisted: the
                 # hot path deliberately never writes, so if we wrote 0 here

@@ -149,19 +149,45 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
             # nothing actually lost, and a warning that cries wolf every
             # boot gets filtered — after which a real truncation is just as
             # invisible as a silent one.
-            last_kept = rows[-1] if rows else None
-            if last_kept and last_kept.get("cooldown_until"):
+            # What counts as "a candidate could have been cut" depends on
+            # which question the caller asked.
+            if not cooling_only:
+                # The candidate set is every tier > 0 row, and the tail
+                # this ORDER BY cuts is the NULL-cooldown ones — which can
+                # perfectly well be tier > 0. Any truncation may have lost
+                # one, so any truncation is worth saying out loud.
                 logger.warning(
                     f"ChannelIngressBreakerRepository.find_open({channel}): hit "
-                    f"the {_FIND_OPEN_LIMIT}-row cap with the last kept row "
-                    f"still cooling — isolated sessions may have been skipped"
+                    f"the {_FIND_OPEN_LIMIT}-row cap; sessions carrying "
+                    f"escalation memory may have been skipped"
                 )
             else:
-                logger.debug(
-                    f"ChannelIngressBreakerRepository.find_open({channel}): "
-                    f"capped at {_FIND_OPEN_LIMIT} rows; the tail carried no "
-                    f"cooldown, so no candidate was dropped"
-                )
+                # Only rows still cooling are candidates. NULLs sort last
+                # in both dialects, so the cut tail can only contain a
+                # candidate if the last row we KEPT is itself still
+                # cooling. An already-elapsed timestamp there means the cut
+                # rows were all past their cooldown — nothing lost, and
+                # warning anyway would fire on every start for any channel
+                # with a long trip history. A warning that cries wolf each
+                # boot gets filtered, after which a real truncation is as
+                # invisible as a silent one.
+                moment = now or utc_now()
+                last_kept = self._row_to_entity(rows[-1]).cooldown_until if rows else None
+                if last_kept is not None and last_kept.tzinfo is None:
+                    last_kept = last_kept.replace(tzinfo=moment.tzinfo)
+                if last_kept is not None and last_kept > moment:
+                    logger.warning(
+                        f"ChannelIngressBreakerRepository.find_open({channel}): "
+                        f"hit the {_FIND_OPEN_LIMIT}-row cap with the last kept "
+                        f"row still cooling — isolated sessions may have been "
+                        f"skipped"
+                    )
+                else:
+                    logger.debug(
+                        f"ChannelIngressBreakerRepository.find_open({channel}): "
+                        f"capped at {_FIND_OPEN_LIMIT} rows; the cut tail was "
+                        f"past its cooldown, so no candidate was dropped"
+                    )
         entities = [self._row_to_entity(r) for r in rows if r]
         open_rows = [e for e in entities if (e.tier or 0) > 0]
         if not cooling_only:

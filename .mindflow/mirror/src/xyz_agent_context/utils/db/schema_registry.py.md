@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 stub: false
 ---
 
@@ -20,8 +20,13 @@ ingress 分级熔断的**层级状态**。一行一个会话键
 `varchar_width()` 从 DDL 推导并有测试钉着。
 
 `tier_changed_at` 记录 tier **上次变动于何时**，用 guard 自己的时钟。衰减从
-它与 `cooldown_until` 的**较晚者**起算——服刑时间不是沉默，从跳闸时刻起算会把
-整段隔离当成良好表现（tier 3 的冷却本身就等于 6 个衰减步）。它存在
+它与隔离终点的**较晚者**起算——服刑时间不是沉默，从跳闸时刻起算会把整段隔离
+当成良好表现（tier 3 的冷却本身就等于 6 个衰减步）。
+
+**但不能只靠读 `cooldown_until` 来拿这个终点**：半开探测会把该列写成 NULL
+（`upsert_state` 是部分写，真的清空），此后行里再无隔离何时结束的记录。所以
+探测在清空的同一次写入里把终点搬进 `tier_changed_at`。换句话说这一列的语义
+是「tier 上次变动、或隔离上次结束，取较晚」——读它的人不需要再去拼另一列。它存在
 是因为两个邻居都不能兼任：`last_tripped_at` 在降级时不变（用它做衰减锚点会
 把已付过的沉默再算一遍，衰减过头）；`updated_at` 由仓储用墙钟盖章，而状态机
 跑在调用方传入的 `now` 上。一列不可能既是行簿记时间又是状态机时间。

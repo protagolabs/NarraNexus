@@ -1,7 +1,7 @@
 ---
 code_file: tests/channel/test_ingress_breaker_persistence.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-27（第一轮 review）— 补上「沉默衰减」这条路
@@ -46,6 +46,22 @@ last_verified: 2026-08-27
 **这一轮我又用字符串截断改测试文件，静默删掉了刚写的镜像用例。** 与已推送版本
 对比测试名集合看不出来——它本轮才新增、从未进过仓库。所以对比基线必须是**编辑
 之前的工作树**，不是远端。发现它是因为变异验证里那条本该红的变异是绿的。
+
+## 2026-08-28（第三轮 review）— 探测把落库锚点也带走了
+
+新增两条、补强一条，都围绕「隔离终点在被销毁前必须先落进锚点」：
+
+- **探测后重启**：探测把 `cooldown_until` 写成 NULL，若不同时写
+  `tier_changed_at`，下一个进程读这行时会把整段冷却算成沉默并写 `aged_out`。
+  这条用例有个必须注意的构造点：**探测只能发生在进程内**——冷却已过期时懒加载
+  会直接丢掉 `state.cooldown_until` 并按普通消息放行，根本不走 `_half_open`，
+  于是什么都不会被持久化。所以要先在仍冷却时把会话读进内存，再跨过边界。
+  第一版就是漏了这点，变异「不落库新锚点」照样绿。
+- **warm_start 带 tier 3**：既有那条 warm-start 用例是 tier 1，冷却短于一步，
+  折不折叠都归零，看不出差别。
+- `test_serving_a_long_cooldown_is_not_credited_as_silence` 末尾补一次
+  `prune_idle`：它此前只证明了落库那一半，内存那一半是开的，用例却给出
+  「已经防住了」的假象。
 # test_ingress_breaker_persistence.py — 冷却必须活过进程
 
 钉 [[ingress_guard.py]] 的读写分层：滑窗纯内存、tier/冷却写穿。

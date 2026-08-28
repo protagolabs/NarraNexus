@@ -637,3 +637,46 @@ async def test_the_in_memory_sweep_never_releases_an_active_isolation():
         f"{tier_before} -> {state.tier}"
     )
     assert guard.cooling_session_count(mid) == 1
+
+
+async def test_a_probe_does_not_hand_the_cooldown_back_as_silence():
+    """The probe clears `cooldown_until`; the anchor must survive it.
+
+    `cooldown_until` is the only record of when the sentence finished, and
+    the probe is where it stops existing. If the end is not folded into the
+    anchor first, the next sweep measures silence from the TRIP and counts
+    the whole cooldown — six steps at tier 3 — so it zeroes the escalation
+    memory milliseconds after this probe deliberately kept it.
+
+    The far side then gets a free reset every cycle: storm, wait out the
+    cooldown, send one new message, storm again, forever at the cheapest
+    300s tier. That is what `_half_open` says it prevents, and why the
+    8/14 loop needed to stay at a high tier.
+
+    Tier 3 specifically: tier 1's 300s cooldown is the one step of the four
+    shorter than a decay step, so it cannot observe this at all.
+    """
+    guard = _guard()
+    await _send(guard, n=12, text="ping", start=BASE)
+    await _send(guard, n=12, text="ping", start=BASE + timedelta(seconds=400))
+    await _send(guard, n=12, text="ping", start=BASE + timedelta(seconds=2300))
+
+    state = next(iter(guard._sessions.values()))
+    assert state.tier >= 3, f"need a cooldown longer than a decay step: {state.tier}"
+    ends = state.cooldown_until
+    assert ends is not None
+
+    # A genuinely new message after the cooldown: admitted as a probe, tier
+    # deliberately kept.
+    after = ends + timedelta(seconds=50)
+    await _send(guard, n=1, text="something entirely different", start=after)
+    tier_after_probe = state.tier
+    assert tier_after_probe >= 3, "the probe should have kept the tier"
+    assert state.cooldown_until is None, "the probe clears the cooldown"
+
+    guard.prune_idle(after)
+
+    assert state.tier == tier_after_probe, (
+        "the sweep re-billed the served cooldown as silence and undid the "
+        f"probe's decision: {tier_after_probe} -> {state.tier}"
+    )

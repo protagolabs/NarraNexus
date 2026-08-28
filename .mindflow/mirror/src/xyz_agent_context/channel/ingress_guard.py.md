@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/ingress_guard.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-27（第一轮 review）— tier 衰减补上「时间」这一半
@@ -57,12 +57,31 @@ cheapest tier forever」。那条既有测试当时是绿的，只因为它测�
 正是 `warm_start` 花力气避免的失真从另一头长回来。
 
 `prune_idle` 是**同步**方法且 `admit()` 不 await 它，所以内存侧只改内存；落库
-修正由该 key 下次说话时的 `_load` 完成（行仍是 tier>0、锚点未变，算出同样的
-结果并写 `aged_out`）。
+修正由该 key 下次说话时的 `_load` 完成。两条路径给出同一个答案，靠的是
+**算术只有一份**（`_steps_of_silence`）——第一版是两份拷贝，一份读行、一份读
+内存，而两边的 `cooldown_until` 根本不是同一个事实，于是「较晚者」这句话在两
+份实现里落到了两个不同的值上。规则收进一处之后，「两边一致」才是代码的性质
+而不是注释的承诺。
 
-内存锚点必须在**四处**都带上：`_trip` / `_maybe_recover` 写它，`_load` 与
-`warm_start` 从行里读进来。漏掉后两处的话，sweep 只能衰减「本进程里亲眼看到
-跳闸」的会话——而长跑进程手里绝大多数是加载来的。
+**锚点必须在隔离终点被销毁之前就吸收它。** `cooldown_until` 是"服刑何时结束"
+的唯一记录，而它在两个地方会消失：`_half_open` 探测时内存与落库同时清空它；
+`_load` 只把**仍在未来**的冷却写进 `state.cooldown_until`。任何一处漏了折叠，
+锚点就退回跳闸时刻、整段冷却重新被算成沉默——tier 3 就是 6 步，于是：
+
+- **探测之后**（不需要重启）：那条被刻意保留 tier 的探测，会被紧随其后的任意
+  一次 sweep 清零。对端只要「风暴 → 熬过冷却 → 发一条新内容 → 继续风暴」就能
+  永远停在最便宜的 300s 档，正是 `_half_open` docstring 点名要防的那件事。
+- **重启懒加载**：`_decay_for_silence` 用行里的冷却算对了、保住了 tier，几十
+  毫秒后同进程的第一次 sweep 又把它推翻。
+
+所以内存锚点在**三处**写：`_trip` / `_maybe_recover` 变更 tier 时写，`_load`
+读行时把已过期的冷却折进去；`_half_open` 在清空前把终点搬进锚点**并写进落库
+payload**（`upsert_state` 是部分写，不写这一列的话行里的记录就真的没了）。取
+冷却**终点**而不是 `now`，是为了让内存与落库两条路算出同一个数。
+
+`warm_start` **不折**：它以 `cooling_only=True` 加载，行的冷却必然在未来、必然
+落进 `state.cooldown_until`，共用函数会自己折——多写一次就是同一条规则的第二
+份拷贝，且没有任何测试能把两者区分开。
 
 **除零守卫**：`_decay_step_seconds = window × recovery_windows`，而 `window`
 没有下界。这是整个类里唯一一处会做除法的地方，其余全部「宁可退化也不抛」；

@@ -531,7 +531,7 @@ def _fake_open_rows(n, *, cooling):
     ]
 
 
-async def _capped_find_open(rows):
+async def _capped_find_open(rows, *, cooling_only=False, now=None):
     """Drive the real repository against a db handle that returns `rows`."""
     from loguru import logger
 
@@ -545,7 +545,9 @@ async def _capped_find_open(rows):
                 calls.append(kwargs)
                 return rows
 
-        out = await ChannelIngressBreakerRepository(_FakeDb()).find_open("slack")
+        out = await ChannelIngressBreakerRepository(_FakeDb()).find_open(
+            "slack", cooling_only=cooling_only, now=now
+        )
     finally:
         logger.remove(sink)
     return calls, out, lines
@@ -568,32 +570,51 @@ async def test_find_open_is_bounded():
 
 
 async def test_the_cap_warns_only_when_a_candidate_could_have_been_cut():
-    """The warning has to be worth reading.
+    """The warning has to be worth reading, and "candidate" depends on the
+    question the caller asked.
 
-    The cap is measured against the channel's TOTAL row count, and
+    With `cooling_only=True` only rows still cooling are candidates, and
     `ORDER BY cooldown_until DESC` sorts NULLs last in both dialects — so
-    the tail that gets cut is normally exactly the rows this method would
-    have discarded anyway. Warning on row count alone fires on every boot
-    for any channel with a long trip history, nothing actually lost; and a
-    warning that cries wolf every boot gets filtered, after which a real
-    truncation is as invisible as a silent one.
+    the cut tail can only hold a candidate if the last row KEPT is itself
+    still cooling. An already-elapsed timestamp there means nothing was
+    lost, and warning anyway fires on every boot for any channel with a
+    long trip history. A warning that cries wolf each boot gets filtered,
+    after which a real truncation is as invisible as a silent one.
+
+    With `cooling_only=False` the candidates are all tier > 0 rows and the
+    cut tail is exactly the NULL-cooldown ones, which may well be tier > 0.
+    There, any truncation may have lost one.
     """
     from xyz_agent_context.repository.channel_ingress_breaker_repository import (
         _FIND_OPEN_LIMIT,
     )
 
     n = _FIND_OPEN_LIMIT + 50
+    during = BASE + timedelta(seconds=60)
+    after = BASE + timedelta(seconds=99999)
 
-    _, _, quiet = await _capped_find_open(_fake_open_rows(n, cooling=False))
+    _, _, quiet = await _capped_find_open(
+        _fake_open_rows(n, cooling=True), cooling_only=True, now=after
+    )
     assert not [ln for ln in quiet if "WARNING" in ln], (
-        f"warned although the cut tail carried no cooldown: {quiet}"
+        f"warned although every cut row was past its cooldown: {quiet}"
     )
 
-    _, _, loud = await _capped_find_open(_fake_open_rows(n, cooling=True))
+    _, _, loud = await _capped_find_open(
+        _fake_open_rows(n, cooling=True), cooling_only=True, now=during
+    )
     assert [ln for ln in loud if "WARNING" in ln], (
         f"the last kept row was still cooling and nothing was said: {loud}"
     )
 
+    # The other question: escalation memory, cooldown irrelevant.
+    _, _, always = await _capped_find_open(
+        _fake_open_rows(n, cooling=False), cooling_only=False
+    )
+    assert [ln for ln in always if "WARNING" in ln], (
+        "cooling_only=False counts every tier > 0 row as a candidate, so "
+        f"any truncation may have dropped one: {always}"
+    )
 
 
 async def test_serving_a_long_cooldown_is_not_credited_as_silence(db_client):
@@ -638,6 +659,16 @@ async def test_serving_a_long_cooldown_is_not_credited_as_silence(db_client):
     assert verdict.tier == 3, (
         "time spent isolated was credited as silence, so a re-offender "
         f"restarts at the cheapest cooldown after a deploy: tier={verdict.tier}"
+    )
+
+    # The durable half alone is not the guarantee: the in-memory anchor has
+    # to carry the (now elapsed) cooldown too, or the sweep undoes this
+    # decision a moment later. Without the second assertion this test
+    # reports "protected" while half the path is open.
+    state = guard._sessions[KEY]
+    guard.prune_idle(BASE + timedelta(seconds=7300))
+    assert state.tier == 3, (
+        f"the sweep re-billed the served cooldown as silence: {state.tier}"
     )
 
 
@@ -797,4 +828,99 @@ async def test_warm_start_sessions_are_reachable_by_the_sweep(db_client):
     assert guard.open_session_count() == 0, (
         "a warm-started session can never leave the standing-isolation "
         "count, so the gauge climbs with uptime"
+    )
+
+
+async def test_a_restart_after_a_probe_does_not_age_out_the_tier(db_client):
+    """The durable half of the same defect.
+
+    The probe writes `cooldown_until = NULL`. `upsert_state` is a partial
+    write, so that really is the end of the only column recording when the
+    isolation finished — unless the probe also moves `tier_changed_at`
+    forward. Without it, the next process to read this row measures silence
+    from the trip, counts the whole cooldown, and writes `aged_out`.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    guard = _guard(repo)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(seconds=7200),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+
+    # The session must be held IN MEMORY across the cooldown boundary for
+    # `_half_open` to run at all: a lazy load after the cooldown already
+    # elapsed simply drops `state.cooldown_until` and admits normally, so
+    # there is no probe transition and nothing gets persisted. Load it
+    # while still cooling, then cross the boundary inside this process.
+    (await _storm(guard, start=BASE + timedelta(seconds=60), n=1))[0]
+    assert guard._sessions[KEY].cooldown_until is not None, "must load as cooling"
+
+    probe_at = BASE + timedelta(seconds=7250)
+    verdict = (await _storm(guard, start=probe_at, n=1, text="brand new"))[0]
+    assert verdict.transition == "probe", f"expected the half-open probe: {verdict}"
+    assert verdict.tier == 3, f"the probe should keep the tier: {verdict}"
+
+    # Another restart, shortly afterwards.
+    reborn = _guard(repo)
+    later = (await _storm(reborn, start=probe_at + timedelta(seconds=60),
+                          n=1, text="and another"))[0]
+
+    assert later.tier == 3, (
+        "the served cooldown was re-billed as silence after the probe "
+        f"erased it, so the escalation memory is gone: tier={later.tier}"
+    )
+    row = await repo.get(KEY)
+    assert row is not None and row.last_reason != "aged_out", (
+        f"the row was aged out by time already served: {row.last_reason}"
+    )
+
+
+async def test_warm_start_carries_the_isolation_end_into_the_anchor(db_client):
+    """`warm_start` keeps only a FUTURE cooldown in memory, so the row's
+    end-of-isolation has to be folded into the anchor as it is read.
+
+    Otherwise the anchor falls back to the trip time and the first sweep
+    after the cooldown lapses counts the whole sentence as silence — six
+    steps at tier 3, so the escalation memory is gone one sweep after a
+    restart that was supposed to preserve it.
+
+    Tier 3 on purpose: with tier 1's 300s cooldown the session ages out
+    either way, which is why the existing warm-start test cannot see this.
+    """
+    repo = ChannelIngressBreakerRepository(db_client)
+    await repo.upsert_state(
+        KEY,
+        {
+            "channel": "narramessenger",
+            "agent_id": "agt_1",
+            "chat_id": "!room",
+            "sender_id": "@agent-liam",
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(seconds=7200),
+            "last_reason": "escalated",
+            "tier_changed_at": BASE,
+        },
+    )
+    guard = _guard(repo)
+    restored = await guard.warm_start(
+        "narramessenger", now=BASE + timedelta(seconds=60)
+    )
+    assert restored == 1
+
+    state = guard._sessions[KEY]
+    # Just past the cooldown: no silence has been served yet.
+    guard.prune_idle(BASE + timedelta(seconds=7250))
+
+    assert state.tier == 3, (
+        "the sweep counted the served cooldown as silence, so a restart "
+        f"during isolation still loses the tier: {state.tier}"
     )

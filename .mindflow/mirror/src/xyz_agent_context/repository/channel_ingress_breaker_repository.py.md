@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/repository/channel_ingress_breaker_repository.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-27（第一轮 review）— 只增不删这件事治了根因，`find_open` 加上界
@@ -20,10 +20,18 @@ last_verified: 2026-08-27
 但**告警的判据不是行数**。上限量的是该渠道的总行数（`tier > 0` 与「是否在
 冷却」都在 Python 侧筛），而 `ORDER BY cooldown_until DESC` 在两方言下都把
 NULL 排最后，被切掉的尾巴通常恰好是本方法本来就要丢的那些。所以只在**保留的
-最后一行仍带非空 `cooldown_until`** 时才 WARNING——那是唯一可能真有候选被挡在
+最后一行的冷却仍晚于 `now`** 时才 WARNING（判据是「仍在冷却」而不是「非空」
+——按 `cooldown_until DESC` 排下来，保留的最后一行完全可能带一个早已过期的
+时间戳，此时被切掉的尾巴不可能含未过期的行）——那是唯一可能真有候选被挡在
 上限外的情形；否则降到 debug。按行数报的话，任何跳闸历史长的渠道每次启动都会
 喊一声而实际一条未丢，而每次启动都喊狼来了的告警会被加进忽略列表，那时真截断
 与静默截断是同一个结局。
+
+**以上只对 `cooling_only=True` 成立。** `cooling_only=False` 问的是另一个问题
+——「有多少会话带着升级记忆」，候选集是全部 `tier > 0` 行，而被切掉的尾巴恰恰
+是 `cooldown_until IS NULL` 的那批、其中完全可能有 `tier > 0`。所以那条路径上
+**任何截断都要出声**。两条路径共用一句「没丢候选」的保证，会给其中一条反向的
+承诺。
 
 `upsert_state` 仍是「先读后写」，非原子。同一 session key（含 `agent_id`）的
 写入实际只来自单个 trigger 进程的单条协程，撞唯一索引的异常也被兜住、只丢

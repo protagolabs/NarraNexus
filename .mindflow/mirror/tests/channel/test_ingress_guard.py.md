@@ -1,7 +1,7 @@
 ---
 code_file: tests/channel/test_ingress_guard.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-27（第一轮 review）— 空闲会话那条断言改成「不随流量增长」
@@ -35,6 +35,16 @@ last_verified: 2026-08-27
 
 新增一条：sweep 的衰减**不得释放仍在隔离中的会话**。需要 tier ≥ 3 才有意义
 ——它的冷却比一个衰减步长长，才存在「既在隔离中又已过一步」的时间窗。
+
+## 2026-08-28（第三轮 review）— 探测之后那条路
+
+新增一条：升到 **tier 3**、冷却到期后发一条新内容拿到 probe、紧接着
+`prune_idle`，断言 tier 未变。
+
+为什么必须是 tier 3：三条既有探测用例全部停在 tier 1，而 tier 1 的 300s 冷却
+是四档里唯一短于一个 1200s 衰减步的一档，`steps` 恒为 0——**同一个取样盲区在
+这个 PR 里已经出现两次**（上一轮那条「重启后仍保持 tier」的用例也是 tier 1）。
+挑档位时先算一下「这一档的冷却够不够一个衰减步」，否则测的是一个恒真式。
 # test_ingress_guard.py — 熔断器状态机
 
 钉 [[ingress_guard.py]] 的 L2/L3 模型：进入条件取合取、按表升级、到期只放
