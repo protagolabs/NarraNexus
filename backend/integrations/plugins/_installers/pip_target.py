@@ -11,10 +11,20 @@ PATH so the wheel's ABI always matches the interpreter that will later
 ``sys.path.append`` and import it (``agent_framework.plugin_paths.
 activate_pyenv``) — a wheel built for a different interpreter would import
 but crash on any C-extension boundary.
+
+pip may be ABSENT from that interpreter: a ``uv``-managed venv (the ``bash
+run.sh`` dev path) ships without pip, so ``python -m pip`` fails outright. We
+are running AS ``sys.executable``, so ``importlib.util.find_spec("pip")``
+answers directly whether the target interpreter has pip; when it does not we
+bootstrap it from the stdlib ``ensurepip`` first. The desktop DMG's bundled
+python already carries pip, so there the bootstrap is skipped. This keeps ONE
+install path across both run modes (铁律 #7) with no dependency on a ``uv`` or
+``pip`` binary being on PATH.
 """
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import re
 import shutil
 import sys
@@ -47,6 +57,16 @@ def _dist_dir_name(distribution_name: str) -> str:
 
 class PipTargetInstaller(PluginInstaller):
     async def install(self, component: InstallComponent) -> AsyncIterator[str]:
+        # Bootstrap pip when the target interpreter lacks it (uv venvs do).
+        # We ARE sys.executable, so this find_spec reflects the very
+        # interpreter the pip subprocess below runs in.
+        if importlib.util.find_spec("pip") is None:
+            yield "pip not found in this interpreter — bootstrapping via ensurepip"
+            async for line in stream_subprocess(
+                [sys.executable, "-m", "ensurepip", "--default-pip"]
+            ):
+                yield line
+
         cmd = [
             sys.executable,
             "-m",

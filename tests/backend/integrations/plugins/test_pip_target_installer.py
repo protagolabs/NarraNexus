@@ -68,6 +68,12 @@ async def test_install_invokes_pip_with_target_and_pinned_requirement(plugin_hom
         "backend.integrations.plugins._installers.base.asyncio.create_subprocess_exec",
         fake_create_subprocess_exec,
     )
+    # Pin the pip-present branch so this test is deterministic regardless of
+    # whether the running interpreter happens to have pip.
+    monkeypatch.setattr(
+        "backend.integrations.plugins._installers.pip_target.importlib.util.find_spec",
+        lambda name: object(),
+    )
 
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
@@ -76,10 +82,41 @@ async def test_install_invokes_pip_with_target_and_pinned_requirement(plugin_hom
     assert lines == ["Collecting claude-agent-sdk==0.1.43", "Successfully installed"]
     assert captured_cmd[0] == sys.executable
     assert "-m" in captured_cmd and "pip" in captured_cmd
+    assert "ensurepip" not in captured_cmd  # pip present → no bootstrap
     assert "--target" in captured_cmd
     target_index = captured_cmd.index("--target")
     assert captured_cmd[target_index + 1] == str(pyenv_dir())
     assert captured_cmd[-1] == "claude-agent-sdk==0.1.43"
+
+
+@pytest.mark.asyncio
+async def test_install_bootstraps_pip_via_ensurepip_when_absent(plugin_home, monkeypatch):
+    """A uv-managed venv (bash run.sh) ships no pip — install must ensurepip
+    first, then run pip. Delete the bootstrap branch and this goes red."""
+    commands: list[list[str]] = []
+
+    async def fake_create_subprocess_exec(*cmd, **kwargs):
+        commands.append(list(cmd))
+        return _FakeProcess([b"ok\n"])
+
+    monkeypatch.setattr(
+        "backend.integrations.plugins._installers.base.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    # Force the "pip missing" branch.
+    monkeypatch.setattr(
+        "backend.integrations.plugins._installers.pip_target.importlib.util.find_spec",
+        lambda name: None,
+    )
+
+    installer = PipTargetInstaller()
+    component = InstallComponent(kind="pip", requirement="openai-codex==0.1.0b3")
+    _ = [line async for line in installer.install(component)]
+
+    assert len(commands) == 2
+    assert commands[0] == [sys.executable, "-m", "ensurepip", "--default-pip"]
+    assert commands[1][:3] == [sys.executable, "-m", "pip"]
+    assert commands[1][-1] == "openai-codex==0.1.0b3"
 
 
 @pytest.mark.asyncio
