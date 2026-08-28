@@ -10,10 +10,13 @@ stub: false
 它在场。改动：顶部加 `from __future__ import annotations`（让 `ClaudeAgentOptions`
 等注解变惰性字符串，签名不再需要 SDK），删掉顶部
 `from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher`，
-下沉进 `agent_loop` 方法体（三名字的实际构造都在该方法及其嵌套闭包内）。方法体
-入口先 `plugin_paths.activate_pyenv()` 再 import——插件运行中装完免重启。到这一步
-时框架必已被 [[driver]] 的 fail-closed 确认已装，故此处 ImportError 属"不该发生"
-而非常规 miss。
+改成**模块级 sentinel 全局**（三个名字先 `= None`）+ `_ensure_sdk_imported()`：
+`agent_loop` 入口调它，先 `plugin_paths.activate_pyenv()` 再 `import
+claude_agent_sdk`，**只填仍为 None 的符号**。这样兼顾两点：(1) import 本模块不
+要求插件在场；(2) 保住测试 seam——`test_claude_synthetic_transcript` /
+`test_claude_sdk_resume` 用 `monkeypatch.setattr(sdk, "ClaudeSDKClient", stub)`，
+stub 非 None 会被保留，其余从真 SDK 填。插件运行中装完免重启。到这步框架必已被
+[[driver]] 的 fail-closed 确认已装，故 ImportError 属"不该发生"。
 
 此前 CLI 驱动完全忽略 TurnInput.expressive_tools，回复指令只存在于遥远的
 system prompt——正是 NexusPower 尾部机制要修的 far-from-generation 失效。

@@ -61,6 +61,44 @@ from xyz_agent_context.agent_framework.adapters.materializer import (
 )
 
 
+# Lazily-populated claude-agent-sdk symbols. Declared at module level (NOT
+# imported at load) so importing this module never requires the optional
+# claude-agent-sdk plugin — and so tests can monkeypatch `sdk.ClaudeSDKClient`
+# with a stub. `_ensure_sdk_imported` fills only the symbols still None, so a
+# monkeypatched stub is respected while the rest come from the real SDK.
+ClaudeSDKClient = None
+ClaudeAgentOptions = None
+HookMatcher = None
+
+
+def _ensure_sdk_imported() -> None:
+    """Populate the module-level SDK symbols on first agent_loop use.
+
+    Puts the plugin pyenv on sys.path first (activate_pyenv) so a Claude Code
+    plugin installed while the app is running resolves without a restart. Only
+    fills symbols that are still None — a test that patched ``ClaudeSDKClient``
+    keeps its stub; the others come from the real SDK. Raises ImportError only
+    when the plugin is genuinely absent, which get_agent_loop_driver's
+    fail-closed gate has already ruled out before any turn reaches here.
+    """
+    global ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
+    if (
+        ClaudeSDKClient is not None
+        and ClaudeAgentOptions is not None
+        and HookMatcher is not None
+    ):
+        return
+    plugin_paths.activate_pyenv()
+    import claude_agent_sdk as _sdk
+
+    if ClaudeSDKClient is None:
+        ClaudeSDKClient = _sdk.ClaudeSDKClient
+    if ClaudeAgentOptions is None:
+        ClaudeAgentOptions = _sdk.ClaudeAgentOptions
+    if HookMatcher is None:
+        HookMatcher = _sdk.HookMatcher
+
+
 def _oauth_expires_at(blob: str) -> float | None:
     """Epoch-ms ``claudeAiOauth.expiresAt`` from a Claude Code credentials JSON
     blob, or None when the blob is unparseable / the field is absent.
@@ -689,16 +727,12 @@ class ClaudeAgentSDK:
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
-        # Lazy SDK import (lightweight-plugin build). ``claude-agent-sdk`` is an
-        # optional plugin installed into the user's plugin ``pyenv``;
-        # ``activate_pyenv`` appends that dir to ``sys.path`` first so a plugin
-        # installed while the app is running resolves without a restart. On a
-        # base install without the plugin this raises ImportError — which only
-        # happens once ``get_agent_loop_driver`` has already confirmed the
-        # framework is installed, so it is a genuine "should never get here"
-        # rather than a routine miss.
-        plugin_paths.activate_pyenv()
-        from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
+        # Lazy SDK import (lightweight-plugin build): populate the module-level
+        # ClaudeSDKClient / ClaudeAgentOptions / HookMatcher on first use. See
+        # _ensure_sdk_imported — it activates the plugin pyenv and respects a
+        # monkeypatched stub. get_agent_loop_driver's fail-closed gate has
+        # already confirmed the plugin is installed before any turn reaches here.
+        _ensure_sdk_imported()
 
         # Step 0-1: Convert mcp_servers specs to the SDK's McpSSEServerConfig
         # shape. "headers" (user-configured auth, e.g. Authorization bearer

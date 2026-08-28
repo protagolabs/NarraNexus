@@ -184,16 +184,18 @@ def get_agent_loop_driver(
             f"Register one via register_agent_loop_driver()."
         ) from None
 
-    # Fail-closed on the lightweight local build: a known framework whose
-    # optional SDK plugin is not installed must refuse here, BEFORE building
-    # the driver (whose lazy SDK import would otherwise throw a raw
-    # ImportError mid-turn). Only the in-process path reaches this — the
-    # remote-executor branch above returned already, and cloud executors
-    # pre-install every SDK so ``framework_installed`` is True there. Imported
+    # Fail-closed on the lightweight local build: a PLUGIN framework
+    # (claude_code / codex_cli) whose optional SDK is not installed must refuse
+    # here, BEFORE building the driver (whose lazy SDK import would otherwise
+    # throw a raw ImportError mid-turn). The gate is scoped to plugin
+    # frameworks only — a built-in (nexus_power) or any custom-registered
+    # driver is available by virtue of being registered. Only the in-process
+    # path reaches this: the remote-executor branch above returned already, and
+    # cloud executors pre-install every SDK so the check passes there. Imported
     # locally to avoid an import cycle with this package's __init__.
-    from xyz_agent_context.agent_framework.plugin_paths import framework_installed
+    from xyz_agent_context.agent_framework import plugin_paths
 
-    if not framework_installed(name):
+    if name in plugin_paths.PLUGIN_FRAMEWORKS and not plugin_paths.framework_installed(name):
         raise FrameworkNotInstalledError(name)
 
     return factory(**factory_kwargs)

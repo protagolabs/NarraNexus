@@ -55,6 +55,11 @@ _FRAMEWORK_PACKAGE: dict[str, str] = {
     "codex_cli": "openai_codex",
 }
 
+# The frameworks whose availability is gated on an optional plugin. Only these
+# are fail-closed in get_agent_loop_driver — a built-in (nexus_power) or any
+# custom-registered driver is available by virtue of being registered.
+PLUGIN_FRAMEWORKS: frozenset[str] = frozenset(_FRAMEWORK_PACKAGE)
+
 
 def plugin_home() -> Path:
     """Root of the user-writable plugin tree (env-overridable)."""
