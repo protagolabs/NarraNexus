@@ -23,7 +23,7 @@
  * not just when the disclosure collapses.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, ChevronRight, SkipForward } from 'lucide-react';
@@ -34,14 +34,9 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { authFetch, providerApiUrl } from '@/lib/providersApi';
+import { postProvider, type ProviderRow } from '@/lib/providersApi';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useRuntimeStore } from '@/stores';
-
-interface SetupProviderSummary {
-  source?: string;
-  auth_type?: string;
-}
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -52,7 +47,7 @@ export function SetupPage() {
   const [providerCount, setProviderCount] = useState(0);
   // Provider record state feeding SubscriptionConnect ("Added ✓" vs the
   // Add-as-Provider button). Same probe as providerCount.
-  const [providers, setProviders] = useState<Record<string, SetupProviderSummary>>({});
+  const [providers, setProviders] = useState<Record<string, ProviderRow>>({});
   const [subError, setSubError] = useState('');
   // Bumped after every successful add through the subscription card, so
   // ProviderSettings (which owns its own provider list) refetches too —
@@ -73,58 +68,45 @@ export function SetupPage() {
   // through api.getProviders so identity travels in the X-User-Id /
   // JWT header — bare fetch used to send neither, and the backend
   // happily fell back to "first user in users table".
-  // Stable reference on purpose: this is handed to ProviderSettings as
-  // onProvidersChanged, which sits in refreshConfig's deps — an inline
-  // arrow would re-create it every render and put the mount fetch in a
-  // loop (see the comment on refreshConfig's dep list).
-  const probe = useCallback(async () => {
+  const probe = async () => {
     try {
       const data = await api.getProviders();
       if (data.success && data.data?.providers) {
         setProviderCount(Object.keys(data.data.providers).length);
-        setProviders(data.data.providers as Record<string, SetupProviderSummary>);
+        setProviders(data.data.providers as Record<string, ProviderRow>);
       }
     } catch {
       // Backend not ready — keep the skip affordance
     }
-  }, []);
+  };
 
-  // Thin POST /api/providers wrapper for the subscription card — same
-  // body contract as ProviderSettings' addProvider, but re-probing THIS
-  // page's provider state on success so the footer flips live.
+  // Thin wrapper over the shared POST contract for the subscription
+  // card. On success it only bumps the refresh token: the chain is
+  // bump → ProviderSettings refetches → onProvidersChanged (= probe)
+  // updates THIS page too — one refresh pass, no duplicate requests.
   const addProvider = async (body: Record<string, unknown>): Promise<boolean> => {
     setSubError('');
-    try {
-      const res = await authFetch(providerApiUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then((r) => r.json());
-      if (!res.success) {
-        setSubError(res.detail || t('settings.provider.failed'));
-        return false;
-      }
-      await probe();
-      setProvidersVersion((v) => v + 1);
-      return true;
-    } catch {
-      setSubError(t('settings.provider.networkError'));
+    const res = await postProvider(body);
+    if (!res.ok) {
+      // null detail = network-level failure (see postProvider).
+      setSubError(
+        res.detail === null
+          ? t('settings.provider.networkError')
+          : res.detail || t('settings.provider.failed'),
+      );
       return false;
     }
+    setProvidersVersion((v) => v + 1);
+    return true;
   };
 
   const providerList = Object.values(providers);
   const claudeCard = providerList.find((p) => p.source === 'claude_oauth') ?? null;
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth');
 
-  // react-hooks/set-state-in-effect flags this because probe (now a
-  // useCallback so ProviderSettings can depend on it) sets state — but
-  // every set happens after an await, never synchronously in the effect
-  // body. Same pattern and suppression as IMChannelsSection.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     probe();
-  }, [probe]);
+  }, []);
 
   // Funnel: which event fires depends on WHICH button the user pressed, not
   // on provider count — "Skip for now" is a skip; the primary "Get Started"
@@ -170,12 +152,15 @@ export function SetupPage() {
           <OneKeyOnboard onComplete={() => finishSetup('setup_completed')} />
 
           {/* Advanced (collapsed by default, Owner-preferred layout):
-            * subscription sign-in first (LOCAL ONLY — cloud 403s OAuth
-            * card types for non-staff, so the UI must not advertise it,
-            * direct /setup visits included), then the full provider
-            * configuration surface. Connecting a subscription does NOT
-            * auto-navigate: the footer flips to "Get Started" live (via
-            * probe / onProvidersChanged) and the user leaves when ready. */}
+            * subscription sign-in first, then the full provider
+            * configuration surface. Two cloud gates, both needed:
+            * mode !== 'cloud-web' here (fast, also hides the heading;
+            * negative match so a not-yet-hydrated null mode fails open to
+            * the local P0 fix), and SubscriptionConnect self-gates on the
+            * status routes' allowed flag (authoritative, covers every
+            * caller). Connecting a subscription does NOT auto-navigate:
+            * the footer flips to "Get Started" live (via
+            * onProvidersChanged → probe) and the user leaves when ready. */}
           <div className="mt-6">
             <button
               type="button"
@@ -192,7 +177,7 @@ export function SetupPage() {
             </button>
             {showAdvanced && (
               <div className="mt-4 flex flex-col gap-4">
-                {mode === 'local' && (
+                {mode !== 'cloud-web' && (
                   <PaperCard padding="lg">
                     <div className="flex flex-col gap-4">
                       <div>

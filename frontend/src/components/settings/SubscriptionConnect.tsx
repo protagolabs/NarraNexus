@@ -20,18 +20,21 @@
  *
  * The parent owns the provider list and the POST (addProvider) so its view
  * refreshes on success; this component owns the CLI status lifecycle.
- * `onConnected` fires ONLY after a successful subscription add/upgrade —
- * SetupPage uses it to complete onboarding and enter the app.
  *
- * Cloud note: callers must not render this on cloud for non-staff — the
- * backend 403s OAuth card types there (routes gate). SetupPage gates on
- * mode === 'local'; the Settings add-modal relies on the status routes'
- * `allowed` flag exactly as before the extraction.
+ * Cloud gate lives HERE: the status routes return `allowed: false` for
+ * cloud non-staff (the same is_cloud+not-staff predicate that 403s the
+ * OAuth card types), and this component renders nothing in that case —
+ * every caller (SetupPage fold, Settings add modal) inherits the gate.
+ * The backend 403 remains the actual security boundary; this only stops
+ * the UI advertising a path that would be refused. `allowed` is
+ * undefined on local and for cloud staff, so the check MUST be
+ * `=== false` — a truthiness check would blank the local mode this
+ * component exists to serve.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { authFetch, providerApiUrl } from '@/lib/providersApi';
+import { authFetch, providerApiUrl, type ProviderRow } from '@/lib/providersApi';
 import {
   isTauri,
   triggerClaudeLogin,
@@ -84,22 +87,19 @@ interface CliStatus {
 interface SubscriptionConnectProps {
   /** The claude_oauth provider row, if one exists (drives "Added ✓" /
    * token-connected state). */
-  claudeCard: { auth_type?: string } | null | undefined;
+  claudeCard: Pick<ProviderRow, 'auth_type'> | null | undefined;
   /** Whether a codex_oauth provider row exists. */
   hasCodex: boolean;
   /** Parent-owned POST /api/providers — the parent refreshes its provider
    * list inside, so record state (claudeCard / hasCodex) updates flow back
    * down as props. Resolves true on success. */
   addProvider: (body: Record<string, unknown>) => Promise<boolean>;
-  /** Fired after a subscription card was successfully added or upgraded. */
-  onConnected?: () => void;
 }
 
 export function SubscriptionConnect({
   claudeCard,
   hasCodex,
   addProvider,
-  onConnected,
 }: SubscriptionConnectProps) {
   const { t } = useTranslation();
 
@@ -153,14 +153,8 @@ export function SubscriptionConnect({
     return () => clearTimeout(timer);
   }, [claudeLoginRemaining]);
 
-  const connect = async (body: Record<string, unknown>) => {
-    const ok = await addProvider(body);
-    if (ok) onConnected?.();
-    return ok;
-  };
-
   const handleAddClaudeOAuth = async () => {
-    await connect({ card_type: 'claude_oauth' });
+    await addProvider({ card_type: 'claude_oauth' });
   };
 
   const handleSaveSetupToken = async () => {
@@ -170,7 +164,7 @@ export function SubscriptionConnect({
     try {
       // Same card_type; a non-empty api_key makes the backend store/upgrade
       // the card as auth_type=oauth_token (reconnect-in-place keeps slots).
-      const ok = await connect({ card_type: 'claude_oauth', api_key: token });
+      const ok = await addProvider({ card_type: 'claude_oauth', api_key: token });
       if (ok) setSetupToken('');
     } finally {
       setSavingSetupToken(false);
@@ -178,7 +172,7 @@ export function SubscriptionConnect({
   };
 
   const handleAddCodexOAuth = async () => {
-    await connect({ card_type: 'codex_oauth' });
+    await addProvider({ card_type: 'codex_oauth' });
   };
 
   const handleClaudeLogin = async () => {
@@ -210,10 +204,17 @@ export function SubscriptionConnect({
     }
   };
 
+  // Cloud non-staff: the status routes said this caller may not use
+  // OAuth cards — render nothing (see the header comment; `=== false`
+  // on purpose, the flag is undefined on local and for cloud staff).
+  if (claudeStatus?.allowed === false || codexStatus?.allowed === false) {
+    return null;
+  }
+
   return (
     <div className="space-y-4">
       {/* ---- Claude Code Login Card ---- */}
-      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+      <div data-testid="claude-connect-card" className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
         <div className="flex items-center gap-2 mb-1">
           <h4 className="text-sm font-medium text-[var(--text-primary)]">
             {t('settings.provider.claudeLoginTitle')}
@@ -367,7 +368,7 @@ export function SubscriptionConnect({
         * a provider, the Codex OAuth credential becomes assignable to the
         * agent slot.
         */}
-      <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+      <div data-testid="codex-connect-card" className="p-4 rounded-[var(--radius-xl)] border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
         <div className="flex items-center gap-2 mb-1">
           <h4 className="text-sm font-medium text-[var(--text-primary)]">
             {t('settings.provider.codexLoginTitle')}

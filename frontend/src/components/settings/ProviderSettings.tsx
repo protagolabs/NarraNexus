@@ -21,24 +21,21 @@
  * Uses the bioluminescent terminal design system CSS variables.
  */
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Plus, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { OneKeyOnboard } from './OneKeyOnboard'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConfigStore } from '@/stores'
-import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect'
-import { authFetch } from '@/lib/providersApi'
+import { authFetch, postProvider, providerApiUrl } from '@/lib/providersApi'
 import {
   MODEL_SUGGESTION_GROUPS,
   type ModelSuggestionGroup,
 } from '@/lib/agentFramework'
-
-
 
 // =============================================================================
 // Types
@@ -197,12 +194,6 @@ function ModelSuggestionChips({
 }
 
 // =============================================================================
-// Helpers
-// =============================================================================
-
-/** "9:32" / "0:08" — countdown formatter for the login timeout label. */
-
-// =============================================================================
 // Section Header
 // =============================================================================
 
@@ -241,7 +232,8 @@ interface ProviderSettingsProps {
    * it to keep its footer ("Get Started" vs "Skip for now") live while
    * the Advanced disclosure stays open — before this, the count only
    * re-probed on collapse and a freshly connected subscription looked
-   * like it hadn't taken (P0 2026-08-28). */
+   * like it hadn't taken (P0 2026-08-28). Held in a ref internally, so
+   * any reference (inline arrows included) is safe. */
   onProvidersChanged?: () => void
   /** External refresh signal: bump the value to refetch the provider
    * list. SetupPage's subscription card lives OUTSIDE this component,
@@ -262,17 +254,16 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
    * unsigned identity channel and made cross-user write/read bugs easy
    * to trigger. Backend now requires identity from headers only.
    *
-   * IMPORTANT: getApiBaseUrl() is called INSIDE the callback (not captured at
-   * component mount), so it always reflects the current mode. When the user
-   * switches between local and cloud, every fresh call returns the right host
-   * without needing to re-mount this component. */
-  const providerUrl = useCallback((path: string = '') => {
-    return `${getApiBaseUrl()}/api/providers${path}`
+   * The path is built by the shared providerApiUrl (which resolves the
+   * backend host per invocation, so local/cloud switches always hit the
+   * right host without a re-mount). */
+  const providerUrl = useCallback((path: string = '') => providerApiUrl(path),
   // userId is intentionally a dependency: re-creating the callback on
   // user switch is cheap and forces all consumers (refreshConfig etc.)
-  // to re-run under the new identity.
+  // to re-run under the new identity. The URL itself comes from the
+  // shared builder; only the re-render semantics live here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
+  [userId])
 
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
   const [error, setError] = useState('')
@@ -320,21 +311,24 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   const [addMethod, setAddMethod] = useState<'onekey' | 'oauth' | 'custom'>('onekey')
 
   // ---- Data loading ----
+  // The callback lives in a ref so it stays OUT of refreshConfig's deps:
+  // with it in the deps, any caller passing an inline arrow (the natural
+  // React spelling) would re-create refreshConfig every render and turn
+  // the mount effect below into an infinite refetch loop.
+  const onProvidersChangedRef = useRef(onProvidersChanged)
+  useEffect(() => { onProvidersChangedRef.current = onProvidersChanged })
+
   const refreshConfig = useCallback(async () => {
     try {
       const cfgRes = await authFetch(providerUrl()).then((r) => r.json())
       if (cfgRes.success) {
         setProviders(cfgRes.data.providers)
-        onProvidersChanged?.()
+        onProvidersChangedRef.current?.()
       }
     } catch (err) {
       console.error('[ProviderSettings] refreshConfig failed:', err)
     }
-  // onProvidersChanged is in the deps, so callers MUST pass a stable
-  // (useCallback) reference — an inline arrow would re-create
-  // refreshConfig every render and the mount effect below would refetch
-  // in a loop. SetupPage memoizes its probe for exactly this reason.
-  }, [providerUrl, onProvidersChanged])
+  }, [providerUrl])
 
   // refreshToken in the deps: bumping it from outside refetches (see the
   // prop's doc); same-value re-renders are a no-op by effect semantics.
@@ -351,19 +345,21 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   const claudeCard = providerList.find((p) => p.source === 'claude_oauth')
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
-
   // ---- Provider actions ----
   const addProvider = async (body: Record<string, unknown>) => {
     setError('')
-    try {
-      const res = await authFetch(providerUrl(), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then((r) => r.json())
-      if (!res.success) { setError(res.detail || t('settings.provider.failed')); return false }
-      await refreshConfig()
-      return true
-    } catch { setError(t('settings.provider.networkError')); return false }
+    const res = await postProvider(body)
+    if (!res.ok) {
+      // null detail = network-level failure (see postProvider).
+      setError(
+        res.detail === null
+          ? t('settings.provider.networkError')
+          : res.detail || t('settings.provider.failed'),
+      )
+      return false
+    }
+    await refreshConfig()
+    return true
   }
 
 

@@ -2,16 +2,31 @@
  * @file_name: providersApi.ts
  * @author: NarraNexus
  * @date: 2026-08-28
- * @description: Shared authenticated fetch + URL builder for /api/providers.
+ * @description: Shared plumbing for /api/providers callers.
  *
- * Extracted from ProviderSettings so SubscriptionConnect (and SetupPage's
- * thin addProvider wrapper) reuse the exact same identity semantics instead
- * of growing copies. Identity travels in HEADERS ONLY (X-User-Id in local,
- * JWT Bearer in cloud) — never the query string; the backend dropped the
- * "first user in users table" fallback on 2026-05-18 and 401s when the
- * headers are missing, which is the correct failure.
+ * Exists because the SubscriptionConnect extraction gave the provider
+ * endpoints three frontend callers (ProviderSettings, SubscriptionConnect,
+ * SetupPage). What is shared here:
+ *   - authFetch — DELEGATES identity to lib/authHeaders (the single parse
+ *     point; an earlier draft hand-copied the localStorage parse and was
+ *     weaker — no string guards — which is exactly how the 2026-05-18
+ *     cross-user identity bug family starts).
+ *   - postProvider — the POST /api/providers body/error contract, so the
+ *     `detail` field mapping cannot drift between callers.
+ *   - ProviderRow — the one row shape all three callers read.
  */
+import { getAuthHeaders } from '@/lib/authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+
+/** The provider-row fields the frontend reads. The backend row carries
+ * more; add fields here (one place) as consumers need them. */
+export interface ProviderRow {
+  provider_id: string;
+  name?: string;
+  source?: string;
+  protocol?: string;
+  auth_type?: string;
+}
 
 /** Build a provider API URL against the CURRENT backend host.
  *
@@ -24,24 +39,39 @@ export function providerApiUrl(path: string = ''): string {
 
 /** fetch with the identity headers this backend requires.
  *
- * Reads the persisted config store snapshot directly from localStorage —
- * NOT the zustand hook — so plain async handlers (and non-React callers)
- * can use it. Corrupt or absent storage degrades to an unauthenticated
- * request; the backend 401s if the request actually needed identity. */
+ * Identity comes from lib/authHeaders' single parse point. Headers are
+ * set one by one ON TOP of init.headers — `new Headers(getAuthHeaders())`
+ * would drop the caller's Content-Type. */
 export function authFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {
   const headers = new Headers(init?.headers);
-  try {
-    const raw = localStorage.getItem('narra-nexus-config');
-    if (raw) {
-      const state = JSON.parse(raw)?.state || {};
-      if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
-      if (state.userId) headers.set('X-User-Id', state.userId);
-    }
-  } catch {
-    // Degrade to unauthenticated — see docstring.
-  }
+  Object.entries(getAuthHeaders()).forEach(([k, v]) => headers.set(k, v));
   return fetch(input, { ...init, headers });
+}
+
+/** POST /api/providers with the shared body/error contract.
+ *
+ * Returns the outcome only — NO side effects: the callers' refresh
+ * choreography differs (ProviderSettings refetches its own list,
+ * SetupPage bumps the refresh token) and must stay theirs. On failure,
+ * `detail` distinguishes the two error classes the callers word
+ * differently: `null` = network-level failure (map to networkError
+ * copy), string = the backend's reason ('' when it gave none — map to
+ * the generic failed copy). */
+export async function postProvider(
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; detail: string | null }> {
+  try {
+    const res = await authFetch(providerApiUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+    if (!res.success) return { ok: false, detail: String(res.detail || '') };
+    return { ok: true, detail: '' };
+  } catch {
+    return { ok: false, detail: null };
+  }
 }

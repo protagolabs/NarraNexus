@@ -12,19 +12,24 @@ add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
 `<SubscriptionConnect claudeCard hasCodex addProvider/>`。动机:landing
 (SetupPage)要把订阅升为一等路径,逻辑必须单份。随行变化:
 
-- 本地 `authFetch` 提升为 [[providersApi]] 的共享导出(语义不变);
-  `providerUrl` 的 useCallback **留在组件内**(userId 依赖驱动
-  refreshConfig 重跑,是 re-render 语义不是 URL 语义)。
+- 身份 fetch 收敛进 [[providersApi]](其 authFetch 委托 [[authHeaders]]
+  单一解析点——本地 review 打回过手抄版);`providerUrl` 的 useCallback
+  **留在组件内**但函数体委托 `providerApiUrl`(userId 依赖驱动
+  refreshConfig 重跑,是 re-render 语义不是 URL 语义)。`addProvider` 的
+  POST/错误契约委托 `postProvider`(detail null=网络错、string=后端原因),
+  成功后的 refreshConfig 副作用留在本组件。
 - refreshConfig 不再拉 claude/codex status(归 SubscriptionConnect 自取),
   只剩 provider 列表;新增可选 prop `onProvidersChanged`,每次成功刷新后
-  回调——SetupPage 用它做页脚实时翻转。**陷阱:该回调进了 refreshConfig
-  的 useCallback 依赖,调用方必须传稳定引用(useCallback),否则挂载
-  effect 会无限重拉**(源码注释已写)。
+  回调——SetupPage 用它做页脚实时翻转。**回调持在 ref 里、不进
+  refreshConfig 依赖**(本地 review:靠注释要求"调用方必须传稳定引用"
+  是只有注释在守的挂载死循环陷阱;ref 模式让内联箭头也安全)。
 - 再加可选 prop `refreshToken?: number`(Owner 走查第 2 轮):SetupPage
   的订阅卡在本组件**外面**,经它 add 的卡不会路过 refreshConfig,
-  "Your providers" 网格一直陈旧;外部 bump token 即重拉。测试:
+  "Your providers" 网格一直陈旧;外部 bump token 即重拉(它**必须留在**
+  挂载 effect 的依赖里)。测试:
   `__tests__/ProviderSettingsRefresh.test.tsx`(bump 重拉 / 同值不重拉)。
-- 文件 1254 → ~850 行。
+- 抽取残留(孤儿 Helpers 分节、formatCountdown 的孤儿 docstring、多余
+  空行)已清;文件 1254 → ~850 行。
 - Test 按钮加载态从静态 `'...'` 换成 Loader2 spinner + "Testing…" 文案
   (详情弹窗 + Custom 表单两处;Owner 走查第 3 轮)——OAuth 卡的 Test
   自 PR #375 起真跑一次 CLI(5-15s),静态三个点读起来像卡死。i18n 新键

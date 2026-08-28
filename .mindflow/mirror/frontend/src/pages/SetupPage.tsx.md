@@ -13,15 +13,19 @@ API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Own
 
 - 页面保持原格式(OneKeyOnboard 主卡 + 折叠区),但折叠区展开后
   **第一眼就是订阅卡**([[SubscriptionConnect]]),不再需要进 add modal。
-  **仅 `mode === 'local'` 渲染**——云端不广告后端会 403 的路径(云端经
-  RootRedirect 本就不进 /setup,这里防的是直接 URL 访问)。
-- **订阅连接不触发导航**(不传 onConnected):本页瘦 `addProvider`
-  (走 [[providersApi]])成功后 re-probe,页脚实时翻成 "Get Started",
-  由用户自己离开。这是 Owner 明确的交互决策,别"顺手"改回自动跳转。
-- `probe` 改 useCallback 并作为 `onProvidersChanged` 传给
-  ProviderSettings——Advanced 开着时页脚也实时翻转,折叠时 re-probe
-  保留为兜底。**probe 必须保持稳定引用**(见 ProviderSettings mirror
-  的陷阱)。
+  云端两道门:本页 `mode !== 'cloud-web'`(**AppMode 的云端值是
+  'cloud-web' 不是 'cloud'**,tsc 抓过一次;负向匹配让未 hydrate 的
+  null mode 向 local 开放)负责藏区块和标题;权威门在
+  SubscriptionConnect 内部按 status 路由的 `allowed === false` 自守
+  (覆盖 Settings add modal 与一切调用方)。
+- **订阅连接不触发导航**(onConnected 已被删,见 SubscriptionConnect
+  mirror):本页 `addProvider` 走 [[providersApi]] 的 `postProvider`,
+  成功后只 bump `providersVersion`——刷新链路是 bump →
+  ProviderSettings 重拉 → onProvidersChanged(=probe)回流本页,
+  **单次刷新、无重复请求**。这是 Owner 明确的交互决策,别"顺手"改回
+  自动跳转。
+- `probe` 是普通函数(ProviderSettings 用 ref 持回调,不再要求稳定
+  引用);折叠时 re-probe 保留为兜底。
 - `providersVersion` state 在订阅卡每次成功 add 后 +1,作为
   `refreshToken` 传给 ProviderSettings——否则其自有的 "Your providers"
   网格不知道该刷新(Owner 走查第 2 轮发现)。

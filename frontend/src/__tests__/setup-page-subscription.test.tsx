@@ -28,7 +28,7 @@ vi.mock('@/lib/providersApi', () => ({
   authFetch: vi.fn(),
 }));
 
-let runtimeMode: 'local' | 'cloud' = 'local';
+let runtimeMode: 'local' | 'cloud-web' = 'local';
 vi.mock('@/stores', () => ({
   useRuntimeStore: (sel?: (s: unknown) => unknown) => {
     const s = { mode: runtimeMode };
@@ -74,7 +74,7 @@ describe('SetupPage subscription surface', () => {
   });
 
   test('cloud mode: subscription connect never renders, even with the fold open', () => {
-    runtimeMode = 'cloud';
+    runtimeMode = 'cloud-web';
     render(<SetupPage />);
     expandAdvanced();
     expect(screen.getByTestId('provider-settings')).toBeTruthy();
