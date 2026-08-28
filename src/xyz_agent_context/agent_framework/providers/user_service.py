@@ -172,6 +172,10 @@ def _cli_subscription_row_fields(
     credential, no file sentinel) — mapped to ``""`` here so
     ``_insert_provider``'s ``if key in data`` check writes the empty
     string instead of skipping the column.
+
+    ``protocol`` is passed through to align with ``derive_driver_type``'s
+    signature; for the two CLI-subscription sources it does not affect
+    the result (their branches key on source alone).
     """
     from xyz_agent_context.agent_framework.providers.driver.derive import (
         derive_auth_ref,
@@ -179,16 +183,17 @@ def _cli_subscription_row_fields(
         derive_driver_type,
     )
 
-    driver_type = derive_driver_type(source, auth_type, protocol)
-    if driver_type is None:
-        # A mistyped source would otherwise write driver_type=NULL —
-        # exactly the state this helper exists to eliminate. Fail loudly
-        # at the call site instead of producing a broken row.
+    if (source or "").lower() not in ("claude_oauth", "codex_oauth"):
+        # Enforce the documented scope, not merely "classifiable":
+        # derive_driver_type happily classifies source="user" as
+        # custom_anthropic, and this helper would then stamp an
+        # external_oauth billing policy onto a card it must not serve.
+        # Fail loudly at the call site instead of producing a broken row.
         raise ValueError(
             f"not a CLI-subscription source: {source!r} (auth_type={auth_type!r})"
         )
     return {
-        "driver_type": driver_type,
+        "driver_type": derive_driver_type(source, auth_type, protocol),
         "billing_policy": derive_billing_policy(source, auth_type),
         "auth_ref": derive_auth_ref(source, auth_type) or "",
     }

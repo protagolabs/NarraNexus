@@ -237,8 +237,8 @@ class CodexOAuthDriver(_DriverBase):
                 ok=False,
                 detail=(
                     "this provider is not a Codex CLI (OAuth) card — "
-                    "check its auth_type and source in Settings → "
-                    "LLM Providers"
+                    "to use a Codex subscription, add a Codex CLI "
+                    "(OAuth) card in Settings → LLM Providers instead"
                 ),
             )
         path = resolve_codex_credentials_path(self.card.auth_ref)

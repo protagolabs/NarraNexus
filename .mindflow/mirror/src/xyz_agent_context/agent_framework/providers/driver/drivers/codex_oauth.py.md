@@ -13,7 +13,7 @@ misroute 判定先于一切凭证检查,与 claude 侧(token 分支之前)对称
 断言不泄漏 "auth_ref" 且含 "re-add"。
 
 另:`build_codex_config` 的强制 auth_ref 覆盖改走
-`derive_auth_ref(auth_type, "codex_oauth")`(真值表副本清点,review
+`derive_auth_ref("codex_oauth", auth_type)`(真值表副本清点,review
 第 4 轮)。source 传**字面量**是刻意的——这里的语义是强制覆盖而非
 按卡推导,传 `self.card.source` 会让误路由卡拿到空 ref、stager 静默
 产出空 CODEX_HOME。测试 fixture 注意:`_codex_card`/`_claude_card`

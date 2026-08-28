@@ -112,8 +112,8 @@ class ClaudeOAuthDriver(_DriverBase):
                 ok=False,
                 detail=(
                     "this provider is not a Claude Code (OAuth) card — "
-                    "check its auth_type and source in Settings → "
-                    "LLM Providers"
+                    "to use a Claude subscription, add a Claude Code "
+                    "(OAuth) card in Settings → LLM Providers instead"
                 ),
             )
         if self._is_token_mode():

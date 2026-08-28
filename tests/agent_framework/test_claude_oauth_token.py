@@ -500,6 +500,19 @@ async def test_add_claude_oauth_host_cli_row_is_complete_at_insert():
     assert row["billing_policy"] == "external_oauth"
 
 
+def test_cli_subscription_row_fields_raises_on_unknown_source():
+    """A mistyped source must fail loudly at the call site — writing
+    driver_type=NULL is exactly the state the helper exists to eliminate.
+    This guard is the only backstop for the NEXT CLI-OAuth card type
+    (e.g. gemini_cli) wired through here."""
+    from xyz_agent_context.agent_framework.providers.user_service import (
+        _cli_subscription_row_fields,
+    )
+
+    with pytest.raises(ValueError):
+        _cli_subscription_row_fields("user", "oauth", "anthropic")
+
+
 # ---------------------------------------------------------------------------
 # test_provider: oauth_token rows get a LIVE verification, not a static ✓
 # ---------------------------------------------------------------------------

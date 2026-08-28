@@ -4,12 +4,12 @@ last_verified: 2026-08-27
 stub: false
 ---
 
-## 2026-08-27 — codex helper 的 auth_ref 改走 derive_auth_ref(auth_ref P1 收尾)
+## 2026-08-27 — codex helper 的 auth_ref 改走 derive_auth_ref (auth_ref P1 收尾)
 
 `_run_codex_oneshot` 构造 helper CodexConfig 时的
 `CODEX_CLI_CREDENTIALS_REF if _auth_type == "oauth" else ""` 是
 `derive.py` 真值表的条件式副本(review 第 4 轮清点出的最后两份之一),
-改为 `derive_auth_ref(_auth_type, "codex_oauth") or ""`。source 传字面量
+改为 `derive_auth_ref("codex_oauth", _auth_type) or ""`。source 传字面量
 "codex_oauth"——此构造器语境即 codex,不从卡上读。行为逐值不变,
 `test_cli_helper.py` 的 codex_auth_ref 断言钉住。
 

@@ -15,9 +15,12 @@ claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver �
 `derive_auth_ref` 返回 None,helper 里 `or ""` 兜成空串,否则
 `_insert_provider` 的 `if key in data` 会跳过该列留下 NULL。
 
-第 5 轮加固:helper 对 `derive_driver_type` 返回 None 的 source 直接
-`raise ValueError`——拼错的 source 否则会静默写出 driver_type=NULL,
-正是本 P1 要消灭的状态。
+第 5 轮加固 + PR bot 轮修正:helper 对 **scope 外的 source**(非
+claude_oauth/codex_oauth)直接 `raise ValueError`。注意判据是 scope
+而非"可分类"——`derive_driver_type("user","oauth","anthropic")` 会返回
+`custom_anthropic`,按 None 判挡不住 "user",helper 会给不该服务的卡
+盖上 external_oauth;PR bot 轮的 raise 测试暴露了这一点(测试:
+`test_cli_subscription_row_fields_raises_on_unknown_source`)。
 
 **已知取舍(review 第 5 轮 Important 4,待库上核实)**:`test_provider`
 的 legacy 兜底(driver_type NULL 时按 **protocol** 推 driver)与真值表
