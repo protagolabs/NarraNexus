@@ -187,6 +187,27 @@ async def test_probe_oauth_missing_auth_ref_detail_is_actionable():
     assert "re-add" in health.detail
 
 
+@pytest.mark.asyncio
+async def test_probe_misrouted_card_does_not_advise_removal():
+    """test_provider's driver_type fallback routes any anthropic-protocol
+    oauth row into ClaudeOAuthDriver — including a hand-crafted custom card
+    (source='user') that was never a Claude Code (OAuth) card. Advising
+    'remove and re-add Claude Code (OAuth)' there is destructive and wrong;
+    the probe must say the card is misconfigured instead (review round 3,
+    Minor 1)."""
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+
+    driver = ClaudeOAuthDriver(
+        _card(source="user", auth_type="oauth", api_key="", auth_ref="")
+    )
+    health = await driver.probe()
+    assert not health.ok
+    assert "remove" not in health.detail.lower()
+    assert "auth_ref" not in health.detail
+
+
 def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
     """Rows inserted before 2026-08-27 carry auth_ref=NULL until a backend
     restart runs the startup backfill — ProviderCard.from_row derives the
@@ -381,6 +402,7 @@ async def test_add_claude_oauth_token_reconnects_existing_row_in_place():
     row = db.providers[pid]
     assert row["auth_type"] == "oauth_token"
     assert row["api_key"] == TOKEN
+    assert row["driver_type"] == "claude_oauth"
     assert row["billing_policy"] == "external_oauth"
     assert not row.get("auth_ref")
     assert len(db.providers) == 1

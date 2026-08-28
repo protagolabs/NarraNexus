@@ -358,12 +358,15 @@ class UserProviderService:
                 new_ids.append(pid)
             else:
                 pid = _generate_provider_id()
+                # One expression feeds both the row column and the derived
+                # fields below — duplicating it is how the two drift.
+                oauth_auth_type = "oauth_token" if token else "oauth"
                 row = {
                     "provider_id": pid,
                     "name": "Claude Code (OAuth)",
                     "source": "claude_oauth",
                     "protocol": "anthropic",
-                    "auth_type": "oauth_token" if token else "oauth",
+                    "auth_type": oauth_auth_type,
                     "api_key": token,
                     "base_url": "",
                     # CLI family aliases → auto-track the latest Claude release
@@ -381,9 +384,7 @@ class UserProviderService:
                     # until then, so Test right after creation always
                     # failed (P1, 2026-08-27).
                     **_cli_subscription_row_fields(
-                        "claude_oauth",
-                        "oauth_token" if token else "oauth",
-                        "anthropic",
+                        "claude_oauth", oauth_auth_type, "anthropic"
                     ),
                 }
                 await self._insert_provider(user_id, row, now)

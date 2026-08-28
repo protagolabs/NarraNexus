@@ -129,7 +129,9 @@ def derive_auth_ref(
     auth_type: Optional[str],
     source: Optional[str] = None,
 ) -> Optional[str]:
-    """Returns the canonical ``auth_ref`` value for a legacy row.
+    """The canonical ``auth_ref`` for a CLI-subscription row — the single
+    truth table serving insert time (``_cli_subscription_row_fields``),
+    read time (``ProviderCard.from_row``), and the startup backfill.
 
     Only host-CLI OAuth rows of the two CLI-subscription sources get a
     non-null value; everything else uses ``api_key`` directly and leaves

@@ -125,12 +125,27 @@ class ClaudeOAuthDriver(_DriverBase):
 
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
+            # Guard on source, NOT driver_type: test_provider's legacy
+            # fallback routes any anthropic-protocol oauth row here
+            # precisely when driver_type is NULL, so a hand-crafted
+            # custom card (source="user") can land in this driver.
+            # Advising removal for it would be wrong AND destructive
+            # (remove_provider wipes the card's per-agent slot overrides).
+            if (self.card.source or "") != "claude_oauth":
+                return DriverHealth(
+                    ok=False,
+                    detail=(
+                        "this provider is not a Claude Code (OAuth) card — "
+                        "check its auth_type and source in Settings → "
+                        "LLM Providers"
+                    ),
+                )
             # Creation writes the claude-cli: sentinel at insert time and
             # ProviderCard.from_row derives it for older rows, so reaching
-            # this branch means even (auth_type, source) couldn't produce a
-            # reference — a genuinely corrupt row. Tell the user the way
-            # out, not the internal column name (P1: the Test dialog showed
-            # "auth_ref is missing" verbatim).
+            # this branch means the stored reference itself is malformed —
+            # a genuinely corrupt row. Tell the user the way out, not the
+            # internal column name (P1: the Test dialog showed "auth_ref
+            # is missing" verbatim).
             return DriverHealth(
                 ok=False,
                 detail=(

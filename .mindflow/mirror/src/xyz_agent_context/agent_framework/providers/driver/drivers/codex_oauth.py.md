@@ -6,10 +6,11 @@ last_verified: 2026-08-27
 
 ## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(随 claude_oauth 同批)
 
-同 claude_oauth.md 同日条目:内部列名不再进用户可见文案,改为
-remove + re-add 指引。codex 的创建路径一直在插入时写 sentinel,
-所以这条分支本就只覆盖"行坏了"的情形,语义不变、只换措辞。
-`test_codex_oauth_driver.py` 的两条 probe 测试改为断言不泄漏
+同 claude_oauth.md 同日条目:内部列名不再进用户可见文案。分支按
+source 判别(review 第 3 轮):`source=="codex_oauth"` → remove +
+re-add 指引;其他 source(test_provider 兜底误路由的行)→ 报
+"not a Codex CLI (OAuth) card",不建议删卡。判 source 不判
+driver_type。`test_codex_oauth_driver.py` 的 probe 测试断言不泄漏
 "auth_ref" 且含 "re-add"。
 
 ## 2026-07-31 — verify_live:P0「凭证失效仍测试通过」的修复主体

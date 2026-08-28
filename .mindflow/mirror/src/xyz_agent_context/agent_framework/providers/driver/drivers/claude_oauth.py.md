@@ -9,9 +9,15 @@ stub: false
 "auth_ref is missing or not a claude-cli: reference" 原样弹进了 Test
 对话框(P1 工单)——内部列名对用户毫无行动指向。改为"remove it and
 re-add Claude Code (OAuth) in Settings → LLM Providers"。前提:创建路径
-自本日起插入即写 sentinel(见 user_service.md 同日条目),所以这条分支
-只剩"行真的坏了"一种含义,重建 provider 就是正确的自救。codex_oauth
-同款文案同批修。测试断言文案**不含** "auth_ref" 字符串。
+自本日起插入即写 sentinel、from_row 读时推导兜住存量行。**分支有两种
+含义,按 source 判别**(review 第 3 轮):`source=="claude_oauth"` →
+存的引用本身损坏,remove+re-add 是对的;source 是别的(test_provider
+的 driver_type 兜底会把任意 anthropic 协议 oauth 行误路由进本 driver,
+恰在 driver_type 为 NULL 时)→ 卡本来就不是 Claude Code (OAuth),
+建议删卡是破坏性误导,改报 "not a Claude Code (OAuth) card"。**判
+source 不判 driver_type**——误路由的成因就是 driver_type 为 NULL。
+codex_oauth 同款同批修。测试断言文案**不含** "auth_ref" 字符串、误路由
+行**不含** "remove"。
 
 ## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
 

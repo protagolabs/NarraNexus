@@ -15,6 +15,12 @@ claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver �
 `derive_auth_ref` 返回 None,helper 里 `or ""` 兜成空串,否则
 `_insert_provider` 的 `if key in data` 会跳过该列留下 NULL。
 
+**拒绝过的方案**(review 第 3 轮建议 helper 改收整个 row dict):dict 键
+耦合 + reconnect 分支的 update dict 没有 source/protocol 键、还得造兜底,
+比显式三参更晦涩。真正的漂移风险(auth_type 表达式在 row 与 helper 调用
+两处重复)用局部变量 `oauth_auth_type` 消除即可。route 层探针 stub 的
+第三份真值表副本另行修掉(见 backend/routes/providers.py.md 同日条目)。
+
 ## 2026-08-27 — host-CLI claude_oauth 行也在插入时写全三字段(P1)
 
 `add_provider(claude_oauth)` 无 token 的 host-CLI 分支此前**不写**

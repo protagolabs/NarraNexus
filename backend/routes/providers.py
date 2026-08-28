@@ -984,21 +984,21 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CODEX_CLI_CREDENTIALS_REF,
-        )
-        stub = ProviderCard(
-            provider_id="_probe_codex",
-            user_id="_probe",
-            name="probe",
-            source="codex_oauth",
-            protocol="openai",
-            auth_type="oauth",
-            api_key="",
-            base_url="",
-            auth_ref=CODEX_CLI_CREDENTIALS_REF,
-            driver_type="codex_oauth",
-        )
+        # A fake DB row through from_row, so auth_ref comes from the same
+        # derive.py truth table every real row uses (read-time fallback) —
+        # not a third hand-written copy that silently drifts when the
+        # sentinel semantics change. auth_type must be explicit ("oauth"):
+        # from_row defaults it to "api_key", which derives no auth_ref and
+        # would report a logged-in host as missing credentials. No
+        # driver_type: the driver is constructed directly below.
+        stub = ProviderCard.from_row({
+            "provider_id": "_probe_codex",
+            "user_id": "_probe",
+            "name": "probe",
+            "source": "codex_oauth",
+            "protocol": "openai",
+            "auth_type": "oauth",
+        })
         health = await CodexOAuthDriver(stub).probe()
         detail = health.detail
         if not health.ok:
@@ -1012,21 +1012,16 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
             ClaudeOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CLAUDE_CLI_CREDENTIALS_REF,
-        )
-        stub = ProviderCard(
-            provider_id="_probe_claude",
-            user_id="_probe",
-            name="probe",
-            source="claude_oauth",
-            protocol="anthropic",
-            auth_type="oauth",
-            api_key="",
-            base_url="",
-            auth_ref=CLAUDE_CLI_CREDENTIALS_REF,
-            driver_type="claude_oauth",
-        )
+        # Same shape as the codex stub above: from_row derives auth_ref
+        # from the shared truth table; explicit auth_type="oauth" required.
+        stub = ProviderCard.from_row({
+            "provider_id": "_probe_claude",
+            "user_id": "_probe",
+            "name": "probe",
+            "source": "claude_oauth",
+            "protocol": "anthropic",
+            "auth_type": "oauth",
+        })
         health = await ClaudeOAuthDriver(stub).probe()
         detail = health.detail
         if not health.ok:
