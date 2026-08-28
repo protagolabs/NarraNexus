@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-08-07
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -123,3 +123,8 @@ a multi-file HTML app's quota cost is the whole directory.
 ## 2026-07-13 — office-live kind
 
 `ArtifactKind` 新增 `application/vnd.officecli-live`:office 文档(pptx/docx/xlsx)渲染成实时 officecli-watch 预览(随 agent 编辑自刷新),非静态文件。
+
+## 2026-08-18 — `Artifact.content_hash`(Optional)
+
+entry 的 sha256 指纹,heal 验明候选身份用;None=存量行或哈希失败。列注释与
+schema_registry 的 2026-08-18 节为准。

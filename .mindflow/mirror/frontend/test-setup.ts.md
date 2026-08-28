@@ -1,6 +1,6 @@
 ---
 code_file: frontend/test-setup.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -30,6 +30,13 @@ vitest 的默认环境是 jsdom，而 jsdom 不是浏览器：它缺一些**在�
   空实现是**诚实的**桩：这个 effect 做的事在 jsdom 里本来就不可观测；而"该不该滚"
   这个**决定**是单独可测的，钉在 `lib/__tests__/scrollStickiness.test.ts`
   （见 [[scrollStickiness.ts]]）。
+
+- **`IntersectionObserver` / `ResizeObserver`**(2026-08-19):jsdom 两个都没有。
+  md 块编辑器(Milkdown Crepe)在 mount 时就构造它们——代码块的可视区
+  懒渲染用前者,工具条定位用后者;缺任何一个,所有挂 MarkdownRenderer
+  的测试在组件渲染前整文件炸掉。noop 桩是诚实的:layout 回调在 jsdom
+  里本来不可观测,观察不到任何东西的 observer 与不存在的 observer 在
+  jsdom 语义下等价。
 
 ## 一个不是补丁的东西
 

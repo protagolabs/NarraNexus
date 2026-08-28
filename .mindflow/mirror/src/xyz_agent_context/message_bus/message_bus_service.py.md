@@ -130,3 +130,8 @@ agent 刚说的那句话 —— 正是本 PR 存在的理由,换一个实现复�
 缺陷本身：私聊频道的查找把频道对着两条成员行 join，同一个 id 传两次会被**同一条成员行**满足，
 于是该 agent 所属的任意 direct 频道都匹配 —— 发送落进任意一个 peer 的会话并把对方唤醒。
 `direct_channel_sql` 的 docstring 里也写了同一条不变量，因为它已经有两个调用方，第三个否则也会踩。
+
+## 2026-08-23(补)— get_pending_messages 加 channel_id 抽象签名
+
+抽象契约 `get_pending_messages(agent_id, limit=50, channel_id=None)`:channel_id 非空时 scope 到单房间(per-lane 调用方
+需要,LIMIT 落单房间),None 保持跨 channel 旧行为。实现见 [[local_bus.py]];`cloud_bus` 是 NotImplemented stub 但签名同步。

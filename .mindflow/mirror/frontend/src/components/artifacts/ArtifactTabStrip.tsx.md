@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactTabStrip.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -116,3 +116,7 @@ Each tab `<div>` has an `onClick` that calls `setActive`. The pin and close `<bu
 ## Gotchas
 
 `ArtifactTabStrip` renders an "empty" message (`No artifacts yet`) when `artifacts.length === 0`. In practice, `ArtifactColumn` returns `null` before rendering the strip when there are no artifacts, so this empty state is a safety fallback that should never be visible to users. If the visibility logic in `ArtifactColumn` changes, this fallback becomes important.
+
+## 2026-08-19 — 未保存圆点
+
+TabButton 增 dirty prop(store editorDirtyIds)→ 琥珀圆点。

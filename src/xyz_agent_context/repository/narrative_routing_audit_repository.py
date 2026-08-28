@@ -110,6 +110,25 @@ class NarrativeRoutingAuditRepository:
             "gate_top1_raw": audit.gate_top1_raw,
             "gate_top2_raw": audit.gate_top2_raw,
             "gate_margin": audit.gate_margin,
+            "bypass_score_gate": (
+                None if audit.bypass_score_gate is None
+                else int(audit.bypass_score_gate)
+            ),
+            "bypass_reason": audit.bypass_reason,
+            "pool_is_shadow": int(audit.pool_is_shadow),
+            # Merged routing. int() on the two booleans, pass-through on the
+            # rest: None must survive as NULL — "this row was decided on the
+            # two-call path" and "the merged call cost 0ms" are different facts.
+            "merged_call": int(audit.merged_call),
+            "merged_verdict": audit.merged_verdict,
+            "merged_ms": audit.merged_ms,
+            "merged_input_chars": audit.merged_input_chars,
+            "merged_truncated": audit.merged_truncated,
+            "anchor_bm25_rank": audit.anchor_bm25_rank,
+            "anchor_raw_score": audit.anchor_raw_score,
+            "anchor_in_menu": (
+                None if audit.anchor_in_menu is None else int(audit.anchor_in_menu)
+            ),
             "judge_ran": int(audit.judge_ran),
             "judge_category": audit.judge_category,
             "judge_matched_id": audit.judge_matched_id,

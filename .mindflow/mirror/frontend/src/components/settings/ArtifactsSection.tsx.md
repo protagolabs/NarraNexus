@@ -48,3 +48,8 @@ Settings → Artifacts 面板：列出当前用户的可视化产物、支持多
 
 > 本文件此前无 mirror（2026-07-30 补建，起因是原生 alert 清扫）。上面那条日期条目
 > 之外的历史意图未回溯，后续改动时按铁律 #10 逐步补齐。
+
+## 2026-08-19 — KIND_LABEL 改查注册表
+
+私有 label 映射删除,`KIND_REGISTRY[kind].label ?? kind` —— 无 label 的
+kind(office-live/x-url)照旧显示原始 kind 串。

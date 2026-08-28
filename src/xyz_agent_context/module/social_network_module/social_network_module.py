@@ -56,7 +56,16 @@ from xyz_agent_context.module.social_network_module._entity_updater import (
     infer_persona,
     update_entity_persona,
     extract_mentioned_entities,
+    _report_write_failure,
 )
+
+# ``operation`` values for the caller-side memory-write audit rows. Module
+# constants rather than inline literals so the test can assert the VALUE
+# instead of grepping this file's source text — a source-reading test goes
+# green when the call is deleted but the string survives in a comment, and
+# red when the call moves to a helper.
+_OP_CREATE_PRIMARY_ENTITY = "create_primary_entity"
+_OP_PROCESS_MENTIONED_ENTITY = "process_mentioned_entity"
 
 
 def social_instance_not_found_msg(agent_id: str) -> str:
@@ -546,7 +555,16 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     logger.info(f"            ✓ Created minimal entity for {user_id}")
                     entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
                 except Exception as e:
+                    # The heaviest failure on this path: no primary entity
+                    # means the summary, the counter and the persona all
+                    # skip this turn — "memory stopped updating" with, until
+                    # now, zero durable trace.
                     logger.exception(f"Failed to create entity: {e}")
+                    await _report_write_failure(
+                        operation=_OP_CREATE_PRIMARY_ENTITY, error=e,
+                        entity_id=user_id, instance_id=instance_id,
+                        agent_id=self.agent_id,
+                    )
                     return
 
             primary_name = entity.entity_name or user_id if entity else user_id
@@ -558,17 +576,31 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
             # 1. Run independent LLM calls in parallel: summary + batch extraction
             new_summary, mentioned = await asyncio.gather(
-                summarize_new_entity_info(input_content, final_output),
+                summarize_new_entity_info(
+                    input_content, final_output, agent_id=self.agent_id
+                ),
                 extract_mentioned_entities(
                     input_content, final_output, primary_name,
                     agent_name=agent_name, agent_id=self.agent_id,
                 ),
             )
 
-            # 2. Process summary results
-            if new_summary and new_summary.strip():
+            # 2. Process summary results.
+            # `None` means the LLM call FAILED (already reported by
+            # _entity_updater); `""` means it ran and found nothing worth
+            # remembering. Both skip the write, but only one is a problem
+            # — which is the whole reason the two are distinguishable now.
+            if new_summary is None:
+                logger.warning(
+                    "            Entity summary unavailable this turn "
+                    "(LLM call failed); description write skipped"
+                )
+            elif new_summary.strip():
                 logger.info(f"            New summary generated: {new_summary[:100]}...")
-                await append_to_entity_description(repo, user_id, instance_id, new_summary)
+                await append_to_entity_description(
+                    repo, user_id, instance_id, new_summary,
+                    agent_id=self.agent_id,
+                )
 
             # 3. Update interaction stats (always)
             await update_interaction_stats(repo, user_id, instance_id)
@@ -590,8 +622,12 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 recent_conversation = f"User: {input_content}\nAgent: {final_output}"
                 new_persona = await infer_persona(
                     entity=entity, awareness=awareness,
-                    job_info=job_info_str, recent_conversation=recent_conversation
+                    job_info=job_info_str, recent_conversation=recent_conversation,
+                    agent_id=self.agent_id,
                 )
+                # None = the call failed (reported downstream). Writing the
+                # old value back would look exactly like a successful
+                # refresh, so skip instead.
                 if new_persona:
                     await update_entity_persona(repo, user_id, instance_id, new_persona)
 
@@ -601,7 +637,17 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             try:
                 await self._process_mentioned_entities(repo, instance_id, mentioned)
             except Exception as e:
-                logger.warning(f"            Batch entity extraction failed (non-critical): {e}")
+                # NOT "batch entity extraction" — that label was copied from
+                # the extract_mentioned_entities handler and sent whoever
+                # read it to the wrong LLM call. This is the dedup/write
+                # pipeline. Per-entity failures are already reported inside
+                # _process_mentioned_entities; this outer catch only sees
+                # what that loop could not (and must keep not raising —
+                # a dying hook would take Step-6 callbacks with it).
+                logger.warning(
+                    f"            Mentioned-entity dedup pipeline failed "
+                    f"(non-critical): {e}"
+                )
 
             # NOTE: entity writes above (add/update via SocialNetworkRepository)
             # now land directly in the unified memory_entity store — the repo IS
@@ -612,7 +658,6 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         except Exception as e:
             logger.exception(f"Error in hook_after_event_execution: {e}")
-            logger.exception(e)
 
         logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
 
@@ -641,8 +686,16 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         )
 
         for mentioned_entity in mentioned:
+            # Outside the try on purpose: the except below reports with this
+            # id, so leaving the assignment as the try's first statement
+            # made the error path depend on it having succeeded — first
+            # iteration would raise NameError from inside the except (taking
+            # the rest of the batch with it), later ones would file the
+            # failure under the PREVIOUS entity's id. ``name`` is a required
+            # pydantic ``str``, so this cannot raise today; the point is that
+            # the error path should not rest on that.
+            entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
             try:
-                entity_id_candidate = f"entity_{mentioned_entity.name.lower().replace(' ', '_')}"
                 candidate_aliases = getattr(mentioned_entity, 'aliases', [])
                 candidate_familiarity = getattr(mentioned_entity, 'familiarity', 'known_of')
 
@@ -679,6 +732,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     decision, matched = await decide_merge_or_create(
                         mentioned_entity.name, mentioned_entity.summary,
                         candidate_aliases, matches,
+                        agent_id=self.agent_id,
                     )
                     if decision == "MERGE" and matched:
                         existing = matched
@@ -688,7 +742,8 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     matched_id = existing.entity_id
                     if mentioned_entity.summary:
                         await append_to_entity_description(
-                            repo, matched_id, instance_id, mentioned_entity.summary
+                            repo, matched_id, instance_id, mentioned_entity.summary,
+                            agent_id=self.agent_id,
                         )
                     # Merge keywords
                     if mentioned_entity.keywords:
@@ -732,7 +787,18 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                         f"{mentioned_entity.name} ({entity_id_candidate})"
                     )
             except Exception as e:
+                # Covers every write in this loop: creating the mentioned
+                # entity itself, the tags/aliases merges, and the Stage-1
+                # name/alias LOOKUP. A failed lookup is the quiet one —
+                # no match found means "brand new", so every turn forks
+                # another duplicate node, the same shredding the dedup
+                # handler reports for its own failures.
                 logger.warning(f"            Failed to process entity '{mentioned_entity.name}': {e}")
+                await _report_write_failure(
+                    operation=_OP_PROCESS_MENTIONED_ENTITY, error=e,
+                    entity_id=entity_id_candidate, instance_id=instance_id,
+                    agent_id=self.agent_id,
+                )
 
     # ============================================================================= MCP Server
 
@@ -1053,6 +1119,15 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             )
 
             if existing_entity:
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # overwriting a real name. On an existing entity it is FILL-IF-
+                # EMPTY: it names an entity some other path created nameless (an
+                # LLM extraction that only had contact_info), but a non-blank
+                # existing name always wins — so a channel display name never
+                # clobbers a canonical one.
+                _name_if_new = updates.pop("entity_name_if_new", None)
+                if _name_if_new and not (existing_entity.entity_name or "").strip():
+                    updates["entity_name"] = _name_if_new
                 # Merge update
                 if update_mode == "merge":
                     # Merge identity_info
@@ -1109,7 +1184,13 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             else:
                 # Create new entity
                 entity_type = updates.pop("entity_type", "user")
-                entity_name = updates.pop("entity_name", None)
+                # `entity_name_if_new` names a first-contact entity WITHOUT ever
+                # clobbering an existing name (the merge branch above is
+                # fill-if-empty: it names a nameless existing entity but keeps a
+                # non-blank one). An explicit `entity_name` still wins here.
+                entity_name = updates.pop("entity_name", None) or updates.pop(
+                    "entity_name_if_new", None
+                )
                 # Ignore entity_description, managed only by hook
                 if "entity_description" in updates:
                     logger.warning(

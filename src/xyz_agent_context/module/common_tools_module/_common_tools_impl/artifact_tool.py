@@ -27,19 +27,13 @@ from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 def register(mcp: FastMCP) -> None:
-    # ⚠️ FRONTEND COUPLING — the tool name is matched by the UI.
-    #
-    # `register_artifact` calls are recognised in the agent event stream by
-    # `frontend/src/components/chat/ChatPanel.tsx` (`isArtifactToolName` /
-    # `ARTIFACT_TOOL_BASE_NAMES`). The frontend matches the BARE name as a
-    # suffix — it tolerates the fully-qualified
-    # `mcp__common_tools_module__register_artifact` form the stream carries.
-    #
-    # That match drives the artifact panel's *live* discovery (the tab
-    # appearing during/right after a run). If you rename this tool, you MUST
-    # update `ARTIFACT_TOOL_BASE_NAMES` in ChatPanel.tsx in the same change —
-    # otherwise registered artifacts silently stop showing up until an
-    # unrelated reload (e.g. switching agents).
+    # FRONTEND COUPLING (display-only since 2026-08-18) — the tool name is
+    # still matched by ChatPanel.tsx (`ARTIFACT_TOOL_BASE_NAMES`), but only
+    # to anchor the inline badge chip to the tool call that produced an
+    # artifact. Live discovery moved to backend-pushed `artifact_changed`
+    # events (notify.py outbox → BackgroundRun drain → WS → store), so a
+    # rename here costs a missing chip in old transcripts, never a missing
+    # tab. Keep the names in sync anyway when renaming.
 
     @mcp.tool(
         name="register_artifact",
@@ -248,3 +242,137 @@ def register(mcp: FastMCP) -> None:
                 "error": f"open_url failed unexpectedly: {e}. This is likely transient — you can call the tool again.",
                 "code": 500,
             }
+
+
+# ── list_artifacts (2026-08-18, spec artifact-events §4) ─────────────────────
+
+#: Page size for list_artifacts. Big enough that page 1 answers almost every
+#: real inventory question in one call, small enough to keep a pathological
+#: hoard from flooding one tool result.
+LIST_ARTIFACTS_PAGE_SIZE = 50
+
+
+async def list_artifacts_impl(
+    db,
+    *,
+    agent_id: str,
+    user_id: str,
+    kind: str = "",
+    team_id: str = "",
+    title_contains: str = "",
+    page: int = 1,
+) -> str:
+    """Plain-function body of the list_artifacts tool (tested directly).
+
+    The visible surface is `list_for_agent_context(agent_id)` — own pinned
+    artifacts plus every team this agent belongs to, membership derived
+    SERVER-SIDE inside the repository query. No parameter can widen it:
+    `kind` / `team_id` / `title_contains` only narrow, so a team_id the
+    agent is not a member of filters an already-authorized set down to
+    nothing (safe by construction, no extra check needed).
+
+    Future audience isolation (todo artifact_visibility_audience_blind):
+    when turn-audience filtering lands, it will be applied HERE from the
+    server-held identity headers (`caller_team_id_from_request`), exactly
+    like register_artifact's team scoping — never from model-filled
+    parameters. The tool signature will not need to change.
+    """
+    from xyz_agent_context.module.common_tools_module._common_tools_impl.artifact_lines import (
+        format_artifact_lines,
+    )
+    from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+
+    repo = ArtifactRepository(db)
+    # Filters and paging live in SQL (review #334 I10): the page size must
+    # mean something to the DB, not be a Python slice over a full pull.
+    # title matching moved to LIKE — case-insensitive per DB collation (ASCII
+    # ci on SQLite), a hair narrower than the old .lower() for non-ASCII.
+    total = await repo.count_agent_context_filtered(
+        agent_id, kind=kind, team_id=team_id, title_contains=title_contains
+    )
+    pages = max(1, (total + LIST_ARTIFACTS_PAGE_SIZE - 1) // LIST_ARTIFACTS_PAGE_SIZE)
+    page = max(1, min(int(page or 1), pages))
+    window = await repo.search_agent_context(
+        agent_id,
+        kind=kind,
+        team_id=team_id,
+        title_contains=title_contains,
+        limit=LIST_ARTIFACTS_PAGE_SIZE,
+        offset=(page - 1) * LIST_ARTIFACTS_PAGE_SIZE,
+    )
+
+    filters = []
+    if kind:
+        filters.append(f"kind={kind}")
+    if team_id:
+        filters.append(f"team={team_id}")
+    if title_contains:
+        filters.append(f"title~{title_contains!r}")
+    filter_note = f" (filtered: {', '.join(filters)})" if filters else ""
+
+    header = (
+        f"Your artifacts: {total} match{filter_note} — "
+        f"page {page}/{pages}, newest first"
+    )
+    if not window:
+        return f"{header}\n(no artifacts match — drop a filter or check the spelling)"
+
+    lines = [header]
+    lines.extend(
+        line for _aid, line in format_artifact_lines(window, agent_id=agent_id, user_id=user_id)
+    )
+    if pages > page:
+        lines.append(f"(call again with page={page + 1} for the next {LIST_ARTIFACTS_PAGE_SIZE})")
+    return "\n".join(lines)
+
+
+def register_list_artifacts(mcp: FastMCP) -> None:
+    """Register the read-only inventory tool. Split from register() so the
+    server factory wires both with one import site."""
+
+    @mcp.tool(
+        name="list_artifacts",
+        description=(
+            "List every artifact you can reach — your own plus those of every "
+            "team you belong to — newest first, 50 per page. Your per-turn "
+            "context only shows the 20 most recently updated, so CALL THIS "
+            "before concluding an artifact does not exist or creating a "
+            "replacement for something that might already be registered.\n"
+            "\n"
+            "Optional narrowing: kind (exact, e.g. 'text/html'), team_id "
+            "(only that team's), title_contains (case-insensitive substring), "
+            "page (default 1). Filters only narrow — you cannot see another "
+            "agent's private artifacts or teams you are not in.\n"
+            "\n"
+            "Read-only: to change something, use register_artifact with "
+            "target_artifact_id."
+        ),
+    )
+    async def list_artifacts(
+        agent_id: str,
+        user_id: str,
+        kind: str = "",
+        team_id: str = "",
+        title_contains: str = "",
+        page: int = 1,
+    ) -> str:
+        # str defaults instead of Optional[...]: FastMCP renders Optional as
+        # anyOf:[X,null], which strict-schema providers reject request-wide
+        # (same lesson as register_artifact's `scope`).
+        try:
+            db = await get_db_client()
+            return await list_artifacts_impl(
+                db,
+                agent_id=agent_id,
+                user_id=user_id,
+                kind=kind,
+                team_id=team_id,
+                title_contains=title_contains,
+                page=page,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"list_artifacts failed unexpectedly: {e}")
+            return (
+                f"[tool_error] list_artifacts failed: {e}. Likely transient — "
+                "you can call the tool again."
+            )

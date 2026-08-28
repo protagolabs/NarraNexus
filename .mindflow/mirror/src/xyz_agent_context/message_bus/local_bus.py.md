@@ -368,3 +368,29 @@ b 没有任何东西可回答。agent 把自己写成收件人是普通的模型
 `m.channel_id = ?` 收到一个前缀字符串、`m.created_at < ?` 收到一个 channel id；查询什么都不匹配，
 该方法返回 False，调用方跳过 early return，`ack_read` 推进游标 —— 丢掉窗口之外所有未读。
 没有异常，也不会有测试失败，除非 fixture 恰好持有正确数量的前缀。
+
+## 2026-08-23(补)— `ack_processed` 改成前进-only(live-steering 驱动)
+
+原 `ack_processed` 是**无条件** UPDATE last_processed_at,只在「每个调用方都传 batch 自己的 high-water」
+的前提下安全(其 docstring 也这么写、并说双子 `ack_read` 才需要守卫)。live-steering 打破了这个前提:
+turn 运行中 `_route_steer` 把游标推进到**比 trigger batch 更新**的被 steer 消息,而 turn 结束时自己的
+ack 传的是**更旧**的 trigger high-water。无条件写会把游标**拉回**到被 steer 消息之前,让它们重新变
+pending → 二次以新 turn 投递(双投)。两个 ack 还分属 poll 任务与 turn 任务、无锁,谁后写谁赢=race。
+
+改法:`ack_processed` 抄 `ack_read` 那条 dialect-safe 的守卫 UPDATE(`{ph}` 占位符、无引用标识符、
+`AND (last_processed_at IS NULL OR last_processed_at < {ph})`)。游标只前进,两个 ack 谁先谁后都无害。
+同步修正 `ack_read` docstring 里「ack_processed 不需守卫」的过时说法。回归:
+`test_steer_routing.test_ack_processed_only_moves_forward`(SQLite,已变异验证:去掉守卫→红) +
+`test_unread_cursor_mysql.test_ack_processed_runs_on_mysql_and_only_moves_forward`(真 MySQL 方言,
+与 ack_read twin 对称)。
+
+## 2026-08-23(补2)— get_pending_messages 加 channel_id：LIMIT 落单房间
+
+`get_pending_messages(agent_id, limit=50, channel_id=None)`：channel_id 非空时 SQL 加 `AND m.channel_id = {ph}`
+（占位符、无引号标识符），params 顺序 `(agent, channel, agent)`；None 时退回原跨 channel 查询与 `(agent, agent)`。
+起因（PR#352 review #4）：并发切成 lane 但取数没切——每 lane 发一条**跨全 agent** 的 `LIMIT 50` 再在 Python
+里滤自己那个 channel。忙房间 A 有 >50 待处理时，房间 B 的新消息永远被挤出这 50 条、过滤成空、`return False`
+不 ack，每轮白烧一个 slot——「多 team 并发」恰在它要解决的场景失效。channel scoping 让 LIMIT 落单房间。
+同族先例：`has_unread_before` 的 scoped `LIMIT 1`（docstring 明写别把跨 channel backlog 拖来 Python 过滤）。
+poison / stopped-tree `NOT EXISTS` 谓词与参数顺序原样保留。回归：`test_pending_channel_scope`（SQLite 饥饿场景）
++ `test_unread_cursor_mysql.test_get_pending_channel_scope_runs_on_mysql`（真 MySQL 方言）。

@@ -31,6 +31,7 @@ from xyz_agent_context.agent_runtime.run_recorder import (
     STATE_COMPLETED,
     STATE_FAILED,
     STATE_RUNNING,
+    first_live_run_id,
     recording_enabled,
     sweep_stale_runs,
 )
@@ -225,6 +226,37 @@ async def test_progress_rows_replayable(db_client):
 
 
 @pytest.mark.asyncio
+async def test_tool_call_stamps_the_run_agent_stage(db_client):
+    """A tool_call means the model is running — current_stage must match the
+    run-agent progress phase's derived label, not the old ``step.3_agent_loop``
+    that disagreed with the progress-derived stage and made
+    ``events.current_stage`` flap between two strings for one phase.
+
+    Asserted against the SHARED phase constants (derived the same way the
+    recorder derives it), not a hand-copied literal: a rename of
+    PHASE_RUN_AGENT_TITLE that forgot to update the recorder would turn this
+    red instead of silently reopening the flap bug."""
+    from xyz_agent_context.schema import (
+        PHASE_RUN_AGENT_STEP,
+        PHASE_RUN_AGENT_TITLE,
+    )
+
+    await _seed_events_row(db_client, "evt_stage")
+    rec = RunRecorder(db=db_client)
+    await rec.record(_step0_progress("evt_stage"))
+    await rec.record({
+        "type": "progress", "step": "3.4.1", "title": "🔧 Read",
+        "details": {"tool_name": "Read", "arguments": {"file": "x"}},
+    })
+    row = await db_client.get_one("events", {"event_id": "evt_stage"})
+    expected = f"step.{PHASE_RUN_AGENT_STEP}_{PHASE_RUN_AGENT_TITLE}"
+    assert row["current_stage"] == expected
+    # Pin the concrete value too, so a bug in the derivation rule is caught.
+    assert row["current_stage"] == "step.3.4_Run Agent"
+    await _stop(rec)
+
+
+@pytest.mark.asyncio
 async def test_sweep_flips_only_heartbeat_dead_rows(db_client):
     fresh = utc_now()
     stale = utc_now() - timedelta(seconds=600)
@@ -286,3 +318,77 @@ def test_recording_kill_switch(monkeypatch):
     assert recording_enabled() is False
     monkeypatch.setenv(RECORDING_DISABLED_ENV, "false")
     assert recording_enabled() is True
+
+
+# --------------------------------------------------------------------------
+# first_live_run_id — the cross-process "is this user busy?" truth source
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_finds_a_live_run_for_the_user(db_client):
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_live", state="running",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(db_client, "u_test") == "evt_live"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_ignores_dead_and_terminal_runs(db_client):
+    stale = utc_now() - timedelta(seconds=600)
+    await _seed_events_row(
+        db_client, "evt_stale", state="running",
+        started_at=stale, last_event_at=stale,
+    )
+    await _seed_events_row(db_client, "evt_done", state=STATE_COMPLETED)
+    assert await first_live_run_id(db_client, "u_test") is None
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_counts_a_just_started_run(db_client):
+    """No heartbeat has fired yet — started_at is the fallback. Reading this
+    as idle would reopen the race the guard exists to close."""
+    await _seed_events_row(
+        db_client, "evt_new", state="running",
+        started_at=utc_now(), last_event_at=None,
+    )
+    assert await first_live_run_id(db_client, "u_test") == "evt_new"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_excludes_the_asking_run(db_client):
+    """Step 3's own events row is already 'running' when it asks, so counting
+    itself would mean 'always busy'."""
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_me", state="running",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(
+        db_client, "u_test", exclude_run_id="evt_me"
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_is_scoped_to_the_user(db_client):
+    fresh = utc_now()
+    await _seed_events_row(
+        db_client, "evt_other", state="running", user_id="u_other",
+        started_at=fresh, last_event_at=fresh,
+    )
+    assert await first_live_run_id(db_client, "u_test") is None
+    assert await first_live_run_id(db_client, "u_other") == "evt_other"
+
+
+@pytest.mark.asyncio
+async def test_first_live_run_id_raises_on_an_unreadable_db():
+    """Deliberate: destructive callers must resolve the ambiguity themselves,
+    and they all resolve it as busy."""
+    class _Broken:
+        async def get(self, *a, **kw):
+            raise RuntimeError("pool exhausted")
+
+    with pytest.raises(RuntimeError):
+        await first_live_run_id(_Broken(), "u_test")

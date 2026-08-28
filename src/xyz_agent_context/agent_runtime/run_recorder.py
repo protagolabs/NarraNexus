@@ -17,6 +17,10 @@ This module is the single source of truth for that contract:
 * ``run_is_live`` — the ONE read-side answer to "is this run actually
   alive?" (shared by the agents listing, the WS observe endpoint, and
   the stale-run sweep)
+* ``first_live_run_id`` — the same answer lifted to a USER, and the ONE
+  cross-process source of truth for "is this user busy?". In-process
+  bookkeeping cannot answer it; anything that stops containers must ask
+  here (see ``executor_reaper``).
 * ``sweep_stale_runs`` — flips running rows whose heartbeat died
   (process killed mid-run without ``finalize``). Heartbeat-based, NOT
   process-based: a run may be alive in a different process/container
@@ -48,6 +52,10 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from loguru import logger
 
+from xyz_agent_context.schema import (
+    PHASE_RUN_AGENT_STEP,
+    PHASE_RUN_AGENT_TITLE,
+)
 from xyz_agent_context.utils.timezone import utc_now
 
 if TYPE_CHECKING:
@@ -124,6 +132,58 @@ def run_is_live(events_row: dict, now: Optional[datetime] = None) -> bool:
     if parsed is None:
         return True
     return (now - parsed) <= timedelta(seconds=RUN_STALE_AFTER_S)
+
+
+async def first_live_run_id(
+    db: "AsyncDatabaseClient",
+    user_id: str,
+    *,
+    exclude_run_id: Optional[str] = None,
+) -> Optional[str]:
+    """The id of a live run belonging to this user, in ANY process — or None.
+
+    The ONE cross-process answer to "is this user busy?". In-process
+    bookkeeping (``AgentAdmissionController``) cannot give it: the cloud
+    orchestrator runs as backend + workers, each with its own singleton, so
+    backend sees only its own WS-chat runs and workers only its own
+    bus/job/channel runs. Anything that ACTS on "this user is idle" — the
+    executor reaper above all — must ask here, or it acts on one process's
+    partial view and cuts off a run alive in the other (2026-07-31 prod: a
+    group-chat reply killed mid-flight).
+
+    Returns the run's IDENTITY rather than a bare bool so callers can name
+    what stopped them (the reaper's audit row). Which live run is returned is
+    arbitrary when several exist.
+
+    ``exclude_run_id`` exists for callers that are themselves a run: by the
+    time step 3 asks, its own events row is already 'running', so counting
+    itself would answer "busy" forever. First such caller is the broker's
+    stale-image replacement verdict, which lands in the follow-up PR to this
+    one; the reaper does not pass it (it is not a run).
+
+    RAISES on an unreadable DB. Callers act destructively on the answer, so
+    each must resolve that ambiguity itself — and every one of them resolves
+    it as "busy" (see ``executor_reaper.live_run_elsewhere``).
+    """
+    if not user_id:
+        return None
+    # Projection, not SELECT *: the events row carries several MEDIUMTEXT
+    # columns (env_context / module_instances / event_log) and liveness needs
+    # exactly these three. started_at stays — run_is_live falls back to it
+    # before the first heartbeat lands, and dropping it would make a
+    # just-started run read as dead.
+    rows = await db.get(
+        "events",
+        {"user_id": user_id, "state": STATE_RUNNING},
+        fields=["event_id", "last_event_at", "started_at"],
+    )
+    for row in rows or []:
+        event_id = row.get("event_id")
+        if not event_id or (exclude_run_id and str(event_id) == exclude_run_id):
+            continue
+        if run_is_live(row):
+            return str(event_id)
+    return None
 
 
 async def sweep_stale_runs(db: "AsyncDatabaseClient") -> int:
@@ -218,7 +278,7 @@ def try_extract_event_id(event: dict) -> Optional[str]:
     return str(eid) if eid else None
 
 
-def _classify_event(event: dict) -> str:
+def classify_event(event: dict) -> str:
     """Return one of: thinking / tool_call / tool_output / progress /
     text_delta / error / other."""
     t = event.get("type", "")
@@ -371,7 +431,7 @@ class RunRecorder:
             if new_run_id:
                 await self._bind_run_id(new_run_id)
 
-        kind = _classify_event(event)
+        kind = classify_event(event)
 
         if kind == "thinking":
             self._append_to_segment(_extract_thinking_content(event))
@@ -382,10 +442,21 @@ class RunRecorder:
         if kind == "tool_call":
             self.tool_call_count += 1
             await self._write_stream_row("tool_call", _extract_tool_call_payload(event))
+            # A tool call means the model is running: stamp the SAME label the
+            # run-agent progress phase derives. DERIVED from the shared phase
+            # constants via the same _extract_progress_stage rule the progress
+            # branch uses — not a hand-copied literal — so a rename of the
+            # phase title can't silently reopen the "current_stage flaps
+            # between two strings for one phase" bug. Mirror into the in-memory
+            # field too (same as the progress branch below), else
+            # self.current_stage goes stale through a tool-heavy phase.
+            self.current_stage = _extract_progress_stage(
+                {"step": PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE}
+            )
             await self._update_events_row({
                 "tool_call_count": self.tool_call_count,
                 "last_event_at": utc_now(),
-                "current_stage": "step.3_agent_loop",
+                "current_stage": self.current_stage,
             }, context="tool_call bump")
         elif kind == "tool_output":
             await self._write_stream_row("tool_output", _extract_tool_output_payload(event))
@@ -596,6 +667,7 @@ class RunRecorder:
 
 
 __all__ = [
+    "classify_event",
     "HEARTBEAT_INTERVAL_S",
     "RECORDING_DISABLED_ENV",
     "RUN_STALE_AFTER_S",
@@ -606,6 +678,7 @@ __all__ = [
     "STATE_RUNNING",
     "TERMINAL_STATES",
     "event_to_wire",
+    "first_live_run_id",
     "normalise_event",
     "parse_db_utc",
     "recording_enabled",

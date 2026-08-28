@@ -179,7 +179,9 @@
           "paused": "en pause"
         },
         "turnOff": "Désactiver",
-        "turnOn": "Activer"
+        "turnOn": "Activer",
+        "awaitingReply": "en attente de réponse",
+        "nameSep": ", "
       },
       "sendFailed": "Envoi impossible. Votre texte est toujours là — réessayez.",
       "uploadFailed": "Impossible d’envoyer « {{name}} ».",
@@ -2066,6 +2068,37 @@
     },
     "url": {
       "toggleFailed": "Impossible de changer de mode : {{error}}"
+    },
+    "editor": {
+      "save": "Enregistrer",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré",
+      "unsavedChanges": "Modifications non enregistrées",
+      "draftRestored": "Modifications non enregistrées restaurées depuis cet appareil.",
+      "conflictBody": "Le fichier a changé pendant l'édition. Garder votre version ou recharger la leur ?",
+      "overwriteMine": "Garder la mienne",
+      "discardMine": "Recharger",
+      "loadError": "Échec du chargement : {{error}}",
+      "mdGuardDisabled": "Ce document contient une syntaxe que l'éditeur ne peut pas préserver sans perte — l'édition directe est désactivée. Demandez à l'IA de faire les modifications.",
+      "htmlAnchorFailed": "Ce texte est généré par le script de la page ou introuvable de façon unique dans la source — demandez à l'IA de le modifier.",
+      "htmlEditConflict": "Le fichier a changé pendant l'édition — cette modification n'a pas été enregistrée.",
+      "editFailed": "Échec de la modification — le changement n'a pas été enregistré.",
+      "draftUnavailable": "Ce fichier est trop volumineux pour la sauvegarde locale du brouillon — les modifications non enregistrées seront perdues à la fermeture. Enregistrez rapidement."
+    },
+    "officeEdit": {
+      "selected": "{{count}} sélectionné(s)",
+      "editText": "Modifier le texte",
+      "apply": "Appliquer",
+      "cancel": "Annuler",
+      "delete": "Supprimer",
+      "color": "Couleur du texte",
+      "opFailed": "Échec de la modification.",
+      "lockNotice": "Ouvert dans une application Office de bureau — modifications directes en pause.",
+      "moveUp": "Monter",
+      "moveDown": "Descendre",
+      "addRow": "+ Ligne",
+      "addCol": "+ Colonne",
+      "replaceImage": "Remplacer l'image"
     }
   },
   "skills": {
@@ -2197,7 +2230,9 @@
     "completed": "Terminé",
     "roomSpoke": "Nouvelle activité dans le salon",
     "agent": "Agent",
-    "room": "Salon"
+    "room": "Salon",
+    "artifactRepointedVerified": "Relié : {{oldPath}} → {{newPath}} (contenu vérifié)",
+    "artifactRepointedUnverified": "Relié : {{oldPath}} → {{newPath}} (correspondance non vérifiée — à vérifier)"
   },
   "webAnalyticsNotice": {
     "body": "Ceci est la version web cloud de NarraNexus. Elle utilise Google Tag Manager, un service d'analyse tiers, pour collecter des données anonymes d'interaction avec les pages (pages vues, clics, référent). Aucun contenu de conversation n'est collecté. Vous pouvez désactiver cette option à tout moment dans Paramètres → Confidentialité.",

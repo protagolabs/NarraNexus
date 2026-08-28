@@ -1,9 +1,175 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-08-14
+last_verified: 2026-08-27
 stub: false
 ---
 
+# narrative_service.py — Narrative 统一门面
+
+## 2026-08-27(round 7)— 委托改传三个协作者
+
+`_select_merged` 薄委托现在传 `self._crud, self._retrieval,
+self._write_audit`——impl 的上行私有依赖清零(round 5 收到 3 个,本轮
+连那 3 个也改为显式参数)。
+
+## 2026-08-27(round 5)— 上行私有依赖收敛到三个(I3)
+
+merged_select 对 service 私有成员的语义依赖从 5 个收到 3 个
+(_crud/_retrieval/_write_audit,审计写入留在 service 合理):
+`_land_no_topic_turn` 本体迁往 [[landings]](service 留同签名薄委托),
+`_advance_session_anchor` 迁往 [[anchor_rules]]。若再整理本文件私有成员,
+先看这两个 impl 模块的消费面。
+
+## 2026-08-27 — 合并路径编排搬出(review Important 2)+ Landing 化
+
+`_select_merged` 的 255 行编排整体迁入
+`_narrative_impl/merged_select.py`,本文件只留薄委托;五个 verdict 落点
+与 `_land_no_topic_turn` 统一返回 frozen `Landing`(6 字段一次构造,
+新 result 字段漏赋在构造点炸)。`is_reusable_anchor` / `_minutes_since`
+定义下沉到 `_narrative_impl/anchor_rules.py`(impl 不得上行 import),
+本文件 re-export `is_reusable_anchor` 保住 step_1_fast_select 的公共
+import 面——**仍是唯一定义**。select() 的 no-topic 落点只取 Landing 的
+四个决定字段,flag-off 字节路径不变。(round 2 补:continuity 计时的
+LLM 型号打标改走 `agent_framework.llm.call_tagging`,三份拷贝收敛。)
+
+## 2026-08-26 — 影子记录收窄到用户聊天轮(PR #365 review M4,刻意决定)
+
+后台触发(job/message_bus/IM webhook)按设计无会话锚点,其影子行对
+"快门在用户对话上的可释放人群"恒无贡献(bypass_reason 必为
+background_scope),却照付记录成本——message_bus 单独占 dev 轮次 ~30%。
+守卫改为 `NARRATIVE_SHADOW_POOL_RECORD and is_user_chat`,测试
+test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
+而非遗漏;若将来要拿后台轮当"continuity 误判"的证据面,重新放开时
+须同步此条与该测试。**连带语义(收窄的连带面)**:收窄后
+`pool_is_shadow = 0` 一侧同时装着"决策行"和"后台续接轮"两种行,
+人群判别从单列变为 **`pool_is_shadow` + `is_user_chat` 两列共同**;
+全体续接轮上的覆盖率按设计明显低于 100%,真实比例用
+`GROUP BY is_user_chat` 查(后台轮占全部轮次 ~30% 是实测,占续接轮的
+比例未测),别对固定数字比。
+`_record_shadow_pool` 链上的 `is_user_chat` 参数现恒为 True
+(调用点守卫过),保留是为将来放开后台轮只改守卫一处。
+
+## 2026-08-26 — 合并调用:一次判决取代 continuity+judge(开关缺省关)
+
+`select()` 顶部多一条**提前 return**:`NARRATIVE_MERGED_ROUTING_ENABLED` 开时
+走 `_select_merged`。刻意是提前 return 而不是把分支织进方法体 —— 它下面的
+所有代码就是今天的两次调用路径**原样**,于是"开关关 = 今天的行为"是一条
+可以读出来的性质,不是一句要人相信的话(测试 `test_with_the_switch_off_the_
+two_call_path_is_untouched` 连 `build_merged_prompt` 都设成地雷)。
+
+**为什么值得做**(spec `2026-08-25-merged-routing-design.md` §4):prod 7 天
+真人轮 n=189 里 43 轮付两次调用,串行 p50 8,924ms / 均值 13,004ms,而整个
+非 LLM 检索层均值 47.6ms。唯一有分量的杠杆是往返次数。**"检索花 6 秒"是
+误归因**(`retrieve_ms` 包含 `judge_ms`,被相加了两遍),别再去修它。
+
+`_select_merged` 的形状:
+1. BM25 每轮先跑(`prepare_merged_routing`,~14ms 本地)
+2. **零 LLM 快门** = `evaluate_bypass` 的 `anchor_match` 判决挪到 continuity
+   之前,判据一个字没改 → `selection_method="anchor_confirmed"`
+3. 否则**一次**合并调用,五个出口(continue_anchor / match / participant /
+   new / no_topic)
+4. **落点全是既有执行器**:锚点直接返回 / `assemble_match_landing`(judge 自己
+   的 search 落点)/ `create_from_query` / `_land_no_topic_turn`。换决策者,
+   不换执行者 —— 所以 step_1、step_4、ChatModule 完全不知道上游变了
+   (`test_downstream_cannot_tell_who_decided`)
+
+**兜底是这里最不能动的地方**(rule 6):合并调用异常 / 超时 / verdict 不在契约
+内 / index 越界 → **有可续接锚点就留在锚点**(`merged_fallback_anchor`),
+无锚点才允许新建(`merged_fallback_new`,同样打标)。D19 两记实锤都是
+"决策层失败→掉进新建→新线成为锚点→updater 逐轮改写它的身份"这个形状,
+所以"失败就当新话题"这条捷径永久封死。
+
+`_advance_session_anchor` 从 `select()` 抽成静态方法,两条路共用:锚点推进
+规则以两份字面量存在,正是快慢两路当初就同一条不变量打架的原因(独立审查
+2026-08-21 Important #3),第二个决策者就是第二次机会。
+
+## 2026-08-25 — 续接轮也记池(切片 0),但判决一个字不改
+
+continuity 短路那条分支里,原本只 new 一个空的 `RoutingAudit`;现在多 await 一次
+`_record_shadow_pool`。**判决在此之前就已经定死**(`narratives` /
+`selection_method` / `chosen_narrative_id` 都已赋值),记录器碰不到它们。
+
+**不变性由测试钉死**:`test_shadow_pool_record.py` 里那条
+`test_the_verdict_is_byte_identical_with_and_without_the_recorder` 把记录器
+monkeypatch 掉再跑同一轮,逐字段比对决策列。**一个会改变被测对象的仪器不如没有**,
+所以这条断言是这个文件存在的理由,不是附加项。
+
+**失败边界是一个具名的窄口子**:`_record_shadow_pool` 里的 try/except 只包住记录器
+本身,决策路径的异常照常往上抛。
+
+**except 里只剩一行 log**(2026-08-26 review 收口):原先那 8 行"把 audit 重置回
+切片 0 之前的形状"是一份手抄的字段清单,写下来的当天就漏了 `gate_reason`,而且
+根本没回滚快照。现在 `record_pool_only` 是原子的 —— 会失败的活全部先算完,最后
+在一段不可能抛异常的赋值块里一次提交 —— 所以没有清单可漂。
+
+**开关**:`config.NARRATIVE_SHADOW_POOL_RECORD`(env,缺省开)。加它的理由不是
+延迟(~13.5ms+快照去重 SELECT,对着这条路径 p50 8.5 秒的 setup 阶段可以忽略;
+真实代价是容量——影子行 candidates_json 带整池,10KB 级/行),而是**回滚粒度**:
+这一批每一个同类治理开关都是 env 门控的,没有开关就意味着关掉仪器要改代码 +
+重新发布两种运行模式(铁律 #7)。⚠ 关闭态下、**以及开启态的后台触发轮上**,`pool_is_shadow` 恒为 0,前者与
+"续接轮从来没有池"**在数据上不可区分** —— 关了要记下窗口,表事后告诉不了你;
+后者是设计范围(user-chat only),查询须叠 `is_user_chat = 1` 区分。
+
+**`session` 在这里不是 Optional**:进入这条分支要求 `narratives` 非空,而它唯一的
+赋值处被 `if is_continuous and session and session.current_narrative_id` 守着。
+原先的 `if session else None` 是一条永远走不到的分支,而缺失的类型标注正好掩盖了
+这一点。(`_land_no_topic_turn` 里那个形似的守卫是**真的** —— 那条路径确实可能
+没有 session。)
+
+
+## 2026-08-20 — 会话锚点开始参与免审决策(Q 层)
+
+`select()` 现在把 `session.current_narrative_id` 与 `is_user_chat` 一起传进
+`retrieve_top_k`。**为什么在这一层读锚点**:Session 的所有权在这里,
+下面的检索层不该知道什么是 Session(那会把一个纯排序层绑到会话模型上)。
+
+调用点顺序上有一个必须记住的事实:走到 `retrieve_top_k` 时
+`is_continuous` 一定是 False(否则上面就 return 了)。所以"锚点存在但
+continuity 说不连续"是**结构性的**,不是两层打架 —— 引用审计数字时别把它
+读成缺陷,那是选择偏差。
+
+`is_user_chat=False` 的分支与本文件末尾那段"只有用户发起的轮次才写
+`current_narrative_id`"是**同一个设计的两端**:后台 trigger 没有锚点,
+所以锚点规则对它们不适用。改任何一端都要同时看另一端。
+
+## 2026-08-16 — 无持久话题的落点：anchor-first（C-1 方案 ④-A′）
+
+judge 回答的是关于**这一轮**的问题（"这里有没有值得单独成线的东西"），它**不给
+目的地**。目的地由新的 `_land_no_topic_turn` 决定，规则与 `step_1_fast_select`
+早已定稿的形状**刻意保持一致**，避免快慢两条路对"没内容的一轮该去哪"产生分歧：
+
+1. **有真实线锚点 → 复用，且不碰它的检索面**。任务中间的一句"你好"属于那个任务
+   （标注协议 R1），用户也指望 agent 还记得在干什么。关键在"不碰"：
+   `NARRATIVE_LLM_UPDATE_INTERVAL=1`，让 updater 跑起来意味着每句寒暄花一次
+   helper 调用，并且 name/summary/keywords 是**全量覆盖**——一句"你好"足以把工作
+   线改名。
+2. **无锚点 + durable → 建线**。聊天历史端点是按 narrative 取的、ChatModule
+   instance 挂在 narrative 上，这里裸跑会让首次接触的一轮**从用户自己的历史里消
+   失**。新建的线不是垃圾：它成为锚点，随着真实话题浮现由 updater 改名。
+3. **无锚点 + ephemeral（voice/F28）→ 裸跑**。刻意为之：不留痕迹，好让下一条打字
+   消息的连续性判定"就像这轮语音没发生过"。
+
+三种落点在审计里可分辨（`no_topic_anchored` / `new_created` / `no_topic_bare`），
+因为本批次最大的风险是碎片化，而只有 `new_created` 那一支会真的多出一条线。
+
+## 2026-08-21 — `is_reusable_anchor()`：锚点复用判定收敛为一份定义
+
+独立审查（Important #3）发现"锚点是不是可复用的线"这一判断以字面量形式散在两处
+（`select()` 连续性守卫、`_land_no_topic_turn`），而快路径 `step_1_fast_select`
+根本没有这个检查——慢路径每轮把桶锚 session 推出桶、快路径每轮把它钉回去，两条
+路互相拆台（C-1 上线时 26.4% 的 prod 用户轮以桶为主叙事，这批 session 真实存在）。
+现在收敛为模块级 `is_reusable_anchor(narrative)`，三个读点共用；语义带回滚开关：
+`NARRATIVE_DEFAULT_BUCKETS_ENABLED=True` 时桶重新成为可复用容器（旧世界语义）。
+
+## 2026-08-16 — 连续性不得锁在 default 桶上（C-1 方案 ⑤）
+
+`select()` 在跑连续性检测**之前**先看锚点：锚点是 `is_special == "default"` 的行
+就直接不跑这一层（不是跑完再忽略——那是一次白花的 helper 往返）。桶是**对某一轮
+的判断**，不是一条线，没有"延续"可言。实测：重演 155 个落桶轮里 **59 个**是被连
+续性按在桶里的，最长连锁 11 轮，而这些轮次全都不可召回。
+
+与 C-2 那条 prompt 改动（`prompts.py`）配套：两者合起来才截断闭环
+`停进桶 → 容器规则判 False → 重走检索 → 冻结模板 raw=0 → 又落回桶`。
 ## 2026-08-14 — 撤回 query_units/新线旗标（supersede 下一条）
 
 `query_units` 与 `FastSelectResult.related/suggests_new_thread` 删除
@@ -154,7 +320,6 @@ anchor, so it's the narrative the user is actually looking at.
 - 配套：[[step_4_persist_results.py]] 4.5 也加了同样的 source 判断，
   确保 `last_response` 同样只在 chat run 时被覆盖。
 
-# narrative_service.py — Narrative 统一门面
 
 ## 为什么存在
 
@@ -185,3 +350,22 @@ AgentRuntime 在编排流水线时不应该知道"向量检索是怎么做的"�
 `select()` 返回 `NarrativeSelectionResult`，不是 `List[Narrative]`——新代码如果直接当列表用会报属性错误。正确用法是 `result.narratives[0]` 取主 Narrative。
 
 `session` 参数是**可变引用**：`select()` 内部会直接修改 `session.current_narrative_id`、`session.last_query` 等字段，调用方必须在 `select()` 之后再调用 `session_service.save_session(session)` 来持久化，否则下一次请求看到的 session 还是旧状态。
+
+## 2026-08-16 — `_land_no_topic_turn` 的建线分支签名修正
+
+`create_from_query` 的真实签名是
+`(query, user_id, agent_id, narrative_type)`，`narrative_type` 必填。
+`_land_no_topic_turn` 漏了它 → 每一个走到"无锚点 + durable → 建线"的真实轮次
+都 `TypeError`。真机 2026-08-16 崩在这里。
+
+**为什么单测没抓到**：fixture 手写了一个三参数的 `create_from_query` double，
+**把错的调用形状固化成了"契约"**。现已改为
+`create_autospec(NarrativeRetrieval, instance=True).create_from_query`——
+签名由真实方法强制，调用错了测试就红。
+
+同一次修正还发现 `service_no_topic` fixture 没 stub 连续性检测器，导致这套
+单测**在真打 helper LLM**（110 秒 → 0.09 秒）。单测不得依赖供应商。
+
+一般教训（与 step_4 那条"内存对象撒谎"同源）：**stub 掉的边界就是 bug 的
+藏身处**。只 stub 你不拥有的东西（网络、时钟、DB），永远不要 stub 正在被测的
+那段逻辑；double 的签名要从真实符号推导，不要手写。

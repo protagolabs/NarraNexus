@@ -150,10 +150,15 @@ async def get_agent_inbox(
                 messages.append({
                     "message_id": m.get("message_id", ""),
                     "sender_id": m.get("sender_id", ""),
-                    # Stored at write time — no per-request name resolution, and
-                    # no pseudo-agent rows in `bus_agent_registry` to resolve
-                    # against (their absence is half of what this move removes).
-                    "sender_name": m.get("sender_name") or m.get("sender_id", ""),
+                    # Counterpart (inbound) names are stored at write time. The
+                    # agent's OWN (outbound) reply is written with an empty
+                    # sender_name, so reuse the display name already resolved
+                    # for the member strip — otherwise this falls through to
+                    # sender_id and the card shows the raw `agent_<hex>` id.
+                    "sender_name": (
+                        agent_display if outbound
+                        else (m.get("sender_name") or m.get("sender_id", ""))
+                    ),
                     "content": m.get("content", ""),
                     "attachments": json.loads(attachments_raw) if attachments_raw else None,
                     "is_read": outbound or msg_time <= cursor,

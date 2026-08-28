@@ -13,7 +13,7 @@ Provides endpoints for:
 """
 
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -25,8 +25,13 @@ from backend.routes._ownership import assert_owned
 from xyz_agent_context.module.chat_module import fetch_chat_history
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import InstanceRepository
+from xyz_agent_context.repository import InstanceRepository, AgentRepository
 from xyz_agent_context.narrative.wipe_service import wipe_agent_data
+from xyz_agent_context.schema.hook_schema import BUS_PRODUCED_SOURCES
+from xyz_agent_context.schema.team_schema import (
+    TEAM_ROOM_OWNER_PREFIX,
+    USER_SENDER_PREFIX,
+)
 from xyz_agent_context.schema import (
     EventInfo,
     NarrativeInfo,
@@ -43,6 +48,39 @@ from xyz_agent_context.schema.api_schema import InstanceInfo
 
 
 router = APIRouter()
+
+#: working_source values produced by MessageBusTrigger for peer-agent (A2A)
+#: and team turns. The Activity Log surfaces these — and ONLY these — from a
+#: peer-scoped instance (see get_simple_chat_history). Sourced from the enum so
+#: a new bus transport updates every consumer at once (see chat_module).
+_A2A_TEAM_SOURCES = BUS_PRODUCED_SOURCES
+
+#: working_source values that represent a real human typing into a chat UI (as
+#: opposed to an IM channel trigger, scheduled job, or peer-agent call). For
+#: these the "user" side is a genuine user message and MUST be surfaced.
+#: "manyfold" — Manyfold's OpenAI-compat endpoint feeds the user input via the
+#: same input_content field as CHAT, so its row is a real user message (the
+#: 2026-05-26 symptom was the native UI showing only the agent's replies).
+_USER_FACING_SOURCES = ("chat", "manyfold")
+
+#: user_id prefixes MessageBusTrigger writes as the SENDER of a peer/team turn:
+#: the peer agent id (A2A, ``agent_``), a team room's own platform posts
+#: (``team_``, patrol/notice), and a HUMAN speaking in a team room
+#: (``usr_``, teams.py bus.send_message). All three land the turn in a
+#: ChatModule instance keyed to that sender id. A real user's own user_id is
+#: bare (no ``usr_`` prefix — cloud is a 32-hex NetMind code), so ``usr_`` here
+#: matches only the bus-sender form and does NOT pull other users' private
+#: chats. Filtering the peer set on these prefixes keeps other users' private
+#: chats out of the read ENTIRELY; the row-level working_source gate below
+#: stays as the second, fail-closed net (covers the local-mode edge where an
+#: externally-supplied X-User-Id could itself start with ``usr_``).
+_PEER_SCOPE_PREFIXES = ("agent_", TEAM_ROOM_OWNER_PREFIX, USER_SENDER_PREFIX)
+
+#: Upper bound on peer/team ChatModule instances the Activity Log fans out to
+#: per request (owner-only path, polled every 12s). Generous vs any realistic
+#: paging depth so a normal owner is never truncated; a hard ceiling so cost
+#: cannot grow without bound with the agent's social surface.
+_MAX_PEER_ACTIVITY_INSTANCES = 200
 
 
 def _parse_timestamp(ts: str) -> datetime:
@@ -461,16 +499,32 @@ async def get_simple_chat_history(
     agent_id: str,
     request: Request,
     limit: int = Query(default=20, description="Maximum number of messages to return"),
-    offset: int = Query(default=0, description="Number of recent messages to skip (for pagination from newest)")
+    offset: int = Query(default=0, description="Number of recent messages to skip (for pagination from newest)"),
+    include: Literal["chat", "activity", "all"] = Query(
+        default="all",
+        description="Which stream to return: 'chat' (conversation only), "
+                    "'activity' (Activity Log only), or 'all' (both merged). "
+                    "Case-sensitive (FastAPI-validated).",
+    ),
 ):
     """
     Get simplified chat history between user and Agent. Identity from auth_middleware.
 
     Queries directly from ChatModule instances, without relying on Narratives.
     Finds all ChatModule instances via agent_id + user_id to retrieve chat records.
+
+    The conversation and Activity Log are two independent streams the frontend
+    renders in separate tabs. They must paginate independently — a busy team /
+    A2A agent produces an unbounded activity stream that would otherwise eat a
+    shared ``limit`` and starve the conversation tab. ``include`` selects the
+    stream so each tab gets its own ``limit`` / ``offset`` / ``total_count``.
     """
     user_id = await resolve_current_user_id(request)
-    logger.debug(f"Getting simple chat history for agent: {agent_id}, user: {user_id}, limit: {limit}")
+    want_activity = include != "chat"
+    logger.debug(
+        f"Getting simple chat history for agent: {agent_id}, user: {user_id}, "
+        f"limit: {limit}, include: {include}"
+    )
 
     try:
         db_client = await get_db_client()
@@ -478,20 +532,78 @@ async def get_simple_chat_history(
 
         all_messages: List[Dict[str, Any]] = []
 
+        # Owner check gates the peer/team activity pull below. Resolved via
+        # AgentRepository directly (not the _ownership seam) ON PURPOSE: this
+        # endpoint is user-scoped, not owner-gated, and must FAIL OPEN to the
+        # caller's own history on a db hiccup — resolve_owner returning None
+        # (db failure) / "" (unknown) both leave is_owner False, keeping prior
+        # behaviour, whereas _ownership._deny_reason raises 503 on None and
+        # would turn a transient blip into a 500 for the whole panel. Only
+        # computed when an activity stream is actually requested.
+        is_owner = False
+        if want_activity:
+            owner = await AgentRepository(db_client).resolve_owner(agent_id)
+            is_owner = bool(owner) and owner == user_id
+
         all_instances = await instance_repo.get_by_agent_and_user(
             agent_id=agent_id,
             user_id=user_id,
             include_public=False
         )
-        chat_instances = [
-            inst for inst in all_instances
+        # (instance, peer_scoped) — owner-scoped instances carry the full
+        # conversation; peer-scoped ones contribute A2A/team ACTIVITY only.
+        scoped_instances = [
+            (inst, False)
+            for inst in all_instances
             if inst.module_class == "ChatModule"
             and inst.status not in ("cancelled", "archived")
         ]
 
-        logger.debug(f"Found {len(chat_instances)} active ChatModule instances for agent={agent_id}, user={user_id}")
+        # Activity Log visibility for A2A / team turns. MessageBusTrigger runs
+        # those turns with user_id = sender_agent_id (the peer / team id, not
+        # the owner — message_bus_trigger.py), so they live in ChatModule
+        # instances the owner-scoped query above never returns. Pull the
+        # agent's other ChatModule instances too, but ONLY for the owner and
+        # ONLY the peer/team scopes (user_id prefix). Filtering here — not just
+        # at the row level below — keeps every OTHER user's private chat with a
+        # shared/public agent out of the read entirely (no memory JSON parsed
+        # for them). The message loop then surfaces ONLY the background a2a /
+        # message_bus rows as the second, fail-closed net.
+        if is_owner:
+            agent_instances = await instance_repo.get_by_agent(
+                agent_id=agent_id, module_class="ChatModule"
+            )
+            peer_instances = [
+                inst
+                for inst in agent_instances
+                if inst.user_id != user_id
+                and inst.user_id
+                and inst.user_id.startswith(_PEER_SCOPE_PREFIXES)
+                and inst.status not in ("cancelled", "archived")
+            ]
+            # Bound the fan-out: this runs under a 12s poll while the inner tab
+            # is open, and reads + parses each instance's whole memory. Cap at
+            # the most-recent N (get_by_agent is created_at DESC) and LOG when
+            # truncated rather than silently dropping older activity. The cap is
+            # well above HISTORY_PAGE_SIZE * any realistic paging depth, so it
+            # does not change total_count for a normal owner. The real long-term
+            # fix is an indexed activity source (events) instead of scanning
+            # each instance's memory JSON.
+            if len(peer_instances) > _MAX_PEER_ACTIVITY_INSTANCES:
+                logger.info(
+                    f"Activity Log fan-out capped for agent={agent_id}: "
+                    f"{len(peer_instances)} peer/team instances → newest "
+                    f"{_MAX_PEER_ACTIVITY_INSTANCES}"
+                )
+                peer_instances = peer_instances[:_MAX_PEER_ACTIVITY_INSTANCES]
+            scoped_instances.extend((inst, True) for inst in peer_instances)
 
-        for instance in chat_instances:
+        logger.debug(
+            f"Assembling chat history for agent={agent_id}, user={user_id}: "
+            f"{len(scoped_instances)} instances (owner={is_owner})"
+        )
+
+        for instance, peer_scoped in scoped_instances:
             try:
                 memory_row = await db_client.get_one(
                     "instance_json_format_memory_chat",
@@ -509,24 +621,18 @@ async def get_simple_chat_history(
                     )
                     narrative_id = links[0].get("narrative_id") if links else None
 
-                    # working_source values that represent a real human
-                    # typing into a chat UI (as opposed to an IM channel
-                    # trigger, scheduled job, or peer-agent call). For
-                    # these, the "user" side is a genuine user message
-                    # and MUST be surfaced in the history view.
-                    #
-                    # "manyfold" was missing here originally — Manyfold's
-                    # OpenAI-compat endpoint feeds the user input via the
-                    # same `input_content` field as CHAT does, so the row
-                    # is a real user message; filtering it out left the
-                    # native UI showing only the agent's replies (the
-                    # symptom Bin哥 reported 2026-05-26).
-                    _USER_FACING_SOURCES = ("chat", "manyfold")
-
                     for msg in messages:
                         meta_data = msg.get("meta_data", {})
                         working_source = meta_data.get("working_source", "chat")
                         role = msg.get("role", "unknown")
+
+                        # Peer-scoped (A2A / team) instances contribute
+                        # ACTIVITY only: their a2a / message_bus rows, which the
+                        # block below collapses to a compact marker. Any other
+                        # source (a user-facing chat, an IM channel) belonging
+                        # to a non-owner scope is dropped here, never surfaced.
+                        if peer_scoped and working_source not in _A2A_TEAM_SOURCES:
+                            continue
 
                         # For non-user-facing sources (job/lark/slack/
                         # telegram/message_bus/etc), only show assistant
@@ -561,15 +667,14 @@ async def get_simple_chat_history(
                         # 'activity'`` branch.
                         #
                         # Carve-out: when the agent explicitly called
-                        # ``notify_owner`` during the IM
-                        # turn (the "tell owner about this important
-                        # thing" path the iron rules carve out), the
-                        # writer stashes that content on
-                        # ``meta_data.owner_notify_content``. We surface
-                        # it verbatim as a real reply (message_type left
-                        # untouched) so the owner DOES see the
-                        # important notification while routine IM
-                        # chatter stays hidden.
+                        # ``send_message_to_user_directly`` / ``notify_owner``
+                        # during the turn (the "tell owner about this important
+                        # thing" path the iron rules carve out), the writer
+                        # stashes that content on
+                        # ``meta_data.owner_notify_content``. We surface it
+                        # VERBATIM so the owner DOES see the notification while
+                        # routine IM/peer chatter stays hidden. Which tab it
+                        # lands in depends on scope — see the branch below.
                         content = msg.get("content", "")
                         # Privacy-collapse rule applies only to truly-IM
                         # / background sources where the assistant reply
@@ -584,6 +689,18 @@ async def get_simple_chat_history(
                             owner_notify = meta_data.get("owner_notify_content", "")
                             if owner_notify:
                                 content = owner_notify
+                                # Owner scope: the agent's own IM turn notifying
+                                # its owner — keep it in the conversation tab
+                                # (message_type stays 'chat'), the long-standing
+                                # behaviour. Peer scope (A2A/team): the
+                                # conversation tab never reads peer instances and
+                                # the activity stream keeps only
+                                # message_type=='activity', so a 'chat'-typed row
+                                # would vanish from BOTH tabs. Mark it 'activity'
+                                # (content stays verbatim, NOT collapsed) so the
+                                # Activity Log shows the agent's report.
+                                if peer_scoped:
+                                    message_type = "activity"
                             else:
                                 content = f"Background activity ({working_source})"
                                 # Force compact rendering on the frontend.
@@ -618,16 +735,31 @@ async def get_simple_chat_history(
             logger.debug(f"First message timestamp: {all_messages[0].get('_sort_key', 'N/A')}")
             logger.debug(f"Last message timestamp: {all_messages[-1].get('_sort_key', 'N/A')}")
 
+        # Select the requested stream BEFORE paginating so the conversation and
+        # the Activity Log each get their own budget. An activity row is one the
+        # collapse logic above marked message_type == "activity"; everything
+        # else is a conversation row. Without this split the two tabs share one
+        # `limit` and a busy team/A2A agent's activity flood empties the
+        # conversation tab (and polling evicts already-rendered chat rows).
+        if include == "chat":
+            stream = [m for m in all_messages if m.get("message_type") != "activity"]
+        elif include == "activity":
+            stream = [m for m in all_messages if m.get("message_type") == "activity"]
+        else:
+            stream = all_messages
+
         # Paginate: messages are sorted oldest→newest; slice from the end
         # offset=0, limit=20 → last 20 messages (most recent)
         # offset=20, limit=20 → messages 20-40 from the end (older page)
-        total_count = len(all_messages)
+        # total_count is per-stream so the frontend's loadMore termination and
+        # offset arithmetic track the stream it is actually paging.
+        total_count = len(stream)
         if offset > 0:
             end_idx = max(0, total_count - offset)
             start_idx = max(0, end_idx - limit)
-            all_messages = all_messages[start_idx:end_idx]
+            stream = stream[start_idx:end_idx]
         elif limit > 0 and total_count > limit:
-            all_messages = all_messages[-limit:]
+            stream = stream[-limit:]
 
         response_messages = [
             SimpleChatMessage(
@@ -640,7 +772,7 @@ async def get_simple_chat_history(
                 event_id=msg.get("event_id"),
                 attachments=msg.get("attachments"),
             )
-            for msg in all_messages
+            for msg in stream
         ]
 
         logger.debug(f"Returning {len(response_messages)} messages (total: {total_count})")

@@ -87,6 +87,7 @@ def create_common_tools_mcp_server(port: int) -> FastMCP:
     from ._common_tools_impl import artifact_tool
 
     artifact_tool.register(mcp)
+    artifact_tool.register_list_artifacts(mcp)
     logger.info("CommonTools MCP: artifact tools registered")
 
     from ._common_tools_impl import date_tool

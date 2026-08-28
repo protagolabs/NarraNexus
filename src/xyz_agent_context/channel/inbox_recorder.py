@@ -46,6 +46,8 @@ from typing import Any, Optional, Sequence
 
 from loguru import logger
 
+from xyz_agent_context.schema.entity_schema import ENTITY_NAME_MAX_LEN
+from xyz_agent_context.schema.parsed_message import UNKNOWN_SENDER_NAME, ChatType
 from xyz_agent_context.utils import utc_now
 
 #: Thread-id family prefixes. The family comes first so the namespace says WHAT
@@ -94,10 +96,13 @@ class InboxRecorder:
     """Writes one conversational turn into the inbox record.
 
     Stateless apart from the source name, so a caller can hold one per channel
-    or build one per call. The db handle is injected — this module never
-    reaches for ``get_db_client``, which keeps it unit-testable and keeps the
-    caller's transaction/handle choices its own (the same reason
-    ``ChannelInboxWriter`` took one).
+    or build one per call. The INBOX write uses the injected db handle — that
+    write never reaches for ``get_db_client``, keeping the caller's
+    transaction/handle choices its own (the same reason ``ChannelInboxWriter``
+    took one). The best-effort REACH write (``_record_reach``) is the one
+    exception: it goes through the ``module/data_access`` seam, which resolves
+    its own handle — today the same process singleton, and after P2 flips
+    ``NARRANEXUS_BACKEND_URL`` an outbound HTTP call from this path.
     """
 
     def __init__(self, source: str, brand_display: str = "") -> None:
@@ -130,6 +135,8 @@ class InboxRecorder:
         outbound_text: str = "",
         inbound_attachments: Optional[Sequence[dict]] = None,
         outbound_attachments: Optional[Sequence[dict]] = None,
+        chat_id: str = "",
+        chat_type: Optional[ChatType] = None,
     ) -> None:
         """Record one turn: what arrived, and what the agent said back.
 
@@ -142,7 +149,7 @@ class InboxRecorder:
         empty bubble in the user's panel.
         """
         now = utc_now()
-        display = counterpart_name if counterpart_name and counterpart_name != "Unknown" else counterpart_id
+        display = counterpart_name if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME else counterpart_id
 
         await self._ensure_thread(
             db,
@@ -195,6 +202,212 @@ class InboxRecorder:
             },
         )
         logger.info(f"InboxRecorder[{self._source}]: recorded turn in {thread_id}")
+
+        # Reachability, recorded automatically. An inbound turn is proof this
+        # agent CAN reach this counterpart on this channel, in this exact
+        # conversation — so remember it on the counterpart's social entity, the
+        # single home for "who I know and how to reach them" (Owner: no parallel
+        # per-surface rosters). Kept out of the inbox write's own re-raise: a
+        # failure to record reach must never lose the inbox row.
+        await self._record_reach(
+            agent_id=agent_id,
+            counterpart_id=counterpart_id,
+            counterpart_name=counterpart_name,
+            chat_id=chat_id,
+            chat_type=chat_type,
+        )
+
+    async def _record_reach(
+        self,
+        *,
+        agent_id: str,
+        counterpart_id: str,
+        counterpart_name: str,
+        chat_id: str,
+        chat_type: Optional[ChatType],
+    ) -> None:
+        """Write "agent_id reaches counterpart_id on <source> via <chat_id>" onto
+        the counterpart's social entity (`contact_info.channels`), through the
+        social data store — no direct module import (binding rule #3), no LLM.
+
+        ONLY records a 1:1 (``ChatType.PRIVATE``) conversation. A group's
+        ``chat_id`` is the room, not a way to reach one person: recording it as
+        "reach counterpart X" and then delivering a message meant for X to that
+        id would post it to the whole group. So anything not PRIVATE is skipped,
+        and the parsers make that a POSITIVE decision — they whitelist the one
+        literal that means 1:1 and treat a group / topic / unknown type as GROUP
+        — while ``record_turn``'s own ``chat_type`` defaults to ``None`` (also
+        skipped). Both directions fail safe: an unconfirmed type records nothing
+        rather than leaking.
+
+        Best-effort: an address book is not worth a turn (same posture as the
+        bus address book), so failure is logged, never raised. But the store's
+        seam NEVER raises — it returns an in-band ``{"success": False}`` for a
+        missing instance / rejected id / (post-P2) an auth failure — so the
+        return value is checked too, or every real failure passes silently.
+        """
+        if chat_type != ChatType.PRIVATE or not chat_id or not counterpart_id or not agent_id:
+            return
+        try:
+            from xyz_agent_context.channel.channel_contact_utils import set_channel_info
+            from xyz_agent_context.module.data_access import get_agent_data_store
+
+            contact = set_channel_info(
+                {}, self._source, {"id": counterpart_id, "rooms": {agent_id: chat_id}}
+            )
+            updates: dict = {"contact_info": contact}
+            # Name a first-contact / still-nameless entity — otherwise it stays
+            # nameless and §3b's first step (search by name) cannot find it. The
+            # store's create branch consumes `entity_name_if_new`, and its merge
+            # branch is fill-if-empty (names an entity another path left
+            # nameless), but a non-blank existing name is NEVER overwritten — so
+            # a channel display name cannot clobber a canonical one. Truncated to
+            # the column width (`entity_name` is VARCHAR(255) on MySQL); an
+            # over-long name would otherwise fail the whole reach write with a 1406.
+            if counterpart_name and counterpart_name != UNKNOWN_SENDER_NAME:
+                updates["entity_name_if_new"] = counterpart_name[:ENTITY_NAME_MAX_LEN]
+            res = await get_agent_data_store().extract_entity_info(
+                agent_id=agent_id,
+                entity_id=counterpart_id,
+                updates=updates,
+                update_mode="merge",
+            )
+            # The seam reports failure in-band, not by raising — surface it, or
+            # the whole capability can silently no-op (e.g. no social instance,
+            # or a post-P2 identity 401) with nothing in the logs.
+            if isinstance(res, dict) and res.get("success") is False:
+                logger.warning(
+                    f"InboxRecorder[{self._source}]: reach not recorded "
+                    f"(agent={agent_id}, counterpart={counterpart_id}): "
+                    f"{res.get('message')}"
+                )
+        except Exception as e:  # noqa: BLE001 — reach is never worth a turn
+            logger.warning(
+                f"InboxRecorder[{self._source}]: reach recording failed "
+                f"(agent={agent_id}, counterpart={counterpart_id}): {e}"
+            )
+
+    async def record_peer_message(
+        self,
+        *,
+        db,
+        owner_user_id: str,
+        from_agent: str,
+        from_name: str,
+        to_agent: str,
+        to_name: str,
+        content: str,
+        attachments: Optional[Sequence[dict]] = None,
+    ) -> None:
+        """Record ONE agent-to-agent message into BOTH agents' inbox threads.
+
+        Recorded at SEND time, from the ``message_agent`` tool — the single
+        place that holds "who sent what to whom". This is deliberate: on a peer
+        DM the sender's ``turn.text`` is its monologue to its OWNER, never the
+        text it sent the peer (a peer is reached only by the bus send tool), so
+        the recipient's turn cannot supply the outbound. The tool call can.
+
+        A2A messaging is same-owner only, so both threads share one owner. The
+        sender's thread (``nx_dm_<from>_<to>``) gets an OUTBOUND row; the
+        recipient's thread (``nx_dm_<to>_<from>``) gets an INBOUND row. Each
+        agent's inbox thus shows the full round-trip: its own sends plus what
+        the peer sent it.
+
+        Re-raises on failure (like ``record_turn``): the caller decides whether
+        an inbox miss is worth an audit row, and must not let it invert the
+        outcome of the send that already succeeded.
+
+        ``source_message_id`` is left NULL here on purpose. The column carries a
+        UNIQUE index (one inbox row per source message), which fits IM's 1:1
+        inbound→row mapping but NOT A2A's shape: one bus message becomes TWO
+        rows (the sender's outbound and the recipient's inbound), so stamping
+        both with the same bus id violates the constraint. A join back to
+        ``bus_messages`` for A2A would need a different key; that is out of scope.
+        """
+        if not (content and content.strip()) and not attachments:
+            return
+        now = utc_now()
+        # Sender's own thread: what it said to the peer.
+        await self._record_one_way(
+            db,
+            thread_id=agent_dm_thread_id(from_agent, to_agent),
+            owner_user_id=owner_user_id,
+            agent_id=from_agent,
+            counterpart_id=to_agent,
+            counterpart_name=to_name or to_agent,
+            direction=OUTBOUND,
+            sender_id=from_agent,
+            sender_name="",
+            content=content,
+            attachments=attachments,
+            now=now,
+        )
+        # Recipient's thread: the peer's message arriving.
+        await self._record_one_way(
+            db,
+            thread_id=agent_dm_thread_id(to_agent, from_agent),
+            owner_user_id=owner_user_id,
+            agent_id=to_agent,
+            counterpart_id=from_agent,
+            counterpart_name=from_name or from_agent,
+            direction=INBOUND,
+            sender_id=from_agent,
+            sender_name=from_name or from_agent,
+            content=content,
+            attachments=attachments,
+            now=now,
+        )
+
+    async def _record_one_way(
+        self,
+        db,
+        *,
+        thread_id: str,
+        owner_user_id: str,
+        agent_id: str,
+        counterpart_id: str,
+        counterpart_name: str,
+        direction: str,
+        sender_id: str,
+        sender_name: str,
+        content: str,
+        attachments: Optional[Sequence[dict]],
+        now,
+    ) -> None:
+        """Ensure the thread exists and append one directional message.
+
+        Shares ``_ensure_thread`` / ``_insert_message`` with ``record_turn``;
+        the difference is that a turn writes an inbound+reply pair while this
+        writes a single message (each half of a peer DM is recorded at its own
+        source, not as one turn)."""
+        await self._ensure_thread(
+            db,
+            thread_id=thread_id,
+            owner_user_id=owner_user_id,
+            agent_id=agent_id,
+            counterpart_id=counterpart_id,
+            counterpart_name=counterpart_name,
+            now=now,
+        )
+        await self._insert_message(
+            db,
+            thread_id=thread_id,
+            direction=direction,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=content,
+            attachments=attachments,
+            at=now,
+        )
+        await db.update(
+            "inbox_threads",
+            {"thread_id": thread_id},
+            {
+                "last_message_at": now,
+                "last_message_preview": (content or "")[:200],
+                "updated_at": now,
+            },
+        )
 
     async def _ensure_thread(
         self,

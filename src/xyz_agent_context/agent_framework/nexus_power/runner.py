@@ -32,7 +32,16 @@ import json
 import os
 import signal
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Type-only: the real class is never imported at module top — runner's
+    # imports stay lazy so the cold path pays them only on demand (the
+    # warm-pool / _prewarm contract). Annotating the seam still lets the
+    # transport callers be checked against the Protocol.
+    from xyz_agent_context.agent_framework.nexus_power.contracts.protocols import (
+        SteeringInlet,
+    )
 
 # litellm fetches its price map from GitHub AT IMPORT TIME unless told
 # otherwise (5s timeout, then a bundled fallback). That call sits on the
@@ -58,16 +67,26 @@ class _SignalCancellation:
         return self._flag
 
 
-async def serve_turn(raw_request: str, write_line: Any) -> int:
+async def serve_turn(
+    raw_request: str, write_line: Any, *, steering: "SteeringInlet | None" = None
+) -> int:
     """Run one turn from a serialized TurnRequest; stream lines out.
 
     Returns the process exit code (0 = the turn closed itself — even an
     ERROR end-reason is a *successful* serve; non-zero = the request
     never became a running turn).
+
+    ``steering`` is an optional live-injection inlet forwarded to the
+    loop; ``None`` keeps today's behaviour (no mid-turn injection). The
+    process host is what feeds it — the inlet object never crosses the
+    serialization boundary.
     """
     from xyz_agent_context.agent_framework.nexus_power.assembly import (
         TurnRequest,
         run_turn_events,
+    )
+    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+        TYPE_STEER_CONSUMED,
     )
     from xyz_agent_context.agent_framework.nexus_power.contracts.options import TurnOptions
     from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
@@ -105,7 +124,14 @@ async def serve_turn(raw_request: str, write_line: Any) -> int:
     adapter = LegacyEventAdapter()
     legacy = options.output_mode == "legacy_dict"
     try:
-        async for event in run_turn_events(request, cancellation, log=log):
+        async for event in run_turn_events(request, cancellation, log=log, steering=steering):
+            # Steer-consumption is a transient control signal, not turn output —
+            # it rides its OWN line (never the {"event": …} stream) so it bypasses
+            # the legacy adapter's type whitelist (which would drop it) and the
+            # driver can intercept it without it reaching AgentRuntime.
+            if event.type == TYPE_STEER_CONSUMED:
+                await write_line({"steer_consumed": list(event.payload.get("ids", []))})
+                continue
             if legacy:
                 for translated in adapter.translate(event):
                     await write_line({"event": translated})
@@ -144,13 +170,47 @@ def _prewarm() -> None:
     LitellmClient._litellm()  # the 1.8s / 215MB import, paid while idle
 
 
+def forward_steer_lines(lines: Any, deliver: Any) -> None:
+    """Parse steer lines from a blocking ``lines`` iterable (the runner passes
+    ``sys.stdin``) and hand each valid injection to ``deliver``. Extracted from
+    the daemon-thread body so the parse-and-dispatch logic is unit-tested; the
+    thread wrapper that supplies ``sys.stdin`` and a cross-thread ``deliver`` is
+    the only untested glue. Stops at EOF (stdin closed)."""
+    for line in lines:
+        msg = parse_steer_line(line)
+        if msg is not None:
+            deliver(msg)
+
+
+def parse_steer_line(line: str) -> "dict[str, Any] | None":
+    """A post-request stdin line → the provider message to inject, or None.
+
+    The steer transport frames each injection as ``{"steer": {provider msg}}``.
+    Anything else (a blank keep-alive, a malformed line, a non-steer object) is
+    ignored — a bad line must never take the turn down."""
+    try:
+        obj = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    msg = obj.get("steer") if isinstance(obj, dict) else None
+    return msg if isinstance(msg, dict) else None
+
+
 def main() -> None:
     """``python -m xyz_agent_context.agent_framework.nexus_power.runner``:
-    read one request line from stdin, stream NDJSON to stdout."""
+    read one request line from stdin, stream NDJSON to stdout. Subsequent
+    stdin lines are live-steering injections (``{"steer": …}``)."""
+    import threading
+
+    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.steering import (
+        QueueSteeringInlet,
+    )
 
     async def _run() -> int:
         if os.getenv("NEXUS_POWER_PREWARM") == "1":
             _prewarm()
+        # The request line read is UNCHANGED (blocking, load-bearing): every
+        # turn depends on it, so live steering never touches it.
         raw = sys.stdin.readline()
         if not raw.strip():
             return 2
@@ -161,7 +221,46 @@ def main() -> None:
                 sys.stdout.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
                 sys.stdout.flush()
 
-        return await serve_turn(raw, write_line)
+        # Live steering: a daemon thread does the blocking reads of any FURTHER
+        # stdin lines and hands each parsed injection to this loop's queue.
+        # asyncio.Queue is not thread-safe, so the cross-thread put goes through
+        # call_soon_threadsafe (the writer contract in steering.py). For a
+        # non-steerable run the driver writes one line then closes stdin, so the
+        # thread hits EOF at once and exits — zero behaviour change.
+        loop = asyncio.get_running_loop()
+        steer_queue: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
+        inlet = QueueSteeringInlet(steer_queue)
+
+        def _deliver(msg: dict[str, Any]) -> None:
+            try:
+                loop.call_soon_threadsafe(steer_queue.put_nowait, msg)
+            except RuntimeError:
+                # The loop is closing (turn already ended) — a late steer line
+                # has nowhere to go and is dropped silently, like a bad line.
+                return
+
+        def _reader_body() -> None:
+            # Thread-side fire-and-forget: catch so a stray exception collapses
+            # to ONE line instead of a multi-line traceback (incident lesson #2,
+            # thread variant). Honest scope: the runner never calls
+            # setup_logging(), so loguru keeps its default stderr sink — this
+            # line DOES reach stderr, and the driver may surface it in a
+            # non-zero turn's stderr tail. That is a readability win over a raw
+            # traceback, not stderr suppression; WARNING (not DEBUG) because it
+            # is going to be seen anyway and DEBUG would falsely imply it is
+            # hidden. (loguru imported here, not at module top, to keep the cold
+            # path's imports lazy — warm-pool / _prewarm contract.)
+            try:
+                forward_steer_lines(sys.stdin, _deliver)
+            except Exception as e:  # noqa: BLE001
+                from loguru import logger
+
+                logger.warning(f"[runner] steer reader thread exiting on {e!r}")
+
+        reader = threading.Thread(target=_reader_body, daemon=True)
+        reader.start()
+
+        return await serve_turn(raw, write_line, steering=inlet)
 
     sys.exit(asyncio.run(_run()))
 

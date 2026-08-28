@@ -42,6 +42,15 @@ TYPE_PLAN = "plan"                      # ui track: full plan snapshot
 TYPE_STEP_DONE = "step_done"
 TYPE_TURN_DONE = "turn_done"
 TYPE_ERROR = "error"
+#: Transient control signal (NOT a ledger row, NOT in VALID_EVENT_TYPES): after
+#: draining steering the loop names the steer_inbox row ids it CONSUMED, so the
+#: transport can tell the producer to advance its cursor on consumption rather
+#: than on push. Rides its own transport line — the driver intercepts it and
+#: never forwards it onward, so it is never validated as an event type and never
+#: reaches a legacy-adapter translation. Deliberately left out of
+#: VALID_EVENT_TYPES: registering it there would claim it is an ordinary event,
+#: contradicting the own-line / intercept design.
+TYPE_STEER_CONSUMED = "steer_consumed"
 
 VALID_EVENT_TYPES = frozenset(
     {
@@ -63,10 +72,10 @@ VALID_EVENT_TYPES = frozenset(
 class Phase(Enum):
     """The five phases of one turn's state machine.
 
-    DRAIN_STEERING and STOP_CHECK call sites exist from day one; v1
-    mounts ``NullSteeringInlet`` (always empty) and ``NoMoreActionsStop``
-    (stop when the model takes no action). Upgrading either is an
-    assembly swap — ``loop.py`` never changes.
+    DRAIN_STEERING and STOP_CHECK call sites exist from day one; the
+    default mounts are ``NullSteeringInlet`` (always empty) and
+    ``NoMoreActionsStop`` (stop when the model takes no action). Swapping
+    either mount is an assembly change — ``loop.py`` never changes.
 
     Deliberate decision (R4): the phase set is framework anatomy, not an
     extension point. Pseudo-phase needs (e.g. a pre-execution preview)

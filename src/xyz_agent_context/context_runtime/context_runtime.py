@@ -65,8 +65,11 @@ def build_reply_language_section(language: str | None) -> str:
     """One byte-stable system-prompt section, empty when unset.
 
     Stable per user (changes only when the user flips the toggle), so it
-    is safe in the cacheable prompt region — R4 discipline. "unless the
-    user explicitly asks otherwise" keeps per-message override natural.
+    is safe in the cacheable prompt region — R4 discipline. Since
+    2026-08-20 the directive's priority order is: an explicit language
+    request in the message > the current message's own language > this
+    configured preference as the undeterminable-language fallback (see
+    prompts.REPLY_LANGUAGE_SECTION for the policy history).
     """
     code = (language or "").strip()
     if not code:

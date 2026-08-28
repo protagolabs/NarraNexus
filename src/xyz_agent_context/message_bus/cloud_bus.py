@@ -113,7 +113,9 @@ class CloudMessageBus(MessageBusService):
     ) -> List[BusAgentInfo]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
-    async def get_pending_messages(self, agent_id: str, limit: int = 50) -> List[BusMessage]:
+    async def get_pending_messages(
+        self, agent_id: str, limit: int = 50, channel_id: Optional[str] = None
+    ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def ack_processed(self, agent_id: str, channel_id: str, up_to_timestamp: str) -> None:

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/nexus/nexus_agent.py
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — `_build_request_payload` 写 `options.steerable`
+
+payload 的 options 里加 `steerable = kwargs.get("steering") is not None`——把"这轮可不可控"这个**已有**决定(driver 是否拿到 `SteerChannel`,与 `_open_steer_transport` 决定 stdin 保持打开还是关闭是同一判据)显式带过序列化边界给 runner。runner 每轮都挂 inlet,单靠 inlet 身份判不出可控性;`wait_for_input` 工具的暴露门(见 [[options.py]] / assembly `_steer_channels`)据此 flag 而非 inlet 身份。单一真值来源,别在别处再造第二个。
+
+## 2026-08-24 — capabilities docstring 订正:remote(HTTP)现在**也**带 steering(取代 2026-08-21 节末句)
+
+2026-08-21 节末「remote(HTTP)driver 不声明 steering、remote run 降级成新 turn」**已不成立**。`RemoteAgentLoopDriver` 现按 framework 声明 steering(仅 nexus_power 这类可 drain 的 driver),经 executor `/steer` + `steer_consumed` 帧承载(见 [[remote_driver.py]] / [[executor_service.py]])。故 cloud 上的 nexus_power run **端到端可 steer**,不再降级。本文件只改了 `capabilities()` 的 docstring 措辞(实现 `{event_log, steering}` 不变);契约反转的实体在 remote_driver/executor_service。
 
 ## 2026-08-20 — warmup() + _schedule_pool_prewarm()：启动时预填 warm-runner 池
 
@@ -73,3 +81,26 @@ NEXUS_POWER_POOL_SIZE 定池(默认 1,0 关;每闲置进程 ~350MB RSS,速度换
 ## 2026-08-18 — 透传 origin_declaration
 
 与 claude 适配层同理：只透传，不重新措辞。见 [[sdk.py]] 同日条目。
+
+## 2026-08-21 — live steering:接 SteerChannel
+
+`agent_loop` 从 kwargs 取 `steering`(orchestrator 的 SteerChannel)。**in-process**:用
+`QueueSteeringInlet(channel.queue)` 挂到 `serve_turn(steering=inlet)`——loop 直接 drain channel 的
+queue,push 即到,无 pump 无拷贝(in-process 与 subprocess 分叉的原因就是这条零拷贝设计)。
+**subprocess** 的 steer 传输见下面「(补)」一节(keep stdin open + pump 下 stdin 行、runner 读)。
+`capabilities()` 声明 `steering`;remote(HTTP)driver 不声明(活 channel 过不了 HTTP),orchestrator 据
+`"steering" in driver.capabilities()` 决定是否让 run 可 steer,remote run 降级成新 turn 而非静默丢注入。见 [[steer_channel.py]]。
+
+## 2026-08-21(补)— subprocess steer 传输
+
+`_run_subprocess`:steer 可能的 run(steer_channel 非 None)**不 close stdin**,起 `_pump_steer_to_stdin`
+抽干 channel、把每条写成 `{"steer": …}` 行喂给 runner;回合结束(finally)cancel pump + close stdin。
+非 steer 的 run 照旧写完即 close(**零行为变化**)。pump 用 `_CANCEL_POLL_S` 轮询 channel.queue,管道断
+(ConnectionReset/BrokenPipe)即退,由 read loop 的 EOF 收尾。
+
+## 2026-08-23(补)— driver 拦截 steer_consumed 行 → SteerChannel.deliver_consumed
+
+`_run_subprocess` 与 `_run_inprocess` 的行读循环都判 `"steer_consumed" in line`:是→`await steer_channel.deliver_consumed(ids)`
+(见 [[steer_channel.py]])然后 `continue`,**不**yield 给上层。两条路径都经 `serve_turn`(in-process 也调 serve_turn),
+所以拦截点对称。这把「消费证据」在 driver 层(bus 进程、有 DB)交回 producer,绕过 AgentRuntime 的 step 机构——
+5 层里最短的正确回路。

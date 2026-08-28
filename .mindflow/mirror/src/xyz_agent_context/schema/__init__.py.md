@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-18
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 导出 Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
+
+把 [[runtime_message]] 新增的 4 个相位常量放上公共导出面。消费方:
+[[step_3_agent_loop]](发相位)、[[run_recorder]](派生 `current_stage`)、
+`tests/agent_framework/test_step_3_framework_dispatch` 与
+`tests/agent_runtime/test_run_recorder`(对着常量断言)。纯转发。
 
 ## 2026-08-17 — 导出 `normalize_agent_text` / `agent_field_matches`
 

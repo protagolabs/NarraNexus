@@ -493,6 +493,22 @@ export interface UpdateAgentRequest {
 
 export interface UpdateAgentResponse extends ApiResponse {
   agent?: AgentInfo;
+  /**
+   * agent_id of another agent of the same owner that already answers to the
+   * name just applied. NOT an error — handing a name from one agent to another
+   * is something owners do deliberately, so the rename IS applied; doing it
+   * silently is what let two agents answer to one name (Shenzhen P1).
+   * Optional and nullable: older backends omit it entirely.
+   */
+  name_clash_with?: string | null;
+  /**
+   * Did this agent's identity memory follow the rename? `null` when the call
+   * had nothing to do about it (renamed nothing, found nothing stale). `false`
+   * means the name IS stored but the memory was not corrected — the exact state
+   * where the agent keeps introducing itself by the old name, so the UI must
+   * not report a plain success.
+   */
+  identity_record_updated?: boolean | null;
 }
 
 export interface DeleteAgentResponse extends ApiResponse {
@@ -1327,4 +1343,19 @@ export interface AgentSlotView {
   effective: AgentSlotEffective | null;
   override: AgentSlotEffective | null;
   owner_default: AgentSlotEffective | null;
+}
+
+// ── owner-scoped bulk slot ops (Model Defaults "apply to all agents") ──────
+export interface SlotOverrideStats {
+  agent: number;
+  helper_llm: number;
+  total_agents: number;
+}
+
+/** Per owned-agent effective model per slot, for the Dashboard model chip. */
+export interface AgentModelOverview {
+  [agentId: string]: {
+    agent: { model: string; inheriting: boolean };
+    helper_llm: { model: string; inheriting: boolean };
+  };
 }

@@ -355,3 +355,23 @@ SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"
 # the classifier consumers import it without a circular import. NOTE (binding
 # rules #14/#15): surfaces the truth + a retry hint only — never a force-stop.
 EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"
+
+
+# Step-3 pipeline phase identity. Step 3 splits into two user-visible phases
+# so the process panel can tell "still assembling context" from "the model is
+# actually running". The old single "Execute Agent Loop" phase was emitted
+# BEFORE context was even built (3.1/3.2/3.3), so users saw "entered the agent
+# loop" while the heavy context engineering was still ahead — misleading. Now:
+#   * PHASE_BUILD_CONTEXT (step "3")  — 3.1/3.2/3.3 context assembly
+#   * PHASE_RUN_AGENT     (step "3.4") — the LLM loop is actually running
+# These step ids are a cross-file contract: the frontend whitelists them
+# (processShared PHASE_STEP_IDS / PHASE_LABEL_KEYS) and tool sub-steps nest
+# under the run-agent phase as f"{PHASE_RUN_AGENT_STEP}.{n}" (response_processor).
+# Kept in this leaf schema module — same reason as the error-type markers above
+# — so BOTH step_3_agent_loop (emits them) and run_recorder (derives
+# current_stage from them) import without a circular import; run_recorder must
+# NOT import from step_3_agent_loop, whose package __init__ eager-imports it.
+PHASE_BUILD_CONTEXT_STEP = "3"
+PHASE_BUILD_CONTEXT_TITLE = "Build Context"
+PHASE_RUN_AGENT_STEP = "3.4"
+PHASE_RUN_AGENT_TITLE = "Run Agent"

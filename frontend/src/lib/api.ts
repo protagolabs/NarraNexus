@@ -109,6 +109,8 @@ import type {
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
+  SlotOverrideStats,
+  AgentModelOverview,
   WorkerStatus,
   WorkerLiveness,
 } from '@/types';
@@ -511,10 +513,16 @@ class ApiClient {
     );
   }
 
-  async getSimpleChatHistory(agentId: string, limit: number = 20, offset: number = 0): Promise<SimpleChatHistoryResponse> {
+  async getSimpleChatHistory(
+    agentId: string,
+    limit: number = 20,
+    offset: number = 0,
+    include: 'chat' | 'activity' | 'all' = 'all',
+  ): Promise<SimpleChatHistoryResponse> {
     const params = new URLSearchParams({
       limit: limit.toString(),
       offset: offset.toString(),
+      include,
     });
     return this.request<SimpleChatHistoryResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/simple-chat-history?${params}`
@@ -1459,6 +1467,29 @@ class ApiClient {
       `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
       { method: 'DELETE' },
     );
+  }
+
+  /** How many agents currently hold a per-agent override, per slot — the
+   *  blast radius shown before applying defaults to all agents. */
+  async getSlotOverrideStats(): Promise<{ success: boolean; data?: SlotOverrideStats }> {
+    return this.request(`/api/providers/slots/override-stats`);
+  }
+
+  /** Clear the given slots' per-agent overrides across ALL the caller's
+   *  agents (clear-to-inherit). */
+  async applySlotsToAgents(
+    slots: string[],
+  ): Promise<{ success: boolean; detail?: string; data?: { cleared: Record<string, number> } }> {
+    return this.request(`/api/providers/slots/apply-to-agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slots }),
+    });
+  }
+
+  /** Effective model per owned agent, one call — for the Dashboard chip. */
+  async getAgentsModelOverview(): Promise<{ success: boolean; data?: { agents: AgentModelOverview } }> {
+    return this.request(`/api/providers/slots/agents-overview`);
   }
 
   /**

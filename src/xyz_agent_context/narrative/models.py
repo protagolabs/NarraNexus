@@ -155,6 +155,26 @@ class DynamicSummaryEntry(BaseModel):
     references: List[str] = []  # Referenced other event_ids
 
 
+# Summaries that mean "the updater has not written one yet". `NarrativeCRUD.create`
+# pre-fills `current_summary` rather than leaving it empty, and
+# `default_narratives` does the same for the eight buckets, so "the summary is
+# non-empty" is NOT the same question as "this thread has a real record".
+#
+# This matters precisely for the case the retirement rule exists to protect: the
+# async updater can fail (D-9 helper outage), and a thread whose summary is still
+# the creation placeholder has nothing but its description to describe itself. A
+# naive non-empty test would retire the birth certificate at the instant of
+# birth and that thread would score zero against the very query that created it.
+#
+# ONE definition, imported by both the writer and this reader — two copies of
+# the literal would rot apart silently, and the only symptom would be new
+# threads quietly becoming unfindable.
+PROVISIONAL_SUMMARY_PREFIXES = (
+    "Newly created Narrative: ",
+    "This is a default ",
+)
+
+
 class Narrative(BaseModel):
     """
     Narrative = Routing Metadata for a storyline
@@ -166,7 +186,7 @@ class Narrative(BaseModel):
 
     Field categories:
     - Identity: id, type, agent_id
-    - Routing Index: topic_hint, topic_keywords (BM25)
+    - Routing Index: topic_keywords (BM25, via searchable_text())
     - Orchestration Config: active_instances, instance_history_ids
     - References Only: event_ids
     - Metadata: created_at, updated_at
@@ -199,7 +219,14 @@ class Narrative(BaseModel):
 
     # ===== Routing Index =====
     topic_keywords: List[str] = []  # Topic keywords
-    topic_hint: str = ""  # Topic hint/summary
+    # Written ONCE by `_create_narrative` (the truncated first query) and never
+    # updated since the 2026-06-09 unified-memory refactor removed its update
+    # machinery. It is therefore creation-time provenance, NOT current state:
+    # 84% empty on the local dev DB, and where non-empty it can be months stale
+    # or a `[:50]` cut through the middle of an open_id. Display it as "what
+    # started this thread" (backend/routes/me.py does) — never feed it to a
+    # routing decision or a prompt; use `narrative_info.current_summary`.
+    topic_hint: str = ""  # Creation-time first query, frozen
 
     # ===== Metadata =====
     created_at: datetime  # Narrative creation time
@@ -211,6 +238,47 @@ class Narrative(BaseModel):
 
     # ===== Special Markers =====
     is_special: str = "other"  # Special marker field, default value is "other"
+
+    def description_if_unsummarised(self) -> str:
+        """The birth certificate — readable ONLY until the medical record exists.
+
+        `description` is written once at creation from the raw triggering input
+        and is never rewritten by the updater, yet it sits in the BM25 index and
+        in the continuity prompt. Measured on all 1,381 non-default prod
+        narratives (2026-08-20): **291 (21.1%) are over 1,500 characters and the
+        longest is 198,398** — a thread born on a 5KB scheduled-task prompt has
+        that 5KB welded into its retrieval surface forever. BM25 computes IDF and
+        avgdl over the candidate pool itself, so one such document both crushes
+        every normal candidate's length normalisation and hands itself a large
+        pool of matchable tokens: offline re-scoring of 630 real decisions put
+        the bypass rate at 41.0% for pools containing one against 14.5% without.
+
+        FULL RETIREMENT, not truncate-and-keep-reading. A truncated fossil is
+        still a fossil: it still asserts, in the present tense, a topic the
+        thread may have left months ago.
+
+        The condition is "the thread has a REAL summary", NOT "the updater has
+        run": the updater is async and can fail, so a thread born during a
+        helper outage never gets one. Keying on the record rather than on the
+        writer makes the rule self-healing — record written, birth certificate
+        retires; record stillborn, birth certificate keeps standing in and the
+        thread does not go invisible.
+
+        "Real" excludes the creation placeholders (see
+        `PROVISIONAL_SUMMARY_PREFIXES`): `NarrativeCRUD.create` pre-fills
+        `current_summary`, so a literal non-empty test would retire the birth
+        certificate at the instant of birth and defeat the self-healing branch
+        entirely.
+
+        Every read of the raw field is on an allow-list pinned by
+        `tests/narrative/test_description_retirement.py`, so a fourth read site
+        cannot quietly bypass this.
+        """
+        info = self.narrative_info
+        summary = (getattr(info, "current_summary", "") or "").strip()
+        if summary and not summary.startswith(PROVISIONAL_SUMMARY_PREFIXES):
+            return ""
+        return getattr(info, "description", "") or ""
 
     def searchable_text(self) -> str:
         """The text that represents this narrative to search — the ONE definition.
@@ -228,13 +296,20 @@ class Narrative(BaseModel):
 
         It lives on the model because retrieval imports crud; a shared helper in
         either of them would be a circular import.
+
+        `description` enters only through `description_if_unsummarised()`, which
+        retires it once the thread has a real summary. Before 2026-08-20 the raw
+        field went in unconditionally and a 198KB creation-time prompt could own
+        an entire pool's IDF table.
         """
         info = self.narrative_info
         return " ".join(
             p for p in (
                 getattr(info, "name", "") or "",
                 getattr(info, "current_summary", "") or "",
-                getattr(info, "description", "") or "",
+                # Retires as soon as there is a summary — see
+                # `description_if_unsummarised`.
+                self.description_if_unsummarised(),
                 " ".join(self.topic_keywords or []),
             ) if p
         )
@@ -313,6 +388,21 @@ class NarrativeSearchResult(BaseModel):
     # the pool with a synthetic neutral similarity and never had a BM25 score,
     # keep 0.0 here so they cannot trip the gate.
     raw_score: float = 0.0
+    # WHY this candidate scored what it scored, carried forward to the LLM
+    # arbitration tier. A score alone is not just uninformative, it is
+    # misleading: request-frame characters (帮/查/一/下) accumulate real BM25
+    # weight under per-character CJK tokenization, so a semantically unrelated
+    # narrative can reach a squashed 0.91 with zero topic-bearing overlap. The
+    # judge runs exactly when the gate found candidates CROWDED, i.e. when
+    # distinguishing substance from politeness is the whole decision — see
+    # `_narrative_impl/retrieval.rank_pool_full`, which fills both from the
+    # same BM25 pass that produced `raw_score` (no extra IO, no extra DB
+    # read). Participant narratives never went through BM25 and stay empty.
+    # `matched_snippet` is ALSO empty by design beyond rank_pool_full's
+    # snippet_depth head — any prompt consumer of deep rows must backfill it
+    # (the pattern: landings.build_menu_candidates; round 9, minor 2).
+    matched_terms: List[str] = []  # Query terms by descending contribution
+    matched_snippet: str = ""  # Context windows where the top terms occur
 
 
 class RoutingCandidate(BaseModel):
@@ -359,6 +449,109 @@ class RoutingAudit(BaseModel):
     gate_top1_raw: Optional[float] = None
     gate_top2_raw: Optional[float] = None
     gate_margin: Optional[float] = None
+    # WHY the score gate needs its own column now that the anchor rule can
+    # override it: `gate_short_circuit` keeps its original meaning — "this turn
+    # skipped the judge" — so the two are NOT duplicates. `bypass_score_gate`
+    # is floor+margin ALONE, which is the series the next layer has to
+    # calibrate against. Without it, the day the anchor rule shipped would be
+    # the day the score-gate distribution stopped accumulating in prod, and the
+    # decision that needs it would have no data.
+    bypass_score_gate: Optional[bool] = None
+    # Which rule decided, as a stable code: anchor_match | anchor_miss |
+    # no_anchor | score_gate | participant_present | background_scope |
+    # no_candidates. Joined against `judge_category` this answers "what did the
+    # judge actually say about the turns the anchor rule refused to let
+    # through" — i.e. whether the rule is paying for itself.
+    bypass_reason: str = ""
+    # Slice 0. True when the pool on this row was built for the RECORD ONLY and
+    # decided nothing — a continuity turn, where `select` used to return before
+    # the retrieval tier ran at all.
+    #
+    # Without it every gate aggregate silently mixes two populations. With it —
+    # AND `is_user_chat = 1`, see below — `WHERE pool_is_shadow = 0` is
+    # "decisions" and `= 1` is "what the shutter
+    # would have said on the turns continuity already answered" — which is the
+    # measurement the merged-routing design needs and could not get: the
+    # shutter's releasable population is currently bounded at 6%-39%, a 3x band
+    # that is reconstruction slack, not signal, precisely because these rows
+    # carried no pool.
+    #
+    # NOTE the deliberate asymmetry with `gate_short_circuit`: that column means
+    # "the gate skipped the judge", and on a shadow row the gate skipped
+    # nothing, so it stays NULL exactly as it is today (binding rule #6 — an
+    # existing column does not quietly change meaning). The hypothetical verdict
+    # goes to `bypass_score_gate` / `bypass_reason`, which have no legacy
+    # readers.
+    #
+    # SCOPE (user-chat only): background-triggered continuation turns (job /
+    # message_bus / IM webhook, ~30% of dev turns) are NOT recorded — they
+    # keep the column's default 0 while carrying no pool and NULL gate
+    # columns. So `= 0` alone holds two populations; the discriminator is
+    # this column PLUS `is_user_chat`. Any cross-population query must add
+    # `is_user_chat = 1`. Coverage reads (`pool_is_shadow=1` over ALL
+    # continuation turns) will sit meaningfully below 100% by design —
+    # background triggers are ~30% of all dev turns (measured), but their
+    # share of CONTINUATION turns has not been; read the real split with
+    # GROUP BY is_user_chat rather than comparing against a fixed number.
+    # (A third, negligible source of 0 on a user-chat continuation row: the
+    # recorder itself failed — identifiable ONLY by the accompanying
+    # [narrative.shadow_pool] warning; the row itself is shaped exactly
+    # like a switch-off row.)
+    pool_is_shadow: bool = False
+
+    # ── merged routing (one call instead of two) ─────────────────────────
+    # Filled only when NARRATIVE_MERGED_ROUTING_ENABLED is on. On the two-call
+    # path the write side stores 0 / "" (merged_call, merged_verdict,
+    # merged_truncated) and NULL for the rest (merged_ms, merged_input_chars,
+    # anchor_*); rows written BEFORE this deploy are NULL throughout. So a
+    # filter must be NULL-safe: `merged_call = 0` evaluates NULL to false and
+    # silently drops every pre-deploy row — which is the entire baseline
+    # window. Use `COALESCE(merged_call, 0) <> 1` — the one form valid on BOTH
+    # dialects (`IS NOT 1` parses only on SQLite; MySQL throws 1064, review
+    # round 6, I1); same rule for `pool_is_shadow`.
+    #
+    # `merged_call` marks the PATH, not the LLM: a turn the shutter released
+    # took the merged path and asked nobody, so it carries merged_call=1 with
+    # `merged_verdict` empty and `merged_ms` NULL.
+    merged_call: bool = False
+    # continue_anchor | match | participant | new | no_topic | failed.
+    # `failed` is deliberately a value rather than an absence: "the model was
+    # asked and could not be used" and "no model was asked" are different rows,
+    # and only the first one is a provider problem.
+    merged_verdict: str = ""
+    # SELF time of the merged call — it nests nothing. Stated because
+    # `retrieve_ms` DOES nest `judge_ms` and that ambiguity sent two readers to
+    # the same wrong conclusion ("routing spends 6 seconds in the database");
+    # see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
+    merged_ms: Optional[int] = None
+    # EVERY character the call sent — instructions AND user input. The x-axis
+    # of the latency model: instructions vary by variant and the variant
+    # correlates with the turn shape, so a user_input-only count would bias
+    # the slope (review round 2, I2), and the input budgets are only
+    # convertible to milliseconds if production records what it actually sent.
+    merged_input_chars: Optional[int] = None
+    # Comma-separated section codes that hit their read-side cap
+    # (prev_response / prev_query / anchor_summary / awareness / query /
+    # participants). Empty when nothing was clamped — a silently shortened
+    # prompt is one nobody can explain afterwards.
+    merged_truncated: str = ""
+
+    # ── the anchor's standing in BM25 (the §3.2 instrument) ──────────────
+    # Merging removes a defence that was never named: on the two-call path a
+    # continuity turn never built a menu, so a foreign thread could not reach
+    # the prompt. Now it can, and the anchor is injected unconditionally to
+    # compensate. These three columns are the only way to ever measure how often
+    # that injection was the sole reason the anchor was on the ballot —
+    # reconstructing it later is impossible, because the async updater rewrites
+    # the scored text with no history.
+    #
+    # rank: 1-based among candidates that scored, NULL when the anchor scored
+    # nothing (which is 8.2%-49.3% of continuity turns in the replay arms).
+    anchor_bm25_rank: Optional[int] = None
+    anchor_raw_score: Optional[float] = None
+    # Would the anchor have been on the menu WITHOUT the unconditional
+    # injection? False here is the case §3.2 exists for.
+    anchor_in_menu: Optional[bool] = None
 
     # ── tier 3: LLM arbitration ─────────────────────────────────────────
     judge_ran: bool = False
@@ -376,8 +569,26 @@ class RoutingAudit(BaseModel):
     # skips the judge entirely, and storing 0 there would drag every "cost of
     # arbitration" query toward nothing, destroying the exact comparison these
     # columns exist to make.
+    # SHADOW ROWS (pool_is_shadow=1, slice 0) change one dimension:
+    # `retrieve_ms` there holds ONLY the instrument's own tier-2 cost — the
+    # judge never ran. Same column, two magnitudes; any cross-population cost
+    # aggregate MUST filter on pool_is_shadow first, or the continuation
+    # majority's ~13ms rows dilute "how expensive is arbitration" exactly the
+    # way the paragraph above warns a stored 0 would. `keyword_ms` is the one
+    # cost column with an identical definition in both populations.
+    # MERGED ROWS (merged_call=1) are a THIRD population with the same shape as
+    # a shadow row and none of its caveats: `retrieve_ms` holds the BM25 pass
+    # only, because on that path the LLM is a separate tier with its own column
+    # (`merged_ms`) — so the filter is
+    # `COALESCE(pool_is_shadow,0) <> 1 AND COALESCE(merged_call,0) <> 1`
+    # (NULL-safe on both dialects; `= 0` drops every pre-deploy NULL row —
+    # the whole baseline window — and `IS NOT 1` is SQLite-only)
+    # for "tiers 2+3 together", and `merged_ms` for the merged call's own cost.
+    # Three magnitudes in one column is the point at which it stops being worth
+    # sharing; a future batch should split out `retrieve_self_ms` rather than
+    # add a fourth (todo/2026-08-25-retrieve-ms-nests-judge-ms.md).
     continuity_ms: Optional[int] = None   # tier 1 LLM (continuity detect)
-    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k)
+    retrieve_ms: Optional[int] = None     # tiers 2+3 together (retrieve_top_k); shadow AND merged rows: tier 2 only
     keyword_ms: Optional[int] = None      # BM25 pool load + rank
     judge_ms: Optional[int] = None        # tier 3 LLM (unified match)
 
@@ -402,6 +613,15 @@ class NarrativeSelectionResult(BaseModel):
     best_score: Optional[float] = None  # Best match score (if any)
     scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
     retrieval_method: str = ""  # Retrieval method: "session" (continuity) | "keyword" (BM25)
+
+    # The judge's "this turn carries no durable topic" verdict (C-1). It is a
+    # LABEL about the turn, not a destination: the retrieval tier returns it
+    # with an EMPTY narrative list and NarrativeService.select decides where the
+    # turn lands (anchor-first — reuse the live thread, else create on durable
+    # surfaces, else run bare). It also travels to step_4, where it means "file
+    # the event but do NOT let this turn rewrite the thread's retrieval
+    # surface" — a greeting must never rename the work it interrupted.
+    no_durable_topic: bool = False
 
     # ===== Routing audit (E1) — transient, never persisted on this object =====
     # The retrieval tier fills the BM25/gate/judge half; NarrativeService.select

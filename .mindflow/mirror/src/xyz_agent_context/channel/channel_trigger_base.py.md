@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-08-26
 ---
+
+## 2026-08-26 — `is_agent_peer` seam
+
+新增可覆写 hook，默认 False（多数渠道每个发送者都是人，猜错这个方向不改变
+任何处理，只是少给模型一个提示）。[[matrix_trigger.py]] 覆写它。
+
+**答案在这里产生一次**，因为只有 trigger 层知道各平台的身份约定；然后搭
+[[channel_tag.py]] 走到上层，让消费方读同一个定义而不是各自再推一遍。
+必须纯且便宜——每条消息都会调。
+
+**契约是「实现只依赖 `message`」**，写在 docstring 里，并由守卫测试用
+unbound 调用（`cls.is_agent_peer(None, msg)`）间接强制。
+
+有人会问为什么不直接 `@staticmethod` 让语言来管——**考虑过，暂不做**：改
+签名要动五个填充点和 Matrix 覆写，而且要先确认没有哪个渠道将来真的需要
+`self`（若需要，该松的是这条约束本身而不是实现）。放到 seam 的消费方都落地
+之后再一起清。
+
+本类里两个 `ChannelTag` 构造点（单条消息 + 静默批）都填了。
+`test_agent_peer_signal.py` 有一条守卫：**每个 ChannelTag 构造点的数量必须
+等于填充数量**——漏填不会报错，只会静静地报「这是人」，正是
+`build_trigger_extra_data` 当年那个缺陷类（四处手抄、新键只加了一处）。
+
+## 2026-08-21 — record_turn 接线 chat_id + chat_type（PR-2 自动 reach 记录）
+
+两处 `self._inbox_recorder.record_turn(...)`(`_process_message` 与 `managed_after_run`)各加 `chat_id=message.chat_id, chat_type=message.chat_type,`。`record_turn` 用它把「本 agent 在这个渠道/会话能触达发件人」自动写进 social graph——但**只在 `chat_type==PRIVATE`(1:1)时记**(群 `chat_id` 是房间,记成个人 reach 会把私信投进群;见 [[inbox_recorder.py]] 同日 Critical 修复)。共享路径覆盖 slack/telegram/discord/wechat/narramessenger。
+
+**`managed_after_run` 的 `counterpart_name` 补 `sanitize_display_name`**(预审 Important):它是三个 record_turn 站点里唯一没过清洗的,而 reach 现在把该名**持久**写进 `entity_name`(每次社交搜索渲染回上下文)——不清洗就成了持久化的 prompt-injection seam(换行 + 伪 `SYSTEM:`)。另两条路本就 sanitize。守卫 `test_mock_channel_trigger_integration.py::test_managed_after_run_sanitizes_...`。
+
+reach 路径上的 `"Unknown"` 哨兵(`sanitize_display_name` 空串兜底 + `_process_message` 的「名字为 Unknown 就 resolve」比较点)改用 `UNKNOWN_SENDER_NAME` 常量(增量审 Minor:生产者与比较点**同步**改,否则常量日后变值时「解析不出就 resolve」分支会静默失效)。非 reach 的展示默认值(`:1739` 等)按「不必一次扫完」留。
 
 ## 2026-08-17 — inbox 写入换成 InboxRecorder
 

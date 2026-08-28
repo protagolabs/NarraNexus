@@ -256,3 +256,10 @@ R1 的 total_s 从 Step 0 才起算,漏掉 run() 前段（懒加载 DB client、
 与 `cancellation` 同一条显式参数路径(不塞 `trigger_extra_data` —— 那是个会被序列化的
 dict,放 callable 是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,所以中间没有
 任何签名要改。
+
+## 2026-08-21 — live steering 参数穿线(mirror cancellation)
+
+`run()` 新增 `steering`(SteerChannel 活对象),原样进 `RunContext.steering`,再由 step_3 显式传给
+`driver.agent_loop(steering=...)`——与 `cancellation` **同一条显式参数路径**,不塞 `trigger_extra_data`
+(那是会被序列化并下发给 module 的 dict,放活对象是隐患)。`run_and_collect` 的 `**extra_kwargs` 直通,
+中间无签名要改。None = 不可 steer(现状)。

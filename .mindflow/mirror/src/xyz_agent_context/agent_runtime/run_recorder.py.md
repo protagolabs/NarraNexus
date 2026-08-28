@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-10
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — tool_call 的 current_stage 对齐 run-agent 相位
+
+tool_call bump 里的 `current_stage` 从硬编码 `"step.3_agent_loop"` 改成
+**从共享相位常量派生**：`_extract_progress_stage({"step":
+PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE})`（常量来自叶子模块
+[[runtime_message]]，不能从 [[step_3_agent_loop]] 导——它被本包 `__init__`
+eager import 会成环）。原硬编码值与 progress 事件推导出的
+`"step.3_Execute Agent Loop"` **两个字符串打架**，同一 loop 阶段在
+`events.current_stage` 里来回跳。派生后天然与 progress 相位逐字一致，一个
+相位一个值，且相位改名不会再悄悄复活打架。同时同步 in-memory
+`self.current_stage`（与 progress 分支对齐）。测试
+`test_tool_call_stamps_the_run_agent_stage`（对着常量断言）。
+
+## 2026-08-21 — `first_live_run_id`：跨进程"这个用户忙不忙"的唯一口径
+
+`run_is_live` 是**单条 run** 的判活口径；本次把同一口径抬到**用户**这一层。
+动机是 2026-07-31 prod 事故：任何"据此销毁容器"的动作（[[executor_reaper.py]]
+的空闲回收）都不能用进程内记账回答"这个用户还在不在跑" —— 编排是 backend +
+workers 两个进程，各自只看得见自己那一半。`events` 表是它们唯一的交汇点
+（事故教训 #5：DB 痕迹比日志 grep 可靠，"该在的行不在"本身就是证据）。
+
+三个决定：
+- **返回 run id 而不是 bool**：调用方要能说出"是谁挡住了我"（reaper 的审计
+  行），否则别处会再写一遍 running+心跳的查询。
+- **`exclude_run_id`**：提问者自己的 events 行在问的时候已经是 running，不
+  排除的话判决恒为"忙"。
+- **失败就抛，不吞**：这是唯一入口。包一层"出错返回 None"的便利函数等于给
+  同一个问题定义了第二套 fail-safe 语义，而破坏性调用方恰恰是最不能继承别人
+  猜测的那批。它们各自解决歧义，且**全部**解决成"忙"。
+
+投影查询（只取 `event_id / last_event_at / started_at`）：events 行带着好几个
+MEDIUMTEXT 列。`started_at` 必须留 —— 第一次心跳落地前 `run_is_live` 靠它兜底，
+丢了会把刚起跑的 run 读成死的。
 ## 2026-08-10 — retain normalized action reason
 
 Fatal capture retains `action_reason` beside error type/message so analytics
@@ -90,3 +124,7 @@ live trace，任何读侧（聊天重连、team roster、未来 dashboard）走�
 lifespan 调 `sweep_stale_runs`。
 
 测试：tests/agent_runtime/test_run_recorder.py。
+
+## 2026-08-20 — classify_event 转公有(#334 minor)
+
+两个模块消费即非私有:去下划线并入 __all__;background_run 同步改。

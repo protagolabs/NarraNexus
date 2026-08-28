@@ -91,6 +91,13 @@ def _upsert_spy(monkeypatch):
         def __init__(self, db):
             pass
 
+        async def get_by_instance(self, instance_id):
+            # update_awareness READS before it writes now: the model rewrites the
+            # whole profile and its prescribed format omits the platform identity
+            # record, so the previous copy is needed to carry that section over.
+            # None = no stored profile, which is the shape these parity tests use.
+            return None
+
         async def upsert(self, instance_id, awareness):
             calls.append((instance_id, awareness))
             return True

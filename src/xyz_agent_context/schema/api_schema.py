@@ -182,6 +182,25 @@ class UpdateAgentResponse(BaseModel):
     success: bool
     agent: Optional[AgentInfo] = None
     error: Optional[str] = None
+    #: agent_id of another agent of the same owner that already answers to the
+    #: name just applied. NOT an error — handing a name from one agent to
+    #: another is a thing owners do deliberately, and refusing it would be
+    #: wrong. Doing it SILENTLY is what started the incident this whole area
+    #: exists for (two agents answering to one name, P1 section 02 ①), so the
+    #: rename is applied and the collision is reported. Additive field: older
+    #: clients ignore it.
+    name_clash_with: Optional[str] = None
+    #: False when this call renamed the agent but its Awareness identity record
+    #: could not be updated (no Awareness instance, or the write failed). The
+    #: rename itself DID land — reporting failure for a stored name would be the
+    #: worse lie — but "the column moved and the memory did not" is the exact
+    #: state the Shenzhen incident was, and it must not be visible only in a
+    #: container log that `docker restart` wipes (incident lesson #5). None when
+    #: this call had nothing to do about the record — it renamed nothing and
+    #: found no stale one. The repair path reports here too: renaming an agent
+    #: to the name it already holds is how an already-diverged agent gets fixed,
+    #: and "fixed" and "still broken" must not both read as success.
+    identity_record_updated: Optional[bool] = None
 
 
 class DeleteAgentResponse(BaseModel):

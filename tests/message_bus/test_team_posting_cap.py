@@ -187,3 +187,57 @@ async def test_blank_text_is_refused_rather_than_posted(db_client):
     assert await db_client.get("bus_messages", {"channel_id": CHANNEL}) == [], (
         "a blank post reached the room"
     )
+
+
+# ── The hop cap is tunable: 4 was too small for real multi-agent tasks ──────
+#
+# 4 consecutive agent hops is not enough for a team to finish an ordinary task
+# without a human having to nudge it every few turns. The cap stays a finite
+# loop-breaker (runaway agent-to-agent @storms are a real incident class), but
+# the number is now raised and overridable per deployment via an env var so it
+# can be tuned without a code change.
+
+
+def test_hop_cap_default_is_large_enough_for_real_tasks():
+    # Assert the DEFAULT constant, not the env-resolved module value — the
+    # latter would go red on any host that happens to set TEAM_MAX_AGENT_HOPS.
+    from xyz_agent_context.message_bus.team_posting import (
+        _DEFAULT_MAX_TEAM_AGENT_HOPS,
+    )
+
+    assert _DEFAULT_MAX_TEAM_AGENT_HOPS == 30, (
+        "the default autonomous-hop budget should be raised well above the old 4"
+    )
+
+
+def test_hop_cap_reads_env_override(monkeypatch):
+    from xyz_agent_context.message_bus.team_posting import _resolve_hop_cap
+
+    monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", "50")
+    assert _resolve_hop_cap() == 50
+
+
+def test_hop_cap_clamps_absurd_values(monkeypatch):
+    from xyz_agent_context.message_bus.team_posting import (
+        _MAX_TEAM_AGENT_HOPS_CEILING,
+        _resolve_hop_cap,
+    )
+
+    monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", "100000")
+    assert _resolve_hop_cap() == _MAX_TEAM_AGENT_HOPS_CEILING, (
+        "an over-ceiling value feeds a SQL LIMIT and must be clamped"
+    )
+
+
+def test_hop_cap_falls_back_on_bad_env(monkeypatch):
+    from xyz_agent_context.message_bus.team_posting import _resolve_hop_cap
+
+    for bad in ("", "   ", "not-a-number", "0", "-3"):
+        monkeypatch.setenv("TEAM_MAX_AGENT_HOPS", bad)
+        assert _resolve_hop_cap() == 30, (
+            f"a non-positive / unparseable override ({bad!r}) must fall back to "
+            "the default, never disable the loop-breaker"
+        )
+
+    monkeypatch.delenv("TEAM_MAX_AGENT_HOPS", raising=False)
+    assert _resolve_hop_cap() == 30

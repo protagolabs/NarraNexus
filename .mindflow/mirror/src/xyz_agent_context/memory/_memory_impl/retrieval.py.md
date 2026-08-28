@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/memory/_memory_impl/retrieval.py
-last_verified: 2026-08-10
+last_verified: 2026-08-25
 stub: false
 ---
+
+## 2026-08-25 — 域外消费者改走公共门面 `memory/bm25.py`(PR #361 round 2, M2)
+
+`tokenize/bm25_rank/bm25_explain/bm25_snippet` 事实上是跨域契约
+(narrative 路由逐位重放、job_repository 排序都靠它),但域外 import 一直
+打在本私有路径上——重构 `memory/` 的人看不到任何"这是对外契约"的信号。
+新增纯再导出模块 [[../bm25.py]],四个域外消费点全部改走它;本文件内部
+消费者不变。改签名前先看 bm25.py 的 docstring 列的契约清单。
+
+
+## 2026-08-12 — BM25 算术抽成一份，新增 `bm25_explain` / `bm25_snippet`
+
+`bm25_rank` 的循环体抽成私有 `_bm25_term_contributions`（id → {词: 该词在求和式里
+的那一项}，按 token 顺序）。`bm25_rank` = 求和，`bm25_explain` = 附上按贡献降序的
+词表。**`bm25_rank` 签名与返回值不变**（记忆召回共用它，narrative 路由的审计重放
+也逐位比对它），求和顺序刻意保持一致，所以 explain 报出的分数与 rank 的分数**逐位
+相同**，不是"约等于"。
+
+为什么要有 explain：分数本身不自证。narrative 路由的 LLM 判官只拿到一个压缩过的
+`0.91`，而实测一条本地 query 对无关 narrative 打出的 raw 10.67 **100% 来自请求
+框架字**（帮/查/一/下/天）—— 中文按字切 unigram 下，"礼貌用语撞车"和"话题命中"
+在分数上长得一模一样。按贡献排序让"撞在实词上还是撞在虚词上"变成可读的事实，也让
+截断成 top-N 时留下的是有判别力的词。详见 [[retrieval.py|narrative 的 rank_pool]]。
+
+**没有折进 `bm25_rank`**：记忆召回每个请求对每个 kind 都调它，只要那个数字；
+多返回一份词表是白付的分配。两个入口，一份算术。
+
+`bm25_snippet(text, terms)` 取贡献最高的几个词在原文里首次出现处的上下文窗口
+（重叠窗口合并、截断处加省略号、内容预算封顶），因为词表 + 分数仍然不告诉读者
+词**落在哪** —— 「部署」出现在话题名里，和「部署」埋在一段冻结的渠道包装 prompt
+里，是完全不同强度的证据。大小写不敏感（分词器 lower，snippet 引原文）。
 
 ## 2026-08-10 (PR-11) — grep_filter regex 路径改 ReDoS-safe 引擎（管线 blocked 修：offload + per-request 预算 + 截断信号）
 

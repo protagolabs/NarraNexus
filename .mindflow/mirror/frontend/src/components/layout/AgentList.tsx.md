@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 改名的两个"成功但你得知道"报给用户了
+
+后端在改名时会算出两件**不是失败**的事,所以它们永远不会进错误分支——而三个改名
+调用点原来只读 `res.success`,于是**界面成了唯一让这两件事静默发生的入口**(后端
+注释当时已经写着"不再静默",前端却没接,独立审查第七轮抓的):
+
+- `name_clash_with` —— 同 owner 下已经有别的 agent 叫这个名字。**不拦**(把名字从
+  一个 agent 转给另一个是 owner 会故意做的),但两个 agent 同应一个名字正是深圳
+  P1 的起点。
+- `identity_record_updated === false` —— 名字**已经存进去了**,但 agent 的身份
+  记忆没能更新,它可能继续自述旧名。这就是事故本体的状态。
+
+`warnAboutUpdateSideEffects(res)` 一个函数、三处调用(is_public 切换、编辑弹窗、
+行内改名)。**故意抽成一处**:三份拷贝就是第四个调用点漏掉提示的方式——这次改动
+本身就在这个坑里栽了两回(函数写了没接、接了一处漏另一处)。
+
+放在 `refreshAgents()` 之后:列表先变成服务端真相,再弹提示,否则用户在读提示时
+背景里的名字还是旧的。
+
+i18n 只加了 en / zh —— `layout.editAgentDialog` 这一节在其余 8 个语言文件里本来
+就不存在,走回退,与 `toastDiskWarn` 同一惯例。
 
 ## 2026-08-18 — merge ruling: team 行未读圆点不接线（下方 08-14 条 UI 半边失效）
 

@@ -1,7 +1,72 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-08-17
+last_verified: 2026-08-25
 ---
+
+## 2026-08-24 — 八处静默吞异常改为「可分辨 + 可上报」
+
+本文件每个函数原来都是 catch → log → 返回一个空值。**调用方分不清「LLM 跑完
+了没找到东西」和「LLM 死了」**：`summarize_new_entity_info` 返回 `""` 两种
+含义都有，调用方两种情况都跳过写入。于是一把过期的 helper key 会让长记忆
+无声退化——2026-07 那次持续了两周。
+
+这不是抽象风险。8/14 乒乓事故里，agent 对那个已经交换了 6.6 万条消息的对端，
+profile 仍然停在「第一次见面」，所以它**自己的上下文里没有任何东西**能告诉
+它正在循环。记忆写入的静默失败和那个死循环是同一根链条。
+
+**两条修法，八处全覆盖：**
+
+1. **失败与空结果可分辨**。`summarize_new_entity_info` 和 `infer_persona`
+   改成 `Optional[str]`，`None` = 失败（铁律 #2，直接改签名不留 shim）。
+   `infer_persona` 原来失败时返回**当前** persona，调用方原样写回——一次
+   no-op 写入和一次成功刷新长得一模一样。
+2. **失败会上报**。LLM 调用点走
+   [[background_llm_alerts.py]] 的 `alert_background_llm_failure`；
+   DB 写入点走 `ServiceAuditor` 审计行，**不发收件箱通知**——一次失败的
+   UPDATE 是我们的 bug 或基础设施问题，不是用户换个 key 能修的，为它打扰
+   用户是 alarm fatigue。
+
+**review 后补的几件（PR#360）：**
+
+- **owner 解析走 `AgentRepository.resolve_owner`**，不再手搓
+  `get_one("agents", ...)`。仓库里那个 resolver 的 docstring 明写「the ONE
+  answer」，`backend/routes/channels/wechat.py` 还留了一条明确禁令——第一版
+  在这里开了第四份副本，正是 PR #258 收敛掉的那种漂移。它区分 `""`（agent
+  不存在）与 `None`（查询本身失败），**不要**用 `or ""` 把两者塌回去。
+- **`infer_persona` 的三档语义**：`None` = 调用失败 / `""` = 跑通了但没有
+  要改的 / 有值 = 新鲜。第一版只修了失败那档，「跑通但输出为空」仍然回吐
+  当前 persona——调用方原样写回，日志打「persona updated」，还是假成功，
+  只修了一半。
+- **两个 audit service 名**：LLM 失败走 `background_llm`（可能打扰 owner），
+  DB 写入失败走 `social_network_memory`（只落审计行）。「记忆为什么停更」
+  的排查要覆盖两个名字。
+- **调用方那一侧也报**：`social_network_module` 里主实体创建失败
+  （`create_primary_entity`，最重的一处——建不出来整个 turn 的记忆更新全部
+  跳过）和逐实体处理失败（`process_mentioned_entity`，覆盖第三方实体创建、
+  tags/aliases 合并、以及 Stage-1 的**读**失败）现在都留审计行。铁律 #8：
+  记忆写入并不只在本文件里。
+  **前提**：内层八个 handler 自己报过且都不 re-raise，所以外层 except 只会
+  看到「不是它们报过的」失败，今天不存在双报——**日后谁给内层加 re-raise，
+  必须同时处理这个前提**。
+- **`service_audit` 没有保留期**，而本次改动把最热路径的写入量放大到每回合
+  最多 5 行（summary / extraction / dedup / compression / persona）。这是
+  **有意接受**的：`background_llm` 早就是同样的无界 error-only 命名空间，
+  且铁律 #15 说得清楚——用户挑了不稳的模型是他的权利，平台自己扛下这个写入
+  量。真要加保留期是独立改动（`ServiceAuditRepository` 补
+  `cleanup_older_than_days`，沿用 `AUDIT_RETENTION_DAYS = 30`）。
+
+**几个不是「顺手」的细节：**
+
+- `decide_merge_or_create` 失败时 fallback 到 CREATE_NEW，形状是对的（宁可
+  多一个重复节点也别丢实体），但**不是没有代价**：每次失败都在分叉社交图。
+- `update_interaction_stats` 看着像计数器，其实 `should_update_persona` 靠
+  它每 N 次触发——一处吞掉的异常静默关掉了第二个功能。
+- `compress_description` 失败时返回截断值，**看起来是成功的**，但静默丢掉了
+  切口之后的全部内容，所以照样上报。
+- `owner_user_id` 在这条路上拿不到（hook 是脱钩后台任务，比解析 owner 的地方
+  低好几层），所以 `_report_llm_failure` 要反查——走
+  `AgentRepository.resolve_owner`（见上方 2026-08-25 那条，**不要**手搓
+  `get_one("agents", ...)`）。查不到也没关系，告警的审计层照样落行。
 
 ## 2026-08-17 — 记一个已知缺口：`should_update_persona` 的 change-signal 只认英文
 

@@ -1,8 +1,46 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-14
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `translateReconnectFrame` 回放兜底 step id 不得撞相位 id
+
+`tool_call` / `tool_output` 回放帧在 payload 解析失败(`safeParseJson` 返 null)
+时,合成 progress 的 step id 兜底值从 `'3.4'` 改成 `'3.4.replay'`。
+
+**这是一条约束,不是流水账**:`'3.4'` 是 run-agent 相位的 id。currentSteps
+按 step id upsert([[chatStore]] / [[useRunObservation]]),裸 `'3.4'` 会**覆盖
+真正的 run-agent 相位行**——`tool_output` 分支合成的是 `status:'completed'`,
+于是直播中途面板显示「Agent 运行中… ✓」。兜底值必须是 `3.4.x` 形状的子步:
+`parseFloat('3.4.replay')` 仍是 3.4(落定逻辑不变),但不在
+[[processShared]] 的 `PHASE_STEP_IDS` 白名单里,永远渲染成工具行、绝不成相位
+行。**谁把它当冗余魔法字符串「清理」回 `'3.4'`,就复现上面的 bug。**
+测试 `wsManager.reconnect.test.ts` 钉住「不得撞相位 id」这条约束本身。
+
+## 2026-08-24 (review #349) — 续接锚点只认 running;时间戳解析归一
+
+- **I2**:`markResumedRun` 加 `raw.state === 'running'` 守卫——后端对
+  **任何**可 attach 的 run 都先发 run_reconnect,「早已结束」是常见
+  情形,不加守卫会对昨天完成的 run 打出「已续接进行中 · 已运行
+  1500 分钟」(chip 要消灭的误判反向复现)。判定条件与后端补发
+  run_ended 的分支逐字一致。测试补 `state: 'completed'` 用例。
+- **I1**:`started_at` 与 `input_timestamp` 的解析都改走
+  [[../lib/backendTs]](naive-UTC 规则收敛单点;`input_timestamp`
+  原来裸 `Date.parse`,云端 UTC+8 下注入的用户气泡会排到 8 小时前)。
+
+## 2026-08-21 — run_reconnect 落「续接」锚点(深圳复测 B1)
+
+reconnect 的全量重放此前没有任何「这是同一个 run 在继续」的信号,刷新
+中途的测试者把重放记成「重新生成」。`run_reconnect` 分支现在把帧里的
+`started_at` 解析成 epoch ms 并 `markResumedRun` 进 [[../stores/chatStore.ts]]
+(UI 据此渲染「已续接 · 已运行 N 分」chip)。解析坑:后端 `_format_dt`
+输出 DB 的 **naive-UTC** ISO(无时区后缀),浏览器 `Date.parse` 会按
+本地时区解——无后缀的串显式补 'Z',带偏移的原样信任。重放协议本身
+零改动(铁律 #16:同帧同序同内容,只加呈现锚点)。
+## 2026-08-24 — mid-run steer 发送 + steerable 捕捉
+
+`run_started.steerable` 存进 `entry.steerable`;新增 `steer(agentId, content, clientMsgId)`:仅当连接在、`entry.steerable`、**`!entry.completed`**、`ws.OPEN` 才发 `{action:'steer',input_content,client_msg_id}` 并返 true;否则返 false——调用方须自行处理(ChatPanel 把乐观气泡标 `rejected`),**绝不回退新 run**(那会 `close()` 掉正在跑的这条 socket、中止用户想补话的那一轮)。`isSteerable(agentId)` 读 `entry.steerable && !entry.completed`——**跑完的 run 不可 steer**(已无法 drain),`complete`/circuit-open/error 等任一收尾路径置 `entry.completed=true` 即统一失效,无需各处重置 `steerable`。steer_queued/consumed/rejected 帧照常经 `processMessage` 进 [[chatStore.ts]]。
 
 ## 2026-08-14 — chat fast mode: 首包可带 fast_mode
 

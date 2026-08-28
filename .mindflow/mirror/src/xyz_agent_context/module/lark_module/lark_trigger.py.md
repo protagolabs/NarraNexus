@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-26
 ---
+
+## 2026-08-26 — ChannelTag 构造点填 `is_agent_peer`
+
+Lark **走基类默认**（恒 False）：这个渠道没有 `@agent-` 那样铸死的身份约定，
+猜出来的实现会把这个 seam 从「事实」降级成「猜测」，与 Matrix 那条的价值
+定位冲突。所以只填、不覆写。
+
+填这一行是为了满足「**每个 ChannelTag 构造点都填**」这个契约，
+`test_agent_peer_signal.py` 有一条计数守卫在盯。今天它的运行时效果为零
+（`format()` 输出逐字节不变），所以看起来像一行没用的 False——**别清理它**，
+清掉之后这个渠道会静静地退出守卫覆盖，而漏填的表现只是「报成人类」，不报错。
+
+## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
+
+- **`parse_event` 补 `chat_type`——正向白名单**(预审 Critical 陷阱 + 增量审 Important):此前构造 `ParsedMessage` 从不传 `chat_type`,恒取 dataclass 默认 `PRIVATE`——群/1:1 真相只在 `raw["chat_type"]`(`"group"`/`"p2p"`)。因为记不记是**安全门**(判错=私信投进群),用**正向白名单**:`chat_type=ChatType.PRIVATE if raw.get("chat_type")=="p2p" else ChatType.GROUP`——只有字面 `"p2p"` 是 1:1,缺失/话题群/未来新值一律 GROUP(宁可不记)。守卫 `test_lark_parse_event.py`(p2p→PRIVATE、group/topic_group/缺失→非 PRIVATE)。**注意不要顺手改 `is_group_reply_warranted`/`_should_respond_in_group`**(读原始 event dict,是「回不回」的决策,fail-closed 会把 1:1 当群丢掉——和「记不记」无关)。
+- **生产路径 `_process_message` 的 `record_turn`** 加 `chat_id=message.chat_id, chat_type=message.chat_type`;测试 shim `_write_to_inbox` 传 `chat_id=chat_id, chat_type=ChatType.PRIVATE`(保持生产形状,**会**记 reach——经它的既有 lark 测试会触到 seam 句柄)。让 [[inbox_recorder.py]] 只在 1:1 时把 Lark 会话写进 social graph。
+- reach 路径上的 `"Unknown"` 哨兵改用 `UNKNOWN_SENDER_NAME` 常量:`parse_event` 的默认值 + `resolve_sender_name` 的三处 return + `_process_message`(lark 侧)的「Unknown 就 resolve」比较点(增量审 Minor:生产者与比较点同步改;非 reach 的规范化默认值 `:1918/:1929`、echo shim `:864` 按「不必扫完」留;见 [[parsed_message.py]])。
 
 ## 2026-08-17 — 删掉死字段 `_last_ws_connected_monotonic`（写了从来没人读 + 一句兑现不了的注释）
 

@@ -52,7 +52,9 @@
     "composer": {
       "selectAgentFirst": "Select an agent first…",
       "dropFile": "Drop file to attach…",
-      "placeholder": "Type a message or / for skills…"
+      "placeholder": "Type a message or / for skills…",
+      "steerPlaceholder": "Add to this run — your reply folds into the current turn…",
+      "attachDuringRun": "Can't attach while the agent is running — send text now, or wait for it to finish to add a file."
     },
     "fastMode": {
       "label": "Fast",
@@ -212,7 +214,9 @@
           "paused": "paused"
         },
         "turnOff": "Turn off",
-        "turnOn": "Turn on"
+        "turnOn": "Turn on",
+        "awaitingReply": "awaiting reply",
+        "nameSep": ", "
       },
       "bulletin": {
         "title": "Bulletin",
@@ -237,6 +241,7 @@
         "clearedNotice": "Bulletin cleared"
       },
       "leadBadge": "lead",
+      "setLead": "Make lead",
       "expand": "Show more",
       "collapse": "Show less",
       "today": "Today",
@@ -269,12 +274,14 @@
       "statusPending": "pending",
       "startingUp": "Starting up…",
       "initializing": "Initializing…",
-      "loadingContext": "Loading context…",
-      "loadingResources": "Loading resources…",
-      "preparingWorkspace": "Preparing workspace…",
+      "selectingNarrative": "Selecting narrative…",
+      "loadingModules": "Loading modules…",
+      "syncingInstances": "Syncing instances…",
       "buildingContext": "Building context…",
+      "runningAgent": "Running agent…",
       "thinking": "Thinking…",
-      "acting": "Acting…"
+      "acting": "Acting…",
+      "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {
       "viewLoop": "view what it did",
@@ -346,7 +353,21 @@
       "modelFramework": "Model & framework",
       "switchAgent": "Switch agent"
     },
-    "composerPrivacyHint": "Avoid sharing sensitive personal information."
+    "composerPrivacyHint": "Avoid sharing sensitive personal information.",
+    "steer": {
+      "sendTitle": "Send into this run (Enter)",
+      "queued": "Queued…",
+      "merged": "Folded into this run",
+      "rejected": "Not sent — {{reason}}",
+      "reason": {
+        "too_large": "message too long",
+        "too_many_pending": "too many pending",
+        "framework_no_steering": "this agent can't take mid-run input",
+        "not_sent": "connection wasn't ready",
+        "run_ended": "the run finished first",
+        "unknown": "couldn't be delivered"
+      }
+    }
   },
   "awareness": {
     "common": {
@@ -808,7 +829,10 @@
       "tooLong": "Must be {{max}} characters or fewer.",
       "save": "Save",
       "cancel": "Cancel",
-      "saveFailedTitle": "Update failed"
+      "saveFailedTitle": "Update failed",
+      "renameWarnTitle": "Renamed, with something to know",
+      "renameClashWarn": "Another of your agents ({{agentId}}) already answers to this name. The rename was applied — if that was not intended, decide which agent should keep it.",
+      "renameMemoryWarn": "The name was changed, but this agent's identity memory could not be updated, so it may still introduce itself by the old name."
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",
@@ -1325,9 +1349,9 @@
     "saveChanges": "Save changes",
     "deleteTeam": "Delete team",
     "membersLabel": "Members ({{selected}} / {{total}})",
-    "defaultResponderLabel": "Default responder",
-    "defaultResponderAuto": "Auto (earliest-joined member)",
-    "defaultResponderHint": "Who answers a team message that doesn't @mention anyone. They can @mention a teammate to hand off.",
+    "leadLabel": "Team lead",
+    "leadAuto": "Auto (earliest-joined member)",
+    "leadHint": "The team lead answers a message that doesn't @mention anyone, and can @mention a teammate to hand off. You can also set the lead directly from a member's card in the room.",
     "noAgents": "No agents in your account.",
     "remove": "Remove",
     "add": "Add",
@@ -1614,7 +1638,19 @@
       "noTeamsLabel": "No teams yet",
       "noTeamsHint": "Create one from the New menu in the sidebar.",
       "manageTeam": "Manage",
-      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here."
+      "teamsTip": "Create teams from the sidebar New menu; rename, recolor, and edit members here.",
+      "modelCard": {
+        "title": "Model config",
+        "agentSlot": "Main (agent)",
+        "helperSlot": "Helper",
+        "inherit": "inherits default",
+        "override": "overridden",
+        "effort": "effort={{value}}"
+      },
+      "modelChip": {
+        "inherit": "default",
+        "override": "custom"
+      }
     },
     "createUser": {
       "title": "Create New User",
@@ -1709,7 +1745,19 @@
         "cloudNetmindOnlyNote": "The cloud version runs on your NetMind account — models from your own API keys are not available here.",
         "cloudNetmindOnlyLink": "Download the local desktop version to use your own keys →",
         "cloudFrameworkLocked": "This framework signs in through a shared CLI login, so it is staff-only in cloud. Claude Code and NexusPower-beta both work here — the others are available in the local desktop version.",
-        "cloudFrameworkLockedTitle": "Staff only in cloud"
+        "cloudFrameworkLockedTitle": "Staff only in cloud",
+        "applyTitle": "Default model updated",
+        "applyBody": "Apply = clear these agents’ manual overrides so they inherit the new default; future default changes will follow too.",
+        "applyAgentSlot": "Main model (agent)",
+        "applyHelperSlot": "Helper (helper_llm)",
+        "noOverrides": "no overrides",
+        "willClear": "{{n}} agents will be cleared",
+        "applyRunningNote": "Running agents take effect on their next turn; the current run is not interrupted.",
+        "saveDefaultOnly": "Save default only",
+        "applyToChecked": "Apply to selected agents",
+        "applyTotalNote": "You have {{total}} agents in total.",
+        "applyDone": "Cleared per-agent overrides — {{n}} agents affected.",
+        "applyDoneTitle": "Overrides cleared"
       },
       "updates": {
         "label": "App updates",
@@ -2452,6 +2500,37 @@
     },
     "url": {
       "toggleFailed": "Could not change mode: {{error}}"
+    },
+    "editor": {
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "unsavedChanges": "Unsaved changes",
+      "draftRestored": "Restored your unsaved edits from this device.",
+      "conflictBody": "The file changed while you were editing. Keep your version or reload theirs?",
+      "overwriteMine": "Keep mine",
+      "discardMine": "Reload theirs",
+      "loadError": "Failed to load: {{error}}",
+      "mdGuardDisabled": "This document contains syntax the editor cannot preserve losslessly — direct editing is disabled. Ask the AI to make changes instead.",
+      "htmlAnchorFailed": "That text is generated by the page's script or cannot be located uniquely in the source — ask the AI to change it instead.",
+      "htmlEditConflict": "The file changed while you were editing — that change was not saved.",
+      "editFailed": "Edit failed — the change was not saved.",
+      "draftUnavailable": "This file is too large for local draft backup — unsaved changes won't survive closing the window. Save promptly."
+    },
+    "officeEdit": {
+      "selected": "{{count}} selected",
+      "editText": "Edit text",
+      "apply": "Apply",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "color": "Text color",
+      "opFailed": "Edit failed.",
+      "lockNotice": "Open in a desktop Office app — direct edits are paused.",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "addRow": "+ Row",
+      "addCol": "+ Column",
+      "replaceImage": "Replace image"
     }
   },
   "skills": {
@@ -2635,14 +2714,17 @@
     "actionFailedTitle": "That didn’t work",
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
-    "doneTitle": "Done"
+    "doneTitle": "Done",
+    "edit": "Edit"
   },
   "toast": {
     "view": "View",
     "completed": "Completed",
     "roomSpoke": "New activity in the room",
     "agent": "Agent",
-    "room": "Room"
+    "room": "Room",
+    "artifactRepointedVerified": "Re-linked: {{oldPath}} → {{newPath}} (content verified)",
+    "artifactRepointedUnverified": "Re-linked: {{oldPath}} → {{newPath}} (unverified match — check it)"
   },
   "webAnalyticsNotice": {
     "body": "This is the cloud web version of NarraNexus. It uses Google Tag Manager, a third-party analytics service, to collect anonymous page-interaction data (page views, clicks, referrer). No conversation content is collected. You can turn this off anytime in Settings → Privacy.",

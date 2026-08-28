@@ -113,7 +113,7 @@ from xyz_agent_context.channel.message_source_handler import (
     PLATFORM_REPLY_TEXT_KEY,
 )
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from xyz_agent_context.schema.parsed_message import UNKNOWN_SENDER_NAME, ParsedMessage
 from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
 
 
@@ -413,6 +413,24 @@ class ChannelTriggerBase(ABC):
     # advance. Must not do I/O — it runs on every watcher poll.
     def should_start_subscriber(self, credential: Any) -> bool:
         return True
+
+    # Override hook — is the far side of this message another agent rather
+    # than a human? Default False: on most channels every sender is a
+    # person, and guessing wrong in that direction changes nothing.
+    # NarraMessenger overrides it because its Matrix user ids carry the
+    # answer (``@agent-<id>:<homeserver>``).
+    #
+    # Answered HERE, once, because only the trigger layer knows each
+    # platform's identity convention. The answer travels on ``ChannelTag``
+    # so consumers above the trigger — starting with the prompt — read one
+    # definition instead of each re-deriving it.
+    #
+    # Contract for overrides: depend on ``message`` ONLY — no ``self``, no
+    # I/O, no awaits. It runs per message, and the guard test calls it
+    # unbound; an override that reaches for ``self`` would surface there as
+    # a confusing AttributeError rather than as "you broke the contract".
+    def is_agent_peer(self, message: ParsedMessage) -> bool:
+        return False
 
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
@@ -1390,7 +1408,7 @@ class ChannelTriggerBase(ABC):
 
         # Name resolution + sanitization
         sender_name = message.sender_name
-        if (not sender_name or sender_name == "Unknown") and message.sender_id:
+        if (not sender_name or sender_name == UNKNOWN_SENDER_NAME) and message.sender_id:
             sender_name = await self.resolve_sender_name(message.sender_id, credential)
         sender_name = self.sanitize_display_name(sender_name)
 
@@ -1428,6 +1446,8 @@ class ChannelTriggerBase(ABC):
             await self._inbox_recorder.record_turn(
                 db=self._db,
                 thread_id=im_thread_id(self.channel_name, agent_id, message.chat_id),
+                chat_id=message.chat_id,
+                chat_type=message.chat_type,
                 owner_user_id=await resolve_owner_for_agent(self._db, agent_id),
                 agent_id=agent_id,
                 counterpart_id=message.sender_id,
@@ -1589,6 +1609,7 @@ class ChannelTriggerBase(ABC):
             sender_name=sender_name,
             sender_id=message.sender_id,
             room_id=message.chat_id,
+            is_agent_peer=self.is_agent_peer(message),
         )
         tagged_prompt = (
             f"{channel_tag.format()}\n"
@@ -1796,6 +1817,7 @@ class ChannelTriggerBase(ABC):
             sender_name=anchor_sender_name,
             sender_id=anchor_msg.sender_id,
             room_id=chat_id,
+            is_agent_peer=self.is_agent_peer(anchor_msg),
         )
 
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
@@ -2098,10 +2120,17 @@ class ChannelTriggerBase(ABC):
             await self._inbox_recorder.record_turn(
                 db=db,
                 thread_id=im_thread_id(self.channel_name, agent_id, message.chat_id),
+                chat_id=message.chat_id,
+                chat_type=message.chat_type,
                 owner_user_id=await resolve_owner_for_agent(db, agent_id),
                 agent_id=agent_id,
                 counterpart_id=message.sender_id,
-                counterpart_name=message.sender_name,
+                # Sanitized like the other two record_turn sites: a display name
+                # is a counterpart-controlled string, and reach recording now
+                # PERSISTS it into `entity_name` (rendered into context on every
+                # future social search) — so the prompt-injection seam
+                # `sanitize_display_name` guards must not be bypassed here.
+                counterpart_name=self.sanitize_display_name(message.sender_name),
                 inbound_text=message.content,
                 # As-is, NOT `or CHANNEL_SILENT_SENTINEL`. The recorder's
                 # contract is that an empty outbound writes no outbound row —
@@ -2269,7 +2298,7 @@ class ChannelTriggerBase(ABC):
         ``_sanitize_display_name``.
         """
         if not name:
-            return "Unknown"
+            return UNKNOWN_SENDER_NAME
         cleaned = _CONTROL_CHARS_RE.sub(" ", name)
         cleaned = " ".join(cleaned.split())
-        return cleaned[:128] or "Unknown"
+        return cleaned[:128] or UNKNOWN_SENDER_NAME

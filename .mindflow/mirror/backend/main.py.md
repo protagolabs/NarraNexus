@@ -1,6 +1,6 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-19
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -435,3 +435,17 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 看起来都像 worker 好好活着）在计数不出进程的情况下原样存在。
 
 **只报告，不判定**：单个团队的 provider key 坏掉不该让容器探针失败，所以 `status` 不依赖 `failed`。
+
+## 2026-08-20 — 第三层 HTTP 中间件 body_size(#334 r3 I1/r4 C2)
+
+实际链路(注册 LIFO):**CORS → access_log → body_size → auth → routes**。
+存在理由:FastAPI 在 solve_dependencies 之前就读完 body,路由依赖做不成
+「快拒」——中间件是唯一先于框架碰流的层(详见 [[body_size.py]],它只管
+自己的按路由上限,本文件只记「栈里有几层、谁包谁」)。与既有约束的
+关系:CORS 仍必须最外层(它的 413 也要带 ACAO);**body_size 必须在
+access_log 内、routes 外**——外一层它的 413 从访问日志消失,内到
+routes 就退回假门。OPTIONS 复核结论:preflight 无 Content-Length,
+天然放行。顺序由 tests/backend/test_body_size_gate.py 断言钉住——
+含「CORS 在四层最外」(历史上唯一真被破过的那条,#334 r5 I1 补钉;
+断言是相对序而非 `names[0]`,将来在最外再加 tracing 层是合法改动)——
+注释顺序契约本仓已破过一次,不再只靠注释。

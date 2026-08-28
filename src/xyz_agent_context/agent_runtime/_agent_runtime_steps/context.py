@@ -79,10 +79,20 @@ class RunContext:
     # ===== Cancellation =====
     cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token
 
+    # ===== Live steering =====
+    # The run's SteerChannel (agent_runtime.steer_channel.SteerChannel) when the
+    # orchestrator started this run steerable; None = no mid-run injection. Live
+    # object, threaded run-start-to-loop exactly like `cancellation`.
+    steering: Optional[Any] = None
+
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None
     event: Optional["Event"] = None
     narrative_list: List["Narrative"] = field(default_factory=list)
+    # The routing tier judged this turn to carry no durable topic (C-1). The
+    # turn may still be FILED on a thread (the active one), but it must not be
+    # allowed to rewrite that thread's retrieval surface — step_4 reads this.
+    no_durable_topic: bool = False
     module_list: List[Any] = field(default_factory=list)
     session: Optional["Session"] = None
     awareness: str = ""  # Agent self-awareness content

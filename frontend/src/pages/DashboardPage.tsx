@@ -47,9 +47,12 @@ import { QueueBar } from '@/components/dashboard/QueueBar';
 import { Sparkline } from '@/components/dashboard/Sparkline';
 import { RecentFeed } from '@/components/dashboard/RecentFeed';
 import { MetricsRow } from '@/components/dashboard/MetricsRow';
+import { AgentModelCard } from '@/components/dashboard/AgentModelCard';
+import { AgentModelChip } from '@/components/dashboard/AgentModelChip';
+import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { cn } from '@/lib/utils';
-import type { AgentStatus, OwnedAgentStatus } from '@/types';
+import type { AgentStatus, OwnedAgentStatus, AgentModelOverview } from '@/types';
 
 // The Export tab embeds the full bundle wizard. Keep it a lazy chunk (like
 // App.tsx's route-level split) so opening /app/dashboard doesn't drag the
@@ -110,6 +113,36 @@ export function DashboardPage() {
   // single expandedId — the mirror doc called this out explicitly).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [llmCfgAgentId, setLlmCfgAgentId] = useState<string | null>(null);
+  const [modelReloadKey, setModelReloadKey] = useState(0);
+  const [modelOverview, setModelOverview] = useState<AgentModelOverview>({});
+
+  // A VALUE key over the owned-agent id set — refetch the overview when an
+  // agent is created/removed (so a new agent gets its chip), but NOT on every
+  // poll tick. Using rosterAgents itself would fire per tick (new array ref)
+  // and turn the 1+N-query overview into a request storm.
+  const rosterIdsKey = useMemo(
+    () => rosterAgents.map((a) => a.agent_id).sort().join(','),
+    [rosterAgents],
+  );
+
+  // One bulk fetch of every owned agent's effective model for the collapsed
+  // row chip (avoids a per-agent llm-config N+1); refetched after an edit saves
+  // or when the owned-agent set changes.
+  useEffect(() => {
+    let alive = true;
+    api
+      .getAgentsModelOverview()
+      .then((r) => {
+        if (alive && r.success && r.data) setModelOverview(r.data.agents);
+      })
+      .catch(() => {
+        /* chip just renders nothing */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [modelReloadKey, rosterIdsKey]);
   const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
   const [filterTeam, setFilterTeam] = useState<string>(''); // '' / 'untagged' / 'imported' / <team_id>
   const [filterText, setFilterText] = useState('');
@@ -456,6 +489,15 @@ export function DashboardPage() {
   return (
     <div className="h-full flex flex-col">
       {dialog}
+
+      {llmCfgAgentId && (
+        <AgentLlmConfigPanel
+          agentId={llmCfgAgentId}
+          isOpen
+          onClose={() => setLlmCfgAgentId(null)}
+          onSaved={() => setModelReloadKey((k) => k + 1)}
+        />
+      )}
       <TeamManagementModal
         open={teamsMgmt.open}
         initialTeamId={teamsMgmt.teamId}
@@ -718,6 +760,7 @@ export function DashboardPage() {
                             <span className="min-w-0 flex flex-col gap-px">
                               <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{a.name || a.agent_id}</span>
                               <span className="font-mono text-[10px] text-[var(--nm-ink30)] truncate">{a.agent_id}</span>
+                              <AgentModelChip agentId={a.agent_id} entry={modelOverview[a.agent_id]} />
                             </span>
                           </span>
                           <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--nm-ink70)]">
@@ -788,6 +831,11 @@ export function DashboardPage() {
                                   {owned.recent_events.length > 0 && (
                                     <RecentFeed agentId={owned.agent_id} events={owned.recent_events} />
                                   )}
+                                  <AgentModelCard
+                                    agentId={owned.agent_id}
+                                    reloadKey={modelReloadKey}
+                                    onEdit={() => setLlmCfgAgentId(owned.agent_id)}
+                                  />
                                 </div>
                               </div>
                             ) : (

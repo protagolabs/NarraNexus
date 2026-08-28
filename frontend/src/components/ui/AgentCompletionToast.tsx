@@ -18,6 +18,7 @@ import { Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore, useConfigStore } from '@/stores';
+import { useArtifactStore } from '@/stores/artifactStore';
 import { toastKey, type ToastItem } from '@/stores/chatStore';
 import { Toast, RingAvatar, GroupAvatar, Button } from '@/components/nm';
 
@@ -51,6 +52,10 @@ export function AgentCompletionToast() {
     (toast: ToastItem) => {
       if (toast.kind === 'team') {
         navigate(`/app/teams/${toast.teamId}/chat`);
+      } else if (toast.kind === 'artifact-repointed') {
+        // Bring the repointed tab to front (restores if minimized) — the
+        // whole point of the toast is "look at where it went".
+        useArtifactStore.getState().restoreTab(toast.artifactId);
       } else {
         setAgentId(toast.agentId);
         setActiveAgent(toast.agentId);
@@ -68,11 +73,13 @@ export function AgentCompletionToast() {
         const name =
           toast.kind === 'team'
             ? toast.teamName || t('toast.room')
-            : toast.agentName || t('toast.agent');
+            : toast.kind === 'artifact-repointed'
+              ? toast.title
+              : toast.agentName || t('toast.agent');
         return (
           <div key={toastKey(toast)} className="animate-slide-in-right">
             <Toast
-              status="success"
+              status={toast.kind === 'artifact-repointed' ? 'warning' : 'success'}
               title={
                 <span className="inline-flex items-center gap-2">
                   {toast.kind === 'team' ? (
@@ -84,14 +91,23 @@ export function AgentCompletionToast() {
                       members={[{ species: 'carbon' }, { species: 'silicon' }]}
                       label={name.slice(0, 1)}
                     />
-                  ) : (
+                  ) : toast.kind === 'artifact-repointed' ? null : (
                     <RingAvatar species="silicon" label={name.slice(0, 1)} size="xs" />
                   )}
                   <span>{name}</span>
                 </span>
               }
               description={
-                toast.kind === 'team' ? t('toast.roomSpoke') : t('toast.completed')
+                toast.kind === 'team'
+                  ? t('toast.roomSpoke')
+                  : toast.kind === 'artifact-repointed'
+                    ? t(
+                        toast.hashMatched
+                          ? 'toast.artifactRepointedVerified'
+                          : 'toast.artifactRepointedUnverified',
+                        { oldPath: toast.oldPath, newPath: toast.newPath },
+                      )
+                    : t('toast.completed')
               }
               onDismiss={() => dismissToast(toastKey(toast))}
               action={

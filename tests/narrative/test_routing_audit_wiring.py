@@ -71,7 +71,20 @@ def _session(**kw):
 
 
 async def test_retrieval_path_writes_an_audit_row(service, db_client):
-    """A cold turn (no session) goes through BM25 and must be recorded."""
+    """A cold turn (no session) goes through BM25 and must be recorded.
+
+    The pool is seeded here with a real thread on purpose. Until the C-1
+    bucket governance (2026-08-16) this test needed no such setup: the eight
+    default narratives were bootstrapped on the first turn, so the pool was
+    never empty and the assertion below passed for a reason that had nothing
+    to do with the wiring under test. Buckets no longer enter the pool, which
+    makes that accident visible — an (agent,user) with no threads now has a
+    genuinely empty pool, and an empty pool is the truth, not a missed capture.
+    """
+    existing = await service.create_narrative(
+        agent_id=AGENT, user_id=USER, title="部署脚本排障", description="",
+    )
+
     await service.select(AGENT, USER, "帮我排查一下部署脚本报错", session=None, trigger="chat")
 
     rows = await NarrativeRoutingAuditRepository(db_client).recent(agent_id=AGENT)
@@ -80,11 +93,11 @@ async def test_retrieval_path_writes_an_audit_row(service, db_client):
     assert row["trigger"] == "chat"
     assert row["selection_method"], "outcome not stamped on the audit row"
     assert row["candidates"], "the BM25 pool was not captured"
-    # Pool completeness: the eight eager default narratives are bootstrapped on
-    # this first turn, and every one of them shaped IDF/avgdl.
-    assert sum(1 for c in row["candidates"] if c["is_default"]) >= 8, (
-        "default narratives are missing from the recorded pool — a replay "
-        "would reproduce different scores than the live decision did"
+    # Pool completeness: every candidate that shaped IDF/avgdl must be on the
+    # row, or a replay reproduces different scores than the live decision did.
+    assert existing.id in {c["narrative_id"] for c in row["candidates"]}
+    assert not any(c["is_default"] for c in row["candidates"]), (
+        "default buckets must not reach the pool under C-1 governance"
     )
 
 
@@ -124,7 +137,7 @@ async def test_participants_reach_the_audit_from_the_live_call_site(
 ):
     """The call site must thread participants in, not just be able to.
 
-    A unit test of `_record_pool` cannot catch this: pass the participants
+    A unit test of `_build_pool_record` cannot catch this: pass the participants
     directly and it behaves. The defect lives one level up — recording the
     pool BEFORE the participant merge, which is what the first cut did.
     """

@@ -220,7 +220,11 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
         if (isAgentStreaming(aid)) continue;
 
         try {
-          const response = await api.getSimpleChatHistory(aid, 5);
+          // include='chat' ONLY: the "new message → toast + badge" signal must
+          // mean a real reply to the owner, not the agent's peer/team activity
+          // (a2a / message_bus). Those live in the activity stream now and would
+          // otherwise fire a "replied to you" toast on every peer turn.
+          const response = await api.getSimpleChatHistory(aid, 5, 0, 'chat');
           if (!response.success || response.messages.length === 0) continue;
 
           const latestMsg = response.messages[response.messages.length - 1];

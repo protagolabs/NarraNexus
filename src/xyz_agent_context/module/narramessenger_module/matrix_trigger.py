@@ -309,6 +309,11 @@ class _StreamReplyState:
 # ``{server_name}`` + ``{media_id}`` parsed from the ``mxc://`` URI.
 _MEDIA_DOWNLOAD_PATH = "/_matrix/client/v1/media/download/{server_name}/{media_id}"
 
+# Localpart prefix the platform mints agent identities under —
+# ``@agent-e7726996:matrix.netmind.chat``. The one place that spelling
+# lives on the receive path; see ``MatrixTrigger.is_agent_peer``.
+AGENT_MXID_PREFIX = "@agent-"
+
 
 class MatrixMediaError(Exception):
     """Raised by ``_download_mxc`` on a failed / oversized media fetch.
@@ -697,6 +702,20 @@ class MatrixTrigger(ChannelTriggerBase):
         if not credential.matrix_user_id:
             return False
         return message.sender_id == credential.matrix_user_id
+
+    def is_agent_peer(self, message: ParsedMessage) -> bool:  # type: ignore[override]
+        """NarraMessenger encodes the answer in the MXID.
+
+        The platform mints agent identities as ``@agent-<id>:<homeserver>``
+        (see ``_narramessenger_service._MATRIX_USER_RE``), so "am I talking
+        to a machine?" is a prefix check rather than a guess. Humans on the
+        same homeserver get ordinary localparts.
+
+        This is the channel where it matters most: it is the one place two
+        agents routinely hold a 1:1 conversation with nobody else in the
+        room.
+        """
+        return message.sender_id.startswith(AGENT_MXID_PREFIX)
 
     async def resolve_sender_name(  # type: ignore[override]
         self, sender_id: str, credential: NarramessengerCredential
@@ -1721,6 +1740,7 @@ class MatrixTrigger(ChannelTriggerBase):
             sender_name=sender_name,
             sender_id=message.sender_id,
             room_id=message.chat_id,
+            is_agent_peer=self.is_agent_peer(message),
         )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id

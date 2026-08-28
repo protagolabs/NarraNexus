@@ -286,6 +286,9 @@ async def step_1_select_narrative(
         ctx.cancellation.raise_if_cancelled()
 
     ctx.narrative_list = narrative_list
+    ctx.no_durable_topic = bool(
+        selection_result is not None and selection_result.no_durable_topic
+    )
 
     logger.info(
         f"Narratives selected: count={len(narrative_list)}, "

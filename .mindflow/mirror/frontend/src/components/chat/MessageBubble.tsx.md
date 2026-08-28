@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — user 气泡三态尾标
+
+带 `steerStatus` 的 user 气泡在正文下渲染一行小字:`queued`(排队中)/`merged`(✓已并入)/`rejected`(未送达+i18n reason,error 色)。i18n `chat.steer.*`。仅 owner 运行中 follow-up 气泡有,普通消息无。reason 渲染:有 `rejectReason`→`chat.steer.reason.<reason>`(缺 key 时 `defaultValue` 回退原串);`rejectReason` 为空(后端 reject 不带 reason)→回退 `chat.steer.reason.unknown`,**不**渲染成「未送达 — 」这种破折号后空白。
 
 ## 2026-08-19 — 历史时间线的 tool_output 承接调用名(实现并入 segmentTurn)
 

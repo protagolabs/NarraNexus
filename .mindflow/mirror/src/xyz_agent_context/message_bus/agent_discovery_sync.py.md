@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/message_bus/agent_discovery_sync.py
-last_verified: 2026-08-05
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 (更正) — 事务不在 [[_awareness_writes]] 了
+
+本文件下面那条 2026-08-18 的条目说「统一经由 `_awareness_writes` 的
+`apply_agent_profile_change`」——**同一个 PR 里它已经搬到**
+`xyz_agent_context/agent_profile/`（见 [[_overview]]）。改名侧调用本函数的仍然只有
+那一个事务，只是它换了住址。
+
+## 2026-08-18 (二改) — manyfold 的 POST 也进来了
+
+同日第一条只补了 manyfold 的 `PATCH`。`POST /manyfold/agents` 在 agent 已存在时
+同样改名，同样从没刷过名录；它现在也经由 [[_awareness_writes]] 的
+`apply_agent_profile_change` 调本函数。改名侧的调用方仍然只有那一个事务。
+
+## 2026-08-18 — 调用方清单补两处，且改名侧收敛到一个入口
+
+「所有变更点都调它」这句的清单原来漏了一个、且有一个是假的：
+
+- **manyfold 的 `PATCH /manyfold/agents/{id}` 从来没调过**（改名后同伴目录停在旧名
+  直到该 agent 跑一轮）。现已补上——但不是直接调本函数，见下。
+- 名字/描述编辑这一支现在**统一经由** [[_awareness_writes]] 的
+  `apply_agent_profile_change`：用户侧路由、manyfold 路由、agent 自己的
+  `update_agent_profile` 三条路都走那一个事务，由它调本函数。所以本函数的改名侧
+  调用方**只剩一个**，不再是三处各自记得调。
+
+创建那一侧的清单**当时是错的**：二改写着「创建（[[auth]] / [[provision]]）……不变」，
+但 manyfold 的建号分支既不走 provision 也不自己调，第二轮审查抓出来了。已补上
+（见 [[agents]] 三改）。现在创建侧是：[[auth]] / [[provision]] / migration applier /
+arena provisioning / **manyfold 建号**；技能安装、技能对账、每轮 hook 不变。
 
 # agent_discovery_sync.py — agent 对同伴那一面的唯一真相点
 

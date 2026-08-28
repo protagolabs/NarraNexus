@@ -19,6 +19,14 @@ from typing import Any, Literal
 # v1 consumes materializer-built provider messages (OpenAI-style dicts).
 ProviderMessage = dict[str, Any]
 
+#: Private key a steer producer may stamp on a ProviderMessage carrying the
+#: steer_inbox row id, so the loop can report which rows the run actually
+#: consumed (the inlet strips it on drain — the model never sees it). The one
+#: name shared by the producer (SteerChannel) and the consumer (the inlet /
+#: subprocess transport); lives on the ProviderMessage contract so neither side
+#: reaches into the other's package for it.
+STEER_ID_KEY = "_steer_id"
+
 
 @dataclass(frozen=True)
 class ProviderProfile:

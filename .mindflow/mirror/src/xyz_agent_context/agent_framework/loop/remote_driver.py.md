@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — 云端 steering **已落地**:声明 + pump + 消费回程(**取代下方 2026-08-22 条目**)
+
+下方 2026-08-22「不声明 / 不投递」那条已**不再成立**:executor 补了 `/steer` + `steer_consumed` 帧([[executor_service.py]]),这条 driver 随之实现「一协议两传输」的远程一半:
+- **`capabilities()` 按 framework**:`_STEER_CAPABLE_FRAMEWORKS`(现 `{"nexus_power"}`)内返回 `{"steering"}`,其余(claude_code/codex_cli)返回**空集**。理由:`RemoteAgentLoopDriver` 是所有 framework 的**同一个**远程壳,只有 nexus_power 的容器内 driver 会 drain steering inlet(claude/codex 的 SDK `capabilities()` 返回 base contract),对它们声明 steering 是**兑现不了的谎**。`_STEER_CAPABLE_FRAMEWORKS` 是容器内 driver `capabilities()` 的**静态镜像**——靠 executor 镜像与本代码 lockstep(子模块 pin)成立,故不走 `/capabilities` HTTP 探测(每 turn 纯延迟);`/capabilities` 端点留作将来某 framework 需运行时确认时的显式探针。
+- **`agent_loop`**:门是 `steerable = steer_channel is not None and "steering" in self.capabilities()`——**两条件都满足**才 `secrets.token_hex(16)` 铸不可猜 `run_id`(`/steer` 无鉴权,不可猜句柄挡乱注入)+ 起 `_pump_steer` task(drain `SteerChannel.queue`→`POST /steer`,`finally` 在 session 关前 cancel)。非可 steer framework 即便拿到 channel 也**不铸 run_id、不起 pump**,但会**记一条 warning**(可见降级,见下 `_pump_steer`/审后补)。None channel 或非可 steer→无 run_id→非可控 body 逐字不变。
+- **`_handle_frame`**:三种帧——`{"event"}`(yield)、`{"error"}`(raise,同本地 relay)、`{"steer_consumed":[ids]}`(转发真 `SteerChannel.deliver_consumed`,让 producer 按**消费**推游标,然后吞掉不下发)。
+- **`_pump_steer`**:投递失败**记日志不 raise**:未消费→不 ack→以新 turn 重现,不拖垮 turn。**每 POST 失败一律当瞬态**(审后订正):非 200(如 per-run 404)、每 POST 超时(`_STEER_POST_TIMEOUT_S=30`,因共享 session 的 `/agent-loop` 流是 `total=None`,不设则 /steer 继承无限超时)、**连接级 `ClientError`** 都**记日志 + 继续 drain**。关键理由:`/steer` 的 POST 走**自己一条短连接**,与 `/agent-loop` 那条长流**互相独立**——connector 瞬时耗尽/一次被拒/DNS 抖动只打到新连接,**不蕴含流已断**;所以不像本地 `BrokenPipeError`(runner 进程没了=回合必结束),这里一次连接错误**不该停 pump**。pump **只在 cancel(回合结束,caller 的 finally)时停**;executor 真没了时 `/agent-loop` 流会结束并顺带 cancel 本 pump。**pump 死于意外异常**在 finally 的 `await pump` 被 catch+log,**绝不 raise 进 turn**。回归:`test_pump_keeps_going_on_a_transport_error_and_never_raises` + executor 侧 `test_consumed_reported_before_a_raise_is_flushed_ahead_of_the_error_frame`(except 分支 drain 顺序)。
+- 消费上报走**既有下行 NDJSON 流**,不新开连接——远程与进程内对称,只多隔一层进程边界。
+- **验证缺口(诚实标注)**:全 HTTP round-trip(真 runner 子进程)未 e2e,单测只打 `_handle_frame`/`_pump_steer`/capabilities;transport 是全 cloud turn 必经 load-bearing,合并前须 **dev EC2 真 turn 验证**(同 #351 教训)。
+
+## 2026-08-22 — steering 不声明:活 channel 过不了 HTTP(**已被上方 2026-08-24 取代,保留作沿革**)
+
+live-steering(PR #351)是**进程内**能力:orchestrator 起可 steer 的 run 时把
+`SteerChannel` 登进本进程的 `RunRegistry`,producer 与目标 run 同进程,push 直达
+loop 的 drain(见 [[run_registry.py]] / [[steer_channel.py]])。远程 driver 这条路
+**刻意不参与**,三件事写死:
+
+- **(a) 不声明 steering 是有意的**,不是遗漏:`capabilities()` 仍返回空集
+  (2026-07-27 条目定的空协商缝)。远程 run 没有本进程可推的活句柄——run 在
+  executor 容器里,`SteerChannel` 在这边,中间隔着一次 HTTP POST + NDJSON 单向
+  下行流。声明能力却无处投递,只会让上层误判"这条 run 可 steer"。
+- **(b) steering 绝不能进 `build_agent_loop_request` 的 body 白名单**:那个 body 是
+  白名单式快照(2026-08-07 / 2026-07-31 条目),只放能序列化过网络的标量/dict。
+  `SteerChannel` 是一个活的 `asyncio.Queue` 句柄,绑在本进程的事件循环上
+  (线程亲和,见 steer_channel push 契约)——它**没有** wire 表示,塞进 body 也只是
+  一个死引用。任何"把 steer 也透传过去"的改法都是类型错误伪装成功能。
+- **(c) 真要云端可 steer 需要独立改动**:得给 executor 开一个**上行** steer 端点
+  (POST 一条注入到运行中的容器 run),容器内 driver 把它喂进自己的
+  `QueueSteeringInlet`——即 steer_channel 里写的"子进程/远程:driver 起 pump 抽干
+  channel、写下 runner 的 steer 传输"。这是一条独立的双向协议扩展,不是本 driver
+  顺手能带的透传。在它落地前,远程路径对 steering 零知识是**正确**状态。
 
 ## 2026-08-19 — 把 origin_declaration 传给 build_agent_loop_request
 

@@ -131,6 +131,30 @@ class ArtifactHistoryRepository:
             "event_id": event_id,
         })
 
+    async def latest_actions(self, artifact_ids: List[str]) -> Dict[str, str]:
+        """Map artifact_id → its most recent history action.
+
+        The state block derives its "modified by the user / externally
+        modified" markers from this: the marker clears when the agent
+        re-registers (a newer updated/registered row wins). Bounded callers
+        only (the state block passes ≤ its display cap)."""
+        if not artifact_ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(artifact_ids))
+        # Only the newest row per artifact — an 800-edit history must not be
+        # pulled wholesale to read one action (review #334 I10). MAX(id)
+        # subquery works on both dialects; the doubled IN-list doubles the
+        # placeholders, fine at the state block's ≤20 cap.
+        rows = await self._db.execute(
+            "SELECT artifact_id, action FROM instance_artifact_history "
+            f"WHERE artifact_id IN ({placeholders}) AND id IN ("
+            "SELECT MAX(id) FROM instance_artifact_history "
+            f"WHERE artifact_id IN ({placeholders}) GROUP BY artifact_id)",
+            params=tuple(artifact_ids) + tuple(artifact_ids),
+            fetch=True,
+        )
+        return {r["artifact_id"]: r["action"] for r in rows or []}
+
     async def turns_for_team(self, team_id: str) -> Dict[str, List[str]]:
         """Map each turn to the team artifacts it created or updated.
 

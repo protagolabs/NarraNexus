@@ -1,8 +1,54 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_routing_audit_repository.py
-last_verified: 2026-08-14
+last_verified: 2026-08-26
 stub: false
 ---
+
+# narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
+
+## 2026-08-26 — `_to_row` 多写合并路由八列
+
+`merged_call` / `anchor_in_menu` 走 `int()`(布尔列),其余六列**原样传**:
+`None` 必须活着落成 NULL —— "这一行是两次调用路径决策的"与"合并调用花了
+0ms"是两个不同的事实,强转 0 会让前者伪装成后者。与 `continuity_ms` /
+`judge_ms` 是同一条纪律,理由也同一条。
+
+## 2026-08-26 — `_to_row` 多写一列 `pool_is_shadow`(切片 0)
+
+标记这一行的池是**只记录、没决策**的(continuity 判 yes 的轮次)。
+`WHERE pool_is_shadow = 0 AND is_user_chat = 1` 是决策人群,`= 1` 是
+"如果当时问了 gate,它会怎么说"。后台触发的续接轮同样落 0(仪器只记
+用户聊天轮),单看这一列区分不出来——人群判别是两列共同。
+
+### 它为什么可以 `int()` 强转,而上面那条 8-20 的约定说不能
+
+两条并不矛盾,差别在**模型侧有没有第三态**:
+
+| 列 | 模型字段 | 有没有"这一轮没跑"这个态 | 写库 |
+|---|---|---|---|
+| `bypass_score_gate` | `Optional[bool]`,默认 `None` | **有** —— 这一轮压根没走到分数门 | `None` 原样传 |
+| `pool_is_shadow` | `bool`,默认 `False` | **没有** —— 要么是影子行,要么不是 | `int()` 强转,永不为 NULL |
+
+所以 8-20 那条"`None` 原样传、不强转 0"约束的是**带第三态的列**;
+`pool_is_shadow` 语义上是二值的,把不存在的 NULL 态造出来反而会让读侧多一个
+无意义的分支。
+
+### 与 schema_registry 侧"可空 / NULL 与 0 同义"那句的关系
+
+那句描述的是**读侧**:DB 列可空**只为存量行**(prod 上 26,922 行早于这一列,
+活表上 `ALTER TABLE ADD COLUMN ... NOT NULL` 无默认值会失败,铁律 #6),
+于是过滤查询必须把 NULL 与 0 当同一件事。
+**写侧永不产生 NULL,读侧必须容忍 NULL** —— 两句都成立,针对的不是同一侧。
+下一轮 review 若再把它读成矛盾,请指回这张表。
+
+## 2026-08-20 — `_to_row` 多写两列(免审决策)
+
+`bypass_score_gate` 按 `continuity_is_continuous` 的同一套写法处理:
+`None` 原样传,不强转 0 —— **NULL 的含义是"这一轮没走到分数门"**
+(比如 continuity 提前返回、或池是空的),写 0 会让它读起来像"分数门判否",
+那是两件不同的事。
+
+`bypass_reason` 是短码字符串,空串表示这一轮没有免审决策可记。
 
 ## 2026-08-14 — 四列 per-tier 耗时
 
@@ -43,7 +89,6 @@ snapshot writes"）。
   计数搬进测试，生产访问全部走 `insert` / `get` / `get_by_ids` 这些双方言安全的
   client helper。
 
-# narrative_routing_audit_repository.py — 路由决策的落库审计（E1）
 
 ## 为什么存在
 

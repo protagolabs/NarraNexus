@@ -73,13 +73,22 @@ _PROVIDER_WORKING_SOURCE: dict[str, WorkingSource] = {
 
 
 def _ctx_str(ctx: dict, key: str) -> str:
-    """Coerce a channel_context value to a stripped string ('' when absent).
+    """Coerce a channel_context value to a single-line stripped string
+    ('' when absent).
+
     The platform side is TypeScript — ints/None slip through easily and must
-    never break dispatch."""
+    never break dispatch.
+
+    Internal whitespace is COLLAPSED, not just trimmed: the sender tag is a
+    single-line protocol (``[Channel · Name · Id · Room]``) and these values
+    go straight into it. A display name containing a newline — the platform
+    forwards Matrix display names verbatim — would split the tag across two
+    lines, in chat history and in whatever reads it back.
+    """
     value = ctx.get(key)
     if value is None:
         return ""
-    return str(value).strip()
+    return " ".join(str(value).split())
 
 
 _FALSY_STRINGS = frozenset({"false", "0", "no", "off", ""})
@@ -134,11 +143,16 @@ def build_inbound_run_context(
     sender_name = _ctx_str(ctx, "sender_name") or sender_id or "user"
     room_id = _ctx_str(ctx, "room_id")
     source_message_id = _ctx_str(ctx, "source_message_id")
+    # ``is_agent_peer`` cannot be answered here — only the channel's own
+    # trigger knows the platform's identity convention, and it does not run
+    # until the ingress hooks. Built False, then the tag LINE is re-rendered
+    # by ``retag_managed_input`` once the hooks have stamped the dict.
     tag = ChannelTag(
         channel=ws.value,
         sender_name=sender_name,
         sender_id=sender_id,
         room_id=room_id,
+        is_agent_peer=False,
     )
     trigger_extra_data: dict[str, Any] = {
         "channel_tag": tag.to_dict(),
@@ -171,6 +185,43 @@ def build_inbound_run_context(
         if cleaned:
             trigger_extra_data["manyfold_attachments"] = cleaned
     return ws, f"{tag.format()}\n{user_input}", trigger_extra_data
+
+
+def retag_managed_input(trigger_extra_data: dict, user_input: str) -> str:
+    """Re-render the tag line after the ingress hooks have stamped it.
+
+    ``build_inbound_run_context`` has to render the tag to build
+    ``run_input``, but some of what belongs ON that tag is only known once
+    the channel's trigger has looked at the turn — ``is_agent_peer`` is the
+    first such field. The stamp lands in
+    ``trigger_extra_data["channel_tag"]`` (a dict), so without this the
+    dict and the string the model actually reads disagree: the model gets a
+    tag identical to a human conversation's while the DM protocol's
+    loop-breaker clause names the very marker that is missing.
+
+    Rendering goes through ``ChannelTag.format()``, the single definition.
+    Hand-writing the marker at a second site is exactly the "N hand-rolled
+    copies" shape this signal was built to avoid.
+
+    Rebuilds from ``user_input`` with the SAME expression
+    ``build_inbound_run_context`` uses, rather than operating on the string
+    it produced. Doing string surgery on the rendered form (splitting the
+    first line, checking it starts with "[" and ends with "]") looked
+    tidier and had a hole: ``sender_name`` is a platform-supplied display
+    name and ``_ctx_str`` only strips the ends, so a name containing a
+    newline makes ``tag.format()`` itself span two lines — the "first line"
+    then does not end in "]", the re-render is skipped, and the marker
+    disappears SILENTLY. The party who benefits from that marker
+    disappearing is the agent on the other side, and it controls its own
+    display name.
+
+    Returns ``user_input`` unchanged when there is nothing to render: a
+    plain Manyfold turn carries no ``channel_tag``.
+    """
+    tag_dict = trigger_extra_data.get("channel_tag")
+    if not isinstance(tag_dict, dict) or not tag_dict:
+        return user_input
+    return f"{ChannelTag.from_dict(tag_dict).format()}\n{user_input}"
 
 
 def _require_manyfold_auth(request: Request) -> None:

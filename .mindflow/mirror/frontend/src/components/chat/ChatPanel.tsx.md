@@ -1,8 +1,57 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 运行中发送=折进本轮(steer)
+
+`handleSubmit` 不再硬挡 `isLoading`:运行中且 `currentSteerable` 且有文本时,`wsManager.steer` 折进本轮(**return,绝不落到 fresh-run `run(...)`**);非 steerable(或空文本)运行中→no-op(草稿留着,跑完再发)。`clientMsgId` 用 `generateId()`(**不用 `crypto.randomUUID`**——非 secure context http://<ip> 下 undefined 会抛)。`isLoading` 非 loading 时行为逐字不变(仍走 addUserMessage+startStreaming+run)。
+**审后订正(#357 fix-first)**:
+* **气泡永远上屏 + 反馈闭环**:进 steer 分支后**无条件** `addSteerMessage`('queued'),再看 `steer()` 返回:`true`→清空 composer;`false`(socket 已不 steerable:CONNECTING/CLOSING/closed)→`markSteerRejected(agentId,clientMsgId,'not_sent')` 当场标红,**绝不静默丢弃**(旧稿的"no-op 丢消息"是本轮推翻点)。
+* **attachments 运行中不发也不清**:steer 是 v1 纯文本;运行中带附件发送时附件**保留**(不再 `setPendingAttachments([])`),留给跑完后的下一条消息——避免数据丢失。
+
+**审后第二轮(auto-review acff728b 的 N1/N3/R4/M1/M5)**:
+* **运行中禁止新增附件(R4 + N1 模式 A)**:`uploadAttachments`(附件上传的**唯一漏斗**,拖拽/粘贴/选文件/录音都过它)开头加 `if (isLoading) { setTranscriptionNotice(t('chat.composer.attachDuringRun')); return; }`。附件键/录音键本就 `isLoading` 禁用,但拖拽/粘贴直达此函数——在**网络上传之前**拦掉,后端不留孤儿文件、界面不出一个「亮着却发不出」的 chip,并给可关提示而非静默吞掉。deps 加 `isLoading`。
+* **steer 发送键的宽度契约(N3)**:steerable 运行中并排 Stop + steer 发送键两颗,给 `Composer` 传 `trailingSlots={isStreaming && currentSteerable ? 2 : 1}`,textarea 据此留 `pr-24`(见 [[Composer.tsx]]),否则用户打的字会滑到 steer 键底下被遮。
+* **steer 键 title 走 i18n(M1)**:`title={t('chat.steer.sendTitle')}`(不再硬编码英文),与本功能其余文案(placeholder/三态尾标/reason)同口径。
+* **测试(R7)**:`chatPanelSteerSubmit.test.tsx` 覆盖 handleSubmit 的 steer 分支——steerable+文本→调 `steer()` 不调 `run()`+乐观气泡 `queued`;`steer()` 返 false→气泡 `rejected`/`not_sent` 且不调 `run()`;非 steerable→无 steer 键、Enter 既不 steer 也不起新 run、草稿不成气泡。mock `@/hooks`(仅覆盖 useAgentWebSocket/useFastMode,其余保真)+`@/lib/api`,用真 store 播种。
+* **Composer 保持可编辑**:`disabled={!agentId}`(**不再** `isLoading&&!currentSteerable`)——恪守 [[Composer.tsx]] 的契约「运行中仍可编辑,只 gate 发送」;否则 #355 未合前每次运行输入框都会灰、丢掉「运行中打草稿」既有能力。steerable 运行中显 `steerPlaceholder`(仅真能 steer 时才显示「并入本轮」,不撒谎)。
+* **steerable 运行中有发送键**:`isStreaming` 分支渲染 **Stop + (currentSteerable 时) 一颗 steer 发送键**(`right-12`,Stop 在 `right-2`),给鼠标/移动端一个真实提交入口(不只靠 Enter)。该键 `disabled` = `composerEmpty || uploadingCount || !agentId`,**刻意不含 `|| isLoading`**(此刻正流式);fresh-run 那颗发送键保留 `|| isLoading` 作防重复提交,是**另一颗**、各自 disabled。
+
+## 2026-08-21 — 直播块顶部渲染 [[ResumedRunChip]](深圳复测 B1)
+
+渲染条件是 `resumedRun && resumedRun.runId === currentRunId`(#349 M4
+收紧,2026-08-24;两个字段都来自 chatStore flat fields):锚点只给
+**它自己的** run 打标——将来若出现第二条开流路径,陈旧锚点是隐形而
+不是错标到别人的轮次上(为什么这样设计见 [[../../stores/chatStore.ts]]
+的 08-24 条)。chip 在直播回复气泡上方,给刷新后重连的全量重放一个
+「同一 run 在继续」的身份标识,不再被读成从零重新生成。排查「chip
+不显示」时注意 runId 不匹配这条路径。重放渲染路径零改动。
+## 2026-08-21 (review) — 两条流各持独立 state,切 tab 不清空/不重取
+
+上一版把 `historyInclude` 塞进 `loadChatHistory` deps + reload effect 清空历史 →
+**每次切 tab 都清空重取、滚动跳底**(纯客户端过滤退化成两次网络往返)。改为按 `include` 键控三份
+state(`historyByStream` / `loadedByStream` / `totalByStream`)+ 派生出同名 active 变量(`historyMessages`
+等)与键控 setter,下游(loadMore/poll/timeline)读法不变。reload 拆两个 effect:agent 变/wipe → 重置双流 +
+载入活动流;切 tab → 仅当该流未加载才 fetch(已加载则瞬时、无清空、无滚动重置)。`lastHistoryTimestampRef`
+也按 `include` 键控,避免切 tab 后拿另一条流的高水位比较(轮询误判)。
+
+第三轮 review polish:①(N3)reload 与 tab-switch 合并成**单个 loader effect** + `historyIdentityRef`
+(`agentId|userId|tick`)——身份变→重置双流+载入活动流;身份未变(切 tab)→未加载才载入,消除挂载时的
+双请求。②(N4)轮询 effect 建立时先 `void poll()` 一次,切回已加载 tab 立即刷新而非等满 12s(poll 自带
+高水位/`document.hidden` 守卫,无新则空转)。③ tab→流的判定抽到纯函数 `streamForTab`([[chatStreams]]),
+三个 fetch 点统一引用、可单测,防漂移。
+
+## 2026-08-21 — 对话/Activity 两个 tab 各取各的流
+
+原来 `loadChatHistory` / `loadMoreHistory` / 轮询都调 `getSimpleChatHistory(agentId, 20)` 拿**一份**
+`historyMessages`,`visibleTimeline` 再按 `messageType === 'activity'` 客户端拆两个 tab —— 两个 tab
+抢同一个 20 行预算。后端把 A2A/team 活动纳入后这条流变得无上限,繁忙 agent 会把「对话」tab 顶空、
+轮询还顶掉已渲染的聊天气泡、把翻旧页的用户拽回底部。改为按 `chatTab` 派生
+`historyInclude = chatTab === 'inner' ? 'activity' : 'chat'`,三处 fetch 都带上并进各自 deps —— 切 tab
+经 `loadChatHistory` 重建触发 reload effect 自动重取正确的流,每个 tab 独享 `limit`/`offset`/`total_count`。
+`visibleTimeline` 的客户端过滤保留:live session `messages` 仍需按 tab 过滤(历史侧已是分好的流)。
 
 ## 2026-08-20 — bootstrap 问候气泡传 agentName（修「AI」头像）
 
@@ -517,6 +566,13 @@ The voice-input-unavailable `<Dialog>` (title, all three reason-branch bodies + 
 note, Cancel/Open Settings) and the "no longer available" notice were hardcoded English —
 they stayed English under a Chinese UI. Moved to `chat.audio.*` keys (en+zh). AudioRecorder
 was already i18n'd; only ChatPanel's dialog was missed.
+
+## 2026-08-18 — 字符串匹配降级为徽章锚点(取数寄生拆除)
+
+`refreshArtifactFromToolCall`/`_seenArtifactToolCallIds` 整体删除——渲染循环内
+不再发任何请求(静默吞、永久丢失、无限重渲染防护补丁一并消失)。工具名匹配
+保留但**仅服务徽章放置**:解析失败最多少一个 chip,tab 永不缺(发现走事件+
+全量拉)。徽章本就从 store 读并有占位符,零改动受益。
 
 ## 2026-08-18 — 工具改名映射（新增条目；上面带日期的历史条目一律不改写）
 

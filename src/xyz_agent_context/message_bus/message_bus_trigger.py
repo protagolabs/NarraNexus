@@ -25,10 +25,9 @@ import contextlib
 import json
 import re
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -115,6 +114,19 @@ RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
 POLL_MIN_INTERVAL = 3
 POLL_MAX_INTERVAL = 12
 POLL_STEP_UP = 3
+
+#: steer_inbox retention, run by the poll loop (startup + daily). This trigger is
+#: steer_inbox's only production writer, so it owns its retention — without this
+#: the table would be write-only. Two bounds passed to
+#: SteerInboxRepository.cleanup_older_than_days:
+#: * CONSUMED rows kept this long (they are done — brief keep for audit);
+#: * UNCONSUMED rows past ORPHAN days are dead-run orphans (the teardown discard's
+#:   backstop). ORPHAN is deliberately generous (>> any turn, incl. binding rule
+#:   #14's tens-of-hours jobs whose rows drain as they run) so a live,
+#:   actively-draining run is never touched.
+STEER_RETENTION_DAYS = 3
+STEER_ORPHAN_DAYS = 7
+STEER_CLEANUP_INTERVAL_S = 24 * 3600
 
 # How often the poll loop checks the cross-process wake signal while it sleeps.
 # Bounds the added latency of a send made outside this process; 0.5s keeps that
@@ -246,14 +258,41 @@ class _InFlight:
     # still False is queued behind `_semaphore`, and the gap between the two
     # counts is exactly the slot-starvation signal the heartbeat reports.
     running: bool = False
+    # The newest message this turn's prompt already carries (its trigger
+    # batch's high-water = the timestamp it will ack to at turn END). Steering
+    # into a live run must inject ONLY messages newer than this, or it would
+    # re-deliver the very batch the turn is already acting on (the trigger
+    # cursor does not advance until the turn ends). None until the turn declares
+    # it — which happens before the run becomes steerable, so `_route_steer`
+    # (gated on a registered SteerChannel) always sees it set.
+    rendered_through: Optional[str] = None
+    # The newest CONSUMED steered message's canonical created_at, raised by the
+    # consumption callback. The turn-end read-cursor ack extends its upper bound
+    # to this so a steered-and-consumed message is marked read — but only through
+    # the single gap-guarded writer (`_ack_room_seen`), never from the
+    # consumption callback directly (that would bypass the gap protection).
+    steered_through: Optional[str] = None
+    # Set when a NEW message arrived this turn that was NOT steered (un-addressed
+    # to this agent, or arrived after the prompt was built). It sits between the
+    # rendered window and the steered high-water and was never shown, so the
+    # read cursor must NOT jump over it — `_ack_room_seen` falls back to the
+    # trigger high-water when this is set.
+    unsteered_gap: bool = False
+    # How many `_route_steer` cycles are executing for this lane right now.
+    # `_ack_room_seen` treats >0 like `unsteered_gap`: a cycle still in flight may
+    # be about to discover an un-rendered message after its awaits, so the read
+    # cursor cannot safely extrapolate to steered_through until it settles. The
+    # default-conservative half of the read-cursor gate (the flag is the other
+    # half); +1 at _route_steer entry, -1 in its finally.
+    steer_cycles_in_flight: int = 0
 
 
 class MessageBusTrigger:
     """
     Background poller that processes pending MessageBus messages.
 
-    Finds agents with unprocessed messages and triggers AgentRuntime to
-    handle them.
+    Finds LANES (agent, channel) with unprocessed messages and triggers
+    AgentRuntime per lane, so one agent runs its several rooms concurrently.
 
     Args:
         bus: A MessageBusService instance (typically LocalMessageBus).
@@ -274,26 +313,31 @@ class MessageBusTrigger:
         self._semaphore = asyncio.Semaphore(max_workers)
         self._rate_counters: Dict[str, List[float]] = {}
         self._current_interval = poll_interval
-        # Per-agent serialisation lock. The global ``_semaphore`` caps
-        # concurrent agents but does NOT prevent the same agent from
-        # being processed twice in parallel — `get_pending_messages`
-        # only filters on ``last_processed_at``, which is advanced
-        # after ``_invoke_runtime`` returns. AgentRuntime takes minutes
-        # for an LLM-heavy turn; the poll loop fires every 10s; without
-        # this lock the same bus_message gets handed to AgentRuntime
-        # 3+ times. Observed in production (2026-05-12 13:20 — agent
-        # processed one msg_4eb528dc three times, burned ~30K tokens).
-        self._agent_locks: Dict[str, asyncio.Lock] = {}
+        # Per-LANE serialisation lock, lane = (agent_id, channel_id). The global
+        # ``_semaphore`` caps concurrent turns but does NOT prevent the same
+        # pending message being dispatched twice in parallel —
+        # `get_pending_messages` only filters on ``last_processed_at``, which is
+        # advanced after ``_invoke_runtime`` returns. AgentRuntime takes minutes
+        # for an LLM-heavy turn; the poll loop fires every ~10s; without this
+        # lock the same bus_message gets handed to AgentRuntime 3+ times.
+        # Observed in production (2026-05-12 13:20 — msg_4eb528dc processed three
+        # times, burned ~30K tokens). The duplicate risk is per-message hence
+        # per-channel, so keying by lane keeps the guarantee while letting one
+        # agent run its several teams concurrently — a message in team B must not
+        # wait behind the agent's team-A turn. Unbounded (agent×channel keys, no
+        # cleanup): bounded in practice by the roster, like `_in_flight`.
+        self._lane_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
         # last `time.monotonic()` an owner-facing SYSTEM_NOTICE was written
         # for a given cooldown key. Shared by both notifiers so a burst of
         # failures sharing one root cause writes at most one inbox row per
         # `FAILURE_NOTIFY_COOLDOWN_SECONDS`. See `_notify_owner`.
         self._notify_cooldown: Dict[str, float] = {}
-        # In-flight dispatches, agent_id -> _InFlight. The poll loop spawns
-        # these and does NOT await them (see `_poll_cycle`), so this is both
-        # the "don't dispatch the same agent twice" guard and the raw material
-        # for the audit heartbeat.
-        self._in_flight: Dict[str, _InFlight] = {}
+        # In-flight dispatches, LANE (agent_id, channel_id) -> _InFlight. The
+        # poll loop spawns these and does NOT await them (see `_poll_cycle`), so
+        # this is both the "don't dispatch the same LANE twice" guard and the
+        # raw material for the audit heartbeat. One agent may hold several lanes
+        # at once (its concurrent teams).
+        self._in_flight: Dict[Tuple[str, str], _InFlight] = {}
         # Wakes the poll loop out of its interval sleep on stop().
         self._stop_event = asyncio.Event()
         # Wakes the poll loop because WORK just landed, not because we are
@@ -322,6 +366,9 @@ class MessageBusTrigger:
         self._handled_total = 0
         self._last_candidates = 0
         self._last_dispatch_at: Optional[str] = None
+        # steer_inbox retention gate. -inf so the first poll cycle runs it once at
+        # startup, then STEER_CLEANUP_INTERVAL_S apart (like ChannelTriggerBase).
+        self._last_steer_cleanup_monotonic = float("-inf")
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
@@ -364,6 +411,9 @@ class MessageBusTrigger:
             # The heartbeat has always CARRIED the starvation signal; this is
             # what finally reads it.
             await self._check_worker_starvation()
+            # steer_inbox retention (startup + daily). Gated so it is one query a
+            # day, not per cycle.
+            await self._maybe_run_steer_cleanup()
             await self._sleep_until_due()
 
         await self.audit.stopped(self.liveness_snapshot())
@@ -624,8 +674,8 @@ class MessageBusTrigger:
         logger.warning(
             f"[bus] worker pool saturated for {starved_for:.0f}s: "
             f"running={snap['running']}/{snap['max_workers']} "
-            f"waiting={snap['waiting']} "
-            f"longest={snap['longest_running_agent']} ({snap['longest_running_s']}s). "
+            f"waiting={snap['waiting']} distinct_agents={snap['distinct_agents']} "
+            f"longest={snap['longest_running_lane']} ({snap['longest_running_s']}s). "
             f"Raise settings.bus_max_workers if this persists."
         )
         await self.audit.error({
@@ -634,8 +684,11 @@ class MessageBusTrigger:
             "running": snap["running"],
             "waiting": snap["waiting"],
             "max_workers": snap["max_workers"],
-            # Names who to go look at. Diagnostic only — nothing acts on it.
-            "longest_running_agent": snap["longest_running_agent"],
+            # Names WHICH lane to go look at (agent@channel) and whether one
+            # agent is hogging the pool (distinct_agents == 1) or many each hold
+            # one. Diagnostic only — nothing acts on it.
+            "distinct_agents": snap["distinct_agents"],
+            "longest_running_lane": snap["longest_running_lane"],
             "longest_running_s": snap["longest_running_s"],
         })
 
@@ -648,9 +701,9 @@ class MessageBusTrigger:
         """
         self._running = False
         self._stop_event.set()
-        for agent_id, flight in list(self._in_flight.items()):
+        for lane, flight in list(self._in_flight.items()):
             flight.task.cancel()
-            logger.info(f"MessageBusTrigger: cancelling in-flight turn for {agent_id}")
+            logger.info(f"MessageBusTrigger: cancelling in-flight turn for {lane}")
         logger.info("MessageBusTrigger stopping")
 
     def liveness_snapshot(self) -> Dict[str, Any]:
@@ -667,23 +720,40 @@ class MessageBusTrigger:
         `running == max_workers` with `waiting > 0` means the worker pool, not
         the agents, is the bottleneck.
 
-        `longest_running_s` / `longest_running_agent` are DIAGNOSTIC ONLY —
-        they name who is holding a slot so a human can look. Nothing here ever
-        force-stops a turn; a multi-hour run is a legitimate workload
+        `longest_running_s` / `longest_running_lane` (agent@channel) are
+        DIAGNOSTIC ONLY — they name WHICH lane is holding a slot so a human can
+        look, and `distinct_agents` says whether one agent is hogging the pool
+        (== 1) or many each hold one. `longest_running_agent` is kept for older
+        readers. Nothing here ever force-stops a turn; a multi-hour run is a
+        legitimate workload
         (binding rule #14), and the failure mode this guards against is our own
         loop dying, not an agent taking its time.
         """
         now = time.monotonic()
         running = sum(1 for f in self._in_flight.values() if f.running)
-        longest_agent, longest_s = None, 0
-        for agent_id, flight in self._in_flight.items():
+        # Now that the unit is the lane, an agent can hold several slots at once
+        # (one per busy room). Report the full lane of the longest holder — the
+        # channel is exactly what on-call needs to know WHICH room is wedged, and
+        # dropping it (folding back to the agent) lowers the diagnostic below what
+        # the 2026-07-27 33h stall was located with (incident lesson #4). Also
+        # report distinct_agents so starvation can be read as "one agent hogging
+        # the pool" vs "many agents each holding one".
+        longest_agent, longest_channel, longest_s = None, None, 0
+        running_agents: set = set()
+        for (lane_agent, lane_channel), flight in self._in_flight.items():
             if not flight.running:
                 continue
+            running_agents.add(lane_agent)
             elapsed = int(now - flight.started_at)
             # `is None` first: a turn that started this second has elapsed 0 and
             # must still be named, or a freshly-wedged slot reports as nobody.
             if longest_agent is None or elapsed > longest_s:
-                longest_agent, longest_s = agent_id, elapsed
+                longest_agent, longest_channel, longest_s = (
+                    lane_agent, lane_channel, elapsed,
+                )
+        longest_lane = (
+            f"{longest_agent}@{longest_channel}" if longest_agent is not None else None
+        )
         return {
             "cycles": self._cycles,
             "candidates": self._last_candidates,
@@ -692,55 +762,60 @@ class MessageBusTrigger:
             "running": running,
             "waiting": len(self._in_flight) - running,
             "max_workers": self._max_workers,
+            "distinct_agents": len(running_agents),
             "longest_running_s": longest_s,
             "longest_running_agent": longest_agent,
+            "longest_running_lane": longest_lane,
             "last_dispatch_at": self._last_dispatch_at,
         }
 
-    async def _agents_with_pending(self) -> List[str]:
-        """Agents that have at least one message past their cursor.
+    async def _lanes_with_pending(self) -> List[Tuple[str, str]]:
+        """Lanes ``(agent_id, channel_id)`` that have a message past the cursor.
 
         One query replacing "every agent that is a member of any channel" —
         364 of them on prod, each of which then ran its own
         ``get_pending_messages`` (plus a poison lookup per row) every few
         seconds just to conclude it had nothing to do.
 
-        Deliberately a CANDIDATE set: it mirrors ``get_pending_messages``'
-        cursor + not-self-sent predicate but skips the poison and @mention
-        filters, which stay in ``_process_agent`` where the real decision is
-        made. Over-including is free; under-including would drop a message.
+        Returns LANES, not agents: the poll loop dispatches and gates per
+        ``(agent, channel)`` so one agent's teams run concurrently. Deliberately
+        a CANDIDATE set: it mirrors ``get_pending_messages``' cursor +
+        not-self-sent predicate but skips the poison and @mention filters, which
+        stay in ``_process_lane`` where the real decision is made. Over-including
+        is free; under-including would drop a message.
         """
         rows = await self._bus._db.execute(
-            "SELECT DISTINCT cm.agent_id AS agent_id "
+            "SELECT DISTINCT cm.agent_id AS agent_id, cm.channel_id AS channel_id "
             "FROM bus_channel_members cm "
             "JOIN bus_messages m ON m.channel_id = cm.channel_id "
             "WHERE m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
             "AND m.from_agent != cm.agent_id",
             (),
         )
-        return [r["agent_id"] for r in rows] if rows else []
+        return [(r["agent_id"], r["channel_id"]) for r in rows] if rows else []
 
-    def _dispatch(self, agent_id: str) -> None:
-        """Spawn a supervised turn for one agent and return immediately."""
-        task = asyncio.create_task(self._run_dispatch(agent_id))
-        self._in_flight[agent_id] = _InFlight(task=task, started_at=time.monotonic())
+    def _dispatch(self, agent_id: str, channel_id: str) -> None:
+        """Spawn a supervised turn for one lane and return immediately."""
+        lane = (agent_id, channel_id)
+        task = asyncio.create_task(self._run_dispatch(agent_id, channel_id))
+        self._in_flight[lane] = _InFlight(task=task, started_at=time.monotonic())
         # Paired done-callback: an unawaited task's exception would otherwise
         # surface only as a GC warning (incident lesson #2).
-        task.add_done_callback(lambda t, a=agent_id: self._on_dispatch_done(a, t))
+        task.add_done_callback(lambda t, ln=lane: self._on_dispatch_done(ln, t))
 
-    async def _run_dispatch(self, agent_id: str) -> None:
-        handled = await self._process_agent(agent_id)
+    async def _run_dispatch(self, agent_id: str, channel_id: str) -> None:
+        handled = await self._process_lane(agent_id, channel_id)
         if handled:
             self._handled_total += 1
 
-    def _on_dispatch_done(self, agent_id: str, task: asyncio.Task) -> None:
-        self._in_flight.pop(agent_id, None)
+    def _on_dispatch_done(self, lane: Tuple[str, str], task: asyncio.Task) -> None:
+        self._in_flight.pop(lane, None)
         if task.cancelled():
             return
         exc = task.exception()
         if exc is not None:
             logger.exception(
-                f"MessageBusTrigger: dispatch for {agent_id} died: {exc!r}",
+                f"MessageBusTrigger: dispatch for {lane} died: {exc!r}",
                 exc_info=exc,
             )
 
@@ -759,15 +834,15 @@ class MessageBusTrigger:
         cycling, the heartbeat keeps reporting, and `_in_flight` names the
         agent that is stuck.
         """
-        candidates = await self._agents_with_pending()
+        candidates = await self._lanes_with_pending()
         self._cycles += 1
         self._last_candidates = len(candidates)
 
         # The patrol lane. A second candidate source on the same cycle: teams
         # whose board has unfinished work and whose lead is due for a sweep.
-        # Runs through the same semaphore and the same per-agent lock as
-        # message dispatch, so a patrol can never double-run a lead that is
-        # already busy — and an empty board yields no candidates at all, which
+        # Runs through the same semaphore and the same per-lane lock as message
+        # dispatch, so a patrol can never double-run a lead that is already busy
+        # in that room — and an empty board yields no candidates at all, which
         # is the feature's whole cost guarantee.
         dispatched_patrols = await self._dispatch_patrols()
 
@@ -775,13 +850,16 @@ class MessageBusTrigger:
             return dispatched_patrols
 
         dispatched = 0
-        for agent_id in candidates:
-            # Its previous turn is still going; the per-agent lock would make a
-            # second dispatch wait, but not spawning it at all is cheaper and
-            # keeps `_in_flight` meaning one entry per agent.
-            if agent_id in self._in_flight:
+        for agent_id, channel_id in candidates:
+            # This lane's previous turn is still going. Rather than wait for it
+            # to end (the old `continue`), STEER: push the new messages into the
+            # running loop so the agent sees them this turn. Only works if the
+            # run registered a SteerChannel (team runs do); otherwise the
+            # messages stay queued for the next turn.
+            if (agent_id, channel_id) in self._in_flight:
+                await self._route_steer(agent_id, channel_id)
                 continue
-            self._dispatch(agent_id)
+            self._dispatch(agent_id, channel_id)
             dispatched += 1
 
         if dispatched:
@@ -810,9 +888,11 @@ class MessageBusTrigger:
 
         count = 0
         for team_id, lead_agent_id, channel_id in due:
-            # Its own turn is still going — a patrol would just queue behind the
-            # per-agent lock, and skipping is cheaper than holding a slot.
-            if lead_agent_id in self._in_flight:
+            # The lead's turn IN THIS ROOM is still going — a patrol would just
+            # queue behind the per-lane lock, and skipping is cheaper than
+            # holding a slot. (A lead busy in another team can still be patrolled
+            # here — the patrol lane is (lead, this team's room).)
+            if (lead_agent_id, channel_id) in self._in_flight:
                 continue
             # Same gate message dispatch uses. Without it a lead with a dead key
             # or exhausted quota gets woken every 180-600s, forever, to run a
@@ -841,35 +921,37 @@ class MessageBusTrigger:
     def _dispatch_patrol(self, team_id: str, lead_agent_id: str, channel_id: str) -> None:
         """Spawn one patrol sweep, gated exactly like a message dispatch.
 
-        Same per-agent lock and same semaphore as ``_process_agent``: a lead
-        that is already answering somebody must not be woken a second time to
-        patrol, and patrols must not escape the worker cap. Registering in
-        ``_in_flight`` is what makes the next cycle skip this lead — and what
-        makes a stuck patrol visible in the heartbeat like any other turn.
+        Same per-lane lock and same semaphore as ``_process_lane``: a lead that
+        is already answering in this room must not be woken a second time to
+        patrol it, and patrols must not escape the worker cap. Registering in
+        ``_in_flight`` under the lane is what makes the next cycle skip this
+        lead here — and what makes a stuck patrol visible in the heartbeat like
+        any other turn.
         """
+        lane = (lead_agent_id, channel_id)
 
         async def _guarded() -> None:
-            lock = self._agent_locks.setdefault(lead_agent_id, asyncio.Lock())
+            lock = self._lane_locks.setdefault(lane, asyncio.Lock())
             async with lock, self._semaphore:
-                # Same bookkeeping as `_process_agent`: liveness_snapshot's
+                # Same bookkeeping as `_process_lane`: liveness_snapshot's
                 # starvation check and `longest_running_agent` both count only
                 # `running` entries, so a patrol that never sets it would hold a
                 # worker slot while the heartbeat reported it as merely waiting
                 # — the 2026-07-27 shape (33 h of nothing, liveness still green)
                 # one lane over.
-                flight = self._in_flight.get(lead_agent_id)
+                flight = self._in_flight.get(lane)
                 if flight is not None:
                     flight.running = True
                 await self._run_patrol(team_id, lead_agent_id, channel_id)
 
         task = asyncio.create_task(_guarded())
-        self._in_flight[lead_agent_id] = _InFlight(
+        self._in_flight[lane] = _InFlight(
             task=task, started_at=time.monotonic()
         )
         # Never a bare create_task: an exception in a fire-and-forget task is
         # only reported during GC (incident lesson #2).
         task.add_done_callback(
-            lambda t, a=lead_agent_id: self._on_dispatch_done(a, t)
+            lambda t, ln=lane: self._on_dispatch_done(ln, t)
         )
 
     def _should_process_message(
@@ -928,12 +1010,14 @@ class MessageBusTrigger:
         self._rate_counters[key] = timestamps
         return True
 
-    async def _process_agent(self, agent_id: str) -> bool:
-        """Process pending messages for an agent. Returns True if messages handled.
+    async def _process_lane(self, agent_id: str, channel_id: str) -> bool:
+        """Process one lane's pending messages. Returns True if handled.
 
-        Acquires a per-agent lock so a slow ``_invoke_runtime`` does not let
-        the next poll fire a second AgentRuntime for the same pending
-        message. See ``__init__`` for the production incident this guards.
+        A lane is ``(agent_id, channel_id)``. Acquires the per-LANE lock so a
+        slow ``_invoke_runtime`` does not let the next poll fire a second
+        AgentRuntime for the same pending message (see ``__init__`` for the
+        production incident this guards) — while a DIFFERENT lane of the same
+        agent runs in parallel.
         """
         # Circuit-breaker skip-gate: a paused (dead key / quota) or cooling
         # agent is skipped entirely — its pending messages are left queued
@@ -955,90 +1039,347 @@ class MessageBusTrigger:
             )
             return False
 
-        lock = self._agent_locks.setdefault(agent_id, asyncio.Lock())
+        lock = self._lane_locks.setdefault((agent_id, channel_id), asyncio.Lock())
         async with lock, self._semaphore:
             # Slot acquired — from here the turn counts as `running` rather
-            # than `waiting` in the heartbeat. Absent when `_process_agent` is
+            # than `waiting` in the heartbeat. Absent when `_process_lane` is
             # called directly (tests), which is why this is a lookup, not an
             # assumption.
-            flight = self._in_flight.get(agent_id)
+            flight = self._in_flight.get((agent_id, channel_id))
             if flight is not None:
                 flight.running = True
             try:
-                pending = await self._bus.get_pending_messages(agent_id)
-                if not pending:
+                # This lane owns exactly one channel. Scope the query to it in
+                # SQL so the LIMIT falls on THIS room's backlog — not the agent's
+                # whole cross-channel backlog filtered to empty in Python, which
+                # starves a busy agent's other rooms and burns a slot each poll.
+                messages = await self._bus.get_pending_messages(
+                    agent_id, channel_id=channel_id
+                )
+                if not messages:
                     return False
 
-                by_channel: Dict[str, List[BusMessage]] = defaultdict(list)
-                for msg in pending:
-                    by_channel[msg.channel_id].append(msg)
+                # Skip IM-channel-owned channels — each has its own dedicated
+                # trigger that already processed the message; re-consuming
+                # would fire AgentRuntime a second time and send duplicate
+                # replies. Prefixes derive from MessageSourceRegistry (see
+                # im_channel_prefixes) so new channels can't be forgotten.
+                # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
+                #
+                # `InboxRecorder` (2026-08-17) stopped writing IM turns into
+                # the bus tables, so no NEW row can arrive here. But the old
+                # rows and memberships are still in place — iron rule #6
+                # forbids the destructive migration — and this branch is
+                # what has been keeping their `last_processed_at` current.
+                #
+                # Deleting it now would re-dispatch that history for any
+                # agent whose cursor is stale, and the circuit-breaker gate
+                # above is exactly how a cursor goes stale: a paused agent
+                # never reaches this loop, so its IM channels never got
+                # acked. Those turns would then run wearing the Owner-Relay
+                # peer prompt — the 2026-07-03 wechat incident, by a second
+                # route.
+                #
+                # Removal is a POST-MIGRATION step, after the Owner's
+                # backfill + cleanup. See
+                # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
+                if channel_id.startswith(im_channel_prefixes()):
+                    latest = max(messages, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
+                    return False
 
-                handled_any = False
-                for channel_id, messages in by_channel.items():
-                    # Skip IM-channel-owned channels — each has its own dedicated
-                    # trigger that already processed the message; re-consuming
-                    # would fire AgentRuntime a second time and send duplicate
-                    # replies. Prefixes derive from MessageSourceRegistry (see
-                    # im_channel_prefixes) so new channels can't be forgotten.
-                    # STAYS UNTIL THE HISTORICAL ROWS ARE CLEANED UP.
-                    #
-                    # `InboxRecorder` (2026-08-17) stopped writing IM turns into
-                    # the bus tables, so no NEW row can arrive here. But the old
-                    # rows and memberships are still in place — iron rule #6
-                    # forbids the destructive migration — and this branch is
-                    # what has been keeping their `last_processed_at` current.
-                    #
-                    # Deleting it now would re-dispatch that history for any
-                    # agent whose cursor is stale, and the circuit-breaker gate
-                    # above is exactly how a cursor goes stale: a paused agent
-                    # never reaches this loop, so its IM channels never got
-                    # acked. Those turns would then run wearing the Owner-Relay
-                    # peer prompt — the 2026-07-03 wechat incident, by a second
-                    # route.
-                    #
-                    # Removal is a POST-MIGRATION step, after the Owner's
-                    # backfill + cleanup. See
-                    # reference/self_notebook/todo/2026-08-17-inbox-backfill-runbook.md
-                    if channel_id.startswith(im_channel_prefixes()):
-                        latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
-                        continue
+                channel_type, channel_owner = await self._get_channel_info(channel_id)
 
-                    channel_type, channel_owner = await self._get_channel_info(channel_id)
-
-                    # Mention filtering (channel owner is always activated)
-                    relevant = [
-                        m for m in messages
-                        if self._should_process_message(m, agent_id, channel_type, channel_owner)
-                    ]
-                    if not relevant:
-                        # Still ack to advance cursor
-                        latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(
-                            agent_id, channel_id, latest.created_at
-                        )
-                        continue
-
-                    # Rate limiting
-                    if not self._check_rate_limit(agent_id, channel_id):
-                        latest = max(relevant, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(
-                            agent_id, channel_id, latest.created_at
-                        )
-                        continue
-
-                    trigger_msg = relevant[-1]
-                    await self._handle_channel_batch(
-                        agent_id, channel_id, relevant, trigger_msg, channel_owner
+                # Mention filtering (channel owner is always activated)
+                relevant = [
+                    m for m in messages
+                    if self._should_process_message(m, agent_id, channel_type, channel_owner)
+                ]
+                if not relevant:
+                    # Still ack to advance cursor
+                    latest = max(messages, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
                     )
-                    handled_any = True
+                    return False
 
-                return handled_any
+                # Rate limiting
+                if not self._check_rate_limit(agent_id, channel_id):
+                    latest = max(relevant, key=lambda m: str(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
+                    )
+                    return False
+
+                trigger_msg = relevant[-1]
+                await self._handle_channel_batch(
+                    agent_id, channel_id, relevant, trigger_msg, channel_owner
+                )
+                return True
             except Exception as e:
                 logger.exception(
-                    f"MessageBusTrigger: error processing agent {agent_id}: {e}"
+                    f"MessageBusTrigger: error processing lane "
+                    f"{(agent_id, channel_id)}: {e}"
                 )
                 return False
+
+    async def _ack_steer_consumed(
+        self,
+        agent_id: str,
+        channel_id: str,
+        run_id: str,
+        ids: "List[str]",
+        latest_created_at: Optional[str],
+    ) -> None:
+        """Advance the lane's cursors on steer rows the run actually CONSUMED.
+
+        The SteerChannel's ``on_consumed`` is bound to this (via a lambda in
+        ``_handle_channel_batch``) and the driver invokes it — in the TURN task,
+        while iterating the turn's events — when the loop reports a drain. So it
+        shares that task with the turn-end ack (no poll/turn race on the cursors,
+        and ``ack_processed`` is forward-only besides). It:
+
+        * marks the ``(run_id, msg_id)`` rows consumed (retention — else the row
+          is never eligible for cleanup — and back-pressure accounting);
+        * advances the PROCESSING cursor (so the message is not also re-delivered
+          as a fresh turn) to the newest consumed message; and
+        * raises the flight's ``steered_through`` high-water so the turn-end
+          ``_ack_room_seen`` extends the READ cursor to it — the read cursor is
+          NOT advanced here, because ``_ack_room_seen`` owns the gap protection
+          (``has_unread_before``) that stops an un-rendered backlog below the
+          window from being marked read, and a second writer here would bypass
+          that gate. One read-cursor writer, one gate.
+
+        The cursor moves on CONSUMPTION, never on push — a message pushed but
+        never drained (the turn ended first) is left pending and delivered by a
+        fresh turn: never lost, never double.
+        """
+        if not run_id or not ids:
+            return
+        try:
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            await SteerInboxRepository(await get_db_client()).mark_consumed_by_msg_ids(
+                run_id, ids
+            )
+            if latest_created_at:
+                await self._bus.ack_processed(agent_id, channel_id, latest_created_at)
+                # Read cursor is NOT advanced here — hand the high-water to the
+                # gap-guarded turn-end writer instead (see docstring).
+                flight = self._in_flight.get((agent_id, channel_id))
+                if flight is not None and (
+                    flight.steered_through is None
+                    or latest_created_at > flight.steered_through
+                ):
+                    flight.steered_through = latest_created_at
+        except Exception as e:  # noqa: BLE001 — consumption ack must not break the turn
+            logger.warning(
+                f"[steer] consumption ack for {(agent_id, channel_id)} run "
+                f"{run_id} failed: {type(e).__name__}: {e}"
+            )
+
+    async def _discard_steer_orphans(self, run_id_cell: "List[str]") -> None:
+        """Reclaim steer_inbox rows this run pushed but never drained, at run
+        teardown. ``run_id_cell`` is a one-element late-bind holder — the run id
+        is not known until Step 0 stamps it into ``run_id_cell[0]`` (same shape
+        as ``watched_run_id``). Best-effort — a cleanup failure must never break
+        the turn. Runs at AsyncExitStack unwind AFTER release (registered before
+        it, LIFO), so no ``_route_steer`` can still find the run to append, and
+        after the loop's last drain, so it cannot race an in-flight
+        ``deliver_consumed``. Empty id (run never bound) → no steer rows, nothing
+        to reclaim."""
+        run_id = run_id_cell[0]
+        if not run_id:
+            return
+        try:
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            n = await SteerInboxRepository(await get_db_client()).discard_run(run_id)
+            if n:
+                logger.info(f"[steer] discarded {n} never-drained rows for run {run_id}")
+        except Exception as e:  # noqa: BLE001 — teardown cleanup never breaks a turn
+            logger.warning(
+                f"[steer] discard orphans for run {run_id} failed: "
+                f"{type(e).__name__}: {e}"
+            )
+
+    async def _route_steer(self, agent_id: str, channel_id: str) -> None:
+        """DELIVER a running lane's new messages into its live run's context.
+
+        No-op if the lane's run is not steerable — no registered SteerChannel
+        (a peer DM, or the tiny window before the run's id binds). Those
+        messages stay queued and dispatch as a fresh turn once the lane frees.
+
+        DELIVERY ONLY — this NEVER advances the bus cursor. A ``push`` onto the
+        SteerChannel queue is not proof the run READ it (the turn may end before
+        its next drain), so advancing the cursor here would silently lose a
+        pushed-but-never-drained message. Instead the cursor moves only when the
+        run reports the row CONSUMED (drained into its context), through
+        ``steer_channel.on_consumed`` (wired in ``_handle_channel_batch``). So an
+        undelivered or un-drained message is simply left pending and delivered by
+        a fresh turn — never lost, and never double (the steer_inbox dedup key is
+        ``(run_id, msg_id)``, and a consumed row's cursor already moved past it).
+        Any failure leaves the batch queued and is swallowed.
+        """
+        from xyz_agent_context.agent_runtime.run_registry import get_run_registry
+
+        run = get_run_registry().live_run(agent_id, channel_id)
+        if run is None:
+            return
+        # Steer ONLY messages newer than what the running turn already rendered.
+        # Its trigger batch (<= this high-water) is already in its prompt; its own
+        # end-ack advances the cursor past it. The turn declares the high-water
+        # before the run becomes steerable, so a live run has it — the rare None
+        # gap is safe to skip (messages stay queued, never lost).
+        flight = self._in_flight.get((agent_id, channel_id))
+        watermark = flight.rendered_through if flight is not None else None
+        if watermark is None:
+            return
+        # Mark this lane as having a steer cycle in flight for the whole method.
+        # The turn-end `_ack_room_seen` treats an in-flight cycle exactly like an
+        # unsteered_gap: while a `_route_steer` is running it CANNOT prove there
+        # is no un-rendered message between the window and steered_through (it may
+        # be about to discover one after its awaits), so it must not extrapolate
+        # the read cursor to steered_through. finally-decremented: an exception
+        # path that skipped the -1 would pin this lane's read cursor at the
+        # trigger high-water forever (a perceivable regression, not just a leak).
+        flight.steer_cycles_in_flight += 1
+        try:
+            # Scope to this lane's room in SQL (same reason as _process_lane):
+            # the LIMIT must land on this room, not the agent's cross-channel
+            # backlog. Then keep only what is NEWER than what the turn rendered.
+            pending = await self._bus.get_pending_messages(
+                agent_id, channel_id=channel_id
+            )
+            messages = [m for m in pending if canonical_ts(m.created_at) > watermark]
+            if not messages:
+                return
+            channel_type, channel_owner = await self._get_channel_info(channel_id)
+            relevant = [
+                m for m in messages
+                if self._should_process_message(m, agent_id, channel_type, channel_owner)
+            ]
+            relevant_ids = {m.message_id for m in relevant}
+            unaddressed = [m for m in messages if m.message_id not in relevant_ids]
+
+            # Raise the read-cursor gate flag for any un-steered message BEFORE
+            # the release re-check below. This is a pure in-memory CONSERVATIVE
+            # marker (not a DB write, not an ack) — it only makes the read cursor
+            # hold further back — so it must survive an early return, or the
+            # release race would silently drop this gate input and let
+            # `_ack_room_seen` extrapolate past a never-rendered message.
+            if unaddressed:
+                flight.unsteered_gap = True
+
+            # Re-confirm the run is STILL the same live handle before writing
+            # anything (append / push / ack). The awaits above give the turn time
+            # to end and release; an append after the run's orphan reclaim +
+            # release would write a row nobody will ever drain. Compare handle
+            # IDENTITY, not is_alive: the lane task stays alive past release, so a
+            # liveness probe would wrongly say "still here". Mismatch → perform
+            # NEITHER the DB writes NOR the acks; the messages stay pending for a
+            # fresh turn. This narrows the append race (the get_db_client +
+            # inbox.append below still yield); the rare leftover row is reclaimed
+            # by the daily steer_inbox retention tick's unconsumed-orphan arm
+            # (_maybe_run_steer_cleanup, wired in start()'s poll loop).
+            if get_run_registry().live_run(agent_id, channel_id) is not run:
+                return
+
+            if relevant:
+                from xyz_agent_context.repository.steer_inbox_repository import (
+                    SteerInboxFull,
+                    SteerInboxRepository,
+                )
+                from xyz_agent_context.schema.steer_schema import SteerInjection
+                from xyz_agent_context.utils.db.db_factory import get_db_client
+
+                inbox = SteerInboxRepository(await get_db_client())
+                try:
+                    for m in relevant:
+                        inj = SteerInjection(
+                            run_id=run.run_id, msg_id=m.message_id, role="user",
+                            content=m.content, sender_id=m.from_agent, source="team",
+                        )
+                        # steer_inbox is the durable record AND the dedup: push
+                        # into the loop only on a NEW row, so a message re-seen
+                        # before it is consumed never double-injects. Remember its
+                        # CANONICAL created_at (not str(datetime), which is
+                        # space-format and sorts BELOW every 'T' cursor) so the
+                        # consumption ack advances the cursor correctly.
+                        if await inbox.append(inj):
+                            await run.steer.push(inj)
+                            run.steer.remember(m.message_id, canonical_ts(m.created_at))
+                except SteerInboxFull:
+                    # The run's UNCONSUMED backlog is at capacity — it drains
+                    # slower than messages arrive. Stop; what we pushed is
+                    # delivered (its cursor moves on consumption), the rest stay
+                    # queued for a later cycle. No cursor to unwind — delivery is
+                    # push, the cursor is consumption. Back-pressure, not loss.
+                    logger.warning(
+                        f"[steer] inbox full for {(agent_id, channel_id)}, rest queued"
+                    )
+
+            if unaddressed and flight is not None:
+                # unsteered_gap was already raised above (before the re-check).
+                # Here we only advance the PROCESSING cursor over un-addressed
+                # messages strictly OLDER than the oldest UN-consumed steered
+                # message (the floor), so a busy room's chatter does not
+                # permanently occupy the LIMIT-50 window and starve live-steering
+                # (review Important #1).
+                # Never past the floor (that would mark an un-consumed steered
+                # message processed before the run read it), and NEVER ack_read
+                # (un-addressed messages were never rendered — the 🔴1 red line).
+                # Re-fetch the floor now (after this cycle's deliveries, and the
+                # turn task may have consumed a batch between the awaits above).
+                floor = run.steer.oldest_unconsumed_created_at()
+                ackable = [
+                    m for m in unaddressed
+                    if floor is None or canonical_ts(m.created_at) < floor
+                ]
+                if ackable:
+                    latest = max(ackable, key=lambda m: canonical_ts(m.created_at))
+                    await self._bus.ack_processed(
+                        agent_id, channel_id, latest.created_at
+                    )
+        except Exception as e:  # noqa: BLE001 — a steer failure must not break the loop
+            logger.warning(
+                f"[steer] route into live run for {(agent_id, channel_id)} "
+                f"failed, messages left queued: {type(e).__name__}: {e}"
+            )
+        finally:
+            # Always drop the in-flight marker — a missed decrement would pin this
+            # lane's read cursor at the trigger high-water for the rest of the
+            # turn (a perceivable regression, not a leak).
+            flight.steer_cycles_in_flight -= 1
+
+    async def _maybe_run_steer_cleanup(self) -> None:
+        """Reclaim old steer_inbox rows — startup + once a day. This trigger is
+        the table's only production writer, so it owns the retention tick (else
+        the table is write-only and grows forever). Gated on monotonic time;
+        best-effort — a cleanup failure never touches the poll loop."""
+        now = time.monotonic()
+        if now - self._last_steer_cleanup_monotonic < STEER_CLEANUP_INTERVAL_S:
+            return
+        self._last_steer_cleanup_monotonic = now
+        try:
+            from xyz_agent_context.repository.steer_inbox_repository import (
+                SteerInboxRepository,
+            )
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            deleted = await SteerInboxRepository(
+                await get_db_client()
+            ).cleanup_older_than_days(STEER_RETENTION_DAYS, STEER_ORPHAN_DAYS)
+            if deleted:
+                logger.info(f"[steer-inbox] retention swept {deleted} rows")
+        except Exception as e:  # noqa: BLE001 — retention never breaks the loop
+            logger.warning(f"[steer-inbox] retention sweep failed: {type(e).__name__}: {e}")
 
     async def _get_agent_owner(self, agent_id: str) -> Optional[str]:
         """Look up the owner user_id for an agent. Returns "" when the agent
@@ -1090,7 +1431,7 @@ class MessageBusTrigger:
         `joined_at` for the life of the agent while every team message stayed
         unread and rode into EVERY scenario's context, owner chat included.
 
-        Deliberately NOT called from the two ack sites in `_process_agent`
+        Deliberately NOT called from the two ack sites in `_process_lane`
         (un-mentioned, rate-limited). Those advance `last_processed_at` without
         running a turn, so nothing was rendered and nothing was seen. Marking
         them read would drop the messages unseen — and would take with them the
@@ -1124,10 +1465,30 @@ class MessageBusTrigger:
                     f"never rendered"
                 )
                 return
+            # Upper bound: the trigger high-water, EXTENDED to the newest steered
+            # message the run consumed this turn — those were rendered (injected)
+            # too, so they are read. But only when nothing UN-steered slipped in
+            # between (unsteered_gap): a new message that was neither in the
+            # scrollback nor steered sits below steered_through and was never
+            # shown, so on a gap we fall back to the trigger high-water and leave
+            # it unread. The read cursor still has ONE writer and ONE gate.
+            up_to = canonical_ts(trigger_message.created_at)
+            flight = self._in_flight.get((agent_id, channel_id))
+            if (
+                flight is not None
+                and flight.steered_through is not None
+                # Extrapolate ONLY when we can PROVE there is no un-rendered gap:
+                # no un-steered message seen (unsteered_gap) AND no _route_steer
+                # cycle still running (which might discover one after its awaits).
+                and not flight.unsteered_gap
+                and flight.steer_cycles_in_flight == 0
+                and flight.steered_through > up_to
+            ):
+                up_to = flight.steered_through
             await self._bus.ack_read(
                 agent_id=agent_id,
                 channel_id=channel_id,
-                up_to_timestamp=trigger_message.created_at,
+                up_to_timestamp=up_to,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -1179,6 +1540,21 @@ class MessageBusTrigger:
         # only in that it names WHY the hop did not complete.
         posted = True
 
+        # Declare this turn's rendered high-water BEFORE the run can become
+        # steerable (on_event_id fires later, inside _invoke_runtime). trigger
+        # is the NEWEST batched message, so it is the exact boundary the ack at
+        # turn end uses; recording it now lets `_route_steer` inject only gen.-
+        # uinely NEW messages and never the batch this turn already holds. Guard
+        # the lookup: patrol / tests may reach this without a dispatch flight.
+        _flight = self._in_flight.get((agent_id, channel_id))
+        if _flight is not None:
+            # canonical_ts (not str(datetime)) so the steer watermark compares in
+            # the same 'T'-ISO format the cursors use — a space-format string
+            # sorts below every real created_at (the hazard canonical_ts exists
+            # for), which would make the filter either steer nothing or re-steer
+            # the batch.
+            _flight.rendered_through = canonical_ts(trigger_message.created_at)
+
         # Hop timing ([bus-timing], 2026-08-05): the 2026-08-01 event clocked
         # a bus hop at 45-95s with no way to split "sat in the queue" from
         # "the turn itself". queue_wait = TRIGGER message insert -> this
@@ -1223,6 +1599,16 @@ class MessageBusTrigger:
                 # and can Read it — no manual relay. `messages` (the @mentions
                 # for THIS agent) still marks what it should respond to.
                 history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                # Raise the steer watermark to the NEWEST message the scrollback
+                # actually shows (not just the trigger @mention). A room message
+                # that arrived during the DB round-trips since entry is now in the
+                # prompt's scrollback; without this it would ALSO be steered in,
+                # so the agent would see it twice in one turn. Anything already
+                # rendered is <= the watermark and never re-steered.
+                if _flight is not None and history:
+                    newest = max(canonical_ts(m.created_at) for m in history)
+                    if newest > _flight.rendered_through:
+                        _flight.rendered_through = newest
                 bulletin = await self._load_bulletin(team_id)
                 rendered_from = history[0].created_at if history else None
                 lead_agent_id, work_items, team_row = await self._team_board(team_id)
@@ -1304,9 +1690,74 @@ class MessageBusTrigger:
                 # keeps the poll loop alive for a run that is gone.
                 stack.callback(lambda: watcher.unregister(watched_run_id[0]))
 
+                # Live steering: a team run is steerable — a message that arrives
+                # while it runs is pushed into its loop instead of waiting for a
+                # fresh turn. The SteerChannel is created now (so `_invoke_runtime`
+                # hands it to the loop) and registered in the RunRegistry once the
+                # run has an id (mirroring the cancel watcher). Released however
+                # the body exits, so the poll loop never steers into a gone run.
+                from xyz_agent_context.agent_runtime.run_registry import (
+                    get_run_registry,
+                )
+                from xyz_agent_context.agent_runtime.steer_channel import SteerChannel
+
+                # agent_id/channel_id are known now; run_id is late-bound (Step
+                # 0), so the channel carries them for the overflow warning and the
+                # consumption callback, and gets its run_id stamped in
+                # on_event_id — the identity the mechanism asks the orchestrator
+                # to supply (see steer_channel mirror).
+                steer_channel = (
+                    SteerChannel(agent_id=agent_id, channel_id=channel_id)
+                    if is_team else None
+                )
+                steer_run_id: list[str] = [""]
+                # Orphan reclaim MUST run AFTER release (once the run is out of
+                # the RunRegistry, no _route_steer can find it to append a new
+                # row). AsyncExitStack is LIFO, so to run discard AFTER release it
+                # must be registered BEFORE release — registered here, first, it
+                # unwinds last. (It still runs at unwind, strictly after the loop
+                # ended and every deliver_consumed fired, so it never races an
+                # in-flight drain; the DELETE awaits, hence push_async_callback.)
+                if steer_channel is not None:
+                    stack.push_async_callback(
+                        self._discard_steer_orphans, steer_run_id
+                    )
+                stack.callback(
+                    lambda: steer_channel is not None
+                    and get_run_registry().release(steer_run_id[0])
+                )
+
+                # When the run reports draining steer rows, advance the cursors on
+                # CONSUMPTION (see `_ack_steer_consumed`). Bound to this lane and
+                # to the run id at call time (steer_run_id[0] is set at Step 0).
+                if steer_channel is not None:
+                    steer_channel.on_consumed = (
+                        lambda ids, latest: self._ack_steer_consumed(
+                            agent_id, channel_id, steer_run_id[0], ids, latest
+                        )
+                    )
+
                 async def on_event_id(run_id: str) -> None:
                     watched_run_id[0] = run_id
                     watcher.register(run_id, cancellation)
+                    if steer_channel is not None:
+                        steer_run_id[0] = run_id
+                        steer_channel.run_id = run_id  # label the overflow warning
+                        # Liveness backstop the mechanism requires of every
+                        # producer (not optional — see run_registry mirror): if
+                        # this lane's task dies WITHOUT the stack.callback release
+                        # running (a hard crash the finally cannot cover),
+                        # live_run sweeps the dead run so the surface is not deaf
+                        # forever. on_event_id runs in the lane's own task, so
+                        # current_task() is exactly that task; `not done()` holds
+                        # for the whole turn. A wrong "dead-while-alive" would
+                        # silently drop steering, so probe the lane task itself —
+                        # nothing looser.
+                        run_task = asyncio.current_task()
+                        get_run_registry().register(
+                            agent_id, channel_id, run_id, steer_channel,
+                            is_alive=(lambda t=run_task: t is not None and not t.done()),
+                        )
                     if note_event_id is not None:
                         await note_event_id(run_id)
 
@@ -1342,6 +1793,7 @@ class MessageBusTrigger:
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     cancellation=cancellation,
+                    steering=steer_channel,
                     # No monologue harvest on a reply turn: a team reply is a
                     # tool call (`message_team`) now, so `include_monologue`
                     # stays False here and is passed only by the patrol path.
@@ -1356,13 +1808,14 @@ class MessageBusTrigger:
                     # parameter (see module/_mcp_identity.py).
                     team_id=team_id if is_team else "",
                     # The team-room marker for this turn. It rides
-                    # trigger_extra_data so MessageBusModule can gate on it:
-                    # get_expressive_tools declares `message_team` (not the peer
-                    # `message_agent`) and get_disallowed_tools drops
-                    # `message_agent` off the desk. A team reply is a tool call
-                    # like every other surface now, so dropping this marker does
-                    # not silence the room — it makes the turn advertise the peer
-                    # verb and post team replies into the wrong conversation.
+                    # trigger_extra_data so MessageBusModule can read it:
+                    # get_expressive_tools points the reply reminder at
+                    # `message_team` (not the peer `message_agent`). It no longer
+                    # drops the peer verb — every internal send verb stays
+                    # reachable on every turn (capability follows the agent). So
+                    # dropping this marker only flips the reminder's default to
+                    # the peer verb; it changes what a plain reply targets, not
+                    # what the agent can reach.
                     team_room=is_team,
                 )
 
@@ -2298,6 +2751,7 @@ class MessageBusTrigger:
         it; ``trigger_messages`` are the @mentions for this agent — what it
         should respond to."""
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+        from xyz_agent_context.agent_runtime.steer_channel import STEER_PROVENANCE_RULE
 
         member_map = {r["agent_id"]: r.get("name") or r["agent_id"] for r in roster}
         me = member_map.get(agent_id, agent_id)
@@ -2317,6 +2771,13 @@ class MessageBusTrigger:
             "room (they are in the conversation below). So NEVER 'forward' or "
             "'send' a file that's already here, and never claim you did — to "
             "bring a teammate in, just @mention them and they'll see it too.",
+            # A team run is steerable: a message that arrives WHILE this turn
+            # runs is appended live (render_injection), tagged by source. The
+            # tag is authority-bearing (owner vs teammate), so the model must be
+            # told how to read it or a teammate could forge an owner tag — the
+            # nonce boundary only holds once the prompt states this rule. Shared
+            # verbatim with the chat / IM producers via the one constant.
+            STEER_PROVENANCE_RULE,
         ]
         # --- The team card ---------------------------------------------
         #
@@ -2417,8 +2878,9 @@ class MessageBusTrigger:
                 # ROOM — so the line must not be written as the Leader chatting.
                 "On THIS turn you are composing the room's status line, not "
                 "speaking as yourself: write it as plain text (do NOT call "
-                "message_team) and the platform posts it as the room. Write "
-                "nothing at all to stay silent.",
+                "message_team or message_agent — neither of those two calls is "
+                "available on this turn) and the platform posts it as the room. "
+                "Write nothing at all to stay silent.",
             ]
             if patrol_stalled:
                 lines.append(
@@ -2580,27 +3042,47 @@ class MessageBusTrigger:
                     )
                     lines.append(f"- {_who(tm)}: {tm.content}{mark}")
                 lines.append(tail)
+        # Delivery mechanism — how words get INTO the room. TRUE ONLY when the
+        # reply is a `message_team` call, i.e. NOT on a patrol turn: there the
+        # platform posts the plain-text status line AS the room (the patrol block
+        # above says so), so "nothing outside the call reaches the room" is false
+        # and there is no call to make. Gating this is what stops the prompt from
+        # ordering `message_team` a hundred lines after forbidding it on patrol.
+        if patrol_stalled is None:
+            lines += [
+                "",
+                f"Speak in this room by calling message_team(team_id=\"{team_id}\", "
+                "text=...). Rules:",
+                "- Put ONLY the message in `text` — natural, conversational text "
+                "(markdown is fine). It goes to the group as-is; everyone sees it.",
+                # The room is a tool call now (2026-08-17). It used to be the
+                # agent's plain text, auto-posted by the trigger — which made
+                # this the one surface where "plain text reaches nobody" was
+                # false, and every layer that states the general rule
+                # contradicted this one. What replaced that ban is a positive
+                # instruction: nothing is forbidden here, there is simply one
+                # verb that puts words in the room.
+                "- Nothing you write outside that call reaches the room. Thinking "
+                "it through in plain text first is fine and private — but the "
+                "turn only speaks when you make the call.",
+                "- If you have nothing worth saying, make no call at all. Silence "
+                "is a legitimate answer here; a routine acknowledgement is not.",
+                "- You MAY use action tools alongside it: the built-in Read tool "
+                "to open a file path shown above, and team_share_file to publish "
+                "a file YOU produced to the team folder (then mention the returned "
+                "path in your message). Do the action, then say what you found.",
+            ]
+        # Writing + mention rules that hold WHATEVER the delivery surface —
+        # a `message_team` reply or a patrol status line. Unconditional, so
+        # patrol keeps the no-narration / mention / no-promise disciplines it
+        # also needs (it @mentions stalled owners, it must not promise). Its OWN
+        # blank line + header: the separator is NOT borrowed from the gated block
+        # above (which patrol does not get), or on patrol these bullets orphan
+        # onto the message history. The header is surface-neutral — "write" holds
+        # for both a message and a status line; no delivery-specific word.
         lines += [
             "",
-            f"Speak in this room by calling message_team(team_id=\"{team_id}\", "
-            "text=...). Rules:",
-            "- Put ONLY the message in `text` — natural, conversational text "
-            "(markdown is fine). It goes to the group as-is; everyone sees it.",
-            # The room is a tool call now (2026-08-17). It used to be the agent's
-            # plain text, auto-posted by the trigger — which made this the one
-            # surface where "plain text reaches nobody" was false, and every layer
-            # that states the general rule contradicted this one. What replaced
-            # that ban is a positive instruction: nothing is forbidden here, there
-            # is simply one verb that puts words in the room.
-            "- Nothing you write outside that call reaches the room. Thinking it "
-            "through in plain text first is fine and private — but the turn only "
-            "speaks when you make the call.",
-            "- If you have nothing worth saying, make no call at all. Silence is a "
-            "legitimate answer here; a routine acknowledgement is not.",
-            "- You MAY use action tools alongside it: the built-in Read tool to "
-            "open a file path shown above, and team_share_file to publish a file "
-            "YOU produced to the team folder (then mention the returned path in "
-            "your message). Do the action, then say what you found.",
+            "When you write for this room:",
             "- Do NOT narrate your process or thinking in the message. No "
             "\"Let me…\", no \"I need to find…\", no tool/function names, no "
             "step-by-step. Just talk.",
@@ -2624,13 +3106,12 @@ class MessageBusTrigger:
             # Reduces how often the platform's guard is consulted; it is NOT
             # the guard (iron rule #15). `message_bus/errand.py` keeps the
             # hand-off on the board whether or not the model obeys this line.
-            "- **Do not promise future delivery.** Sending this message ENDS "
-            "your turn — nothing of yours keeps running afterwards, so "
-            "\"完成后交给你\" / \"I'll report back when it's done\" is a "
-            "promise nothing will keep. Instead: finish the work in THIS turn "
-            "and reply with the result, or say plainly how far you got and "
-            "what you need, or schedule the follow-up explicitly with "
-            "`job_create` if you have it.",
+            "- **Do not promise future delivery.** Nothing of yours keeps "
+            "running once this turn ends, so \"完成后交给你\" / \"I'll report "
+            "back when it's done\" is a promise nothing will keep. Instead: "
+            "finish the work in THIS turn and reply with the result, or say "
+            "plainly how far you got and what you need, or schedule the "
+            "follow-up explicitly with `job_create` if you have it.",
         ]
         return "\n".join(lines)
 
@@ -2888,7 +3369,10 @@ class MessageBusTrigger:
             lines.append(
                 "1. If you can answer → reply to the asker with "
                 "`message_agent(to=<the sender above>, "
-                "text=<your answer>)`. This is the point of the turn."
+                "text=<your answer>)`. That is usually the point of the turn. "
+                "If what they ask means acting elsewhere — posting in a team "
+                "room you belong to, messaging someone else — you can do that "
+                "this turn too; your teams and peers are listed in your context."
             )
             lines.append(
                 "2. If you need something clarified before you can answer → ask "
@@ -2971,6 +3455,7 @@ class MessageBusTrigger:
         team_id: str = "",
         cancellation=None,
         root_run_id: str = "",
+        steering=None,
     ) -> TurnResult:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -3089,6 +3574,10 @@ class MessageBusTrigger:
             # this was always the runtime's own no-op token, which is why a
             # bus run could not be stopped from anywhere.
             cancellation=cancellation,
+            # Same explicit seam as cancellation: a live SteerChannel this run
+            # drains at each step boundary. None on non-steerable runs (no
+            # mid-turn injection). See run_registry / steer_channel.
+            steering=steering,
             # Same seam. A team room's reply has to be POSTED inside the turn:
             # the chat rows are written by hook_persist_turn before run()
             # returns, so a post that lands after it cannot be recorded as a
@@ -3097,15 +3586,15 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
-                # Delivery-contract marker: on a team-room turn the send verb
-                # is `message_team`, not the peer `message_agent`.
-                # MessageBusModule reads it (get_expressive_tools /
-                # get_disallowed_tools) to declare message_team and drop
-                # message_agent off the desk. Plain-text auto-post is retired, so
-                # this marker no longer empties the whole expressive surface —
-                # that is the patrol marker below. Deleting it does not silence
-                # the room; it makes the turn advertise the peer verb and post
-                # team replies into the wrong conversation.
+                # Default-reply marker: on a team-room turn the DEFAULT reply
+                # verb is `message_team`, not the peer `message_agent`.
+                # MessageBusModule reads it (get_expressive_tools) to point the
+                # reply reminder at message_team. It no longer removes the peer
+                # verb: every internal send verb stays reachable on every turn
+                # (capability follows the agent, not the trigger channel).
+                # Deleting this marker only flips which verb the reminder
+                # defaults to — it does not change what the agent can reach, and
+                # the patrol marker below is what still clears the desk.
                 BUS_TEAM_ROOM_EXTRA_KEY: team_room,
                 # Patrol delivers by speaking: the platform posts the composed
                 # line under the room's own marker. The module reads this to

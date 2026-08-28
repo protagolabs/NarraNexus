@@ -602,6 +602,17 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 .markdown-content.markdown-dim {
   color: var(--text-tertiary);
 }
+/* Crepe (the md artifact block editor) ships `.ProseMirror { padding: 60px
+   120px }` in its theme reset — sized for a full-page editor. In the artifact
+   column (~340px at its normal width) that leaves ~100px of content and the
+   text crams one glyph per line; the zoom modal only looked fine because it
+   is wide enough to absorb 240px of chrome. Scope-override inside our md
+   surface: modest padding, with extra LEFT room because Crepe's block drag
+   handle (+ / ⋮⋮) renders in the left padding band and would otherwise sit
+   on top of the text. */
+.markdown-content .milkdown .ProseMirror {
+  padding: 16px 16px 16px 48px;
+}
 .markdown-content.markdown-reply {
   /* Match the chat bubble body (0.95rem). The old 1.05rem read noticeably
      larger than the bubbles when the same reply appears inside the reasoning

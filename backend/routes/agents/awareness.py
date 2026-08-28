@@ -146,7 +146,23 @@ async def update_agent_awareness(
 
         # Update instance_awareness table
         awareness_repo = InstanceAwarenessRepository(db_client)
-        success = await awareness_repo.upsert(instance_id, request.awareness)
+        # The model rewrites the WHOLE profile through this route, and the format
+        # the update_awareness tool prescribes does not include the platform's
+        # identity record — so a rewrite deleted the rename correction, putting
+        # the agent back to a stale self-name line with nothing contradicting it.
+        # Carried over in code rather than requested in the prompt (rule #15).
+        # This is the CLOUD half: the twin in module/data_access/store.py does the
+        # same for the local path, and fixing only one protects the environment
+        # the incident did not happen in.
+        from xyz_agent_context.module.awareness_module import (
+            carry_over_platform_record,
+        )
+
+        current = await awareness_repo.get_by_instance(instance_id)
+        awareness_text = carry_over_platform_record(
+            (current.awareness if current else "") or "", request.awareness
+        )
+        success = await awareness_repo.upsert(instance_id, awareness_text)
         logger.info(f"  → Upsert result: {success}")
 
         if success:

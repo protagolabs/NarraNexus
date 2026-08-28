@@ -36,7 +36,7 @@
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ChevronDown } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Crown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AvatarWithStatus, RingAvatar } from '@/components/nm';
 import {
@@ -73,6 +73,11 @@ export interface TeamRosterPanelProps {
   accent?: string;
   /** Empty-state escape hatch to the team's settings page. */
   onOpenSettings?: () => void;
+  /** Designate this member the team lead. When omitted, the roster shows no
+   *  set-lead affordance — the setter lives elsewhere. Given, an expanded
+   *  non-lead row offers a "set lead" action right where the lead badge is
+   *  shown, so designation happens at the locus the badge advertises. */
+  onSetLead?: (agentId: string) => void;
   /** Shell override — the narrow-screen drawer reuses the same rows. */
   className?: string;
 }
@@ -176,6 +181,7 @@ function MemberRow({
   now,
   expanded,
   onToggle,
+  onSetLead,
 }: {
   activity: TeamMemberActivity;
   name: string;
@@ -184,6 +190,7 @@ function MemberRow({
   now: number;
   expanded: boolean;
   onToggle: () => void;
+  onSetLead?: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
   const stalled = activity.status === 'stalled';
@@ -249,7 +256,22 @@ function MemberRow({
       </button>
 
       {expanded && (
-        <TeamMemberPanel activity={activity} name={name} now={now} open={expanded} />
+        <>
+          {onSetLead && !isLead && (
+            <div className="flex justify-end px-3 pb-2">
+              <button
+                type="button"
+                data-testid={`set-lead-${activity.agent_id}`}
+                onClick={() => onSetLead(activity.agent_id)}
+                className="flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+              >
+                <Crown className="h-3 w-3" />
+                {t('chat.team.setLead')}
+              </button>
+            </div>
+          )}
+          <TeamMemberPanel activity={activity} name={name} now={now} open={expanded} />
+        </>
       )}
     </div>
   );
@@ -265,6 +287,7 @@ export function TeamRosterPanel({
   onToggle,
   accent = 'var(--color-silicon)',
   onOpenSettings,
+  onSetLead,
   className,
 }: TeamRosterPanelProps) {
   const { t } = useTranslation();
@@ -339,6 +362,7 @@ export function TeamRosterPanel({
               now={now}
               expanded={expandedId === a.agent_id}
               onToggle={() => onToggle(a.agent_id)}
+              onSetLead={onSetLead}
             />
           ))}
         </div>

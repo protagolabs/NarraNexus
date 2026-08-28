@@ -377,6 +377,7 @@ class MessageBusService(ABC):
         self,
         agent_id: str,
         limit: int = 50,
+        channel_id: Optional[str] = None,
     ) -> List[BusMessage]:
         """
         Get messages that have not been processed by the agent.
@@ -388,6 +389,9 @@ class MessageBusService(ABC):
         Args:
             agent_id: The agent to fetch pending messages for.
             limit: Maximum number of messages to return.
+            channel_id: If given, scope to this one channel so the LIMIT
+                lands on a single room's backlog (per-lane callers); None
+                keeps the cross-channel query.
 
         Returns:
             List of unprocessed BusMessage.

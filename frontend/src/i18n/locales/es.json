@@ -179,7 +179,9 @@
           "paused": "en pausa"
         },
         "turnOff": "Desactivar",
-        "turnOn": "Activar"
+        "turnOn": "Activar",
+        "awaitingReply": "esperando respuesta",
+        "nameSep": ", "
       },
       "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
       "uploadFailed": "No se pudo subir «{{name}}».",
@@ -2066,6 +2068,37 @@
     },
     "url": {
       "toggleFailed": "No se pudo cambiar de modo: {{error}}"
+    },
+    "editor": {
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "saved": "Guardado",
+      "unsavedChanges": "Cambios sin guardar",
+      "draftRestored": "Se restauraron las ediciones sin guardar de este dispositivo.",
+      "conflictBody": "El archivo cambió mientras editabas. ¿Conservar tu versión o recargar la suya?",
+      "overwriteMine": "Conservar la mía",
+      "discardMine": "Recargar",
+      "loadError": "Error al cargar: {{error}}",
+      "mdGuardDisabled": "Este documento contiene sintaxis que el editor no puede preservar sin pérdidas: la edición directa está deshabilitada. Pide a la IA que haga los cambios.",
+      "htmlAnchorFailed": "Ese texto lo genera el script de la página o no se puede localizar de forma única en el código: pide a la IA que lo cambie.",
+      "htmlEditConflict": "El archivo cambió mientras editabas: ese cambio no se guardó.",
+      "editFailed": "Error al editar: el cambio no se guardó.",
+      "draftUnavailable": "Este archivo es demasiado grande para el borrador local: los cambios sin guardar se perderán al cerrar la ventana. Guarda pronto."
+    },
+    "officeEdit": {
+      "selected": "{{count}} seleccionado(s)",
+      "editText": "Editar texto",
+      "apply": "Aplicar",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "color": "Color del texto",
+      "opFailed": "Error al editar.",
+      "lockNotice": "Abierto en una app de Office de escritorio: edición directa en pausa.",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "addRow": "+ Fila",
+      "addCol": "+ Columna",
+      "replaceImage": "Reemplazar imagen"
     }
   },
   "skills": {
@@ -2197,7 +2230,9 @@
     "completed": "Completado",
     "roomSpoke": "Nueva actividad en la sala",
     "agent": "Agente",
-    "room": "Sala"
+    "room": "Sala",
+    "artifactRepointedVerified": "Reenlazado: {{oldPath}} → {{newPath}} (contenido verificado)",
+    "artifactRepointedUnverified": "Reenlazado: {{oldPath}} → {{newPath}} (coincidencia sin verificar — revísalo)"
   },
   "webAnalyticsNotice": {
     "body": "Esta es la versión web en la nube de NarraNexus. Utiliza Google Tag Manager, un servicio de análisis de terceros, para recopilar datos anónimos de interacción con la página (vistas, clics, referente). No se recopila ningún contenido de las conversaciones. Puedes desactivarlo en cualquier momento en Configuración → Privacidad.",

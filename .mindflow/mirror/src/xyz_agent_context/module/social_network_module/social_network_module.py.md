@@ -1,7 +1,49 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-18
+last_verified: 2026-08-25
 ---
+
+## 2026-08-25 — hook 里接住「失败」与「空结果」的区分
+
+[[_entity_updater.py]] 把 `summarize_new_entity_info` / `infer_persona` 改成
+返回 `Optional[str]`（`None` = 调用失败），本文件是唯一调用方，负责把这个
+区分**用起来**：
+
+- `new_summary is None` → 记一条 warning 并跳过描述写入（失败已在下游上报），
+  与 `""`（LLM 跑通了但没找到值得记的东西）分开处理。原来两者都是 `""`，
+  于是一把过期的 helper key 和一次平淡的对话在日志里长得一模一样。
+- `new_persona` 为 `None` 时不回写。原实现失败时返回**当前** persona 再原样
+  写回，一次 no-op 写入和一次成功刷新无从分辨。
+
+**调用方自己这一侧也不再静默吞（PR#360 review 补）**：主实体创建失败
+（`create_primary_entity`——最重的一处，建不出来则本回合 summary / 计数 /
+persona 全部不发生，此前零证据）和 `_process_mentioned_entities` 的逐实体
+失败（`process_mentioned_entity`——覆盖第三方实体创建、tags/aliases 合并，
+以及 Stage-1 的**读**失败：读失败会让每个被提及实体都判为全新，每回合新建
+重复节点）现在都留审计行。
+
+顺带修掉一个错标签：dedup 管线的外层 except 打的是
+`Batch entity extraction failed`，是从抽取那条 handler 复制来的，会把排查
+直接引到错误的 LLM 调用上。以及同一个 traceback 被 `logger.exception` 连打
+两次。
+
+**测试在 [[test_memory_write_audit_wiring.py]]**，注意它 patch 的是**本模块**
+的 `_report_write_failure` 绑定——本文件是模块顶层 import，patch
+`_entity_updater` 的同名属性对这两处无效，断言会对着空列表静静通过。
+
+`entity_id_candidate` 的赋值提到了 `try` **外**：except 里要用它上报，留在
+try 内第一行等于让错误路径依赖它自己没出错（第一轮迭代会从 except 里抛
+`NameError` 连带丢掉本批剩余实体；后续迭代会把失败记到上一个实体头上）。
+
+这些 except **必须继续不抛**——hook 挂掉会连带影响 Step-6 回调。
+
+五个调用点都显式传 `agent_id=self.agent_id`——下游的 owner 告警要靠它反查
+`agents.created_by`。预审时把这些参数的默认值去掉了（铁律 #2）：留着默认值
+等于给「忘记传」开一条静默降级的路，而那条路会正好抵消这次改动的全部价值。
+
+## 2026-08-21 — `extract_and_update_entity_info` 支持 create-only 名字键(PR-2 预审 Important)
+
+新增 `entity_name_if_new` 键:**create 分支**用它作 `entity_name` 兜底(`entity_name` 显式优先);**merge/existing 分支**是 **fill-if-empty**——`_name=updates.pop("entity_name_if_new"); if _name and not (existing.entity_name or "").strip(): updates["entity_name"]=_name`(增量审 Minor:也给「别的路径建出来的无名实体」补名,但非空名**绝不覆盖**)。用途:[[inbox_recorder.py]] 自动记 reach 时给陌生发件人命名(否则无名,§3b 按名字搜不到),又不覆盖 LLM 规范名。守卫 `test_inbox_reach_recording.py`(create 带名 / 已存在无名被填 / 非空名不覆盖三面)。
 
 ## 2026-08-18 — create_agent 的拒绝**规则**也上提了,不只是那两句话
 

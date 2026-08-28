@@ -60,45 +60,14 @@ CONTINUITY_DETECTION_INSTRUCTIONS = """You are a Narrative attribution analysis 
 - Conversation continuity ≠ Same Narrative
 - Users may switch to different topics/tasks during a continuous conversation, which requires creating a new Narrative
 
-**8 Special Default Narratives (Important)**:
-The system has 8 special default Narratives with simplified names and descriptions that require special handling:
-
-1. **GreetingAndCourtesy**
-   - Scope: Greetings, small talk, thanks, farewells, ending conversations - purely courteous exchanges
-   - Characteristic: Does not carry any substantive topic; should switch once specific content is involved
-
-2. **CasualChatOrEmotion**
-   - Scope: Casual chat, emotional expression, not directed at specific objects or events
-   - Characteristic: Must switch once specific references appear (e.g., "Python", "project")
-
-3. **JokeAndEntertainment**
-   - Scope: Pure entertainment requests, not involving any entities or ongoing topics
-   - Characteristic: Entertainment-oriented, one-time interactions
-
-4. **AgentHelpAndCapability**
-   - Scope: Asking about the agent's features, usage, capability boundaries
-   - Characteristic: Not related to specific business; meta-questions about the agent itself
-
-5. **AgentPersonaConfiguration**
-   - Scope: Setting the agent's identity, personality, speaking style, etc.
-   - Characteristic: Configuration interactions that affect global behavior
-
-6. **TaskLookup**
-   - Scope: Viewing, searching, filtering task lists
-   - Characteristic: Does not involve discussion of a specific task
-
-7. **GeneralOneShotQuestion**
-   - Scope: Independent, one-time questions (e.g., unit conversion, date lookup)
-   - Characteristic: Will not generate ongoing discussion
-
-8. **UnclassifiedOrGarbage**
-   - Scope: Unclassifiable or meaningless input
-   - Characteristic: Fallback container
-
-**Rules for Special Default Narratives**:
-- These Narratives have very strict boundaries; once the user mentions specific objects, tasks, or ongoing topics, it should be judged as **is_continuous = false**
-- Example: Currently in "GreetingAndCourtesy", user says "help me write code" → must switch to new Narrative
-- Example: Currently in "CasualChatOrEmotion", user says "Python decorators" → must switch to new Narrative
+**Legacy shape-container Narratives**:
+If the current Narrative is labeled [Special Default Narrative], it is a legacy
+container whose name describes a SHAPE of message, not a subject — so there is
+usually little for a substantive query to continue. But reach that conclusion
+from the content, never as a rule applied because of the container's type: if
+the user is plainly carrying on from the previous turn (a follow-up, a
+correction, a pronoun referring back, an answer to what the Agent just asked),
+that is **is_continuous = true** even here.
 
 **Judgment Granularity — Business Intent Level**:
 - Judge at the **business intent / goal** level, NOT at the message-detail level
@@ -115,20 +84,18 @@ The system has 8 special default Narratives with simplified names and descriptio
    - User gives follow-up instructions that serve the same business objective
    - User uses pronouns ("it", "this", "that") clearly referring to content in the current Narrative
    - User's new question is a continuation or extension of content within the current Narrative's scope
-   - **Note**: For the 8 default Narratives, only questions that fully fit their narrow scope belong
 
 2. **Does Not Belong to Current Narrative** → is_continuous = false
    - User raised a **completely different** new topic from the current Narrative's theme
    - User started a new, independent task/question that serves a different business goal
    - User explicitly indicates wanting to switch topics (e.g., "let's change the subject", "talk about something else")
    - Although conversation is continuous, the topic has jumped to another domain/task
-   - **Note**: When switching from the 8 default Narratives to specific topics, must judge as not belonging
 
 3. **Consider the Narrative's Core Theme** (if provided)
    - First, identify the Narrative's **core business goal** from its name and summary
    - Then ask: does the current query serve this goal? If yes → belongs
    - The Narrative's summary reflects the conversation focus so far
-   - **For the 8 default Narratives**: Prioritize judgment based on name, as summary info may be insufficient
+   - **For a [Special Default Narrative]**: its name describes a message shape and its summary is a fixed template, so neither states a business goal — fall back to the previous turn to decide whether the user is continuing something
 
 4. **Consider the Agent's Response**
    - If the Agent's response introduced a new sub-topic and the user is following up, this still belongs to the same Narrative
@@ -144,60 +111,73 @@ Output format:
 """
 
 # ============================================================================
-# Single-Candidate Narrative Match - Single candidate matching prompt
-# Used in NarrativeRetrieval._llm_confirm()
-# ============================================================================
-NARRATIVE_SINGLE_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. Analyze whether the user's new query relates to the given topic.
-
-Requirements:
-- You should thinking carefully and provide a detailed explanation of your reasoning.
-- Try to use your logical reasoning ability to give the most reasonable judgment.
-
-Output format:
-class NarrativeMatchOutput(BaseModel):
-    reason: str
-    matched_index: int
-    relation_type: RelationType
-- reason: Detailed explanation of your reasoning
-- matched_index: Index of the matched topic
-- relation_type: Relation type: continuation, reference, other
-
-Determine the relation_type:
-- "continuation": The query directly continues, follows up, or deepens the existing topic
-- "reference": The query uses pronouns (it, this, that) or indirect references to the topic
-- "other": The query is unrelated to the topic. If none of the topics are related, return this.
-"""
-
-# ============================================================================
 # Unified Narrative Match - Unified matching prompt (with PARTICIPANT branch)
 # Used in NarrativeRetrieval._llm_judge_unified()
 #
 # Note: This prompt does not contain any scenario-specific logic (e.g., sales).
 # The specific meaning of PARTICIPANT (sales target, collaborator, etc.) is defined by the Agent's Awareness.
 # ============================================================================
-NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = """You are a conversation topic matching expert. You need to determine which category the user's new query should match:
+# The ONE definition of "no durable topic", spliced into BOTH judge prompt
+# variants below (f-string; both are brace-free). Extracted after the third
+# silent fork between the two (PR #361 review round 2, I2): the P1
+# calibration — the two overriding rules, the three trap counterexamples,
+# and the boundary/tie-break — lived in the main variant only, so every
+# PARTICIPANT-path turn (IM group chats, invited users) was judged by an
+# uncalibrated rubric whose measured misjudgment rate was 20.8% (M6).
+# The calibration anchor tests loop over both constants so the pair
+# cannot fork again.
+_NO_DURABLE_TOPIC_RUBRIC = """Recognising "no durable topic": a message that requests nothing and refers to
+nothing — a pure greeting, thanks, farewell, emotional expression, or bare
+acknowledgement ("你好", "thanks", "好的", "haha nice"). Such a message would
+read exactly the same in any conversation, about any subject. That is the
+whole definition; there is no list of message types to sort into.
+
+**A message is NOT "no durable topic" if it names something concrete** — a
+file, a project, a tool, an error, a person, a task, a deliverable — or if it
+continues work that is already under way. When a query names a concrete thing,
+it either belongs to an existing topic or deserves a new one. Judge the
+message on what it refers to, not on how short or casual it sounds.
+
+Two rules that override everything else in this section:
+- A message that names ANY concrete object, task, question, or rule is NEW,
+  never NO_TOPIC. "Concrete" is about what the message refers to, not about
+  how long, polite, or informal it is.
+- Never prefer NO_TOPIC merely to avoid creating a topic. NO_TOPIC is a
+  statement about the message itself, never a way to hold the topic count
+  down. If the only reason you are reaching for NO_TOPIC is that a new
+  thread feels expensive, the answer is not NO_TOPIC.
+
+Three shapes that read like small talk but are NOT "no durable topic":
+- A polite opener wrapping a request. "Could you help me with X?" IS the task
+  X. Strip the courtesy and judge what is left.
+- A bare imperative. "Pause the polling" is an instruction with a concrete
+  object, not casual chat — brevity is not absence of subject.
+- A rule the user sets for the future. "From now on, always ..." establishes
+  a long-lived expectation, which is a durable topic.
+
+Boundary: NO_TOPIC is only for a message that requests nothing and refers to
+nothing. If the message asks you to do, find, explain, or remember ANYTHING
+nameable — even a one-shot question or a request about your own capabilities —
+it carries a topic: match it to an existing one or create a new one. When in
+doubt, prefer NEW over NO_TOPIC: a thin new thread can be found and merged
+later, but a turn filed as NO_TOPIC leaves no trace in retrieval and its
+content can never be found again."""
+
+NARRATIVE_UNIFIED_MATCH_WITH_PARTICIPANT_INSTRUCTIONS = f"""You are a conversation topic matching expert. You need to determine which category the user's new query should match:
 1. Match a **participant-associated topic** (the user is a PARTICIPANT in these Narratives, prioritize matching)
-2. Match a default topic type (generic scenarios like greetings, jokes, etc.)
+2. No durable topic — the message carries nothing worth remembering as its own thread
 3. Match an existing specific topic (a conversation topic already in the database)
 4. Create a new topic (does not match any existing content)
 
 **Important**: The current user is a PARTICIPANT in certain Narratives.
 - If the user's message relates to the topic of a participant Narrative, prioritize matching the "participant" type
-- If the user is simply greeting or chatting casually, it can still match the "default" type
+- If the user is simply greeting or chatting casually, it carries no durable topic
 
-Default topic types:
-1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
-2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
-3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
-4. AgentHelpAndCapability: Asking about the Agent's features and capabilities
-5. AgentPersonaConfiguration: Setting the Agent's persona or behavior style
-6. TaskLookup: Viewing or searching task lists
-7. GeneralOneShotQuestion: One-time general knowledge Q&A
-8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
+{_NO_DURABLE_TOPIC_RUBRIC}
 
 Judgment priority:
 1. **First check if it relates to a participant Narrative** (prioritize matching "participant")
-2. If it's simple greetings/chat, match a default type
+2. If it's simple greetings/chat, it carries no durable topic
 3. If it relates to an existing topic, match search results
 4. If nothing matches, return create new topic
 
@@ -205,36 +185,28 @@ Requirements:
 - Carefully analyze the user query's intent
 - Provide detailed reasoning
 - If matching a participant Narrative, return matched_category = "participant" with the corresponding index
-- If matching a default type, return matched_category = "default" with the corresponding index
+- If the message carries no durable topic, return matched_category = "no_durable_topic"
 - If matching an existing topic, return matched_category = "search" with the corresponding index
 - If nothing matches, return matched_category = "none"
 
 Output format:
 class UnifiedMatchOutput(BaseModel):
     reason: str  # Detailed reasoning process
-    matched_category: str  # "participant", "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "participant", "no_durable_topic", "search", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category is "participant" or "search"
 """
 
-NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = """You are a conversation topic matching expert. You need to determine which category the user's new query should match:
-1. Match an existing specific topic (a conversation topic already in the database)
-2. Match a default topic type (generic scenarios like greetings, jokes, etc.)
-3. Create a new topic (does not match any existing content)
+NARRATIVE_UNIFIED_MATCH_INSTRUCTIONS = f"""You are a conversation topic matching expert. You need to decide where the user's new query belongs:
+1. An existing specific topic (a conversation topic already in the database)
+2. No durable topic — the message carries nothing worth remembering as its own thread
+3. A new topic (a real subject that no existing topic covers)
 
-Default topic types:
-1. GreetingAndCourtesy: Greetings, small talk, thanks, farewells
-2. CasualChatOrEmotion: Casual chat or emotional expression (no specific topic)
-3. JokeAndEntertainment: Entertainment requests (e.g., tell a joke)
-4. AgentHelpAndCapability: Asking about the Agent's features and capabilities
-5. AgentPersonaConfiguration: Setting the Agent's persona or behavior style
-6. TaskLookup: Viewing or searching task lists
-7. GeneralOneShotQuestion: One-time general knowledge Q&A
-8. UnclassifiedOrGarbage: Meaningless input or unclassifiable queries
+{_NO_DURABLE_TOPIC_RUBRIC}
 
 Judgment priority:
 1. First check if it relates to an existing topic — if the query's business domain overlaps with an existing topic's summary/description, prefer matching it even if not an exact match
-2. If it clearly doesn't relate to any existing topic, check if it matches a default topic type
-3. Create a new topic ONLY as a last resort — creating new topics fragments context and should be avoided when a reasonable existing match exists
+2. If it clearly doesn't relate to any existing topic, decide whether it carries a durable topic at all
+3. Create a new topic when the message introduces a real subject no existing topic covers — creating fragments context, so prefer a reasonable existing match, but a genuinely new subject deserves its own thread
 
 **Important**: Judge at the business-intent level. If the query is about the same project, task, or domain as an existing topic, it belongs there even if the specific sub-topic differs.
 
@@ -242,15 +214,19 @@ Requirements:
 - Carefully analyze the user query's intent
 - Provide detailed reasoning
 - If matching an existing topic, return matched_category = "search" with the corresponding index
-- If matching a default type, return matched_category = "default" with the corresponding index
-- If nothing matches, return matched_category = "none"
+- If the message carries no durable topic, return matched_category = "no_durable_topic"
+- If it introduces a genuinely new subject, return matched_category = "none"
 
 Output format:
 class UnifiedMatchOutput(BaseModel):
     reason: str  # Detailed reasoning process
-    matched_category: str  # "default", "search", or "none"
-    matched_index: int  # Matched index (0-based), -1 if matched_category="none"
+    matched_category: str  # "search", "no_durable_topic", or "none"
+    matched_index: int  # Matched index (0-based), -1 unless matched_category="search"
 """
+
+# Merged-routing instructions live in prompts_merged.py (round-3 split);
+# _NO_DURABLE_TOPIC_RUBRIC stays HERE because both judge variants splice it
+# verbatim — one copy is the whole point (PR #361 round 2, I2).
 
 # ============================================================================
 # Narrative Update - Narrative metadata incremental update prompt

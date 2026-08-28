@@ -27,6 +27,25 @@ EVENT_CONTAINER_STARTED = "container_started"
 EVENT_REUSED = "reused"
 EVENT_CULLED = "culled"
 EVENT_ORPHAN_REAPED = "orphan_reaped"
+# The idle cull picked a user, then backed off because a run was live in
+# ANOTHER process (executor_reaper._CullVeto). Every row is one agent run the
+# pre-fix reaper would have killed mid-flight — the L3 measure of the
+# cross-process guard. Only real run ids land here: "we could not tell"
+# (recording switch pulled, DB unreachable) is logged, not audited, so a zero
+# here does NOT mean the guard was unaffected. A rate that suddenly drops to
+# zero is a reason to check the guard still runs.
+EVENT_CULL_SKIPPED_BUSY = "cull_skipped_busy"
+# One whole cull pass in which liveness was unreadable for EVERY candidate, so
+# nothing could be culled (executor_reaper._report_pass). Distinct from
+# cull_skipped_busy on purpose: mixing "we could not tell" into that metric
+# would put "unknown" in its run_id column and destroy its meaning. Rows are
+# per PASS, not per candidate.
+#
+# Only the kill-switch cause (NARRANEXUS_RUN_RECORDING_DISABLED) can reach
+# this table — when the DB itself is unreadable the write needs the client
+# that just failed. So this event proves blindness, it does not exhaust it;
+# the reaper's repeat warning and reaper_status().blind_passes cover the rest.
+EVENT_CULL_DISABLED = "cull_disabled"
 EVENT_OOM_KILLED = "oom_killed"
 EVENT_OOM_RETRY_OK = "oom_retry_ok"
 EVENT_OOM_GAVE_UP = "oom_gave_up"
@@ -55,6 +74,8 @@ ExecutorEventType = Literal[
     "reused",
     "culled",
     "orphan_reaped",
+    "cull_skipped_busy",
+    "cull_disabled",
     "oom_killed",
     "oom_retry_ok",
     "oom_gave_up",

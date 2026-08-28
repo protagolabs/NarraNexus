@@ -62,7 +62,7 @@ def _install(retrieval, rec: _Recorder, *, pool_fails: bool = False,
     retrieval._ensure_default_narratives = _ensure  # type: ignore[assignment]
     retrieval._get_participant_narratives = _participants  # type: ignore[assignment]
     retrieval.load_pool = _pool  # type: ignore[assignment]
-    retrieval.rank_pool = lambda *a, **k: []  # type: ignore[assignment]
+    retrieval.rank_pool_full = lambda *a, **k: []  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monke
         rank=1,
         raw_score=config.NARRATIVE_MATCH_RAW_FLOOR + 5.0,
     )
-    retrieval.rank_pool = lambda *a, **k: [hit]  # type: ignore[assignment]
+    retrieval.rank_pool_full = lambda *a, **k: [hit]  # type: ignore[assignment]
 
     async def _judge_must_not_run(**kwargs):
         pytest.fail("the judge ran on a path that should have short-circuited")
@@ -252,9 +252,11 @@ async def test_a_short_circuited_decision_records_no_judge_cost(retrieval, monke
     result = await retrieval.retrieve_top_k(
         query="hello", user_id="u1", agent_id="a1", top_k=3,
         narrative_type=NarrativeType.CHAT,
+        anchor_narrative_id="nar_hit",
     )
 
     assert result.audit.gate_short_circuit is True, "precondition: it short-circuited"
+    assert result.audit.bypass_reason == "anchor_match"
     assert result.audit.judge_ms is None, (
         "a decision that never entered the judge recorded a judge cost — "
         "NULL no longer means 'this tier did not run'"

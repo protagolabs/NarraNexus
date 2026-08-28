@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/prompt_builder.py
-last_verified: 2026-07-28
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — `build_summary_prompt` 删除（无调用者 + 注入已冻结的 topic_hint）
+
+全仓零调用者，而它做两件不该做的事：①往 prompt 里注入
+`Topic: {narrative.topic_hint}`，而该字段自 2026-06-09 unified-memory 重构后是
+创建时写一次的墓碑（本地库 84% 为空，非空的也可能陈旧数月）；②它是"一条
+narrative 该怎么向 LLM 自我介绍"的**第五份拷贝**。B2 的教训就是同一个决定散成多
+份拷贝后只改其中一份（见 [[retrieval.py]] 2026-08-12），所以死拷贝按铁律 #2 直接
+删，不修。`test_no_narrative_labelling_path_reads_the_frozen_topic_hint` 用 AST
+钉住本文件不再出现 `topic_hint` 的读取。
+
+本文件活着的三个入口 —— `build_main_prompt` / `build_turn_prompt` 及其
+`_canonical_timestamp` —— 一行未动。
 
 ## 2026-07-28 — R4d：created_at 迁 turn 半（稳定半不再含任何时间戳）
 

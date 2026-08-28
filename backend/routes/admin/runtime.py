@@ -13,6 +13,9 @@ endpoint:
     is configured or it is unreachable).
   - audit_counts: recent instance_executor_audit event counts (last hour),
     for spotting OOM / cull / orphan-reap spikes.
+  - executor_reaper: last idle-cull pass. Culling stopping ENTIRELY looks
+    exactly like nothing needing to be culled, so the counts here (not the
+    audit rows) are what tells the two apart — see reaper_status.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ from fastapi import APIRouter, Header
 
 from xyz_agent_context.agent_framework.loop.broker_client import broker_url
 from xyz_agent_context.agent_runtime.admission import get_admission_controller
+from xyz_agent_context.agent_runtime.executor_reaper import reaper_status
 from xyz_agent_context.repository.executor_audit_repository import (
     ExecutorAuditRepository,
 )
@@ -94,6 +98,7 @@ async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
         "admission": get_admission_controller().snapshot(),
         "executors": executors,
         "audit_counts": audit_counts,
+        "executor_reaper": reaper_status(),
     }
 
 

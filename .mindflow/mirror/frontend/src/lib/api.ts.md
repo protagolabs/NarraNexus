@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-18
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — owner 级 bulk slot 方法
+
+新增三个薄封装方法对应 `/api/providers/slots/*`：`getSlotOverrideStats`
+（确认框影响面）、`applySlotsToAgents(slots)`（clear-to-inherit 批量应用）、
+`getAgentsModelOverview`（Dashboard chip 单次拉全 agent effective 模型）。均走
+统一 `request<T>()`，Mock Proxy 自动透传。
+
+## 2026-08-21 — getSimpleChatHistory 加 include 流选择参数
+
+`getSimpleChatHistory(agentId, limit, offset, include='all')` 第四参 `include: 'chat'|'activity'|'all'`
+落到 query。对话 tab 与 Activity Log 是两条独立分页的流(见 `ChatPanel` / 后端 `chat_history`);默认
+`'all'` 保留旧语义给未改的调用方。
 
 ## 2026-08-18 — 支付宝 / 微信：recharge 带 payment_method，新增 fxRate
 

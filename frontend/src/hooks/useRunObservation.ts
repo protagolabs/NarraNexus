@@ -23,8 +23,35 @@
 import { useEffect, useMemo, useReducer, useRef } from 'react';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { useConfigStore } from '@/stores';
+import { useArtifactStore, type ArtifactChangedEvent } from '@/stores/artifactStore';
+import { useChatStore } from '@/stores/chatStore';
 import { translateReconnectFrame } from '@/services/wsManager';
+import { parseBackendTs } from '@/lib/backendTs';
 import type { Step, TurnEvent } from '@/types';
+
+/**
+ * Route one backend artifact_changed event: store upsert/remove via
+ * applyEvent (monotonic-guarded, never throws), plus a toast when a heal
+ * repointed the artifact at a different file — the pointer moved without
+ * the user asking, so honesty requires telling them where it went (spec
+ * artifact-events §5.3). Lives at module scope: it holds no hook state and
+ * the reconnect path calls it too.
+ */
+function routeArtifactEvent(raw: Record<string, unknown>): void {
+  const event = raw as unknown as ArtifactChangedEvent;
+  useArtifactStore.getState().applyEvent(event);
+  if (event.action === 'repointed' && event.artifact?.artifact_id) {
+    useChatStore.getState().pushToast({
+      kind: 'artifact-repointed',
+      artifactId: event.artifact.artifact_id,
+      title: event.artifact.title ?? event.artifact.artifact_id,
+      oldPath: event.extra?.old ?? '?',
+      newPath: event.extra?.new ?? '?',
+      hashMatched: event.extra?.hash_matched === true,
+      timestamp: Date.now(),
+    });
+  }
+}
 
 /**
  * Whether an error frame ends the socket's life, as opposed to being a
@@ -61,7 +88,9 @@ export interface RunObservationSnapshot {
   endState: string | null;
   /** Process blocks in arrival order (thinking / tool_call / tool_output / plan). */
   events: TurnEvent[];
-  /** Pre-loop pipeline phases (step 0..3), upserted by step id. */
+  /** Pipeline phases (step 0..3.4, build-context → run-agent), upserted by
+   *  step id. Which of these render as rows is decided by the consumer's
+   *  whitelist (processShared PHASE_STEP_IDS), not here. */
   steps: Step[];
   /** epoch ms the run started (from the run_reconnect metadata frame). */
   startedAt: number | null;
@@ -118,8 +147,11 @@ export function applyObservationFrame(
     // mid-run drop + backoff reopen would stack the whole trace twice
     // (tool_output rows append unconditionally; thinking would merge
     // doubled content).
-    const startedRaw = raw.started_at as string | null | undefined;
-    const startedMs = startedRaw ? Date.parse(startedRaw) : NaN;
+    // parseBackendTs, not Date.parse (review #349 I1): cloud MySQL emits a
+    // NAIVE-UTC string that bare Date.parse reads as local time — this
+    // elapsed anchor would be off by the viewer's UTC offset the day a UI
+    // starts rendering it.
+    const startedMs = parseBackendTs(raw.started_at as string | null | undefined);
     return {
       ...INITIAL,
       status: 'live',
@@ -336,11 +368,34 @@ export function useRunObservation(
           user_id: userId,
           token: token || undefined,
         }));
+        // Self-healing full pull (spec artifact-events §3.3): any events
+        // missed while the socket was down are made irrelevant by re-pulling
+        // the panel's list on every (re)connect. Fire-and-forget — a failed
+        // refresh just leaves the panel one open/switch away from healing.
+        const activeAgentId = useArtifactStore.getState().activeAgentId;
+        if (activeAgentId) {
+          void useArtifactStore
+        .getState()
+        .loadPinned(activeAgentId)
+        .catch((e) => {
+          // Loud, never fatal (same discipline as applyEvent's catch): a
+          // failed full-pull means the panel may lag — worth a trace, not
+          // an unhandled rejection on every reconnect blip (#334 I13).
+          console.warn('artifact panel refresh on reconnect failed', e);
+        });
+        }
       };
       ws.onmessage = (event) => {
         try {
           const raw = JSON.parse(event.data) as Record<string, unknown>;
           if (raw.type === 'heartbeat') return;
+          if (raw.type === 'artifact_changed') {
+            // Artifact registry events feed the artifact store, not the run
+            // timeline reducer — the tab panel is their UI, not the chat.
+            routeArtifactEvent(raw);
+            attempts = 0; // a live frame all the same — reset the backoff ladder
+            return;
+          }
           if (raw.type === 'error') {
             // Protocol-terminal errors (the server closes right after
             // these): stop the ladder AND settle the snapshot so the

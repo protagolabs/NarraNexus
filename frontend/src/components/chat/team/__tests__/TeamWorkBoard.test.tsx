@@ -46,11 +46,11 @@ function board(over: Record<string, unknown> = {}) {
 }
 
 const LIVE = {
-  item_id: 'wi_1', title: 'OCR the scans', assignee_id: 'a2',
+  item_id: 'wi_1', kind: 'task', title: 'OCR the scans', assignee_id: 'a2',
   assignee_name: 'Bruno', status: 'in_progress',
 };
 const PARKED = {
-  item_id: 'wi_2', title: 'draft summary', assignee_id: null,
+  item_id: 'wi_2', kind: 'task', title: 'draft summary', assignee_id: null,
   assignee_name: null, status: 'paused',
 };
 
@@ -114,6 +114,79 @@ describe('TeamWorkBoard', () => {
     await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_2'));
     // Refetched, so the row reflects its new state rather than a local guess.
     await waitFor(() => expect(getBoardMock.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  test('a hand-off card shows sender → recipients, not the message text', async () => {
+    const HANDOFF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'in_progress',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [HANDOFF] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    // Sender and both recipients are on one card.
+    const card = await screen.findByTestId('work-item-msg_x');
+    expect(card.textContent).toContain('Ada');
+    expect(card.textContent).toContain('Bruno');
+    expect(card.textContent).toContain('Cara');
+    // The "awaiting reply" label, not a status pretending someone spoke.
+    expect(card.textContent).toContain('chat.team.board.awaitingReply');
+  });
+
+  test('resuming a paused hand-off resumes every parked row', async () => {
+    const PARKED_HANDOFF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'paused',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'], paused_item_ids: ['wi_1', 'wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [PARKED_HANDOFF] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('work-resume-msg_x'));
+
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_1'));
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_2'));
+  });
+
+  test('a half-paused hand-off still offers resume, and only for the parked row', async () => {
+    // Aggregate status is in_progress (one row still active), but a parked row
+    // remains — the card must not lose its resume button, and must resume only
+    // the parked id, not the live one.
+    const HALF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'in_progress',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'], paused_item_ids: ['wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [HALF] }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('work-resume-msg_x'));
+
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_2'));
+    expect(resumeMock).not.toHaveBeenCalledWith('t1', 'wi_1');
+  });
+
+  test('a resume that fails on one row keeps the card resumable', async () => {
+    // One row rejects; `allSettled` still attempts the rest, and because the
+    // failed row is re-reported as paused, its resume affordance survives.
+    const HANDOFF = {
+      item_id: 'msg_x', kind: 'handoff', title: '', status: 'paused',
+      source_name: 'Ada', assignee_names: ['Bruno', 'Cara'],
+      item_ids: ['wi_1', 'wi_2'], paused_item_ids: ['wi_1', 'wi_2'],
+    };
+    getBoardMock.mockResolvedValue(board({ items: [HANDOFF] }));
+    resumeMock.mockImplementation((_t: string, id: string) =>
+      id === 'wi_2' ? Promise.reject(new Error('nope')) : Promise.resolve({ success: true }),
+    );
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+
+    fireEvent.click(await screen.findByTestId('work-resume-msg_x'));
+
+    // Both attempted despite one failing, and the button is still there.
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_1'));
+    await waitFor(() => expect(resumeMock).toHaveBeenCalledWith('t1', 'wi_2'));
+    expect(await screen.findByTestId('work-resume-msg_x')).toBeTruthy();
   });
 
   test('patrol trace: never swept', async () => {

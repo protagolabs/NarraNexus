@@ -55,6 +55,13 @@ NON_TRANSACTING_USER_STATUSES: frozenset[str] = frozenset(
 
 # ===== Social Network Entity =====
 
+#: Column width of `social_network_entities.entity_name` on MySQL
+#: (VARCHAR(255); TEXT on SQLite). Writers that persist a caller-controlled
+#: name truncate to this so an over-long value cannot fail the write with a
+#: 1406 on MySQL. Mirrors the DDL in `utils/db/schema_registry.py`.
+ENTITY_NAME_MAX_LEN = 255
+
+
 class SocialNetworkEntity(BaseModel):
     """
     Social Network Entity data model
@@ -308,7 +315,8 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
     Args:
         agent: the entity as currently stored.
         field: column name (``agent_name`` / ``agent_description`` /
-            ``is_public``).
+            ``is_public`` / ``created_by``). Closed set — anything else raises,
+            so adding one is a deliberate act with a comparison chosen for it.
         wanted: the value the caller asked for.
 
     Returns:
@@ -318,6 +326,22 @@ def agent_field_matches(agent: "Agent", field: str, wanted: object) -> bool:
         # The column is TINYINT on MySQL and INTEGER on SQLite, and
         # ``_row_to_entity`` may hand back either a bool or an int.
         return bool(agent.is_public) == bool(wanted)
+    if field == "created_by":
+        if not isinstance(wanted, (str, type(None))):
+            # The closed-set discipline this predicate is built on has no
+            # exceptions: a non-str would compare unequal instead of raising,
+            # forcing a write of a wrong-typed owner id. Same refusal the text
+            # branch makes below, made here because this branch returns first.
+            raise TypeError(
+                f"agent_field_matches: created_by expects str, got "
+                f"{type(wanted).__name__}"
+            )
+        # Owner id, compared byte-for-byte. Deliberately NOT run through
+        # normalize_agent_text like the display-text fields: that helper strips
+        # prose written for humans, and quietly reshaping an identifier used as
+        # a lookup key is how a row ends up owned by a user id nothing else
+        # resolves. An id either is the same id or it is not.
+        return (agent.created_by or "") == (wanted or "")
     if field not in AGENT_TEXT_FIELDS:
         # Explicitly dispatched, never "whatever getattr returns": an
         # unlisted field would otherwise compare as text and — for the ones

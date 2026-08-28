@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/services/service_audit.py
-last_verified: 2026-08-17
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `_emit` / `event` 报告成败（仍然永不抛）
+
+`_emit` 一直吞掉异常——这条不变，观察者不能打断被观察者，所有调用方都靠它。
+但吞掉异常**顺带吞掉了结果**：调用方分不清「写进去了」和「DB 当时是挂的」。
+
+对绝大多数调用方无所谓（心跳、生命周期事件写不进去就算了）。对**据「写成功」
+缓存了一个决定**的调用方是致命的：[[step_3_agent_loop.py]] 的 DM 兜底审计要
+「同一个对话每窗只记一行」，它按「`event()` 没抛异常」来 arm 冷却——于是 DB
+抖一下，那个对话接下来整个窗口都不再尝试写审计行，哪怕 DB 两秒后就好了。而
+这条审计存在的唯一理由就是「日志会轮转、DB 行不会」。
+
+所以 `_emit` / `event` 返回 `bool`。`started` / `stopped` / `error` /
+`heartbeat` 的调用方忽略返回值，签名不变。
+
+**别把这理解成「可以抛了」**——返回 False 就是它报告失败的全部方式。
+
+**这条链上每一环都吞自己的异常，所以「没抛」在每一环都恒真。** 第一版
+`_emit` 只是 `await repo.record(...)` 然后 `return True`，而
+[[service_audit_repository]] 的 `record()` **自己就 catch 了 insert 异常**
+——于是「landed write」这个说法只覆盖了「拿不到 db handle」，插入失败照样报
+成功，上面那个冷却还是会在 DB 故障时被 arm。现在 `record()` 也返回 `bool`，
+`_emit` 直接把它透传出去。
+
+判据：这个性质必须能在**真实仓储**上验证，不能只在假货上。链级覆盖在
+`tests/services/test_service_audit_write_outcome.py`——它拿一个 insert 会抛
+的 db handle 驱动真的 `ServiceAuditRepository`。
+
+## 2026-08-21 — 公开 `event(event_type, detail)`
+
+之前公开面只有 `started/stopped/error/heartbeat`,任意事件名要调私有 `_emit`。
+[[_message_bus_mcp_tools.py]] 记 `inbox_write_failed` 需要一个生命周期之外的事件名,
+故加公开 `event()` 一行委托 `_emit`,让调用方别再碰私有符号(私有符号可被合法重命名,
+调用方会静默失去审计行)。与其余入口一样**永不抛**。
 
 ## 2026-08-17 — `_last_heartbeat_at` 初值改为 `-inf`
 

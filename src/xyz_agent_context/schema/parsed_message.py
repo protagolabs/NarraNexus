@@ -35,6 +35,12 @@ class MessageContentType(str, Enum):
     LOCATION = "location"
 
 
+#: Placeholder when a channel event carries no sender display name. Consumers
+#: that must NOT treat it as a real name (e.g. reach recording, which would else
+#: write "Unknown" as an entity's name) compare against this constant.
+UNKNOWN_SENDER_NAME = "Unknown"
+
+
 class ChatType(str, Enum):
     """Coarse chat-room classification — channel-agnostic."""
     PRIVATE = "private"          # 1:1 DM
@@ -55,7 +61,7 @@ class ParsedMessage:
     message_id: str
     chat_id: str
     sender_id: str
-    sender_name: str = "Unknown"
+    sender_name: str = UNKNOWN_SENDER_NAME
     content: str = ""
     content_type: MessageContentType = MessageContentType.TEXT
     chat_type: ChatType = ChatType.PRIVATE

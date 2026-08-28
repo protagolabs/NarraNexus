@@ -10,6 +10,7 @@ import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
 import { isAuthErrorMessage, reportWsAuthFailure } from './wsAuthError';
+import { parseBackendTs } from '@/lib/backendTs';
 import {
   circuitOpenReason,
   dispatchAgentCircuitOpen,
@@ -28,6 +29,10 @@ interface ConnectionEntry {
   userId?: string;
   agentName?: string;
   onComplete?: OnCompleteCallback;
+  // Whether this run can accept a mid-run steer (from run_started.steerable).
+  // Gates the steer() send + the placeholder. Set on run_started; a completed
+  // run is never steerable (steer()/isSteerable() also check `completed`).
+  steerable?: boolean;
 }
 
 type OnCompleteCallback = (agentId: string) => void;
@@ -161,6 +166,7 @@ class WebSocketManager {
         // the backoff counter — this connection reached the server fine.
         if (message.type === 'run_started' && message.run_id) {
           entry.runId = message.run_id;
+          entry.steerable = message.steerable === true;
           this.reconnectAttempts.delete(agentId);
         }
 
@@ -395,7 +401,10 @@ class WebSocketManager {
               (!!last && last.role === 'user' && !last.event_id && last.content === inputContent);
             if (!alreadyInSession) {
               const tsStr = raw.input_timestamp as string | null | undefined;
-              const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+              // parseBackendTs, not Date.parse: a naive-UTC string read as
+              // local time shifts this bubble by the viewer's UTC offset and
+              // mis-sorts it against history (review #349 I1).
+              const tsMs = parseBackendTs(tsStr);
               store().addUserMessage(
                 agentId,
                 inputContent,
@@ -414,6 +423,22 @@ class WebSocketManager {
           // reconnect protocol absorbs `run_reconnect` before processMessage
           // (translateReconnectFrame returns null), so we set it here.
           store().setCurrentRunId(agentId, runId);
+          // Resume badge (Shenzhen-r2 B1): the replay that follows renders
+          // the whole run from seq 0 — without an anchor to the run's REAL
+          // start, a refresh mid-run reads as "it started generating again
+          // from scratch". ONLY for a run that is still running (review
+          // #349 I2): the backend sends run_reconnect for ANY attachable
+          // run and the already-finished case is the COMMON one — badging
+          // its replay "resumed · running for N min" would be the same
+          // misread in the opposite direction. `state === 'running'` is
+          // verbatim the backend's own branch condition (anything else
+          // gets a run_ended right after the replay).
+          const startedMs = parseBackendTs(
+            raw.started_at as string | null | undefined,
+          );
+          if (raw.state === 'running' && Number.isFinite(startedMs)) {
+            store().markResumedRun(agentId, runId, startedMs);
+          }
         }
 
         // Honor terminal lifecycle frames BEFORE the translate/early-return
@@ -479,6 +504,42 @@ class WebSocketManager {
     if (entry && entry.ws.readyState === WebSocket.OPEN) {
       entry.ws.send(JSON.stringify({ action: 'stop' }));
     }
+  }
+
+  /**
+   * Send a mid-run follow-up ("steer") over the live run's socket so it folds
+   * into the SAME turn instead of starting a fresh run. Returns true if it was
+   * actually sent (an open, steerable, not-yet-completed run existed); false
+   * otherwise — the caller must handle a false itself (ChatPanel marks the
+   * optimistic bubble rejected). It does NOT fall back to a fresh run: that
+   * would `close()` the live socket and abort the very run the user is trying
+   * to add to. The backend acks with steer_queued / steer_rejected, then
+   * steer_consumed once the run reads it.
+   */
+  steer(agentId: string, inputContent: string, clientMsgId: string): boolean {
+    if (MOCK_ENABLED) return false;
+    const entry = this.connections.get(agentId);
+    if (
+      !entry ||
+      !entry.steerable ||
+      entry.completed ||
+      entry.ws.readyState !== WebSocket.OPEN
+    ) {
+      return false;
+    }
+    entry.ws.send(JSON.stringify({
+      action: 'steer',
+      input_content: inputContent,
+      client_msg_id: clientMsgId,
+    }));
+    return true;
+  }
+
+  /** Whether the agent's live run can accept a mid-run steer (run_started said
+   *  so AND the run has not completed — a finished run can't drain a steer). */
+  isSteerable(agentId: string): boolean {
+    const entry = this.connections.get(agentId);
+    return entry?.steerable === true && !entry.completed;
   }
 
   /** Close a specific agent's connection */
@@ -623,7 +684,13 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
       return {
         type: 'progress',
         timestamp: Date.now(),
-        step: (p?.step as string) ?? '3.4',
+        // Fallback only when a replayed tool frame lacks its own step id.
+        // Must NOT be the bare run-agent phase id '3.4' — that would upsert
+        // onto the real run-agent phase row (chatStore/useRunObservation key
+        // by step id). A '3.4.x'-shaped sub-step id parseFloats to 3.4 (loop
+        // logic unchanged) but is excluded from PHASE_STEP_IDS, so it renders
+        // as a tool row, never a phase row.
+        step: (p?.step as string) ?? '3.4.replay',
         title: (p?.title as string) ?? 'Tool call',
         description: 'Executing...',
         status: 'running',
@@ -640,7 +707,13 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
       return {
         type: 'progress',
         timestamp: Date.now(),
-        step: (p?.step as string) ?? '3.4',
+        // Fallback only when a replayed tool frame lacks its own step id.
+        // Must NOT be the bare run-agent phase id '3.4' — that would upsert
+        // onto the real run-agent phase row (chatStore/useRunObservation key
+        // by step id). A '3.4.x'-shaped sub-step id parseFloats to 3.4 (loop
+        // logic unchanged) but is excluded from PHASE_STEP_IDS, so it renders
+        // as a tool row, never a phase row.
+        step: (p?.step as string) ?? '3.4.replay',
         title: (p?.title as string) ?? 'Tool output',
         description: '✓ Execution completed',
         status: 'completed',

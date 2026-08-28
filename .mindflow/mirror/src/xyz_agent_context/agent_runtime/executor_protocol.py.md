@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — `run_id`(可选,可控 run 句柄)+ `build_steer_request`
+
+`build_agent_loop_request` 加可选 `run_id`:给了就把这轮标成**可控**,是后续 `POST /steer` 找到本 run 在飞 inbound 队列的关联句柄。**安全**:`run_id` 必须不可猜(调用方用 `secrets.token_hex`)——`/steer` 与 `/agent-loop` 一样无鉴权,不可猜的句柄正是「body 只命名调用方已持有的资源」这条(模块 docstring 守的)性质的延续,挡住直接调用方往别的租户在飞 turn 里注入。`None`(缺省)= 非可控 run,**省略该键**(非 null),旧 executor 读不到也不受影响。新增 `build_steer_request(run_id, steer_msg)`:`/steer` 的 body = runner 已认识的 `{"steer": <provider msg>}` 帧 + `run_id`;`steer_msg` 可带私有 `STEER_ID_KEY`(消费上报用,executor inlet 在模型看到前剥掉)。见 [[executor_service.py]] / [[remote_driver.py]]。
 
 ## 2026-08-19 — origin_declaration 进白名单 body（§6 在云端生效）
 

@@ -34,7 +34,9 @@ import {
   LiveCursorRow,
   LiveDot,
   PHASE_LABEL_KEYS,
+  PHASE_STEP_IDS,
   PhaseRow,
+  phaseSettled,
   ProcessEventRows,
 } from '../process/processShared';
 import { TurnTimeline } from '../TurnTimeline';
@@ -158,10 +160,11 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     return undefined;
   }, [observation.events]);
 
-  // Tool sub-steps are already tool rows — repeating them as phases
-  // would double every call (same rule ProcessPanel applies).
+  // Only the whitelisted top-level phases (same rule ProcessPanel applies):
+  // tool sub-steps are already tool rows, and housekeeping/echo steps aren't
+  // phases — this also keeps raw English backend titles out of the panel.
   const phases = useMemo(
-    () => observation.steps.filter((s) => !s.step.startsWith('3.4')),
+    () => observation.steps.filter((s) => PHASE_STEP_IDS.has(s.step)),
     [observation.steps],
   );
 
@@ -228,14 +231,13 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
       <>
         {phases.map((phase) => {
           const key = PHASE_LABEL_KEYS[phase.step];
-          const settledPhase =
-            phase.status === 'completed' ||
-            phases.some((s) => parseFloat(s.step) > parseFloat(phase.step)) ||
-            (processEvents.length > 0 && parseFloat(phase.step) < 3.4);
+          // Shared settled rule, fed the UNFILTERED observation.steps (not the
+          // whitelisted `phases`) so "a later phase started" can see run-agent
+          // / housekeeping ids the whitelist drops — same as ProcessPanel.
           return (
             <PhaseRow
               key={phase.step}
-              done={settledPhase}
+              done={phaseSettled(phase, observation.steps, processEvents.length > 0)}
               label={key ? t(key) : phase.title}
             />
           );

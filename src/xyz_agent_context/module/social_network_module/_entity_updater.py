@@ -22,6 +22,26 @@ Contains:
 `DEDUP_SIMILARITY_THRESHOLD` / `DEDUP_TOP_K` constants together with
 the semantic-search chain (Owner spec). Mentioned-entity dedup now
 relies on Stage 1 (name/alias exact match) + LLM disambiguation only.
+
+2026-08-24 — failures here stop being silent. Every function below used
+to catch, log, and return an empty-ish value, which the caller could not
+tell apart from a legitimately empty RESULT: `summarize_new_entity_info`
+returning "" meant either "the LLM found nothing worth remembering" or
+"the LLM is dead", and the caller skipped the write either way. So a
+broken helper-LLM key degraded long memory with no owner-facing signal
+at all — and "this sender's profile is permanently blank" is exactly why
+the agent in the 8/14 ping-pong incident could not notice it had met
+this peer 60,000 times before.
+
+Two fixes, applied to all eight handlers:
+  - Failure is now DISTINGUISHABLE from emptiness. The two functions
+    whose empty value was ambiguous return `None` on failure (binding
+    rule #2 — the signature just changes, no compatibility shim).
+  - Failure is now REPORTED. LLM call sites route to
+    `alert_background_llm_failure` (whose docstring already listed
+    `entity_summary` as an intended source — the hole was dug, never
+    wired); DB write sites leave a `service_audit` error row, since a
+    failed UPDATE is not something an owner can fix by rotating a key.
 """
 
 import re
@@ -30,8 +50,18 @@ from typing import List, Optional
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from xyz_agent_context.agent_framework.llm.failure import redact_secrets
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity
+from xyz_agent_context.repository import (
+    AgentRepository,
+    SocialNetworkRepository,
+    SocialNetworkEntity,
+)
+from xyz_agent_context.services.background_llm_alerts import (
+    alert_background_llm_failure,
+)
+from xyz_agent_context.services.service_audit import ServiceAuditor
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.module.social_network_module.prompts import (
     ENTITY_SUMMARY_INSTRUCTIONS,
     DESCRIPTION_COMPRESSION_INSTRUCTIONS,
@@ -127,6 +157,104 @@ _ID_LIKE_PATTERNS = (
 _MIN_CONFIDENCE = 0.5
 _MAX_NAME_LENGTH = 80
 
+# Name the social-network memory plane records DB failures under.
+_MEMORY_AUDIT_SERVICE = "social_network_memory"
+
+
+async def _report_llm_failure(
+    *, source: str, error: Exception, agent_id: str, source_id: str = ""
+) -> None:
+    """Route an LLM failure in this file to the background-failure surface.
+
+    ``alert_background_llm_failure`` needs the OWNER to send its inbox
+    notice, and nothing on this path carries one — the hook runs detached,
+    several layers below where the owner was resolved.
+
+    Ownership is resolved through ``AgentRepository.resolve_owner`` — the
+    ONE answer to "who owns this agent". A hand-rolled
+    ``get_one("agents", ...)`` here (the first version of this function)
+    would be the fourth private copy of that lookup, which is exactly the
+    drift PR #258 collapsed; ``backend/routes/channels/wechat.py`` carries
+    an explicit prohibition against it.
+
+    ``resolve_owner`` distinguishes ``""`` (unknown agent) from ``None``
+    (the lookup itself failed) and both are falsy, so the alert's
+    "notify only when the owner is known" behaviour is unchanged — do not
+    collapse them with ``or ""``.
+
+    Best-effort throughout: an observer must never break the observed.
+    ``alert_background_llm_failure`` never raises on its own, but the DB
+    handle for the owner lookup can, so that call stays wrapped. The audit
+    tier inside the alert fires even when the owner is unknown, so a failed
+    lookup still leaves a SQL-able trace.
+    """
+    owner_user_id = None
+    if agent_id:
+        try:
+            owner_user_id = await AgentRepository(
+                await get_db_client()
+            ).resolve_owner(agent_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[social-memory] owner lookup failed: {e}")
+    await alert_background_llm_failure(
+        agent_id=agent_id,
+        owner_user_id=owner_user_id,
+        source=source,
+        error=error,
+        source_id=source_id,
+    )
+
+
+async def _report_write_failure(
+    *,
+    operation: str,
+    error: Exception,
+    entity_id: str,
+    instance_id: str,
+    agent_id: str = "",
+) -> None:
+    """A failed DB write leaves an audit row, not an owner notice.
+
+    Deliberately a different surface from the LLM failures above: a broken
+    UPDATE is our bug or an infrastructure problem, not something the
+    owner fixes by rotating a key, so paging them would be alarm fatigue.
+    But it must still be answerable weeks later — "the profile stopped
+    updating on the 14th" needs a row, not a rotated log file (lesson #5).
+
+    ``agent_id`` is optional here, unlike the required ``agent_id`` on the
+    functions above, and the asymmetry is deliberate: there it prevents a
+    silent degradation (a missing owner means the alert never reaches a
+    human), here it only makes the audit row easier to query.
+
+    Three of the five call sites pass it today
+    (``append_to_entity_description`` plus the two in
+    ``social_network_module``). The other two —
+    ``update_interaction_stats`` and ``update_entity_persona`` — simply
+    have not threaded it down yet; their caller does have one. That is a
+    to-do, not a property of those call sites.
+
+    ``redact_secrets`` matches what ``background_llm_alerts`` does before
+    every audit write — one redaction policy per audit table, not two.
+
+    ``ServiceAuditor.error`` never raises, so this needs no wrapper.
+    """
+    await ServiceAuditor(_MEMORY_AUDIT_SERVICE).error(
+        {
+            "operation": operation,
+            "agent_id": agent_id,
+            "entity_id": entity_id,
+            "instance_id": instance_id,
+            # Class name kept INSIDE the redaction, not dropped: for a DB
+            # failure ``OperationalError`` (lock/timeout) and
+            # ``IntegrityError`` (unique clash) call for different
+            # responses, and some exceptions — ``asyncio.TimeoutError()``
+            # — stringify to "", which would file an audit row saying only
+            # that something failed. ``redact_secrets`` still covers the
+            # whole string.
+            "error": redact_secrets(f"{type(error).__name__}: {error}"),
+        }
+    )
+
 
 def is_meaningful_entity(entity: ExtractedEntity) -> bool:
     """
@@ -167,6 +295,8 @@ async def decide_merge_or_create(
     candidate_summary: str,
     candidate_aliases: List[str],
     existing_entities: List[SocialNetworkEntity],
+    *,
+    agent_id: str,
 ) -> tuple[str, Optional[SocialNetworkEntity]]:
     """
     Use LLM to decide if a candidate entity matches any of the existing entities.
@@ -240,7 +370,15 @@ Does the candidate match any existing entity? If yes, return MERGE with the inde
         return "CREATE_NEW", None
 
     except Exception as e:
+        # Defaulting to CREATE_NEW is the right SHAPE of failure (a
+        # duplicate node beats losing the entity), but it is not free —
+        # every failure forks the graph, so a dead key quietly shreds the
+        # social network into near-duplicates. Report it.
         logger.warning(f"            Dedup LLM call failed, defaulting to CREATE_NEW: {e}")
+        await _report_llm_failure(
+            source="entity_dedup", error=e, agent_id=agent_id,
+            source_id=candidate_name,
+        )
         return "CREATE_NEW", None
 
 
@@ -342,19 +480,35 @@ Extract all OTHER social entities mentioned:"""
         return filtered
 
     except Exception as e:
+        # "Non-critical" is true per-turn and false in aggregate: every
+        # failure silently drops every entity this conversation mentioned.
         logger.warning(f"Batch entity extraction failed (non-critical): {e}")
+        await _report_llm_failure(
+            source="entity_extraction", error=e, agent_id=agent_id
+        )
         return []
 
 
 # ── Entity Description Pipeline ─────────────────────────────────────────────
 
 
-async def summarize_new_entity_info(input_content: str, final_output: str) -> str:
+async def summarize_new_entity_info(
+    input_content: str, final_output: str, *, agent_id: str
+) -> Optional[str]:
     """
     Call LLM to summarize key points of a conversation round.
 
     Returns:
-        Short summary of conversation key points, or empty string if no significant info.
+        Short summary of the round's key points;
+        ``""`` when the LLM ran fine and found nothing worth remembering;
+        ``None`` when the call FAILED.
+
+    The ""-vs-None split is the whole point of this signature. Both used
+    to be "", so the caller's `if new_summary:` skipped the description
+    write identically for "nothing new happened" and "our LLM is dead" —
+    and long memory degraded with no signal for two weeks the last time
+    that happened. Callers that treat None like "" still behave as
+    before; the difference is that the failure is now REPORTED.
     """
     try:
         user_input = f"""User: {input_content}
@@ -375,7 +529,10 @@ Summary (one line only):"""
 
     except Exception as e:
         logger.exception(f"Error summarizing entity info: {e}")
-        return ""
+        await _report_llm_failure(
+            source="entity_summary", error=e, agent_id=agent_id
+        )
+        return None
 
 
 async def append_to_entity_description(
@@ -383,6 +540,8 @@ async def append_to_entity_description(
     entity_id: str,
     instance_id: str,
     new_info: str,
+    *,
+    agent_id: str,
 ) -> None:
     """
     Append information to entity_description (cumulative, not overwriting).
@@ -399,7 +558,9 @@ async def append_to_entity_description(
 
         if len(new_description) > 2000:
             logger.info(f"Description too long ({len(new_description)} chars), compressing...")
-            new_description = await compress_description(new_description)
+            new_description = await compress_description(
+                new_description, agent_id=agent_id
+            )
 
         await repo.update_entity_info(
             entity_id=entity_id,
@@ -410,6 +571,10 @@ async def append_to_entity_description(
 
     except Exception as e:
         logger.exception(f"Error appending to entity_description: {e}")
+        await _report_write_failure(
+            operation="append_to_entity_description", error=e,
+            entity_id=entity_id, instance_id=instance_id, agent_id=agent_id,
+        )
 
 
 # 2026-05-27: `update_entity_embedding` was removed together with the
@@ -418,8 +583,14 @@ async def append_to_entity_description(
 # over name / description / tags / aliases.
 
 
-async def compress_description(long_description: str) -> str:
-    """Compress overly long description via LLM re-summarization."""
+async def compress_description(long_description: str, *, agent_id: str) -> str:
+    """Compress overly long description via LLM re-summarization.
+
+    Falls back to a hard truncation when the LLM is unavailable. That
+    keeps the write moving (better a clipped description than none), but
+    it silently loses whatever was past the cut — so the failure is
+    reported even though the return value looks successful.
+    """
     try:
         user_input = f"""{long_description}
 
@@ -436,6 +607,9 @@ Compressed summary:"""
 
     except Exception as e:
         logger.exception(f"Error compressing description: {e}")
+        await _report_llm_failure(
+            source="description_compression", error=e, agent_id=agent_id
+        )
         return long_description[:1000] + "..."
 
 
@@ -444,11 +618,21 @@ async def update_interaction_stats(
     entity_id: str,
     instance_id: str,
 ) -> None:
-    """Increment interaction counter and update last_interaction_time."""
+    """Increment interaction counter and update last_interaction_time.
+
+    Not cosmetic: ``should_update_persona`` fires every N interactions, so
+    a counter that silently stops incrementing also silently stops persona
+    refreshes — one swallowed exception disabling a second feature is
+    exactly the compounding this file's 2026-08-24 pass is about.
+    """
     try:
         await repo.increment_interaction(entity_id=entity_id, instance_id=instance_id)
     except Exception as e:
         logger.exception(f"Error updating interaction stats: {e}")
+        await _report_write_failure(
+            operation="update_interaction_stats", error=e,
+            entity_id=entity_id, instance_id=instance_id,
+        )
 
 
 # ── Persona Pipeline ─────────────────────────────────────────────────────────
@@ -487,12 +671,20 @@ async def infer_persona(
     awareness: str = "",
     job_info: str = "",
     recent_conversation: str = "",
-) -> str:
+    *,
+    agent_id: str,
+) -> Optional[str]:
     """
     Infer Persona using LLM.
 
     Returns:
-        Inferred persona description, or existing persona on failure.
+        The inferred persona description, or ``None`` if the call FAILED.
+
+    Failure used to return ``entity.persona`` — the current value — which
+    the caller then wrote straight back. A no-op write is indistinguishable
+    from a successful refresh, so a dead LLM looked exactly like a persona
+    that simply was not changing. Returning None lets the caller skip the
+    write and lets the failure be reported.
     """
     try:
         entity_context = f"""Contact Information:
@@ -530,12 +722,21 @@ async def infer_persona(
             logger.info(f"            Persona inferred: {persona[:50]}...")
             return persona
         else:
+            # "" = the call worked and produced nothing to change. NOT
+            # ``entity.persona``: writing the current value back looks
+            # exactly like a successful refresh to the caller and to the
+            # log, which is the same false-success this pass exists to
+            # end — it was only half-fixed while this branch survived.
             logger.warning("            LLM returned empty persona")
-            return entity.persona or ""
+            return ""
 
     except Exception as e:
         logger.exception(f"            Error inferring persona: {e}")
-        return entity.persona or ""
+        await _report_llm_failure(
+            source="persona_inference", error=e, agent_id=agent_id,
+            source_id=entity.entity_id or "",
+        )
+        return None
 
 
 async def update_entity_persona(
@@ -554,3 +755,7 @@ async def update_entity_persona(
         logger.info("            Entity persona updated")
     except Exception as e:
         logger.exception(f"            Error updating persona: {e}")
+        await _report_write_failure(
+            operation="update_entity_persona", error=e,
+            entity_id=entity_id, instance_id=instance_id,
+        )

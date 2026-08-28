@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/prompts/library.py
-last_verified: 2026-08-18
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24（补)— wait_timed_out 超时提示
+
+`wait_timed_out(seconds)`:`wait_for_input` 等满 N 秒无消息时,loop WAIT 边界注入的提示。告诉 agent 等待已结束、收尾即可(别以为还在等),并**点名**可"再等一次"的替代但不推它——让真闲的轮收口而非空转。措辞与工具 description 对齐(只在真有回复将至时再等)。
 
 ## 2026-08-13（管线审后）— reminder 撤回「ONE call」与 VOICE 多段契约的冲突
 

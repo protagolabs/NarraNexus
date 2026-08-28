@@ -1,8 +1,228 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-18
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-26 — step 3 拆成「构建上下文」与「运行 Agent」两个相位
+
+原来 3.1/3.2/3.3/3.4 全部 `yield` 同一条 `step="3", title="Execute
+Agent Loop"`。问题：这条在 3.1 之前就发，此刻 context 还没建、messages
+还没抽、LLM 一个字没吐，用户却看到"进入 agent loop"——名字**超前**。
+而且 3.1~3.4 共用一条相位行，"还在准备"和"真在跑 LLM"无法区分。
+
+现在拆两相位（常量定义在叶子 schema 模块 [[runtime_message]]，本文件
+import；这样 [[run_recorder]] 能从同一份常量派生 `current_stage` 而不触发
+循环 import —— 本包 `__init__` 会 eager import 本文件）：
+- `PHASE_BUILD_CONTEXT`（step `"3"`, title `"Build Context"`）——3.1/3.2/3.3
+  的上下文组装。
+- `PHASE_RUN_AGENT`（step `"3.4"`, title `"Run Agent"`）——3.4 起 LLM 真正
+  运行，这才是诚实的"进入 loop"标记。loop 结束时发 `3.4` 自身 COMPLETED
+  落定该行（原来发的是 `step="3"` "Agent Loop Complete"）。
+
+前端 [[processShared]] 的 `PHASE_STEP_IDS`/`PHASE_LABEL_KEYS` 白名单这两个
+step id，工具子步继续以 `{PHASE_RUN_AGENT_STEP}.{n}`（`3.4.x`）嵌在
+run-agent 相位下（response_processor 侧）；[[run_recorder]] 在 tool_call
+上盖同一 derived 标签 `step.3.4_Run Agent`，保 `current_stage` 一致。
+契约测试见 `test_step3_splits_build_context_from_run_agent_phase`。
+## 2026-08-26 — DM 兜底加两道前置门
+
+`no_reply_im_dm` 在 agent 没调回复工具时用 helper LLM **替它编一条回复发
+出去**，此前只问「有没有调过回复工具」。8/14 事故里它没上场，但换个剧本
+它自己就是一台乒乓引擎——**每条兜底落到对面都是一条新的入站消息**。
+
+- **`agent_peer_no_fallback`**：对端是 agent 一律不编。`message_bus` 从一
+  开始就有这条排除（「不能替 agent 回答 peer agent」），但 A2A 对话也走 IM
+  渠道，那条路上这个排除从来没生效过。信号来自
+  [[channel_tag.py]] 的 `is_agent_peer`。
+- **`fallback_rate_limited`**：同一对话近期兜底次数超限则停止武装。兜底是
+  为**疏忽**准备的（本想回、忘了调工具），而疏忽是偶发的。
+
+**两个 reason 的检查顺序在 `has_reply` / `has_fatal` 之后**：报告要说最具体
+的那个——对端是 agent 但这轮已经有机回复过，应该报
+`already_replied_via_tool`（实际发生的事），不是我们本来也会拒绝的事。
+
+**限流键含 `agent_id`**：这张 map 是模块级、被进程内所有 agent 共享。今天
+限流只在 DM 生效（房间里只有我方一个 agent，`room_id` 天然不撞），但那是
+调用方的性质不是键的性质。**在投递成功时才计数**——渠道没发出去的兜底没有
+落到对面，不该花掉这个对话的额度。
+
+### 阈值从 3 改到 20（review 后的明确表态）
+
+第一版 3 次/10 分钟**落在人类区间里**：一个人对着一个系统性忘记调回复工具的
+弱模型（铁律 #15 说那是用户的选择，平台不修），一次正常往返就打满，然后
+**完全收不到回应**——0802 的症状，而且比原版更难查（前几条有回、后面没了，
+看起来像模型时好时坏）。
+
+机器那一侧可验算：那次循环 ~6.6 万条 / ~70 小时 ≈ 每 4 秒一条，突发更快，
+即**每十分钟 100+ 条**。
+
+**人类那一侧我算错过一次，值得记下来。** 第二版定 20 时写的理由是「人类
+十分钟内只有个位数」——这个前提在 IM 上不成立：计数器数的是**模型没调回复
+工具的轮次**，而人在 IM 上习惯把一次表达拆成三五条连发，Lark 和 Matrix 的
+`DEBOUNCE_WINDOW_MS = 0`（不合并），那就是三五个独立的轮次。20 折算下来是
+每 30 秒一条 = 五轮对话每轮连发四条，属于活跃对话的常态。
+
+**我把一个假设写成了结论**，而下一个来调这个数的人会拿它当依据。
+
+第三版 50：每 12 秒一条、连续十分钟、且模型每次都失手——人在 IM 上够不到，
+而仍然只有机器循环速率的一半。现在每次命中都落审计行，这个数**下次可以按
+数据重定，而不是再估一次人类行为**。
+
+**为什么不选另外两条路**：
+- 「限流只对非人类对端生效」——`is_agent_peer` 在 6 个渠道里只有
+  NarraMessenger 答得出，其余恒 False。「非 agent 对端」实际等于全部，
+  gate 2 会变成几乎不可达的死代码，而恰恰是**答不出的那些渠道**才可能有
+  未被识别的机器对端。
+- 「命中时给 owner 发 ErrorMessage」——会改变用户可见的流、还要守
+  `_stream_fallback_recovery` 的 yield 顺序契约；而本系列刻意把 owner 通知面
+  推后了（见 PR#358 的范围决定）。审计行给出可诊断性，不带那份风险。
+
+### 审计行本身要限速（review 后补）
+
+`ServiceAuditor.event()` 不节流（被节流的是 `heartbeat()`），而这里的**写入
+速率由外部对端决定**——每条「模型没调回复工具」的入站 DM 都会写一行。按 8/14
+的形状算，一条被喂着的对话每十分钟约 130 行、约 1.9 万行/天，而
+`service_audit` **没有任何保留策略**（`ServiceAuditRepository` 只有 record /
+recent / last_heartbeat，没有 delete），现有基线只是几个 poller 的心跳。
+
+按 `(reason, 会话键)` 做 10 分钟冷却。**键必须含 reason**——两道门是两件不同
+的事，共用一个槽会让后发生的被前一件吃掉。冷却之所以不丢诊断力，靠的是行里带
+`suppressed_since_last_row`（下一段说明为什么 `window_count` 顶不上这个位）。
+**写失败不占冷却槽** —— 但这需要 `ServiceAuditor.event()` 报告成败：它
+**永不抛**（`_emit` 内部就吞了），所以第一版据「没抛异常」arm 冷却，实际是
+DB 抖一下这个对话整窗失声，而配套那条测试用一个**会抛的 fake** 钉绿了一个
+只有 fake 才具备的性质。`event()` 现在返回 bool（仍然不抛——观察者不能打断
+被观察者），冷却只在**落库成功**后 arm。
+
+**`window_count` 不是压制量**。它数的是窗口内**成功投递**数，所以对
+`agent_peer_no_fallback` 恒为 0（那道门拦在投递之前）、对
+`fallback_rate_limited` 恒等于上限。两个都是构造决定的常数。真正回答「这一
+窗压了多少」的是 `suppressed_since_last_row`：它的口径是**这一行代表多少轮
+压制**——所有行同一个口径，包括认不出会话身份那类（它就代表它自己那一轮，
+写 0 会让这个字段在那类行上重新变成结构性常数，也就是上面刚批过
+`window_count` 的那件事）。
+
+**账必须有出口，否则这些行答不了它们要答的问题。** 计数器本来只有一个出口：
+下一次压制、且冷却已过期时随行落库。而 gate 1 在 A2A 对话里每一轮必中，
+一次十来轮、几分钟结束的往返是**常态而非边角**——这种对话在冷却窗口里就结束
+了，第一轮落一行，其余全部挂在计数器上，随回收一起蒸发。按行求和会系统性
+偏低，且对话越短偏得越多，恰好在流量最大的形状上最不准。所以回收时
+`_prune_fallback_audit_state` 把还欠账的条目交出来，由
+`_settle_reclaimed_tallies` 补一行收尾。收尾行带 `final_tally` 标记——不带
+的话，按**行数**统计会把每个结束的对话多数一次压制，等于把同一个偏差调转
+方向再犯一次。
+
+收尾行**不 arm 冷却、写失败也不把账塞回 map**：条目已经出表，而一个安静了
+整个保留期的对话没有任何东西会再触发重试，塞回去只会造出「永远待结、永远
+被扫」的死循环。
+
+代价是**写失败的账不可恢复**，所以必须接住 `event()` 的返回值并把**数值**
+打进 warning——仓储层自己那行失败日志不带 `suppressed_since_last_row`，丢了
+多少轮连估都估不出来。第一版忽略了返回值，而 `event()` 永不抛，于是 docstring
+里承诺的那条 warning 在「写失败」这条路上根本不可达：**刚花一整轮加出来的
+信号，在新加的函数里又被扔了一次**。收尾函数的 `except` 只兜 auditor 构造
+失败，不兜写入失败。
+
+**收尾发生在本对话记账之前，这是承重顺序。** `owed` 是同一次调用里被 sweep
+pop 出来的，跳过收尾不是延后而是**彻底丢失**；而 gate 1 让繁忙 agent 的绝大
+多数回合都处在冷却态，所以「冷却早退」正是最常走的那条路。这条顺序由一条
+测试驱动（被冷却的回合仍须产出别人的收尾行），把 `await` 挪到 `return` 之后
+会红——加之前挪了是全绿的。放在最前面同时让「自增 → 冷却判定 → 扣账」重新
+是一整段同步代码。
+
+**收尾批量有上限**（`_FALLBACK_SETTLE_BATCH`）。同时到期的会话数由对端开了
+多少房间决定，写入是串行的——一个跟上千 peer 通信的 agent 安静一段后，会把
+上千次 insert 全压在某一个回合上。超限的条目**不 pop**，留给下一次 sweep
+继续排空；`pop` 完再塞回会刷新 `touched`、把保留期无限续期，正是剪枝要防的
+那件事。测试用「不推进时钟、下一次 sweep 必须立刻取走」来钉这一点——推进
+时钟的排空循环会把续期遮住（第一版就是，变异照样绿）。
+
+`final_tally` 在**两类行上都有**（正常行 `False`）。靠键的有无区分会让
+`JSON_EXTRACT` 对缺键返回 SQL NULL，一句想当然的 `-> '$.final_tally' = false`
+一行都筛不出来——而这些行的读者恰恰是不读源码的运维。同源理由：收尾行的
+`window_count` 写 `None` 而不是省略。
+
+**记账在 `await` 之前。** 冷却只在写入落库后才 arm，所以同一对话的两轮若在
+`await event()` 期间交错，两者都会看到未 arm 的冷却、各写一行。先把这一行要
+报的数从计数器上扣掉，每一行就只带没有被别人认领过的部分；扣在 `await`
+之后则第二行会把第一行已经报过的轮次再报一遍。写入没落库时原数加回。
+
+两张审计 map 的回收走**两条不同的时钟**，这不是疏忽：
+
+- 冷却槽按自己的窗口（600s）到期即删。
+- 计数器按**最后一次触碰**算，保留期是冷却窗口的 **2 倍**。它欠的是下一行的
+  账，而下一行最早就在冷却到期那一刻落——用同一个窗口回收，等于在这笔账到期
+  的同一瞬间把它销掉（第一版就是这么写的，被一条现成测试当场钉红）。
+
+两张都必须扫，且扫描挂在**每次调用**上而不是「落库成功后」：计数器在写入尝试
+之前就自增，所以 DB 故障——map 增长最快的那个条件——恰好是回收永不运行的条件。
+这与上一轮那张冷却 map 的缺陷是同一个形状，换了张 map 又犯了一次；现在两张的
+上界各有一条测试钉着（含写入永不落库的那条路）。
+
+**冷却 map 与计数器都要剪枝**：key 含 `room_id`（对端给的），而
+`agent_peer_no_fallback` 在 A2A 对话里**每一轮**都命中，不需要任何异常条件。
+`_prune_fallback_audit_state` 用审计自己的窗口，**不复用限流窗口常量**（今天
+都是 600 但是两件事），也**不挂到 `_prune_fallback_history`**——那个只在投递
+成功那条路上跑，而被 gate 1 拦下的对话永远不投递，恰好是增长最快的那一半。
+
+`reset_im_dm_fallback_history()` 覆盖的是**四件**模块级状态：限流滑窗、审计
+冷却槽、待报压制计数器、惰性 `ServiceAuditor` 单例。清单只维护在
+[[conftest]] 那一份里（`.mindflow/mirror/tests/agent_runtime/conftest.py.md`），
+这里不再复制——同一条知识两个副本正是这个 PR 反复付学费的地方。拆开重置
+就是又造一处依赖执行顺序的隐性初值。
+
+### 两道门落审计行（教训 #5）
+
+既有三个 skip reason **都能从这一轮的数据重算**（房间类型、有没有 fatal 帧、
+有没有回复工具帧）。新增这两个不能：`fallback_rate_limited` 的触发条件是一个
+**纯进程内、重启即清零**的滑窗计数器。容器一回收，「我们对这个房间连续压掉
+了几条回复」就无从复原。
+
+而被压制的是**用户可见的回复**——对面看到的是「助手不理我了」，owner 报障时
+运维手上只有可能已被轮转的 docker logs。所以命中时写一行
+`ServiceAuditor("im_dm_fallback_gate").event(reason, {...})`。
+
+走 `ServiceAuditor` 而不是 channel 的审计表：本文件不该伸手进 channel 层的
+内部实现（铁律 #3），而 `ServiceAuditor` 是 `services/` 的通用件、自己懒取
+db、永不抛。有了这行才谈得上「阈值定得对不对」——否则调阈值就是盲调。
+
+## 这一条接通了 #359 留下的断链
+
+#359 给 DM 协议加了「可以沉默」，并在源码里留了警告说它**不生效**：沉默
+= 不调回复工具 = 正好命中本文件的 `no_reply_im_dm`，平台照样发一条。
+
+现在**对 agent 对端完全接通**（选择沉默 = 真的沉默）；**对人类 DM 只是设了
+上限**，因为 `no_reply_im_dm` 本身就是 0802 的修复本体，为人类也关掉它等于
+把「有人发 hello 却没有任何回应」修回去。[[channel_prompts.py]] 里那段警告
+按 #359 的要求在本次改写成了准确版本，而不是简单删掉宣布胜利。
+
+## 2026-08-21 — `_ensure_executor_for_run`：判决在这一层算
+
+新增模块级 `_ensure_executor_for_run(user_id, run_id)`，替掉原来直接调
+`ensure_executor(ctx.user_id)` 的那一行。
+
+**为什么判决在这一层**：这里是唯一同时知道"哪个用户"和"哪个 run 在问"的地方。
+到 step 3 的时候，**提问者自己的 events 行已经是 running**，不把自己排除掉判决就
+恒为"忙"，stale 镜像永远滚不动 —— 那是把一种静默故障（掐 run）换成另一种（旧
+executor 拿到空 MCP 集还不报错）。[[broker_client.py]] 是传输客户端，不拥有这个
+决定的任何一部分。
+
+**为什么抽成一个有名字的函数而不是三行内联**：这个关键字参数的性质是"漏掉它，本
+进程行为一模一样，而 broker 那侧静默回到 2026-07-31 的行为"。内联的话没有任何测试
+会因为它消失而变红；抽成 seam 就能钉住（`test_step3_hands_the_stale_replace_verdict_to_ensure`）。
+
+**没有 broker 时先短路返回 None**：判决是**实参**，会先于 `ensure_executor` 内部的
+`if not base: return None` 求值。不短路的话，local / desktop / 静态
+`AGENT_EXECUTOR_URL` 这三种形态每一轮都会白查一次 `events`，拿到的布尔值立刻被丢掉
+（铁律 #7：两种运行模式不能互相加税）。判据用 `broker_url()` 而不是
+`executor_seam_active()` —— 后者把静态 URL 也算作 active，而那条路根本不调 broker。
+
+**这个 helper 必须放在 `@timed("step.3_agent_loop")` 之前**：它一度被插在装饰器和
+`async def step_3_agent_loop` 之间，于是装饰器绑到了它身上 —— 整条 pipeline 最重的
+一步静默失去计时，而那个指标名开始上报 ensure 的耗时（几十 ms），下一个查"step 3
+慢"的人会得出"step 3 不是瓶颈"的结论。
+`test_step_3_keeps_its_timing_decorator` 用 `__wrapped__` 钉住。
 
 ## 2026-08-17 — team 投递阶段整块删除；来源声明在这里合成
 
@@ -773,3 +993,5 @@ fallback 的和 team 房间门的),而第三处是**从函数体里 import ChatM
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
 
 > **2026-08-20**: `_resolve_agent_framework_name` 的缺行/空列/DB 故障兜底由 `claude_code` 改为 `nexus_power`（平台默认框架变更；仅注释同步，逻辑走 model_identity._DEFAULT_FRAMEWORK）。
+
+> **2026-08-21**: `driver.agent_loop(...)` 新增显式 `steering=ctx.steering`(挨着 `cancellation`)。所有可达 driver(claude/codex/nexus/remote)的 `agent_loop` 都吃 `**kwargs`,故非 nexus driver 安全吸收忽略;只有 NexusAgent 真正消费它(接 SteerChannel)。见 [[nexus_agent.py]] 同日条目。

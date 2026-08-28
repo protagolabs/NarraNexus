@@ -179,7 +179,9 @@
           "paused": "一時停止"
         },
         "turnOff": "オフ",
-        "turnOn": "オン"
+        "turnOn": "オン",
+        "awaitingReply": "返信待ち",
+        "nameSep": "、"
       },
       "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
       "uploadFailed": "「{{name}}」をアップロードできませんでした。",
@@ -2065,6 +2067,37 @@
     },
     "url": {
       "toggleFailed": "モードを変更できませんでした: {{error}}"
+    },
+    "editor": {
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "保存済み",
+      "unsavedChanges": "未保存の変更があります",
+      "draftRestored": "このデバイスの未保存の編集を復元しました。",
+      "conflictBody": "編集中にファイルが変更されました。自分の版を残すか、相手の版を再読み込みしますか?",
+      "overwriteMine": "自分の版を残す",
+      "discardMine": "再読み込み",
+      "loadError": "読み込み失敗:{{error}}",
+      "mdGuardDisabled": "このドキュメントにはエディタが無損失で保持できない構文が含まれるため、直接編集は無効です。AI に変更を依頼してください。",
+      "htmlAnchorFailed": "この箇所はページのスクリプトが生成しているか、ソース内で一意に特定できません。AI に変更を依頼してください。",
+      "htmlEditConflict": "編集中にファイルが変更されたため、この変更は保存されませんでした。",
+      "editFailed": "編集に失敗しました — 変更は保存されていません。",
+      "draftUnavailable": "このファイルは大きすぎてローカル下書きに保存できません。ウィンドウを閉じると未保存の変更は失われます。早めに保存してください。"
+    },
+    "officeEdit": {
+      "selected": "{{count}} 件選択中",
+      "editText": "テキスト編集",
+      "apply": "適用",
+      "cancel": "キャンセル",
+      "delete": "削除",
+      "color": "文字色",
+      "opFailed": "編集に失敗しました。",
+      "lockNotice": "デスクトップの Office で開かれています — 直接編集は一時停止中。",
+      "moveUp": "上へ",
+      "moveDown": "下へ",
+      "addRow": "+ 行",
+      "addCol": "+ 列",
+      "replaceImage": "画像を置換"
     }
   },
   "skills": {
@@ -2196,7 +2229,9 @@
     "completed": "完了",
     "roomSpoke": "ルームに新しい動き",
     "agent": "エージェント",
-    "room": "ルーム"
+    "room": "ルーム",
+    "artifactRepointedVerified": "再リンク: {{oldPath}} → {{newPath}}(内容検証済み)",
+    "artifactRepointedUnverified": "再リンク: {{oldPath}} → {{newPath}}(未検証の一致 — 要確認)"
   },
   "webAnalyticsNotice": {
     "body": "これは NarraNexus のクラウドウェブ版です。第三者の分析サービスである Google Tag Manager を使用して、匿名のページ操作データ（ページビュー、クリック、リファラー）を収集します。会話内容は収集されません。設定 → プライバシー でいつでもオフにできます。",

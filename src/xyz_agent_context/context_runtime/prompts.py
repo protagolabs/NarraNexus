@@ -166,12 +166,31 @@ turn's full detail (tools used, reasoning, output).
 """
 
 
-# Reply-language directive (2026-08-11 fix: UI language never reached the
-# model). Filled by context_runtime.build_reply_language_section; byte-
-# stable per user, so the cacheable prompt region stays intact (R4).
+# Reply-language directive. Policy history matters here: the 2026-08-11
+# version made the UI language a HARD constraint ("write every reply in
+# {name}") — the Shenzhen round-2 retest (manual checklist B4) showed the
+# inversion that causes: UI set to Chinese, English questions answered in
+# Chinese. Owner decision 2026-08-20: three-level priority — an explicit
+# language request in the message wins, then the CURRENT message's own
+# language, then the configured preference as the undeterminable-language
+# fallback. The separator reference reuses USER_MESSAGE_SEPARATOR (one
+# spelling; relocation may be off, hence "when present") — this is the
+# file's first constant-to-constant reference, so this definition MUST stay
+# below USER_MESSAGE_SEPARATOR or the module dies with a NameError at
+# import time. Filled by context_runtime.build_reply_language_section;
+# still byte-stable per user, so the cacheable prompt region stays intact
+# (R4).
 REPLY_LANGUAGE_SECTION = (
     "## Reply language\n"
-    "The user's preferred language is {name} ({code}). Write every "
-    "user-facing reply in {name}, unless the user explicitly asks for "
-    "another language in their message."
+    "Reply in the language of the user's CURRENT message — when a '"
+    + USER_MESSAGE_SEPARATOR
+    + "' separator is present, that means the text AFTER it; the "
+    "turn-context block above it is not the user's words. An English "
+    "question gets an English answer, a Chinese question a Chinese one — "
+    "matching each message even when the conversation switches languages. "
+    "If that message explicitly asks for a specific language, that request "
+    "wins over everything else. The user's configured preference is {name} "
+    "({code}); use it only as the fallback when the message has no "
+    "determinable language (bare code, links, numbers, emoji, or an even "
+    "mix)."
 )

@@ -237,6 +237,13 @@ _register(
             # Phase C: filter running rows for reconcile + active_run lookup
             Index("idx_events_state", ["state"]),
             Index("idx_events_agent_state", ["agent_id", "state"]),
+            # "does this user have a live run?" — the reaper's cross-process
+            # veto, asked once per candidate per pass. Without the composite,
+            # MySQL picks idx_events_user_id and row-filters on state, so a
+            # long-tenured user pays for their whole history — worst for the
+            # heaviest accounts, and growing forever since events is never
+            # pruned.
+            Index("idx_events_user_state", ["user_id", "state"]),
             # Cascade stop's only hot path: "every still-running run in this
             # tree". Composite because the flag write always filters on both.
             Index("idx_events_root_state", ["root_run_id", "state"]),
@@ -808,6 +815,46 @@ _register(
     )
 )
 
+# 21c. steer_inbox — live-steering injections destined for a running turn
+#
+# One uniform inbox behind "append to the running loop": a producer (team room
+# post — already in bus_messages; owner-chat interjection — NOT a bus message)
+# writes one row keyed by an OPAQUE run handle; the transport drains a run's
+# unconsumed rows into its SteeringInlet at the next step boundary. The table
+# earns its place by DECOUPLING (the feeder drains one store, not each
+# producer's native home — same outbox pattern as instance_artifact_events),
+# NOT by re-persisting team messages the bus already keeps.
+#
+# `id` is the arrival order AND the consume cursor's unit. `(run_id, msg_id)` is
+# unique so a re-delivered message injects at most once. `consumed_at` is a
+# per-RUN cursor the bus's per-(agent,channel) cursor cannot lend (it is the
+# trigger's, and one agent may have several concurrent runs).
+# `(run_id, consumed_at)` is the pull-unconsumed access path. See
+# `schema/steer_schema.py` and `repository/steer_inbox_repository.py`.
+_register(
+    TableDef(
+        name="steer_inbox",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("run_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("msg_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("role", "TEXT", "VARCHAR(16)", nullable=False, default="'user'"),
+            Column("content", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("sender_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("source", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("consumed_at", "TEXT", "DATETIME(6)", nullable=True),
+        ],
+        indexes=[
+            Index("idx_steer_inbox_run_msg", ["run_id", "msg_id"], unique=True),
+            Index("idx_steer_inbox_run_consumed", ["run_id", "consumed_at"]),
+            # The daily retention sweep (cleanup_older_than_days) filters both
+            # arms on created_at; without this it is a full table scan on MySQL.
+            Index("idx_steer_inbox_created", ["created_at"]),
+        ],
+    )
+)
+
 # 22. bus_messages (text primary key)
 _register(
     TableDef(
@@ -1066,6 +1113,34 @@ _register(
         indexes=[
             Index("idx_as_agent_slot", ["agent_id", "slot_name"], unique=True),
             Index("idx_as_agent_id", ["agent_id"]),
+        ],
+    )
+)
+
+# 25c. agent_slot_clear_audit (append-only trail for bulk clear-to-inherit)
+# The owner-level "apply default to all agents" flow deletes agent_slots rows,
+# which is IRREVERSIBLE (provider_id/model/params/framework are gone). Before
+# each delete we snapshot the row here so a mistaken bulk clear is recoverable
+# and answerable ("which agents, what were they set to"). DB trail, not just a
+# log line (CLAUDE.md lesson #5: docker logs rotate on restart, DB rows don't).
+_register(
+    TableDef(
+        name="agent_slot_clear_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
+            # Snapshot of the deleted override row (what it was set to).
+            Column("provider_id", "TEXT", "VARCHAR(64)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("agent_framework", "TEXT", "VARCHAR(32)"),
+            Column("params_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_asca_user", ["user_id"]),
+            Index("idx_asca_agent", ["agent_id"]),
         ],
     )
 )
@@ -2308,6 +2383,13 @@ _register(
             # panel lists by it, and the owning agent still shows in agent_id
             # so "who produced this" survives the ownership move.
             Column("team_id", "TEXT", "VARCHAR(64)"),
+            # sha256 hex of the entry file at last registration. Heal uses it
+            # to verify a candidate IS the same content (rename detection):
+            # a hash match upgrades the single-candidate auto-repoint from a
+            # guess to a verified identity. Nullable: legacy rows stay NULL
+            # (heal skips the hash tier) and hashing is best-effort — a
+            # hashing failure must never block a registration.
+            Column("content_hash", "TEXT", "VARCHAR(64)"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept registered because dropping a column is a
             # destructive migration (铁律 #6) — removal is Owner-gated
@@ -2363,14 +2445,63 @@ _register(
             # after the artifact is later re-pointed somewhere else.
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
-            # "created" | "updated" — lets a reader tell the first registration
-            # from the ones that overwrote it without diffing timestamps.
+            # "created" | "updated" | "healed" | "user_edited" |
+            # "external_edited" — lets a reader tell the first registration
+            # from later overwrites, an intentional update from a heal
+            # repoint, and an agent commit from a user/external one.
+            # VARCHAR(16): the longest current value (external_edited) is 15
+            # chars; a longer action needs the column widened FIRST or MySQL
+            # strict mode 1406s the insert.
             Column("action", "TEXT", "VARCHAR(16)", nullable=False, default="'updated'"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             # The only read pattern: one artifact's history, newest first.
             Index("idx_artifact_history_artifact", ["artifact_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# instance_artifact_events — cross-process outbox for artifact_changed events.
+#
+# Registry writes happen in two different processes: register_artifact runs in
+# the MCP tool server, while the run's Broadcaster (the only road to the
+# frontend's WebSocket) lives in the backend. Writers therefore stage one
+# self-contained event payload here; BackgroundRun drains unconsumed rows for
+# its agent right after each tool-output event and re-emits them through the
+# normal recorder+broadcaster pipeline, which buys persistence (event_stream)
+# and fan-out in one move.
+#
+# Rows staged while no run is active (e.g. an HTTP delete) are drained late,
+# at the next run's first tool output. That is deliberate: late events are
+# neutralised client-side by the updated_at monotonic guard, and the frontend
+# full-pull on open/switch/reconnect is the self-healing floor — so the outbox
+# needs no TTL and no cross-process locking. Staging is best-effort by
+# contract: a failed insert logs a warning and never breaks the registry write
+# it accompanies (spec 2026-08-18-artifact-events-inventory-pointer §3).
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_artifact_events",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # The full wire event (type/action/external/artifact/extra), JSON.
+            # Self-contained so the drain is a dumb pump: no joins, no
+            # reconstruction, no schema coupling between staging and delivery.
+            Column("payload_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            # NULL = pending. Set when a drain delivered (or deliberately
+            # skipped) the row; never deleted, so the recent tail doubles as
+            # a delivery audit.
+            Column("consumed_at", "TEXT", "DATETIME(6)"),
+        ],
+        indexes=[
+            # The drain's only read pattern: this agent's pending rows, oldest
+            # first (ORDER BY id rides the PK).
+            Index("idx_artifact_events_agent_pending", ["agent_id", "consumed_at"]),
         ],
     )
 )
@@ -2761,6 +2892,48 @@ _register(
             Column("gate_top1_raw", "REAL", "DOUBLE"),
             Column("gate_top2_raw", "REAL", "DOUBLE"),
             Column("gate_margin", "REAL", "DOUBLE"),
+            # The bypass decision, split from the score gate on purpose.
+            # `gate_short_circuit` stays "did this turn skip the judge";
+            # `bypass_score_gate` is floor+margin alone, so the score-gate
+            # distribution keeps accumulating for calibration even on the turns
+            # the anchor rule denies. `bypass_reason` is which rule decided.
+            Column("bypass_score_gate", "INTEGER", "TINYINT(1)"),
+            Column("bypass_reason", "TEXT", "VARCHAR(32)"),
+            # Slice 0: this row's pool was recorded, not consulted (a continuity
+            # turn). Nullable ONLY for the rows that predate the column — the
+            # write side never produces NULL (`RoutingAudit.pool_is_shadow` is a
+            # plain bool with no "did not run" third state, unlike
+            # `bypass_score_gate`). So on the READ side, NULL and 0 mean the
+            # same thing and a filter must treat them alike; see
+            # `mirror/.../narrative_routing_audit_repository.py.md` 2026-08-26.
+            Column("pool_is_shadow", "INTEGER", "TINYINT(1)"),
+            # merged routing — one call replaces the continuity/judge pair.
+            # All nullable and all additive: prod rows predate them. NULL means
+            # "written before this deploy"; the two-call path itself writes
+            # 0 / "" for merged_call / merged_verdict / merged_truncated — so
+            # read-side filters must be NULL-safe on BOTH dialects
+            # (`COALESCE(col,0) <> 1`; never `= 0`, which drops the whole
+            # pre-deploy baseline window, and never `IS NOT 1` — SQLite-only).
+            # `merged_call` marks the PATH; a turn released by the zero-LLM
+            # shutter has merged_call=1 with merged_verdict empty and merged_ms
+            # NULL (nothing was asked, so nothing was paid).
+            Column("merged_call", "INTEGER", "TINYINT(1)"),
+            Column("merged_verdict", "TEXT", "VARCHAR(32)"),
+            # SELF time. Says so explicitly because `retrieve_ms` nests
+            # `judge_ms` and the ambiguity cost two readers the same wrong
+            # conclusion — see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
+            Column("merged_ms", "INTEGER", "INT"),
+            # Rendered prompt size: the x-axis of the input→latency model.
+            Column("merged_input_chars", "INTEGER", "INT"),
+            # Which prompt sections hit their read-side cap, comma-separated.
+            Column("merged_truncated", "TEXT", "VARCHAR(128)"),
+            # The anchor's standing in BM25 at decision time — the ONLY
+            # production instrument for §3.2 (how often the unconditional anchor
+            # injection is the sole reason the anchored thread is on the
+            # ballot). NULL rank = the anchor scored nothing.
+            Column("anchor_bm25_rank", "INTEGER", "INT"),
+            Column("anchor_raw_score", "REAL", "DOUBLE"),
+            Column("anchor_in_menu", "INTEGER", "TINYINT(1)"),
             # tier 3 — LLM arbitration
             Column("judge_ran", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("judge_category", "TEXT", "VARCHAR(32)"),
@@ -2776,6 +2949,16 @@ _register(
             # short-circuited decision skips the judge, and a 0 there would
             # make "how expensive is arbitration" answer far too low, which is
             # precisely the comparison these columns exist to support.
+            # Shadow rows (pool_is_shadow=1) hold the instrument's own tier-2
+            # cost in retrieve_ms — filter on pool_is_shadow before any
+            # cross-population aggregate, or the continuation majority's ~13ms
+            # dilutes the arbitration numbers the same way a stored 0 would.
+            # Merged rows (merged_call=1) are the same shape for a different
+            # reason: there the LLM has its own column, so retrieve_ms is the
+            # BM25 pass alone. "tiers 2+3 together" therefore means
+            # `COALESCE(pool_is_shadow,0) <> 1 AND COALESCE(merged_call,0) <> 1`
+            # (NULL-safe on both dialects — `= 0` silently drops every
+            # pre-deploy row; `IS NOT 1` parses only on SQLite).
             Column("continuity_ms", "INTEGER", "INT"),
             Column("retrieve_ms", "INTEGER", "INT"),
             Column("keyword_ms", "INTEGER", "INT"),

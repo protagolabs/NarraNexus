@@ -1,8 +1,88 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-19
+last_verified: 2026-08-27
 stub: false
 ---
+
+# schema_registry.py
+
+## 2026-08-27 — 新表 agent_slot_clear_audit
+
+owner 级「应用默认到全体 agent」会不可逆地删 `agent_slots` 行。删除前把每行
+快照（user_id/agent_id/slot_name/provider_id/model/agent_framework/params_json）
+append 进 `agent_slot_clear_audit`，让误操作**可追溯、可据此恢复**（DB 留痕胜过
+只写日志——docker 日志会在 restart 时轮转）。当前只有写入方（`_clear_one_slot`），
+**没有只读查询入口、也没有保留策略**——恢复是人工/脚本按审计行回写，不是自动的；
+需要时再补读侧 API + TTL。由 [[slot_service]] 的批量清除写入。双方言列已填全，
+四个快照列可空（NULL 原样透传）。
+
+## 2026-08-26 — `narrative_routing_audit` 的合并路由八列(纯增量)
+
+`merged_call` / `merged_verdict` / `merged_ms` / `merged_input_chars` /
+`merged_truncated` / `anchor_bm25_rank` / `anchor_raw_score` /
+`anchor_in_menu`,双方言齐备、**全部可空**。可空的两个理由与
+`pool_is_shadow` 一样:prod 存量行早于它们(铁律 #6,活表上 `NOT NULL`
+无默认值的 ALTER 会失败),而且对每一个按它们过滤的查询来说,NULL 与 0 的
+含义本来就该不同 —— NULL 是"这一行不是合并路径决策的"。
+
+**`retrieve_ms` 现在有第三个人群,必须一起写下来**:两次调用路径上它
+**包含** `judge_ms`;影子行上它只有 tier-2(仪器自耗);**合并行上它也只有
+tier-2** —— 因为那条路上 LLM 有自己的列(`merged_ms`)。于是"tiers 2+3 合计"
+的过滤条件是 `COALESCE(pool_is_shadow,0) <> 1 AND COALESCE(merged_call,0) <> 1`——
+必须 NULL 安全:`= 0` 会把部署前的 NULL 行全部滤掉(即整个基线窗口),
+两次调用路径写的是 0/空串,只有部署前的行才是 NULL(round 5 I1)。
+一列三个量纲已经是共享的极限,**下一批要拆 `retrieve_self_ms`,不要再加第四个**
+(工单 `todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。钉子:
+`test_retrieve_ms_on_a_merged_row_is_the_bm25_pass_alone`(慢 stub,断言慢调用
+不漏进 `retrieve_ms`)。
+
+`merged_ms` 的列注释里明写**自耗时、不嵌套任何东西**,是因为 `retrieve_ms`
+确实嵌套 `judge_ms`,而三列并排都叫 `*_ms`、没有任何地方写着谁包着谁,已经
+把两位读者送到同一个错误结论(工单
+`todo/2026-08-25-retrieve-ms-nests-judge-ms.md`)。并排的耗时列要么互斥,
+要么显式声明嵌套。
+
+## 2026-08-26 — 影子行改变 retrieve_ms 的量纲(PR #365 review I2)
+
+`pool_is_shadow=1` 的行上 `retrieve_ms` 只含仪器自身的 tier-2 耗时
+(judge 未运行);跨人群成本聚合必须先按 `pool_is_shadow` 过滤,否则续接轮
+多数人群的 ~13ms 会稀释仲裁成本读数。`keyword_ms` 是唯一两人群定义相同、
+可直接比较的成本列。in-code 契约注释(本文件与 models.py)已同步此语义。
+(合并路径上它是第三人群——见上一条。)
+
+## 2026-08-25 — `narrative_routing_audit.pool_is_shadow`(纯增量)
+
+`INTEGER` / `TINYINT(1)`,可空。标记"这一行的池是只记录、没决策的"(续接轮)。
+可空有两个理由:prod 存量行早于它(铁律 #6,活表上 `NOT NULL` 无默认值会失败),
+以及对任何过滤它的查询来说 NULL 与 0 同义。
+
+语义细节与"为什么 `gate_short_circuit` 保持 NULL"见 [[models.py]] 的 8-25 条。
+
+**"可空 / NULL 与 0 同义"针对的是读侧,不是写侧**(2026-08-26 review #1):
+写侧永不产生 NULL(`RoutingAudit.pool_is_shadow` 是普通 bool,没有
+`bypass_score_gate` 那种"这一轮没跑"的第三态),可空**只为存量行**;
+于是读侧的过滤查询必须把 NULL 与 0 当同一件事。两句都成立,针对的不是同一侧。
+完整对照表见 [[narrative_routing_audit_repository.py]] 的 8-26 条。
+
+## 2026-08-21 — events 加复合索引 `idx_events_user_state`
+
+服务 [[run_recorder.py]] `first_live_run_id` 的 `(user_id, state)` 查询
+（回收器每轮每个候选问一次）。没有复合索引时 MySQL 会选 `idx_events_user_id`
+再逐行过滤 state，长期用户等于每次都为自己的全部历史买单 —— 越重度的账号越
+吃亏，而 events 从不清理，只会越来越长。纯新增索引，`auto_migrate()` 幂等
+补上，不触铁律 #6。
+
+## 2026-08-20 — `narrative_routing_audit` 加两列(纯增量)
+
+`bypass_score_gate INTEGER/TINYINT(1)` + `bypass_reason TEXT/VARCHAR(32)`,
+两个 dialect 都填了,两列都可空。
+
+**可空是硬要求,不是风格**:prod 上这张表已有 26,922 行早于这两列,
+`ALTER TABLE ADD COLUMN ... NOT NULL`(无默认值)在活表上会失败。
+铁律 #6 的"只做增量"在这里的具体形态就是这个。
+`VARCHAR(32)` 对得上七个短码里最长的 `participant_present`(19 字符),
+测试里钉了这个宽度 —— MySQL 非严格 sql_mode 下超长是**静默截断**,
+而这一列正是下一轮标定的 GROUP BY 键。
 
 ## 2026-08-19（PR#327 审后）— gateway_key_misuse.user_id 收窄到 VARCHAR(64) + `varchar_width` helper
 
@@ -124,7 +204,6 @@ live 写入没有对应的 bus 行，NOT NULL 会逼写入方编一个 id，而�
 
 拆成两列而不是一个 `"message_bus:ch_x"`：source 选代码路径，channel 是它的参数，
 合成一个字段会让每个读者各自再解析一遍。
-
 ## 2026-08-14 — `narrative_routing_audit` 新增四列 per-tier 耗时
 
 `continuity_ms` / `retrieve_ms` / `keyword_ms` / `judge_ms`，**可空是刻意的**：
@@ -747,7 +826,6 @@ the intended Part B retrieval surface for ChatModule history was
 never wired up. Letting the writer succeed silently lets embeddings
 accumulate for whatever surface gets built later.
 
-# schema_registry.py
 
 Single source of truth for every database table — define columns once, run on both SQLite and MySQL, migrate automatically.
 
@@ -861,4 +939,27 @@ agent 自己调 `bus_send_message` / `bus_send_to_agent` 发的行也盖(身份�
 纯新增可空列（铁律 #6），JSON 文本。保存独白/回复边界，`content` 保持不变——
 后者是所有文本消费者读的东西，一个渲染需求不该改写它。
 
+## 2026-08-18 — `instance_artifacts.content_hash` + 新表 `instance_artifact_events`
+
+**content_hash(可空,additive)**:注册时对 entry 文件算 sha256 存这里。heal 用它给
+候选**验明正身**——「改名但内容未动」从按扩展名猜升级成确定性认领。可空的两层含义:
+存量行 NULL(heal 跳过 hash 层),以及哈希失败绝不阻塞注册(best-effort 契约)。类型
+与 `team_files.content_hash` 同款(TEXT/VARCHAR(64)),将来 7′ 存档层直接复用同一指纹。
+
+**instance_artifact_events(跨进程 outbox)**:artifact_changed 事件的staging 表。
+为什么需要它:register_artifact 跑在 MCP 工具进程,而通往前端 WS 的 Broadcaster 在
+backend 进程——写入方把自包含 payload 落成一行,BackgroundRun 在每个 tool-output
+事件后 drain 本 agent 的未消费行并经 `self.emit()` 重发(录制+广播一次拿齐)。
+run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 updated_at 单调守卫
+中和迟到事件,打开时全量拉是自愈地板,所以无 TTL 无跨进程锁。`consumed_at` 不删行,
+近期尾部兼作投递审计。设计出处:spec 2026-08-18-artifact-events-inventory-pointer §3。
+
 > **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。
+
+> **2026-08-21 steer_inbox**: 新增 `steer_inbox`(21c)——运行中插话注入的统一 inbox。**理由=解耦+per-run 游标,非持久化**(team 消息本在 bus_messages;但单聊插话不进 bus,统一 inbox 让 feeder 只 drain 一处,同 artifact_events outbox)。`id` 自增=到达序+消费游标;`(run_id, msg_id)` 唯一(重投递最多注入一次);`consumed_at` 是 bus (agent,channel) 游标给不了的 per-run 游标;`(run_id, consumed_at)` 是 pull-unconsumed 访问路径。owner=[[steer_inbox_repository.py]],schema=[[steer_schema.py]]。
+
+## 2026-08-24(补)— steer_inbox 加 idx_steer_inbox_created
+
+`steer_inbox` 加 `Index("idx_steer_inbox_created", ["created_at"])`:支撑 `cleanup_older_than_days` 的两臂 DELETE
+(都过滤 `created_at`),否则 MySQL 上全表扫。走 registry(`auto_migrate` 幂等加索引,非手写 ALTER)。见
+[[message_bus_trigger.py]] 补10 / [[steer_inbox_repository.py]] 补4。

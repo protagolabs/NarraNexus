@@ -18,6 +18,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui';
+import { ApplyDefaultsToAgentsDialog } from './ApplyDefaultsToAgentsDialog';
+import type { SlotOverrideStats } from '@/types/api';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
@@ -74,6 +76,8 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [helperDraft, setHelperDraft] = useState<HelperDraft>(EMPTY_HELPER);
   const [agentInitial, setAgentInitial] = useState<AgentDraft>(EMPTY_AGENT);
   const [helperInitial, setHelperInitial] = useState<HelperDraft>(EMPTY_HELPER);
+  const [applyStats, setApplyStats] = useState<SlotOverrideStats | null>(null);
+  const [applyDirtySlots, setApplyDirtySlots] = useState<Array<'agent' | 'helper_llm'>>([]);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
@@ -201,6 +205,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     }
     setApplying(true);
     setError('');
+    // Capture which slots changed BEFORE load() resets the initial snapshots —
+    // only these are offered in the apply-to-agents dialog.
+    const dirtySlots: Array<'agent' | 'helper_llm'> = [
+      ...(agentChanged ? ['agent' as const] : []),
+      ...(helperChanged ? ['helper_llm' as const] : []),
+    ];
     try {
       if (agentChanged) {
         const r = await api.setProviderSlot('agent', {
@@ -221,6 +231,22 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       await load();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      // Offer to push the new default onto existing agents (clear-to-inherit).
+      // Isolated try/catch: the save already succeeded, so a flaky stats GET
+      // must NOT flip the UI to an error state — it just skips the dialog.
+      try {
+        const s = (await api.getSlotOverrideStats()).data;
+        // Only offer the dialog if a slot the user CHANGED has overrides.
+        const dirtyHasOverrides =
+          (dirtySlots.includes('agent') && (s?.agent ?? 0) > 0) ||
+          (dirtySlots.includes('helper_llm') && (s?.helper_llm ?? 0) > 0);
+        if (s && dirtyHasOverrides) {
+          setApplyDirtySlots(dirtySlots);
+          setApplyStats(s); // opens the dialog
+        }
+      } catch {
+        /* preview failed — the default is saved; just don't offer the dialog */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -511,6 +537,35 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       )}
 
       {noticeDialog}
+
+      {applyStats && (
+        <ApplyDefaultsToAgentsDialog
+          isOpen
+          stats={applyStats}
+          dirtySlots={applyDirtySlots}
+          onClose={() => setApplyStats(null)}
+          onApply={async (slots) => {
+            // request() throws on non-2xx, so catch here — the dialog's apply()
+            // has no catch of its own and would otherwise leave an unhandled
+            // rejection with the dialog stuck open.
+            try {
+              const r = await api.applySlotsToAgents(slots);
+              if (!r.success) {
+                setError(r.detail || t('pages.settings.modelDefaults.saveFailed'));
+                return;
+              }
+              // Echo the irreversible result so it isn't a silent close.
+              const cleared = Object.values(r.data?.cleared ?? {}).reduce((a, b) => a + b, 0);
+              void showNotice({
+                title: t('pages.settings.modelDefaults.applyDoneTitle', 'Overrides cleared'),
+                message: t('pages.settings.modelDefaults.applyDone', 'Cleared per-agent overrides — {{n}} agents affected.', { n: cleared }),
+              });
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

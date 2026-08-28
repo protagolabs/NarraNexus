@@ -30,12 +30,38 @@ from ..models import (
 )
 from .crud import NarrativeCRUD
 from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
+from xyz_agent_context.utils.text import strip_routing_prefix
 
 # Use common utilities from utils
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
+
+# ============================================================================
+# Action digest — REMOVED (C3), recoverable at a9260baa4
+# ============================================================================
+# Defect A1's fix (compressing the turn's tool actions into the updater
+# context so their nouns reach the BM25 surface) had an unmapped second
+# reader: the updater's output IS the continuity anchor, and digest content
+# made the updater rename threads after their latest tool call — continuity
+# then judged normal follow-ups as topic switches (same-line rate 65.3% ->
+# 56.8% on anchor-rewritten rows, McNemar p=0.0002 with untouched rows flat
+# at p=0.60 as the built-in control; net 24 correct continuations broken per
+# replay exam; author-side raw data: replay run 2026-08-26,
+# PR2_CROWDING_ANALYSIS).
+#
+# The whole section (build_action_digest, its four-layer secret redaction,
+# budget, dedup counting — ~255 lines plus tests) is DELETED per rule #2, not
+# parked: an uncalled public function with rich tests is exactly how a next
+# reader re-wires it and reproduces C3. It lives at commit a9260baa4. The
+# planned successor (step 2) is a SUPPLEMENTARY RETRIEVAL-TERMS FIELD with
+# this contract: BM25's searchable_text reads it, continuity NEVER does;
+# each writing source (digest terms, A-kw rescue terms, future sources) gets
+# its own cap so no single source floods the surface; and its benefit
+# criteria must be pre-registered before it ships — the digest's own benefit
+# was weak (action-only terms were 3.4-4.4% of gold-line BM25 mass,
+# recall@3 flat), so the retrieval gap must be re-proven first.
 
 # ============================================================================
 # LLM Output Schema
@@ -314,7 +340,13 @@ class NarrativeUpdater:
         # Current Narrative information
         context_parts.append("## Current Narrative Information")
         context_parts.append(f"- Name: {narrative.narrative_info.name}")
-        context_parts.append(f"- Description: {narrative.narrative_info.description}")
+        # Read-side cap: 291 prod rows carry >1,500-char frozen descriptions
+        # (max 198,398) that the write-side cap never backfills. Here the
+        # description is the object BEING updated, so clamping loses nothing.
+        context_parts.append(
+            "- Description: "
+            f"{narrative.narrative_info.description[:config.DESCRIPTION_MAX_LENGTH]}"
+        )
         context_parts.append(f"- Current Summary: {narrative.narrative_info.current_summary}")
         context_parts.append(f"- Keywords: {', '.join(narrative.topic_keywords or [])}")
         context_parts.append("")
@@ -338,6 +370,18 @@ class NarrativeUpdater:
                 context_parts.append(f"User Input: {user_input}")
         if event.final_output:
             context_parts.append(f"Agent Response: {event.final_output[:500]}")
+
+        # C3 — no tool-action digest here, ever (removed at a9260baa4^..;
+        # rationale and recovery pointer in the section tombstone at the top
+        # of this file). NOTE the residual: final_output and user input above
+        # flow through the SAME rename path (_apply_llm_update overwrites
+        # name/summary/keywords unconditionally each round), and their rename
+        # rate after this removal is UNMEASURED — to be measured with the
+        # same replay + McNemar protocol as the digest study, stratified by
+        # anchor-rewritten rows. The structural option is an anchor-stability
+        # guard in _apply_llm_update: once a line has a real summary, do not
+        # rewrite `name` without topic-change evidence (current_summary must
+        # stay per-turn — only the identity-anchor field needs stability).
 
         return "\n".join(context_parts)
 
@@ -389,8 +433,17 @@ class NarrativeUpdater:
             logger.warning(f"Narrative {narrative.id} not found in database, skipping LLM update")
             return
 
-        # Update narrative_info (only update name and current_summary, preserve actors)
-        latest_narrative.narrative_info.name = update_output.name
+        # Update narrative_info (only update name and current_summary, preserve actors).
+        # The helper LLM is handed raw event text and copies it into the name,
+        # channel label included — prod carries lines called
+        # "[From Liam] * 👊 刚甩过去..." and "[From U082541Q6AX] stop gre...".
+        # Once the label is in the name it is in the retrieval surface, and the
+        # next message from that channel matches its own thread on the sender
+        # at a low in-pool df (audit 1492: margin 357.79, judge never ran).
+        # Strip it on the way in; keep the raw name if that is all there was.
+        latest_narrative.narrative_info.name = (
+            strip_routing_prefix(update_output.name).strip() or update_output.name
+        )
         latest_narrative.narrative_info.current_summary = update_output.current_summary
         # Note: Do not update actors, preserve the latest actors from database (including PARTICIPANT)
 

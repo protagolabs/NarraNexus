@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/channel/inbox_recorder.py
-last_verified: 2026-08-18
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — 自动记录「怎么回联」到 social graph（PR-2 可达性）
+
+**背景**:reach 记录此前是手动/不可靠——channel prompt 指令 #5 让 agent「若学到新信息就调 extract_entity_info 存到 contact_info.channels」,`_on_event_executed` 是 no-op,`set_channel_info` 无自动调用者。于是通讯录基本是空的,agent 在别的 surface 无从知道自己能在 Lark/微信 触达某人。
+
+**改动**:`record_turn` 加 `chat_id` + `chat_type` 参数,尾部(inbox 写入之后)调新私有方法 `_record_reach`:把「agent 在 <source> 渠道、会话 <chat_id> 能触达 counterpart」写进 counterpart 社交实体的 `contact_info.channels`(`set_channel_info({}, source, {"id": counterpart, "rooms": {agent_id: chat_id}})` → `get_agent_data_store().extract_entity_info(...)`)。
+
+- **⚠️ 只记 1:1(`ChatType.PRIVATE`)**(预审 Critical):群聊里 `chat_id` 是**房间**不是「单独找某人的方式」,记成个人 reach 后 §3b 会把「发给 X 的私信」投到整个群。非 PRIVATE(group/topic/未知)一律跳过。docstring 讲清这是**正向决策**:各 parser **白名单**唯一表示 1:1 的字面值、其余判 GROUP;`record_turn` 的 `chat_type` 默认 `None` 也跳过。两向都 fail-safe(未确认类型 → 不记而非泄露)。`counterpart_name` 与 `UNKNOWN_SENDER_NAME`(`schema/parsed_message.py` 常量,取代三处硬编码 `"Unknown"`)比较,占位名不当真名。
+- **首次接触/无名实体带名**(预审 Important + 增量审):传 `counterpart_name` 作 `entity_name_if_new`——[[social_network_module.py]] create 分支消费;merge/existing 分支是 **fill-if-empty**(既有名为空白时**会**写入渠道显示名,非空名**绝不覆盖**)。§3b 第一步按名字搜才成立。写入前 `counterpart_name[:255]` 截断(`entity_name` MySQL 是 `VARCHAR(255)`,不截长名会让整轮 reach 写入 1406 失败)。
+- **in-band 失败也要发声**(预审 Important):data_access seam **从不 raise**,失败以 `{"success": False}` 返回(无 instance / id 超长 / P2 后 401)——只有 try/except 会漏掉全部真实失败。故**接住返回值**判 `success is False` → warning。
+- **best-effort/fail-open**:reach 失败绝不丢 inbox 行(inbox 写入自己 re-raise,reach 单独 try 吞 + warning)。**无跨模块 import**(走 `data_access` seam,binding rule #3),**无 LLM**。类 docstring 已订正:inbox 写用注入句柄,reach 写走 seam 自己的句柄(P2 后是一次出站调用)。
+
+调用点接线:**3 处生产** —— `channel_trigger_base.py` 的 `_process_message` 与 `managed_after_run`,加 `lark_trigger.py:_process_message` —— 都传 `chat_id=message.chat_id, chat_type=message.chat_type`。**`counterpart_name` 三处都过 `sanitize_display_name`**:另两条路本就 sanitize,`managed_after_run` 本次补上(预审 Important)——reach 把对方可控显示名**持久**写进 `entity_name`(每次社交搜索渲染进上下文),不能绕过 prompt-injection 清洗门。`_write_to_inbox`(lark 测试 shim)传 `chat_id + chat_type=ChatType.PRIVATE`(保持生产形状,**会**记 reach——经它的既有 lark 测试会触到 seam 句柄)。**⚠️ Lark 的 `chat_type` 判据(正向白名单)见 [[lark_trigger.py]] 同日条目——单一来源。** 守卫:`test_inbox_reach_recording.py`(真 db:1:1 记下→读回、**group/topic 不记 reach**、无 chat_id 不记、create 带名、已存在无名被填、非空名不覆盖、in-band 失败打 warning 且不丢 inbox 行)+ `test_mock_channel_trigger_integration.py`(两条 spy 分别锁 `_process_message` 与 `managed_after_run` 传下的是消息**真实** `chat_type`/`chat_id`——fake 产 GROUP→到达 GROUP、产 PRIVATE→PRIVATE,删 kwarg 或换硬编码常量都变红;managed 那条另断 `counterpart_name` 被 sanitize)。「非 1:1 不记 reach」由前者在 recorder 层锁,spy 只锁类型传递。
+
+**残留 Minor(P2 runbook)**:P2 翻 `NARRANEXUS_BACKEND_URL` 后 trigger 非 MCP 请求 → HttpStore 无 identity headers → 401(现在会 warning,不再静默);需给 trigger 一条 service-identity 路径。reach 按裸 `counterpart_id` 写、绕过 dedup,靠 `merge_entities` 事后合并。
+
+## 2026-08-20 — `record_peer_message`：A2A DM 的双线程写入
+
+新增 `record_peer_message`（+ 私有 `_record_one_way`），补 08-17 迁移漏掉的
+agent-to-agent 写侧。IM 用 `record_turn`（一轮 = inbound+可选 reply 两行）；A2A **不能**
+这么记，因为 peer DM 里发送方的 `turn.text` 是对**自己 owner** 的独白，不是发给 peer 的
+话（peer 只能被 bus send 工具触达）。所以真正发出去的内容只有**发送时**在
+[[_message_bus_mcp_tools.py]] `message_agent` 工具里拿得到——那里调本方法，一次写两条：
+发送方线程 `nx_dm_<from>_<to>` 记 OUTBOUND，收件方线程 `nx_dm_<to>_<from>` 记 INBOUND。
+A2A 同 owner，两个线程共用一个 owner。每个 agent 的收件箱线程因此显示完整往返（自己发的
++ 对方发来的）。`_record_one_way` 复用 `_ensure_thread`/`_insert_message`，只是写单条而非
+一轮两行。空正文且无附件直接跳过。守卫见 `tests/message_bus/test_agent_dm_inbox.py`。
+
+**`source_message_id` 有意留 NULL**：该列带 UNIQUE 索引（一条源消息对一行），适配 IM 的
+1:1 inbound→row，却**不适配** A2A——一条 bus 消息落成两行（发送方 out + 收件方 in），两行
+都写同一个 bus id 会撞唯一约束（实测 IntegrityError）。A2A 若要回连 `bus_messages` 需另设键，
+超出本次范围。
 
 # inbox_recorder.py — 把一轮对话记进 inbox 自己的表
 

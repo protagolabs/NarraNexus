@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/repository/service_audit_repository.py
-last_verified: 2026-05-29
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — `record()` 报告写入结果
+
+原来返回 `None`，且**自己 catch 了 insert 异常**。对心跳、生命周期事件这类
+调用方无所谓（写不进去就算了），但 [[service_audit]] 的 `_emit` 要把「行落
+没落库」透传给调用方，而它拿到的「没抛异常」在这里恒真——插入炸了也一样。
+于是 [[step_3_agent_loop.py]] 的 DM 兜底审计冷却仍然会在 DB 故障时被 arm，
+正是加返回值要修的那件事，只是缺口移到了下一层。
+
+现在返回 `bool`：落库 True，被 catch 掉的失败 False。**仍然不抛**——审计是
+旁路，不能打断被观察的业务。其余调用方（`temporal_guard`、
+`openai_agents`）忽略返回值，签名不变。
 
 # service_audit_repository.py — service_audit 表的数据访问层（ServiceAuditRepository）
 

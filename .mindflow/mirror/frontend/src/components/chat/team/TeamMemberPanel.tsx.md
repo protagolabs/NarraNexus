@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMemberPanel.tsx
-last_verified: 2026-08-12
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 阶段行同步改白名单（跟随 ProcessPanel）
+
+`phases` 过滤从 `!startsWith('3.4')` 换成 `PHASE_STEP_IDS.has(step)`（见
+[[processShared]]，从 `PHASE_LABEL_KEYS` 派生），与单聊 [[ProcessPanel]]
+同一套白名单 —— 挡掉 `3.5/4/5` 等未映射步骤泄漏英文 title。落定判据也收敛
+到共享 `phaseSettled`，**传未过滤的 `observation.steps`**（此前这里读的是
+已过滤的 `phases`，白名单后就看不到 >3.4 的落定信号了）。改一处两边跟
+（铁律 #8）。
 
 ## 2026-08-07 — chrome 头条上的停止按钮 + 三态
 

@@ -28,6 +28,7 @@ import pytest
 
 from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
 from xyz_agent_context.module.chat_module.chat_module import ChatModule
+from xyz_agent_context.repository.event_memory_repository import EventMemoryRepository
 from xyz_agent_context.utils import utc_now
 from xyz_agent_context.schema import (
     ContextData,
@@ -228,6 +229,82 @@ async def test_seeded_greeting_not_duplicated_by_hook_and_orders_first(chat_modu
     assert _parse(bootstrap_rows[0]["meta_data"]["timestamp"]) < _parse(
         user_msg["meta_data"]["timestamp"]
     )
+
+
+@pytest.mark.asyncio
+async def test_hook_greeting_carries_no_event_id(chat_module):
+    """Shenzhen-r2 B2, identity half: the hook used to stamp the greeting with
+    the CURRENT run's event_id — the greeting and the turn's real reply then
+    shared the (role, event_id) identity the frontend timeline dedups on.
+    The greeting belongs to no run; its row must carry no event_id (the
+    step_1 seed already writes none — the two writers must agree)."""
+    reply = _success_progress_with_reply("Hi back, Alice.")
+    params = _hook_params(
+        agent_loop_response=[reply],
+        event_created_at=utc_now() - timedelta(seconds=30),
+        bootstrap_active=True,
+    )
+    await chat_module.hook_persist_turn(params)
+    memory = await chat_module.event_memory_module.search_instance_json_format_memory(
+        "ChatModule", "chat_boot_instance"
+    )
+    greeting = next(
+        m for m in memory.get("messages", [])
+        if m["meta_data"].get("bootstrap") is True
+    )
+    assert "event_id" not in greeting["meta_data"], greeting
+
+
+@pytest.mark.asyncio
+async def test_hook_skips_greeting_when_a_sibling_instance_has_history(db_client):
+    """Shenzhen-r2 B2, re-greet half: a new narrative creates a fresh EMPTY
+    chat instance while bootstrap is still active — the hook's per-instance
+    emptiness check alone re-greeted there, and the extra assistant row read
+    as a second reply to whatever the user just asked. First contact is
+    per-(agent, user): sibling history suppresses the prepend."""
+    from tests.chat_module.test_chat_writes import _register_chat_instance
+
+    agent, user = "a_boot2", "u_boot2"
+    await _register_chat_instance(db_client, "chat_boot2_a", agent, user)
+    await _register_chat_instance(db_client, "chat_boot2_b", agent, user)
+    prior = EventMemoryRepository(agent, user, db_client)
+    await prior.add_instance_json_format_memory(
+        "ChatModule",
+        "chat_boot2_a",
+        {"messages": [
+            {"role": "user", "content": "hi", "meta_data": {"timestamp": utc_now().isoformat()}},
+            {"role": "assistant", "content": "hello", "meta_data": {"timestamp": utc_now().isoformat()}},
+        ]},
+    )
+
+    module = ChatModule(
+        agent_id=agent,
+        user_id=user,
+        database_client=db_client,
+        instance_id="chat_boot2_b",
+    )
+    reply = _success_progress_with_reply("second narrative reply")
+    params = _hook_params(
+        agent_loop_response=[reply],
+        event_created_at=utc_now() - timedelta(seconds=30),
+        bootstrap_active=True,
+    )
+    # _hook_params hardcodes a_boot ids; repoint them at this module's pair.
+    params.execution_ctx.agent_id = agent
+    params.execution_ctx.user_id = user
+    params.ctx_data.agent_id = agent
+    params.ctx_data.user_id = user
+
+    await module.hook_persist_turn(params)
+
+    memory = await module.event_memory_module.search_instance_json_format_memory(
+        "ChatModule", "chat_boot2_b"
+    )
+    messages = memory.get("messages", [])
+    assert messages, "the turn itself must still persist"
+    assert all(
+        m["meta_data"].get("bootstrap") is not True for m in messages
+    ), f"re-greeted a later narrative: {messages!r}"
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,35 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-08-06
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
+
+新增三个 owner 范围端点，都经 `_get_user_id` 定身份、委托
+[[slot_service]] 的批量方法（本人 agent 天然隔离）：
+
+- `GET /slots/override-stats` → 各槽有多少 agent 存在覆盖（确认框影响面）。
+- `POST /slots/apply-to-agents` `{slots:[...]}` → 逐槽 clear-to-inherit，返回
+  实际清除数。**fail-closed**：进入清除循环前先校验全部槽名，任一非法即
+  400、不产生部分删除。
+- `GET /slots/agents-overview` → 喂 Dashboard 折叠行 model chip：一次 HTTP
+  调用替代 per-agent llm-config 请求（DB 层非单查询，见 [[slot_service]]）。
+
+**2026-08-27 auto-review 修正**：
+- `apply-to-agents` 的 `slots` 加 `max_length=len(SlotName)` **只封循环基数**
+  （Pydantic 校验在 body 缓冲后才跑，不封字节）；**字节上界**是
+  [[body_size]] `BODY_CAPS` 里新加的真 cap（`MAX_APPLY_TO_AGENTS_BYTES=4KB`，
+  在中间件、缓冲前生效），不再走门禁豁免。
+- 端点回到「validate + delegate」：校验(fail-closed)、去重、单次取 agent
+  列表、逐槽 clear 全部收进 [[slot_service]] `clear_owner_agents_slots`，路由
+  一行委托、`ValueError`→400。
+- `get_db_client` 保持**函数内局部 import**（全仓主流、与 ~10 个 patch
+  `db_factory.get_db_client` 源符号的测试一致；模块顶层 import 会让那些测试
+  连真库——I6 因此反向修回局部 import）。
+
+这三个端点服务于「改默认→一键应用到全体」与「Dashboard 就地看/改单 agent
+模型」两个前端功能。
 
 ## 2026-08-06 — NetMind token 的 401 不再等于"会话死了"
 

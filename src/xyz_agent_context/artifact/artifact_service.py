@@ -21,14 +21,17 @@ uniformly.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from xyz_agent_context.artifact._artifact_impl import (
+    freshness,
     heal,
     raw_access,
     registration,
     url_artifact,
+    user_edit,
 )
+from xyz_agent_context.artifact._artifact_impl.notify import stage_artifact_event
 from xyz_agent_context.artifact._artifact_impl.raw_access import ResolvedRawFile
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
@@ -49,6 +52,7 @@ class ArtifactService:
     """
 
     def __init__(self, db: AsyncDatabaseClient):
+        self._db = db
         self._repo = ArtifactRepository(db)
 
     async def register(
@@ -73,6 +77,7 @@ class ArtifactService:
         """
         return await registration.register_artifact(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -84,6 +89,42 @@ class ArtifactService:
             team_id=team_id,
             event_id=event_id,
         )
+
+    async def bulk_delete(
+        self, *, user_id: str, artifact_ids: List[str]
+    ) -> Tuple[int, List[str]]:
+        """Delete registry rows owned by `user_id`, staging one "deleted"
+        event per row.
+
+        Lives here rather than on the repository (despite the "plain CRUD
+        stays on ArtifactRepository" rule above) because eventing made
+        deletion a domain operation: ownership check, row capture for the
+        event payload, delete, stage — callers must not be able to take the
+        delete without the event. Workspace files are NOT touched.
+
+        Returns:
+            (deleted_count, skipped_not_owned_ids) — unowned or unknown ids
+            are reported, never silently deleted.
+        """
+        # One IN query, not N round-trips (review #334 I10); the route caps
+        # the id cardinality (BulkDeleteRequest max_length).
+        fetched = await self._repo.get_by_ids(artifact_ids)
+        by_id = {a.artifact_id: a for a in fetched if a is not None}
+        to_delete: List[Artifact] = []
+        skipped: List[str] = []
+        for aid in artifact_ids:
+            art = by_id.get(aid)
+            if art is None or art.user_id != user_id:
+                skipped.append(aid)
+                continue
+            to_delete.append(art)
+
+        deleted = await self._repo.bulk_delete([a.artifact_id for a in to_delete])
+        for art in to_delete:
+            await stage_artifact_event(
+                self._db, action="deleted", artifact=art
+            )
+        return deleted, skipped
 
     async def heal(
         self,
@@ -102,6 +143,7 @@ class ArtifactService:
         """
         return await heal.heal_artifact(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             artifact_id=artifact_id,
@@ -131,6 +173,7 @@ class ArtifactService:
         """
         return await url_artifact.open_url(
             repo=self._repo,
+            db=self._db,
             agent_id=agent_id,
             user_id=user_id,
             session_id=session_id,
@@ -175,3 +218,41 @@ class ArtifactService:
             artifact_id=artifact_id,
             file_path=file_path,
         )
+
+    async def save_user_content(
+        self,
+        *,
+        agent_id: str,
+        artifact_id: str,
+        content: str,
+        base_hash: str,
+    ) -> Artifact:
+        """Persist a user edit from an editing surface and commit it (hash
+        refresh + history "user_edited" + staged "updated" event).
+
+        See `_artifact_impl/user_edit.py` for the optimistic-lock and
+        atomic-write rules; raises ArtifactEditConflict (409) on a stale
+        base_hash with `.current_hash` for the editor's re-base flow.
+        """
+        return await user_edit.save_user_content(
+            self._db,
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            content=content,
+            base_hash=base_hash,
+        )
+
+    async def commit_office_user_edit(self, *, agent_id: str, artifact_id: str) -> Artifact:
+        """Refresh the registry after a watch-page user edit on an office
+        artifact (hash + history "user_edited" + event). Idempotent on an
+        unchanged hash. See `_artifact_impl/user_edit.py`."""
+        return await user_edit.commit_office_user_edit(
+            self._db, agent_id=agent_id, artifact_id=artifact_id
+        )
+
+    async def refresh_external_state(self, artifact: Artifact) -> str:
+        """Detect (and commit) an external change to the artifact's entry
+        file. Returns "fresh" / "external" / "missing" — see
+        `_artifact_impl/freshness.py` for the two-stage detection and the
+        commit-point contract."""
+        return await freshness.refresh_external_state(self._db, artifact)

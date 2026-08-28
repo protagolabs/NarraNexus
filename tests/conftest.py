@@ -47,6 +47,18 @@ _os.environ["NEXUS_DIAG_SHIP"] = "off"
 # want it re-enable it explicitly via monkeypatch.
 _os.environ["NARRANEXUS_ONBOARDING_GUIDE_AGENT"] = "0"
 
+# The nexus runner warm pool prewarms on EVERY NexusAgent() construction (the
+# local/desktop per-turn path), skipping only when there is no running event
+# loop. An async test that constructs a NexusAgent DOES have a loop, so the
+# skip does not fire and __init__ spawns a real `python -m …nexus_power.runner`
+# subprocess (~350 MB RSS) via fire-and-forget create_task — which outlives the
+# test as an orphan and binds the pool's asyncio.Lock to a dead loop. Size 0
+# disables the pool for the whole suite (no test asserts on it); the subprocess
+# STEER-transport tests still exercise their real code path (that branch is
+# gated on NEXUS_POWER_INPROCESS, not on the pool). Set at import — before any
+# NexusAgent is built — because the pool reads its size once and caches it.
+_os.environ["NEXUS_POWER_POOL_SIZE"] = "0"
+
 from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 from xyz_agent_context.utils.db.schema_registry import auto_migrate

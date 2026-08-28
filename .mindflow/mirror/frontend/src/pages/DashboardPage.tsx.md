@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 stub: false
 ---
+
+## 2026-08-26 — 就地看/改单 agent 模型
+
+展开行在运行状态之后追加 [[AgentModelCard]]（懒加载 per-agent llm-config），其
+「编辑」把 `llmCfgAgentId` 置为该 agent，页面末尾据此挂载共享
+[[AgentLlmConfigPanel]]（列表场景用 `string|null` 存「当前编辑哪个 agent」，
+不是单个 bool——多行各自可开）。保存后 `modelReloadKey++` 触发卡片重拉。
+
+折叠行名字列下挂 [[AgentModelChip]]，数据来自页面级单次
+`api.getAgentsModelOverview()`（`modelOverview` state，随 `modelReloadKey` 刷新）
+——用一次 HTTP 调用替代 per-agent 的 llm-config 请求（后端 DB 层仍每 agent
+一次查询，见 [[slot_service]]）。effect 依赖 `modelReloadKey` + 一个对
+roster agent id 集合的**值 key**（`rosterIdsKey`），这样新建/删除 agent 会触发
+一次重拉给新 agent 上 chip，但不会随轮询 tick 变成请求风暴（别把 agents 数组
+本身放进依赖）。
 
 ## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
 

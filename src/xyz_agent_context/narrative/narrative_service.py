@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from xyz_agent_context.agent_framework.llm.call_tagging import tag_last_llm_call
+
 from .models import (
     ConversationSession,
     Event,
@@ -44,6 +46,7 @@ from ._narrative_impl import (
 if TYPE_CHECKING:
     from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.schema.module_schema import InstanceStatus
+    from ._narrative_impl.landings import Landing
 
 
 def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) -> str:
@@ -59,6 +62,12 @@ def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) 
         return retrieval_anchor
     return input_content
 
+
+# THE one definition each, moved to impl (review 2026-08-27, Important #2)
+# so the merged-path orchestration can consume them without an upward import.
+# Re-exported here unchanged: `step_1_fast_select` imports `is_reusable_anchor`
+# from this module, and that public seam stays.
+from ._narrative_impl.anchor_rules import advance_session_anchor, is_reusable_anchor
 
 
 @dataclass(frozen=True)
@@ -286,6 +295,24 @@ class NarrativeService:
         # trigger provided one; else the raw input_content. See 2026-06-01 design.
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
+        # Merged routing (off by default): BM25 runs FIRST, then either a
+        # zero-LLM shutter or ONE call answers both questions the rest of this
+        # method asks serially. An early return rather than a branch woven
+        # through the body — everything below it is the two-call path exactly as
+        # it was, which is what makes "flag off = today's behaviour" a property
+        # you can read instead of a claim you have to trust.
+        if config.NARRATIVE_MERGED_ROUTING_ENABLED:
+            return await self._select_merged(
+                agent_id=agent_id,
+                user_id=user_id,
+                query_text=query_text,
+                max_narratives=max_narratives,
+                session=session,
+                awareness=awareness,
+                is_user_chat=is_user_chat,
+                trigger=trigger,
+            )
+
         # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into
         # the "everything else" bucket.
@@ -311,6 +338,25 @@ class NarrativeService:
                     if session.current_narrative_id:
                         current_narrative = await self._crud.load_by_id(session.current_narrative_id)
 
+                    # C-1 slice 5: a default bucket is a VERDICT about some
+                    # earlier turn, not a thread — there is nothing to
+                    # continue. Left to itself the continuity tier held 59 of
+                    # the replay's 155 bucket-resident turns there, in chains
+                    # up to 11 turns long, and every one of those turns is
+                    # unrecallable (a bucket's retrieval surface never
+                    # updates). Skip the tier outright rather than ask and
+                    # ignore: the answer costs a full helper round trip.
+                    if (
+                        current_narrative is not None
+                        and not is_reusable_anchor(current_narrative)
+                    ):
+                        logger.info(
+                            "[NarrativeSelect] anchor is a default bucket — "
+                            "routing this turn instead of continuing it"
+                        )
+                        detector = None
+
+                if detector:
                     _t_continuity = _perf.monotonic()
                     with timed("narrative.continuity_detect") as t:
                         result = await detector.detect(
@@ -320,15 +366,9 @@ class NarrativeService:
                             awareness=awareness
                         )
                         # Tag the timer with the model the helper LLM
-                        # actually ended up using inside detector.detect
-                        # (resolution happens deep in OpenAIAgentsSDK —
-                        # we read it back via the contextvar set there).
-                        from xyz_agent_context.agent_framework.adapters.openai_agents import (
-                            get_last_llm_call_info,
-                        )
-                        info = get_last_llm_call_info()
-                        if info:
-                            t.tag(**info)
+                        # actually used inside detector.detect (post-call by
+                        # contract — see call_tagging's docstring).
+                        tag_last_llm_call(t)
                     _continuity_ms = int((_perf.monotonic() - _t_continuity) * 1000)
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
@@ -362,6 +402,7 @@ class NarrativeService:
 
         audit: Optional[RoutingAudit] = None
         audit_snapshots: dict = {}
+        no_durable_topic = False
 
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
@@ -371,7 +412,20 @@ class NarrativeService:
                     query=query_text,
                     user_id=user_id,
                     agent_id=agent_id,
-                    top_k=max_narratives
+                    top_k=max_narratives,
+                    # The bypass rule needs to know what thread we are already
+                    # in: skipping the judge is only allowed for a turn that
+                    # STAYS there. Reading the anchor here rather than inside
+                    # the retrieval tier keeps Session ownership in one place —
+                    # the tier below has no business knowing what a Session is.
+                    anchor_narrative_id=(
+                        session.current_narrative_id if session else None
+                    ),
+                    # Background triggers deliberately never advance that
+                    # anchor (see the Session update block at the end of this
+                    # method), so they have none to match and the anchor rule
+                    # does not apply to them.
+                    is_user_chat=is_user_chat,
                 )
             _retrieve_ms = int((_perf.monotonic() - _t_retrieve) * 1000)
             narratives = retrieval_result.narratives
@@ -380,6 +434,28 @@ class NarrativeService:
             retrieval_method = retrieval_result.retrieval_method
             audit = retrieval_result.audit
             audit_snapshots = retrieval_result.audit_snapshots
+            no_durable_topic = retrieval_result.no_durable_topic
+
+            if no_durable_topic:
+                # Only the four decided fields are adopted: this path keeps
+                # its own retrieval_method (flag-off byte path unchanged).
+                landing = await self._land_no_topic_turn(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    query_text=query_text,
+                    session=session,
+                    reason=selection_reason,
+                )
+                narratives = landing.narratives
+                selection_method = landing.method
+                selection_reason = landing.reason
+                is_new = landing.is_new
+                if audit is not None:
+                    audit.selection_method = selection_method
+                    audit.chosen_narrative_id = (
+                        narratives[0].id if narratives else None
+                    )
+                    audit.is_new = is_new
             if audit is not None:
                 audit.retrieve_ms = _retrieve_ms
         else:
@@ -395,19 +471,41 @@ class NarrativeService:
                 retrieval_method=retrieval_method,
                 chosen_narrative_id=narratives[0].id if narratives else None,
             )
+            # Slice 0 — record the pool this turn never consulted.
+            #
+            # The verdict above is already final: `narratives`,
+            # `selection_method` and `chosen_narrative_id` are set and nothing
+            # below may touch them. What the recorder adds is the one thing the
+            # merged-routing design cannot get anywhere else — the shutter's
+            # releasable population on continuity turns, currently bounded only
+            # at 6%-39% because these rows carry no pool to reconstruct from.
+            #
+            # Awaited on purpose (~13.5ms: two DB reads + one snapshot-dedup
+            # SELECT; the real line item is the shadow row's full-pool
+            # candidates_json, 10KB-scale): a `create_task` here
+            # would race the audit write below and turn any failure into a GC
+            # warning nobody reads (incident lesson #2).
+            #
+            # The guard is scoped to the instrument and nothing else. Losing a
+            # measurement is cheaper than failing a user's turn — the same rule
+            # the audit repository already states — but a failure in the
+            # DECISION path above still propagates, because it is outside this
+            # block.
+            # User-chat only: background triggers (job / message_bus / IM
+            # webhook) have no session anchor by design, so their shadow rows
+            # answer nothing about the shutter's releasable population
+            # (bypass_reason would be background_scope on every one) while
+            # still paying the recording cost — ~30% of dev turns are
+            # message_bus. Deliberate scope, not an omission.
+            if config.NARRATIVE_SHADOW_POOL_RECORD and is_user_chat:
+                await self._record_shadow_pool(
+                    query_text=query_text, user_id=user_id, agent_id=agent_id,
+                    session=session, is_user_chat=is_user_chat,
+                    top_k=max_narratives,
+                    audit=audit, snapshots=audit_snapshots,
+                )
 
-        # Update Session (using main Narrative).
-        # Only user-initiated runs (chat) write to last_query / last_response /
-        # current_narrative_id — background trigger runs (job / message_bus /
-        # lark / callback) must leave these fields untouched so the *next*
-        # user message gets its continuity judged against the previous user
-        # exchange, not against whatever cron job or bus ping ran in between.
-        if session and narratives and is_user_chat:
-            from datetime import datetime, timezone
-            session.last_query = query_text
-            session.current_narrative_id = narratives[0].id
-            session.query_count += 1
-            session.last_query_time = datetime.now(timezone.utc)
+        advance_session_anchor(session, query_text, narratives, is_user_chat)
 
         logger.info(f"[NarrativeSelect] completed: {len(narratives)} Narratives, method={selection_method}")
 
@@ -428,9 +526,64 @@ class NarrativeService:
             narratives=narratives,
             selection_reason=selection_reason,
             selection_method=selection_method,
+            no_durable_topic=no_durable_topic,
             is_new=(selection_method == "new_created"),
             best_score=None,
             retrieval_method=retrieval_method,
+        )
+
+    async def _select_merged(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        query_text: str,
+        max_narratives: int,
+        session: Optional[ConversationSession],
+        awareness: Optional[str],
+        is_user_chat: bool,
+        trigger: str,
+    ) -> NarrativeSelectionResult:
+        """One decision per turn: BM25 first, then a shutter or ONE call.
+
+        Thin delegate — the orchestration lives in
+        `_narrative_impl/merged_select.py` (review 2026-08-27, Important #2:
+        two 250-line deciders side by side pushed this file past the 800-line
+        bound, and the landing fields were six loose locals per branch).
+        """
+        from ._narrative_impl.merged_select import select_merged
+
+        return await select_merged(
+            self._crud, self._retrieval, self._write_audit,
+            agent_id=agent_id,
+            user_id=user_id,
+            query_text=query_text,
+            max_narratives=max_narratives,
+            session=session,
+            awareness=awareness,
+            is_user_chat=is_user_chat,
+            trigger=trigger,
+        )
+
+    async def _land_no_topic_turn(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        query_text: str,
+        session: Optional[ConversationSession],
+        reason: str,
+        anchor: Optional[Narrative] = None,
+    ) -> "Landing":
+        """Thin delegate — the landing executor lives with its four siblings
+        in `_narrative_impl/landings.py` (review round 5, I3). Kept here so
+        both routing paths and the existing tests share one call surface."""
+        from ._narrative_impl.landings import land_no_topic
+
+        return await land_no_topic(
+            self._crud, self._retrieval,
+            agent_id=agent_id, user_id=user_id, query_text=query_text,
+            session=session, reason=reason, anchor=anchor,
         )
 
     # =========================================================================
@@ -573,6 +726,63 @@ class NarrativeService:
             await NarrativeRoutingAuditRepository(db).record(audit, snapshots)
         except Exception as e:  # noqa: BLE001 — the observer must not break the observed
             logger.warning(f"[narrative.audit] not recorded: {type(e).__name__}: {e}")
+
+    async def _record_shadow_pool(
+        self,
+        *,
+        query_text: str,
+        user_id: str,
+        agent_id: str,
+        session: ConversationSession,
+        is_user_chat: bool,
+        top_k: int,
+        audit: RoutingAudit,
+        snapshots: dict,
+    ) -> None:
+        """Fill a continuity turn's audit row with the pool it never consulted.
+
+        A thin seam over ``NarrativeRetrieval.record_pool_only`` so the failure
+        boundary is one named place rather than a bare try/except inline in
+        ``select``. It exists to be monkeypatched off in the invariance test:
+        that test runs the same turn with and without it and asserts the
+        decided fields are identical, which is the property that makes this an
+        instrument rather than a change.
+
+        ``session`` is NOT Optional here. Reaching this branch requires
+        ``narratives`` to be non-empty, and the only assignment to it is guarded
+        by ``if is_continuous and session and session.current_narrative_id``, so
+        both are known-true. The old ``if session else None`` was a branch that
+        could never be taken, and the missing annotation is what hid that.
+        (The similar-looking guard in ``_land_no_topic_turn`` is real — that
+        path genuinely can be reached without a session.)
+
+        ``is_user_chat`` is always True here — the call site guards on it —
+        so ``evaluate_bypass``'s background_scope branch is unreachable on
+        this chain. The parameter stays so that re-opening background turns
+        later is a one-line change to the guard, not a plumbing change.
+
+        The except clause is one log line and nothing else. It used to reset the
+        nine fields the recorder writes, from a list kept by hand, which was
+        already missing ``gate_reason`` on the day it was written and did not
+        roll back snapshots at all (leaving orphan rows in
+        ``narrative_text_snapshots``). ``record_pool_only`` is now
+        all-or-nothing, so there is no list left to drift.
+        """
+        try:
+            await self._retrieval.record_pool_only(
+                query_text, user_id, agent_id,
+                top_k=top_k,
+                anchor_narrative_id=session.current_narrative_id,
+                is_user_chat=is_user_chat,
+                audit=audit,
+                snapshots=snapshots,
+            )
+        except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+            logger.warning(
+                f"[narrative.shadow_pool] recording failed (agent={agent_id}): "
+                f"{type(e).__name__}: {e} (verdict unaffected; the row keeps "
+                f"its pre-slice-0 shape)"
+            )
 
     def _get_continuity_detector(self) -> Optional[ContinuityDetector]:
         """Get the continuity detector (lazy loaded)"""

@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/data_access/store.py
 stub: false
-last_verified: 2026-08-18
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — `update_awareness` 现在先读后写：保住平台身份记录
+
+这个工具把**整份 profile** 交给模型重写并原样收回，而它规定的格式只列 4 节，
+**不含** `## Identity Changes (platform record)`——同时 §5 和它自己的 When to
+Update 都在鼓励模型经常重写。于是改名事务刚写好的身份更正，撑到模型下一次整理
+profile 就整段没了：agent 回到"自述旧名、无任何平台更正"，而且这个状态连修都检测
+不到（对账正是靠那条记录或自述行发现不一致的）。
+
+改成先 `get_by_instance` 读旧值，用 [[_awareness_writes]] 的
+`carry_over_platform_record` 把那一段接回去。**不是**在提示词里请模型保留它——
+铁律 #15：机器可知的事实要推导，提示词是补充不是机制。
+
+⚠ 云端那一半在 [[awareness]] 路由里（`PUT /agents/{id}/awareness`）。第一版只改了
+本地 DirectStore，**而事故发生在 prod**——两条路径只修一条，是这次改动反复犯的那个错。
+
+连带：`tests/module/test_data_access.py` 与 `tests/backend/test_awareness_create_missing.py`
+的假 repo 要实现 `get_by_instance`，因为这个接缝现在真的会读。
 
 ## 2026-08-18(补)— 判断改调共享规则
 

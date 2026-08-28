@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
@@ -42,6 +42,7 @@ from xyz_agent_context.utils.deployment_mode import (
     is_power_login_enabled,
 )
 from backend.auth_errors import IDENTITY_UNRESOLVED, NETMIND_TOKEN_INVALID, AuthError
+from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
 
 router = APIRouter()
 
@@ -197,8 +198,8 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -770,6 +771,69 @@ async def validate_slots(request: Request):
     service = await _get_service()
     errors = await service.validate_slots(uid)
     return {"success": True, "errors": errors, "all_configured": len(errors) == 0}
+
+
+# =============================================================================
+# Owner-scoped bulk slot ops — "apply default model to all my agents"
+# =============================================================================
+#
+# The owner default lives in ``user_slots``; each agent may pin a per-agent
+# override in ``agent_slots``. Changing the default does NOT touch existing
+# overrides, so these endpoints let the owner (a) see how many agents override
+# and (b) clear those overrides so they fall back to inheriting the new
+# default (clear-to-inherit; NOT a value snapshot). ``agents-overview`` feeds
+# the Dashboard model chip in one HTTP call (the DB layer is still one
+# agent_slots read per owned agent, not a single query).
+
+
+class ApplyToAgentsRequest(BaseModel):
+    # Cap the LOOP CARDINALITY: there are only len(SlotName) slots and each
+    # appears at most once, so an inflated ["agent"]*N can't be turned into a
+    # huge per-agent loop. (This is a Pydantic check that runs AFTER the body
+    # is buffered, so it does NOT bound the byte size — the real byte cap for
+    # this route lives in body_size.BODY_CAPS.)
+    slots: list[str] = Field(..., max_length=len(SlotName))
+
+
+@router.get("/slots/override-stats")
+async def slot_override_stats(request: Request):
+    """How many of the caller's agents hold a per-agent override, per slot —
+    the blast radius shown before a bulk 'apply defaults to all agents'."""
+    uid = _get_user_id(request)
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    db = await get_db_client()
+    stats = await AgentSlotService(db).count_owner_overrides(uid)
+    return {"success": True, "data": stats}
+
+
+@router.post("/slots/apply-to-agents")
+async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
+    """Clear the given slots' per-agent overrides across ALL the caller's
+    agents, so they revert to inheriting the owner default on their next run.
+    Semantics = clear-to-inherit (not stamp-a-snapshot)."""
+    uid = _get_user_id(request)
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    db = await get_db_client()
+    # Validation (fail-closed on a bad slot), dedup, single agent-list fetch
+    # and per-slot clear all live in the service — the route just validates
+    # identity and delegates.
+    try:
+        cleared = await AgentSlotService(db).clear_owner_agents_slots(uid, req.slots)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
+    return {"success": True, "data": {"cleared": cleared}}
+
+
+@router.get("/slots/agents-overview")
+async def slot_agents_overview(request: Request):
+    """Effective (agent + helper_llm) model per owned agent, in one call —
+    feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
+    uid = _get_user_id(request)
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    db = await get_db_client()
+    overview = await AgentSlotService(db).owner_agents_overview(uid)
+    return {"success": True, "data": {"agents": overview}}
 
 
 # =============================================================================

@@ -38,16 +38,7 @@ import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { downloadFile } from '@/lib/download';
-
-const KIND_TO_EXT: Record<string, string> = {
-  'text/html': 'html',
-  'application/vnd.echarts+json': 'json',
-  'text/csv': 'csv',
-  'text/markdown': 'md',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'application/pdf': 'pdf',
-};
+import { KIND_REGISTRY, downloadExtFor } from './kindRegistry';
 
 function safeFilename(title: string, ext: string): string {
   // Strip path-illegal punctuation. Control chars are filtered by codepoint
@@ -72,13 +63,13 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   // In-app notices only: wry does not render window.alert, so a native one is
   // invisible on the DMG (see ui/ConfirmDialog).
   const { notifyPending, notifyDone, notifyError, dialog: noticeDialog } = useNotice();
-  const isChart = artifact.kind === 'application/vnd.echarts+json';
+  const isChart = Boolean(KIND_REGISTRY[artifact.kind]?.chartImageExport);
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
-  const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
+  const ext = downloadExtFor(artifact);
 
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);

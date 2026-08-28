@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactDownloadMenu.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-21
 stub: false
 ---
 
@@ -98,3 +98,17 @@ and does not suffer from cross-origin or mixed-content issues.
 - `right` is computed as `window.innerWidth - rect.right`; if the trigger ever
   sits near the right viewport edge with a >200px menu, the menu stays pinned to
   the trigger's right edge (acceptable — the menu has room to the left).
+
+## 2026-08-21 — ext 改走 `downloadExtFor(artifact)`(深圳复测 .bin bug)
+
+office-live kind 静态查表拿不到扩展名(pptx/docx/xlsx 共用一个 kind),
+`?? 'bin'` 兜底让 office 产物一律下成 .bin。改为
+[[kindRegistry.ts]]`.downloadExtFor`:静态 ext 优先,缺则取
+`artifact.file_path` 的扩展名(净化后),最后才 'bin'。下载文件名由
+`a.download`/Tauri 落盘决定,Content-Type 不参与——所以这里是该 bug
+的**决定性一层**(后端 raw 路由的 MIME 是次要面,见 [[raw_access.py]])。
+
+## 2026-08-19 — KIND_TO_EXT/isChart 改查注册表
+
+私有 ext 映射删除,`downloadExt` 与 `chartImageExport` 从
+[[kindRegistry.ts]] 查;'bin' 兜底语义不变。

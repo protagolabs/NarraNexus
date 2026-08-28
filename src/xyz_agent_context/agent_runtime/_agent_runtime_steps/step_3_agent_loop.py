@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import AsyncGenerator, Any, Optional, Union, TYPE_CHECKING
+import time
+from typing import AsyncGenerator, Any, NamedTuple, Optional, Union, TYPE_CHECKING
 
 from loguru import logger
 from xyz_agent_context.utils.logging import timed
@@ -28,6 +29,10 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
     EXECUTOR_INFRA_ERROR_TYPE,
+    PHASE_BUILD_CONTEXT_STEP,
+    PHASE_BUILD_CONTEXT_TITLE,
+    PHASE_RUN_AGENT_STEP,
+    PHASE_RUN_AGENT_TITLE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 
@@ -60,6 +65,10 @@ from xyz_agent_context.agent_framework.llm.failure import (
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        ExecutorEnsureResult,
+    )
+
     from .context import RunContext
 
 
@@ -71,6 +80,11 @@ _DEFAULT_MAX_PER_ENTRY = 4096
 _DEFAULT_MAX_TOTAL = 32768
 _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
+
+# Step-3 phase identity (PHASE_BUILD_CONTEXT / PHASE_RUN_AGENT) lives in the
+# leaf schema module `schema/runtime_message.py` so run_recorder can derive
+# events.current_stage from the SAME constants without a circular import (this
+# package's __init__ eager-imports step_3_agent_loop). Imported above.
 
 
 def _dispatch_identity_token(ensured, user_id) -> str | None:
@@ -335,6 +349,504 @@ def _channel_turn_envelope(ctx) -> dict:
 # channel recipient waiting on the other end.
 _NO_FALLBACK_WORKING_SOURCES = frozenset({"message_bus", "job"})
 
+# Skip reasons for the two gates. Constants, not literals: the assertion
+# that ``channel_prompts``' explanation still names them has to move when
+# the name moves, or it degrades into "the old word is still in a stale
+# comment" and stops catching drift.
+SKIP_REASON_AGENT_PEER = "agent_peer_no_fallback"
+SKIP_REASON_FALLBACK_RATE_LIMITED = "fallback_rate_limited"
+
+# How many platform-written DM replies one conversation may receive inside
+# IM_DM_FALLBACK_WINDOW_SECONDS before the fallback stops arming.
+#
+# The fallback exists for an OVERSIGHT — the agent meant to reply and
+# forgot the tool. Oversights are occasional; a conversation generating
+# them steadily is being fed, and every fallback we emit lands as an
+# inbound message on the far side. A suppression heuristic, deliberately
+# in-process (a restart resets it) like ``background_llm_alerts``' cooldown
+# map: it bounds a burst, not a long-running loop.
+#
+# Sized against the 8/14 traffic shape: that loop ran ~66k messages over
+# ~70h — one every ~4s sustained, faster in bursts — so a machine
+# ping-pong clears 100+ in a ten-minute window.
+#
+# The bar has been walked up twice, and both earlier numbers were wrong in
+# the same direction, so the reasoning is worth keeping:
+#
+#   3  — sat squarely in the HUMAN range. One ordinary exchange against a
+#        model that forgets the reply tool (binding rule #15: the user's
+#        choice, not ours to fix) exhausted it, and the person then got
+#        nothing — the 0802 symptom, harder to spot than the original
+#        because the first few replies did arrive.
+#   20 — justified as "a human produces single digits in this window".
+#        That premise does not hold on IM: this counts TURNS whose model
+#        skipped the reply tool, and people split one thought across three
+#        to five short messages — which on Lark and Matrix are separate
+#        turns (DEBOUNCE_WINDOW_MS = 0, no merging). 20 works out to one
+#        per 30s, i.e. five exchanges of four messages. That is an active
+#        conversation, not an extreme.
+#
+# 50 is one per 12s sustained for ten minutes, with the model failing every
+# single time — out of reach for a person on IM, and still half the rate a
+# fed machine loop produces. Every hit leaves an audit row
+# (``_audit_fallback_suppressed``), so this can now be re-set from data
+# rather than from another estimate of what humans do.
+IM_DM_FALLBACK_BURST_LIMIT = 50
+IM_DM_FALLBACK_WINDOW_SECONDS = 600.0
+
+# f"{agent_id}:{channel}:{room_id}" -> monotonic timestamps of deliveries.
+_im_dm_fallback_history: dict[str, list[float]] = {}
+
+
+def _fallback_conversation_key(channel_tag: dict, agent_id: str) -> str:
+    """Identity for fallback rate limiting: one conversation, one budget.
+
+    Keyed by agent as well. This module-level map is shared by every agent
+    in the runtime process, and while today the gate only fires on DMs
+    (where one of our agents is alone in the room, so ``room_id`` cannot
+    collide), that is a property of the current caller, not of the key. If
+    the gate ever widens beyond DMs, an agent-blind key would let agent A's
+    three fallbacks silently gag agent B in the same room.
+    """
+    # Normalised HERE, not at the call sites: the key is computed in two
+    # places (decision and record) and they must agree byte for byte. One
+    # site adding ``or ""`` and the other not would give ``":ch:room"`` vs
+    # ``"None:ch:room"`` — two buckets that never meet, so the gate simply
+    # never fires, with no error and no log.
+    agent_id = str(agent_id or "")
+    channel = str(channel_tag.get("channel", "") or "")
+    room_id = str(channel_tag.get("room_id", "") or "")
+    # No conversation identity → do not count. ``channel`` is always set
+    # (it is the trigger's own ``channel_name``), so requiring BOTH to be
+    # empty made the empty-room case fall through to a per-CHANNEL bucket
+    # where unrelated DMs would starve each other's budget — the very
+    # thing the empty-key carve-out exists to prevent.
+    if not room_id:
+        return ""
+    return f"{agent_id}:{channel}:{room_id}"
+
+
+def _recent_fallback_count(key: str) -> int:
+    """Deliveries to this conversation inside the live window."""
+    if not key:
+        return 0
+    cutoff = time.monotonic() - IM_DM_FALLBACK_WINDOW_SECONDS
+    recent = [t for t in _im_dm_fallback_history.get(key, []) if t >= cutoff]
+    if recent:
+        _im_dm_fallback_history[key] = recent
+    else:
+        _im_dm_fallback_history.pop(key, None)
+    return len(recent)
+
+
+def _record_fallback_delivery(key: str) -> None:
+    """Count a fallback that actually reached the far side.
+
+    Recorded on DELIVERY, not on decision: a fallback the channel failed
+    to send never became an inbound message on the other side, so it must
+    not consume this conversation's budget.
+    """
+    if not key:
+        return
+    _im_dm_fallback_history.setdefault(key, []).append(time.monotonic())
+    _prune_fallback_history()
+
+
+def _prune_fallback_history() -> None:
+    """Drop conversations whose deliveries have all aged out.
+
+    ``_recent_fallback_count`` only cleans the key it was asked about, so
+    a room that gets one fallback and never another would keep its entry
+    for the life of the process. Small, but unbounded, and these processes
+    are designed to run for days (binding rule #14).
+    """
+    cutoff = time.monotonic() - IM_DM_FALLBACK_WINDOW_SECONDS
+    for key in [
+        k
+        for k, stamps in _im_dm_fallback_history.items()
+        if not stamps or stamps[-1] < cutoff
+    ]:
+        _im_dm_fallback_history.pop(key, None)
+
+
+# Audit plane for "the platform chose not to speak".
+_FALLBACK_AUDIT_SERVICE = "im_dm_fallback_gate"
+
+# One audit row per (conversation, reason) per this window. The WRITE RATE
+# here is set by the far side, not by us: every inbound DM whose turn ends
+# without a reply tool would otherwise write a row. In a fed conversation
+# that is ~130 rows per ten minutes from a single peer (8/14's shape minus
+# the burst limit the gate lets through), and ``service_audit`` has no
+# retention sweep at all — one runaway conversation would multiply that
+# table's daily growth several times over, with rows that are
+# near-identical and whose diagnostic value collapses after the first one.
+#
+# Cooling the WRITE stays lossless because every suppressed turn is
+# accounted for by exactly one row: the cooled ones accumulate into
+# ``suppressed_since_last_row`` (below), and a conversation that ends
+# while still cooled is settled by ``_settle_reclaimed_tallies`` when its
+# tally is reclaimed. ``window_count`` cannot stand in for that: it counts
+# successful DELIVERIES, so it is 0 for ``agent_peer_no_fallback`` and
+# pinned at the limit for ``fallback_rate_limited``, by construction.
+#
+# Keyed by reason as well as conversation: the two gates are different
+# facts and must not eat each other's slot.
+_FALLBACK_AUDIT_COOLDOWN_SECONDS = 600.0
+_fallback_audit_cooldown: dict[str, float] = {}
+
+# How many turns this (reason, conversation) suppressed since its last
+# audit row. ``window_count`` cannot answer that — it counts successful
+# DELIVERIES, so it is structurally 0 for ``agent_peer_no_fallback`` (that
+# gate stops the turn before any delivery) and pinned at the burst limit
+# for ``fallback_rate_limited``. Both are constants, and the whole point of
+# these rows was to make the threshold re-settable from data.
+# The timestamp is what makes this map reclaimable: the counter must
+# OUTLIVE the cooldown slot — the number it holds is exactly what
+# accumulated while that slot was armed, which is what the next row exists
+# to report. So it cannot be swept on the cooldown's schedule; it is swept
+# when the conversation goes quiet.
+#
+# The identity fields are carried here rather than parsed back out of the
+# key, because the key is ``f"{reason}:{agent_id}:{channel}:{room_id}"``
+# and a Matrix ``room_id`` contains colons of its own
+# (``!abc:matrix.example``). Splitting it back apart would silently
+# mis-attribute exactly the rooms this gate fires on most.
+class _PendingTally(NamedTuple):
+    count: int
+    touched: float
+    reason: str
+    agent_id: str
+    channel: str
+    room_id: str
+
+
+_fallback_suppressed_since_row: dict[str, _PendingTally] = {}
+# Strictly longer than the cooldown, and that is the whole point. The
+# pending count comes due the moment the cooldown expires — the next
+# suppression writes a row and reports it. Sweeping the counter on the
+# cooldown's own window would reclaim the debt at the exact instant it is
+# owed. 2x leaves a full window of slack for the conversation to resume
+# and collect it, while still bounding the map.
+_FALLBACK_SUPPRESSED_RETENTION_SECONDS = _FALLBACK_AUDIT_COOLDOWN_SECONDS * 2
+
+# How many closing rows one sweep may write. The number of conversations
+# that expire together is set by how many rooms the far side keeps open,
+# and the writes are sequential — an agent talking to a thousand peers,
+# then going quiet past the retention window, would land a thousand inserts
+# on whichever single turn happens to run the next sweep. Entries over the
+# cap are simply NOT popped, so the next sweep continues draining them;
+# they are already expired and holding them a little longer costs nothing.
+# Deliberately its own constant: it is a batch size, not a window, and the
+# two 600s windows above are already a standing lesson in what sharing a
+# constant between unrelated things costs.
+_FALLBACK_SETTLE_BATCH = 32
+
+# Reused rather than constructed per call — it is stateless apart from the
+# service name and its own lazy db handle.
+_fallback_auditor = None
+
+
+def _prune_fallback_audit_state(now: float) -> list[_PendingTally]:
+    """Drop cooldown slots and pending counters, on their own schedules.
+
+    Returns the reclaimed tallies that still owed a number, so the caller
+    can settle them. The counter has exactly one other way out — the next
+    suppression on the same conversation, once the cooldown has expired —
+    and a conversation that ENDS inside its cooldown window never gets
+    one. Without this return value the common case (a short A2A exchange:
+    gate 1 fires every turn, the whole thing is over in minutes) would
+    report its first turn and silently drop the rest, which is the
+    opposite of what these rows were added for.
+
+    Same hazard `_prune_fallback_history` was written for, one map over:
+    the key contains ``room_id``, which the far side supplies, and
+    ``agent_peer_no_fallback`` fires on EVERY turn of an A2A conversation
+    — no error condition needed. So an agent talking to many peers leaves
+    one permanent entry per room in a process designed to run for days
+    (binding rule #14).
+
+    Deliberately NOT hung off ``_prune_fallback_history``: that runs on the
+    delivery path, and a conversation stopped by gate 1 never delivers, so
+    exactly the half that grows fastest would never be swept.
+
+    Uses the audit cooldown's own window, not the rate limiter's. They are
+    both 600s today and they are different things; sharing the constant is
+    how one gets changed and silently drags the other with it.
+    """
+    for k in [
+        k
+        for k, t in _fallback_audit_cooldown.items()
+        if now - t >= _FALLBACK_AUDIT_COOLDOWN_SECONDS
+    ]:
+        _fallback_audit_cooldown.pop(k, None)
+    # Separate schedule, on purpose — see the map's own comment. Keyed off
+    # last touch, so an active conversation keeps its pending count no
+    # matter how many cooldown windows elapse, and a dead one is reclaimed
+    # even if its audit row never landed (the failure path increments too).
+    owed: list[_PendingTally] = []
+    for k in [
+        k
+        for k, pending in _fallback_suppressed_since_row.items()
+        if now - pending.touched >= _FALLBACK_SUPPRESSED_RETENTION_SECONDS
+    ]:
+        pending = _fallback_suppressed_since_row[k]
+        if pending.count <= 0:
+            # Nothing owed, nothing to write — never capped, it costs
+            # nothing to reclaim.
+            _fallback_suppressed_since_row.pop(k, None)
+            continue
+        if len(owed) >= _FALLBACK_SETTLE_BATCH:
+            # Left in place, NOT popped and re-inserted: re-inserting would
+            # refresh ``touched`` and renew the retention window forever,
+            # which is the leak this sweep exists to prevent.
+            continue
+        _fallback_suppressed_since_row.pop(k, None)
+        owed.append(pending)
+    return owed
+
+
+async def _maybe_audit_fallback_skip(
+    *,
+    skip_reason: str,
+    agent_id: str,
+    channel_tag: dict,
+    window_count: int,
+    conversation_key: str,
+) -> bool:
+    """Decide whether this skip deserves an audit row, and write it.
+
+    Named and separated from the generator so the WHITELIST is testable.
+    Three of the five skip reasons are recomputable from the turn itself
+    (room type, fatal frames, reply-tool frames), so auditing them would be
+    noise; the two gate reasons are not, and one of them fires off state a
+    restart erases.
+
+    Returns whether the reason is one this plane audits — NOT whether a
+    row landed (``_audit_fallback_suppressed`` may still cool it away or
+    fail to write). The caller ignores it; tests use it to pin the
+    whitelist. Inline in the generator that decision could only be checked
+    by reading source text, and "let's just audit all five" is an easy and
+    wrong cleanup for someone to make.
+    """
+    if skip_reason not in (
+        SKIP_REASON_AGENT_PEER, SKIP_REASON_FALLBACK_RATE_LIMITED
+    ):
+        return False
+    await _audit_fallback_suppressed(
+        reason=skip_reason,
+        agent_id=agent_id,
+        channel_tag=channel_tag,
+        window_count=window_count,
+        conversation_key=conversation_key,
+    )
+    return True
+
+
+def _get_fallback_auditor():
+    """Lazily build the shared auditor. Also used by the settle-up path."""
+    global _fallback_auditor
+    if _fallback_auditor is None:
+        from xyz_agent_context.services.service_audit import ServiceAuditor
+
+        _fallback_auditor = ServiceAuditor(_FALLBACK_AUDIT_SERVICE)
+    return _fallback_auditor
+
+
+async def _settle_reclaimed_tallies(owed: list[_PendingTally]) -> None:
+    """Write one closing row per conversation reclaimed with a debt.
+
+    Marked ``final_tally`` so operations can tell a closing row from a live
+    suppression row: without the flag, counting rows would count each ended
+    conversation once more than it happened — the same over-report this
+    plane is being fixed for, pointed the other way.
+
+    Deliberately does NOT arm a cooldown, and deliberately does NOT put the
+    number back on a failed write. The entry is already out of the map; a
+    conversation that has been silent for the retention window has nothing
+    left to trigger a retry, so re-adding it would leave a row that can
+    only be settled by another settle-up — forever pending, forever swept.
+
+    That makes a failed closing write UNRECOVERABLE: the tally is gone. So
+    the outcome is checked and logged WITH the number, which is the only
+    trace left of how much was lost. The repository's own failure log does
+    not carry it. ``event()`` never raises, so the ``except`` below covers
+    only the auditor construction — it is not the path a failed write takes.
+    """
+    if not owed:
+        return
+    try:
+        auditor = _get_fallback_auditor()
+        for pending in owed:
+            wrote = await auditor.event(
+                pending.reason,
+                {
+                    "agent_id": pending.agent_id,
+                    "channel": pending.channel,
+                    "room_id": pending.room_id,
+                    # No live window exists for a reclaimed conversation;
+                    # 0 here would read as "measured zero deliveries".
+                    "window_count": None,
+                    "suppressed_since_last_row": pending.count,
+                    "final_tally": True,
+                },
+            )
+            if not wrote:
+                logger.warning(
+                    f"[FALLBACK] settle-up row dropped, tally unrecoverable: "
+                    f"reason={pending.reason} room={pending.room_id!r} "
+                    f"tally={pending.count}"
+                )
+    except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        logger.warning(f"[FALLBACK] suppression settle-up failed: {e}")
+
+
+async def _audit_fallback_suppressed(
+    *,
+    reason: str,
+    agent_id: str,
+    channel_tag: dict,
+    window_count: int,
+    conversation_key: str,
+) -> None:
+    """Leave a DB row when a gate silences a reply that would have gone out.
+
+    The three pre-existing skip reasons are all RECOMPUTABLE from the turn
+    itself (room type, fatal frames, reply-tool frames — all in
+    ``agent_loop_response`` and the envelope). These two are not:
+    ``fallback_rate_limited`` fires off a purely in-process sliding window
+    that a restart wipes. Once the container recycles or the logs rotate,
+    "how many replies did we suppress for this room" is gone.
+
+    That matters because what the person on the other end sees is the 0802
+    symptom — the assistant stopped answering — and the owner has to be
+    able to answer "why". Incident lesson #5: logs rotate and greps miss;
+    DB rows do neither.
+
+    Goes through ``ServiceAuditor`` rather than the channel audit table on
+    purpose: this file must not reach into the channel layer's internals
+    (binding rule #3), and ``ServiceAuditor`` acquires its own db lazily.
+    Never raises — an observer must not break the observed.
+    """
+    now = time.monotonic()
+    # Swept on EVERY call, not only after a landed write. The counter grows
+    # on the failure path too (it increments before the write is even
+    # attempted), so hanging the sweep off success means a DB outage — the
+    # exact condition under which these maps grow fastest — is when nothing
+    # reclaims them. That is the same shape as the cooldown map one round
+    # ago, on the map added to fix it.
+    owed = _prune_fallback_audit_state(now)
+    # Settled up front, before this conversation touches its own counter.
+    # These belong to OTHER conversations that have already ended, and they
+    # were popped by the sweep above — a path that skips this call drops
+    # them on the floor rather than deferring them. Doing it here also
+    # keeps "increment → cooldown check → debit" one unbroken synchronous
+    # stretch; an await in the middle of it reopens the interleaving the
+    # debit-before-write ordering was added to close.
+    await _settle_reclaimed_tallies(owed)
+    # No conversation identity → no cooling. Keying an empty identity would
+    # put every unidentifiable turn in ONE slot, so the first would mute
+    # the audit for all the others — the shared-bucket shape the rate-limit
+    # key had removed one round ago. These turns should be rare; if they
+    # are not, the rows themselves are the evidence.
+    cooldown_key = f"{reason}:{conversation_key}" if conversation_key else ""
+    # This row stands for one suppressed turn on top of whatever was
+    # pending, and for an unidentifiable turn it stands for exactly itself.
+    # One meaning for the field on every row: "how many turns does this row
+    # account for". A structural 0 on one class of rows would be the same
+    # defect ``window_count`` was called out for.
+    reported = 1
+    channel = str(channel_tag.get("channel", "") or "")
+    room_id = str(channel_tag.get("room_id", "") or "")
+
+    def _set_pending(count: int) -> None:
+        _fallback_suppressed_since_row[cooldown_key] = _PendingTally(
+            count, now, reason, agent_id, channel, room_id
+        )
+
+    if cooldown_key:
+        prior = _fallback_suppressed_since_row.get(cooldown_key)
+        reported = (prior.count if prior else 0) + 1
+        _set_pending(reported)
+    if cooldown_key:
+        # Expiry is decided in one place — the sweep above already dropped
+        # every slot past its window, using this same ``now``. Re-testing
+        # the timestamp here would read as a second, independent criterion
+        # and invite the two from drifting apart.
+        if cooldown_key in _fallback_audit_cooldown:
+            return
+        # Taken off the books BEFORE the await, and only once this turn is
+        # committed to writing. The cooldown is armed only after the write
+        # lands, so two turns of the same conversation can both find it
+        # unarmed and both write; debiting first means each row carries
+        # only what no other row has claimed. Debiting afterwards would let
+        # the second row re-report the turn the first one already carried.
+        # Put back below if the write does not land.
+        _set_pending(0)
+    try:
+        wrote = await _get_fallback_auditor().event(
+            reason,
+            {
+                "agent_id": agent_id,
+                "channel": channel,
+                "room_id": room_id,
+                "is_agent_peer": bool(channel_tag.get("is_agent_peer", False)),
+                # Successful deliveries in the window. NOT the suppression
+                # count — this is 0 for agent_peer_no_fallback and equal to
+                # the burst limit for fallback_rate_limited, by
+                # construction. Carried to line the row up against the
+                # rate-limiter's own state.
+                "window_count": window_count,
+                # The number this row exists to report.
+                "suppressed_since_last_row": reported,
+                # Present on BOTH row shapes. Distinguishing them by the
+                # key's absence would make the obvious query
+                # (``-> '$.final_tally' = false``) match nothing, since
+                # JSON_EXTRACT returns SQL NULL for a missing key — and
+                # these rows exist to be queried by people who did not read
+                # this file.
+                "final_tally": False,
+            },
+        )
+        # Armed on a LANDED write, not merely on "nothing was raised":
+        # ``event()`` never raises (its ``_emit`` swallows), so keying off
+        # the absence of an exception armed the cooldown on DB failures
+        # too — the conversation then went unaudited for the rest of the
+        # window even if the DB recovered a second later.
+        if not cooldown_key:
+            return
+        if not wrote:
+            # The debit was optimistic; nothing reached the DB, so the
+            # turns go back on the books for the next row to carry.
+            current = _fallback_suppressed_since_row.get(cooldown_key)
+            _set_pending((current.count if current else 0) + reported)
+            return
+        _fallback_audit_cooldown[cooldown_key] = now
+    except Exception as e:  # noqa: BLE001 — observer never breaks observed
+        if cooldown_key:
+            current = _fallback_suppressed_since_row.get(cooldown_key)
+            _set_pending((current.count if current else 0) + reported)
+        logger.warning(f"[FALLBACK] suppression audit failed: {e}")
+
+
+def reset_im_dm_fallback_history() -> None:
+    """Clear the in-process fallback state. For tests / explicit resets.
+
+    Covers all four pieces of module-level state — the rate-limit sliding
+    window, the audit cooldown slots, the pending suppression tallies, and
+    the lazily built ``ServiceAuditor`` singleton. Splitting the reset
+    would recreate exactly the implicit-initial-value problem the
+    directory-wide fixture exists to remove, so the list is kept whole
+    here; see the mirror for ``tests/agent_runtime/conftest.py``.
+    """
+    global _fallback_auditor
+    _im_dm_fallback_history.clear()
+    _fallback_audit_cooldown.clear()
+    _fallback_suppressed_since_row.clear()
+    # The dirtiest of the three: it caches a ServiceAuditor, which caches a
+    # repository, which caches a db handle. A test that patches
+    # ServiceAuditor gets the stale instance without this.
+    _fallback_auditor = None
+
 
 def _has_organic_reply(
     agent_loop_response: list,
@@ -385,6 +897,8 @@ def _should_run_helper_llm_fallback(
     agent_loop_response: list,
     cancellation,
     is_direct_message: bool = False,
+    is_agent_peer: bool = False,
+    recent_fallback_count: int = 0,
 ) -> tuple[str | None, str]:
     """Decide what the chat fallback path should do this turn.
 
@@ -427,6 +941,19 @@ def _should_run_helper_llm_fallback(
           recipient would get a confident-sounding message with no error
           surface at all, so we stay silent rather than deliver a reply
           synthesised from half a thought.
+        * ``"agent_peer_no_fallback"``: the far side is another agent.
+          ``message_bus`` has always been excluded for exactly this
+          reason — "must not answer peer agents" — but A2A conversations
+          also arrive over IM channels (a NarraMessenger DM between two
+          agents is the 8/14 incident), and there the exclusion did not
+          apply. An agent that chose not to reply chose not to reply;
+          inventing one for it is how a machine conversation becomes
+          perpetual. See ``ChannelTag.is_agent_peer``.
+        * ``"fallback_rate_limited"``: this conversation has already been
+          handed several platform-written replies in the recent past. One
+          forgotten reply tool is an oversight worth covering; a steady
+          stream of them is a loop being fed, and each fallback we emit
+          is itself an inbound message on the other side.
 
     **Why IM DMs are in scope now.** The original gate (2026-05-12) was
     ``working_source != "chat" → out of scope``, reasoned as "job/lark
@@ -470,6 +997,12 @@ def _should_run_helper_llm_fallback(
             return None, "already_replied_via_tool"
         if has_fatal:
             return None, "fatal_no_invented_reply"
+        # Checked AFTER the two above so the reason we report is the most
+        # specific one true of this turn.
+        if is_agent_peer:
+            return None, SKIP_REASON_AGENT_PEER
+        if recent_fallback_count >= IM_DM_FALLBACK_BURST_LIMIT:
+            return None, SKIP_REASON_FALLBACK_RATE_LIMITED
         return "no_reply_im_dm", ""
 
     if has_fatal and has_reply:
@@ -916,6 +1449,12 @@ async def _stream_fallback_recovery(
                 working_source, channel_tag or {}, reply_kwargs or {}, text
             )
             if delivered:
+                # Counted on DELIVERY: a reply the channel failed to send
+                # never landed on the far side, so it must not spend this
+                # conversation's fallback budget.
+                _record_fallback_delivery(
+                    _fallback_conversation_key(channel_tag or {}, agent_id)
+                )
                 fallback_full = text
                 yield ProgressMessage(
                     step="3.4.fallback",
@@ -1199,8 +1738,54 @@ async def _record_executor_infra_event(
         )
 
 
-@timed("step.3_agent_loop")
+async def _ensure_executor_for_run(
+    user_id: str, run_id: Optional[str]
+) -> Optional["ExecutorEnsureResult"]:
+    """Ensure this run's executor, carrying the stale-image replacement
+    verdict to the broker.
 
+    A named seam rather than three inline lines, because the verdict is the
+    kind of argument whose omission changes nothing here and everything at
+    the broker: drop it and this process behaves identically while the broker
+    silently returns to destroying containers under live runs. A seam can be
+    tested; an inline keyword argument can only be re-read.
+
+    The verdict is computed at THIS layer because it is the one that knows
+    both the user and which run is asking — our own events row is already
+    'running' by now, so it has to discount us or the image would never roll.
+    broker_client is a transport client and owns no part of the decision.
+    """
+    from xyz_agent_context.agent_framework.loop.broker_client import (
+        broker_url,
+        ensure_executor,
+    )
+    from xyz_agent_context.agent_runtime.executor_reaper import (
+        no_live_recorded_run_for,
+    )
+
+    if broker_url() is None:
+        # No broker, no one to hand a verdict to — and ensure_executor would
+        # return None on the next line anyway. Short-circuited HERE because
+        # the verdict is an ARGUMENT, so it is computed first: without this,
+        # local / desktop / static-AGENT_EXECUTOR_URL deployments pay a DB
+        # round-trip on every turn's hot path for a bool that is discarded
+        # (rule #7 — the two run modes must not tax each other). Returning
+        # None, not raising: the call site reads `ensured is None` to fall
+        # back to the in-process driver, exactly as ensure_executor does.
+        #
+        # broker_url(), not executor_seam_active(): the latter also counts a
+        # static AGENT_EXECUTOR_URL, and that path never calls the broker.
+        return None
+
+    return await ensure_executor(
+        user_id,
+        allow_stale_replace=await no_live_recorded_run_for(
+            user_id, active_run_id=run_id
+        ),
+    )
+
+
+@timed("step.3_agent_loop")
 async def step_3_agent_loop(
     ctx: "RunContext",
     db_client,
@@ -1235,9 +1820,9 @@ async def step_3_agent_loop(
 
     # ============================================================================= Step 3: Narrative Smart Agent Loop
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
-        description="Build context and run Agent Loop (CASE1: implicit orchestration)",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
+        description="Assemble context for the Agent Loop (CASE1: implicit orchestration)",
         status=ProgressStatus.RUNNING,
         substeps=substeps
     )
@@ -1253,8 +1838,8 @@ async def step_3_agent_loop(
     logger.debug("ContextRuntime initialized")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description="[3.1] ContextRuntime initialization complete",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1276,8 +1861,8 @@ async def step_3_agent_loop(
     logger.debug("ContextRuntime execution completed")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description=f"[3.2] Context build complete: {len(context.messages)} messages",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1296,19 +1881,22 @@ async def step_3_agent_loop(
     logger.debug(f"context.messages count={len(messages)}")
     logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_BUILD_CONTEXT_STEP,
+        title=PHASE_BUILD_CONTEXT_TITLE,
         description=f"[3.3] Extraction complete: {len(messages)} messages",
         status=ProgressStatus.RUNNING,
         substeps=substeps
     )
 
     # ------------- 3.4: Run Agent Loop -------------
+    # Context is built and messages are extracted — the model actually starts
+    # running here. This is the honest "entered the agent loop" marker, a
+    # phase distinct from context assembly above (see PHASE_RUN_AGENT_STEP).
     substeps.append("[3.4] ⏳ Agent Loop running...")
 
     yield ProgressMessage(
-        step="3",
-        title="Execute Agent Loop",
+        step=PHASE_RUN_AGENT_STEP,
+        title=PHASE_RUN_AGENT_TITLE,
         description="[3.4] Agent Loop running...",
         status=ProgressStatus.RUNNING,
         substeps=substeps
@@ -1429,11 +2017,12 @@ async def step_3_agent_loop(
         # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
         # so get_agent_loop_driver falls back. This is the cold-start point.
         from xyz_agent_context.agent_framework.loop.broker_client import (
-            ensure_executor,
             wait_until_ready,
         )
 
-        ensured = await ensure_executor(ctx.user_id)
+        ensured = await _ensure_executor_for_run(
+            ctx.user_id, str(ctx.event.id) if ctx.event else None
+        )
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a
@@ -1487,6 +2076,7 @@ async def step_3_agent_loop(
         _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
             cancellation=ctx.cancellation,
+            steering=ctx.steering,
             **turn_input.driver_kwargs(),
         ):
             if _warming_active:
@@ -1684,6 +2274,11 @@ async def step_3_agent_loop(
         # (caught in live Telegram testing 2026-08-06: the prompt carried
         # the DM protocol while the decision logged group_room).
         channel_envelope = _channel_turn_envelope(context)
+        _envelope_tag = channel_envelope.get("channel_tag") or {}
+        _fallback_key = _fallback_conversation_key(
+            _envelope_tag, ctx.agent_id or ""
+        )
+        _recent_fallback = _recent_fallback_count(_fallback_key)
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
             agent_loop_response=agent_loop_response,
@@ -1691,6 +2286,11 @@ async def step_3_agent_loop(
             is_direct_message=(
                 channel_envelope.get("channel_room_type") == ROOM_TYPE_DIRECT
             ),
+            # Both travel on the SAME envelope the room type does, so a
+            # channel that forgets to populate the envelope loses the DM
+            # fallback entirely rather than getting it half-armed.
+            is_agent_peer=bool(_envelope_tag.get("is_agent_peer", False)),
+            recent_fallback_count=_recent_fallback,
         )
         # One unconditional line per turn recording what the recovery slot
         # decided AND the room type it decided on. The prompt and this
@@ -1712,6 +2312,17 @@ async def step_3_agent_loop(
                 f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
                 f"(captured_error={captured_error!r})"
             )
+        # Whitelisting lives in the helper so it is behaviour-testable.
+        # ``window_count`` is the value the DECISION saw — recomputing here
+        # can differ, since the window slides, and the row would then
+        # explain the skip with a number that did not cause it.
+        await _maybe_audit_fallback_skip(
+            skip_reason=skip_reason,
+            agent_id=ctx.agent_id or "",
+            channel_tag=_envelope_tag,
+            window_count=_recent_fallback,
+            conversation_key=_fallback_key,
+        )
         if fallback_mode is not None:
             logger.warning(
                 f"[FALLBACK] mode={fallback_mode} "
@@ -1766,10 +2377,11 @@ async def step_3_agent_loop(
         }
     )
 
-    # Step 3 complete
+    # Run-agent phase complete — settle the 3.4 row the loop-start opened,
+    # not step 3 (which is the now-finished context-build phase).
     yield ProgressMessage(
-        step="3",
-        title="Agent Loop Complete",
+        step=PHASE_RUN_AGENT_STEP,
+        title=PHASE_RUN_AGENT_TITLE,
         description=f"✓ Complete: {state.response_count} responses, {len(state.final_output)} chars output",
         status=ProgressStatus.COMPLETED,
         details={

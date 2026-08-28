@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-08-17
+last_verified: 2026-08-21
 stub: false
 ---
+
+## 2026-08-21 — `ENTITY_NAME_MAX_LEN` 常量（PR-2 增量审 Minor）
+
+新增模块级常量 `ENTITY_NAME_MAX_LEN = 255`(= `social_network_entities.entity_name` 的 MySQL `VARCHAR(255)` 列宽,SQLite 是 TEXT)。持久写入 caller-可控名字的写入方(见 [[inbox_recorder.py]] 的 reach 记录)截断到它,防超长值在 MySQL 触发 1406 把整条写入弄挂。取代 `inbox_recorder.py` 里散落的裸 `255` 字面量。
+
+## 2026-08-19 — 更正一处措辞
+
+上一条把 `normalize_agent_text` 说成「strip + 截长」。它**不截长**，只有
+`(value or "").strip()`；长度上限是 pydantic 在写入边缘卡的。结论（标识符不该走
+归一化）不变，理由少一条。
+
+## 2026-08-18 — `agent_field_matches` 新增 `created_by` 分支
+
+Manyfold 的 provisioning 重跑现在走共享改名事务，并把 `created_by` 作为
+`extra_updates` 一起写（[[agents]] 二改），于是它要经过等值短路——而本谓词对
+未登记字段**故意抛 ValueError**，正确地拦下了这次新增。
+
+比较方式是**逐字节相等**，**不**走 `normalize_agent_text`。理由不是省事：那个
+助手为展示文本做 strip + 截长，而 `created_by` 是当查找键用的标识符；把它悄悄
+改形会让写入被判"已相等"从而跳过，留下一个谁也解析不出来的 owner。id 要么就是
+同一个 id，要么不是。`""` 与 `None` 视为同一种"没有"。
+测试：`tests/schema/test_agent_field_matches.py::TestCreatedBy`。
 
 ## 2026-08-17 — `normalize_agent_text` / `agent_field_matches`:「这次写会不会改变什么」的唯一定义
 

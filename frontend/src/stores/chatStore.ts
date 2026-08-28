@@ -63,6 +63,21 @@ export interface AgentChatState {
    *  against persisted history rows by exact (role, event_id) — see
    *  lib/buildTimeline.ts. */
   currentRunId: string | null;
+
+  /** Set when the current streaming turn is a RECONNECT to an already-running
+   *  backend run (Phase C), not a fresh generation — carries the run's real
+   *  start time so the UI can say "resumed · running for N min" instead of
+   *  looking like a from-scratch re-generation after a page refresh
+   *  (Shenzhen-r2 B1). Cleared on startStreaming; rendered only while
+   *  isStreaming, so it never needs an explicit clear at settle. */
+  resumedRun: { runId: string; startedAtMs: number } | null;
+  /** Whether the CURRENT run can accept a mid-run steer (from
+   *  `run_started.steerable`). Gates SENDING during a run (the composer stays
+   *  editable either way): a steerable run folds a follow-up into the same turn,
+   *  a non-steerable one holds the draft until the run ends. Also drives the
+   *  steer send-button + placeholder. Reset false on startStreaming, set on
+   *  run_started. */
+  currentSteerable: boolean;
 }
 
 /**
@@ -75,7 +90,22 @@ export interface AgentChatState {
  */
 export type ToastItem =
   | { kind: 'agent'; agentId: string; agentName: string; timestamp: number }
-  | { kind: 'team'; teamId: string; teamName: string; timestamp: number };
+  | { kind: 'team'; teamId: string; teamName: string; timestamp: number }
+  /**
+   * A heal repointed an artifact at a different file (artifact_changed
+   * action="repointed"). The pointer moved without the user asking — honesty
+   * requires telling them where it went and whether the content hash
+   * verified the candidate (spec artifact-events §5.3).
+   */
+  | {
+      kind: 'artifact-repointed';
+      artifactId: string;
+      title: string;
+      oldPath: string;
+      newPath: string;
+      hashMatched: boolean;
+      timestamp: number;
+    };
 
 /**
  * The queue key for a toast — `agent:<id>` / `team:<id>`.
@@ -85,7 +115,9 @@ export type ToastItem =
  * the code, which is the reason to make it impossible rather than to rely on it.
  */
 export function toastKey(t: ToastItem): string {
-  return t.kind === 'agent' ? `agent:${t.agentId}` : `team:${t.teamId}`;
+  if (t.kind === 'agent') return `agent:${t.agentId}`;
+  if (t.kind === 'team') return `team:${t.teamId}`;
+  return `artifact:${t.artifactId}`;
 }
 
 /** Shared frozen default — avoids creating new objects on every access for non-existent sessions */
@@ -101,6 +133,8 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   history: Object.freeze([]) as unknown as ConversationRound[],
   currentEvents: Object.freeze([]) as unknown as TurnEvent[],
   currentRunId: null,
+  resumedRun: null,
+  currentSteerable: false,
 });
 
 /** Create a fresh mutable state for a new agent session */
@@ -117,6 +151,8 @@ function createDefaultAgentState(): AgentChatState {
     history: [],
     currentEvents: [],
     currentRunId: null,
+    resumedRun: null,
+    currentSteerable: false,
   };
 }
 
@@ -153,6 +189,9 @@ interface ChatState {
   isStreaming: boolean;
   history: ConversationRound[];
   currentEvents: TurnEvent[];
+  resumedRun: AgentChatState['resumedRun'];
+  currentRunId: string | null;
+  currentSteerable: boolean;
 
   // Actions (all accept agentId)
   setActiveAgent: (agentId: string) => void;
@@ -162,12 +201,18 @@ interface ChatState {
     attachments?: import('@/types').Attachment[],
     timestampMs?: number,
   ) => string;
+  /** Optimistic mid-run steer bubble (owner follow-up during a live run). */
+  addSteerMessage: (agentId: string, content: string, clientMsgId: string) => string;
+  /** Mark a steer bubble rejected locally (by clientMsgId) when the send never
+   *  left the client, so it doesn't hang 'queued' with no backend ack coming. */
+  markSteerRejected: (agentId: string, clientMsgId: string, reason: string) => void;
   startStreaming: (agentId: string) => void;
   stopStreaming: (agentId: string, agentName?: string, opts?: { cancelled?: boolean }) => void;
   /** Set the current run's event_id and backfill it onto the trailing
    *  event-id-less user message. Called from the `run_started` frame
    *  (fresh run) and from wsManager on reconnect. */
   setCurrentRunId: (agentId: string, runId: string) => void;
+  markResumedRun: (agentId: string, runId: string, startedAtMs: number) => void;
   processMessage: (agentId: string, message: RuntimeMessage) => void;
   clearAgent: (agentId: string) => void;
   clearAll: () => void;
@@ -177,7 +222,14 @@ interface ChatState {
   requestWorkspaceRefresh: () => void;
 
   // Notification actions
-  /** Remove one toast by its `toastKey` (`agent:<id>` / `team:<id>`). */
+  /**
+   * Append one toast (deduped by toastKey — a second push for the same key
+   * replaces the first so its auto-dismiss timer restarts). Used by the
+   * artifact event dispatcher; agent/team completion toasts keep their
+   * dedicated enqueue paths.
+   */
+  pushToast: (item: ToastItem) => void;
+  /** Remove one toast by its `toastKey` (`agent:<id>` / `team:<id>` / `artifact:<id>`). */
   dismissToast: (key: string) => void;
   clearCompletedNotification: (agentId: string) => void;
 
@@ -204,6 +256,29 @@ function updateSession(
   };
 }
 
+/**
+ * The single place that "recognises a steer bubble and re-stamps its status"
+ * lives. Every steer transition (local reject, steer_consumed→merged,
+ * steer_rejected→rejected, run-end sweep) flows through here so the match
+ * guard and the patch shape can't drift into subtly different copies.
+ *
+ * A message with no `steerClientMsgId` is NEVER a steer bubble, so it is always
+ * left untouched — this guard is what stops a stray `steer_rejected` whose
+ * `client_msg_id` is undefined from matching every ordinary (undefined-id)
+ * bubble on screen and flipping the whole timeline to 'rejected'. `match`
+ * receives the (always-defined) client id plus the full message so a caller can
+ * key on either (e.g. the run-end sweep keys on `steerStatus === 'queued'`).
+ */
+function patchSteerBubbles(
+  messages: ChatMessage[],
+  match: (clientMsgId: string, m: ChatMessage) => boolean,
+  patch: (m: ChatMessage) => Partial<ChatMessage>,
+): ChatMessage[] {
+  return messages.map((m) =>
+    m.steerClientMsgId && match(m.steerClientMsgId, m) ? { ...m, ...patch(m) } : m,
+  );
+}
+
 /** Derive flat fields from the active agent's session */
 function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>; activeAgentId: string }) {
   const session = getSession(state.agentSessions, state.activeAgentId);
@@ -217,6 +292,9 @@ function deriveFlatFields(state: { agentSessions: Record<string, AgentChatState>
     isStreaming: session.isStreaming,
     history: session.history,
     currentEvents: session.currentEvents,
+    resumedRun: session.resumedRun,
+    currentRunId: session.currentRunId,
+    currentSteerable: session.currentSteerable,
   };
 }
 
@@ -289,6 +367,42 @@ export const useChatStore = create<ChatState>((_set, get) => {
       return id;
     },
 
+    // Add an optimistic mid-run steer bubble (owner follow-up sent WHILE a run
+    // streams). Starts as 'queued'; processMessage flips it to 'merged'
+    // (steer_consumed) or 'rejected' (steer_rejected) by steerClientMsgId.
+    addSteerMessage: (agentId: string, content: string, clientMsgId: string) => {
+      const id = generateId();
+      const message: ChatMessage = {
+        id,
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+        steerStatus: 'queued',
+        steerClientMsgId: clientMsgId,
+      };
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+          messages: [...s.messages, message],
+        })),
+      }));
+      return id;
+    },
+
+    // Mark a steer bubble rejected locally (by clientMsgId) — used when the send
+    // never left the client (steer() returned false: the socket was no longer
+    // steerable), so the bubble doesn't hang 'queued' with no backend ack coming.
+    markSteerRejected: (agentId: string, clientMsgId: string, reason: string) => {
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+          messages: patchSteerBubbles(
+            s.messages,
+            (id) => id === clientMsgId,
+            () => ({ steerStatus: 'rejected', rejectReason: reason }),
+          ),
+        })),
+      }));
+    },
+
     // Start streaming for a specific agent
     startStreaming: (agentId: string) => {
       set((state) => ({
@@ -304,6 +418,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // Clean slate — the run id of this new turn arrives via the
           // `run_started` frame (fresh) or setCurrentRunId (reconnect).
           currentRunId: null,
+          // A fresh turn is a fresh generation until a run_reconnect frame
+          // says otherwise (markResumedRun fires AFTER this reset on the
+          // reconnect path — onopen → startStreaming → run_reconnect).
+          resumedRun: null,
+          // Steerability is (re)declared by run_started; assume not until then.
+          currentSteerable: false,
         })),
       }));
     },
@@ -325,6 +445,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
               : s.messages;
           return { currentRunId: runId, messages };
         }),
+      }));
+    },
+
+    // Mark the streaming turn as a reconnect to an already-running run
+    // (run_reconnect frame), anchored to the run's REAL start time — the
+    // UI renders "resumed · running for N min" from this instead of
+    // presenting the replay as a from-scratch generation (Shenzhen-r2 B1).
+    markResumedRun: (agentId: string, runId: string, startedAtMs: number) => {
+      set((state) => ({
+        agentSessions: updateSession(state.agentSessions, agentId, () => ({
+          resumedRun: { runId, startedAtMs },
+        })),
       }));
     },
 
@@ -442,9 +574,24 @@ export const useChatStore = create<ChatState>((_set, get) => {
           ? [...prevState.toastQueue, { kind: 'agent' as const, agentId, agentName: agentName || agentId, timestamp: Date.now() }]
           : prevState.toastQueue;
 
+        // Reconcile any steer bubble still 'queued' at run end: the run is over
+        // and will emit no further steer_consumed/steer_rejected for it (a steer
+        // that arrives after the loop's final turn is never drained, and error /
+        // circuit-open paths end the run with no ack at all), so a bubble left
+        // 'queued' would hang forever. Flip it to 'rejected' with reason
+        // 'run_ended' so the three-state invariant ("never a silently hung
+        // queued") holds on every termination path, not just the ack paths.
+        const reconciledMessages = patchSteerBubbles(
+          session.messages,
+          // Only bubbles still awaiting an ack — a 'queued' bubble never carries
+          // a rejectReason yet, so we stamp 'run_ended' outright.
+          (_id, m) => m.steerStatus === 'queued',
+          () => ({ steerStatus: 'rejected', rejectReason: 'run_ended' }),
+        );
+
         return {
           agentSessions: updateSession(prevState.agentSessions, agentId, () => ({
-            messages: [...session.messages, assistantMessage],
+            messages: [...reconciledMessages, assistantMessage],
             currentSteps: completedSteps,
             history: newHistory,
             isStreaming: false,
@@ -477,9 +624,60 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // reconnect (which uses run_reconnect instead), so we never
           // mistakenly reset on a same-run reconnect.
           get().setCurrentRunId(agentId, message.run_id);
+          // Record whether this run accepts a mid-run steer — gates SENDING for
+          // the run's duration (the composer stays editable regardless).
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, () => ({
+              currentSteerable: message.steerable === true,
+            })),
+          }));
           useBookmarkStore.getState().onRunStart(agentId);
           break;
         }
+        case 'steer_queued': {
+          // The backend accepted a mid-run follow-up into the run. The optimistic
+          // bubble was already added as 'queued' at send time (addSteerMessage);
+          // this ack just confirms it, so nothing to change. (Kept explicit so a
+          // future "sending…" → "queued" transition has a home.)
+          break;
+        }
+        case 'steer_consumed': {
+          // The run actually folded these follow-ups into the turn — flip their
+          // bubbles from 'queued' to 'merged' by the ids the client minted.
+          const ids = new Set(message.ids || []);
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+              messages: patchSteerBubbles(
+                s.messages,
+                (id) => ids.has(id),
+                () => ({ steerStatus: 'merged' }),
+              ),
+            })),
+          }));
+          break;
+        }
+        case 'steer_rejected': {
+          // Bounds (too large / too many pending) or the framework can't steer —
+          // mark that bubble rejected so the user sees it did NOT land (never a
+          // silently hung 'queued').
+          set((state) => ({
+            agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
+              messages: patchSteerBubbles(
+                s.messages,
+                (id) => id === message.client_msg_id,
+                () => ({ steerStatus: 'rejected', rejectReason: message.reason }),
+              ),
+            })),
+          }));
+          break;
+        }
+        case 'run_reconnect':
+          // Normally absorbed upstream (wsManager.translateReconnectFrame
+          // returns null for run_reconnect, so it never reaches here). Kept as
+          // an explicit no-op — a reconnected session holds no live channel, so
+          // there is deliberately no bubble/steer state to change — rather than
+          // relying on the switch's silent fall-through to say the same thing.
+          break;
         case 'progress': {
           const progress = message as ProgressMessage;
           set((state) => {
@@ -949,6 +1147,15 @@ export const useChatStore = create<ChatState>((_set, get) => {
     },
 
     // Notification actions
+    pushToast: (item: ToastItem) => {
+      set((state) => ({
+        toastQueue: [
+          ...state.toastQueue.filter((t) => toastKey(t) !== toastKey(item)),
+          item,
+        ],
+      }));
+    },
+
     dismissToast: (key: string) => {
       set((state) => ({
         toastQueue: state.toastQueue.filter((t) => toastKey(t) !== key),

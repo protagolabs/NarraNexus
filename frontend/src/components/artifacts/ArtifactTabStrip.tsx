@@ -51,6 +51,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
   const activeId = useArtifactStore((s) => s.activeArtifactId);
   const setActive = useArtifactStore((s) => s.setActive);
   const minimizeTab = useArtifactStore((s) => s.minimizeTab);
+  const editorDirtyIds = useArtifactStore((s) => s.editorDirtyIds);
   const deleteArtifact = useArtifactStore((s) => s.delete);
 
   const [deleteTarget, setDeleteTarget] = useState<Artifact | null>(null);
@@ -106,6 +107,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
               key={a.artifact_id}
               artifact={a}
               active={a.artifact_id === activeId}
+              dirty={editorDirtyIds.has(a.artifact_id)}
               onClick={() => setActive(a.artifact_id)}
               onZoom={() => onZoom(a.artifact_id)}
               onMinimize={() => minimizeTab(a.artifact_id)}
@@ -150,10 +152,11 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
 }
 
 function TabButton({
-  artifact, active, onClick, onZoom, onMinimize, onDelete,
+  artifact, active, dirty, onClick, onZoom, onMinimize, onDelete,
 }: {
   artifact: Artifact;
   active: boolean;
+  dirty: boolean;
   onClick: () => void;
   onZoom: () => void;
   onMinimize: () => void;
@@ -185,6 +188,15 @@ function TabButton({
       }
       title={t('artifacts.tabStrip.tabTitle')}
     >
+      {dirty && (
+        // Unsaved-edit dot (dirty guard, visual layer). Content safety is the
+        // editor's localStorage draft; this only keeps the state visible.
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"
+          title={t('artifacts.editor.unsavedChanges')}
+          aria-label={t('artifacts.editor.unsavedChanges')}
+        />
+      )}
       <span className="text-sm truncate max-w-[9rem]">{artifact.title}</span>
       <div className={'flex items-center gap-0.5 shrink-0 ' + actionsClass}>
         <button
