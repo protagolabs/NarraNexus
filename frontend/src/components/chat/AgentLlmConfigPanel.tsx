@@ -111,7 +111,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         api.getAgentLlmConfig(agentId),
         api.getProviders(),
       ]);
-      const provMap = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);

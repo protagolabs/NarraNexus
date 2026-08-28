@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-07-29
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — ProviderInfo 成为共享 ProviderRow 的别名
+
+`api.getProviders()` 的 providers 值类型是共享 `ProviderRow`;本组件的
+本地 `ProviderInfo` 改为它的别名,**双重 cast 已删除**(第 4 轮:窄共享
+类型 + 富本地类型的组合逼出过 `as unknown as`,等于关掉这一处的全部类型
+检查)。行字段的唯一定义在 [[providersApi]]。
 
 # ProviderSummaryCard.tsx — at-a-glance LLM wiring summary
 

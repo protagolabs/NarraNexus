@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-07-31
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — ProviderSummary 改为 providersApi.ProviderRow 的别名(PR #376 bot 轮)
+
+本模块曾持有行形状的**第四份**结构副本,三个消费方
+(AgentLlmConfigPanel / ComposerModelBadge / ModelDefaultsSettings)拿着
+已经类型正确的 `api.getProviders()` 结果再 `as` 回这份窄副本——断言不是
+转换,它关掉了三处的类型检查(后端上次加 netmind_account_email 这类字段
+时就会静默漏掉)。现在 `export type ProviderSummary = ProviderRow`,三处
+cast 删除。**import type 引 ProviderRow 是刻意的**:providersApi 运行时
+import @/lib/api,值导入会造成 agentFramework → providersApi → api 运行时
+环(api.ts 只做 type-only 反向引用才无环)。
 
 ## 2026-07-31 — `providerBacksFramework()` + `availableFrameworks()`
 
