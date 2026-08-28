@@ -1,8 +1,25 @@
 ---
 code_file: tests/backend/test_manyfold_im_ingress.py
 stub: false
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 ---
+
+## 2026-08-28（接线）— 托管面的熔断与铁律 #16 门槛
+
+托管模式**绕开整条原生接收路径**——没有 `_subscribe_loop`、没有 dedup store、
+没有 worker 队列、没有 `_process_message`——所以基类在 `start()` 里构造的 guard
+在这里永远不会生效。没有自己的调用点的话，Manyfold 这个面就是唯一没有防护的
+入口。
+
+新增两条钉铁律 #16：**每条被丢的消息留一行**（不是每次跳闸一行——那答不出
+「安静了多久、吞了多少」），且行里带得出「为什么」和「还要多久」。
+
+写第二条时抓到一处真缺口：丢弃行的 `cooldown_seconds` 恒为 0——那个字段是
+跳闸时赋的长度，丢弃时没人填。补了 `cooldown_remaining_seconds`，口径在所有
+行上一致：跳闸行是全长、丢弃行是剩余、其余是 0（因为确实没在隔离）。
+
+原生面的同一道门槛在 [[test_ingress_breaker_audit_trail.py]]——两个面走**不同
+的审计调用点**，把原生那侧改成不写，这里的用例照样全绿。
 # test_manyfold_im_ingress.py — 托管 IM 入站的映射与 route 接线
 
 覆盖 `build_inbound_run_context` 的 provider 映射（channel_provider /

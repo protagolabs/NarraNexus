@@ -60,6 +60,27 @@ EVENT_INGRESS_DROPPED_NOT_MENTIONED = "ingress_dropped_not_mentioned"
 EVENT_DEDUP_FAIL_OPEN = "dedup_fail_open"
 EVENT_DEBOUNCE_MERGED = "debounce_merged"
 
+# ─── Ingress circuit breaker (2026-08-24) ────────────────────────────────
+# The 8/14 DM ping-pong loop ran 70+ hours behind an all-green dashboard
+# because nothing on the inbound path asked "is this message worth
+# processing?". These three make the breaker's whole life legible from the
+# DB alone: the moment it closed the door, every message that hit the
+# closed door, and the moment it opened again.
+#
+# ``tripped`` covers both the first trip and each escalation — the row's
+# ``details.transition`` tells them apart, matching how the subscriber
+# breaker keeps one event type and varies ``details``.
+EVENT_INGRESS_BREAKER_TRIPPED = "ingress_breaker_tripped"
+# Cooldown elapsed and one half-open probe was admitted, OR the session
+# behaved long enough to walk a tier back down. ``details.reason``
+# distinguishes ``cooldown_expired`` from ``recovered``.
+EVENT_INGRESS_BREAKER_CLEARED = "ingress_breaker_cleared"
+# One message dropped because its conversation is cooling. Written per
+# message ON PURPOSE: "the bot went quiet for six hours" has to be
+# answerable, and a silent return is exactly the blind spot that let the
+# original incident run unnoticed (lessons #3/#5).
+EVENT_INGRESS_DROPPED_BREAKER = "ingress_dropped_breaker"
+
 # ─── Subscriber lifecycle ─────────────────────────────────────────────────
 EVENT_SUBSCRIBER_STARTED = "subscriber_started"
 EVENT_SUBSCRIBER_STOPPED = "subscriber_stopped"

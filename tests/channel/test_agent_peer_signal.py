@@ -27,6 +27,7 @@ editing this file, diff the set of test names before and after.
 """
 from __future__ import annotations
 
+import ast
 import inspect
 
 import pytest
@@ -173,6 +174,66 @@ def _trigger_modules():
     return mods
 
 
+def _tag_builders() -> set[str]:
+    """Factory names that build a tag FROM FIELDS.
+
+    Derived from the signatures, not listed: ``from_dict`` / ``parse``
+    rehydrate an already-serialised tag, so the flag is whatever was
+    serialised and there is nothing for a caller to fill. Telling them
+    apart by "takes one argument" keeps a new factory in scope
+    automatically — a literal list is how the ``build_trigger_extra_data``
+    lesson happened in the first place.
+    """
+    out = set()
+    for name, value in vars(ChannelTag).items():
+        if not isinstance(value, (staticmethod, classmethod)):
+            continue
+        params = list(inspect.signature(getattr(ChannelTag, name)).parameters)
+        if len(params) > 1:
+            out.add(name)
+    return out
+
+
+def _channel_tag_calls(src: str) -> list[ast.Call]:
+    """Every construction of a ChannelTag from fields."""
+    builders = _tag_builders()
+    out: list[ast.Call] = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Name) and f.id == "ChannelTag":
+            out.append(node)
+        elif (
+            isinstance(f, ast.Attribute)
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "ChannelTag"
+            and f.attr in builders
+        ):
+            out.append(node)
+    return out
+
+
+def _fills_from_seam(call: ast.Call) -> bool:
+    """``is_agent_peer=self.is_agent_peer(...)`` and nothing else.
+
+    A bare literal would satisfy "the keyword is present" while reporting
+    every A2A DM as human — no error, exactly the rot this guards.
+    """
+    for kw in call.keywords:
+        if kw.arg != "is_agent_peer":
+            continue
+        v = kw.value
+        return (
+            isinstance(v, ast.Call)
+            and isinstance(v.func, ast.Attribute)
+            and v.func.attr == "is_agent_peer"
+            and isinstance(v.func.value, ast.Name)
+            and v.func.value.id == "self"
+        )
+    return False
+
+
 def test_every_channel_tag_built_on_the_receive_path_fills_the_flag():
     """A site that forgets it does not fail — it silently reports "human",
     which is exactly how a signal like this rots. ``build_trigger_extra_data``
@@ -196,17 +257,27 @@ def test_every_channel_tag_built_on_the_receive_path_fills_the_flag():
     missing = []
     for mod in _modules_that_build_receive_path_tags():
         src = _code(mod)
-        built = src.count("ChannelTag(") + src.count("ChannelTag.lark(")
+        # Per CONSTRUCTION, via the AST — not by counting the keyword
+        # across the module. The seam has consumers other than tag
+        # building (the ingress breaker asks the same question), so a
+        # module-wide count says "3 passes for 2 tags" and fails on code
+        # that is entirely correct. Worse, it would also PASS a module that
+        # filled one tag twice and another not at all.
+        tags = _channel_tag_calls(src)
+        built = len(tags)
         if not built:
             continue
         if mod in triggers:
-            filled = src.count("is_agent_peer=self.is_agent_peer(")
+            filled = sum(1 for call in tags if _fills_from_seam(call))
             if built != filled:
                 missing.append(
                     f"{mod.__name__}: {built} built, {filled} pass the seam"
                 )
         else:
-            filled = src.count("is_agent_peer=")
+            filled = sum(
+                1 for call in tags
+                if any(kw.arg == "is_agent_peer" for kw in call.keywords)
+            )
             if built != filled:
                 missing.append(f"{mod.__name__}: {built} built, {filled} filled")
             elif "def retag_managed_input(" not in src:

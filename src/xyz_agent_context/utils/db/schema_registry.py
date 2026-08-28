@@ -2088,13 +2088,12 @@ _register(
 # `suppressed_count` is reset on each trip, so it answers "how much did THIS
 # isolation absorb?" rather than accumulating a meaningless lifetime total.
 #
-# Retention: NOT swept yet. The repository exposes
-# `cleanup_older_than_days`, and hooking it into
-# ChannelTriggerBase._run_cleanup lands with the wiring change that gives
-# this table its first writer — until then nothing writes to it, so there
-# is nothing to sweep. Stated here rather than described as done, because
-# a comment claiming a sweep that does not exist is how a table quietly
-# grows forever.
+# Retention: swept by ChannelTriggerBase._run_cleanup alongside the dedup
+# and audit tables, at INGRESS_BREAKER_RETENTION_DAYS. Only CLOSED
+# (tier = 0) rows go — a row still carrying escalation memory is exactly
+# what we promised to remember, and deleting it because it went quiet
+# would hand a re-offender a fresh budget. Rows reach tier 0 by decaying,
+# which is what makes this sweep able to reclaim anything at all.
 # ----------------------------------------------------------------------------
 _register(
     TableDef(

@@ -114,7 +114,13 @@ cheapest tier forever」。那条既有测试当时是绿的，只因为它测�
 #16 禁止的用户可感知内容丢失，而 `window_seconds` 恰是最像会被做成
 per-channel 配置的那个参数。
 
-## 2026-08-27 — 本文件合入时是**死代码**，这是刻意的
+## 2026-08-28 — 接线已落地，本文件开始真正生效
+
+四个挂载点、三个 audit 事件、health 与心跳计数、`warm_start`、保留期清扫都已
+接上（见 [[channel_trigger_base.py]]）。下面「上下游」一节描述的形态现在**就是
+仓库的形态**。
+
+## 2026-08-27 — 本文件合入时是**死代码**，这是刻意的（已由接线 PR 解除）
 
 拆分方案把熔断器分成两个 PR：本文件（状态机 + 表 + repository + 验收回放）
 先合，**没有任何调用点**；四个挂载点、audit 事件、`/healthz` 计数随接线那个
@@ -152,10 +158,10 @@ SQL 保留已完成隔离的数字。
 加了 `prune_idle`；这一轮把它改名 `forget_agent` 并把 docstring 写得更肯定
 （「Called when an agent's subscriber stops」）——**依然零调用方**。
 
-**本次合入时它仍然零调用方**，docstring 已改成未来时。接线 PR 会把它接到
-[[channel_trigger_base.py]] 的 `_stop_subscriber` 上，并由
-`test_ingress_guard_all_paths.py`（同样随接线 PR 落地）加一条守卫：guard 的
-生命周期方法必须真的有调用方。
+内核 PR 合入时它仍然零调用方，docstring 写的是未来时。**接线 PR 已经把它接到
+[[channel_trigger_base.py]] 的 `_stop_subscriber` 上**，并由
+`test_ingress_guard_all_paths.py` 加了一条守卫：guard 的生命周期方法必须真的
+有调用方。docstring 也已从未来时改回陈述句。
 
 死代码带着一句「Called when …」比没有这个方法更糟——下一个人会以为解绑路径
 已经清理过了。这一段本身就是在记录这个教训，而它的第一版**用同样的方式又犯
@@ -294,7 +300,7 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
 
 ## 上下游
 
-**上游（四个挂载点，同一个 seam `_ingress_admitted`）——接线 PR 才存在**：
+**上游（四个挂载点，同一个 seam `_ingress_admitted`）**：
 
 1. [[channel_trigger_base.py]] `_process_message` —— Slack / Telegram /
    Discord / WeChat + Matrix 的回复路径（这四家 override 了但都调 `super()`）
@@ -305,7 +311,7 @@ narramessenger 的 managed authorize hook——那个 fail-closed，因为它**�
    原生 chokepoint
 
 **没有单一 chokepoint 是本次接线的核心事实**。调研一开始以为只有 Lark 是
-例外，`test_ingress_guard_all_paths.py`（随接线 PR 落地）一跑就抓出
+例外，`test_ingress_guard_all_paths.py` 一跑就抓出
 Telegram / WeChat / Matrix
 也各自 override 了 `_process_message`（只是都调了 `super()`）。这类
 「N 份手抄」正是 [[channel_trigger_base.py]] mirror 里

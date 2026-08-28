@@ -149,7 +149,16 @@ class IngressVerdict:
     transition: Optional[str] = None
     window_count: int = 0
     dup_ratio: float = 0.0
+    # The length assigned when this isolation started. Set on a trip; 0.0
+    # elsewhere because no isolation started there.
     cooldown_seconds: float = 0.0
+    # How much longer this conversation stays suppressed, as of this
+    # verdict. One caliber on every row: the full length on the trip that
+    # opened it, what is left on each message it swallows, 0.0 when
+    # nothing is being suppressed. Without it a drop row says "silenced"
+    # but not "until when" — and "the bot went quiet, for how long?" is
+    # the question these rows exist to answer.
+    cooldown_remaining_seconds: float = 0.0
     suppressed: int = 0
     is_agent_peer: bool = False
 
@@ -163,6 +172,9 @@ class IngressVerdict:
             "window_count": self.window_count,
             "dup_ratio": round(self.dup_ratio, 3),
             "cooldown_seconds": self.cooldown_seconds,
+            "cooldown_remaining_seconds": round(
+                self.cooldown_remaining_seconds, 1
+            ),
             "suppressed": self.suppressed,
             "is_agent_peer": self.is_agent_peer,
         }
@@ -329,6 +341,9 @@ class IngressGuard:
                     reason="cooling",
                     suppressed=state.suppressed,
                     is_agent_peer=is_agent_peer,
+                    cooldown_remaining_seconds=(
+                        state.cooldown_until - now
+                    ).total_seconds(),
                 )
             return await self._half_open(
                 key, state, now, agent_id, channel, chat_id, sender_id,
@@ -565,11 +580,12 @@ class IngressGuard:
     def forget_agent(self, agent_id: str) -> int:
         """Drop every in-memory session belonging to one agent.
 
-        WILL be called when an agent's subscriber stops (credential
-        unbound, or shutdown) — there is no caller in this commit; the
-        guard lands before its wiring, on purpose. Stated as intent rather
-        than as fact because a "Called when ..." on a method nobody calls
-        reads as "the unbind path is already handled", and it is not.
+        Called from ``ChannelTriggerBase._stop_subscriber`` when an
+        agent's subscriber stops (credential unbound, or shutdown). It sat
+        here with no caller for one release, and the docstring said so in
+        the future tense on purpose: a "Called when ..." on a method nobody
+        calls reads as "the unbind path is already handled", and it was
+        not. ``test_ingress_guard_all_paths`` now pins that it has one.
 
         ``prune_idle`` cannot cover this: it deliberately keeps
         sessions carrying escalation memory, so an unbound agent's tripped
@@ -886,6 +902,9 @@ class IngressGuard:
             window_count=count,
             dup_ratio=ratio,
             cooldown_seconds=cooldown,
+            # The trip is the start of the isolation, so the whole of it
+            # is still ahead.
+            cooldown_remaining_seconds=cooldown,
             suppressed=suppressed_before,
             is_agent_peer=is_agent_peer,
         )

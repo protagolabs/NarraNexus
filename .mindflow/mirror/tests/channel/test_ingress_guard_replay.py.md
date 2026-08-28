@@ -1,8 +1,18 @@
 ---
 code_file: tests/channel/test_ingress_guard_replay.py
 stub: false
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
+
+## 2026-08-28（接线）— 删除守卫归位
+
+`test_disabling_the_guard_is_a_visible_single_switch` 随接线加回来了。它断言
+`ChannelTriggerBase.INGRESS_GUARD_ENABLED is True`——那个类属性到接线才存在，
+所以内核 PR 里它会直接红，当时移交给了接线 PR（记在拆分方案里）。
+
+它保护的是本文件的删除测试：「拿掉 guard，回放用例必须重新出现全量管线执行」
+只有在「确实有一个可见的单一开关控制 guard 是否被构造」时才对生产有意义，
+否则那是在说两个不同系统的事。
 # test_ingress_guard_replay.py — 设计文档 §6 的验收用例
 
 三条义务：**必须触发**（回放 8/14 形状 → 管线执行下降 >95%、分钟级升级、
