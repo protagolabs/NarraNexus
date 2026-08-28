@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-07-31
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(P1 缺陷 B)
+
+"auth_ref is missing or not a claude-cli: reference" 原样弹进了 Test
+对话框(P1 工单)——内部列名对用户毫无行动指向。改为"remove it and
+re-add Claude Code (OAuth) in Settings → LLM Providers"。前提:创建路径
+自本日起插入即写 sentinel(见 user_service.md 同日条目),所以这条分支
+只剩"行真的坏了"一种含义,重建 provider 就是正确的自救。codex_oauth
+同款文案同批修。测试断言文案**不含** "auth_ref" 字符串。
 
 ## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
 

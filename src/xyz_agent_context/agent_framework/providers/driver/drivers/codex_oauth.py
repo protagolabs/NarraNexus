@@ -227,9 +227,17 @@ class CodexOAuthDriver(_DriverBase):
         """
         path = resolve_codex_credentials_path(self.card.auth_ref)
         if path is None:
+            # Creation writes the codex-cli: sentinel at insert time, so this
+            # is a genuinely corrupt row — same actionable wording as the
+            # claude_oauth twin (P1, 2026-08-27: internal column names leaked
+            # into the Test dialog).
             return DriverHealth(
                 ok=False,
-                detail="auth_ref is missing or not a codex-cli: reference",
+                detail=(
+                    "this Codex CLI (OAuth) provider is missing its "
+                    "credential reference — remove it and re-add Codex "
+                    "CLI (OAuth) in Settings → LLM Providers"
+                ),
             )
         if not path.exists():
             return DriverHealth(

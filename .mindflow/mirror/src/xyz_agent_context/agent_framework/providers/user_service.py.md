@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-08-06
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — host-CLI claude_oauth 行也在插入时写全三字段(P1)
+
+`add_provider(claude_oauth)` 无 token 的 host-CLI 分支此前**不写**
+`auth_ref`/`driver_type`/`billing_policy`,靠启动 backfill 下次重启补——
+这是 backfill 体系(2026-06-17)落地时漏改的最后一条腿:token 分支
+(2026-07-26)和 codex_oauth 分支都早已在插入时写全。窗口症状:配完卡
+立刻点 Test,`probe()` 拿到 `auth_ref=NULL` 直接 VERIFY_DEAD,弹
+"auth_ref is missing"(P1 工单,dev 频繁重启把这个窗口藏了两个月)。
+现在三条腿统一插入即写全:host-CLI 写 `CLAUDE_CLI_CREDENTIALS_REF`
+sentinel,token 写 `""`(token 本身即凭据)。backfill 保留——它对
+pre-driver 老库升级仍是必要的,只是不再兼任新行的事实写入者。存量坏行
+无需迁移,下次启动 backfill 自愈。测试:
+`test_claude_oauth_token.py::test_add_claude_oauth_host_cli_row_is_complete_at_insert`。
 
 ## 2026-08-06 — OAuth 卡读时覆盖抽到 effective_card_models（口径统一）
 

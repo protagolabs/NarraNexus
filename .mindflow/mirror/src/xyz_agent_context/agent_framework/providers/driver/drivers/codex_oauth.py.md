@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/codex_oauth.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-27
 ---
+
+## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(随 claude_oauth 同批)
+
+同 claude_oauth.md 同日条目:内部列名不再进用户可见文案,改为
+remove + re-add 指引。codex 的创建路径一直在插入时写 sentinel,
+所以这条分支本就只覆盖"行坏了"的情形,语义不变、只换措辞。
+`test_codex_oauth_driver.py` 的两条 probe 测试改为断言不泄漏
+"auth_ref" 且含 "re-add"。
 
 ## 2026-07-31 — verify_live:P0「凭证失效仍测试通过」的修复主体
 

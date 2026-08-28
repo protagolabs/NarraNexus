@@ -170,6 +170,24 @@ async def test_probe_oauth_token_present_is_ok():
 
 
 @pytest.mark.asyncio
+async def test_probe_oauth_missing_auth_ref_detail_is_actionable():
+    """A broken host-oauth row (no auth_ref sentinel) must tell the USER what
+    to do — not leak the internal column name (ticket P1, 2026-08-27: the
+    Test dialog showed "auth_ref is missing or not a claude-cli: reference"
+    verbatim). With creation now writing the sentinel this only ever surfaces
+    for genuinely corrupt rows, and the cure is recreating the provider."""
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+
+    driver = ClaudeOAuthDriver(_card(auth_type="oauth", api_key="", auth_ref=""))
+    health = await driver.probe()
+    assert not health.ok
+    assert "auth_ref" not in health.detail
+    assert "re-add" in health.detail or "re-connect" in health.detail
+
+
+@pytest.mark.asyncio
 async def test_probe_oauth_token_missing_is_not_ok():
     from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
@@ -295,6 +313,32 @@ async def test_add_claude_oauth_without_token_still_rejects_duplicate():
     await service.add_provider("u1", card_type="claude_oauth")
     with pytest.raises(ValueError):
         await service.add_provider("u1", card_type="claude_oauth")
+
+
+@pytest.mark.asyncio
+async def test_add_claude_oauth_host_cli_row_is_complete_at_insert():
+    """Host-CLI oauth rows must carry auth_ref / driver_type / billing_policy
+    the moment they are inserted — NOT after the next backend restart.
+
+    The startup backfill (backfill_provider_metadata, backend/main.py) exists
+    to normalize rows left by pre-driver builds; it must never be the writer
+    of record for new rows. Leaning on it left a freshly created card with
+    auth_ref=NULL until restart, so Test right after creation always failed
+    with "auth_ref is missing or not a claude-cli: reference" (P1,
+    2026-08-27) — while the codex_oauth and setup-token branches already
+    wrote all three fields at insert time.
+    """
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
+        CLAUDE_CLI_CREDENTIALS_REF,
+    )
+
+    service, db = _service()
+    _, new_ids = await service.add_provider("u1", card_type="claude_oauth")
+    row = db.providers[new_ids[0]]
+    assert row["auth_type"] == "oauth"
+    assert row["auth_ref"] == CLAUDE_CLI_CREDENTIALS_REF
+    assert row["driver_type"] == "claude_oauth"
+    assert row["billing_policy"] == "external_oauth"
 
 
 # ---------------------------------------------------------------------------

@@ -125,9 +125,17 @@ class ClaudeOAuthDriver(_DriverBase):
 
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
+            # Creation writes the claude-cli: sentinel since 2026-08-27, so
+            # this is a genuinely corrupt row — tell the user the way out,
+            # not the internal column name (P1: the Test dialog showed
+            # "auth_ref is missing" verbatim).
             return DriverHealth(
                 ok=False,
-                detail="auth_ref is missing or not a claude-cli: reference",
+                detail=(
+                    "this Claude Code (OAuth) provider is missing its "
+                    "credential reference — remove it and re-add Claude "
+                    "Code (OAuth) in Settings → LLM Providers"
+                ),
             )
         if path.is_file():
             return DriverHealth(ok=True, detail=f"credentials present at {path}")

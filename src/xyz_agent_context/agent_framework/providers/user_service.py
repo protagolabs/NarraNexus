@@ -327,6 +327,10 @@ class UserProviderService:
                 )
                 new_ids.append(pid)
             else:
+                from xyz_agent_context.agent_framework.providers.driver.derive import (
+                    CLAUDE_CLI_CREDENTIALS_REF,
+                )
+
                 pid = _generate_provider_id()
                 row = {
                     "provider_id": pid,
@@ -344,15 +348,18 @@ class UserProviderService:
                     # Subscription funnels through official Anthropic → server
                     # tools OK.
                     "supports_anthropic_server_tools": True,
+                    # Classify at insert time (mirrors the codex_oauth branch).
+                    # The startup backfill only normalizes rows left by
+                    # pre-driver builds — a new row must never wait for the
+                    # next restart to become testable: leaning on the backfill
+                    # left auth_ref NULL until then, so Test right after
+                    # creation always failed (P1, 2026-08-27). Token rows
+                    # carry no credential-file sentinel — the token IS the
+                    # credential; host-CLI rows point at the claude CLI store.
+                    "driver_type": "claude_oauth",
+                    "billing_policy": "external_oauth",
+                    "auth_ref": "" if token else CLAUDE_CLI_CREDENTIALS_REF,
                 }
-                if token:
-                    # Token rows are self-contained: classify them at insert
-                    # time (mirrors the codex_oauth branch) instead of leaning
-                    # on the startup backfill, whose auth_ref derivation only
-                    # covers the host-CLI transport.
-                    row["driver_type"] = "claude_oauth"
-                    row["billing_policy"] = "external_oauth"
-                    row["auth_ref"] = ""
                 await self._insert_provider(user_id, row, now)
                 new_ids.append(pid)
 
