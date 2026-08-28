@@ -62,3 +62,7 @@ Phase 3 的安装/状态路由不应该知道"Claude Code 有两个安装动作�
 ## 2026-08-28 补 — uninstall 也走共享锁
 
 uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + busy 集**:锁被占(安装/卸载进行中)则抛 [[errors]] 的 `PluginBusyError`,不排队。install/uninstall 因此对同一插件互斥,杜绝"装到一半点卸载"两个包管理器/rm 抢同一目录。路由把 `PluginBusyError` 映射成 409。
+
+## 2026-08-28 补(auto-review C2/I4/N1) — 按 kind 算 target;终态 busy=False
+
+新增 `_target_for(spec,component)`(pip→plugin_pyenv(id),npm→node_prefix)与 `_detect`,install/uninstall/detect 都传 target。install **终态 status 在清 busy 之后计算**(原来在 finally 前算,`busy` 恒 True——类型承诺了却语义错)。install 重构成 try 里只跑各 component、except 记 ok/error、finally 清 busy、循环外才算 status+yield 终态(客户端断连的 GeneratorExit 不进 except、经 finally 释放锁与 busy 后向上传播,终态不 yield)。list_plugins 由路由层 run_in_threadpool 调用(见 [[routes]]),故仍同步。

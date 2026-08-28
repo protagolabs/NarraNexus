@@ -75,10 +75,13 @@ register_agent_loop_driver("nexus_power", _nexus_power_factory)
 register_agent_loop_driver("claude_code", _claude_code_factory)
 register_agent_loop_driver("codex_cli", _codex_cli_factory)
 
-# Cover plugins already installed at process start: append the pyenv once so
-# the lazy imports above (and the helper-LLM paths in llm/cli_helper.py,
-# providers/driver/drivers/claude_oauth.py) resolve. Idempotent; a no-op when
-# nothing is installed. The per-factory call handles install-during-runtime.
+# Cover plugins already installed at process START: append the pyenv subdirs
+# once so the lazy imports resolve without any per-call activation. Idempotent;
+# a no-op when nothing is installed. Install-DURING-runtime (no restart) is
+# handled per import site instead: the three driver factories above,
+# sdk._ensure_sdk_imported, and the helper-LLM / OAuth paths
+# (llm/cli_helper.py, providers/driver/drivers/claude_oauth.py) each call
+# activate_pyenv() right before their `import claude_agent_sdk`.
 plugin_paths.activate_pyenv()
 
 

@@ -58,3 +58,7 @@ Claude CLI（`cli_binary.py` 的设计原因:2.1.220 相比 SDK 自带的 2.1.56
 ## 2026-08-28 补 — 卸载改精确 npm uninstall(不再整棵 rmtree)
 
 预审(I2)指出原 uninstall 直接 `rmtree(node_prefix())` 会把整棵 `~/.narranexus/plugins/nodejs` 连锅端——今天只有 claude 用该 prefix 无副作用,但将来第二个 npm 插件共享该 prefix 会被误删,且与 pip 侧'按包精确删'不对称。改为 `npm uninstall --prefix <dir> <pkg>`(`_package_name` 剥掉 `@version`),让 npm 只删该包+prune 依赖+清 .bin shim。npm 对已不存在的包是 no-op,可重复调用。
+
+## 2026-08-28 补(auto-review C2/N8) — target 参数 + detect 语义修正 + 探测超时降
+
+三方法加 `target`(npm 恒=共享 node prefix)。detect **语义修正**:cli 文件存在即 `installed=True`(哪怕 `claude --version` 读不到→version=None,并 warn),只有文件不存在才 False——否则 PATH 缺 bundled node 会误报'未装',用户重装也修不好。探测超时 20→5s(detect 走 run_in_threadpool,但 20s 仍占线程+转圈)。

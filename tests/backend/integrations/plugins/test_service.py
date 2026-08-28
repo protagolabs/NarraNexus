@@ -47,12 +47,12 @@ class _StubInstaller:
         self._version_after = version_after
         self.uninstalled_components = []
 
-    async def install(self, component):
+    async def install(self, component, target):
         for line in self._lines:
             await asyncio.sleep(0)
             yield line
 
-    def detect(self, component):
+    def detect(self, component, target):
         from backend.integrations.plugins._installers.base import InstalledState
 
         return InstalledState(
@@ -62,7 +62,7 @@ class _StubInstaller:
             update_available=False,
         )
 
-    async def uninstall(self, component):
+    async def uninstall(self, component, target):
         self.uninstalled_components.append(component)
 
 
@@ -113,6 +113,9 @@ async def test_install_yields_progress_lines_then_a_done_event(plugin_home):
     assert final["error"] is None
     assert final["status"]["id"] == "claude_code"
     assert final["status"]["installed"] is True
+    # The final status is computed AFTER busy is cleared, so it must report
+    # busy=False even though this plugin was mid-install a moment ago.
+    assert final["status"]["busy"] is False
 
 
 @pytest.mark.asyncio
@@ -200,3 +203,43 @@ async def test_install_and_uninstall_share_one_lock(plugin_home):
             await service.uninstall("claude_code")
     finally:
         lock.release()
+
+
+class _HangingInstaller:
+    """Installer whose install() yields one line then blocks forever — lets a
+    test abandon the stream mid-flight to simulate a client disconnect."""
+
+    async def install(self, component, target):
+        yield "started"
+        await asyncio.Event().wait()  # never completes
+
+    def detect(self, component, target):
+        from backend.integrations.plugins._installers.base import InstalledState
+
+        return InstalledState(
+            installed=False, version=None, target_version="x", update_available=False
+        )
+
+    async def uninstall(self, component, target):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_abandoning_install_midway_releases_lock_and_busy(plugin_home):
+    """I3 guard: a client disconnecting mid-install (the async generator is
+    ``aclose()``'d) must release the per-plugin lock and clear busy — otherwise
+    a retry can't proceed and a second package manager could race the first."""
+    service = PluginService(specs=_TEST_SPECS)
+    service._installers["pip"] = _HangingInstaller()
+    service._installers["npm"] = _HangingInstaller()
+
+    gen = service.install("claude_code")
+    first = await gen.__anext__()  # advance into the install
+    assert first["done"] is False
+    assert service.list_plugins()[0].busy is True
+    assert service._lock_for("claude_code").locked() is True
+
+    await gen.aclose()  # simulate the StreamingResponse body being closed
+
+    assert service._lock_for("claude_code").locked() is False
+    assert service.list_plugins()[0].busy is False

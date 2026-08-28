@@ -19,12 +19,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
+from xyz_agent_context.agent_framework.plugin_paths import node_prefix, plugin_pyenv
+
 from ._installers.base import PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller
 from ._installers.pip_target import PipTargetInstaller
+from ._installers.base import InstalledState
 from .errors import PluginBusyError, classify_error
 from .registry import PLUGIN_SPECS
-from .spec import PluginSpec
+from .spec import InstallComponent, PluginSpec
 
 # Where each plugin's login/auth state lives — a plain file-existence probe
 # is all the frontend needs (a "log in" CTA vs. not), so we do not shell out
@@ -82,8 +85,18 @@ class PluginService:
         subdir, filename = marker
         return (Path.home() / subdir / filename).exists()
 
+    def _target_for(self, spec: PluginSpec, component: InstallComponent) -> Path:
+        """Where a component installs: a per-plugin pyenv subdir for pip (clean
+        rmtree uninstall), the shared node prefix for npm (only Claude uses it)."""
+        if component.kind == "pip":
+            return plugin_pyenv(spec.id)
+        return node_prefix()
+
+    def _detect(self, spec: PluginSpec, component: InstallComponent) -> InstalledState:
+        return self._installers[component.kind].detect(component, self._target_for(spec, component))
+
     def _status(self, spec: PluginSpec) -> PluginStatus:
-        states = [self._installers[component.kind].detect(component) for component in spec.components]
+        states = [self._detect(spec, component) for component in spec.components]
         installed = all(state.installed for state in states)
 
         version_component_kind = "npm" if spec.user_version_source == "npm_cli" else "pip"
@@ -131,18 +144,31 @@ class PluginService:
 
         async with lock:
             self._busy.add(plugin_id)
+            ok = True
+            error: str | None = None
             try:
                 for component in spec.components:
                     installer = self._installers[component.kind]
-                    async for line in installer.install(component):
+                    target = self._target_for(spec, component)
+                    async for line in installer.install(component, target):
                         yield {"phase": component.kind, "line": line, "done": False}
-                status = self._status(spec)
-                yield {"done": True, "ok": True, "error": None, "status": asdict(status)}
             except Exception as exc:  # noqa: BLE001 — every failure must reach the UI, not the logs only
-                error = classify_error(exc)
-                yield {"done": True, "ok": False, "error": error.message, "status": None}
+                ok = False
+                error = classify_error(exc).message
             finally:
                 self._busy.discard(plugin_id)
+            # Compute the final status AFTER clearing busy, so the status dict
+            # reports busy=False (it is no longer running by the time the caller
+            # receives this event). A client that disconnected mid-install
+            # raised GeneratorExit above and never reaches here — its lock and
+            # busy flag were already released in the finally.
+            status = self._status(spec) if ok else None
+            yield {
+                "done": True,
+                "ok": ok,
+                "error": error,
+                "status": asdict(status) if status is not None else None,
+            }
 
     async def uninstall(self, plugin_id: str) -> None:
         """Remove every component of ``plugin_id``.
@@ -165,6 +191,7 @@ class PluginService:
             self._busy.add(plugin_id)
             try:
                 for component in spec.components:
-                    await self._installers[component.kind].uninstall(component)
+                    target = self._target_for(spec, component)
+                    await self._installers[component.kind].uninstall(component, target)
             finally:
                 self._busy.discard(plugin_id)

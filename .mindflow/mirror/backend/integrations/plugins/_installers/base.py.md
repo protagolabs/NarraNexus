@@ -52,3 +52,7 @@ pip、一个走 npm),但它们对"跑一个包管理器子进程、把每行输�
 - 无独立铁律,但这是 `_installers/` 子包内**唯一**允许存在的共享代码——
   新增第三个安装策略（比如未来的 `uv_target.py`)如果还需要更多共享逻辑,
   应该先问"这真的是所有策略通用的,还是只是巧合相似"。
+
+## 2026-08-28 补(auto-review I3/N5) — 子进程收尸 + 显式 raise
+
+PluginInstaller 三方法加 `target: Path` 参数(由 service 按 kind 计算:pip→每插件 pyenv 子目录,npm→共享 node prefix),让 pip 每插件独立目录成为可能。`stream_subprocess` 包 try/finally:任何退出路径(正常/异常/客户端断连的 GeneratorExit/CancelledError)都 `process.kill()+wait()` 收尸——否则子进程被孤儿化,在 service 释放 per-plugin 锁后还在写 target 目录,正是锁要防的竞态(工程教训#2)。`assert process.stdout is not None` 改成显式 raise(`-O` 下 assert 会被剥掉)。

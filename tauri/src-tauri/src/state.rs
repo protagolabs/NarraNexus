@@ -152,15 +152,30 @@ pub fn resolve_bundled_node_bins() -> Vec<PathBuf> {
         break;
     }
     // On-demand plugin CLI dir (Claude Code is no longer bundled). Honour the
-    // NARRANEXUS_PLUGIN_HOME override so it matches plugin_paths.py exactly.
-    let plugin_home = std::env::var("NARRANEXUS_PLUGIN_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".narranexus")
-                .join("plugins")
-        });
+    // NARRANEXUS_PLUGIN_HOME override the SAME way plugin_paths.py does
+    // (铁律 #7): trim whitespace, treat empty as unset, and expand a leading
+    // `~`. Diverging would give the two run modes different plugin locations.
+    let default_home = || {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".narranexus")
+            .join("plugins")
+    };
+    let plugin_home = match std::env::var("NARRANEXUS_PLUGIN_HOME") {
+        Ok(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                default_home()
+            } else if trimmed == "~" {
+                dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+            } else if let Some(rest) = trimmed.strip_prefix("~/") {
+                dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(rest)
+            } else {
+                PathBuf::from(trimmed)
+            }
+        }
+        Err(_) => default_home(),
+    };
     out.push(plugin_home.join("nodejs").join("node_modules").join(".bin"));
     out
 }

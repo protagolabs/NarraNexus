@@ -191,3 +191,7 @@ with "No such file or directory".
 `resolve_db_path` always uses `~/.narranexus/nexus.db` regardless of mode.
 There is no per-user or per-environment isolation. Running two agents
 simultaneously from different installations shares the same database.
+
+## 2026-08-28 补(auto-review N2) — NARRANEXUS_PLUGIN_HOME 与 Python 对齐
+
+`resolve_bundled_node_bins` 里对 override 的处理对齐 plugin_paths.py(铁律#7):trim 空白、空串当未设、展开前导 `~`。原来 Rust 两者都没做,设成空串会拿到相对路径、设 `~/x` 不展开,两 run mode 落点会分叉。

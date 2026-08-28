@@ -28,6 +28,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
@@ -48,8 +49,14 @@ _CLOUD_MANAGED_DETAIL = "Plugins are managed by the platform in cloud mode"
 
 @router.get("")
 async def list_plugins():
-    """List every installable plugin with its current install/version state."""
-    plugins = [asdict(status) for status in _service.list_plugins()]
+    """List every installable plugin with its current install/version state.
+
+    ``list_plugins`` is synchronous and forks ``claude --version`` to read the
+    managed CLI's version, so it runs in a thread — a fork on the event loop
+    would freeze every in-flight WebSocket/agent stream on the single-process
+    desktop backend (CLAUDE.md 铁律 #16: never be the interruption source)."""
+    statuses = await run_in_threadpool(_service.list_plugins)
+    plugins = [asdict(status) for status in statuses]
     return {
         "success": True,
         "data": {"plugins": plugins, "cloud_managed": is_cloud_mode()},
@@ -100,5 +107,6 @@ async def uninstall_plugin(plugin_id: str):
     except PluginBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    new_status = next(s for s in _service.list_plugins() if s.id == plugin_id)
+    statuses = await run_in_threadpool(_service.list_plugins)
+    new_status = next(s for s in statuses if s.id == plugin_id)
     return {"success": True, "data": asdict(new_status)}

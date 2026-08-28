@@ -62,9 +62,15 @@ fi
 echo -e "${G}  System dependencies ready${R}"
 
 # --- Install Python dependencies ---
+# --extra plugins: this is a CLOUD deploy path — it must run every agent
+# framework, so it pulls in the optional coding-agent SDKs (claude-agent-sdk /
+# openai-codex) that the lightweight local build keeps out of base. Omitting it
+# ships claude_code / codex_cli dead here. Lockstep with ci.yml /
+# Dockerfile.manyfold (and the deploy repo's Dockerfiles) — tests/backend/
+# test_plugins_extra_lockstep.py guards this line.
 echo -e "${Y}[2/6] Installing Python dependencies...${R}"
 cd "$PROJECT_ROOT"
-uv sync 2>&1 | tail -1
+uv sync --extra plugins 2>&1 | tail -1
 echo -e "${G}  Python dependencies installed${R}"
 
 # --- Build frontend ---

@@ -95,3 +95,7 @@ before reaching any handler — there's just no per-user data to scope.
 ## 2026-08-28 补 — uninstall 409(busy)
 
 uninstall 处理器新增捕获 [[errors]] `PluginBusyError` → HTTP 409(安装/卸载进行中,稍后重试)。与既有 404(未知 id)/403(云端托管)并列。
+
+## 2026-08-28 补(auto-review C2) — list_plugins 走 run_in_threadpool
+
+`list_plugins()` 同步且会 fork `claude --version` 读版本;直接在 async 路由里调会冻住单进程桌面后端的整个 event loop(所有在途 WS/agent 流卡住,撞铁律#16)。GET 与 uninstall 收尾两处都改成 `await run_in_threadpool(_service.list_plugins)`。

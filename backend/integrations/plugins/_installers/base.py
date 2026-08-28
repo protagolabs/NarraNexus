@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator
 
 from .. import spec as _spec
@@ -51,21 +52,30 @@ class PluginInstallSubprocessError(RuntimeError):
 
 
 class PluginInstaller(ABC):
-    """Strategy for installing/detecting/removing one InstallComponent kind."""
+    """Strategy for installing/detecting/removing one InstallComponent kind.
+
+    ``target`` is the directory this component installs into — the caller
+    (``PluginService``) picks it per component kind: a per-plugin pyenv subdir
+    for pip, the shared node prefix for npm. Threading it through (rather than
+    each installer reaching for a global path) is what lets pip give every
+    plugin its own isolated subdir.
+    """
 
     @abstractmethod
-    async def install(self, component: "_spec.InstallComponent") -> AsyncIterator[str]:
+    async def install(
+        self, component: "_spec.InstallComponent", target: Path
+    ) -> AsyncIterator[str]:
         """Run the install, yielding human-readable progress lines as they
         arrive. Raises ``PluginInstallSubprocessError`` on non-zero exit."""
         raise NotImplementedError
 
     @abstractmethod
-    def detect(self, component: "_spec.InstallComponent") -> InstalledState:
+    def detect(self, component: "_spec.InstallComponent", target: Path) -> InstalledState:
         """Synchronously probe whether ``component`` is already installed."""
         raise NotImplementedError
 
     @abstractmethod
-    async def uninstall(self, component: "_spec.InstallComponent") -> None:
+    async def uninstall(self, component: "_spec.InstallComponent", target: Path) -> None:
         """Remove whatever ``install`` put down for ``component``."""
         raise NotImplementedError
 
@@ -74,9 +84,16 @@ async def stream_subprocess(cmd: list[str]) -> AsyncIterator[str]:
     """Run ``cmd``, yielding decoded stdout+stderr lines as they arrive.
 
     Raises ``PluginInstallSubprocessError`` (with every line seen so far) if
-    the process exits non-zero. ``asyncio.create_subprocess_exec`` is looked
-    up dynamically off this module so tests can monkeypatch it without
-    touching the real process table.
+    the process exits non-zero. Tests monkeypatch ``asyncio.create_subprocess_exec``
+    (as ``...base.asyncio.create_subprocess_exec``) to avoid the real process
+    table.
+
+    Cleanup is guaranteed: if the caller abandons the generator mid-stream
+    (a client disconnect closes the ``StreamingResponse`` body → ``GeneratorExit``,
+    or a cancellation), the ``finally`` kills and reaps the package-manager
+    process. Without that the process would be orphaned and keep writing the
+    target dir AFTER ``PluginService`` released the per-plugin lock — the exact
+    race the lock exists to prevent (工程教训 #2).
     """
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -84,11 +101,24 @@ async def stream_subprocess(cmd: list[str]) -> AsyncIterator[str]:
         stderr=asyncio.subprocess.STDOUT,
     )
     captured: list[str] = []
-    assert process.stdout is not None
-    async for raw_line in process.stdout:
-        line = raw_line.decode(errors="replace").rstrip("\n")
-        captured.append(line)
-        yield line
-    returncode = await process.wait()
-    if returncode != 0:
-        raise PluginInstallSubprocessError(cmd=cmd, returncode=returncode, output="\n".join(captured))
+    try:
+        if process.stdout is None:  # explicit (an `assert` is stripped under -O)
+            raise RuntimeError(f"{cmd[0]!r} produced no stdout pipe")
+        async for raw_line in process.stdout:
+            line = raw_line.decode(errors="replace").rstrip("\n")
+            captured.append(line)
+            yield line
+        returncode = await process.wait()
+        if returncode != 0:
+            raise PluginInstallSubprocessError(
+                cmd=cmd, returncode=returncode, output="\n".join(captured)
+            )
+    finally:
+        # Reap the process on ANY exit path (normal, error, GeneratorExit,
+        # CancelledError). `returncode is None` means it is still running.
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            await process.wait()

@@ -1379,9 +1379,11 @@ class ApiClient {
    *
    * `frameworks` reports plugin-install availability per framework name
    * (Claude Code / Codex CLI are user-installed local plugins — see
-   * `getPlugins`). It is optional so an older backend that predates the
-   * plugin system still type-checks; callers must treat a missing entry
-   * as available (lib/agentFramework.ts `frameworkAvailabilityMap`).
+   * `getPlugins`). The array only lists the plugin-gated frameworks, so a
+   * framework absent from it (nexus_power, or any future non-plugin framework)
+   * is treated as available — that "unknown ⇒ available" default lives in
+   * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
+   * modelled as optional here.
    */
   async getAgentFramework(): Promise<{
     success: boolean;

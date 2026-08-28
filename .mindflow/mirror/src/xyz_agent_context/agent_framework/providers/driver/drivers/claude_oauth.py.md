@@ -75,3 +75,7 @@ Claude Code 在 macOS 上把 OAuth token 存 Keychain(generic password
 探测在所有 Mac 上误报 '✗ credentials file not found'(CLI 实际能跑)。
 oauth 模式的 `probe()` 文件缺失时用 `security find-generic-password` 查
 Keychain(仅判存在、不读密文;非 darwin/出错回落文件结论)。
+
+## 2026-08-28 补(auto-review I5) — Verify 前调 activate_pyenv
+
+`_one_shot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:Providers 页 Claude OAuth 卡片的'Verify'可能是用户装完插件后第一个触发点(早于任何 agent driver),不重启也要能解析 SDK。

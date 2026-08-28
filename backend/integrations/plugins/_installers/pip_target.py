@@ -28,9 +28,8 @@ import importlib.util
 import re
 import shutil
 import sys
+from pathlib import Path
 from typing import AsyncIterator
-
-from xyz_agent_context.agent_framework.plugin_paths import pyenv_dir
 
 from ..spec import InstallComponent
 from .base import InstalledState, PluginInstaller, stream_subprocess
@@ -56,7 +55,7 @@ def _dist_dir_name(distribution_name: str) -> str:
 
 
 class PipTargetInstaller(PluginInstaller):
-    async def install(self, component: InstallComponent) -> AsyncIterator[str]:
+    async def install(self, component: InstallComponent, target: Path) -> AsyncIterator[str]:
         # Bootstrap pip when the target interpreter lacks it (uv venvs do).
         # We ARE sys.executable, so this find_spec reflects the very
         # interpreter the pip subprocess below runs in.
@@ -73,16 +72,16 @@ class PipTargetInstaller(PluginInstaller):
             "pip",
             "install",
             "--target",
-            str(pyenv_dir()),
+            str(target),
             component.requirement,
         ]
         async for line in stream_subprocess(cmd):
             yield line
 
-    def detect(self, component: InstallComponent) -> InstalledState:
+    def detect(self, component: InstallComponent, target: Path) -> InstalledState:
         distribution_name, target_version = _parse_requirement(component.requirement)
         dir_name = _dist_dir_name(distribution_name)
-        package_path = pyenv_dir() / dir_name
+        package_path = target / dir_name
         if not package_path.is_dir():
             return InstalledState(
                 installed=False,
@@ -90,7 +89,7 @@ class PipTargetInstaller(PluginInstaller):
                 target_version=target_version,
                 update_available=False,
             )
-        version = self._read_version(dir_name)
+        version = self._read_version(target, dir_name)
         update_available = version is not None and version != target_version
         return InstalledState(
             installed=True,
@@ -99,8 +98,8 @@ class PipTargetInstaller(PluginInstaller):
             update_available=update_available,
         )
 
-    def _read_version(self, dir_name: str) -> str | None:
-        matches = sorted(pyenv_dir().glob(f"{dir_name}-*.dist-info"))
+    def _read_version(self, target: Path, dir_name: str) -> str | None:
+        matches = sorted(target.glob(f"{dir_name}-*.dist-info"))
         if not matches:
             return None
         try:
@@ -108,11 +107,10 @@ class PipTargetInstaller(PluginInstaller):
         except Exception:  # noqa: BLE001 — a malformed dist-info reads as "unknown version"
             return None
 
-    async def uninstall(self, component: InstallComponent) -> None:
-        distribution_name, _ = _parse_requirement(component.requirement)
-        dir_name = _dist_dir_name(distribution_name)
-        package_path = pyenv_dir() / dir_name
-        if package_path.is_dir():
-            shutil.rmtree(package_path, ignore_errors=True)
-        for dist_info in pyenv_dir().glob(f"{dir_name}-*.dist-info"):
-            shutil.rmtree(dist_info, ignore_errors=True)
+    async def uninstall(self, component: InstallComponent, target: Path) -> None:
+        # One pip --target subdir per plugin, so removing the whole subdir takes
+        # the ENTIRE dependency closure (openai_codex_cli_bin ~90 MB, shared
+        # deps, dist-info) with it — no stranded packages, no version-mixing
+        # with a sibling plugin. Idempotent (rmtree of an absent dir is a no-op).
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)

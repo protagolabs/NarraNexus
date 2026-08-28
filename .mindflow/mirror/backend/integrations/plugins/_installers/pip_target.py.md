@@ -55,3 +55,7 @@ wheel到隔离目录、怎么从磁盘反查它的版本"的地方。
 ## 2026-08-28 补 — ensurepip 兜底(uv venv 无 pip)
 
 真机实测发现:`bash run.sh` 的 uv 管理 venv **不带 pip**,`sys.executable -m pip` 直接挂,安装全败。修:install 前用 `importlib.util.find_spec("pip")`(我们就是 sys.executable,故直接反映目标解释器)判定,缺则先 `python -m ensurepip --default-pip` 引导再 pip install。DMG 打包 python 自带 pip→跳过。单一路径两模式通(铁律 #7),不依赖 uv/pip 在 PATH。真机验证:codex 装进临时 pyenv(openai_codex+codex_cli_bin 90MB)ok、卸载干净。
+
+## 2026-08-28 补(auto-review I4) — 装/卸带 target;卸载 rmtree 整个子目录
+
+install/detect/uninstall 接收 `target`(=`plugin_pyenv(plugin_id)`)。uninstall 从'按包名 glob 删 dist-info'改成 `rmtree(target)` 整个插件子目录——一次带走全部依赖(codex_cli_bin ~90MB 等),彻底干净、幂等。detect 在 target 内查包目录与 dist-info 版本。

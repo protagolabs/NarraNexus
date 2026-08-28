@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import re
 import subprocess
+from pathlib import Path
 from typing import AsyncIterator
 
-from xyz_agent_context.agent_framework.plugin_paths import claude_cli_path, node_prefix
+from loguru import logger
 
 from ..spec import InstallComponent
 from .base import InstalledState, PluginInstaller, stream_subprocess
@@ -26,7 +27,12 @@ _NPM_REQUIREMENT_VERSION_RE = re.compile(r"@(\d[\w.\-]*)$")
 # `claude --version` prints e.g. "2.1.220 (Claude Code)".
 _CLI_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
-_VERSION_PROBE_TIMEOUT_S = 20.0
+# `claude --version` is a sub-second call; a few seconds means the binary is
+# wedged. Bounded low so the detect() probe can't stall the caller (it runs off
+# the event loop via run_in_threadpool, but a 20s hang there is still 20s of a
+# thread pinned + a UI spinner). Over budget → report "version unknown", which
+# is more honest than freezing.
+_VERSION_PROBE_TIMEOUT_S = 5.0
 
 
 def _pinned_version(requirement: str) -> str:
@@ -47,14 +53,14 @@ def _package_name(requirement: str) -> str:
 
 
 class NpmPrefixInstaller(PluginInstaller):
-    async def install(self, component: InstallComponent) -> AsyncIterator[str]:
-        cmd = ["npm", "install", "--prefix", str(node_prefix()), component.requirement]
+    async def install(self, component: InstallComponent, target: Path) -> AsyncIterator[str]:
+        cmd = ["npm", "install", "--prefix", str(target), component.requirement]
         async for line in stream_subprocess(cmd):
             yield line
 
-    def detect(self, component: InstallComponent) -> InstalledState:
+    def detect(self, component: InstallComponent, target: Path) -> InstalledState:
         target_version = _pinned_version(component.requirement)
-        cli_path = claude_cli_path()
+        cli_path = target / "node_modules" / ".bin" / "claude"
         if not cli_path.exists():
             return InstalledState(
                 installed=False,
@@ -62,10 +68,20 @@ class NpmPrefixInstaller(PluginInstaller):
                 target_version=target_version,
                 update_available=False,
             )
+        # The binary IS present, so the plugin is installed even if we cannot
+        # read its version (e.g. bundled node missing from PATH so the shim
+        # can't run). Reporting "not installed" here would send the user to
+        # reinstall — which wouldn't fix a PATH problem. Keep installed=True,
+        # surface version=None, and leave a breadcrumb instead of swallowing it.
         version = self._probe_version(cli_path)
+        if version is None:
+            logger.warning(
+                f"[plugins] claude CLI present at {cli_path} but `--version` was "
+                f"unreadable; reporting installed with unknown version"
+            )
         update_available = version is not None and version != target_version
         return InstalledState(
-            installed=version is not None,
+            installed=True,
             version=version,
             target_version=target_version,
             update_available=update_available,
@@ -84,12 +100,13 @@ class NpmPrefixInstaller(PluginInstaller):
         match = _CLI_VERSION_RE.search((result.stdout or "") + (result.stderr or ""))
         return match.group(1) if match else None
 
-    async def uninstall(self, component: InstallComponent) -> None:
+    async def uninstall(self, component: InstallComponent, target: Path) -> None:
         # Remove ONLY this package (and let npm prune its deps + the .bin
-        # shim), rather than wiping the whole node_prefix tree — so a future
-        # second npm plugin sharing this prefix is not collateral. Symmetric
-        # with the pip installer, which also removes by package. npm is a no-op
-        # when the package is already absent, so this is safe to call twice.
-        cmd = ["npm", "uninstall", "--prefix", str(node_prefix()), _package_name(component.requirement)]
+        # shim), rather than wiping the whole node prefix tree — so a future
+        # second npm plugin sharing this prefix is not collateral. (pip gets a
+        # per-plugin subdir instead; npm stays a shared prefix because only
+        # Claude uses it.) npm is a no-op when the package is already absent, so
+        # this is safe to call twice.
+        cmd = ["npm", "uninstall", "--prefix", str(target), _package_name(component.requirement)]
         async for _line in stream_subprocess(cmd):
             pass

@@ -436,3 +436,7 @@ void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正
 引导 Agent 接替新手引导）。`markOnboardingStep`（写方）保留——
 useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 幂等标记与之共用同一 metadata blob。
+
+## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
+
+`frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。

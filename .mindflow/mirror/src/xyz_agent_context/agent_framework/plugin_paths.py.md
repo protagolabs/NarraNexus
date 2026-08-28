@@ -15,7 +15,7 @@ stub: false
 ```
 ~/.narranexus/plugins/
 ├── nodejs/  node_modules/.bin/claude   ← npm --prefix，Claude CLI 2.1.220
-└── pyenv/   claude_agent_sdk/ openai_codex/  ← uv pip --target，SDK wheel
+└── pyenv/   claude_code/ codex_cli/  ← pip --target,每插件一个子目录(见下 2026-08-28 节)
 ```
 
 本模块是**纯**的：只做路径拼装 + 文件系统/`find_spec` 探测。不含版本 pin
@@ -51,3 +51,7 @@ remote executor + 镜像预装，本模块不参与该路径。
 `tests/agent_framework/test_plugin_paths.py`：env 覆盖、路径拼装、nexus_power
 恒真、未知名恒假、pyenv/base 两条命中路径、append 语义与幂等。删掉目标逻辑
 任一条即变红。
+
+## 2026-08-28 补(auto-review I4) — pyenv 改每插件子目录
+
+pip 树从扁平 `pyenv/<package>` 改成**每插件一个子目录** `pyenv/<plugin_id>/`：卸载=rmtree 该子目录,带走整个依赖闭包(否则 openai_codex_cli_bin ~90MB + 共享依赖会残留,打脸'卸载干净';两插件也不再争同一份共享依赖版本)。新增 `plugin_pyenv(plugin_id)`;`_present_in_pyenv(name,package)` 现两参、查 `pyenv/<name>/<package>`;`activate_pyenv` 遍历 append 每个存在的子目录(不再 append pyenv 根)。npm 仍单一共享 `nodejs` prefix(只 claude 用,按包 uninstall)。

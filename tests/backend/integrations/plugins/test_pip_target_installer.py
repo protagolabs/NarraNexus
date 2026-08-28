@@ -35,8 +35,13 @@ class _FakeProcess:
     def __init__(self, lines: list[bytes], returncode: int = 0):
         self.stdout = _FakeStdout(lines)
         self._returncode = returncode
+        # Mirrors real asyncio.subprocess.Process: None until wait()/exit is
+        # observed. base.py's cleanup `finally` reads this to decide whether
+        # to kill+reap, so it must reflect "already exited" once wait() runs.
+        self.returncode: int | None = None
 
     async def wait(self):
+        self.returncode = self._returncode
         return self._returncode
 
 
@@ -77,7 +82,8 @@ async def test_install_invokes_pip_with_target_and_pinned_requirement(plugin_hom
 
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
-    lines = [line async for line in installer.install(component)]
+    target = pyenv_dir() / "claude_code"
+    lines = [line async for line in installer.install(component, target)]
 
     assert lines == ["Collecting claude-agent-sdk==0.1.43", "Successfully installed"]
     assert captured_cmd[0] == sys.executable
@@ -85,7 +91,7 @@ async def test_install_invokes_pip_with_target_and_pinned_requirement(plugin_hom
     assert "ensurepip" not in captured_cmd  # pip present → no bootstrap
     assert "--target" in captured_cmd
     target_index = captured_cmd.index("--target")
-    assert captured_cmd[target_index + 1] == str(pyenv_dir())
+    assert captured_cmd[target_index + 1] == str(target)
     assert captured_cmd[-1] == "claude-agent-sdk==0.1.43"
 
 
@@ -111,7 +117,8 @@ async def test_install_bootstraps_pip_via_ensurepip_when_absent(plugin_home, mon
 
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="openai-codex==0.1.0b3")
-    _ = [line async for line in installer.install(component)]
+    target = plugin_home / "pyenv" / "codex_cli"
+    _ = [line async for line in installer.install(component, target)]
 
     assert len(commands) == 2
     assert commands[0] == [sys.executable, "-m", "ensurepip", "--default-pip"]
@@ -131,15 +138,17 @@ async def test_install_raises_on_nonzero_exit(plugin_home, monkeypatch):
 
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
+    target = plugin_home / "pyenv" / "claude_code"
 
     with pytest.raises(PluginInstallSubprocessError):
-        _ = [line async for line in installer.install(component)]
+        _ = [line async for line in installer.install(component, target)]
 
 
 def test_detect_reports_not_installed_when_dir_absent(plugin_home):
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
-    state = installer.detect(component)
+    target = plugin_home / "pyenv" / "claude_code"
+    state = installer.detect(component, target)
     assert state.installed is False
     assert state.version is None
     assert state.target_version == "0.1.43"
@@ -147,12 +156,11 @@ def test_detect_reports_not_installed_when_dir_absent(plugin_home):
 
 
 def test_detect_reports_update_available_when_version_below_pin(plugin_home):
-    from xyz_agent_context.agent_framework.plugin_paths import pyenv_dir
-
-    _write_fake_dist(pyenv_dir(), "claude_agent_sdk", "claude_agent_sdk", "0.1.40")
+    target = plugin_home / "pyenv" / "claude_code"
+    _write_fake_dist(target, "claude_agent_sdk", "claude_agent_sdk", "0.1.40")
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
-    state = installer.detect(component)
+    state = installer.detect(component, target)
     assert state.installed is True
     assert state.version == "0.1.40"
     assert state.target_version == "0.1.43"
@@ -160,27 +168,45 @@ def test_detect_reports_update_available_when_version_below_pin(plugin_home):
 
 
 def test_detect_reports_no_update_when_version_matches_pin(plugin_home):
-    from xyz_agent_context.agent_framework.plugin_paths import pyenv_dir
-
-    _write_fake_dist(pyenv_dir(), "claude_agent_sdk", "claude_agent_sdk", "0.1.43")
+    target = plugin_home / "pyenv" / "claude_code"
+    _write_fake_dist(target, "claude_agent_sdk", "claude_agent_sdk", "0.1.43")
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
-    state = installer.detect(component)
+    state = installer.detect(component, target)
     assert state.installed is True
     assert state.version == "0.1.43"
     assert state.update_available is False
 
 
 @pytest.mark.asyncio
-async def test_uninstall_removes_package_dir_and_dist_info(plugin_home):
-    from xyz_agent_context.agent_framework.plugin_paths import pyenv_dir
+async def test_uninstall_removes_the_entire_target_directory(plugin_home):
+    """Uninstall rmtree's the whole per-plugin pyenv subdir — not just the
+    pinned package's own dir/dist-info — so a plugin's full dependency
+    closure (unrelated helper packages included) goes with it. Delete the
+    rmtree call (revert to a package-only glob delete) and this goes red."""
+    target = plugin_home / "pyenv" / "claude_code"
+    _write_fake_dist(target, "claude_agent_sdk", "claude_agent_sdk", "0.1.43")
+    # A sibling dependency that has nothing to do with the pinned package
+    # name/glob — proves the whole subdir is taken, not just matched entries.
+    (target / "some_dependency").mkdir(parents=True)
+    (target / "some_dependency" / "__init__.py").write_text("")
 
-    _write_fake_dist(pyenv_dir(), "claude_agent_sdk", "claude_agent_sdk", "0.1.43")
     installer = PipTargetInstaller()
     component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
 
-    assert (pyenv_dir() / "claude_agent_sdk").is_dir()
-    await installer.uninstall(component)
+    assert target.is_dir()
+    await installer.uninstall(component, target)
 
-    assert not (pyenv_dir() / "claude_agent_sdk").exists()
-    assert list(pyenv_dir().glob("claude_agent_sdk-*.dist-info")) == []
+    assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_uninstall_of_absent_target_is_a_noop(plugin_home):
+    installer = PipTargetInstaller()
+    component = InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43")
+    target = plugin_home / "pyenv" / "claude_code"
+
+    assert not target.exists()
+    await installer.uninstall(component, target)  # must not raise
+
+    assert not target.exists()

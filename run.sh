@@ -188,8 +188,8 @@ check_deps() {
   # Claude Code is NO LONGER installed here. On the lightweight build it is an
   # OPTIONAL plugin the user installs on demand from Settings → Plugins (which
   # runs `npm install --prefix ~/.narranexus/plugins/nodejs
-  # @anthropic-ai/claude-code@<pinned>` and `uv pip install --target
-  # ~/.narranexus/plugins/pyenv claude-agent-sdk`). The pinned version and the
+  # @anthropic-ai/claude-code@<pinned>` and `python -m pip install --target
+  # ~/.narranexus/plugins/pyenv/claude_code claude-agent-sdk`). The pinned version and the
   # install itself live in backend/integrations/plugins/ (registry.py imports
   # PINNED_CLI_VERSION from cli_binary.py — still the single source of truth).
   # An un-installed framework is fail-closed at get_agent_loop_driver, never a
