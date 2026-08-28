@@ -98,6 +98,24 @@ class ClaudeOAuthDriver(_DriverBase):
         the real verdict. It stays cheap (no network) because the Settings
         page calls it on every load.
         """
+        # Source guard FIRST — before the token/host mode split, so a
+        # misrouted card never gets mode-specific advice it cannot act on.
+        # test_provider's legacy driver_type fallback routes any
+        # anthropic-protocol oauth/oauth_token row here precisely when
+        # driver_type is NULL, so a hand-crafted custom card
+        # (source="user") can land in this driver. Guard on source, NOT
+        # driver_type (its being NULL is the misroute's cause) — and
+        # never advise removal: remove_provider wipes the card's
+        # per-agent slot overrides.
+        if (self.card.source or "") != "claude_oauth":
+            return DriverHealth(
+                ok=False,
+                detail=(
+                    "this provider is not a Claude Code (OAuth) card — "
+                    "check its auth_type and source in Settings → "
+                    "LLM Providers"
+                ),
+            )
         if self._is_token_mode():
             token = self.card.api_key or ""
             if not token:
@@ -125,21 +143,6 @@ class ClaudeOAuthDriver(_DriverBase):
 
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
-            # Guard on source, NOT driver_type: test_provider's legacy
-            # fallback routes any anthropic-protocol oauth row here
-            # precisely when driver_type is NULL, so a hand-crafted
-            # custom card (source="user") can land in this driver.
-            # Advising removal for it would be wrong AND destructive
-            # (remove_provider wipes the card's per-agent slot overrides).
-            if (self.card.source or "") != "claude_oauth":
-                return DriverHealth(
-                    ok=False,
-                    detail=(
-                        "this provider is not a Claude Code (OAuth) card — "
-                        "check its auth_type and source in Settings → "
-                        "LLM Providers"
-                    ),
-                )
             # Creation writes the claude-cli: sentinel at insert time and
             # ProviderCard.from_row derives it for older rows, so reaching
             # this branch means the stored reference itself is malformed —

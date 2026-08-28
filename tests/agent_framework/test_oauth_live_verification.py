@@ -60,7 +60,10 @@ def _codex_card(**overrides) -> ProviderCard:
         provider_id="prov_codex",
         user_id="user_x",
         name="Codex CLI",
-        source="user",
+        # Real OAuth rows always carry the CLI-subscription source — the
+        # probe's source guard (2026-08-27) rejects anything else as a
+        # misrouted card before any credential check runs.
+        source="codex_oauth",
         protocol="openai",
         auth_type="oauth",
         api_key="",
@@ -78,7 +81,8 @@ def _claude_card(**overrides) -> ProviderCard:
         provider_id="prov_claude",
         user_id="user_x",
         name="Claude Code Login",
-        source="user",
+        # Same as _codex_card: the source guard requires the real source.
+        source="claude_oauth",
         protocol="anthropic",
         auth_type="oauth",
         api_key="",

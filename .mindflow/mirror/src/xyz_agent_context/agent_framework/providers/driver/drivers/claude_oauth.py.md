@@ -17,7 +17,11 @@ re-add Claude Code (OAuth) in Settings → LLM Providers"。前提:创建路径
 建议删卡是破坏性误导,改报 "not a Claude Code (OAuth) card"。**判
 source 不判 driver_type**——误路由的成因就是 driver_type 为 NULL。
 codex_oauth 同款同批修。测试断言文案**不含** "auth_ref" 字符串、误路由
-行**不含** "remove"。
+行**不含** "remove"。第 4 轮把 source 守卫**提到 `_is_token_mode()` 之前**
+——否则 `auth_type="oauth_token"` 的误路由卡会先落进 token 分支,拿到
+"run `claude setup-token`" 这种它执行不了的建议;现在 misroute 判定
+先于一切模式分支(测试:
+`test_probe_misrouted_token_card_gets_source_verdict_not_token_advice`)。
 
 ## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
 

@@ -12,7 +12,11 @@ stub: false
 `card_type=anthropic + auth_type="oauth"`(路由层 auth_type 是自由字符串)
 的行会继承 claude 哨兵,**用宿主订阅凭证给一张自身无凭证的卡验绿**。
 现在守卫在函数内:source 不在 {claude_oauth, codex_oauth} 一律 None,
-两个调用方自动同口径,backfill 的外置守卫同 commit 删除。注意:
+全部调用方自动同口径,backfill 的外置守卫同 commit 删除。消费者清点
+(review 第 4 轮补齐):插入时(user_service
+`_cli_subscription_row_fields`)、读时(`ProviderCard.from_row`)、
+backfill、codex helper 构造(cli_helper)、`build_codex_config` 强制
+覆盖(后两者 source 传字面量 "codex_oauth",语境即 codex)。注意:
 oauth_token / 非 oauth 仍返回 **None 而非 ""**——from_row 的
 `row.get(...) or derive(...)` 与 user_service `_cli_subscription_row_fields`
 的 `or ""` 都依赖这个区分。测试:

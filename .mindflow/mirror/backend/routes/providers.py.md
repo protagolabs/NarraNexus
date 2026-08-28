@@ -13,7 +13,11 @@ stub: false
 喂假 DB row,auth_ref 走读时推导(base.py.md 同日条目)。两个坑:
 ① `auth_type` 必须显式 `"oauth"`——from_row 缺省兜 `"api_key"`,推导
 返回 None,探针会误报未登录;② `driver_type` 字段删除是安全的——两个
-分支都直接构造 driver 类,不经 `get_driver_class`。
+分支都直接构造 driver 类,不经 `get_driver_class`。leg 2 此前**零测试
+覆盖**(既有探针测试都带 user_id,在 leg 1 就 return 了),review 第 4
+轮补了 4 条(test_one_key_onboarding.py §8):不传 user_id 才走 leg 2;
+claude 反向用例必须 monkeypatch 掉 `_keychain_has_credentials`,否则在
+装了真 claude 登录的 mac 上假绿。
 
 ## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
 

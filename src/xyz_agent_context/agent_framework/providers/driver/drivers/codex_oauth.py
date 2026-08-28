@@ -46,7 +46,7 @@ from xyz_agent_context.agent_framework.providers.driver.base import (
     _DriverBase,
 )
 from xyz_agent_context.agent_framework.providers.driver.derive import (
-    CODEX_CLI_CREDENTIALS_REF,
+    derive_auth_ref,
     resolve_codex_credentials_path,
 )
 from xyz_agent_context.agent_framework.providers.driver.registry import register
@@ -87,11 +87,14 @@ class CodexOAuthDriver(_DriverBase):
         # card. Force the canonical credential ref so the run-time stager
         # copies ~/.codex/auth.json into the per-run CODEX_HOME; leave
         # api_key empty (to_cli_env blanks CODEX_API_KEY for oauth).
+        # derive_auth_ref is the shared truth table; source is the literal
+        # "codex_oauth" ON PURPOSE — this is a forced override, not a
+        # per-card derivation: passing self.card.source would hand a
+        # misrouted card an empty ref and the stager would silently
+        # produce an empty CODEX_HOME.
         auth_type = (self.card.auth_type or "oauth")
-        auth_ref = (
-            CODEX_CLI_CREDENTIALS_REF
-            if auth_type.lower() == "oauth"
-            else (self.card.auth_ref or "")
+        auth_ref = derive_auth_ref(auth_type, "codex_oauth") or (
+            self.card.auth_ref or ""
         )
         return CodexConfig(
             api_key=self.card.api_key,
@@ -225,21 +228,21 @@ class CodexOAuthDriver(_DriverBase):
         linked" vs "✗ run `codex login`") — it is NOT health; the honest
         verdict is ``verify_live``. Like ClaudeOAuthDriver.
         """
+        # Source guard FIRST, mirroring the claude_oauth twin:
+        # test_provider's legacy fallback routes any openai-protocol
+        # oauth row here when driver_type is NULL — never advise removal
+        # for a card that was not a Codex CLI (OAuth) card to begin with.
+        if (self.card.source or "") != "codex_oauth":
+            return DriverHealth(
+                ok=False,
+                detail=(
+                    "this provider is not a Codex CLI (OAuth) card — "
+                    "check its auth_type and source in Settings → "
+                    "LLM Providers"
+                ),
+            )
         path = resolve_codex_credentials_path(self.card.auth_ref)
         if path is None:
-            # Source guard mirrors the claude_oauth twin: test_provider's
-            # legacy fallback routes any openai-protocol oauth row here
-            # when driver_type is NULL — never advise removal for a card
-            # that was not a Codex CLI (OAuth) card to begin with.
-            if (self.card.source or "") != "codex_oauth":
-                return DriverHealth(
-                    ok=False,
-                    detail=(
-                        "this provider is not a Codex CLI (OAuth) card — "
-                        "check its auth_type and source in Settings → "
-                        "LLM Providers"
-                    ),
-                )
             # Creation writes the codex-cli: sentinel at insert time and
             # ProviderCard.from_row derives it for older rows, so this is a
             # genuinely corrupt row — same actionable wording as the

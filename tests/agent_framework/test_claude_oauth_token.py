@@ -208,6 +208,26 @@ async def test_probe_misrouted_card_does_not_advise_removal():
     assert "auth_ref" not in health.detail
 
 
+@pytest.mark.asyncio
+async def test_probe_misrouted_token_card_gets_source_verdict_not_token_advice():
+    """The source guard must fire BEFORE the token-mode branch: a
+    hand-crafted custom card with auth_type='oauth_token' (route-layer
+    free string) misrouted into this driver must get the 'not a Claude
+    Code (OAuth) card' verdict, not 'run `claude setup-token`' advice for
+    a card that setup-token cannot fix (review round 4, Minor 1)."""
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+
+    driver = ClaudeOAuthDriver(
+        _card(source="user", auth_type="oauth_token", api_key="", auth_ref="")
+    )
+    health = await driver.probe()
+    assert not health.ok
+    assert "setup-token" not in health.detail
+    assert "not a Claude Code (OAuth) card" in health.detail
+
+
 def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
     """Rows inserted before 2026-08-27 carry auth_ref=NULL until a backend
     restart runs the startup backfill — ProviderCard.from_row derives the

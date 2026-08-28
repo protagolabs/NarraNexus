@@ -283,7 +283,7 @@ class CliHelperSDK:
             _codex_ctx,
         )
         from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CODEX_CLI_CREDENTIALS_REF,
+            derive_auth_ref,
         )
 
         # Run codex on the HELPER's own model + credentials, not the agent's.
@@ -294,8 +294,11 @@ class CliHelperSDK:
             model=model_name,
             auth_type=_auth_type,
             # OAuth stages ~/.codex/auth.json via this ref (to_cli_env /
-            # _stage_codex_oauth_credentials read it); api-key codex uses the key.
-            auth_ref=(CODEX_CLI_CREDENTIALS_REF if _auth_type == "oauth" else ""),
+            # _stage_codex_oauth_credentials read it); api-key codex uses
+            # the key. Same derive.py truth table as every other producer;
+            # source is the literal "codex_oauth" because this constructor
+            # is codex by definition.
+            auth_ref=derive_auth_ref(_auth_type, "codex_oauth") or "",
         )
         _codex_token = _codex_ctx.set(_helper_codex)
         try:
