@@ -1808,6 +1808,7 @@
         "update": "更新",
         "uninstall": "卸载",
         "updateAvailable": "有可用更新",
+        "versionUnknown": "版本未知",
         "loggedIn": "已登录",
         "starting": "启动中…",
         "installFailed": "安装失败",

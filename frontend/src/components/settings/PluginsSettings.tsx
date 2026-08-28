@@ -137,10 +137,14 @@ export function PluginsSettings() {
               </div>
               <div className="flex items-center gap-2">
                 {p.installed && (
-                  <StatusBadge status={p.update_available ? 'warning' : 'success'}>
+                  <StatusBadge
+                    status={p.update_available || p.version === null ? 'warning' : 'success'}
+                  >
                     {p.update_available
                       ? t('pages.settings.plugins.updateAvailable', 'update available')
-                      : `v${p.version}`}
+                      : p.version !== null
+                        ? `v${p.version}`
+                        : t('pages.settings.plugins.versionUnknown', 'version unknown')}
                   </StatusBadge>
                 )}
                 {p.installed && p.logged_in && (
@@ -182,7 +186,7 @@ export function PluginsSettings() {
                   {t('pages.settings.plugins.install', 'Install')}
                 </Button>
               )}
-              {p.installed && p.update_available && (
+              {p.installed && (p.update_available || p.version === null) && (
                 <Button
                   size="sm"
                   variant="secondary"

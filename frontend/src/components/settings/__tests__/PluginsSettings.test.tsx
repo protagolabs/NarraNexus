@@ -143,3 +143,18 @@ test('a failed install surfaces the error and keeps the Install button', async (
   expect(await screen.findByText('disk full')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Install/ })).toBeInTheDocument();
 });
+
+test('installed but version unknown shows "version unknown" and an Update button', async () => {
+  // N8 backend semantics: binary present but `--version` unreadable →
+  // installed:true, version:null. UI must not render `vnull`, and must still
+  // offer a fix action (Update/reinstall), not leave only Uninstall.
+  mockGetPlugins.mockResolvedValue({
+    success: true,
+    data: { plugins: [{ ...INSTALLED, version: null }], cloud_managed: false },
+  });
+  render(<PluginsSettings />);
+  expect(await screen.findByText('Claude Code')).toBeInTheDocument();
+  expect(screen.getByText(/version unknown/i)).toBeInTheDocument();
+  expect(screen.queryByText('vnull')).toBeNull();
+  expect(screen.getByRole('button', { name: /Update/i })).toBeInTheDocument();
+});

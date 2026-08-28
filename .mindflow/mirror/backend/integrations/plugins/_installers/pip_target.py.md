@@ -59,3 +59,7 @@ wheel到隔离目录、怎么从磁盘反查它的版本"的地方。
 ## 2026-08-28 补(auto-review I4) — 装/卸带 target;卸载 rmtree 整个子目录
 
 install/detect/uninstall 接收 `target`(=`plugin_pyenv(plugin_id)`)。uninstall 从'按包名 glob 删 dist-info'改成 `rmtree(target)` 整个插件子目录——一次带走全部依赖(codex_cli_bin ~90MB 等),彻底干净、幂等。detect 在 target 内查包目录与 dist-info 版本。
+
+## 2026-08-28 补(auto-review C2 第二轮) — uninstall 的 rmtree 挪出事件循环
+
+I4 把 rmtree 范围扩到整棵依赖闭包(claude ~190MB/数万文件),同步 rmtree 在 async uninstall 里会冻事件循环(铁律#16)。改 `await asyncio.to_thread(shutil.rmtree, target, True)`。

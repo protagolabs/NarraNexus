@@ -66,3 +66,7 @@ uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + b
 ## 2026-08-28 补(auto-review C2/I4/N1) — 按 kind 算 target;终态 busy=False
 
 新增 `_target_for(spec,component)`(pip→plugin_pyenv(id),npm→node_prefix)与 `_detect`,install/uninstall/detect 都传 target。install **终态 status 在清 busy 之后计算**(原来在 finally 前算,`busy` 恒 True——类型承诺了却语义错)。install 重构成 try 里只跑各 component、except 记 ok/error、finally 清 busy、循环外才算 status+yield 终态(客户端断连的 GeneratorExit 不进 except、经 finally 释放锁与 busy 后向上传播,终态不 yield)。list_plugins 由路由层 run_in_threadpool 调用(见 [[routes]]),故仍同步。
+
+## 2026-08-28 补(auto-review C2 第二轮) — install 终态 _status 挪出事件循环
+
+上轮只在路由层两处 run_in_threadpool,漏了 install() 生成器内部的终态 `_status`(它会 fork `claude --version`),仍在 StreamingResponse body 的事件循环上跑。改成 `await asyncio.to_thread(self._status, spec)`。

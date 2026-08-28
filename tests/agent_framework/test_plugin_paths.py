@@ -100,10 +100,9 @@ def test_activate_pyenv_appends_each_plugin_subdir(isolated_home):
     codex_dir = str(isolated_home / "pyenv" / "codex_cli")
     try:
         pp.activate_pyenv()
-        assert claude_dir in sys.path
-        assert codex_dir in sys.path
-        # Appended (base wins shared deps), not prepended.
-        assert sys.path.index(claude_dir) > 0
+        # Appended in sorted order at the very END, so base packages still win
+        # for shared deps (the whole reason activate_pyenv appends, not inserts).
+        assert sys.path[-2:] == [claude_dir, codex_dir]
         # Idempotent.
         pp.activate_pyenv()
         assert sys.path.count(claude_dir) == 1

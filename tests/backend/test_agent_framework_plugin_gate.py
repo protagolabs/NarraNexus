@@ -168,3 +168,31 @@ def test_set_framework_cloud_gate_still_runs_before_install_gate(make_client, mo
 
     assert resp.status_code == 403
     assert svc.set_calls == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_codex_installed_activates_plugin_pyenv_first():
+    """I-new-6 guard: _ensure_codex_installed must activate the plugin pyenv
+    BEFORE importing codex_cli_bin, so a Codex plugin installed this session
+    resolves without an app restart. Delete the activate_pyenv() call and this
+    goes red."""
+    from xyz_agent_context.agent_framework import plugin_paths
+
+    called = {"n": 0}
+    original = plugin_paths.activate_pyenv
+
+    def _spy():
+        called["n"] += 1
+        return original()
+
+    plugin_paths.activate_pyenv = _spy  # type: ignore[assignment]
+    try:
+        result = await providers_mod._ensure_codex_installed()
+    finally:
+        plugin_paths.activate_pyenv = original  # type: ignore[assignment]
+
+    assert called["n"] >= 1
+    # And the stale "Run uv sync" guidance is gone from the failure reason.
+    if not result["installed"]:
+        assert "uv sync" not in result["reason"] or "--extra plugins" in result["reason"]
+        assert "Settings" in result["reason"]

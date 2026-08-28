@@ -104,3 +104,7 @@ LangGraph、自研 loop）只需 `register_agent_loop_driver("name", Factory)`�
   claude。配置写错要当场炸，而不是伪装成默认值。
 - `AgentLoopDriver` Protocol 的签名精确镜像 `ClaudeAgentSDK.agent_loop`；那个方法
   就是每个新适配器必须对齐的参考形状（yield 原始事件 dict 给 ResponseProcessor）。
+
+## 2026-08-28 补(auto-review I6) — FrameworkNotInstalledError docstring 改实话
+
+原 docstring 谎称 'route 层 catch + 前端按 framework 本地化'——全 PR 无任何 route catch、无本地化分支。改成实话:配置时(选择器 disabled + POST 409)是主门,本异常是运行时 backstop(升级用户既有绑定/卸载后),经正常 run-error 面带英文可读消息冒泡;暂无专门 route catch 与按框架本地化(todo)。

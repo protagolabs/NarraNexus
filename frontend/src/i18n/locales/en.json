@@ -1808,6 +1808,7 @@
         "update": "Update",
         "uninstall": "Uninstall",
         "updateAvailable": "update available",
+        "versionUnknown": "version unknown",
         "loggedIn": "logged in",
         "starting": "Starting…",
         "installFailed": "Install failed",

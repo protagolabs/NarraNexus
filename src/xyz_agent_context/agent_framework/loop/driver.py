@@ -41,9 +41,17 @@ class FrameworkNotInstalledError(RuntimeError):
     (``claude-agent-sdk`` / ``openai-codex``) has not been installed yet. This
     is a fail-closed stop — the run refuses with an actionable message rather
     than silently falling back to another framework (which would run the user's
-    agent on a framework they did not choose). The route layer catches this and
-    surfaces the "install it in Settings → Plugins" hint; ``framework`` is
-    exposed so the frontend can localise per framework.
+    agent on a framework they did not choose).
+
+    Where this surfaces: config time is the PRIMARY guard — the selector greys
+    out an uninstalled framework and ``POST /agent-framework`` returns 409, so a
+    user cannot normally bind one. This exception is the runtime BACKSTOP for a
+    pre-existing binding (a desktop user who upgrades with an agent already set
+    to claude_code, or bound-then-uninstalled): it propagates out of the agent
+    turn through the normal run-error surface carrying the English message
+    below. There is NO dedicated route catch and no per-framework localisation
+    yet — ``framework`` is exposed for a caller that wants to build one (todo:
+    reference/self_notebook/todo). Keep this docstring honest about that.
     """
 
     def __init__(self, framework: str) -> None:

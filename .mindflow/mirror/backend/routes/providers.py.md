@@ -508,3 +508,7 @@ existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分
 ## 2026-07-07 (bug#3) — hot-reload 传 cli_helper
 
 add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增传 `cfg.cli_helper`，订阅（OAuth）helper 才能在当前进程即时生效。OAuth 登录后 add_provider 自动绑定 agent+helper 两槽。
+
+## 2026-08-28 补(auto-review I-new-6) — _ensure_codex_installed 惰性 activate + 修失效指引
+
+`_ensure_codex_installed` 是插件包 import 的第 6 个站点,原来 import `codex_cli_bin` 前不 activate_pyenv,装完 Codex 不重启会 ImportError;且失效文案叫用户 'Run uv sync'(轻量版 run.sh 的 uv sync 明确不带 --extra plugins,永远装不上)。修:import 前 `plugin_paths.activate_pyenv()`;文案改指 Settings→Plugins(云端才提 uv sync --extra plugins);删 docstring 里 'hard dependency in pyproject.toml' 等 v2 时代过时前提。测试 test_agent_framework_plugin_gate::test_ensure_codex_installed_activates_plugin_pyenv_first 锁定。

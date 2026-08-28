@@ -51,3 +51,7 @@ provider 钱包是"这个能力用谁的 key 跑"，两件事的失败模式和�
 ## 相关约束
 - `.mindflow/project/references/design_system.md` §6（组件选型决策表）——
   新面板全部走 `components/nm`。
+
+## 2026-08-28 补(auto-review I-new-3) — version=null 不再渲染 vnull + 给修复按钮
+
+N8 后端语义(文件在但版本读不到→installed=True,version=null)会让徽章渲染字面量 `vnull` 且只剩 Uninstall(死胡同)。修:徽章 version 为 null 时显示 versionUnknown(warning 色);Update 按钮条件放宽成 `installed && (update_available || version===null)`(重装语义)。i18n 加 versionUnknown(en+zh)。测试补 installed:true+version:null 用例。

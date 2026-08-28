@@ -21,10 +21,9 @@ from typing import AsyncIterator
 
 from xyz_agent_context.agent_framework.plugin_paths import node_prefix, plugin_pyenv
 
-from ._installers.base import PluginInstaller
+from ._installers.base import InstalledState, PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller
 from ._installers.pip_target import PipTargetInstaller
-from ._installers.base import InstalledState
 from .errors import PluginBusyError, classify_error
 from .registry import PLUGIN_SPECS
 from .spec import InstallComponent, PluginSpec
@@ -162,7 +161,11 @@ class PluginService:
             # receives this event). A client that disconnected mid-install
             # raised GeneratorExit above and never reaches here — its lock and
             # busy flag were already released in the finally.
-            status = self._status(spec) if ok else None
+            # OFF the event loop: _status forks `claude --version` (npm detect),
+            # and this runs inside the StreamingResponse body on the single
+            # desktop loop — a sync fork here freezes every in-flight WS/agent
+            # stream (铁律 #16). Same reason routes.list_plugins uses a thread.
+            status = await asyncio.to_thread(self._status, spec) if ok else None
             yield {
                 "done": True,
                 "ok": ok,

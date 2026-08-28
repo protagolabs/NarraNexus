@@ -23,6 +23,7 @@ install path across both run modes (铁律 #7) with no dependency on a ``uv`` or
 """
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
 import importlib.util
 import re
@@ -112,5 +113,8 @@ class PipTargetInstaller(PluginInstaller):
         # the ENTIRE dependency closure (openai_codex_cli_bin ~90 MB, shared
         # deps, dist-info) with it — no stranded packages, no version-mixing
         # with a sibling plugin. Idempotent (rmtree of an absent dir is a no-op).
+        # OFF the event loop: rmtree of ~190 MB / tens of thousands of files is
+        # seconds of blocking IO; on the single desktop loop that would freeze
+        # every in-flight WS/agent stream (铁律 #16).
         if target.is_dir():
-            shutil.rmtree(target, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, target, True)

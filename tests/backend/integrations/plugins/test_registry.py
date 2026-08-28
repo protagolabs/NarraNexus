@@ -44,3 +44,20 @@ def test_every_spec_has_a_size_hint():
     for spec in PLUGIN_SPECS.values():
         assert spec.size_hint
         assert isinstance(spec.size_hint, str)
+
+
+def test_plugin_id_equals_framework_name_and_dict_key():
+    """The pyenv install location is keyed on spec.id while framework_installed
+    keys on the framework name (plugin_paths.plugin_pyenv(name)). Those must be
+    the same string, or a plugin installs into pyenv/<id>/ while availability
+    probes pyenv/<framework_name>/ and reports 'not installed' forever. This
+    turns that docstring-only contract into a guard (same shape as
+    test_plugins_extra_lockstep / test_claude_cli_pin)."""
+    from backend.integrations.plugins.registry import PLUGIN_SPECS
+
+    for key, spec in PLUGIN_SPECS.items():
+        assert key == spec.id == spec.framework_name, (
+            f"plugin key/id/framework_name diverge: key={key!r} id={spec.id!r} "
+            f"framework_name={spec.framework_name!r} — install location and "
+            f"availability probe would key on different dirs"
+        )
