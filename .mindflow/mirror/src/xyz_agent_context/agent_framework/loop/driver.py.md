@@ -1,9 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/driver.py
-last_verified: 2026-08-24
+last_verified: 2026-08-28
 stub: false
 ---
 
+## 2026-08-28 — fail-closed：未装插件的框架拒绝构建
+
+新增异常 `FrameworkNotInstalledError(RuntimeError)`（带 `framework` 属性），与
+「未知框架」的 `ValueError` 区分：名字合法但其可选 SDK 插件
+（claude-agent-sdk/openai-codex）在轻量本地版尚未安装。`get_agent_loop_driver`
+在 **remote-executor 短路之后、in-process 建 driver 之前**查
+[[plugin_paths]] `framework_installed(name)`，假则抛此异常——**绝不静默回落到别的
+框架**（否则用户的 agent 会跑在没选的框架上）。只有 in-process 路径会到这；云端走
+remote executor 且镜像预装，`framework_installed` 恒真。路由层捕获它、给前端
+「去 设置→插件 安装」提示（`framework` 供按框架本地化）。`framework_installed`
+用函数内 import 以避与本包 __init__ 的循环依赖。
 
 ## 2026-08-24 — remote driver **按 framework 声明 steering**(取代 2026-08-22 节「remote 空集/降级」)
 

@@ -1,10 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-08-18
+last_verified: 2026-08-28
 stub: false
 ---
 
-## 2026-08-04 — 消费 expressive_tools：回复面 reminder 上 user message 末尾
+## 2026-08-28 — 惰性 import claude_agent_sdk（轻量化插件）
+
+`claude-agent-sdk` 在本地版是**按需安装的插件**，故本模块 import 时**不能**要求
+它在场。改动：顶部加 `from __future__ import annotations`（让 `ClaudeAgentOptions`
+等注解变惰性字符串，签名不再需要 SDK），删掉顶部
+`from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher`，
+下沉进 `agent_loop` 方法体（三名字的实际构造都在该方法及其嵌套闭包内）。方法体
+入口先 `plugin_paths.activate_pyenv()` 再 import——插件运行中装完免重启。到这一步
+时框架必已被 [[driver]] 的 fail-closed 确认已装，故此处 ImportError 属"不该发生"
+而非常规 miss。
 
 此前 CLI 驱动完全忽略 TurnInput.expressive_tools，回复指令只存在于遥远的
 system prompt——正是 NexusPower 尾部机制要修的 far-from-generation 失效。

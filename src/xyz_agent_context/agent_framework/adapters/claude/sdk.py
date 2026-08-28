@@ -6,6 +6,15 @@
 """
 
 
+# ``from __future__ import annotations`` makes every annotation a lazy string,
+# so signatures referencing ``ClaudeAgentOptions`` no longer need the SDK
+# imported at module load. The SDK — which drags in the ~186 MB bundled CLI —
+# is now imported lazily inside ``agent_loop`` (see there), because on the
+# lightweight local build ``claude-agent-sdk`` is an OPTIONAL plugin the user
+# installs on demand, not a base dependency. Importing this module must not
+# require the plugin to be present.
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -14,8 +23,9 @@ from contextlib import aclosing, suppress
 from pathlib import Path
 
 from loguru import logger
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 from typing import Any, AsyncGenerator
+
+from xyz_agent_context.agent_framework import plugin_paths
 
 from xyz_agent_context.agent_framework.loop.cancellation_view import (
     CancellationView,
@@ -678,6 +688,17 @@ class ClaudeAgentSDK:
         cancellation: Any | None = None,  # CancellationToken for cooperative cancellation
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
+
+        # Lazy SDK import (lightweight-plugin build). ``claude-agent-sdk`` is an
+        # optional plugin installed into the user's plugin ``pyenv``;
+        # ``activate_pyenv`` appends that dir to ``sys.path`` first so a plugin
+        # installed while the app is running resolves without a restart. On a
+        # base install without the plugin this raises ImportError — which only
+        # happens once ``get_agent_loop_driver`` has already confirmed the
+        # framework is installed, so it is a genuine "should never get here"
+        # rather than a routine miss.
+        plugin_paths.activate_pyenv()
+        from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 
         # Step 0-1: Convert mcp_servers specs to the SDK's McpSSEServerConfig
         # shape. "headers" (user-configured auth, e.g. Authorization bearer

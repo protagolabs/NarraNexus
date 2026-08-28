@@ -1,9 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/__init__.py
-last_verified: 2026-07-29
+last_verified: 2026-08-28
 stub: false
 ---
 # agent_framework/__init__.py — agent-loop driver 注册中心
+
+## 2026-08-28 — 轻量化插件：三 driver 全惰性工厂 + 惰性公共名
+
+本地版把 `claude-agent-sdk`（Claude）/`openai-codex`（Codex）改成**按需安装的
+插件**，故 import 本包**绝不能**要求任一 SDK 在场。改动：
+
+- 去掉 import 期 `from .adapters.claude.sdk import ClaudeAgentSDK`；三个框架
+  （nexus_power/claude_code/codex_cli）都注册**惰性工厂**，SDK import 只在工厂
+  真正建 driver 时发生。codex 从旧的 try/except-import-time 也改成惰性工厂
+  （否则 base 移除 openai-codex 后它就不注册了）。
+- 每个工厂先 `plugin_paths.activate_pyenv()`（把插件 pyenv append 进 sys.path），
+  故插件在 app 运行中装完**免重启**即可用；包 import 末尾再调一次覆盖启动时已装。
+- 公共名 `ClaudeAgentSDK/CodexSDK/CodexSDKv2` 经 PEP 562 `__getattr__` 惰性暴露，
+  仍可 `from ...agent_framework import ClaudeAgentSDK`，但只在真取用时才拉 SDK。
+- **注册 ≠ 已装**：可用性判定在 [[plugin_paths]] 的 `framework_installed`；
+  fail-closed 在 [[driver]] 的 `get_agent_loop_driver`。
 
 ## 2026-07-29 — 注册第三个 driver:nexus_power
 

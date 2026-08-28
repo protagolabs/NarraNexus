@@ -158,6 +158,25 @@ def _decide() -> tuple[str | None, str | None, str]:
             return None, None, f"CLAUDE_CLI_PATH={explicit!r} is not a file"
         return explicit, _probe_version(explicit), "explicit CLAUDE_CLI_PATH"
 
+    # Managed plugin binary (lightweight local build). The user-installed
+    # Claude CLI lives at a path WE control under ~/.narranexus/plugins, so it
+    # is preferred over whatever is on PATH: it is the version we pinned and
+    # validated, and preferring it means we never accidentally launch (or
+    # clobber) the user's own global `claude`. The same pin gate applies — a
+    # present-but-mismatched managed binary falls through rather than running
+    # an unvalidated version.
+    from xyz_agent_context.agent_framework import plugin_paths
+
+    managed = plugin_paths.claude_cli_path()
+    if managed.is_file():
+        managed_ver = _probe_version(str(managed))
+        if managed_ver == PINNED_CLI_VERSION:
+            return (
+                str(managed),
+                managed_ver,
+                f"managed plugin binary matches pin {PINNED_CLI_VERSION}",
+            )
+
     found = shutil.which("claude")
     if not found:
         return None, None, "no `claude` on PATH"

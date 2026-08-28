@@ -33,6 +33,27 @@ from typing import Any, AsyncGenerator, Callable, Protocol, runtime_checkable
 from loguru import logger
 
 
+class FrameworkNotInstalledError(RuntimeError):
+    """A registered framework's optional plugin is not installed.
+
+    Distinct from the ``ValueError`` raised for an UNKNOWN framework: the name
+    is valid and known, but on the lightweight local build its SDK plugin
+    (``claude-agent-sdk`` / ``openai-codex``) has not been installed yet. This
+    is a fail-closed stop — the run refuses with an actionable message rather
+    than silently falling back to another framework (which would run the user's
+    agent on a framework they did not choose). The route layer catches this and
+    surfaces the "install it in Settings → Plugins" hint; ``framework`` is
+    exposed so the frontend can localise per framework.
+    """
+
+    def __init__(self, framework: str) -> None:
+        self.framework = framework
+        super().__init__(
+            f"Framework '{framework}' is not installed. Install it from "
+            f"Settings → Plugins before running."
+        )
+
+
 @runtime_checkable
 class AgentLoopDriver(Protocol):
     """Runs one agent turn as a stream of raw, provider-agnostic events.
@@ -162,4 +183,17 @@ def get_agent_loop_driver(
             f"Registered: {available_agent_loop_frameworks() or '[]'}. "
             f"Register one via register_agent_loop_driver()."
         ) from None
+
+    # Fail-closed on the lightweight local build: a known framework whose
+    # optional SDK plugin is not installed must refuse here, BEFORE building
+    # the driver (whose lazy SDK import would otherwise throw a raw
+    # ImportError mid-turn). Only the in-process path reaches this — the
+    # remote-executor branch above returned already, and cloud executors
+    # pre-install every SDK so ``framework_installed`` is True there. Imported
+    # locally to avoid an import cycle with this package's __init__.
+    from xyz_agent_context.agent_framework.plugin_paths import framework_installed
+
+    if not framework_installed(name):
+        raise FrameworkNotInstalledError(name)
+
     return factory(**factory_kwargs)
