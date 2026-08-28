@@ -39,6 +39,9 @@ from xyz_agent_context.agent_framework.api_config import (
     CodexConfig,
     OpenAIConfig,
 )
+from xyz_agent_context.agent_framework.providers.driver.derive import (
+    derive_auth_ref,
+)
 
 
 # =============================================================================
@@ -109,7 +112,19 @@ class ProviderCard:
             driver_type=row.get("driver_type"),
             owner_user_id=row.get("owner_user_id"),
             billing_policy=row.get("billing_policy") or "user_pays",
-            auth_ref=row.get("auth_ref"),
+            # Read-time fallback for rows the startup backfill hasn't
+            # touched yet (inserted before 2026-08-27, backend not
+            # restarted since): auth_ref is fully derivable from
+            # (auth_type, source), so derive it here instead of failing
+            # the probe and steering the user into remove + re-add —
+            # which would wipe every per-agent slot override on the card.
+            # Same read-time philosophy test_provider applies to the
+            # sibling driver_type column. derive_auth_ref returns None
+            # for oauth_token rows — the token IS the credential, no
+            # file sentinel must be invented for them. Persisting stays
+            # the backfill's job; this is a view-level default only.
+            auth_ref=row.get("auth_ref")
+            or derive_auth_ref(row.get("source"), row.get("auth_type")),
         )
 
 
@@ -272,7 +287,7 @@ class _DriverBase:
     async def probe(self) -> DriverHealth:
         if self.card.api_key or self.card.auth_ref:
             return DriverHealth(ok=True, detail="credential present")
-        return DriverHealth(ok=False, detail="no api_key or auth_ref")
+        return DriverHealth(ok=False, detail="no credential configured for this provider")
 
     def build_claude_config(self, model: str) -> ClaudeConfig:
         raise NotImplementedError(

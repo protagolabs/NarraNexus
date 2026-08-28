@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/base.py
-last_verified: 2026-07-31
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — from_row 读时推导 auth_ref(P1 review 轮)
+
+存量 host-CLI OAuth 行在启动 backfill 跑过之前 `auth_ref=NULL`(P1 工单
+那批用户),而这一列对 claude/codex OAuth 是 `(auth_type, source)` 100%
+可推导的(`derive_auth_ref`)。`from_row` 现在
+`row.get("auth_ref") or derive_auth_ref(...)`——读时兜底,让这些行的
+Test 不必等重启;**持久化仍归 backfill,别因为这行就删它**。与
+`test_provider` 对兄弟列 `driver_type` 的读时推导同一哲学。守住的边界:
+`derive_auth_ref` 对 `oauth_token` **和非 CLI 订阅 source**(review 第 2
+轮加的守卫,见 derive.py.md)都返回 None——token 行不得被塞进文件哨兵
+分支(token 本身即凭据),自由字符串 auth_type 的杂牌行不得继承宿主
+claude 凭证,各有测试钉住
+(`test_from_row_does_not_derive_auth_ref_for_token_rows` /
+`test_from_row_does_not_derive_auth_ref_for_non_cli_sources`)。依赖方向:
+新增 `base → derive` 单向 import(derive 纯 stdlib,无环)。同批:
+`_DriverBase.probe()` 默认文案 "no api_key or auth_ref" 改
+"no credential configured for this provider"(内部列名不进用户文案;
+今日两个 OAuth driver 都有 verify_live,此分支暂无用户可达路径,纯防
+下一个不带 verify_live 的 driver 复活 P1)。
 
 ## 2026-07-31 — VerifyVerdict 三态(PR #224 review 第 4 条)
 

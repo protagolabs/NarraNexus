@@ -122,25 +122,49 @@ def derive_billing_policy(
 # the value is portable across OSes (Linux / macOS / Windows have
 # different home dirs).
 CLAUDE_CLI_CREDENTIALS_REF = "claude-cli:~/.claude/.credentials.json"
+
+# The two CLI-subscription sources — the single membership set shared by
+# derive_auth_ref's guard and user_service's _cli_subscription_row_fields.
+# Adding a third CLI framework (e.g. gemini_cli) means extending BOTH this
+# set and the per-source branches below; the helper's non-None backstop
+# turns a half-done extension into a loud ValueError instead of a silent
+# driver_type=NULL row.
+CLI_SUBSCRIPTION_SOURCES = frozenset({"claude_oauth", "codex_oauth"})
 CODEX_CLI_CREDENTIALS_REF = "codex-cli:~/.codex/auth.json"
 
 
 def derive_auth_ref(
+    source: Optional[str],
     auth_type: Optional[str],
-    source: Optional[str] = None,
 ) -> Optional[str]:
-    """Returns the canonical ``auth_ref`` value for a legacy row.
+    """The canonical ``auth_ref`` for a CLI-subscription row — the single
+    truth table serving insert time (``_cli_subscription_row_fields``),
+    read time (``ProviderCard.from_row``), the startup backfill, and the
+    codex config builders.
 
-    Only OAuth rows get a non-null value; everything else uses
-    ``api_key`` directly and leaves the reference empty.
+    Signature is ``(source, auth_type)`` with NO default, aligned with the
+    sibling ``derive_driver_type(source, auth_type, protocol)`` /
+    ``derive_billing_policy(source, auth_type)``: since the source guard
+    landed, omitting ``source`` could only ever return None — a default
+    that silently reproduces the P1 this table exists to prevent (empty
+    auth_ref on a freshly inserted row). Omission is now a TypeError.
+
+    Only host-CLI OAuth rows of the two CLI-subscription sources get a
+    non-null value; everything else uses ``api_key`` directly and leaves
+    the reference empty. The source guard lives HERE, not in the callers:
+    both consumers (the startup backfill and ``ProviderCard.from_row``'s
+    read-time fallback) must answer identically, and an unguarded default
+    handed the CLAUDE sentinel to any row whose free-string auth_type said
+    "oauth" — letting a card with no credential of its own verify green
+    against the host's claude subscription (review round 2, 2026-08-27).
     """
     auth = (auth_type or "").lower()
     src = (source or "").lower()
-    if auth == "oauth":
-        if src == "codex_oauth":
-            return CODEX_CLI_CREDENTIALS_REF
-        return CLAUDE_CLI_CREDENTIALS_REF
-    return None
+    if auth != "oauth" or src not in CLI_SUBSCRIPTION_SOURCES:
+        return None
+    if src == "codex_oauth":
+        return CODEX_CLI_CREDENTIALS_REF
+    return CLAUDE_CLI_CREDENTIALS_REF
 
 
 def resolve_claude_credentials_path(auth_ref: Optional[str]) -> Optional[Path]:
@@ -284,4 +308,5 @@ __all__ = [
     "pick_default_model",
     "CLAUDE_CLI_CREDENTIALS_REF",
     "CODEX_CLI_CREDENTIALS_REF",
+    "CLI_SUBSCRIPTION_SOURCES",
 ]
