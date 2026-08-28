@@ -33,6 +33,9 @@ import {
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
+  frameworkAvailabilityMap,
+  withFrameworkAvailability,
+  isFrameworkAvailable,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
@@ -58,9 +61,11 @@ interface SlotCfg {
 interface Props {
   /** Jump to the LLM Providers settings section (switch the nav tab). */
   onManageProviders?: () => void;
+  /** Jump to the Plugins settings section (switch the nav tab). */
+  onManagePlugins?: () => void;
 }
 
-export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
+export function ModelDefaultsSettings({ onManageProviders, onManagePlugins }: Props = {}) {
   const { t } = useTranslation();
   const role = useConfigStore((s) => s.role);
   const netmindOnly = cloudNetmindOnly(role);
@@ -69,6 +74,10 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [framework, setFramework] = useState('claude_code');
+  // Plugin-install gate (Claude Code / Codex CLI are user-installed local
+  // plugins) — name→available, defaulted to available for any framework the
+  // backend didn't mention (see lib/agentFramework frameworkAvailabilityMap).
+  const [frameworkAvailability, setFrameworkAvailability] = useState<Record<string, boolean>>({});
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
   const [install, setInstall] = useState<{ action: string; reason: string } | null>(null);
   const [frameworkSaving, setFrameworkSaving] = useState(false);
@@ -112,6 +121,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       if (fwRes?.success) {
         setFramework(fwRes.data.framework);
         setProbe(fwRes.data.probe);
+        setFrameworkAvailability(frameworkAvailabilityMap(fwRes.data.frameworks));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
@@ -140,7 +150,13 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   );
   // Frameworks nothing bindable can drive are hidden rather than offered as a
   // dead end (a Claude Code Login alone can only ever run Claude Code).
-  const frameworkOptions = availableFrameworks(bindableProviders, framework);
+  // Plugin availability is layered on TOP of that hiding gate and never
+  // hides further — an uninstalled framework still needs to render so the
+  // user can see it and go install it (disabled, not absent).
+  const frameworkOptions = withFrameworkAvailability(
+    availableFrameworks(bindableProviders, framework),
+    frameworkAvailability,
+  );
   const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;
   // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an
   // OAuth helper to a CliHelperConfig and runs its structured calls one-shot
@@ -336,6 +352,41 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
               value={framework}
               disabled={frameworkSaving}
               onChange={(e) => {
+                const picked = frameworkOptions.find((f) => f.id === e.target.value);
+                // Plugin-install gate first: a framework that needs a local
+                // plugin (Claude Code / Codex CLI) the user hasn't installed
+                // yet cannot be selected — even a native <option disabled>
+                // doesn't stop a screen reader / programmatic change event,
+                // so this re-checks server truth before saving.
+                if (picked && !isFrameworkAvailable(picked)) {
+                  void showNotice({
+                    title: t(
+                      'pages.settings.modelDefaults.pluginRequiredTitle',
+                      'Plugin required',
+                    ),
+                    message: (
+                      <>
+                        {t(
+                          'pages.settings.modelDefaults.pluginRequired',
+                          'This framework needs its plugin installed first.',
+                        )}{' '}
+                        {onManagePlugins ? (
+                          <button
+                            type="button"
+                            onClick={onManagePlugins}
+                            className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+                          >
+                            {t('pages.settings.modelDefaults.pluginRequiredLink', 'Go to Settings › Plugins →')}
+                          </button>
+                        ) : (
+                          t('pages.settings.modelDefaults.pluginRequiredLink', 'Go to Settings › Plugins →')
+                        )}
+                      </>
+                    ),
+                  });
+                  e.target.value = framework;
+                  return;
+                }
                 // Ask the shared predicate rather than re-deriving the rule.
                 if (!frameworkAllowedInCloud(e.target.value, role)) {
                   void showNotice({
@@ -372,7 +423,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
               }}
             >
               {frameworkOptions.map((f) => (
-                <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
+                <option key={f.id} value={f.id} disabled={!isFrameworkAvailable(f)}>
+                  {f.label} — {f.desc}
+                  {!isFrameworkAvailable(f)
+                    ? ` (${t('pages.settings.modelDefaults.pluginNotInstalledSuffix', 'plugin not installed')})`
+                    : ''}
+                </option>
               ))}
             </select>
             {frameworksHidden && (

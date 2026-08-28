@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 框架下拉套插件可用性 + 新增 `onManagePlugins`
+
+`load()` 多存一份 `frameworkAvailability`（[[agentFramework]] 的
+`frameworkAvailabilityMap(fwRes.data.frameworks)`），`frameworkOptions` 在既有
+`availableFrameworks()`（钱包过滤，会隐藏）外面再套一层
+`withFrameworkAvailability()`（插件门禁，只禁用不隐藏）。`<option>` 对不可用
+项加 `disabled` + 文案后缀；onChange 在云端门禁**之前**先查插件门禁——选中未
+装插件的框架时弹同款 `showNotice` 样式提示，`e.target.value` 手动拨回，
+**不**调用 `setAgentFramework`（这是 disabled 属性挡不住程序化 change 事件的
+兜底）。新增可选 prop `onManagePlugins`，与既有 `onManageProviders` 同型，从
+[[SettingsPage]] 传入 `() => setActive('plugins')`，提示消息里的链接跳转过去。
 
 ## 2026-08-26 — 保存默认后可一键应用到全体 agent
 

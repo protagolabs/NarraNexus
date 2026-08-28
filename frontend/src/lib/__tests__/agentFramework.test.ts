@@ -12,6 +12,9 @@ import {
   availableFrameworks,
   providerBacksFramework,
   AGENT_FRAMEWORKS,
+  frameworkAvailabilityMap,
+  withFrameworkAvailability,
+  isFrameworkAvailable,
 } from '../agentFramework'
 
 const card = (source: string, protocol: string, auth_type: string) => ({
@@ -75,5 +78,33 @@ describe('availableFrameworks', () => {
     // the selected value would silently re-point the <select> elsewhere.
     const fws = availableFrameworks([CODEX_LOGIN], 'nexus_power')
     expect(fws.map((f) => f.id)).toEqual(['codex_cli', 'nexus_power'])
+  })
+})
+
+describe('plugin-install availability (frameworkAvailabilityMap / withFrameworkAvailability)', () => {
+  test('an uninstalled plugin is marked unavailable, never hidden', () => {
+    const map = frameworkAvailabilityMap([
+      { name: 'claude_code', available: true },
+      { name: 'codex_cli', available: false },
+    ])
+    const merged = withFrameworkAvailability(AGENT_FRAMEWORKS, map)
+    // Still every framework — plugin gating disables, it does not filter.
+    expect(merged.map((f) => f.id)).toEqual(AGENT_FRAMEWORKS.map((f) => f.id))
+    expect(isFrameworkAvailable(merged.find((f) => f.id === 'claude_code')!)).toBe(true)
+    expect(isFrameworkAvailable(merged.find((f) => f.id === 'codex_cli')!)).toBe(false)
+  })
+
+  test('a framework the backend never mentioned defaults to available', () => {
+    // nexus_power isn't a plugin (no install step) — an older or partial
+    // backend response with no entry for it must not lock it out.
+    const map = frameworkAvailabilityMap([{ name: 'codex_cli', available: false }])
+    const merged = withFrameworkAvailability(AGENT_FRAMEWORKS, map)
+    expect(isFrameworkAvailable(merged.find((f) => f.id === 'nexus_power')!)).toBe(true)
+  })
+
+  test('an entirely absent frameworks array (older backend) leaves everything available', () => {
+    const map = frameworkAvailabilityMap(undefined)
+    const merged = withFrameworkAvailability(AGENT_FRAMEWORKS, map)
+    expect(merged.every((f) => isFrameworkAvailable(f))).toBe(true)
   })
 })

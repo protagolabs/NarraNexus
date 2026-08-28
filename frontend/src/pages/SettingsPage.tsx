@@ -16,9 +16,10 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User, Puzzle } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
+import { PluginsSettings } from '@/components/settings/PluginsSettings';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
@@ -242,6 +243,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, neverDefault: true },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
+  { id: 'plugins', labelKey: 'pages.settings.nav.plugins', icon: Puzzle },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
   { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
   { id: 'personalization', labelKey: 'pages.settings.nav.personalization', icon: Palette },
@@ -341,7 +343,19 @@ export default function SettingsPage() {
                   label={t('pages.settings.modelDefaults.label')}
                   hint={t('pages.settings.modelDefaults.hint')}
                 />
-                <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
+                <ModelDefaultsSettings
+                  onManageProviders={() => setActive('providers')}
+                  onManagePlugins={() => setActive('plugins')}
+                />
+              </section>
+            )}
+            {active === 'plugins' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.plugins.label')}
+                  hint={t('pages.settings.plugins.hint')}
+                />
+                <PluginsSettings />
               </section>
             )}
             {active === 'artifacts' && <ArtifactsContent />}

@@ -1323,7 +1323,8 @@
         "providers": "Fournisseurs LLM",
         "modelDefaults": "Modèles par défaut",
         "artifacts": "Artefacts",
-        "updates": "Mises à jour"
+        "updates": "Mises à jour",
+        "plugins": "Modules"
       },
       "providers": {
         "label": "Fournisseurs LLM"

@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 新增 `plugins` nav 项（[[PluginsSettings]]）
+
+放在 `modeldefaults` 和 `artifacts` 之间——插件是模型配置的前置条件（框架选
+不了就是因为插件没装），紧挨着放阅读顺序更顺。`ModelDefaultsSettings` 新增
+`onManagePlugins={() => setActive('plugins')}`，与既有 `onManageProviders`
+同型，喂给它选中未装插件框架时弹窗里的跳转按钮。`PluginsSettings` 自己在
+`cloud_managed` 时返回 `null`——云端央管这些插件，本地安装按钮在云端没有意义
+（装端点也会 403），所以这里不用像别的 pane 那样加"云端不可用"的占位文案，
+面板本身就是空的。
 
 ## 2026-08-19(三)— neverDefault 取代内联 id 比较
 

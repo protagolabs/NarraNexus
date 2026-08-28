@@ -273,6 +273,37 @@ test('a wallet holding only a Claude Code Login offers only that framework', asy
     .toBeGreaterThan(0);
 });
 
+test('a plugin-gated framework renders disabled but visible, and picking it pops a notice instead of saving', async () => {
+  // Codex CLI is a local plugin the user hasn't installed yet: the option
+  // must still be LISTED (never hidden — the user needs to see what to
+  // install) but disabled, and a programmatic change event (which a native
+  // `disabled` attribute doesn't stop) must still be rejected client-side.
+  mockGetAgentFramework.mockResolvedValue({
+    success: true,
+    data: {
+      framework: 'claude_code',
+      probe: { ok: true, detail: '' },
+      frameworks: [
+        { name: 'claude_code', available: true },
+        { name: 'codex_cli', available: false },
+        { name: 'nexus_power', available: true },
+      ],
+    },
+  });
+  await renderLoaded();
+
+  const select = frameworkSelect();
+  const codexOption = [...select.querySelectorAll('option')].find(
+    (o) => o.value === 'codex_cli',
+  ) as HTMLOptionElement;
+  expect(codexOption).toBeDisabled();
+
+  fireEvent.change(select, { target: { value: 'codex_cli' } });
+  expect(screen.getByText('Plugin required')).toBeInTheDocument();
+  expect(select.value).toBe('claude_code');
+  expect(mockSetAgentFramework).not.toHaveBeenCalled();
+});
+
 test('a mixed wallet keeps every framework listed and shows no note', async () => {
   await renderLoaded();
 

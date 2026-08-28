@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 插件安装三件套 + `getAgentFramework` 加 `frameworks`
+
+`getPlugins()` / `uninstallPlugin(id)` 走既有 `request<T>()`；`installPlugin(id,
+onEvent)` **不走** `request<T>()` —— `/api/plugins/{id}/install` 的响应体是
+ndjson 逐行流（`Content-Type: application/x-ndjson`），不是单个 JSON 文档，
+`request<T>()` 的 `response.json()` 只会解析出第一行就返回或直接炸掉。改用
+`response.body.getReader()` 手动累积 `TextDecoder` 输出、按 `\n` 切行，每行
+`JSON.parse` 后回调 `onEvent`；末尾 `done: true` 帧既回调也作为函数返回值。
+一行跨两个网络 chunk 到达是正常情况（TCP 不保证消息边界），所以用
+`buffer` 累积而不是假设每个 `read()` 恰好是整行——见同名 vitest 用例
+"a line split across two stream chunks"。非 2xx（如云端 403：插件由云端集中
+管理）直接抛 `ApiError`，不进入流式解析分支。
+
+`getAgentFramework()` 返回类型新增可选 `frameworks?: Array<{name, available}>`
+——插件安装态的门禁，[[agentFramework]] 的 `frameworkAvailabilityMap` 消费。
+可选是因为要在没升级的后端下仍然类型检查通过。
 
 ## 2026-08-26 — owner 级 bulk slot 方法
 

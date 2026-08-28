@@ -1359,3 +1359,39 @@ export interface AgentModelOverview {
     helper_llm: { model: string; inheriting: boolean };
   };
 }
+
+// ── local-only plugin installs (Settings › Plugins) ────────────────────────
+// Claude Code / Codex CLI are user-installed local plugins rather than
+// baked into the desktop image, so the frontend has to show install state
+// and drive a pip/npm install through the backend orchestrator.
+export type PluginId = 'claude_code' | 'codex_cli';
+
+export interface PluginStatus {
+  id: PluginId;
+  display_name: string;
+  installed: boolean;
+  version: string | null;
+  target_version: string;
+  update_available: boolean;
+  logged_in: boolean;
+  size_hint: string;
+  /** An install/uninstall is in flight for this plugin right now. */
+  busy: boolean;
+}
+
+export interface PluginsListResponse extends ApiResponse {
+  data?: {
+    plugins: PluginStatus[];
+    /** Cloud deployments manage plugins centrally — the panel hides itself. */
+    cloud_managed: boolean;
+  };
+}
+
+export interface PluginUninstallResponse extends ApiResponse {
+  data?: PluginStatus;
+}
+
+/** One line of the `POST /api/plugins/{id}/install` ndjson stream. */
+export type PluginInstallEvent =
+  | { done: false; phase: 'pip' | 'npm'; line: string }
+  | { done: true; ok: boolean; error: string | null; status: PluginStatus | null };

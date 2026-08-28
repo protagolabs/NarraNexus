@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 框架下拉套插件可用性（与 ModelDefaultsSettings 同批）
+
+`load()` 新增第三个并行请求 `api.getAgentFramework()`——插件安装态是
+账户级事实、不是 per-agent 的，但 `frameworks` 字段目前只有这一个端点报，所以
+每次打开面板都顺带拉一次，存进 `frameworkAvailability`。`frameworkOptions`
+在 `availableFrameworks()` 之上套 [[agentFramework]] 的
+`withFrameworkAvailability()`；`<option disabled>` + onChange 前置的插件门禁
+与 [[ModelDefaultsSettings]] 同一套逻辑，弹窗里的链接调
+`onClose(); navigate('/app/settings?tab=plugins')`——这里是模态框，用既有
+"管理服务商"链接同款的关闭+跳转,而不是像 ModelDefaultsSettings 那样切
+父级 nav state（这个面板不在 SettingsPage 内，没有那个 setState 可用）。
 
 ## 2026-07-31 — 框架下拉按钱包过滤（与 ModelDefaultsSettings 同批）
 
