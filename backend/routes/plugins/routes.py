@@ -31,6 +31,7 @@ from fastapi.responses import StreamingResponse
 
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
+from backend.integrations.plugins.errors import PluginBusyError
 from backend.integrations.plugins.service import PluginService
 
 router = APIRouter(prefix="/api/plugins")
@@ -96,6 +97,8 @@ async def uninstall_plugin(plugin_id: str):
         await _service.uninstall(plugin_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown plugin id: {plugin_id!r}")
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     new_status = next(s for s in _service.list_plugins() if s.id == plugin_id)
     return {"success": True, "data": asdict(new_status)}

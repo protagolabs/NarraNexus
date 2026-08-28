@@ -53,3 +53,7 @@ UI 需要中文提示时,由前端的 i18n 层负责,不是后端字符串里塞
 - 铁律 #1 —— 代码只能英文,不含中文字符串;这条直接否决了原始派发指令
   里"中英双语提示"的字面要求,改为结构化 `kind` + 英文 `message`。
 
+
+## 2026-08-28 补 — 新增 PluginBusyError
+
+`PluginBusyError(RuntimeError)`(带 `plugin_id`):install/uninstall 共用一把锁,锁被占时拒绝并抛它;[[routes]] 映射成 HTTP 409。与 `classify_error`/`PluginError`(装失败分类)是两回事——前者是并发拒绝,后者是子进程失败归类。

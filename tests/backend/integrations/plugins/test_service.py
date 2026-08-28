@@ -162,3 +162,41 @@ async def test_uninstall_calls_uninstall_on_every_component(plugin_home):
     await service.uninstall("claude_code")
     assert len(pip_installer.uninstalled_components) == 1
     assert len(npm_installer.uninstalled_components) == 1
+
+
+@pytest.mark.asyncio
+async def test_uninstall_rejected_while_install_in_progress(plugin_home):
+    """The '手滑连点' case: clicking uninstall while an install streams must be
+    refused, not run a package manager and an rm against the same directory."""
+    from backend.integrations.plugins.errors import PluginBusyError
+
+    service, _, _ = _service_with_stub_installers(installed_after=True)
+    gen = service.install("claude_code")
+    await gen.__anext__()  # install now holds the shared per-plugin lock
+
+    with pytest.raises(PluginBusyError):
+        await service.uninstall("claude_code")
+
+    async for _ in gen:  # drain so the lock is released
+        pass
+
+    # Lock free again → uninstall works.
+    await service.uninstall("claude_code")
+
+
+@pytest.mark.asyncio
+async def test_install_and_uninstall_share_one_lock(plugin_home):
+    """Both verbs guard on the SAME per-plugin lock, so an in-flight operation
+    (simulated by holding the lock) rejects the other one too."""
+    from backend.integrations.plugins.errors import PluginBusyError
+
+    service, _, _ = _service_with_stub_installers(installed_after=True)
+    lock = service._lock_for("claude_code")
+    await lock.acquire()
+    try:
+        install_events = [event async for event in service.install("claude_code")]
+        assert install_events[-1]["ok"] is False  # install refused
+        with pytest.raises(PluginBusyError):  # uninstall refused
+            await service.uninstall("claude_code")
+    finally:
+        lock.release()

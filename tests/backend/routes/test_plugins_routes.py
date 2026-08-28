@@ -165,3 +165,18 @@ def test_uninstall_returns_refreshed_status(make_client, monkeypatch):
     assert body["success"] is True
     assert body["data"]["id"] == "claude_code"
     assert body["data"]["installed"] is False
+
+
+def test_uninstall_while_busy_is_409(make_client, monkeypatch):
+    from backend.integrations.plugins.errors import PluginBusyError
+
+    async def busy_uninstall(plugin_id):
+        raise PluginBusyError(plugin_id, "Claude Code is busy; cannot uninstall right now")
+
+    monkeypatch.setattr(plugins_mod._service, "uninstall", busy_uninstall)
+    client = make_client(cloud=False)
+
+    resp = client.post("/api/plugins/claude_code/uninstall")
+
+    assert resp.status_code == 409
+    assert "busy" in resp.json()["detail"].lower()

@@ -58,3 +58,7 @@ Phase 3 的安装/状态路由不应该知道"Claude Code 有两个安装动作�
 
 - 铁律 #21 —— 本文件是 routes 唯一应该 import 的入口,禁止 routes 直接碰
   `_installers/`
+
+## 2026-08-28 补 — uninstall 也走共享锁
+
+uninstall 原本裸奔;现改成与 install **共用同一把 per-plugin 锁 + busy 集**:锁被占(安装/卸载进行中)则抛 [[errors]] 的 `PluginBusyError`,不排队。install/uninstall 因此对同一插件互斥,杜绝"装到一半点卸载"两个包管理器/rm 抢同一目录。路由把 `PluginBusyError` 映射成 409。

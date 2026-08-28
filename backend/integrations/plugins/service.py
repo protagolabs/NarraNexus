@@ -6,10 +6,11 @@
               module Phase 3 routes should import from this package.
 
 Owns the one piece of state the installers themselves are too dumb to know
-about: which plugin is mid-install right now (per-plugin ``asyncio.Lock`` +
-a busy set), so a route handler can't accidentally kick off two concurrent
-installs of the same plugin and race two package managers writing into the
-same target directory.
+about: which plugin is mid-operation right now (per-plugin ``asyncio.Lock`` +
+a busy set). Install and uninstall share that one lock, so a route handler
+can't accidentally run two of them against the same plugin at once and race
+two package managers (or a package manager and an ``rm``) on the same target
+directory.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from typing import AsyncIterator
 from ._installers.base import PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller
 from ._installers.pip_target import PipTargetInstaller
-from .errors import classify_error
+from .errors import PluginBusyError, classify_error
 from .registry import PLUGIN_SPECS
 from .spec import PluginSpec
 
@@ -144,6 +145,26 @@ class PluginService:
                 self._busy.discard(plugin_id)
 
     async def uninstall(self, plugin_id: str) -> None:
+        """Remove every component of ``plugin_id``.
+
+        Takes the SAME per-plugin lock as ``install`` so the two are mutually
+        exclusive — uninstalling mid-install (or double-uninstalling) would
+        race a package manager and the ``rm`` on the same target directory.
+        Refused outright (no queueing) when the plugin is already busy.
+        """
         spec = self._spec(plugin_id)
-        for component in spec.components:
-            await self._installers[component.kind].uninstall(component)
+        lock = self._lock_for(plugin_id)
+        if lock.locked():
+            raise PluginBusyError(
+                plugin_id,
+                f"{spec.display_name} is busy (install or uninstall in progress); "
+                f"cannot uninstall right now",
+            )
+
+        async with lock:
+            self._busy.add(plugin_id)
+            try:
+                for component in spec.components:
+                    await self._installers[component.kind].uninstall(component)
+            finally:
+                self._busy.discard(plugin_id)

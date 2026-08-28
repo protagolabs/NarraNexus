@@ -25,6 +25,22 @@ from ._installers.base import PluginInstallSubprocessError
 ErrorKind = Literal["registry_slow", "permission_denied", "network_blocked", "unknown"]
 
 
+class PluginBusyError(RuntimeError):
+    """Raised when an install/uninstall is refused because the same plugin is
+    already mid-operation.
+
+    Install and uninstall share one per-plugin lock, so kicking off either
+    while the other is running would race two package managers on the same
+    target directory. The route layer maps this to HTTP 409 (try again once
+    the in-flight operation finishes). ``plugin_id`` is exposed so the caller
+    can name it back to the user.
+    """
+
+    def __init__(self, plugin_id: str, message: str) -> None:
+        self.plugin_id = plugin_id
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class PluginError:
     """A classified install failure, ready to show a user."""

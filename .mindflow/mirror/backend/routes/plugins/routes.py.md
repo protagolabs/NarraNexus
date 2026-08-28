@@ -91,3 +91,7 @@ before reaching any handler — there's just no per-user data to scope.
   `backend.integrations.plugins` 和 `xyz_agent_context.utils.deployment_mode`，
   不反向被 agent 侧代码 import；`backend/routes/plugins/` 是与
   `backend/routes/admin/` 同级的 grouped route 子包。
+
+## 2026-08-28 补 — uninstall 409(busy)
+
+uninstall 处理器新增捕获 [[errors]] `PluginBusyError` → HTTP 409(安装/卸载进行中,稍后重试)。与既有 404(未知 id)/403(云端托管)并列。
