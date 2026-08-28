@@ -156,6 +156,36 @@ def _generate_group_id() -> str:
     return f"grp_{uuid4().hex[:8]}"
 
 
+def _cli_subscription_row_fields(
+    source: str, auth_type: str, protocol: str
+) -> dict:
+    """driver_type / billing_policy / auth_ref for a CLI-subscription card.
+
+    The values are the ``derive.py`` truth table, not literals: this P1's
+    root cause was exactly one of several literal copies missing a field
+    (same lesson as the ``_DUAL_PROVIDER_CONFIGS`` comment in
+    ``add_provider``). Scope: ONLY the claude_oauth / codex_oauth insert
+    and reconnect paths — aggregator and custom cards deliberately leave
+    driver_type / billing_policy for the resolver's read-time derivation.
+
+    ``derive_auth_ref`` returns None for oauth_token (the token IS the
+    credential, no file sentinel) — mapped to ``""`` here so
+    ``_insert_provider``'s ``if key in data`` check writes the empty
+    string instead of skipping the column.
+    """
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
+        derive_auth_ref,
+        derive_billing_policy,
+        derive_driver_type,
+    )
+
+    return {
+        "driver_type": derive_driver_type(source, auth_type, protocol),
+        "billing_policy": derive_billing_policy(source, auth_type),
+        "auth_ref": derive_auth_ref(auth_type, source) or "",
+    }
+
+
 class UserProviderService:
     """
     Per-user provider management via database.
@@ -275,13 +305,6 @@ class UserProviderService:
         there is no primary-key collision with the rows being replaced.
         """
 
-        # Function-level on purpose (providers ↔ driver import-cycle guard),
-        # but ONE import serving both OAuth branches below.
-        from xyz_agent_context.agent_framework.providers.driver.derive import (
-            CLAUDE_CLI_CREDENTIALS_REF,
-            CODEX_CLI_CREDENTIALS_REF,
-        )
-
         new_ids: list[str] = []
         now = datetime.now(timezone.utc).isoformat()
 
@@ -326,10 +349,10 @@ class UserProviderService:
                     {
                         "auth_type": "oauth_token",
                         "api_key": token,
-                        "auth_ref": "",
-                        "driver_type": "claude_oauth",
-                        "billing_policy": "external_oauth",
                         "updated_at": now,
+                        **_cli_subscription_row_fields(
+                            "claude_oauth", "oauth_token", "anthropic"
+                        ),
                     },
                 )
                 new_ids.append(pid)
@@ -351,17 +374,17 @@ class UserProviderService:
                     # Subscription funnels through official Anthropic → server
                     # tools OK.
                     "supports_anthropic_server_tools": True,
-                    # Classify at insert time (mirrors the codex_oauth branch).
-                    # The startup backfill only normalizes rows left by
-                    # pre-driver builds — a new row must never wait for the
-                    # next restart to become testable: leaning on the backfill
-                    # left auth_ref NULL until then, so Test right after
-                    # creation always failed (P1, 2026-08-27). Token rows
-                    # carry no credential-file sentinel — the token IS the
-                    # credential; host-CLI rows point at the claude CLI store.
-                    "driver_type": "claude_oauth",
-                    "billing_policy": "external_oauth",
-                    "auth_ref": "" if token else CLAUDE_CLI_CREDENTIALS_REF,
+                    # Classify at insert time. The startup backfill only
+                    # normalizes rows left by pre-driver builds — a new row
+                    # must never wait for the next restart to become
+                    # testable: leaning on the backfill left auth_ref NULL
+                    # until then, so Test right after creation always
+                    # failed (P1, 2026-08-27).
+                    **_cli_subscription_row_fields(
+                        "claude_oauth",
+                        "oauth_token" if token else "oauth",
+                        "anthropic",
+                    ),
                 }
                 await self._insert_provider(user_id, row, now)
                 new_ids.append(pid)
@@ -406,9 +429,7 @@ class UserProviderService:
                 # Codex is OpenAI's product — Anthropic server tools
                 # (WebSearch etc.) are not applicable.
                 "supports_anthropic_server_tools": False,
-                "driver_type": "codex_oauth",
-                "billing_policy": "external_oauth",
-                "auth_ref": CODEX_CLI_CREDENTIALS_REF,
+                **_cli_subscription_row_fields("codex_oauth", "oauth", "openai"),
             }, now)
             new_ids.append(pid)
 

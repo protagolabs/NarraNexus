@@ -4,6 +4,17 @@ last_verified: 2026-08-27
 stub: false
 ---
 
+## 2026-08-27(review 第 2 轮)— OAuth 三字段收敛到 `_cli_subscription_row_fields`
+
+claude 新建 / claude 原位重连 / codex 新建三处的
+`driver_type`/`billing_policy`/`auth_ref` 字面量全部换成模块级 helper,
+内部调 `derive.py` 的三个推导函数——本 P1 的根因就是字面量副本漏写其一,
+与 `_DUAL_PROVIDER_CONFIGS` 注释记的是同一课。边界:helper **只用于
+claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver 读时
+推导+回写),不要在 `_insert_provider` 里做 blanket setdefault。token 行
+`derive_auth_ref` 返回 None,helper 里 `or ""` 兜成空串,否则
+`_insert_provider` 的 `if key in data` 会跳过该列留下 NULL。
+
 ## 2026-08-27 — host-CLI claude_oauth 行也在插入时写全三字段(P1)
 
 `add_provider(claude_oauth)` 无 token 的 host-CLI 分支此前**不写**

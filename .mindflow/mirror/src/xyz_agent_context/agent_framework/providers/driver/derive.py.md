@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/derive.py
-last_verified: 2026-07-26
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — derive_auth_ref 的 source 守卫收进函数本体(P1 review 第 2 轮)
+
+旧真值表对任意 `auth=="oauth"` 的行默认发 **claude** 哨兵,靠调用方
+(backfill 的 `if driver_type in {...}`)兜边界;`ProviderCard.from_row`
+的读时推导落地后成了第二个调用方且没抄那道守卫——手工构造
+`card_type=anthropic + auth_type="oauth"`(路由层 auth_type 是自由字符串)
+的行会继承 claude 哨兵,**用宿主订阅凭证给一张自身无凭证的卡验绿**。
+现在守卫在函数内:source 不在 {claude_oauth, codex_oauth} 一律 None,
+两个调用方自动同口径,backfill 的外置守卫同 commit 删除。注意:
+oauth_token / 非 oauth 仍返回 **None 而非 ""**——from_row 的
+`row.get(...) or derive(...)` 与 user_service `_cli_subscription_row_fields`
+的 `or ""` 都依赖这个区分。测试:
+`test_from_row_does_not_derive_auth_ref_for_non_cli_sources`。
 
 ## 2026-07-26 — `derive_billing_policy`：`oauth_token` → `external_oauth`
 

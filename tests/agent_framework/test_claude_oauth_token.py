@@ -214,6 +214,44 @@ def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
     assert codex.auth_ref == CODEX_CLI_CREDENTIALS_REF
 
 
+def test_from_row_does_not_derive_auth_ref_for_non_cli_sources():
+    """The derivation is scoped to the two CLI-subscription sources. A
+    hand-crafted row (POST /api/providers with card_type=anthropic and a
+    free-string auth_type="oauth") must NOT inherit the claude sentinel —
+    that would let a card with no credential of its own verify green
+    against the HOST's claude subscription (review round 2, Important 1)."""
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+
+    card = ProviderCard.from_row({
+        "provider_id": "p1", "source": "user",
+        "protocol": "anthropic", "auth_type": "oauth", "auth_ref": None,
+    })
+    assert not card.auth_ref
+
+
+@pytest.mark.asyncio
+async def test_from_row_keeps_garbage_auth_ref_verbatim_so_probe_can_reject_it():
+    """A non-empty but malformed auth_ref must survive from_row untouched and
+    still reach the probe's actionable missing-reference message — proves
+    that branch is not dead code after the read-time derivation landed
+    (review round 2, Minor 4)."""
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+        ClaudeOAuthDriver,
+    )
+
+    card = ProviderCard.from_row({
+        "provider_id": "p1", "source": "claude_oauth",
+        "protocol": "anthropic", "auth_type": "oauth",
+        "auth_ref": "claude-cli-legacy-typo",  # no "claude-cli:" prefix
+    })
+    assert card.auth_ref == "claude-cli-legacy-typo"
+
+    health = await ClaudeOAuthDriver(card).probe()
+    assert not health.ok
+    assert "re-add" in health.detail
+
+
 def test_from_row_does_not_derive_auth_ref_for_token_rows():
     """oauth_token rows carry no credential-file sentinel — the token IS the
     credential. Read-time derivation must not invent one, or token cards

@@ -131,14 +131,22 @@ def derive_auth_ref(
 ) -> Optional[str]:
     """Returns the canonical ``auth_ref`` value for a legacy row.
 
-    Only OAuth rows get a non-null value; everything else uses
-    ``api_key`` directly and leaves the reference empty.
+    Only host-CLI OAuth rows of the two CLI-subscription sources get a
+    non-null value; everything else uses ``api_key`` directly and leaves
+    the reference empty. The source guard lives HERE, not in the callers:
+    both consumers (the startup backfill and ``ProviderCard.from_row``'s
+    read-time fallback) must answer identically, and an unguarded default
+    handed the CLAUDE sentinel to any row whose free-string auth_type said
+    "oauth" — letting a card with no credential of its own verify green
+    against the host's claude subscription (review round 2, 2026-08-27).
     """
     auth = (auth_type or "").lower()
     src = (source or "").lower()
-    if auth == "oauth":
-        if src == "codex_oauth":
-            return CODEX_CLI_CREDENTIALS_REF
+    if auth != "oauth":
+        return None
+    if src == "codex_oauth":
+        return CODEX_CLI_CREDENTIALS_REF
+    if src == "claude_oauth":
         return CLAUDE_CLI_CREDENTIALS_REF
     return None
 

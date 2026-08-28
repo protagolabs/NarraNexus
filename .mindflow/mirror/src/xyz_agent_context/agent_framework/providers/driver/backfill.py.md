@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/backfill.py
-last_verified: 2026-05-31
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — auth_ref 的外置 driver_type 守卫删除
+
+守卫收进 `derive_auth_ref` 本体(见 derive.py.md 同日条目),这里的
+`if driver_type in {claude_oauth, codex_oauth}` 变成第二道重复守卫,
+删除。行为不变:非 CLI 订阅行 derive 返回 None,`if auth_ref is not None`
+分支照旧跳过。另注:自 2026-08-27 起新行在插入时即写全三字段
+(user_service `_cli_subscription_row_fields`),本 backfill 只剩
+「pre-driver 老库升级」和「读时推导的持久化」两个职责——不要因为
+`ProviderCard.from_row` 有读时兜底就删掉它。
 
 # backfill.py — one-shot startup migration
 
