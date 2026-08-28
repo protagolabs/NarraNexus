@@ -88,7 +88,10 @@ export function ProviderSummaryCard({ refreshToken = 0 }: ProviderSummaryCardPro
         ]);
         if (cancelled) return;
         if (prov.success && prov.data) {
-          setProviders((prov.data.providers ?? {}) as Record<string, ProviderInfo>);
+          // ProviderRow (the shared minimal shape) widens to this
+          // component's richer local ProviderInfo via unknown — the
+          // backend actually sends the extra fields.
+          setProviders((prov.data.providers ?? {}) as unknown as Record<string, ProviderInfo>);
           setSlots((prov.data.slots ?? {}) as Record<string, SlotInfo>);
         }
         if (fw.success && fw.data?.framework) {

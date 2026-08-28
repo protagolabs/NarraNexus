@@ -30,8 +30,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useConfigStore } from '@/stores'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
-import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect'
-import { authFetch, postProvider, providerApiUrl, providerErrorMessage } from '@/lib/providersApi'
+import { SubscriptionConnect, useOauthAllowed } from '@/components/settings/SubscriptionConnect'
+import { authFetch, providerApiUrl, providerErrorMessage } from '@/lib/providersApi'
 import {
   MODEL_SUGGESTION_GROUPS,
   type ModelSuggestionGroup,
@@ -246,6 +246,11 @@ interface ProviderSettingsProps {
 export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderSettingsProps = {}) {
   const { t } = useTranslation()
   const userId = useConfigStore((s) => s.userId)
+  // Cloud non-staff may not add OAuth cards — hide the Sign-in tab
+  // entirely (an entry point to a gated panel reads as "page broke").
+  // null while probing / true elsewhere → tab visible (fail open; the
+  // backend 403 is the real boundary).
+  const oauthAllowed = useOauthAllowed()
 
   /** Build a provider API URL. Identity travels in headers (X-User-Id in
    * local, JWT in cloud) — not the query string. The previous version
@@ -348,9 +353,13 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
   // ---- Provider actions ----
   const addProvider = async (body: Record<string, unknown>) => {
     setError('')
-    const res = await postProvider(body)
-    if (!res.ok) {
-      setError(providerErrorMessage(res.detail, t))
+    try {
+      const res = await api.addProvider(body)
+      if (!res.success) { setError(res.detail || t('settings.provider.failed')); return false }
+    } catch (err: unknown) {
+      // Thrown ApiError = backend HTTPException; raw detail via the
+      // shared mapping (same copy as /setup).
+      setError(providerErrorMessage(err, t))
       return false
     }
     await refreshConfig()
@@ -607,9 +616,14 @@ export function ProviderSettings({ onProvidersChanged, refreshToken }: ProviderS
           <div className="flex gap-1 border-b border-[var(--border-subtle)] mb-4">
             {([
               { id: 'onekey', label: t('settings.provider.tabApiKey') },
-              { id: 'oauth', label: t('settings.provider.tabSignin') },
+              // Dropped for cloud non-staff (oauthAllowed === false) —
+              // note addMethod defaults to 'onekey', never to a tab that
+              // can disappear.
+              ...(oauthAllowed === false
+                ? []
+                : [{ id: 'oauth', label: t('settings.provider.tabSignin') }]),
               { id: 'custom', label: t('settings.provider.tabCustom') },
-            ] as const).map((tb) => (
+            ] as Array<{ id: 'onekey' | 'oauth' | 'custom'; label: string }>).map((tb) => (
               <button
                 key={tb.id}
                 type="button"

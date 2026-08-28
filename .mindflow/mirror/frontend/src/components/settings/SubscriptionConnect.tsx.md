@@ -34,17 +34,29 @@ tab),主卡 OneKeyOnboard 又是纯 API key 表单——订阅用户把 landing 
 addProvider 的返回值决定是否清输入框(失败保留输入供重试,有测试钉住)。
 **不要**因为"以后可能要跳转"把它加回来:Owner 已明确否决该交互。
 
-## 云端门禁(在本组件内,真实生效)
+## 云端门禁(在本组件内,真实生效;第 3 轮改为"解释而非空白")
 
 status 路由对 cloud 非 staff 返回 `allowed: false`(与 403 OAuth 卡型
-同一个谓词);本组件读到任一 `allowed === false` 即 **return null**——
-所有调用方(SetupPage 折叠区、Settings add modal)自动继承。第一稿把
-门放在 SetupPage 的 mode 判断上、注释声称 "Settings 沿用 allowed 标志",
-但前端当时**根本没读过**这个字段——review grep 证伪。判据必须
-`=== false`:local 与 cloud-staff 下该字段是 undefined,truthiness 判断
-会把本组件要修的 P0(本地订阅)一起关掉。SetupPage 仍保留
-`mode !== 'cloud-web'` 外门(顺带隐藏区块标题;负向匹配让未 hydrate 的
-null mode 向 local 开放)。后端 403 始终是真正的安全边界。
+同一个谓词)。本组件读到任一 `allowed === false` 时渲染**一行说明**
+(oauthCloudManaged,testid subscription-cloud-managed)——第 2 轮版本
+return null,review 指出 Settings 的 Sign-in tab 会呈现"先闪后空白",
+读作页面坏了。同时导出 `useOauthAllowed()` hook(claude-status 探测,
+失败 fail-open true——探测失败不是判决,后端 403 才是边界):
+ProviderSettings 用它把 Sign-in **tab 本身**从 tab 数组里去掉(入口层
+不该指向一个被门禁的面板)。判据必须 `=== false`:local 与 cloud-staff
+下该字段是 undefined,truthiness 判断会把本组件要修的 P0(本地订阅)
+一起关掉。SetupPage 仍保留 `mode !== 'cloud-web'` 外门(顺带隐藏区块
+标题)。后端 403 始终是真正的安全边界。
+
+## 状态探测的失败面(第 3 轮 Minor 1/2/3)
+
+- 两条 status 探测都失败 → 显示 statusProbeFailed + Retry(此前永远停在
+  "Checking status…",唯一出路是刷新页面);Retry 不重置 allowed 门禁。
+- Add as Provider 按钮 POST 期间 disabled + Loader2("Adding…")——与
+  Test 按钮同一课:无响应按钮读作卡死。
+- status 探测的 useCallback 依赖 `userId`:allowed 是 per-user 的
+  (staff 标志),切账号必须重探。传输层走 api.getClaudeStatus /
+  getCodexStatus(见 providersApi.md 的定位变更)。
 
 ## 卡内子组件(review 第 2 轮 Minor 7)
 

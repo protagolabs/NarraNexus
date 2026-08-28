@@ -27,6 +27,12 @@ API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Own
   GET)并指出它把 P0 正确性挂在共挂载约定上。onProvidersChanged 降级为
   兜底(覆盖用户从 PS 自己的 modal 加卡的场景)。自动跳转仍是 Owner
   否决项,别改回。
+- 第 3 轮:`addProvider` 走 `api.addProvider`(业务拒绝以 ApiError 抛出,
+  经 providerErrorMessage 取裸 detail);折叠开合时清 `subError`(旧错误
+  不该在重新展开时迎面)。**已知取舍**:一次订阅 add 触发 3 个 GET
+  (probe + token 触发的 PS 重拉 + 其回调 probe)——review 判"不阻塞
+  合并",收敛方案是 useProviders hook/store 让列表单一 owner,连同
+  refreshToken/onProvidersChanged 一对 prop 一起消失,记为后续项。
 - **P0 招牌链路有测试了**(review 第 2 轮 Important 1):
   setup-page-subscription.test 的子组件 mock 是**可交互的**,端到端断言
   "连接订阅 → 页脚翻 Get Started → 不导航";getProvidersMock 首次调用

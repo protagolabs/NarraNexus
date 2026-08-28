@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-07-29
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — getProviders 类型收紧后的 cast 说明
+
+`api.getProviders()` 的 providers 值类型收紧为共享 `ProviderRow`(最小
+形状);本组件的本地富类型 `ProviderInfo`(要求 is_active 等)经
+`as unknown as` 二段 cast——后端确实返回这些字段,只是共享类型故意只声明
+消费面。若 ProviderInfo 的字段进入更多消费者,应上移进 ProviderRow。
 
 # ProviderSummaryCard.tsx — at-a-glance LLM wiring summary
 

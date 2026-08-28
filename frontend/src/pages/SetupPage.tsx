@@ -34,7 +34,7 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { SubscriptionConnect } from '@/components/settings/SubscriptionConnect';
 import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { postProvider, providerErrorMessage, type ProviderRow } from '@/lib/providersApi';
+import { providerErrorMessage, type ProviderRow } from '@/lib/providersApi';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useRuntimeStore } from '@/stores';
 
@@ -89,9 +89,16 @@ export function SetupPage() {
   // adds made through ProviderSettings' own modal.
   const addProvider = async (body: Record<string, unknown>): Promise<boolean> => {
     setSubError('');
-    const res = await postProvider(body);
-    if (!res.ok) {
-      setSubError(providerErrorMessage(res.detail, t));
+    try {
+      const res = await api.addProvider(body);
+      if (!res.success) {
+        setSubError(res.detail || t('settings.provider.failed'));
+        return false;
+      }
+    } catch (err: unknown) {
+      // Business rejections arrive as thrown ApiError (the backend uses
+      // HTTPException); providerErrorMessage extracts the raw detail.
+      setSubError(providerErrorMessage(err, t));
       return false;
     }
     await probe();
@@ -120,6 +127,9 @@ export function SetupPage() {
   };
 
   const toggleAdvanced = () => {
+    // A stale subscription error from a previous attempt should not
+    // greet the user on re-expand.
+    setSubError('');
     setShowAdvanced((v) => {
       // Collapse-time re-probe kept as a belt-and-braces fallback; the
       // live path is ProviderSettings' onProvidersChanged below.

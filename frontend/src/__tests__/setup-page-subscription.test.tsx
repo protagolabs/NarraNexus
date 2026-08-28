@@ -24,20 +24,21 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 
 const getProvidersMock = vi.fn();
+const addProviderMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  api: { getProviders: (...a: unknown[]) => getProvidersMock(...a) },
+  api: {
+    getProviders: (...a: unknown[]) => getProvidersMock(...a),
+    addProvider: (...a: unknown[]) => addProviderMock(...a),
+  },
+  ApiError: class ApiError extends Error {},
 }));
 vi.mock('@/lib/productAnalytics', () => ({ captureProductEvent: vi.fn() }));
 const navigateMock = vi.fn();
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }));
 vi.mock('@/hooks', () => ({ useTheme: () => ({ isDark: false }) }));
 
-const postProviderMock = vi.fn();
 vi.mock('@/lib/providersApi', () => ({
-  providerApiUrl: (path = '') => `http://test/api/providers${path}`,
-  authFetch: vi.fn(),
-  postProvider: (...a: unknown[]) => postProviderMock(...a),
-  providerErrorMessage: (detail: string | null) => detail || 'error',
+  providerErrorMessage: () => 'error',
 }));
 
 let runtimeMode: 'local' | 'cloud-web' = 'local';
@@ -91,8 +92,8 @@ import { SetupPage } from '@/pages/SetupPage';
 beforeEach(() => {
   getProvidersMock.mockReset();
   getProvidersMock.mockResolvedValue({ success: true, data: { providers: {} } });
-  postProviderMock.mockReset();
-  postProviderMock.mockResolvedValue({ ok: true, detail: '' });
+  addProviderMock.mockReset();
+  addProviderMock.mockResolvedValue({ success: true });
   navigateMock.mockReset();
 });
 
@@ -140,7 +141,7 @@ describe('SetupPage subscription surface', () => {
     fireEvent.click(screen.getByTestId('subscription-connect'));
 
     await waitFor(() =>
-      expect(postProviderMock).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
+      expect(addProviderMock).toHaveBeenCalledWith({ card_type: 'claude_oauth' }),
     );
     // Footer flips live — no collapse, no remount, no navigation.
     expect(await screen.findByText('Get Started')).toBeTruthy();

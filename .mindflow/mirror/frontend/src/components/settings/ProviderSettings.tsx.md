@@ -30,6 +30,12 @@ add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
   `__tests__/ProviderSettingsRefresh.test.tsx`(bump 重拉 / 同值不重拉)。
 - 抽取残留(孤儿 Helpers 分节、formatCountdown 的孤儿 docstring、多余
   空行)已清;文件 1254 → ~850 行。
+- 第 3 轮:`addProvider` 的 POST 迁移到 `api.addProvider`(session 守卫
+  + detail 提取;错误经 try/catch + providerErrorMessage);add modal 的
+  tab 数组按 `useOauthAllowed()` 过滤——cloud 非 staff 不渲染 Sign-in
+  tab(入口不指向被门禁的面板)。注意 `addMethod` 默认 'onekey',永远
+  不落在可消失的 tab 上——改默认值前想想这条。其余裸端点
+  (delete/test/models/sync)仍走本组件 authFetch,迁移是已记录的后续项。
 - Test 按钮加载态从静态 `'...'` 换成 Loader2 spinner + "Testing…" 文案
   (详情弹窗 + Custom 表单两处;Owner 走查第 3 轮)——OAuth 卡的 Test
   自 PR #375 起真跑一次 CLI(5-15s),静态三个点读起来像卡死。i18n 新键

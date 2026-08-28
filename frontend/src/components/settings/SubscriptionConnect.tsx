@@ -23,18 +23,22 @@
  *
  * Cloud gate lives HERE: the status routes return `allowed: false` for
  * cloud non-staff (the same is_cloud+not-staff predicate that 403s the
- * OAuth card types), and this component renders nothing in that case —
- * every caller (SetupPage fold, Settings add modal) inherits the gate.
- * The backend 403 remains the actual security boundary; this only stops
- * the UI advertising a path that would be refused. `allowed` is
- * undefined on local and for cloud staff, so the check MUST be
- * `=== false` — a truthiness check would blank the local mode this
- * component exists to serve.
+ * OAuth card types). This component then renders a one-line explanation
+ * (never a silent blank — an empty panel reads as "the page broke"),
+ * and callers that own an ENTRY POINT to this surface should hide it via
+ * useOauthAllowed (ProviderSettings drops the Sign-in tab). The backend
+ * 403 remains the actual security boundary. `allowed` is undefined on
+ * local and for cloud staff, so every check MUST be `=== false` — a
+ * truthiness check would blank the local mode this component exists to
+ * serve.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { authFetch, providerApiUrl, type ProviderRow } from '@/lib/providersApi';
+import { api } from '@/lib/api';
+import type { CliStatusPayload, ProviderRow } from '@/lib/providersApi';
+import { useConfigStore } from '@/stores';
 import {
   isTauri,
   triggerClaudeLogin,
@@ -75,13 +79,32 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
   return d.toLocaleString();
 }
 
-interface CliStatus {
-  cli_installed: boolean;
-  logged_in: boolean;
-  email: string | null;
-  expires_at: string | null;
-  /** false only when the backend gated this caller out (cloud non-staff). */
-  allowed?: boolean;
+type CliStatus = CliStatusPayload;
+
+/** Whether this caller may use OAuth subscription cards. `null` while
+ * the probe is in flight; false only for cloud non-staff. Callers use
+ * it to hide entry points (e.g. the Sign-in tab) — the component itself
+ * still self-explains when rendered anyway. */
+export function useOauthAllowed(): boolean | null {
+  const userId = useConfigStore((sel) => sel.userId);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getClaudeStatus()
+      .then((res) => {
+        if (!cancelled) setAllowed(res.data?.allowed !== false);
+      })
+      .catch(() => {
+        // Probe failure is not a verdict — fail open, the backend 403
+        // still guards the actual write.
+        if (!cancelled) setAllowed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  return allowed;
 }
 
 /** Status dot + identity line + optional expiry — shared by both cards.
@@ -118,6 +141,8 @@ function ProviderRecordRow({
   loggedIn,
   onAdd,
   addLabel,
+  addingLabel,
+  adding,
   loginHint,
 }: {
   added: boolean;
@@ -125,6 +150,10 @@ function ProviderRecordRow({
   loggedIn: boolean;
   onAdd: () => void;
   addLabel: string;
+  addingLabel: string;
+  /** POST in flight: disable + spinner — an unresponsive button reads
+   * as frozen (same lesson as the Test buttons). */
+  adding: boolean;
   loginHint: string;
 }) {
   return (
@@ -135,9 +164,16 @@ function ProviderRecordRow({
           <span>{addedLabel}</span>
         </div>
       ) : loggedIn ? (
-        <button onClick={onAdd}
-          className="px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-          {addLabel}
+        <button onClick={onAdd} disabled={adding}
+          className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50">
+          {adding ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {addingLabel}
+            </>
+          ) : (
+            addLabel
+          )}
         </button>
       ) : (
         <p className="text-sm text-[var(--text-tertiary)]">{loginHint}</p>
@@ -164,9 +200,16 @@ export function SubscriptionConnect({
   addProvider,
 }: SubscriptionConnectProps) {
   const { t } = useTranslation();
+  const userId = useConfigStore((sel) => sel.userId);
 
   const [claudeStatus, setClaudeStatus] = useState<CliStatus | null>(null);
   const [codexStatus, setCodexStatus] = useState<CliStatus | null>(null);
+  // Both status probes failed — see refreshStatuses.
+  const [statusError, setStatusError] = useState(false);
+  // Which card's Add-as-Provider POST is in flight ('' = none): the
+  // buttons must go disabled + show a spinner, same lesson as the Test
+  // buttons (an unresponsive button reads as frozen).
+  const [adding, setAdding] = useState<'' | 'claude' | 'codex'>('');
   const [claudeLoggingIn, setClaudeLoggingIn] = useState(false);
   const [claudeLoggingOut, setClaudeLoggingOut] = useState(false);
   // Seconds remaining on the login auto-abort timer, or null when no login
@@ -183,13 +226,18 @@ export function SubscriptionConnect({
   const claudeTokenConnected = claudeCard?.auth_type === 'oauth_token';
 
   const refreshStatuses = useCallback(async () => {
+    setStatusError(false);
     const [claudeRes, codexRes] = await Promise.all([
-      authFetch(providerApiUrl('/claude-status')).then((r) => r.json()).catch(() => null),
-      authFetch(providerApiUrl('/codex-status')).then((r) => r.json()).catch(() => null),
+      api.getClaudeStatus().catch(() => null),
+      api.getCodexStatus().catch(() => null),
     ]);
-    if (claudeRes?.success) setClaudeStatus(claudeRes.data);
-    if (codexRes?.success) setCodexStatus(codexRes.data);
-  }, []);
+    if (claudeRes?.success && claudeRes.data) setClaudeStatus(claudeRes.data);
+    if (codexRes?.success && codexRes.data) setCodexStatus(codexRes.data);
+    // Both probes failing used to leave the cards on "Checking status…"
+    // forever with no way out but a page reload — surface it + retry.
+    if (!claudeRes?.success && !codexRes?.success) setStatusError(true);
+  // userId: switching accounts must re-probe — `allowed` is per-user.
+  }, [userId]);
 
   useEffect(() => {
     refreshStatuses();
@@ -216,7 +264,12 @@ export function SubscriptionConnect({
   }, [claudeLoginRemaining]);
 
   const handleAddClaudeOAuth = async () => {
-    await addProvider({ card_type: 'claude_oauth' });
+    setAdding('claude');
+    try {
+      await addProvider({ card_type: 'claude_oauth' });
+    } finally {
+      setAdding('');
+    }
   };
 
   const handleSaveSetupToken = async () => {
@@ -234,7 +287,12 @@ export function SubscriptionConnect({
   };
 
   const handleAddCodexOAuth = async () => {
-    await addProvider({ card_type: 'codex_oauth' });
+    setAdding('codex');
+    try {
+      await addProvider({ card_type: 'codex_oauth' });
+    } finally {
+      setAdding('');
+    }
   };
 
   const handleClaudeLogin = async () => {
@@ -267,10 +325,32 @@ export function SubscriptionConnect({
   };
 
   // Cloud non-staff: the status routes said this caller may not use
-  // OAuth cards — render nothing (see the header comment; `=== false`
-  // on purpose, the flag is undefined on local and for cloud staff).
+  // OAuth cards — explain instead of blanking (see the header comment;
+  // `=== false` on purpose, the flag is undefined on local/cloud-staff).
   if (claudeStatus?.allowed === false || codexStatus?.allowed === false) {
-    return null;
+    return (
+      <p
+        data-testid="subscription-cloud-managed"
+        className="text-sm text-[var(--text-tertiary)]"
+      >
+        {t('settings.provider.oauthCloudManaged')}
+      </p>
+    );
+  }
+
+  if (statusError) {
+    return (
+      <div className="flex items-center gap-3 text-sm text-[var(--text-tertiary)]">
+        <span>{t('settings.provider.statusProbeFailed')}</span>
+        <button
+          type="button"
+          onClick={refreshStatuses}
+          className="underline underline-offset-2 hover:opacity-80 text-[var(--text-secondary)]"
+        >
+          {t('settings.provider.retry')}
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -353,6 +433,8 @@ export function SubscriptionConnect({
               loggedIn={claudeStatus.logged_in}
               onAdd={handleAddClaudeOAuth}
               addLabel={t('settings.provider.addAsProvider')}
+              addingLabel={t('settings.provider.addingProvider')}
+              adding={adding === 'claude'}
               loginHint={t('settings.provider.loginToAdd')}
             />
 
@@ -442,6 +524,8 @@ export function SubscriptionConnect({
               loggedIn={codexStatus.logged_in}
               onAdd={handleAddCodexOAuth}
               addLabel={t('settings.provider.addAsProvider')}
+              addingLabel={t('settings.provider.addingProvider')}
+              adding={adding === 'codex'}
               loginHint={t('settings.provider.codexLoginToAdd')}
             />
           </div>

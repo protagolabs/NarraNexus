@@ -2,21 +2,21 @@
  * @file_name: providersApi.ts
  * @author: NarraNexus
  * @date: 2026-08-28
- * @description: Shared plumbing for /api/providers callers.
+ * @description: Shared types + error mapping for /api/providers callers,
+ * plus ProviderSettings' LEGACY raw-fetch plumbing.
  *
- * Exists because the SubscriptionConnect extraction gave the provider
- * endpoints three frontend callers (ProviderSettings, SubscriptionConnect,
- * SetupPage). What is shared here:
- *   - authFetch — DELEGATES identity to lib/authHeaders (the canonical
- *     parse point; an earlier draft hand-copied the localStorage parse and
- *     was weaker — no string guards — which is exactly how the 2026-05-18
- *     cross-user identity bug family starts. Three legacy hand-parsers
- *     still exist elsewhere: api.ts, arenaLanding.ts, artifactsApi.ts —
- *     do not add a fourth).
- *   - postProvider — the POST /api/providers body/error contract, so the
- *     `detail` field mapping cannot drift between callers.
- *   - ProviderRow — the one row shape all three callers read.
+ * The transport for NEW code lives on ApiClient (api.addProvider /
+ * api.getClaudeStatus / api.getCodexStatus / api.getProviders): it is the
+ * only client with the session-death guard (401 + confirmSessionDeath —
+ * the 2026-08-02 /api/providers 401 incident lives on exactly this
+ * resource) and the FastAPI `detail` extraction. Do NOT route new
+ * endpoints through authFetch below.
+ *
+ * authFetch/providerApiUrl remain ONLY for ProviderSettings' pre-existing
+ * raw endpoints (delete / test / models / sync) — migrating those is
+ * tracked as a follow-up, not silently in this module's mandate.
  */
+import { ApiError } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
@@ -30,20 +30,47 @@ export interface ProviderRow {
   auth_type?: string;
 }
 
-/** Build a provider API URL against the CURRENT backend host.
- *
- * getApiBaseUrl() is called per invocation (never captured at import
- * time), so mode switches between local and cloud always resolve to the
- * right host without any re-mount. */
+/** /claude-status and /codex-status payload. `allowed` is false ONLY
+ * when the backend gated this caller out (cloud non-staff — the same
+ * predicate that 403s OAuth card types); it is undefined on local and
+ * for cloud staff, so consumers must check `=== false`. */
+export interface CliStatusPayload {
+  cli_installed: boolean;
+  logged_in: boolean;
+  email: string | null;
+  expires_at: string | null;
+  allowed?: boolean;
+}
+
+/** Map a failed api.addProvider call to user-facing copy — one mapping
+ * for every caller, so /setup and Settings never word the same failure
+ * differently. A non-empty backend detail is shown verbatim (it carries
+ * the actual reason); an ApiError without detail (non-JSON error body,
+ * e.g. a gateway 502 page) gets the generic failure copy; anything else
+ * (fetch itself rejected) is a network-level failure. */
+export function providerErrorMessage(
+  err: unknown,
+  t: (key: string) => string,
+): string {
+  if (err instanceof ApiError) {
+    return err.detail || t('settings.provider.failed');
+  }
+  return t('settings.provider.networkError');
+}
+
+/** LEGACY (see file header): URL builder for ProviderSettings' raw
+ * endpoints. getApiBaseUrl() is called per invocation so local/cloud
+ * switches always resolve to the right host. */
 export function providerApiUrl(path: string = ''): string {
   return `${getApiBaseUrl()}/api/providers${path}`;
 }
 
-/** fetch with the identity headers this backend requires.
- *
- * Identity comes from lib/authHeaders' single parse point. Headers are
- * set one by one ON TOP of init.headers — `new Headers(getAuthHeaders())`
- * would drop the caller's Content-Type. */
+/** LEGACY (see file header): fetch with identity headers, delegating to
+ * lib/authHeaders' canonical parse point (three older hand-parsers still
+ * exist in api.ts / arenaLanding.ts / artifactsApi.ts — do not add
+ * more). Headers are set one by one ON TOP of init.headers so the
+ * caller's Content-Type survives. No session-death guard — which is why
+ * new code goes through ApiClient instead. */
 export function authFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -51,40 +78,4 @@ export function authFetch(
   const headers = new Headers(init?.headers);
   Object.entries(getAuthHeaders()).forEach(([k, v]) => headers.set(k, v));
   return fetch(input, { ...init, headers });
-}
-
-/** POST /api/providers with the shared body/error contract.
- *
- * Returns the outcome only — NO side effects: the callers' refresh
- * choreography differs (ProviderSettings refetches its own list,
- * SetupPage re-probes and bumps the refresh token) and must stay
- * theirs. On failure, `detail` is `null` for a network-level failure
- * and the backend's reason string otherwise ('' when it gave none);
- * turn it into user copy with providerErrorMessage below. */
-export async function postProvider(
-  body: Record<string, unknown>,
-): Promise<{ ok: boolean; detail: string | null }> {
-  try {
-    const res = await authFetch(providerApiUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then((r) => r.json());
-    if (!res.success) return { ok: false, detail: String(res.detail || '') };
-    return { ok: true, detail: '' };
-  } catch {
-    return { ok: false, detail: null };
-  }
-}
-
-/** Map a failed postProvider result to user-facing copy — one mapping
- * for every caller, so /setup and Settings never word the same failure
- * differently. A non-empty backend `detail` is shown verbatim (it
- * carries the actual reason); the two fallbacks are i18n keys. */
-export function providerErrorMessage(
-  detail: string | null,
-  t: (key: string) => string,
-): string {
-  if (detail === null) return t('settings.provider.networkError');
-  return detail || t('settings.provider.failed');
 }

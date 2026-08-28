@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — providers 族三个新方法 + ApiError.detail(P0 review 第 3 轮)
+
+`addProvider` / `getClaudeStatus` / `getCodexStatus` 收进 ApiClient——
+review 判定 providersApi 的裸 fetch 版本是"同一资源的第二套客户端",
+绕过了本类的 session-death 守卫(2026-08-02 的 /api/providers 401 事故
+正是这条资源)与 FastAPI detail 提取。`ApiError` 增加 `detail` 字段
+(裸 detail,'' = body 无 detail):展示用户文案的调用方要它而非带
+"API error 400:" 前缀的 message;`providerErrorMessage`(providersApi)
+基于它做统一映射。`getProviders` 的 providers 值类型从
+`Record<string, unknown>` 收紧为 `Record<string, ProviderRow>`(type-only
+import 自 providersApi,无运行时环;ProviderSummaryCard 的本地富类型经
+unknown 二段 cast)。
 
 ## 2026-08-26 — owner 级 bulk slot 方法
 

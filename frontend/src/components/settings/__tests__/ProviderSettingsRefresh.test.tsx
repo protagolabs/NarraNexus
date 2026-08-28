@@ -27,6 +27,11 @@ vi.mock('@/components/settings/OneKeyOnboard', () => ({
 }));
 vi.mock('@/components/settings/SubscriptionConnect', () => ({
   SubscriptionConnect: () => null,
+  useOauthAllowed: () => true,
+}));
+vi.mock('@/lib/api', () => ({
+  api: {},
+  ApiError: class ApiError extends Error {},
 }));
 
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
