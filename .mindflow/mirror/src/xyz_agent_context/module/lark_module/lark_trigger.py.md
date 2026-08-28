@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 ---
 
 ## 2026-08-26 — ChannelTag 构造点填 `is_agent_peer`
@@ -14,6 +14,18 @@ Lark **走基类默认**（恒 False）：这个渠道没有 `@agent-` 那样铸
 `test_agent_peer_signal.py` 有一条计数守卫在盯。今天它的运行时效果为零
 （`format()` 输出逐字节不变），所以看起来像一行没用的 False——**别清理它**，
 清掉之后这个渠道会静静地退出守卫覆盖，而漏填的表现只是「报成人类」，不报错。
+
+## 2026-08-24 — Lark 必须自己挂 ingress 熔断器
+
+本类 override 了 `_process_message` 且**不调 `super()`**（它把
+`_subscribe_loop` / `_worker` / `_build_and_run_agent` 一并接管了），所以
+[[channel_trigger_base.py]] 里那处 `_ingress_admitted` 调用**覆盖不到 Lark**。
+闸门必须在这里再写一遍，位置同样是「unbound / echo / empty 三道闸门之后」。
+
+这行看起来像可以删掉的重复代码，实际删掉就是 Lark 单独失去熔断器而其他渠道
+都还有——`test_ingress_guard_all_paths.py::test_lark_gates_its_own_path`
+按名字钉住它，并且在 Lark 哪天真的改成委托 `super()` 时会提示去简化测试而
+不是留一个冗余闸门。
 
 ## 2026-08-21 — record_turn 接线 chat_id/chat_type + parse_event 补 chat_type（PR-2 自动 reach 记录）
 

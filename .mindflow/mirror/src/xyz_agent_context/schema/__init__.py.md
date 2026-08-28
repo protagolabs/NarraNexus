@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 导出 `ChannelIngressBreaker` / `session_key`
+
+ingress 分级熔断的行模型与会话键构造函数进公共导出面。`session_key()` 单独
+导出是因为**它是键格式的唯一定义处**：键宽由 DDL 推导并有测试钉着，四个
+组成部分（agent_id / channel / chat_id / sender_id）少任何一个都会让重复率
+退化成与内容无关的常数。见 [[channel_ingress_breaker_schema]]。
+
+本次合入时零调用点（内核先合、接线后合）。
 
 ## 2026-08-26 — 导出 Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
 

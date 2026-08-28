@@ -2074,6 +2074,72 @@ _register(
     )
 )
 
+# ----------------------------------------------------------------------------
+# channel_ingress_breaker — message-ingress circuit breaker (2026-08-24)
+#
+# One row per session key `agent_id|channel|chat_id|sender_id`. Written ONLY on tier
+# transitions: the sliding-window message counts and content fingerprints
+# that drive those transitions live in process memory, because a row per
+# inbound message is pure write amplification for data that expires in ten
+# minutes. What must outlive the process is the COOLDOWN — the 8/14 ping-pong
+# loop ran 70+ hours, so any redeploy inside that span would have handed a
+# fresh budget back to a sender we had already isolated for 24h.
+#
+# `suppressed_count` is reset on each trip, so it answers "how much did THIS
+# isolation absorb?" rather than accumulating a meaningless lifetime total.
+#
+# Retention: swept by ChannelTriggerBase._run_cleanup alongside the dedup
+# and audit tables, at INGRESS_BREAKER_RETENTION_DAYS. Only CLOSED
+# (tier = 0) rows go — a row still carrying escalation memory is exactly
+# what we promised to remember, and deleting it because it went quiet
+# would hand a re-offender a fresh budget. Rows reach tier 0 by decaying,
+# which is what makes this sweep able to reclaim anything at all.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_ingress_breaker",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            # agent_id|channel|chat_id|sender_id — see
+            # schema/channel_ingress_breaker_schema.session_key().
+            # 419 = the four parts (128 + 32 + 128 + 128) plus three
+            # separators; 448 leaves headroom. Sizing this too small is a
+            # SQLite-invisible bug: TEXT never truncates, so a short MySQL
+            # key would only show up on dev, where two agents' rows would
+            # collide on the unique index and overwrite each other.
+            Column("session_key", "TEXT", "VARCHAR(448)", nullable=False, unique=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            # 0 = closed. N = has tripped N times; the escalation memory that
+            # makes a re-offending session resume at the NEXT cooldown step.
+            Column("tier", "INTEGER", "INT", nullable=False, default="0"),
+            Column("cooldown_until", "TEXT", "DATETIME(6)"),
+            Column("suppressed_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("last_reason", "TEXT", "VARCHAR(64)"),
+            Column("last_tripped_at", "TEXT", "DATETIME(6)"),
+            # When `tier` last MOVED, in the guard's own clock. Distinct
+            # from both neighbours on purpose:
+            #   `last_tripped_at` stands still while the tier walks back
+            #   down, so anchoring decay there would re-credit silence that
+            #   has already been paid out;
+            #   `updated_at` is stamped by the repository with wall-clock
+            #   time, while the guard runs on a caller-supplied `now` — one
+            #   column cannot be both row bookkeeping and state-machine
+            #   time.
+            Column("tier_changed_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_channel_ingress_breaker_key", ["session_key"], unique=True),
+            Index("idx_channel_ingress_breaker_cooldown", ["cooldown_until"]),
+            Index("idx_channel_ingress_breaker_updated", ["updated_at"]),
+        ],
+    )
+)
+
 _register(
     TableDef(
         name="team_members",

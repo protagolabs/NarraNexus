@@ -495,6 +495,16 @@ def test_synthesize_managed_message_maps_contract_fields():
 
 
 class _FakeTrigger:
+    # These tests exercise the BUSINESS-hook routing (claim / authorize /
+    # inbox / error fallback), not the ingress breaker — so the breaker is
+    # switched off here rather than half-faked. Its own managed-path
+    # coverage is `test_managed_ingress_breaker` below, which uses a real
+    # ChannelTriggerBase subclass.
+    INGRESS_GUARD_ENABLED = False
+
+    def is_agent_peer(self, message):
+        return False
+
     def __init__(self):
         self.before_calls = []
         self.after_calls = []
@@ -1783,3 +1793,322 @@ async def test_route_leaves_a_human_managed_turn_unmarked(compat_app, monkeypatc
     assert resp.status_code == 200
     run = _FakeBackgroundRun.instances[-1]
     assert AGENT_PEER_MARKER not in run.drive_kwargs["input_content"]
+
+
+# ---------------------------------------------------------------------------
+# Managed-path ingress circuit breaker (2026-08-24)
+#
+# Managed mode bypasses the ENTIRE native receive path — no _subscribe_loop,
+# no dedup store, no worker queue, no _process_message — so the base class's
+# guard (built in start(), which managed mode never calls) can never fire
+# here. Without its own call site the Manyfold surface would be the one
+# unprotected way into the pipeline.
+# ---------------------------------------------------------------------------
+
+
+class _GuardedTrigger(ChannelTriggerBase):
+    """Real subclass — the guard is built from its own class attributes,
+    so this also pins that managed and native share one set of knobs."""
+
+    channel_name = "wechat"
+    brand_display = "WeChat"
+    working_source = WorkingSource.WECHAT
+
+    INGRESS_RATE_THRESHOLD = 5
+    INGRESS_DUP_RATIO_THRESHOLD = 0.5
+
+    async def connect(self, credential):  # pragma: no cover
+        yield {}
+
+    def parse_event(self, raw):  # pragma: no cover
+        return None
+
+    async def is_echo(self, message, credential):  # pragma: no cover
+        return False
+
+    async def resolve_sender_name(self, sender_id, credential):  # pragma: no cover
+        return sender_id
+
+    def create_context_builder(self, message, credential, agent_id):  # pragma: no cover
+        return None
+
+    async def load_active_credentials(self):  # pragma: no cover
+        return []
+
+    async def managed_before_run(self, **kw):
+        return True, ""
+
+
+async def _managed_send(ingress, n, *, text="ping"):
+    """Feed n identical managed turns; return how many were admitted."""
+    admitted = 0
+    for i in range(n):
+        allow, _ = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input=text,
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        admitted += 1 if allow else 0
+    return admitted
+
+
+async def test_managed_ingress_breaker_stops_a_repeat_storm(monkeypatch):
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = await _managed_send(ingress, 12)
+    assert admitted < 12, "managed mode must not be the unguarded way in"
+
+
+async def test_managed_ingress_breaker_leaves_real_conversation_alone(monkeypatch):
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = 0
+    for i in range(30):
+        allow, _ = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input=f"a genuinely different message {i}",
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        admitted += 1 if allow else 0
+    assert admitted == 30
+
+
+async def test_managed_deny_answers_with_a_receipt(monkeypatch):
+    """A denied managed turn creates no run, so the platform needs an
+    answer — silence there reads as the platform never being called."""
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    receipts = []
+    for i in range(12):
+        allow, receipt = await ingress.before_run(
+            working_source=WorkingSource.WECHAT,
+            agent_id="a1",
+            user_input="ping",
+            trigger_extra_data=_tagged_extra(source_message_id=f"m{i}"),
+            db=object(),
+        )
+        if not allow:
+            receipts.append(receipt)
+    assert receipts, "expected at least one deny"
+    assert all(r for r in receipts), "every deny must carry a receipt"
+
+
+# ---------------------------------------------------------------------------
+# Binding rule #16: a suppressed message must leave a trace
+#
+# Once the breaker is live, a message judged part of a storm is dropped and
+# the person on the other end sees nothing at all — the assistant simply
+# stops answering. That is the 0802 symptom, and the 8/14 incident ran 70
+# hours precisely because "the bot went quiet" was not answerable from any
+# durable record. So every drop writes a row, per message, on purpose.
+#
+# These pin the row's EXISTENCE and its numbers, on both surfaces. Without
+# them the audit call could be deleted, or reduced to one row per trip, and
+# every other breaker test would stay green.
+# ---------------------------------------------------------------------------
+
+
+async def test_every_managed_message_the_breaker_drops_leaves_an_audit_row(
+    monkeypatch,
+):
+    from xyz_agent_context.channel.channel_audit_events import (
+        EVENT_INGRESS_BREAKER_TRIPPED,
+        EVENT_INGRESS_DROPPED_BREAKER,
+    )
+
+    _AuditRecorder.rows = []
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    monkeypatch.setattr(ingress_mod, "ChannelTriggerAuditRepository", _AuditRecorder)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    total = 12
+    admitted = await _managed_send(ingress, total)
+    dropped = total - admitted
+    assert dropped > 0, "setup: the storm must have been stopped"
+
+    events = [e for _, e, _ in _AuditRecorder.rows]
+    trips = events.count(EVENT_INGRESS_BREAKER_TRIPPED)
+    drops = events.count(EVENT_INGRESS_DROPPED_BREAKER)
+
+    assert trips >= 1, "the moment the door closed is not in the DB"
+    # The trip itself also suppresses its own message, so it accounts for
+    # one of the dropped ones; the rest each get their own row. Per
+    # message, not per trip — "how long was it quiet, and how much did it
+    # swallow" has to be answerable by counting rows.
+    assert trips + drops == dropped, (
+        f"{dropped} messages were suppressed but only {trips + drops} rows "
+        f"were written: {events}"
+    )
+
+
+async def test_a_dropped_row_carries_the_numbers_that_explain_it(monkeypatch):
+    from xyz_agent_context.channel.channel_audit_events import (
+        EVENT_INGRESS_DROPPED_BREAKER,
+    )
+
+    _AuditRecorder.rows = []
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    monkeypatch.setattr(ingress_mod, "ChannelTriggerAuditRepository", _AuditRecorder)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    await _managed_send(ingress, 12)
+
+    drops = [
+        kw for _, e, kw in _AuditRecorder.rows if e == EVENT_INGRESS_DROPPED_BREAKER
+    ]
+    assert drops, "no drop rows to inspect"
+    details = drops[0]["details"]
+
+    # The owner's question is "why did it go quiet, and for how long".
+    # A row that only says "dropped" cannot answer either half.
+    for field in (
+        "session_key", "tier", "reason", "suppressed",
+        "cooldown_remaining_seconds",
+    ):
+        assert field in details, f"{field} missing from {sorted(details)}"
+    assert details["tier"] >= 1
+    assert details["cooldown_remaining_seconds"] > 0, (
+        "a drop row that cannot say how much longer leaves 'until when' "
+        "unanswerable, which is half of what these rows are for"
+    )
+
+
+async def test_managed_rows_age_out_without_a_native_trigger(monkeypatch):
+    """Managed rows must not depend on a same-named native trigger existing.
+
+    `ChannelTriggerBase._run_cleanup` sweeps only its own `channel_name`,
+    and the coordinator has no periodic loop, so without a sweep of its own
+    a managed-only deployment would keep these rows forever — the growth
+    the retention window exists to stop. The sweep therefore rides the
+    ingress path, throttled to once per process-day (same shape as
+    `manyfold/files.py`).
+    """
+    calls = []
+
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def cleanup_older_than_days(self, days, channel=None):
+            calls.append((days, channel))
+            return 0
+
+    # Patched on the module, like the sibling `ChannelTriggerAuditRepository`
+    # right beside it. If the production import ever moves back inside the
+    # function this stops patching anything and the test fails on "never
+    # swept" — which reads like the code broke rather than the patch.
+    monkeypatch.setattr(ingress_mod, "ChannelIngressBreakerRepository", _Repo)
+
+    class _ShortRetention(_GuardedTrigger):
+        # NOT the base class's 30. With the default the assertion below is
+        # true whichever value the sweep reads, so it would pass on the
+        # implementation this test exists to reject — the same shape as the
+        # agent-threshold test that "passed" while the storm never tripped.
+        INGRESS_BREAKER_RETENTION_DAYS = 7
+
+    trig = _ShortRetention()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    await _managed_send(ingress, 3)
+
+    assert calls, "managed rows are never swept"
+    assert calls[0][1] == "wechat", f"the sweep is not channel-scoped: {calls[0]}"
+    assert calls[0][0] == 7, (
+        "the managed sweep read the base class's window instead of this "
+        f"trigger's, so native and managed ticks disagree about the same "
+        f"rows: {calls[0]}"
+    )
+    # Throttled: three turns, one sweep. Sweeping per message would put a
+    # full-table read on the hot path.
+    assert len(calls) == 1, f"the sweep is not throttled: {len(calls)} calls"
+
+
+async def test_the_managed_gate_gets_the_agent_peer_answer(monkeypatch):
+    """One evaluation feeds both the tag and the breaker.
+
+    The breaker judges an agent peer against its own pair of thresholds —
+    that is the whole reason the signal is handed to the gate rather than
+    only stamped on the tag. If the gate stopped receiving it, A2A
+    conversations would silently fall back to the human thresholds and
+    nothing would fail.
+
+    The fake overrides BOTH pairs: the base class's agent thresholds are
+    not simply lower, they are a separate pair, so lowering only the human
+    ones (as the shared `_GuardedTrigger` does) leaves an agent peer
+    judged at the default 20 and this storm never trips at all.
+    """
+    from xyz_agent_context.channel.channel_audit_events import (
+        EVENT_INGRESS_BREAKER_TRIPPED,
+    )
+
+    class _AgentPeerTrigger(_GuardedTrigger):
+        INGRESS_AGENT_RATE_THRESHOLD = 5
+        INGRESS_AGENT_DUP_RATIO_THRESHOLD = 0.5
+
+        def is_agent_peer(self, message):
+            return True
+
+    _AuditRecorder.rows = []
+    trig = _AgentPeerTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    monkeypatch.setattr(ingress_mod, "ChannelTriggerAuditRepository", _AuditRecorder)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    await _managed_send(ingress, 12)
+
+    trips = [
+        kw for _, e, kw in _AuditRecorder.rows if e == EVENT_INGRESS_BREAKER_TRIPPED
+    ]
+    assert trips, "the storm never tripped"
+    assert trips[0]["details"]["is_agent_peer"] is True, (
+        "the gate judged an agent peer on the human thresholds — the signal "
+        "never reached it"
+    )
+
+
+async def test_a_channel_with_the_breaker_off_is_not_swept(monkeypatch):
+    """The sweep runs after the guard check, not before it.
+
+    A channel with `INGRESS_GUARD_ENABLED` off never writes a breaker row,
+    so scanning that table for it once per process-day is a query that can
+    only ever return nothing — and it would sit on the ingress path of a
+    user's message to do it.
+    """
+    calls = []
+
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def cleanup_older_than_days(self, days, channel=None):
+            calls.append((days, channel))
+            return 0
+
+    monkeypatch.setattr(ingress_mod, "ChannelIngressBreakerRepository", _Repo)
+
+    class _GuardOff(_GuardedTrigger):
+        INGRESS_GUARD_ENABLED = False
+
+    trig = _GuardOff()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    admitted = await _managed_send(ingress, 12)
+
+    assert admitted == 12, "with the breaker off nothing may be suppressed"
+    assert not calls, (
+        f"swept a table this channel never writes to: {calls}"
+    )

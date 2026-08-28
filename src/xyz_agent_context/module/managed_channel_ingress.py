@@ -26,6 +26,7 @@ Design: reference/self_notebook/specs/2026-08-03-manyfold-managed-im-ingress-des
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +38,10 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_MANAGED_INGRESS_SILENT,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.ingress_guard import IngressGuard, content_fingerprint
+from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+    ChannelIngressBreakerRepository,
+)
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
@@ -107,6 +112,17 @@ class ManagedChannelIngress:
 
     def __init__(self) -> None:
         self._triggers: dict[str, Optional[ChannelTriggerBase]] = {}
+        # One ingress breaker per channel. Managed mode bypasses the whole
+        # native receive path — no _subscribe_loop, no dedup store, no
+        # worker queue, no _process_message — so the base class's guard
+        # (built in start(), which managed mode never calls) can never fire
+        # here. Without this the entire Manyfold surface would be the one
+        # unprotected way in.
+        self._guards: dict[str, IngressGuard] = {}
+        # Next monotonic deadline for each channel's retention sweep. The
+        # coordinator has no periodic loop, so the sweep rides the ingress
+        # path throttled to once per process-day.
+        self._breaker_sweep_next: dict[str, float] = {}
 
     def _trigger(self, channel: str) -> Optional[ChannelTriggerBase]:
         if channel in self._triggers:
@@ -127,6 +143,154 @@ class ManagedChannelIngress:
                 )
         self._triggers[channel] = trigger
         return trigger
+
+    def _guard(
+        self, channel: str, trigger: Optional[ChannelTriggerBase], db: Any
+    ) -> Optional[IngressGuard]:
+        """Lazily build this channel's breaker from ITS OWN tunables.
+
+        Built through ``trigger.build_ingress_guard`` rather than by
+        hand-copying the seven thresholds, so a channel that tightens its
+        numbers tightens them on both paths. No trigger (class missing /
+        construction failed) → no guard: the deny paths that fire when the
+        trigger is unavailable are authorization concerns, not rate ones.
+        """
+        if channel in self._guards:
+            return self._guards[channel]
+        if trigger is None or not getattr(trigger, "INGRESS_GUARD_ENABLED", False):
+            return None
+        try:
+            guard = trigger.build_ingress_guard(db)
+        except Exception as e:  # noqa: BLE001 — a broken trigger fails open
+            logger.warning(
+                f"managed ingress: building the guard for {channel} failed "
+                f"({type(e).__name__}: {e}) — channel runs unguarded"
+            )
+            return None
+        self._guards[channel] = guard
+        return guard
+
+    async def _sweep_breaker_rows(
+        self, db: Any, channel: str, trigger: ChannelTriggerBase
+    ) -> None:
+        """Age out this channel's closed breaker rows, once per process-day.
+
+        The coordinator has no periodic loop of its own, so the sweep rides
+        the ingress path — the same shape ``manyfold/files.py`` uses for its
+        audit retention, and for the same reason.
+
+        It cannot be left to ``ChannelTriggerBase._run_cleanup``: that sweep
+        is scoped to its own ``channel_name``, so managed rows would only be
+        reclaimed when a NATIVE trigger for the same channel happens to run
+        in the same process. A managed-only deployment would keep them
+        forever, which is the growth the retention window exists to stop.
+
+        The window comes from the trigger, the same way ``_guard`` takes
+        its seven thresholds from ``trigger.build_ingress_guard`` — one
+        source for both receive faces.
+        """
+        # After the guard check, not before: a channel with the breaker
+        # switched off has no rows to sweep, and scanning a table it never
+        # writes to once per process-day is pure waste.
+        if self._guard(channel, trigger, db) is None:
+            return
+        now = time.monotonic()
+        if now < self._breaker_sweep_next.get(channel, 0.0):
+            return
+        # Armed BEFORE the attempt, deliberately: a failing DB must not be
+        # retried on every message for the rest of the day.
+        self._breaker_sweep_next[channel] = now + 24 * 3600
+        try:
+            deleted = await ChannelIngressBreakerRepository(
+                db
+            ).cleanup_older_than_days(
+                # THIS trigger's window, not the base class's. The constant
+                # is declared per-trigger exactly like the seven threshold
+                # knobs beside it (and like DEDUP_/AUDIT_RETENTION_DAYS,
+                # which Lark and Matrix already override), so reading the
+                # base value here would reinstate the same defect the
+                # channel scoping just removed — only across receive faces
+                # instead of across channels: native ticks keep 90 days,
+                # managed ticks delete at 30, same table, same channel.
+                trigger.INGRESS_BREAKER_RETENTION_DAYS,
+                channel=channel,
+            )
+            if deleted:
+                logger.info(
+                    f"managed ingress: cleaned {deleted} closed breaker rows "
+                    f"for {channel}"
+                )
+        except Exception as e:  # noqa: BLE001 — retention is a side-channel
+            logger.warning(
+                f"managed ingress: breaker cleanup failed for {channel} "
+                f"({type(e).__name__}: {e})"
+            )
+
+    async def _ingress_admitted(
+        self,
+        *,
+        db: Any,
+        channel: str,
+        trigger: Optional[ChannelTriggerBase],
+        agent_id: str,
+        message: ParsedMessage,
+        trigger_extra_data: dict,
+        is_agent_peer: bool,
+    ) -> tuple[bool, str]:
+        """Managed-mode twin of ``ChannelTriggerBase._ingress_admitted``.
+
+        Returns ``(allow, receipt)`` to match the surrounding gate's shape;
+        the receipt is what the caller answers the platform with when no
+        run is created.
+
+        Fails OPEN, explicitly (the mirror doc requires each managed gate
+        to pick a side): this is a rate guard, not an authorization gate,
+        so a broken guard must not black out a channel.
+
+        ``is_agent_peer`` is passed in rather than asked again. The caller
+        already answered it to stamp the tag, and asking twice gave the two
+        answers different failure modes: a raising override made the tag
+        read "human" (one lost signal) but took the WHOLE breaker down for
+        that message here, via the except below. One evaluation, one
+        degradation.
+        """
+        guard = self._guard(channel, trigger, db)
+        if guard is None:
+            return True, ""
+        try:
+            verdict = await guard.admit(
+                agent_id=agent_id,
+                channel=channel,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                fingerprint=content_fingerprint(
+                    message.chat_id, message.sender_id, message.content
+                ),
+                is_agent_peer=is_agent_peer,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"managed ingress: guard raised for {channel} "
+                f"({type(e).__name__}: {e}) — failing open"
+            )
+            return True, ""
+
+        # Same mapping as the native gate, from the one place that owns it.
+        event = verdict.audit_event()
+        if event is not None:
+            await self._audit(
+                db,
+                channel,
+                event,
+                agent_id=agent_id,
+                message_id=_wire_message_id(trigger_extra_data),
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details=verdict.audit_details(),
+            )
+        if verdict.admit:
+            return True, ""
+        return False, "conversation temporarily rate-limited (repeat storm)"
 
     async def before_run(
         self,
@@ -182,27 +346,49 @@ class ManagedChannelIngress:
         # ``trigger is None`` already returned above, so there is no None
         # branch here — an extra one only invites a "cleanup" that takes
         # the stamping with it.
+        # Asked ONCE, here, and handed to both consumers below. Asking
+        # twice gave the two answers different failure modes: this one
+        # degrades to "human" (one lost signal), while the breaker's copy
+        # sat inside a broader except that failed the whole gate open for
+        # that message.
+        try:
+            is_agent_peer = trigger.is_agent_peer(message)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"managed ingress: is_agent_peer failed for {channel} "
+                f"({type(e).__name__}: {e}); treating as human"
+            )
+            is_agent_peer = False
+
         tag = trigger_extra_data.get("channel_tag")
-        if isinstance(tag, dict):
+        if isinstance(tag, dict) and is_agent_peer:
             # Written only when TRUE, matching ``ChannelTag.to_dict``'s
             # "falsy fields do not appear" rule — otherwise managed turns
             # would carry ``"is_agent_peer": false`` in their persisted tag
             # while native turns carry no key at all, a difference with no
-            # meaning that a future snapshot diff would trip over. The
-            # except branch writes nothing for the same reason: a missing
-            # key already reads as False everywhere.
+            # meaning that a future snapshot diff would trip over.
             #
             # This stamps the DICT. What the model reads is rebuilt from it
             # by ``retag_managed_input`` after these hooks — remove either
             # half and the signal never reaches the model.
-            try:
-                if trigger.is_agent_peer(message):
-                    tag["is_agent_peer"] = True
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    f"managed ingress: is_agent_peer failed for {channel} "
-                    f"({type(e).__name__}: {e}); treating as human"
-                )
+            tag["is_agent_peer"] = True
+
+        # Ingress circuit breaker, BEFORE the channel's business hook and
+        # before any run is constructed. Ordered ahead of the business gate
+        # deliberately: a conversation we have already isolated should not
+        # cost an authorization round-trip per message.
+        await self._sweep_breaker_rows(db, channel, trigger)
+        admitted, breaker_receipt = await self._ingress_admitted(
+            db=db,
+            channel=channel,
+            trigger=trigger,
+            agent_id=agent_id,
+            message=message,
+            trigger_extra_data=trigger_extra_data,
+            is_agent_peer=is_agent_peer,
+        )
+        if not admitted:
+            return False, breaker_receipt
 
         is_mention = bool(trigger_extra_data.get("is_mention", True))
         try:

@@ -79,6 +79,12 @@ from .agent_circuit_breaker_schema import (
     AgentCircuitBreaker,
 )
 
+# ===== Channel Ingress Breaker Schema (message-ingress circuit breaker) =====
+from .channel_ingress_breaker_schema import (
+    ChannelIngressBreaker,
+    session_key,
+)
+
 # ===== CLI Session Schema (resumable coding-agent CLI handles) =====
 
 # ===== Inbox Schema (belongs to ChatModule) =====
@@ -373,6 +379,10 @@ __all__ = [
     "ErrorCategory",
     "PAUSING_CATEGORIES",
     "AgentCircuitBreaker",
+
+    # Channel Ingress Breaker Schema
+    "ChannelIngressBreaker",
+    "session_key",
 
     # CLI Session Schema
 

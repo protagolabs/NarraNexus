@@ -3221,7 +3221,7 @@ wheels = [
 
 [[package]]
 name = "xyz-agent-context"
-version = "1.18.0"
+version = "1.19.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

@@ -713,7 +713,11 @@ class MatrixTrigger(ChannelTriggerBase):
 
         This is the channel where it matters most: it is the one place two
         agents routinely hold a 1:1 conversation with nobody else in the
-        room.
+        room, and the 8/14 ping-pong loop was exactly that — two agents in
+        a NarraMessenger DM reciting at each other for 70 hours. Saying
+        "the far side is an agent" tightens the ingress breaker, disables
+        the invent-a-reply DM fallback, and tells the model it may stay
+        silent.
         """
         return message.sender_id.startswith(AGENT_MXID_PREFIX)
 
@@ -1495,6 +1499,13 @@ class MatrixTrigger(ChannelTriggerBase):
                         f"(strict mode; room={message.chat_id})"
                     )
                     return
+            # The silent path returns BEFORE super()._process_message, so
+            # the base class's ingress gate never sees it — but it still
+            # runs a pipeline (memory ingestion), so a repeat storm in a
+            # group room would still burn one. Gate it here; the reply
+            # paths below inherit the base's call via super().
+            if not await self._ingress_admitted(credential, message):
+                return
             await self._enqueue_silent(credential, message)
             return
 

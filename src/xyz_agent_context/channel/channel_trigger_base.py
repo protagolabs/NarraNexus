@@ -36,7 +36,6 @@ below.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -89,12 +88,20 @@ from xyz_agent_context.channel.channel_context_builder_base import (
 )
 from xyz_agent_context.channel.channel_debounce_merger import ChannelDebounceMerger
 from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
+from xyz_agent_context.channel.ingress_guard import (
+    IngressGuard,
+    IngressVerdict,
+    content_fingerprint,
+)
 from xyz_agent_context.channel.inbox_recorder import (
     InboxRecorder,
     im_thread_id,
     resolve_owner_for_agent,
 )
 from xyz_agent_context.channel.channel_reactions import render_early_feedback
+from xyz_agent_context.repository.channel_ingress_breaker_repository import (
+    ChannelIngressBreakerRepository,
+)
 from xyz_agent_context.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
@@ -245,6 +252,31 @@ class ChannelTriggerBase(ABC):
     # window to the platform's re-dispatch horizon, no larger.
     CONTENT_DEDUP_WINDOW_SECONDS: int = 0
 
+    # Ingress circuit breaker (2026-08-24, the 8/14 ping-pong incident).
+    # A DIFFERENT question from every gate above it: dedup asks "have I
+    # seen this exact message?", debounce asks "did these arrive together?",
+    # the fast-death breaker asks "is my own credential broken?". This one
+    # asks "is the traffic in this conversation worth processing at all?".
+    #
+    # A session must clear BOTH bars — fast AND repetitive. That conjunction
+    # is what lets P1 ship a hard breaker without the design's L0
+    # observation tier: varied traffic (a user firing off six thoughts, a
+    # group at peak, a job batch) can never satisfy the repetition bar, so
+    # the population L0 existed to protect is structurally immune.
+    # Agent peers get tighter numbers on both — A2A rooms are where loops
+    # live, and no human types the same sentence twenty times in ten minutes.
+    INGRESS_GUARD_ENABLED: bool = True
+    INGRESS_WINDOW_SECONDS: float = 600.0
+    INGRESS_RATE_THRESHOLD: int = 60
+    INGRESS_DUP_RATIO_THRESHOLD: float = 0.8
+    INGRESS_AGENT_RATE_THRESHOLD: int = 20
+    INGRESS_AGENT_DUP_RATIO_THRESHOLD: float = 0.5
+    INGRESS_BREAKER_SCHEDULE_SECONDS: tuple[float, ...] = (
+        300.0, 1800.0, 7200.0, 86400.0,
+    )
+    INGRESS_RECOVERY_WINDOWS: int = 2
+    INGRESS_BREAKER_RETENTION_DAYS: int = 30
+
     # ── Construction ──────────────────────────────────────────────────────
     def __init__(self, *, base_workers: int = 3, history_config: Optional[ChannelHistoryConfig] = None):
         if not self.channel_name:
@@ -292,6 +324,7 @@ class ChannelTriggerBase(ABC):
         # Owned helpers — instantiated in start() once we know channel + db.
         self._dedup_store: Optional[ChannelDedupStore] = None
         self._audit_repo: Optional[ChannelTriggerAuditRepository] = None
+        self._ingress_guard: Optional[IngressGuard] = None
         # Records the turn into the inbox's OWN tables. Its predecessor
         # (`ChannelInboxWriter`) wrote the MessageBus tables, which put every
         # IM message on the agent's bus unread cursor — 1,364 messages across
@@ -416,14 +449,19 @@ class ChannelTriggerBase(ABC):
 
     # Override hook — is the far side of this message another agent rather
     # than a human? Default False: on most channels every sender is a
-    # person, and guessing wrong in that direction changes nothing.
-    # NarraMessenger overrides it because its Matrix user ids carry the
-    # answer (``@agent-<id>:<homeserver>``).
+    # person, and guessing wrong in that direction only costs looser
+    # breaker thresholds. NarraMessenger overrides it because its Matrix
+    # user ids carry the answer (``@agent-<id>:<homeserver>``), and A2A
+    # rooms are precisely where the 8/14 ping-pong loop lived.
     #
     # Answered HERE, once, because only the trigger layer knows each
     # platform's identity convention. The answer travels on ``ChannelTag``
-    # so consumers above the trigger — starting with the prompt — read one
-    # definition instead of each re-deriving it.
+    # so consumers above the trigger read one definition instead of each
+    # re-deriving it. Three of them now: the ingress breaker (tighter
+    # thresholds for an agent peer), the DM fallback gate (never invent a
+    # reply TO another agent), and the DM prompt (tell the model the far
+    # side is a machine). Answering the question three ways is how those
+    # three drift apart.
     #
     # Contract for overrides: depend on ``message`` ONLY — no ``self``, no
     # I/O, no awaits. It runs per message, and the guard test calls it
@@ -609,6 +647,14 @@ class ChannelTriggerBase(ABC):
 
         self._audit_repo = ChannelTriggerAuditRepository(self.channel_name, db)
 
+        if self.INGRESS_GUARD_ENABLED:
+            self._ingress_guard = self.build_ingress_guard(db)
+            # Restore still-isolated conversations BEFORE serving traffic,
+            # so /healthz and the heartbeat report the real standing state
+            # from the first beat instead of an all-clear that only becomes
+            # true again once every isolated sender happens to speak.
+            await self._ingress_guard.warm_start(self.channel_name)
+
         # Initial retention sweep.
         await self._run_cleanup()
 
@@ -694,6 +740,17 @@ class ChannelTriggerBase(ABC):
             "subscriber_keys": sorted(self._subscriber_creds),
             "breaker_isolated_keys": sorted(self._breaker_blocked_until),
             "unstartable_keys": sorted(self._unstartable_fingerprint),
+            # Counts, not keys: a session key contains a chat id and a
+            # sender id, and /healthz is not the place to enumerate who is
+            # talking to whom. The audit table has the identities.
+            "ingress_breaker_cooling_count": (
+                self._ingress_guard.cooling_session_count()
+                if self._ingress_guard else 0
+            ),
+            "ingress_breaker_open_count": (
+                self._ingress_guard.open_session_count()
+                if self._ingress_guard else 0
+            ),
             "recent_event_counts": recent_counts,
         }
 
@@ -885,6 +942,13 @@ class ChannelTriggerBase(ABC):
             task.cancel()
         agent_id = getattr(cred, "agent_id", "") if cred else ""
         app_id = getattr(cred, "app_id", "") if cred else key
+        # Release this agent's ingress sessions. ``prune_idle`` cannot do
+        # it: it deliberately keeps sessions carrying escalation memory, so
+        # an unbound agent's tripped conversations would otherwise sit in
+        # memory for the life of the process. The durable rows stay — a
+        # re-bind must not hand a re-offender a fresh budget.
+        if self._ingress_guard is not None and agent_id:
+            self._ingress_guard.forget_agent(agent_id)
         logger.info(f"{type(self).__name__}: stopped subscriber for {key}")
         await self._audit(
             EVENT_SUBSCRIBER_STOPPED,
@@ -1404,6 +1468,26 @@ class ChannelTriggerBase(ABC):
                     "has_raw": bool(message.raw),
                 },
             )
+            return
+
+        # Ingress circuit breaker — "is this worth processing at all?".
+        # Last gate before anything expensive IN THIS METHOD: name
+        # resolution hits the platform API, attachment fetch downloads
+        # bytes, and the run itself burns the pipeline.
+        #
+        # Not the first gate on every route, though. A channel that owns
+        # its own ``_process_message`` may spend before delegating here —
+        # Matrix pays a Narra ``authorize-event`` round-trip on its dm and
+        # group_mention paths first. Stated rather than fixed: hoisting the
+        # breaker above that would make ``super()`` judge the same message
+        # a second time, so the window would count it twice and the channel
+        # would trip at half its threshold. Closing that properly means
+        # either a "already judged" channel into the base or Matrix taking
+        # over ``_process_message`` outright, which is not a one-line
+        # change. The waste is one HTTP round-trip per suppressed message;
+        # the expensive half is still blocked. Audits its own drops (see
+        # _ingress_admitted).
+        if not await self._ingress_admitted(credential, message):
             return
 
         # Name resolution + sanitization
@@ -2204,11 +2288,114 @@ class ChannelTriggerBase(ABC):
         Only computed when CONTENT_DEDUP_WINDOW_SECONDS opts the channel in;
         empty string disables the fingerprint layer for this message (e.g.
         no content to fingerprint).
+
+        The hashing itself moved to ``ingress_guard.content_fingerprint`` so
+        the dedup layer and the ingress breaker cannot drift into two
+        definitions of "the same message". The opt-in gate stays HERE: it
+        governs the dedup question ("did the platform re-dispatch this under
+        a new id?"), which the breaker does not ask.
         """
-        if self.CONTENT_DEDUP_WINDOW_SECONDS <= 0 or not message.content:
+        if self.CONTENT_DEDUP_WINDOW_SECONDS <= 0:
             return ""
-        material = f"{message.chat_id}|{message.sender_id}|{message.content}"
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+        return content_fingerprint(
+            message.chat_id, message.sender_id, message.content
+        )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Ingress circuit breaker
+    # ────────────────────────────────────────────────────────────────────
+
+    def build_ingress_guard(self, db: Any) -> IngressGuard:
+        """Construct this channel's guard from the class-level tunables.
+
+        PUBLIC on purpose, unlike most of this class's internals: the
+        managed-mode coordinator — which never calls ``start()`` — builds
+        its guard through this, so it is a cross-component contract like
+        ``managed_before_run`` and the rest of that family. Named private,
+        it reads to the next reader as a layering violation to be tidied
+        away, and tidying it away silently removes the breaker from the
+        managed surface.
+
+        Existing so that coordinator does not hand-copy seven constants.
+        """
+        return IngressGuard(
+            repo=ChannelIngressBreakerRepository(db) if db is not None else None,
+            window_seconds=self.INGRESS_WINDOW_SECONDS,
+            rate_threshold=self.INGRESS_RATE_THRESHOLD,
+            dup_ratio_threshold=self.INGRESS_DUP_RATIO_THRESHOLD,
+            agent_rate_threshold=self.INGRESS_AGENT_RATE_THRESHOLD,
+            agent_dup_ratio_threshold=self.INGRESS_AGENT_DUP_RATIO_THRESHOLD,
+            schedule_seconds=self.INGRESS_BREAKER_SCHEDULE_SECONDS,
+            recovery_windows=self.INGRESS_RECOVERY_WINDOWS,
+        )
+
+    async def _ingress_admitted(self, credential: Any, message: ParsedMessage) -> bool:
+        """THE ingress gate. Returns False when the caller must drop.
+
+        Every receive path must route through this one method. There is no
+        single chokepoint in the trigger layer to place it in — Lark owns
+        its whole ``_process_message`` without calling ``super()``, and
+        managed mode bypasses the subscriber path entirely — so the seam is
+        the method rather than the location. ``test_ingress_guard_all_paths``
+        holds that line; the equivalent copy-paste drift in
+        ``build_trigger_extra_data`` is why that test style exists.
+
+        Placed AFTER the unbound / echo / empty gates: an echo of our own
+        reply or a payload we could not parse is not the peer talking, and
+        counting it toward their rate would let the agent trip its own
+        breaker.
+
+        Never raises. The guard is not an authorization gate — if it breaks,
+        traffic flows (contrast: narramessenger's managed authorize hook,
+        which fails closed because it IS one).
+        """
+        guard = self._ingress_guard
+        if guard is None:
+            return True
+        agent_id = getattr(credential, "agent_id", "")
+        app_id = getattr(credential, "app_id", "")
+        try:
+            verdict = await guard.admit(
+                agent_id=agent_id,
+                channel=self.channel_name,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                fingerprint=content_fingerprint(
+                    message.chat_id, message.sender_id, message.content
+                ),
+                is_agent_peer=self.is_agent_peer(message),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: ingress guard raised "
+                f"({type(e).__name__}: {e}) — failing open"
+            )
+            return True
+        await self._audit_ingress_verdict(verdict, message, agent_id, app_id)
+        return verdict.admit
+
+    async def _audit_ingress_verdict(
+        self,
+        verdict: IngressVerdict,
+        message: ParsedMessage,
+        agent_id: str,
+        app_id: str,
+    ) -> None:
+        """One audit row per verdict that changed something or dropped a
+        message. The quiet 'ok' case writes nothing — that is already
+        covered by ``ingress_processed``."""
+        event = verdict.audit_event()
+        if event is None:
+            return
+        await self._audit(
+            event,
+            message_id=message.message_id,
+            agent_id=agent_id,
+            app_id=app_id,
+            chat_id=message.chat_id,
+            sender_id=message.sender_id,
+            details=verdict.audit_details(),
+        )
 
     async def _audit(self, event_type: str, **kwargs) -> None:
         if self._audit_repo is None:
@@ -2248,6 +2435,19 @@ class ChannelTriggerBase(ABC):
             # agent whose IM channel is quietly parked).
             "breaker_isolated_count": len(self._breaker_blocked_until),
             "unstartable_count": len(self._unstartable_fingerprint),
+            # Conversations whose ingress is currently suppressed, and those
+            # merely carrying escalation memory. Same reasoning as the line
+            # above — the 8/14 loop burned 70 hours behind a green board, so
+            # "we are ignoring someone right now" must be a standing number,
+            # not an event you had to be watching for.
+            "ingress_breaker_cooling_count": (
+                self._ingress_guard.cooling_session_count()
+                if self._ingress_guard else 0
+            ),
+            "ingress_breaker_open_count": (
+                self._ingress_guard.open_session_count()
+                if self._ingress_guard else 0
+            ),
             "uptime_seconds": (
                 (int(time.time() * 1000) - self._startup_time_ms) / 1000.0
                 if self._startup_time_ms > 0 else 0.0
@@ -2283,6 +2483,31 @@ class ChannelTriggerBase(ABC):
                     )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"{type(self).__name__}: audit cleanup failed: {e}")
+
+        if self._ingress_guard is not None and self._db is not None:
+            try:
+                # Only CLOSED rows age out — see the repository docstring.
+                deleted = await ChannelIngressBreakerRepository(
+                    self._db
+                ).cleanup_older_than_days(
+                    self.INGRESS_BREAKER_RETENTION_DAYS,
+                    # Scoped, like the two sweeps above it. Unscoped, this
+                    # class attribute would not be per-trigger at all: six
+                    # native triggers in one process would each sweep the
+                    # whole table, five of them redundantly, and the
+                    # shortest retention would silently win for everyone.
+                    channel=self.channel_name,
+                )
+                if deleted:
+                    logger.info(
+                        f"{type(self).__name__}: cleaned {deleted} closed ingress "
+                        f"breaker rows older than "
+                        f"{self.INGRESS_BREAKER_RETENTION_DAYS} days"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"{type(self).__name__}: ingress breaker cleanup failed: {e}"
+                )
 
     # ────────────────────────────────────────────────────────────────────
     # Sanitisation

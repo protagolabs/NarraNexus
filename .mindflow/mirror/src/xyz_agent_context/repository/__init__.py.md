@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-08-19
+last_verified: 2026-08-27
 stub: false
 ---
+## 2026-08-27 — 导出 `ChannelIngressBreakerRepository`
+
+ingress 分级熔断的持久化面（`channel_ingress_breaker` 表）进公共导出面
+（import + `__all__`）。纯转发改动，无行为变化。见
+[[channel_ingress_breaker_repository]]。
+
+**注意本次合入时它零调用点**——熔断器内核先合、接线后合（见
+[[ingress_guard]] 开头那节）。所以「导出了但没人用」是刻意的，不是漏接。
+
 ## 2026-08-19 — 导出 `GatewayKeyMisuseRepository`
 
 网关 key 异常/越权使用事件（`gateway_key_misuse` 表）的命中写方进公共导出面

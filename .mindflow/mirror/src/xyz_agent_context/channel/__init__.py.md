@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/channel/__init__.py
-last_verified: 2026-08-18
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 导出 `IngressGuard` / `content_fingerprint`
+
+ingress 分级熔断器进公共导出面，与 `ChannelDedupStore`、
+`ChannelDebounceMerger` 平级——它的 docstring 就是这么定位自己的，此前却只有
+它需要深路径 import。接线 PR 的四个挂载点会用这个导出面。
+
+本次合入时零调用点（内核先合、接线后合，见 [[ingress_guard]]）。
 
 # channel/__init__.py — channel 包的公开出口
 
