@@ -62,6 +62,30 @@ NULL 排最后，被切掉的尾巴通常恰好是本方法本来就要丢的那
 `warm_start` 因此只取 `cooling_only=True`（当前仍在冷却的），否则内存占用
 和 `/healthz` 的计数会随部署次数单调上升。
 
+
+## 2026-08-28（接线 review）— 清扫按 channel 作用域
+
+`cleanup_older_than_days` 加了 `channel`，与 `ChannelTriggerAuditRepository`
+同一条约定、同一个理由：保留期是按 trigger 声明的**类属性**，不带作用域的话
+它实际语义是「哪个 trigger 先跑，全表就按谁的天数删」。某个渠道为事故复盘把
+窗口放宽到 90 天，行照样在第 30 天被别人那一跑删掉——不报错、不告警，等要查
+的时候才发现没了。附带代价：一个进程六个原生 trigger，每 tick 六次全表扫，
+五次纯重复；日志归属也是错的。
+
+**不加行数上限**（与刻意加了上限的 `find_open` 不同）：那个每次进程启动跑一次
+且结果驻留内存，这个每 tick 跑一次且什么都不留；加了上限还会让「删了多少」
+变成一个说不清是否完整的数。
+
+## 2026-08-28（接线 review 二轮）— 「不加上限」的论证要跟上第二个调用方
+
+`cleanup_older_than_days` 现在有**两个**调用方：trigger 的后台 cleanup tick，
+以及 [[managed_channel_ingress]] 在 **ingress 路径上**按进程日调用的那次。原来
+那句「不需要上限，因为只在后台 tick 跑」的前提已经不成立——它可能发生在一个
+用户回合里。
+
+真正兜住量级的不是上限，而是 [[ingress_guard]] 的 `_persist` **只在层级变迁时
+写穿**：表里装的是「曾经风暴过的会话」，不是每条消息一行。这一层写进 docstring
+了，否则下一个想加上限的人会读到一个前提已经变了的论证。
 # channel_ingress_breaker_repository.py — ingress 熔断器状态数据访问
 
 ## 为什么存在

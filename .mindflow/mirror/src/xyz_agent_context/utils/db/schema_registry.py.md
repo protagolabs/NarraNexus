@@ -4,6 +4,24 @@ last_verified: 2026-08-28
 stub: false
 ---
 
+
+## 2026-08-28（接线）— `channel_ingress_breaker` 现在有**两个**清扫者
+
+本页 2026-08-24 那条写的「保留期由 [[channel_trigger_base.py]] 的
+`_run_cleanup` 顺带扫」**已过时**，两处都不再准确：
+
+1. 那条清扫现在**按自己的 `channel_name` 作用域**扫，不再覆盖全表。保留期是
+   按 trigger 声明的类属性（与 `DEDUP_RETENTION_DAYS` /
+   `AUDIT_RETENTION_DAYS` 并列，Lark 与 Matrix 已经在覆写后两个），不带作用域
+   等于「谁先 tick 谁说了算」。
+2. 多了第二个清扫者：[[managed_channel_ingress.py]] 的
+   `_sweep_breaker_rows`，骑在 ingress 路径上按进程日节流。**必须是两个**——
+   基类那条有作用域之后，纯托管部署里没有任何东西会碰这些行。
+
+两者都只删 `tier = 0`，且**都读该渠道 trigger 自己的
+`INGRESS_BREAKER_RETENTION_DAYS`**。托管那条第一版读的是基类值，等于把刚立下
+的 per-trigger 语义在另一个接收面上再拆一次：原生按 90 天留、托管按 30 天删，
+同一张表同一个 channel 两个口径。
 # schema_registry.py
 
 ## 2026-08-27 — 新表 channel_ingress_breaker
@@ -34,9 +52,9 @@ ingress 分级熔断的**层级状态**。一行一个会话键
 `suppressed_count` 每次跳闸重置，回答的是「**这一轮**隔离吸收了多少」而不是
 一个没有意义的终身累计。
 
-保留期清扫**尚未挂上**：本次合入时没有任何写入方，接线 PR 才给它第一个写入
-方，届时同 commit 挂进 `ChannelTriggerBase._run_cleanup`。源码里那段注释写的
-是 NOT swept yet，不是描述成已完成。
+保留期清扫已随接线挂进 `ChannelTriggerBase._run_cleanup`（与 dedup / audit
+的保留期扫描并列），只扫 `tier = 0` 的行——带升级记忆的行正是要记住的，而它们
+能进入清扫面靠的是衰减。源码注释同步改成了陈述句。
 
 ## 2026-08-27 — 新表 agent_slot_clear_audit
 
@@ -95,6 +113,46 @@ tier-2** —— 因为那条路上 LLM 有自己的列(`merged_ms`)。于是"tie
 `bypass_score_gate` 那种"这一轮没跑"的第三态),可空**只为存量行**;
 于是读侧的过滤查询必须把 NULL 与 0 当同一件事。两句都成立,针对的不是同一侧。
 完整对照表见 [[narrative_routing_audit_repository.py]] 的 8-26 条。
+
+## 2026-08-25 — `channel_ingress_breaker.session_key` 改 VARCHAR(448)、键含 agent_id
+
+键是四段 `agent_id|channel|chat_id|sender_id`。
+**419 = 128 + 32 + 128 + 128 加三个分隔符**，列宽取 448 留头寸。
+（本页 2026-08-24 那条写的 `VARCHAR(320)` / 「三段加两个分隔符」已过时。）
+
+原本漏了 `agent_id` 会造成误熔断，见
+[[channel_ingress_breaker_schema.py]] 与 [[ingress_guard.py]]。
+
+**列宽窄了是 SQLite 看不见的 bug**（这条教训保留）：TEXT 永不截断，本地
+全绿，只有 MySQL 侧才会因长键截断让两个 agent 的行撞唯一索引互相覆盖。
+现在 `session_key()` 还对四个分量各做 128 的钳制，让 419 这个算术由构造
+保证而不是靠「平台不会给超长 id」的假设。
+
+## 2026-08-24 — `channel_ingress_breaker` 新表（ingress 熔断器的持久状态）
+
+注册 `channel_ingress_breaker`：[[ingress_guard.py]] 的落库那一半，每个会话键
+`agent_id|channel|chat_id|sender_id` 一行。
+
+**只在层级变迁时写。** 驱动变迁的滑窗计数和内容指纹留在进程内存——为 10
+分钟就过期的数据每条入站消息写一行是纯写放大。必须活过进程的是**冷却**：
+8/14 那个乒乓循环跑了 70+ 小时，期间任何一次重新部署都会把已经隔离 24 小时
+的对端重新放行。
+
+列：`session_key`(**当时**为 VARCHAR(320)、三段；2026-08-25 改为 VARCHAR(448)、四段含 agent_id，见本页最新条目)、
+`channel`(VARCHAR(32))、`agent_id`/`chat_id`/`sender_id`(VARCHAR(128))、
+`tier`(INT，0=闭合，N=已跳闸 N 次的升级记忆)、`cooldown_until`(DATETIME(6))、
+`suppressed_count`(INT，**每次跳闸清零**，所以它回答「这一次隔离挡下了多少」)、
+`last_reason`(VARCHAR(64))、`last_tripped_at`、`created_at`/`updated_at`。
+索引 `uk_channel_ingress_breaker_key`(unique)、`..._cooldown`、`..._updated`。
+
+保留期由 [[channel_trigger_base.py]] 的 `_run_cleanup` 顺带扫，**只删
+`tier = 0` 的行**——带升级记忆的行正是我们承诺要记住的东西。
+
+**坑（清扫实现踩过）**：sqlite 把 `updated_at` 回读成
+`2026-08-24T10:29:33.197094+00:00`（isoformat 默认 'T'），与
+`channel_seen_messages` 那种空格形式的 cutoff 字符串比较时排序全反，
+`updated_at < %s` 一条都匹配不上却静默报告删了 0 行。时间比较改在 Python
+里用 `dialect_time.event_time_str` 做。
 
 ## 2026-08-21 — events 加复合索引 `idx_events_user_state`
 

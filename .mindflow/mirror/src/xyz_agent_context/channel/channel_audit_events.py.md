@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-08-24
 ---
+
+## 2026-08-24 — ingress 熔断器三个事件
+
+`EVENT_INGRESS_BREAKER_TRIPPED` / `_CLEARED` / `EVENT_INGRESS_DROPPED_BREAKER`。
+沿用本文件既有命名法，值是同名的小写下划线形式。
+
+三个事件合起来让 [[ingress_guard.py]] 的一生完全可以只从 DB 读懂：**什么时候
+关上了门、每一条撞在关着的门上的消息、什么时候又开了**。
+
+`tripped` 同时覆盖首次跳闸和每一次升级，由 `details.transition` 区分——
+与 subscriber 熔断器「一个事件类型 + details 变化」的处理一致。
+
+`ingress_dropped_breaker` **逐条写**是刻意的：「机器人怎么六小时不说话了」
+必须能回答，而静默 return 正是让原事故跑了 70 小时无人察觉的那类盲区
+（事故教训 #3/#5）。
 
 ## 2026-08-10 — managed 面 + manyfold files 写入的事件常量
 

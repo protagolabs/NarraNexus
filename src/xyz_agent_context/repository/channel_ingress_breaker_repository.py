@@ -198,13 +198,37 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
                 still_cooling.append(e)
         return still_cooling
 
-    async def cleanup_older_than_days(self, days: int) -> int:
+    async def cleanup_older_than_days(
+        self, days: int, channel: Optional[str] = None
+    ) -> int:
         """Delete CLOSED rows (``tier`` = 0) untouched for ``days``.
 
         Only closed rows are swept. A row with escalation memory is exactly
         the thing we promised to remember — deleting it because it has been
         quiet would hand a re-offender a fresh budget, which is the failure
         mode this table exists to prevent.
+
+        ``channel`` scopes the sweep, the same way
+        ``ChannelTriggerAuditRepository`` does and for the same reason: the
+        retention window is declared as a per-trigger class attribute, so a
+        global sweep silently means "whichever trigger ticks first wins".
+        A channel that widened its window to 90 days for an incident review
+        would still lose its rows on day 30 to some other channel's tick —
+        no error, no warning, discovered only when someone goes looking.
+
+        No row cap here, unlike ``find_open``: that one runs on every
+        process start and its result is held in memory, while this keeps
+        nothing. A cap would also make "deleted" a partial answer with no
+        way to say so.
+
+        Two callers, and the second one matters for that argument: besides
+        the trigger's background cleanup tick, ``ManagedChannelIngress``
+        calls this from the ingress path (throttled to once per
+        process-day) because managed-only deployments have no background
+        loop. So this can run inside a user turn. What keeps that bounded
+        is not a cap but ``IngressGuard._persist`` being write-through ON
+        TRANSITION ONLY — the table holds sessions that have stormed, not
+        messages.
 
         The age comparison happens in PYTHON, not in the WHERE clause. The
         two dialects do not agree on how ``updated_at`` is spelled: sqlite
@@ -228,7 +252,10 @@ class ChannelIngressBreakerRepository(BaseRepository[ChannelIngressBreaker]):
         """
         cutoff = event_time_str(utc_now() - timedelta(days=days))
         try:
-            rows = await self._db.get(self.table_name, filters={"tier": 0})
+            filters: Dict[str, Any] = {"tier": 0}
+            if channel:
+                filters["channel"] = channel
+            rows = await self._db.get(self.table_name, filters=filters)
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"ChannelIngressBreakerRepository.cleanup_older_than_days({days}): "

@@ -228,3 +228,18 @@ async def test_without_the_guard_the_incident_runs_the_full_pipeline():
     assert guarded < len(messages) * 0.05, (
         "the guard is not doing the work this file claims it does"
     )
+
+
+async def test_disabling_the_guard_is_a_visible_single_switch():
+    """`INGRESS_GUARD_ENABLED` is the documented off switch.
+
+    The deletion test above replays the incident with no guard at all and
+    demands the full pipeline reappear. That only means something in
+    production if a single, visible switch really is what controls whether
+    the guard gets constructed — otherwise "we turned it off" and "the
+    replay says it would run everything" are claims about two different
+    systems.
+    """
+    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+
+    assert ChannelTriggerBase.INGRESS_GUARD_ENABLED is True

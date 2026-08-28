@@ -130,6 +130,26 @@ def content_fingerprint(chat_id: str, sender_id: str, content: str) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 
+# Every transition worth a durable row. Kept as data rather than as four
+# string literals scattered through the state machine: ``audit_event()``
+# maps these to audit events, and an unmapped value fails silently — both
+# receive faces simply write nothing. A test asserts the set is fully
+# mapped, so adding a transition without mapping it goes red here instead
+# of going missing from the DB.
+TRANSITION_TRIPPED = "tripped"
+TRANSITION_ESCALATED = "escalated"
+TRANSITION_PROBE = "probe"
+TRANSITION_RECOVERED = "recovered"
+INGRESS_TRANSITIONS: frozenset = frozenset(
+    {
+        TRANSITION_TRIPPED,
+        TRANSITION_ESCALATED,
+        TRANSITION_PROBE,
+        TRANSITION_RECOVERED,
+    }
+)
+
+
 @dataclass(frozen=True)
 class IngressVerdict:
     """One decision, plus the evidence behind it.
@@ -144,14 +164,60 @@ class IngressVerdict:
     session_key: str
     tier: int = 0
     reason: str = "ok"
-    # None for the ordinary case. "tripped" / "escalated" / "probe" /
-    # "recovered" mark the four moments worth an audit row and a log line.
+    # None for the ordinary case; otherwise one of ``INGRESS_TRANSITIONS``
+    # — the moments worth an audit row and a log line. The set is data, not
+    # a comment, so a test can assert that every member maps to an event:
+    # an unmapped value returns None from ``audit_event()`` and then
+    # NEITHER receive face writes a row, which is silent by construction.
     transition: Optional[str] = None
     window_count: int = 0
     dup_ratio: float = 0.0
+    # The length assigned when this isolation started. Set on a trip; 0.0
+    # elsewhere because no isolation started there.
     cooldown_seconds: float = 0.0
+    # How much longer this conversation stays suppressed, as of this
+    # verdict. One caliber on every row: the full length on the trip that
+    # opened it, what is left on each message it swallows, 0.0 when
+    # nothing is being suppressed. Without it a drop row says "silenced"
+    # but not "until when" — and "the bot went quiet, for how long?" is
+    # the question these rows exist to answer.
+    cooldown_remaining_seconds: float = 0.0
     suppressed: int = 0
     is_agent_peer: bool = False
+
+    def audit_event(self) -> Optional[str]:
+        """Which audit event this verdict is, or None when it is not worth
+        a row.
+
+        Lives here rather than at the call sites because there are two of
+        them — the native trigger and the managed coordinator — and they
+        must WRITE separately (different repositories, and the coordinator
+        deliberately does not go through the trigger) but must not each own
+        a copy of WHICH event a transition is. The design still has an
+        observe tier and a merge tier unbuilt, so ``transition`` will grow
+        values; a copy that does not grow with it means those events simply
+        do not exist for one of the two surfaces.
+
+        The quiet "ok" case writes nothing — already covered by
+        ``ingress_processed``.
+        """
+        from xyz_agent_context.channel.channel_audit_events import (
+            EVENT_INGRESS_BREAKER_CLEARED,
+            EVENT_INGRESS_BREAKER_TRIPPED,
+            EVENT_INGRESS_DROPPED_BREAKER,
+        )
+
+        if self.transition in (TRANSITION_TRIPPED, TRANSITION_ESCALATED):
+            return EVENT_INGRESS_BREAKER_TRIPPED
+        if self.transition in (TRANSITION_PROBE, TRANSITION_RECOVERED):
+            return EVENT_INGRESS_BREAKER_CLEARED
+        # Deliberately NOT folded together with "should the caller drop
+        # this message" — the native gate returns ``verdict.admit`` and the
+        # managed one still answers with a receipt, whether or not a row
+        # was written. One function deciding both would bury that.
+        if not self.admit:
+            return EVENT_INGRESS_DROPPED_BREAKER
+        return None
 
     def audit_details(self) -> Dict[str, Any]:
         """The ``details`` payload for a ``channel_trigger_audit`` row."""
@@ -162,7 +228,10 @@ class IngressVerdict:
             "transition": self.transition,
             "window_count": self.window_count,
             "dup_ratio": round(self.dup_ratio, 3),
-            "cooldown_seconds": self.cooldown_seconds,
+            "cooldown_seconds": round(self.cooldown_seconds, 1),
+            "cooldown_remaining_seconds": round(
+                self.cooldown_remaining_seconds, 1
+            ),
             "suppressed": self.suppressed,
             "is_agent_peer": self.is_agent_peer,
         }
@@ -329,6 +398,9 @@ class IngressGuard:
                     reason="cooling",
                     suppressed=state.suppressed,
                     is_agent_peer=is_agent_peer,
+                    cooldown_remaining_seconds=(
+                        state.cooldown_until - now
+                    ).total_seconds(),
                 )
             return await self._half_open(
                 key, state, now, agent_id, channel, chat_id, sender_id,
@@ -565,11 +637,12 @@ class IngressGuard:
     def forget_agent(self, agent_id: str) -> int:
         """Drop every in-memory session belonging to one agent.
 
-        WILL be called when an agent's subscriber stops (credential
-        unbound, or shutdown) — there is no caller in this commit; the
-        guard lands before its wiring, on purpose. Stated as intent rather
-        than as fact because a "Called when ..." on a method nobody calls
-        reads as "the unbind path is already handled", and it is not.
+        Called from ``ChannelTriggerBase._stop_subscriber`` when an
+        agent's subscriber stops (credential unbound, or shutdown). It sat
+        here with no caller for one release, and the docstring said so in
+        the future tense on purpose: a "Called when ..." on a method nobody
+        calls reads as "the unbind path is already handled", and it was
+        not. ``test_ingress_guard_all_paths`` now pins that it has one.
 
         ``prune_idle`` cannot cover this: it deliberately keeps
         sessions carrying escalation memory, so an unbound agent's tripped
@@ -846,7 +919,7 @@ class IngressGuard:
         state.clean_since = None
         state.events.clear()
 
-        transition = "escalated" if was_open else "tripped"
+        transition = TRANSITION_ESCALATED if was_open else TRANSITION_TRIPPED
         reason = reason_hint or (
             "agent_peer_repeat_storm" if is_agent_peer else "repeat_storm"
         )
@@ -886,6 +959,9 @@ class IngressGuard:
             window_count=count,
             dup_ratio=ratio,
             cooldown_seconds=cooldown,
+            # The trip is the start of the isolation, so the whole of it
+            # is still ahead.
+            cooldown_remaining_seconds=cooldown,
             suppressed=suppressed_before,
             is_agent_peer=is_agent_peer,
         )
@@ -1009,7 +1085,7 @@ class IngressGuard:
             session_key=key,
             tier=state.tier,
             reason="cooldown_expired",
-            transition="probe",
+            transition=TRANSITION_PROBE,
             suppressed=suppressed,
             is_agent_peer=is_agent_peer,
         )
@@ -1064,7 +1140,7 @@ class IngressGuard:
                 "tier_changed_at": now,
             },
         )
-        return "recovered"
+        return TRANSITION_RECOVERED
 
     async def _persist(self, key: str, updates: Dict[str, Any]) -> None:
         """Write-through on transition only. Never raises: losing the
