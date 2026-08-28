@@ -184,7 +184,48 @@ async def test_probe_oauth_missing_auth_ref_detail_is_actionable():
     health = await driver.probe()
     assert not health.ok
     assert "auth_ref" not in health.detail
-    assert "re-add" in health.detail or "re-connect" in health.detail
+    assert "re-add" in health.detail
+
+
+def test_from_row_derives_missing_auth_ref_for_host_oauth_rows():
+    """Rows inserted before 2026-08-27 carry auth_ref=NULL until a backend
+    restart runs the startup backfill — ProviderCard.from_row derives the
+    sentinel at read time so Test works on them immediately, the same
+    read-time philosophy test_provider already applies to the sibling
+    driver_type column. Persisting stays the backfill's job."""
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
+        CLAUDE_CLI_CREDENTIALS_REF,
+        CODEX_CLI_CREDENTIALS_REF,
+        resolve_claude_credentials_path,
+    )
+
+    claude = ProviderCard.from_row({
+        "provider_id": "p1", "source": "claude_oauth",
+        "protocol": "anthropic", "auth_type": "oauth", "auth_ref": None,
+    })
+    assert claude.auth_ref == CLAUDE_CLI_CREDENTIALS_REF
+    assert resolve_claude_credentials_path(claude.auth_ref) is not None
+
+    codex = ProviderCard.from_row({
+        "provider_id": "p2", "source": "codex_oauth",
+        "protocol": "openai", "auth_type": "oauth", "auth_ref": None,
+    })
+    assert codex.auth_ref == CODEX_CLI_CREDENTIALS_REF
+
+
+def test_from_row_does_not_derive_auth_ref_for_token_rows():
+    """oauth_token rows carry no credential-file sentinel — the token IS the
+    credential. Read-time derivation must not invent one, or token cards
+    would walk into the file/Keychain probe branch."""
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+
+    card = ProviderCard.from_row({
+        "provider_id": "p1", "source": "claude_oauth",
+        "protocol": "anthropic", "auth_type": "oauth_token",
+        "api_key": TOKEN, "auth_ref": "",
+    })
+    assert not card.auth_ref
 
 
 @pytest.mark.asyncio

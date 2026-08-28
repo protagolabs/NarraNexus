@@ -12,10 +12,17 @@ stub: false
 (2026-07-26)和 codex_oauth 分支都早已在插入时写全。窗口症状:配完卡
 立刻点 Test,`probe()` 拿到 `auth_ref=NULL` 直接 VERIFY_DEAD,弹
 "auth_ref is missing"(P1 工单,dev 频繁重启把这个窗口藏了两个月)。
-现在三条腿统一插入即写全:host-CLI 写 `CLAUDE_CLI_CREDENTIALS_REF`
-sentinel,token 写 `""`(token 本身即凭据)。backfill 保留——它对
-pre-driver 老库升级仍是必要的,只是不再兼任新行的事实写入者。存量坏行
-无需迁移,下次启动 backfill 自愈。测试:
+现在 **claude/codex OAuth 的三条腿**统一插入即写全:host-CLI 写
+`CLAUDE_CLI_CREDENTIALS_REF` sentinel,token 写 `""`(token 本身即凭据)。
+注意范围:aggregator(netmind/netmind_free/yunwu/openrouter)与
+custom anthropic/openai 卡的插入路径**仍不写** driver_type/billing_policy
+——那是既定设计,resolver 有读时推导 + 回写,billing_policy 在 schema 与
+ProviderCard 双层默认 `user_pays`,api-key 行的 Test 也不走 driver 路径。
+backfill 保留——它对 pre-driver 老库升级仍是必要的,只是不再兼任新行的
+事实写入者。存量 auth_ref=NULL 的行由 `ProviderCard.from_row` 读时推导
+兜底(见 driver/base.py.md 同日条目,review 轮加固:此前文案让用户
+"删了重建",而 remove_provider 会连带清光该卡的全部 per-agent 槽位覆盖),
+下次启动 backfill 持久化。测试:
 `test_claude_oauth_token.py::test_add_claude_oauth_host_cli_row_is_complete_at_insert`。
 
 ## 2026-08-06 — OAuth 卡读时覆盖抽到 effective_card_models（口径统一）

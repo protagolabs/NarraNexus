@@ -125,9 +125,11 @@ class ClaudeOAuthDriver(_DriverBase):
 
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
-            # Creation writes the claude-cli: sentinel since 2026-08-27, so
-            # this is a genuinely corrupt row — tell the user the way out,
-            # not the internal column name (P1: the Test dialog showed
+            # Creation writes the claude-cli: sentinel at insert time and
+            # ProviderCard.from_row derives it for older rows, so reaching
+            # this branch means even (auth_type, source) couldn't produce a
+            # reference — a genuinely corrupt row. Tell the user the way
+            # out, not the internal column name (P1: the Test dialog showed
             # "auth_ref is missing" verbatim).
             return DriverHealth(
                 ok=False,

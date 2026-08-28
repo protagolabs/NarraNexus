@@ -275,6 +275,13 @@ class UserProviderService:
         there is no primary-key collision with the rows being replaced.
         """
 
+        # Function-level on purpose (providers ↔ driver import-cycle guard),
+        # but ONE import serving both OAuth branches below.
+        from xyz_agent_context.agent_framework.providers.driver.derive import (
+            CLAUDE_CLI_CREDENTIALS_REF,
+            CODEX_CLI_CREDENTIALS_REF,
+        )
+
         new_ids: list[str] = []
         now = datetime.now(timezone.utc).isoformat()
 
@@ -327,10 +334,6 @@ class UserProviderService:
                 )
                 new_ids.append(pid)
             else:
-                from xyz_agent_context.agent_framework.providers.driver.derive import (
-                    CLAUDE_CLI_CREDENTIALS_REF,
-                )
-
                 pid = _generate_provider_id()
                 row = {
                     "provider_id": pid,
@@ -364,10 +367,6 @@ class UserProviderService:
                 new_ids.append(pid)
 
         elif card_type == "codex_oauth":
-            from xyz_agent_context.agent_framework.providers.driver.derive import (
-                CODEX_CLI_CREDENTIALS_REF,
-            )
-
             # Mirror of claude_oauth: a single row representing the
             # host's ``codex login`` credential. The CodexSDK reads
             # the token directly from ~/.codex/auth.json via its
