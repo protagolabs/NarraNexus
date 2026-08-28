@@ -61,3 +61,42 @@ def test_plugin_id_equals_framework_name_and_dict_key():
             f"framework_name={spec.framework_name!r} — install location and "
             f"availability probe would key on different dirs"
         )
+
+
+def test_pip_pins_match_uv_lock():
+    """I7 guard: the registry's exact pip pins (claude-agent-sdk==X /
+    openai-codex==Y) are a hand-written copy of what uv.lock resolves for the
+    plugins extra. If a `uv lock --upgrade` bumps one and the registry is not
+    updated in step, cloud base and a local plugin install land on different
+    versions while both report 'installed'. Parse uv.lock and assert they agree
+    (same shape as test_claude_cli_pin.py / test_plugins_extra_lockstep.py)."""
+    import re
+    import tomllib
+    from pathlib import Path
+
+    from packaging.version import Version
+
+    from backend.integrations.plugins.registry import PLUGIN_SPECS
+
+    repo = Path(__file__).resolve().parents[4]
+    lock = tomllib.loads((repo / "uv.lock").read_text(encoding="utf-8"))
+    locked = {pkg["name"]: pkg["version"] for pkg in lock.get("package", [])}
+
+    # {distribution name -> pinned version} from every pip component.
+    pinned: dict[str, str] = {}
+    for spec in PLUGIN_SPECS.values():
+        for comp in spec.components:
+            if comp.kind != "pip":
+                continue
+            m = re.match(r"^([A-Za-z0-9_.\-]+)==(.+)$", comp.requirement)
+            assert m, f"pip requirement not an exact pin: {comp.requirement!r}"
+            pinned[m.group(1)] = m.group(2)
+
+    assert pinned, "no pip pins found in PLUGIN_SPECS"
+    for name, ver in pinned.items():
+        assert name in locked, f"{name} pinned in registry but absent from uv.lock"
+        assert Version(locked[name]) == Version(ver), (
+            f"{name}: registry pins {ver} but uv.lock resolves {locked[name]} — "
+            f"cloud base and local plugin install would diverge; bump the registry "
+            f"pin in step with `uv lock`"
+        )

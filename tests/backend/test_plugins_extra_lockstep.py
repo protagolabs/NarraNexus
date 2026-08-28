@@ -23,6 +23,7 @@ half of this lockstep; they live in a separate repo and are guarded on that side
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -41,17 +42,10 @@ _LOCAL_SYNC_FILES = frozenset({
     "scripts/dev/.dev-local-safe.sh",
 })
 
-_SKIP_DIRS = {".git", "node_modules", ".mindflow", ".venv", "dist", "reference"}
 
-
-def _is_command_file(path: Path) -> bool:
-    if any(part in _SKIP_DIRS for part in path.parts):
-        return False
-    return (
-        path.suffix in (".sh", ".yml", ".yaml")
-        or path.name.startswith("Dockerfile")
-        or path.name == "Makefile"
-    )
+def _is_command_file(rel: str) -> bool:
+    name = rel.rsplit("/", 1)[-1]
+    return rel.endswith((".sh", ".yml", ".yaml")) or name.startswith("Dockerfile") or name == "Makefile"
 
 
 def _uv_sync_command_lines(path: Path) -> list[str]:
@@ -72,13 +66,28 @@ def _uv_sync_command_lines(path: Path) -> list[str]:
 
 
 def _all_files_running_uv_sync() -> dict[str, list[str]]:
+    # Enumerate GIT-TRACKED files only: a `.worktrees/<name>/` (this repo's own
+    # parallel-work dir), node_modules, .venv, tauri/target etc. are all
+    # gitignored, so `git ls-files` excludes them for free — no manual skip list
+    # and no full-tree walk (which would traverse hundreds of thousands of
+    # node_modules files just to discard them).
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(_REPO), "ls-files", "-z"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout; cannot enumerate tracked files")
     found: dict[str, list[str]] = {}
-    for path in _REPO.rglob("*"):
-        if not path.is_file() or not _is_command_file(path):
+    for rel in listed.split("\0"):
+        if not rel or not _is_command_file(rel):
+            continue
+        path = _REPO / rel
+        if not path.is_file():
             continue
         lines = _uv_sync_command_lines(path)
         if lines:
-            found[str(path.relative_to(_REPO))] = lines
+            found[rel] = lines
     return found
 
 
@@ -106,7 +115,9 @@ def test_cloud_sync_pulls_plugins_extra(rel):
 
 @pytest.mark.parametrize("rel", sorted(_LOCAL_SYNC_FILES))
 def test_local_sync_stays_light(rel):
-    for line in _uv_sync_command_lines(_REPO / rel):
+    lines = _uv_sync_command_lines(_REPO / rel)
+    assert lines, f"{rel} no longer runs `uv sync` — update this guard (renamed?)"
+    for line in lines:
         assert "--extra plugins" not in line, (
             f"{rel}: local `uv sync` pulls `--extra plugins`, defeating the "
             f"lightweight build:\n    {line}"

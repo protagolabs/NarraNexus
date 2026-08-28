@@ -99,3 +99,7 @@ uninstall 处理器新增捕获 [[errors]] `PluginBusyError` → HTTP 409(安装
 ## 2026-08-28 补(auto-review C2) — list_plugins 走 run_in_threadpool
 
 `list_plugins()` 同步且会 fork `claude --version` 读版本;直接在 async 路由里调会冻住单进程桌面后端的整个 event loop(所有在途 WS/agent 流卡住,撞铁律#16)。GET 与 uninstall 收尾两处都改成 `await run_in_threadpool(_service.list_plugins)`。
+
+## 2026-08-28 补(auto-review I8) — 云端整体隐藏 plugins 面板
+
+澄清:云端不是'只读展示插件状态',而是**整体隐藏** Settings→Plugins nav+pane。因为 `/api/plugins` 的 per-plugin `installed` 是 pyenv 文件系统探测,云端(SDK 在 base、非 pyenv)会读成 False,展示只读状态反而误导。list 端点云端仍可达是 backstop,不是渲染面。前端 SettingsPage 据 `cloud_managed` 过滤掉 plugins nav 项。

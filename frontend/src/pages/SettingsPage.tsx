@@ -13,7 +13,7 @@
  * a stack of NM-bracketed regions instead of plain `<h2>` headings.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User, Puzzle } from 'lucide-react';
@@ -29,6 +29,7 @@ import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { useConfigStore } from '@/stores';
+import { api } from '@/lib/api';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -253,7 +254,30 @@ const NAV_ITEMS: NavItem[] = [
 export default function SettingsPage() {
   const { t } = useTranslation();
   const netmindToken = useConfigStore((s) => s.netmindToken);
-  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+  // Plugins are a LOCAL-only concept (cloud pre-installs the frameworks in the
+  // image). The backend says so via `/api/plugins` → `cloud_managed`; hide the
+  // whole nav entry in cloud rather than showing an empty "install plugins"
+  // pane. Async, so it may flash for a frame before hiding — acceptable for a
+  // secondary settings pane, and cloud never deep-links here (every framework
+  // is available in cloud, so the pluginRequired hint that jumps to this tab
+  // never fires).
+  const [pluginsHidden, setPluginsHidden] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api
+      .getPlugins()
+      .then((res) => {
+        if (alive) setPluginsHidden(Boolean(res?.data?.cloud_managed));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const items = NAV_ITEMS.filter(
+    (it) =>
+      (!it.desktopOnly || isTauri()) && !(it.id === 'plugins' && pluginsHidden),
+  );
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
   // payer to /app/settings?tab=account&status=… after checkout (see

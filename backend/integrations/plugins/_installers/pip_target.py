@@ -117,4 +117,4 @@ class PipTargetInstaller(PluginInstaller):
         # seconds of blocking IO; on the single desktop loop that would freeze
         # every in-flight WS/agent stream (铁律 #16).
         if target.is_dir():
-            await asyncio.to_thread(shutil.rmtree, target, True)
+            await asyncio.to_thread(lambda: shutil.rmtree(target, ignore_errors=True))

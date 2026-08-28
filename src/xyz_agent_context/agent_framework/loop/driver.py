@@ -50,8 +50,8 @@ class FrameworkNotInstalledError(RuntimeError):
     to claude_code, or bound-then-uninstalled): it propagates out of the agent
     turn through the normal run-error surface carrying the English message
     below. There is NO dedicated route catch and no per-framework localisation
-    yet — ``framework`` is exposed for a caller that wants to build one (todo:
-    reference/self_notebook/todo). Keep this docstring honest about that.
+    yet — a caller that wants a localised, per-framework hint should catch this
+    and read ``exc.framework``. Keep this docstring honest about that.
     """
 
     def __init__(self, framework: str) -> None:
@@ -162,6 +162,9 @@ def get_agent_loop_driver(
             (e.g. ``working_path``).
 
     Raises:
+        FrameworkNotInstalledError: a known plugin framework (claude_code /
+            codex_cli) whose optional SDK is not installed on the local build
+            (the fail-closed backstop — see the class docstring).
         ValueError: the resolved framework name is not registered — fail
             loud rather than silently fall back, so a typo in config is
             caught immediately instead of masquerading as "claude".

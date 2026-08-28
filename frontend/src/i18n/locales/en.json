@@ -1803,7 +1803,6 @@
         "hint": "Claude Code and Codex CLI are installed on demand — install, update, or remove them here.",
         "loading": "Loading…",
         "loadFailed": "Failed to load plugins",
-        "cloudManagedNote": "The cloud version manages these plugins centrally — nothing to install here.",
         "install": "Install",
         "update": "Update",
         "uninstall": "Uninstall",

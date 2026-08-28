@@ -1803,7 +1803,6 @@
         "hint": "Claude Code 与 Codex CLI 按需安装 —— 在这里安装、更新或卸载它们。",
         "loading": "加载中…",
         "loadFailed": "加载插件列表失败",
-        "cloudManagedNote": "云端版本统一托管这些插件 —— 这里无需安装。",
         "install": "安装",
         "update": "更新",
         "uninstall": "卸载",

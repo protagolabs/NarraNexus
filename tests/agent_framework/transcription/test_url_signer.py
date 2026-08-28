@@ -77,10 +77,7 @@ def test_verify_rejects_unknown_variant(secret):
     """If we ever introduce a new variant in mint() we shouldn't be able
     to verify a token with an unrecognised value."""
     # Forge a token with variant="hostile" but a valid signature.
-    import base64
-    import hashlib
-    import hmac
-    import json
+    import base64, hashlib, hmac, json
     payload = {
         "file_id": "att_a1b2c3d4",
         "agent_id": "a",

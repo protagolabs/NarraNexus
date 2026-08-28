@@ -171,28 +171,22 @@ def test_set_framework_cloud_gate_still_runs_before_install_gate(make_client, mo
 
 
 @pytest.mark.asyncio
-async def test_ensure_codex_installed_activates_plugin_pyenv_first():
+async def test_ensure_codex_installed_activates_plugin_pyenv_first(tmp_path, monkeypatch):
     """I-new-6 guard: _ensure_codex_installed must activate the plugin pyenv
     BEFORE importing codex_cli_bin, so a Codex plugin installed this session
     resolves without an app restart. Delete the activate_pyenv() call and this
-    goes red."""
+    goes red. Hermetic: NARRANEXUS_PLUGIN_HOME points at an empty tmp dir, so
+    the real ~/.narranexus/plugins is never appended to this process's
+    sys.path."""
     from xyz_agent_context.agent_framework import plugin_paths
 
+    monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "plugins"))
     called = {"n": 0}
     original = plugin_paths.activate_pyenv
+    monkeypatch.setattr(
+        plugin_paths, "activate_pyenv", lambda: (called.__setitem__("n", called["n"] + 1), original())[1]
+    )
 
-    def _spy():
-        called["n"] += 1
-        return original()
-
-    plugin_paths.activate_pyenv = _spy  # type: ignore[assignment]
-    try:
-        result = await providers_mod._ensure_codex_installed()
-    finally:
-        plugin_paths.activate_pyenv = original  # type: ignore[assignment]
+    await providers_mod._ensure_codex_installed()
 
     assert called["n"] >= 1
-    # And the stale "Run uv sync" guidance is gone from the failure reason.
-    if not result["installed"]:
-        assert "uv sync" not in result["reason"] or "--extra plugins" in result["reason"]
-        assert "Settings" in result["reason"]

@@ -11,9 +11,13 @@ Cloud deployments pre-install these platform-side (the images ship the SDKs
 in the base environment, so ``framework_installed`` already reports True
 without a plugin tree), so the install/uninstall verbs are local/desktop
 only — a cloud caller gets 403 before anything runs. The list endpoint stays
-available everywhere: the frontend uses ``cloud_managed`` to decide whether
-to render install/uninstall controls at all, rather than hiding the whole
-panel and losing the ability to show plugin status.
+available everywhere and returns ``cloud_managed``; the frontend uses that to
+HIDE the whole Settings → Plugins nav entry + pane in cloud (SettingsPage.tsx /
+PluginsSettings.tsx), because the plugin-install concept does not apply there —
+its per-plugin ``installed`` (a pyenv filesystem probe) would read False in
+cloud even though the frameworks are available from the base env, which would
+only confuse. So the list endpoint being reachable in cloud is a backstop, not
+a rendered surface.
 
 Authentication is the ordinary global gate: this router is not in
 ``backend.auth.AUTH_EXEMPT_PATHS``, so ``auth_middleware`` already requires
