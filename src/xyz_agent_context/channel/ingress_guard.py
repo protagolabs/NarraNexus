@@ -224,10 +224,15 @@ def _fold_isolation_end(
 ) -> Optional[datetime]:
     """The later of a tier's last move and the end of its isolation.
 
-    Used when a durable row is read into memory: ``state.cooldown_until``
-    only ever holds a cooldown still in the future, so an elapsed one has
-    to be folded into the anchor here or its record is lost. Mirrors the
-    same "later of the two" rule ``_steps_of_silence`` applies.
+    One definition, three callers: ``_load`` (folding a row's already
+    elapsed cooldown into the in-memory anchor), ``_half_open`` (folding
+    before it destroys ``cooldown_until``), and ``_steps_of_silence``
+    (folding before it measures).
+
+    ``state.cooldown_until`` only ever holds a cooldown still in the
+    future, so an elapsed one has to be folded into the anchor or its
+    record is lost — that is the reason this rule has to be applied at
+    read time and not only at measurement time.
     """
     anchor = _as_aware(anchor, reference)
     end = _as_aware(isolation_end, reference)
@@ -493,14 +498,24 @@ class IngressGuard:
         ``cooldown_until`` is only ever cleared by a probe, so a criterion
         of "never had one" would pin every session that has ever tripped.
 
-        One visible consequence of dropping: the next message from that key
-        reloads the row, and ``_load`` keeps only a cooldown still in the
-        future — so an elapsed one is not restored and the message takes
-        the ordinary counting path instead of arriving as a half-open
-        probe. Same shape as the post-restart behaviour ``_half_open``
-        already documents (an empty ``trip_fingerprints`` falls back to
-        re-earning the window); the durable tier is unaffected, which is
-        the half that matters.
+        Two visible consequences of dropping:
+
+        1. The next message from that key reloads the row, and ``_load``
+           keeps only a cooldown still in the future — so an elapsed one is
+           not restored and the message takes the ordinary counting path
+           instead of arriving as a half-open probe. Same shape as the
+           post-restart behaviour ``_half_open`` already documents (an
+           empty ``trip_fingerprints`` falls back to re-earning the
+           window); the durable tier is unaffected, which is the half that
+           matters.
+        2. ``state.suppressed`` goes with it, and that number has exactly
+           one way into the DB — the probe. A session dropped before its
+           probe therefore leaves ``suppressed_count`` at whatever the last
+           transition wrote (0 for a first trip), so "how much did this
+           isolation absorb?" is unanswerable for the very shape where the
+           breaker WORKED: stormed, isolated, went quiet, came back later.
+           Not worth fixing by writing on the way out — that would make
+           this method async, and ``admit()`` calls it without awaiting.
 
         Returns the number of sessions dropped — decayed-but-still-held
         sessions are not counted.
@@ -1002,9 +1017,10 @@ class IngressGuard:
     @property
     def _decay_step_seconds(self) -> float:
         """How long one tier step takes to decay. One definition, two
-        callers — ``_maybe_recover`` (session kept talking) and ``_load``
-        (session went silent and came back). Two copies of a decay rate is
-        two rates the day someone tunes one of them."""
+        callers — ``_maybe_recover`` (the session kept talking) and
+        ``_steps_of_silence`` (it went silent; shared by the lazy-load path
+        and the in-memory sweep). Two copies of a decay rate is two rates
+        the day someone tunes one of them."""
         return self._window * self._recovery_windows
 
     async def _maybe_recover(

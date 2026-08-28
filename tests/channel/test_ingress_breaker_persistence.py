@@ -858,6 +858,20 @@ async def test_warm_start_sessions_are_reachable_by_the_sweep(db_client):
         "criterion of 'never had one' pins it in memory permanently"
     )
 
+    # Dropping is not fully transparent, and the difference is declared in
+    # `prune_idle`'s docstring: the reload keeps only a cooldown still in
+    # the future, so the next message takes the ordinary counting path
+    # rather than arriving as a half-open probe. Asserted so that
+    # "restoring an elapsed cooldown for transparency" cannot silently
+    # reverse it. Deliberately no assertion on tier — that would depend on
+    # which step of the schedule this session happens to be on.
+    resumed = (await _storm(guard, start=BASE + timedelta(seconds=300 + step + 120),
+                            n=1, text="back again"))[0]
+    assert resumed.admit is True
+    assert resumed.transition != "probe", (
+        f"a dropped session came back as a half-open probe: {resumed}"
+    )
+
 
 async def test_a_restart_after_a_probe_does_not_age_out_the_tier(db_client):
     """The durable half of the same defect.
@@ -961,10 +975,20 @@ async def test_a_probe_persists_the_tier_the_sweep_left_behind(db_client):
     persisting it, and its justification is that the row still says tier N
     with an untouched anchor, so the next `_load` recomputes the same
     answer. A probe that writes the new anchor but keeps the old tier
-    destroys that: the reload sees an old tier with a fresh anchor, the
-    served sentence grows back, and a session that had correctly decayed
-    to 0 picks its tier up again on the first message after a cooldown —
-    then jumps to tier+1 on its next real offence.
+    destroys that: the reload sees an old tier with a fresh anchor and the
+    served sentence grows back.
+
+    Pinned on an INTERMEDIATE tier, and driven through `prune_idle` rather
+    than the private sweep. The zero case cannot occur through the public
+    API at all — `prune_idle` ages a session to 0 and drops it on the SAME
+    pass (an entry carrying a cooldown always has an empty event queue, so
+    all three stale conditions hold at once). Only `tier > 0` survives the
+    sweep, so tier 3 → 2 → probe is the one shape this defect can still
+    reach.
+
+    Tier 3 also because a 7200s cooldown is longer than a 1200s decay
+    step; at tier 1 the step count is always zero and nothing is
+    observable — the sampling blind spot this PR has hit three times.
     """
     repo = ChannelIngressBreakerRepository(db_client)
     guard = _guard(repo)
@@ -975,8 +999,8 @@ async def test_a_probe_persists_the_tier_the_sweep_left_behind(db_client):
             "agent_id": "agt_1",
             "chat_id": "!room",
             "sender_id": "@agent-liam",
-            "tier": 1,
-            "cooldown_until": BASE + timedelta(seconds=300),
+            "tier": 3,
+            "cooldown_until": BASE + timedelta(seconds=7200),
             "last_reason": "escalated",
             "tier_changed_at": BASE,
         },
@@ -985,11 +1009,14 @@ async def test_a_probe_persists_the_tier_the_sweep_left_behind(db_client):
     # runs (a lazy load after it lapsed just admits normally).
     await _storm(guard, start=BASE + timedelta(seconds=60), n=1)
     state = guard._sessions[KEY]
+    assert state.tier == 3, f"setup: {state.tier}"
 
-    # The sweep ages it out, in memory only.
-    swept_at = BASE + timedelta(seconds=300 + guard._decay_step_seconds + 60)
-    guard._decay_silent_in_memory(swept_at)
-    assert state.tier == 0, f"setup: the sweep should have aged it out: {state.tier}"
+    # Exactly one decay step past the end of the isolation: one step down,
+    # and still above zero so the entry survives the sweep.
+    swept_at = BASE + timedelta(seconds=7200 + guard._decay_step_seconds + 60)
+    guard.prune_idle(swept_at)
+    assert KEY in guard._sessions, "a tier > 0 session must survive the sweep"
+    assert state.tier == 2, f"setup: expected one step down, got {state.tier}"
 
     # Now the probe fires on the same in-memory session.
     verdict = (await _storm(guard, start=swept_at, n=1, text="brand new"))[0]
@@ -997,14 +1024,14 @@ async def test_a_probe_persists_the_tier_the_sweep_left_behind(db_client):
 
     row = await repo.get(KEY)
     assert row is not None
-    assert row.tier == 0, (
+    assert row.tier == state.tier, (
         f"the probe wrote a fresh anchor onto a stale tier: row={row.tier} "
         f"memory={state.tier}"
     )
 
     reborn = _guard(repo)
     later = (await _storm(reborn, start=swept_at + timedelta(seconds=60), n=1))[0]
-    assert later.tier == 0, (
+    assert later.tier == 2, (
         f"the served sentence grew back across the reload: {later.tier}"
     )
 

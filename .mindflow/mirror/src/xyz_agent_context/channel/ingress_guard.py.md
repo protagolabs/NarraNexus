@@ -84,9 +84,16 @@ cheapest tier forever」。那条既有测试当时是绿的，只因为它测�
 因为它有多份——第二次合并掉两份之后，第三次又为了 `_load` 复制出第三份，且
 三份的空值处理还不一致。现在是一处定义、三个 caller。
 
-**写** `state.tier_changed_at` 的点比折叠点多：`_trip` / `_maybe_recover` /
-`_half_open` / `_decay_for_silence` / `_decay_silent_in_memory` 在变更 tier 时
-写，`_load` / `warm_start` 从行里读进来。`warm_start` **写但不折**——它以
+**写** `state.tier_changed_at` 的点比折叠点多，分三类：
+
+- **变更 tier 时写**：`_trip` / `_maybe_recover` / `_decay_for_silence` /
+  `_decay_silent_in_memory`。
+- **不变更 tier、只搬运隔离终点**：`_half_open`。它**刻意保留 tier**（探测的
+  全部意义就是「不降级地放行一条」），只是在销毁 `cooldown_until` 之前把终点
+  折进锚点——理由见下一段。
+- **从行里读进来**：`_load` / `warm_start`。
+
+`warm_start` **写但不折**——它以
 `cooling_only=True` 加载，行的冷却必然在未来、必然落进 `state.cooldown_until`，
 共用函数会自己折；多写一次就是同一条规则的第四份拷贝，且没有任何测试能把两者
 区分开（试过，变异杀不掉）。
