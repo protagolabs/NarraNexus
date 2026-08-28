@@ -162,6 +162,40 @@ class IngressVerdict:
     suppressed: int = 0
     is_agent_peer: bool = False
 
+    def audit_event(self) -> Optional[str]:
+        """Which audit event this verdict is, or None when it is not worth
+        a row.
+
+        Lives here rather than at the call sites because there are two of
+        them — the native trigger and the managed coordinator — and they
+        must WRITE separately (different repositories, and the coordinator
+        deliberately does not go through the trigger) but must not each own
+        a copy of WHICH event a transition is. The design still has an
+        observe tier and a merge tier unbuilt, so ``transition`` will grow
+        values; a copy that does not grow with it means those events simply
+        do not exist for one of the two surfaces.
+
+        The quiet "ok" case writes nothing — already covered by
+        ``ingress_processed``.
+        """
+        from xyz_agent_context.channel.channel_audit_events import (
+            EVENT_INGRESS_BREAKER_CLEARED,
+            EVENT_INGRESS_BREAKER_TRIPPED,
+            EVENT_INGRESS_DROPPED_BREAKER,
+        )
+
+        if self.transition in ("tripped", "escalated"):
+            return EVENT_INGRESS_BREAKER_TRIPPED
+        if self.transition in ("probe", "recovered"):
+            return EVENT_INGRESS_BREAKER_CLEARED
+        # Deliberately NOT folded together with "should the caller drop
+        # this message" — the native gate returns ``verdict.admit`` and the
+        # managed one still answers with a receipt, whether or not a row
+        # was written. One function deciding both would bury that.
+        if not self.admit:
+            return EVENT_INGRESS_DROPPED_BREAKER
+        return None
+
     def audit_details(self) -> Dict[str, Any]:
         """The ``details`` payload for a ``channel_trigger_audit`` row."""
         return {
@@ -171,7 +205,7 @@ class IngressVerdict:
             "transition": self.transition,
             "window_count": self.window_count,
             "dup_ratio": round(self.dup_ratio, 3),
-            "cooldown_seconds": self.cooldown_seconds,
+            "cooldown_seconds": round(self.cooldown_seconds, 1),
             "cooldown_remaining_seconds": round(
                 self.cooldown_remaining_seconds, 1
             ),

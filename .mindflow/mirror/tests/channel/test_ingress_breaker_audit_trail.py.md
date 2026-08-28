@@ -3,6 +3,16 @@ code_file: tests/channel/test_ingress_breaker_audit_trail.py
 stub: false
 last_verified: 2026-08-28
 ---
+
+## 2026-08-28（接线 review）— 又两条
+
+**清扫的 channel 作用域**。去掉作用域时全套测试**照样绿**，而它正是这一轮
+最实的一条缺陷——保留期是按 trigger 声明的类属性，不带作用域就变成「谁先跑
+谁说了算」，且失效方式是静默丢数据。
+
+**事件名只有一份**。参数化跑 `transition` 全部取值断言 `audit_event()` 的映射，
+再加一条 grep：两个调用方都不许出现那三个事件常量——重新长出一个
+`if transition == ...` 时，它连编译出一个名字来比较都做不到。
 # test_ingress_breaker_audit_trail.py — 铁律 #16 的那道门槛
 
 ## 为什么单独一个文件
@@ -29,7 +39,7 @@ last_verified: 2026-08-28
 ## 构造上的两个坑
 
 - **guard 由 `start()` 构造**，而这个文件直接驱动 `_process_message`。要用
-  `_build_ingress_guard(db)` 这个工厂造，不能手搓一个——手搓的话钉住的是一个
+  `build_ingress_guard(db)` 这个工厂造，不能手搓一个——手搓的话钉住的是一个
   与线上配置不同的 guard。
 - **被放行的消息会继续走完整管线**。子类里把 `_build_and_run_agent` 短路掉：
   本文件的主题是被**拒绝**的那些消息，让放行的那几条拖进整个上下文管线只会

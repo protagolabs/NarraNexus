@@ -1983,3 +1983,82 @@ async def test_a_dropped_row_carries_the_numbers_that_explain_it(monkeypatch):
         "a drop row that cannot say how much longer leaves 'until when' "
         "unanswerable, which is half of what these rows are for"
     )
+
+
+async def test_managed_rows_age_out_without_a_native_trigger(monkeypatch):
+    """Managed rows must not depend on a same-named native trigger existing.
+
+    `ChannelTriggerBase._run_cleanup` sweeps only its own `channel_name`,
+    and the coordinator has no periodic loop, so without a sweep of its own
+    a managed-only deployment would keep these rows forever — the growth
+    the retention window exists to stop. The sweep therefore rides the
+    ingress path, throttled to once per process-day (same shape as
+    `manyfold/files.py`).
+    """
+    calls = []
+
+    class _Repo:
+        def __init__(self, db):
+            pass
+
+        async def cleanup_older_than_days(self, days, channel=None):
+            calls.append((days, channel))
+            return 0
+
+    import xyz_agent_context.repository as repo_pkg
+
+    monkeypatch.setattr(repo_pkg, "ChannelIngressBreakerRepository", _Repo)
+    trig = _GuardedTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    await _managed_send(ingress, 3)
+
+    assert calls, "managed rows are never swept"
+    assert calls[0][1] == "wechat", f"the sweep is not channel-scoped: {calls[0]}"
+    # Throttled: three turns, one sweep. Sweeping per message would put a
+    # full-table read on the hot path.
+    assert len(calls) == 1, f"the sweep is not throttled: {len(calls)} calls"
+
+
+async def test_the_managed_gate_gets_the_agent_peer_answer(monkeypatch):
+    """One evaluation feeds both the tag and the breaker.
+
+    The breaker judges an agent peer against its own pair of thresholds —
+    that is the whole reason the signal is handed to the gate rather than
+    only stamped on the tag. If the gate stopped receiving it, A2A
+    conversations would silently fall back to the human thresholds and
+    nothing would fail.
+
+    The fake overrides BOTH pairs: the base class's agent thresholds are
+    not simply lower, they are a separate pair, so lowering only the human
+    ones (as the shared `_GuardedTrigger` does) leaves an agent peer
+    judged at the default 20 and this storm never trips at all.
+    """
+    from xyz_agent_context.channel.channel_audit_events import (
+        EVENT_INGRESS_BREAKER_TRIPPED,
+    )
+
+    class _AgentPeerTrigger(_GuardedTrigger):
+        INGRESS_AGENT_RATE_THRESHOLD = 5
+        INGRESS_AGENT_DUP_RATIO_THRESHOLD = 0.5
+
+        def is_agent_peer(self, message):
+            return True
+
+    _AuditRecorder.rows = []
+    trig = _AgentPeerTrigger()
+    monkeypatch.setitem(ingress_mod.CHANNEL_TRIGGER_MAP, "wechat", lambda: trig)
+    monkeypatch.setattr(ingress_mod, "ChannelTriggerAuditRepository", _AuditRecorder)
+    ingress = ingress_mod.ManagedChannelIngress()
+
+    await _managed_send(ingress, 12)
+
+    trips = [
+        kw for _, e, kw in _AuditRecorder.rows if e == EVENT_INGRESS_BREAKER_TRIPPED
+    ]
+    assert trips, "the storm never tripped"
+    assert trips[0]["details"]["is_agent_peer"] is True, (
+        "the gate judged an agent peer on the human thresholds — the signal "
+        "never reached it"
+    )

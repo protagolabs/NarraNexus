@@ -62,7 +62,7 @@ worker 队列 / `_process_message`），而 [[ingress_guard.py]] 在
 的结果是：不单独接线的话，**Manyfold 面会是唯一一条没设防的入口**。
 
 所以协调器自己持有 per-channel 的 guard（`self._guards`），并且**通过
-`trigger._build_ingress_guard(db)` 构造，不手抄那七个阈值**——某个渠道收紧
+`trigger.build_ingress_guard(db)` 构造，不手抄那七个阈值**——某个渠道收紧
 自己的数字时要两条路一起收紧。`test_managed_guard_reuses_the_channel_tunables`
 钉住这一点。
 
@@ -118,6 +118,21 @@ reply kwargs 走 trigger 的 `managed_reply_kwargs` seam,无 trigger
 
 不再触碰 trigger 私有方法;契约知识(extra 字典 → Attachment 对象)留
 协调器,编排知识归 trigger 的 `managed_silent_ingest`。
+
+## 2026-08-28（接线 review）— 三处收口
+
+**保留期清扫是协调器自己的事。** 基类那条按 `channel_name` 作用域扫，而协调器
+没有周期循环——托管行原本能被清掉纯粹是因为那条清扫当时是全局的。加作用域之后
+纯托管部署里它们会永久堆积，所以清扫改为**骑在 ingress 路径上、按进程日节流**
+（与 `manyfold/files.py` 的审计保留期同形）。
+
+**`is_agent_peer` 一次求值。** 此前盖章处和闸门各求一次，且降级方式不同：盖章
+处抛异常记为 human（少一层收紧），闸门处抛异常被外层 `except` 吞掉 →
+**整个熔断器对这条消息失效**。现在算一次传进去，降级只有一种。
+
+**`build_ingress_guard` 去掉下划线。** 它是跨组件契约（协调器靠它拿到与原生面
+同一套阈值），却带着私有名——下一个做「清理私有方法」的人会正确地认为这是层次
+违规而改掉它，而改掉的结果是托管面失去熔断器。
 # managed_channel_ingress.py — 托管模式的 trigger 执行体宿主
 
 ## 为什么存在

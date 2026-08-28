@@ -113,7 +113,7 @@ def test_managed_before_run_calls_the_guard():
 def test_managed_guard_reuses_the_channel_tunables():
     """Managed and native must not drift into two sets of thresholds."""
     source = _code(ManagedChannelIngress._guard)
-    assert "_build_ingress_guard(" in source, (
+    assert "build_ingress_guard(" in source, (
         "the managed guard must be built from the trigger's own class "
         "attributes, not from hand-copied constants"
     )
@@ -128,7 +128,7 @@ def test_every_channel_answers_the_agent_peer_question(cls):
 
 def test_guard_is_built_during_start():
     source = _code(ChannelTriggerBase.start)
-    assert "_build_ingress_guard(" in source
+    assert "build_ingress_guard(" in source
 
 
 # ─────────────────────────────────────────────────────────────────────

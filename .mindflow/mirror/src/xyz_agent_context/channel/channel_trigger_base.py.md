@@ -4,6 +4,19 @@ stub: false
 last_verified: 2026-08-28
 ---
 
+## 2026-08-28（接线 review）— 清扫作用域与闸门次序
+
+`_run_cleanup` 里那条 ingress 清扫补上 `channel=self.channel_name`，与它上面
+两条对齐（理由见 [[channel_ingress_breaker_repository]]）。
+
+`_process_message` 里「Last gate before anything expensive」这句改成陈述实情：
+它是**本方法内**的最后一道门，但自己接管 `_process_message` 的渠道可能在委托
+过来之前就花过钱——Matrix 的 dm / group_mention 两条路先付一次 Narra
+`authorize-event` 往返。**记录而不是修**：把闸门上提会让 `super()` 对同一条
+消息再判一次，滑窗记两遍，该渠道会在阈值一半就跳闸；要修得先给基类一条「本条
+已判过」的通路，或让 Matrix 像 Lark 一样完全接管，都不是一行改动。代价是每条
+被压制的消息多一次 HTTP，昂贵的那半仍然被挡住。
+
 ## 2026-08-26 — `is_agent_peer` seam
 
 新增可覆写 hook，默认 False（多数渠道每个发送者都是人，猜错这个方向不改变

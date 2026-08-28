@@ -174,6 +174,12 @@ def _trigger_modules():
     return mods
 
 
+# Argument names that mean "the entire serialised tag", as opposed to one
+# field of it. Kept explicit so adding a rehydrator is a deliberate edit
+# here rather than an accident of how many parameters it happens to take.
+_WHOLE_PAYLOAD_ARG_NAMES = {"data", "raw", "payload", "tag_str", "serialised"}
+
+
 def _tag_builders() -> set[str]:
     """Factory names that build a tag FROM FIELDS.
 
@@ -189,8 +195,15 @@ def _tag_builders() -> set[str]:
         if not isinstance(value, (staticmethod, classmethod)):
             continue
         params = list(inspect.signature(getattr(ChannelTag, name)).parameters)
-        if len(params) > 1:
-            out.add(name)
+        # A rehydrator takes the serialised tag as one whole-payload
+        # argument. Testing the NAME of that argument rather than just
+        # counting parameters keeps a future single-FIELD factory
+        # (``ChannelTag.slack(sender_id)``) inside the guard — counting
+        # alone would quietly drop it, and a dropped site fails by
+        # reporting "human", never by erroring.
+        if len(params) == 1 and params[0] in _WHOLE_PAYLOAD_ARG_NAMES:
+            continue
+        out.add(name)
     return out
 
 

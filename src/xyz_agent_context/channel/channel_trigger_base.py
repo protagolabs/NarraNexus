@@ -66,9 +66,6 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_UNBOUND,
     EVENT_INGRESS_DROPPED_UNPARSED,
     EVENT_INGRESS_DROPPED_EMPTY,
-    EVENT_INGRESS_BREAKER_TRIPPED,
-    EVENT_INGRESS_BREAKER_CLEARED,
-    EVENT_INGRESS_DROPPED_BREAKER,
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
@@ -651,7 +648,7 @@ class ChannelTriggerBase(ABC):
         self._audit_repo = ChannelTriggerAuditRepository(self.channel_name, db)
 
         if self.INGRESS_GUARD_ENABLED:
-            self._ingress_guard = self._build_ingress_guard(db)
+            self._ingress_guard = self.build_ingress_guard(db)
             # Restore still-isolated conversations BEFORE serving traffic,
             # so /healthz and the heartbeat report the real standing state
             # from the first beat instead of an all-clear that only becomes
@@ -1474,9 +1471,22 @@ class ChannelTriggerBase(ABC):
             return
 
         # Ingress circuit breaker — "is this worth processing at all?".
-        # Last gate before anything expensive: name resolution hits the
-        # platform API, attachment fetch downloads bytes, and the run itself
-        # burns the pipeline. Audits its own drops (see _ingress_admitted).
+        # Last gate before anything expensive IN THIS METHOD: name
+        # resolution hits the platform API, attachment fetch downloads
+        # bytes, and the run itself burns the pipeline.
+        #
+        # Not the first gate on every route, though. A channel that owns
+        # its own ``_process_message`` may spend before delegating here —
+        # Matrix pays a Narra ``authorize-event`` round-trip on its dm and
+        # group_mention paths first. Stated rather than fixed: hoisting the
+        # breaker above that would make ``super()`` judge the same message
+        # a second time, so the window would count it twice and the channel
+        # would trip at half its threshold. Closing that properly means
+        # either a "already judged" channel into the base or Matrix taking
+        # over ``_process_message`` outright, which is not a one-line
+        # change. The waste is one HTTP round-trip per suppressed message;
+        # the expensive half is still blocked. Audits its own drops (see
+        # _ingress_admitted).
         if not await self._ingress_admitted(credential, message):
             return
 
@@ -2295,12 +2305,18 @@ class ChannelTriggerBase(ABC):
     # Ingress circuit breaker
     # ────────────────────────────────────────────────────────────────────
 
-    def _build_ingress_guard(self, db: Any) -> IngressGuard:
+    def build_ingress_guard(self, db: Any) -> IngressGuard:
         """Construct this channel's guard from the class-level tunables.
 
-        Split out so the managed-mode coordinator — which never calls
-        ``start()`` — can build an identically-configured guard from the
-        same knobs instead of hand-copying seven constants.
+        PUBLIC on purpose, unlike most of this class's internals: the
+        managed-mode coordinator — which never calls ``start()`` — builds
+        its guard through this, so it is a cross-component contract like
+        ``managed_before_run`` and the rest of that family. Named private,
+        it reads to the next reader as a layering violation to be tidied
+        away, and tidying it away silently removes the breaker from the
+        managed surface.
+
+        Existing so that coordinator does not hand-copy seven constants.
         """
         return IngressGuard(
             repo=ChannelIngressBreakerRepository(db) if db is not None else None,
@@ -2368,13 +2384,7 @@ class ChannelTriggerBase(ABC):
         """One audit row per verdict that changed something or dropped a
         message. The quiet 'ok' case writes nothing — that is already
         covered by ``ingress_processed``."""
-        event: Optional[str] = None
-        if verdict.transition in ("tripped", "escalated"):
-            event = EVENT_INGRESS_BREAKER_TRIPPED
-        elif verdict.transition in ("probe", "recovered"):
-            event = EVENT_INGRESS_BREAKER_CLEARED
-        elif not verdict.admit:
-            event = EVENT_INGRESS_DROPPED_BREAKER
+        event = verdict.audit_event()
         if event is None:
             return
         await self._audit(
@@ -2479,7 +2489,15 @@ class ChannelTriggerBase(ABC):
                 # Only CLOSED rows age out — see the repository docstring.
                 deleted = await ChannelIngressBreakerRepository(
                     self._db
-                ).cleanup_older_than_days(self.INGRESS_BREAKER_RETENTION_DAYS)
+                ).cleanup_older_than_days(
+                    self.INGRESS_BREAKER_RETENTION_DAYS,
+                    # Scoped, like the two sweeps above it. Unscoped, this
+                    # class attribute would not be per-trigger at all: six
+                    # native triggers in one process would each sweep the
+                    # whole table, five of them redundantly, and the
+                    # shortest retention would silently win for everyone.
+                    channel=self.channel_name,
+                )
                 if deleted:
                     logger.info(
                         f"{type(self).__name__}: cleaned {deleted} closed ingress "

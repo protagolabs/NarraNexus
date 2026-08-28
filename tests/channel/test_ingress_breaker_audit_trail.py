@@ -22,6 +22,7 @@ from __future__ import annotations
 import pytest
 
 from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_INGRESS_BREAKER_CLEARED,
     EVENT_INGRESS_BREAKER_TRIPPED,
     EVENT_INGRESS_DROPPED_BREAKER,
 )
@@ -103,7 +104,7 @@ async def _storm(db_client, n: int):
     # `_process_message` directly, so build it from the same factory rather
     # than hand-rolling one — otherwise the test would be pinning a guard
     # configured differently from the one that ships.
-    trigger._ingress_guard = trigger._build_ingress_guard(db_client)
+    trigger._ingress_guard = trigger.build_ingress_guard(db_client)
     for i in range(n):
         msg = trigger.parse_event(
             {"id": f"m{i}", "content": "same thing again", "ts_ms": 1000 + i}
@@ -161,4 +162,125 @@ async def test_a_native_drop_row_says_why_and_until_when(db_client):
     assert details["cooldown_remaining_seconds"] > 0, (
         "a row that cannot say how much longer leaves 'until when' "
         "unanswerable, which is half of what these rows are for"
+    )
+
+
+# ---------------------------------------------------------------------------
+# One mapping, two writers
+#
+# The WRITE genuinely has to happen twice — the native gate goes through
+# `_audit`, the managed coordinator through its own direct seam, and a
+# mutation removing either one leaves the other's tests green. But "which
+# event is this transition" is knowledge, not plumbing, and it used to be
+# copied verbatim into both. `IngressVerdict.audit_event()` owns it now.
+#
+# The design still has an observe tier and a merge tier unbuilt, so
+# `transition` will grow values. A copy that does not grow with it means
+# those events simply never exist for one of the two surfaces — and that
+# surface is the one the audit trail is supposed to explain.
+# ---------------------------------------------------------------------------
+
+_TRANSITIONS = [None, "tripped", "escalated", "probe", "recovered"]
+
+
+@pytest.mark.parametrize("transition", _TRANSITIONS)
+@pytest.mark.parametrize("admit", [True, False])
+def test_both_surfaces_read_the_same_event_from_the_verdict(transition, admit):
+    """Neither call site may re-derive the event name.
+
+    Asserted by source, because the alternative — running both paths for
+    every transition — needs two whole harnesses to compare one string.
+    The grep is precise about what it forbids: the event constants must
+    not be reachable at either call site, so a reintroduced `if
+    transition == ...` cannot compile a name to compare.
+    """
+    from xyz_agent_context.channel.ingress_guard import IngressVerdict
+
+    verdict = IngressVerdict(
+        admit=admit,
+        session_key="a|c|r|s",
+        tier=1,
+        reason="cooling" if not admit else "ok",
+        transition=transition,
+    )
+    event = verdict.audit_event()
+
+    if transition in ("tripped", "escalated"):
+        assert event == EVENT_INGRESS_BREAKER_TRIPPED
+    elif transition in ("probe", "recovered"):
+        assert event == EVENT_INGRESS_BREAKER_CLEARED
+    elif not admit:
+        assert event == EVENT_INGRESS_DROPPED_BREAKER
+    else:
+        assert event is None, "a plain admitted turn is already ingress_processed"
+
+
+def test_neither_call_site_keeps_its_own_copy_of_the_mapping():
+    """The two writers must ask the verdict, not decide for themselves."""
+    import inspect
+
+    from xyz_agent_context.channel import channel_trigger_base
+    from xyz_agent_context.module import managed_channel_ingress
+
+    for mod in (channel_trigger_base, managed_channel_ingress):
+        src = inspect.getsource(mod)
+        assert "verdict.audit_event()" in src, (
+            f"{mod.__name__} does not ask the verdict which event this is"
+        )
+        for const in (
+            "EVENT_INGRESS_BREAKER_TRIPPED",
+            "EVENT_INGRESS_BREAKER_CLEARED",
+            "EVENT_INGRESS_DROPPED_BREAKER",
+        ):
+            assert const not in src, (
+                f"{mod.__name__} names {const} directly — the mapping is "
+                f"drifting back into the call sites, and a new transition "
+                f"will reach one surface and not the other"
+            )
+
+
+async def test_retention_only_sweeps_its_own_channel(db_client):
+    """The retention window is a per-trigger class attribute, so the sweep
+    has to be per-channel too.
+
+    Unscoped, `INGRESS_BREAKER_RETENTION_DAYS` does not mean what its
+    declaration says: six native triggers in one process would each sweep
+    the whole table, and whichever ticks first decides everyone's window.
+    A channel that widened its window to 90 days for an incident review
+    would still lose its rows on day 30 — no error, no warning, discovered
+    only when someone goes looking. The two sweeps beside it in
+    `_run_cleanup` are both scoped for exactly this reason.
+    """
+    from xyz_agent_context.repository import ChannelIngressBreakerRepository
+    from xyz_agent_context.utils.timezone import utc_now
+    from datetime import timedelta
+
+    repo = ChannelIngressBreakerRepository(db_client)
+    old = utc_now() - timedelta(days=90)
+    for channel in ("mine", "someone_else"):
+        await repo.upsert_state(
+            f"a1|{channel}|room|peer",
+            {
+                "channel": channel,
+                "agent_id": "a1",
+                "chat_id": "room",
+                "sender_id": "peer",
+                "tier": 0,
+                "cooldown_until": None,
+            },
+        )
+        await db_client.update(
+            "channel_ingress_breaker",
+            {"session_key": f"a1|{channel}|room|peer"},
+            {"updated_at": old.isoformat()},
+        )
+
+    deleted = await repo.cleanup_older_than_days(30, channel="mine")
+
+    assert deleted == 1, f"swept {deleted} rows — the scope is not applied"
+    survivors = await db_client.get("channel_ingress_breaker", {})
+    channels = {r["channel"] for r in survivors}
+    assert channels == {"someone_else"}, (
+        f"another channel's rows were deleted by this channel's tick: "
+        f"{channels}"
     )

@@ -20,6 +20,18 @@ last_verified: 2026-08-28
 
 原生面的同一道门槛在 [[test_ingress_breaker_audit_trail.py]]——两个面走**不同
 的审计调用点**，把原生那侧改成不写，这里的用例照样全绿。
+
+## 2026-08-28（接线 review）— 托管面的清扫与 peer 标记
+
+**托管行不能依赖同名原生 trigger 存在**：基类清扫按自己的 `channel_name` 作用
+域，纯托管部署里那些行永远不会被扫到。断言清扫被调用、带对 channel、且按天
+节流（三个回合只扫一次——每条消息扫一次等于把全表读放进热路径）。
+
+**闸门要收到 `is_agent_peer`**：它判 agent 对端用的是**另一对**阈值，不是把
+人类那对调低。所以这条用例的 fake 必须两对都覆写——只覆写人类那对（共享的
+`_GuardedTrigger` 就是这样）会让 agent 对端按默认的 20 判定，风暴**根本不跳
+闸**，而我第一版正是这么写的，失败信息还是「storm never tripped」这种看起来
+像被测代码坏了的样子。
 # test_manyfold_im_ingress.py — 托管 IM 入站的映射与 route 接线
 
 覆盖 `build_inbound_run_context` 的 provider 映射（channel_provider /

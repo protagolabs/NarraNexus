@@ -1,8 +1,16 @@
 ---
 code_file: tests/channel/test_ingress_guard_all_paths.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-08-28
 ---
+
+## 2026-08-28（接线 review）— `build_ingress_guard` 去掉下划线
+
+本文件按**名字**钉住那个工厂（`test_guard_is_built_during_start` 与
+`test_managed_guard_reuses_the_channel_tunables`），所以重命名要同步。
+
+改名本身的理由在 [[managed_channel_ingress.py]]：它是跨组件契约，私有名会把
+下一个做「清理私有方法」的人引向删掉它，而删掉的结果是托管面失去熔断器。
 # test_ingress_guard_all_paths.py — 每条入站路径都要经过守卫
 
 没有单一 chokepoint 可放守卫，所以 seam 是**方法**（`_ingress_admitted`），

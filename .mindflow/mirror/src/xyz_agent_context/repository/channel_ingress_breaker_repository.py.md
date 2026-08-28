@@ -62,6 +62,19 @@ NULL 排最后，被切掉的尾巴通常恰好是本方法本来就要丢的那
 `warm_start` 因此只取 `cooling_only=True`（当前仍在冷却的），否则内存占用
 和 `/healthz` 的计数会随部署次数单调上升。
 
+
+## 2026-08-28（接线 review）— 清扫按 channel 作用域
+
+`cleanup_older_than_days` 加了 `channel`，与 `ChannelTriggerAuditRepository`
+同一条约定、同一个理由：保留期是按 trigger 声明的**类属性**，不带作用域的话
+它实际语义是「哪个 trigger 先跑，全表就按谁的天数删」。某个渠道为事故复盘把
+窗口放宽到 90 天，行照样在第 30 天被别人那一跑删掉——不报错、不告警，等要查
+的时候才发现没了。附带代价：一个进程六个原生 trigger，每 tick 六次全表扫，
+五次纯重复；日志归属也是错的。
+
+**不加行数上限**（与刻意加了上限的 `find_open` 不同）：那个每次进程启动跑一次
+且结果驻留内存，这个每 tick 跑一次且什么都不留；加了上限还会让「删了多少」
+变成一个说不清是否完整的数。
 # channel_ingress_breaker_repository.py — ingress 熔断器状态数据访问
 
 ## 为什么存在
