@@ -28,6 +28,7 @@ import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { isOwnerReplyTool } from '@/lib/ownerTools';
+import { isMonologueFrame } from '@/lib/monologueTier';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -949,6 +950,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
           const thinking = message as AgentThinking;
           const delta = thinking.thinking_content;
           if (!delta) break;
+          // Tier (design A′): NexusPower's own narration renders at the
+          // PROGRESS tier, provider CoT keeps receding. A tier switch is a
+          // block boundary — a block carries ONE tier flag, so merging across
+          // one would label two tiers of text with a single one (dimming the
+          // narration, or brightening the scratchpad).
+          //
+          // Every path carries a real tier now — live frames, reconnect
+          // replay and event-log reload alike (run_recorder tags the segment,
+          // wsManager translates it). So this is a plain boolean again; the
+          // "unknown tier" state that used to guard the replay seam is gone
+          // with the gap that needed it.
+          const isMonologue = isMonologueFrame(delta, thinking.monologue);
           set((state) => ({
             agentSessions: updateSession(state.agentSessions, agentId, (s) => {
               const events = s.currentEvents;
@@ -958,8 +971,15 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 if (t === 'tool_call' || t === 'reply') break;
                 if (t === 'thinking') { openIdx = i; break; }
               }
-              if (openIdx >= 0) {
-                const open = events[openIdx] as Extract<TurnEvent, { type: 'thinking' }>;
+              const open =
+                openIdx >= 0
+                  ? (events[openIdx] as Extract<TurnEvent, { type: 'thinking' }>)
+                  : null;
+              // A tier switch is a block boundary. It can only fall where the
+              // tier genuinely changed: both the WS batcher and run_recorder
+              // refuse to coalesce across a switch, so no frame arriving here
+              // straddles one.
+              if (open && !!open.monologue === isMonologue) {
                 const merged: TurnEvent = { ...open, content: open.content + delta };
                 return {
                   currentThinking: s.currentThinking + delta,
@@ -970,12 +990,14 @@ export const useChatStore = create<ChatState>((_set, get) => {
                   ],
                 };
               }
-              // No open thinking bubble in the current phase — start one.
+              // No open thinking bubble in the current phase, or the open one
+              // is the other tier — start one.
               const nextEvent: TurnEvent = {
                 type: 'thinking',
                 id: generateId(),
                 ts: thinking.timestamp ?? Date.now() / 1000,
                 content: delta,
+                monologue: isMonologue,
               };
               return {
                 currentThinking: s.currentThinking + delta,

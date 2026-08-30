@@ -11,6 +11,7 @@
 import type { TFunction } from 'i18next';
 import { Loader2 } from 'lucide-react';
 import type { Step, TurnEvent } from '@/types';
+import { cn } from '@/lib/utils';
 
 /** Pipeline step id → i18n label. The labels name what the backend
  *  ACTUALLY does at each step (step ids from step_3_agent_loop /
@@ -152,18 +153,40 @@ export function LiveCursorRow() {
 
 /** Terminal-style rows for one turn's process events (thinking / tool
  *  call / tool output). Shared by the single-agent ProcessPanel and the
- *  team roster's member detail. Pure render — no scrolling, no state. */
-export function ProcessEventRows({ process }: { process: TurnEvent[] }) {
+ *  team roster's member detail. Pure render — no scrolling, no state.
+ *
+ *  `showNarration` is the panel-level display preference, resolved by the
+ *  caller rather than subscribed here on purpose: a shared render component
+ *  with a hidden global input is how you get "I passed the right events and
+ *  it still looks wrong" in the next panel that reuses it. */
+export function ProcessEventRows({
+  process,
+  showNarration,
+}: {
+  process: TurnEvent[];
+  showNarration: boolean;
+}) {
   return (
     <>
       {process.map((event) => {
         if (event.type === 'thinking') {
+          // Progress tier (design A′): NexusPower's own narration reads as
+          // prose the user is meant to follow, so it drops the italic and
+          // steps one rung up the ink ladder (ink70). Provider CoT keeps the
+          // italic ink50 scratchpad look. Same glyph, same row, same rail —
+          // this is a tone change inside the process register, not a promotion
+          // out of it. Tier comes from the event, preference from the caller —
+          // same split as TurnTimeline's ThinkingBlock.
+          const narration = showNarration && !!event.monologue;
           return (
             <div key={event.id} className="flex gap-2 py-0.5">
               <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-carbon)' }}>
                 ∴
               </span>
-              <span className="whitespace-pre-wrap italic" style={{ color: 'var(--nm-ink50)' }}>
+              <span
+                className={cn('whitespace-pre-wrap', !narration && 'italic')}
+                style={{ color: narration ? 'var(--nm-ink70)' : 'var(--nm-ink50)' }}
+              >
                 {event.content}
               </span>
             </div>

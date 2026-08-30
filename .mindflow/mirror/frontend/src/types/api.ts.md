@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `EventLogTimelineEntry.monologue?: boolean`
+
+镜像后端 `api_schema.EventLogTimelineEntry` 同名字段（见 [[api_schema]]）。
+只对 `thinking` 条目有意义：该块是 NexusPower 独白而非 provider CoT，回放时
+按「进度」档渲染。
+
+**这里是 bool，不是子集文本**——后端已经把档位判完并按档切块（一个条目一个
+档）。实时 WS 帧走的是另一套（`AgentThinking.monologue` 是 string 子集，见
+[[messages]]）。存量行没有该字段 → 普通 thinking。
 
 ## 2026-08-26 — bulk slot 类型
 

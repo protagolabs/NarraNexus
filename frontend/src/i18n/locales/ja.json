@@ -77,7 +77,7 @@
       "downloadMd": ".md としてダウンロード"
     },
     "timeline": {
-      "thinking": "思考",
+      "thought": "思考済み",
       "toolLabel": "[ ツール ]",
       "outputLabel": "[ 出力 ]",
       "reply": "返信",
@@ -1368,7 +1368,9 @@
       },
       "personalization": {
         "label": "パーソナライズ",
-        "hint": "テーマと言語。今後追加予定。"
+        "hint": "テーマ、言語、そしてエージェントの進捗メモの表示方法。",
+        "narrationTitle": "進捗ナレーション",
+        "narrationHint": "エージェントがステップの合間に書くメモを会話内に読みやすく表示し、実行全体を一つの折りたたみに収めません。"
       }
     },
     "system": {

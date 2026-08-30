@@ -11,7 +11,10 @@
  *
  * Blocks are chronological (so the user sees the agent's actual rhythm
  * "think → tool → think → tool"); thinking recedes (dashed rule, dim
- * tone), tools are single-line mono affordances whose full args/output
+ * tone) — except NexusPower's own narration, which since 2026-08-30
+ * renders one rung brighter as the PROGRESS tier (design A′; still a
+ * process block, never a bubble) — and tools are single-line mono
+ * affordances whose full args/output
  * live in the right-side Execution panel. (2026-05-12 review with Xiong
  * established the chronological-blocks model; the markdown-* variant
  * classes in index.css are the hook that dims settled thinking —
@@ -28,10 +31,12 @@ import {
   Wrench,
   ChevronDown,
   ChevronRight,
+  Milestone,
 } from 'lucide-react';
 import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 interface TurnTimelineProps {
   events: TurnEvent[];
@@ -39,6 +44,9 @@ interface TurnTimelineProps {
    *  new event). When false (e.g. completed turn still in view), the
    *  blocks render in their final, settled state. */
   isStreaming?: boolean;
+  /** Start reasoning blocks expanded — used by the drawer path, where the
+   *  click that opened the drawer already means "show me this". */
+  defaultOpen?: boolean;
 }
 
 const TOOL_ARGS_PREVIEW_CHAR_LIMIT = 80;
@@ -55,54 +63,80 @@ const TOOL_ARGS_PREVIEW_CHAR_LIMIT = 80;
 const ThinkingBlock = memo(function ThinkingBlock({
   content,
   isStreaming,
+  narration,
+  defaultOpen = false,
 }: {
   content: string;
   isStreaming: boolean;
+  /** Tier: PROGRESS instead of the receded reasoning tone. True only for
+   *  NexusPower narration AND only while the user preference is on — the
+   *  caller resolves both, so this stays a pure tier switch. */
+  narration?: boolean;
+  /** Start the reasoning block expanded. Set when the reader already spent a
+   *  click to get here (the drawer path), so reading the reasoning does not
+   *  cost a second one — and N more for a verbose model, which would turn
+   *  iron rule #15's "a chatty model is the user's choice" into a per-turn
+   *  tax we imposed. Ignored for narration, which is never collapsed. */
+  defaultOpen?: boolean;
 }) {
   const { t } = useTranslation();
-  // Tier: PROCESS. Thinking is the agent's internal monologue — not
-  // something the user must read. It recedes: a *dashed* left rule
-  // (dashed = process; solid = content-the-user-reads) and the dimmest
-  // tone throughout.
-  //
-  // The settled body goes through <Markdown>, whose `.markdown-content`
-  // sets an explicit `color` that wins over any ancestor utility class —
-  // so the `text-[var(--text-tertiary)]` on the container only reaches
-  // the label + the streaming plain-text path. The `markdown-dim`
-  // variant class (index.css) is what actually dims the settled body.
-  //
-  // Streaming caveat: <Markdown> re-parses the entire content on every
-  // re-render, so feeding it a new full string per delta tanks input
-  // latency the longer the thinking gets (catch from Bin during the
-  // 2026-05-12 deploy). While streaming we therefore render plain
-  // pre-wrap text; once the turn settles (isStreaming=false, also the
-  // path used by historical timelines) we switch to Markdown so
-  // headings / bullets / code render properly.
-  // NM tier: PROCESS — recedes into ink-50 dim. The dashed border-left
-  // stays at the *row level* (drawn against the shared turn rail by the
-  // outer wrapper); inside the block we paint nothing on the left.
-  return (
-    <div
-      className={cn(
-        'pl-4 py-2',
-        isStreaming && 'animate-fade-in',
-      )}
-      style={{ color: 'var(--nm-ink50)' }}
-    >
+  const [open, setOpen] = useState(defaultOpen);
+
+  // PROGRESS tier — the sentence the agent writes before each tool call.
+  // It is what the user reads while waiting, so it is never behind a toggle
+  // and sits at near-body weight (text-secondary, one rung under the
+  // answer). Its only chrome is a 12px marker in the SAME colour as the
+  // text (design_system §5: an icon never gets its own grey) — enough to
+  // tell it from the final answer on a reloaded turn without making it a
+  // bubble. Not a bubble on purpose: promoting it out of the process
+  // register is the one thing the constitution still does not allow —
+  // plain text is visible, never delivered.
+  if (narration) {
+    return (
       <div
-        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] mb-2"
+        className={cn('flex gap-2 pl-4 py-1.5', isStreaming && 'animate-fade-in')}
+        style={{ color: 'var(--text-secondary)' }}
+      >
+        <Milestone className="w-3 h-3 mt-1 shrink-0" />
+        <div className="text-sm leading-relaxed min-w-0">
+          {isStreaming ? (
+            <div className="whitespace-pre-wrap">{content}</div>
+          ) : (
+            <Markdown content={content} className="markdown-progress" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // REASONING tier — provider chain-of-thought is the agent's scratchpad,
+  // not something the user must read, so it collapses to one line and opens
+  // on demand. Until 2026-08-30 the WHOLE turn hid behind one drawer; now
+  // the turn is open and only this recedes. Nothing became unreachable —
+  // the full text is one click away (iron rule #16 is about content, not
+  // about how many pixels it occupies by default).
+  return (
+    <div className={cn('pl-4 py-1', isStreaming && 'animate-fade-in')}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 text-xs transition-opacity hover:opacity-80"
         style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
       >
+        <ChevronRight className={cn('w-3 h-3 transition-transform', open && 'rotate-90')} />
         <Brain className="w-3 h-3" />
-        <span>{t('chat.timeline.thinking')}</span>
-      </div>
-      <div className="text-sm leading-relaxed">
-        {isStreaming ? (
-          <div className="whitespace-pre-wrap" style={{ color: 'var(--nm-ink50)' }}>{content}</div>
-        ) : (
-          <Markdown content={content} className="markdown-dim" />
-        )}
-      </div>
+        <span>{t('chat.timeline.thought')}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 text-sm leading-relaxed" style={{ color: 'var(--nm-ink50)' }}>
+          {isStreaming ? (
+            <div className="whitespace-pre-wrap">{content}</div>
+          ) : (
+            <Markdown content={content} className="markdown-dim" />
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -236,7 +270,11 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
   );
 });
 
-export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps) {
+export function TurnTimeline({
+  events,
+  isStreaming = false,
+  defaultOpen = false,
+}: TurnTimelineProps) {
   // Division of labour: process belongs to the timeline, answers to the
   // bubble (SegmentedReply, cut by segmentTurn). The answer tier is
   // filtered out here — keeping it would print the same sentence in both
@@ -248,6 +286,9 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
     ),
     [events],
   );
+  // Display preference (default on). Off restores the pre-A′ look: the same
+  // blocks, same text, same order — only the tone goes back to receded.
+  const showNarration = useNarrationTier();
   if (processEvents.length === 0) return null;
 
   // NM "one turn = one shared rail" rule: every process block (thinking /
@@ -268,6 +309,8 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
                 key={event.id}
                 content={event.content}
                 isStreaming={isStreaming}
+                narration={showNarration && !!event.monologue}
+                defaultOpen={defaultOpen}
               />
             );
           case 'tool_call':

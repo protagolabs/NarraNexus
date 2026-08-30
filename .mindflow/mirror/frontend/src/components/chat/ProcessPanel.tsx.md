@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/ProcessPanel.tsx
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 读一次独白提级偏好，传给 ProcessEventRows
+
+面板层读 [[uiStore]] 的 `interimNarration`，以 `showNarration` prop 传给
+[[processShared]] 的 `ProcessEventRows`。**偏好在这里解析、不在共享渲染件里
+订阅**——理由写在 processShared 的 mirror 里（共享件不该有不在 props 上的
+隐藏输入）。[[TeamMemberPanel]] 是同一份写法的另一半，两边必须一起改。
 
 ## 2026-08-26 — 阶段行改白名单过滤（PHASE_STEP_IDS）
 

@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_recorder.py
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — thinking segment 带上档位，且 segment 也必须 tier 纯净
+
+followups #1 折入本单。此前这条回放路（recorder → [[broadcaster]] →
+[[wsManager]] → [[useRunObservation]]）全程不带档位，后果有两个：单聊
+**运行中刷新**时重放的前半截退回 receded，团队面板的 live 视图**从来**没有
+过档位。
+
+两处改动：
+
+- **`_append_to_segment(text, is_monologue)`，换档由异步调用方先 flush。**
+  segment 和 WS 批次同一条规则、同一个理由：一行只带一个档位，跨档拼接会
+  把两档文本标成一档——在持久化侧重造一遍 [[_thinking_batcher]] 刚消灭的
+  那次撕裂。（flush 放在 `record_event` 里而不是 helper 里，因为 helper 是
+  同步的而 `_flush_segment` 是 async；不要为此塞 fire-and-forget。）
+- **行 kind 承载档位**：叙述写 `thinking_segment_monologue`，推理仍写
+  `thinking_segment`。**用新 kind 而不是把 payload 改成 JSON**，是为了让本
+  改动之前写入的存量行原样可读——无回填、无迁移（铁律 #2/#6）。存量行的档位
+  确实未知，回放成 receded，那也正是它们一直以来的样子。
+
 
 ## 2026-08-26 — tool_call 的 current_stage 对齐 run-agent 相位
 

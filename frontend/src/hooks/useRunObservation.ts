@@ -27,6 +27,7 @@ import { useArtifactStore, type ArtifactChangedEvent } from '@/stores/artifactSt
 import { useChatStore } from '@/stores/chatStore';
 import { translateReconnectFrame } from '@/services/wsManager';
 import { parseBackendTs } from '@/lib/backendTs';
+import { isMonologueFrame } from '@/lib/monologueTier';
 import type { Step, TurnEvent } from '@/types';
 
 /**
@@ -201,10 +202,24 @@ export function applyObservationFrame(
     if (!content) return snap;
     const events = [...snap.events];
     const last = events[events.length - 1];
-    if (last && last.type === 'thinking') {
+    // The tier reaches this path too since 2026-08-30 (run_recorder tags the
+    // segment, broadcaster carries the in-flight one, translateReconnectFrame
+    // hands both back) — which is what makes the team member panel show
+    // narration at all. It also means this merge can no longer be
+    // unconditional: gluing a narration block onto a reasoning one would
+    // label two tiers with a single flag. Same guard, same reason, as
+    // chatStore's agent_thinking branch — its twin.
+    const isMonologue = isMonologueFrame(
+      content,
+      translated.monologue as string | undefined,
+    );
+    if (last && last.type === 'thinking' && !!last.monologue === isMonologue) {
       events[events.length - 1] = { ...last, content: last.content + content };
     } else {
-      events.push({ type: 'thinking', id: nextId(), ts: Date.now(), content });
+      events.push({
+        type: 'thinking', id: nextId(), ts: Date.now(), content,
+        monologue: isMonologue,
+      });
     }
     return { ...snap, status: 'live', events };
   }

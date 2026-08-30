@@ -94,18 +94,98 @@ async def test_step0_progress_binds_run_id_and_flips_running(db_client):
 
 
 @pytest.mark.asyncio
+async def test_segments_are_tier_pure_and_carry_the_tier_in_the_row_kind(db_client):
+    """A narration/reasoning switch closes the segment, and the kind records which.
+
+    Without this nothing pins the persistence half of the tier: deleting the
+    switch-flush or flipping the kind ternary leaves the whole Python suite and
+    the whole vitest suite green, and the only symptom is a mid-run refresh
+    replaying narration receded — or a sentence torn at the reconnect, i.e. the
+    bug this was built to remove, silently back.
+    """
+    await _seed_events_row(db_client, "evt_tier")
+    buffers: list[tuple[str, bool]] = []
+    rec = RunRecorder(
+        db=db_client,
+        on_thinking_buffer=lambda text, mono=False: buffers.append((text, mono)),
+    )
+    await rec.record(_step0_progress("evt_tier"))
+
+    # narration (monologue == the whole frame), then provider reasoning
+    await rec.record({
+        "type": "agent_thinking",
+        "thinking_content": "Reading the file now.",
+        "monologue": "Reading the file now.",
+    })
+    assert buffers[-1] == ("Reading the file now.", True)  # mirror carries the tier
+
+    await rec.record({"type": "agent_thinking", "thinking_content": "weighing options"})
+    await rec.record({
+        "type": "progress", "step": "3.4.1", "title": "🔧 Read",
+        "details": {"tool_name": "Read", "arguments": {"file": "x"}},
+    })
+
+    rows = sorted(
+        await db_client.get("event_stream", {"event_id": "evt_tier"}),
+        key=lambda r: r["seq"],
+    )
+    assert [r["kind"] for r in rows][-3:] == [
+        "thinking_segment_monologue", "thinking_segment", "tool_call",
+    ]
+    by_kind = {r["kind"]: r["payload"] for r in rows}
+    # Unmerged: the switch closed the first segment instead of gluing them.
+    assert by_kind["thinking_segment_monologue"] == "Reading the file now."
+    assert by_kind["thinking_segment"] == "weighing options"
+    await _stop(rec)
+
+
+@pytest.mark.asyncio
+async def test_mixed_frame_is_not_persisted_as_narration(db_client):
+    """A frame whose monologue is only a SUBSET is not narration.
+
+    The batcher makes frames tier-pure, so this shape should not occur — but
+    this is the copy of the rule whose verdict is written to the database, and
+    a wrong one promotes provider scratchpad on every later replay of that run.
+    """
+    await _seed_events_row(db_client, "evt_mixed")
+    rec = RunRecorder(db=db_client)
+    await rec.record(_step0_progress("evt_mixed"))
+    await rec.record({
+        "type": "agent_thinking",
+        "thinking_content": "CoT preamble. Then I speak.",
+        "monologue": "Then I speak.",
+    })
+    await rec.record({
+        "type": "progress", "step": "3.4.1", "title": "🔧 Read",
+        "details": {"tool_name": "Read", "arguments": {"file": "x"}},
+    })
+
+    rows = await db_client.get("event_stream", {"event_id": "evt_mixed"})
+    kinds = [r["kind"] for r in rows]
+    assert "thinking_segment" in kinds
+    assert "thinking_segment_monologue" not in kinds
+    await _stop(rec)
+
+
+@pytest.mark.asyncio
 async def test_thinking_segment_flushes_only_on_type_switch(db_client):
     """組合 B invariant: many thinking events buffer into ONE segment row,
     persisted only when a non-thinking event arrives."""
     await _seed_events_row(db_client, "evt_rr2")
-    buffers: list[str] = []
-    rec = RunRecorder(db=db_client, on_thinking_buffer=buffers.append)
+    # The mirror callback takes (text, is_monologue) since 2026-08-30 — the
+    # replayed partial has to carry its tier or a mid-run refresh renders it
+    # at the wrong one.
+    buffers: list[tuple[str, bool]] = []
+    rec = RunRecorder(
+        db=db_client,
+        on_thinking_buffer=lambda text, mono=False: buffers.append((text, mono)),
+    )
     await rec.record(_step0_progress("evt_rr2"))
 
     for chunk in ["hello ", "world"]:
         await rec.record({"type": "agent_thinking", "thinking_content": chunk})
     # Mid-segment: transport mirror sees the growing partial, no rows yet.
-    assert buffers[-1] == "hello world"
+    assert buffers[-1] == ("hello world", False)
     rows = await db_client.get("event_stream", {"event_id": "evt_rr2"})
     assert [r for r in rows if r["kind"] == "thinking_segment"] == []
 
@@ -122,7 +202,7 @@ async def test_thinking_segment_flushes_only_on_type_switch(db_client):
     assert kinds[-2:] == ["thinking_segment", "tool_call"]
     seg = next(r for r in rows if r["kind"] == "thinking_segment")
     assert seg["payload"] == "hello world"
-    assert buffers[-1] == ""  # mirror reset on flush
+    assert buffers[-1] == ("", False)  # mirror reset on flush
 
     events_row = await db_client.get_one("events", {"event_id": "evt_rr2"})
     assert events_row["tool_call_count"] == 1

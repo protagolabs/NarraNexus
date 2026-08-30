@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-08-21
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — timeline 透传 monologue 档位;顺手抽成纯函数
+
+**这是独白提级（A′）唯一的后端改动**，理由是刷新一致性：档位如果只活在直播
+路径，同一轮刷新后掉回普通 thinking，打破 [[segmentTurn]] 立的那条不变量
+（「直播看到的和刷新后看到的必然一致」）。
+
+数据一直都在，只是**读侧没读**：[[execution_state]] 的 `record_thinking` 早就
+把 `monologue` 写进 `events.event_log` 的对应 step（注释原话：“the monologue
+SEGMENT in its chronological slot”），本文件此前只取 `content`。所以这次是
+**加一个可选字段透传，没有迁移、没有回填**（铁律 #2/#6）。
+
+投影逻辑连同两处判断（「子集 == 并集」、换档强制 flush）**已搬出本文件**，
+见 [[chat_history_timeline]]——本文件搬前 1141 行、搬后 1062 行，都远超 800
+行约定，而那一块是纯
+函数零 DB，是最容易搬的一块。本文件只剩 `get_event_log_detail` 里一行
+`timeline = build_event_timeline(entries_content, call_names)`。
+
+搬动时**逻辑逐行照搬**、只加档位（用脚本剥掉注释后对比确认：**零逻辑行被
+删除**，新增的只有 7 行档位相关）。
 
 ## 2026-08-21 (review) — 前缀补 usr_、扇出加上限、include 用 Literal
 

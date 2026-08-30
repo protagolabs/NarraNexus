@@ -57,6 +57,16 @@ export interface AgentTextDelta extends BaseMessage {
 export interface AgentThinking extends BaseMessage {
   type: 'agent_thinking';
   thinking_content: string;
+  /**
+   * NexusPower only: the SUBSET of `thinking_content` that is the framework's
+   * own assistant text ("monologue") rather than provider chain-of-thought.
+   * Both tiers stream on this one channel, but the backend batcher no longer
+   * coalesces across a switch, so a frame is one tier and this is either the
+   * whole `thinking_content` or empty. The tier test is still equality rather
+   * than truthiness — see `isMonologueFrame` in lib/monologueTier for why the
+   * guard stays. Empty for provider CoT and for every non-NexusPower driver.
+   */
+  monologue?: string;
 }
 
 // NexusPower: the user-facing reply, streamed as the model writes it.
@@ -375,6 +385,15 @@ export interface ThinkingEvent {
   id: string;
   ts: number;
   content: string;
+  /**
+   * This block is NexusPower's own narration, not provider chain-of-thought,
+   * so it renders at the PROGRESS tier (legible, always open) instead of
+   * receding. Still a process event either way — it never becomes a reply and
+   * never enters the answer bubble (design A′: the tier changes, the register
+   * does not). A block is one tier by construction: a tier switch starts a
+   * new block, both live (chatStore) and on replay (timelineToEvents).
+   */
+  monologue?: boolean;
 }
 
 export interface ToolCallEvent {

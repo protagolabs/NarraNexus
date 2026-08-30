@@ -103,7 +103,7 @@
       "downloadMd": "Download as .md"
     },
     "timeline": {
-      "thinking": "Thinking",
+      "thought": "Thought",
       "toolLabel": "[ tool ]",
       "outputLabel": "[ output ]",
       "reply": "Reply",
@@ -1798,7 +1798,9 @@
       },
       "personalization": {
         "label": "Personalization",
-        "hint": "Theme and language. More to come."
+        "hint": "Theme, language, and how the agent's progress notes are shown.",
+        "narrationTitle": "Progress narration",
+        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer."
       }
     },
     "system": {

@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/chat/SegmentedReply.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 过程从抽屉里提到消息流内（布局提级）
+
+settled 态多了一种形态，由 [[useNarrationTier]] 偏好选择：
+
+- **提级（缺省）**：`segment.process` 直接渲染，**没有外层抽屉**。叙述句按
+  正文量级可读、工具卡行内、推理块各自折叠（分档由 [[TurnTimeline]] 逐块决定）。
+  提级的全部意义就是**不点任何东西就能读完这一轮**。
+- **偏好关**：原样回到那一个 `Reasoning & tools (N)` 折叠入口。
+
+「今天可见的内容一条不许丢」：两种形态下事件集合完全相同，差别只有默认展开
+到哪一层——推理正文在提级形态下也只是收在各自的「已思考 ▸」里，一点即得。
+
 
 ## 2026-07-30 (r2) — 流式段 plain text + defaultOpen
 

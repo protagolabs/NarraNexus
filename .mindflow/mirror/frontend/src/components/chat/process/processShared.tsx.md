@@ -1,8 +1,34 @@
 ---
 code_file: frontend/src/components/chat/process/processShared.tsx
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `∴` 行分两档:独白去斜体、提到 ink70
+
+`ProcessEventRows` 的 thinking 行现在按 [[monologueTier]] 分档：独白
+（`monologue=true` 且 [[uiStore]] 偏好开）**去掉 italic、色阶 ink50 → ink70**；
+provider CoT 保持 italic ink50 的草稿纸观感。
+
+**同一个 `∴` 字形、同一行结构、同一条轨** —— 分档是行内色调/字形的事，不是
+新行类型。没有为它新造 glyph（会和 `»` 阶段行、`$` 工具行抢辨识度），也没有
+动 `PHASE_STEP_IDS` 白名单：**独白不是相位**，不进那张表。
+
+与 [[TurnTimeline]] 的关系是**同一条内容的两个生命周期阶段**，不是两处显示：
+本面板只在 streaming 期间挂载，turn 结束后 ProcessPanel 卸载、过程随
+[[segmentTurn]] 折进对应 reply 气泡由 TurnTimeline 渲染。两边都改，是为了
+让这两个阶段看起来一致。
+
+**偏好走 prop，不在本组件订阅 store**（review 第 2 轮定的）：
+`ProcessEventRows({ process, showNarration })`，由面板级调用方
+（[[ProcessPanel]] / [[TeamMemberPanel]]）经 [[useNarrationTier]] 读出后传进来。
+第一版是组件自己 `useUIStore`，但这是个**被两个面板复用的共享渲染件**——
+往里埋一个不在 props 上的输入，下一个复用它的面板就会遇到「events 传对了、
+显示还是不对」。
+
+**`showNarration` 刻意不给默认值**（review 第 3 轮）：第一版写了
+`= true`，那等于把这条契约从**编译期强制**降成约定，而且默认方向还是反的
+——忘了传 = 无视用户「关闭」，不是回落到安全侧。现在漏传由 tsc 当场抓住。
 
 ## 2026-08-26 — 阶段名对齐真实语义 + 新增 PHASE_STEP_IDS 白名单
 

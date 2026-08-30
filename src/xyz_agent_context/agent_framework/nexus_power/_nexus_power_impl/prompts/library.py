@@ -65,8 +65,10 @@ class NexusPowerPrompts:
         mute (no example to give)."""
         if mode is PromptMode.NONE:
             return (
-                "Your plain text is private monologue; only tool calls act "
-                "on the world."
+                "Your plain text is visible working narration, never a "
+                "delivered message; only tool calls act on the world. Before "
+                "each tool call, say in one short sentence what you are about "
+                "to do."
             )
         example = (
             f" (this turn's default: `{inputs.default_reply_tool}`)"

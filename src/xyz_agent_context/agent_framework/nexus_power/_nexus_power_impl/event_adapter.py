@@ -13,7 +13,7 @@ Semantic mapping — this is where the monologue/expression contract
 becomes visible to users:
 
   text/thinking deltas   -> thinking_item
-      Our plain text is PRIVATE reasoning, never a reply. Mapping it to
+      Our plain text is working narration, never a reply — visible, never delivered. Mapping it to
       the legacy "assistant text" channel would show the user raw
       internal monologue as if it were an answer.
   expression arg deltas  -> response.reply.delta

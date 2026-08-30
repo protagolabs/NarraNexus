@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-08-18
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `EventLogTimelineEntry.monologue: Optional[bool] = None`
+
+`thinking` 条目的档位：该块是 NexusPower 自己的 assistant 文本（独白）而不是
+provider CoT。**纯加法，没有回填、没有迁移**（铁律 #2/#6）——`None` 覆盖
+CoT、非 NexusPower driver、以及该字段存在之前写入的存量行。
+
+**为什么是 `Optional[bool]` 而不是 `bool = False`**：这个模型是
+thinking / tool_call / tool_output / native_output 的**联合形状**，其余
+「只对某一种 type 有意义」的字段（`reply_via` / `tool_name` / `tool_output`）
+全都是 `Optional[...] = None`。第一版写成非可选 bool，于是每个 tool_call 行
+都会序列化出一个语义上无意义的 `"monologue": false`（几百步的 log 就是几 KB），
+而且和前端 [[api]] 已经声明的 `monologue?: boolean` 两侧不齐。
+
+档位在 [[chat_history_timeline]] 判定（子集 == 并集才算独白，混档回落 False），
+这里只是承载。
 
 ## 2026-08-18 — `UpdateAgentResponse` 多两个字段
 

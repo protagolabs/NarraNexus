@@ -1642,7 +1642,7 @@ _register(
 # Layout
 #   * (event_id, seq) is the natural primary key but we keep a synthetic
 #     auto-increment `id` to make MySQL row inserts cheaper.
-#   * `kind` is small and bounded — VARCHAR(32) is plenty.
+#   * `kind` is small and bounded — VARCHAR(32). Longest value today is `thinking_segment_monologue` (26), so 6 chars of headroom: a new kind over 32 passes every local test (SQLite ignores the length) and only breaks on MySQL (1406). Count before you add one.
 #   * `payload` is JSON or plain text. For `thinking_segment` it is the
 #     raw concatenated text; for `tool_call` / `tool_output` it is a
 #     JSON object so the consumer can pull `tool_name` / `arguments` /

@@ -28,7 +28,14 @@ NexusPower 的明文（独白）以 thinking 形态流出，但它语义上是 c
 IM inbox 转发都靠它）之前只能看到消息流，拿不到独白子集，导致群聊 @mention
 的回复整段蒸发（dev evt_238abc4b0b0c4dca）。字段承载**本批次**的独白子集，
 provider CoT 恒为空串；state 侧 `record_thinking(monologue=...)` 的链路不变，
-消息与 state 在每个 flush 点取同一次 drain。WS 前端可忽略该字段。
+消息与 state 在每个 flush 点取同一次 drain。
+
+**2026-08-30 更新：WS 前端不再忽略该字段。** 独白提级（A′）用它判档——
+当这个子集**逐字等于** `thinking_content` 时，前端按「进度」档渲染（规则见
+[[monologueTier]]，后端同一条副本在 `chat_history_timeline.is_monologue_step`）。
+所以它**不是可以为了瘦帧删掉的冗余副本**：删了直播档位会静默退回 CoT 观感，
+而前端那几个分档测试都是自己手工构造 `AgentThinking`，**一个都不会红**。
+同理**不要把类型从 str 改成 bool**——`collect_run` 中继的是这段**文本**。
 
 ## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
 

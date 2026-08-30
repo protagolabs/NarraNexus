@@ -100,7 +100,7 @@ def test_prompt_assembly_byte_stable_and_mode_faces():
     b = assembler.assemble(inputs, PromptMode.FULL)
     assert (a.stable_prefix, a.dynamic_tail) == (b.stable_prefix, b.dynamic_tail)
 
-    assert "inner monologue" in a.stable_prefix
+    assert "working narration" in a.stable_prefix
     assert "Workspace tools" in a.stable_prefix
     assert "Expandable capabilities" in a.dynamic_tail
     assert "- jobs:" in a.dynamic_tail

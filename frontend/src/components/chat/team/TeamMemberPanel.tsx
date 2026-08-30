@@ -43,6 +43,7 @@ import { TurnTimeline } from '../TurnTimeline';
 import { isProcessEvent, useTurnDetail } from './useTurnDetail';
 import type { TurnEvent } from '@/types';
 import type { TeamMemberActivity } from '@/types/teams';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 /** Same bargain as ProcessPanel: follow the bottom unless the user
  *  scrolled up to read something. */
@@ -103,6 +104,8 @@ export interface TeamMemberPanelProps {
 
 /** The expanded body of a roster row — a mini ProcessPanel. */
 export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelProps) {
+  // Same panel-level resolution as ProcessPanel — see ProcessEventRows.
+  const showNarration = useNarrationTier();
   const { t } = useTranslation();
   const live = activity.status === 'running' || activity.status === 'stalled';
 
@@ -250,7 +253,7 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
             </span>
           </div>
         )}
-        <ProcessEventRows process={processEvents} />
+        <ProcessEventRows process={processEvents} showNarration={showNarration} />
         {observation.status !== 'ended' && <LiveCursorRow />}
       </>
     );

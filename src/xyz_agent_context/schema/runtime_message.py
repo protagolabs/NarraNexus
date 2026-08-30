@@ -193,8 +193,18 @@ class AgentThinking(BaseRuntimeMessage):
             as thinking under the monologue/expression contract. Empty
             for provider chain-of-thought and for every non-NexusPower
             driver. Consumers that relay "what the agent said" (e.g.
-            ``collect_run.output_text``) read this field; the WS path
-            ignores it.
+            ``collect_run.output_text``) read this field.
+
+            The WS path reads it too, since 2026-08-30: the frontend
+            renders a frame at the "progress" tier when this subset
+            EQUALS ``thinking_content`` (see ``monologueTier.ts`` and
+            ``chat_history_timeline.is_monologue_step`` — same rule, both sides).
+            So this is NOT a redundant copy that can be dropped to slim
+            the frame: removing it silently downgrades live narration
+            back to chain-of-thought tone, and the frontend tier tests
+            construct their own frames, so none of them would go red.
+            It stays a SUBSET STRING, not a bool — ``collect_run`` relays
+            this text as "what the agent said".
     """
     message_type: Literal[MessageType.AGENT_THINKING] = MessageType.AGENT_THINKING
     thinking_content: str
@@ -206,7 +216,8 @@ class AgentReplyDelta(BaseRuntimeMessage):
     A chunk of the agent's user-facing reply, streamed as it is written.
 
     NexusPower-only. Under the monologue/expression contract the agent's
-    plain text is private thinking; the reply exists only as the argument
+    plain text is working narration — visible to its owner, never delivered
+    to anyone; the reply exists only as the argument
     of an expression tool. NexusPower streams that argument field as the
     model types it, so the user reads the answer live instead of waiting
     for the completed tool call. Frontends append deltas of the same

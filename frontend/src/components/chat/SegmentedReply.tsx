@@ -14,6 +14,13 @@
  *   - settled (showProcess=true): the panel has unmounted and the
  *     process folds back onto each segment's own bubble.
  *
+ * Since 2026-08-30 the settled case has two shapes: promoted — the process
+ * renders inline, no drawer, because the narration is meant to be read — or
+ * the original single collapsed "Reasoning & tools" affordance. A segment is
+ * promoted only when the narration preference is on AND the segment actually
+ * contains narration, so turns from drivers that emit none keep the compact
+ * shape they always had. Same events either way.
+ *
  * How segments are cut is lib/segmentTurn's job — this only draws.
  */
 import { memo, useState } from 'react';
@@ -23,6 +30,7 @@ import type { Segment } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { TurnTimeline } from './TurnTimeline';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 export interface SegmentedReplyProps {
   segments: Segment[];
@@ -59,6 +67,23 @@ export const SegmentedReply = memo(function SegmentedReply({
   isStreaming = false,
 }: SegmentedReplyProps) {
   const { t } = useTranslation();
+  // Promote the process out of the drawer (2026-08-30) — but only for a turn
+  // that actually HAS narration. A claude/codex-driver turn carries no
+  // monologue at all (AgentThinking.monologue is empty for every
+  // non-NexusPower driver), so promoting it would hand a whole class of
+  // agents a different transcript shape in exchange for nothing, driven by a
+  // setting whose name says "Progress narration". Those keep their drawer —
+  // and inside it their reasoning opens with the drawer, so reading it still
+  // costs the one click it always did.
+  // Turning the preference off restores the drawer everywhere.
+  const narrationEnabled = useNarrationTier();
+  // Decided ONCE for the whole turn, not per segment: a NexusPower turn whose
+  // first segment narrates and whose second is reasoning + tools only would
+  // otherwise render half inline and half behind a drawer — two transcript
+  // shapes stacked in one reply, which reads as a rendering bug.
+  const promoted =
+    narrationEnabled &&
+    segments.some((s) => s.process.some((e) => e.type === 'thinking' && e.monologue));
   // Expansion state is keyed by segment index and lives here: the parent
   // re-renders on every streaming delta, so keeping it local is what
   // stops it from being reset.
@@ -72,19 +97,33 @@ export const SegmentedReply = memo(function SegmentedReply({
         return (
           <div key={index} className="space-y-1">
             {showProcess && segment.process.length > 0 && (
-              <div data-testid={`segment-details-${index}`}>
-                <button
-                  type="button"
-                  onClick={() => setExpanded((prev) => ({ ...prev, [index]: !(prev[index] ?? defaultOpen) }))}
-                  className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                >
-                  <ChevronRight
-                    className={cn('h-3 w-3 transition-transform', open && 'rotate-90')}
-                  />
-                  {t('chat.segment.details', 'Reasoning & tools')} ({segment.process.length})
-                </button>
-                {open && <TurnTimeline events={segment.process} />}
-              </div>
+              promoted ? (
+                // Promoted layout: the process IS the transcript. The
+                // narration sentences read at near-body weight, tool cards
+                // sit inline, and each reasoning block collapses on its own
+                // (TurnTimeline decides per block). No outer drawer — the
+                // whole point is that the user reads the run without
+                // clicking anything.
+                <div data-testid={`segment-details-${index}`}>
+                  <TurnTimeline events={segment.process} />
+                </div>
+              ) : (
+                // Preference off: exactly the pre-promotion shape — one
+                // drawer for the whole segment, closed by default.
+                <div data-testid={`segment-details-${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((prev) => ({ ...prev, [index]: !(prev[index] ?? defaultOpen) }))}
+                    className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  >
+                    <ChevronRight
+                      className={cn('h-3 w-3 transition-transform', open && 'rotate-90')}
+                    />
+                    {t('chat.segment.details', 'Reasoning & tools')} ({segment.process.length})
+                  </button>
+                  {open && <TurnTimeline events={segment.process} defaultOpen />}
+                </div>
+              )
             )}
 
             {segment.reply && (

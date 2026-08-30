@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMemberPanel.tsx
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 独白提级偏好与 ProcessPanel 同一份写法（且已真的生效）
+
+读 [[uiStore]] 的 `interimNarration`（经 [[useNarrationTier]]）传给
+`ProcessEventRows`，与 [[ProcessPanel]] 逐字相同（铁律 #8：同一功能件两侧同
+规则）。
+
+喂本面板的是 [[useRunObservation]]，那条回放路**本次也补上了档位**，所以这里
+不是预铺——团队房里看成员过程，叙述就是进度档。
 
 ## 2026-08-26 — 阶段行同步改白名单（跟随 ProcessPanel）
 

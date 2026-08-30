@@ -350,7 +350,9 @@ describe('TeamChatPanel · per-message reasoning disclosure', () => {
   test('opening the disclosure fetches that turn and renders its process', async () => {
     getEventLogMock.mockResolvedValue({
       success: true,
-      timeline: [{ type: 'thinking', content: 'weighing options' }],
+      // monologue: narration renders open, provider reasoning collapses
+      // (2026-08-30). This case is about the disclosure fetching, not the tier.
+      timeline: [{ type: 'thinking', content: 'weighing options', monologue: true }],
     });
     await renderRoom([RUNNING, IDLE_WITH_TRACE], [MESSAGE, AGENT_REPLY]);
 

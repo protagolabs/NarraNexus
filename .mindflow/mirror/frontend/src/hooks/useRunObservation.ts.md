@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/hooks/useRunObservation.ts
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 档位接进来了，合并同时加了同档守卫
+
+这条路（`run_recorder` → [[broadcaster]] →
+[[wsManager]]`.translateReconnectFrame` → 本 hook）现在全程带档位，所以
+**[[TeamMemberPanel]] 的 live 视图第一次能显示进度档**。
+
+**接档位和加守卫必须同一次做完**，本次即如此：本 hook 的 `agent_thinking`
+分支原来**无条件**并进上一个 thinking 块；档位一旦流进来，那个无条件合并会
+立刻开始跨档合并、把两档文本标成一档——[[chatStore]] 那边专门堵过的同一个
+失败。现在两边同一条守卫（`!!last.monologue === isMonologue`），
+夹具在 `__tests__/useRunObservation.test.ts` 的
+「narration tier on the observation path」。
 
 ## 2026-08-24 — startedAt 解析改走 [[../lib/backendTs]](#349 I1)
 

@@ -23,8 +23,9 @@ so its notice carries a mention and wakes it — a hanging errand resolves itsel
 instead of waiting forever (PRD 2026-08-04 §四, "A2A 空回复").
 
 Deliberately NOT folding the NexusPower monologue into the reply as a fallback
-for (3). The monologue contract promises the agent its plain text is private
-deliberation; relaying it to a peer would leak reasoning the agent never
+for (3). The monologue contract promises the agent its plain text is never
+DELIVERED — visible to its owner as working narration, but addressed to no
+one. Relaying it to a peer would deliver deliberation the agent never
 addressed to anyone (see run_collector.collect_run's ``include_monologue``).
 Saying "nothing was delivered" is honest and leaks nothing.
 

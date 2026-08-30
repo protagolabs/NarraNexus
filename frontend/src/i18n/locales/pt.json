@@ -77,7 +77,7 @@
       "downloadMd": "Baixar como .md"
     },
     "timeline": {
-      "thinking": "Pensando",
+      "thought": "Raciocinou",
       "toolLabel": "[ ferramenta ]",
       "outputLabel": "[ saída ]",
       "reply": "Resposta",
@@ -1369,7 +1369,9 @@
       },
       "personalization": {
         "label": "Personalização",
-        "hint": "Tema e idioma. Mais em breve."
+        "hint": "Tema, idioma e como as notas de progresso do agente são exibidas.",
+        "narrationTitle": "Narração de progresso",
+        "narrationHint": "Mostra as notas do agente entre etapas em linha e legíveis, em vez de guardar toda a execução atrás de um único painel."
       }
     },
     "system": {

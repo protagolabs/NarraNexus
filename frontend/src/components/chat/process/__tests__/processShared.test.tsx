@@ -27,10 +27,53 @@ const events: TurnEvent[] = [
 
 describe('ProcessEventRows', () => {
   it('renders thinking, tool call (friendly name) and output rows', () => {
-    render(<ProcessEventRows process={events} />);
+    render(<ProcessEventRows process={events} showNarration />);
     expect(screen.getByText('pondering')).toBeInTheDocument();
     expect(screen.getByText('read_file')).toBeInTheDocument();
     expect(screen.getByText('42 lines')).toBeInTheDocument();
+  });
+
+  // The value of the narration tier is entirely in the rendering, and these
+  // rows are the LIVE surface (ProcessPanel + TeamMemberPanel) — the one the
+  // user watches most. Without these, deleting `showNarration &&` or
+  // `!!event.monologue` from the row leaves the whole suite green.
+  it('renders monologue at the progress tier: no italic, ink70', () => {
+    render(
+      <ProcessEventRows
+        process={[{ id: 'n1', ts: 1, type: 'thinking', content: 'narrating', monologue: true }]}
+        showNarration
+      />,
+    );
+
+    const row = screen.getByText('narrating');
+    expect(row.className).not.toContain('italic');
+    expect(row.getAttribute('style')).toContain('--nm-ink70');
+  });
+
+  it('keeps provider chain-of-thought receded: italic, ink50', () => {
+    render(
+      <ProcessEventRows
+        process={[{ id: 'c1', ts: 1, type: 'thinking', content: 'scratchpad', monologue: false }]}
+        showNarration
+      />,
+    );
+
+    const row = screen.getByText('scratchpad');
+    expect(row.className).toContain('italic');
+    expect(row.getAttribute('style')).toContain('--nm-ink50');
+  });
+
+  it('with the preference off, monologue falls back to the receded look', () => {
+    render(
+      <ProcessEventRows
+        process={[{ id: 'n1', ts: 1, type: 'thinking', content: 'narrating', monologue: true }]}
+        showNarration={false}
+      />,
+    );
+
+    const row = screen.getByText('narrating');
+    expect(row.className).toContain('italic');
+    expect(row.getAttribute('style')).toContain('--nm-ink50');
   });
 });
 

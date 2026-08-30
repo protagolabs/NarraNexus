@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 两个 monologue 字段，类型不同，别当成一个
+
+- `AgentThinking.monologue?: **string**` —— WS 实时帧。它是
+  `thinking_content` 的**子集文本**，不是布尔：一帧可能同时装独白与
+  provider CoT（上游 batcher 合帧），并集在 `thinking_content`、子集在这里。
+  所以档位判定是**相等**而非真值，见 [[monologueTier]]。
+- `ThinkingEvent.monologue?: **boolean**` —— 前端事件模型。档位已经判完，
+  一个块一个档（换档开新块）。
+
+`EventLogTimelineEntry.monologue` 走的是 boolean 那一路（后端已收敛，见
+[[api]]）。把实时帧的 string 当 bool 用（`!!monologue`）会把混档帧里的
+provider 草稿纸一起提亮——不能犯的那一侧。
+
+`ThinkingEvent` 无论哪档**都还是 process 事件**：不进 `segment.reply`、不进
+答案气泡。A′ 改的是档位，不是语域。
 
 ## 2026-08-24 — 运行中插话(steer)帧 + ChatMessage 三态
 

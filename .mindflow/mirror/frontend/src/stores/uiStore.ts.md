@@ -1,8 +1,40 @@
 ---
 code_file: frontend/src/stores/uiStore.ts
-last_verified: 2026-08-06
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `interimNarration`:独白提级的显示偏好
+
+独白「进度」档（A′，见 [[monologueTier]]）的开关，缺省**开**，
+`localStorage` 键 `interim_narration_v1`,只有显式 `'0'` 才关（新档案、
+storage 不可用都落到缺省）。
+
+**只有 setter，没有 toggle**：照抄 `toggleSidebar` 写了一个
+`toggleInterimNarration`，但零调用点（Settings 用的是
+`setInterimNarration(!interimNarration)`），而它等于把「键名 + `'1'/'0'`
+编码 + try/catch」这套持久化规则抄成第三份不可达副本。review 第 3 轮删掉了。
+真要 toggle，就让它走 `setInterimNarration`，持久化只留一份。
+
+读侧统一走 [[useNarrationTier]]，不要在组件里直接 `useUIStore` 取这个字段
+——三个渲染面各读一次就是三个「改缺省值时会漏掉一个」的点。
+
+**为什么不是后端 env flag**。对照 `NARRATIVE_MERGED_ROUTING_ENABLED` 的治理
+惯例——那个 flag 存在是因为它切换 **LLM 调用结构**、灰度期要并行比路由质量、
+且线上运行中无法靠发版回退。本项一条都不满足：调用数/prompt 字节/token 全同，
+内容完全相同，只有色阶不同,回滚 = revert 一个前端 commit。它要治理的是
+「读者觉不觉得吵」——那是**用户偏好**，不是平台风险。对标 Hermes 自己的
+`display.interim_assistant_messages` 也是用户侧显示配置。
+
+关掉 = 回到 A′ 之前的观感：同样的块、同样的文本、同样的顺序，只是色阶退回
+receded。**任何档位下都不增删一个字**。
+
+**入口在 [[PersonalizationSettings]]**（Settings → Personalization），和
+theme / language 同一个面板——该文件头就写着「everything configurable belongs
+to this page」。别再往 sidebar 账号气泡里加第二个设置面（那正是那个面板存在的
+原因）。首轮 review 抓到过一次「setter 是死代码、偏好只能永远为 true」：
+偏好和它的入口必须同一单落地，否则 `TurnTimeline.narrationTier` 里两条
+「关掉后…」的用例断言的是不可达状态。
 
 ## 2026-08-06 — Chat UI v4:collapse + palette 状态入驻
 

@@ -49,6 +49,7 @@ import {
   ProcessEventRows,
 } from './process/processShared';
 import type { Activity } from './process/processShared';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 export interface ProcessPanelProps {
   events: TurnEvent[];
@@ -82,6 +83,9 @@ function useElapsedSeconds(): number {
 }
 
 export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: ProcessPanelProps) {
+  // Narration display tier — resolved at the panel so ProcessEventRows stays
+  // a pure render (no hidden global input in a shared component).
+  const showNarration = useNarrationTier();
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -256,7 +260,7 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
               </div>
             )}
 
-            <ProcessEventRows process={process} />
+            <ProcessEventRows process={process} showNarration={showNarration} />
             {/* Live cursor — the terminal's "still running" heartbeat. */}
             <LiveCursorRow />
           </div>

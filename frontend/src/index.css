@@ -602,6 +602,14 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 .markdown-content.markdown-dim {
   color: var(--text-tertiary);
 }
+/* Progress tier (design A′): NexusPower's own narration — what the agent is
+   doing right now, in prose. One rung of the SAME ink ladder above receded
+   thinking (tertiary) and one below the answer (primary), so it is legible
+   without competing with the reply. Still a process block: no bubble, no
+   fill, no radius — the tier changes, the register does not. */
+.markdown-content.markdown-progress {
+  color: var(--text-secondary);
+}
 /* Crepe (the md artifact block editor) ships `.ProseMirror { padding: 60px
    120px }` in its theme reset — sized for a full-page editor. In the artifact
    column (~340px at its normal width) that leaves ~100px of content and the

@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — ThinkingBlock 三档中的第二档:进度(独白)
+
+原来是二元的：**答案**（气泡，正文色）vs **过程**（dim）。现在过程语域内部
+再分两档，**用的是既有 ink 阶梯的三个档位，没有新 token、没有新色**：
+
+| 档 | 内容 | 色 |
+|---|---|---|
+| 答案 | reply / native_output | `--nm-ink`（不变） |
+| **进度** | `monologue=true` 的 thinking | **`--nm-ink70`**（新用法） |
+| 推理 | provider CoT | `--nm-ink50`（不变） |
+
+正文走 `.markdown-progress`（`index.css`，= `--text-secondary`），对位既有的
+`.markdown-dim`。图标 `Brain` → `Milestone`（lucide，12px 档，继承
+`currentColor`，符合 design_system §5），标签 `chat.timeline.narration`。
+
+**刻意没做的事**：不做气泡、不加背景填充、不加圆角、不配身份色。任何一个都
+会把它推进**消息语域**，而宪法承诺的正是「不是一条对你说的话」——A′ 之所以
+不用改宪法，全靠这条线守住——承诺的原话是 "The user never receives it **as a
+message**"，所以只要不进消息语域，承诺就仍然成立。表面填充另外还会平白消耗
+design_system §2.5 的层级预算。
+
+`narration` 由调用方算好（档位 AND [[uiStore]] 的 `interimNarration` 偏好），
+组件本身只是纯色调切换。
 
 ## 2026-08-19 — 空名不渲染([输出] 与 [TOOL] 两行同规则)
 

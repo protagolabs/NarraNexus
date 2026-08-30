@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_thinking_batcher.py
-last_verified: 2026-05-13
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 换档即 flush：一个批次只装一个档次
+
+**live 复现在先**（DeepSeek-V4-Pro / nexus_power，2026-08-30）：批次窗口
+（~100ms / 500 字）此前**只在非 thinking 事件到来时**强制 flush，CoT→text
+的切换不 flush。于是跨过切换的那一批同时装着 CoT 和叙述开头：
+
+    frame 41  content = "...Silence is correct here." + "There"  monologue = "There"
+    frame 42  content = "'s no new user message in this turn..."  (纯)
+
+前端判档规则（子集 == 并集）把 41 判成 CoT，于是 **"There" 被暗着焊在
+CoT 块尾，"'s no new user message…" 另起一个亮块** —— 一句话在 100ms 窗口
+恰好落下的那个字节上被撕成两半（TC 真机看到的是
+`我已向创建` | `者(user_test1)`，同一个形状）。
+
+现在**换档本身就是一个 flush 触发器，且排在 size / time 之前**——那一批
+是又短又快的（CoT 尾巴 + 叙述头一个词），另外两个触发器都来不及救它。
+于是每个批次 tier 纯净，边界只可能落在真正换档的地方。
+
+**#16 的账（这条必须留着）**：不换档的流**一字节不差、一帧不多**——触发器
+没变、边界没变，`test_pure_stream_coalescing_is_not_regressed` 钉住这点。
+新增的帧只出现在**真实的档位切换处**，数量 ≈ 模型每轮在推理与叙述之间来回
+的次数（大致每次工具调用两次）。相对这个类存在的理由（~50-100× 帧数下降）
+是噪声级别；换来的是那次下降本来就不该付出的代价——用户看到一句完整的话。
+
 
 # _thinking_batcher.py — WS-tier thinking-delta 合并器
 

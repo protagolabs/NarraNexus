@@ -291,3 +291,44 @@ describe('translateReconnectFrame — replayed tool frame fallback step id', () 
     },
   );
 });
+
+describe('translateReconnectFrame · narration tier', () => {
+  it('a monologue segment replays as a tier-true thinking frame', () => {
+    const out = translateReconnectFrame({
+      type: 'replay',
+      kind: 'thinking_segment_monologue',
+      payload: 'Reading the config now.',
+    }) as { thinking_content: string; monologue?: string };
+
+    // monologue must repeat the text, not be a bool: the frontend predicate
+    // is `monologue === thinking_content`.
+    expect(out.thinking_content).toBe('Reading the config now.');
+    expect(out.monologue).toBe('Reading the config now.');
+  });
+
+  it('a plain segment replays receded — including rows written before the tier existed', () => {
+    const out = translateReconnectFrame({
+      type: 'replay',
+      kind: 'thinking_segment',
+      payload: 'weighing options',
+    }) as { thinking_content: string; monologue?: string };
+
+    expect(out.thinking_content).toBe('weighing options');
+    expect(out.monologue).toBeUndefined();
+  });
+
+  it('the in-flight partial carries its tier too', () => {
+    const narrated = translateReconnectFrame({
+      type: 'thinking_partial_replay',
+      content: 'Checking the plug',
+      monologue: true,
+    }) as { monologue?: string };
+    const reasoned = translateReconnectFrame({
+      type: 'thinking_partial_replay',
+      content: 'weighing',
+    }) as { monologue?: string };
+
+    expect(narrated.monologue).toBe('Checking the plug');
+    expect(reasoned.monologue).toBeUndefined();
+  });
+});

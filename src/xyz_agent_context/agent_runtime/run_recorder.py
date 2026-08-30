@@ -308,6 +308,21 @@ def _extract_thinking_content(event: dict) -> str:
     return event.get("thinking_content") or ""
 
 
+def _extract_thinking_tier(event: dict) -> bool:
+    """Is this thinking frame NexusPower narration rather than provider CoT?
+
+    The SAME equality rule as ``chat_history_timeline.is_monologue_step`` and
+    the frontend's ``isMonologueFrame``: narration only when the subset IS the
+    whole frame. The batcher makes frames tier-pure, so truthiness would give
+    the same answer today — but this is the copy whose verdict gets PERSISTED,
+    and a wrong one here promotes provider scratchpad to the progress tier on
+    every future replay of that run, where no frontend deploy can take it back.
+    A guarantee enforced in another module is not a reason to skip the check.
+    """
+    monologue = event.get("monologue") or ""
+    return bool(monologue) and monologue == (event.get("thinking_content") or "")
+
+
 def _extract_tool_call_payload(event: dict) -> dict:
     details = event.get("details") or {}
     return {
@@ -366,9 +381,10 @@ class RunRecorder:
     observer break the observed run):
       * ``on_run_id(run_id)`` — transport registration (BackgroundRun
         wires the broadcaster + active_runs + ready_event here).
-      * ``on_thinking_buffer(text)`` — mirror of the in-flight thinking
-        segment (BackgroundRun hands it to the Broadcaster so
-        mid-segment subscribers get the partial).
+      * ``on_thinking_buffer(text, is_monologue)`` — mirror of the
+        in-flight thinking segment and its tier (BackgroundRun hands it to
+        the Broadcaster so mid-segment subscribers get the partial, at the
+        tier the live stream will continue in).
     """
 
     def __init__(
@@ -376,7 +392,7 @@ class RunRecorder:
         *,
         db: "AsyncDatabaseClient",
         on_run_id: Optional[Callable[[str], Awaitable[None]]] = None,
-        on_thinking_buffer: Optional[Callable[[str], None]] = None,
+        on_thinking_buffer: Optional[Callable[[str, bool], None]] = None,
         inherited_root_run_id: Optional[str] = None,
     ) -> None:
         self.db = db
@@ -403,6 +419,8 @@ class RunRecorder:
         self.final_output_buffer: list[str] = []
         self._on_run_id = on_run_id
         self._on_thinking_buffer = on_thinking_buffer
+        # Tier of what is currently buffered in _segment; a switch closes it.
+        self._segment_tier: bool = False
         # Monotonically increasing seq for event_stream rows. Per-run
         # single-writer, so gap-free by construction; the observe
         # endpoint's tail-follow relies on it being monotonic.
@@ -434,7 +452,14 @@ class RunRecorder:
         kind = classify_event(event)
 
         if kind == "thinking":
-            self._append_to_segment(_extract_thinking_content(event))
+            tier = _extract_thinking_tier(event)
+            if self._segment and tier != self._segment_tier:
+                # A segment carries ONE tier, so a switch closes it — the same
+                # rule the WS batcher enforces, for the same reason. Skipping
+                # it here would re-create, on replay, exactly the mid-sentence
+                # tear the batcher fix removed from the live stream.
+                await self._flush_segment()
+            self._append_to_segment(_extract_thinking_content(event), tier)
             return
 
         await self._flush_segment()
@@ -592,23 +617,52 @@ class RunRecorder:
 
     # ----- segment helpers ----------------------------------------------
 
-    def _append_to_segment(self, text: str) -> None:
+    def _mirror_segment(self, text: str, is_monologue: bool) -> None:
+        """Push the in-flight segment to the transport mirror, guarded.
+
+        The class docstring promises an observer can never break the observed
+        run; this call sits on the thinking hot path, so an observer that
+        raises (a metrics tap, a test double wired to the old one-arg
+        signature) would otherwise take the recording down with it.
+        """
+        if self._on_thinking_buffer is None:
+            return
+        try:  # noqa: SIM105 — the log line is the point, not a bare suppress
+            self._on_thinking_buffer(text, is_monologue)
+        except Exception:
+            logger.exception("[RunRecorder] on_thinking_buffer observer failed")
+
+    def _append_to_segment(self, text: str, is_monologue: bool = False) -> None:
+        """Buffer one thinking frame. The caller closes the segment first on
+        a tier switch, so everything buffered here shares one tier."""
         if not text:
             return
+        self._segment_tier = is_monologue
         self._segment.append(text)
-        if self._on_thinking_buffer is not None:
-            self._on_thinking_buffer("".join(self._segment))
+        self._mirror_segment("".join(self._segment), is_monologue)
 
     async def _flush_segment(self) -> None:
         """Persist the accumulated thinking segment as ONE row and reset
-        both the local buffer and the transport mirror."""
+        both the local buffer and the transport mirror.
+
+        The row KIND carries the tier: ``thinking_segment_monologue`` for
+        narration, ``thinking_segment`` for provider reasoning. A new kind
+        rather than a JSON payload, so rows written before this change stay
+        readable exactly as they are — no backfill, no migration (iron rules
+        #2 / #6). Their tier is genuinely unknown and they replay receded,
+        which is what they always rendered as.
+        """
         if not self._segment:
             return
         segment_text = "".join(self._segment)
+        tier = self._segment_tier
         self._segment = []
-        if self._on_thinking_buffer is not None:
-            self._on_thinking_buffer("")
-        await self._write_stream_row("thinking_segment", segment_text)
+        self._segment_tier = False
+        self._mirror_segment("", False)
+        await self._write_stream_row(
+            "thinking_segment_monologue" if tier else "thinking_segment",
+            segment_text,
+        )
 
     # ----- DB write helpers ---------------------------------------------
 
