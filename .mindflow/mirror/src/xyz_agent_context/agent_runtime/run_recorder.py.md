@@ -23,7 +23,6 @@ followups #1 折入本单。此前这条回放路（recorder → [[broadcaster]]
   改动之前写入的存量行原样可读——无回填、无迁移（铁律 #2/#6）。存量行的档位
   确实未知，回放成 receded，那也正是它们一直以来的样子。
 
-
 ## 2026-08-26 — tool_call 的 current_stage 对齐 run-agent 相位
 
 tool_call bump 里的 `current_stage` 从硬编码 `"step.3_agent_loop"` 改成

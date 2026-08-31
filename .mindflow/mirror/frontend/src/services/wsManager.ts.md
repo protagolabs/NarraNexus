@@ -85,7 +85,6 @@ reconnect 的全量重放此前没有任何「这是同一个 run 在继续」�
 
 run() 的 onmessage 识别后端 `agent_circuit_open` 帧 → `dispatchAgentCircuitOpen({agentId,reason})` + 标记 completed + processMessage + stopStreaming（清 spinner，避免卡在 streaming），mirror auth-expired 桥。仅 run() 路径（reconnect 不过 fresh-run 闸门）。
 
-
 ## 2026-06-10 — run_reconnect 注入幂等 + 终结性 reconnect 错误帧停止重连循环
 
 两个修复，配合后端同日的「`_finalize` 广播终结 `complete` 帧」

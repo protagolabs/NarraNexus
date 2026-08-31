@@ -14,7 +14,6 @@ stub: false
 色阶。segment 是 tier 纯净的（[[run_recorder]] 换档即 flush），所以一个布尔
 足以描述整段。
 
-
 ## 2026-06-10 — 同步投递 + 迭代器只认 None 哨兵终止
 
 两个耦合改动，保证 `BackgroundRun._finalize` 在 `close()` 前一刻

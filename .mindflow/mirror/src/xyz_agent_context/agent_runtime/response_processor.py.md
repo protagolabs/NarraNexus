@@ -18,7 +18,6 @@ stub: false
 文本作为独立批次加进去。`test_response_processor_tier_purity.py` 里
 `test_final_output_still_receives_only_the_narration` 钉住这条。
 
-
 ## 2026-08-19 — record_tool_call 持久化不再发明 "unknown"
 
 state_update 的 args 里 tool_name 改为 `item.get("tool_name") or ""`:
@@ -195,7 +194,6 @@ processor.process(...):` 而不是 `result = processor.process(...)`。Stream �
 六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
 （TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
 事件契约自此有唯一事实源，详见 events.py.md。
-
 
 ## 为什么存在
 

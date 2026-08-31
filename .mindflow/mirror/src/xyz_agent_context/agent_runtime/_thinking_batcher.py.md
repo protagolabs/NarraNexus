@@ -11,7 +11,7 @@ stub: false
 的切换不 flush。于是跨过切换的那一批同时装着 CoT 和叙述开头：
 
     frame 41  content = "...Silence is correct here." + "There"  monologue = "There"
-    frame 42  content = "'s no new user message in this turn..."  (纯)
+    frame 42  content = "'s no new user message in this turn..."  （纯）
 
 前端判档规则（子集 == 并集）把 41 判成 CoT，于是 **"There" 被暗着焊在
 CoT 块尾，"'s no new user message…" 另起一个亮块** —— 一句话在 100ms 窗口

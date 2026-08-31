@@ -4,13 +4,23 @@
 @date: 2026-07-29
 @description: The monologue/expression contract's default implementation.
 
-Every other harness treats assistant text as the user-facing reply;
-here text is the agent's working narration — its owner may watch it,
-but it is delivered to no one, and reaching the outside world requires
-an expressive tool call. The framework OWNS no
-expression tools (they are platform-granted capabilities, injected as a
-name list via TurnOptions.expressive_tools); an empty list is a legal
-state — an agent without channels is mute, not broken.
+Every other harness treats assistant text as the user-facing reply; here
+text is the agent's working narration — its owner may watch it, but by
+default the framework delivers it to no one, and reaching the outside
+world requires an expressive tool call. The framework OWNS no expression
+tools (they are platform-granted capabilities, injected as a name list
+via TurnOptions.expressive_tools); an empty list is a legal state — an
+agent without channels is mute, not broken.
+
+"By default" is load-bearing, and the empty list is where it stops
+holding. A platform may hand a turn NO expressive tool precisely because
+it intends to deliver the plain text itself (NarraNexus does this for the
+team patrol status line, via its `is_plain_text_turn`). On such a turn
+the agent speaks BY writing and its plain text IS the delivered artifact
+— which is why NexusPowerPrompts swaps rule 1's whole delivery passage
+when `default_reply_tool` is empty. Do not read "mute" as "nothing this
+agent writes can leave the process": read it as "this turn has no tool
+to speak through".
 
 This class is the single adjudicator: event tagging, expressiveness
 checks and organic-reply statistics all come from here, so the

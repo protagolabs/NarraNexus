@@ -13,7 +13,6 @@ last_verified: 2026-08-30
 **「the owner never receives it」原样保留**——它仍然成立（可见 ≠ 投递），而且
 它才是这句话存在的理由：解释为什么非调这个工具不可。
 
-
 ## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
 
 工具改为 `get_agent_data_store().get_chat_history(agent_id, instance_id, limit)`，实现下沉到

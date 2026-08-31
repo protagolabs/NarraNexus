@@ -19,6 +19,12 @@
  * `showNarration`). A shared child that reaches into the store itself gains a
  * hidden input that is not on its props, which is how you get "I passed the
  * right events and it still looks wrong" the next time it is reused.
+ *
+ * TurnTimeline reading this hook directly is correct — it is a top-level
+ * renderer, not a shared row. Taking the preference as a prop instead would
+ * force TURNTIMELINE'S OWN call sites (MessageBubble, SegmentedReply,
+ * TeamMemberPanel — not callers of this hook) to thread a prop that has
+ * nothing to do with them.
  */
 import { useUIStore } from '@/stores/uiStore';
 

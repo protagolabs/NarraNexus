@@ -4,7 +4,7 @@ last_verified: 2026-08-30
 stub: false
 ---
 
-## 2026-08-30 — timeline 透传 monologue 档位;顺手抽成纯函数
+## 2026-08-30 — timeline 透传 monologue 档位；顺手抽成纯函数
 
 **这是独白提级（A′）唯一的后端改动**，理由是刷新一致性：档位如果只活在直播
 路径，同一轮刷新后掉回普通 thinking，打破 [[segmentTurn]] 立的那条不变量
@@ -104,7 +104,6 @@ SEGMENT in its chronological slot”），本文件此前只取 `content`。所�
 ## 2026-08-10 (PR-10) — 新增 seam 孪生端点 POST /{agent_id}/chat-history/by-instance
 
 get_chat_history 工具的 byte-parity Http 孪生：owner-gated，调共享 [[_chat_reads]] `fetch_chat_history`（与 DirectStore 同源），返工具原 dict。区别于本文件的 GET /{agent_id}/chat-history（前端 narratives+events 视图，另一形状）。
-
 
 ## 2026-08-05 — `_drop_phantom_event_twins()`：旧副本行的读侧兜底
 

@@ -4,10 +4,10 @@ last_verified: 2026-08-30
 stub: false
 ---
 
-## 2026-08-30 — `interimNarration`:独白提级的显示偏好
+## 2026-08-30 — `interimNarration`：独白提级的显示偏好
 
 独白「进度」档（A′，见 [[monologueTier]]）的开关，缺省**开**，
-`localStorage` 键 `interim_narration_v1`,只有显式 `'0'` 才关（新档案、
+`localStorage` 键 `interim_narration_v1`，只有显式 `'0'` 才关（新档案、
 storage 不可用都落到缺省）。
 
 **只有 setter，没有 toggle**：照抄 `toggleSidebar` 写了一个
@@ -22,7 +22,7 @@ storage 不可用都落到缺省）。
 **为什么不是后端 env flag**。对照 `NARRATIVE_MERGED_ROUTING_ENABLED` 的治理
 惯例——那个 flag 存在是因为它切换 **LLM 调用结构**、灰度期要并行比路由质量、
 且线上运行中无法靠发版回退。本项一条都不满足：调用数/prompt 字节/token 全同，
-内容完全相同，只有色阶不同,回滚 = revert 一个前端 commit。它要治理的是
+内容完全相同，只有色阶不同，回滚 = revert 一个前端 commit。它要治理的是
 「读者觉不觉得吵」——那是**用户偏好**，不是平台风险。对标 Hermes 自己的
 `display.interim_assistant_messages` 也是用户侧显示配置。
 

@@ -6,32 +6,30 @@ stub: false
 
 ## 2026-08-31 — 共享方的名字变了
 
-`ProcessPanel` 删除后,本文件的共享对象是 [[RunPhases]](单聊序章)与
-[[../team/TeamMemberPanel]](团队成员卡)。`phaseSettled` / `PHASE_LABEL_KEYS` /
-`PHASE_STEP_IDS` / `PhaseRow` 的规则一字未改,只是文档里的调用方改名。
+`ProcessPanel` 删除后，本文件的共享对象是 [[RunPhases]]（单聊序章）与
+[[../team/TeamMemberPanel]]（团队成员卡）。`phaseSettled` / `PHASE_LABEL_KEYS` /
+`PHASE_STEP_IDS` / `PhaseRow` 的规则一字未改，只是文档里的调用方改名。
 
-`LiveCursorRow` 失去了单聊这个调用方(退役面板用过它),但 [[../team/TeamMemberPanel]]
-仍在用(`observation.status !== 'ended'` 时挂在最后一行下面),所以不删。
-单聊序章 [[RunPhases]] **刻意没有**接手这个光标:那是终端「还在跑」的心跳,
-而文稿流的心跳是内容本身在长出来,再加一个闪烁块就是两处说同一件事。
+`LiveCursorRow` 失去了单聊这个调用方（退役面板用过它），但 [[../team/TeamMemberPanel]]
+仍在用（`observation.status !== 'ended'` 时挂在最后一行下面），所以不删。
+单聊序章 [[RunPhases]] **刻意没有**接手这个光标：那是终端「还在跑」的心跳，
+而文稿流的心跳是内容本身在长出来，再加一个闪烁块就是两处说同一件事。
 
+## 2026-08-30（二）— `ProcessEventRows` 退役
 
-## 2026-08-30(二)— `ProcessEventRows` 退役
-
-过程改由 [[TurnTimeline]] 在消息流里渲染,直播 / 落定 / 观察三个面同一份
-实现,本组件失去全部调用方,**直接删除**(铁律 #2:不留兼容壳)。它的
+过程改由 [[TurnTimeline]] 在消息流里渲染，直播 / 落定 / 观察三个面同一份
+实现，本组件失去全部调用方，**直接删除**（铁律 #2：不留兼容壳）。它的
 测试一并删除。
 
-本文件剩下的是流里没有的东西:`PHASE_LABEL_KEYS` / `PHASE_STEP_IDS` 白名单、
+本文件剩下的是流里没有的东西：`PHASE_LABEL_KEYS` / `PHASE_STEP_IDS` 白名单、
 `phaseSettled`、`friendlyToolName`、`formatElapsed`、
 `LiveDot` / `PhaseRow` / `LiveCursorRow`。
 
 它原来带的 `data-testid={`tool-row-${id}`}` + `data-pending` 是有用的断言
-抓手,已在 [[TurnTimeline]] 的 `ToolCallBlock` 上补回——不是顺手加的,是
+抓手，已在 [[TurnTimeline]] 的 `ToolCallBlock` 上补回——不是顺手加的，是
 删掉它会让"文档流形状"这件事无法断言。
 
-
-## 2026-08-30 — `∴` 行分两档:独白去斜体、提到 ink70
+## 2026-08-30 — `∴` 行分两档：独白去斜体、提到 ink70
 
 `ProcessEventRows` 的 thinking 行现在按 [[monologueTier]] 分档：独白
 （`monologue=true` 且 [[uiStore]] 偏好开）**去掉 italic、色阶 ink50 → ink70**；
@@ -102,9 +100,9 @@ ProcessPanel 的 ping 呼吸灯、`✓`/spinner 阶段行、`❯▌` 活光标�
 
 - ~~`ProcessEventRows`~~ —— 2026-08-30 退役，见本文顶部那条。
 - ~~`deriveActivity` + `Activity`~~ —— 2026-08-31 随过程框一起退役。它推导的是
-  **折叠态**那一行,而过程内联进文档后不存在折叠态;零调用方,直接删(铁律 #2)。
-  死导出留在共享文件里,下一个人有概率把它当现成能力接上去,顺带把一个已经
-  不存在的概念(「折叠态活动行」)重新引进来。
+  **折叠态**那一行，而过程内联进文档后不存在折叠态；零调用方，直接删（铁律 #2）。
+  死导出留在共享文件里，下一个人有概率把它当现成能力接上去，顺带把一个已经
+  不存在的概念（「折叠态活动行」）重新引进来。
 - `PHASE_LABEL_KEYS` / `friendlyToolName` / `formatElapsed`。
 
 ## 上下游

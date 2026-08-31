@@ -14,9 +14,15 @@ becomes visible to users:
 
   text/thinking deltas   -> thinking_item
       Our plain text is working narration, never a reply: the owner
-      may watch it, but it is delivered to no one. Mapping it to the
-      legacy "assistant text" channel would hand it to the user as
-      though it were the answer.
+      may watch it, but the framework delivers it to no one. Mapping
+      it to the legacy "assistant text" channel would hand it to the
+      user as though it were the answer.
+      The exception is a turn declared with NO expressive tool, where
+      the platform delivers the plain text itself and writing IS how
+      the agent speaks (see harness/expression.py). The mapping does
+      not change there — it is still thinking_item — because what the
+      platform does with the text afterwards is the platform's affair;
+      what this table decides is that we never pass it off as a reply.
   expression arg deltas  -> response.reply.delta
       The reply lives in an expression tool's argument, so streaming
       that argument IS streaming the reply — the user reads the answer

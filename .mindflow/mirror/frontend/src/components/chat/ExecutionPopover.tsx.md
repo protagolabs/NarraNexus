@@ -4,13 +4,12 @@ last_verified: 2026-08-31
 stub: false
 ---
 
-## 2026-08-31 — 对照面改名(无行为变化)
+## 2026-08-31 — 对照面改名（无行为变化）
 
-相位标签「和谁保持一致」的注释里,`ProcessPanel` 换成
-[[process/RunPhases]]——前者已随过程框拆除退役。**一致性规则本身没变**:
-顶层相位取 `PHASE_LABEL_KEYS` 的本地化名,真正的子步(`3.4.x`、fallback)
-保留后端 title,那正是本 popover 要暴露的细节。
-
+相位标签「和谁保持一致」的注释里，`ProcessPanel` 换成
+[[process/RunPhases]]——前者已随过程框拆除退役。**一致性规则本身没变**：
+顶层相位取 `PHASE_LABEL_KEYS` 的本地化名，真正的子步（`3.4.x`、fallback）
+保留后端 title，那正是本 popover 要暴露的细节。
 
 ## 2026-08-26 — phase 标签走 PHASE_LABEL_KEYS，两面不再打架
 

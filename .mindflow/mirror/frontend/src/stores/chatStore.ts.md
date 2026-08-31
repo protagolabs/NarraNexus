@@ -61,7 +61,6 @@ AgentChatState 加 `currentSteerable`(run_started 设、startStreaming 重置 fa
 其中一个名字时，另一条表面上的回复内容是真的、字也在，**气泡就是不渲染**——一个不报错的
 静默失败。
 
-
 ## 2026-08-14 — ToastItem 成为可辨识联合
 
 `ToastItem` 从 `{agentId, agentName, timestamp}` 改成

@@ -4,37 +4,34 @@ last_verified: 2026-08-31
 stub: false
 ---
 
-## 2026-08-31(二)— 已结束的观察不再谎称 streaming
+## 2026-08-31（二）— 已结束的观察不再谎称 streaming
 
-`<TurnTimeline isStreaming />` 改成 `isStreaming={observation.status !== 'ended'}`,
-和紧邻的 `LiveCursorRow` 用同一个判据(那一行本来就写着 `!== 'ended'`)。
+`<TurnTimeline isStreaming />` 改成 `isStreaming={observation.status !== 'ended'}`，
+和紧邻的 `LiveCursorRow` 用同一个判据（那一行本来就写着 `!== 'ended'`）。
 
 不是回归——退役的 `ProcessEventRows` 一直是纯文本。但它和本次「直播 == 落定
-== 回放同一形态」的主张对不上:**已结束的成员 turn 会走 `whitespace-pre-wrap`
-而不是 `<Markdown>`**,而主聊落定的同一批事件是渲染 markdown 的。同一份事件
-在两个面上长得不一样,正是这一版要消灭的东西。
+== 回放同一形态」的主张对不上：**已结束的成员 turn 会走 `whitespace-pre-wrap`
+而不是 `<Markdown>`**，而主聊落定的同一批事件是渲染 markdown 的。同一份事件
+在两个面上长得不一样，正是这一版要消灭的东西。
 
+## 2026-08-31 — 团队卡**保留**边框，和单聊分道
 
-## 2026-08-31 — 团队卡**保留**边框,和单聊分道
+单聊的过程框今天拆了（见 [[../ChatPanel]]），本组件的卡片 chrome **不动**。
+两者不是同一个面。这里是**成员名册里的一行展开**，同屏可能有好几个成员，
+框正是把成员彼此分开的东西；单聊只有一个 agent、一列阅读动线，那里的第二个
+框只会和 turn 抢注意力。文件头已写明这条取舍，免得下次有人来「统一」。
 
-单聊的过程框今天拆了(见 [[../ChatPanel]]),本组件的卡片 chrome **不动**。
-两者不是同一个面。这里是**成员名册里的一行展开**,同屏可能有好几个成员,
-框正是把成员彼此分开的东西;单聊只有一个 agent、一列阅读动线,那里的第二个
-框只会和 turn 抢注意力。文件头已写明这条取舍,免得下次有人来「统一」。
-
-相位白名单与 `phaseSettled` 的共享规则不变,文档里的对照方改名为
+相位白名单与 `phaseSettled` 的共享规则不变，文档里的对照方改名为
 [[../process/RunPhases]]。
 
-
-## 2026-08-30(二)— 观察视图换成同一个渲染器
+## 2026-08-30（二）— 观察视图换成同一个渲染器
 
 live 分支从 `ProcessEventRows` 换成 `<TurnTimeline events={processEvents}
-isStreaming />`,与主聊天的直播态、落定态同一份实现。settled 分支本来就走
-TurnTimeline,所以本面板内部的两种形态也一并消失。
+isStreaming />`，与主聊天的直播态、落定态同一份实现。settled 分支本来就走
+TurnTimeline，所以本面板内部的两种形态也一并消失。
 
-`useNarrationTier` 不再在本文件解析——色调由 TurnTimeline 自己决定,面板
+`useNarrationTier` 不再在本文件解析——色调由 TurnTimeline 自己决定，面板
 不必知道。
-
 
 ## 2026-08-30 — 独白提级偏好与 ProcessPanel 同一份写法（且已真的生效）
 

@@ -4,41 +4,38 @@ last_verified: 2026-08-30
 stub: false
 ---
 
-## 2026-08-31(二)— `defaultOpen` 整条删除:推理永远折叠
+## 2026-08-31（二）— `defaultOpen` 整条删除：推理永远折叠
 
-`ThinkingBlock` 的推理档 `useState(false)` 写死,`defaultOpen` prop 从
+`ThinkingBlock` 的推理档 `useState(false)` 写死，`defaultOpen` prop 从
 `TurnTimeline` / [[SegmentedReply]] / [[MessageBubble]] 三处一并移除
-(铁律 #2:没有调用方的参数不留)。
+（铁律 #2：没有调用方的参数不留）。
 
-Owner 的判据:**点开一轮的过程是要看结论,不是要读草稿纸。** 叙述句和工具行
-是这一轮的可读骨架,provider CoT 比它们加起来还长——自动展开等于把读者真正
-来看的东西埋掉。折叠 ≠ 丢弃,开关就在旁边(铁律 #16)。
+Owner 的判据：**点开一轮的过程是要看结论，不是要读草稿纸。** 叙述句和工具行
+是这一轮的可读骨架，provider CoT 比它们加起来还长——自动展开等于把读者真正
+来看的东西埋掉。折叠 ≠ 丢弃，开关就在旁边（铁律 #16）。
 
-这条推翻了前一版加 `defaultOpen` 时写的理由(「用户已经花过一次点击」)。
-那个理由只看到点击成本,没看到**展开之后谁被埋掉**。
-
+这条推翻了前一版加 `defaultOpen` 时写的理由（「用户已经花过一次点击」）。
+那个理由只看到点击成本，没看到**展开之后谁被埋掉**。
 
 ## 2026-08-31 — plan 的去处改名
 
 文件头与 `processEvents` 处的注释原说 plan「渲染在 ProcessPanel 的钉底区」。
-该组件已删除,plan 现在在 [[process/PlanStrip]]。分工本身没变:过程归时间线,
-答案归 `SegmentedReply`,plan 归贴底细条。
+该组件已删除，plan 现在在 [[process/PlanStrip]]。分工本身没变：过程归时间线，
+答案归 `SegmentedReply`，plan 归贴底细条。
 
+## 2026-08-30（二）— 成为唯一的过程渲染器
 
-## 2026-08-30(二)— 成为唯一的过程渲染器
-
-直播、落定、团队观察三个面现在都渲染本组件(此前直播走
-`ProcessEventRows`、观察面也是)。`ToolCallBlock` 补上
-`data-testid={`tool-row-${event.id}`}` 与 `data-pending`,承接退役组件留下的
+直播、落定、团队观察三个面现在都渲染本组件（此前直播走
+`ProcessEventRows`、观察面也是）。`ToolCallBlock` 补上
+`data-testid={`tool-row-${event.id}`}` 与 `data-pending`，承接退役组件留下的
 断言抓手——`documentFlowConsistency.test.tsx` 靠它断言"叙述 → 工具 → 推理
 → 正文"这个顺序。
 
-分档规则未变(见上一条):叙述常显 ink70 + `Milestone` 记号,推理折叠成
-「已思考 ▸」。变的是它现在坐在**没有气泡**的文档里,所以这个对比第一次
+分档规则未变（见上一条）：叙述常显 ink70 + `Milestone` 记号，推理折叠成
+「已思考 ▸」。变的是它现在坐在**没有气泡**的文档里，所以这个对比第一次
 真正可见。
 
-
-## 2026-08-30 — ThinkingBlock 三档中的第二档:进度(独白)
+## 2026-08-30 — ThinkingBlock 三档中的第二档：进度（独白）
 
 原来是二元的：**答案**（气泡，正文色）vs **过程**（dim）。现在过程语域内部
 再分两档，**用的是既有 ink 阶梯的三个档位，没有新 token、没有新色**：
