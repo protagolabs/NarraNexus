@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
 

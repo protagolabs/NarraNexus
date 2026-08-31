@@ -129,7 +129,6 @@ describe('MessageBubble per-turn run stats', () => {
     // because a timeline carrying a reply makes segmentTurn produce segments
     // and unmounts the disclosure entirely. Put the chips inside it and they
     // vanish on exactly the turns that have a reply — i.e. almost all of them.
-    mockResponse(baseMeta);
     getEventLogMock.mockResolvedValue({
       success: true,
       event_id: 'ev1',

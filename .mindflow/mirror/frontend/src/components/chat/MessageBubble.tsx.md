@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
 

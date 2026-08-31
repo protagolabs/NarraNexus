@@ -36,6 +36,7 @@ import { VoiceTranscript } from './VoiceTranscript';
 import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
 import { RunStatChips } from './RunStatChips';
+import { hasRunStats } from '@/lib/runStats';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -380,7 +381,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               inside it: the same fetch that fills the disclosure can upgrade
               the bubble to segment mode, which unmounts the disclosure — the
               chips would blink out exactly on the turns that have a reply. */}
-          {eventLogMeta && (
+          {eventLogMeta && hasRunStats(eventLogMeta) && (
             <div className="mb-2">
               <RunStatChips meta={eventLogMeta} t={t} />
             </div>

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/runStats.ts
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
 
@@ -12,10 +12,11 @@ stub: false
 组件文件只导出组件，而 [[RunStatChips]] 需要向外提供两样非组件的东西——
 `formatDuration` 和 `hasRunStats`。它们搬到这里，组件文件就只剩组件。
 
-**为什么不并进 [[tokenFormat]]**：那个文件是**用量数字**的 SSOT（求和口径、
-token 格式、USD 格式、模型标签），被成本 popover 和账号用量面板共用。时长格式
-和"这一轮有没有统计可显示"的谓词不属于那套规则，塞进去会让一个名字叫
-tokenFormat 的文件承担越来越杂的东西。
+**与 [[tokenFormat]] 的边界是「格式化」vs「值不值得显示」**（2026-08-31 修正：
+初版写的是「token / USD 规则不放这里」，`hasCostToShow` 落地时这条就已经不成
+立了——它正是一条 USD 规则）。把一个数字**格式化**成字符串（`formatTokens` /
+`formatCost` / `shortModelName`）留在 tokenFormat，因为成本 popover 和账号页
+用量区共用；**判断一个数据够不够格占一枚 chip**，只服务于这一行，放这里。
 
 ## 上下游
 
@@ -38,7 +39,13 @@ registry 抽象是因为目前只有 5 枚 chip，那套间接层的成本高于
 
 ## Gotcha
 
-**`hasCostToShow` 门在 `> 0` 而不是 `!= null`。** 记成 0 的账不是"这轮很便
+**`hasCostToShow` 是类型谓词，不是普通 boolean。** 返回
+`meta is EventLogMeta & { total_cost_usd: number }`，好让调用方把
+`meta.total_cost_usd` 直接交给 `formatCost` 而不用 `as number`。断言写法能在
+有人把门放宽回 `!= null` 时静默存活，而 `formatCost(null)` 就直接走回下面这
+个 bug。
+
+**它的门在 `> 0` 而不是 `!= null`。** 记成 0 的账不是"这轮很便
 宜"，是"我们不知道价格"：`price_for` 对定价表不认识的 model id 返回 None，
 `calculate_cost` 于是全 0 —— 本地库里这是**多数**（写下这条时 2384 行中
 1837 行，全是主力的 DeepSeek / GLM id）。而 [[tokenFormat]] 的 `formatCost`

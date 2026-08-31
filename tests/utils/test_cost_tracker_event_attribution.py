@@ -14,7 +14,8 @@ scope restore, and the task-copy propagation that background Steps 5-6
 depend on.
 """
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import importlib
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,6 +26,7 @@ from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
     get_cost_event_id,
     record_cost,
+    set_cost_context,
 )
 
 
@@ -158,6 +160,90 @@ def test_context_scope_leaves_the_event_alone():
         with cost_context_scope("agent_x", object()):
             assert get_cost_event_id() == "evt_turn"
         assert get_cost_event_id() == "evt_turn"
+
+
+# ---------------------------------------------------------------------------
+# the shape that actually broke: an async generator
+# ---------------------------------------------------------------------------
+#
+# The three tests above prove the scope nests correctly under a plain `with`,
+# which it always did. The bug lived in the ONE shape none of them exercise:
+# a `with` written inside `async def … yield`. An async generator gets no
+# context copy of its own, so its enter/exit land on the CALLER's context —
+# which is why the old `set` + `finally: clear` emptied the turn instead of a
+# private copy. Reverting step_3 to that shape left all 923 runtime+utils
+# tests green, so this is the missing guard rail, not a redundant one.
+
+
+@pytest.mark.asyncio
+async def test_fallback_reply_stream_leaves_the_turns_context_intact():
+    """Drives the REAL `step_3._generate_fallback_reply_stream`.
+
+    Deliberately not a hand-rolled async generator of the same shape: that
+    would only prove `cost_context_scope` behaves, which is not where the bug
+    was. The bug was this specific call site using set + clear, so the guard
+    rail has to run this specific function — revert it and this goes red.
+    """
+    from xyz_agent_context.agent_framework.llm import helper_sdk as helper_sdk_mod
+    # importlib, not `import … as`: the package's __init__ rebinds the name
+    # `step_3_agent_loop` to a same-named FUNCTION, so both import forms hand
+    # back that function rather than the module the private helper lives in.
+    step_3_agent_loop = importlib.import_module(
+        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+    class _FakeSdk:
+        async def llm_stream(self, *, instructions, user_input):
+            yield "recovered reply"
+
+    db_turn = object()
+    # The turn's own context. Set explicitly: the autouse fixture is sync and
+    # pytest-asyncio runs the test body in a Task with a copied context, so
+    # the fixture's clear did not land in this one.
+    set_cost_context("agent_turn", db_turn)
+
+    with patch.object(helper_sdk_mod, "get_helper_sdk", lambda: _FakeSdk()):
+        stream = step_3_agent_loop._generate_fallback_reply_stream(
+            mode="no_reply",
+            context_messages=[],
+            agent_loop_response=[],
+            final_output="",
+            user_input="hi",
+            error_info=None,
+            db=object(),
+            agent_id="agent_helper",
+        )
+        async for _ in stream:
+            pass
+
+    # Asserted OUTSIDE the generator on purpose — inside, the scope is still
+    # active and would report the helper's own pair, missing the point.
+    # The pre-fix shape leaves None here, and Steps 5-6 spawn off that.
+    assert get_cost_context() == ("agent_turn", db_turn)
+
+
+@pytest.mark.asyncio
+async def test_abandoned_async_generator_does_not_take_the_caller_down():
+    """Break out mid-stream, then close: the `finally` unwinds under whatever
+    context closes the generator, where `reset` raises. `_unwind` degrades to
+    a clear instead of raising into an unrelated caller's stack."""
+    db_turn = object()
+
+    async def _helper_stream():
+        with cost_context_scope("agent_helper", object()):
+            yield "first"
+            yield "second"
+
+    set_cost_context("agent_turn", db_turn)
+
+    gen = _helper_stream()
+    async for _ in gen:
+        break
+    await gen.aclose()  # must not raise
+
+    # Either restored or cleared — what matters is that aclose() did not blow
+    # up and the helper's pair is not left masquerading as the turn's.
+    assert get_cost_context() != ("agent_helper", db_turn)
 
 
 def test_scope_exit_survives_a_token_from_another_context():

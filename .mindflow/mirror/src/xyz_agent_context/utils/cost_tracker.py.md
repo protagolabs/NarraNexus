@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/cost_tracker.py
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
 
@@ -26,6 +26,12 @@ helper 调用点都写着 `_agent_id, _db = ctx`，加宽 tuple 要改遍所有�
 
 **`set_cost_context` 故意不动 event**：轮次中途重设 cost context 时若顺手清掉
 event，这些 token 就正好掉出它们所属的那一轮。两个变量生命周期不同是刻意的。
+
+**后台 Steps 5-6 天然正确**：它们由 `spawn` 在 scope 内创建，`create_task` 在
+创建时刻复制上下文，所以任务活得比 scope 长也仍带着这一轮的 id。
+
+上游：[[agent_runtime]] 在 Step 0 之后 `enter_context`。
+Tests：`tests/utils/test_cost_tracker_event_attribution.py`。
 
 ## 2026-08-31 — `cost_context_scope`：修掉中途 `clear` 抹掉本轮上下文
 
@@ -57,14 +63,19 @@ flow control，所以跨 context 退栈降级为清空，绝不把异常抛进�
 （contextvars 做不到跨 context 写）进入 scope 的那个 context 的值——它要等自
 己正常退栈。
 
-Tests：`tests/utils/test_cost_tracker_event_attribution.py`
-（`test_context_scope_restores_the_outer_pair_instead_of_clearing_it` 等）。
+**护栏必须驱动真实调用点。** 初版只测了「`cost_context_scope` 在同步 `with`
+里能正确嵌套」——那它一直都能。把 step_3 改回旧写法，923 个 runtime+utils 用例
+全绿，等于没有护栏。现在
+`test_fallback_reply_stream_leaves_the_turns_context_intact` 直接驱动真实的
+`_generate_fallback_reply_stream`（只 patch `get_helper_sdk`），回退即红。
+自己手搓一个同形的异步生成器不算数：那只证明 scope 的行为，而 bug 在**调用
+点**。
 
-**后台 Steps 5-6 天然正确**：它们由 `spawn` 在 scope 内创建，`create_task` 在
-创建时刻复制上下文，所以任务活得比 scope 长也仍带着这一轮的 id。读 ContextVar
-失败一律降级 None——本文件的铁律没变：observability, not flow control。
+`AgentRuntime.run()` 自己也改用 `cost_context_scope`（08-31）：它并非总是最外
+层——Step 6 回调能驱动嵌套 `run()`，裸 `set` 会把父层的 pair 永久覆盖。今天两
+层的 agent_id 与 db 单例相同所以看不出来，第一个传不同 agent_id 的调用方出现
+时就会把父轮剩余的 post-turn 花销记到子 agent 头上。
 
-上游：[[agent_runtime]] 在 Step 0 建出 Event 行后 `enter_context`。
 Tests：`tests/utils/test_cost_tracker_event_attribution.py`。
 
 ## 2026-08-10 — exact provider-card attribution
@@ -158,7 +169,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 ## Upstream / Downstream
 
-**Set by:** `agent_runtime/` — `AgentRuntime.run()` calls `set_cost_context(agent_id, db)` at the start and `clear_cost_context()` in the `finally` block.
+**Set by:** `agent_runtime/` — `AgentRuntime.run()` enters `cost_context_scope(agent_id, db)` on its ExitStack at the start (2026-08-31; it used to be a bare `set` + `finally: clear`). The remaining legitimate `set_cost_context` callers are the background workers, which genuinely are the outermost frame of their pass.
 
 **Called by:** `agent_framework/llm/api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
 

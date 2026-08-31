@@ -83,7 +83,7 @@ export function RunStatChips({ meta, t }: { meta: EventLogMeta; t: (k: string) =
       )}
       {hasCostToShow(meta) && (
         <StatChip icon={<Coins className="w-2.5 h-2.5" />} title={t('chat.inner.meta.cost')}>
-          {formatCost(meta.total_cost_usd as number)}
+          {formatCost(meta.total_cost_usd)}
         </StatChip>
       )}
       {hasTokens(meta) && (

@@ -407,12 +407,20 @@ class AgentRuntime:
             # Set global cost tracking context so ALL LLM calls (narrative, job, social
             # network, module decisions, etc.) automatically record costs without needing
             # explicit agent_id/db parameters at each call site.
+            # Scope, not a bare set: run() is NOT always the outermost frame.
+            # A Step-6 callback can drive a nested run() (_execute_callback_
+            # instance), which would otherwise overwrite the parent's pair for
+            # good — today both frames carry the same agent_id and db singleton
+            # so nothing shows, but the first caller to pass a different
+            # agent_id would silently book the parent's remaining post-turn
+            # spend against the child. Unwinds on the same ExitStack as the
+            # event scope below.
             from xyz_agent_context.utils.cost_tracker import (
                 clear_cost_context,
+                cost_context_scope,
                 cost_event_scope,
-                set_cost_context,
             )
-            set_cost_context(agent_id, db_client)
+            _trace_stack.enter_context(cost_context_scope(agent_id, db_client))
 
             # Initialize the three major Services
             self.session_service = SessionService()

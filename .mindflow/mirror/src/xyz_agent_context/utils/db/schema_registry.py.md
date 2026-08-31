@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
 

@@ -2,13 +2,20 @@
  * @file runStats.ts
  * @author NarraNexus
  * @date 2026-08-28
- * @description Non-component helpers behind the run-stats chip row: how a
- * duration is formatted, and whether a turn has any stats worth a row at all.
+ * @description Non-component helpers behind the run-stats chip row: duration
+ * formatting, plus the display predicate for each chip ("is there a price
+ * worth showing", "are there tokens", "is there a row at all").
  *
- * Split out of components/chat/RunStatChips.tsx purely so that file exports
- * components only (react-refresh/only-export-components). The token and USD
- * rules deliberately do NOT live here — they are shared with the cost popover
- * and the account usage panel, and stay in `lib/tokenFormat`.
+ * Split out of components/chat/RunStatChips.tsx so that file exports
+ * components only (react-refresh/only-export-components).
+ *
+ * The boundary against `lib/tokenFormat` is FORMATTING vs DISPLAY-WORTHINESS,
+ * not "token/USD vs everything else" — the original wording said the latter
+ * and was already false by the time `hasCostToShow` landed here. Pure
+ * formatting of a number (`formatTokens`, `formatCost`, `shortModelName`)
+ * stays in `tokenFormat` because the cost popover and the account usage panel
+ * share it. Deciding whether a datum earns a chip is specific to this row and
+ * lives here.
  */
 
 import { inputSideTokens } from './tokenFormat';
@@ -41,17 +48,30 @@ export function formatDuration(seconds: number): string {
  * `total_cost_usd` None when there are no ledger rows precisely so the UI can
  * hide the chip instead of showing a misleading $0. No rows and no price are
  * the same situation to a reader.
+ *
+ * A type predicate, not a plain boolean: it lets the caller pass
+ * `meta.total_cost_usd` straight to `formatCost` without an `as number`. An
+ * assertion there would silently survive someone loosening this gate back to
+ * `!= null` — and `formatCost(null)` walks right back into the bug above.
  */
-export function hasCostToShow(meta: EventLogMeta): boolean {
+export function hasCostToShow(
+  meta: EventLogMeta,
+): meta is EventLogMeta & { total_cost_usd: number } {
   return meta.total_cost_usd != null && meta.total_cost_usd > 0;
+}
+
+/** Any token movement at all, cache buckets included. */
+export function hasTokens(meta: EventLogMeta): boolean {
+  return inputSideTokens(meta) > 0 || meta.output_tokens > 0;
 }
 
 /**
  * Would the chip row render anything?
  *
  * Exported so a caller can collapse its whole container up front rather than
- * leave an empty strip around a component that returned null — the card's
- * RunMeta needs exactly that ("no chips AND no input/output → render nothing").
+ * leave an empty strip around a component that returned null. BOTH callers
+ * must use it: RunStatChips returning null still leaves the caller's wrapper
+ * div behind, margin and all.
  *
  * Predicate and render must agree. They are two hand-written copies of the
  * same conditions today; the shared helpers (`hasCostToShow`, `hasTokens`)
@@ -59,10 +79,6 @@ export function hasCostToShow(meta: EventLogMeta): boolean {
  * Adding a chip means touching both — a mismatch shows up as a turn whose
  * only datum is the new chip rendering no row at all.
  */
-export function hasTokens(meta: EventLogMeta): boolean {
-  return inputSideTokens(meta) > 0 || meta.output_tokens > 0;
-}
-
 export function hasRunStats(meta: EventLogMeta): boolean {
   return (
     meta.state === 'failed' ||
