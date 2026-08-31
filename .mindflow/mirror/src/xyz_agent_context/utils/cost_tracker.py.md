@@ -1,10 +1,82 @@
 ---
 code_file: src/xyz_agent_context/utils/cost_tracker.py
-last_verified: 2026-08-10
+last_verified: 2026-08-31
 stub: false
 ---
 
 # cost_tracker.py
+
+## 2026-08-28 — 账目认领轮次：`cost_event_scope`
+
+`event_id` 从来只有 step_4（`call_type="agent_loop"`）传得出来，**其余每一个
+helper 调用点都硬写 `event_id=None`** —— narrative 选择、shutter/decider、
+总结、post-turn hooks 全部记成"不属于任何一轮"。后果不是少一列元数据：
+`chat_history._build_event_meta` 按 `WHERE event_id = ?` 汇总单轮 token，于是
+它一直只数到主循环那一条，**helper 用得越多，单轮数字漏得越离谱**，而界面上
+看不出任何异常。
+
+修法沿用本文件已有的心智：既然 `(agent_id, db)` 能作为环境量漂到每个调用点，
+轮次也能。新增 `_cost_event_id` ContextVar + `cost_event_scope()`，
+`record_cost` 在 `event_id is None` 时回落到它。
+
+**为什么是独立的 ContextVar，而不是塞进 `_cost_context` 那个 tuple**：每个
+helper 调用点都写着 `_agent_id, _db = ctx`，加宽 tuple 要改遍所有解包点却换不
+来任何东西；何况两者生命周期本就不同——agent+db 覆盖一整个 worker pass，轮次
+只覆盖其中一轮。
+
+**`set_cost_context` 故意不动 event**：轮次中途重设 cost context 时若顺手清掉
+event，这些 token 就正好掉出它们所属的那一轮。两个变量生命周期不同是刻意的。
+
+**后台 Steps 5-6 天然正确**：它们由 `spawn` 在 scope 内创建，`create_task` 在
+创建时刻复制上下文，所以任务活得比 scope 长也仍带着这一轮的 id。
+
+上游：[[agent_runtime]] 在 Step 0 之后 `enter_context`。
+Tests：`tests/utils/test_cost_tracker_event_attribution.py`。
+
+## 2026-08-31 — `cost_context_scope`：修掉中途 `clear` 抹掉本轮上下文
+
+> 修正 08-28 条目里一句错的不变量：它写着「清理只发生在
+> `clear_cost_context`（finally 兜底）和 scope 退出时」。**清理也发生在轮次
+> 中间**，而且抹掉的是本轮自己的上下文。
+
+`step_3._generate_fallback_reply_stream` 此前是 `set_cost_context(...)` +
+`finally: clear_cost_context()`。它是**异步生成器**——异步生成器**不复制
+context**（PEP 568 从未落地），所以那个 `finally` 清的不是私有副本，是**这一
+轮 task 自己的** `_cost_context`。
+
+后果（**本 PR 之前就存在的老 bug**，08-28 那次只是把 event 也拖了进去）：走
+fallback 恢复路径的轮次（`no_reply` / `after_error`），从那个 `finally` 之后
+到本轮结束，`_resolve_cost_context` 拿不到 `(agent_id, db)` 就直接 return；
+Steps 5-6 在 step_4 之后 `spawn`，复制到的正是这份被清空的 context，
+**post-turn hooks 的花销一行都不记**。也就是说账目恰好在**已经失败的那些
+轮次**上不准，而屏幕上看不出任何异常。
+
+修法：新增 `cost_context_scope(agent_id, db)`，`finally` 里 `reset(token)`
+**还原**而非 `set(None)` 清空；step_3 改用它。`clear_cost_context()` 语义收窄
+为「最外层专用」——后台 worker 收尾、`AgentRuntime` 的 post-turn task 收尾。
+
+**`_unwind` 为什么吞 `ValueError`**：异步生成器被中途放弃时，`finally` 在关闭
+它的那个 context 里跑，`ContextVar.reset(token)` 会抛
+`Token was created in a different Context`。本模块的铁律是 observability, not
+flow control，所以跨 context 退栈降级为清空，绝不把异常抛进一个无关调用者的
+栈。**能保证的**是不抛、且执行清理的那个 context 读回 None；**不能保证**
+（contextvars 做不到跨 context 写）进入 scope 的那个 context 的值——它要等自
+己正常退栈。
+
+**护栏必须驱动真实调用点。** 初版只测了「`cost_context_scope` 在同步 `with`
+里能正确嵌套」——那它一直都能。把 step_3 改回旧写法，923 个 runtime+utils 用例
+全绿，等于没有护栏。现在
+`test_fallback_reply_stream_leaves_the_turns_context_intact` 直接驱动真实的
+`_generate_fallback_reply_stream`（只 patch `get_helper_sdk`），回退即红。
+自己手搓一个同形的异步生成器不算数：那只证明 scope 的行为，而 bug 在**调用
+点**。
+
+`AgentRuntime.run()` 自己也改用 `cost_context_scope`（08-31）：它并非总是最外
+层——Step 6 回调能驱动嵌套 `run()`，裸 `set` 会把父层的 pair 永久覆盖。今天两
+层的 agent_id 与 db 单例相同所以看不出来，第一个传不同 agent_id 的调用方出现
+时就会把父轮剩余的 post-turn 花销记到子 agent 头上。
+
+Tests：`tests/utils/test_cost_tracker_event_attribution.py`。
 
 ## 2026-08-10 — exact provider-card attribution
 
@@ -97,7 +169,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 ## Upstream / Downstream
 
-**Set by:** `agent_runtime/` — `AgentRuntime.run()` calls `set_cost_context(agent_id, db)` at the start and `clear_cost_context()` in the `finally` block.
+**Set by:** `agent_runtime/` — `AgentRuntime.run()` enters `cost_context_scope(agent_id, db)` on its ExitStack at the start (2026-08-31; it used to be a bare `set` + `finally: clear`). The remaining legitimate `set_cost_context` callers are the background workers, which genuinely are the outermost frame of their pass.
 
 **Called by:** `agent_framework/llm/api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
 

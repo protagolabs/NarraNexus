@@ -218,3 +218,7 @@ prompt，客户端提取+校验 JSON），复用其 `_extract_json_from_llm_outp
 
 - OAuth 订阅调用可能上报 0 token（CLI 计费在订阅侧，不在我们）——有则记账，无则 warn 不报错。
 - 成本上下文来自 `get_cost_context()`（agent_id, db），与其它 helper 一致。
+
+## 2026-08-28 补(auto-review I5) — 惰性 import 前调 activate_pyenv
+
+`_run_claude_oneshot` 的 `from claude_agent_sdk import ...` 前补 `plugin_paths.activate_pyenv()`:用户装完插件后**先**用到 helper LLM(不经 agent driver)时,不重启也能解析到插件 SDK;否则拿到裸 ModuleNotFoundError。模块 import 期那次 activate 只覆盖'启动时已装'。

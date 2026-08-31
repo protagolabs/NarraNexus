@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-08-28
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-28 — `cost_records` 补 `idx_cost_event_id`
+
+`event_id` 列 2026-03 就在，索引一直没建。`chat_history._build_event_meta`
+每展开一张运行卡片就跑一次 `WHERE event_id = ?`，聊天面板现在按轮次也这么查
+（见 [[MessageBubble]] 同日条目），没有索引就是为几行结果全表扫一遍账本。
+
+幂等性两种方言来源不同，别记混：**SQLite** 的 DDL 生成器发的是
+`CREATE INDEX IF NOT EXISTS`；**MySQL 不支持这个语法**，发的是裸
+``CREATE INDEX `name` ON …``，幂等靠 `auto_migrate` 事先查
+`information_schema.statistics` 的那次预检。所以任何绕开 `auto_migrate`
+直接发 DDL 的路径，在 MySQL 上会撞 1061 duplicate key name。
 
 
 ## 2026-08-28（接线）— `channel_ingress_breaker` 现在有**两个**清扫者

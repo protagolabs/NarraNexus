@@ -24,7 +24,7 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
-import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
+import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse, EventLogMeta } from '@/types';
 import { cn, formatDate, formatMessageAge, formatTime } from '@/lib/utils';
 import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
@@ -35,6 +35,8 @@ import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
+import { RunStatChips } from './RunStatChips';
+import { hasRunStats } from '@/lib/runStats';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -65,6 +67,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [eventLogThinking, setEventLogThinking] = useState<string | null>(null);
   const [eventLogToolCalls, setEventLogToolCalls] = useState<EventLogToolCall[] | null>(null);
   const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
+  // Per-turn usage (tokens / cost / duration / models) — the same `meta` the
+  // Inner Thoughts card renders. Optional on purpose: a backend that predates
+  // it, or a turn with no ledger rows, simply yields no chip row.
+  const [eventLogMeta, setEventLogMeta] = useState<EventLogMeta | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
   // Build a unified TurnEvent[] for inline rendering. All three source
@@ -160,8 +166,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     && !message.isError
     && !(message.timeline && message.timeline.length > 0)
     && !message.segments?.some((seg) => seg.reply);
+
+  // All four pieces the fetch fills, meta included: a turn with no thinking
+  // and no tools still returns meta, and leaving it out kept "already
+  // loaded" false for exactly those turns (harmless today — the cache
+  // short-circuits the refetch — but the flag would start lying the moment
+  // the cache gains an expiry).
   const hasEventLogData =
-    eventLogTimeline !== null || eventLogThinking !== null || eventLogToolCalls !== null;
+    eventLogTimeline !== null || eventLogThinking !== null ||
+    eventLogToolCalls !== null || eventLogMeta !== null;
 
   const loadEventLog = useCallback(async () => {
     if (!eventId || !agentId || eventLogLoading) return;
@@ -172,6 +185,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
       setEventLogThinking(cached.thinking || null);
       setEventLogToolCalls(cached.tool_calls.length > 0 ? cached.tool_calls : null);
       setEventLogTimeline(cached.timeline && cached.timeline.length > 0 ? cached.timeline : null);
+      setEventLogMeta(cached.meta ?? null);
       return;
     }
 
@@ -185,6 +199,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         setEventLogTimeline(
           response.timeline && response.timeline.length > 0 ? response.timeline : null
         );
+        setEventLogMeta(response.meta ?? null);
       }
     } catch (error) {
       console.error('Failed to load event log:', error);
@@ -373,6 +388,17 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               matching the live streaming UX. No inner ScrollArea —
               long content pushes the bubble taller and scrolls with
               the main message list (no double-scroll). */}
+          {/* What this one turn cost. Sits ABOVE the disclosure, outside it:
+              the chips describe the whole turn, not the process region the
+              disclosure holds. (The original reason was that the fetch could
+              unmount the disclosure and blink the chips out — that unmount is
+              fixed on this branch, but above is still the right place.) */}
+          {eventLogMeta && hasRunStats(eventLogMeta) && (
+            <div className="mb-2" data-testid="run-stat-chips-slot">
+              <RunStatChips meta={eventLogMeta} t={t} />
+            </div>
+          )}
+
           {processIsRemote && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button

@@ -26,6 +26,19 @@ last_verified: 2026-08-30
 偏好在**卡片层**用 [[useNarrationTier]] 解析（顶层组件，与 TurnTimeline 同规格），
 不在 `EntryRow` 里订阅。
 
+## 2026-08-28 — chips 行抽走，格式规则并轨
+
+`RunMeta` 里那段 chips（状态 / 时长 / 花费 / token / 模型）连同私有的
+`formatDuration` / `formatTokens` / `formatCost` / `StatChip` 一起搬进
+[[RunStatChips]]，因为 Conversation 气泡要渲染同一行。本文件只留下
+input/output 两个文本块，chips 交给共享组件，`hasRunStats` 判断整块是否折叠。
+
+抽取顺带了结了 [[tokenFormat]] 里挂着的那条 NOTE：本卡片私有的两个格式函数
+与共享实现规则不同（M 档 1 位小数、`$0` 而非 `<$0.0001`），共享后以
+`lib/tokenFormat` 为准。**这确实改变了本卡片的渲染**——百万级 token 多一位
+小数，不到千分之一美分的运行不再显示成读起来像"免费"的 `$0`。现有测试断言
+落在 k 档和 `$0.0041`，两套规则一致，故未受影响。
+
 ## 2026-08-19 — 输入侧求和改用共享实现
 
 下面 07-30 那条规则（输入侧 = 全价桶 + cache read + cache write，`?? 0` 兜旧响应）

@@ -49,23 +49,23 @@ def test_pin_is_a_plain_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", PINNED_CLI_VERSION), PINNED_CLI_VERSION
 
 
-def test_run_sh_pins_the_same_version():
-    text = (_REPO / "run.sh").read_text(encoding="utf-8")
-    m = re.search(r'_CLAUDE_CLI_VERSION="([0-9.]+)"', text)
-    assert m, "run.sh no longer declares _CLAUDE_CLI_VERSION"
-    assert m.group(1) == PINNED_CLI_VERSION, (
-        f"run.sh pins {m.group(1)}, cli_binary pins {PINNED_CLI_VERSION}"
-    )
+def test_run_sh_no_longer_installs_claude_code():
+    """Lightweight build: `bash run.sh` must NOT install Claude Code at startup
+    anymore — it is an optional plugin installed on demand from Settings →
+    Plugins. Re-add a boot-time `npm install ... @anthropic-ai/claude-code` and
+    this goes red (the whole point of the slim-down would be undone).
 
-
-def test_run_sh_installs_the_pinned_version_not_latest():
-    """An unpinned `npm install -g` is the original bug: the version then
-    depends on when the machine was provisioned."""
+    Scans non-comment lines only, so the explanatory comment may still name the
+    package while an actual install command may not.
+    """
     text = (_REPO / "run.sh").read_text(encoding="utf-8")
-    installs = re.findall(r"npm install -g [\"']?@anthropic-ai/claude-code([^\"'\s]*)", text)
-    assert installs, "run.sh no longer installs @anthropic-ai/claude-code"
-    for suffix in installs:
-        assert suffix.startswith("@"), f"unpinned install found: ...claude-code{suffix}"
+    code_lines = [
+        ln for ln in text.splitlines() if not ln.lstrip().startswith("#")
+    ]
+    offending = [ln for ln in code_lines if "@anthropic-ai/claude-code" in ln]
+    assert not offending, f"run.sh still runs a claude-code install: {offending}"
+    # The boot-time pin variable is gone too.
+    assert not any("_CLAUDE_CLI_VERSION=" in ln for ln in code_lines)
 
 
 def test_dockerfile_pins_the_same_version():

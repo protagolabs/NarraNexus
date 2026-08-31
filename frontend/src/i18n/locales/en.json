@@ -1692,7 +1692,8 @@
         "artifacts": "Artifacts",
         "updates": "App updates",
         "privacy": "Privacy",
-        "personalization": "Personalization"
+        "personalization": "Personalization",
+        "plugins": "Plugins"
       },
       "providers": {
         "label": "LLM Providers"
@@ -1763,7 +1764,11 @@
         "applyToChecked": "Apply to selected agents",
         "applyTotalNote": "You have {{total}} agents in total.",
         "applyDone": "Cleared per-agent overrides — {{n}} agents affected.",
-        "applyDoneTitle": "Overrides cleared"
+        "applyDoneTitle": "Overrides cleared",
+        "pluginRequiredTitle": "Plugin required",
+        "pluginRequired": "This framework needs its plugin installed first.",
+        "pluginRequiredLink": "Go to Settings › Plugins →",
+        "pluginNotInstalledSuffix": "plugin not installed"
       },
       "updates": {
         "label": "App updates",
@@ -1800,6 +1805,21 @@
         "hint": "Theme, language, and how the agent's progress notes are shown.",
         "narrationTitle": "Progress narration",
         "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer."
+      },
+      "plugins": {
+        "label": "Plugins",
+        "hint": "Claude Code and Codex CLI are installed on demand — install, update, or remove them here.",
+        "loading": "Loading…",
+        "loadFailed": "Failed to load plugins",
+        "install": "Install",
+        "update": "Update",
+        "uninstall": "Uninstall",
+        "updateAvailable": "update available",
+        "versionUnknown": "version unknown",
+        "loggedIn": "logged in",
+        "starting": "Starting…",
+        "installFailed": "Install failed",
+        "uninstallFailed": "Uninstall failed"
       }
     },
     "system": {

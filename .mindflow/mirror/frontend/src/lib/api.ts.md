@@ -4,6 +4,22 @@ last_verified: 2026-08-28
 stub: false
 ---
 
+## 2026-08-28 — 插件安装三件套 + `getAgentFramework` 加 `frameworks`
+
+`getPlugins()` / `uninstallPlugin(id)` 走既有 `request<T>()`；`installPlugin(id,
+onEvent)` **不走** `request<T>()` —— `/api/plugins/{id}/install` 的响应体是
+ndjson 逐行流（`Content-Type: application/x-ndjson`），不是单个 JSON 文档，
+`request<T>()` 的 `response.json()` 只会解析出第一行就返回或直接炸掉。改用
+`response.body.getReader()` 手动累积 `TextDecoder` 输出、按 `\n` 切行，每行
+`JSON.parse` 后回调 `onEvent`；末尾 `done: true` 帧既回调也作为函数返回值。
+一行跨两个网络 chunk 到达是正常情况（TCP 不保证消息边界），所以用
+`buffer` 累积而不是假设每个 `read()` 恰好是整行——见同名 vitest 用例
+"a line split across two stream chunks"。非 2xx（如云端 403：插件由云端集中
+管理）直接抛 `ApiError`，不进入流式解析分支。
+
+`getAgentFramework()` 返回类型新增可选 `frameworks?: Array<{name, available}>`
+——插件安装态的门禁，[[agentFramework]] 的 `frameworkAvailabilityMap` 消费。
+可选是因为要在没升级的后端下仍然类型检查通过。
 ## 2026-08-28 — providers 族三个新方法 + ApiError.detail(P0 review 第 3 轮)
 
 `addProvider` / `getClaudeStatus` / `getCodexStatus` 收进 ApiClient——
@@ -432,3 +448,7 @@ void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正
 引导 Agent 接替新手引导）。`markOnboardingStep`（写方）保留——
 useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 幂等标记与之共用同一 metadata blob。
+
+## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
+
+`frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。

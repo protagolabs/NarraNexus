@@ -709,6 +709,11 @@ _register(
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
             Index("idx_cost_records_user_id", ["user_id"]),
+            # Per-turn lookup. chat_history._build_event_meta runs
+            # `WHERE event_id = ?` every time a run card is expanded, and the
+            # chat panel now does it per turn — without this the ledger is
+            # scanned end to end for a handful of rows.
+            Index("idx_cost_event_id", ["event_id"]),
         ],
     )
 )

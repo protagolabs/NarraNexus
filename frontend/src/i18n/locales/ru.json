@@ -1327,7 +1327,8 @@
         "providers": "LLM-провайдеры",
         "modelDefaults": "Модели по умолчанию",
         "artifacts": "Артефакты",
-        "updates": "Обновления"
+        "updates": "Обновления",
+        "plugins": "Плагины"
       },
       "providers": {
         "label": "Провайдеры LLM"

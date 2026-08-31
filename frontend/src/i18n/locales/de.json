@@ -1323,7 +1323,8 @@
         "providers": "LLM-Anbieter",
         "modelDefaults": "Modell-Standards",
         "artifacts": "Artefakte",
-        "updates": "App-Updates"
+        "updates": "App-Updates",
+        "plugins": "Plugins"
       },
       "providers": {
         "label": "LLM-Anbieter"

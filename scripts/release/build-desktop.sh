@@ -153,28 +153,29 @@ echo "Python dependencies installed"
 
 # Step 3.5: Bundle Node.js + CLI runtime dependencies.
 #
-# Why bundled, not user-installed:
-#   claude_agent_sdk (our hard Python dep) spawns the `claude` CLI as a
-#   subprocess — which is a Node.js script shipped via npm. A Mac end-user may
-#   not have Node.js at all, and even if they do, Finder-launched .app
-#   subprocesses get the launchd minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
-#   that usually doesn't include ~/.npm-global/bin, /opt/homebrew/bin, etc.
-#   The only robust answer is to ship node + the CLIs inside the app bundle
-#   and have process_manager.rs prepend their directories to PATH for every
-#   spawned Python service.
+# Why node is bundled (even though claude-code no longer is):
+#   lark-cli / narra-cli are Node.js scripts shipped via npm, and the Settings
+#   → Plugins installer runs `npm install --prefix ~/.narranexus/plugins/nodejs`
+#   to fetch Claude Code on demand. A Mac end-user may not have Node.js at all,
+#   and even if they do, Finder-launched .app subprocesses get the launchd
+#   minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that usually doesn't include
+#   ~/.npm-global/bin, /opt/homebrew/bin, etc. The only robust answer is to ship
+#   node inside the app bundle and have process_manager.rs prepend its directory
+#   to PATH for every spawned Python service (so the plugin `npm install` works).
 #
-# lark-cli is shipped the same way — previously run.sh did a best-effort
-# `npm install -g @larksuite/cli`, which again required node on the user
-# machine. Bundling it eliminates that dependency too.
+# Claude Code itself is NOT bundled anymore — it is an optional plugin. Keeping
+# claude-agent-sdk (its ~186 MB bundled CLI) and openai-codex out of the base
+# `pip install .` below is the bulk of the local slim-down.
 #
 # Bundle layout:
 #   resources/nodejs/
 #     bin/node                    ← interpreter for shebangs
 #     bin/npm                     ← (only used at build time)
 #     lib/node_modules/           ← node's own stdlib
-#     node_modules/               ← our installed packages (claude-code, lark-cli)
-#     node_modules/.bin/claude    ← shim exposed on PATH
+#     node_modules/               ← our installed packages (lark-cli, narra-cli)
 #     node_modules/.bin/lark-cli  ← shim exposed on PATH
+#   (claude-code is NOT bundled — optional plugin, installed on demand into
+#    ~/.narranexus/plugins/nodejs)
 echo ""
 echo "--- Step 3.5: Downloading Node.js $NODE_VERSION ---"
 if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
@@ -264,7 +265,13 @@ done
 "$NODE_DIR/bin/npx" --version > /dev/null
 echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$NODE_DIR/bin/npx" --version)"
 
-# Step 3.6: Install bundled CLIs (claude-code + lark-cli + narra-cli) into $NODE_DIR
+# Step 3.6: Install bundled CLIs (lark-cli + narra-cli) into $NODE_DIR
+#
+# Claude Code is NO LONGER bundled — on the lightweight build it is an optional
+# plugin the user installs on demand into ~/.narranexus/plugins (see
+# backend/integrations/plugins/). Node itself stays bundled here because
+# lark-cli / narra-cli still need it, AND because the plugin install runs
+# `npm install --prefix ...` which needs this bundled node on PATH.
 #
 # We install as *local* packages (no `-g`) so everything lives inside
 # $NODE_DIR/node_modules/ and the shim binaries end up at
@@ -275,7 +282,7 @@ echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$N
 # user's global prefix (e.g. ~/.npm-global) and picking up / clobbering their
 # installs during build.
 echo ""
-echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli + narra-cli) ---"
+echo "--- Step 3.6: Installing bundled CLIs (lark-cli + narra-cli) ---"
 # Use the committed package.json + package-lock.json so the build is
 # reproducible. Anything under scripts/desktop-bundle/ is the SOURCE OF
 # TRUTH for the bundled CLI versions — to bump:
@@ -312,7 +319,7 @@ cp "$BUNDLE_MANIFEST_DIR/package-lock.json" "$NODE_DIR/package-lock.json"
 # Sanity-check: the shims must exist at the path process_manager.rs will
 # prepend to PATH at runtime. If either is missing the build is broken — fail
 # loudly here rather than ship a half-working dmg.
-for bin in claude lark-cli narra-cli; do
+for bin in lark-cli narra-cli; do
     if [ ! -x "$NODE_DIR/node_modules/.bin/$bin" ]; then
         echo "ERROR: bundled CLI shim missing: $NODE_DIR/node_modules/.bin/$bin"
         echo "       npm install step above likely failed; re-run with verbose logging."
@@ -502,7 +509,6 @@ chmod +x "$NODE_DIR/node_modules/.bin/lark-cli"
 # Verify both CLIs can actually execute. --version is a safe smoke test
 # that forces the shim / binary to run and print something recognizable.
 echo "Bundled CLIs installed:"
-echo "  claude:   $("$NODE_DIR/node_modules/.bin/claude" --version 2>&1 | head -1 || echo '(version check failed)')"
 _lark_ver=$("$NODE_DIR/node_modules/.bin/lark-cli" --version 2>&1 | head -1 || true)
 if echo "$_lark_ver" | grep -qi "cannot find\|module_not_found\|Error:"; then
     echo "  lark-cli: ❌ native binary not working — output:"

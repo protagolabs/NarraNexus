@@ -1322,7 +1322,8 @@
         "providers": "LLM プロバイダー",
         "modelDefaults": "モデル既定値",
         "artifacts": "アーティファクト",
-        "updates": "アプリ更新"
+        "updates": "アプリ更新",
+        "plugins": "プラグイン"
       },
       "providers": {
         "label": "LLM プロバイダー"

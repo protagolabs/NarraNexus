@@ -1322,7 +1322,8 @@
         "providers": "LLM 제공자",
         "modelDefaults": "기본 모델",
         "artifacts": "아티팩트",
-        "updates": "앱 업데이트"
+        "updates": "앱 업데이트",
+        "plugins": "플러그인"
       },
       "providers": {
         "label": "LLM 제공자"
