@@ -11,7 +11,6 @@
 import type { TFunction } from 'i18next';
 import { Loader2 } from 'lucide-react';
 import type { Step, TurnEvent } from '@/types';
-import { cn } from '@/lib/utils';
 
 /** Pipeline step id → i18n label. The labels name what the backend
  *  ACTUALLY does at each step (step ids from step_3_agent_loop /
@@ -151,97 +150,3 @@ export function LiveCursorRow() {
   );
 }
 
-/** Terminal-style rows for one turn's process events (thinking / tool
- *  call / tool output). Shared by the single-agent ProcessPanel and the
- *  team roster's member detail. Pure render — no scrolling, no state.
- *
- *  `showNarration` is the panel-level display preference, resolved by the
- *  caller rather than subscribed here on purpose: a shared render component
- *  with a hidden global input is how you get "I passed the right events and
- *  it still looks wrong" in the next panel that reuses it. */
-export function ProcessEventRows({
-  process,
-  showNarration,
-}: {
-  process: TurnEvent[];
-  showNarration: boolean;
-}) {
-  return (
-    <>
-      {process.map((event) => {
-        if (event.type === 'thinking') {
-          // Progress tier (design A′): NexusPower's own narration reads as
-          // prose the user is meant to follow, so it drops the italic and
-          // steps one rung up the ink ladder (ink70). Provider CoT keeps the
-          // italic ink50 scratchpad look. Same glyph, same row, same rail —
-          // this is a tone change inside the process register, not a promotion
-          // out of it. Tier comes from the event, preference from the caller —
-          // same split as TurnTimeline's ThinkingBlock.
-          const narration = showNarration && !!event.monologue;
-          return (
-            <div key={event.id} className="flex gap-2 py-0.5">
-              <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--color-carbon)' }}>
-                ∴
-              </span>
-              <span
-                className={cn('whitespace-pre-wrap', !narration && 'italic')}
-                style={{ color: narration ? 'var(--nm-ink70)' : 'var(--nm-ink50)' }}
-              >
-                {event.content}
-              </span>
-            </div>
-          );
-        }
-        if (event.type === 'tool_call') {
-          // Show the first argument value as a one-line summary; an
-          // ellipsis until arguments arrive — the visible form of
-          // pending: name decided, arguments still being written.
-          const firstArg = Object.values(event.tool_input ?? {})[0];
-          return (
-            <div
-              key={event.id}
-              data-testid={`tool-row-${event.id}`}
-              data-pending={event.pending ? 'true' : 'false'}
-              className="flex items-center gap-2 rounded px-1 py-0.5 -mx-1 hover:bg-[var(--nm-paper-warm)]"
-            >
-              {event.pending ? (
-                <Loader2
-                  className="h-3 w-3 shrink-0 animate-spin"
-                  style={{ color: 'var(--color-warning)' }}
-                />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="shrink-0 select-none font-semibold"
-                  style={{ color: 'var(--color-success)' }}
-                >
-                  $
-                </span>
-              )}
-              <span className="shrink-0 font-semibold" style={{ color: 'var(--color-silicon)' }}>
-                {friendlyToolName(event.tool_name)}
-              </span>
-              <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                {event.pending ? '…' : String(firstArg ?? '')}
-              </span>
-            </div>
-          );
-        }
-        if (event.type === 'tool_output') {
-          return (
-            <div key={event.id} className="flex gap-2 py-0.5 pl-5">
-              <span aria-hidden="true" className="shrink-0 select-none" style={{ color: 'var(--nm-ink30)' }}>
-                ↳
-              </span>
-              <span className="truncate" style={{ color: 'var(--nm-ink50)' }}>
-                {event.output}
-              </span>
-            </div>
-          );
-        }
-        // Callers pass pre-filtered process events; anything else is noise.
-        return null;
-      })}
-    </>
-  );
-}

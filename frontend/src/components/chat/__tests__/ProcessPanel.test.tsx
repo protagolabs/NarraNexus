@@ -1,7 +1,15 @@
 /**
- * ProcessPanel — 运行中的过程面板。钉住 v3 契约：只渲染过程事件、
- * pipeline 阶段行收进面板、plan 固定在底部、pending 工具有进行中标记、
- * 可折叠（折叠态 = 当前活动 + plan 进度 1-2 行）、空数据也渲染启动态。
+ * ProcessPanel — the live pipeline strip above the composer.
+ *
+ * Since 2026-08-30 it carries what the message flow does NOT: the pipeline
+ * phases and the plan. The process events themselves (narration, tool lines,
+ * reasoning) render in the flow through TurnTimeline, so drawing them here
+ * too would paint the same rows twice — and burying the narration among
+ * reasoning rows in a side panel is what made it invisible in the first place.
+ *
+ * Still pinned: phases render by real semantics, the whitelist holds, the plan
+ * stays pinned at the bottom, collapse shows one activity line, and an empty
+ * panel still renders the starting state.
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -28,23 +36,23 @@ function step(id: string, status: Step['status'] = 'running'): Step {
 }
 
 describe('ProcessPanel', () => {
-  it('渲染思考与工具，不渲染回复', () => {
+  it('does not draw the process rows — those live in the message flow', () => {
+    // The anti-duplication invariant. If these come back, the same narration
+    // and tool lines paint twice: once in the flow, once in this panel.
     render(<ProcessPanel events={events} />);
-    expect(screen.getByText(/正在读取需求/)).toBeInTheDocument();
-    expect(screen.getByText('glob')).toBeInTheDocument();
+    expect(screen.queryByText(/正在读取需求/)).toBeNull();
+    expect(screen.queryByTestId('tool-row-c1')).toBeNull();
+    expect(screen.queryByTestId('tool-row-c2')).toBeNull();
+    // And it never drew the answer tier either.
     expect(screen.queryByText(/这句话属于气泡/)).toBeNull();
   });
 
-  it('pending 工具显示名字并标记进行中', () => {
+  it('still summarises what is happening now in the collapsed activity line', () => {
+    // The panel keeps reading the events even though it no longer lists them:
+    // the header line is how a collapsed panel says what the agent is doing.
     render(<ProcessPanel events={events} />);
-    const row = screen.getByTestId('tool-row-c2');
-    expect(row).toHaveTextContent('register_artifact');
-    expect(row).toHaveAttribute('data-pending', 'true');
-  });
-
-  it('参数齐了的工具不带进行中标记', () => {
-    render(<ProcessPanel events={events} />);
-    expect(screen.getByTestId('tool-row-c1')).toHaveAttribute('data-pending', 'false');
+    fireEvent.click(screen.getByTestId('process-panel-header'));
+    expect(screen.getByTestId('process-activity')).toHaveTextContent('register_artifact');
   });
 
   it('plan 渲染在底部固定区，含三个步骤', () => {
@@ -123,11 +131,10 @@ describe('ProcessPanel', () => {
   });
 
   describe('折叠', () => {
-    it('点击头部折叠：过程体隐藏，显示当前活动行', () => {
-      render(<ProcessPanel events={events} />);
+    it('点击头部折叠：阶段行隐藏，显示当前活动行', () => {
+      render(<ProcessPanel events={events} steps={[step('3.4')]} />);
       fireEvent.click(screen.getByTestId('process-panel-header'));
-      // Body rows gone…
-      expect(screen.queryByTestId('tool-row-c1')).toBeNull();
+      expect(screen.queryByText(/Running agent/)).toBeNull();
       // …one activity line: the latest pending tool is what's happening now.
       const activity = screen.getByTestId('process-activity');
       expect(activity).toHaveTextContent('register_artifact');
@@ -148,10 +155,10 @@ describe('ProcessPanel', () => {
     });
 
     it('再点一次展开回来', () => {
-      render(<ProcessPanel events={events} />);
+      render(<ProcessPanel events={events} steps={[step('3.4')]} />);
       fireEvent.click(screen.getByTestId('process-panel-header'));
       fireEvent.click(screen.getByTestId('process-panel-header'));
-      expect(screen.getByTestId('tool-row-c1')).toBeInTheDocument();
+      expect(screen.getByText(/Running agent/)).toBeInTheDocument();
     });
   });
 });

@@ -46,10 +46,8 @@ import {
   PhaseRow,
   formatElapsed,
   deriveActivity,
-  ProcessEventRows,
 } from './process/processShared';
 import type { Activity } from './process/processShared';
-import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 export interface ProcessPanelProps {
   events: TurnEvent[];
@@ -83,9 +81,6 @@ function useElapsedSeconds(): number {
 }
 
 export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: ProcessPanelProps) {
-  // Narration display tier — resolved at the panel so ProcessEventRows stays
-  // a pure render (no hidden global input in a shared component).
-  const showNarration = useNarrationTier();
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -260,7 +255,13 @@ export const ProcessPanel = memo(function ProcessPanel({ events, steps = [] }: P
               </div>
             )}
 
-            <ProcessEventRows process={process} showNarration={showNarration} />
+            {/* The process events themselves render in the message flow now
+                (ChatPanel → SegmentedReply), in the order they happened.
+                Repeating them here would paint the same narration and tool
+                lines twice — and burying the narration among reasoning rows
+                in a side panel is exactly what made it invisible. What stays
+                is what the flow does NOT carry: the pipeline phases above and
+                the plan below. */}
             {/* Live cursor — the terminal's "still running" heartbeat. */}
             <LiveCursorRow />
           </div>

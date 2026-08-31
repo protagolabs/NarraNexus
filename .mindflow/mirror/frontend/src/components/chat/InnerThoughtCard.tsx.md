@@ -5,10 +5,11 @@ last_verified: 2026-08-30
 
 ## 2026-08-30 — `EntryRow` 接上独白「进度」档
 
-`EventLogTimelineEntry` 一共有**三个**渲染面：[[TurnTimeline]]、
-[[processShared]] 的 `ProcessEventRows`，以及本文件的 `EntryRow`（另两个走
-`timelineToEvents`，这里自己实现一份转换）。A′ 落地时前两个接了档位，这里
-第一版漏了，review 第 4 轮抓到。
+`EventLogTimelineEntry` 当时有**三个**渲染面：[[TurnTimeline]]、
+`processShared` 的 `ProcessEventRows`（已于 2026-08-30 退役），以及本文件的
+`EntryRow`（前两个走 `timelineToEvents`，这里自己实现一份转换）。A′ 落地时
+前两个接了档位，这里第一版漏了，review 第 4 轮抓到。**今天只剩两个**：
+[[TurnTimeline]] 与本文件。
 
 **这一面其实最要紧**：activity 行只在「本轮没有面向用户的回复」时才写，也就是
 后台 job / 渠道触发那类 turn —— 那种 turn **通篇都是独白**，而这张卡片是它们

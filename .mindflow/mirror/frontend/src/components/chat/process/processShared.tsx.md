@@ -4,6 +4,21 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-30(二)— `ProcessEventRows` 退役
+
+过程改由 [[TurnTimeline]] 在消息流里渲染,直播 / 落定 / 观察三个面同一份
+实现,本组件失去全部调用方,**直接删除**(铁律 #2:不留兼容壳)。它的
+测试一并删除。
+
+本文件剩下的是流里没有的东西:`PHASE_LABEL_KEYS` / `PHASE_STEP_IDS` 白名单、
+`phaseSettled`、`deriveActivity`、`friendlyToolName`、`formatElapsed`、
+`LiveDot` / `PhaseRow` / `LiveCursorRow`。
+
+它原来带的 `data-testid={`tool-row-${id}`}` + `data-pending` 是有用的断言
+抓手,已在 [[TurnTimeline]] 的 `ToolCallBlock` 上补回——不是顺手加的,是
+删掉它会让"文档流形状"这件事无法断言。
+
+
 ## 2026-08-30 — `∴` 行分两档:独白去斜体、提到 ink70
 
 `ProcessEventRows` 的 thinking 行现在按 [[monologueTier]] 分档：独白
@@ -63,14 +78,17 @@ ProcessPanel 的 ping 呼吸灯、`✓`/spinner 阶段行、`❯▌` 活光标�
 
 ## 为什么存在
 
-单人聊天的 [[ProcessPanel]] 和团队房间成员栏的过程详情要长得一模一样——
-同一套终端风格（∴ 思考 / $ 工具 / ↳ 输出、pending 琥珀 spinner、
-friendly tool name 规则）。样式只能有一处事实源，否则两边会漂移。
+单人聊天的 [[ProcessPanel]] 和团队房间成员栏要共享同一套终端字形语言
+（呼吸灯 / `✓`·spinner 相位行 / `❯▌` 活光标 / friendly tool name 规则）。
+样式只能有一处事实源，否则两边会漂移。
+
+**过程事件行本身已经不在这里了**（2026-08-30）：它们由 [[TurnTimeline]]
+在消息流里渲染，直播 / 落定 / 观察三面同一份实现。本文件现在只剩相位与
+共享字形。
 
 ## 内容物
 
-- `ProcessEventRows`：TurnEvent[] → 终端行序列。纯渲染，无滚动无状态，
-  过滤留给调用方；非 process 型事件返回 null。
+- ~~`ProcessEventRows`~~ —— 2026-08-30 退役，见本文顶部那条。
 - `deriveActivity` + `Activity`：折叠态"当前在干什么"一行的推导
   （最后一个 tool_call/thinking 赢，否则最后一个 pipeline 相位）。
 - `PHASE_LABEL_KEYS` / `friendlyToolName` / `formatElapsed`。

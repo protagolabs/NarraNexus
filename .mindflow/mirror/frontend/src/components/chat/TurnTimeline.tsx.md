@@ -4,6 +4,19 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-30(二)— 成为唯一的过程渲染器
+
+直播、落定、团队观察三个面现在都渲染本组件(此前直播走
+`ProcessEventRows`、观察面也是)。`ToolCallBlock` 补上
+`data-testid={`tool-row-${event.id}`}` 与 `data-pending`,承接退役组件留下的
+断言抓手——`documentFlowConsistency.test.tsx` 靠它断言"叙述 → 工具 → 推理
+→ 正文"这个顺序。
+
+分档规则未变(见上一条):叙述常显 ink70 + `Milestone` 记号,推理折叠成
+「已思考 ▸」。变的是它现在坐在**没有气泡**的文档里,所以这个对比第一次
+真正可见。
+
+
 ## 2026-08-30 — ThinkingBlock 三档中的第二档:进度(独白)
 
 原来是二元的：**答案**（气泡，正文色）vs **过程**（dim）。现在过程语域内部

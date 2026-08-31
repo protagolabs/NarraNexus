@@ -14,23 +14,20 @@
  *   - settled (showProcess=true): the panel has unmounted and the
  *     process folds back onto each segment's own bubble.
  *
- * Since 2026-08-30 the settled case has two shapes: promoted — the process
- * renders inline, no drawer, because the narration is meant to be read — or
- * the original single collapsed "Reasoning & tools" affordance. A segment is
- * promoted only when the narration preference is on AND the segment actually
- * contains narration, so turns from drivers that emit none keep the compact
- * shape they always had. Same events either way.
+ * There is ONE settled shape (2026-08-30, second pass): the process renders
+ * inline as a document — narration, tool lines, collapsed reasoning — and the
+ * reply is body prose under it. The "Reasoning & tools" drawer is gone: it hid
+ * the narration this branch exists to surface, and keeping it for some turns
+ * meant two transcript shapes in one product. The narration display preference
+ * now does only what its name says — tone, not layout (see useNarrationTier).
  *
  * How segments are cut is lib/segmentTurn's job — this only draws.
  */
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight } from 'lucide-react';
 import type { Segment } from '@/types';
 import { Markdown } from '@/components/ui';
-import { cn } from '@/lib/utils';
 import { TurnTimeline } from './TurnTimeline';
-import { useNarrationTier } from '@/hooks/useNarrationTier';
 
 export interface SegmentedReplyProps {
   segments: Segment[];
@@ -67,69 +64,27 @@ export const SegmentedReply = memo(function SegmentedReply({
   isStreaming = false,
 }: SegmentedReplyProps) {
   const { t } = useTranslation();
-  // Promote the process out of the drawer (2026-08-30) — but only for a turn
-  // that actually HAS narration. A claude/codex-driver turn carries no
-  // monologue at all (AgentThinking.monologue is empty for every
-  // non-NexusPower driver), so promoting it would hand a whole class of
-  // agents a different transcript shape in exchange for nothing, driven by a
-  // setting whose name says "Progress narration". Those keep their drawer —
-  // and inside it their reasoning opens with the drawer, so reading it still
-  // costs the one click it always did.
-  // Turning the preference off restores the drawer everywhere.
-  const narrationEnabled = useNarrationTier();
-  // Decided ONCE for the whole turn, not per segment: a NexusPower turn whose
-  // first segment narrates and whose second is reasoning + tools only would
-  // otherwise render half inline and half behind a drawer — two transcript
-  // shapes stacked in one reply, which reads as a rendering bug.
-  const promoted =
-    narrationEnabled &&
-    segments.some((s) => s.process.some((e) => e.type === 'thinking' && e.monologue));
-  // Expansion state is keyed by segment index and lives here: the parent
-  // re-renders on every streaming delta, so keeping it local is what
-  // stops it from being reset.
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {segments.map((segment, index) => {
         const isLast = index === segments.length - 1;
-        const open = expanded[index] ?? defaultOpen;
         return (
-          <div key={index} className="space-y-1">
+          <div key={index} className="space-y-2">
             {showProcess && segment.process.length > 0 && (
-              promoted ? (
-                // Promoted layout: the process IS the transcript. The
-                // narration sentences read at near-body weight, tool cards
-                // sit inline, and each reasoning block collapses on its own
-                // (TurnTimeline decides per block). No outer drawer — the
-                // whole point is that the user reads the run without
-                // clicking anything.
-                <div data-testid={`segment-details-${index}`}>
-                  <TurnTimeline events={segment.process} />
-                </div>
-              ) : (
-                // Preference off: exactly the pre-promotion shape — one
-                // drawer for the whole segment, closed by default.
-                <div data-testid={`segment-details-${index}`}>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((prev) => ({ ...prev, [index]: !(prev[index] ?? defaultOpen) }))}
-                    className="flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                  >
-                    <ChevronRight
-                      className={cn('h-3 w-3 transition-transform', open && 'rotate-90')}
-                    />
-                    {t('chat.segment.details', 'Reasoning & tools')} ({segment.process.length})
-                  </button>
-                  {open && <TurnTimeline events={segment.process} defaultOpen />}
-                </div>
-              )
+              // The process IS the transcript — narration, tool lines and
+              // collapsed reasoning, in the order they happened. No outer
+              // drawer: the whole point is that the run reads without
+              // clicking anything. TurnTimeline decides each block's tier.
+              <div data-testid={`segment-details-${index}`}>
+                <TurnTimeline events={segment.process} defaultOpen={defaultOpen} />
+              </div>
             )}
 
             {segment.reply && (
               <div
                 data-testid={`segment-reply-${index}`}
-                className="markdown-content text-[var(--text-primary)]"
+                className="markdown-content markdown-reply text-[var(--text-primary)]"
               >
                 {fallbackKindFromReplyVia(segment.reply.via) === 'no_reply' && (
                   // Soft / informational: the agent finished thinking but didn't
@@ -160,7 +115,9 @@ export const SegmentedReply = memo(function SegmentedReply({
                     the old ReplyBlock documented on 2026-05-12). Markdown
                     renders on settle. */}
                 {isStreaming && (segment.reply.streaming || isLast) ? (
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                  // Same metrics as the settled markdown body, so the text
+                  // does not reflow when the turn lands.
+                  <div className="whitespace-pre-wrap text-[0.95rem] leading-[1.75]">
                     {segment.reply.content}
                   </div>
                 ) : (

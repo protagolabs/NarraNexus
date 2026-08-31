@@ -33,15 +33,15 @@ describe('SegmentedReply', () => {
     expect(screen.getByText('done')).toBeInTheDocument();
   });
 
-  it('preference off: each segment gets one drawer, labelled with its process count', () => {
-    // Since 2026-08-30 the process is promoted into the message flow by
-    // default; this drawer shape is what the preference restores.
+  it('there is ONE shape: the process is in the flow, with no drawer, either way', () => {
+    // The preference controls tone, never layout (2026-08-30 second pass) —
+    // keeping a drawer for some turns meant two transcript shapes in one
+    // product, and it hid the narration this whole branch exists to surface.
     useUIStore.setState({ interimNarration: false });
     render(<SegmentedReply segments={segments} showProcess />);
-    const entries = screen.getAllByTestId(/segment-details-/);
-    expect(entries).toHaveLength(2);
-    expect(entries[0]).toHaveTextContent('(1)');
-    expect(entries[1]).toHaveTextContent('(2)');
+    expect(screen.getAllByTestId(/segment-details-/)).toHaveLength(2);
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
+    expect(screen.queryByText(/Reasoning & tools/i)).toBeNull();
   });
 
   it('preference on + the turn narrates: process is inline, with no outer drawer', () => {
@@ -58,13 +58,14 @@ describe('SegmentedReply', () => {
     expect(screen.getByText('check the material')).toBeInTheDocument();
   });
 
-  it('preference on but the turn never narrates: drawer kept (claude/codex emit no monologue)', () => {
-    // Promoting such a turn buys nothing and costs a different transcript
-    // shape — from a setting named "Progress narration". No narration, no
-    // promotion.
+  it('a turn that never narrates gets the same shape (claude/codex emit no monologue)', () => {
+    // Its reasoning is collapsed rather than drawered — one click, same as
+    // everywhere else, instead of a second shape for a whole class of agents.
     render(<SegmentedReply segments={segments} showProcess />);
-    expect(screen.getByText(/\(1\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
     expect(screen.queryByText('check the material')).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { expanded: false })[0]);
+    expect(screen.getByText('check the material')).toBeInTheDocument();
   });
 
   it('promotion is decided per TURN, not per segment', () => {

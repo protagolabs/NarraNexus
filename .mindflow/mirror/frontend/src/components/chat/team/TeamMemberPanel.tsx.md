@@ -4,6 +4,16 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-30(二)— 观察视图换成同一个渲染器
+
+live 分支从 `ProcessEventRows` 换成 `<TurnTimeline events={processEvents}
+isStreaming />`,与主聊天的直播态、落定态同一份实现。settled 分支本来就走
+TurnTimeline,所以本面板内部的两种形态也一并消失。
+
+`useNarrationTier` 不再在本文件解析——色调由 TurnTimeline 自己决定,面板
+不必知道。
+
+
 ## 2026-08-30 — 独白提级偏好与 ProcessPanel 同一份写法（且已真的生效）
 
 读 [[uiStore]] 的 `interimNarration`（经 [[useNarrationTier]]）传给

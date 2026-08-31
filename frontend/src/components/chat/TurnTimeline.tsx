@@ -145,10 +145,17 @@ const ToolCallBlock = memo(function ToolCallBlock({
   toolName,
   toolInput,
   isStreaming,
+  testId,
+  pending,
 }: {
   toolName: string;
   toolInput: Record<string, unknown>;
   isStreaming: boolean;
+  /** Stable hook for asserting the flow's shape — the retired
+   *  ProcessEventRows carried one and its tests depended on it. */
+  testId?: string;
+  /** Name known, arguments still streaming. */
+  pending?: boolean;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -177,6 +184,8 @@ const ToolCallBlock = memo(function ToolCallBlock({
   // body via paper-warm bg + hairline + radius-sm.
   return (
     <div
+      data-testid={testId}
+      data-pending={pending ? 'true' : 'false'}
       className={cn(
         'flex items-start gap-2 text-xs px-3 py-1.5 rounded-[var(--radius-sm)]',
         isStreaming && 'animate-fade-in',
@@ -320,6 +329,8 @@ export function TurnTimeline({
                 toolName={event.tool_name}
                 toolInput={event.tool_input}
                 isStreaming={isStreaming}
+                testId={`tool-row-${event.id}`}
+                pending={event.pending}
               />
             );
           case 'tool_output':

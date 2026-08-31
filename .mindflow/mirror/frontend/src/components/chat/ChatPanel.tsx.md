@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30(二)— 直播轮次即文档,turn 靠节奏分隔
+
+两处改动:
+
+- **直播块不再是"银色气泡里只放回复"**。此前直播只渲染 reply(过程在
+  [[ProcessPanel]]),且套一个 silicon 气泡 + 头像。现在直接渲染
+  `<SegmentedReply segments={segmentTurn(currentEvents)} showProcess isStreaming />`
+  ——**落定时形状一个像素都不变**,因为它已经是最终形态。原来那个
+  "有 reply 才渲染"的门也去掉了:叙述先于工具上屏正是要看的节奏。
+- **turn 节奏**:用户消息的外层加 `mt-6`。没有气泡之后,分隔靠间距和
+  用户气泡这个锚点。**刻意没用分隔线**——一轮一条横线在长对话里堆成流水账
+  (取舍写进 `design_system.md` §2.6)。
+
+`RingAvatar` 随 agent 侧头像一起从本文件退出。
+
 
 ## 2026-08-24 — 运行中发送=折进本轮(steer)
 

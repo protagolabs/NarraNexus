@@ -4,6 +4,22 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-30(二)— 过程行搬进消息流,面板只留流水线与 plan
+
+`ProcessEventRows` 从本面板移除(该组件同时退役,见 [[processShared]])。
+过程事件现在由 [[ChatPanel]] → [[SegmentedReply]] → [[TurnTimeline]] 在
+**消息流里按时序**渲染。
+
+**这是"看不出效果"的直接根因**:叙述被放在 composer 上方的侧面板里,夹在
+大段推理行之间——它从来就不在阅读动线上。搬进流里之后,`ProcessPanel` 只
+保留**流里没有的东西**:pipeline 相位行(» 初始化/选叙事/加载模块/构建上下文/
+运行 Agent)与钉在底部的 plan,外加折叠态那一行「现在在干什么」。
+
+面板**仍然接收 events**——`deriveActivity` 要用它算折叠态那行活动;
+它只是不再把这些事件**列出来**。测试 `ProcessPanel.test.tsx` 里有一条
+反重复不变量钉住这点。
+
+
 ## 2026-08-30 — 读一次独白提级偏好，传给 ProcessEventRows
 
 面板层读 [[uiStore]] 的 `interimNarration`，以 `showNarration` prop 传给

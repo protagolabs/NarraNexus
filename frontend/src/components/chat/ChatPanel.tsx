@@ -18,7 +18,7 @@ import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon,
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
@@ -1023,7 +1023,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // dismissal leaks onto agent B (and vice versa).
               key={agentId}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
           ) : (
@@ -1045,7 +1044,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 timestamp: Date.now(),
               }}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               isLatest
             />
           </div>
@@ -1106,7 +1104,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <div
               key={item.id}
               data-timeline-item
-              className={isNewSession ? 'animate-slide-up' : undefined}
+              // Turn rhythm. With the agent's turn unframed, spacing is what
+              // separates one exchange from the next: extra air opens each
+              // user message, so a turn reads as [air] question [close]
+              // document [air] question. A hairline was the alternative and
+              // was rejected — one rule per turn stacks into a ledger down a
+              // long conversation, and the right-aligned user bubble is
+              // already a strong enough anchor to start from.
+              className={cn(
+                item.role === 'user' && 'mt-6',
+                isNewSession && 'animate-slide-up',
+              )}
             >
               {separator}
               <MessageBubble
@@ -1128,8 +1136,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                agentName={currentAgent?.name || agentId}
-                isLatest={item.id === lastMessageId}
+                  isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
@@ -1143,26 +1150,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
-            + Live activity preview" pair. Renders thinking / tool /
-            reply blocks in chronological order as the events arrive,
-            so the user can see the agent's actual rhythm. See
-            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
-
-            Wrapped in the same Bot-avatar + flex-1 content shell as
-            MessageBubble uses for historical turns, so the in-flight
-            turn doesn't visually detach from the rest of the
-            conversation (it would otherwise be the only assistant
-            output with no left-side avatar). */}
+        {/* The in-flight turn, rendered exactly as it will settle: narration,
+            tool lines and collapsed reasoning in the order they arrive, with
+            the reply growing underneath. No avatar and no bubble, matching
+            the settled agent turn in MessageBubble — the whole point is that
+            nothing rearranges when the run lands. */}
         {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
-          <div className="flex gap-3 animate-fade-in">
-            <RingAvatar
-              species="silicon"
-              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-              size="sm"
-              className="shrink-0"
-            />
-            <div className="flex-1 min-w-0">
+          <div className="animate-fade-in">
+            <div>
               {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
                   replay below is the SAME run continuing after a refresh /
                   reconnect — label it, with elapsed anchored to the run's
@@ -1174,35 +1169,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {resumedRun && resumedRun.runId === currentRunId && (
                 <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
               )}
-              {/* Live view shows answers only: the process is in the
-                  ProcessPanel above the composer. Painting it here too
-                  would render the same thinking/tools twice.
+              {/* The live turn IS the document — narration, tool lines and
+                  collapsed reasoning in the order they happen, the reply
+                  growing underneath. Same component, same shape the settled
+                  turn keeps, so nothing rearranges when it lands.
 
-                  The reply streams inside the same silicon bubble the
-                  settled MessageBubble will use — a bare string next to
-                  the avatar that suddenly gains a bubble on settle reads
-                  as two different things. Rendered only once a reply has
-                  visible content, so no empty blue box shows while the
-                  agent is still thinking/tooling. */}
-              {(() => {
-                const liveSegments = segmentTurn(currentEvents);
-                if (!liveSegments.some((s) => s.reply?.content)) return null;
-                return (
-                  <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)]"
-                    style={{
-                      background: 'var(--nm-paper)',
-                      color: 'var(--nm-ink)',
-                      border: '1px solid var(--nm-hairline)',
-                      borderLeft: '3px solid var(--color-silicon)',
-                    }}
-                  >
-                    <div className="text-sm break-words leading-relaxed">
-                      <SegmentedReply segments={liveSegments} isStreaming />
-                    </div>
-                  </div>
-                );
-              })()}
+                  showProcess is on here (it used to be off, with the process
+                  living in ProcessPanel above the composer): that panel no
+                  longer repeats these rows, so there is nothing to paint
+                  twice, and the narration is finally IN the reading flow
+                  rather than in a side panel between reasoning rows. */}
+              <SegmentedReply
+                segments={segmentTurn(currentEvents)}
+                showProcess
+                isStreaming
+              />
               {/* Mid-stream artifact preview is independent of the timeline:
                   it surfaces created/uploaded artifacts inline as soon as
                   their tool_output lands, without waiting for the whole
