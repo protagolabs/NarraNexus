@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/_chat_mcp_tools.py
-last_verified: 2026-08-18
+last_verified: 2026-08-30
 ---
+
+## 2026-08-30 — `reply_owner` 描述里的「private」跟着宪法改口
+
+宪法第 1 条从「plain text 是私有独白」改成「plain text 是可见的工作叙述」
+（B 路径）。本文件的工具描述原话是「Your plain text is **private reasoning**
+— the owner never receives it」，前半句从此与宪法矛盾。
+
+只改前半句：`private reasoning` → `working narration`。
+**「the owner never receives it」原样保留**——它仍然成立（可见 ≠ 投递），而且
+它才是这句话存在的理由：解释为什么非调这个工具不可。
 
 ## 2026-08-10 (PR-10) — get_chat_history 迁 AgentDataStore seam
 

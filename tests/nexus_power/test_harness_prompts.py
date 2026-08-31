@@ -100,7 +100,7 @@ def test_prompt_assembly_byte_stable_and_mode_faces():
     b = assembler.assemble(inputs, PromptMode.FULL)
     assert (a.stable_prefix, a.dynamic_tail) == (b.stable_prefix, b.dynamic_tail)
 
-    assert "inner monologue" in a.stable_prefix
+    assert "working narration" in a.stable_prefix
     assert "Workspace tools" in a.stable_prefix
     assert "Expandable capabilities" in a.dynamic_tail
     assert "- jobs:" in a.dynamic_tail
@@ -152,7 +152,87 @@ def test_constitution_default_reply_tool_is_data_not_copy():
 
     mute = assembler.assemble(PromptInputs(), PromptMode.FULL)
     assert "reply_owner" not in mute.stable_prefix
-    assert "reply tool" in mute.stable_prefix  # the generic rule survives
+    # The generic rule survives — rule 2 still names the reply tool as the way
+    # to speak WHEN there is one. What must not survive on a mute turn is the
+    # claim that plain text therefore reaches nobody; that moved into rule 1's
+    # per-turn slot and is covered by the mute test below.
+    assert "reply tool" in mute.stable_prefix
+
+
+def test_a_mute_turn_is_not_told_to_narrate_before_each_tool_call():
+    """On a turn with no reply tool, plain text IS what gets delivered — so
+    rule 1's "narrate before each tool call" must not be given.
+
+    The platform withholds every expressive declaration when the turn speaks
+    by writing (its ``is_plain_text_turn``; the patrol status line is today's
+    case), and that is exactly the surface where asking for a narration
+    sentence per tool call would put "let me check the calendar" INTO the
+    delivered artifact. Both halves of the paragraph flip: the "never
+    delivered to anyone" claim is false there too.
+
+    Regression guard for the PR #378 review. The framework reads only "is
+    there an expressive tool" — it names no scenario (iron rule #4).
+    """
+    assembler = PromptAssembler()
+
+    speaks = assembler.assemble(
+        PromptInputs(default_reply_tool="mcp__chat_module__reply_owner"),
+        PromptMode.FULL,
+    ).stable_prefix
+    assert "Before each tool call" in speaks
+
+    mute = assembler.assemble(PromptInputs(), PromptMode.FULL).stable_prefix
+
+    # Compare on whitespace-normalised text. The prompt is hard-wrapped, so a
+    # phrase like "hears nothing" is really "hears\n   nothing" — a raw
+    # substring check silently passes on a sentence that IS there, which is
+    # the same class of false green this test exists to close.
+    flat = lambda text: " ".join(text.split())  # noqa: E731
+    speaks_flat, mute_flat = flat(speaks), flat(mute)
+
+    assert "Before each tool call" not in mute_flat
+    # And it says the honest thing instead, rather than just going quiet.
+    assert "IS the turn's output" in mute_flat
+
+    # EVERY "your words reach no one" phrasing has to be gone, not just rule
+    # 1's. The first version of this test asserted `"never delivered to"` and
+    # passed while rule 4 still said `is never delivered` (no "to") and rule 2
+    # still said the user "hears nothing" — the assertion's wording walked
+    # straight past two live contradictions. Checked one phrase at a time so a
+    # new one cannot hide behind a neighbour.
+    for reaches_no_one in (
+        "hears nothing",
+        "reaches no one",
+        "never delivered",
+        "delivered to no one",
+        "no length below which plain text reaches the user",
+    ):
+        assert reaches_no_one not in mute_flat, reaches_no_one
+
+    # The by-tool face keeps them all. This is not "delete the sentences", it
+    # is "say the one that is true of THIS turn".
+    for reaches_no_one in ("hears nothing", "reaches no one", "delivered to no one"):
+        assert reaches_no_one in speaks_flat, reaches_no_one
+
+    # No unfilled template slot leaks to the model in either direction.
+    assert "{{" not in speaks and "{{" not in mute
+
+
+def test_mute_turn_flips_the_minimal_constitution_too():
+    """``PromptMode.NONE`` carries a one-sentence constitution; it had the
+    narration instruction hard-coded, so the mute case has to flip there too
+    or the trimmed face contradicts the full one."""
+    speaks = NexusPowerPrompts.constitution(
+        PromptInputs(default_reply_tool="reply_owner"), PromptMode.NONE
+    )
+    mute = NexusPowerPrompts.constitution(PromptInputs(), PromptMode.NONE)
+    assert "Before each tool call" in speaks
+    assert "Before each tool call" not in mute
+    assert "no reply tool" in mute
+    # The trimmed face must not drop a RULE the full face has: a mute turn
+    # still has non-expressive tools (patrol reads history before it writes),
+    # so "everything else happens through tool calls" has to survive the trim.
+    assert "through tool calls" in mute
 
 
 def test_reply_reminder_lists_tools_and_defers_to_message_instructions():

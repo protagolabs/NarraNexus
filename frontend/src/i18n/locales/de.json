@@ -77,7 +77,7 @@
       "downloadMd": "Als .md herunterladen"
     },
     "timeline": {
-      "thinking": "Denken",
+      "thought": "Überlegt",
       "toolLabel": "[ Tool ]",
       "outputLabel": "[ Ausgabe ]",
       "reply": "Antwort",
@@ -273,7 +273,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "Agent · Prozess",
       "ops": "Ops"
     },
     "header": {
@@ -1370,7 +1369,9 @@
       },
       "personalization": {
         "label": "Personalisierung",
-        "hint": "Design und Sprache. Weitere folgen."
+        "hint": "Design, Sprache und wie die Fortschrittsnotizen des Agenten angezeigt werden.",
+        "narrationTitle": "Fortschritts-Kommentar",
+        "narrationHint": "Zeigt die Zwischennotizen des Agenten direkt und gut lesbar im Verlauf, statt den ganzen Durchlauf hinter einer Klappe zu verstecken."
       }
     },
     "system": {

@@ -592,6 +592,7 @@ NexusPower 独白在这条分支并入收集文本（`include_monologue=is_team`
 DM→收件箱分支的 prompt 让 agent 用 `send_message_to_user_directly` 送达、
 从未承诺明文落库，独白保持私密（否则 owner 会同时收到润色直发 + 一条原始
 独白的收件箱条目）。语义见 [[run_collector]] 同日条目。
+（**2026-08-30 宪法改口为「不投递」**，见 [[library]] / 本文件 08-31 条目；此决定的判据不变。）
 
 ## 2026-07-28 — the poll loop stops being a single point of failure, and reports work
 
@@ -660,7 +661,6 @@ keeps the row live during a silent stretch belongs to `turn()` — see
 
 `POISON_FAILURE_THRESHOLD` is now imported from [[local_bus]] instead of being
 a hand-synced copy.
-
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 
@@ -734,7 +734,6 @@ stored rel_path is rebuilt against `base_working_path` into an absolute path.
 ## 2026-07-13 — Agent 实时层熔断器接入
 
 `_process_agent` 顶部（信号量之前）加熔断器 `should_skip` 闸门：paused/cooling 的 agent 整体跳过，且**不消费**其 pending 消息（不 ack，留队待恢复）。这是让 bus 停止重触发坏 agent 的关键。
-
 
 ## 2026-07-03 — IM-channel skip prefixes now registry-driven (wechat double-dispatch)
 

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/broadcaster.py
-last_verified: 2026-06-10
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `set_current_thinking_buffer(text, is_monologue)`
+
+在途 segment 快照多带一个档位，`thinking_partial_replay` 帧随之多一个
+`monologue` 字段。
+
+**为什么必须带**：**运行中刷新**会先重放这个 buffer、再接上直播。档位不跟着
+走，重放的半句是 receded、接上的半句是叙述档，一句话在重连的那一刻被撕成两个
+色阶。segment 是 tier 纯净的（[[run_recorder]] 换档即 flush），所以一个布尔
+足以描述整段。
 
 ## 2026-06-10 — 同步投递 + 迭代器只认 None 哨兵终止
 

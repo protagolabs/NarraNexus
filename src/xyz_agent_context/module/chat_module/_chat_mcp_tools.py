@@ -106,8 +106,8 @@ def create_chat_mcp_server(port: int) -> FastMCP:
         """
         Answer your owner. They asked you something and are waiting.
 
-        Your plain text is private reasoning — the owner never receives it. This
-        call is what reaches them.
+        Your plain text is working narration — the owner never receives it as a
+        message. This call is what reaches them.
 
         This is the expected way an owner-chat turn ends: a final answer, a
         summary of what you did, a clarifying question, or an explanation of why

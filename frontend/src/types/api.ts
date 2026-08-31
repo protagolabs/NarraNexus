@@ -271,6 +271,14 @@ export interface EventLogTimelineEntry {
   tool_input?: Record<string, unknown>;
   tool_output?: string;
   reply_via?: string;
+  /**
+   * `thinking` entries only: this block is NexusPower's own narration rather
+   * than provider chain-of-thought, so it replays at the PROGRESS tier. The
+   * backend already resolved the tier (a mixed block reports false), so this
+   * is a plain bool here while the live frame carries the subset text.
+   * Absent on rows persisted before the field existed → plain thinking.
+   */
+  monologue?: boolean;
 }
 
 // Mirrors backend EventLogMeta — run-level header for the activity card:

@@ -150,7 +150,7 @@ describe('TeamRosterPanel', () => {
       ],
     });
 
-    // v2: the detail is a mini ProcessPanel fed by the run-observation
+    // v2: the detail is a member terminal card fed by the run-observation
     // channel; before the socket delivers, the card shows the honest
     // "starting up" fallback rather than pretending it knows more.
     expect(screen.getByTestId('member-panel-a1')).toBeTruthy();

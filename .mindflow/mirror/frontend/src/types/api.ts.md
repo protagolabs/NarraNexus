@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-28
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `EventLogTimelineEntry.monologue?: boolean`
+
+镜像后端 `api_schema.EventLogTimelineEntry` 同名字段（见 [[api_schema]]）。
+只对 `thinking` 条目有意义：该块是 NexusPower 独白而非 provider CoT，回放时
+按「进度」档渲染。
+
+**这里是 bool，不是子集文本**——后端已经把档位判完并按档切块（一个条目一个
+档）。实时 WS 帧走的是另一套（`AgentThinking.monologue` 是 string 子集，见
+[[messages]]）。存量行没有该字段 → 普通 thinking。
 
 ## 2026-08-28 — 插件安装类型（`PluginStatus` / `PluginInstallEvent`）
 
@@ -40,7 +50,6 @@ mock 和旧响应双双编译不过。
 `usd_monthly_price`（一个月多少钱）和 `monthly_grant_usd`（一个月给多少额度）
 今天数值相同，也正因如此才分开：一次性总价必须按前者算，否则任一边变动都会静默
 算错 12 个月的结账金额。
-
 
 ## 2026-08-18 — 支付方式与汇率报价的类型
 

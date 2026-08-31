@@ -43,14 +43,13 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
-  agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
   /** Latest message in the visible stream — its meta row (time) stays
    *  visible; every other row reveals meta on hover only (claude.ai
    *  convention, Owner 2026-08-06). */
   isLatest?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName, isLatest = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, isLatest = false }: MessageBubbleProps) {
   const { t, i18n } = useTranslation();
   // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
   const navigate = useNavigate();
@@ -154,6 +153,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
+
+  // Is this turn's process only on the server? Derived from PROPS ALONE, never
+  // from fetched state — that distinction is the whole bug fixed on 2026-08-31.
+  // The disclosure used to be gated on `segmentsForRender === null`, and the
+  // fetch it triggered is exactly what made that non-null: the control
+  // unmounted itself mid-interaction, leaving the process open with no way
+  // back. A predicate that a fetch can flip cannot govern that fetch's own
+  // affordance.
+  const processIsRemote =
+    canLoadEventLog
+    && !message.isError
+    && !(message.timeline && message.timeline.length > 0)
+    && !message.segments?.some((seg) => seg.reply);
+
   // All four pieces the fetch fills, meta included: a turn with no thinking
   // and no tools still returns meta, and leaving it out kept "already
   // loaded" false for exactly those turns (harmless today — the cache
@@ -233,12 +246,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   }, [message.content, message.timestamp]);
 
   // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
-  // Assistant avatar mirrors the sidebar AgentList: first 2 chars of the
-  // agent name (falling back to 'AI' only when no name is available),
-  // instead of a hardcoded 'A'.
-  const avatarLabel = isUser
-    ? (userId || 'U').slice(0, 1)
-    : (message.role === 'assistant' ? (agentName?.slice(0, 2) || 'AI') : '?');
+  // Only the human side renders an avatar now (the agent's turn is a
+  // full-width document, see the render below), so this is the user initial.
+  const avatarLabel = (userId || 'U').slice(0, 1);
 
   return (
     <div
@@ -247,60 +257,55 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* NM RingAvatar — carbon for human, silicon for AI. Hidden on mobile
-          (both sides) to give the bubbles the full width; the species color on
-          the bubble itself still distinguishes who's speaking. */}
-      <RingAvatar
-        species={isUser ? 'carbon' : 'silicon'}
-        label={avatarLabel}
-        size="sm"
-        className="shrink-0 hidden md:inline-flex"
-      />
+      {/* Only the human keeps an avatar. The agent's turn is the page's
+          document, and an avatar gutter would hold it back off the full
+          width and re-create the "one more message row" reading it is
+          leaving behind. Who spoke is carried by the user's bubble as the
+          turn anchor above it, and by the agent named in the chat header. */}
+      {isUser && (
+        <RingAvatar
+          species="carbon"
+          label={avatarLabel}
+          size="sm"
+          className="shrink-0 hidden md:inline-flex"
+        />
+      )}
 
       {/* Content */}
       <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
         <div
           className={cn(
-            'relative inline-block max-w-[85%] text-left',
-            // Bubbles shrink to their content on BOTH sides — a w-full
-            // reading-column variant was tried 2026-08-18 and reverted the
-            // same day: short replies stranded a field of empty paper on
-            // the right. Keep shrink-to-fit.
-            'px-3.5 py-2.5',
-            'rounded-[var(--radius-lg)]',
+            'relative text-left',
+            isUser
+              // The user's message stays a bubble: it is one thing they sent,
+              // so it keeps a boundary and shrinks to its content. (A w-full
+              // variant was tried 2026-08-18 and reverted the same day —
+              // short messages stranded a field of empty paper.)
+              ? 'inline-block max-w-[85%] px-3.5 py-2.5 rounded-[var(--radius-lg)]'
+              // The agent's turn is the page's main reading surface, so it
+              // sits directly on the ground at full width: no fill, no
+              // border, no radius. An error keeps a left rule instead of a
+              // solid red panel — full-width red is a siren, and the old
+              // solid fill is what forced the remedy buttons out of the
+              // bubble in the first place (the red-on-red note below).
+              : cn('w-full', message.isError && 'border-l-2 pl-3'),
             'transition-colors duration-150',
           )}
           style={
             isUser
               ? {
                   // Own bubble — v4 paper treatment: warm-paper fill with a
-                  // hairline border; the human(carbon) species now reads
-                  // entirely from the 3px carbon stripe on the RIGHT (the
-                  // "own" side) + the carbon avatar ring, instead of a coral
-                  // fill. Mirrors the AI bubble's silicon-on-the-LEFT.
+                  // hairline border; the human(carbon) species reads from the
+                  // 3px carbon stripe on the RIGHT (the "own" side) + the
+                  // carbon avatar ring, instead of a coral fill.
                   background: 'var(--nm-paper-warm)',
                   color: 'var(--nm-ink)',
                   border: '1px solid var(--nm-hairline)',
                   borderRight: '3px solid var(--color-carbon)',
                 }
               : message.isError
-                ? {
-                    background: 'var(--color-error)',
-                    color: 'white',
-                    border: '1px solid var(--color-error)',
-                  }
-                : {
-                    // AI bubble — v4 paper treatment: plain paper fill,
-                    // hairline border, 3px silicon stripe on the LEFT edge.
-                    // Species signal = stripe + avatar ring; markdown code /
-                    // table fills keep their default paper-warm surfaces
-                    // (the old silicon-soft fill + nm-bubble-ai rebinding
-                    // are retired with it).
-                    background: 'var(--nm-paper)',
-                    color: 'var(--nm-ink)',
-                    border: '1px solid var(--nm-hairline)',
-                    borderLeft: '3px solid var(--color-silicon)',
-                  }
+                ? { borderColor: 'var(--color-error)', color: 'var(--nm-ink)' }
+                : undefined
           }
         >
           {/* Red error badge — any error surfaces here, whether the whole
@@ -314,7 +319,13 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 <button
                   type="button"
                   aria-label={t('chat.error.badgeLabel')}
-                  className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full shadow-sm"
+                  className={cn(
+                    'z-10 flex items-center justify-center w-5 h-5 rounded-full shadow-sm',
+                    // A bubble can hang it off the corner; a full-width
+                    // document has no corner to hang it from, so it leads
+                    // the block instead.
+                    isUser ? 'absolute -top-2 -right-2' : 'mb-1.5',
+                  )}
                   style={{ background: 'var(--color-error)', color: 'white' }}
                 >
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -377,17 +388,18 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               matching the live streaming UX. No inner ScrollArea —
               long content pushes the bubble taller and scrolls with
               the main message list (no double-scroll). */}
-          {/* What this one turn cost. Sits ABOVE the disclosure rather than
-              inside it: the same fetch that fills the disclosure can upgrade
-              the bubble to segment mode, which unmounts the disclosure — the
-              chips would blink out exactly on the turns that have a reply. */}
+          {/* What this one turn cost. Sits ABOVE the disclosure, outside it:
+              the chips describe the whole turn, not the process region the
+              disclosure holds. (The original reason was that the fetch could
+              unmount the disclosure and blink the chips out — that unmount is
+              fixed on this branch, but above is still the right place.) */}
           {eventLogMeta && hasRunStats(eventLogMeta) && (
             <div className="mb-2" data-testid="run-stat-chips-slot">
               <RunStatChips meta={eventLogMeta} t={t} />
             </div>
           )}
 
-          {segmentsForRender === null && (inlineEvents.length > 0 || canLoadEventLog) && (
+          {processIsRemote && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button
                 onClick={handleToggleDetails}
@@ -410,11 +422,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                       : t('chat.message.viewReasoning')}
                 </span>
               </button>
-              {showDetails && inlineEvents.length > 0 && (
-                <div className="mt-3">
-                  <TurnTimeline events={inlineEvents} />
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* The process itself. In hand (live stream persisted it) it reads
+              inline like any other turn — no click to spend. Fetched, it
+              renders under the toggle above. Either way the provider's raw
+              chain-of-thought stays folded behind its own control: opening
+              this is a request for the turn's CONCLUSIONS — the narration and
+              the tool lines — not for the model's scratch paper, which is
+              bulkier than all of them combined. */}
+          {segmentsForRender === null && inlineEvents.length > 0
+            && (!processIsRemote || showDetails) && (
+            <div className="mb-3">
+              <TurnTimeline events={inlineEvents} />
             </div>
           )}
 
@@ -492,14 +513,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Segment mode: the m things the agent said, each with its
               // own collapsible process. Replaces the single content blob
               // — rendering both would print every sentence twice.
-              // defaultOpen when the segments came from the event-log
-              // fetch: the user already clicked "View reasoning" once to
-              // get here, so the process shows immediately instead of
-              // behind a second toggle.
+              // A fetched turn stays governed by the toggle above; a turn
+              // whose process was in hand all along just reads inline, like a
+              // live one. Reasoning folds by default in both cases.
               <SegmentedReply
                 segments={segmentsForRender}
-                showProcess
-                defaultOpen={!message.segments?.some((s) => s.reply)}
+                showProcess={!processIsRemote || showDetails}
               />
             ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper

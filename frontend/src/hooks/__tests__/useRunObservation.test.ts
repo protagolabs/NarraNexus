@@ -301,3 +301,48 @@ describe('the observation socket announces an open breaker', () => {
   });
 
 });
+
+describe('narration tier on the observation path', () => {
+  it('a monologue segment becomes a progress-tier block', () => {
+    let snap = applyObservationFrame(INITIAL, { type: 'run_reconnect', run_id: 'r1' });
+    snap = applyObservationFrame(snap, {
+      type: 'replay', kind: 'thinking_segment_monologue', seq: 1, payload: 'Reading the config.',
+    });
+
+    const think = snap.events.filter((e) => e.type === 'thinking');
+    expect(think.map((e) => [e.content, !!e.monologue])).toEqual([
+      ['Reading the config.', true],
+    ]);
+  });
+
+  it('a tier switch opens a new block instead of gluing two tiers together', () => {
+    let snap = applyObservationFrame(INITIAL, { type: 'run_reconnect', run_id: 'r1' });
+    snap = applyObservationFrame(snap, {
+      type: 'replay', kind: 'thinking_segment', seq: 1, payload: 'weighing options',
+    });
+    snap = applyObservationFrame(snap, {
+      type: 'replay', kind: 'thinking_segment_monologue', seq: 2, payload: 'Reading it now.',
+    });
+
+    const think = snap.events.filter((e) => e.type === 'thinking');
+    expect(think.map((e) => [e.content, !!e.monologue])).toEqual([
+      ['weighing options', false],
+      ['Reading it now.', true],
+    ]);
+  });
+
+  it('same-tier segments still coalesce', () => {
+    let snap = applyObservationFrame(INITIAL, { type: 'run_reconnect', run_id: 'r1' });
+    snap = applyObservationFrame(snap, {
+      type: 'replay', kind: 'thinking_segment_monologue', seq: 1, payload: 'Reading ',
+    });
+    snap = applyObservationFrame(snap, {
+      type: 'replay', kind: 'thinking_segment_monologue', seq: 2, payload: 'the config.',
+    });
+
+    const think = snap.events.filter((e) => e.type === 'thinking');
+    expect(think.map((e) => [e.content, !!e.monologue])).toEqual([
+      ['Reading the config.', true],
+    ]);
+  });
+});

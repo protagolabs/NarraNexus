@@ -649,11 +649,19 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
     return null;
   }
 
+  // Replayed thinking now carries its tier, so a refresh mid-run renders the
+  // replayed half the same way the live half will (followups #1, folded in
+  // 2026-08-30). `monologue` is a SUBSET STRING, not a bool — the frontend
+  // predicate is `monologue === thinking_content`, so a tier-true frame must
+  // repeat its own text here. Handing it `true` would compare a bool to a
+  // string and silently stay false.
   if (t === 'thinking_partial_replay') {
+    const content = (raw.content as string) ?? '';
     return {
       type: 'agent_thinking',
       timestamp: Date.now(),
-      thinking_content: (raw.content as string) ?? '',
+      thinking_content: content,
+      ...(raw.monologue ? { monologue: content } : {}),
     };
   }
 
@@ -662,11 +670,16 @@ export function translateReconnectFrame(raw: { [key: string]: unknown }): unknow
     const payloadRaw = raw.payload as string | null | undefined;
     const payload = payloadRaw ?? '';
 
-    if (kind === 'thinking_segment') {
+    // Two kinds since 2026-08-30: `thinking_segment` is provider reasoning
+    // (and every row written before the tier existed — genuinely unknown, and
+    // receded is what those always rendered as), `thinking_segment_monologue`
+    // is narration. Same subset-string contract as above.
+    if (kind === 'thinking_segment' || kind === 'thinking_segment_monologue') {
       return {
         type: 'agent_thinking',
         timestamp: Date.now(),
         thinking_content: payload,
+        ...(kind === 'thinking_segment_monologue' ? { monologue: payload } : {}),
       };
     }
 

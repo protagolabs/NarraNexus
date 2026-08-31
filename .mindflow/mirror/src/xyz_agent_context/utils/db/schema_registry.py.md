@@ -4,6 +4,14 @@ last_verified: 2026-08-31
 stub: false
 ---
 
+## 2026-08-31 — `event_stream.kind` 的长度余量写进注释
+
+新增 `thinking_segment_monologue`（26 字符）之后，`VARCHAR(32)` 只剩 6 个字符
+余量。注释里写明了，因为**这个坑的失败方式是不对称的**：超长的 kind 在本地
+全绿（SQLite 忽略声明长度），只在 MySQL 上炸（error 1406）。
+
+也就是说本地测试**不构成保护**。加新 kind 前数一下字符。
+
 ## 2026-08-28 — `cost_records` 补 `idx_cost_event_id`
 
 `event_id` 列 2026-03 就在，索引一直没建。`chat_history._build_event_meta`
@@ -15,7 +23,6 @@ stub: false
 ``CREATE INDEX `name` ON …``，幂等靠 `auto_migrate` 事先查
 `information_schema.statistics` 的那次预检。所以任何绕开 `auto_migrate`
 直接发 DDL 的路径，在 MySQL 上会撞 1061 duplicate key name。
-
 
 ## 2026-08-28（接线）— `channel_ingress_breaker` 现在有**两个**清扫者
 

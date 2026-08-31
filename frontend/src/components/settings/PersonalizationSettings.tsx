@@ -2,9 +2,10 @@
  * @file_name: PersonalizationSettings.tsx
  * @author: NarraNexus
  * @date: 2026-08-19
- * @description: The Settings "Personalization" pane — theme and language.
+ * @description: The Settings "Personalization" pane — theme, language, and
+ * the progress-narration display tier.
  *
- * These two controls live here, in Settings, and nowhere else. They used to
+ * These controls live here, in Settings, and nowhere else. They used to
  * hide inside the sidebar's account popover, which made the popover a second
  * settings surface and left users unsure what the difference between the two
  * was. The account popover now carries identity only (account / version /
@@ -16,6 +17,7 @@ import { Monitor, Sun, Moon, Check } from 'lucide-react';
 import { useTheme } from '@/hooks';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { useUIStore } from '@/stores/uiStore';
 
 const THEME_OPTIONS = [
   { value: 'system', icon: Monitor, labelKey: 'sidebar.themeSystem' },
@@ -26,6 +28,8 @@ const THEME_OPTIONS = [
 export function PersonalizationSettings() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const interimNarration = useUIStore((s) => s.interimNarration);
+  const setInterimNarration = useUIStore((s) => s.setInterimNarration);
   const currentLang =
     SUPPORTED_LANGUAGES.find(
       (l) => i18n.resolvedLanguage === l.code || i18n.language?.startsWith(l.code),
@@ -97,6 +101,50 @@ export function PersonalizationSettings() {
             );
           })}
         </div>
+      </div>
+
+      {/* Progress narration — display tier for the agent's own between-step
+          notes. Purely local (localStorage): what it governs is whether the
+          reader finds them noisy, so it never reaches the backend. */}
+      <div>
+        <h3 id="narration-label" className="text-sm font-medium text-[var(--nm-ink)] mb-2">
+          {t('pages.settings.personalization.narrationTitle')}
+        </h3>
+        {/* role=checkbox, not switch: the visual is a tick box, and a screen
+            reader should hear the same control the eye sees. The accessible
+            NAME is the heading (labelledby) — without it the name would be
+            the whole hint sentence and "Progress narration" would never be
+            announced. */}
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={interimNarration}
+          aria-labelledby="narration-label"
+          aria-describedby="narration-hint"
+          onClick={() => setInterimNarration(!interimNarration)}
+          className={cn(
+            'max-w-sm w-full flex items-start gap-3 px-3 py-2.5 text-left',
+            'rounded-[var(--radius-md)] border transition-colors',
+            interimNarration
+              ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/8'
+              : 'border-[var(--border-default)] hover:border-[var(--border-strong)]',
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              'mt-0.5 w-4 h-4 shrink-0 rounded-[var(--radius-sm)] border flex items-center justify-center',
+              interimNarration
+                ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                : 'border-[var(--border-strong)]',
+            )}
+          >
+            {interimNarration && <Check className="w-3 h-3" />}
+          </span>
+          <span id="narration-hint" className="text-xs leading-relaxed text-[var(--nm-ink70)]">
+            {t('pages.settings.personalization.narrationHint')}
+          </span>
+        </button>
       </div>
     </div>
   );

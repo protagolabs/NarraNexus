@@ -252,9 +252,11 @@ async def collect_run(
     (``AGENT_THINKING.monologue``) into ``output_text``. ONLY for callers
     whose prompt tells the agent its plain text is delivered (today: bus
     team rooms, whose replies auto-post to the shared room). Everywhere
-    else the monologue contract promises the agent its plain text is
-    private; relaying it to an inbox or an A2A response would leak
-    deliberation the agent never addressed to anyone.
+    else the monologue contract promises the agent its plain text is never
+    DELIVERED — its owner may watch it as working narration, but it is
+    addressed to no one. Relaying it to an inbox or an A2A response would
+    deliver deliberation the agent never addressed to anyone. Visible is not
+    the same as delivered, and it is delivery this guards.
     """
     text_parts: list[str] = []
     # The live accumulator. When the caller passes a sink, it IS the list, so a

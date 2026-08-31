@@ -233,18 +233,21 @@ class ResponseProcessor:
 
     def __init__(self) -> None:
         self._thinking_batcher = _ThinkingBatcher()
-        # Monologue chunks (NexusPower text deltas displayed as thinking)
-        # buffered since the last batcher flush. Kept OUTSIDE the batcher:
-        # the batcher coalesces the display stream (monologue + CoT mixed,
-        # iron rule #16 verbatim), while final_output must receive the
-        # monologue subset only. Drained into record_thinking's
-        # ``monologue`` arg at every flush site.
-        self._pending_monologue: list[str] = []
 
-    def _take_pending_monologue(self) -> str:
-        text = "".join(self._pending_monologue)
-        self._pending_monologue = []
-        return text
+    def _batch_monologue(self, coalesced: str) -> str:
+        """The monologue subset of a just-flushed batch.
+
+        Since 2026-08-30 the batcher refuses to coalesce across a tier
+        switch, so a batch is monologue or CoT and never both — the
+        "subset" is therefore the whole batch or nothing. The separate
+        pending-monologue buffer this used to need is gone with it.
+
+        Keeping the field a STRING (not a bool) is deliberate:
+        ``collect_run.output_text`` relays this text as "what the agent
+        said" (the fix for the group-chat reply that vanished, dev
+        evt_238abc4b0b0c4dca).
+        """
+        return coalesced if self._thinking_batcher.flushed_tier else ""
 
     def process(
         self,
@@ -315,10 +318,10 @@ class ResponseProcessor:
         if not residual:
             return
         thinking_display = format_thinking_for_display(residual)
-        # Drained ONCE per flush; the message and the state update carry
-        # the same subset (message: for collect_run consumers relaying
+        # Read ONCE per flush; the message and the state update carry the
+        # same subset (message: for collect_run consumers relaying
         # output_text; state: for final_output / reasoning persistence).
-        monologue = self._take_pending_monologue()
+        monologue = self._batch_monologue(residual)
         yield ProcessedResponse(
             type=ResponseType.THINKING,
             message=AgentThinking(thinking_content=residual, monologue=monologue),
@@ -576,15 +579,15 @@ class ResponseProcessor:
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
             thinking_content = item.get("content", "")
-            if item.get("monologue"):
-                self._pending_monologue.append(thinking_content)
-            coalesced = self._thinking_batcher.append_thinking(thinking_content)
+            coalesced = self._thinking_batcher.append_thinking(
+                thinking_content, bool(item.get("monologue"))
+            )
             if coalesced is None:
                 return  # still buffering
             thinking_display = format_thinking_for_display(coalesced)
             logger.info(f"  💭 Thinking flush: {len(coalesced)} chars (coalesced)")
-            # Same single-drain discipline as _flush_thinking_residual.
-            monologue = self._take_pending_monologue()
+            # Same single-read discipline as _flush_thinking_residual.
+            monologue = self._batch_monologue(coalesced)
             yield ProcessedResponse(
                 type=ResponseType.THINKING,
                 message=AgentThinking(

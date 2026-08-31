@@ -130,10 +130,13 @@ describe('MessageBubble per-turn run stats', () => {
   });
 
   it('keeps the chips when the turn upgrades to segment mode', async () => {
-    // The load-bearing layout decision: chips sit OUTSIDE the disclosure,
-    // because a timeline carrying a reply makes segmentTurn produce segments
-    // and unmounts the disclosure entirely. Put the chips inside it and they
-    // vanish on exactly the turns that have a reply — i.e. almost all of them.
+    // Chips sit OUTSIDE the disclosure: they describe the whole turn, not the
+    // process region the disclosure holds.
+    // (Historical note: the original reason was that a timeline carrying a
+    // reply made segmentTurn produce segments and UNMOUNTED the disclosure,
+    // so chips placed inside vanished on exactly the turns that had a reply.
+    // That unmount was the bug fixed on 2026-08-31 — the disclosure now
+    // survives its own fetch — but outside is still the right place.)
     getEventLogMock.mockResolvedValue({
       success: true,
       event_id: 'ev1',
@@ -147,8 +150,7 @@ describe('MessageBubble per-turn run stats', () => {
     });
     expand();
 
-    // Segment mode really did take over (this is what unmounts the
-    // disclosure) — and the chips survived it.
+    // Segment mode really did take over, and the chips came through it.
     await waitFor(() => expect(screen.getByTestId('segment-reply-0')).toBeTruthy());
     expect(screen.getByTestId('run-stat-chips')).toBeTruthy();
     expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
@@ -167,6 +169,11 @@ describe('MessageBubble per-turn run stats', () => {
     await waitFor(() => expect(getEventLogMock).toHaveBeenCalled());
     expect(screen.queryByTestId('run-stat-chips')).toBeNull();
     // The disclosure itself still renders — meta is additive, not required.
+    // Its content is the reasoning toggle rather than the reasoning text:
+    // provider chain-of-thought never auto-expands (2026-08-31), so the proof
+    // that the fetched turn arrived is the control, one click from the text.
+    const reasoning = await screen.findByRole('button', { expanded: false });
+    fireEvent.click(reasoning);
     expect(screen.getByText('planning')).toBeTruthy();
   });
 });

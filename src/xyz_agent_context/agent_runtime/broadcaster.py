@@ -137,7 +137,7 @@ class Broadcaster:
         snapshot (if any) BEFORE its first live event
       * ``unsubscribe(session_id)`` — remove a consumer (called when
         the WS disconnects)
-      * ``set_current_thinking_buffer(text)`` — BackgroundRun updates
+      * ``set_current_thinking_buffer(text, is_monologue)`` — BackgroundRun updates
         this whenever the in-flight thinking segment grows or resets
       * ``close()`` — terminal; closes all subscribers and refuses new
         ones. Idempotent.
@@ -151,6 +151,7 @@ class Broadcaster:
         self.run_id = run_id
         self._subscribers: dict[str, Subscriber] = {}
         self._current_thinking_buffer: str = ""
+        self._current_thinking_is_monologue: bool = False
         self._closed: bool = False
 
     # ----- producer API --------------------------------------------------
@@ -167,7 +168,7 @@ class Broadcaster:
         for sub in list(self._subscribers.values()):
             sub.push(event)
 
-    def set_current_thinking_buffer(self, text: str) -> None:
+    def set_current_thinking_buffer(self, text: str, is_monologue: bool) -> None:
         """Update the in-flight thinking segment snapshot. Called by
         BackgroundRun whenever the _ThinkingBatcher's segment buffer
         changes (every accumulation step + reset on segment end).
@@ -176,8 +177,22 @@ class Broadcaster:
         subscribers will receive this string verbatim before joining
         the live stream, so they don't miss the part of the segment
         that hasn't been flushed to event_stream yet.
+
+        ``is_monologue`` has no default on purpose: this is the seam
+        BackgroundRun hands to the recorder as a bare method reference, so a
+        default would let a dropped argument compile and silently mean "not
+        narration" — which renders as the torn sentence this whole change
+        removed, with every test still green.
+
+        It rides along because a refresh mid-segment replays
+        this buffer and then continues live: if the replayed half arrived
+        without its tier it would render receded while the live half rendered
+        as narration, tearing one sentence in two at the moment of the
+        reconnect. The segment is tier-pure (run_recorder closes it on a
+        switch), so one flag describes all of it.
         """
         self._current_thinking_buffer = text
+        self._current_thinking_is_monologue = is_monologue
 
     # ----- consumer API --------------------------------------------------
 
@@ -212,6 +227,7 @@ class Broadcaster:
             sub.push({
                 "type": "thinking_partial_replay",
                 "content": self._current_thinking_buffer,
+                "monologue": self._current_thinking_is_monologue,
             })
         return sub
 

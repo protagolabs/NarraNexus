@@ -103,7 +103,7 @@
       "downloadMd": "Download as .md"
     },
     "timeline": {
-      "thinking": "Thinking",
+      "thought": "Thought",
       "toolLabel": "[ tool ]",
       "outputLabel": "[ output ]",
       "reply": "Reply",
@@ -279,8 +279,6 @@
       "syncingInstances": "Syncing instances…",
       "buildingContext": "Building context…",
       "runningAgent": "Running agent…",
-      "thinking": "Thinking…",
-      "acting": "Acting…",
       "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {
@@ -344,7 +342,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agent · process",
       "ops": "ops"
     },
     "header": {
@@ -1803,7 +1800,9 @@
       },
       "personalization": {
         "label": "Personalization",
-        "hint": "Theme and language. More to come."
+        "hint": "Theme, language, and how the agent's progress notes are shown.",
+        "narrationTitle": "Progress narration",
+        "narrationHint": "Show the agent's between-step notes inline and legible, instead of tucking the whole run behind one drawer."
       },
       "plugins": {
         "label": "Plugins",

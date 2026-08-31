@@ -104,8 +104,9 @@ test file.
 - **Depends on**: [[teamActivity]] for the whole vocabulary (`compareActivity`
   ordering, `STATUS_TONES`, `phaseLabelKey`, `buildTimeline`, `formatDuration`,
   `lastRunSummary`) — the roster must not re-decide what "stalled" looks like;
-  `processShared` for `ProcessEventRows` + `friendlyToolName`, so a member's
-  process reads identically to the single-agent ProcessPanel's terminal;
+  `processShared` for `friendlyToolName` and the shared terminal glyphs (its
+  `ProcessEventRows` retired 2026-08-30 — a member's process now renders
+  through [[TurnTimeline]], the same component the main chat uses);
   `segmentTurn`'s `timelineToEvents` to normalise the persisted timeline; and
   `api.getEventLog`.
 

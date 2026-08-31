@@ -1,8 +1,82 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-24
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-31（四）— 「正在处理…」删除
+
+直播块尾部那个 `Loader2 + chat.execution.acting` 的行内指示器删掉，i18n key
+（en / zh 两处，其余语言从未有过）一并删除（铁律 #2）。
+
+它原来的职责是「事件之间的空档里让页面别静默」。现在 [[process/RunPhases]]
+在同一列顶部已经有 `» 运行 Agent` 的 spinner **加逐秒计时** —— 后者回答
+「卡住还是在忙」比一句「正在处理…」更硬（计时器在动就是活的）。两个活体
+指示器同屏是重复，而且它们在**同一列的两端**，读起来像两件事。
+
+`Loader2` 的 import 保留：本文件另有一处在用（附件上传态）。
+
+## 2026-08-31（三）— 相位来得太晚 + 直播轮次画了两次
+
+Owner 报了两条，一条是我上一版留的门，一条是被我放大的旧账。
+
+### 相位要等 agent loop 才出现
+
+直播块的门是 `isStreaming && currentEvents.length > 0`，而 `currentEvents`
+**要等 agent loop 产出才有第一行**。相位数据（`currentSteps`）在 step 0 就到齐，
+却被这道门挡在外面——于是「初始化 / 选叙事 / 加载模块」全看不见，一直到
+「运行 Agent」才突然全冒出来。[[process/RunPhases]] 存在的意义恰恰是填这段空白，
+被门挡掉等于白写。门去掉：`isStreaming` 就渲染，空态由 RunPhases 自己说
+「Starting up…」。
+
+### 同一个回复画了两次
+
+后端在 reply 工具执行时就**落库**，12 秒一次的 history poll 中途把它捞回来，
+而直播块正用 `currentEvents` 渲染同一句话 —— 相位行上方和下方各一份。
+刷新之后直播块没了，所以「刷新一次就好了」。
+
+`buildUnifiedTimeline` 的 dedup **抓不到这种**：它调和的是 history ↔ **session
+messages**，而在飞的这一轮还没有 session message（那是 `stopStreaming` 才写的）。
+所以过滤放在 `visibleTimeline`：`isStreaming && eventId === currentRunId` 的
+assistant 行不画。
+
+**三个限定条件每一个都承重**：
+
+- `isStreaming` + `currentRunId`：回合一落定这行就恢复成普通历史（铁律 #16
+  —— 不是藏起来，只是不画两遍）。
+- **`role === 'assistant'`**：自审时抓出来的。后端 `chat_history.py` 用**同一个
+  循环**给两个 role 建行，**用户那一行也带着同一个 `event_id`**；而 history 行在
+  dedup 里是赢家（session 副本被丢）。不限定 role 的话，**用户刚发的消息会在
+  agent 干活期间从屏幕上消失**。测试钉住了这条。
+
+## 2026-08-31 — 过程框拆掉：相位进文稿，plan 变贴底细条
+
+Owner 验收文档流时问「为什么还留着一个 agent 过程的框」。`ProcessPanel` 那个
+`rounded-lg + border + nm-paper + shadow` 的终端盒子确实是上一版的残留——
+turn 已经无框了，它还坐在输入框上方，同一屏两种语域。
+
+拆法是**去框不丢信息**（铁律 #16）：
+
+- 相位 / ops / 计时 → [[process/RunPhases]]，渲染在直播块开头，`SegmentedReply`
+  之上，和叙述同一列。
+- plan → [[process/PlanStrip]]，仍钉在 composer 上方（它必须不滚走），但只剩
+  一条 `border-t` 细线，不再是盒子。
+- `ProcessPanel.tsx` 及其测试、mirror md **整体删除**（铁律 #2）。
+
+## 2026-08-30（二）— 直播轮次即文档，turn 靠节奏分隔
+
+两处改动：
+
+- **直播块不再是"银色气泡里只放回复"**。此前直播只渲染 reply（过程在
+  `ProcessPanel`），且套一个 silicon 气泡 + 头像。现在直接渲染
+  `<SegmentedReply segments={segmentTurn(currentEvents)} showProcess isStreaming />`
+  ——**落定时形状一个像素都不变**，因为它已经是最终形态。原来那个
+  "有 reply 才渲染"的门也去掉了：叙述先于工具上屏正是要看的节奏。
+- **turn 节奏**：用户消息的外层加 `mt-6`。没有气泡之后，分隔靠间距和
+  用户气泡这个锚点。**刻意没用分隔线**——一轮一条横线在长对话里堆成流水账
+  （取舍写进 `design_system.md` §2.6）。
+
+`RingAvatar` 随 agent 侧头像一起从本文件退出。
 
 ## 2026-08-24 — 运行中发送=折进本轮(steer)
 

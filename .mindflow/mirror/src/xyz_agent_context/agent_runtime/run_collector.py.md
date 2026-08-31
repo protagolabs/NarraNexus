@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-15
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 「私密」改口为「永不送达」
+
+宪法在 2026-08-30 改了口径：明文**不再是私密的**，它是用户看得见的工作叙述，
+只是**永不送达**。本文件的 docstring 与下方 07-30 那条记录都写着「私密」，
+在新口径下是**错的**——错的方向还很危险：它会让下一个读者以为「反正没人看见」，
+从而放松对 `include_monologue` 的警惕。
+
+`include_monologue` 的判据一个字没变：**可见 ≠ 已送达，这里守的是送达。**
+默认关闭，只有 prompt 已兑现「明文即送达」的调用方（今天 = bus 团队房间）打开。
+把可见当成送达的许可，就会把 agent 没对任何人说的斟酌塞进别人的收件箱。
 
 ## 2026-08-15 (二) — sink 接缝有测试了
 
@@ -58,6 +69,7 @@ PR #203 review 裁定（fix-first #1）：独白并入 output_text 是全局生�
 `include_monologue=is_team` 由 tests/message_bus/test_team_monologue_wiring.py
 锁定（team owner → True / peer → False），防止重构漏 kwarg 让房间静默哑掉
 （#203 事故形态）。
+（**2026-08-30 宪法改口为「不投递」**，见 [[library]] / 本文件 08-31 条目；此决定的判据不变。）
 
 ## 2026-07-30 — output_text 纳入 NexusPower 独白（群聊 @mention 无回复修复）
 
@@ -84,7 +96,6 @@ on_progress 同一纪律）。
 六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
 （TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
 事件契约自此有唯一事实源，详见 events.py.md。
-
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

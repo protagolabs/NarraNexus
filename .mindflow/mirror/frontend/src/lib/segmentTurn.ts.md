@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/lib/segmentTurn.ts
-last_verified: 2026-08-19
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `timelineToEvents` 带上 monologue 判别位
+
+档位如果只活在直播路径，同一轮刷新后就会掉回普通 thinking——**恰好打破本文件
+立起来的那条不变量**（「直播看到的和刷新后看到的必然一致」）。
+
+判别位由后端 [[chat_history_timeline]] 收敛好（那边按档切块，一个 timeline
+条目只含一个档次），这里**只是透传**：`monologue: !!entry.monologue`。前端不在
+回放路径上重跑相等判定——后端已经判过，重判一次就是两份实现，正是本文件反对
+的事。
+
+存量行没有该字段 → `false` → 普通 thinking，与改动前逐像素相同。
+
+**三条回放路现在都成立**：已结束轮的 `/event-log` 重载（本文件）、运行中刷新的
+WS 重连、以及团队面板的观察 socket（见 [[wsManager]] / [[useRunObservation]]）。
 
 ## 2026-08-19（二)— 字面 'unknown' 视同缺失
 

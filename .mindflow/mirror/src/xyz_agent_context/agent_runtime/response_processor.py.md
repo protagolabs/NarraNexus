@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-08-19
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `_pending_monologue` 随批次纯净化一起消失
+
+批次现在 tier 纯净（见 [[_thinking_batcher]]），所以「独白子集」要么是整个
+批次、要么是空——不再需要一个和 batcher 并行的缓冲区去追踪子集。
+`_pending_monologue` / `_take_pending_monologue` 删除，换成
+`_batch_monologue(coalesced)`：读 `batcher.flushed_tier`，返回整段或空串。
+
+**字段仍然是 str 不是 bool**：`collect_run.output_text` 中继的是这段**文本**
+（2026-07-30 加它就是为了修群聊回复整段蒸发，dev evt_238abc4b0b0c4dca）。
+
+**`final_output` 收到的字符一个没变**：以前混档批次把子集加进去，现在同一段
+文本作为独立批次加进去。`test_response_processor_tier_purity.py` 里
+`test_final_output_still_receives_only_the_narration` 钉住这条。
 
 ## 2026-08-19 — record_tool_call 持久化不再发明 "unknown"
 
@@ -180,7 +194,6 @@ processor.process(...):` 而不是 `result = processor.process(...)`。Stream �
 六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
 （TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
 事件契约自此有唯一事实源，详见 events.py.md。
-
 
 ## 为什么存在
 

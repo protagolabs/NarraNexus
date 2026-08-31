@@ -485,6 +485,18 @@ class EventLogTimelineEntry(BaseModel):
     # Optional tag preserved from progress events (e.g. "helper_llm_fallback")
     # so the UI can mark fallback replies in history just like live streams.
     reply_via: Optional[str] = None
+    # True when a `thinking` entry is NexusPower's own assistant text
+    # ("monologue") rather than provider chain-of-thought. The two stream on
+    # the same channel but are different tiers: the frontend renders monologue
+    # at the "progress" tier and lets CoT recede. Live frames carry the same
+    # distinction on `AgentThinking.monologue`; surfacing it here is what keeps
+    # a reloaded turn looking like the live one (the equivalence segmentTurn is
+    # built on). False for CoT, for every non-NexusPower driver, and for rows
+    # persisted before the field existed. Optional like every other
+    # type-specific field on this union shape (reply_via, tool_name, …): a
+    # tool_call row has no tier, and `None` says that instead of serialising a
+    # meaningless `false` on every step of a long log.
+    monologue: Optional[bool] = None
 
 
 class EventLogMeta(BaseModel):

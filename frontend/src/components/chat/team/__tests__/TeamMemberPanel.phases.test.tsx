@@ -1,7 +1,7 @@
 /**
  * @file_name: TeamMemberPanel.phases.test.tsx
  * @description: The team member panel settles the run-agent (3.4) phase row
- * from the SAME shared rule ProcessPanel uses — fed the UNFILTERED
+ * from the SAME shared rule RunPhases uses — fed the UNFILTERED
  * observation.steps, not the whitelisted `phases`.
  *
  * Why this test exists: the panel renders only the whitelisted phases
@@ -10,7 +10,7 @@
  * passed the filtered `phases` to phaseSettled, `phases.some(> 3.4)` is always
  * false and the 3.4 row spins forever whenever the loop-end COMPLETED is
  * missed (error path / early return). This pins that it passes the full list —
- * symmetric to ProcessPanel.test's phase-row coverage.
+ * symmetric to runPhases.test's phase-row coverage.
  */
 import { describe, expect, test, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';

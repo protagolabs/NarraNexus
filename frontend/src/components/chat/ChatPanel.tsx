@@ -18,7 +18,7 @@ import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon,
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
@@ -36,7 +36,8 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { ProcessPanel } from './ProcessPanel';
+import { RunPhases } from './process/RunPhases';
+import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
@@ -529,13 +530,36 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Per-tab visible items, computed BEFORE rendering so day separators can
   // compare each item against the previous VISIBLE one — comparing against
   // a neighbour that the tab filter hides would draw phantom separators.
+  //
+  // The run IN FLIGHT is also filtered out here. The backend persists a reply
+  // row as soon as the reply tool executes, the 12s history poll picks it up
+  // mid-run, and the streaming block below is already rendering that same
+  // reply from currentEvents — so the answer drew twice, above and below the
+  // pipeline phases, and a refresh "fixed" it only because the streaming copy
+  // was gone by then. buildUnifiedTimeline's dedup cannot catch this: it
+  // reconciles history against SESSION messages, and the in-flight turn has
+  // no session message yet (stopStreaming is what writes it).
+  //
+  // Scoped three ways, and each one is load-bearing:
+  //   - only while isStreaming, and only for currentRunId — the moment the run
+  //     settles the row is ordinary history again and renders normally, so
+  //     nothing is withheld from the reader (iron rule #16);
+  //   - only role 'assistant'. The backend stamps the SAME event_id on the
+  //     user's own row for that turn (chat_history.py builds both roles from
+  //     one loop), and history rows win buildUnifiedTimeline's dedup, so an
+  //     unscoped filter deletes the user's message from the screen while the
+  //     agent works on it.
   const visibleTimeline: TimelineItem[] = useMemo(
     () =>
       timeline.filter((item) => {
+        if (
+          isStreaming && currentRunId
+          && item.role === 'assistant' && item.eventId === currentRunId
+        ) return false;
         const isInner = item.messageType === 'activity';
         return chatTab === 'inner' ? isInner : !isInner;
       }),
-    [timeline, chatTab],
+    [timeline, chatTab, isStreaming, currentRunId],
   );
 
   // The newest visible full message keeps its meta row (time) always
@@ -1023,7 +1047,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // dismissal leaks onto agent B (and vice versa).
               key={agentId}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
           ) : (
@@ -1045,7 +1068,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 timestamp: Date.now(),
               }}
               agentId={agentId}
-              agentName={currentAgent?.name || agentId}
               isLatest
             />
           </div>
@@ -1106,7 +1128,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             <div
               key={item.id}
               data-timeline-item
-              className={isNewSession ? 'animate-slide-up' : undefined}
+              // Turn rhythm. With the agent's turn unframed, spacing is what
+              // separates one exchange from the next: extra air opens each
+              // user message, so a turn reads as [air] question [close]
+              // document [air] question. A hairline was the alternative and
+              // was rejected — one rule per turn stacks into a ledger down a
+              // long conversation, and the right-aligned user bubble is
+              // already a strong enough anchor to start from.
+              className={cn(
+                item.role === 'user' && 'mt-6',
+                isNewSession && 'animate-slide-up',
+              )}
             >
               {separator}
               <MessageBubble
@@ -1128,7 +1160,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                agentName={currentAgent?.name || agentId}
                 isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
@@ -1143,97 +1174,69 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
-            + Live activity preview" pair. Renders thinking / tool /
-            reply blocks in chronological order as the events arrive,
-            so the user can see the agent's actual rhythm. See
-            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
-
-            Wrapped in the same Bot-avatar + flex-1 content shell as
-            MessageBubble uses for historical turns, so the in-flight
-            turn doesn't visually detach from the rest of the
-            conversation (it would otherwise be the only assistant
-            output with no left-side avatar). */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
-          <div className="flex gap-3 animate-fade-in">
-            <RingAvatar
-              species="silicon"
-              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-              size="sm"
-              className="shrink-0"
+        {/* The in-flight turn, rendered exactly as it will settle: narration,
+            tool lines and collapsed reasoning in the order they arrive, with
+            the reply growing underneath. No avatar and no bubble, matching
+            the settled agent turn in MessageBubble — the whole point is that
+            nothing rearranges when the run lands. */}
+        {chatTab === 'conversation' && isStreaming && (
+          <div className="animate-fade-in">
+            {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                replay below is the SAME run continuing after a refresh /
+                reconnect — label it, with elapsed anchored to the run's
+                real start, so it cannot be read as a fresh generation.
+                runId must match the streaming turn (review #349 M4): the
+                anchor may only badge ITS run — if a second start-stream
+                path ever appears, a stale anchor stays invisible instead
+                of silently badging someone else's turn. */}
+            {resumedRun && resumedRun.runId === currentRunId && (
+              <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+            )}
+            {/* The run's preamble: the backend pipeline phases that happen
+                before the model produces anything. Without it the window
+                between "send" and the first narration is blank. It heads
+                the document rather than sitting in a box beside it. */}
+            <RunPhases
+              events={currentEvents}
+              steps={currentSteps}
+              startedAtMs={
+                resumedRun && resumedRun.runId === currentRunId
+                  ? resumedRun.startedAtMs
+                  : undefined
+              }
             />
-            <div className="flex-1 min-w-0">
-              {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
-                  replay below is the SAME run continuing after a refresh /
-                  reconnect — label it, with elapsed anchored to the run's
-                  real start, so it cannot be read as a fresh generation.
-                  runId must match the streaming turn (review #349 M4): the
-                  anchor may only badge ITS run — if a second start-stream
-                  path ever appears, a stale anchor stays invisible instead
-                  of silently badging someone else's turn. */}
-              {resumedRun && resumedRun.runId === currentRunId && (
-                <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
-              )}
-              {/* Live view shows answers only: the process is in the
-                  ProcessPanel above the composer. Painting it here too
-                  would render the same thinking/tools twice.
+            {/* The live turn IS the document — narration, tool lines and
+                collapsed reasoning in the order they happen, the reply
+                growing underneath. Same component, same shape the settled
+                turn keeps, so nothing rearranges when it lands.
 
-                  The reply streams inside the same silicon bubble the
-                  settled MessageBubble will use — a bare string next to
-                  the avatar that suddenly gains a bubble on settle reads
-                  as two different things. Rendered only once a reply has
-                  visible content, so no empty blue box shows while the
-                  agent is still thinking/tooling. */}
-              {(() => {
-                const liveSegments = segmentTurn(currentEvents);
-                if (!liveSegments.some((s) => s.reply?.content)) return null;
-                return (
-                  <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)]"
-                    style={{
-                      background: 'var(--nm-paper)',
-                      color: 'var(--nm-ink)',
-                      border: '1px solid var(--nm-hairline)',
-                      borderLeft: '3px solid var(--color-silicon)',
-                    }}
-                  >
-                    <div className="text-sm break-words leading-relaxed">
-                      <SegmentedReply segments={liveSegments} isStreaming />
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* Mid-stream artifact preview is independent of the timeline:
-                  it surfaces created/uploaded artifacts inline as soon as
-                  their tool_output lands, without waiting for the whole
-                  turn to finish. */}
-              {agentId && currentToolCalls.length > 0 && (
-                <ArtifactToolCallCards
-                  toolCalls={currentToolCalls}
-                  allArtifacts={allArtifacts}
-                />
-              )}
-              {/* Inter-event "still working" indicator. Reassurance for
-                  the gap between two visible blocks (e.g. waiting on a
-                  tool result, or the next thinking hasn't started
-                  streaming yet) — without it the page goes silent
-                  and the user can't tell stuck from busy. Distinct from
-                  "Thinking" (whose content is already on screen): this
-                  signals the agent is *acting* between the visible
-                  blocks. Disappears the instant isStreaming flips. */}
-              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
-                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>{t('chat.execution.acting')}</span>
-              </div>
-            </div>
+                showProcess is on here (it used to be off, with the process
+                living in a framed panel above the composer): that panel is
+                gone, so there is nothing to paint twice, and the narration
+                is finally IN the reading flow rather than in a side box
+                between reasoning rows. */}
+            <SegmentedReply
+              segments={segmentTurn(currentEvents)}
+              showProcess
+              isStreaming
+            />
+            {/* Mid-stream artifact preview is independent of the timeline:
+                it surfaces created/uploaded artifacts inline as soon as
+                their tool_output lands, without waiting for the whole
+                turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                allArtifacts={allArtifacts}
+              />
+            )}
           </div>
         )}
 
         {/* The old "starting up… / loading context…" indicator that
-            floated here moved into ProcessPanel (above the composer),
-            which renders pipeline phases as terminal rows from the
-            moment streaming starts — one surface for everything the
-            agent is doing. */}
+            floated here is now RunPhases, at the head of the in-flight
+            document — the phases read as the run's preamble, in the same
+            column as everything else the agent does. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1338,11 +1341,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
-        {/* While the agent works, the process lives here; answers live
-            in the bubbles above. Mounted only while streaming — when the
-            turn ends the process folds back into each reply's bubble
-            (lib/segmentTurn), so unmounting the panel loses nothing. */}
-        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
+        {/* The plan is the one piece of the run that must not scroll away —
+            it answers "where are we now" — so it stays pinned here while the
+            rest of the process reads inline in the document above. Mounted
+            only while streaming; the settled turn carries its own process. */}
+        {isStreaming && <PlanStrip events={currentEvents} />}
 
         <div className="relative" data-help-id="chat.composer">
           <Composer

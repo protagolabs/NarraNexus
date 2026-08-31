@@ -28,7 +28,7 @@ export interface ExecutionPopoverProps {
   steps: Step[];
 }
 
-/** The label to show for a step — the SAME localized phase name ProcessPanel
+/** The label to show for a step — the SAME localized phase name RunPhases
  *  uses for the top-level phases, so the two surfaces never disagree. Genuine
  *  sub-steps (tool calls "3.4.x", fallbacks) aren't mapped and keep their own
  *  backend title, which is the detail this popover is meant to surface. */

@@ -25,11 +25,12 @@ import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight, ChevronDown, Loader2, Brain, Wrench, CheckCircle2, TerminalSquare,
-  ArrowDownToLine, ArrowUpFromLine,
+  ArrowDownToLine, ArrowUpFromLine, Milestone,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { TimelineItem } from '@/lib/buildTimeline';
 import type { EventLogMeta, EventLogResponse, EventLogTimelineEntry } from '@/types/api';
+import { useNarrationTier } from '@/hooks/useNarrationTier';
 import { hasRunStats } from '@/lib/runStats';
 import { RunStatChips } from './RunStatChips';
 
@@ -141,7 +142,13 @@ function toEntries(res: EventLogResponse): EventLogTimelineEntry[] {
   return out;
 }
 
-function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
+function EntryRow({
+  entry,
+  showNarration,
+}: {
+  entry: EventLogTimelineEntry;
+  showNarration: boolean;
+}) {
   if (entry.type === 'tool_call') {
     return (
       <div className="flex items-start gap-1.5 text-xs">
@@ -166,16 +173,35 @@ function EntryRow({ entry }: { entry: EventLogTimelineEntry }) {
       </div>
     );
   }
+  // Progress tier (design A′), same rule as TurnTimeline and ProcessEventRows.
+  // This card matters MORE than either: it is the only view for turns that
+  // sent no reply (background jobs, channel triggers), and those turns are
+  // nothing but narration. The condition names `type === 'thinking'` because
+  // this return is the fallback for every non-tool, non-reply entry, not for
+  // thinking alone; the legacy `toEntries` path carries no tier, so it stays
+  // receded — correctly, since it cannot know.
+  const narration = showNarration && entry.type === 'thinking' && !!entry.monologue;
   return (
-    <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-      <Brain className="w-3 h-3 mt-0.5 shrink-0" />
-      <span className="break-words italic">{entry.content}</span>
+    <div
+      className="flex items-start gap-1.5 text-xs"
+      style={{ color: narration ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}
+    >
+      {narration ? (
+        <Milestone className="w-3 h-3 mt-0.5 shrink-0" />
+      ) : (
+        <Brain className="w-3 h-3 mt-0.5 shrink-0" />
+      )}
+      <span className={narration ? 'break-words' : 'break-words italic'}>{entry.content}</span>
     </div>
   );
 }
 
 export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentId: string }) {
   const { t } = useTranslation();
+  // Card level, not row level — same split as TurnTimeline (see
+  // hooks/useNarrationTier): the top-level component resolves the preference,
+  // shared row renderers take it as a prop.
+  const showNarration = useNarrationTier();
   const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState<LoadState>('idle');
   const [entries, setEntries] = useState<EventLogTimelineEntry[]>([]);
@@ -260,7 +286,7 @@ export function InnerThoughtCard({ item, agentId }: { item: TimelineItem; agentI
                   className="mt-2 space-y-1.5 pl-2 border-l-2"
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
-                  {entries.map((e, i) => <EntryRow key={i} entry={e} />)}
+                  {entries.map((e, i) => <EntryRow key={i} entry={e} showNarration={showNarration} />)}
                 </div>
               )}
               {runMeta && <RunOutput meta={runMeta} t={t} />}

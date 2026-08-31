@@ -77,7 +77,7 @@
       "downloadMd": "Descargar como .md"
     },
     "timeline": {
-      "thinking": "Pensando",
+      "thought": "Razonado",
       "toolLabel": "[ herramienta ]",
       "outputLabel": "[ salida ]",
       "reply": "Respuesta",
@@ -273,7 +273,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agente · proceso",
       "ops": "ops"
     },
     "header": {
@@ -1370,7 +1369,9 @@
       },
       "personalization": {
         "label": "Personalización",
-        "hint": "Tema e idioma. Habrá más."
+        "hint": "Tema, idioma y cómo se muestran las notas de progreso del agente.",
+        "narrationTitle": "Narración de progreso",
+        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable."
       }
     },
     "system": {

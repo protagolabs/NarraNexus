@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/settings/PersonalizationSettings.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — 第三个控件：进度短讯（独白提级）开关
+
+theme / language 之外多一个 switch，写 [[uiStore]] 的 `interimNarration`
+（localStorage，缺省开）。**放这里的理由就是本文件头那句**「everything
+configurable belongs to this page」——不要再在 sidebar 账号气泡里开第二个
+设置面。
+
+它是**纯前端显示偏好**，不进后端、不进 env：它治理的是「读者觉不觉得吵」，
+不是平台风险（对照 `NARRATIVE_MERGED_ROUTING_ENABLED` 那类发布 flag 的判据，
+见 [[uiStore]]）。
+
+10 个语言包一次补齐——本单已经因为 `chat.timeline.narration` 建立了这个先例，
+别只补 en/zh。
+
+**文案键放 `pages.settings.personalization.*`**，和这个 pane 已有的
+`label` / `hint` 同一个对象（Privacy pane 的正文文案也放在自己 section 里，
+同一先例）。第一版放在了 `settings.personalization.*`，于是两个都叫
+`personalization` 的对象各装着这个面板的一半文案——改文案的人要在两处找、
+×10 个语种。review 第 4 轮迁并。新增 Personalization 文案一律进
+`pages.settings.personalization`。
 
 # PersonalizationSettings — 设置页「个性化」pane
 

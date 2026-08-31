@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-08-26
+last_verified: 2026-08-30
 stub: false
 ---
+
+## 2026-08-30 — `translateReconnectFrame` 带上独白档位（缺口已补）
+
+两个 replay 分支（`thinking_partial_replay` / `replay.thinking_segment`）现在
+都带档位：[[run_recorder]] 按 tier 写 `thinking_segment` /
+`thinking_segment_monologue` 两种 kind，[[broadcaster]] 的在途 partial 也带
+`monologue` 布尔，本文件翻译回 `AgentThinking`。
+
+**于是运行中刷新不再有色阶断层**——重放出来的前半截和重连后的新帧同档，
+[[chatStore]] 直接合并成一块。
+
+**改这里的人先看这条**：`AgentThinking.monologue` 是**子集字符串**不是 bool。
+tier 为真的帧必须把自己的正文**重复**进这个字段（谓词是
+`monologue === thinking_content`）；塞 `true` 会拿 bool 和 string 比，恒 false，
+改完看起来「没生效」。
+
+`thinking_segment`（无 monologue 后缀）同时覆盖两种情况：provider 推理，以及
+**本改动之前写入的存量行**——那些行的档位确实未知，回放成 receded，也正是它们
+一直以来的样子（无回填，铁律 #2/#6）。
 
 ## 2026-08-26 — `translateReconnectFrame` 回放兜底 step id 不得撞相位 id
 
@@ -65,7 +84,6 @@ reconnect 的全量重放此前没有任何「这是同一个 run 在继续」�
 ## 2026-07-13 — Agent 实时层熔断器接入
 
 run() 的 onmessage 识别后端 `agent_circuit_open` 帧 → `dispatchAgentCircuitOpen({agentId,reason})` + 标记 completed + processMessage + stopStreaming（清 spinner，避免卡在 streaming），mirror auth-expired 桥。仅 run() 路径（reconnect 不过 fresh-run 闸门）。
-
 
 ## 2026-06-10 — run_reconnect 注入幂等 + 终结性 reconnect 错误帧停止重连循环
 

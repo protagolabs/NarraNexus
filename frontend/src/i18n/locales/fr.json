@@ -77,7 +77,7 @@
       "downloadMd": "Télécharger en .md"
     },
     "timeline": {
-      "thinking": "Réflexion",
+      "thought": "Réfléchi",
       "toolLabel": "[ outil ]",
       "outputLabel": "[ sortie ]",
       "reply": "Réponse",
@@ -273,7 +273,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agent · processus",
       "ops": "ops"
     },
     "header": {
@@ -1370,7 +1369,9 @@
       },
       "personalization": {
         "label": "Personnalisation",
-        "hint": "Thème et langue. D’autres suivront."
+        "hint": "Thème, langue et affichage des notes de progression de l'agent.",
+        "narrationTitle": "Narration de progression",
+        "narrationHint": "Affiche les notes de l'agent entre les étapes directement et lisiblement, au lieu de replier tout le déroulé dans un seul volet."
       }
     },
     "system": {

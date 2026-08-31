@@ -33,8 +33,9 @@ mentions**，会真的把提问方叫醒：一个本来会永远悬着的 errand
 
 第 3 种的 NexusPower 形态是「正文全走了 `AGENT_THINKING.monologue`，`output_text`
 是空的」。看上去最省事的修法是把独白折进回复 —— **不做**。
-独白契约向 agent 承诺它的纯文本是私有思考（见 [[run_collector]] 的
-`include_monologue`），转发给 peer 等于泄露它从未打算说给任何人听的推理。
+独白契约向 agent 承诺它的纯文本**永不投递**——owner 能作为过程看到，但它不
+指向任何人（见 [[run_collector]] 的 `include_monologue`）。转发给 peer 等于把
+它从未打算说给任何人听的推理**投递**出去。**可见 ≠ 已投递**，这条守的是投递。
 说一句「本轮没有投递任何内容」是诚实的，而且什么都不泄露。
 
 ## 全部 best-effort，返回判定而不是抛异常

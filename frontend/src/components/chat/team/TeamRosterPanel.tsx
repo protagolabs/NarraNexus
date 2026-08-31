@@ -24,7 +24,7 @@
  *   stalled=error, idle=muted), a readable status word instead of a
  *   1.5px color dot, a chevron affordance, a selected state (accent
  *   rail + wash) that mirrors the transcript's typing-bubble highlight.
- * - The expanded detail is a mini ProcessPanel (TeamMemberPanel):
+ * - The expanded detail is one member's terminal card (TeamMemberPanel):
  *   running members stream REAL thinking/tool rows through the
  *   universal run-observation channel; idle members keep the persisted
  *   TurnTimeline. Same terminal language as single chat.
