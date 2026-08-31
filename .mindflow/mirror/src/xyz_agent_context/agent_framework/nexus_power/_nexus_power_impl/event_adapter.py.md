@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/event_adapter.py
-last_verified: 2026-07-30
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 语义映射表的措辞随宪法改口(无行为变化)
+
+`text/thinking deltas -> thinking_item` 那条的理由原写「plain text is PRIVATE
+reasoning」。改为「working narration:owner 可以看,但不送达给任何人」。
+
+**映射一条都没动。** 它仍然不能映到 legacy「assistant text」通道——那样等于
+把叙述当答案交给用户。变的是理由的准确性:挡住的是**冒充答案**,不是「藏起来」。
+
 
 ## 2026-07-30 — TYPE_TOOL_USE_START → pending tool_call
 

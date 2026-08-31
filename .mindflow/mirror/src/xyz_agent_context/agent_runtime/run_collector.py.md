@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-08-15
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 「私密」改口为「永不送达」
+
+宪法在 2026-08-30 改了口径:明文**不再是私密的**,它是用户看得见的工作叙述,
+只是**永不送达**。本文件的 docstring 与下方 07-30 那条记录都写着「私密」,
+在新口径下是**错的**——错的方向还很危险:它会让下一个读者以为「反正没人看见」,
+从而放松对 `include_monologue` 的警惕。
+
+`include_monologue` 的判据一个字没变:**可见 ≠ 已送达,这里守的是送达。**
+默认关闭,只有 prompt 已兑现「明文即送达」的调用方(今天 = bus 团队房间)打开。
+把可见当成送达的许可,就会把 agent 没对任何人说的斟酌塞进别人的收件箱。
+
 
 ## 2026-08-15 (二) — sink 接缝有测试了
 
@@ -48,12 +60,12 @@ CPython 的原地拼接优化用不上，于是**每个 delta 都要复制一遍
 
 PR #203 review 裁定（fix-first #1）：独白并入 output_text 是全局生效的，但
 只有 team room 的 prompt 对 agent 说过「你的明文会被发出去」。peer DM→
-收件箱、A2A 这些面上，NexusPower 宪法承诺明文私密——全局并入等于把 agent
+收件箱、A2A 这些面上，NexusPower 宪法承诺明文**永不送达**——全局并入等于把 agent
 以为没人看的内部斟酌公开。**显式选择「收窄」方案**（review 给的二选一）：
 `collect_run(include_monologue=False)` 默认关闭，只有 prompt 已兑现「明文
 即送达」契约的调用方（今天 = bus 团队房间，trigger 传 `is_team`）打开。
 另修 on_progress 相位：带独白的 thinking 帧上报 "response"（agent 在说话）
-——但只在 opt-in 的 surface 上（独白私密时没人收到那段文本，上报「回复中」
+——但只在 opt-in 的 surface 上（独白未送达时没人收到那段文本，上报「回复中」
 是假象）；activity 视图不再在产出房间回复时显示 thinking。承重接线
 `include_monologue=is_team` 由 tests/message_bus/test_team_monologue_wiring.py
 锁定（team owner → True / peer → False），防止重构漏 kwarg 让房间静默哑掉

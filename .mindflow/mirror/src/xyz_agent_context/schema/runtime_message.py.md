@@ -39,7 +39,7 @@ provider CoT 恒为空串；state 侧 `record_thinking(monologue=...)` 的链路
 
 ## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
 
-NexusPower 的独白契约让**明文 = 私有思考、对外说话必须走表达工具**，于是多出
+NexusPower 的独白契约让**明文 = 工作叙述(可见但永不送达)、对外说话必须走表达工具**，于是多出
 两种别的框架永远不发的形状：
 
 - `AGENT_REPLY_DELTA` / `AgentReplyDelta` —— 表达工具**参数**的流式片段。这才是

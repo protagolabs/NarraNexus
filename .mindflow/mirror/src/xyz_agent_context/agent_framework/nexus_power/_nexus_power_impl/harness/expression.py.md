@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/harness/expression.py
-last_verified: 2026-07-31
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 契约措辞随宪法改口(无行为变化)
+
+文件头原写「text is the agent's private thinking」。宪法改口后改为「working
+narration —— 其 owner 可以看,但不送达给任何人」。**契约本身一个字没改**:
+明文永远不是回复,出去必须走 expressive tool call。改的只是对「为什么」的
+描述,免得读者从 docstring 里学到一个宪法已经不承诺的东西。
+
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

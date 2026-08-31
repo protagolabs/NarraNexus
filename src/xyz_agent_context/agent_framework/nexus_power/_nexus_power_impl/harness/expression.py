@@ -5,8 +5,9 @@
 @description: The monologue/expression contract's default implementation.
 
 Every other harness treats assistant text as the user-facing reply;
-here text is the agent's working narration — visible, never delivered and reaching the outside
-world requires an expressive tool call. The framework OWNS no
+here text is the agent's working narration — its owner may watch it,
+but it is delivered to no one, and reaching the outside world requires
+an expressive tool call. The framework OWNS no
 expression tools (they are platform-granted capabilities, injected as a
 name list via TurnOptions.expressive_tools); an empty list is a legal
 state — an agent without channels is mute, not broken.
