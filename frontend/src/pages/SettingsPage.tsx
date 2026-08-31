@@ -28,7 +28,8 @@ import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
-import { useConfigStore, useRuntimeStore } from '@/stores';
+import { useConfigStore } from '@/stores';
+import { isForcedCloud } from '@/lib/runtimeConfig';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -254,13 +255,15 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const netmindToken = useConfigStore((s) => s.netmindToken);
   // Plugins are a LOCAL-only concept (cloud pre-installs the frameworks in the
-  // image). Use the SYNCHRONOUS app mode (resolved by useResolveAppMode in the
-  // ProtectedRoute ancestor before this renders — App.tsx) so the `active`
-  // initializer below sees the filtered list on the FIRST frame: a cloud
-  // `?tab=plugins` deep link then falls back to the first visible pane instead
-  // of opening an empty one. (PluginsSettings still return-null's on the
-  // backend `cloud_managed` as a second, independent backstop.)
-  const isCloud = useRuntimeStore((s) => s.mode) === 'cloud-web';
+  // image). `isForcedCloud()` reads window.__NARRANEXUS_CONFIG__ SYNCHRONOUSLY
+  // with zero persistence — so the `active` initializer below sees the filtered
+  // list on the very FIRST frame and a cloud `?tab=plugins` deep link falls
+  // back to the first visible pane instead of opening an empty one. (Chosen
+  // over the persisted runtime-store `mode`, which is set by a useEffect and
+  // could carry a stale `local` on a cloud origin whose config.js once failed
+  // to inject. PluginsSettings still return-null's on the backend
+  // `cloud_managed` as a second, independent backstop.)
+  const isCloud = isForcedCloud();
   const items = NAV_ITEMS.filter(
     (it) => (!it.desktopOnly || isTauri()) && !(it.id === 'plugins' && isCloud),
   );
@@ -355,7 +358,13 @@ export default function SettingsPage() {
                 />
                 <ModelDefaultsSettings
                   onManageProviders={() => setActive('providers')}
-                  onManagePlugins={() => setActive('plugins')}
+                  onManagePlugins={() => {
+                    // Cloud has no plugins pane (frameworks are pre-installed),
+                    // so never jump to it — belt-and-suspenders: cloud's
+                    // frameworks are always available, so pluginRequired (the
+                    // only caller) does not fire there anyway.
+                    if (!isCloud) setActive('plugins');
+                  }}
                 />
               </section>
             )}

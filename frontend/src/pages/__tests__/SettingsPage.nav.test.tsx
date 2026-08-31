@@ -23,16 +23,15 @@ let mockSearch = '';
 vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams(mockSearch), vi.fn()] as const,
 }));
-const { authState, runtimeState } = vi.hoisted(() => ({
+const { authState, cloudState } = vi.hoisted(() => ({
   authState: { netmindToken: null as string | null },
-  runtimeState: { mode: 'local' as 'local' | 'cloud-web' },
+  cloudState: { forced: false },
 }));
 vi.mock('@/stores', () => ({
   useConfigStore: (sel: (s: { netmindToken: string | null }) => unknown) =>
     sel({ netmindToken: authState.netmindToken }),
-  useRuntimeStore: (sel: (s: { mode: 'local' | 'cloud-web' }) => unknown) =>
-    sel({ mode: runtimeState.mode }),
 }));
+vi.mock('@/lib/runtimeConfig', () => ({ isForcedCloud: () => cloudState.forced }));
 vi.mock('@/components/settings/PersonalizationSettings', () => ({
   PersonalizationSettings: () => <div data-testid="personalization-pane" />,
 }));
@@ -61,7 +60,7 @@ describe('SettingsPage nav', () => {
   beforeEach(() => {
     mockSearch = '';
     authState.netmindToken = null;
-    runtimeState.mode = 'local';
+    cloudState.forced = false;
   });
 
   test('plugins nav is present in local mode', () => {
@@ -70,13 +69,13 @@ describe('SettingsPage nav', () => {
   });
 
   test('plugins nav is hidden in cloud mode (frameworks pre-installed there)', () => {
-    runtimeState.mode = 'cloud-web';
+    cloudState.forced = true;
     render(<SettingsPage />);
     expect(screen.queryByRole('button', { name: /pages.settings.nav.plugins/ })).toBeNull();
   });
 
   test('cloud + ?tab=plugins falls back to the first visible pane, not an empty one', () => {
-    runtimeState.mode = 'cloud-web';
+    cloudState.forced = true;
     mockSearch = 'tab=plugins';
     render(<SettingsPage />);
     // The deep link targeted a pane the cloud session cannot see → fall back
