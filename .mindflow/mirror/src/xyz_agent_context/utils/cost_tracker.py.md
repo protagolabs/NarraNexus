@@ -24,10 +24,41 @@ helper 调用点都写着 `_agent_id, _db = ctx`，加宽 tuple 要改遍所有�
 来任何东西；何况两者生命周期本就不同——agent+db 覆盖一整个 worker pass，轮次
 只覆盖其中一轮。
 
-**`set_cost_context` 故意不动 event**：`step_3_agent_loop` 会在轮次中途重设
-一次 cost context 给它的兜底 helper，若在那里顺手清掉 event，这些 token 就正好
-掉出它们所属的那一轮。清理只发生在 `clear_cost_context`（finally 兜底，防止陈
-旧轮次 id 认领下一个调用者的花销）和 scope 退出时。
+**`set_cost_context` 故意不动 event**：轮次中途重设 cost context 时若顺手清掉
+event，这些 token 就正好掉出它们所属的那一轮。两个变量生命周期不同是刻意的。
+
+## 2026-08-31 — `cost_context_scope`：修掉中途 `clear` 抹掉本轮上下文
+
+> 修正 08-28 条目里一句错的不变量：它写着「清理只发生在
+> `clear_cost_context`（finally 兜底）和 scope 退出时」。**清理也发生在轮次
+> 中间**，而且抹掉的是本轮自己的上下文。
+
+`step_3._generate_fallback_reply_stream` 此前是 `set_cost_context(...)` +
+`finally: clear_cost_context()`。它是**异步生成器**——异步生成器**不复制
+context**（PEP 568 从未落地），所以那个 `finally` 清的不是私有副本，是**这一
+轮 task 自己的** `_cost_context`。
+
+后果（**本 PR 之前就存在的老 bug**，08-28 那次只是把 event 也拖了进去）：走
+fallback 恢复路径的轮次（`no_reply` / `after_error`），从那个 `finally` 之后
+到本轮结束，`_resolve_cost_context` 拿不到 `(agent_id, db)` 就直接 return；
+Steps 5-6 在 step_4 之后 `spawn`，复制到的正是这份被清空的 context，
+**post-turn hooks 的花销一行都不记**。也就是说账目恰好在**已经失败的那些
+轮次**上不准，而屏幕上看不出任何异常。
+
+修法：新增 `cost_context_scope(agent_id, db)`，`finally` 里 `reset(token)`
+**还原**而非 `set(None)` 清空；step_3 改用它。`clear_cost_context()` 语义收窄
+为「最外层专用」——后台 worker 收尾、`AgentRuntime` 的 post-turn task 收尾。
+
+**`_unwind` 为什么吞 `ValueError`**：异步生成器被中途放弃时，`finally` 在关闭
+它的那个 context 里跑，`ContextVar.reset(token)` 会抛
+`Token was created in a different Context`。本模块的铁律是 observability, not
+flow control，所以跨 context 退栈降级为清空，绝不把异常抛进一个无关调用者的
+栈。**能保证的**是不抛、且执行清理的那个 context 读回 None；**不能保证**
+（contextvars 做不到跨 context 写）进入 scope 的那个 context 的值——它要等自
+己正常退栈。
+
+Tests：`tests/utils/test_cost_tracker_event_attribution.py`
+（`test_context_scope_restores_the_outer_pair_instead_of_clearing_it` 等）。
 
 **后台 Steps 5-6 天然正确**：它们由 `spawn` 在 scope 内创建，`create_task` 在
 创建时刻复制上下文，所以任务活得比 scope 长也仍带着这一轮的 id。读 ContextVar

@@ -491,9 +491,19 @@ class AgentRuntime:
             # before this every one of them booked event_id=NULL and a per-turn
             # token figure showed the main loop only. Both scopes unwind on the
             # ExitStack, including the error path.
+            # The cost scope is entered UNCONDITIONALLY, unlike the log
+            # binding: a run with no Event row must set the ambient id to
+            # None, not inherit it. A nested run started from a post-turn
+            # callback copies the parent's context, so leaving the parent's id
+            # in place would book the child's whole spend onto the parent turn
+            # — a number that reads high with nothing to show it is wrong.
+            # bind_event stays conditional on purpose: inheriting the outer
+            # run_id in logs is what you want there.
             if ctx.event is not None:
                 _trace_stack.enter_context(bind_event(event_id=str(ctx.event.id)))
-                _trace_stack.enter_context(cost_event_scope(str(ctx.event.id)))
+            _trace_stack.enter_context(
+                cost_event_scope(str(ctx.event.id) if ctx.event is not None else None)
+            )
 
             # Load LLM config based on the AGENT OWNER (not user_id).
             #

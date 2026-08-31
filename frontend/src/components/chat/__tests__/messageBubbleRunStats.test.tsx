@@ -109,6 +109,47 @@ describe('MessageBubble per-turn run stats', () => {
     expect(screen.queryByTestId('run-stat-chips')).toBeNull();
   });
 
+  it('hides the cost chip when the ledger booked $0 (unpriced model)', async () => {
+    // total_cost_usd === 0 is not a rounding artefact: price_for returns None
+    // for any model id the table doesn't know, calculate_cost then books 0,
+    // and that is the majority of rows on a local install. Gating on != null
+    // let formatCost(0) render "<$0.0001" — "we don't know the rate" shown as
+    // "it cost a little something".
+    mockResponse({ ...baseMeta, total_cost_usd: 0 });
+    expand();
+
+    await waitFor(() => expect(screen.getByTestId('run-stat-chips')).toBeTruthy());
+    expect(screen.queryByText(/\$/)).toBeNull();
+    // The rest of the row still renders — only the price is unknown.
+    expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
+  });
+
+  it('keeps the chips when the turn upgrades to segment mode', async () => {
+    // The load-bearing layout decision: chips sit OUTSIDE the disclosure,
+    // because a timeline carrying a reply makes segmentTurn produce segments
+    // and unmounts the disclosure entirely. Put the chips inside it and they
+    // vanish on exactly the turns that have a reply — i.e. almost all of them.
+    mockResponse(baseMeta);
+    getEventLogMock.mockResolvedValue({
+      success: true,
+      event_id: 'ev1',
+      thinking: '',
+      tool_calls: [],
+      timeline: [
+        { type: 'thinking', content: 'planning' },
+        { type: 'reply', content: 'here is the answer' },
+      ],
+      meta: baseMeta,
+    });
+    expand();
+
+    // Segment mode really did take over (this is what unmounts the
+    // disclosure) — and the chips survived it.
+    await waitFor(() => expect(screen.getByTestId('segment-reply-0')).toBeTruthy());
+    expect(screen.getByTestId('run-stat-chips')).toBeTruthy();
+    expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
+  });
+
   it('survives a backend that returns no meta at all', async () => {
     getEventLogMock.mockResolvedValue({
       success: true,

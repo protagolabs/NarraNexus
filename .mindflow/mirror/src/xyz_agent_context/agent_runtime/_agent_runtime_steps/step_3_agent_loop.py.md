@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-08-27
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 兜底回复的 cost context 改用 scope
+
+`_generate_fallback_reply_stream` 原来是 `set_cost_context(...)` +
+`finally: clear_cost_context()`。**它是异步生成器，异步生成器不复制
+context**——那个 `finally` 清掉的不是私有副本，是这一轮 task 自己的
+`_cost_context`。于是走 fallback 的轮次（`no_reply` / `after_error`）从这里
+之后就再也记不上账，连带 step_4 之后 `spawn` 的 Steps 5-6（复制到的是被清空
+的 context）也一行不记。改用 [[cost_tracker]] 新增的 `cost_context_scope`，
+退栈时**还原**上一层的值而不是清空。详见 [[cost_tracker]] 同日条目。
 
 ## 2026-08-26 — step 3 拆成「构建上下文」与「运行 Agent」两个相位
 

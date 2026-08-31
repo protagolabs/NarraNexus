@@ -153,8 +153,14 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
+  // All four pieces the fetch fills, meta included: a turn with no thinking
+  // and no tools still returns meta, and leaving it out kept "already
+  // loaded" false for exactly those turns (harmless today — the cache
+  // short-circuits the refetch — but the flag would start lying the moment
+  // the cache gains an expiry).
   const hasEventLogData =
-    eventLogTimeline !== null || eventLogThinking !== null || eventLogToolCalls !== null;
+    eventLogTimeline !== null || eventLogThinking !== null ||
+    eventLogToolCalls !== null || eventLogMeta !== null;
 
   const loadEventLog = useCallback(async () => {
     if (!eventId || !agentId || eventLogLoading) return;

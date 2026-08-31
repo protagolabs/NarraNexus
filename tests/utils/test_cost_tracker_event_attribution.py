@@ -20,10 +20,11 @@ import pytest
 
 from xyz_agent_context.utils.cost_tracker import (
     clear_cost_context,
+    cost_context_scope,
     cost_event_scope,
+    get_cost_context,
     get_cost_event_id,
     record_cost,
-    set_cost_event_id,
 )
 
 
@@ -112,11 +113,78 @@ def test_scope_restores_even_when_body_raises():
 
 
 def test_clear_cost_context_also_clears_the_event():
-    """The finally-block clear must not leave a turn id behind for the next
-    caller in this context — a stale id would misattribute later spend."""
-    set_cost_event_id("evt_stale")
-    clear_cost_context()
-    assert get_cost_event_id() is None
+    """The outermost clear must not leave a turn id behind for the next caller
+    in this context — a stale id would misattribute later spend."""
+    with cost_event_scope("evt_stale"):
+        clear_cost_context()
+        assert get_cost_event_id() is None
+
+
+# ---------------------------------------------------------------------------
+# cost_context_scope — the (agent_id, db) half
+# ---------------------------------------------------------------------------
+
+def test_context_scope_restores_the_outer_pair_instead_of_clearing_it():
+    """The bug this scope exists for.
+
+    step_3's fallback helper used to `set_cost_context(...)` then
+    `clear_cost_context()` in a finally. That runs inside an ASYNC GENERATOR,
+    which does not get its own context copy — so the clear wiped the turn's
+    own (agent_id, db). Everything after it in the turn recorded nothing, and
+    Steps 5-6 (spawned later, copying that emptied context) booked no cost at
+    all. Restoring instead of clearing is the fix.
+    """
+    db_outer, db_inner = object(), object()
+    with cost_context_scope("agent_outer", db_outer):
+        with cost_context_scope("agent_inner", db_inner):
+            assert get_cost_context() == ("agent_inner", db_inner)
+        assert get_cost_context() == ("agent_outer", db_outer)
+    assert get_cost_context() is None
+
+
+def test_context_scope_restores_when_the_body_raises():
+    db = object()
+    with cost_context_scope("agent_outer", db):
+        with pytest.raises(RuntimeError):
+            with cost_context_scope("agent_inner", object()):
+                raise RuntimeError("helper blew up")
+        assert get_cost_context() == ("agent_outer", db)
+
+
+def test_context_scope_leaves_the_event_alone():
+    """A mid-turn context re-set must not knock the turn's helper spend off
+    the turn — the two vars have different lifetimes on purpose."""
+    with cost_event_scope("evt_turn"):
+        with cost_context_scope("agent_x", object()):
+            assert get_cost_event_id() == "evt_turn"
+        assert get_cost_event_id() == "evt_turn"
+
+
+def test_scope_exit_survives_a_token_from_another_context():
+    """An async generator abandoned mid-iteration runs its finally under
+    whatever context closes it, and `ContextVar.reset` raises
+    `Token was created in a different Context` there.
+
+    What is guaranteed: the unwind does not raise into that unrelated
+    caller's stack, and the var reads None in the context doing the cleanup.
+    What is NOT guaranteed (and cannot be — contextvars has no cross-context
+    write): the entering context's value. It keeps the id until its own
+    scope unwinds normally. That is why the scope, not the abandonment path,
+    is what AgentRuntime relies on.
+    """
+    import contextvars
+
+    cm = cost_event_scope("evt_cross")
+    cm.__enter__()
+    seen = {}
+
+    def _exit_elsewhere():
+        # Fresh context: the token was created in the caller's, not this one.
+        cm.__exit__(None, None, None)  # must not raise ValueError
+        seen["after"] = get_cost_event_id()
+
+    contextvars.copy_context().run(_exit_elsewhere)
+    assert seen["after"] is None
 
 
 # ---------------------------------------------------------------------------

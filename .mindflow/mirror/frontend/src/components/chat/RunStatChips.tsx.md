@@ -35,9 +35,18 @@ stub: false
 「chips 和 input/output 都没有就整个不渲染」。谓词和渲染共用一套条件，不会
 出现"容器还在、里面空了"的空壳。
 
+**花费 chip 的门在 [[runStats]] 的 `hasCostToShow`（`> 0`，不是 `!= null`）。**
+记成 0 的账是"不知道价格"而非"很便宜"，详见该文件的 Gotcha。
+
 ## Gotcha
 
 - `inputSideTokens` 而非 `meta.input_tokens`：后者只是全价桶，缓存命中的一轮
   里 cache read/write 占输入侧 99% 以上。
 - `meta.models` 直接渲染真实模型 id；这里**不是** `/costs` 那种
   `__main_model__` / `__helper_model__` 合成键，不要套 `shortModelName`。
+- **chips 必须留在 disclosure 外面。** 这条被
+  `messageBubbleRunStats.test.tsx` 的 "keeps the chips when the turn upgrades
+  to segment mode" 一例钉住：timeline 里带 `reply` 时 `segmentTurn` 会切出
+  segment，`{segmentsForRender === null && …}` 整块 unmount。挪回去的话，有回
+  复的轮次（也就是绝大多数）chips 一闪就没。该用例走 `segmentTurn` 真实实现，
+  不要 mock 它——mock 掉就变成测 mock 而不是测行为。

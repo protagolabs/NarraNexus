@@ -26,7 +26,7 @@
 
 import { Clock, Coins, Cpu, ArrowDownToLine, AlertTriangle } from 'lucide-react';
 import { formatCost, formatTokens, inputSideTokens } from '@/lib/tokenFormat';
-import { formatDuration, hasRunStats } from '@/lib/runStats';
+import { formatDuration, hasCostToShow, hasRunStats, hasTokens } from '@/lib/runStats';
 import type { EventLogMeta } from '@/types/api';
 
 /** One pill in the run-stats row. */
@@ -60,7 +60,6 @@ export function RunStatChips({ meta, t }: { meta: EventLogMeta; t: (k: string) =
   // three-input-bucket rule is one rule, and it has already shipped a wrong
   // number once (see lib/tokenFormat.ts).
   const inputSide = inputSideTokens(meta);
-  const hasTokens = inputSide > 0 || meta.output_tokens > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="run-stat-chips">
@@ -82,12 +81,12 @@ export function RunStatChips({ meta, t }: { meta: EventLogMeta; t: (k: string) =
           {formatDuration(meta.duration_seconds)}
         </StatChip>
       )}
-      {meta.total_cost_usd != null && (
+      {hasCostToShow(meta) && (
         <StatChip icon={<Coins className="w-2.5 h-2.5" />} title={t('chat.inner.meta.cost')}>
-          {formatCost(meta.total_cost_usd)}
+          {formatCost(meta.total_cost_usd as number)}
         </StatChip>
       )}
-      {hasTokens && (
+      {hasTokens(meta) && (
         <StatChip
           icon={<ArrowDownToLine className="w-2.5 h-2.5" />}
           title={t('chat.inner.meta.tokens')}

@@ -15,6 +15,13 @@ Step 0 建出 Event 行之后那处 `bind_event` 旁边，多挂一个
 `event_id=NULL`，导致单轮 token 只数得到主循环。绑定点必须在 Step 0 之后
 ——Event 行此时才存在。详见 [[cost_tracker]] 同日条目。
 
+**但两者的守卫条件不同（08-31 修正）**：`bind_event` 保持 `if ctx.event is
+not None`——日志继承外层 run_id 正是想要的。`cost_event_scope` 改成**无条件
+进入**，没有 Event 行就显式把 ambient 打成 `None`。否则：post-turn 回调触发
+的嵌套运行会复制父轮 context，若它自己的 Step 0 没建出 Event 行，它整轮的
+helper 花销会记到**父轮的 event_id** 上，父轮卡片的单轮数字被凭空放大——一
+个只会表现为"数字偏大"、不会报错的账目错误。
+
 ## 2026-08-17 — 去掉 `on_plain_text_delivery`
 
 team 房间的纯文本投递回调没了（见 [[step_3_agent_loop]]），这个参数随之从 `run()` 签名
