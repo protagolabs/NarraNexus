@@ -60,7 +60,10 @@ def _codex_card(**overrides) -> ProviderCard:
         provider_id="prov_codex",
         user_id="user_x",
         name="Codex CLI",
-        source="user",
+        # Real OAuth rows always carry the CLI-subscription source — the
+        # probe's source guard (2026-08-27) rejects anything else as a
+        # misrouted card before any credential check runs.
+        source="codex_oauth",
         protocol="openai",
         auth_type="oauth",
         api_key="",
@@ -78,7 +81,8 @@ def _claude_card(**overrides) -> ProviderCard:
         provider_id="prov_claude",
         user_id="user_x",
         name="Claude Code Login",
-        source="user",
+        # Same as _codex_card: the source guard requires the real source.
+        source="claude_oauth",
         protocol="anthropic",
         auth_type="oauth",
         api_key="",
@@ -498,12 +502,18 @@ async def db_client():
     await client.close()
 
 
-async def _seed_oauth_row(db, *, protocol="openai", driver_type="codex_oauth"):
+async def _seed_oauth_row(
+    db, *, protocol="openai", driver_type="codex_oauth", source="codex_oauth"
+):
+    # Default shape mirrors REAL rows (including pre-driver_type legacy
+    # rows, which always carried the CLI-subscription source) — the probe's
+    # source guard rejects anything else as misrouted. Pass source="user"
+    # explicitly to test the misroute seam itself.
     await db.insert("user_providers", {
         "user_id": "user_x",
         "provider_id": "prov_oauth",
         "name": "CLI login",
-        "source": "user",
+        "source": source,
         "protocol": protocol,
         "auth_type": "oauth",
         "api_key": "",
@@ -628,3 +638,31 @@ async def test_registry_test_provider_fails_closed_for_oauth():
     ok, msg = await ProviderRegistry().test_provider(cfg)
 
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_misrouted_custom_row_gets_source_verdict_through_test_provider(
+    db_client,
+):
+    """UN-mocked, end-to-end through UserProviderService.test_provider: a
+    hand-crafted custom row (source='user', driver_type NULL, free-string
+    auth_type='oauth') rides the legacy protocol fallback into
+    ClaudeOAuthDriver, whose source guard must answer with the misroute
+    verdict — never 'remove and re-add' advice, and never a green result
+    borrowed from the HOST's claude credentials. This is the only test
+    that exercises the fallback-routing + driver-guard seam without
+    monkeypatching verify_live (review round 5, Important 3)."""
+    from xyz_agent_context.agent_framework.providers.user_service import (
+        UserProviderService,
+    )
+
+    await _seed_oauth_row(
+        db_client, protocol="anthropic", driver_type=None, source="user"
+    )
+    ok, msg = await UserProviderService(db_client).test_provider(
+        "user_x", "prov_oauth"
+    )
+
+    assert ok is False
+    assert "not a Claude Code (OAuth) card" in msg
+    assert "remove" not in msg.lower()

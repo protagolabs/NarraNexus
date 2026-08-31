@@ -1,8 +1,72 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-08-06
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-27(review 第 2 轮)— OAuth 三字段收敛到 `_cli_subscription_row_fields`
+
+claude 新建 / claude 原位重连 / codex 新建三处的
+`driver_type`/`billing_policy`/`auth_ref` 字面量全部换成模块级 helper,
+内部调 `derive.py` 的三个推导函数——本 P1 的根因就是字面量副本漏写其一,
+与 `_DUAL_PROVIDER_CONFIGS` 注释记的是同一课。边界:helper **只用于
+claude/codex OAuth 卡**;聚合器与 custom 卡刻意不写这三列(resolver 读时
+推导+回写),不要在 `_insert_provider` 里做 blanket setdefault。token 行
+`derive_auth_ref` 返回 None,helper 里 `or ""` 兜成空串,否则
+`_insert_provider` 的 `if key in data` 会跳过该列留下 NULL。
+
+第 5 轮加固 + PR bot 轮修正:helper 对 **scope 外的 source**(非
+claude_oauth/codex_oauth)直接 `raise ValueError`。注意判据是 scope
+而非"可分类"——`derive_driver_type("user","oauth","anthropic")` 会返回
+`custom_anthropic`,按 None 判挡不住 "user",helper 会给不该服务的卡
+盖上 external_oauth;PR bot 轮的 raise 测试暴露了这一点。scope 守卫用
+derive.py 的 `CLI_SUBSCRIPTION_SOURCES` 共享集合(不再是本地元组副本),
+且 **scope 判断与非 None 兜底并列、都要留**:前者挡 scope 外的 source,
+后者挡"集合已扩、derive_driver_type 分支未跟"的半成品扩展(否则
+`_insert_provider` 会写出 driver_type=NULL)。测试:
+`test_cli_subscription_row_fields_raises_on_out_of_scope_source` /
+`..._raises_on_half_wired_source`。
+
+**已知取舍(review 第 5 轮 Important 4,待库上核实)**:`test_provider`
+的 legacy 兜底(driver_type NULL 时按 **protocol** 推 driver)与真值表
+`derive_driver_type`(按 **source** 推)不一致,误路由卡靠两个 driver
+里的 source 守卫顶回。更根治的做法是在兜底链里先试
+`derive_driver_type`,但那会改变 `source=user + protocol=openai` 遗留行
+的路由目标——**改之前必须先在生产库核实不存在"source 非 CLI 源却持有
+真实 CLI 凭证"的历史行**(代码推断大概率不存在:两条 OAuth 插入分支
+一直写 CLI source、唯一性检查也按 source 查,但这要在库上确认,不能只
+从代码推)。核实前维持"守卫双副本 + 协议兜底"现状;接第三个 CLI OAuth
+driver(如 gemini_cli)时记得两处都要加:driver 的 source 守卫 +
+`test_provider:1104` 的 protocol 三元分支。误路由 seam 有一条不 mock 的
+端到端测试钉着
+(`test_misrouted_custom_row_gets_source_verdict_through_test_provider`)。
+
+**拒绝过的方案**(review 第 3 轮建议 helper 改收整个 row dict):dict 键
+耦合 + reconnect 分支的 update dict 没有 source/protocol 键、还得造兜底,
+比显式三参更晦涩。真正的漂移风险(auth_type 表达式在 row 与 helper 调用
+两处重复)用局部变量 `oauth_auth_type` 消除即可。route 层探针 stub 的
+第三份真值表副本另行修掉(见 backend/routes/providers.py.md 同日条目)。
+
+## 2026-08-27 — host-CLI claude_oauth 行也在插入时写全三字段(P1)
+
+`add_provider(claude_oauth)` 无 token 的 host-CLI 分支此前**不写**
+`auth_ref`/`driver_type`/`billing_policy`,靠启动 backfill 下次重启补——
+这是 backfill 体系(2026-06-17)落地时漏改的最后一条腿:token 分支
+(2026-07-26)和 codex_oauth 分支都早已在插入时写全。窗口症状:配完卡
+立刻点 Test,`probe()` 拿到 `auth_ref=NULL` 直接 VERIFY_DEAD,弹
+"auth_ref is missing"(P1 工单,dev 频繁重启把这个窗口藏了两个月)。
+现在 **claude/codex OAuth 的三条腿**统一插入即写全:host-CLI 写
+`CLAUDE_CLI_CREDENTIALS_REF` sentinel,token 写 `""`(token 本身即凭据)。
+注意范围:aggregator(netmind/netmind_free/yunwu/openrouter)与
+custom anthropic/openai 卡的插入路径**仍不写** driver_type/billing_policy
+——那是既定设计,resolver 有读时推导 + 回写,billing_policy 在 schema 与
+ProviderCard 双层默认 `user_pays`,api-key 行的 Test 也不走 driver 路径。
+backfill 保留——它对 pre-driver 老库升级仍是必要的,只是不再兼任新行的
+事实写入者。存量 auth_ref=NULL 的行由 `ProviderCard.from_row` 读时推导
+兜底(见 driver/base.py.md 同日条目,review 轮加固:此前文案让用户
+"删了重建",而 remove_provider 会连带清光该卡的全部 per-agent 槽位覆盖),
+下次启动 backfill 持久化。测试:
+`test_claude_oauth_token.py::test_add_claude_oauth_host_cli_row_is_complete_at_insert`。
 
 ## 2026-08-06 — OAuth 卡读时覆盖抽到 effective_card_models（口径统一）
 

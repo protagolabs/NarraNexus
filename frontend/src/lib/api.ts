@@ -124,6 +124,7 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import type { CliStatusPayload, ProviderRow } from './providersApi';
 import { getAuthHeaders as readAuthHeaders } from './authHeaders';
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
@@ -136,11 +137,16 @@ import { confirmSessionDeath } from './sessionGuard';
  */
 export class ApiError extends Error {
   readonly status: number;
+  /** The backend's raw HTTPException `detail` ('' when the body had
+   * none) — callers that show user copy want this, not the prefixed
+   * message. */
+  readonly detail: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail: string = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -243,7 +249,7 @@ class ApiClient {
       const label = detail
         ? `API error ${response.status}: ${detail}`
         : `API error: ${response.status} ${response.statusText}`;
-      throw new ApiError(response.status, label);
+      throw new ApiError(response.status, label, detail);
     }
 
     return response.json();
@@ -480,7 +486,7 @@ class ApiClient {
     return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
-  // 语义搜索 Social Network Entities
+  // Semantic search over Social Network Entities
   async searchSocialNetwork(
     agentId: string,
     query: string,
@@ -1296,12 +1302,42 @@ class ApiClient {
   async getProviders(): Promise<{
     success: boolean;
     data?: {
-      providers: Record<string, unknown>;
+      providers: Record<string, ProviderRow>;
       slots: Record<string, unknown>;
       version?: number;
     };
   }> {
     return this.request(`/api/providers`);
+  }
+
+  /** Add a provider card (claude_oauth / codex_oauth / one of the key
+   * card types). Business rejections arrive as HTTPException -> this
+   * THROWS ApiError (read err.detail for the backend's reason); map
+   * errors to user copy with providersApi.providerErrorMessage. */
+  async addProvider(
+    body: Record<string, unknown>,
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Claude Code CLI credential status (cloud non-staff get
+   * allowed: false — the OAuth-cards gate). */
+  async getClaudeStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/claude-status`);
+  }
+
+  /** Codex CLI credential status — same shape and gate as claude's. */
+  async getCodexStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/codex-status`);
   }
 
   /** One-key onboarding: a single API key wires the agent framework,

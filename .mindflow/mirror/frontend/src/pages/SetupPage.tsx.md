@@ -1,8 +1,52 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-08-10
+last_verified: 2026-08-28
 stub: false
 ---
+## 2026-08-28 — 订阅入折叠区首位,不自动跳转(P0:只配 subscription 走不通)
+
+原布局把订阅埋在三层下(Advanced 折叠 → add modal → Sign in tab),主卡
+OneKeyOnboard 又是纯 API key 表单,页脚 providerCount 只在挂载/折叠时
+探测——订阅用户配完只看得到 "Skip for now",把 landing 读成"必须绑
+API Key"。第一版做成与 one-key 并列的一等卡且连接即跳转;**Owner 手测
+后否决**:点 Add 直接进产品太突兀,且要保留原页面格式。终版:
+
+- 页面保持原格式(OneKeyOnboard 主卡 + 折叠区),但折叠区展开后
+  **第一眼就是订阅卡**([[SubscriptionConnect]]),不再需要进 add modal。
+  云端两道门:本页 `mode !== 'cloud-web'`(**AppMode 的云端值是
+  'cloud-web' 不是 'cloud'**,tsc 抓过一次;负向匹配让未 hydrate 的
+  null mode 向 local 开放)负责藏区块和标题;权威门在
+  SubscriptionConnect 内部按 status 路由的 `allowed === false` 自守
+  (覆盖 Settings add modal 与一切调用方)。
+- **订阅连接不触发导航**(onConnected 已被删,见 SubscriptionConnect
+  mirror):本页 `addProvider` 走 [[providersApi]] 的 `addProviderCard`
+  (经 ApiClient;postProvider 裸 fetch 稿已废弃),
+  成功后**自己 `await probe()`**(页脚 + SubscriptionConnect 记录态)
+  并 bump `providersVersion`(让 ProviderSettings 刷自己的网格)——
+  各组件自刷,不依赖兄弟组件是否共同挂载。第一版曾绕行"bump → PS 重拉
+  → 回调回流",review 第 2 轮证伪了其"省请求"的理由(两条路径都是两个
+  GET)并指出它把 P0 正确性挂在共挂载约定上。onProvidersChanged 降级为
+  兜底(覆盖用户从 PS 自己的 modal 加卡的场景)。自动跳转仍是 Owner
+  否决项,别改回。
+- 第 3/4 轮:`addProvider` 收敛为共享 `addProviderCard`(ApiClient +
+  统一错误文案);折叠开合时清 `subError`(旧错误不该在重新展开时迎面)。
+  SubscriptionConnect 的 props 改为 `providers` 列表——订阅 source 字面量
+  的派生只活在那个组件里,本页不再各写一份。**已知取舍**:一次订阅 add 触发 3 个 GET
+  (probe + token 触发的 PS 重拉 + 其回调 probe)——review 判"不阻塞
+  合并",收敛方案是 useProviders hook/store 让列表单一 owner,连同
+  refreshToken/onProvidersChanged 一对 prop 一起消失,记为后续项。
+- **P0 招牌链路有测试了**(review 第 2 轮 Important 1):
+  setup-page-subscription.test 的子组件 mock 是**可交互的**,端到端断言
+  "连接订阅 → 页脚翻 Get Started → 不导航";getProvidersMock 首次调用
+  必须返回空(否则页脚断言会因错误原因通过)。
+- `probe` 是普通函数(ProviderSettings 用 ref 持回调,不再要求稳定
+  引用);折叠时 re-probe 保留为兜底。
+- `providersVersion` state 在订阅卡每次成功 add 后 +1,作为
+  `refreshToken` 传给 ProviderSettings——否则其自有的 "Your providers"
+  网格不知道该刷新(Owner 走查第 2 轮发现)。
+- 测试:`__tests__/setup-page-subscription.test.tsx`(折叠内 local
+  渲染 / cloud 展开也不渲染 / 展开不导航)。
+
 ## 2026-08-04 — 根容器 h-screen → h-dvh-safe
 
 整屏根改用 index.css 的 `.h-dvh-safe`（100vh 兜底 + 100dvh 覆盖），与

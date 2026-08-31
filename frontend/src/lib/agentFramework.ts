@@ -11,20 +11,16 @@
  */
 
 import { isForcedCloud } from './runtimeConfig'
+// type-only import on purpose: providersApi imports @/lib/api at runtime,
+// and a value import here would create an agentFramework -> providersApi
+// -> api runtime cycle (api.ts only back-references types).
+import type { ProviderRow } from '@/lib/providersApi'
 
 // ---- shared types --------------------------------------------------------
 
-export interface ProviderSummary {
-  provider_id: string
-  name: string
-  source: string
-  protocol: string
-  auth_type: string
-  is_active: boolean
-  models: string[]
-  api_key_masked?: string
-  base_url?: string
-}
+// The row shape has ONE definition (providersApi.ProviderRow); this module
+// used to carry a fourth structural copy that three consumers cast into.
+export type ProviderSummary = ProviderRow
 
 export interface KnownModelMeta {
   model_id: string

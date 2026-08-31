@@ -21,7 +21,6 @@ import { cn } from '@/lib/utils';
 import {
   getModelsForSlot,
   prettifyModel,
-  type ProviderSummary,
 } from '@/lib/agentFramework';
 import type { AgentSlotEffective } from '@/types';
 
@@ -54,7 +53,7 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
       ]);
       const slot = cfgRes?.data?.slots?.agent;
       const effective = slot?.effective ?? null;
-      const providers = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const providers = (provRes?.data?.providers ?? {});
       const prov = effective?.provider_id ? providers[effective.provider_id] : undefined;
       setEff(effective);
       setInheriting(slot?.inheriting !== false);

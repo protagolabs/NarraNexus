@@ -121,7 +121,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         api.getProviders(),
         api.getAgentFramework(),
       ]);
-      const provMap = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
       setFrameworkAvailability(
         frameworkAvailabilityMap(fwRes?.success ? fwRes.data.frameworks : undefined),

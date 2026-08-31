@@ -48,6 +48,20 @@ plugins` 显式装这两个包，见 [[plugin_paths]] 文件头），`framework_
 
 测试：`tests/backend/test_agent_framework_plugin_gate.py`（monkeypatch
 `framework_installed`，覆盖正例/负例/`nexus_power` 豁免/cloud gate 先行）。
+## 2026-08-27 — agent-framework 探针 stub 改走 from_row(auth_ref P1 收尾)
+
+`_probe_agent_framework_auth` 的 claude/codex 两个 stub 原来手写
+`auth_ref` 常量 + `driver_type` 字符串——`derive.py` 真值表之外的第三份
+副本,哨兵语义一变就静默漂移(探针会拿过期形态的 auth_ref 去 resolve,
+把登录正常的宿主报成 "auth missing")。现改为 `ProviderCard.from_row`
+喂假 DB row,auth_ref 走读时推导(base.py.md 同日条目)。两个坑:
+① `auth_type` 必须显式 `"oauth"`——from_row 缺省兜 `"api_key"`,推导
+返回 None,探针会误报未登录;② `driver_type` 字段删除是安全的——两个
+分支都直接构造 driver 类,不经 `get_driver_class`。leg 2 此前**零测试
+覆盖**(既有探针测试都带 user_id,在 leg 1 就 return 了),review 第 4
+轮补了 4 条(test_one_key_onboarding.py §8):不传 user_id 才走 leg 2;
+claude 反向用例必须 monkeypatch 掉 `_keychain_has_credentials`,否则在
+装了真 claude 登录的 mac 上假绿。
 
 ## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
 

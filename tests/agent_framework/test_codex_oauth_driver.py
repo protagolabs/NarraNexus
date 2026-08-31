@@ -65,11 +65,14 @@ async def test_probe_returns_not_ok_when_credentials_missing(tmp_path, monkeypat
 
 @pytest.mark.asyncio
 async def test_probe_returns_not_ok_when_auth_ref_missing():
-    """A card with no auth_ref is malformed — probe surfaces that."""
+    """A card with no auth_ref is malformed — probe says what to DO about it
+    (remove + re-add the provider), never the internal column name (P1,
+    2026-08-27: "auth_ref is missing" leaked into the Test dialog)."""
     card = _stub_card(auth_ref=None)
     health = await CodexOAuthDriver(card).probe()
     assert health.ok is False
-    assert "auth_ref" in health.detail
+    assert "auth_ref" not in health.detail
+    assert "re-add" in health.detail
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,52 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-28
 ---
+
+## 2026-08-28 — Sign-in tab 抽出为 SubscriptionConnect(P0:landing 只配订阅走不通)
+
+add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
+连同 claude/codex status state、登录倒计时 effect、setup-token state、
+5 个 handler、formatCountdown/formatExpiresAt、CLAUDE_LOGIN_TIMEOUT_SEC)
+整体搬去 [[SubscriptionConnect]],tab 原位改为
+`<SubscriptionConnect providers addProvider/>`(第 4 轮定稿的 props)。动机:landing
+(SetupPage)要把订阅升为一等路径,逻辑必须单份。随行变化:
+
+- 身份 fetch 收敛进 [[providersApi]](其 authFetch 委托 [[authHeaders]]
+  单一解析点——本地 review 打回过手抄版);`providerUrl` 的 useCallback
+  **留在组件内**但函数体委托 `providerApiUrl`(userId 依赖驱动
+  refreshConfig 重跑,是 re-render 语义不是 URL 语义)。`addProvider` 的
+  POST/错误契约最终落在 [[providersApi]] 的 `addProviderCard`(经
+  api.addProvider + providerErrorMessage;中间经历过 postProvider 裸
+  fetch 稿,第 3 轮被打回),成功后的 refreshConfig 副作用留在本组件。
+- refreshConfig 不再拉 claude/codex status(归 SubscriptionConnect 自取),
+  只剩 provider 列表;新增可选 prop `onProvidersChanged`,每次成功刷新后
+  回调——SetupPage 用它做页脚实时翻转。**回调持在 ref 里、不进
+  refreshConfig 依赖**(本地 review:靠注释要求"调用方必须传稳定引用"
+  是只有注释在守的挂载死循环陷阱;ref 模式让内联箭头也安全)。
+- 再加可选 prop `refreshToken?: number`(Owner 走查第 2 轮):SetupPage
+  的订阅卡在本组件**外面**,经它 add 的卡不会路过 refreshConfig,
+  "Your providers" 网格一直陈旧;外部 bump token 即重拉(它**必须留在**
+  挂载 effect 的依赖里)。测试:
+  `__tests__/ProviderSettingsRefresh.test.tsx`(bump 重拉 / 同值不重拉)。
+- 抽取残留(孤儿 Helpers 分节、formatCountdown 的孤儿 docstring、多余
+  空行)已清;文件 1254 → ~850 行。
+- 第 3 轮:`addProvider` 的 POST 迁移到 ApiClient(session 守卫 +
+  detail 提取);第 4 轮收敛为共享 `addProviderCard`(与 SetupPage 同一
+  份包装,刷新副作用仍各自持有)。add modal 的 tab 数组按
+  `useOauthAllowed(addModalOpen)` 过滤——cloud 非 staff 不渲染 Sign-in
+  tab(入口不指向被门禁的面板);探测**推迟到 modal 打开**(status 路由
+  在 local 会真起 `claude auth status` 子进程,别为关着的 modal 付钱)。
+  注意 `addMethod` 默认 'onekey',永远不落在可消失的 tab 上。tab 门有
+  测试(ProviderSettingsRefresh.test 的 Sign-in tab gate 两例,钉
+  `=== false` 语义——truthiness 会把 local 的 tab 一起砍掉)。本组件的
+  `ProviderSummary` 现在是共享 `ProviderRow` 的别名(第 4 轮类型收敛,
+  三份行形状 → 一份)。其余裸端点(delete/test/models/sync)仍走本组件
+  authFetch,迁移是已记录的后续项。
+- Test 按钮加载态从静态 `'...'` 换成 Loader2 spinner + "Testing…" 文案
+  (详情弹窗 + Custom 表单两处;Owner 走查第 3 轮)——OAuth 卡的 Test
+  自 PR #375 起真跑一次 CLI(5-15s),静态三个点读起来像卡死。i18n 新键
+  `settings.provider.testingConnection`(en+zh)。
 
 ## 2026-07-30 — OAuth 卡隐藏 Edit models
 
