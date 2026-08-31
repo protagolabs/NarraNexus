@@ -1290,10 +1290,15 @@ async def _generate_fallback_reply_stream(
     2. Lets us test the prompt assembly + streaming wiring in isolation.
     """
     from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-    from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
+    from xyz_agent_context.utils.cost_tracker import cost_context_scope
 
-    set_cost_context(agent_id, db)
-    try:
+    # Scope, not set + clear. This function is an ASYNC GENERATOR, which gets
+    # no context copy of its own — the old `finally: clear_cost_context()`
+    # therefore emptied the TURN's context, not a private one. Everything
+    # recorded after it in that turn found no (agent_id, db) and returned
+    # early, and Steps 5-6 (spawned later, copying the emptied context) booked
+    # nothing at all — on precisely the turns that had already failed.
+    with cost_context_scope(agent_id, db):
         sdk = get_helper_sdk()
         instructions = _fallback_instructions_for_mode(mode)
         user_input_for_helper = _build_helper_user_input(
@@ -1309,8 +1314,6 @@ async def _generate_fallback_reply_stream(
             user_input=user_input_for_helper,
         ):
             yield delta
-    finally:
-        clear_cost_context()
 
 
 async def _stream_fallback_recovery(

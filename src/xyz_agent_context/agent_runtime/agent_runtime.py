@@ -407,8 +407,20 @@ class AgentRuntime:
             # Set global cost tracking context so ALL LLM calls (narrative, job, social
             # network, module decisions, etc.) automatically record costs without needing
             # explicit agent_id/db parameters at each call site.
-            from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
-            set_cost_context(agent_id, db_client)
+            # Scope, not a bare set: run() is NOT always the outermost frame.
+            # A Step-6 callback can drive a nested run() (_execute_callback_
+            # instance), which would otherwise overwrite the parent's pair for
+            # good — today both frames carry the same agent_id and db singleton
+            # so nothing shows, but the first caller to pass a different
+            # agent_id would silently book the parent's remaining post-turn
+            # spend against the child. Unwinds on the same ExitStack as the
+            # event scope below.
+            from xyz_agent_context.utils.cost_tracker import (
+                clear_cost_context,
+                cost_context_scope,
+                cost_event_scope,
+            )
+            _trace_stack.enter_context(cost_context_scope(agent_id, db_client))
 
             # Initialize the three major Services
             self.session_service = SessionService()
@@ -480,8 +492,26 @@ class AgentRuntime:
 
             # Bind event_id once Step 0 has created the Event row, so that
             # every log line emitted by Steps 1-5 carries it.
+            #
+            # The ledger gets the same binding for the same reason: helper LLM
+            # calls (narrative selection, the shutter/decider, summarisation,
+            # post-turn hooks) never receive an event_id at their call site, so
+            # before this every one of them booked event_id=NULL and a per-turn
+            # token figure showed the main loop only. Both scopes unwind on the
+            # ExitStack, including the error path.
+            # The cost scope is entered UNCONDITIONALLY, unlike the log
+            # binding: a run with no Event row must set the ambient id to
+            # None, not inherit it. A nested run started from a post-turn
+            # callback copies the parent's context, so leaving the parent's id
+            # in place would book the child's whole spend onto the parent turn
+            # — a number that reads high with nothing to show it is wrong.
+            # bind_event stays conditional on purpose: inheriting the outer
+            # run_id in logs is what you want there.
             if ctx.event is not None:
                 _trace_stack.enter_context(bind_event(event_id=str(ctx.event.id)))
+            _trace_stack.enter_context(
+                cost_event_scope(str(ctx.event.id) if ctx.event is not None else None)
+            )
 
             # Load LLM config based on the AGENT OWNER (not user_id).
             #

@@ -16,11 +16,11 @@
  * caused a real defect (2026-07-30, "input 213" for a 1.2M-token week), and the
  * failure mode is a number off by an order of magnitude rather than a crash.
  *
- * NOTE: InnerThoughtCard.tsx still carries its own `formatTokens` with slightly
- * different rules (1 decimal at the M scale instead of 2). Folding it in changes
- * what that card renders and what its tests assert, so it is tracked separately
- * rather than smuggled into a billing-copy fix. It does share the summing rule
- * below.
+ * The InnerThoughtCard copy this file used to warn about is gone (2026-08-28):
+ * extracting components/chat/RunStatChips for the Conversation view forced the
+ * choice, and these rules won. That card's M-scale counts therefore gained a
+ * second decimal, and its sub-hundredth-of-a-cent runs now say "<$0.0001"
+ * instead of a bare "$0".
  */
 
 /**
