@@ -31,7 +31,10 @@ vi.mock('@/stores', () => ({
   useConfigStore: (sel: (s: { netmindToken: string | null }) => unknown) =>
     sel({ netmindToken: authState.netmindToken }),
 }));
-vi.mock('@/lib/runtimeConfig', () => ({ isForcedCloud: () => cloudState.forced }));
+vi.mock('@/lib/runtimeConfig', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/runtimeConfig')>();
+  return { ...actual, isForcedCloud: () => cloudState.forced };
+});
 vi.mock('@/components/settings/PersonalizationSettings', () => ({
   PersonalizationSettings: () => <div data-testid="personalization-pane" />,
 }));

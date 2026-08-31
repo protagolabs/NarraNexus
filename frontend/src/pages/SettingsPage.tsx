@@ -358,13 +358,13 @@ export default function SettingsPage() {
                 />
                 <ModelDefaultsSettings
                   onManageProviders={() => setActive('providers')}
-                  onManagePlugins={() => {
-                    // Cloud has no plugins pane (frameworks are pre-installed),
-                    // so never jump to it — belt-and-suspenders: cloud's
-                    // frameworks are always available, so pluginRequired (the
-                    // only caller) does not fire there anyway.
-                    if (!isCloud) setActive('plugins');
-                  }}
+                  // Cloud has no plugins pane (frameworks are pre-installed), so
+                  // pass undefined there — ModelDefaultsSettings then renders
+                  // the pluginRequired hint as PLAIN TEXT (its `? :` fallback)
+                  // rather than a clickable-but-dead link. (Only reachable in a
+                  // cloud C1-failure state anyway; healthy cloud never fires
+                  // pluginRequired.)
+                  onManagePlugins={isCloud ? undefined : () => setActive('plugins')}
                 />
               </section>
             )}
