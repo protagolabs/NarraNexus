@@ -74,8 +74,6 @@ def test_pip_pins_match_uv_lock():
     import tomllib
     from pathlib import Path
 
-    from packaging.version import Version
-
     from backend.integrations.plugins.registry import PLUGIN_SPECS
 
     repo = Path(__file__).resolve().parents[4]
@@ -93,9 +91,13 @@ def test_pip_pins_match_uv_lock():
             pinned[m.group(1)] = m.group(2)
 
     assert pinned, "no pip pins found in PLUGIN_SPECS"
+    # String equality is enough here: both sides are PEP 440 strings written by
+    # the same toolchain (registry pin ← pyproject/uv.lock), not hand-typed, so
+    # there is no `0.1.0b3` vs `0.1.0-beta3` normalization gap to bridge —
+    # avoids depending on `packaging` (only a transitive dep).
     for name, ver in pinned.items():
         assert name in locked, f"{name} pinned in registry but absent from uv.lock"
-        assert Version(locked[name]) == Version(ver), (
+        assert locked[name] == ver, (
             f"{name}: registry pins {ver} but uv.lock resolves {locked[name]} — "
             f"cloud base and local plugin install would diverge; bump the registry "
             f"pin in step with `uv lock`"

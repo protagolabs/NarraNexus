@@ -13,7 +13,7 @@
  * a stack of NM-bracketed regions instead of plain `<h2>` headings.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User, Puzzle } from 'lucide-react';
@@ -28,8 +28,7 @@ import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
-import { useConfigStore } from '@/stores';
-import { api } from '@/lib/api';
+import { useConfigStore, useRuntimeStore } from '@/stores';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -255,28 +254,15 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const netmindToken = useConfigStore((s) => s.netmindToken);
   // Plugins are a LOCAL-only concept (cloud pre-installs the frameworks in the
-  // image). The backend says so via `/api/plugins` → `cloud_managed`; hide the
-  // whole nav entry in cloud rather than showing an empty "install plugins"
-  // pane. Async, so it may flash for a frame before hiding — acceptable for a
-  // secondary settings pane, and cloud never deep-links here (every framework
-  // is available in cloud, so the pluginRequired hint that jumps to this tab
-  // never fires).
-  const [pluginsHidden, setPluginsHidden] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    api
-      .getPlugins()
-      .then((res) => {
-        if (alive) setPluginsHidden(Boolean(res?.data?.cloud_managed));
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // image). Use the SYNCHRONOUS app mode (resolved by useResolveAppMode in the
+  // ProtectedRoute ancestor before this renders — App.tsx) so the `active`
+  // initializer below sees the filtered list on the FIRST frame: a cloud
+  // `?tab=plugins` deep link then falls back to the first visible pane instead
+  // of opening an empty one. (PluginsSettings still return-null's on the
+  // backend `cloud_managed` as a second, independent backstop.)
+  const isCloud = useRuntimeStore((s) => s.mode) === 'cloud-web';
   const items = NAV_ITEMS.filter(
-    (it) =>
-      (!it.desktopOnly || isTauri()) && !(it.id === 'plugins' && pluginsHidden),
+    (it) => (!it.desktopOnly || isTauri()) && !(it.id === 'plugins' && isCloud),
   );
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a

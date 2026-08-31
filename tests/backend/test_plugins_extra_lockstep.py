@@ -10,11 +10,13 @@ the local build stays light. Every place that must RUN a framework has to pull
 them back in with `uv sync ... --extra plugins`; every LOCAL place must NOT
 (that is the whole point of the slim-down).
 
-This test SCANS the whole repo (every `.sh` / `.yml` / `Dockerfile*` / Makefile)
-for `uv sync` command lines and requires each such file to be explicitly
-classified below. A NEW deploy/CI entry point that runs `uv sync` — and forgets
-to classify itself — fails `test_every_uv_sync_file_is_classified` instead of
-silently shipping claude_code / codex_cli dead. Same "mirror a fact + assert
+This test scans every GIT-TRACKED `.sh` / `.yml` / `Dockerfile*` / Makefile for
+`uv sync` command lines and requires each such file to be explicitly classified
+below. A NEW deploy/CI entry point that runs `uv sync` — and forgets to classify
+itself — fails `test_every_uv_sync_file_is_classified` once committed (an
+un-added file is invisible to `git ls-files`, but by CI/review time it is
+committed, so the guard's effective coverage is unchanged) instead of silently
+shipping claude_code / codex_cli dead. Same "mirror a fact + assert
 they agree" shape as test_claude_cli_pin.py.
 
 NOTE: the deploy repo's Dockerfile.executor / Dockerfile.python are the OTHER

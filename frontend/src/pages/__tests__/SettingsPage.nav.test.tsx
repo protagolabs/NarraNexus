@@ -23,10 +23,15 @@ let mockSearch = '';
 vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams(mockSearch), vi.fn()] as const,
 }));
-const { authState } = vi.hoisted(() => ({ authState: { netmindToken: null as string | null } }));
+const { authState, runtimeState } = vi.hoisted(() => ({
+  authState: { netmindToken: null as string | null },
+  runtimeState: { mode: 'local' as 'local' | 'cloud-web' },
+}));
 vi.mock('@/stores', () => ({
   useConfigStore: (sel: (s: { netmindToken: string | null }) => unknown) =>
     sel({ netmindToken: authState.netmindToken }),
+  useRuntimeStore: (sel: (s: { mode: 'local' | 'cloud-web' }) => unknown) =>
+    sel({ mode: runtimeState.mode }),
 }));
 vi.mock('@/components/settings/PersonalizationSettings', () => ({
   PersonalizationSettings: () => <div data-testid="personalization-pane" />,
@@ -44,6 +49,9 @@ vi.mock('@/components/settings/PrivacySettings', () => ({
 vi.mock('@/components/settings/ArtifactsSection', () => ({
   default: () => <div data-testid="artifacts-pane" />,
 }));
+vi.mock('@/components/settings/PluginsSettings', () => ({
+  PluginsSettings: () => <div data-testid="plugins-pane" />,
+}));
 vi.mock('@/lib/tauri', () => ({ isTauri: () => false, kickUpdaterCheck: vi.fn(), restartForUpdate: vi.fn() }));
 vi.mock('@/stores/updaterStore', () => ({ useUpdaterStore: (sel: (s: unknown) => unknown) => sel({ status: 'idle' }) }));
 
@@ -53,6 +61,28 @@ describe('SettingsPage nav', () => {
   beforeEach(() => {
     mockSearch = '';
     authState.netmindToken = null;
+    runtimeState.mode = 'local';
+  });
+
+  test('plugins nav is present in local mode', () => {
+    render(<SettingsPage />);
+    expect(screen.getByRole('button', { name: /pages.settings.nav.plugins/ })).toBeTruthy();
+  });
+
+  test('plugins nav is hidden in cloud mode (frameworks pre-installed there)', () => {
+    runtimeState.mode = 'cloud-web';
+    render(<SettingsPage />);
+    expect(screen.queryByRole('button', { name: /pages.settings.nav.plugins/ })).toBeNull();
+  });
+
+  test('cloud + ?tab=plugins falls back to the first visible pane, not an empty one', () => {
+    runtimeState.mode = 'cloud-web';
+    mockSearch = 'tab=plugins';
+    render(<SettingsPage />);
+    // The deep link targeted a pane the cloud session cannot see → fall back
+    // to the first item (providers), NOT the empty plugins pane.
+    expect(screen.getByTestId('providers-pane')).toBeTruthy();
+    expect(screen.queryByTestId('plugins-pane')).toBeNull();
   });
 
   test('bundle entries are gone; account shows a sign-in hint without a NetMind session', () => {

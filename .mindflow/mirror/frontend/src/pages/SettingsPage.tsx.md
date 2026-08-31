@@ -271,6 +271,6 @@ Route: `/app/settings`, rendered inside `MainLayout` as a child route. No store 
 
 **`EmbeddingStatus` starts polling on mount.** If the user navigates to Settings while a rebuild is running, `EmbeddingStatus` picks up the live status. But if they navigate away before polling stops, the `useEmbeddingStore._pollTimer` continues running. The component itself calls `stopPolling` in its cleanup, so this is handled — but only if `EmbeddingStatus` properly calls `stopPolling` on unmount. Verify this if embedding polling behavior seems wrong after a settings navigation.
 
-## 2026-08-28 补(auto-review I8) — 云端隐藏 plugins nav 项
+## 2026-08-28 补(auto-review I8) — 云端隐藏 plugins nav 项(同步 mode 判定)
 
-plugins 是本地专属概念(云端镜像预装框架)。mount 时异步取 `/api/plugins` 的 `cloud_managed`,为真则从 NAV_ITEMS 过滤掉 plugins 项(避免云端出现空的'安装插件'面)。异步→可能闪一帧,secondary 面可接受;云端 framework 恒可用故 pluginRequired 深链不会跳这个 tab。删了死 key cloudManagedNote。
+plugins 是本地专属概念(云端镜像预装框架)。用**同步**的 `useRuntimeStore(s=>s.mode)==='cloud-web'`(祖先 ProtectedRoute 的 useResolveAppMode 已同步解析)从 NAV_ITEMS 过滤掉 plugins 项。**必须同步**:`active` 的 useState initializer 首帧就跑,异步 fetch 版会让云端 `?tab=plugins` 深链在首帧把 active 定成 plugins→过滤后仍渲染空面板(auto-review round-5 抓到的真 bug)。同步判定下深链首帧就落回第一项。PluginsSettings 仍按后端 `cloud_managed` return null 作独立兜底(两开关分工:nav 用前端 mode、pane 用后端 cloud_managed)。删了死 key cloudManagedNote。

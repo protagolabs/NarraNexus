@@ -173,20 +173,35 @@ def test_set_framework_cloud_gate_still_runs_before_install_gate(make_client, mo
 @pytest.mark.asyncio
 async def test_ensure_codex_installed_activates_plugin_pyenv_first(tmp_path, monkeypatch):
     """I-new-6 guard: _ensure_codex_installed must activate the plugin pyenv
-    BEFORE importing codex_cli_bin, so a Codex plugin installed this session
-    resolves without an app restart. Delete the activate_pyenv() call and this
-    goes red. Hermetic: NARRANEXUS_PLUGIN_HOME points at an empty tmp dir, so
-    the real ~/.narranexus/plugins is never appended to this process's
-    sys.path."""
+    BEFORE importing codex_cli_bin (so a Codex plugin installed this session
+    resolves without an app restart), AND its failure text must point at
+    Settings → Plugins, not the stale "Run uv sync".
+
+    Hermetic: NARRANEXUS_PLUGIN_HOME → empty tmp dir (no real ~/.narranexus on
+    sys.path), and codex_cli_bin is forced un-importable so the failure branch
+    (the one carrying the user-facing text) actually runs — on CI the base env
+    has it, so without this the branch is skipped."""
+    import sys
+
     from xyz_agent_context.agent_framework import plugin_paths
 
     monkeypatch.setenv("NARRANEXUS_PLUGIN_HOME", str(tmp_path / "plugins"))
+    monkeypatch.setitem(sys.modules, "codex_cli_bin", None)  # → ImportError on import
+
     called = {"n": 0}
     original = plugin_paths.activate_pyenv
-    monkeypatch.setattr(
-        plugin_paths, "activate_pyenv", lambda: (called.__setitem__("n", called["n"] + 1), original())[1]
-    )
 
-    await providers_mod._ensure_codex_installed()
+    def _spy():
+        called["n"] += 1
+        return original()
 
-    assert called["n"] >= 1
+    monkeypatch.setattr(plugin_paths, "activate_pyenv", _spy)
+
+    result = await providers_mod._ensure_codex_installed()
+
+    assert called["n"] >= 1  # activate_pyenv ran before the import
+    assert result["installed"] is False
+    assert "Settings" in result["reason"] and "Plugins" in result["reason"]
+    # The stale "Run uv sync" guidance is gone (only the cloud hint may mention
+    # `uv sync --extra plugins`).
+    assert "uv sync" not in result["reason"] or "--extra plugins" in result["reason"]

@@ -102,4 +102,4 @@ uninstall 处理器新增捕获 [[errors]] `PluginBusyError` → HTTP 409(安装
 
 ## 2026-08-28 补(auto-review I8) — 云端整体隐藏 plugins 面板
 
-澄清:云端不是'只读展示插件状态',而是**整体隐藏** Settings→Plugins nav+pane。因为 `/api/plugins` 的 per-plugin `installed` 是 pyenv 文件系统探测,云端(SDK 在 base、非 pyenv)会读成 False,展示只读状态反而误导。list 端点云端仍可达是 backstop,不是渲染面。前端 SettingsPage 据 `cloud_managed` 过滤掉 plugins nav 项。
+澄清:云端不是'只读展示插件状态',而是**整体隐藏** Settings→Plugins nav+pane。因为 `/api/plugins` 的 per-plugin `installed` 是 pyenv 文件系统探测,云端(SDK 在 base、非 pyenv)会读成 False,展示只读状态反而误导。list 端点云端仍可达是 backstop,不是渲染面。前端 SettingsPage 用**同步** runtime `mode==='cloud-web'` 隐藏 plugins nav(不靠本端点的 cloud_managed,那是异步的、会让深链首帧漏出空面板);PluginsSettings 再按后端 `cloud_managed` return null 作第二层兜底。
