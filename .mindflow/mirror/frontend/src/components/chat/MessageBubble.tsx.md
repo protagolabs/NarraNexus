@@ -4,6 +4,38 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — 历史轮次的抽屉:自己把自己卸载了
+
+Owner 报了两个症状:点开「查看推理与工具」后**推理仍是折叠的**,而且**再也
+合不上**。两个症状来自两条不同分支,根因是同一个:
+
+**那个开关的显示条件是 `segmentsForRender === null`,而它触发的 fetch 恰好
+就是让它变成非 null 的东西。** 点击 → 拉到 event log → `segmentTurn` 切出
+带 reply 的 segment → 整个持有按钮的块被卸载 → 过程留在展开态、按钮消失。
+一个**能被 fetch 翻转的谓词,不能用来管这个 fetch 自己的开关**。
+
+另一条分支(无 reply 的后台轮次)`segmentsForRender` 始终为 null,所以按钮
+还在、能收合,但它渲染 `TurnTimeline` 时**没传 `defaultOpen`**,于是用户花了
+一次点击换来第二个折叠的开关。
+
+修法:
+
+- 新增 `processIsRemote`,**只由 props 推导**(`canLoadEventLog` 且没有
+  `message.timeline` / 带 reply 的 `segments` / 错误态)。fetch 翻不动它,
+  所以开关在整个交互过程中稳定存在。
+- 开关**只出现在欠一次 fetch 的轮次上**。过程已在手的轮次(直播落定的、
+  带 timeline 的)直接内联铺开,和 [[ChatPanel]] 的直播态同一形态,不花点击。
+- 两条渲染路径都吃 `defaultOpen={processIsRemote}`:**用户已经用一次点击
+  说了「我要看推理」**,再给一个折叠开关等于把这次点击作废。
+- segment 路径的 `showProcess` 也交给同一个开关(`!processIsRemote ||
+  showDetails`),所以 fetch 把气泡升级成分段渲染之后,按钮依然管得住它。
+
+**为什么保留这个开关、而不是像别处一样彻底去抽屉**:它守的不是版面而是
+**一次网络请求**。历史消息的过程只在服务端,内联铺开就等于滚动时每条消息
+一次 fetch。付过代价之后能收起来,是合理的;别处的抽屉藏的是**已经在手的
+内容**,那才是纯粹的阻碍。这条区分写在这里,免得下次「统一」时一起删掉。
+
+
 ## 2026-08-30(二)— agent 一轮退出气泡,成为页面正文
 
 用户消息**保持气泡**(warm 填色 + hairline + 右缘 carbon 条 + carbon 头像

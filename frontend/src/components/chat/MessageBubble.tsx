@@ -147,6 +147,19 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
+
+  // Is this turn's process only on the server? Derived from PROPS ALONE, never
+  // from fetched state — that distinction is the whole bug fixed on 2026-08-31.
+  // The disclosure used to be gated on `segmentsForRender === null`, and the
+  // fetch it triggered is exactly what made that non-null: the control
+  // unmounted itself mid-interaction, leaving the process open with no way
+  // back. A predicate that a fetch can flip cannot govern that fetch's own
+  // affordance.
+  const processIsRemote =
+    canLoadEventLog
+    && !message.isError
+    && !(message.timeline && message.timeline.length > 0)
+    && !message.segments?.some((seg) => seg.reply);
   const hasEventLogData =
     eventLogTimeline !== null || eventLogThinking !== null || eventLogToolCalls !== null;
 
@@ -360,7 +373,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               matching the live streaming UX. No inner ScrollArea —
               long content pushes the bubble taller and scrolls with
               the main message list (no double-scroll). */}
-          {segmentsForRender === null && (inlineEvents.length > 0 || canLoadEventLog) && (
+          {processIsRemote && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button
                 onClick={handleToggleDetails}
@@ -383,11 +396,18 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                       : t('chat.message.viewReasoning')}
                 </span>
               </button>
-              {showDetails && inlineEvents.length > 0 && (
-                <div className="mt-3">
-                  <TurnTimeline events={inlineEvents} />
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* The process itself. In hand (live stream persisted it) it reads
+              inline like any other turn — no click to spend. Fetched, it
+              renders under the toggle above with its reasoning already
+              OPEN: the user spent a click asking for reasoning, so handing
+              them a second collapsed toggle spends it for nothing. */}
+          {segmentsForRender === null && inlineEvents.length > 0
+            && (!processIsRemote || showDetails) && (
+            <div className="mb-3">
+              <TurnTimeline events={inlineEvents} defaultOpen={processIsRemote} />
             </div>
           )}
 
@@ -465,14 +485,13 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Segment mode: the m things the agent said, each with its
               // own collapsible process. Replaces the single content blob
               // — rendering both would print every sentence twice.
-              // defaultOpen when the segments came from the event-log
-              // fetch: the user already clicked "View reasoning" once to
-              // get here, so the process shows immediately instead of
-              // behind a second toggle.
+              // A fetched turn stays governed by the toggle above (and opens
+              // with its reasoning already expanded); a turn whose process
+              // was in hand all along just reads inline, like a live one.
               <SegmentedReply
                 segments={segmentsForRender}
-                showProcess
-                defaultOpen={!message.segments?.some((s) => s.reply)}
+                showProcess={!processIsRemote || showDetails}
+                defaultOpen={processIsRemote}
               />
             ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper
