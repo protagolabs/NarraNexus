@@ -280,7 +280,6 @@
       "buildingContext": "Building context…",
       "runningAgent": "Running agent…",
       "thinking": "Thinking…",
-      "acting": "Acting…",
       "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {

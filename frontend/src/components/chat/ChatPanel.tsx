@@ -1223,18 +1223,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   allArtifacts={allArtifacts}
                 />
               )}
-              {/* Inter-event "still working" indicator. Reassurance for
-                  the gap between two visible blocks (e.g. waiting on a
-                  tool result, or the next thinking hasn't started
-                  streaming yet) — without it the page goes silent
-                  and the user can't tell stuck from busy. Distinct from
-                  "Thinking" (whose content is already on screen): this
-                  signals the agent is *acting* between the visible
-                  blocks. Disappears the instant isStreaming flips. */}
-              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
-                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>{t('chat.execution.acting')}</span>
-              </div>
             </div>
           </div>
         )}
