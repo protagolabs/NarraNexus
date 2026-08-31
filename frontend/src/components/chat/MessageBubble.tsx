@@ -401,13 +401,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
           {/* The process itself. In hand (live stream persisted it) it reads
               inline like any other turn — no click to spend. Fetched, it
-              renders under the toggle above with its reasoning already
-              OPEN: the user spent a click asking for reasoning, so handing
-              them a second collapsed toggle spends it for nothing. */}
+              renders under the toggle above. Either way the provider's raw
+              chain-of-thought stays folded behind its own control: opening
+              this is a request for the turn's CONCLUSIONS — the narration and
+              the tool lines — not for the model's scratch paper, which is
+              bulkier than all of them combined. */}
           {segmentsForRender === null && inlineEvents.length > 0
             && (!processIsRemote || showDetails) && (
             <div className="mb-3">
-              <TurnTimeline events={inlineEvents} defaultOpen={processIsRemote} />
+              <TurnTimeline events={inlineEvents} />
             </div>
           )}
 
@@ -485,13 +487,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Segment mode: the m things the agent said, each with its
               // own collapsible process. Replaces the single content blob
               // — rendering both would print every sentence twice.
-              // A fetched turn stays governed by the toggle above (and opens
-              // with its reasoning already expanded); a turn whose process
-              // was in hand all along just reads inline, like a live one.
+              // A fetched turn stays governed by the toggle above; a turn
+              // whose process was in hand all along just reads inline, like a
+              // live one. Reasoning folds by default in both cases.
               <SegmentedReply
                 segments={segmentsForRender}
                 showProcess={!processIsRemote || showDetails}
-                defaultOpen={processIsRemote}
               />
             ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper

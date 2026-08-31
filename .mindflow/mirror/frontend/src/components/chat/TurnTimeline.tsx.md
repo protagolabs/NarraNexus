@@ -4,6 +4,20 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31(二)— `defaultOpen` 整条删除:推理永远折叠
+
+`ThinkingBlock` 的推理档 `useState(false)` 写死,`defaultOpen` prop 从
+`TurnTimeline` / [[SegmentedReply]] / [[MessageBubble]] 三处一并移除
+(铁律 #2:没有调用方的参数不留)。
+
+Owner 的判据:**点开一轮的过程是要看结论,不是要读草稿纸。** 叙述句和工具行
+是这一轮的可读骨架,provider CoT 比它们加起来还长——自动展开等于把读者真正
+来看的东西埋掉。折叠 ≠ 丢弃,开关就在旁边(铁律 #16)。
+
+这条推翻了前一版加 `defaultOpen` 时写的理由(「用户已经花过一次点击」)。
+那个理由只看到点击成本,没看到**展开之后谁被埋掉**。
+
+
 ## 2026-08-31 — plan 的去处改名
 
 文件头与 `processEvents` 处的注释原说 plan「渲染在 ProcessPanel 的钉底区」。

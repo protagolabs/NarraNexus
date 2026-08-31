@@ -44,9 +44,6 @@ interface TurnTimelineProps {
    *  new event). When false (e.g. completed turn still in view), the
    *  blocks render in their final, settled state. */
   isStreaming?: boolean;
-  /** Start reasoning blocks expanded — used by the drawer path, where the
-   *  click that opened the drawer already means "show me this". */
-  defaultOpen?: boolean;
 }
 
 const TOOL_ARGS_PREVIEW_CHAR_LIMIT = 80;
@@ -64,7 +61,6 @@ const ThinkingBlock = memo(function ThinkingBlock({
   content,
   isStreaming,
   narration,
-  defaultOpen = false,
 }: {
   content: string;
   isStreaming: boolean;
@@ -72,15 +68,14 @@ const ThinkingBlock = memo(function ThinkingBlock({
    *  NexusPower narration AND only while the user preference is on — the
    *  caller resolves both, so this stays a pure tier switch. */
   narration?: boolean;
-  /** Start the reasoning block expanded. Set when the reader already spent a
-   *  click to get here (the drawer path), so reading the reasoning does not
-   *  cost a second one — and N more for a verbose model, which would turn
-   *  iron rule #15's "a chatty model is the user's choice" into a per-turn
-   *  tax we imposed. Ignored for narration, which is never collapsed. */
-  defaultOpen?: boolean;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(defaultOpen);
+  // Reasoning ALWAYS starts folded — including behind a disclosure the reader
+  // just opened (Owner's call, 2026-08-31). Opening a turn's process asks for
+  // its conclusions; the provider's scratch paper is bulkier than everything
+  // else combined, so auto-expanding it buries the narration the reader came
+  // for. Folded is not discarded: the toggle is right there (iron rule #16).
+  const [open, setOpen] = useState(false);
 
   // PROGRESS tier — the sentence the agent writes before each tool call.
   // It is what the user reads while waiting, so it is never behind a toggle
@@ -282,7 +277,6 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
 export function TurnTimeline({
   events,
   isStreaming = false,
-  defaultOpen = false,
 }: TurnTimelineProps) {
   // Division of labour: process belongs to the timeline, answers to the
   // bubble (SegmentedReply, cut by segmentTurn). The answer tier is
@@ -319,7 +313,6 @@ export function TurnTimeline({
                 content={event.content}
                 isStreaming={isStreaming}
                 narration={showNarration && !!event.monologue}
-                defaultOpen={defaultOpen}
               />
             );
           case 'tool_call':

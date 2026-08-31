@@ -4,6 +4,13 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31(二)— `defaultOpen` 删除
+
+透传给 [[TurnTimeline]] 的 `defaultOpen` 随全链路一起删掉:推理档永远折叠。
+理由见 TurnTimeline 的同日条目。同名测试里那两条只为这个 prop 存在的用例,
+改写为一条「折叠 + 一次点击可达」。
+
+
 ## 2026-08-31 — 文件头那条 live/settled 分工作废
 
 头注释原写「live(showProcess=false):过程在 ProcessPanel」。这在上一个 commit

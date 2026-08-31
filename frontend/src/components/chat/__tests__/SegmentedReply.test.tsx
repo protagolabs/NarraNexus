@@ -155,20 +155,16 @@ describe('SegmentedReply streaming render path', () => {
   });
 });
 
-describe('SegmentedReply defaultOpen', () => {
-  // History path: the user already clicked "View reasoning" once to trigger
-  // the fetch — landing on ANOTHER collapsed toggle would make it two clicks
-  // to see anything, and N clicks for a verbose model.
-  it('preference off + defaultOpen: the reasoning is readable with no further click', () => {
+describe('reasoning stays folded', () => {
+  // Owner's call, 2026-08-31: no path auto-expands the provider's reasoning.
+  // Opening a turn's process asks for its conclusions — the scratch paper is
+  // bulkier than all of them and would bury what the reader came for.
+  it('the reasoning is folded, and one click reaches it', () => {
     useUIStore.setState({ interimNarration: false });
-    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
-    expect(screen.getByText(/check the material/)).toBeInTheDocument();
-  });
-
-  it('preference off + defaultOpen: it can still be collapsed by hand', () => {
-    useUIStore.setState({ interimNarration: false });
-    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
-    fireEvent.click(screen.getAllByRole('button')[0]);
+    render(<SegmentedReply segments={segments} showProcess />);
     expect(screen.queryByText(/check the material/)).toBeNull();
+
+    fireEvent.click(screen.getAllByRole('button', { expanded: false })[0]);
+    expect(screen.getByText(/check the material/)).toBeInTheDocument();
   });
 });

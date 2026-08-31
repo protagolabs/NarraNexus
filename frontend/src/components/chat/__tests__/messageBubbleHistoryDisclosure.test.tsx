@@ -5,9 +5,12 @@
  * The bug this pins (reported 2026-08-31): clicking "view reasoning" fetched
  * the event log, which made `segmentsForRender` non-null, which unmounted the
  * very block the button lived in. The button vanished mid-interaction with no
- * way back, and on the branch where segments did NOT materialise the process
- * arrived with its reasoning still folded — a second click demanded right
- * after the first one was spent.
+ * way back.
+ *
+ * What opening it must yield is the turn's CONCLUSIONS — the narration and
+ * the tool lines — with the provider's raw chain-of-thought still folded
+ * behind its own toggle. Owner's call, 2026-08-31: opening the disclosure is
+ * not a request to read the model's scratch paper.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -79,16 +82,29 @@ describe('historical turn disclosure', () => {
     expect(screen.getByText(/The config is enabled\./)).toBeInTheDocument();
   });
 
-  it('one click is enough: the reasoning is already open when it arrives', async () => {
-    // The user spent a click asking to see reasoning. Handing them a second
-    // collapsed toggle spends it for nothing.
+  it('opens to the conclusions, not to the raw chain-of-thought', async () => {
+    // The narration ("what I am about to do") and the tool lines are the
+    // turn's readable spine. The provider's scratch paper stays folded — it
+    // is bulkier than everything else combined and is not why anyone opened
+    // this. It stays one click away, never discarded (iron rule #16).
     getEventLog.mockResolvedValue(withReply);
     mount();
     fireEvent.click(screen.getByRole('button', { name: /reasoning|process/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText('Weighing which branch reads it.')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText('Checking the flag first.')).toBeInTheDocument());
+    expect(screen.getByText('bash')).toBeInTheDocument();
+    expect(screen.queryByText('Weighing which branch reads it.')).toBeNull();
+    expect(screen.getAllByRole('button', { expanded: false }).length).toBeGreaterThan(0);
+  });
+
+  it('the folded reasoning is still reachable by hand', async () => {
+    getEventLog.mockResolvedValue(withReply);
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /reasoning|process/i }));
+    await waitFor(() => expect(screen.getByText('Checking the flag first.')).toBeInTheDocument());
+
+    fireEvent.click(screen.getAllByRole('button', { expanded: false })[0]);
+    expect(screen.getByText('Weighing which branch reads it.')).toBeInTheDocument();
   });
 
   it('a turn with no reply behaves identically', async () => {
@@ -98,10 +114,8 @@ describe('historical turn disclosure', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: /reasoning|process/i }));
 
-    await waitFor(() =>
-      expect(screen.getByText('Weighing which branch reads it.')).toBeInTheDocument(),
-    );
-    expect(screen.getByText('Checking the flag first.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Checking the flag first.')).toBeInTheDocument());
+    expect(screen.queryByText('Weighing which branch reads it.')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /reasoning|process/i }));
     await waitFor(() => expect(screen.queryByText('Checking the flag first.')).toBeNull());

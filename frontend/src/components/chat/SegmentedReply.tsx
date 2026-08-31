@@ -38,7 +38,6 @@ export interface SegmentedReplyProps {
    * bubble) — landing on another collapsed toggle would make it two
    * clicks to see anything. Regions can still be collapsed by hand.
    */
-  defaultOpen?: boolean;
   /** Live: the last segment is still growing — give it a streaming cursor. */
   isStreaming?: boolean;
 }
@@ -59,7 +58,6 @@ function fallbackKindFromReplyVia(via: string | undefined): FallbackKind {
 export const SegmentedReply = memo(function SegmentedReply({
   segments,
   showProcess = false,
-  defaultOpen = false,
   isStreaming = false,
 }: SegmentedReplyProps) {
   const { t } = useTranslation();
@@ -76,7 +74,7 @@ export const SegmentedReply = memo(function SegmentedReply({
               // drawer: the whole point is that the run reads without
               // clicking anything. TurnTimeline decides each block's tier.
               <div data-testid={`segment-details-${index}`}>
-                <TurnTimeline events={segment.process} defaultOpen={defaultOpen} />
+                <TurnTimeline events={segment.process} />
               </div>
             )}
 
