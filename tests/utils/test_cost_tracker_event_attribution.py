@@ -223,14 +223,22 @@ async def test_fallback_reply_stream_leaves_the_turns_context_intact():
 
 
 @pytest.mark.asyncio
-async def test_abandoned_async_generator_does_not_take_the_caller_down():
-    """Break out mid-stream, then close: the `finally` unwinds under whatever
-    context closes the generator, where `reset` raises. `_unwind` degrades to
-    a clear instead of raising into an unrelated caller's stack."""
-    db_turn = object()
+async def test_abandoned_async_generator_still_restores_the_caller():
+    """A stream the caller walks away from (user interrupt) still hands the
+    turn's pair back.
+
+    `aclose()` here runs in the SAME task that entered the scope — an async
+    generator has no context of its own, which is this fix's whole premise —
+    so `reset` succeeds normally and `_unwind`'s degradation branch is not
+    involved. (That branch is covered by
+    `test_scope_exit_survives_a_token_from_another_context` below, which
+    really does close from another context; `_unwind` is var-agnostic, so
+    `_cost_context` goes through the identical code.)
+    """
+    db_turn, db_helper = object(), object()
 
     async def _helper_stream():
-        with cost_context_scope("agent_helper", object()):
+        with cost_context_scope("agent_helper", db_helper):
             yield "first"
             yield "second"
 
@@ -241,9 +249,10 @@ async def test_abandoned_async_generator_does_not_take_the_caller_down():
         break
     await gen.aclose()  # must not raise
 
-    # Either restored or cleared — what matters is that aclose() did not blow
-    # up and the helper's pair is not left masquerading as the turn's.
-    assert get_cost_context() != ("agent_helper", db_turn)
+    # Named db_helper, not an inline object(): comparing against a pair the
+    # test has no handle on is how the first version of this assertion ended
+    # up true no matter what the code did.
+    assert get_cost_context() == ("agent_turn", db_turn)
 
 
 def test_scope_exit_survives_a_token_from_another_context():

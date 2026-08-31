@@ -107,6 +107,11 @@ describe('MessageBubble per-turn run stats', () => {
 
     await waitFor(() => expect(getEventLogMock).toHaveBeenCalled());
     expect(screen.queryByTestId('run-stat-chips')).toBeNull();
+    // And the wrapper is gone too, not just its contents: RunStatChips
+    // returning null still leaves the caller's margin-carrying div behind,
+    // so the caller has to gate on hasRunStats as well. Without this second
+    // assertion, dropping that gate stays green.
+    expect(screen.queryByTestId('run-stat-chips-slot')).toBeNull();
   });
 
   it('hides the cost chip when the ledger booked $0 (unpriced model)', async () => {

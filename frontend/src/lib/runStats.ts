@@ -9,13 +9,17 @@
  * Split out of components/chat/RunStatChips.tsx so that file exports
  * components only (react-refresh/only-export-components).
  *
- * The boundary against `lib/tokenFormat` is FORMATTING vs DISPLAY-WORTHINESS,
- * not "token/USD vs everything else" — the original wording said the latter
- * and was already false by the time `hasCostToShow` landed here. Pure
- * formatting of a number (`formatTokens`, `formatCost`, `shortModelName`)
- * stays in `tokenFormat` because the cost popover and the account usage panel
- * share it. Deciding whether a datum earns a chip is specific to this row and
- * lives here.
+ * The boundary against `lib/tokenFormat` is WHO CONSUMES IT, not what kind of
+ * rule it is. Rules with consumers beyond this row — `formatTokens`,
+ * `formatCost`, `shortModelName`, shared with the cost popover and the account
+ * usage panel — live in `tokenFormat` and stay one SSOT. Rules that serve only
+ * the chip row live here: every chip's display predicate, and `formatDuration`,
+ * which IS pure formatting but has no second consumer anywhere.
+ *
+ * Two earlier attempts at this sentence drew the line in the wrong place —
+ * "token/USD rules don't live here" (falsified by `hasCostToShow`) and
+ * "formatting vs display-worthiness" (falsified by `formatDuration`, right
+ * below). Both times the file's own contents were the counterexample.
  */
 
 import { inputSideTokens } from './tokenFormat';

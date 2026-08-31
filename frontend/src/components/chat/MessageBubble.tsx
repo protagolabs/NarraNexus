@@ -382,7 +382,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               the bubble to segment mode, which unmounts the disclosure — the
               chips would blink out exactly on the turns that have a reply. */}
           {eventLogMeta && hasRunStats(eventLogMeta) && (
-            <div className="mb-2">
+            <div className="mb-2" data-testid="run-stat-chips-slot">
               <RunStatChips meta={eventLogMeta} t={t} />
             </div>
           )}

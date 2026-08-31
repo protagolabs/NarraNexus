@@ -12,11 +12,16 @@ stub: false
 组件文件只导出组件，而 [[RunStatChips]] 需要向外提供两样非组件的东西——
 `formatDuration` 和 `hasRunStats`。它们搬到这里，组件文件就只剩组件。
 
-**与 [[tokenFormat]] 的边界是「格式化」vs「值不值得显示」**（2026-08-31 修正：
-初版写的是「token / USD 规则不放这里」，`hasCostToShow` 落地时这条就已经不成
-立了——它正是一条 USD 规则）。把一个数字**格式化**成字符串（`formatTokens` /
-`formatCost` / `shortModelName`）留在 tokenFormat，因为成本 popover 和账号页
-用量区共用；**判断一个数据够不够格占一枚 chip**，只服务于这一行，放这里。
+**与 [[tokenFormat]] 的边界看「谁消费它」，不看「它是哪类规则」。** 有本行之外
+的消费者（`formatTokens` / `formatCost` / `shortModelName`，与成本 popover、账
+号页用量区共用）→ 留在 tokenFormat 当 SSOT；只服务这一行 → 放这里，包括每枚
+chip 的显示谓词，**以及 `formatDuration`**——它确实是纯格式化，但全仓再没有第
+二个消费者。
+
+这句话前后写错过两版，都是被本文件自己的内容证伪的：初版「token / USD 规则不
+放这里」被 `hasCostToShow` 打脸（它正是一条 USD 规则）；第二版「格式化 vs 值不
+值得显示」被 `formatDuration` 打脸（它就在下面，是纯格式化）。判据落在消费者
+上才站得住。
 
 ## 上下游
 
