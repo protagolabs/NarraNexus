@@ -35,6 +35,11 @@ turn 已经无框铺开,下面却坐着一个 `rounded-lg + border + nm-paper + 
 
 ## Gotcha
 
+- **调用方的门不能依赖 `currentEvents`**。首版把本组件放在
+  `isStreaming && currentEvents.length > 0` 里面,而 `currentEvents` 要等
+  agent loop 才有第一行——正好把本组件要填的那段空白挡掉了。它必须在
+  `isStreaming` 一成立就挂载。
+
 - `phaseSettled` 必须喂**未过滤**的 steps:白名单之外的 run-agent / 收尾 id
   正是「后面的相位已开始」的证据。和 [[../team/TeamMemberPanel]] 同一条规则,
   改一处两边跟(铁律 #8)。

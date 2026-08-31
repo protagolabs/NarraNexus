@@ -530,13 +530,36 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Per-tab visible items, computed BEFORE rendering so day separators can
   // compare each item against the previous VISIBLE one — comparing against
   // a neighbour that the tab filter hides would draw phantom separators.
+  //
+  // The run IN FLIGHT is also filtered out here. The backend persists a reply
+  // row as soon as the reply tool executes, the 12s history poll picks it up
+  // mid-run, and the streaming block below is already rendering that same
+  // reply from currentEvents — so the answer drew twice, above and below the
+  // pipeline phases, and a refresh "fixed" it only because the streaming copy
+  // was gone by then. buildUnifiedTimeline's dedup cannot catch this: it
+  // reconciles history against SESSION messages, and the in-flight turn has
+  // no session message yet (stopStreaming is what writes it).
+  //
+  // Scoped three ways, and each one is load-bearing:
+  //   - only while isStreaming, and only for currentRunId — the moment the run
+  //     settles the row is ordinary history again and renders normally, so
+  //     nothing is withheld from the reader (iron rule #16);
+  //   - only role 'assistant'. The backend stamps the SAME event_id on the
+  //     user's own row for that turn (chat_history.py builds both roles from
+  //     one loop), and history rows win buildUnifiedTimeline's dedup, so an
+  //     unscoped filter deletes the user's message from the screen while the
+  //     agent works on it.
   const visibleTimeline: TimelineItem[] = useMemo(
     () =>
       timeline.filter((item) => {
+        if (
+          isStreaming && currentRunId
+          && item.role === 'assistant' && item.eventId === currentRunId
+        ) return false;
         const isInner = item.messageType === 'activity';
         return chatTab === 'inner' ? isInner : !isInner;
       }),
-    [timeline, chatTab],
+    [timeline, chatTab, isStreaming, currentRunId],
   );
 
   // The newest visible full message keeps its meta row (time) always
@@ -1156,7 +1179,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             the reply growing underneath. No avatar and no bubble, matching
             the settled agent turn in MessageBubble — the whole point is that
             nothing rearranges when the run lands. */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
+        {chatTab === 'conversation' && isStreaming && (
           <div className="animate-fade-in">
             <div>
               {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
