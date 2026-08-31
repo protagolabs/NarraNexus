@@ -113,6 +113,10 @@ import type {
   AgentModelOverview,
   WorkerStatus,
   WorkerLiveness,
+  PluginId,
+  PluginsListResponse,
+  PluginUninstallResponse,
+  PluginInstallEvent,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -1407,12 +1411,22 @@ class ApiClient {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
-  /** Get the user's coding-agent framework choice + auth probe. */
+  /** Get the user's coding-agent framework choice + auth probe.
+   *
+   * `frameworks` reports plugin-install availability per framework name
+   * (Claude Code / Codex CLI are user-installed local plugins — see
+   * `getPlugins`). The array only lists the plugin-gated frameworks, so a
+   * framework absent from it (nexus_power, or any future non-plugin framework)
+   * is treated as available — that "unknown ⇒ available" default lives in
+   * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
+   * modelled as optional here.
+   */
   async getAgentFramework(): Promise<{
     success: boolean;
     data: {
       framework: string;
       supported: string[];
+      frameworks?: Array<{ name: string; available: boolean }>;
       probe: { ok: boolean; detail: string };
     };
   }> {
@@ -1449,6 +1463,90 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ framework }),
     });
+  }
+
+  // ── local plugin installs (Settings › Plugins) ─────────────────────────
+  // Claude Code / Codex CLI ship as user-installed plugins rather than
+  // baked into the desktop image. `cloud_managed` in the response tells the
+  // panel to hide itself entirely — cloud installs its own CLIs centrally.
+
+  /** List every known plugin's install/update/login state. */
+  async getPlugins(): Promise<PluginsListResponse> {
+    return this.request(`/api/plugins`);
+  }
+
+  /** Remove a plugin's local install (binary + its pip/npm target dir). */
+  async uninstallPlugin(id: PluginId): Promise<PluginUninstallResponse> {
+    return this.request(`/api/plugins/${encodeURIComponent(id)}/uninstall`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Streams the ndjson install log for a plugin. `onEvent` fires once per
+   * line as it arrives off the wire — progress frames (`done: false`) carry
+   * one pip/npm log line each; the stream always ends with exactly one
+   * `done: true` frame carrying the outcome, which this also returns.
+   *
+   * Bypasses `request<T>` (like the FormData/blob helpers) because the
+   * response body is a line-delimited stream, not a single JSON document —
+   * `response.body.getReader()` is read incrementally instead of calling
+   * `response.json()` once.
+   */
+  async installPlugin(
+    id: PluginId,
+    onEvent: (event: PluginInstallEvent) => void,
+  ): Promise<Extract<PluginInstallEvent, { done: true }>> {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
+
+    if (!response.ok || !response.body) {
+      let detail = '';
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body?.detail === 'string') detail = body.detail;
+      } catch {
+        /* not JSON — fall through to the status line */
+      }
+      throw new ApiError(
+        response.status,
+        detail || `API error: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let final: Extract<PluginInstallEvent, { done: true }> | null = null;
+
+    const consumeLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const event = JSON.parse(trimmed) as PluginInstallEvent;
+      onEvent(event);
+      if (event.done) final = event;
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        consumeLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+      }
+    }
+    if (buffer) consumeLine(buffer);
+
+    if (!final) {
+      throw new Error('Plugin install stream ended without a result');
+    }
+    return final;
   }
 
   // ── per-agent LLM config overrides ────────────────────────────────────

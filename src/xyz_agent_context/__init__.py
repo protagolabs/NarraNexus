@@ -48,8 +48,12 @@ from .module import (
     HookManager,
 )
 
-# 5. Agent Framework (Agent SDK integration)
-from .agent_framework import ClaudeAgentSDK
+# 5. Agent Framework (Agent SDK integration).
+# ``ClaudeAgentSDK`` is intentionally NOT eagerly imported here: on the
+# lightweight local build ``claude-agent-sdk`` is an optional plugin, so
+# importing this top-level package must not require it. It stays importable
+# (`from xyz_agent_context import ClaudeAgentSDK`) via the lazy __getattr__
+# below, which only pulls the SDK on actual attribute access.
 
 # 6. Context Runtime (context building)
 from .context_runtime import ContextRuntime
@@ -77,3 +81,14 @@ __all__ = [
     "ContextRuntime",
     "AgentRuntime",
 ]
+
+
+def __getattr__(name: str):
+    # PEP 562 lazy passthrough: keep ``xyz_agent_context.ClaudeAgentSDK``
+    # importable without forcing the optional ``claude-agent-sdk`` plugin at
+    # package import. Delegates to agent_framework's own lazy resolver.
+    if name == "ClaudeAgentSDK":
+        from .agent_framework import ClaudeAgentSDK
+
+        return ClaudeAgentSDK
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1323,7 +1323,8 @@
         "providers": "Proveedores LLM",
         "modelDefaults": "Modelos predeterminados",
         "artifacts": "Artefactos",
-        "updates": "Actualizaciones"
+        "updates": "Actualizaciones",
+        "plugins": "Complementos"
       },
       "providers": {
         "label": "Proveedores de LLM"

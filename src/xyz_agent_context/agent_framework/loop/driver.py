@@ -33,6 +33,35 @@ from typing import Any, AsyncGenerator, Callable, Protocol, runtime_checkable
 from loguru import logger
 
 
+class FrameworkNotInstalledError(RuntimeError):
+    """A registered framework's optional plugin is not installed.
+
+    Distinct from the ``ValueError`` raised for an UNKNOWN framework: the name
+    is valid and known, but on the lightweight local build its SDK plugin
+    (``claude-agent-sdk`` / ``openai-codex``) has not been installed yet. This
+    is a fail-closed stop — the run refuses with an actionable message rather
+    than silently falling back to another framework (which would run the user's
+    agent on a framework they did not choose).
+
+    Where this surfaces: config time is the PRIMARY guard — the selector greys
+    out an uninstalled framework and ``POST /agent-framework`` returns 409, so a
+    user cannot normally bind one. This exception is the runtime BACKSTOP for a
+    pre-existing binding (a desktop user who upgrades with an agent already set
+    to claude_code, or bound-then-uninstalled): it propagates out of the agent
+    turn through the normal run-error surface carrying the English message
+    below. There is NO dedicated route catch and no per-framework localisation
+    yet — a caller that wants a localised, per-framework hint should catch this
+    and read ``exc.framework``. Keep this docstring honest about that.
+    """
+
+    def __init__(self, framework: str) -> None:
+        self.framework = framework
+        super().__init__(
+            f"Framework '{framework}' is not installed. Install it from "
+            f"Settings → Plugins before running."
+        )
+
+
 @runtime_checkable
 class AgentLoopDriver(Protocol):
     """Runs one agent turn as a stream of raw, provider-agnostic events.
@@ -133,6 +162,9 @@ def get_agent_loop_driver(
             (e.g. ``working_path``).
 
     Raises:
+        FrameworkNotInstalledError: a known plugin framework (claude_code /
+            codex_cli) whose optional SDK is not installed on the local build
+            (the fail-closed backstop — see the class docstring).
         ValueError: the resolved framework name is not registered — fail
             loud rather than silently fall back, so a typo in config is
             caught immediately instead of masquerading as "claude".
@@ -162,4 +194,19 @@ def get_agent_loop_driver(
             f"Registered: {available_agent_loop_frameworks() or '[]'}. "
             f"Register one via register_agent_loop_driver()."
         ) from None
+
+    # Fail-closed on the lightweight local build: a PLUGIN framework
+    # (claude_code / codex_cli) whose optional SDK is not installed must refuse
+    # here, BEFORE building the driver (whose lazy SDK import would otherwise
+    # throw a raw ImportError mid-turn). The gate is scoped to plugin
+    # frameworks only — a built-in (nexus_power) or any custom-registered
+    # driver is available by virtue of being registered. Only the in-process
+    # path reaches this: the remote-executor branch above returned already, and
+    # cloud executors pre-install every SDK so the check passes there. Imported
+    # locally to avoid an import cycle with this package's __init__.
+    from xyz_agent_context.agent_framework import plugin_paths
+
+    if name in plugin_paths.PLUGIN_FRAMEWORKS and not plugin_paths.framework_installed(name):
+        raise FrameworkNotInstalledError(name)
+
     return factory(**factory_kwargs)

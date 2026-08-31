@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 插件安装类型（`PluginStatus` / `PluginInstallEvent`）
+
+`PluginStatus`（installed/version/target_version/update_available/logged_in/
+size_hint/busy）镜像后端 `backend/integrations/plugins` 的插件状态；
+`PluginInstallEvent` 是判别联合（`done: false` 的进度帧 vs `done: true` 的终帧
+带 `ok/error/status`），消费方是 `api.installPlugin` 的 ndjson 逐行解析与
+[[PluginsSettings]]。`PluginId` 收窄成 `'claude_code' | 'codex_cli'`——只有这两
+个框架背后有一个要装的本地插件，nexus_power 没有对应插件。
 
 ## 2026-08-26 — bulk slot 类型
 

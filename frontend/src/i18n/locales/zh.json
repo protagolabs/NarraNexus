@@ -1693,7 +1693,8 @@
         "artifacts": "可视化产物",
         "updates": "应用更新",
         "privacy": "隐私",
-        "personalization": "个性化"
+        "personalization": "个性化",
+        "plugins": "插件"
       },
       "providers": {
         "label": "LLM 服务商"
@@ -1764,7 +1765,11 @@
         "applyToChecked": "应用到勾选的 agent",
         "applyTotalNote": "你共有 {{total}} 个 agent。",
         "applyDone": "已清除每个 agent 的覆盖——涉及 {{n}} 个 agent。",
-        "applyDoneTitle": "已清除覆盖"
+        "applyDoneTitle": "已清除覆盖",
+        "pluginRequiredTitle": "需要先安装插件",
+        "pluginRequired": "该框架需要先安装对应插件才能使用。",
+        "pluginRequiredLink": "前往 设置 › 插件 →",
+        "pluginNotInstalledSuffix": "插件未安装"
       },
       "updates": {
         "label": "应用更新",
@@ -1799,6 +1804,21 @@
       "personalization": {
         "label": "个性化",
         "hint": "主题与语言。后续会有更多。"
+      },
+      "plugins": {
+        "label": "插件",
+        "hint": "Claude Code 与 Codex CLI 按需安装 —— 在这里安装、更新或卸载它们。",
+        "loading": "加载中…",
+        "loadFailed": "加载插件列表失败",
+        "install": "安装",
+        "update": "更新",
+        "uninstall": "卸载",
+        "updateAvailable": "有可用更新",
+        "versionUnknown": "版本未知",
+        "loggedIn": "已登录",
+        "starting": "启动中…",
+        "installFailed": "安装失败",
+        "uninstallFailed": "卸载失败"
       }
     },
     "system": {

@@ -16,9 +16,10 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, SlidersHorizontal, Shield, Palette, User, Puzzle } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { ModelDefaultsSettings } from '@/components/settings/ModelDefaultsSettings';
+import { PluginsSettings } from '@/components/settings/PluginsSettings';
 import { PrivacySettings } from '@/components/settings/PrivacySettings';
 import { PersonalizationSettings } from '@/components/settings/PersonalizationSettings';
 import { NetmindAccountPanel } from '@/components/settings/NetmindAccountPanel';
@@ -28,6 +29,7 @@ import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { useConfigStore } from '@/stores';
+import { isForcedCloud } from '@/lib/runtimeConfig';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -242,6 +244,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'account', labelKey: 'pages.settings.nav.account', icon: User, neverDefault: true },
   { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
   { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
+  { id: 'plugins', labelKey: 'pages.settings.nav.plugins', icon: Puzzle },
   { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
   { id: 'privacy', labelKey: 'pages.settings.nav.privacy', icon: Shield },
   { id: 'personalization', labelKey: 'pages.settings.nav.personalization', icon: Palette },
@@ -251,7 +254,19 @@ const NAV_ITEMS: NavItem[] = [
 export default function SettingsPage() {
   const { t } = useTranslation();
   const netmindToken = useConfigStore((s) => s.netmindToken);
-  const items = NAV_ITEMS.filter((it) => !it.desktopOnly || isTauri());
+  // Plugins are a LOCAL-only concept (cloud pre-installs the frameworks in the
+  // image). `isForcedCloud()` reads window.__NARRANEXUS_CONFIG__ SYNCHRONOUSLY
+  // with zero persistence — so the `active` initializer below sees the filtered
+  // list on the very FIRST frame and a cloud `?tab=plugins` deep link falls
+  // back to the first visible pane instead of opening an empty one. (Chosen
+  // over the persisted runtime-store `mode`, which is set by a useEffect and
+  // could carry a stale `local` on a cloud origin whose config.js once failed
+  // to inject. PluginsSettings still return-null's on the backend
+  // `cloud_managed` as a second, independent backstop.)
+  const isCloud = isForcedCloud();
+  const items = NAV_ITEMS.filter(
+    (it) => (!it.desktopOnly || isTauri()) && !(it.id === 'plugins' && isCloud),
+  );
   const [searchParams] = useSearchParams();
   // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
   // payer to /app/settings?tab=account&status=… after checkout (see
@@ -341,7 +356,25 @@ export default function SettingsPage() {
                   label={t('pages.settings.modelDefaults.label')}
                   hint={t('pages.settings.modelDefaults.hint')}
                 />
-                <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
+                <ModelDefaultsSettings
+                  onManageProviders={() => setActive('providers')}
+                  // Cloud has no plugins pane (frameworks are pre-installed), so
+                  // pass undefined there — ModelDefaultsSettings then renders
+                  // the pluginRequired hint as PLAIN TEXT (its `? :` fallback)
+                  // rather than a clickable-but-dead link. (Only reachable in a
+                  // cloud C1-failure state anyway; healthy cloud never fires
+                  // pluginRequired.)
+                  onManagePlugins={isCloud ? undefined : () => setActive('plugins')}
+                />
+              </section>
+            )}
+            {active === 'plugins' && (
+              <section>
+                <SectionHeader
+                  label={t('pages.settings.plugins.label')}
+                  hint={t('pages.settings.plugins.hint')}
+                />
+                <PluginsSettings />
               </section>
             )}
             {active === 'artifacts' && <ArtifactsContent />}

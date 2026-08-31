@@ -1331,7 +1331,8 @@
         "providers": "مزوّدو LLM",
         "modelDefaults": "النماذج الافتراضية",
         "artifacts": "العناصر",
-        "updates": "تحديثات التطبيق"
+        "updates": "تحديثات التطبيق",
+        "plugins": "الإضافات"
       },
       "providers": {
         "label": "مزوّدو نماذج اللغة"

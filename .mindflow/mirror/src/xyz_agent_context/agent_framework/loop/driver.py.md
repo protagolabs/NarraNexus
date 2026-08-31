@@ -1,9 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/driver.py
-last_verified: 2026-08-24
+last_verified: 2026-08-28
 stub: false
 ---
 
+## 2026-08-28 — fail-closed：未装插件的框架拒绝构建
+
+新增异常 `FrameworkNotInstalledError(RuntimeError)`（带 `framework` 属性），与
+「未知框架」的 `ValueError` 区分：名字合法但其可选 SDK 插件
+（claude-agent-sdk/openai-codex）在轻量本地版尚未安装。`get_agent_loop_driver`
+在 **remote-executor 短路之后、in-process 建 driver 之前**，**仅对
+[[plugin_paths]] `PLUGIN_FRAMEWORKS`（claude_code/codex_cli）成员**查
+`framework_installed(name)`，假则抛此异常（nexus_power 与任何自定义注册的 driver
+不受门禁——注册即可用）——**绝不静默回落到别的
+框架**（否则用户的 agent 会跑在没选的框架上）。只有 in-process 路径会到这；云端走
+remote executor 且镜像预装，`framework_installed` 恒真。路由层捕获它、给前端
+「去 设置→插件 安装」提示（`framework` 供按框架本地化）。`framework_installed`
+用函数内 import 以避与本包 __init__ 的循环依赖。
 
 ## 2026-08-24 — remote driver **按 framework 声明 steering**(取代 2026-08-22 节「remote 空集/降级」)
 
@@ -91,3 +104,7 @@ LangGraph、自研 loop）只需 `register_agent_loop_driver("name", Factory)`�
   claude。配置写错要当场炸，而不是伪装成默认值。
 - `AgentLoopDriver` Protocol 的签名精确镜像 `ClaudeAgentSDK.agent_loop`；那个方法
   就是每个新适配器必须对齐的参考形状（yield 原始事件 dict 给 ResponseProcessor）。
+
+## 2026-08-28 补(auto-review I6) — FrameworkNotInstalledError docstring 改实话
+
+原 docstring 谎称 'route 层 catch + 前端按 framework 本地化'——全 PR 无任何 route catch、无本地化分支。改成实话:配置时(选择器 disabled + POST 409)是主门,本异常是运行时 backstop(升级用户既有绑定/卸载后),经正常 run-error 面带英文可读消息冒泡;暂无专门 route catch 与按框架本地化(todo)。

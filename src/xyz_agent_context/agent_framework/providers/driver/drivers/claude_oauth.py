@@ -263,6 +263,12 @@ class ClaudeOAuthDriver(_DriverBase):
                 return VERIFY_UNKNOWN, f"could not stage credentials: {summary}"
 
         async def _one_shot() -> tuple[VerifyVerdict, str]:
+            # Activate a just-installed Claude Code plugin first (the "Verify"
+            # button can be the first thing a user hits after installing, before
+            # any agent driver ran). See plugin_paths.activate_pyenv.
+            from xyz_agent_context.agent_framework import plugin_paths
+
+            plugin_paths.activate_pyenv()
             from claude_agent_sdk import (
                 AssistantMessage,
                 ClaudeAgentOptions,

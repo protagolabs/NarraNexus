@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/settings/__tests__/ModelDefaultsSettings.test.tsx
-last_verified: 2026-07-21
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 插件门禁：disabled 选项 + 弹窗拦截
+
+新增一条用例：`mockGetAgentFramework` 返回 `frameworks` 里
+`codex_cli: available=false`，断言该 `<option>` 带 `disabled`
+（可见但不可选，不是隐藏）；再用 `fireEvent.change` 模拟程序化选中它，断言
+弹出"Plugin required"提示、`<select>` 值弹回、`setAgentFramework`
+未被调用——覆盖 disabled 属性挡不住的 change 事件路径。
 
 # ModelDefaultsSettings.test.tsx
 

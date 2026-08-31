@@ -30,6 +30,9 @@ import {
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
+  frameworkAvailabilityMap,
+  withFrameworkAvailability,
+  isFrameworkAvailable,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
@@ -87,6 +90,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
+  // Plugin-install gate (Claude Code / Codex CLI are user-installed local
+  // plugins, not baked into the image) — name→available. This is an
+  // account-wide fact, not per-agent, but the agent-framework endpoint is
+  // the only place it's reported, so it's fetched alongside the per-agent
+  // config on every open.
+  const [frameworkAvailability, setFrameworkAvailability] = useState<Record<string, boolean>>({});
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
   // Snapshot of what was loaded — so Save only writes slots the user changed.
@@ -107,12 +116,16 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     setLoading(true);
     setError('');
     try {
-      const [cfgRes, provRes] = await Promise.all([
+      const [cfgRes, provRes, fwRes] = await Promise.all([
         api.getAgentLlmConfig(agentId),
         api.getProviders(),
+        api.getAgentFramework(),
       ]);
       const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
+      setFrameworkAvailability(
+        frameworkAvailabilityMap(fwRes?.success ? fwRes.data.frameworks : undefined),
+      );
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
       setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
@@ -151,9 +164,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     providerBacksFramework(p, agentDraft.agent_framework),
   );
   // Hide frameworks no bindable card can drive — picking one would leave the
-  // provider dropdown empty and the save rejected.
-  const frameworkOptions = availableFrameworks(
-    bindableProviders, agentDraft.agent_framework,
+  // provider dropdown empty and the save rejected. Plugin availability is
+  // layered on top and never hides further (see ModelDefaultsSettings for
+  // the shared rationale).
+  const frameworkOptions = withFrameworkAvailability(
+    availableFrameworks(bindableProviders, agentDraft.agent_framework),
+    frameworkAvailability,
   );
   const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;
 
@@ -302,6 +318,37 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
+                      const picked = frameworkOptions.find((f) => f.id === e.target.value);
+                      // Plugin-install gate first — a framework backed by a
+                      // local plugin (Claude Code / Codex CLI) the user
+                      // hasn't installed can't be saved even though the
+                      // native <option disabled> already blocks most UIs
+                      // from reaching this branch.
+                      if (picked && !isFrameworkAvailable(picked)) {
+                        void showNotice({
+                          title: t(
+                            'pages.settings.modelDefaults.pluginRequiredTitle',
+                            'Plugin required',
+                          ),
+                          message: (
+                            <>
+                              {t(
+                                'pages.settings.modelDefaults.pluginRequired',
+                                'This framework needs its plugin installed first.',
+                              )}{' '}
+                              <button
+                                type="button"
+                                onClick={() => { onClose(); navigate('/app/settings?tab=plugins'); }}
+                                className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+                              >
+                                {t('pages.settings.modelDefaults.pluginRequiredLink', 'Go to Settings › Plugins →')}
+                              </button>
+                            </>
+                          ),
+                        });
+                        e.target.value = agentDraft.agent_framework;
+                        return;
+                      }
                       // Ask the shared predicate, never re-derive the rule:
                       // the inlined `!== 'claude_code'` here and in
                       // ModelDefaultsSettings both kept rejecting NexusPower
@@ -330,7 +377,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                     }}
                   >
                     {frameworkOptions.map((f) => (
-                      <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
+                      <option key={f.id} value={f.id} disabled={!isFrameworkAvailable(f)}>
+                        {f.label} — {f.desc}
+                        {!isFrameworkAvailable(f)
+                          ? ` (${t('pages.settings.modelDefaults.pluginNotInstalledSuffix', 'plugin not installed')})`
+                          : ''}
+                      </option>
                     ))}
                   </select>
                   {frameworksHidden && (
