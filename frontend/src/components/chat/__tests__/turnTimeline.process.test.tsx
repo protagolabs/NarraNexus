@@ -34,7 +34,7 @@ describe('TurnTimeline renders process only', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('does not render the plan either - that belongs to ProcessPanel pinned footer', () => {
+  it('does not render the plan either - that belongs to the pinned PlanStrip', () => {
     render(
       <TurnTimeline
         events={[

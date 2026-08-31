@@ -36,7 +36,8 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { ProcessPanel } from './ProcessPanel';
+import { RunPhases } from './process/RunPhases';
+import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
@@ -1169,16 +1170,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               {resumedRun && resumedRun.runId === currentRunId && (
                 <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
               )}
+              {/* The run's preamble: the backend pipeline phases that happen
+                  before the model produces anything. Without it the window
+                  between "send" and the first narration is blank. It heads
+                  the document rather than sitting in a box beside it. */}
+              <RunPhases events={currentEvents} steps={currentSteps} />
               {/* The live turn IS the document — narration, tool lines and
                   collapsed reasoning in the order they happen, the reply
                   growing underneath. Same component, same shape the settled
                   turn keeps, so nothing rearranges when it lands.
 
                   showProcess is on here (it used to be off, with the process
-                  living in ProcessPanel above the composer): that panel no
-                  longer repeats these rows, so there is nothing to paint
-                  twice, and the narration is finally IN the reading flow
-                  rather than in a side panel between reasoning rows. */}
+                  living in a framed panel above the composer): that panel is
+                  gone, so there is nothing to paint twice, and the narration
+                  is finally IN the reading flow rather than in a side box
+                  between reasoning rows. */}
               <SegmentedReply
                 segments={segmentTurn(currentEvents)}
                 showProcess
@@ -1211,10 +1217,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         )}
 
         {/* The old "starting up… / loading context…" indicator that
-            floated here moved into ProcessPanel (above the composer),
-            which renders pipeline phases as terminal rows from the
-            moment streaming starts — one surface for everything the
-            agent is doing. */}
+            floated here is now RunPhases, at the head of the in-flight
+            document — the phases read as the run's preamble, in the same
+            column as everything else the agent does. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1319,11 +1324,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
-        {/* While the agent works, the process lives here; answers live
-            in the bubbles above. Mounted only while streaming — when the
-            turn ends the process folds back into each reply's bubble
-            (lib/segmentTurn), so unmounting the panel loses nothing. */}
-        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
+        {/* The plan is the one piece of the run that must not scroll away —
+            it answers "where are we now" — so it stays pinned here while the
+            rest of the process reads inline in the document above. Mounted
+            only while streaming; the settled turn carries its own process. */}
+        {isStreaming && <PlanStrip events={currentEvents} />}
 
         <div className="relative" data-help-id="chat.composer">
           <Composer

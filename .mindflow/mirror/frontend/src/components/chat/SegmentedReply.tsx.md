@@ -4,6 +4,16 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — 文件头那条 live/settled 分工作废
+
+头注释原写「live(showProcess=false):过程在 ProcessPanel」。这在上一个 commit
+就已经不成立([[ChatPanel]] 直播态传 `showProcess`),`ProcessPanel` 本身今天
+也删了。改写为实情:`showProcess` 是**prop 不是模式**,聊天两个方向都传;
+保留 off 分支是给「只要答案」的调用方(预览 / 摘要)用的契约,聊天自己不用。
+
+同名测试的标题与理由一并订正——它断言的是 prop 契约,不是某个面板的存在。
+
+
 ## 2026-08-30(二)— 抽屉退役:过程就是文稿本身
 
 settled 态从「两种形态由偏好选」收敛成**一种**:`segment.process` 直接以

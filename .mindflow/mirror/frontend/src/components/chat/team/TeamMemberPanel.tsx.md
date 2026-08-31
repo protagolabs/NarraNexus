@@ -4,6 +4,17 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — 团队卡**保留**边框,和单聊分道
+
+单聊的过程框今天拆了(见 [[../ChatPanel]]),本组件的卡片 chrome **不动**。
+两者不是同一个面。这里是**成员名册里的一行展开**,同屏可能有好几个成员,
+框正是把成员彼此分开的东西;单聊只有一个 agent、一列阅读动线,那里的第二个
+框只会和 turn 抢注意力。文件头已写明这条取舍,免得下次有人来「统一」。
+
+相位白名单与 `phaseSettled` 的共享规则不变,文档里的对照方改名为
+[[../process/RunPhases]]。
+
+
 ## 2026-08-30(二)— 观察视图换成同一个渲染器
 
 live 分支从 `ProcessEventRows` 换成 `<TurnTimeline events={processEvents}

@@ -2,10 +2,15 @@
  * @file_name: TeamMemberPanel.tsx
  * @author:
  * @date: 2026-07-31
- * @description: One member's process, rendered as the same terminal
- *   card the single-agent ProcessPanel is — chrome header (live dot,
- *   `name · process`, ops + elapsed), phase rows, `$` tool rows, the
- *   `❯▌` cursor while alive.
+ * @description: One member's process, rendered as a terminal card —
+ *   chrome header (live dot, `name · process`, ops + elapsed), phase
+ *   rows, the observed turn's own rows, the `❯▌` cursor while alive.
+ *
+ *   It KEEPS its card chrome, unlike single chat, whose framed process
+ *   panel was dissolved on 2026-08-31. The two are not the same surface:
+ *   this is one row of a roster listing several members, so the frame is
+ *   what separates member from member. Single chat has one agent and one
+ *   reading column, where a second frame only competed with the turn.
  *
  * The live body is REAL: a running/stalled member is observed through
  * `useRunObservation(event_id)` — the platform's universal run
@@ -43,8 +48,8 @@ import { isProcessEvent, useTurnDetail } from './useTurnDetail';
 import type { TurnEvent } from '@/types';
 import type { TeamMemberActivity } from '@/types/teams';
 
-/** Same bargain as ProcessPanel: follow the bottom unless the user
- *  scrolled up to read something. */
+/** Same bargain the message area makes: follow the bottom unless the
+ *  user scrolled up to read something. */
 const FOLLOW_THRESHOLD_PX = 24;
 
 /** Max card height — the roster column must keep multiple rows visible. */
@@ -100,7 +105,7 @@ export interface TeamMemberPanelProps {
   open: boolean;
 }
 
-/** The expanded body of a roster row — a mini ProcessPanel. */
+/** The expanded body of a roster row — one member's terminal card. */
 export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelProps) {
   const { t } = useTranslation();
   const live = activity.status === 'running' || activity.status === 'stalled';
@@ -159,7 +164,7 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     return undefined;
   }, [observation.events]);
 
-  // Only the whitelisted top-level phases (same rule ProcessPanel applies):
+  // Only the whitelisted top-level phases (same rule RunPhases applies):
   // tool sub-steps are already tool rows, and housekeeping/echo steps aren't
   // phases — this also keeps raw English backend titles out of the panel.
   const phases = useMemo(
@@ -232,7 +237,7 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
           const key = PHASE_LABEL_KEYS[phase.step];
           // Shared settled rule, fed the UNFILTERED observation.steps (not the
           // whitelisted `phases`) so "a later phase started" can see run-agent
-          // / housekeeping ids the whitelist drops — same as ProcessPanel.
+          // / housekeeping ids the whitelist drops — same as RunPhases.
           return (
             <PhaseRow
               key={phase.step}

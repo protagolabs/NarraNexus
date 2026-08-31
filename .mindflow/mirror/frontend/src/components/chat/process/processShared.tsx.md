@@ -4,6 +4,18 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — 共享方的名字变了
+
+`ProcessPanel` 删除后,本文件的共享对象是 [[RunPhases]](单聊序章)与
+[[../team/TeamMemberPanel]](团队成员卡)。`phaseSettled` / `PHASE_LABEL_KEYS` /
+`PHASE_STEP_IDS` / `PhaseRow` 的规则一字未改,只是文档里的调用方改名。
+
+`LiveCursorRow` 失去了单聊这个调用方(退役面板用过它),但 [[../team/TeamMemberPanel]]
+仍在用(`observation.status !== 'ended'` 时挂在最后一行下面),所以不删。
+单聊序章 [[RunPhases]] **刻意没有**接手这个光标:那是终端「还在跑」的心跳,
+而文稿流的心跳是内容本身在长出来,再加一个闪烁块就是两处说同一件事。
+
+
 ## 2026-08-30(二)— `ProcessEventRows` 退役
 
 过程改由 [[TurnTimeline]] 在消息流里渲染,直播 / 落定 / 观察三个面同一份

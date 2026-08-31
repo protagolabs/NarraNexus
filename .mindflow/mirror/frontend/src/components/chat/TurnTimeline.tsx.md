@@ -4,6 +4,13 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — plan 的去处改名
+
+文件头与 `processEvents` 处的注释原说 plan「渲染在 ProcessPanel 的钉底区」。
+该组件已删除,plan 现在在 [[process/PlanStrip]]。分工本身没变:过程归时间线,
+答案归 `SegmentedReply`,plan 归贴底细条。
+
+
 ## 2026-08-30(二)— 成为唯一的过程渲染器
 
 直播、落定、团队观察三个面现在都渲染本组件(此前直播走

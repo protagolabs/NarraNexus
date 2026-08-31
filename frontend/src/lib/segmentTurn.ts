@@ -40,7 +40,7 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
       continue;
     }
     // A plan belongs to no segment: it answers "where are we now" and
-    // renders separately at the bottom of the ProcessPanel.
+    // renders separately in the pinned PlanStrip above the composer.
     if (event.type === 'plan') continue;
 
     if (event.type === 'reply') {

@@ -74,8 +74,8 @@ describe('Chinese localization completeness', () => {
     expect(chatPanel).not.toContain('Security reminder: never paste sensitive');
     expect(chatPanel).toContain('localizeBootstrapGreeting(item.content)');
     // The pipeline-phase labels moved from ChatPanel's message-area
-    // indicator into ProcessPanel (2026-07-30), whose phase-label map now
-    // lives in the shared render pieces — assert it there.
+    // indicator into the run preamble (2026-07-30, reframed 2026-08-31),
+    // whose phase-label map lives in the shared render pieces — assert there.
     const processShared = source('../components/chat/process/processShared.tsx');
     expect(processShared).toContain("'chat.execution.selectingNarrative'");
     expect(chatPanel).not.toContain("return 'Loading context...'");

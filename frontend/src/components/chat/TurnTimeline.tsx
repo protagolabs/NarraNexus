@@ -5,8 +5,8 @@
  *
  * Division of labour (2026-07-30): the answer tier moved out. Replies
  * and native_output render in the bubble via SegmentedReply (cut by
- * lib/segmentTurn); the live plan renders pinned at the bottom of
- * ProcessPanel. This component keeps only the skimmable process rail —
+ * lib/segmentTurn); the live plan renders in the pinned PlanStrip above
+ * the composer. This component keeps only the skimmable process rail —
  * rendering reply here again would print the same sentence twice.
  *
  * Blocks are chronological (so the user sees the agent's actual rhythm
@@ -288,7 +288,7 @@ export function TurnTimeline({
   // bubble (SegmentedReply, cut by segmentTurn). The answer tier is
   // filtered out here — keeping it would print the same sentence in both
   // the bubble and the collapsed region. Plans don't render here either:
-  // they live in ProcessPanel's pinned footer.
+  // they live in the pinned PlanStrip above the composer.
   const processEvents = useMemo(
     () => events.filter(
       (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output',

@@ -4,6 +4,21 @@ last_verified: 2026-08-30
 stub: false
 ---
 
+## 2026-08-31 — 过程框拆掉:相位进文稿,plan 变贴底细条
+
+Owner 验收文档流时问「为什么还留着一个 agent 过程的框」。`ProcessPanel` 那个
+`rounded-lg + border + nm-paper + shadow` 的终端盒子确实是上一版的残留——
+turn 已经无框了,它还坐在输入框上方,同一屏两种语域。
+
+拆法是**去框不丢信息**(铁律 #16):
+
+- 相位 / ops / 计时 → [[process/RunPhases]],渲染在直播块开头,`SegmentedReply`
+  之上,和叙述同一列。
+- plan → [[process/PlanStrip]],仍钉在 composer 上方(它必须不滚走),但只剩
+  一条 `border-t` 细线,不再是盒子。
+- `ProcessPanel.tsx` 及其测试、mirror md **整体删除**(铁律 #2)。
+
+
 ## 2026-08-30(二)— 直播轮次即文档,turn 靠节奏分隔
 
 两处改动:

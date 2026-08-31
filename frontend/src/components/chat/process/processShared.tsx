@@ -2,8 +2,8 @@
  * @file_name: processShared.tsx
  * @author:
  * @date: 2026-07-30
- * @description: Render pieces shared between the single-agent ProcessPanel
- *   and the team roster's per-member process detail.
+ * @description: Render pieces shared between the single-agent run preamble
+ *   (RunPhases) and the team roster's per-member process detail.
  */
 /* eslint-disable react-refresh/only-export-components -- this file exists to
    share the terminal-row component AND its helpers; HMR granularity is a fair
@@ -41,7 +41,7 @@ export const PHASE_STEP_IDS = new Set(Object.keys(PHASE_LABEL_KEYS));
  *  keeps early phases "running" until the turn ends, so ordering is the honest
  *  signal: a phase is done once its own status says so, OR a later phase has
  *  started, OR (for the pre-loop phases, step < 3.4) any process event has
- *  arrived. Shared by ProcessPanel and TeamMemberPanel — same rule both sides
+ *  arrived. Shared by RunPhases and TeamMemberPanel — same rule both sides
  *  (铁律 #8) — and BOTH must pass the UNFILTERED steps so the "a later phase
  *  started" check can see run-agent/housekeeping ids beyond the whitelist.
  *  `parseFloat('3.4.1') === 3.4` (second dot truncated), so a tool sub-step
@@ -115,7 +115,7 @@ export function LiveDot({ color, live }: { color: string; live: boolean }) {
 }
 
 /** One pipeline phase line: ✓ once settled, a spinner while running.
- *  Shared by ProcessPanel and the team member panel so "loading
+ *  Shared by RunPhases and the team member panel so "loading
  *  context…" reads identically everywhere. */
 export function PhaseRow({ done, label }: { done: boolean; label: string }) {
   return (

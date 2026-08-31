@@ -7,14 +7,13 @@
  * that one record as m bubbles, each carrying the process that led to
  * it.
  *
- * One component serves both live and history, differing by one switch:
- *   - live (showProcess=false): the process is in the ProcessPanel
- *     above the composer — only answers render here, or the same
- *     process would paint twice;
- *   - settled (showProcess=true): the panel has unmounted and the
- *     process folds back onto each segment's own bubble.
+ * One component serves live and history alike. `showProcess` is a prop, not
+ * a mode: ChatPanel passes it for both the in-flight turn and the settled one,
+ * so the live turn already renders the document it will keep. It stays a prop
+ * because callers that only want the answers (a preview, a digest) still need
+ * that option — the chat itself no longer uses it.
  *
- * There is ONE settled shape (2026-08-30, second pass): the process renders
+ * There is ONE shape (2026-08-30, second pass): the process renders
  * inline as a document — narration, tool lines, collapsed reasoning — and the
  * reply is body prose under it. The "Reasoning & tools" drawer is gone: it hid
  * the narration this branch exists to surface, and keeping it for some turns

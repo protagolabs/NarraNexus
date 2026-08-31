@@ -1,7 +1,8 @@
 /**
  * SegmentedReply — one turn that spoke m times renders as m bubbles, each
- * carrying the process that led to it. The process is hidden while streaming
- * (it is in the ProcessPanel then, and painting it twice would duplicate it).
+ * carrying the process that led to it. `showProcess` gates whether the
+ * process draws at all — the chat now passes it in both directions, but the
+ * off case stays a supported contract for callers that want answers only.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -88,7 +89,7 @@ describe('SegmentedReply', () => {
     expect(screen.getByText('narrating here')).toBeInTheDocument();
   });
 
-  it('no process while streaming — it lives in the ProcessPanel then', () => {
+  it('showProcess off draws answers only, streaming or not', () => {
     render(<SegmentedReply segments={segments} isStreaming />);
     expect(screen.queryByTestId(/segment-details-/)).toBeNull();
     expect(screen.getByText('done')).toBeInTheDocument();

@@ -18,7 +18,7 @@ function step(id: string, stepNo: string, title: string, status: Step['status'])
 }
 
 // Backend titles here are the raw pipeline titles; the popover must show the
-// SAME localized phase names ProcessPanel does (consistency), not the raw
+// SAME localized phase names RunPhases does (consistency), not the raw
 // English backend title.
 const STEPS: Step[] = [
   step('s0', '0', 'Initialization', 'completed'),
@@ -33,17 +33,17 @@ describe('ExecutionPopover', () => {
     const trigger = screen.getByLabelText('Show execution steps');
     expect(trigger).toHaveTextContent('Processing');
     // The current stage = the latest running step, shown by its LOCALIZED
-    // name (3.4 = run agent), matching ProcessPanel — not the raw title.
+    // name (3.4 = run agent), matching RunPhases — not the raw title.
     expect(trigger).toHaveTextContent('Running agent');
     // The old "seen-steps-as-total" fraction (2/4, 3/4, …) is gone.
     expect(trigger).not.toHaveTextContent('2/4');
     expect(trigger.textContent).not.toMatch(/\d+\/\d+/);
   });
 
-  // The two surfaces used to disagree: ProcessPanel showed localized labels
+  // The two surfaces used to disagree: the phase rows showed localized labels
   // while this popover printed the raw backend title for the same step. Now
   // both go through PHASE_LABEL_KEYS; only genuine sub-steps keep raw titles.
-  it('main phases show localized labels (consistent with ProcessPanel); sub-steps keep raw title', () => {
+  it('main phases show localized labels (consistent with RunPhases); sub-steps keep raw title', () => {
     const steps: Step[] = [
       step('s3', '3', 'Build Context', 'completed'),
       step('s34', '3.4', 'Run Agent', 'running'),
@@ -81,7 +81,7 @@ describe('ExecutionPopover', () => {
     fireEvent.click(screen.getByLabelText('Show execution steps'));
 
     expect(screen.getByText('Execution')).toBeInTheDocument();
-    // Localized phase labels (step 0 / 1 / 3 / 3.4), consistent with ProcessPanel.
+    // Localized phase labels (step 0 / 1 / 3 / 3.4), consistent with RunPhases.
     expect(screen.getByText(/Initializing/)).toBeInTheDocument();
     expect(screen.getByText(/Selecting narrative/)).toBeInTheDocument();
     expect(screen.getByText(/Building context/)).toBeInTheDocument();
