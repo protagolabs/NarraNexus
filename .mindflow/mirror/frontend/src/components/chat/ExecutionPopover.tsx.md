@@ -15,7 +15,7 @@ stub: false
 ## 2026-08-26 — phase 标签走 PHASE_LABEL_KEYS，两面不再打架
 
 此前 chip 和步骤列表直接渲染后端原始 `title`（带 emoji 的英文
-"Execute Agent Loop" 等），而 [[ProcessPanel]] 对同一 step 显示本地化
+"Execute Agent Loop" 等），而当时的 `ProcessPanel`（今 [[process/RunPhases]]）对同一 step 显示本地化
 label —— 同一时刻两个 surface 文案不一致。现在通过 `stepLabel()` 走
 [[processShared]] 的 `PHASE_LABEL_KEYS`：顶层相位显示与 ProcessPanel
 相同的本地化名；真正的子步（工具 `3.4.x`、fallback）没有映射，保留自己

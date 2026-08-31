@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/agents/chat_history_timeline.py
-last_verified: 2026-08-30
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31 — 刻意与唯一调用方同目录
+
+`backend/routes/agents/` 下其余 18 个文件都是 router 模块,本文件是第一个
+**纯函数**模块(PR #378 review 🟢 提示)。这是**有意的**:它只有一个调用方
+`chat_history.py`,放在旁边比放进 `_chat_history_impl/` 少一层间接。
+
+抽出来的收益是可测试性——81 行内联逻辑从 900+ 行的路由文件里拿出来之后,
+`tests/backend/test_event_log_monologue_tier.py` 可以直接喂 dict,不用起数据库。
+
+**别把它当放错位置的文件搬走。** 真要搬,连同 `chat_history.py` 的其余私有
+逻辑一起进 `_chat_history_impl/`,不要只搬这一个。
+
 
 # chat_history_timeline.py — event_log → timeline 的纯投影
 

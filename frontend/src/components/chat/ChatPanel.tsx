@@ -1160,7 +1160,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                  isLatest={item.id === lastMessageId}
+                isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
@@ -1196,7 +1196,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 before the model produces anything. Without it the window
                 between "send" and the first narration is blank. It heads
                 the document rather than sitting in a box beside it. */}
-            <RunPhases events={currentEvents} steps={currentSteps} />
+            <RunPhases
+              events={currentEvents}
+              steps={currentSteps}
+              startedAtMs={
+                resumedRun && resumedRun.runId === currentRunId
+                  ? resumedRun.startedAtMs
+                  : undefined
+              }
+            />
             {/* The live turn IS the document — narration, tool lines and
                 collapsed reasoning in the order they happen, the reply
                 growing underneath. Same component, same shape the settled

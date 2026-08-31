@@ -8,9 +8,8 @@
 /* eslint-disable react-refresh/only-export-components -- this file exists to
    share the terminal-row component AND its helpers; HMR granularity is a fair
    trade for a single source of truth on the process look. */
-import type { TFunction } from 'i18next';
 import { Loader2 } from 'lucide-react';
-import type { Step, TurnEvent } from '@/types';
+import type { Step } from '@/types';
 
 /** Pipeline step id → i18n label. The labels name what the backend
  *  ACTUALLY does at each step (step ids from step_3_agent_loop /
@@ -68,31 +67,12 @@ export function formatElapsed(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export type Activity = { text: string; tool?: boolean; pending?: boolean };
-
-/** What is the agent doing RIGHT NOW — the collapsed view's one line.
- *  Latest tool/thinking wins; before the loop starts, the latest phase. */
-export function deriveActivity(
-  process: TurnEvent[],
-  phases: Step[],
-  t: TFunction,
-): Activity {
-  for (let i = process.length - 1; i >= 0; i -= 1) {
-    const e = process[i];
-    if (e.type === 'tool_call') {
-      return { text: friendlyToolName(e.tool_name), tool: true, pending: e.pending };
-    }
-    if (e.type === 'thinking') {
-      return { text: t('chat.execution.thinking', 'Thinking…') };
-    }
-  }
-  const last = phases[phases.length - 1];
-  if (last) {
-    const key = PHASE_LABEL_KEYS[last.step];
-    return { text: key ? t(key) : last.title };
-  }
-  return { text: t('chat.execution.startingUp', 'Starting up…') };
-}
+/* `Activity` / `deriveActivity` retired 2026-08-31 with the framed process
+ * panel: they derived that panel's COLLAPSED one-liner, and there is no
+ * collapsed state once the process reads inline in the document. Deleted
+ * outright rather than left exported (iron rule #2) — a dead export in a
+ * shared file is something the next person wires up by mistake, and the
+ * concept it hands them ("the collapsed activity line") no longer exists. */
 
 /** The panel's "alive" indicator: a ping halo while live, a still dot
  *  otherwise. Color is the caller's tone (success green for a healthy

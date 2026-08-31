@@ -36,26 +36,35 @@ export interface RunPhasesProps {
   events: TurnEvent[];
   /** Pipeline progress steps (chatStore.currentSteps). */
   steps?: Step[];
+  /** When this run actually began, for a run picked up after a refresh or a
+   *  reconnect. Mount time is a lie there — the run may be twenty minutes
+   *  old — and this preamble now sits in the same column as ResumedRunChip,
+   *  which reads the true elapsed from the same anchor. Two clocks side by
+   *  side disagreeing is worse than either alone. */
+  startedAtMs?: number;
 }
 
-/** Ticks once a second from mount; the component mounts when the turn
- *  starts, so this reads as the turn's elapsed time. */
-function useElapsedSeconds(): number {
+/** Ticks once a second. Anchored to the run's real start when the caller
+ *  knows it, else to mount — which for a fresh run is the same instant. */
+function useElapsedSeconds(startedAtMs?: number): number {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    const started = Date.now();
-    const timer = setInterval(
-      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
-      1000,
-    );
+    const started = startedAtMs ?? Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [startedAtMs]);
   return elapsed;
 }
 
-export const RunPhases = memo(function RunPhases({ events, steps = [] }: RunPhasesProps) {
+export const RunPhases = memo(function RunPhases({
+  events,
+  steps = [],
+  startedAtMs,
+}: RunPhasesProps) {
   const { t } = useTranslation();
-  const elapsed = useElapsedSeconds();
+  const elapsed = useElapsedSeconds(startedAtMs);
 
   const process = useMemo(
     () => events.filter(

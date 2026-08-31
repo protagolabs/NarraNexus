@@ -23,7 +23,7 @@ stub: false
 测试一并删除。
 
 本文件剩下的是流里没有的东西:`PHASE_LABEL_KEYS` / `PHASE_STEP_IDS` 白名单、
-`phaseSettled`、`deriveActivity`、`friendlyToolName`、`formatElapsed`、
+`phaseSettled`、`friendlyToolName`、`formatElapsed`、
 `LiveDot` / `PhaseRow` / `LiveCursorRow`。
 
 它原来带的 `data-testid={`tool-row-${id}`}` + `data-pending` 是有用的断言
@@ -48,7 +48,7 @@ provider CoT 保持 italic ink50 的草稿纸观感。
 
 **偏好走 prop，不在本组件订阅 store**（review 第 2 轮定的）：
 `ProcessEventRows({ process, showNarration })`，由面板级调用方
-（[[ProcessPanel]] / [[TeamMemberPanel]]）经 [[useNarrationTier]] 读出后传进来。
+（当时是 `ProcessPanel` / [[TeamMemberPanel]]）经 [[useNarrationTier]] 读出后传进来。
 第一版是组件自己 `useUIStore`，但这是个**被两个面板复用的共享渲染件**——
 往里埋一个不在 props 上的输入，下一个复用它的面板就会遇到「events 传对了、
 显示还是不对」。
@@ -73,7 +73,7 @@ Agent**（新增，对应后端把 step 3 拆成「构建上下文(3)」和「�
 顺序来自 `steps` 到达序、不是这个集合。
 
 另抽出共享 `phaseSettled(phase, allSteps, hasProcessEvents)`:相位是否落定
-（✓ vs spinner）的判据从两个面板各写一份收敛到这里（此前 [[ProcessPanel]]
+（✓ vs spinner）的判据从两个面板各写一份收敛到这里（此前 `ProcessPanel`
 读全量 steps、[[TeamMemberPanel]] 读过滤后的 phases，白名单生效后两者会
 给不同答案）。**两侧都传未过滤的 steps**,让「后面的相位已出现」能看到
 白名单之外的 run-agent/收尾 id。`parseFloat('3.4.1')===3.4`(第二个点截断)
@@ -90,7 +90,7 @@ ProcessPanel 的 ping 呼吸灯、`✓`/spinner 阶段行、`❯▌` 活光标�
 
 ## 为什么存在
 
-单人聊天的 [[ProcessPanel]] 和团队房间成员栏要共享同一套终端字形语言
+单人聊天的 [[RunPhases]] 和团队房间成员栏要共享同一套终端字形语言
 （呼吸灯 / `✓`·spinner 相位行 / `❯▌` 活光标 / friendly tool name 规则）。
 样式只能有一处事实源，否则两边会漂移。
 
@@ -101,8 +101,10 @@ ProcessPanel 的 ping 呼吸灯、`✓`/spinner 阶段行、`❯▌` 活光标�
 ## 内容物
 
 - ~~`ProcessEventRows`~~ —— 2026-08-30 退役，见本文顶部那条。
-- `deriveActivity` + `Activity`：折叠态"当前在干什么"一行的推导
-  （最后一个 tool_call/thinking 赢，否则最后一个 pipeline 相位）。
+- ~~`deriveActivity` + `Activity`~~ —— 2026-08-31 随过程框一起退役。它推导的是
+  **折叠态**那一行,而过程内联进文档后不存在折叠态;零调用方,直接删(铁律 #2)。
+  死导出留在共享文件里,下一个人有概率把它当现成能力接上去,顺带把一个已经
+  不存在的概念(「折叠态活动行」)重新引进来。
 - `PHASE_LABEL_KEYS` / `friendlyToolName` / `formatElapsed`。
 
 ## 上下游

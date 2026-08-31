@@ -4,6 +4,18 @@ last_verified: 2026-08-31
 stub: false
 ---
 
+## 2026-08-31(二)— 计时器接上真实起点
+
+新增可选 `startedAtMs`。此前从 mount 起算(与退役面板逐字相同,不是本次引入),
+刷新后接上一个已跑 10 分钟的 run 会从 `00:00` 起跳。
+
+**是本次让它变得刺眼的**:序章现在和 `ResumedRunChip` 同列相邻,而那个 chip
+读的是 `resumedRun.startedAtMs` 的真实时长——两个时钟并排给出不同数字,比只有
+一个还糟。[[../ChatPanel]] 只在 `resumedRun.runId === currentRunId` 时传这个锚点
+(同一条守则:锚点只许标记它自己那一轮),新起的 run 传 undefined,回落 mount
+时间——对新 run 而言两者本就是同一瞬间。
+
+
 # RunPhases.tsx — 一次运行的序章
 
 ## 为什么存在

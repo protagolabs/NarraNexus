@@ -155,6 +155,52 @@ def test_constitution_default_reply_tool_is_data_not_copy():
     assert "reply tool" in mute.stable_prefix  # the generic rule survives
 
 
+def test_a_mute_turn_is_not_told_to_narrate_before_each_tool_call():
+    """On a turn with no reply tool, plain text IS what gets delivered — so
+    rule 1's "narrate before each tool call" must not be given.
+
+    The platform withholds every expressive declaration when the turn speaks
+    by writing (its ``is_plain_text_turn``; the patrol status line is today's
+    case), and that is exactly the surface where asking for a narration
+    sentence per tool call would put "let me check the calendar" INTO the
+    delivered artifact. Both halves of the paragraph flip: the "never
+    delivered to anyone" claim is false there too.
+
+    Regression guard for the PR #378 review. The framework reads only "is
+    there an expressive tool" — it names no scenario (iron rule #4).
+    """
+    assembler = PromptAssembler()
+
+    speaks = assembler.assemble(
+        PromptInputs(default_reply_tool="mcp__chat_module__reply_owner"),
+        PromptMode.FULL,
+    ).stable_prefix
+    assert "Before each tool call" in speaks
+    assert "never delivered to" in speaks
+
+    mute = assembler.assemble(PromptInputs(), PromptMode.FULL).stable_prefix
+    assert "Before each tool call" not in mute
+    assert "never delivered to" not in mute
+    # And it says the honest thing instead, rather than just going quiet.
+    assert "IS the turn's output" in mute
+
+    # No unfilled template slot leaks to the model in either direction.
+    assert "{{" not in speaks and "{{" not in mute
+
+
+def test_mute_turn_flips_the_minimal_constitution_too():
+    """``PromptMode.NONE`` carries a one-sentence constitution; it had the
+    narration instruction hard-coded, so the mute case has to flip there too
+    or the trimmed face contradicts the full one."""
+    speaks = NexusPowerPrompts.constitution(
+        PromptInputs(default_reply_tool="reply_owner"), PromptMode.NONE
+    )
+    mute = NexusPowerPrompts.constitution(PromptInputs(), PromptMode.NONE)
+    assert "Before each tool call" in speaks
+    assert "Before each tool call" not in mute
+    assert "no reply tool" in mute
+
+
 def test_reply_reminder_lists_tools_and_defers_to_message_instructions():
     reminder = NexusPowerPrompts.reply_reminder(
         (

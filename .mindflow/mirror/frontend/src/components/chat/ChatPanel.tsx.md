@@ -71,7 +71,7 @@ turn 已经无框了,它还坐在输入框上方,同一屏两种语域。
 两处改动:
 
 - **直播块不再是"银色气泡里只放回复"**。此前直播只渲染 reply(过程在
-  [[ProcessPanel]]),且套一个 silicon 气泡 + 头像。现在直接渲染
+  `ProcessPanel`),且套一个 silicon 气泡 + 头像。现在直接渲染
   `<SegmentedReply segments={segmentTurn(currentEvents)} showProcess isStreaming />`
   ——**落定时形状一个像素都不变**,因为它已经是最终形态。原来那个
   "有 reply 才渲染"的门也去掉了:叙述先于工具上屏正是要看的节奏。

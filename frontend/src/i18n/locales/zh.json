@@ -279,7 +279,6 @@
       "syncingInstances": "正在同步实例…",
       "buildingContext": "正在构建上下文…",
       "runningAgent": "Agent 运行中…",
-      "thinking": "正在思考…",
       "resumedElapsed": "已续接进行中的任务 · 已运行 {{minutes}} 分钟"
     },
     "inner": {
@@ -343,7 +342,6 @@
     },
     "process": {
       "plan": "计划",
-      "title": "智能体 · 过程",
       "ops": "次操作"
     },
     "header": {

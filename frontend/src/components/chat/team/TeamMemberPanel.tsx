@@ -256,7 +256,14 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
         )}
         {/* Same renderer as the main chat's live turn and its settled one:
             two shapes for the same events is what this pass exists to end. */}
-        <TurnTimeline events={processEvents} isStreaming />
+        {/* Same predicate as the live cursor below: an ENDED observation is
+            not streaming, and saying it is keeps the blocks on the streaming
+            plain-text path, so a finished member turn would not render the
+            markdown the settled main chat renders for the same events. */}
+        <TurnTimeline
+          events={processEvents}
+          isStreaming={observation.status !== 'ended'}
+        />
         {observation.status !== 'ended' && <LiveCursorRow />}
       </>
     );

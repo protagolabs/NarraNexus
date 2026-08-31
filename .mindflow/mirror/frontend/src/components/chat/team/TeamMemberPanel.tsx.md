@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMemberPanel.tsx
-last_verified: 2026-08-30
+last_verified: 2026-08-31
 stub: false
 ---
+
+## 2026-08-31(二)— 已结束的观察不再谎称 streaming
+
+`<TurnTimeline isStreaming />` 改成 `isStreaming={observation.status !== 'ended'}`,
+和紧邻的 `LiveCursorRow` 用同一个判据(那一行本来就写着 `!== 'ended'`)。
+
+不是回归——退役的 `ProcessEventRows` 一直是纯文本。但它和本次「直播 == 落定
+== 回放同一形态」的主张对不上:**已结束的成员 turn 会走 `whitespace-pre-wrap`
+而不是 `<Markdown>`**,而主聊落定的同一批事件是渲染 markdown 的。同一份事件
+在两个面上长得不一样,正是这一版要消灭的东西。
+
 
 ## 2026-08-31 — 团队卡**保留**边框,和单聊分道
 
@@ -28,7 +39,7 @@ TurnTimeline,所以本面板内部的两种形态也一并消失。
 ## 2026-08-30 — 独白提级偏好与 ProcessPanel 同一份写法（且已真的生效）
 
 读 [[uiStore]] 的 `interimNarration`（经 [[useNarrationTier]]）传给
-`ProcessEventRows`，与 [[ProcessPanel]] 逐字相同（铁律 #8：同一功能件两侧同
+`ProcessEventRows`，与 `ProcessPanel` 逐字相同（铁律 #8：同一功能件两侧同
 规则）。
 
 喂本面板的是 [[useRunObservation]]，那条回放路**本次也补上了档位**，所以这里
@@ -37,7 +48,7 @@ TurnTimeline,所以本面板内部的两种形态也一并消失。
 ## 2026-08-26 — 阶段行同步改白名单（跟随 ProcessPanel）
 
 `phases` 过滤从 `!startsWith('3.4')` 换成 `PHASE_STEP_IDS.has(step)`（见
-[[processShared]]，从 `PHASE_LABEL_KEYS` 派生），与单聊 [[ProcessPanel]]
+[[processShared]]，从 `PHASE_LABEL_KEYS` 派生），与单聊 `ProcessPanel`（今 [[../process/RunPhases]]）
 同一套白名单 —— 挡掉 `3.5/4/5` 等未映射步骤泄漏英文 title。落定判据也收敛
 到共享 `phaseSettled`，**传未过滤的 `observation.steps`**（此前这里读的是
 已过滤的 `phases`，白名单后就看不到 >3.4 的落定信号了）。改一处两边跟

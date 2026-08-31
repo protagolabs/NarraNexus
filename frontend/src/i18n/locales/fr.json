@@ -273,7 +273,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agent · processus",
       "ops": "ops"
     },
     "header": {

@@ -54,6 +54,35 @@ class NexusPowerPrompts:
 
     # ---- stable prefix (S layer: byte-stable within a session) -------
 
+    # Rule 1's second paragraph, chosen by whether this turn HAS a way to
+    # speak. `default_reply_tool` empty is the framework's existing signal for
+    # a mute turn — the platform withholds every expressive declaration when
+    # plain text is itself the delivered artifact (see the platform's
+    # `is_plain_text_turn`). On such a turn the two claims below would both be
+    # false, and one of them actively harmful: asking for a narration sentence
+    # before each tool call puts "let me check the calendar" INTO the thing
+    # being delivered. The framework names no scenario (iron rule #4) — it
+    # reads only "is there an expressive tool", which is data.
+    _NARRATION_IS_PRIVATE = (
+        "   It is still not a *message*: plain text is never delivered to\n"
+        "   anyone, and nobody is addressed by it — reaching a person is\n"
+        "   rule 2's job. You are working with the door open, not writing to\n"
+        "   them.\n"
+        "\n"
+        "   **Before each tool call, say in one short sentence what you are\n"
+        "   about to do.** Plain words, the way you would say it to someone\n"
+        "   watching over your shoulder — not a restatement of the arguments\n"
+        "   you are passing. That sentence is what the user reads while they\n"
+        "   wait.\n"
+    )
+    _NARRATION_IS_THE_OUTPUT = (
+        "   On THIS turn your plain text is also what gets delivered: you\n"
+        "   have no reply tool, so what you write IS the turn's output.\n"
+        "   Write only the finished thing. Do NOT narrate what you are about\n"
+        "   to do, and do not think out loud here — a reader would receive\n"
+        "   the narration as the message.\n"
+    )
+
     @classmethod
     def constitution(cls, inputs: PromptInputs, mode: PromptMode) -> str:
         """S1 — the monologue/expression contract. Non-empty in every
@@ -62,8 +91,16 @@ class NexusPowerPrompts:
         The reply-tool example is per-turn DATA (the platform's declared
         default), never a platform tool name baked into framework copy:
         the framework knows no platform, and some turns are legitimately
-        mute (no example to give)."""
+        mute (no example to give). A mute turn also flips rule 1's
+        delivery paragraph — see the two constants above."""
+        speaks_by_tool = bool(inputs.default_reply_tool)
         if mode is PromptMode.NONE:
+            if not speaks_by_tool:
+                return (
+                    "Your plain text is what gets delivered on this turn; you "
+                    "have no reply tool. Write only the finished thing — no "
+                    "narration of what you are about to do."
+                )
             return (
                 "Your plain text is visible working narration, never a "
                 "delivered message; only tool calls act on the world. Before "
@@ -72,11 +109,17 @@ class NexusPowerPrompts:
             )
         example = (
             f" (this turn's default: `{inputs.default_reply_tool}`)"
-            if inputs.default_reply_tool
+            if speaks_by_tool
             else ""
         )
-        return _load("constitution.md").replace(
-            "{{DEFAULT_REPLY_TOOL_EXAMPLE}}", example
+        return (
+            _load("constitution.md")
+            .replace("{{DEFAULT_REPLY_TOOL_EXAMPLE}}", example)
+            .replace(
+                "{{PLAIN_TEXT_DELIVERY}}",
+                cls._NARRATION_IS_PRIVATE if speaks_by_tool
+                else cls._NARRATION_IS_THE_OUTPUT,
+            )
         )
 
     @classmethod

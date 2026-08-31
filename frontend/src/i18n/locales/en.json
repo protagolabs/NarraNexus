@@ -279,7 +279,6 @@
       "syncingInstances": "Syncing instances…",
       "buildingContext": "Building context…",
       "runningAgent": "Running agent…",
-      "thinking": "Thinking…",
       "resumedElapsed": "Reconnected to the ongoing run · running for {{minutes}} min"
     },
     "inner": {
@@ -343,7 +342,6 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agent · process",
       "ops": "ops"
     },
     "header": {
