@@ -1181,49 +1181,47 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             nothing rearranges when the run lands. */}
         {chatTab === 'conversation' && isStreaming && (
           <div className="animate-fade-in">
-            <div>
-              {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
-                  replay below is the SAME run continuing after a refresh /
-                  reconnect — label it, with elapsed anchored to the run's
-                  real start, so it cannot be read as a fresh generation.
-                  runId must match the streaming turn (review #349 M4): the
-                  anchor may only badge ITS run — if a second start-stream
-                  path ever appears, a stale anchor stays invisible instead
-                  of silently badging someone else's turn. */}
-              {resumedRun && resumedRun.runId === currentRunId && (
-                <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
-              )}
-              {/* The run's preamble: the backend pipeline phases that happen
-                  before the model produces anything. Without it the window
-                  between "send" and the first narration is blank. It heads
-                  the document rather than sitting in a box beside it. */}
-              <RunPhases events={currentEvents} steps={currentSteps} />
-              {/* The live turn IS the document — narration, tool lines and
-                  collapsed reasoning in the order they happen, the reply
-                  growing underneath. Same component, same shape the settled
-                  turn keeps, so nothing rearranges when it lands.
+            {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                replay below is the SAME run continuing after a refresh /
+                reconnect — label it, with elapsed anchored to the run's
+                real start, so it cannot be read as a fresh generation.
+                runId must match the streaming turn (review #349 M4): the
+                anchor may only badge ITS run — if a second start-stream
+                path ever appears, a stale anchor stays invisible instead
+                of silently badging someone else's turn. */}
+            {resumedRun && resumedRun.runId === currentRunId && (
+              <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+            )}
+            {/* The run's preamble: the backend pipeline phases that happen
+                before the model produces anything. Without it the window
+                between "send" and the first narration is blank. It heads
+                the document rather than sitting in a box beside it. */}
+            <RunPhases events={currentEvents} steps={currentSteps} />
+            {/* The live turn IS the document — narration, tool lines and
+                collapsed reasoning in the order they happen, the reply
+                growing underneath. Same component, same shape the settled
+                turn keeps, so nothing rearranges when it lands.
 
-                  showProcess is on here (it used to be off, with the process
-                  living in a framed panel above the composer): that panel is
-                  gone, so there is nothing to paint twice, and the narration
-                  is finally IN the reading flow rather than in a side box
-                  between reasoning rows. */}
-              <SegmentedReply
-                segments={segmentTurn(currentEvents)}
-                showProcess
-                isStreaming
+                showProcess is on here (it used to be off, with the process
+                living in a framed panel above the composer): that panel is
+                gone, so there is nothing to paint twice, and the narration
+                is finally IN the reading flow rather than in a side box
+                between reasoning rows. */}
+            <SegmentedReply
+              segments={segmentTurn(currentEvents)}
+              showProcess
+              isStreaming
+            />
+            {/* Mid-stream artifact preview is independent of the timeline:
+                it surfaces created/uploaded artifacts inline as soon as
+                their tool_output lands, without waiting for the whole
+                turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                allArtifacts={allArtifacts}
               />
-              {/* Mid-stream artifact preview is independent of the timeline:
-                  it surfaces created/uploaded artifacts inline as soon as
-                  their tool_output lands, without waiting for the whole
-                  turn to finish. */}
-              {agentId && currentToolCalls.length > 0 && (
-                <ArtifactToolCallCards
-                  toolCalls={currentToolCalls}
-                  allArtifacts={allArtifacts}
-                />
-              )}
-            </div>
+            )}
           </div>
         )}
 
