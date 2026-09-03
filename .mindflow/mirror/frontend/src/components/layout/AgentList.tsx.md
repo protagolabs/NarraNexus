@@ -12,6 +12,14 @@ stub: false
 
 `handleCreateAgentInTeam` **没有**改道：团队内创建已经有明确目的地（团队群聊）
 和明确意图，不需要再问一次「你想从哪里开始」。
+
+## 2026-09-03 — 团队「清理数据」对话框与状态移出
+
+`clearTeamTarget`/`clearTeamBusy`/`doClearTeamData`/`ClearTeamDataDialog` 及
+`onClearData` 透传全部删除;`requestWorkspaceRefresh` 不再从 store 解构。
+逻辑整体搬到 [[../chat/team/TeamManagePanel.tsx]](调用)+ [[../chat/team/TeamChatPanel.tsx]]
+的 `handleCleared`(刷新)。agent 行的清理不受影响。
+
 ## 2026-08-19 — 改名的两个"成功但你得知道"报给用户了
 
 后端在改名时会算出两件**不是失败**的事,所以它们永远不会进错误分支——而三个改名

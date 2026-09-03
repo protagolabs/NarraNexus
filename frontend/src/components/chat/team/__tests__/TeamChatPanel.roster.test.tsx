@@ -31,8 +31,14 @@ vi.mock('@/lib/api', () => ({
 
 // The store hooks are selector-based; the fixtures are read at call time (the
 // factory itself runs before the module body, so it must not touch them).
+// Stable identities: a fresh `notePatrol` per selector call would change the
+// room's `refresh` every render and re-arm its poll effect without end.
+const PATROL_BY_TEAM: Record<string, boolean> = {};
+const NOTE_PATROL = () => {};
+
 vi.mock('@/stores', () => ({
-  useTeamsStore: (select: (s: unknown) => unknown) => select({ teams: TEAMS }),
+  useTeamsStore: (select: (s: unknown) => unknown) =>
+    select({ teams: TEAMS, patrolByTeam: PATROL_BY_TEAM, notePatrol: NOTE_PATROL }),
   useConfigStore: (select: (s: unknown) => unknown) =>
     select({ agents: AGENTS, displayName: 'Bin', userId: 'usr_1' }),
   useChatStore: (select: (s: unknown) => unknown) => select({ workspaceRefreshTick: 0 }),
@@ -201,12 +207,15 @@ describe('TeamChatPanel · discoverable panel chrome', () => {
   // The team-room redesign left the roster/work-board and the bulletin behind
   // bare, unlabeled icons — the reason users reported the bulletin / work board
   // as "gone". The toggles must carry a VISIBLE text label, not just a tooltip.
-  test('the bulletin toggle shows a visible label, not just an icon', async () => {
+  test('the team-management toggle shows a visible label, not just an icon', async () => {
+    // 2026-09-03: the bulletin lives inside the management tab now, so the
+    // labelled entry point is the tab's toggle.
     await renderRoom([RUNNING]);
-    const toggle = screen.getByTestId('bulletin-toggle');
+    const toggle = screen.getByTestId('manage-toggle');
     // getByText finds a rendered text node — a `title`/`aria-label` would not
     // satisfy it, so this distinguishes a visible label from a tooltip.
-    expect(within(toggle).getByText('chat.team.bulletin.title')).toBeTruthy();
+    expect(within(toggle).getByText('chat.team.manage.title')).toBeTruthy();
+    expect(screen.queryByTestId('bulletin-toggle')).toBeNull();
   });
 
   test('the members (roster/work-board) toggle shows a visible label', async () => {

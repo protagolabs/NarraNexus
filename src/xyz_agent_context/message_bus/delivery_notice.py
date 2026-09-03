@@ -71,11 +71,11 @@ async def announce_undelivered(
 ) -> bool:
     """Say that ``agent_id``'s turn delivered nothing. True if the line landed.
 
-    ``mentions`` is the whole difference between the two call sites. A team
-    room passes none: nobody is blocked on the silence, and waking every
-    member over it would be worse than the silence itself. An A2A DM passes
-    the peer that asked, because that peer IS blocked and only a message wakes
-    it.
+    Called for A2A DMs only since 2026-09-03 — a team-room silence is marked
+    on the member's activity row instead (`activity.note_silent_turn`), never
+    posted. ``mentions`` names the peer that asked when that peer IS blocked
+    and only a message wakes it; None when the silence answered our own
+    errand and nobody is waiting.
     """
     return await _post(
         bus, channel_id, agent_id,

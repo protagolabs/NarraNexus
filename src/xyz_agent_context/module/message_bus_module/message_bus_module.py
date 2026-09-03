@@ -484,11 +484,14 @@ class MessageBusModule(XYZBaseModule):
             "conversation it belongs to; the top of the turn names the default "
             "one. (No tool name is given here on purpose: which call fits "
             "depends on the conversation, and only the turn knows.)",
-            "- **Do NOT repeat yourself.** If you have already said X, do not "
-            "rephrase X to fill space.",
+            "- **Do NOT repeat yourself — or anyone else.** If you have already "
+            "said X, do not rephrase X to fill space; if a teammate already said "
+            "or accepted X, do not restate it back to them, and do not post a "
+            "summary of what the conversation already contains.",
             "- **Substance only.** Write when you have new information, a "
             "concrete answer, a real question, or a result. Not 'I'm thinking "
-            "about it', 'got your message', 'will get back to you'.",
+            "about it', 'got your message', 'will get back to you' — and not "
+            "a reply that only agrees.",
             "- **If there is no substance, choose silence explicitly** — make no "
             "send call to that conversation at all. Silence is producing NOTHING, "
             "not producing something short. It is silence toward the PEER OR ROOM "

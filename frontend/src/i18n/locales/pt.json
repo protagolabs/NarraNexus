@@ -140,7 +140,7 @@
         "mention": "@ um colega para falar diretamente com ele.",
         "broadcastTitle": "Transmita para todos",
         "broadcast": "@all fala com todos — cada membro executa um turno completo, então use com moderação.",
-        "relay": "Os colegas podem se @ para passar o trabalho adiante; sem uma mensagem sua, o revezamento para após 4 saltos."
+        "relay": "Os colegas podem se @ para passar o trabalho adiante; sem uma mensagem sua, a passagem para no limite da plataforma e a sala avisa."
       },
       "noProcess": "Sem registro de processo para este turno",
       "detailLoadFailed": "Não foi possível carregar o processo. Tente novamente.",
@@ -156,7 +156,8 @@
         "stopping": "Parando…",
         "stopped": "Parado pelo proprietário",
         "stopFailed": "Não foi possível parar esta execução",
-        "stopHint": "Parar esta execução"
+        "stopHint": "Parar esta execução",
+        "silentLastTurn": "Último turno: não disse nada"
       },
       "emptyHintWithLead": "Envie uma mensagem para começar — {{name}} assume, ou use @ para falar com outra pessoa diretamente.",
       "leadTitle": "{{name}} · responde quando ninguém é mencionado",
@@ -178,8 +179,6 @@
           "stalled": "parado",
           "paused": "pausado"
         },
-        "turnOff": "Desligar",
-        "turnOn": "Ligar",
         "awaitingReply": "aguardando resposta",
         "nameSep": ", "
       },
@@ -203,7 +202,16 @@
         "download": "Baixar {{name}}",
         "loading": "Carregando…"
       },
-      "drawerCategory": "Sala da equipe"
+      "drawerCategory": "Sala da equipe",
+      "manage": {
+        "title": "Gerir equipa",
+        "patrol": "Ronda do líder",
+        "patrolHint": "Ligada, o líder cobra periodicamente as passagens paradas; desligada, fica só o quadro.",
+        "patrolOn": "Ligar",
+        "patrolOff": "Desligar",
+        "editProfile": "Editar perfil (nome / cor / intro)",
+        "clearData": "Limpar dados…"
+      }
     },
     "execution": {
       "showSteps": "Mostrar etapas de execução",
@@ -760,7 +768,6 @@
     "teamRowMenu": {
       "options": "Opções do chat em grupo",
       "rename": "Renomear",
-      "clearData": "Limpar dados",
       "delete": "Excluir",
       "addAgent": "Adicionar agente",
       "addingAgent": "Adicionando…"

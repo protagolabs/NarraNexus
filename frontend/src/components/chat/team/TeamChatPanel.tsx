@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList, CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -42,7 +42,7 @@ import { TeamMessageFooter } from './TeamMessageFooter';
 import { TeamMessageProcess } from './TeamMessageProcess';
 import { TeamWorkspacePanel } from './TeamWorkspacePanel';
 import { ArtifactsGlyph } from '@/components/bookmarks';
-import { TeamBulletinPanel } from './TeamBulletinPanel';
+import { TeamManagePanel } from './TeamManagePanel';
 import type { Artifact, TeamFile } from '@/types/artifact';
 import { useTeamsStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -367,7 +367,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const [bulletin, setBulletin] = useState<TeamBulletin | null>(null);
   const [bulletinLoading, setBulletinLoading] = useState(false);
   const [bulletinError, setBulletinError] = useState<string | null>(null);
-  const [bulletinOpen, setBulletinOpen] = useState(false);
   const [activity, setActivity] = useState<TeamMemberActivity[]>([]);
   const [leadAgentId, setLeadAgentId] = useState<string | null>(null);
   // 1s ticker (an epoch-ms stamp) so live durations advance between 3s polls.
@@ -413,6 +412,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   // --- Live transcript: poll the room while the panel is open. -------------
+  const notePatrol = useTeamsStore((s) => s.notePatrol);
   const refresh = useCallback(async () => {
     try {
       // Incremental: `since` has existed end to end for a long time and the
@@ -429,11 +429,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         );
         setActivity(r.activity ?? []);
         setLeadAgentId(r.lead_agent_id ?? null);
+        if (typeof r.patrol_enabled === 'boolean') notePatrol(teamId, r.patrol_enabled);
       }
     } catch {
       // transient — the next tick retries
     }
-  }, [teamId]);
+  }, [teamId, notePatrol]);
 
   // Paging BACK. `hasMoreRef` is a ref, not state: the scroll handler reads it
   // on every scroll event, and a state read there would be a render behind.
@@ -802,6 +803,19 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
     // exactly as it was — so the store's explicit tick covers it.
   }, [teamId, messages.length, workspaceRefreshTick]);
 
+  /** After a clear from the management tab: drop what the server dropped.
+   *  Emptying `messages` is the whole chat-side remedy — the next 3s poll then
+   *  refetches from scratch (no `since` cursor once the list is empty). The
+   *  workspace and bulletin reload off the store's tick. */
+  const requestWorkspaceRefresh = useChatStore((s) => s.requestWorkspaceRefresh);
+  const handleCleared = (scopes: { chat: boolean; files: boolean; bulletin: boolean }) => {
+    if (scopes.chat) {
+      setMessages([]);
+      hasMoreRef.current = false;
+    }
+    if (scopes.files || scopes.bulletin) requestWorkspaceRefresh();
+  };
+
   /** Returns the server's error text, or null on success. */
   const bulletinAction = async (
     call: () => Promise<{ success: boolean; error?: string }>,
@@ -957,34 +971,24 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </button>
 
-        {/* Team settings (detail page). */}
+        {/* Team management — bulletin, lead, patrol, members, clear, delete —
+            as a drawer tab like the others. It replaces the settings gear
+            (which led to a page with none of those controls) and the bulletin
+            button at the end of this bar (which was where nobody looked). */}
         <button
           type="button"
-          onClick={() => navigate(`/app/teams/${teamId}`)}
-          title={t('chat.team.teamSettings')}
-          aria-label={t('chat.team.teamSettings')}
-          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
-        >
-          <Settings2 className="w-3.5 h-3.5" />
-        </button>
-        {/* Top-level chrome, not inside settings: the bulletin is the answer to
-            "what does this team already know", which is asked while reading the
-            room. The count makes an existing bulletin advertise itself instead
-            of waiting to be discovered. */}
-        <button
-          type="button"
-          onClick={() => setBulletinOpen((v) => !v)}
-          aria-pressed={bulletinOpen}
-          data-testid="bulletin-toggle"
-          title={t('chat.team.bulletin.title')}
-          aria-label={t('chat.team.bulletin.title')}
+          onClick={() => toggleDrawerTab('manage')}
+          aria-pressed={drawerTab === 'manage'}
+          data-testid="manage-toggle"
+          title={t('chat.team.manage.title')}
+          aria-label={t('chat.team.manage.title')}
           className={cn(
             'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
-            bulletinOpen && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+            drawerTab === 'manage' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
           )}
         >
-          <ClipboardList className="w-3.5 h-3.5" />
-          <span className="text-[11px]">{t('chat.team.bulletin.title')}</span>
+          <Settings2 className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.manage.title')}</span>
           {(bulletin?.usage.entry_count ?? 0) > 0 && (
             <span className="text-[10px] font-mono" data-testid="bulletin-count">
               {bulletin?.usage.entry_count}
@@ -1372,6 +1376,35 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
               className="flex h-full w-full"
             />
           )}
+          {drawerTab === 'manage' && (
+            <TeamManagePanel
+              teamId={teamId}
+              teamName={team.team.name}
+              team={team.team}
+              members={members}
+              allAgents={agents}
+              leadAgentId={leadAgentId}
+              onSetLead={handleSetLead}
+              bulletin={bulletin}
+              bulletinLoading={bulletinLoading}
+              bulletinError={bulletinError}
+              memberNames={memberNameMap}
+              onBulletinAdd={(content, tier) =>
+                bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
+              }
+              onBulletinEdit={(entryId, content) =>
+                bulletinAction(() => api.updateTeamBulletinEntry(teamId, entryId, content))
+              }
+              onBulletinDelete={(entryId) =>
+                bulletinAction(() => api.deleteTeamBulletinEntry(teamId, entryId))
+              }
+              onBulletinClearTier={(tier) =>
+                bulletinAction(() => api.clearTeamBulletinTier(teamId, tier))
+              }
+              onCleared={handleCleared}
+              className="h-full w-full"
+            />
+          )}
           {(drawerTab === 'artifacts' || drawerTab === 'files') && (
             <TeamWorkspacePanel
               tab={drawerTab}
@@ -1424,46 +1457,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         </DialogFooter>
       </Dialog>
       </div>
-      {/* The team's output. Sits beside the transcript rather than behind a
-          route, because "what did we make" is a question asked WHILE reading
-          the conversation. Keyed off message count so a turn that registers an
-          artifact surfaces it without the user reloading. */}
-      {bulletinOpen && (
-        <div className="w-72 shrink-0 border-l border-[var(--border-subtle)] flex flex-col">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
-            <h3 className="text-xs font-medium text-[var(--text-primary)]">
-              {t('chat.team.bulletin.title')}
-            </h3>
-            <button
-              type="button"
-              title={t('common.close')}
-              aria-label={t('common.close')}
-              onClick={() => setBulletinOpen(false)}
-              className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <TeamBulletinPanel
-            bulletin={bulletin}
-            loading={bulletinLoading}
-            error={bulletinError}
-            memberNames={memberNameMap}
-            onAdd={(content, tier) =>
-              bulletinAction(() => api.createTeamBulletinEntry(teamId, { content, tier }))
-            }
-            onEdit={(entryId, content) =>
-              bulletinAction(() => api.updateTeamBulletinEntry(teamId, entryId, content))
-            }
-            onDelete={(entryId) =>
-              bulletinAction(() => api.deleteTeamBulletinEntry(teamId, entryId))
-            }
-            onClearTier={(tier) =>
-              bulletinAction(() => api.clearTeamBulletinTier(teamId, tier))
-            }
-          />
-        </div>
-      )}
     </div>
   );
 }

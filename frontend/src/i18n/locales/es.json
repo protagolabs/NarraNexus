@@ -140,7 +140,7 @@
         "mention": "@ a un compañero para dirigirte a él directamente.",
         "broadcastTitle": "Difunde a todos",
         "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
-        "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
+        "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene en el límite de la plataforma y la sala lo indica."
       },
       "noProcess": "No hay registro de proceso para este turno",
       "detailLoadFailed": "No se pudo cargar el proceso. Inténtalo de nuevo.",
@@ -156,7 +156,8 @@
         "stopping": "Deteniendo…",
         "stopped": "Detenido por el propietario",
         "stopFailed": "No se pudo detener esta ejecución",
-        "stopHint": "Detener esta ejecución"
+        "stopHint": "Detener esta ejecución",
+        "silentLastTurn": "Último turno: no dijo nada"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
       "leadTitle": "{{name}} · responde cuando no se menciona a nadie",
@@ -178,8 +179,6 @@
           "stalled": "estancado",
           "paused": "en pausa"
         },
-        "turnOff": "Desactivar",
-        "turnOn": "Activar",
         "awaitingReply": "esperando respuesta",
         "nameSep": ", "
       },
@@ -203,7 +202,16 @@
         "download": "Descargar {{name}}",
         "loading": "Cargando…"
       },
-      "drawerCategory": "Sala del equipo"
+      "drawerCategory": "Sala del equipo",
+      "manage": {
+        "title": "Gestionar equipo",
+        "patrol": "Revisión del líder",
+        "patrolHint": "Si está activada, el líder reclama periódicamente las entregas estancadas; desactivada, solo queda el tablero.",
+        "patrolOn": "Activar",
+        "patrolOff": "Desactivar",
+        "editProfile": "Editar perfil (nombre / color / intro)",
+        "clearData": "Limpiar datos…"
+      }
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -760,7 +768,6 @@
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
       "rename": "Renombrar",
-      "clearData": "Limpiar datos",
       "delete": "Eliminar",
       "addAgent": "Añadir agente",
       "addingAgent": "Añadiendo…"

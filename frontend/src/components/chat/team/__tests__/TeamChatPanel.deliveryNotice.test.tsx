@@ -26,8 +26,14 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// Stable identities: a fresh `notePatrol` per selector call would change the
+// room's `refresh` every render and re-arm its poll effect without end.
+const PATROL_BY_TEAM: Record<string, boolean> = {};
+const NOTE_PATROL = () => {};
+
 vi.mock('@/stores', () => ({
-  useTeamsStore: (select: (s: unknown) => unknown) => select({ teams: TEAMS }),
+  useTeamsStore: (select: (s: unknown) => unknown) =>
+    select({ teams: TEAMS, patrolByTeam: PATROL_BY_TEAM, notePatrol: NOTE_PATROL }),
   useConfigStore: (select: (s: unknown) => unknown) =>
     select({ agents: AGENTS, displayName: 'Bin', userId: 'usr_1' }),
   useChatStore: (select: (s: unknown) => unknown) => select({ workspaceRefreshTick: 0 }),

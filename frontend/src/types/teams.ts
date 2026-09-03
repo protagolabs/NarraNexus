@@ -110,6 +110,9 @@ export interface TeamMemberActivity {
   last_signal_at?: string | null;
   /** idle: ISO time the previous turn ended. */
   finished_at?: string | null;
+  /** idle: the previous turn ran and made no `message_team` call. The room
+   *  no longer posts a line for that (2026-09-03); the roster shows it. */
+  last_turn_silent?: boolean;
   /** queued: how many @mentions are waiting, and since when. */
   queued_count?: number;
   queued_since?: string | null;
@@ -168,6 +171,9 @@ export interface TeamChatHistoryResponse {
   activity?: TeamMemberActivity[];
   /** Who answers a message with no @mention (lead, else earliest-joined). */
   lead_agent_id?: string | null;
+  /** Whether the lead's periodic sweep is on. Rides on the room poll so the
+   *  management tab and the work board read one value (2026-09-03). */
+  patrol_enabled?: boolean;
 }
 
 export interface TeamChatSendResponse {
