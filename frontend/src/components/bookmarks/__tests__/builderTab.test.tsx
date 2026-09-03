@@ -10,7 +10,7 @@
  *    feature is not wired up".
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useUIStore } from '@/stores/uiStore';
 import { BookmarkPanelHost } from '../BookmarkPanelHost';
@@ -60,47 +60,77 @@ describe('uiStore panel intent', () => {
   });
 });
 
+/**
+ * Scoped queries, never the global `screen`: these tests each mount the panel,
+ * and a global query counts leftovers from a sibling render if cleanup has not
+ * run yet. That made `getAllByText('Optional')` intermittently find four.
+ */
+// The panel is React.lazy'd. On a COLD run vitest still has to transform that
+// chunk, which overruns waitFor's 1s default — the first test in the file
+// failed intermittently on "Unable to find ... Identity" while warm runs
+// passed. Waiting longer is the honest fix; the assertion is unchanged.
+const LAZY_MOUNT_TIMEOUT = 8000;
+
+function renderBuilder() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const { container } = render(
+    <QueryClientProvider client={qc}>
+      <BookmarkPanelHost tab="builder" agentId="agent_test" />
+    </QueryClientProvider>,
+  );
+  return within(container);
+}
+
 describe('builder tab', () => {
   test('is registered, so the drawer can label and switch to it', () => {
     expect(ALL_TABS.some((t) => t.id === 'builder')).toBe(true);
   });
 
   test('renders the configuration panel rather than an empty drawer', async () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <BookmarkPanelHost tab="builder" agentId="agent_test" />
-      </QueryClientProvider>,
-    );
+    const view = renderBuilder();
     // Lazy chunk + Suspense: wait for the real panel, not the fallback.
-    await waitFor(() => {
-      expect(screen.getByText('Identity')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(view.getByText('Identity')).toBeInTheDocument();
+      },
+      { timeout: LAZY_MOUNT_TIMEOUT },
+    );
     // Per the Owner's 2026-09-03 reference: name only, the instruction box
     // named after the field it writes, plus real Skills and Channels.
-    expect(screen.getByText('Name')).toBeInTheDocument();
-    expect(screen.getByText('Awareness')).toBeInTheDocument();
-    expect(screen.getAllByText('Skills').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Channels').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('skills-section')).toBeInTheDocument();
-    expect(screen.getByTestId('channels-section')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+    expect(view.getByText('Name')).toBeInTheDocument();
+    expect(view.getByText('Awareness')).toBeInTheDocument();
+    expect(view.getByText('Skills')).toBeInTheDocument();
+    expect(view.getByText('Channels')).toBeInTheDocument();
+    expect(view.getByTestId('skills-section')).toBeInTheDocument();
+    expect(view.getByTestId('channels-section')).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+  });
+
+  test('marks Skills and Channels as optional, and Identity as not', async () => {
+    // Both are genuinely skippable; labelling them stops the panel reading as
+    // a checklist the user has to finish before the agent works.
+    const view = renderBuilder();
+    await waitFor(
+      () => {
+        expect(view.getByText('Identity')).toBeInTheDocument();
+      },
+      { timeout: LAZY_MOUNT_TIMEOUT },
+    );
+    expect(view.getAllByText('Optional')).toHaveLength(2);
   });
 
   test('drops the avatar and description the reference removed', async () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <BookmarkPanelHost tab="builder" agentId="agent_test" />
-      </QueryClientProvider>,
+    const view = renderBuilder();
+    await waitFor(
+      () => {
+        expect(view.getByText('Identity')).toBeInTheDocument();
+      },
+      { timeout: LAZY_MOUNT_TIMEOUT },
     );
-    await waitFor(() => {
-      expect(screen.getByText('Identity')).toBeInTheDocument();
-    });
     // No avatar affordance (the project has no agent-avatar capability) and no
     // description field (machine-facing copy — the conversation writes it and
     // Agent Profile shows it).
-    expect(screen.queryByText('Description')).not.toBeInTheDocument();
-    expect(screen.queryByText(/avatar/i)).not.toBeInTheDocument();
+    expect(view.queryByText('Description')).not.toBeInTheDocument();
+    expect(view.queryByText(/avatar/i)).not.toBeInTheDocument();
   });
 });

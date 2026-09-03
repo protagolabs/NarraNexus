@@ -2815,7 +2815,8 @@
       "skillsHint": "这个智能体可以使用的工作区 skill。",
       "channels": "频道",
       "channelsHint": "它能在哪里被找到。凭证只在你和后端之间，绝不进入对话。",
-      "suggested": "来自对话"
+      "suggested": "来自对话",
+      "optional": "可选"
     }
   }
 }

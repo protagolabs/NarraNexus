@@ -2298,7 +2298,8 @@
       "skillsHint": "이 에이전트가 사용할 수 있는 워크스페이스 skill.",
       "channels": "채널",
       "channelsHint": "어디서 연결되는지. 자격 증명은 백엔드로 바로 가며 대화에는 들어가지 않습니다.",
-      "suggested": "대화에서"
+      "suggested": "대화에서",
+      "optional": "선택"
     }
   }
 }

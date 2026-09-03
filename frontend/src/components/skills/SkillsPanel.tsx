@@ -207,9 +207,20 @@ interface SkillsPanelProps {
   embedded?: boolean;
   /** Atomic mode: render exactly ONE section (bookmark-strip IA). */
   section?: SkillsSectionId;
+  /**
+   * Narrow host (the creation studio's drawer panel): collapse the chrome to
+   * a SINGLE row.
+   *
+   * `embedded` already hides the title, which leaves a whole row holding just
+   * the refresh icon — tolerable in the full-width Skills tab, wasteful when
+   * this sits inside another panel. Compact drops that row, moves refresh in
+   * beside the install sources, and hides the show-disabled toggle (a
+   * maintenance filter, not something you reach for while creating an agent).
+   */
+  compact?: boolean;
 }
 
-export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}) {
+export function SkillsPanel({ embedded = false, section, compact = false }: SkillsPanelProps = {}) {
   const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
@@ -292,6 +303,7 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
   const inner = (
     <>
       {confirmDialog}
+      {!compact && (
       <CardHeader className={cn(embedded && 'justify-end py-1')}>
         {!embedded && (
         <CardTitle>
@@ -312,9 +324,13 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
           <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
         </Button>
       </CardHeader>
+      )}
 
       {/* Action bar */}
-      <div className="px-5 py-2.5 flex items-center justify-between gap-2 border-b border-[var(--rule)]">
+      <div className={cn(
+        'flex items-center justify-between gap-2 border-b border-[var(--rule)]',
+        compact ? 'px-2 py-1.5' : 'px-5 py-2.5',
+      )}>
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => setShowMarketplace(true)}>
             <Store className="w-3 h-3 mr-1.5" />
@@ -330,14 +346,27 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
           </Button>
         </div>
 
-        <label className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showDisabled}
-            onChange={(e) => setShowDisabled(e.target.checked)}
-          />
-          {t('skills.actionBar.showDisabled')}
-        </label>
+        {compact ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isLoading}
+            title={t('skills.refresh')}
+            className="shrink-0"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', isLoading && 'animate-spin')} />
+          </Button>
+        ) : (
+          <label className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showDisabled}
+              onChange={(e) => setShowDisabled(e.target.checked)}
+            />
+            {t('skills.actionBar.showDisabled')}
+          </label>
+        )}
       </div>
 
       <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">

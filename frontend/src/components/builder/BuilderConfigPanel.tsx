@@ -167,7 +167,11 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
           </Section>
 
           {/* ── Skills: suggestions, then the real section ── */}
-          <Section title={t('builder.panel.skills')} hint={t('builder.panel.skillsHint')}>
+          <Section
+            title={t('builder.panel.skills')}
+            hint={t('builder.panel.skillsHint')}
+            optional={t('builder.panel.optional')}
+          >
             {recommendations.skill_ids.length > 0 && (
               <div className="space-y-2">
                 <SuggestionLabel>{t('builder.panel.suggested')}</SuggestionLabel>
@@ -206,13 +210,17 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
                 })}
               </div>
             )}
-            <EmbeddedSection>
-              <SkillsPanel embedded section="skills" />
+            <EmbeddedSection height="240px">
+              <SkillsPanel embedded compact section="skills" />
             </EmbeddedSection>
           </Section>
 
           {/* ── Channels: suggestions, then the real section ── */}
-          <Section title={t('builder.panel.channels')} hint={t('builder.panel.channelsHint')}>
+          <Section
+            title={t('builder.panel.channels')}
+            hint={t('builder.panel.channelsHint')}
+            optional={t('builder.panel.optional')}
+          >
             {recommendations.channels.length > 0 && (
               <div className="space-y-2">
                 <SuggestionLabel>{t('builder.panel.suggested')}</SuggestionLabel>
@@ -236,7 +244,7 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
             )}
             {/* The credential is pasted here, user → backend. It never enters
                 the conversation envelope. */}
-            <EmbeddedSection>
+            <EmbeddedSection height="300px">
               <AwarenessPanel embedded section="channels" />
             </EmbeddedSection>
           </Section>
@@ -270,17 +278,36 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
 function Section({
   title,
   hint,
+  optional,
   children,
 }: {
   title: string;
   hint?: string;
+  /** Marks a section the user can skip entirely — Skills and Channels are
+   *  both optional, and saying so stops the panel reading as a checklist. */
+  optional?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-2.5">
       <div>
-        <h3 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <h3
+          className="flex items-center gap-2 text-[13px] font-semibold"
+          style={{ color: 'var(--text-primary)' }}
+        >
           {title}
+          {optional && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-[0.1em]"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                border: '1px solid var(--nm-hairline)',
+                color: 'var(--text-tertiary)',
+              }}
+            >
+              {optional}
+            </span>
+          )}
         </h3>
         {hint && (
           <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
@@ -304,12 +331,19 @@ function FieldCard({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Hosts a reused drawer section without its own outer card chrome. */
-function EmbeddedSection({ children }: { children: React.ReactNode }) {
+/**
+ * Hosts a reused drawer section without its own outer card chrome.
+ *
+ * The height is EXPLICIT because those panels are built for a full drawer
+ * column: they use `flex-1 min-h-0` + an inner ScrollArea, which needs a
+ * bounded parent. Left to grow, Skills alone would push Channels off the
+ * bottom of the studio's scroll.
+ */
+function EmbeddedSection({ height, children }: { height: string; children: React.ReactNode }) {
   return (
     <div
-      className="rounded-[var(--radius-xl)] overflow-hidden"
-      style={{ border: '1px solid var(--nm-hairline)', background: 'var(--bg-primary)' }}
+      className="rounded-[var(--radius-xl)] overflow-hidden flex flex-col"
+      style={{ border: '1px solid var(--nm-hairline)', background: 'var(--bg-primary)', height }}
     >
       {children}
     </div>

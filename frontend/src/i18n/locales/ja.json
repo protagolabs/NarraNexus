@@ -2298,7 +2298,8 @@
       "skillsHint": "このエージェントが使えるワークスペースの skill。",
       "channels": "チャネル",
       "channelsHint": "どこで到達できるか。認証情報はバックエンドへ直接送られ、会話には入りません。",
-      "suggested": "会話から"
+      "suggested": "会話から",
+      "optional": "任意"
     }
   }
 }

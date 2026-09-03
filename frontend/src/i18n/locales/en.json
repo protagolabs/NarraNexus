@@ -2815,7 +2815,8 @@
       "skillsHint": "Workspace skills this agent can use.",
       "channels": "Channels",
       "channelsHint": "Where it can be reached. Credentials go straight to the backend — never into the conversation.",
-      "suggested": "From the conversation"
+      "suggested": "From the conversation",
+      "optional": "Optional"
     }
   }
 }

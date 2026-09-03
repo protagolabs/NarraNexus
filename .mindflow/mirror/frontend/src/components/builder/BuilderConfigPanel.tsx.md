@@ -4,6 +4,15 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (续) — Skills/Channel 标为可选并压缩
+
+- 两个 section 标题挂「可选」徽标。它们确实可以整段跳过，不说清楚的话面板读起来
+  像一张必须填完才能用的清单。
+- Skills 用 [[SkillsPanel.tsx]] 的 `compact` 变体，两行 chrome 收成一行。
+- `EmbeddedSection` 现在要求**显式高度**：那两个面板是按整列抽屉写的
+  （`flex-1 min-h-0` + 内层 ScrollArea），没有受限的父高度就会一路撑开，Skills
+  单独就能把 Channel 顶出可视区。现值 240px / 300px，各自内部滚动。
+
 ## 2026-09-03 (改版，Owner 参考稿) — 去头像/描述，补 Skills 与 Channel
 
 版式按 Owner 的参考稿走：

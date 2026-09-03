@@ -2299,7 +2299,8 @@
       "skillsHint": "Skills do workspace que este agente pode usar.",
       "channels": "Canais",
       "channelsHint": "Onde ele pode ser encontrado. Credenciais vão direto ao backend — nunca para a conversa.",
-      "suggested": "Da conversa"
+      "suggested": "Da conversa",
+      "optional": "Opcional"
     }
   }
 }

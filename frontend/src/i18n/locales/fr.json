@@ -2299,7 +2299,8 @@
       "skillsHint": "Les skills de l'espace de travail que cet agent peut utiliser.",
       "channels": "Canaux",
       "channelsHint": "Où le joindre. Les identifiants vont directement au backend — jamais dans la conversation.",
-      "suggested": "Issu de la conversation"
+      "suggested": "Issu de la conversation",
+      "optional": "Facultatif"
     }
   }
 }

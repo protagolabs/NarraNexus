@@ -2299,7 +2299,8 @@
       "skillsHint": "Workspace-Skills, die dieser Agent nutzen kann.",
       "channels": "Kanäle",
       "channelsHint": "Wo er erreichbar ist. Zugangsdaten gehen direkt ans Backend — nie ins Gespräch.",
-      "suggested": "Aus dem Gespräch"
+      "suggested": "Aus dem Gespräch",
+      "optional": "Optional"
     }
   }
 }
