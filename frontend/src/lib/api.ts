@@ -135,6 +135,10 @@ import { confirmSessionDeath } from './sessionGuard';
  * callers can branch on it (e.g. treat DELETE 404 as already-gone)
  * instead of string-matching the message.
  */
+/** How long one patrol-switch PUT may stay in flight before the store gives
+ *  up on it (see teamsStore.patrolInFlight). */
+export const PATROL_WRITE_TIMEOUT_MS = 15_000;
+
 export class ApiError extends Error {
   readonly status: number;
   /** The backend's raw HTTPException `detail` ('' when the body had
@@ -578,11 +582,15 @@ class ApiClient {
   }
 
   /** Turn the Leader's periodic sweep on or off. The board stays usable either
-   *  way — this only stops the chasing. */
+   *  way — this only stops the chasing. Times out (→ rejects → the store rolls
+   *  back) rather than pinning the in-flight state indefinitely. */
   async setTeamPatrol(teamId: string, enabled: boolean): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/patrol`,
-      { method: 'PUT', body: JSON.stringify({ enabled }) },
+      // Bounded: the store marks the switch "in flight" until this settles
+      // (polls ignored, button disabled), so a request that never settles
+      // must not be able to hold that state forever.
+      { method: 'PUT', body: JSON.stringify({ enabled }), signal: AbortSignal.timeout(PATROL_WRITE_TIMEOUT_MS) },
     );
   }
 

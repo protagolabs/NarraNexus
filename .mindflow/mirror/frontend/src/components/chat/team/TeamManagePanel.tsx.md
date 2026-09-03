@@ -22,4 +22,4 @@ state 归 [[TeamChatPanel.tsx]]);②组长 select(回调 `onSetLead`,与花名�
 store 一律用 **selector 形式**(`useTeamsStore((s) => s.addMember)`):房间的测试把
 store mock 成 selector hook,弹窗那种解构写法在那里会炸。
 被拿掉的旧入口:工具条公告栏按钮/齿轮、看板 patrol 开关、左侧团队行菜单「清理数据」。
-守卫:`__tests__/TeamManagePanel.test.tsx`(9 条)。
+守卫:`__tests__/TeamManagePanel.test.tsx`。

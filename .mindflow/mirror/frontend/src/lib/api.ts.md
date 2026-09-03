@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `setTeamPatrol` 带 15s 超时
+
+`PATROL_WRITE_TIMEOUT_MS = 15_000` 导出;`setTeamPatrol` 的 fetch 加 `signal: AbortSignal.timeout(...)`。
+原因:[[../stores/teamsStore]] 在这个 PUT 飞行期间把巡查开关标成 in-flight(轮询忽略、按钮禁用),
+一个永不 settle 的请求会把该状态钉死;超时会 reject 走 store 的回滚。api 层其它请求未改。
+
 
 ## 2026-08-28 — 插件安装三件套 + `getAgentFramework` 加 `frameworks`
 

@@ -11,6 +11,9 @@ stub: false
 表单实时草稿 + `editLead` 实时值一次提交四项。曾短暂拆成两个同名「保存更改」各存一半,结果
 `refresh()` 带回新 `updated_at` 把另一半没保存的草稿重播掉(auto-review round 3 I1),已合回。
 组长读的是实时 state 不是 open 时快照——弹窗打开期间它是唯一编辑者,不存在被覆盖的旁路。
+提交值 = 显示值(`effectiveLead`):组长已不是成员(后端 `remove_member` 不清组长也不 bump `updated_at`)时
+select 显示「Auto」,保存也提交 `""`(清空回落到最早加入者),否则该团队每次保存都 400
+(`lead_agent_id must be a team member`),改名跟着丢(auto-review round 4 I1;dev 上原 `handleSaveMeta` 同病)。
 守卫:`__tests__/teamManagementModal.save.test.tsx`(只有一个 Save;改名+改组长一次调用都在)。
 入口不变:[[TeamRowMenu]] → [[AgentList]]、Dashboard 建团队。房间的
 [[../chat/team/TeamManagePanel]] 曾短暂以 `profileOnly` 打开本弹窗(同日撤回,auto-review I9:

@@ -14,6 +14,11 @@ const teams = [
     team: { team_id: 't1', name: 'Desk', color: '#3b82f6', intro_md: 'hi', lead_agent_id: null, source: 'local' },
     member_agent_ids: ['a1', 'a2'],
   },
+  // A lead the server still records but who has since left the team.
+  {
+    team: { team_id: 't2', name: 'Orphaned', color: '#3b82f6', intro_md: '', lead_agent_id: 'a2', source: 'local' },
+    member_agent_ids: ['a1'],
+  },
 ];
 
 vi.mock('@/stores', () => ({
@@ -47,6 +52,18 @@ describe('TeamManagementModal · one save', () => {
     render(<TeamManagementModal open initialTeamId="t1" onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByDisplayValue('Desk')).toBeInTheDocument());
     expect(screen.getAllByRole('button', { name: /save changes/i })).toHaveLength(1);
+  });
+
+  it('a lead who left the team is saved as "" (auto), never as the stale id', async () => {
+    // remove_member does not clear the lead server-side, so this state is
+    // reachable and used to make every save of the team 400.
+    render(<TeamManagementModal open initialTeamId="t2" onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByDisplayValue('Orphaned')).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue('Orphaned'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() =>
+      expect(updateTeam).toHaveBeenCalledWith('t2', expect.objectContaining({ name: 'Renamed', lead_agent_id: '' })),
+    );
   });
 
   it('saves a changed name AND a changed lead in one call', async () => {

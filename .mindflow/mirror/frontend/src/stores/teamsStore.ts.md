@@ -9,7 +9,7 @@ stub: false
 `patrolByTeam: Record<teamId, boolean>`(不持久化,是服务端状态)+ `notePatrol(teamId, enabled)`
 (房间轮询 [[../components/chat/team/TeamChatPanel]] 与看板轮询 [[../components/chat/team/TeamWorkBoard]] 写入,
 值不变时不触发 set)+ `setPatrol(teamId, enabled)`(乐观写 + `api.setTeamPatrol`)。`patrolInFlight[teamId]` 在 PUT 飞行中为 true
-(finally 清掉,永不无界;飞行中再次 `setPatrol` 直接丢弃,按钮也禁用),成功后
+(finally 清掉;`api.setTeamPatrol` 带 `AbortSignal.timeout(PATROL_WRITE_TIMEOUT_MS)`=15s,挂死的请求会 reject 走回滚,标志不会无界;飞行中再次 `setPatrol` 直接丢弃,按钮也禁用),成功后
 `patrolPendingUntil[teamId]` = now+`PATROL_SETTLE_MS`(4s,大于 3s 轮询);飞行中与窗口内 `notePatrol` 忽略轮询值
 (点击前已出发的 GET 带回旧值,不能把乐观值顶掉;窗口外别的设备的真实翻转照常落地)。
 失败回滚:有上报值回到上报值,**没有则删 key 回到「未上报」**,绝不用 false 兜底冒充已关。

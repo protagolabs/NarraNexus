@@ -94,14 +94,21 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   // snapshot taken at open — this dialog is the only editor while it is
   // open, so there is nothing for a snapshot to overwrite, and a live value
   // cannot be stale.
+  // What the select SHOWS is also what gets SAVED. The server keeps a lead
+  // that was since removed from the team (remove_member does not clear it,
+  // and does not bump updated_at, so `editLead` is not re-seeded); the
+  // select already falls back to "Auto" for that case, and the save must
+  // fall back the same way — otherwise every save of this team would 400
+  // with "lead_agent_id must be a team member" until someone touched the
+  // select. "" is the backend's clear-to-earliest-member signal.
+  const effectiveLead = selected && selected.member_agent_ids.includes(editLead) ? editLead : '';
+
   const handleSave = async (patch: { name: string; color: string; intro_md: string }) => {
     if (!selected) return;
     try {
       await updateTeam(selected.team.team_id, {
         ...patch,
-        // "" clears the lead back to the earliest-joined fallback (backend
-        // treats empty string as clear; a member id sets an explicit lead).
-        lead_agent_id: editLead,
+        lead_agent_id: effectiveLead,
       });
     } catch (e) {
       void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
@@ -258,24 +265,24 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                     </Button>
                   }
                 >
-                {/* Team lead — the agent that answers a team message
-                    with no @mention. "Auto" = the earliest-joined member. */}
-                <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
-                  <select
-                    value={selected.member_agent_ids.includes(editLead) ? editLead : ''}
-                    onChange={(e) => setEditLead(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
-                  >
-                    <option value="">{t('teams.leadAuto')}</option>
-                    {selected.member_agent_ids.map((mid) => (
-                      <option key={mid} value={mid}>
-                        {agents.find((a) => a.agent_id === mid)?.name || mid}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
-                </div>
+                  {/* Team lead — the agent that answers a team message
+                      with no @mention. "Auto" = the earliest-joined member. */}
+                  <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
+                    <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
+                    <select
+                      value={effectiveLead}
+                      onChange={(e) => setEditLead(e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+                    >
+                      <option value="">{t('teams.leadAuto')}</option>
+                      {selected.member_agent_ids.map((mid) => (
+                        <option key={mid} value={mid}>
+                          {agents.find((a) => a.agent_id === mid)?.name || mid}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
+                  </div>
                 </TeamProfileForm>
 
                 {/* Members */}
