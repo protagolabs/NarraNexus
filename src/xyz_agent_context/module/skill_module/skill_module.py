@@ -322,6 +322,24 @@ async def platform_env_available(db, user_id: Optional[str]) -> set:
     return available
 
 
+# The OpenClaw / ClawHub skill format declares runtime requirements under
+# ``metadata.openclaw`` and accepts the older ``clawdbot`` and ``clawdis``
+# spellings as aliases (the project was renamed twice). First present key wins,
+# newest name first, so a skill published under any of the three names gates
+# its env/bins the same way.
+SKILL_METADATA_KEYS: tuple[str, ...] = ("openclaw", "clawdbot", "clawdis")
+
+
+def _skill_runtime_requires(metadata_field: dict) -> dict:
+    """``requires`` block from the first recognised skill-ecosystem key, else empty."""
+    for key in SKILL_METADATA_KEYS:
+        block = metadata_field.get(key)
+        if isinstance(block, dict):
+            requires = block.get("requires", {})
+            return requires if isinstance(requires, dict) else {}
+    return {}
+
+
 class SkillModule(XYZBaseModule):
     """
     Skill Module - Manages Skills under the user's workspace
@@ -685,12 +703,9 @@ class SkillModule(XYZBaseModule):
                             except (json.JSONDecodeError, TypeError):
                                 metadata_field = {}
                         if isinstance(metadata_field, dict):
-                            clawdbot = metadata_field.get("clawdbot", {})
-                            if isinstance(clawdbot, dict):
-                                requires = clawdbot.get("requires", {})
-                                if isinstance(requires, dict):
-                                    fm_requires_env = requires.get("env", [])
-                                    fm_requires_bins = requires.get("bins", [])
+                            requires = _skill_runtime_requires(metadata_field)
+                            fm_requires_env = requires.get("env", [])
+                            fm_requires_bins = requires.get("bins", [])
 
                         # Body scan is a FALLBACK for skills that declare
                         # nothing. When the frontmatter explicitly declares

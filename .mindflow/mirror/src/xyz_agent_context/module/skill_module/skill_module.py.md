@@ -1,7 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-08-18
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03 — frontmatter `metadata` 同时接受 `openclaw` / `clawdbot` / `clawdis`
+
+`metadata.clawdbot` 来自 OpenClaw / ClawHub 技能生态（项目改过两次名：Clawdbot → Clawdis → OpenClaw），
+官方文档写明 `metadata.openclaw` 为正名、另两个为别名。原实现只读 `clawdbot`，新发布的 ClawHub
+技能会门控失效（env/bins 不再被识别为必需）。现在 `_skill_runtime_requires` 按 `SKILL_METADATA_KEYS`
+（新名优先）取第一个存在的块；`tests/skill_module/test_skill_md_metadata_aliases.py` 用同一份
+SKILL.md 换键名逐个跑真实 `_parse_skill_md`。
 
 ## 2026-08-18 — `_extract_zip_safely` 的两个上限改读 [[file_safety.py]]
 
