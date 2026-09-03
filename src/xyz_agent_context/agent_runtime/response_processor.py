@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
+    DATA_TYPE_RETRY,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_PLAN,
@@ -403,6 +404,45 @@ class ResponseProcessor:
                     call_id=str(data.get("call_id", "")),
                     tool_name=str(data.get("tool_name", "")),
                 ),
+            )
+
+        if data_type == DATA_TYPE_RETRY:
+            # The adapter is retrying the model call after a transient provider
+            # error (claude_code on a subscription account: the CLI never
+            # retries a 429 for a claude.ai login, so the adapter resumes the
+            # same CLI session). Shown as a step-panel row so the wait is not
+            # silent; the swallowed failure itself never reaches the user —
+            # if every attempt fails, the final error arrives as a normal
+            # DATA_TYPE_ERROR below. COMPLETED, not RUNNING: the popover
+            # treats the last RUNNING step as "what the agent is doing now",
+            # and this row would otherwise stay current after the retry
+            # itself has long since finished.
+            attempt = data.get("attempt", 1)
+            max_attempts = data.get("max_attempts", attempt)
+            delay = data.get("delay_seconds", 0)
+            error_type = data.get("error_type", "rate_limit")
+            logger.warning(
+                f"[AGENT-LOOP-RETRY] {error_type}: attempt {attempt}/{max_attempts} "
+                f"in {delay}s"
+            )
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=ProgressMessage(
+                    step=f"3.4.retry.{attempt}",
+                    title="Retrying after a provider rate limit",
+                    description=(
+                        f"The model provider reported {error_type}; "
+                        f"retrying (attempt {attempt}/{max_attempts}) in {delay:g}s"
+                    ),
+                    status=ProgressStatus.COMPLETED,
+                    details={
+                        "error_type": error_type,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "delay_seconds": delay,
+                    },
+                ),
+                state_update={"method": "increment_response", "args": {}},
             )
 
         if data_type == DATA_TYPE_ERROR:

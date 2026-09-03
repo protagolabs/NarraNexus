@@ -73,6 +73,13 @@ DATA_TYPE_USAGE = "response.usage"
 # unaffected; consumers that do not know it can ignore it safely (the
 # tool_call_item remains the authoritative record).
 DATA_TYPE_REPLY_DELTA = "response.reply.delta"
+# The adapter is about to retry the model call after a transient provider
+# error (claude_code + subscription auth only: the CLI never retries a 429 for
+# a claude.ai subscription, so the adapter resumes the same CLI session). Data:
+# ``error_type`` (the CLI enum), ``attempt`` (1-based), ``max_attempts``,
+# ``delay_seconds``. Rendered as a step-panel progress row; consumers that do
+# not know it may ignore it — the retry's own events follow either way.
+DATA_TYPE_RETRY = "response.retry"
 
 
 # ---------------------------------------------------------------------------

@@ -85,7 +85,6 @@ def test_rejected_credential_becomes_fatal_config_actionable():
     fallback wrote a reply for work that never ran. It must be fatal, and the
     guidance must point at the KEY (re-paste / rotate), not at a re-login."""
     msg = _process(_error_event(
-        'Claude API error: invalid_request\n\nProvider response:\n'
         'API Error: 403 {"error":{"message":"Invalid api token"}}',
         "invalid_request",
     ))

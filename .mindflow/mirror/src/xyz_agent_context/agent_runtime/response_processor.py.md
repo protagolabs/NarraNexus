@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `response.retry` → 步骤面板进度行
+
+新分支（在 `DATA_TYPE_ERROR` 之前）：把 [[events]] 的 `DATA_TYPE_RETRY` 变成
+`ProgressMessage(step="3.4.retry.<attempt>", status=COMPLETED（RUNNING 会被 popover 当成"当前活动"长期挂住）, title="Retrying after a
+provider rate limit", description="… attempt N/M in Ds", details={error_type, attempt,
+max_attempts, delay_seconds})`，`ResponseType.OTHER` + `increment_response`。
+不是 ErrorMessage、不进文本累积：被适配器吞掉的那次失败永远不到用户面前，全部尝试都
+失败时最终错误仍以普通 `DATA_TYPE_ERROR` 到达并走既有分类。日志前缀
+`[AGENT-LOOP-RETRY]`。测试 `tests/agent_runtime/test_response_processor_retry_notice.py`。
 
 ## 2026-08-30 — `_pending_monologue` 随批次纯净化一起消失
 

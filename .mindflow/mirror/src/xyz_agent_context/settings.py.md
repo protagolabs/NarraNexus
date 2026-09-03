@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `claude_transient_retry_attempts` / `claude_transient_retry_backoff_seconds`
+
+Claude Code agent loop 在**订阅账号**（oauth / oauth_token）遇到 `rate_limit` /
+`server_error` 时由适配器 resume 同一 CLI 会话重试（见 [[sdk]]）。CLI 对订阅账号的 429
+不重试（判据 `status === 429 → !isSubscriber()`），`llm_max_retries` 注入的
+`CLAUDE_CODE_MAX_RETRIES` 在那条路上无效，故单独一组旋钮：次数默认 3（0 关闭），退避
+`"15,30,60"` 逗号秒数、不够用最后一个值。只限 RETRIES OF A FAILING CALL，不封顶轮长
+（铁律 #14）。Env `CLAUDE_TRANSIENT_RETRY_ATTEMPTS` / `CLAUDE_TRANSIENT_RETRY_BACKOFF_SECONDS`，
+已进 `.env.example`。
 
 ## 2026-08-19 — 取消/恢复改为显式带 channel（本条不是 08-18 就定下的）
 

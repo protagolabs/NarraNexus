@@ -227,6 +227,21 @@ class Settings(BaseSettings):
     helper_cli_timeout_ms: int = 60000            # per-request cap for the helper CLI subprocess (1 min)
     helper_cli_max_retries: int = 1               # helper CLI transient-retry count (not agent-loop's 10)
     helper_cli_total_timeout_seconds: int = 120   # HARD wall-clock bound for ONE helper one-shot
+    # Same-session retry of the Claude Code agent loop after a transient CLI
+    # error (rate_limit / server_error) on a SUBSCRIPTION account. The CLI
+    # itself retries a 429 only for keyed auth (its predicate is
+    # `status === 429 → !isSubscriber()`), so for a claude.ai login one
+    # "Opus is experiencing high load" used to end the whole turn. The adapter
+    # resumes the same CLI session instead — the CLI transcript already holds
+    # the turn's tool calls, so nothing re-executes. Keyed auth is untouched
+    # (CLAUDE_CODE_MAX_RETRIES above already covers it). This bounds RETRIES OF
+    # A FAILING CALL, not turn length (铁律 #14). 0 disables.
+    # Env: CLAUDE_TRANSIENT_RETRY_ATTEMPTS / CLAUDE_TRANSIENT_RETRY_BACKOFF_SECONDS.
+    claude_transient_retry_attempts: int = 3
+    # Comma-separated seconds before retry 1, 2, 3, …; a short list pads with
+    # its last value. Tens of seconds on purpose: capacity shedding does not
+    # clear in milliseconds.
+    claude_transient_retry_backoff_seconds: str = "15,30,60"
     # How many times a Claude helper structured-output call re-prompts for
     # valid JSON before giving up. Prompt-engineered structured output (schema
     # in the prompt + client-side JSON extraction) sometimes returns prose /

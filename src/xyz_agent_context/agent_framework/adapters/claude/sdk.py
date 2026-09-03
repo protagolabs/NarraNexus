@@ -31,7 +31,11 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
 from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    DATA_TYPE_REPLY_DELTA,
+    DATA_TYPE_RETRY,
+    DATA_TYPE_TEXT_DELTA,
     ITEM_TYPE_TOOL_CALL,
     TYPE_RAW_RESPONSE_EVENT,
     TYPE_RUN_ITEM_STREAM_EVENT,
@@ -427,30 +431,195 @@ def _inline_assistant_error_event(
     and append whatever detail we have, so ``classify_self_serviceable`` can
     recognise a context-window / balance / model error from the message text.
 
-    Two detail channels, tried in that order:
+    Two detail channels:
 
-    - **CLI stderr** — richer when present (litellm's token counts live here).
-    - **The assistant text itself** — the 2026-07-28 case: an agent pinned to a
-      zero-balance NetMind account got ``API Error: 400 {"detail":"balance not
-      enough..."}`` as assistant text with stderr completely empty. Before this
-      fallback the user was shown the bare enum while the reason sat in a log
-      line, and "Claude API error: unknown" is exactly the black box this
-      function exists to prevent.
+    - **The assistant text itself** — when the CLI answers in band, that text
+      IS the message the user gets, verbatim (2026-09-03). It is the most
+      specific description anyone has: for a subscription 429 the CLI writes
+      "Opus is experiencing high load, please use /model to switch to Sonnet"
+      or "You've hit your limit · resets 4pm", and wrapping either in a
+      generic "rate limit reached, try again" sentence hid exactly the part
+      the user needed. The 2026-07-28 case is the same channel: an agent
+      pinned to a zero-balance NetMind account got ``API Error: 400
+      {"detail":"balance not enough..."}`` inline with stderr empty.
+    - **CLI stderr** — appended as a tail when present (litellm's token counts
+      live here), so ``classify_self_serviceable`` still sees them.
 
     With neither channel populated the plain enum sentence stands.
     """
     enum = str(message_error)
     detail = _stderr_tail_detail(cli_stderr_lines)
-    if not detail and assistant_text.strip():
-        detail = f"\n\nProvider response:\n{assistant_text.strip()}"
+    text = assistant_text.strip()
+    message = text if text else f"Claude API error: {enum}"
     return {
         "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
             "type": DATA_TYPE_ERROR,
             "error_type": enum,
-            "error_message": f"Claude API error: {enum}" + detail,
+            "error_message": message + detail,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Same-session retry for a subscription account's transient CLI error
+# ---------------------------------------------------------------------------
+# The Claude Code CLI retries a 429 only for keyed auth: its retry predicate
+# is literally ``status === 429 → !isSubscriber()`` (read out of the bundled
+# 2.1.56 binary, 2026-09-03), so for a claude.ai subscription ONE 429 — the
+# Opus capacity switch, a usage window, a concurrency blip — ends the whole
+# turn with ``AssistantMessage.error == "rate_limit"``. The
+# ``CLAUDE_CODE_MAX_RETRIES`` we inject is a no-op on that path.
+#
+# The adapter therefore retries the RUN, not the turn: it resumes the same
+# CLI session with a continuation nudge. The CLI's own transcript already
+# holds every tool call and result of the turn, so nothing is re-executed
+# and nothing streams twice — which is why a cold re-run of the turn is not
+# an option here.
+
+# CLI error enums worth a retry. ``server_error`` covers 5xx/529 after the
+# CLI's own retries (those DO run for subscribers); everything else — auth,
+# billing, invalid_request, unknown, the adapter's own ``no_output`` — is
+# either deterministic or ours, and retrying would only delay the real error.
+_TRANSIENT_CLI_ERROR_TYPES: frozenset[str] = frozenset({"rate_limit", "server_error"})
+
+# Auth transports the CLI treats as a subscription (see ``fI()`` in the CLI):
+# the only ones where the CLI skips its own 429 retry.
+_SUBSCRIPTION_AUTH_TYPES: frozenset[str] = frozenset({"oauth", "oauth_token"})
+
+# What the retry run is asked. It lives ONLY in this turn's CLI session — the
+# platform's history is rebuilt from observed events each turn, so the nudge
+# never reaches the next turn's prompt. Phrased as a system notice so the
+# model does not mistake it for the user speaking.
+_TRANSIENT_RETRY_NUDGE = (
+    "[system] The previous model request failed with a transient provider "
+    "error (rate limit / overload) and has been retried automatically. "
+    "Continue the turn from where you left off. Do not repeat work that "
+    "already completed."
+)
+
+
+def _retry_delay_seconds(schedule: str, attempt: int) -> float:
+    """Delay before retry ``attempt`` (1-based) from a comma-separated
+    schedule such as ``"15,30,60"``.
+
+    A short schedule pads with its last value; an empty/unparseable one is
+    zero delay (fail-open — a bad knob must not block the retry, 铁律 #14).
+    Pure so the schedule is testable without sleeping through it.
+    """
+    values: list[float] = []
+    for part in (schedule or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            values.append(max(0.0, float(part)))
+        except ValueError:
+            return 0.0
+    if not values:
+        return 0.0
+    return values[min(max(attempt, 1), len(values)) - 1]
+
+
+def _transient_error_type(event: dict) -> str | None:
+    """The retryable CLI error enum carried by ``event``, or None."""
+    if event.get("type") != TYPE_RAW_RESPONSE_EVENT:
+        return None
+    data = event.get("data") or {}
+    if data.get("type") != DATA_TYPE_ERROR:
+        return None
+    error_type = str(data.get("error_type") or "")
+    return error_type if error_type in _TRANSIENT_CLI_ERROR_TYPES else None
+
+
+def _is_substantive_event(event: dict) -> bool:
+    """True when ``event`` carries agent output (a tool call / result, text,
+    a reply delta) — i.e. proof the CLI kept going after an inline error.
+    Completion markers, usage tallies and empty deltas are not substantive."""
+    if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT:
+        return True
+    data = event.get("data") or {}
+    if data.get("type") in (DATA_TYPE_TEXT_DELTA, DATA_TYPE_REPLY_DELTA):
+        return bool(data.get("delta"))
+    return False
+
+
+def _is_retry_notice_event(event: dict) -> bool:
+    """True for the ``response.retry`` notice the transient retry emits."""
+    return (
+        event.get("type") == TYPE_RAW_RESPONSE_EVENT
+        and (event.get("data") or {}).get("type") == DATA_TYPE_RETRY
+    )
+
+
+def _is_done_event(event: dict) -> bool:
+    return (
+        event.get("type") == TYPE_RAW_RESPONSE_EVENT
+        and (event.get("data") or {}).get("type") == DATA_TYPE_DONE
+    )
+
+
+# Set on the completion marker of a run the transient retry replaced. The
+# marker is still released — its usage is what the billing chain sums — but
+# it no longer means "this turn produced output": the resume-refused gate
+# must not read it as content (2026-09-03 review C1).
+_SUPERSEDED_DONE_KEY = "superseded_by_retry"
+
+
+def _is_superseded_done_event(event: dict) -> bool:
+    return _is_done_event(event) and bool(
+        (event.get("data") or {}).get(_SUPERSEDED_DONE_KEY)
+    )
+
+
+def _retry_notice_event(
+    error_type: str, attempt: int, max_attempts: int, delay_seconds: float
+) -> dict:
+    """The ``response.retry`` event shown to the user between attempts."""
+    return {
+        "type": TYPE_RAW_RESPONSE_EVENT,
+        "data": {
+            "type": DATA_TYPE_RETRY,
+            "error_type": error_type,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "delay_seconds": delay_seconds,
+        },
+    }
+
+
+async def _wait_before_retry(delay_seconds: float, cancellation: Any | None) -> bool:
+    """Sleep ``delay_seconds`` unless cancellation fires first.
+
+    Returns True when the wait completed and the retry may proceed; False
+    when the user cancelled meanwhile (the caller then surfaces the held
+    error instead of spawning a CLI the user no longer wants).
+    """
+    if CancellationView(cancellation).requested():
+        return False
+    if delay_seconds <= 0:
+        return True
+    awaiter = getattr(cancellation, "await_cancelled", None) if cancellation else None
+    if not callable(awaiter):
+        await asyncio.sleep(delay_seconds)
+        return not CancellationView(cancellation).requested()
+    cancel_task = asyncio.create_task(awaiter())
+    sleep_task = asyncio.create_task(asyncio.sleep(delay_seconds))
+    try:
+        done, _ = await asyncio.wait(
+            {cancel_task, sleep_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if cancel_task in done and cancel_task.exception() is None:
+            return False  # cancellation fired first
+        return sleep_task in done
+    finally:
+        for task in (cancel_task, sleep_task):
+            if not task.done():
+                task.cancel()
+            # Await (or retrieve) every task so a cancel awaiter that ended
+            # in an exception never logs "Task exception was never retrieved".
+            with suppress(asyncio.CancelledError, Exception):
+                await task
 
 
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
@@ -774,11 +943,16 @@ class ClaudeAgentSDK:
         # it cannot accumulate across turns. Empty declaration (unknown
         # surface only, now that team replies are a tool call like any other)
         # leaves the message untouched.
+        _bare_user_message = this_turn_user_message
         this_turn_user_message = append_reply_reminder(
             this_turn_user_message,
             kwargs.get("expressive_tools"),
             kwargs.get("origin_declaration") or "",
         )
+        # The transient-retry nudge replaces the user message on the retry
+        # run; carry the same reminder so the retry's LAST instruction still
+        # names the reply surface (empty when no declaration was given).
+        reply_reminder_suffix = this_turn_user_message[len(_bare_user_message):]
 
         # Author the transcript ourselves rather than depending on the CLI still
         # remembering a session. This is what removes the LAST prefix cost that
@@ -1002,7 +1176,8 @@ class ClaudeAgentSDK:
         # Neutral reasoning params (slot-configured); absent keys keep CLI
         # defaults — identical to today's behavior when unconfigured.
         options_kwargs.update(reasoning_options)
-        options = ClaudeAgentOptions(**options_kwargs)
+        # ClaudeAgentOptions is built per run inside _run_with_transient_retry
+        # (the retry rebuilds it with `resume` pointed at the live session).
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
@@ -1020,6 +1195,7 @@ class ClaudeAgentSDK:
 
         async def _run_once(
             run_options: ClaudeAgentOptions,
+            user_message: str,
         ) -> AsyncGenerator[dict[str, Any], None]:
             """One CLI run: connect → query → receive loop → teardown.
 
@@ -1028,6 +1204,9 @@ class ClaudeAgentSDK:
             the same turn. This is the pre-extraction Step 2 body verbatim
             (plus the natural-completion graceful shutdown and the error-path
             stderr drain); single-run behavior is unchanged.
+
+            ``user_message`` is the turn's input on the first run; the
+            transient retry passes its continuation nudge instead.
             """
             client = None
             message_count = 0
@@ -1046,7 +1225,7 @@ class ClaudeAgentSDK:
                 logger.info("[ClaudeAgentSDK] Connecting to Claude Code CLI...")
                 await client.connect()
                 logger.info("[ClaudeAgentSDK] Connected. Sending query...")
-                await client.query(this_turn_user_message)
+                await client.query(user_message)
                 logger.info("[ClaudeAgentSDK] Query sent. Waiting for responses...")
 
                 # Race-with-cancel receive loop.
@@ -1319,6 +1498,143 @@ class ClaudeAgentSDK:
                     except Exception as e:
                         logger.warning(f"Error during client disconnect: {e}")
 
+        async def _run_with_transient_retry(
+            run_kwargs: dict[str, Any],
+        ) -> AsyncGenerator[dict[str, Any], None]:
+            """Drive ``_run_once`` and, on a subscription account's transient
+            CLI error, resume the SAME session up to
+            ``claude_transient_retry_attempts`` times.
+
+            Holds the error event back while the run drains: if anything
+            substantive follows it, the CLI recovered on its own and the held
+            events are released in order (no retry). If the run ends on the
+            error, the held events are dropped (the retry replaces that run,
+            so downstream sees ONE completion marker), a ``response.retry``
+            notice goes out, the backoff races cancellation, and the next run
+            resumes the session with a continuation nudge instead of the
+            user's message. Anything outside the gate — keyed auth, a
+            non-transient enum, no session handle, attempts exhausted,
+            cancelled during backoff — passes the events through untouched,
+            i.e. exactly the pre-2026-09-03 behavior.
+            """
+            from xyz_agent_context.settings import settings as _s
+
+            max_attempts = max(0, int(_s.claude_transient_retry_attempts))
+            eligible = (
+                max_attempts > 0
+                and claude_config.auth_type in _SUBSCRIPTION_AUTH_TYPES
+            )
+            kwargs = dict(run_kwargs)
+            user_message = this_turn_user_message
+            attempt = 0
+            while True:
+                resume_handle: str | None = kwargs.get("resume") or None
+                reported_session: str | None = None
+                held: list[dict[str, Any]] = []
+                held_error_type: str | None = None
+                may_retry = eligible and attempt < max_attempts
+                try:
+                    async with aclosing(
+                        _run_once(ClaudeAgentOptions(**kwargs), user_message)
+                    ) as run:
+                        async for event in run:
+                            if held_error_type is None:
+                                error_type = _transient_error_type(event) if may_retry else None
+                                if error_type is None:
+                                    yield event
+                                    continue
+                                held_error_type = error_type
+                                held.append(event)
+                                continue
+                            if _is_substantive_event(event):
+                                # The CLI kept going after the inline error —
+                                # release everything in its original order and
+                                # stop holding; a retry now would double the work.
+                                for pending in held:
+                                    yield pending
+                                held.clear()
+                                held_error_type = None
+                                yield event
+                                continue
+                            if _is_done_event(event):
+                                # The session the CLI actually wrote this run
+                                # to. Normally our resume handle; a CLI that
+                                # forked the session on resume reports the new
+                                # id here, and THAT is the file holding the
+                                # turn's tool results (I3, 2026-09-03 review).
+                                reported_session = (
+                                    str((event.get("data") or {}).get("session_id") or "")
+                                    or None
+                                )
+                            held.append(event)
+                except GeneratorExit:
+                    raise
+                except BaseException:
+                    # A run that dies mid-drain (ProcessError off a fast CLI
+                    # exit, our own subprocess-exited RuntimeError) must not
+                    # take the held error with it: release it so the outer
+                    # yielded_any / error surfacing sees exactly what a
+                    # non-retrying adapter would have seen, then re-raise.
+                    for pending in held:
+                        yield pending
+                    held.clear()
+                    raise
+
+                if held_error_type is None:
+                    return
+                session_id = reported_session or resume_handle
+                if reported_session and resume_handle and reported_session != resume_handle:
+                    logger.warning(
+                        f"[ClaudeAgentSDK] CLI reported session {reported_session[:12]} "
+                        f"for a run resumed from {resume_handle[:12]} — retrying on "
+                        f"the reported one (it holds this run's tool results)"
+                    )
+                if not session_id:
+                    logger.warning(
+                        f"[ClaudeAgentSDK] transient CLI error ({held_error_type}) "
+                        f"but no session id to resume — surfacing it"
+                    )
+                    for pending in held:
+                        yield pending
+                    return
+
+                attempt += 1
+                delay = _retry_delay_seconds(
+                    _s.claude_transient_retry_backoff_seconds, attempt
+                )
+                logger.warning(
+                    f"[ClaudeAgentSDK] transient CLI error ({held_error_type}) on a "
+                    f"subscription account — retry {attempt}/{max_attempts} in "
+                    f"{delay:g}s, resuming session {session_id[:12]}"
+                )
+                # The failed run's completion marker still carries its usage
+                # and cost — release it so the billing chain (accumulate_usage,
+                # whose sole source is response.done) counts the tokens that
+                # run really spent. Only the error event is swallowed.
+                error_event = held[0]
+                for pending in held[1:]:
+                    if _is_done_event(pending):
+                        pending["data"][_SUPERSEDED_DONE_KEY] = True
+                        yield pending
+                held.clear()
+                yield _retry_notice_event(held_error_type, attempt, max_attempts, delay)
+                if not await _wait_before_retry(delay, cancellation):
+                    logger.info(
+                        "[ClaudeAgentSDK] cancelled during retry backoff — "
+                        "surfacing the error instead of retrying"
+                    )
+                    # The done marker already went out above; re-surface the
+                    # error so downstream classifies the failure.
+                    yield error_event
+                    return
+                # The failed run's stderr served its purpose (logged above);
+                # re-arm the list for the retry's own diagnostics.
+                cli_stderr_lines.clear()
+                kwargs = {**kwargs, "resume": session_id}
+                # Cache sentinel for the bytes the retry actually sends (R4c).
+                _log_sysprompt_sha(str(kwargs.get("system_prompt") or ""), session_id)
+                user_message = _TRANSIENT_RETRY_NUDGE + reply_reminder_suffix
+
         # ONE try/finally around every run this turn, so the transcript can
         # never be left behind. The removal is SYNCHRONOUS, which is what makes
         # the cancellation path safe: when this generator is aclosed,
@@ -1340,7 +1656,7 @@ class ClaudeAgentSDK:
             #
             # Cold start: exactly one run — today's behavior, byte-identical.
             if not resume_session_id:
-                async with aclosing(_run_once(options)) as cold_run:
+                async with aclosing(_run_with_transient_retry(options_kwargs)) as cold_run:
                     async for event in cold_run:
                         yield event
                 return
@@ -1363,8 +1679,19 @@ class ClaudeAgentSDK:
             yielded_any = False
             resume_rejected = False
             try:
-                async with aclosing(_run_once(options)) as resume_run:
+                async with aclosing(_run_with_transient_retry(options_kwargs)) as resume_run:
                     async for event in resume_run:
+                        if _is_retry_notice_event(event) or _is_superseded_done_event(event):
+                            # Bookkeeping, not content: the transient-retry
+                            # notice and the superseded run's completion
+                            # marker (released for its usage) must not arm
+                            # `yielded_any`, or a resume the CLI then refuses
+                            # (zero output) would surface as a bare no_output
+                            # error instead of taking the cold retry below
+                            # (2026-09-03 review C1). A live run's own done
+                            # marker still arms it, exactly as before.
+                            yield event
+                            continue
                         if not yielded_any and _is_zero_output_error_event(event):
                             # Swallow the zero-output error event: the cold retry
                             # below replaces this run entirely, so downstream —
@@ -1414,7 +1741,7 @@ class ClaudeAgentSDK:
             # The retry runs cold — re-emit the sentinel for the actually-sent bytes.
             _log_sysprompt_sha(options_kwargs["system_prompt"], None)
             options_kwargs["resume"] = None
-            async with aclosing(_run_once(ClaudeAgentOptions(**options_kwargs))) as retry_run:
+            async with aclosing(_run_with_transient_retry(options_kwargs)) as retry_run:
                 async for event in retry_run:
                     yield event
         finally:
