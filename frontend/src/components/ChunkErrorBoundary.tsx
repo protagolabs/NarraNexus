@@ -24,6 +24,7 @@
  * version — refresh" (which looped users and hid the bug entirely).
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportUiError } from '@/platform/errorSink';
 import { isChunkLoadError, reloadOncePerSession } from '@/lib/chunkReload';
 
 interface Props {
@@ -55,6 +56,9 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       error,
       info?.componentStack,
     );
+    // The error sink attributes the crash to the shell or to the plugin whose
+    // chunk threw, so a misbehaving plugin can be suppressed instead of the page.
+    reportUiError(error, { componentStack: info?.componentStack ?? undefined, kind: chunk ? 'chunk' : 'render' });
     // A stale-chunk crash after a deploy self-heals with one reload; a genuine
     // bug does not (chunk === false) and is left for the user to see.
     if (chunk) {
