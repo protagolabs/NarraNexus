@@ -22,8 +22,12 @@ Shapes (all optional fields marked ``total=False``):
 
   {"type": "raw_response_event", "data": {...}} where data.type is one of
     - "response.text.delta"  {delta}
-    - "response.done"        {usage?, stop_reason?, model?, total_cost_usd?, num_turns?}
+    - "response.done"        {usage?, stop_reason?, model?, total_cost_usd?,
+                              num_turns?, session_id?, superseded_by_retry?}
     - "response.error"       {error_message, error_type}
+    - "response.usage"       {usage}
+    - "response.reply.delta" {delta, call_id?, tool_name?}
+    - "response.retry"       {error_type, attempt, max_attempts, delay_seconds}
   {"type": "run_item_stream_event", "item": {...}} where item.type is one of
     - "thinking_item"          {content}
     - "tool_call_item"         {tool_call_id, tool_name, arguments}
@@ -73,6 +77,19 @@ DATA_TYPE_USAGE = "response.usage"
 # unaffected; consumers that do not know it can ignore it safely (the
 # tool_call_item remains the authoritative record).
 DATA_TYPE_REPLY_DELTA = "response.reply.delta"
+# The adapter is about to retry the model call after a transient provider
+# error (claude_code + subscription auth only: the CLI never retries a 429 for
+# a claude.ai subscription, so the adapter resumes the same CLI session). Data:
+# ``error_type`` (the CLI enum), ``attempt`` (1-based), ``max_attempts``,
+# ``delay_seconds``. Rendered as a step-panel progress row; consumers that do
+# not know it may ignore it — the retry's own events follow either way.
+DATA_TYPE_RETRY = "response.retry"
+# Optional boolean on a raw event (``response.done`` / ``response.usage``)
+# emitted by a run the transient retry replaced. The event is still
+# delivered — its usage is what the billing chain sums — but it no longer
+# means "this turn produced output": the claude adapter's resume-refused
+# gate skips it. Written and read by adapters/claude/sdk.py only.
+DATA_TYPE_DONE_SUPERSEDED_KEY = "superseded_by_retry"
 
 
 # ---------------------------------------------------------------------------

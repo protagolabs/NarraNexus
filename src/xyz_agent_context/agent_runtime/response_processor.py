@@ -33,6 +33,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
+    DATA_TYPE_RETRY,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
     ITEM_TYPE_PLAN,
@@ -113,7 +114,17 @@ _AUTH_FAILURE_PHRASES: tuple[str, ...] = (
     "invalid_api_key",
     "incorrect api key",  # OpenAI's bad-key message wording
     "expired token",
-    "401",
+)
+# Bare "401" used to sit in the list above. It also appears inside epoch
+# timestamps ("usage limit reached|1774015401") and token counts, and since
+# the inline CLI error text now rides error_message verbatim (2026-09-03)
+# that haystack is wider — a rate-limit turn was one digit away from being
+# declared a dead login (fatal, fallback skipped). Same narrowing discipline
+# as ``llm/failure.py``'s 403 markers: every part of a group must co-occur.
+_AUTH_FAILURE_AND_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("401", "unauthorized"),
+    ("401", "authentication"),
+    ("401", "invalid"),
 )
 
 
@@ -129,7 +140,9 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
     if et in _AUTH_FAILURE_TYPES or "auth" in et or "unauthor" in et:
         return True
     em = (error_message or "").lower()
-    return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
+    if any(frag in em for frag in _AUTH_FAILURE_PHRASES):
+        return True
+    return any(all(part in em for part in group) for group in _AUTH_FAILURE_AND_GROUPS)
 
 
 # ``AUTH_EXPIRED_ERROR_TYPE`` (imported from schema above) is the
@@ -403,6 +416,45 @@ class ResponseProcessor:
                     call_id=str(data.get("call_id", "")),
                     tool_name=str(data.get("tool_name", "")),
                 ),
+            )
+
+        if data_type == DATA_TYPE_RETRY:
+            # The adapter is retrying the model call after a transient provider
+            # error (claude_code on a subscription account: the CLI never
+            # retries a 429 for a claude.ai login, so the adapter resumes the
+            # same CLI session). Shown as a step-panel row so the wait is not
+            # silent; the swallowed failure itself never reaches the user —
+            # if every attempt fails, the final error arrives as a normal
+            # DATA_TYPE_ERROR below. COMPLETED, not RUNNING: the popover
+            # treats the last RUNNING step as "what the agent is doing now",
+            # and this row would otherwise stay current after the retry
+            # itself has long since finished.
+            attempt = data.get("attempt", 1)
+            max_attempts = data.get("max_attempts", attempt)
+            delay = data.get("delay_seconds", 0)
+            error_type = data.get("error_type", "api_error")
+            logger.warning(
+                f"[AGENT-LOOP-RETRY] {error_type}: attempt {attempt}/{max_attempts} "
+                f"in {delay}s"
+            )
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=ProgressMessage(
+                    step=f"3.4.retry.{attempt}",
+                    title="Retrying after a transient provider error",
+                    description=(
+                        f"The model provider reported {error_type}; "
+                        f"retrying (attempt {attempt}/{max_attempts}) in {delay:g}s"
+                    ),
+                    status=ProgressStatus.COMPLETED,
+                    details={
+                        "error_type": error_type,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "delay_seconds": delay,
+                    },
+                ),
+                state_update={"method": "increment_response", "args": {}},
             )
 
         if data_type == DATA_TYPE_ERROR:
