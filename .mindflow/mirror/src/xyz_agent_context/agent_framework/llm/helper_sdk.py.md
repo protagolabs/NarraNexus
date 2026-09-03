@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/helper_sdk.py
-last_verified: 2026-07-07
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 协议表改为内核 `model.clients` 注册表（插件平台批 1）
+
+`_HELPER_SDK_BY_PROTOCOL` dict → `LLM_CLIENT_REGISTRY = KERNEL_REGISTRIES.registry_for("model.clients")`，
+三个惰性 loader 包成 `Contribution`（`ANTHROPIC/OPENAI/CLI`，`CONTRIBUTIONS` 元组给
+`builtin.llm_clients` manifest 引用，loader 注册同对象幂等）。`get_helper_sdk` 的协议判定（ContextVar
+优先级）不变；未知协议仍抛同文案的 `ValueError`（内部由 `UnknownEntry` 翻译）。第三方 helper 协议
+= 一个插件往 `model.clients` 贡献一个 `Contribution` 并让 resolver 标记该协议。
 
 ## 2026-06-17 — 改为 protocol-keyed 注册表工厂
 

@@ -26,7 +26,11 @@ the same result-wrapper shapes, so callers are dispatch-blind.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any
+
+from narranexus.contracts import UnknownEntry
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+from narranexus.kernel.plugins.registry import Contribution, Registry
 
 
 def _load_anthropic_helper() -> Any:
@@ -48,13 +52,21 @@ def _load_cli_helper() -> Any:
     return CliHelperSDK()
 
 
-# protocol -> zero-arg loader. Adding a helper protocol = register a loader
-# here and have the resolver mark that protocol on the helper config.
-_HELPER_SDK_BY_PROTOCOL: Dict[str, Callable[[], Any]] = {
-    "anthropic": _load_anthropic_helper,
-    "openai": _load_openai_helper,
-    "cli": _load_cli_helper,
-}
+# The kernel registry for slot ``model.clients`` (plugin platform, batch 1):
+# protocol key -> zero-arg loader. Adding a helper protocol = a plugin
+# contributing a ``Contribution`` here and the resolver marking that protocol
+# on the helper config. The three builtin clients are named by the
+# ``builtin.llm_clients`` manifest; import-time and manifest-driven
+# registration register the same objects.
+LLM_CLIENT_REGISTRY: Registry[Any] = KERNEL_REGISTRIES.registry_for("model.clients")
+
+ANTHROPIC = Contribution("anthropic", _load_anthropic_helper, meta={"display_name": "Anthropic Messages"})
+OPENAI = Contribution("openai", _load_openai_helper, meta={"display_name": "OpenAI protocol"})
+CLI = Contribution("cli", _load_cli_helper, meta={"display_name": "Subscription CLI"})
+CONTRIBUTIONS = (ANTHROPIC, OPENAI, CLI)
+
+for _contribution in CONTRIBUTIONS:
+    LLM_CLIENT_REGISTRY.register_contribution(_contribution, owner="builtin.llm_clients")
 
 _DEFAULT_HELPER_PROTOCOL = "openai"
 
@@ -83,13 +95,13 @@ def _resolved_helper_protocol() -> str:
 def get_helper_sdk():
     """Return the helper-LLM SDK instance for the current asyncio task."""
     protocol = _resolved_helper_protocol()
-    loader = _HELPER_SDK_BY_PROTOCOL.get(protocol)
-    if loader is None:  # defensive: an unregistered protocol is a wiring bug
+    try:
+        return LLM_CLIENT_REGISTRY.get(protocol)
+    except UnknownEntry:  # defensive: an unregistered protocol is a wiring bug
         raise ValueError(
             f"No helper SDK registered for protocol {protocol!r}. "
-            f"Known: {sorted(_HELPER_SDK_BY_PROTOCOL)}."
-        )
-    return loader()
+            f"Known: {sorted(LLM_CLIENT_REGISTRY.names())}."
+        ) from None
 
 
-__all__ = ["get_helper_sdk"]
+__all__ = ["ANTHROPIC", "CLI", "CONTRIBUTIONS", "LLM_CLIENT_REGISTRY", "OPENAI", "get_helper_sdk"]

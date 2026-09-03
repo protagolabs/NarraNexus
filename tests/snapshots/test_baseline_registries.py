@@ -24,8 +24,10 @@ import xyz_agent_context.agent_framework.providers.driver.drivers  # noqa: F401 
 from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY
 import xyz_agent_context.memory.specs  # noqa: F401 registers kinds
 from xyz_agent_context.memory.spec import all_kinds, passive_kinds
+from xyz_agent_context.agent_framework.llm.helper_sdk import LLM_CLIENT_REGISTRY
 print(json.dumps({
     "agent_loop_frameworks": available_agent_loop_frameworks(),
+    "llm_clients": list(LLM_CLIENT_REGISTRY.names()),
     "provider_drivers": list(DRIVER_REGISTRY.names()),
     "provider_driver_owners": sorted(set(e.owner for e in DRIVER_REGISTRY.entries())),
     "memory_kinds": sorted(all_kinds()),

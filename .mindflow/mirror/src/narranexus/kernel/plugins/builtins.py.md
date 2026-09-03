@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 1）— 新增 `builtin.llm_clients`
+
+指向 `agent_framework.llm.helper_sdk:CONTRIBUTIONS`（anthropic/openai/cli 三个协议客户端），宿主
+backend/mcp/workers。
+
 ## 2026-09-03（预审修订）— 框架位路径改为 `turn.pipeline.act.framework`；缓存拆分
 
 `builtin_manifests()` 零参 `lru_cache`，`build_builtin_manifests(tree)` 不缓存，避免用可变树做缓存键。

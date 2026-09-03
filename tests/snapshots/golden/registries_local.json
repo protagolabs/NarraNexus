@@ -4,6 +4,11 @@
     "codex_cli",
     "nexus_power"
   ],
+  "llm_clients": [
+    "anthropic",
+    "openai",
+    "cli"
+  ],
   "memory_kinds": [
     "bus",
     "entity",

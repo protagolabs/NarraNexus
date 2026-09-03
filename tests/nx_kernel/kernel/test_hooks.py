@@ -137,7 +137,7 @@ async def test_failed_wrapper_before_half_is_closed_so_finally_runs():
     def bad_wrapper(a):
         try:
             raise RuntimeError("before failed")
-            yield  # noqa: unreachable — makes this a generator
+            yield  # unreachable on purpose: makes this a generator
         finally:
             closed.append("sync")
 
