@@ -31,7 +31,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "NexusPower agent loop",
         "description": "The home-grown agent loop; always available.",
         "hosts": ["backend"],
-        "provides": {"turn.act.framework": f"{_FRAMEWORK}:NEXUS_POWER"},
+        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:NEXUS_POWER"},
         "quality": "gold",
     },
     {
@@ -40,7 +40,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Claude Code agent loop",
         "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
         "hosts": ["backend"],
-        "provides": {"turn.act.framework": f"{_FRAMEWORK}:CLAUDE_CODE"},
+        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:CLAUDE_CODE"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
     },
@@ -50,7 +50,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Codex agent loop",
         "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
         "hosts": ["backend"],
-        "provides": {"turn.act.framework": f"{_FRAMEWORK}:CODEX_CLI"},
+        "provides": {"turn.pipeline.act.framework": f"{_FRAMEWORK}:CODEX_CLI"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
     },
@@ -87,11 +87,15 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
 )
 
 
+def build_builtin_manifests(tree: SlotTree) -> tuple[Manifest, ...]:
+    """Validate the builtin manifest data against ``tree`` (uncached)."""
+    return tuple(parse_manifest(data, tree=tree, allow_builtin=True) for data in BUILTIN_MANIFEST_DATA)
+
+
 @lru_cache(maxsize=1)
-def builtin_manifests(tree: SlotTree | None = None) -> tuple[Manifest, ...]:
-    """Validated builtin manifests (cached; the data is a constant)."""
-    slot_tree = tree if tree is not None else build_kernel_slot_tree()
-    return tuple(parse_manifest(data, tree=slot_tree, allow_builtin=True) for data in BUILTIN_MANIFEST_DATA)
+def builtin_manifests() -> tuple[Manifest, ...]:
+    """Validated builtin manifests against the kernel tree (cached; the data is a constant)."""
+    return build_builtin_manifests(build_kernel_slot_tree())
 
 
-__all__ = ["BUILTIN_MANIFEST_DATA", "builtin_manifests"]
+__all__ = ["BUILTIN_MANIFEST_DATA", "build_builtin_manifests", "builtin_manifests"]

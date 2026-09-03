@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import re
 
 import pytest
@@ -14,6 +15,7 @@ from narranexus.contracts import API_VERSIONS
 from narranexus.contracts.events import HOST_EVENTS
 from narranexus.contracts.framework import CAPABILITY_VOCABULARY, AgentLoopDriver, FrameworkMeta, InstallSpec
 from narranexus.contracts.llm_client import LlmClient
+from narranexus.contracts.testing.llm_client import LlmClientContractTests
 from narranexus.contracts.memory import MemoryKindContract
 from narranexus.contracts.provider import ProviderDriver
 from narranexus.contracts.testing.framework import FrameworkDriverContractTests
@@ -46,14 +48,24 @@ def test_framework_meta_is_frozen():
         meta.name = "y"  # type: ignore[misc]
 
 
-def test_helper_sdks_satisfy_llm_client_contract():
+def _helper_sdk_classes() -> list[type]:
     from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
     from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
     from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
-    for cls in (AnthropicHelperSDK, CliHelperSDK, OpenAIAgentsSDK):
-        assert all(hasattr(cls, m) for m in ("llm_function", "llm_stream")), cls
-        assert issubclass(cls, object) and isinstance(LlmClient, type)
+    return [AnthropicHelperSDK, CliHelperSDK, OpenAIAgentsSDK]
+
+
+@pytest.mark.parametrize("cls", _helper_sdk_classes(), ids=lambda c: c.__name__)
+def test_helper_sdks_match_the_llm_client_signatures(cls):
+    for name in ("llm_function", "llm_stream"):
+        impl = [p for p in inspect.signature(getattr(cls, name)).parameters if p != "self"]
+        contract = [p for p in inspect.signature(getattr(LlmClient, name)).parameters if p != "self"]
+        assert impl == contract, f"{cls.__name__}.{name} parameters {impl} != contract {contract}"
+
+
+class TestAnthropicHelperLlmClientContract(LlmClientContractTests):
+    client_cls = _helper_sdk_classes()[0]
 
 
 def test_host_event_names_follow_on_did_or_on_will_verb_subject():
@@ -93,16 +105,29 @@ def _provider_driver_classes() -> list[type]:
 
 @pytest.mark.parametrize("driver_cls", _provider_driver_classes(), ids=lambda c: c.driver_type())
 class TestBuiltinProviderDriversSatisfyContract:
-    def test_structural(self, driver_cls):
-        for name in ("driver_type", "build_claude_config", "build_openai_config",
-                     "build_anthropic_helper_config", "build_cli_helper_config",
-                     "build_codex_config", "probe", "models"):
-            assert hasattr(driver_cls, name), name
-        assert isinstance(ProviderDriver, type)
+    def test_every_contract_method_is_present(self, driver_cls):
+        for name in ProviderDriver.__protocol_attrs__:  # type: ignore[attr-defined]
+            if name != "card":
+                assert hasattr(driver_cls, name), name
+
+    def test_build_methods_take_model_first(self, driver_cls):
+        for name in ("build_claude_config", "build_openai_config", "build_anthropic_helper_config",
+                     "build_cli_helper_config", "build_codex_config"):
+            params = list(inspect.signature(getattr(driver_cls, name)).parameters)
+            assert params[:2] == ["self", "model"], f"{driver_cls.__name__}.{name}: {params}"
+
+
+def _netmind_driver_cls() -> type:
+    import xyz_agent_context.agent_framework.providers.driver.drivers  # noqa: F401 registers
+    from xyz_agent_context.agent_framework.providers.driver.registry import get_driver_class
+
+    cls = get_driver_class("netmind")
+    assert cls is not None
+    return cls
 
 
 class TestNetmindProviderContract(ProviderDriverContractTests):
-    driver_cls = _provider_driver_classes()[2]  # netmind
+    driver_cls = _netmind_driver_cls()
 
 
 def _memory_specs():

@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+_SRC = Path(__file__).resolve().parents[2] / "src"
 
 _PROBE = """
 import importlib, json, sys
@@ -33,8 +37,9 @@ def test_narranexus_package_imports():
 def test_contracts_do_not_import_kernel_or_legacy():
     # A fresh interpreter: purging sys.modules in-process would re-import the
     # legacy package later and break class identity for every other test.
+    env = {**os.environ, "PYTHONPATH": str(_SRC)}
     out = subprocess.run(
-        [sys.executable, "-c", _PROBE], capture_output=True, text=True, check=True, timeout=120
+        [sys.executable, "-c", _PROBE], capture_output=True, text=True, check=True, timeout=120, env=env
     )
     leaked = json.loads(out.stdout.strip().splitlines()[-1])
     assert leaked == [], f"contracts pulled in non-contract modules: {leaked}"

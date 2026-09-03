@@ -16,9 +16,10 @@ Semantics:
   carve-out exists for the legacy registries' test fixtures and is recorded per
   call in the entry's ``replaced`` flag so the loader can report it.
 - ``get`` never falls back: an unknown name raises ``UnknownEntry``.
-- ``names()`` is registration order (builtin declaration order, then user
-  plugins in id order — the loader guarantees that outer ordering), so anything
-  derived from it (prompt sections, tool lists) is byte-stable across restarts.
+- ``names()`` is registration order; the loader feeds manifests in a fixed
+  order (``loader.load_order``: builtins as declared, then user plugins by id),
+  so anything derived from it (prompt sections, tool lists) is byte-stable
+  across restarts.
 - After ``freeze()`` registration raises ``RegistryFrozen``; registration is a
   startup activity, never a per-request one.
 """
@@ -157,7 +158,13 @@ class Registry(Generic[T]):
         return entry.factory() if entry is not None else None
 
     def owner_of(self, name: str) -> str:
-        return self._entries[self._key(name)].owner
+        key = self._key(name)
+        try:
+            return self._entries[key].owner
+        except KeyError:
+            raise UnknownEntry(
+                f"{self.kind}: unknown entry {key!r}. Registered: {list(self._entries) or '[]'}"
+            ) from None
 
     def names(self) -> tuple[str, ...]:
         return tuple(self._entries)

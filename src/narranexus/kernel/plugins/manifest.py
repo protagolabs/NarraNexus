@@ -26,7 +26,7 @@ from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from narranexus.contracts import API_VERSIONS, ManifestError
+from narranexus.contracts import API_VERSIONS, ManifestError, Stability
 from narranexus.kernel.plugins.compat import Range, Version
 from narranexus.kernel.plugins.slots import Slot, SlotTree, validate_path
 
@@ -80,6 +80,7 @@ class SlotDeclaration(_Strict):
     contract: str
     default: str | None = None
     distribution_only: bool = False
+    stability: Literal["alpha", "beta", "stable"] = "alpha"
     doc: str = ""
 
     @field_validator("contract")
@@ -103,6 +104,7 @@ class Manifest(_Strict):
     api: Mapping[str, int] = Field(default_factory=dict)
     dependencies: Mapping[str, str] = Field(default_factory=dict)
     after_dependencies: tuple[str, ...] = Field(default=(), alias="afterDependencies")
+    # Empty means "every host"; the loader treats it as ALL_HOSTS.
     hosts: tuple[Host, ...] = ()
     backend: BackendSpec | None = None
     frontend: FrontendSpec | None = None
@@ -184,6 +186,10 @@ class Manifest(_Strict):
     def semantic_version(self) -> Version:
         return Version.parse(self.version)
 
+    def effective_hosts(self) -> tuple[Host, ...]:
+        """``hosts`` with the empty tuple meaning every host."""
+        return self.hosts or ALL_HOSTS
+
     def provided_slots(self) -> tuple[str, ...]:
         return tuple(self.provides)
 
@@ -197,6 +203,7 @@ class Manifest(_Strict):
                 owner=tree_owner or self.id,
                 default=decl.default,
                 distribution_only=decl.distribution_only,
+                stability=Stability(decl.stability),
                 doc=decl.doc,
             )
             for path, decl in self.declares.items()
@@ -227,6 +234,7 @@ def parse_manifest(
     if manifest.is_builtin and not allow_builtin:
         raise ManifestError(f"{manifest.id}: the 'builtin.' prefix is reserved for the host's own plugins")
 
+    _check_declares_in_own_namespace(manifest)
     _check_provides_against_tree(manifest, tree)
     _check_redeclares(manifest, tree)
     _check_api_versions(manifest)
@@ -252,9 +260,9 @@ def derive_activation_events(manifest: Manifest) -> tuple[str, ...]:
     """
     events: list[str] = list(manifest.activation_events)
     for path in manifest.provides:
-        if path.startswith("ui.pages"):
+        if path == "ui.pages" or path.startswith("ui.pages."):
             events.append(f"onPage:{manifest.id}")
-        elif path.startswith("ui.panels"):
+        elif path == "ui.panels" or path.startswith("ui.panels."):
             events.append(f"onPanel:{manifest.id}")
         elif "onStartup" not in events:
             events.append("onStartup")
@@ -285,6 +293,21 @@ def _check_provides_against_tree(manifest: Manifest, tree: SlotTree) -> None:
             )
 
 
+def _check_declares_in_own_namespace(manifest: Manifest) -> None:
+    """A plugin may only declare slots under its own id (``<plugin_id>.<...>``).
+
+    This keeps every plugin-declared extension point attributable and makes
+    the missing ancestors safe to auto-create as namespaces owned by the
+    declaring plugin.
+    """
+    for path in manifest.declares:
+        if path == manifest.id or not path.startswith(manifest.id + "."):
+            raise ManifestError(
+                f"{manifest.id}: declares[{path!r}] must live under this plugin's own namespace "
+                f"({manifest.id!r}.<name>)"
+            )
+
+
 def _check_redeclares(manifest: Manifest, tree: SlotTree) -> None:
     provided = set(manifest.provides)
     for path in manifest.redeclares:
@@ -303,8 +326,12 @@ def _check_api_versions(manifest: Manifest) -> None:
         have = API_VERSIONS.get(kind)
         if have is None:
             raise ManifestError(f"{manifest.id}: api[{kind!r}] is not a contract kind. Known: {sorted(API_VERSIONS)}")
-        if wanted > have:
-            raise ManifestError(f"{manifest.id}: api[{kind!r}] wants {wanted} but this host provides {have}")
+        if wanted != have:
+            # A contract version bump is by definition a breaking change
+            # (docs/API_POLICY.md §5), so any mismatch fails closed.
+            raise ManifestError(
+                f"{manifest.id}: api[{kind!r}] wants {wanted} but this host provides {have} (versions must match)"
+            )
 
 
 def _check_min_app_version(manifest: Manifest, host_version: str) -> None:

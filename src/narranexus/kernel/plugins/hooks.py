@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable, Iterator, Mapping
 
 from loguru import logger
 
-from narranexus.contracts import Disposable, RegistryConflict, UnknownEntry
+from narranexus.contracts import Disposable, RegistryConflict, RegistryFrozen, UnknownEntry
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,14 @@ class HookCaller:
     def __init__(self, spec: HookSpec) -> None:
         self.spec = spec
         self._impls: list[HookImpl] = []
+        self._frozen = False
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    @property
+    def frozen(self) -> bool:
+        return self._frozen
 
     # ------------------------------------------------------------ mutation
 
@@ -107,6 +115,8 @@ class HookCaller:
         trylast: bool = False,
         wrapper: bool = False,
     ) -> Disposable:
+        if self._frozen:
+            raise RegistryFrozen(f"hook {self.spec.name!r}: cannot add implementations after freeze()")
         if tryfirst and trylast:
             raise ValueError(f"hook {self.spec.name!r}: tryfirst and trylast are exclusive")
         if wrapper and not inspect.isgeneratorfunction(fn) and not inspect.isasyncgenfunction(fn):
@@ -143,7 +153,7 @@ class HookCaller:
 
     def _ordered(self, wrappers: bool) -> list[HookImpl]:
         """pluggy order: LIFO registration, tryfirst ahead, trylast behind."""
-        pool = [i for i in self._impls if i.wrapper is wrappers]
+        pool = [i for i in self._impls if i.wrapper == wrappers]
         pool.reverse()
         first = [i for i in pool if i.tryfirst]
         normal = [i for i in pool if not i.tryfirst and not i.trylast]
@@ -161,6 +171,7 @@ class HookCaller:
         active: list[tuple[HookImpl, Any]] = []
         # Wrappers: run the "before" half, outermost first.
         for impl in wrappers:
+            gen = None
             try:
                 gen = impl.fn(**{k: kwargs[k] for k in impl.accepted})
                 if inspect.isasyncgen(gen):
@@ -171,6 +182,7 @@ class HookCaller:
             except Exception as exc:  # noqa: BLE001 — isolate; keep going
                 outcome.errors.append((impl.owner, exc))
                 logger.warning(f"[hook:{self.spec.name}] wrapper {impl.owner!r} failed before: {exc!r}")
+                await _close_generator(gen)
         # Plain implementations.
         for impl in self._ordered(wrappers=False):
             try:
@@ -204,6 +216,19 @@ class HookCaller:
         return outcome
 
 
+async def _close_generator(gen: Any) -> None:
+    """Run a failed wrapper's ``finally`` blocks instead of leaving it dangling."""
+    if gen is None:
+        return
+    try:
+        if inspect.isasyncgen(gen):
+            await gen.aclose()
+        elif inspect.isgenerator(gen):
+            gen.close()
+    except Exception as exc:  # noqa: BLE001 — closing is best effort
+        logger.debug(f"[hook] closing a failed wrapper raised: {exc!r}")
+
+
 class HookRegistry:
     """Name → ``HookCaller``; specs are declared once, implementations any time before freeze."""
 
@@ -215,8 +240,20 @@ class HookRegistry:
         if spec.name in self._callers:
             raise RegistryConflict(f"hook {spec.name!r} already declared")
         caller = HookCaller(spec)
+        if self._frozen:
+            caller.freeze()
         self._callers[spec.name] = caller
         return caller
+
+    def freeze(self) -> None:
+        """Registration is a startup activity; after this, ``add`` raises."""
+        self._frozen = True
+        for caller in self._callers.values():
+            caller.freeze()
+
+    @property
+    def frozen(self) -> bool:
+        return self._frozen
 
     def caller(self, name: str) -> HookCaller:
         try:

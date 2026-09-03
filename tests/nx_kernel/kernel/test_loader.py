@@ -13,13 +13,13 @@ import pytest
 
 from narranexus.contracts import ManifestError, PluginError, RegistryFrozen, UnknownEntry
 from narranexus.kernel.plugins.builtins import BUILTIN_MANIFEST_DATA, builtin_manifests
-from narranexus.kernel.plugins.loader import discover, load, resolve_symbol
+from narranexus.kernel.plugins.loader import discover, load, load_order, resolve_symbol
 from narranexus.kernel.plugins.manifest import parse_manifest
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
-GOLDEN = Path(__file__).resolve().parents[2] / "snapshots" / "golden" / "registries.json"
+GOLDEN = Path(__file__).resolve().parents[2] / "snapshots" / "golden" / "registries_local.json"
 
 
 # ---------------------------------------------------------------- registries
@@ -27,19 +27,19 @@ GOLDEN = Path(__file__).resolve().parents[2] / "snapshots" / "golden" / "registr
 
 def test_registry_for_creates_per_slot_with_kind_version_and_normalizer():
     regs = Registries()
-    fw = regs.registry_for("turn.act.framework")
-    assert fw is regs.registry_for("turn.act.framework")
+    fw = regs.registry_for("turn.pipeline.act.framework")
+    assert fw is regs.registry_for("turn.pipeline.act.framework")
     fw.register("Claude_Code", lambda: 1, owner="p")
     assert fw.names() == ("claude_code",)
     assert regs.registry_for("model.providers").api_version == 0
     with pytest.raises(UnknownEntry):
         regs.registry_for("nope.slot")
-    assert regs.paths() == ("model.providers", "turn.act.framework")
+    assert regs.paths() == ("model.providers", "turn.pipeline.act.framework")
 
 
 def test_freeze_propagates_and_applies_to_later_registries():
     regs = Registries()
-    fw = regs.registry_for("turn.act.framework")
+    fw = regs.registry_for("turn.pipeline.act.framework")
     regs.freeze()
     assert regs.frozen and fw.frozen
     with pytest.raises(RegistryFrozen):
@@ -51,7 +51,7 @@ def test_legacy_registries_are_the_kernel_ones():
     from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY
     from xyz_agent_context.memory.spec import MEMORY_KIND_REGISTRY
 
-    assert FRAMEWORK_REGISTRY is KERNEL_REGISTRIES.registry_for("turn.act.framework")
+    assert FRAMEWORK_REGISTRY is KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
     assert DRIVER_REGISTRY is KERNEL_REGISTRIES.registry_for("model.providers")
     assert MEMORY_KIND_REGISTRY is KERNEL_REGISTRIES.registry_for("agent.capabilities.memory_kinds")
 
@@ -82,16 +82,16 @@ def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot(monkey
     assert report.errors == [] and report.skipped == []
     snap = regs.snapshot()
     golden = json.loads(GOLDEN.read_text())
-    assert sorted(snap["turn.act.framework"]) == sorted(golden["agent_loop_frameworks"])
-    assert sorted(snap["turn.act.framework"].values()) == sorted(
+    assert sorted(snap["turn.pipeline.act.framework"]) == sorted(golden["agent_loop_frameworks"])
+    assert sorted(snap["turn.pipeline.act.framework"].values()) == sorted(
         f"builtin.frameworks.{n}" for n in golden["agent_loop_frameworks"]
     )
-    assert list(snap["model.providers"]) == golden["provider_drivers_present"]
+    assert list(snap["model.providers"]) == golden["provider_drivers"]
     assert set(snap["model.providers"].values()) == {"builtin.providers"}
     assert sorted(snap["agent.capabilities.memory_kinds"]) == golden["memory_kinds"]
     assert set(snap["agent.capabilities.memory_kinds"].values()) == {"builtin.memory_kinds"}
     by_id = {p.plugin_id: p for p in report.loaded}
-    assert by_id["builtin.providers"].entries == len(golden["provider_drivers_present"])
+    assert by_id["builtin.providers"].entries == len(golden["provider_drivers"])
     assert all(p.duration_ms >= 0 for p in report.loaded)
 
 
@@ -111,7 +111,7 @@ def test_hosts_filter_skips_manifests_not_for_this_role():
     assert sorted(report.skipped) == sorted(
         d["id"] for d in BUILTIN_MANIFEST_DATA if "mcp" not in d["hosts"]
     )
-    assert "turn.act.framework" not in regs.paths()
+    assert "turn.pipeline.act.framework" not in regs.paths()
 
 
 def _user_manifest(**overrides):
@@ -158,6 +158,31 @@ def test_builtin_failure_is_fatal_and_duplicate_ids_are_rejected():
     dup = _user_manifest()
     with pytest.raises(ManifestError, match="duplicate plugin id"):
         load(regs, [dup, dup], role="backend")
+
+
+def test_load_order_is_builtins_as_declared_then_users_by_id():
+    b = list(builtin_manifests())
+    u2 = _user_manifest(id="zeta.two")
+    u1 = _user_manifest(id="alpha.one")
+    ordered = load_order([u2] + b[::-1] + [u1])
+    assert [m.id for m in ordered] == [m.id for m in b[::-1]] + ["alpha.one", "zeta.two"]
+
+
+def test_plugin_declared_slot_is_applied_before_it_provides_into_it():
+    regs = Registries()
+    m = parse_manifest(
+        {
+            "id": "acme.sources",
+            "version": "0.1.0",
+            "displayName": "Sources",
+            "declares": {"acme.sources.list": {"arity": "many", "contract": "x:Y"}},
+            "provides": {"acme.sources.list": ["tests.nx_kernel.kernel.test_loader:DEMO_CLIENTS"]},
+        },
+        tree=build_kernel_slot_tree(),
+    )
+    report = load(regs, [m], role="backend")
+    assert report.errors == []
+    assert "acme.sources.list" in regs.slots and regs.registry_for("acme.sources.list").names() == ("demo",)
 
 
 def test_resolve_symbol_reports_module_and_attribute_errors():

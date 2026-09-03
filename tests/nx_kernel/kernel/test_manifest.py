@@ -71,9 +71,12 @@ def test_full_manifest_round_trip_including_declares_and_permissions():
     )
     m = parse_manifest(data, tree=_tree(), host_version="1.19.5")
     assert m.hosts == ("backend", "frontend") and m.backend.activate is True
+    assert m.effective_hosts() == ("backend", "frontend")
+    assert parse_manifest(_base(), tree=_tree()).effective_hosts() == ("backend", "mcp", "workers", "frontend")
     assert m.permissions.network == ("api.weather.com",)
     (declared,) = m.declared_slots()
     assert (declared.path, declared.arity, declared.owner) == ("acme.weather.sources", "many", "acme.weather")
+    assert declared.stability.value == "alpha"
     assert derive_activation_events(m) == ("onStartup", "onPage:acme.weather")
 
 
@@ -88,14 +91,16 @@ def test_full_manifest_round_trip_including_declares_and_permissions():
         ({"quality": "platinum"}, "quality"),
         ({"unknownKey": 1}, "unknownKey"),
         ({"provides": {"model.providers": "backend.provider:WeatherDriver"}}, "many-arity slot; give a list"),
-        ({"provides": {"turn.act.framework": ["backend:Loop"]}}, "one-arity slot; give a single symbol"),
+        ({"provides": {"turn.pipeline.act.framework": ["backend:Loop"]}}, "one-arity slot; give a single symbol"),
         ({"provides": {"model.providers": ["not a symbol"]}}, "module.path:Symbol"),
         ({"provides": {"nope.slot": ["backend:X"]}}, "not a declared slot"),
         ({"provides": {"kernel.auth": "backend:Sso"}}, "distribution-only"),
-        ({"api": {"provider": 99}}, "wants 99"),
+        ({"api": {"provider": 99}}, "versions must match"),
         ({"api": {"unicorn": 0}}, "not a contract kind"),
-        ({"redeclares": ["turn.act"]}, "descendant of a slot this plugin provides"),
+        ({"redeclares": ["turn.pipeline.act"]}, "descendant of a slot this plugin provides"),
         ({"declares": {"Bad Path": {"arity": "one", "contract": "x:Y"}}}, "declares"),
+        ({"declares": {"other.plugin.slot": {"arity": "one", "contract": "x:Y"}}}, "own namespace"),
+        ({"declares": {"acme.weather": {"arity": "one", "contract": "x:Y"}}}, "own namespace"),
         ({"declares": {"acme.x": {"arity": "one", "contract": "nope"}}}, "module.path:Symbol"),
     ],
 )
@@ -126,11 +131,11 @@ def test_min_app_version_gate():
 
 def test_redeclares_must_be_under_a_provided_composite_slot():
     tree = _tree()
-    data = _base(provides={"turn.act": "backend.act:Strategy"}, redeclares=["turn.act.framework"])
+    data = _base(provides={"turn.pipeline.act": "backend.act:Strategy"}, redeclares=["turn.pipeline.act.framework"])
     m = parse_manifest(data, tree=tree)
-    assert m.redeclares == ("turn.act.framework",)
+    assert m.redeclares == ("turn.pipeline.act.framework",)
     with pytest.raises(ManifestError, match="not a known slot"):
-        parse_manifest(_base(provides={"turn.act": "backend.act:Strategy"}, redeclares=["turn.act.nope"]), tree=tree)
+        parse_manifest(_base(provides={"turn.pipeline.act": "backend.act:Strategy"}, redeclares=["turn.pipeline.act.nope"]), tree=tree)
 
 
 def test_load_manifest_from_disk_reports_unreadable_or_bad_json(tmp_path):

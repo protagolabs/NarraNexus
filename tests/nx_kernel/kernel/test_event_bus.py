@@ -71,6 +71,33 @@ async def test_slow_handler_is_cancelled_and_counted_as_slow():
     assert bus.slow_counts["slowpoke"] == 1
 
 
+async def test_blocking_sync_handler_is_abandoned_and_counted_as_slow():
+    import time
+
+    bus = EventBus(timeout_s=0.05)
+    bus.subscribe("onDidCompleteRun", lambda p: time.sleep(0.5), owner="blocker")
+    bus.subscribe("onDidCompleteRun", lambda p: None, owner="quick")
+    started = asyncio.get_running_loop().time()
+    report = await bus.emit("onDidCompleteRun", {})
+    elapsed = asyncio.get_running_loop().time() - started
+    assert report.timed_out == ["blocker"] and report.delivered == 1
+    assert elapsed < 0.4, "the loop must not wait for the blocking handler"
+
+
+async def test_delivery_is_concurrent_so_latency_is_one_timeout():
+    bus = EventBus(timeout_s=0.5)
+
+    async def sleeper(payload):
+        await asyncio.sleep(0.1)
+
+    for i in range(5):
+        bus.subscribe("onDidStartRun", sleeper, owner=f"p{i}")
+    started = asyncio.get_running_loop().time()
+    report = await bus.emit("onDidStartRun", {})
+    assert report.delivered == 5
+    assert asyncio.get_running_loop().time() - started < 0.4
+
+
 async def test_dispose_and_block_stop_delivery():
     bus = EventBus()
     calls: list[str] = []

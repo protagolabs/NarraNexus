@@ -17,7 +17,10 @@
     "narrative",
     "observation"
   ],
-  "provider_drivers_present": [
+  "provider_driver_owners": [
+    "builtin.providers"
+  ],
+  "provider_drivers": [
     "custom_anthropic",
     "custom_openai",
     "netmind",
@@ -25,6 +28,7 @@
     "yunwu",
     "openrouter",
     "claude_oauth",
-    "codex_oauth"
+    "codex_oauth",
+    "system_pool"
   ]
 }

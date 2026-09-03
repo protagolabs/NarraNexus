@@ -74,10 +74,10 @@ DriverFactory = Callable[..., AgentLoopDriver]
 
 DEFAULT_AGENT_LOOP_FRAMEWORK = "nexus_power"
 
-# The kernel registry for slot ``turn.act.framework`` (plugin platform, batch 0).
+# The kernel registry for slot ``turn.pipeline.act.framework`` (plugin platform, batch 0).
 # Keys are case-insensitive; entries are lazy factories so registering a
 # framework never imports its SDK.
-FRAMEWORK_REGISTRY: Registry[DriverFactory] = KERNEL_REGISTRIES.registry_for("turn.act.framework")
+FRAMEWORK_REGISTRY: Registry[DriverFactory] = KERNEL_REGISTRIES.registry_for("turn.pipeline.act.framework")
 
 
 def register_agent_loop_driver(

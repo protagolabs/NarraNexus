@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— `api` 版本严格相等；`declares` 限本插件命名空间；`hosts` 空=全部
+
+`api[kind]` 必须**等于**宿主版本（bump 即破坏，policy §5「不匹配 fail-closed」）。`declares` 的路径
+必须在 `<plugin_id>.` 之下（可归因，且祖先可安全自动补为该插件的命名空间）。`SlotDeclaration`
+加 `stability`。`hosts` 空元组的语义「全部宿主」写在字段注释并由 `effective_hosts()` 承担。
+`ui.pages` 的激活推导改为精确匹配（不再误配 `ui.pagesomething`）。
+
 ## 2026-09-03 — `narranexus-plugin.json` 的模型：声明式、严格、扩展位感知
 
 启动期只读 manifest 不 import 代码（spec §7.4 / §10 性能预算），所以 UI 元数据、装载计划、

@@ -72,16 +72,24 @@ class SlotTree:
 
     # ------------------------------------------------------------ mutation
 
-    def declare(self, slot: Slot) -> Slot:
+    def declare(self, slot: Slot, *, create_namespaces: bool = False) -> Slot:
+        """Add a slot. Parents must exist unless ``create_namespaces`` fills them in.
+
+        ``create_namespaces`` is how a plugin declares ``acme.weather.sources``
+        without first spelling out ``acme`` and ``acme.weather``: the missing
+        ancestors become namespace slots owned by the same plugin.
+        """
         if slot.path in self._slots:
             raise RegistryConflict(
                 f"slot {slot.path!r} already declared by {self._slots[slot.path].owner!r}"
             )
         parent = slot.parent
         if parent is not None and parent not in self._slots:
-            raise UnknownEntry(
-                f"slot {slot.path!r}: parent {parent!r} is not declared; declare it first"
-            )
+            if not create_namespaces:
+                raise UnknownEntry(
+                    f"slot {slot.path!r}: parent {parent!r} is not declared; declare it first"
+                )
+            self.declare(namespace_slot(parent, owner=slot.owner), create_namespaces=True)
         self._slots[slot.path] = slot
         return slot
 
@@ -136,12 +144,23 @@ class SlotTree:
 
 
 KERNEL_OWNER = "builtin.kernel"
+NAMESPACE_CONTRACT = "narranexus.contracts:Namespace"
+
+
+def namespace_slot(path: str, *, owner: str, doc: str = "") -> Slot:
+    """A pure grouping node: one-arity, filled by its owner, never bound directly."""
+    return Slot(path, "one", NAMESPACE_CONTRACT, owner, default=owner, doc=doc or f"Namespace owned by {owner}.")
 
 
 def build_kernel_slot_tree() -> SlotTree:
     """The roots every process starts from (spec §6.2, batch-0 subset).
 
-    Children that a builtin plugin declares (``turn.ingress`` … ``turn.reflect``,
+    Stage slots live UNDER ``turn.pipeline`` (``turn.pipeline.act``,
+    ``turn.pipeline.recall`` …) so that dotted-path descendancy is the same
+    relation as composite ownership: replacing the pipeline hides every stage
+    the replacement does not redeclare (bindings nesting rule).
+
+    Children that a builtin plugin declares (the remaining stages,
     the nexus_power seams, the UI sub-points) arrive with those plugins in later
     batches; declaring them here would put their definition in the wrong owner.
     """
@@ -163,9 +182,9 @@ def build_kernel_slot_tree() -> SlotTree:
              default="builtin.turn", doc="Turn domain root."),
         Slot("turn.pipeline", one, "narranexus.contracts.agent.pipeline:TurnPipeline", KERNEL_OWNER,
              default="builtin.turn", doc="The whole turn runtime; its provider declares the stage slots."),
-        Slot("turn.act", one, "narranexus.contracts.agent.pipeline:ActStrategy", KERNEL_OWNER,
-             default="builtin.turn", doc="Act stage (agent loop or direct trigger)."),
-        Slot("turn.act.framework", one, "narranexus.contracts.framework:AgentLoopDriver", KERNEL_OWNER,
+        Slot("turn.pipeline.act", one, "narranexus.contracts.agent.pipeline:ActStrategy", KERNEL_OWNER,
+             default="builtin.turn", doc="Act stage (agent loop or direct trigger); a child of the pipeline so replacing the pipeline owns it."),
+        Slot("turn.pipeline.act.framework", one, "narranexus.contracts.framework:AgentLoopDriver", KERNEL_OWNER,
              default="builtin.frameworks.nexus_power", doc="Agent-loop framework used by the Act stage."),
         Slot("model", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Model domain root."),
@@ -195,4 +214,13 @@ def build_kernel_slot_tree() -> SlotTree:
     return tree
 
 
-__all__ = ["Arity", "Slot", "SlotTree", "KERNEL_OWNER", "build_kernel_slot_tree", "validate_path"]
+__all__ = [
+    "Arity",
+    "Slot",
+    "SlotTree",
+    "KERNEL_OWNER",
+    "NAMESPACE_CONTRACT",
+    "build_kernel_slot_tree",
+    "namespace_slot",
+    "validate_path",
+]

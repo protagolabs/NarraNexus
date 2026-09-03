@@ -20,7 +20,7 @@ from narranexus.kernel.plugins.bindings import (
     resolve,
     write_resolved,
 )
-from narranexus.kernel.plugins.slots import Slot, SlotTree
+from narranexus.kernel.plugins.slots import Slot, SlotTree, build_kernel_slot_tree
 
 
 def _tree() -> SlotTree:
@@ -138,6 +138,7 @@ def test_parse_env_and_toml_and_mapping():
     env = parse_env({"NX_BIND__TURN__PIPELINE__RECALL": "acme.recall", "NX_BIND__MODEL__PROVIDERS": "+x,-y", "OTHER": "1"})
     assert env.layer is Layer.ENV
     assert env.entries == {"turn.pipeline.recall": "acme.recall", "model.providers": ["+x", "-y"]}
+    assert parse_env({"NX_BIND__MODEL__PROVIDERS": "a,b"}).entries == {"model.providers": ["a", "b"]}
     with pytest.raises(ValueError):
         parse_env({"NX_BIND__Bad-Path": "x"})
 
@@ -162,3 +163,18 @@ def test_resolved_snapshot_is_written_atomically_and_names_layers(tmp_path):
     assert data["one"]["turn.pipeline"]["layer"] == "DEFAULT"
     assert "model.providers" in data["many"]
     assert not (tmp_path / "run" / "bindings.resolved.json.tmp").exists()
+
+
+def test_nesting_rule_fires_on_the_kernel_tree():
+    """Replacing the whole turn runtime hides the framework slot unless redeclared."""
+    tree = build_kernel_slot_tree()
+    dist = from_mapping(Layer.DISTRIBUTION, {"model.resolver": "builtin.providers"}, origin="dist")
+    user = from_mapping(
+        Layer.USER_CONFIG,
+        {"turn.pipeline": "acme.turn", "turn.pipeline.act.framework": "builtin.frameworks.claude_code"},
+        origin="narranexus.toml",
+    )
+    with pytest.raises(BindingConflict, match="turn.pipeline.act.framework is bound"):
+        resolve(tree, [dist, user])
+    resolved = resolve(tree, [dist, user], redeclarations={"acme.turn": ["turn.pipeline.act.framework"]})
+    assert resolved.provider_for("turn.pipeline.act.framework") == "builtin.frameworks.claude_code"

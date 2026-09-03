@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— `freeze()` 真实存在；失败 wrapper 的生成器被关闭
+
+`HookCaller.freeze()`/`HookRegistry.freeze()` 落地（之前 `_frozen` 字段悬空）：冻结后 `add` 抛
+`RegistryFrozen`，冻结后 `declare` 的 caller 也是冻结态。wrapper 的 before 半程抛异常时现在
+`close()`/`aclose()` 该生成器，让它的 `finally` 跑到（`_close_generator`）。`i.wrapper == wrappers`
+取代 `is`。
+
 ## 2026-09-03 — many 位的机制：HookSpec / HookImpl / HookCaller（pluggy 语义）
 
 与 `registry.py`（one 位、单提供者）互补：一个调用点、任意多插件参与（spec §5.3、D16）。

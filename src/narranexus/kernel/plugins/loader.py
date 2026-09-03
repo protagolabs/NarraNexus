@@ -93,26 +93,48 @@ def _as_contributions(value: Any, spec: str) -> list[Contribution[Any]]:
     raise PluginError(f"{spec}: expected a Contribution or an iterable of Contributions, got {type(value).__name__}")
 
 
+def load_order(manifests: Iterable[Manifest]) -> list[Manifest]:
+    """Builtins in declaration order, then user plugins by id.
+
+    This is what makes ``Registry.names()`` byte-stable across restarts: the
+    outer order is fixed here, the inner order is each manifest's ``provides``.
+    Dependency-aware (topological) ordering arrives with plugin dependencies in
+    batch 2 and slots in between these two groups.
+    """
+    items = list(manifests)
+    builtins = [m for m in items if m.is_builtin]
+    users = sorted((m for m in items if not m.is_builtin), key=lambda m: m.id)
+    return builtins + users
+
+
 def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -> LoadReport:
     """Register every contribution of the manifests that target ``role``."""
     report = LoadReport(role=role)
     seen: set[str] = set()
-    for manifest in manifests:
+    for manifest in load_order(manifests):
         if manifest.id in seen:
             raise ManifestError(f"duplicate plugin id {manifest.id!r} in load set")
         seen.add(manifest.id)
-        if manifest.hosts and role not in manifest.hosts:
+        if role not in manifest.effective_hosts():
             report.skipped.append(manifest.id)
             continue
         started = time.perf_counter()
         entries = 0
         error: str | None = None
         try:
+            # A plugin's own slot declarations must exist before it (or anyone)
+            # provides into them; declaring is idempotent per process.
+            for slot in manifest.declared_slots():
+                if slot.path not in registries.slots:
+                    registries.slots.declare(slot, create_namespaces=True)
             for path, value in manifest.provides.items():
                 registry = registries.registry_for(path)
                 specs = (value,) if isinstance(value, str) else value
                 for spec in specs:
-                    for contribution in _as_contributions(resolve_symbol(spec), spec):
+                    contributions = _as_contributions(resolve_symbol(spec), spec)
+                    if not contributions:
+                        logger.debug(f"[plugins] {manifest.id}: {spec} produced no contributions")
+                    for contribution in contributions:
                         registry.register_contribution(contribution, owner=manifest.id)
                         entries += 1
         except Exception as exc:  # noqa: BLE001 — classify below
@@ -134,4 +156,4 @@ def load(registries: Registries, manifests: Iterable[Manifest], *, role: Host) -
     return report
 
 
-__all__ = ["PluginLoad", "LoadReport", "discover", "load", "resolve_symbol"]
+__all__ = ["PluginLoad", "LoadReport", "discover", "load", "load_order", "resolve_symbol"]

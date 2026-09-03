@@ -7,11 +7,13 @@
 Emitters (the platform, at its observation points) call ``emit(name,
 payload)``; subscribers (plugins, the analytics sink) get a ``Disposable``
 back from ``subscribe``. Handler failures are isolated and counted per owner
-so a broken plugin degrades its own metrics, never the turn. Each handler runs
-under a timeout; a handler that exceeds it is cancelled and counted as
-``slow`` — the platform must never become the interruption source
-(binding rule #15), but a plugin must not be allowed to hold the turn hostage
-either.
+so a broken plugin degrades its own metrics, never the turn. Handlers are
+delivered concurrently and each runs under a timeout — synchronous handlers on
+a worker thread so a blocking one can be abandoned — and one that exceeds it
+is counted as ``slow``: the platform must never become the interruption
+source (binding rule #15), but a plugin must not be allowed to hold the turn
+hostage either. Worst-case emit latency is therefore one timeout, not one per
+subscriber.
 
 Only declared event names may be subscribed to or emitted: the host vocabulary
 in ``narranexus.contracts.events.HOST_EVENTS`` plus anything a plugin
@@ -98,25 +100,39 @@ class EventBus:
     # ------------------------------------------------------------------ emit
 
     async def emit(self, name: str, payload: Mapping[str, Any]) -> EmitReport:
+        """Deliver to every subscriber concurrently; worst case is one timeout, not N."""
         report = EmitReport(event=name)
-        for sub in list(self._subs_for(name)):
-            try:
-                await asyncio.wait_for(self._invoke(sub.handler, payload), timeout=self.timeout_s)
-            except asyncio.TimeoutError:
+        subs = list(self._subs_for(name))
+        outcomes = await asyncio.gather(
+            *(self._deliver(sub, payload) for sub in subs), return_exceptions=True
+        )
+        for sub, outcome in zip(subs, outcomes):
+            if outcome is None:
+                report.delivered += 1
+            elif isinstance(outcome, asyncio.TimeoutError):
                 self.slow_counts[sub.owner] += 1
                 report.timed_out.append(sub.owner)
-                logger.warning(f"[events:{name}] handler of {sub.owner!r} exceeded {self.timeout_s}s and was cancelled")
-            except Exception as exc:  # noqa: BLE001 — isolate; the turn must not be the casualty
+                logger.warning(
+                    f"[events:{name}] handler of {sub.owner!r} exceeded {self.timeout_s}s and was abandoned"
+                )
+            elif isinstance(outcome, BaseException):
                 self.error_counts[sub.owner] += 1
-                report.failed.append((sub.owner, exc))
-                logger.warning(f"[events:{name}] handler of {sub.owner!r} failed: {exc!r}")
-            else:
-                report.delivered += 1
+                report.failed.append((sub.owner, outcome))
+                logger.warning(f"[events:{name}] handler of {sub.owner!r} failed: {outcome!r}")
         return report
+
+    async def _deliver(self, sub: Subscription, payload: Mapping[str, Any]) -> None:
+        await asyncio.wait_for(self._invoke(sub.handler, payload), timeout=self.timeout_s)
 
     @staticmethod
     async def _invoke(handler: Handler, payload: Mapping[str, Any]) -> None:
-        result = handler(payload)
+        if inspect.iscoroutinefunction(handler):
+            await handler(payload)
+            return
+        # A synchronous handler runs on a worker thread so a blocking one
+        # (time.sleep, a requests call) can be abandoned by wait_for instead
+        # of freezing the event loop. Its result may still be awaitable.
+        result = await asyncio.to_thread(handler, payload)
         if inspect.isawaitable(result):
             await result
 

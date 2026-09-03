@@ -35,17 +35,17 @@ bound only from the distribution or default layers.
 | `model.providers` | many | `narranexus.contracts.provider:ProviderDriver` | — | `builtin.kernel` | — | LLM provider drivers (credential/endpoint axis). |
 | `model.resolver` | one | `narranexus.contracts.llm_client:ModelResolver` | `builtin.providers` | `builtin.kernel` | — | Model-name resolution (the three legacy _resolve_model paths, unified in batch 1). |
 | `turn` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | Turn domain root. |
-| `turn.act` | one | `narranexus.contracts.agent.pipeline:ActStrategy` | `builtin.turn` | `builtin.kernel` | — | Act stage (agent loop or direct trigger). |
-| `turn.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.kernel` | — | Agent-loop framework used by the Act stage. |
 | `turn.pipeline` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | The whole turn runtime; its provider declares the stage slots. |
+| `turn.pipeline.act` | one | `narranexus.contracts.agent.pipeline:ActStrategy` | `builtin.turn` | `builtin.kernel` | — | Act stage (agent loop or direct trigger); a child of the pipeline so replacing the pipeline owns it. |
+| `turn.pipeline.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.kernel` | — | Agent-loop framework used by the Act stage. |
 | `ui` | one | `narranexus.contracts.ui:Shell` | `builtin.ui` | `builtin.kernel` | distribution-only | Frontend shell; distribution-level choice. |
 
 ## Builtin plugins
 
 | Plugin | Version | Hosts | Provides | Quality |
 |---|---|---|---|---|
-| `builtin.frameworks.nexus_power` | 1.0.0 | backend | `turn.act.framework` | gold |
-| `builtin.frameworks.claude_code` | 1.0.0 | backend | `turn.act.framework` | gold |
-| `builtin.frameworks.codex_cli` | 1.0.0 | backend | `turn.act.framework` | gold |
+| `builtin.frameworks.nexus_power` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
+| `builtin.frameworks.claude_code` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
+| `builtin.frameworks.codex_cli` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
 | `builtin.providers` | 1.0.0 | backend, mcp, workers | `model.providers` | gold |
 | `builtin.memory_kinds` | 1.0.0 | backend, mcp, workers | `agent.capabilities.memory_kinds` | gold |
