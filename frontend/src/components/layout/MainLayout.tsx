@@ -108,6 +108,7 @@ export function ChatView() {
 
   const isMobile = useIsMobile();
   const pendingPanel = useUIStore((s) => s.pendingPanel);
+  const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
 
@@ -144,7 +145,8 @@ export function ChatView() {
   useEffect(() => {
     if (pendingPanel) {
       setDrawerTab((prev) => {
-        if (prev === (pendingPanel as AtomicTabId)) return null;
+        // 'open' callers must end up open; only a user toggle closes.
+        if (pendingPanelMode === 'toggle' && prev === (pendingPanel as AtomicTabId)) return null;
         try {
           window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
         } catch { /* storage unavailable — onboarding hint just stays */ }
@@ -152,7 +154,7 @@ export function ChatView() {
       });
       clearPendingPanel();
     }
-  }, [pendingPanel, clearPendingPanel]);
+  }, [pendingPanel, pendingPanelMode, clearPendingPanel]);
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);

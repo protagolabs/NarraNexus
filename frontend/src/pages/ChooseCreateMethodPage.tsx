@@ -37,7 +37,7 @@ export default function ChooseCreateMethodPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { createAgent } = useCreateAgent();
-  const requestPanel = useUIStore((s) => s.requestPanel);
+  const openPanel = useUIStore((s) => s.openPanel);
   const [phase, setPhase] = useState<Phase>('idle');
 
   const busy = phase === 'probing' || phase === 'creating';
@@ -57,11 +57,15 @@ export default function ChooseCreateMethodPage() {
         // Reveal the configuration panel straight away: the whole point of
         // this path is that the conversation fills in a panel, so the panel
         // has to be visible before the first message.
-        requestPanel('builder');
+        //
+        // openPanel, NOT requestPanel — the latter TOGGLES, so entering the
+        // studio while the panel already happened to be the open tab would
+        // close it instead.
+        openPanel('builder');
       }
       navigate('/app/chat');
     },
-    [createAgent, navigate, requestPanel],
+    [createAgent, navigate, openPanel],
   );
 
   /**
