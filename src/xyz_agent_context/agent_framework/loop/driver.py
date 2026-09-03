@@ -35,7 +35,9 @@ from loguru import logger
 # The Protocol itself is the public contract and lives in narranexus.contracts
 # (plugin platform, batch 0). It is re-exported here so every existing import
 # of ``AgentLoopDriver`` from this module keeps resolving to the same object.
+from narranexus.contracts import API_VERSIONS, Disposable, UnknownEntry
 from narranexus.contracts.framework import AgentLoopDriver
+from narranexus.kernel.plugins.registry import Registry
 
 
 class FrameworkNotInstalledError(RuntimeError):
@@ -71,26 +73,36 @@ DriverFactory = Callable[..., AgentLoopDriver]
 
 DEFAULT_AGENT_LOOP_FRAMEWORK = "nexus_power"
 
-_REGISTRY: dict[str, DriverFactory] = {}
+# The kernel registry for slot ``turn.act.framework`` (plugin platform, batch 0).
+# Keys are case-insensitive; entries are lazy factories so registering a
+# framework never imports its SDK.
+FRAMEWORK_REGISTRY: Registry[DriverFactory] = Registry(
+    "agentLoopFrameworks",
+    api_version=API_VERSIONS["framework"],
+    normalize=lambda s: s.strip().lower(),
+)
 
 
-def register_agent_loop_driver(name: str, factory: DriverFactory) -> None:
+def register_agent_loop_driver(
+    name: str, factory: DriverFactory, *, owner: str = "builtin.frameworks"
+) -> Disposable:
     """Register a framework driver factory under a case-insensitive name.
 
     The factory is called with whatever keyword args ``get_agent_loop_driver``
     forwards (currently ``working_path``); it must return an
     ``AgentLoopDriver``. Re-registering a name overrides it (useful for
-    tests injecting a fake driver).
+    tests injecting a fake driver); the returned ``Disposable`` unregisters it
+    again, which is how a test cleans up.
     """
     key = name.strip().lower()
-    if key in _REGISTRY:
+    if key in FRAMEWORK_REGISTRY:
         logger.debug(f"Overriding agent-loop driver '{key}'")
-    _REGISTRY[key] = factory
+    return FRAMEWORK_REGISTRY.register(key, lambda: factory, owner=owner, replace=True)
 
 
 def available_agent_loop_frameworks() -> list[str]:
     """Names of all registered frameworks (sorted, for stable logging)."""
-    return sorted(_REGISTRY)
+    return sorted(FRAMEWORK_REGISTRY.names())
 
 
 def resolve_framework_name(framework: str | None = None) -> str:
@@ -146,8 +158,8 @@ def get_agent_loop_driver(
         )
 
     try:
-        factory = _REGISTRY[name]
-    except KeyError:
+        factory = FRAMEWORK_REGISTRY.get(name)
+    except UnknownEntry:
         raise ValueError(
             f"Unknown agent-loop framework '{name}'. "
             f"Registered: {available_agent_loop_frameworks() or '[]'}. "

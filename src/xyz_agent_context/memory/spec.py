@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from narranexus.contracts import API_VERSIONS
+from narranexus.kernel.plugins.registry import Registry
 from xyz_agent_context.memory.record import MemoryRecord, SCOPE_AGENT
 
 # Policy callables (all pure; the Engine supplies context, the Spec supplies how)
@@ -74,26 +76,31 @@ class MemoryKindSpec:
 
 
 # ── registry ────────────────────────────────────────────────────────────────
-_REGISTRY: Dict[str, MemoryKindSpec] = {}
+# Kernel registry for slot ``agent.capabilities.memory_kinds`` (plugin platform,
+# batch 0). Specs are registered eagerly (the factory returns the spec itself);
+# ``replace=True`` keeps re-import idempotent.
+MEMORY_KIND_REGISTRY: Registry[MemoryKindSpec] = Registry(
+    "memoryKinds", api_version=API_VERSIONS["memory"]
+)
 
 
-def register_spec(spec: MemoryKindSpec) -> MemoryKindSpec:
+def register_spec(spec: MemoryKindSpec, *, owner: str = "builtin.memory_kinds") -> MemoryKindSpec:
     """Register (or replace) a kind's spec. Idempotent — re-import safe."""
-    _REGISTRY[spec.kind] = spec
+    MEMORY_KIND_REGISTRY.register(spec.kind, lambda: spec, owner=owner, replace=True)
     return spec
 
 
 def get_spec(kind: str) -> MemoryKindSpec:
-    spec = _REGISTRY.get(kind)
+    spec = MEMORY_KIND_REGISTRY.try_get(kind)
     if spec is None:
         raise KeyError(f"No MemoryKindSpec registered for kind={kind!r}")
     return spec
 
 
 def all_kinds() -> List[str]:
-    return list(_REGISTRY.keys())
+    return list(MEMORY_KIND_REGISTRY.names())
 
 
 def passive_kinds() -> List[str]:
     """Kinds eligible for the passive per-turn injection (distilled knowledge)."""
-    return [k for k, s in _REGISTRY.items() if s.passive]
+    return [e.name for e in MEMORY_KIND_REGISTRY.entries() if e.factory().passive]
