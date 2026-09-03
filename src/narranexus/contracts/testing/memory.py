@@ -9,7 +9,7 @@ returning the spec object.
 """
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 from narranexus.contracts.memory import MemoryKindContract
 
@@ -17,10 +17,11 @@ from narranexus.contracts.memory import MemoryKindContract
 class MemoryKindContractTests:
     """Executable definition of the ``memory`` contract."""
 
-    spec_factory: ClassVar[Callable[[], MemoryKindContract] | None] = None
+    # ``Any`` for the same reason as FrameworkDriverContractTests.driver_factory.
+    spec_factory: ClassVar[Any] = None
 
     def _spec(self) -> MemoryKindContract:
-        factory = type(self).spec_factory
+        factory: Callable[[], MemoryKindContract] | None = type(self).spec_factory
         assert factory is not None, "set spec_factory on the subclass"
         return factory()
 

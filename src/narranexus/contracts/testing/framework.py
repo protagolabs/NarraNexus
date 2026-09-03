@@ -11,7 +11,7 @@ runs exactly these checks.
 from __future__ import annotations
 
 import inspect
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar
 
 from narranexus.contracts.framework import CAPABILITY_VOCABULARY, AgentLoopDriver
 
@@ -19,10 +19,12 @@ from narranexus.contracts.framework import CAPABILITY_VOCABULARY, AgentLoopDrive
 class FrameworkDriverContractTests:
     """Executable definition of the ``framework`` contract."""
 
-    driver_factory: ClassVar[Callable[[], AgentLoopDriver] | None] = None
+    # ``Any``: pyright would otherwise try to bind a plain callable stored on the
+    # class as a method. Subclasses set a zero-arg callable (a staticmethod works).
+    driver_factory: ClassVar[Any] = None
 
     def _driver(self) -> AgentLoopDriver:
-        factory = type(self).driver_factory
+        factory: Callable[[], AgentLoopDriver] | None = type(self).driver_factory
         assert factory is not None, "set driver_factory on the subclass"
         return factory()
 
