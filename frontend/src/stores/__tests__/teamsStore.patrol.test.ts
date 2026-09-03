@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-03T00:00:00Z'));
   setTeamPatrol.mockReset();
-  useTeamsStore.setState({ patrolByTeam: {}, patrolPendingUntil: {} });
+  useTeamsStore.setState({ patrolByTeam: {}, patrolPendingUntil: {}, patrolInFlight: {} });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -44,6 +44,20 @@ describe('teamsStore · patrol', () => {
     vi.advanceTimersByTime(PATROL_SETTLE_MS + 1);
     useTeamsStore.getState().notePatrol('t1', true);
     expect(useTeamsStore.getState().patrolByTeam.t1).toBe(true);
+  });
+
+  it('marks the write in flight only while the PUT is pending — never unbounded', async () => {
+    let release: (v: unknown) => void = () => {};
+    setTeamPatrol.mockReturnValue(new Promise((r) => { release = r; }));
+    const write = useTeamsStore.getState().setPatrol('t1', false);
+    expect(useTeamsStore.getState().patrolInFlight.t1).toBe(true);
+    // A second click while in flight is dropped rather than raced.
+    await useTeamsStore.getState().setPatrol('t1', true);
+    expect(setTeamPatrol).toHaveBeenCalledTimes(1);
+    release({ success: true });
+    await write;
+    expect(useTeamsStore.getState().patrolInFlight.t1).toBeUndefined();
+    expect(Number.isFinite(useTeamsStore.getState().patrolPendingUntil.t1)).toBe(true);
   });
 
   it('a failed write rolls back to the reported value and closes the window', async () => {

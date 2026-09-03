@@ -99,9 +99,10 @@ export function TeamManagePanel({
   // it and writes through the store, so a flip made elsewhere shows here
   // before the user clicks. `undefined` = not reported yet.
   const patrolEnabled = useTeamsStore((s) => s.patrolByTeam[teamId]);
+  const patrolInFlight = useTeamsStore((s) => s.patrolInFlight[teamId] === true);
   const setPatrol = useTeamsStore((s) => s.setPatrol);
   const togglePatrol = async () => {
-    if (patrolEnabled === undefined) return;
+    if (patrolEnabled === undefined || patrolInFlight) return;
     try {
       await setPatrol(teamId, !patrolEnabled);
     } catch {
@@ -233,14 +234,16 @@ export function TeamManagePanel({
             role="switch"
             aria-checked={patrolEnabled === true}
             data-testid="patrol-toggle"
-            disabled={patrolEnabled === undefined}
+            // Disabled while unknown AND while a write is in flight — but not
+            // during the settle window after it, or the switch would feel stuck.
+            disabled={patrolEnabled === undefined || patrolInFlight}
             onClick={togglePatrol}
             className={cn(
               'shrink-0 rounded-[var(--radius-xs)] border px-2 py-1 text-[11px] transition-colors',
               patrolEnabled
                 ? 'border-[var(--color-success)] text-[var(--color-success)]'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)]',
-              patrolEnabled === undefined && 'opacity-50',
+              (patrolEnabled === undefined || patrolInFlight) && 'opacity-50',
             )}
           >
             {patrolEnabled ? t('chat.team.manage.patrolOff') : t('chat.team.manage.patrolOn')}

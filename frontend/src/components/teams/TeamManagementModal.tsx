@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, X, Trash2, Users, Loader2, Check } from 'lucide-react';
+import { Plus, X, Trash2, Users, Loader2 } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -39,7 +39,6 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamColor, setNewTeamColor] = useState(COLOR_PRESETS[0]);
   const [editLead, setEditLead] = useState('');
-  const [savingMeta, setSavingMeta] = useState(false);
 
   useEffect(() => {
     if (open) refresh();
@@ -88,29 +87,24 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
     }
   };
 
-  // Profile (name / colour / intro) is saved by TeamProfileForm; the lead
-  // has its own Save below. They used to be one call writing both — which
-  // is how a stale lead snapshot could revert a change made elsewhere.
-  const handleSaveProfile = async (patch: { name: string; color: string; intro_md: string }) => {
+  // ONE save for the whole pane: the profile form's live draft plus the
+  // lead select's live value, merged here. Two same-named saves that each
+  // wrote half (2026-09-03, briefly) reset the other half's draft on the
+  // refresh that followed. The lead is read from live state, never from a
+  // snapshot taken at open — this dialog is the only editor while it is
+  // open, so there is nothing for a snapshot to overwrite, and a live value
+  // cannot be stale.
+  const handleSave = async (patch: { name: string; color: string; intro_md: string }) => {
     if (!selected) return;
     try {
-      await updateTeam(selected.team.team_id, patch);
+      await updateTeam(selected.team.team_id, {
+        ...patch,
+        // "" clears the lead back to the earliest-joined fallback (backend
+        // treats empty string as clear; a member id sets an explicit lead).
+        lead_agent_id: editLead,
+      });
     } catch (e) {
       void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
-    }
-  };
-
-  const handleSaveLead = async () => {
-    if (!selected) return;
-    setSavingMeta(true);
-    try {
-      // "" clears the lead back to the earliest-joined fallback (backend
-      // treats empty string as clear; a member id sets an explicit lead).
-      await updateTeam(selected.team.team_id, { lead_agent_id: editLead });
-    } catch (e) {
-      void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
-    } finally {
-      setSavingMeta(false);
     }
   };
 
@@ -256,14 +250,33 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
               <div className="p-5 space-y-5">
                 <TeamProfileForm
                   team={selected.team}
-                  onSave={handleSaveProfile}
+                  onSave={handleSave}
                   trailing={
                     <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
                       <Trash2 className="w-3.5 h-3.5" />
                       {t('teams.deleteTeam')}
                     </Button>
                   }
-                />
+                >
+                {/* Team lead — the agent that answers a team message
+                    with no @mention. "Auto" = the earliest-joined member. */}
+                <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
+                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
+                  <select
+                    value={selected.member_agent_ids.includes(editLead) ? editLead : ''}
+                    onChange={(e) => setEditLead(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+                  >
+                    <option value="">{t('teams.leadAuto')}</option>
+                    {selected.member_agent_ids.map((mid) => (
+                      <option key={mid} value={mid}>
+                        {agents.find((a) => a.agent_id === mid)?.name || mid}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
+                </div>
+                </TeamProfileForm>
 
                 {/* Members */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
@@ -297,28 +310,6 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                   </div>
                 </div>
 
-                {/* Team lead — the agent that answers a team message
-                    with no @mention. "Auto" = the earliest-joined member. */}
-                <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
-                  <select
-                    value={selected.member_agent_ids.includes(editLead) ? editLead : ''}
-                    onChange={(e) => setEditLead(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
-                  >
-                    <option value="">{t('teams.leadAuto')}</option>
-                    {selected.member_agent_ids.map((mid) => (
-                      <option key={mid} value={mid}>
-                        {agents.find((a) => a.agent_id === mid)?.name || mid}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
-                  <Button onClick={handleSaveLead} disabled={savingMeta} size="sm" variant="ghost" className="gap-1">
-                    {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    {t('teams.saveChanges')}
-                  </Button>
-                </div>
               </div>
             )}
           </div>

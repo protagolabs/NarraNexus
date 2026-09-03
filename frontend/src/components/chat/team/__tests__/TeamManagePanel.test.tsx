@@ -12,6 +12,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 const setPatrolMock = vi.fn();
 const notePatrolMock = vi.fn();
 let patrolByTeam: Record<string, boolean> = {};
+let patrolInFlight: Record<string, boolean> = {};
 const clearDataMock = vi.fn();
 const addMemberMock = vi.fn();
 const removeMemberMock = vi.fn();
@@ -36,6 +37,7 @@ vi.mock('@/stores', () => ({
       deleteTeam: (...a: unknown[]) => deleteTeamMock(...a),
       updateTeam: (...a: unknown[]) => updateTeamMock(...a),
       patrolByTeam,
+      patrolInFlight,
       notePatrol: (...a: unknown[]) => notePatrolMock(...a),
       setPatrol: (...a: unknown[]) => setPatrolMock(...a),
     }),
@@ -55,9 +57,8 @@ vi.mock('@/components/ui', () => ({
   }),
 }));
 
-// The modal and the clear dialog are exercised by their own tests; here they
-// only need to be mountable.
-// The profile form has its own tests; here it only has to hand its patch up.
+// The clear dialog and the profile form have their own tests; here they only
+// need to be mountable and to hand their result up.
 vi.mock('@/components/teams/TeamProfileForm', () => ({
   TeamProfileForm: ({ onSave }: { onSave: (p: unknown) => Promise<void> }) => (
     <button
@@ -127,6 +128,7 @@ function renderPanel(over: Partial<React.ComponentProps<typeof TeamManagePanel>>
 beforeEach(() => {
   vi.clearAllMocks();
   patrolByTeam = { t1: true };
+  patrolInFlight = {};
   setPatrolMock.mockResolvedValue(undefined);
   clearDataMock.mockResolvedValue({ success: true });
   addMemberMock.mockResolvedValue(undefined);
@@ -167,6 +169,15 @@ describe('TeamManagePanel', () => {
     expect(setPatrolMock).not.toHaveBeenCalled();
   });
 
+  test('a write in flight disables the switch (no double click race)', () => {
+    patrolInFlight = { t1: true };
+    renderPanel();
+    const toggle = screen.getByTestId('patrol-toggle') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
+    fireEvent.click(toggle);
+    expect(setPatrolMock).not.toHaveBeenCalled();
+  });
+
   test('a store value of OFF renders the ON action', () => {
     patrolByTeam = { t1: false };
     renderPanel();
@@ -187,7 +198,9 @@ describe('TeamManagePanel', () => {
     // the room; none of that belongs in this tab. Lead, members, delete
     // each have one live editor here.
     renderPanel();
-    expect(screen.queryByTestId('profile-modal')).toBeNull();
+    // The team manager's own affordances — create / switch — must not be here.
+    expect(screen.queryByText('teams.createTeam')).toBeNull();
+    expect(screen.queryByText('teams.selectPrompt')).toBeNull();
     fireEvent.click(screen.getByTestId('profile-form'));
     await waitFor(() =>
       expect(updateTeamMock).toHaveBeenCalledWith('t1', { name: 'Desk 2', color: '#123', intro_md: 'hi' }),

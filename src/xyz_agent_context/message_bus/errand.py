@@ -237,8 +237,9 @@ async def record_handoffs(
     `opens_handoffs` decides whether this sender assigns work at all. Like
     every other argument here it is keyword-only, and it has NO default on
     purpose: a caller that forgot it would otherwise get a board that silently
-    never fills (the shape incident lesson #5 warns about). A user sender always opens, so the route passes
-    ``lead_agent_id=None`` explicitly and says why.
+    never fills (the shape incident lesson #5 warns about). A user sender
+    always opens, so the route passes ``lead_agent_id=None`` explicitly and
+    says why.
 
     Best-effort by contract — the caller has already delivered the reply, and a
     board write must never be able to fail a hop that succeeded.

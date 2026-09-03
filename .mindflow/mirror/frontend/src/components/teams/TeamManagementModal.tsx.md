@@ -7,8 +7,11 @@ stub: false
 ## 2026-09-03 — 资料区改用共享的 TeamProfileForm；房间的管理 tab **不再挂本弹窗**
 
 名称/颜色/简介三个字段与它们的 Save 抽成 [[TeamProfileForm]](本弹窗把「删除团队」按钮放进
-它的 `trailing` 槽);组长 select 改为**自己的 Save**(`handleSaveLead`,只提交 `lead_agent_id`)。
-此前一个 `handleSaveMeta` 同时写资料+组长,正是「过期组长快照覆盖别处改动」的来源。
+它的 `trailing` 槽);组长 select 作为表单 `children` 放在 Save 行上方,**整个对话框只有一个 Save**(`handleSave`):
+表单实时草稿 + `editLead` 实时值一次提交四项。曾短暂拆成两个同名「保存更改」各存一半,结果
+`refresh()` 带回新 `updated_at` 把另一半没保存的草稿重播掉(auto-review round 3 I1),已合回。
+组长读的是实时 state 不是 open 时快照——弹窗打开期间它是唯一编辑者,不存在被覆盖的旁路。
+守卫:`__tests__/teamManagementModal.save.test.tsx`(只有一个 Save;改名+改组长一次调用都在)。
 入口不变:[[TeamRowMenu]] → [[AgentList]]、Dashboard 建团队。房间的
 [[../chat/team/TeamManagePanel]] 曾短暂以 `profileOnly` 打开本弹窗(同日撤回,auto-review I9:
 左栏切团队/建团队/弹窗删除不带房间离开都不该出现在那个 tab 里),现在内联 TeamProfileForm。

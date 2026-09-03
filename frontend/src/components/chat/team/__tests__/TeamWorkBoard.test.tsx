@@ -56,7 +56,7 @@ const PARKED = {
 };
 
 beforeEach(() => {
-  useTeamsStore.setState({ patrolByTeam: {}, patrolPendingUntil: {} });
+  useTeamsStore.setState({ patrolByTeam: {}, patrolPendingUntil: {}, patrolInFlight: {} });
   getBoardMock.mockReset();
   resumeMock.mockReset();
   resumeMock.mockResolvedValue({ success: true });

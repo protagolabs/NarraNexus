@@ -11,6 +11,11 @@
  * room). Both the modal and the tab render this; the fields and the save
  * call exist once.
  *
+ * One Save. Extra fields a caller renders through `children` are saved by
+ * that same button (the caller merges them in `onSave`), so a dialog never
+ * has two same-named saves that each store half and reset the other half's
+ * draft.
+ *
  * Seeds its draft from `team` and re-seeds when the team changes identity
  * or the server reports a newer `updated_at` — a room-side rename must not
  * be overwritten by a stale draft sitting here.
@@ -35,10 +40,14 @@ export interface TeamProfileFormProps {
   /** Optional slot rendered on the same row as Save (the modal puts its
    *  delete button there; the management tab has its own delete section). */
   trailing?: React.ReactNode;
+  /** Optional extra fields rendered ABOVE the Save row and saved by the same
+   *  button — the modal puts its lead select here so the dialog has exactly
+   *  one Save, and `onSave` merges whatever those fields hold. */
+  children?: React.ReactNode;
   className?: string;
 }
 
-export function TeamProfileForm({ team, onSave, trailing, className }: TeamProfileFormProps) {
+export function TeamProfileForm({ team, onSave, trailing, children, className }: TeamProfileFormProps) {
   const { t } = useTranslation();
   const [name, setName] = useState(team.name);
   const [color, setColor] = useState(team.color || COLOR_PRESETS[0]);
@@ -104,6 +113,8 @@ export function TeamProfileForm({ team, onSave, trailing, className }: TeamProfi
           className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none resize-y"
         />
       </div>
+
+      {children}
 
       <div className="flex justify-between">
         <Button onClick={save} disabled={saving} size="sm" className="gap-1" data-testid="team-profile-save">

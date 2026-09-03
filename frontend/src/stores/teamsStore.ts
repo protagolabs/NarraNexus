@@ -23,10 +23,13 @@ interface TeamsState {
    *  poll both write it (`notePatrol`); the management tab reads it and
    *  writes through `setPatrol`. Not persisted: it is server state. */
   patrolByTeam: Record<string, boolean>;
-  /** Per team: until when (epoch ms) a poll-reported value is ignored, so a
-   *  GET already in flight at click time cannot overwrite the optimistic
-   *  write with the pre-click value. Infinity while the PUT is in flight. */
+  /** Per team: until when (epoch ms) a poll-reported value is ignored after a
+   *  write commits, so a GET already in flight at click time cannot overwrite
+   *  the optimistic write with the pre-click value. */
   patrolPendingUntil: Record<string, number>;
+  /** Per team: a PUT is in flight. Polls are ignored meanwhile, and the
+   *  switch is disabled so a second click cannot race the first. */
+  patrolInFlight: Record<string, boolean>;
   notePatrol: (teamId: string, enabled: boolean) => void;
   setPatrol: (teamId: string, enabled: boolean) => Promise<void>;
 
@@ -92,10 +95,13 @@ export const useTeamsStore = create<TeamsState>()(
 
       patrolByTeam: {},
       patrolPendingUntil: {},
+      patrolInFlight: {},
       notePatrol: (teamId, enabled) =>
         set((s) => {
-          // A poll value is only stale — never wrong — inside the window a
-          // write just opened; outside it, another tab's real flip must land.
+          // A poll value is only stale — never wrong — while a write is in
+          // flight or inside the window it just opened; outside that,
+          // another tab's real flip must land.
+          if (s.patrolInFlight[teamId]) return s;
           if ((s.patrolPendingUntil[teamId] ?? 0) > Date.now()) return s;
           return s.patrolByTeam[teamId] === enabled
             ? s
@@ -103,9 +109,10 @@ export const useTeamsStore = create<TeamsState>()(
         }),
       setPatrol: async (teamId, enabled) => {
         const prev = get().patrolByTeam[teamId];
+        if (get().patrolInFlight[teamId]) return; // one write at a time
         set((s) => ({
           patrolByTeam: { ...s.patrolByTeam, [teamId]: enabled }, // optimistic
-          patrolPendingUntil: { ...s.patrolPendingUntil, [teamId]: Infinity },
+          patrolInFlight: { ...s.patrolInFlight, [teamId]: true },
         }));
         try {
           await api.setTeamPatrol(teamId, enabled);
@@ -126,6 +133,12 @@ export const useTeamsStore = create<TeamsState>()(
             return { patrolByTeam, patrolPendingUntil };
           });
           throw e;
+        } finally {
+          set((s) => {
+            const patrolInFlight = { ...s.patrolInFlight };
+            delete patrolInFlight[teamId];
+            return { patrolInFlight };
+          });
         }
       },
 
