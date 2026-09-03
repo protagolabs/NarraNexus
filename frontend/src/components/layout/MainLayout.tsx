@@ -24,7 +24,7 @@
  * the drawer panel). No dedicated artifact WS.
  */
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -42,6 +42,7 @@ import {
   tabDescKey,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
+import { isStudioOpen } from '@/lib/builderSession';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
@@ -109,6 +110,28 @@ export function ChatView() {
   const pendingPanel = useUIStore((s) => s.pendingPanel);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
+
+  // The creation studio's tab is offered ONLY while the studio is open on
+  // this agent — i.e. only on the "Create with AI" path. Everywhere else the
+  // panel would be a form the conversation does not drive, which reads as
+  // broken rather than as an extra feature.
+  //
+  // Re-read on agent / tab change rather than subscribing: the flag lives in
+  // sessionStorage (see lib/builderSession), and those two are exactly the
+  // transitions that can turn it on or off — entering the studio opens the
+  // tab, and finishing closes the drawer.
+  const [studioOpen, setStudioOpen] = useState(false);
+  useEffect(() => {
+    setStudioOpen(isStudioOpen(agentId));
+  }, [agentId, drawerTab]);
+  const switcherCategories = useMemo(
+    () =>
+      studioOpen
+        ? STRIP_CATEGORIES
+        : STRIP_CATEGORIES.map((c) => ({ ...c, tabs: c.tabs.filter((t) => t.id !== 'builder') }))
+          .filter((c) => c.tabs.length > 0),
+    [studioOpen],
+  );
 
   const handleDrawerClose = () => {
     setDrawerTab(null);
@@ -224,7 +247,7 @@ export function ChatView() {
           pinnedWidth={effectiveDrawerWidth}
           activeTab={drawerTab}
           onSelectTab={(id) => setDrawerTab(id)}
-          switcherCategories={STRIP_CATEGORIES}
+          switcherCategories={switcherCategories}
           banner={
             showDrawerCoach ? (
               <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />

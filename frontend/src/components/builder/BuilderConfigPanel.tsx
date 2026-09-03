@@ -268,8 +268,17 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
           {saving ? t('builder.panel.saving') : t('builder.panel.savedHint')}
         </span>
         {/* No "discard": every field here is already written to the agent, so
-            there is nothing to roll back. Finishing just leaves the studio. */}
-        <Button size="sm" onClick={() => closeStudio(agentId)}>
+            there is nothing to roll back. Finishing clears the studio flag AND
+            closes the drawer — re-requesting the open tab is MainLayout's
+            toggle, and that transition is what makes the tab disappear from
+            the switcher (the flag is sessionStorage, not reactive state). */}
+        <Button
+          size="sm"
+          onClick={() => {
+            closeStudio(agentId);
+            requestPanel('builder');
+          }}
+        >
           {t('builder.panel.done')}
         </Button>
       </div>

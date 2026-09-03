@@ -4,6 +4,15 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (更正同日早条) — `builder` 不进 ⋯ 菜单
+
+早条把 `builder` 加进了 `DETAIL_GROUP_A`，已撤回。Owner 定义：**配置面板只在
+「通过 AI 创建」这条路径上出现**，「从空白开始」保持现状。常驻入口会在每个
+agent 上都提供一个「对话并不驱动它」的表单，读起来像坏了，而不是多了个功能。
+
+`DETAIL_GROUP_A` / `DETAIL_GROUP_B` **是写死的 id 列表、不从
+`STRIP_CATEGORIES` 派生**这条陷阱仍然成立 —— 将来要加常驻 tab 必须同步改这里。
+
 ## 2026-09-03 — `builder` 进 ⋯ 详情菜单
 
 创建工作室的配置面板加进 `DETAIL_GROUP_A` 首位。

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 抽屉切换器按 studio 状态过滤
+
+`switcherCategories` 不再直接传 `STRIP_CATEGORIES`：studio 没在当前 agent 上打开
+时，`builder` tab 从切换器里滤掉。理由同 [[ChatHeader.tsx]] —— 面板只在
+「通过 AI 创建」路径上有意义。
+
+**为什么用 state + effect 而不是订阅**：开关存在 sessionStorage
+（[[builderSession.ts]]），不是响应式的。`[agentId, drawerTab]` 正好覆盖能让它
+翻转的两个转换 —— 进 studio 会打开这个 tab，点「完成」会关抽屉，两者都改变
+`drawerTab`。
 
 ## 2026-08-19(二)— 手机永不钉 + 透明宽度地板
 
