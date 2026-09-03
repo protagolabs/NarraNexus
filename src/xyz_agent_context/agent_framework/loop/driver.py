@@ -28,9 +28,14 @@ Selection precedence (most specific wins):
 from __future__ import annotations
 
 import os
-from typing import Any, AsyncGenerator, Callable, Protocol, runtime_checkable
+from typing import Any, Callable
 
 from loguru import logger
+
+# The Protocol itself is the public contract and lives in narranexus.contracts
+# (plugin platform, batch 0). It is re-exported here so every existing import
+# of ``AgentLoopDriver`` from this module keeps resolving to the same object.
+from narranexus.contracts.framework import AgentLoopDriver
 
 
 class FrameworkNotInstalledError(RuntimeError):
@@ -60,52 +65,6 @@ class FrameworkNotInstalledError(RuntimeError):
             f"Framework '{framework}' is not installed. Install it from "
             f"Settings → Plugins before running."
         )
-
-
-@runtime_checkable
-class AgentLoopDriver(Protocol):
-    """Runs one agent turn as a stream of raw, provider-agnostic events.
-
-    Conforming drivers yield event dicts that ``ResponseProcessor`` knows
-    how to consume. The contract mirrors ``ClaudeAgentSDK.agent_loop`` —
-    the original concrete implementation and the reference shape every
-    new framework adapter must match.
-    """
-
-    def agent_loop(
-        self,
-        messages: list[dict[str, Any]],
-        mcp_servers: dict[str, dict[str, Any]],  # {name: {"url": str, "headers": {str: str}?}}
-        *,
-        streaming: bool = True,
-        extra_env: dict[str, str] | None = None,
-        cancellation: Any | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        ...
-
-    def capabilities(self) -> set[str]:
-        """Feature flags this driver supports beyond the base contract.
-
-        Capability negotiation seam: the orchestrator and frontend switch
-        optional behaviour on the declared set instead of hardcoding
-        per-framework knowledge. An empty set means "base contract only". The
-        remote (HTTP) driver returns ``{"steering"}`` for a steer-capable
-        framework (nexus_power) and empty otherwise — it carries steering over
-        the hop via the executor's ``/steer`` endpoint + ``steer_consumed`` frames
-        (see remote_driver.py / executor_service.py), so its answer is
-        framework-aware, not a blanket empty. The consumer is live: the
-        orchestrator gates a run's steerability on
-        ``"steering" in driver.capabilities()``.
-
-        Every declared string must come from this planned vocabulary (declare
-        only what actually ships — ``NexusAgent`` ships ``event_log`` and
-        ``steering`` today):
-        ``steering`` / ``plan`` / ``resume`` / ``fork`` / ``sleep`` /
-        ``subagent_announce`` / ``event_log`` / ``interrupt_soft`` /
-        ``raw_context`` / ``arg_streaming``.
-        """
-        return set()
 
 
 DriverFactory = Callable[..., AgentLoopDriver]
