@@ -1,10 +1,15 @@
 ---
 code_file: frontend/src/components/artifacts/kindRegistry.ts
-last_verified: 2026-08-21
+last_verified: 2026-09-03
 stub: false
 ---
 
 # kindRegistry.ts — kind 能力注册表(单一事实源)
+
+## 2026-09-03 — `registerArtifactKind`：插件可加渲染器
+
+`KIND_REGISTRY` 类型改为 `Record<BuiltinArtifactKind, KindDescriptor> & Record<string, KindDescriptor>`
+（内置键仍穷举，未知键允许）；`registerArtifactKind` 返回撤销函数（恢复被覆盖的旧描述符或删除）。
 
 ## 2026-08-21 — `downloadExt` 变 optional + 新增 `downloadExtFor`(深圳复测 .bin bug)
 

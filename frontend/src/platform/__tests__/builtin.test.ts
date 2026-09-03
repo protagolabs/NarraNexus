@@ -1,0 +1,71 @@
+/**
+ * @file_name: builtin.test.ts
+ * @author: Bin Liang
+ * @date: 2026-09-03
+ * @description: The shell's builtin registrations reproduce the pre-registry route table, sidebar, panels and settings nav.
+ */
+import { describe, expect, it } from 'vitest';
+
+import '@/platform/builtin';
+import '@/pages/settings/registerBuiltinSections';
+import { PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, sortedSettingsSections, sortedSidebarItems } from '@/platform/registries';
+import { BUILTIN_TAB_IDS } from '@/components/bookmarks/tabs';
+import before from './golden/routes-before.json';
+
+describe('builtin pages', () => {
+  it('registers every route the hardcoded table had, in the same order', () => {
+    const wanted = (before as { path: string | null }[])
+      .map((r) => r.path)
+      .filter((p): p is string => !!p && p !== '/app' && p !== '<index>' && p !== '/' && p !== '*');
+    const top = PAGES.list().filter((e) => e.value.layout === 'top').map((e) => e.value.path);
+    const app = PAGES.list().filter((e) => e.value.layout === 'app').map((e) => e.value.path);
+    expect([...top, ...app]).toEqual(wanted);
+  });
+
+  it('guards match the old wrappers', () => {
+    const guard = (id: string) => PAGES.get(id)?.guard;
+    expect(guard('login')).toBe('public');
+    expect(guard('nm-playground')).toBe('open');
+    expect(guard('setup')).toBe('protected');
+    expect(guard('pay')).toBe('protected');
+    expect(PAGES.get('chat')?.element).toBeNull();
+    expect(PAGES.get('team-chat')?.element).toBeNull();
+  });
+});
+
+describe('builtin sidebar', () => {
+  it('lists the six rows in the old order and hides System when the feature is off', () => {
+    const all = sortedSidebarItems({ showSystemPage: true }).map((e) => e.id);
+    expect(all).toEqual(['export', 'dashboard', 'marketplace', 'workspace', 'settings', 'system']);
+    expect(sortedSidebarItems({ showSystemPage: false }).map((e) => e.id)).not.toContain('system');
+  });
+
+  it('dashboard and export rows are active by pathname plus the ?tab query', () => {
+    const exportRow = SIDEBAR.get('export')!;
+    const dashRow = SIDEBAR.get('dashboard')!;
+    const at = (pathname: string, search = '') => ({ pathname, search });
+    expect(exportRow.isActive!(at('/app/dashboard', '?tab=export'))).toBe(true);
+    expect(dashRow.isActive!(at('/app/dashboard', '?tab=export'))).toBe(false);
+    expect(dashRow.isActive!(at('/app/dashboard'))).toBe(true);
+    expect(exportRow.isActive!(at('/app/settings'))).toBe(false);
+  });
+});
+
+describe('builtin panels', () => {
+  it('every builtin rail tab has a panel component', () => {
+    for (const id of BUILTIN_TAB_IDS) expect(PANELS.get(id)?.component, id).toBeTruthy();
+  });
+});
+
+describe('builtin settings sections', () => {
+  it('keeps the old nav order and visibility gates', () => {
+    const ids = (opts: { isTauri: boolean; isCloud: boolean }) => sortedSettingsSections(opts).map((e) => e.id);
+    expect(ids({ isTauri: true, isCloud: false })).toEqual([
+      'account', 'providers', 'modeldefaults', 'plugins', 'artifacts', 'privacy', 'personalization', 'updates',
+    ]);
+    expect(ids({ isTauri: false, isCloud: true })).toEqual([
+      'account', 'providers', 'modeldefaults', 'artifacts', 'privacy', 'personalization',
+    ]);
+    expect(SETTINGS_SECTIONS.get('account')?.neverDefault).toBe(true);
+  });
+});

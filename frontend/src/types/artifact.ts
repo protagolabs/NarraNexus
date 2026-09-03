@@ -15,7 +15,8 @@
  * See `hooks/useArtifactRawUrl.ts` for the convenience hook.
  */
 
-export type ArtifactKind =
+/** Artifact kinds the shell ships renderers for. */
+export type BuiltinArtifactKind =
   | 'text/html'
   | 'application/vnd.echarts+json'
   | 'text/csv'
@@ -30,6 +31,11 @@ export type ArtifactKind =
   // (UrlArtifactDoc); the renderer iframes the URL or falls back per the
   // embed verdict.
   | 'application/x-url';
+
+// A plugin may register a renderer for a new kind (see
+// components/artifacts/kindRegistry.ts `registerArtifactKind`), and a newer
+// backend may ship a kind this build does not know, so the wire type is open.
+export type ArtifactKind = BuiltinArtifactKind | (string & {});
 
 /** How a URL tab should be surfaced. Mirrors backend EmbedMode. */
 export type EmbedMode = 'iframe' | 'stream';

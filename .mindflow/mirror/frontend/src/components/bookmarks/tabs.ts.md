@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-08-06
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `AtomicTabId` 放开为 `BuiltinTabId | (string & {})`
+
+内置 id 收进 `BUILTIN_TAB_IDS` 常量元组（保留自动补全），消费方不得再穷举 switch。
 
 ## 2026-08-06 (2) — tabDescKey:每个面板一句话说明
 

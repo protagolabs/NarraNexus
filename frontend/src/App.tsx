@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
+import type { ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
@@ -22,6 +23,7 @@ import {
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
+import { PAGES, useRegistryEntries, type PageDef } from '@/platform/registries';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -29,22 +31,6 @@ import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModa
 import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
-const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const SetupPage = lazy(() => import('@/pages/SetupPage'));
-const SystemPage = lazy(() => import('@/pages/SystemPage'));
-const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
-const MarketplacePage = lazy(() => import('@/pages/MarketplacePage'));
-const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
-const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
-const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
-const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
-const AccountPage = lazy(() => import('@/pages/AccountPage'));
-const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
-const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
-// NM design system dev gallery — public (no auth) so it can be loaded
-// before login during visual review. Not linked from any nav.
-const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
-const PayPage = lazy(() => import('@/pages/PayPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -460,6 +446,19 @@ function App() {
     return unsub;
   }, []);
 
+  // Pages come from the registry; a plugin registering after first render
+  // re-renders the route table.
+  const pages = useRegistryEntries(PAGES);
+  const topLevelPages = pages.filter((e) => e.value.layout === 'top');
+  const appPages = pages.filter((e) => e.value.layout === 'app');
+  const pageElement = (def: PageDef): ReactNode => (def.element ? <def.element /> : null);
+  const guarded = (def: PageDef): ReactNode => {
+    const inner = pageElement(def);
+    if (def.guard === 'protected') return <ProtectedRoute>{inner}</ProtectedRoute>;
+    if (def.guard === 'public') return <PublicRoute>{inner}</PublicRoute>;
+    return inner;
+  };
+
   return (
     <>
       <MockBanner />
@@ -530,58 +529,20 @@ function App() {
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>
       <Routes>
-        <Route
-          path="/login"
-          element={<PublicRoute><LoginPage /></PublicRoute>}
-        />
+        {topLevelPages.map(({ id, value }) => (
+          <Route key={id} path={value.path} element={guarded(value)} />
+        ))}
 
-        {/* NM design system gallery — public dev tool, no auth required */}
-        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
-
-        {/* Setup — requires login */}
-        <Route
-          path="/setup"
-          element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
-        />
-
-        {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
-            ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
-            the payment intent survives login/signup; PayPage then mints the
-            checkout session and redirects. */}
-        <Route
-          path="/pay"
-          element={<ProtectedRoute><PayPage /></ProtectedRoute>}
-        />
-
-        {/* Protected app routes */}
+        {/* Protected app routes: MainLayout is the shell; its children come
+            from the page registry in registration order (builtin first). */}
         <Route
           path="/app"
           element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
         >
           <Route index element={<Navigate to="chat" replace />} />
-          <Route path="chat" element={null} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="marketplace" element={<MarketplacePage />} />
-          <Route path="you" element={<YouWorkspace />} />
-          <Route path="system" element={<SystemPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          {/* Legacy alias: the account surface lives inside Settings
-              (?tab=account, left nav intact). This route only forwards old
-              links there with the query preserved. */}
-          <Route path="account" element={<AccountPage />} />
-          <Route path="bundle/export" element={<BundleExportPage />} />
-          <Route path="bundle/import" element={<BundleImportPage />} />
-          {/* Deep-link entry point from narra.nexus templates marketplace.
-              Same component as bundle/import; URL query (?url=&sha256=)
-              triggers the auto-fetch-then-preflight path. */}
-          <Route path="templates/install" element={<BundleImportPage />} />
-          {/* Static segment ranks above :teamId in v6 route ranking, but it
-              also reads clearer listed first. */}
-          <Route path="teams/new" element={<CreateTeamPage />} />
-          <Route path="teams/:teamId" element={<TeamDetailPage />} />
-          {/* Team group chat — element null; MainLayout renders TeamChatView
-              in the main slot (like /app/chat) so it isn't a sub-page overlay. */}
-          <Route path="teams/:teamId/chat" element={null} />
+          {appPages.map(({ id, value }) => (
+            <Route key={id} path={value.path} element={pageElement(value)} />
+          ))}
         </Route>
 
         {/* Root redirect + catch-all */}

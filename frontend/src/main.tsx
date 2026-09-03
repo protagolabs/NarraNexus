@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import './i18n'  // side-effect: initialise react-i18next (detection + resources) before first render
 import './lib/echarts-nm-theme'  // side-effect: registers nm-light / nm-dark ECharts themes at startup
+import './platform/builtin'  // side-effect: the shell registers its pages / sidebar / panels / settings sections
 import App from './App.tsx'
 import {
     initManyfoldFragmentAuth,

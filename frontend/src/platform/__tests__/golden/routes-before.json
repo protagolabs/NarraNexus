@@ -1,0 +1,86 @@
+[
+  {
+    "path": "/login",
+    "element": null
+  },
+  {
+    "path": "/nm-playground",
+    "element": null
+  },
+  {
+    "path": "/setup",
+    "element": null
+  },
+  {
+    "path": "/pay",
+    "element": null
+  },
+  {
+    "path": "/app",
+    "element": null
+  },
+  {
+    "path": "<index>",
+    "element": null
+  },
+  {
+    "path": "chat",
+    "element": "null"
+  },
+  {
+    "path": "dashboard",
+    "element": null
+  },
+  {
+    "path": "marketplace",
+    "element": null
+  },
+  {
+    "path": "you",
+    "element": null
+  },
+  {
+    "path": "system",
+    "element": null
+  },
+  {
+    "path": "settings",
+    "element": null
+  },
+  {
+    "path": "account",
+    "element": null
+  },
+  {
+    "path": "bundle/export",
+    "element": null
+  },
+  {
+    "path": "bundle/import",
+    "element": null
+  },
+  {
+    "path": "templates/install",
+    "element": null
+  },
+  {
+    "path": "teams/new",
+    "element": null
+  },
+  {
+    "path": "teams/:teamId",
+    "element": null
+  },
+  {
+    "path": "teams/:teamId/chat",
+    "element": "null"
+  },
+  {
+    "path": "/",
+    "element": null
+  },
+  {
+    "path": "*",
+    "element": null
+  }
+]

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 按 `PANELS` 注册表查表渲染
+
+`&&` 链与六个 lazy import 移到 `platform/builtinPanels.tsx` + `platform/builtin.ts`；
+未注册的 tab 渲染空（插件加了条带 tab 又被禁用时不崩）。
 
 ## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
 

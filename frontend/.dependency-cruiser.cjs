@@ -10,10 +10,17 @@ module.exports = {
   forbidden: [
     {
       name: 'plugins-only-import-contracts',
-      comment: 'src/plugins/** may import only itself and src/contracts/**',
+      comment: 'src/plugins/** may import only itself, src/contracts/** and the registry entry point',
       severity: 'error',
       from: { path: '^src/plugins/' },
-      to: { pathNot: '^(src/plugins/|src/contracts/|node_modules/)' },
+      to: { pathNot: '^(src/plugins/|src/contracts/|src/platform/registries/index\\.ts$|node_modules/)' },
+    },
+    {
+      name: 'registries-are-pure',
+      comment: 'src/platform/registries/** holds types and registries only — no components, pages, stores or lib',
+      severity: 'error',
+      from: { path: '^src/platform/registries/' },
+      to: { path: '^src/(components|pages|stores|lib|hooks)/' },
     },
     {
       name: 'contracts-are-a-leaf',

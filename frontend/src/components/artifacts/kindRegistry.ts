@@ -20,7 +20,7 @@
  */
 
 import { lazy } from 'react';
-import type { Artifact, ArtifactKind } from '@/types/artifact';
+import type { Artifact, ArtifactKind, BuiltinArtifactKind } from '@/types/artifact';
 
 const HtmlRenderer = lazy(() => import('./renderers/HtmlRenderer'));
 const ChartRenderer = lazy(() => import('./renderers/ChartRenderer'));
@@ -93,7 +93,7 @@ export interface KindDescriptor {
   chartImageExport?: boolean;
 }
 
-export const KIND_REGISTRY: Record<ArtifactKind, KindDescriptor> = {
+export const KIND_REGISTRY: Record<BuiltinArtifactKind, KindDescriptor> & Record<string, KindDescriptor> = {
   'text/html': {
     renderer: HtmlRenderer,
     editSurface: 'per-element',
@@ -199,4 +199,19 @@ export function downloadExtFor(artifact: Pick<Artifact, 'kind' | 'file_path'>): 
   const dot = base.lastIndexOf('.');
   const ext = dot > 0 ? base.slice(dot + 1) : '';
   return /^[A-Za-z0-9]{1,16}$/.test(ext) ? ext.toLowerCase() : 'bin';
+}
+
+/**
+ * Register (or replace) the renderer set for an artifact kind. Plugins use
+ * this to render kinds the shell does not know; the disposer removes the
+ * registration again when the plugin is unloaded.
+ */
+export function registerArtifactKind(kind: ArtifactKind, descriptor: KindDescriptor): () => void {
+  const previous = KIND_REGISTRY[kind];
+  KIND_REGISTRY[kind] = descriptor;
+  return () => {
+    if (KIND_REGISTRY[kind] !== descriptor) return;
+    if (previous) KIND_REGISTRY[kind] = previous;
+    else delete KIND_REGISTRY[kind];
+  };
 }

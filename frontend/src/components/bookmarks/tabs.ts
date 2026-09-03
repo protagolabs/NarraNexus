@@ -61,18 +61,26 @@ export const ArtifactsGlyph = forwardRef<SVGSVGElement, LucideProps>(
   },
 ) as unknown as LucideIcon;
 
-export type AtomicTabId =
-  | 'awareness'
-  | 'workspace'
-  | 'channels'
-  | 'smarthome'
-  | 'social'
-  | 'jobs'
-  | 'inbox'
-  | 'artifacts'
-  | 'skills'
-  | 'mcp'
-  | 'memory';
+/** The shell's own tab ids. Plugins may register further ids (any string),
+ *  so consumers must not exhaustively switch on this list. */
+export const BUILTIN_TAB_IDS = [
+  'awareness',
+  'workspace',
+  'channels',
+  'smarthome',
+  'social',
+  'jobs',
+  'inbox',
+  'artifacts',
+  'skills',
+  'mcp',
+  'memory',
+] as const;
+
+export type BuiltinTabId = (typeof BUILTIN_TAB_IDS)[number];
+// `string & {}` keeps autocompletion for the builtin ids while accepting
+// plugin-registered ones.
+export type AtomicTabId = BuiltinTabId | (string & {});
 
 export interface AtomicTabDef {
   id: AtomicTabId;

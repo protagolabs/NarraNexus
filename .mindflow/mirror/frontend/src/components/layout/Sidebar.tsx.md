@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — Zone 2a 的六行来自 `SIDEBAR` 注册表
+
+内联按钮改为遍历 `useRegistryEntries(SIDEBAR)`（按 `visible` 过滤、`order` 排序）。
+`isActive` 谓词、`prefetch`、`titleKey`、`data-help-id` 都随数据走；`prefetchDashboard` 与
+`dashboardTab` 搬去 `platform/builtin.ts`。既有的 `sidebarExportEntry` 测试原样通过。
 
 ## 2026-08-20 — Export 行深链进 Dashboard 导出标签
 
