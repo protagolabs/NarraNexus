@@ -2,7 +2,7 @@
 @file_name: registry.py
 @author: Bin Liang
 @date: 2026-05-13
-@description: Driver class registry — module-level map driver_type -> class.
+@description: Driver class registry — driver_type -> class, on the kernel ``Registry[T]``.
 
 Concrete drivers register themselves with the ``@register`` decorator at
 import time. The resolver dispatches on ``card.driver_type`` via
@@ -14,6 +14,10 @@ SystemDriver is registered conditionally — only when running in cloud
 mode (env-backed system free-tier credentials are loaded). Local-mode
 processes (DMG / `bash run.sh`) never register it because the
 system-default path is dead code there.
+
+Since the plugin platform's batch 0 the map is a kernel ``Registry`` for the
+``model.providers`` slot: same keys, same idempotent re-registration, plus
+owner/metadata bookkeeping and ``freeze()`` for the loader.
 """
 from __future__ import annotations
 
@@ -21,11 +25,13 @@ from typing import Optional, Type
 
 from loguru import logger
 
+from narranexus.contracts import API_VERSIONS
+from narranexus.kernel.plugins.registry import Registry
 
-DRIVER_REGISTRY: dict[str, Type] = {}
+DRIVER_REGISTRY: Registry[Type] = Registry("providerDrivers", api_version=API_VERSIONS["provider"])
 
 
-def register(driver_cls):
+def register(driver_cls, *, owner: str = "builtin.providers"):
     """Class decorator that registers a Driver under its
     :py:meth:`driver_type` key.
 
@@ -34,7 +40,7 @@ def register(driver_cls):
     so test fixtures don't silently leak).
     """
     key = driver_cls.driver_type()
-    existing = DRIVER_REGISTRY.get(key)
+    existing = DRIVER_REGISTRY.try_get(key)
     if existing is driver_cls:
         return driver_cls
     if existing is not None:
@@ -43,7 +49,7 @@ def register(driver_cls):
             f"{existing.__module__}.{existing.__name__} -> "
             f"{driver_cls.__module__}.{driver_cls.__name__}"
         )
-    DRIVER_REGISTRY[key] = driver_cls
+    DRIVER_REGISTRY.register(key, lambda: driver_cls, owner=owner, replace=True)
     return driver_cls
 
 
@@ -53,7 +59,7 @@ def get_driver_class(driver_type: str) -> Optional[Type]:
     Returns ``None`` for unknown keys — the resolver treats that as a
     fatal config error (raises ``LLMConfigNotConfigured``).
     """
-    return DRIVER_REGISTRY.get(driver_type)
+    return DRIVER_REGISTRY.try_get(driver_type)
 
 
 __all__ = ["DRIVER_REGISTRY", "register", "get_driver_class"]

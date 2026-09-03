@@ -4,6 +4,15 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 注册表改用内核 `Registry[T]`（`FRAMEWORK_REGISTRY`），行为不变
+
+`_REGISTRY: dict` 换成 `narranexus.kernel.plugins.registry.Registry`，键仍大小写不敏感、
+选择优先级/错误文案不变（`UnknownEntry` 被翻译回原来的 `ValueError` 文案，调用方无感）。
+两处可见变化：`register_agent_loop_driver` 现在**返回 `Disposable`**（测试夹具用它撤销注册，
+取代直接 `_REGISTRY.pop`），并多一个 keyword-only `owner`（默认 `builtin.frameworks`，插件
+loader 会传自己的 id）。覆盖注册仍允许（`replace=True`，spec 记为遗留口子，批 1 收紧）。
+快照 `tests/snapshots/golden/registries.json` 证明三个框架名与顺序未变。
+
 ## 2026-09-03 — `AgentLoopDriver` Protocol 搬到 `narranexus.contracts.framework`，本模块 re-export
 
 插件平台批 0：Protocol 正文（含 `capabilities()` 全部 docstring）逐字迁入契约层，本模块顶部
