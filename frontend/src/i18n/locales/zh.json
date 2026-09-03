@@ -175,7 +175,7 @@
         "mention": "@ 某位队友，点名让 TA 处理。",
         "broadcastTitle": "@all 全员广播",
         "broadcast": "@all 会通知全体——每位成员都会完整跑一轮，请谨慎使用。",
-        "relay": "队友之间可以互相 @ 接力；在你不发言的情况下，最多接力 4 次后自动停止。"
+        "relay": "队友之间可以互相 @ 接力；在你不发言的情况下，接力达到平台上限后会自动停止，并在群里说明。"
       },
       "noProcess": "该轮次没有过程记录",
       "detailLoadFailed": "过程记录加载失败，请重试。",
@@ -191,7 +191,8 @@
         "stopping": "正在停止…",
         "stopped": "已被所有者停止",
         "stopFailed": "无法停止该运行",
-        "stopHint": "停止本次运行"
+        "stopHint": "停止本次运行",
+        "silentLastTurn": "上一轮未发言"
       },
       "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
       "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手",
@@ -261,7 +262,14 @@
         "download": "下载 {{name}}",
         "loading": "加载中…"
       },
-      "drawerCategory": "团队房间"
+      "drawerCategory": "团队房间",
+      "manage": {
+        "title": "团队管理",
+        "patrol": "组长巡查",
+        "patrolHint": "开启后，组长会定期追问停滞的交接；关闭则只保留看板。",
+        "editProfile": "编辑资料（名称 / 颜色 / 简介）",
+        "clearData": "清理团队数据…"
+      }
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -869,7 +877,6 @@
     "teamRowMenu": {
       "options": "群聊选项",
       "rename": "重命名",
-      "clearData": "清理数据",
       "delete": "删除",
       "addAgent": "添加 agent",
       "addingAgent": "添加中…"

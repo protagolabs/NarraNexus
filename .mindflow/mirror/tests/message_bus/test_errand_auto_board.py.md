@@ -1,8 +1,17 @@
 ---
 code_file: tests/message_bus/test_errand_auto_board.py
-last_verified: 2026-08-14
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 「Who may open one」一节 + 现有用例补 `lead_agent_id`
+
+`_open_errand` 默认 `lead_agent_id=LEAD`;直接调用 `record_handoffs` 的六处补
+`lead_agent_id=LEAD`;`test_a_promise_that_hands_on_leaves_both_links_watched` 改断言
+A3→A4 不开项(组长→A3 仍开);`test_a_real_team_reply_records_its_errand` 补 `teams` 行。
+新增:非组长不开/组长开/无组长不开/用户总能开/`opens_handoffs` 真值表/经
+`post_team_reply` 从 `teams` 行读组长。
+
 
 ## 2026-08-14 — 为什么存在
 

@@ -55,7 +55,7 @@ def repo(db_client):
 
 
 async def _open_errand(db, *, from_agent, to_agent, text="handle the OCR output",
-                       message_id="msg_1"):  # noqa: D103
+                       message_id="msg_1", lead_agent_id=LEAD):  # noqa: D103
     return await record_handoffs(
         db,
         team_id=TEAM,
@@ -65,6 +65,7 @@ async def _open_errand(db, *, from_agent, to_agent, text="handle the OCR output"
         text=text,
         message_id=message_id,
         root_run_id="evt_root",
+        lead_agent_id=lead_agent_id,
     )
 
 
@@ -126,12 +127,12 @@ async def test_broadcast_and_self_mention_are_not_hand_offs(db_client, repo):
     itself on the next patrol.
     """
     assert await record_handoffs(
-        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD, lead_agent_id=LEAD,
         mentions=["@everyone"], text="standup in 5", message_id="m_b",
         root_run_id="",
     ) == []
     assert await record_handoffs(
-        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD, lead_agent_id=LEAD,
         mentions=[LEAD], text="note to self", message_id="m_s", root_run_id="",
     ) == []
     assert await repo.list_active(TEAM) == []
@@ -141,7 +142,7 @@ async def test_broadcast_and_self_mention_are_not_hand_offs(db_client, repo):
 async def test_one_post_can_hand_off_to_several_people(db_client, repo):
     """Each assignee is late on their own, so each gets an item."""
     opened = await record_handoffs(
-        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD, lead_agent_id=LEAD,
         mentions=[A3, A4], text="split the batch between you",
         message_id="m_multi", root_run_id="",
     )
@@ -216,8 +217,8 @@ async def test_the_dunhuang_promise_does_not_close_anything(db_client, repo):
 
 
 @pytest.mark.asyncio
-async def test_a_promise_that_hands_on_leaves_both_links_watched(db_client, repo):
-    """A3's own errand stays open AND A4's opens — the two facts the chain needs.
+async def test_a_members_promise_that_hands_on_leaves_only_the_leads_link_watched(db_client, repo):
+    """A3's own errand stays open; A4's does NOT open (A3 is not the lead).
 
     This is the composed behaviour of the two halves on the real message, and
     the reason they cannot be reasoned about separately.
@@ -230,13 +231,114 @@ async def test_a_promise_that_hands_on_leaves_both_links_watched(db_client, repo
     handed_on = await record_handoffs(
         db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=A3,
         mentions=[A4], text=PROMISE, message_id="msg_2", root_run_id="evt_root",
+        lead_agent_id=LEAD,
     )
 
+    # The lead's errand for A3 survives A3's promise — that is the link the
+    # incident needed watched. A3 → A4 is a member handing on, which since
+    # 2026-09-03 wakes A4 but books nothing (see `opens_handoffs`).
     assert closed == []
-    assert len(handed_on) == 1
+    assert handed_on == []
     active = {i.assignee_id: i for i in await repo.list_active(TEAM)}
-    assert set(active) == {A3, A4}
+    assert set(active) == {A3}
     assert active[A3].item_id == a3_item
+
+
+# ===========================================================================
+# Who may open one (2026-09-03)
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_a_member_who_is_not_the_lead_opens_nothing(db_client, repo):
+    """Discussion between members is not assignment.
+
+    Delete the `opens_handoffs` gate in `record_handoffs` and this goes red:
+    A3's "@A4 你怎么看" would book A4 a task every member then reads each
+    turn and patrol chases.
+    """
+    opened = await _open_errand(
+        db_client, from_agent=A3, to_agent=A4, text="@A4 你怎么看", lead_agent_id=LEAD,
+    )
+    assert opened == []
+    assert await repo.list_active(TEAM) == []
+
+
+@pytest.mark.asyncio
+async def test_the_lead_opens_one(db_client, repo):
+    opened = await _open_errand(db_client, from_agent=LEAD, to_agent=A3, lead_agent_id=LEAD)
+    assert len(opened) == 1
+    assert [i.assignee_id for i in await repo.list_active(TEAM)] == [A3]
+
+
+@pytest.mark.asyncio
+async def test_a_team_without_a_lead_books_nothing_from_agents(db_client, repo):
+    """No lead → patrol is off (`patrol_is_on`), so nobody would sweep it."""
+    opened = await _open_errand(db_client, from_agent=A3, to_agent=A4, lead_agent_id=None)
+    assert opened == []
+    assert await repo.list_active(TEAM) == []
+
+
+@pytest.mark.asyncio
+async def test_the_user_opens_one_whoever_the_lead_is(db_client, repo):
+    for lead in (LEAD, None):
+        opened = await _open_errand(
+            db_client, from_agent="usr_owner", to_agent=A4,
+            message_id=f"msg_user_{lead}", lead_agent_id=lead,
+        )
+        assert len(opened) == 1, f"lead={lead!r}"
+
+
+def test_opens_handoffs_is_user_or_lead_only():
+    from xyz_agent_context.message_bus.errand import opens_handoffs
+
+    assert opens_handoffs("usr_x", None) is True
+    assert opens_handoffs("usr_x", LEAD) is True
+    assert opens_handoffs(LEAD, LEAD) is True
+    assert opens_handoffs(A3, LEAD) is False
+    assert opens_handoffs(A3, None) is False
+    assert opens_handoffs("", LEAD) is False
+
+
+@pytest.mark.asyncio
+async def test_the_post_path_reads_the_lead_from_the_team_row(db_client, repo, monkeypatch):
+    """`post_team_reply` resolves the lead itself — the tool passes none.
+
+    Two posts through the real seam, same text, different senders: the lead's
+    books A3, the member's books nothing. Both @mentions are DELIVERED (the
+    bus row carries them) — activation is untouched by the gate.
+    """
+    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from xyz_agent_context.message_bus.team_posting import post_team_reply
+
+    await db_client.insert("teams", {
+        "team_id": TEAM, "name": "T", "owner_user_id": "usr_1",
+        "lead_agent_id": LEAD,
+    })
+    await db_client.insert("bus_channels", {
+        "channel_id": CHANNEL, "name": "room", "channel_type": "group",
+        "created_by": f"team_{TEAM}",
+    })
+    for aid in (LEAD, A3, A4):
+        await db_client.insert("bus_channel_members", {"channel_id": CHANNEL, "agent_id": aid})
+    roster = [{"agent_id": LEAD, "name": "Leader"}, {"agent_id": A3, "name": "A3"},
+              {"agent_id": A4, "name": "A4"}]
+    bus = LocalMessageBus(backend=db_client._backend)
+
+    r_lead = await post_team_reply(
+        db=db_client, bus=bus, agent_id=LEAD, team_id=TEAM, channel_id=CHANNEL,
+        text="@A3 please pull the numbers", roster=roster,
+    )
+    assert r_lead["mentioned"] == [A3]
+    assert [i.assignee_id for i in await repo.list_active(TEAM)] == [A3]
+
+    # A3 answers with a promise (so its own errand stays open — the existing
+    # rule) and hands on to A4: delivered to A4, booked for nobody.
+    r_member = await post_team_reply(
+        db=db_client, bus=bus, agent_id=A3, team_id=TEAM, channel_id=CHANNEL,
+        text=PROMISE, roster=roster,
+    )
+    assert r_member["mentioned"] == [A4]
+    assert [i.assignee_id for i in await repo.list_active(TEAM)] == [A3]
 
 
 @pytest.mark.asyncio
@@ -311,7 +413,7 @@ async def test_one_message_cannot_open_unbounded_hand_offs(db_client, repo):
     many = [f"agent_{i}" for i in range(MAX_HANDOFFS_PER_MESSAGE + 4)]
 
     opened = await record_handoffs(
-        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+        db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD, lead_agent_id=LEAD,
         mentions=many, text="everyone take a slice", message_id="m_many",
         root_run_id="",
     )
@@ -496,7 +598,7 @@ async def test_one_sweep_retires_a_bounded_number(db_client, repo):
     total = MAX_EXPIRIES_PER_SWEEP + 3
     for i in range(total):
         opened = (await record_handoffs(
-            db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD,
+            db_client, team_id=TEAM, channel_id=CHANNEL, from_agent=LEAD, lead_agent_id=LEAD,
             mentions=[f"agent_{i}"], text=f"task {i}", message_id=f"m_{i}",
         ))[0]
         await db_client.update(
@@ -530,7 +632,7 @@ async def test_liveness_in_one_room_does_not_reprieve_another(db_client, repo):
     here = (await _open_errand(
         db_client, from_agent=LEAD, to_agent=A3, message_id="m_here"))[0]
     there = (await record_handoffs(
-        db_client, team_id=TEAM, channel_id=other_room, from_agent=LEAD,
+        db_client, team_id=TEAM, channel_id=other_room, from_agent=LEAD, lead_agent_id=LEAD,
         mentions=[A3], text="the other room", message_id="m_there",
     ))[0]
     old = utc_now() - timedelta(hours=ERRAND_TTL_HOURS + 1)
@@ -652,6 +754,10 @@ async def test_a_real_team_reply_records_its_errand(db_client, monkeypatch, repo
         await db_client.insert(
             "bus_channel_members", {"channel_id": CHANNEL, "agent_id": aid}
         )
+    # The posting path reads who the lead is from the team row (2026-09-03).
+    await db_client.insert("teams", {
+        "team_id": TEAM, "name": "T", "owner_user_id": "usr_1", "lead_agent_id": LEAD,
+    })
 
     bus = LocalMessageBus(backend=db_client._backend)
     await speak_in_room(

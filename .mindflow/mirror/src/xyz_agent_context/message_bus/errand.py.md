@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/message_bus/errand.py
-last_verified: 2026-08-17
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 只有用户和组长的 @ 才开差事（`opens_handoffs`）
+
+`record_handoffs` 新增 `lead_agent_id` 参数,入口先过 `opens_handoffs(from_agent, lead_agent_id)`:
+发送者是 **用户**(`usr_` 前缀)或 **团队组长** 才开项;其他成员的 @ **照常唤醒对方**
+(激活是 bus 的事,本模块不碰),但**不上板**。没有组长的团队,agent 的 @ 一律不开
+(`patrol_is_on` 本来就要求有组长,那些行从来没人扫)。
+
+起因:owner 复盘 dev 一个房间,19 字提问后三个成员接力 23 条,每条 @ 另外两人,
+每个 @ 都成了一行 errand,渲染进全员每轮 prompt 24h,「收到」关不掉,patrol 再追问。
+Dunhuang 的保证不丢:组长→A3 的差事在 A3 的承诺下仍然开着(`is_promise_only`);
+A3→A4 的接力只唤醒不记账——**A4 不交付时无人追**,是明知的取舍。
+调用方:[[team_posting]] 从 `teams` 行读组长;路由(用户)不传。
+测试:`test_errand_auto_board.py` 「Who may open one」一节 + `test_the_post_path_reads_the_lead_from_the_team_row`。
+
 
 ## 2026-08-17（三）— 批量上限、复合缓存键、板子可由调用方传入
 

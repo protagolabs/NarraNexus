@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/chat/team/TeamChatPanel.tsx
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 公告栏和团队管理收进抽屉第四个 tab
+
+owner 反馈「找不到公告栏填写位置」:唯一入口是工具条最末的小按钮,设置页和空房引导都不提。
+现在:①工具条的齿轮(去 `/app/teams/:id`,那页没有任何管理控件)和公告栏按钮**都拿掉**,
+换成一个带文字标签的 `manage-toggle`(Settings2 + 「团队管理」,公告栏条数角标保留);
+②`drawerTab === 'manage'` 渲染 [[TeamManagePanel.tsx]],公告栏 state/`reloadBulletin`/
+`bulletinAction` 仍归本组件(改动会贴系统行,transcript 与面板要同源),只是往下传;
+③尾部那块 `bulletinOpen` w-72 侧栏删除;④新增 `handleCleared(scopes)`:清聊天→清空
+messages(下一次 3s 轮询无 since 游标全量重取;`historyRefreshTick` 只有单聊面板订阅,这里不调),清文件/公告栏→`requestWorkspaceRefresh`
+(原先这段逻辑在 [[../../layout/AgentList.tsx]] 的右键清理里)。
+测试:`TeamChatPanel.roster.test.tsx` 「discoverable panel chrome」改断言 manage-toggle、
+`bulletin-toggle` 不存在。
+
 
 ## 2026-08-20 — 面板 chrome 加可见文字标签 + 组长就地指定
 

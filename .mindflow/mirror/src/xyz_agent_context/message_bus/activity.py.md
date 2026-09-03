@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/message_bus/activity.py
-last_verified: 2026-07-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 外露 `note_silent_turn` / `last_turn_was_silent`
+
+trigger 侧写沉默标记、路由侧读,两个都走这个门面。见 [[_bus_activity]]。
+
 
 ## 2026-07-28 — `is_stalled` / `parse_steps` join the read surface
 

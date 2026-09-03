@@ -53,6 +53,7 @@ from loguru import logger
 from xyz_agent_context.utils.timezone import utc_now
 
 from xyz_agent_context.repository.team_work_repository import TeamWorkItemRepository
+from xyz_agent_context.schema.team_schema import USER_SENDER_PREFIX
 from xyz_agent_context.schema.team_work_schema import WorkItemOrigin, WorkItemStatus
 
 #: An errand title is read by every member every turn, so it is short by
@@ -107,6 +108,35 @@ MAX_EXPIRIES_PER_SWEEP = 100
 #: Addressing the room is not handing work to a person: nobody is late on
 #: `@everyone`, and opening one item per member would flood the board.
 BROADCAST_MENTION = "@everyone"
+
+
+def opens_handoffs(from_agent: str, lead_agent_id: Optional[str]) -> bool:
+    """Whether a message from ``from_agent`` may put hand-offs on the board.
+
+    Only the **user** and the **team lead** assign work. Any other member's
+    @mention still wakes the teammate — activation is a property of the bus,
+    not of this module — but it opens no errand.
+
+    2026-09-03. Until then every agent reply's @mentions opened one row per
+    target: a "@A @B 你们看看" exchanged between three members manufactured
+    board rows that rendered into every member's prompt for `ERRAND_TTL_HOURS`,
+    that a bare "收到" could not close, and that patrol then chased — each
+    chase another platform line and another turn. The owner's verdict on the
+    resulting transcripts was "agents interacting is exhausting", and the
+    rows were the mechanism behind it.
+
+    Restricting the entrance to the two parties who actually hand work down
+    keeps the Dunhuang guarantee where it matters — the lead's errand for a
+    member stays open through that member's promise (`is_promise_only`) — and
+    stops discussion between members from being booked as assignments. A team
+    with no lead opens nothing from agents: patrol is off for such a team
+    (`patrol_is_on`), so those rows were never going to be swept anyway.
+    """
+    if not from_agent:
+        return False
+    if from_agent.startswith(USER_SENDER_PREFIX):
+        return True
+    return bool(lead_agent_id) and from_agent == lead_agent_id
 
 # ---------------------------------------------------------------------------
 # Promise vocabulary
@@ -195,6 +225,7 @@ async def record_handoffs(
     text: str,
     message_id: str,
     root_run_id: str = "",
+    lead_agent_id: Optional[str] = None,
 ) -> List[str]:
     """Open one errand per person this post hands work to. Returns new item ids.
 
@@ -202,9 +233,15 @@ async def record_handoffs(
     room never saw would have the board and the transcript disagreeing, and the
     board is the thing patrol trusts.
 
+    ``lead_agent_id`` is the team's lead (``teams.lead_agent_id``); with it,
+    `opens_handoffs` decides whether this sender assigns work at all. A user
+    sender always does, so the route may leave it None.
+
     Best-effort by contract — the caller has already delivered the reply, and a
     board write must never be able to fail a hop that succeeded.
     """
+    if not opens_handoffs(from_agent, lead_agent_id):
+        return []
     targets = [
         m for m in (mentions or [])
         if m and m != BROADCAST_MENTION and m != from_agent

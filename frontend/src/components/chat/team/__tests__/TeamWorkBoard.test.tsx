@@ -213,37 +213,21 @@ describe('TeamWorkBoard', () => {
   });
 });
 
-describe('TeamWorkBoard · patrol switch', () => {
-  test('the sweep can be switched off from here', async () => {
+describe('TeamWorkBoard · patrol switch moved out (2026-09-03)', () => {
+  test('the board carries no switch — it lives in the management tab', async () => {
     getBoardMock.mockResolvedValue(board({ items: [LIVE] }));
     render(<TeamWorkBoard teamId="t1" now={NOW} />);
 
-    fireEvent.click(await screen.findByTestId('patrol-toggle'));
-
-    await waitFor(() => expect(setPatrolMock).toHaveBeenCalledWith('t1', false));
+    expect(await screen.findByText('chat.team.board.patrolPending')).toBeTruthy();
+    expect(screen.queryByTestId('patrol-toggle')).toBeNull();
+    expect(setPatrolMock).not.toHaveBeenCalled();
   });
 
-  test('a team with patrol OFF keeps the panel even with an empty board', async () => {
-    // Otherwise the only control for a standing user setting disappears, and
-    // there is no way to switch it back on.
+  test('an empty board is absent even with patrol OFF', async () => {
     getBoardMock.mockResolvedValue(board({ items: [], patrol_enabled: false }));
-    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+    const { container } = render(<TeamWorkBoard teamId="t1" now={NOW} />);
 
-    expect(await screen.findByTestId('patrol-toggle')).toBeTruthy();
-    expect(screen.getByText('chat.team.board.patrolOff')).toBeTruthy();
-  });
-
-  test('a failed toggle reverts', async () => {
-    getBoardMock.mockResolvedValue(board({ items: [LIVE] }));
-    setPatrolMock.mockRejectedValue(new Error('nope'));
-    render(<TeamWorkBoard teamId="t1" now={NOW} />);
-
-    fireEvent.click(await screen.findByTestId('patrol-toggle'));
-
-    // Optimistic flip undone — the label must not claim a state the server
-    // never accepted.
-    await waitFor(() =>
-      expect(screen.getByTestId('patrol-toggle').textContent).toBe('chat.team.board.turnOff'),
-    );
+    await waitFor(() => expect(getBoardMock).toHaveBeenCalled());
+    expect(container.firstChild).toBeNull();
   });
 });

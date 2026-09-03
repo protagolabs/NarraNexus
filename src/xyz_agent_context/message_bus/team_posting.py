@@ -186,8 +186,10 @@ async def _record_errands(
 
     Ordering is the whole design: close first, then open. On a founding message
     ("收到…完成后交付 @A4") the close is a no-op — it is a promise, not a
-    delivery — and the open adds the next link, so BOTH hops stay watched.
-    Reversing it would let a hand-off close the errand it just created.
+    delivery — so the sender's own errand stays watched. Whether the open adds
+    the next link depends on WHO sent it since 2026-09-03: the lead's hand-on
+    books @A4, a member's does not (`errand.opens_handoffs`). Reversing the
+    order would let a hand-off close the errand it just created.
 
     `mentions` is the POST-cap list: an @mention the cascade cap stripped never
     reached the teammate, so an errand for it would be owed by someone who was
@@ -207,6 +209,13 @@ async def _record_errands(
             record_handoffs,
         )
 
+        # Who may hand work down is a fact about the TEAM (its lead), not
+        # about the message; one lookup here rather than a roster field the
+        # tool would have to remember to pass. Looked up BEFORE the close so
+        # the close/open pair stays adjacent — a failed lookup then skips
+        # both rather than committing the close and losing the open.
+        team = await db.get_one("teams", {"team_id": team_id})
+        lead_agent_id = (team or {}).get("lead_agent_id") or None
         await close_delivered_errands(
             db,
             team_id=team_id,
@@ -223,6 +232,7 @@ async def _record_errands(
             text=text,
             message_id=message_id,
             root_run_id=root_run_id,
+            lead_agent_id=lead_agent_id,
         )
     except Exception as e:  # noqa: BLE001 — see "Never raises" above
         logger.warning(

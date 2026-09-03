@@ -634,6 +634,9 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
                     "steps": steps,
                     "tool_count": row.get("tool_count") or 0,
                     "event_id": row.get("event_id"),
+                    # The turn ran and chose not to speak. This is where that
+                    # fact lives now — it no longer gets a transcript line.
+                    "last_turn_silent": bus_activity.last_turn_was_silent(row),
                 }
             )
         out.append(entry)

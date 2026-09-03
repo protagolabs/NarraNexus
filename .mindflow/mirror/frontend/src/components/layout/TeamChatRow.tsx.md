@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-08-18
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 不再透传 `onClearData`
+
+随 [[TeamRowMenu.tsx]] 的菜单项一起去掉。
+
 
 ## 2026-08-18 — 行悬停改 --nm-row-hover
 

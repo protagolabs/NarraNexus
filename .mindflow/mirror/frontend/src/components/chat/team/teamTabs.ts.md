@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/teamTabs.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 第四个 tab:manage
+
+`TeamTabId` 加 `'manage'`(Settings2,labelKey `chat.team.manage.title`,无计数),排最后。
+面板见 [[TeamManagePanel.tsx]]。
+
 
 ## 2026-08-19(二)— 注册表变 builder(带活计数)
 

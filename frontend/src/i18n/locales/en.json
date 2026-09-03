@@ -175,7 +175,7 @@
         "mention": "@ a teammate to address them directly.",
         "broadcastTitle": "Broadcast to all",
         "broadcast": "@all addresses everyone — each member runs a full turn, so use it sparingly.",
-        "relay": "Teammates can @ each other to hand work off; the relay stops after 4 hops without a message from you."
+        "relay": "Teammates can @ each other to hand work off; without a message from you the relay stops at the platform's limit, and the room says so."
       },
       "noProcess": "No process record for this turn",
       "detailLoadFailed": "Couldn't load the process. Try again.",
@@ -191,7 +191,8 @@
         "stopping": "Stopping…",
         "stopped": "Stopped by owner",
         "stopFailed": "Could not stop this run",
-        "stopHint": "Stop this run"
+        "stopHint": "Stop this run",
+        "silentLastTurn": "Last turn: said nothing"
       },
       "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
       "leadTitle": "{{name}} · answers when no one is @mentioned",
@@ -261,7 +262,14 @@
         "download": "Download {{name}}",
         "loading": "Loading…"
       },
-      "drawerCategory": "Team room"
+      "drawerCategory": "Team room",
+      "manage": {
+        "title": "Manage",
+        "patrol": "Lead patrol",
+        "patrolHint": "When on, the lead periodically chases stalled hand-offs; off keeps the board but stops the chasing.",
+        "editProfile": "Edit profile (name / colour / intro)",
+        "clearData": "Clear team data…"
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -869,7 +877,6 @@
     "teamRowMenu": {
       "options": "Group chat options",
       "rename": "Rename",
-      "clearData": "Clear data",
       "delete": "Delete",
       "addAgent": "Add agent",
       "addingAgent": "Adding…"

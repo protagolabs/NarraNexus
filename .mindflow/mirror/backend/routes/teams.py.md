@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-08-21
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — idle 条目带 `last_turn_silent`
+
+`_member_activity` 的 idle 分支多一个布尔 `last_turn_silent`(来自
+[[../../src/xyz_agent_context/message_bus/_bus_activity]] 的 `last_turn_was_silent`)。
+房间不再为沉默贴行,「跑了但没说」和「没跑」靠花名册这一格区分。
+测试:`test_team_activity_payload.py::test_idle_reports_whether_the_last_turn_was_silent`。
+
 
 ## 2026-08-17（二）— 只带附件的交接也有个说得出口的标题
 

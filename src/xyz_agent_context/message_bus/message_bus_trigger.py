@@ -3003,8 +3003,9 @@ class MessageBusTrigger:
                         "",
                         f"{_who(tm)} posted this without @mentioning anyone. "
                         f"You are this team's default responder, so it came to "
-                        f"you. Answer it, or hand it to whoever on the roster "
-                        f"is the better owner by @mentioning them. {tail}",
+                        f"you. Answer it yourself. Hand it to a teammate only "
+                        f"when the work is clearly theirs — and then hand it "
+                        f"over, do not also half-answer it. {tail}",
                     ]
                 else:
                     lines += [
@@ -3013,22 +3014,31 @@ class MessageBusTrigger:
                         f"that message. {tail}",
                     ]
             else:
-                # ALL of them, not just the last. Naming only `[-1]` left the
+                # Every ASK, not just the last. Naming only `[-1]` left the
                 # earlier asks sitting in the scrollback looking like everyone
                 # else's traffic — asked, and silently dropped, which reads to
                 # the user as the agent ignoring them.
+                #
+                # But an ask, not every line. "Address ALL of them" (until
+                # 2026-09-03) made a teammate's "done, thanks" owe a reply as
+                # much as a question did, and the replies to those were the
+                # ping-pong the owner asked to stop. The rule is now the one
+                # the module states for DMs: a question or a request gets an
+                # answer; an FYI or an acknowledgement gets nothing.
                 if all_routed:
                     head = (
                         f"{len(trigger_messages)} messages arrived with no "
                         f"@mention. You are this team's default responder, so "
-                        f"they came to you. Address ALL of them, or hand any of "
-                        f"them to a better owner on the roster:"
+                        f"they came to you. Reply to the ones that ask you for "
+                        f"something; one that only informs you needs no reply:"
                     )
                 else:
                     head = (
                         f"{len(trigger_messages)} messages @mentioned you since "
-                        f"your last turn. Address ALL of them — answering only "
-                        f"the latest leaves the others visibly ignored:"
+                        f"your last turn. Reply to the ones that ask you for "
+                        f"something — a real question left unanswered reads as "
+                        f"ignoring it. One that only informs you, or confirms "
+                        f"what you said, needs no reply:"
                     )
                 lines += ["", head]
                 for tm in trigger_messages:
@@ -3065,8 +3075,9 @@ class MessageBusTrigger:
                 "- Nothing you write outside that call reaches the room. Thinking "
                 "it through in plain text first is fine and private — but the "
                 "turn only speaks when you make the call.",
-                "- If you have nothing worth saying, make no call at all. Silence "
-                "is a legitimate answer here; a routine acknowledgement is not.",
+                "- If you have nothing to add, make no call at all. Silence is a "
+                "legitimate answer here and leaves no mark in the room; a "
+                "routine acknowledgement is not.",
                 "- You MAY use action tools alongside it: the built-in Read tool "
                 "to open a file path shown above, and team_share_file to publish "
                 "a file YOU produced to the team folder (then mention the returned "
@@ -3089,6 +3100,20 @@ class MessageBusTrigger:
             "- Keep it short, like a real group chat. To pull in a teammate, "
             "@mention them by name (e.g. @Name); say @all for everyone — but only "
             "when you genuinely need them, not as a reflex.",
+            # 2026-09-03. The owner read a 23-message exchange between three
+            # members that followed one 19-character question: each reply
+            # opened with 收到, restated the correction the previous reply had
+            # already accepted, and @mentioned both other members "to keep
+            # them in the loop" — which woke them, which produced the next
+            # one. Every rule below names one of those three moves.
+            "- Say only what is NEW: your result, your finding, your decision, "
+            "or one real question. Do not open with an acknowledgement (收到 / "
+            "got it), do not restate what a teammate already said or accepted, "
+            "and do not post a wrap-up of the thread unless the user asked for "
+            "one.",
+            "- Reply to whoever asked you, and only to them. Do not @mention "
+            "the rest of the room to keep them informed — they read the room, "
+            "and every @mention starts a turn.",
             "- You may ONLY @mention a current channel member listed above. Do "
             "NOT @mention anyone who is not in that list — they are not in the "
             "channel and cannot see or answer it. If you want someone else "
@@ -3104,8 +3129,11 @@ class MessageBusTrigger:
             # answer, and silence is what this room can least afford.
             #
             # Reduces how often the platform's guard is consulted; it is NOT
-            # the guard (iron rule #15). `message_bus/errand.py` keeps the
-            # hand-off on the board whether or not the model obeys this line.
+            # the guard (iron rule #15). `message_bus/errand.py` keeps a
+            # hand-off from the USER or the LEAD on the board whether or not
+            # the model obeys this line. Since 2026-09-03 a member-to-member
+            # hand-on books nothing (`opens_handoffs`), so for that shape the
+            # line below is the only discipline — accepted, see errand.py.
             "- **Do not promise future delivery.** Nothing of yours keeps "
             "running once this turn ends, so \"完成后交给你\" / \"I'll report "
             "back when it's done\" is a promise nothing will keep. Instead: "
@@ -3752,10 +3780,13 @@ class MessageBusTrigger:
         WHO is left waiting decides who gets woken, and the two surfaces
         differ:
 
-        * team room — nobody is blocked. The line is posted without mentions:
-          it is there so the humans reading the room can tell "the agent said
-          nothing" apart from "the agent never ran", and waking every member
-          over a silence would cost more turns than the silence costs.
+        * team room — nobody is blocked, and NOTHING is posted. Until
+          2026-09-03 a mention-less platform line went into the transcript so
+          readers could tell "said nothing" from "never ran"; the same prompt
+          told the agent silence was legitimate, so the line read as a
+          reprimand for obeying it, and agents filled the room to avoid it.
+          The fact now lives on the member's activity row instead
+          (`activity.note_silent_turn` → roster "last turn: said nothing").
         * A2A DM, and we are the one being ASKED — the peer IS blocked, and
           only a message wakes it. It gets mentioned, which is how an errand
           that would otherwise hang forever resolves itself.
@@ -3775,10 +3806,22 @@ class MessageBusTrigger:
         if (trigger_message.msg_type or "") in PLATFORM_MSG_TYPES:
             return
 
+        if is_team:
+            # No owner inbox notice either: the owner IS in this room and the
+            # roster shows the mark (with the drawer open). A DM silence
+            # happens where nobody is watching, which is what the inbox
+            # notice below is for.
+            from xyz_agent_context.message_bus import activity as bus_activity
+            from xyz_agent_context.utils.db.db_factory import get_db_client
+
+            await bus_activity.note_silent_turn(
+                await get_db_client(), agent_id, channel_id
+            )
+            return
+
         sender = trigger_message.from_agent or ""
         wake_peer = (
-            not is_team
-            and not errand_continuation
+            not errand_continuation
             and bool(sender)
             and not sender.startswith(USER_SENDER_PREFIX)
         )
@@ -3787,11 +3830,9 @@ class MessageBusTrigger:
             mentions=[sender] if wake_peer else None,
             root_run_id=trigger_message.root_run_id or None,
         )
-        if not is_team:
-            # A team silence is already visible to the owner in the room. A DM
-            # silence happens somewhere nobody is watching, so the owner only
-            # ever learns of it here.
-            await self._notify_undelivered_owner(agent_id, channel_id, sender)
+        # A DM silence happens somewhere nobody is watching, so the owner only
+        # ever learns of it here.
+        await self._notify_undelivered_owner(agent_id, channel_id, sender)
 
     async def _notify_undelivered_owner(
         self, agent_id: str, channel_id: str, sender: str,

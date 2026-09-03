@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkBoard.tsx
-last_verified: 2026-08-21
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — patrol 开关搬去团队管理 tab
+
+`togglePatrol`/`patrol-toggle` 删除,`api.setTeamPatrol` 不再从这里调;「上次巡查/已关闭」
+的痕迹文字保留。空板子一律不渲染(此前 patrol OFF 时保留面板只是为了留住开关)。
+开关见 [[TeamManagePanel.tsx]]。测试:`TeamWorkBoard.test.tsx` 「patrol switch moved out」。
+
 
 # TeamWorkBoard.tsx — 团队欠着什么
 

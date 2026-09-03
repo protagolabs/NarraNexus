@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/message_bus/team_posting.py
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `_record_errands` 查一次 `teams` 行拿组长
+
+`record_handoffs` 现在需要 `lead_agent_id`([[errand]] 的 `opens_handoffs` 门)。
+「谁能派活」是团队的事实不是消息的事实,所以在这里 `db.get_one("teams")` 一次,
+不让 `message_team` 工具多传一个它得记着的字段。仍在 swallow 内、仍在 post 之后;
+查询放在 `close_delivered_errands` **之前**,close/open 保持相邻,查失败两个一起跳过。
+
 
 ## 2026-08-20 — 级联上限 4 → 30，可用 env 覆盖
 

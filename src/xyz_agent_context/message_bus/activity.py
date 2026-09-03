@@ -15,6 +15,8 @@ from xyz_agent_context.message_bus._bus_activity import (
     get_channel_activity,
     is_live,
     is_stalled,
+    last_turn_was_silent,
+    note_silent_turn,
     parse_steps,
 )
 
@@ -23,5 +25,7 @@ __all__ = [
     "get_channel_activity",
     "is_live",
     "is_stalled",
+    "last_turn_was_silent",
+    "note_silent_turn",
     "parse_steps",
 ]

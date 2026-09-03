@@ -110,6 +110,9 @@ export interface TeamMemberActivity {
   last_signal_at?: string | null;
   /** idle: ISO time the previous turn ended. */
   finished_at?: string | null;
+  /** idle: the previous turn ran and made no `message_team` call. The room
+   *  no longer posts a line for that (2026-09-03); the roster shows it. */
+  last_turn_silent?: boolean;
   /** queued: how many @mentions are waiting, and since when. */
   queued_count?: number;
   queued_since?: string | null;

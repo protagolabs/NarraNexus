@@ -29,7 +29,6 @@ import { AgentGroupSection } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
 import { EditAgentDialog } from './EditAgentDialog';
-import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
 import { TeamChatRow } from './TeamChatRow';
 
 /**
@@ -102,8 +101,6 @@ export function AgentList() {
   const [clearBusy, setClearBusy] = useState(false);
   const [editTarget, setEditTarget] = useState<typeof rawAgents[0] | null>(null);
   const [editBusy, setEditBusy] = useState(false);
-  const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
-  const [clearTeamBusy, setClearTeamBusy] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
@@ -122,7 +119,7 @@ export function AgentList() {
   const navigate = useNavigate();
   const location = useLocation();
   const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh, requestWorkspaceRefresh } =
+  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh } =
     useChatStore();
   const agentSessions = useChatStore((s) => s.agentSessions);
   const teams = useTeamsStore((s) => s.teams);
@@ -528,35 +525,6 @@ export function AgentList() {
     }
   };
 
-  const doClearTeamData = async (scopes: { chat: boolean; files: boolean; bulletin: boolean }) => {
-    if (!clearTeamTarget) return;
-    setClearTeamBusy(true);
-    try {
-      const res = await api.clearTeamData(clearTeamTarget.team_id, scopes);
-      if (res.success) {
-        if (scopes.chat) requestHistoryRefresh();
-        // The files scope also takes the team's artifacts with it (they live
-        // in that folder), and an open workspace panel would otherwise keep
-        // listing both until the next message arrives. The bulletin panel
-        // reloads off the same tick, so a cleared bulletin does not sit on
-        // screen listing rules the server has already deleted.
-        if (scopes.files || scopes.bulletin) requestWorkspaceRefresh();
-      } else {
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: res.error || 'Failed to clear team data',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error clearing team data:', err);
-      await alert({ title: t('layout.agentList.deleteFailedTitle'), message: String(err), danger: true });
-    } finally {
-      setClearTeamBusy(false);
-      setClearTeamTarget(null);
-    }
-  };
-
   const handleDeleteTeam = async (teamId: string) => {
     const team = teams.find((x) => x.team.team_id === teamId);
     const ok = await confirm({
@@ -618,14 +586,6 @@ export function AgentList() {
           busy={editBusy}
           onCancel={() => setEditTarget(null)}
           onSave={doEditAgent}
-        />
-      )}
-      {clearTeamTarget && (
-        <ClearTeamDataDialog
-          teamName={clearTeamTarget.name}
-          busy={clearTeamBusy}
-          onCancel={() => setClearTeamTarget(null)}
-          onConfirm={doClearTeamData}
         />
       )}
       {/* Header — v4: label + count with search (⌘K palette) and refresh.
@@ -711,7 +671,6 @@ export function AgentList() {
                         onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
                         onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
                         onDelete={handleDeleteTeam}
-                        onClearData={(tid) => setClearTeamTarget({ team_id: tid, name: t.team.name })}
                         onAddAgent={handleCreateAgentInTeam}
                         addingAgent={creatingAgent}
                       />

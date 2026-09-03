@@ -96,6 +96,14 @@ describe('TeamRosterPanel', () => {
     expect(screen.getByText('2m00s')).toBeTruthy();
   });
 
+  test('an idle row whose last turn said nothing says so (2026-09-03)', () => {
+    // The transcript no longer carries a line for a silent team turn; this
+    // roster line is where "ran but said nothing" moved to.
+    renderPanel({ activity: [{ ...IDLE_WITH_RUN, last_turn_silent: true }, RUNNING] });
+    expect(screen.getByTestId('silent-a2').textContent).toBe('chat.team.roster.silentLastTurn');
+    expect(screen.queryByTestId('silent-a1')).toBeNull();
+  });
+
   test('idle row shows last-run duration and recency', () => {
     renderPanel();
     expect(screen.getByText('chat.team.roster.lastRun(3m12s,6m48s)')).toBeTruthy();

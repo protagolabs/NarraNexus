@@ -268,3 +268,22 @@ async def test_note_event_id_persists_and_start_resets(db_client):
         "bus_agent_activity", {"agent_id": "agent_x", "channel_id": "chan_1"}
     )
     assert row["event_id"] is None  # stale id must not survive into a new turn
+
+
+@pytest.mark.asyncio
+async def test_idle_reports_whether_the_last_turn_was_silent(db_client):
+    """The transcript no longer says it (2026-09-03); the roster does."""
+    bus = await _room(db_client)
+    now = datetime.now(timezone.utc)
+    await _write_activity(
+        db_client, "agent_a", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "starting", "at": "x"}, {"phase": "silent", "at": "y"}], "dropped": 0}',
+    )
+    await _write_activity(
+        db_client, "agent_b", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "starting", "at": "x"}, {"phase": "replying", "at": "y"}], "dropped": 0}',
+    )
+    rows = _by_id(await _member_activity(db_client, bus, ROOM, MEMBERS))
+    assert rows["agent_a"]["last_turn_silent"] is True
+    assert rows["agent_b"]["last_turn_silent"] is False
+    assert "last_turn_silent" not in rows["agent_c"]
