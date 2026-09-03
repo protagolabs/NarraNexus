@@ -225,7 +225,7 @@ async def record_handoffs(
     text: str,
     message_id: str,
     root_run_id: str = "",
-    lead_agent_id: Optional[str] = None,
+    lead_agent_id: Optional[str],
 ) -> List[str]:
     """Open one errand per person this post hands work to. Returns new item ids.
 
@@ -234,13 +234,24 @@ async def record_handoffs(
     board is the thing patrol trusts.
 
     ``lead_agent_id`` is the team's lead (``teams.lead_agent_id``); with it,
-    `opens_handoffs` decides whether this sender assigns work at all. A user
-    sender always does, so the route may leave it None.
+    `opens_handoffs` decides whether this sender assigns work at all. Like every
+    other argument here it is keyword-only, and it has NO default on purpose: a caller that forgot it would
+    otherwise get a board that silently never fills (the shape incident
+    lesson #5 warns about). A user sender always opens, so the route passes
+    ``lead_agent_id=None`` explicitly and says why.
 
     Best-effort by contract — the caller has already delivered the reply, and a
     board write must never be able to fail a hop that succeeded.
     """
     if not opens_handoffs(from_agent, lead_agent_id):
+        # Refused, and said so: the caller ignores the return value, so this
+        # line is the only trace that the gate — not a bug — kept the board
+        # empty for this message.
+        logger.debug(
+            f"[errand] no hand-offs from {from_agent} (lead={lead_agent_id!r}) "
+            f"in {channel_id}: sender is neither the user nor the lead; "
+            f"mentions={list(mentions or [])}"
+        )
         return []
     targets = [
         m for m in (mentions or [])

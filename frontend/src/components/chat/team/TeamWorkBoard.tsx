@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Play } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useTeamsStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import type { TeamWorkItem } from '@/types/teams';
 
@@ -45,6 +46,7 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
   const [items, setItems] = useState<TeamWorkItem[]>([]);
   const [lastPatrolAt, setLastPatrolAt] = useState<string | null>(null);
   const [patrolEnabled, setPatrolEnabled] = useState(true);
+  const notePatrol = useTeamsStore((s) => s.notePatrol);
   const [resuming, setResuming] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -55,13 +57,14 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
         setItems(r.items);
         setLastPatrolAt(r.last_patrol_at ?? null);
         setPatrolEnabled(r.patrol_enabled);
+        notePatrol(teamId, r.patrol_enabled);
       }
     } catch {
       // transient — the next tick retries
     } finally {
       setLoaded(true);
     }
-  }, [teamId]);
+  }, [teamId, notePatrol]);
 
   useEffect(() => {
     let alive = true;

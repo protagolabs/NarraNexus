@@ -9,8 +9,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const getBoardMock = vi.fn();
 const setPatrolMock = vi.fn();
+const notePatrolMock = vi.fn();
+let patrolByTeam: Record<string, boolean> = {};
 const clearDataMock = vi.fn();
 const addMemberMock = vi.fn();
 const removeMemberMock = vi.fn();
@@ -20,8 +21,6 @@ const confirmMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
-    getTeamWorkBoard: (...a: unknown[]) => getBoardMock(...a),
-    setTeamPatrol: (...a: unknown[]) => setPatrolMock(...a),
     clearTeamData: (...a: unknown[]) => clearDataMock(...a),
   },
 }));
@@ -34,6 +33,9 @@ vi.mock('@/stores', () => ({
       addMember: (...a: unknown[]) => addMemberMock(...a),
       removeMember: (...a: unknown[]) => removeMemberMock(...a),
       deleteTeam: (...a: unknown[]) => deleteTeamMock(...a),
+      patrolByTeam,
+      notePatrol: (...a: unknown[]) => notePatrolMock(...a),
+      setPatrol: (...a: unknown[]) => setPatrolMock(...a),
     }),
   useConfigStore: (select: (s: unknown) => unknown) => select({ agents: [] }),
 }));
@@ -54,8 +56,8 @@ vi.mock('@/components/ui', () => ({
 // The modal and the clear dialog are exercised by their own tests; here they
 // only need to be mountable.
 vi.mock('@/components/teams/TeamManagementModal', () => ({
-  TeamManagementModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="profile-modal" /> : null,
+  TeamManagementModal: ({ open, profileOnly }: { open: boolean; profileOnly?: boolean }) =>
+    open ? <div data-testid="profile-modal" data-profile-only={String(!!profileOnly)} /> : null,
 }));
 vi.mock('@/components/teams/ClearTeamDataDialog', () => ({
   ClearTeamDataDialog: ({
@@ -114,8 +116,8 @@ function renderPanel(over: Partial<React.ComponentProps<typeof TeamManagePanel>>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getBoardMock.mockResolvedValue({ success: true, items: [], last_patrol_at: null, patrol_enabled: true });
-  setPatrolMock.mockResolvedValue({ success: true });
+  patrolByTeam = { t1: true };
+  setPatrolMock.mockResolvedValue(undefined);
   clearDataMock.mockResolvedValue({ success: true });
   addMemberMock.mockResolvedValue(undefined);
   removeMemberMock.mockResolvedValue(undefined);
@@ -135,26 +137,29 @@ describe('TeamManagePanel', () => {
     expect(props.onSetLead).toHaveBeenCalledWith('a2');
   });
 
-  test('patrol is read from the board and written through the PUT', async () => {
+  test('patrol reads the store and writes through it — no board fetch of its own', async () => {
     renderPanel();
-    const toggle = await screen.findByTestId('patrol-toggle');
-    await waitFor(() => expect(toggle.textContent).toBe('chat.team.board.turnOff'));
+    const toggle = screen.getByTestId('patrol-toggle');
+    expect(toggle.textContent).toBe('chat.team.manage.patrolOff');
 
     fireEvent.click(toggle);
 
     await waitFor(() => expect(setPatrolMock).toHaveBeenCalledWith('t1', false));
-    expect(toggle.textContent).toBe('chat.team.board.turnOn');
   });
 
-  test('a failed patrol write reverts the switch', async () => {
-    setPatrolMock.mockRejectedValue(new Error('nope'));
+  test('an unreported patrol state disables the switch instead of guessing', () => {
+    patrolByTeam = {};
     renderPanel();
-    const toggle = await screen.findByTestId('patrol-toggle');
-    await waitFor(() => expect(toggle.textContent).toBe('chat.team.board.turnOff'));
-
+    const toggle = screen.getByTestId('patrol-toggle') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
     fireEvent.click(toggle);
+    expect(setPatrolMock).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() => expect(toggle.textContent).toBe('chat.team.board.turnOff'));
+  test('a store value of OFF renders the ON action', () => {
+    patrolByTeam = { t1: false };
+    renderPanel();
+    expect(screen.getByTestId('patrol-toggle').textContent).toBe('chat.team.manage.patrolOn');
   });
 
   test('members are added and removed through the store', async () => {
@@ -166,10 +171,13 @@ describe('TeamManagePanel', () => {
     await waitFor(() => expect(removeMemberMock).toHaveBeenCalledWith('t1', 'a2'));
   });
 
-  test('edit profile opens the existing modal', () => {
+  test('edit profile opens the existing modal in profile-only mode', () => {
+    // Lead and members have exactly one live editor — this panel — so the
+    // modal must not offer them too (a stale snapshot saved there would
+    // silently revert a change made here).
     renderPanel();
     fireEvent.click(screen.getByTestId('manage-edit-profile'));
-    expect(screen.getByTestId('profile-modal')).toBeTruthy();
+    expect(screen.getByTestId('profile-modal').getAttribute('data-profile-only')).toBe('true');
   });
 
   test('clearing data reports the scopes back so the room can drop them', async () => {

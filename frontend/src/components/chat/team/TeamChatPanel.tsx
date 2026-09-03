@@ -412,6 +412,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   // --- Live transcript: poll the room while the panel is open. -------------
+  const notePatrol = useTeamsStore((s) => s.notePatrol);
   const refresh = useCallback(async () => {
     try {
       // Incremental: `since` has existed end to end for a long time and the
@@ -428,11 +429,12 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
         );
         setActivity(r.activity ?? []);
         setLeadAgentId(r.lead_agent_id ?? null);
+        if (typeof r.patrol_enabled === 'boolean') notePatrol(teamId, r.patrol_enabled);
       }
     } catch {
       // transient — the next tick retries
     }
-  }, [teamId]);
+  }, [teamId, notePatrol]);
 
   // Paging BACK. `hasMoreRef` is a ref, not state: the scroll handler reads it
   // on every scroll event, and a state read there would be a render behind.

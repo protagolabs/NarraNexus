@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/delivery_notice.py
-last_verified: 2026-08-13
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `announce_undelivered` 只剩 A2A 私聊一个调用点
+
+团队房里的沉默**不再贴任何平台行**:[[message_bus_trigger]] 的 `is_team` 分支改调
+[[_bus_activity]] 的 `note_silent_turn`,把 `silent` 步追加到成员活动行,由花名册呈现
+(idle 与 queued 态都显示「上一轮未发言」)。原因:prompt 说沉默合法,房间却记成失败,
+prod 团队房 16% 的行是这条,agent 学会了硬说。
+
+下面「三种收场」第 3 条与「A2A 才是贵的那一种」末段关于**团队房通知不带 mentions**
+的描述,自本日起只在历史行上成立。`mentions=None` 这条分支本身**还活着**——DM 里
+errand 续跑、以及发起方是用户的私聊仍走 `mentions=None`;只是不再有团队房调用方。
+`announce_delivery_failure`(产出了回复但没送到房间)团队房**仍会发**,未改。
+
 
 # delivery_notice — 一轮 turn 什么都没送达时，平台开口说话
 

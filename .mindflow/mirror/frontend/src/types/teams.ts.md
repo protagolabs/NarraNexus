@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-09-03 — `TeamMemberActivity.last_turn_silent?: boolean`
 
-idle 条目上的可选布尔,后端 `_member_activity` 产出。
+idle/queued 条目上的可选布尔,后端 `_member_activity` 产出。`TeamChatResponse.patrol_enabled?: boolean` 同日新增。
 
 
 ## 2026-08-17 — `SkillExportSpec` 去掉 archive_path / manual_zip_path

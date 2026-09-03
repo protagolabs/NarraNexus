@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/TeamBulletinPanel.tsx
-last_verified: 2026-08-11
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 入口迁到团队管理 tab
+
+状态仍在 [[TeamChatPanel]],但**入口**变成右侧抽屉的 [[TeamManagePanel]](第一节);
+工具条上的公告栏按钮与 w-72 侧栏已删。
+
 
 # TeamBulletinPanel — 团队公告栏面板
 

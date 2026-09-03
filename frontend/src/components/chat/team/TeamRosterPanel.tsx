@@ -164,13 +164,16 @@ function StatusLine({ activity }: { activity: TeamMemberActivity }) {
   // The turn ran and chose not to speak. Since 2026-09-03 the transcript no
   // longer carries a line for that, so this is where "said nothing" and
   // "never ran" stay tellable apart.
-  if (activity.status === 'idle' && activity.last_turn_silent) {
+  // Also while queued — the owner's natural reply to silence is to ask again,
+  // and that must not make the silence vanish from every surface.
+  if ((activity.status === 'idle' || activity.status === 'queued') && activity.last_turn_silent) {
     return (
       <span
         className="min-w-0 truncate text-[11px]"
-        style={{ color: 'var(--text-tertiary)' }}
+        style={{ color: activity.status === 'queued' ? tone.color : 'var(--text-tertiary)' }}
         data-testid={`silent-${activity.agent_id}`}
       >
+        {activity.status === 'queued' ? `${t(tone.labelKey)} · ` : ''}
         {t('chat.team.roster.silentLastTurn')}
       </span>
     );

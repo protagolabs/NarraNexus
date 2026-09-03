@@ -209,13 +209,6 @@ async def _record_errands(
             record_handoffs,
         )
 
-        # Who may hand work down is a fact about the TEAM (its lead), not
-        # about the message; one lookup here rather than a roster field the
-        # tool would have to remember to pass. Looked up BEFORE the close so
-        # the close/open pair stays adjacent — a failed lookup then skips
-        # both rather than committing the close and losing the open.
-        team = await db.get_one("teams", {"team_id": team_id})
-        lead_agent_id = (team or {}).get("lead_agent_id") or None
         await close_delivered_errands(
             db,
             team_id=team_id,
@@ -223,6 +216,14 @@ async def _record_errands(
             agent_id=agent_id,
             text=text,
         )
+        # Who may hand work down is a fact about the TEAM (its lead), not
+        # about the message; one lookup here rather than a roster field the
+        # tool would have to remember to pass. Sits AFTER the close on
+        # purpose: if this lookup fails, only the open is lost — and for a
+        # member's post the open is a no-op anyway — whereas a skipped close
+        # would leave a delivered errand on the board for patrol to chase.
+        team = await db.get_one("teams", {"team_id": team_id})
+        lead_agent_id = (team or {}).get("lead_agent_id") or None
         await record_handoffs(
             db,
             team_id=team_id,

@@ -267,6 +267,8 @@
         "title": "团队管理",
         "patrol": "组长巡查",
         "patrolHint": "开启后，组长会定期追问停滞的交接；关闭则只保留看板。",
+        "patrolOn": "开启",
+        "patrolOff": "关闭",
         "editProfile": "编辑资料（名称 / 颜色 / 简介）",
         "clearData": "清理团队数据…"
       }

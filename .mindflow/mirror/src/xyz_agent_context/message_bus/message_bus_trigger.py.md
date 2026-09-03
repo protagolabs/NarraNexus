@@ -10,7 +10,10 @@ owner 反馈「team 协作太啰嗦、agent 之间交互繁琐」,实测 dev 一
 本文件两处:
 
 - **`_announce_undelivered_turn` 的 `is_team` 分支**:不再 `announce_undelivered`,
-  改调 `activity.note_silent_turn` 把沉默记到成员活动行(花名册显示「上一轮未发言」)。
+  改调 `_bus_activity.note_silent_turn`(直接 import 私有模块,门面只公开读侧)把沉默记到
+  成员活动行(花名册 idle/queued 态显示「上一轮未发言」),并打一行
+  `[team-turn] silent agent=… channel=…` INFO 日志——旧的 `msg_type='system_undelivered'`
+  计数改用这行日志统计。
   A2A 私聊分支原样(对方真的在等,靠这条唤醒;owner inbox 通知也只剩这条路)。
   `wake_peer` 少了恒真的 `not is_team`。
 - **`_build_team_prompt`**:①默认应答者:「Answer it yourself. Hand it to a teammate

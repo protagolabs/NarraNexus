@@ -22,9 +22,12 @@ interface Props {
    *  clicked). Only applied on the open transition — switching teams inside
    *  the modal is never overridden. */
   initialTeamId?: string | null;
+  /** Show only name / colour / intro (and save). Members and lead are edited
+   *  elsewhere by the caller. */
+  profileOnly?: boolean;
 }
 
-export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
+export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly = false }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
@@ -103,7 +106,9 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
         intro_md: editIntro,
         // "" clears the lead back to the earliest-joined fallback (backend
         // treats empty string as clear; a member id sets an explicit lead).
-        lead_agent_id: editLead,
+        // Omitted in profileOnly mode: the lead is edited live next to this
+        // modal, and resubmitting the snapshot taken at open would revert it.
+        ...(profileOnly ? {} : { lead_agent_id: editLead }),
       });
     } catch (e) {
       void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
@@ -301,7 +306,11 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                   </Button>
                 </div>
 
-                {/* Members */}
+                {/* Members + lead. Hidden for `profileOnly`: the team room's
+                    management tab (2026-09-03) owns those two and opens this
+                    modal for name / colour / intro only — two live editors of
+                    one field is how a save silently reverts the other. */}
+                {!profileOnly && (<>
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
                   <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.membersLabel', { selected: selected.member_agent_ids.length, total: agents.length })}</label>
                   <div className="border border-[var(--border-default)] divide-y divide-[var(--border-subtle)] max-h-[280px] overflow-y-auto">
@@ -355,6 +364,7 @@ export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
                     {t('teams.saveChanges')}
                   </Button>
                 </div>
+                </>)}
               </div>
             )}
           </div>

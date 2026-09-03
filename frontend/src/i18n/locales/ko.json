@@ -140,7 +140,7 @@
         "mention": "@ 로 팀원을 지목하면 그 팀원이 직접 처리합니다.",
         "broadcastTitle": "전원에게 전달",
         "broadcast": "@all 은 전원에게 전달됩니다. 각 팀원이 한 턴을 모두 실행하므로 신중히 사용하세요.",
-        "relay": "팀원끼리 @ 로 작업을 넘길 수 있으며, 사용자의 메시지가 없으면 4번 이후 중단됩니다."
+        "relay": "팀원끼리 @ 로 작업을 넘길 수 있으며, 사용자의 메시지가 없으면 플랫폼 한도에서 중단되고 방에 안내됩니다."
       },
       "noProcess": "이 턴의 처리 기록이 없습니다",
       "detailLoadFailed": "프로세스를 불러오지 못했습니다. 다시 시도해 주세요.",
@@ -156,7 +156,8 @@
         "stopping": "중지 중…",
         "stopped": "소유자가 중지함",
         "stopFailed": "이 실행을 중지할 수 없습니다",
-        "stopHint": "이 실행 중지"
+        "stopHint": "이 실행 중지",
+        "silentLastTurn": "지난 턴: 발언 없음"
       },
       "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
       "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리",
@@ -203,7 +204,16 @@
         "download": "{{name}} 다운로드",
         "loading": "불러오는 중…"
       },
-      "drawerCategory": "팀 룸"
+      "drawerCategory": "팀 룸",
+      "manage": {
+        "title": "팀 관리",
+        "patrol": "리더 점검",
+        "patrolHint": "켜면 리더가 정체된 인계를 주기적으로 독촉합니다. 끄면 보드만 남습니다.",
+        "patrolOn": "켜기",
+        "patrolOff": "끄기",
+        "editProfile": "프로필 편집(이름 / 색상 / 소개)",
+        "clearData": "데이터 지우기…"
+      }
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -759,7 +769,6 @@
     "teamRowMenu": {
       "options": "그룹 채팅 옵션",
       "rename": "이름 변경",
-      "clearData": "데이터 지우기",
       "delete": "삭제",
       "addAgent": "에이전트 추가",
       "addingAgent": "추가 중…"

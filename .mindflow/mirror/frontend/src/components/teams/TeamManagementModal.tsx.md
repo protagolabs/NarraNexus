@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-08-21
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 新增调用方 + `profileOnly` 模式
+
+[[../chat/team/TeamManagePanel]] 的「编辑资料」以 `profileOnly` 打开本弹窗:只显示
+名称/颜色/简介+保存,**隐藏成员增删与组长 select**,并且保存时**不提交 `lead_agent_id`**
+——面板旁边就是组长的实时编辑器,提交打开时的快照会把刚改的组长静默覆盖回去。
+旧入口([[TeamRowMenu]] → [[AgentList]]、Dashboard 建团队)不带 `profileOnly`,行为不变。
+
 
 ## 2026-08-19 — 删除后落到相邻团队
 

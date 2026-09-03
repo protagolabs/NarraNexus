@@ -267,6 +267,8 @@
         "title": "Manage",
         "patrol": "Lead patrol",
         "patrolHint": "When on, the lead periodically chases stalled hand-offs; off keeps the board but stops the chasing.",
+        "patrolOn": "Turn on",
+        "patrolOff": "Turn off",
         "editProfile": "Edit profile (name / colour / intro)",
         "clearData": "Clear team data…"
       }

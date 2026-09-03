@@ -140,7 +140,7 @@
         "mention": "@ un coéquipier pour t'adresser directement à lui.",
         "broadcastTitle": "Diffuser à tous",
         "broadcast": "@all s'adresse à tout le monde — chaque membre exécute un tour complet, à utiliser avec parcimonie.",
-        "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de ta part, le relais s'arrête après 4 passages."
+        "relay": "Les coéquipiers peuvent se @ entre eux pour se passer le relais ; sans message de votre part, le relais s'arrête à la limite de la plateforme et le salon le signale."
       },
       "noProcess": "Aucun enregistrement de processus pour ce tour",
       "detailLoadFailed": "Impossible de charger le processus. Réessayez.",
@@ -156,7 +156,8 @@
         "stopping": "Arrêt en cours…",
         "stopped": "Arrêté par le propriétaire",
         "stopFailed": "Impossible d'arrêter cette exécution",
-        "stopHint": "Arrêter cette exécution"
+        "stopHint": "Arrêter cette exécution",
+        "silentLastTurn": "Dernier tour : rien dit"
       },
       "emptyHintWithLead": "Envoie un message pour commencer — {{name}} s'en charge, ou @ quelqu'un d'autre pour t'adresser à lui directement.",
       "leadTitle": "{{name}} · répond quand personne n'est mentionné",
@@ -203,7 +204,16 @@
         "download": "Télécharger {{name}}",
         "loading": "Chargement…"
       },
-      "drawerCategory": "Salle d'équipe"
+      "drawerCategory": "Salle d'équipe",
+      "manage": {
+        "title": "Gérer l'équipe",
+        "patrol": "Contrôle du responsable",
+        "patrolHint": "Activé, le responsable relance régulièrement les passations bloquées ; désactivé, seul le tableau reste.",
+        "patrolOn": "Activer",
+        "patrolOff": "Désactiver",
+        "editProfile": "Modifier le profil (nom / couleur / intro)",
+        "clearData": "Effacer les données…"
+      }
     },
     "execution": {
       "showSteps": "Afficher les étapes d'exécution",
@@ -760,7 +770,6 @@
     "teamRowMenu": {
       "options": "Options de la discussion de groupe",
       "rename": "Renommer",
-      "clearData": "Effacer les données",
       "delete": "Supprimer",
       "addAgent": "Ajouter un agent",
       "addingAgent": "Ajout…"

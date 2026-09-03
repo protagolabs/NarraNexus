@@ -140,7 +140,7 @@
         "mention": "@ ein Teammitglied, um es direkt anzusprechen.",
         "broadcastTitle": "An alle senden",
         "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
-        "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
+        "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne eine Nachricht von dir stoppt die Kette am Limit der Plattform, und der Raum sagt es."
       },
       "noProcess": "Kein Prozessprotokoll für diese Runde",
       "detailLoadFailed": "Der Prozess konnte nicht geladen werden. Bitte erneut versuchen.",
@@ -156,7 +156,8 @@
         "stopping": "Wird gestoppt…",
         "stopped": "Vom Eigentümer gestoppt",
         "stopFailed": "Dieser Lauf konnte nicht gestoppt werden",
-        "stopHint": "Diesen Lauf stoppen"
+        "stopHint": "Diesen Lauf stoppen",
+        "silentLastTurn": "Letzte Runde: nichts gesagt"
       },
       "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
       "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird",
@@ -203,7 +204,16 @@
         "download": "{{name}} herunterladen",
         "loading": "Lädt…"
       },
-      "drawerCategory": "Team-Raum"
+      "drawerCategory": "Team-Raum",
+      "manage": {
+        "title": "Team verwalten",
+        "patrol": "Kontrolle durch den Lead",
+        "patrolHint": "Wenn an, hakt der Lead regelmäßig bei stockenden Übergaben nach; wenn aus, bleibt nur die Tafel.",
+        "patrolOn": "An",
+        "patrolOff": "Aus",
+        "editProfile": "Profil bearbeiten (Name / Farbe / Intro)",
+        "clearData": "Daten leeren…"
+      }
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -760,7 +770,6 @@
     "teamRowMenu": {
       "options": "Gruppenchat-Optionen",
       "rename": "Umbenennen",
-      "clearData": "Daten leeren",
       "delete": "Löschen",
       "addAgent": "Agent hinzufügen",
       "addingAgent": "Wird hinzugefügt…"

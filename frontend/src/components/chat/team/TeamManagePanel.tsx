@@ -9,7 +9,9 @@
  * the bulletin behind a small button at the far end of the header, the
  * patrol switch at the bottom of the work board, lead + members inside the
  * edit modal behind the settings page, and "clear data" in the sidebar row's
- * ⋮ menu. The 2026-09-03 feedback was literally "I cannot find where to
+ * ⋮ menu. The edit modal is still opened from here for name / colour /
+ * intro — in `profileOnly` mode, so lead and members have exactly one live
+ * editor (this panel). The 2026-09-03 feedback was literally "I cannot find where to
  * write the bulletin". So: one tab, sections top to bottom in the order a
  * team is usually managed — what the team must know (bulletin), who answers
  * (lead), whether the lead chases (patrol), who is in it (members), and the
@@ -22,7 +24,7 @@
  * calls back.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Crown, Eraser, Loader2, Pencil, Trash2, Users } from 'lucide-react';
@@ -86,30 +88,18 @@ export function TeamManagePanel({
   const removeMember = useTeamsStore((s) => s.removeMember);
   const deleteTeam = useTeamsStore((s) => s.deleteTeam);
 
-  // Patrol — read from the board endpoint (the one place it is reported),
-  // written through the dedicated PUT. Optimistic; the reload corrects a
-  // failure.
-  const [patrolEnabled, setPatrolEnabled] = useState<boolean | null>(null);
-  const loadPatrol = useCallback(async () => {
-    try {
-      const r = await api.getTeamWorkBoard(teamId);
-      if (r.success) setPatrolEnabled(r.patrol_enabled);
-    } catch {
-      // best-effort — the switch simply stays unknown
-    }
-  }, [teamId]);
-  useEffect(() => {
-    void loadPatrol();
-  }, [loadPatrol]);
-
+  // Patrol — ONE copy, in the teams store. The room's 3s poll (and the work
+  // board's, when that tab is open) keep it current; this panel only reads
+  // it and writes through the store, so a flip made elsewhere shows here
+  // before the user clicks. `undefined` = not reported yet.
+  const patrolEnabled = useTeamsStore((s) => s.patrolByTeam[teamId]);
+  const setPatrol = useTeamsStore((s) => s.setPatrol);
   const togglePatrol = async () => {
-    if (patrolEnabled === null) return;
-    const next = !patrolEnabled;
-    setPatrolEnabled(next);
+    if (patrolEnabled === undefined) return;
     try {
-      await api.setTeamPatrol(teamId, next);
+      await setPatrol(teamId, !patrolEnabled);
     } catch {
-      setPatrolEnabled(!next);
+      // the store already rolled the optimistic flip back
     }
   };
 
@@ -228,17 +218,17 @@ export function TeamManagePanel({
             role="switch"
             aria-checked={patrolEnabled === true}
             data-testid="patrol-toggle"
-            disabled={patrolEnabled === null}
+            disabled={patrolEnabled === undefined}
             onClick={togglePatrol}
             className={cn(
               'shrink-0 rounded-[var(--radius-xs)] border px-2 py-1 text-[11px] transition-colors',
               patrolEnabled
                 ? 'border-[var(--color-success)] text-[var(--color-success)]'
                 : 'border-[var(--border-subtle)] text-[var(--text-secondary)]',
-              patrolEnabled === null && 'opacity-50',
+              patrolEnabled === undefined && 'opacity-50',
             )}
           >
-            {patrolEnabled ? t('chat.team.board.turnOff') : t('chat.team.board.turnOn')}
+            {patrolEnabled ? t('chat.team.manage.patrolOff') : t('chat.team.manage.patrolOn')}
           </button>
         </div>
       </section>
@@ -322,7 +312,12 @@ export function TeamManagePanel({
         </Button>
       </section>
 
-      <TeamManagementModal open={editing} initialTeamId={teamId} onClose={() => setEditing(false)} />
+      <TeamManagementModal
+        open={editing}
+        initialTeamId={teamId}
+        profileOnly
+        onClose={() => setEditing(false)}
+      />
       {clearing && (
         <ClearTeamDataDialog
           teamName={teamName}

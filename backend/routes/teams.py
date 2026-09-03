@@ -372,6 +372,9 @@ async def send_team_chat(team_id: str, payload: TeamChatSendRequest, request: Re
             team_id=team_id,
             channel_id=channel_id,
             from_agent=f"{USER_SENDER_PREFIX}{user_id}",
+            # The sender is the user, who always assigns work
+            # (`errand.opens_handoffs`), so the lead is irrelevant here.
+            lead_agent_id=None,
             # Post-routing: a `default_responder` wake-up is the platform
             # picking someone to answer, not the user handing work to them.
             mentions=(payload.mentions and resolved) or None,
@@ -552,6 +555,10 @@ async def get_team_chat(
         "messages": out,
         "activity": activity,
         "lead_agent_id": resolve_default_responder(getattr(team, "lead_agent_id", None), members),
+        # The room poll is the one feed every panel already reads, so the
+        # patrol switch rides on it rather than each panel pulling the whole
+        # work board to learn one boolean.
+        "patrol_enabled": _patrol_enabled(team),
     }
 
 
@@ -623,6 +630,11 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
             )
             if row is not None:
                 entry["event_id"] = row.get("event_id")
+                # The row still holds the PREVIOUS turn's steps while this
+                # one waits, so the mark survives the owner's natural next
+                # move — asking again. (Not on running/stalled: `start()`
+                # rewrites the steps, so the read would be a false "spoke".)
+                entry["last_turn_silent"] = bus_activity.last_turn_was_silent(row)
         elif row is not None and steps["items"]:
             # Idle, but we still hold the trace of the turn it just finished.
             entry.update(

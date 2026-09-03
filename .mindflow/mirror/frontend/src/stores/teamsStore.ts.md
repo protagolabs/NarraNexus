@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/stores/teamsStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 巡查开关的单一副本 `patrolByTeam`
+
+`patrolByTeam: Record<teamId, boolean>`(不持久化,是服务端状态)+ `notePatrol(teamId, enabled)`
+(房间轮询 [[../components/chat/team/TeamChatPanel]] 与看板轮询 [[../components/chat/team/TeamWorkBoard]] 写入,
+值不变时不触发 set)+ `setPatrol(teamId, enabled)`(乐观写 + `api.setTeamPatrol`,失败回滚到之前的值并抛出)。
+消费方 [[../components/chat/team/TeamManagePanel]] 只读它。
+
 
 ## 2026-07-23 — deleteTeam tolerates 404
 

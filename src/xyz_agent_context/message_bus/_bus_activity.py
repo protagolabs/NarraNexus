@@ -142,7 +142,9 @@ async def get_channel_activity(db, channel_id: str) -> List[dict]:
 # --- Writer side (MessageBusTrigger only) ----------------------------------
 
 
-#: The step a team turn ends on when it made no `message_team` call. Read by
+#: The step a team turn ends on when it made no `message_team` call. Written
+#: by `MessageBusTrigger` (`note_silent_turn`, private like the rest of the
+#: write side); read through `activity.last_turn_was_silent` by
 #: `backend/routes/teams.py::_member_activity` (→ ``last_turn_silent``).
 SILENT_PHASE = "silent"
 
@@ -158,7 +160,8 @@ async def note_silent_turn(db, agent_id: str, channel_id: str) -> None:
     because "ran and said nothing" must stay distinguishable from "never
     ran": it now lives on the member's activity row, appended as a final
     step to the turn that `TurnActivity.finish` just wrote, and the roster
-    shows it. No bus row, no schema change.
+    shows it. No bus row, no schema change. Write side, so trigger-only —
+    the `activity` facade exports only the reader, `last_turn_was_silent`.
 
     Appends rather than replaces so the turn's own timeline stays readable.
     Read-modify-write without a guard, on the assumption the bus runs at most

@@ -171,6 +171,9 @@ export interface TeamChatHistoryResponse {
   activity?: TeamMemberActivity[];
   /** Who answers a message with no @mention (lead, else earliest-joined). */
   lead_agent_id?: string | null;
+  /** Whether the lead's periodic sweep is on. Rides on the room poll so the
+   *  management tab and the work board read one value (2026-09-03). */
+  patrol_enabled?: boolean;
 }
 
 export interface TeamChatSendResponse {

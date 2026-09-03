@@ -10,10 +10,11 @@ stub: false
 
 把散在四处的管理控件收成一个 tab,自上而下:①公告栏(复用 [[TeamBulletinPanel.tsx]],
 state 归 [[TeamChatPanel.tsx]]);②组长 select(回调 `onSetLead`,与花名册卡片同一条
-`updateTeam` 链);③patrol 开关(从 [[TeamWorkBoard.tsx]] 搬来:读 `getTeamWorkBoard`
-的 `patrol_enabled`,写 `setTeamPatrol`,乐观+失败回滚);④成员增删(账号下全部 agent,
-走 teamsStore `addMember/removeMember`);⑤「编辑资料」打开既有 `TeamManagementModal`
-(名称/颜色/简介留在弹窗,它也是 Dashboard 建团队流程);⑥清理数据(`ClearTeamDataDialog`
+`updateTeam` 链);③patrol 开关(从 [[TeamWorkBoard.tsx]] 搬来:**只读 teamsStore 的 `patrolByTeam[teamId]`**,
+由房间 3s 轮询与看板轮询写入,写走 store `setPatrol`(乐观+失败回滚);未上报时按钮禁用而不是猜;
+文案用 `chat.team.manage.patrolOn/patrolOff`);④成员增删(账号下全部 agent,
+走 teamsStore `addMember/removeMember`);⑤「编辑资料」以 `profileOnly` 打开既有 `TeamManagementModal`
+(只剩名称/颜色/简介;成员与组长在本面板唯一编辑,弹窗不再提交组长快照);⑥清理数据(`ClearTeamDataDialog`
 → `api.clearTeamData` → `onCleared(scopes)` 让房间丢掉对应内容);⑦删除团队(confirm 后
 `deleteTeam`,`navigate('/app/chat')`)。
 

@@ -3811,11 +3811,18 @@ class MessageBusTrigger:
             # roster shows the mark (with the drawer open). A DM silence
             # happens where nobody is watching, which is what the inbox
             # notice below is for.
-            from xyz_agent_context.message_bus import activity as bus_activity
+            from xyz_agent_context.message_bus import _bus_activity
             from xyz_agent_context.utils.db.db_factory import get_db_client
 
-            await bus_activity.note_silent_turn(
+            await _bus_activity.note_silent_turn(
                 await get_db_client(), agent_id, channel_id
+            )
+            # The transcript no longer counts these; the log still can
+            # (`grep "\[team-turn\] silent"` replaces the old
+            # `msg_type='system_undelivered'` count).
+            logger.info(
+                f"[team-turn] silent agent={agent_id} channel={channel_id} "
+                f"trigger={trigger_message.message_id}"
             )
             return
 

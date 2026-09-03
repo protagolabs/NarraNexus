@@ -19,6 +19,13 @@ interface TeamsState {
   addMember: (teamId: string, agentId: string) => Promise<void>;
   removeMember: (teamId: string, agentId: string) => Promise<void>;
 
+  /** Patrol switch per team — ONE copy. The room poll and the work board
+   *  poll both write it (`notePatrol`); the management tab reads it and
+   *  writes through `setPatrol`. Not persisted: it is server state. */
+  patrolByTeam: Record<string, boolean>;
+  notePatrol: (teamId: string, enabled: boolean) => void;
+  setPatrol: (teamId: string, enabled: boolean) => Promise<void>;
+
   // selectors
   teamsForAgent: (agentId: string) => TeamWithMembers[];
 }
@@ -73,6 +80,24 @@ export const useTeamsStore = create<TeamsState>()(
       removeMember: async (teamId, agentId) => {
         await api.removeTeamMember(teamId, agentId);
         await get().refresh();
+      },
+
+      patrolByTeam: {},
+      notePatrol: (teamId, enabled) =>
+        set((s) =>
+          s.patrolByTeam[teamId] === enabled
+            ? s
+            : { patrolByTeam: { ...s.patrolByTeam, [teamId]: enabled } },
+        ),
+      setPatrol: async (teamId, enabled) => {
+        const prev = get().patrolByTeam[teamId];
+        get().notePatrol(teamId, enabled); // optimistic
+        try {
+          await api.setTeamPatrol(teamId, enabled);
+        } catch (e) {
+          if (prev !== undefined) get().notePatrol(teamId, prev);
+          throw e;
+        }
       },
 
       teamsForAgent: (agentId) => {

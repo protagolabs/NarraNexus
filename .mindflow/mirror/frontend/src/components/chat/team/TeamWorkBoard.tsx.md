@@ -7,7 +7,7 @@ stub: false
 ## 2026-09-03 — patrol 开关搬去团队管理 tab
 
 `togglePatrol`/`patrol-toggle` 删除,`api.setTeamPatrol` 不再从这里调;「上次巡查/已关闭」
-的痕迹文字保留。空板子一律不渲染(此前 patrol OFF 时保留面板只是为了留住开关)。
+的痕迹文字保留;轮询到的 `patrol_enabled` 顺手写进 teamsStore(`notePatrol`),与管理 tab 共用一份。空板子一律不渲染(此前 patrol OFF 时保留面板只是为了留住开关)。
 开关见 [[TeamManagePanel.tsx]]。测试:`TeamWorkBoard.test.tsx` 「patrol switch moved out」。
 
 
