@@ -22,6 +22,8 @@ import json
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
+
+from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 from anthropic import AsyncAnthropic
 
@@ -74,17 +76,21 @@ class AnthropicHelperSDK:
         endpoints. The slot's model always wins; the "default" sentinel
         falls back to the dataclass default (claude-haiku-4-5).
         """
-        slot_model = anthropic_helper_config.model
-        if slot_model and slot_model != "default":
-            if requested_model and requested_model != slot_model:
-                logger.debug(
-                    f"[AnthropicHelper] ignoring per-call model "
-                    f"{requested_model!r} (OpenAI-flavored); using slot "
-                    f"model {slot_model!r}"
-                )
-            return slot_model
         from xyz_agent_context.agent_framework.api_config import AnthropicHelperConfig
-        return AnthropicHelperConfig.model
+
+        resolved = resolve_helper_model(
+            anthropic_helper_config.model,
+            requested_model,
+            default=AnthropicHelperConfig.model,
+            honour_requested=False,
+        )
+        if requested_model and requested_model != resolved:
+            logger.debug(
+                f"[AnthropicHelper] ignoring per-call model "
+                f"{requested_model!r} (OpenAI-flavored); using slot "
+                f"model {resolved!r}"
+            )
+        return resolved
 
     @staticmethod
     def _build_client() -> AsyncAnthropic:

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/anthropic_helper.py
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 1）— 模型解析合一
+
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=False)`；忽略调用点模型时的 debug 日志保留。行为不变。
 
 ## 2026-07-30 — 记账改为分桶，不再压平成一个数
 

@@ -49,4 +49,32 @@ class LlmClient(Protocol):
         ...
 
 
-__all__ = ["LlmClient"]
+# The sentinel the UI writes into a slot to mean "use the system preset".
+DEFAULT_MODEL_SENTINEL = "default"
+
+
+def resolve_helper_model(
+    slot_model: str | None,
+    requested_model: str | None,
+    *,
+    default: str,
+    honour_requested: bool,
+) -> str:
+    """The one model-resolution rule every helper client follows.
+
+    A configured slot model always wins. When the slot is empty or the
+    ``"default"`` sentinel, a client that speaks the same model namespace as
+    its call sites (``honour_requested=True``, the openai-protocol client)
+    takes the per-call preference, otherwise it falls back to ``default``
+    (anthropic / cli clients: call sites name OpenAI-flavoured models that do
+    not exist on those endpoints). The return value is always a concrete
+    model id, never the sentinel.
+    """
+    if slot_model and slot_model != DEFAULT_MODEL_SENTINEL:
+        return slot_model
+    if honour_requested and requested_model:
+        return requested_model
+    return default
+
+
+__all__ = ["DEFAULT_MODEL_SENTINEL", "LlmClient", "resolve_helper_model"]

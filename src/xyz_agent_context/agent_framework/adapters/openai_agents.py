@@ -16,6 +16,8 @@ from contextvars import ContextVar
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
+
+from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
 
@@ -292,22 +294,16 @@ class OpenAIAgentsSDK:
         "use the system preset". This method guarantees the return value
         is always a concrete model identifier.
         """
-        is_official = openai_config.base_url in _OFFICIAL_OPENAI_BASE_URLS
-        is_default = openai_config.model == "default"
+        # Modes 2 and 3 both return the slot model (the "official endpoint"
+        # distinction never changed the answer), so the whole rule is the
+        # shared contract function with the openai-protocol twist: call sites
+        # name models in this client's own namespace, so their preference is
+        # honoured when the slot says "default".
+        from xyz_agent_context.agent_framework.api_config import OpenAIConfig
 
-        if is_default:
-            # "default" → use per-call-site model if provided, otherwise
-            # fall back to the system preset (OpenAIConfig dataclass default)
-            from xyz_agent_context.agent_framework.api_config import OpenAIConfig
-            fallback = requested_model or OpenAIConfig.model
-            return fallback
-
-        if is_official:
-            # Mode 2: user forced a specific model on official endpoint
-            return openai_config.model
-
-        # Mode 3: non-official endpoint, use slot config
-        return openai_config.model
+        return resolve_helper_model(
+            openai_config.model, requested_model, default=OpenAIConfig.model, honour_requested=True
+        )
 
     async def agent_loop(self) -> AsyncGenerator[str, None]:
         pass

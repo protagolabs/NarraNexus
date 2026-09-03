@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 1）— 模型解析合一
+
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=False)`；按框架选默认模型的逻辑保留在本模块（它是本客户端的知识）。行为不变。
 
 ## 2026-08-27 — codex helper 的 auth_ref 改走 derive_auth_ref (auth_ref P1 收尾)
 

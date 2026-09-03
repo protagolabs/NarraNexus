@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 1）— `resolve_helper_model`：三份 `_resolve_model` 合一的那条规则
+
+规则只有一条：slot 非空且不是 `"default"` 哨兵就用 slot；否则「与调用点同一模型命名空间」的
+客户端（`honour_requested=True`，openai 协议）用调用点偏好，其余（anthropic / cli）用各自默认。
+研究文档 H9 说三份实现「各写各的」，合一时发现 openai 版的「官方端点 vs 自定义端点」两种模式返回值
+相同，端点判断本来就不影响结果（`test_openai_helper_official_and_custom_endpoints_agree` 钉住）。
+纯函数、stdlib-only，第三方 `llmClients` 插件直接复用。
+
 ## 2026-09-03 — helper LLM 客户端契约（用户点名的「LLM client」轴）
 
 三个现有 SDK（`anthropic_helper.AnthropicHelperSDK` / `adapters.openai_agents.OpenAIAgentsSDK` /

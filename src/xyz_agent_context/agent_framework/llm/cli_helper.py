@@ -37,6 +37,8 @@ from dataclasses import dataclass
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
+
+from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 
 from xyz_agent_context.agent_framework.api_config import (
@@ -133,12 +135,14 @@ class CliHelperSDK:
         Fall back to the framework's cheap default when the slot model is
         empty or the "default" sentinel.
         """
-        slot_model = cli_helper_config.model
-        if slot_model and slot_model != "default":
-            return slot_model
-        if cli_helper_config.framework == "codex_cli":
-            return _DEFAULT_CODEX_HELPER_MODEL
-        return _DEFAULT_CLAUDE_HELPER_MODEL
+        default = (
+            _DEFAULT_CODEX_HELPER_MODEL
+            if cli_helper_config.framework == "codex_cli"
+            else _DEFAULT_CLAUDE_HELPER_MODEL
+        )
+        return resolve_helper_model(
+            cli_helper_config.model, requested_model, default=default, honour_requested=False
+        )
 
     @staticmethod
     def _build_system_prompt(instructions: str, output_type: Optional[Type[BaseModel]]) -> str:

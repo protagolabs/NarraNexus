@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/openai_agents.py
-last_verified: 2026-08-25
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 1）— 模型解析合一
+
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=True)`；旧 docstring 的「三种模式」中模式 2/3 返回值相同，`_OFFICIAL_OPENAI_BASE_URLS` 不再参与模型解析（常量保留给其他用途）。行为不变，`tests/nx_kernel/contracts/test_resolve_model.py` 对官方/自定义端点两组输入断言相同输出。
 
 ## 2026-08-25 — helper 调用子相位计时（诊断埋点，无行为变化）
 
