@@ -35,8 +35,9 @@ from loguru import logger
 # The Protocol itself is the public contract and lives in narranexus.contracts
 # (plugin platform, batch 0). It is re-exported here so every existing import
 # of ``AgentLoopDriver`` from this module keeps resolving to the same object.
-from narranexus.contracts import API_VERSIONS, Disposable, UnknownEntry
+from narranexus.contracts import Disposable, UnknownEntry
 from narranexus.contracts.framework import AgentLoopDriver
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 from narranexus.kernel.plugins.registry import Registry
 
 
@@ -76,11 +77,7 @@ DEFAULT_AGENT_LOOP_FRAMEWORK = "nexus_power"
 # The kernel registry for slot ``turn.act.framework`` (plugin platform, batch 0).
 # Keys are case-insensitive; entries are lazy factories so registering a
 # framework never imports its SDK.
-FRAMEWORK_REGISTRY: Registry[DriverFactory] = Registry(
-    "agentLoopFrameworks",
-    api_version=API_VERSIONS["framework"],
-    normalize=lambda s: s.strip().lower(),
-)
+FRAMEWORK_REGISTRY: Registry[DriverFactory] = KERNEL_REGISTRIES.registry_for("turn.act.framework")
 
 
 def register_agent_loop_driver(

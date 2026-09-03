@@ -81,3 +81,8 @@ class NetMindDriver(_DriverBase):
             model=model,
             auth_type=self.card.auth_type or "bearer_token",
         )
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = NetMindDriver.contribution

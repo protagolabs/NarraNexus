@@ -30,3 +30,8 @@ class NetMindFreeDriver(NetMindDriver):
     @classmethod
     def driver_type(cls) -> str:
         return "netmind_free"
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = NetMindFreeDriver.contribution

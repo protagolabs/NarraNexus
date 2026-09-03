@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.contracts import RegistryConflict, RegistryFrozen, UnknownEntry
-from narranexus.kernel.plugins.registry import Registry
+from narranexus.kernel.plugins.registry import Contribution, Registry
 
 
 def test_register_get_names_are_registration_ordered():
@@ -86,3 +86,22 @@ def test_entries_expose_owner_and_meta_copy():
     meta["x"] = 2
     (e,) = r.entries()
     assert (e.name, e.owner, e.meta) == ("a", "p", {"x": 1})
+
+
+def test_registering_the_same_factory_object_twice_is_idempotent():
+    r: Registry[int] = Registry("demo", api_version=0)
+    factory = lambda: 1  # noqa: E731 — identity matters here
+    r.register("a", factory, owner="p1")
+    r.register("a", factory, owner="p2")  # no conflict, still one entry
+    assert len(r) == 1 and r.owner_of("a") == "p1"
+    with pytest.raises(RegistryConflict):
+        r.register("a", lambda: 1, owner="p3")
+
+
+def test_register_contribution_carries_name_factory_and_meta():
+    r: Registry[int] = Registry("demo", api_version=0)
+    c = Contribution("x", lambda: 7, meta={"display": "X"})
+    r.register_contribution(c, owner="p")
+    r.register_contribution(c, owner="p")
+    (e,) = r.entries()
+    assert (e.name, r.get("x"), e.meta) == ("x", 7, {"display": "X"})

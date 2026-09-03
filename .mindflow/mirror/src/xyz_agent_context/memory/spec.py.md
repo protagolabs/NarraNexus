@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 注册表来自内核门面；`contribution_for(kind)` 供内置 manifest 引用
+
+`MEMORY_KIND_REGISTRY = KERNEL_REGISTRIES.registry_for("agent.capabilities.memory_kinds")`；
+`register_spec` 生成并缓存 `Contribution(kind, lambda: spec)`，`specs.py` 用 `contribution_for`
+拼出 `CONTRIBUTIONS` 元组给 `builtin.memory_kinds` manifest。
+
 ## 2026-09-03 — kind 注册表改用内核 `Registry`（`MEMORY_KIND_REGISTRY`）
 
 `_REGISTRY: Dict` → `narranexus.kernel.plugins.registry.Registry`，`register_spec` 用

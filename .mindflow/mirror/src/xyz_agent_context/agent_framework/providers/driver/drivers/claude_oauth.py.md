@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
+
+`CONTRIBUTION = <Driver>.contribution`：`@register` 生成的 `Contribution` 对象，被
+`narranexus.kernel.plugins.builtins` 的 `builtin.providers` manifest 按符号名引用。行为不变。
 
 ## 2026-08-27 — probe 缺 auth_ref 的文案改为可操作指引(P1 缺陷 B)
 

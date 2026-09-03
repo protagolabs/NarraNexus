@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/system.py
-last_verified: 2026-07-20
+last_verified: 2026-09-03
 stub: false
 ---
+## 2026-09-03 — 末尾新增 `CONTRIBUTIONS`（本地为空元组）
+
+`builtin.providers` manifest 引用它；`SystemDriver` 只在云端注册，所以本地 loader 对它是 no-op，
+与 import 期的 `is_cloud_mode()` 门一致。
+
 ## 2026-07-20 — 删除死钩子 on_call_completed（行为不变）
 
 本驱动此前有一个 `on_call_completed` 覆盖，声称"每次调用后扣减
