@@ -32,6 +32,7 @@ from narranexus.contracts._base import (
 API_VERSIONS: dict[str, int] = {
     "framework": 0,
     "agent_events": 0,
+    "agent": 0,
     "provider": 0,
     "llm_client": 0,
     "memory": 0,
