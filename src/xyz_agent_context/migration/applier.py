@@ -300,34 +300,34 @@ async def apply_plan(
     session, so pressing stop costs the user the current session, not the whole
     project. The import still completes — every session lands, the remaining
     ones just get the deterministic summary."""
-    created = False
-    if not agent_id:
-        agent_id = f"agent_{uuid4().hex[:12]}"
-        await AgentRepository(db).add_agent(
-            agent_id=agent_id,
-            # Normalized before the fallback: "   " is truthy, so an `or` on
-            # the raw value skips the default and the agent ends up nameless.
-            agent_name=normalize_agent_text(plan.agent_name) or "Imported Agent",
-            created_by=user_id,
-            agent_description="Imported via Agent Migration",
-            agent_type="chat",
-        )
-        # provisions AwarenessModule + the other agent-level module instances
-        await InstanceFactory(db).create_agent_level_instances(agent_id)
-        created = True
-    else:
-        await InstanceFactory(db).ensure_agent_instances_exist(agent_id)
-
-    result = ApplyResult(
-        agent_id=agent_id,
-        created=created,
-        warnings=list(plan.warnings),
-    )
     try:
+        created = False
+        if not agent_id:
+            agent_id = f"agent_{uuid4().hex[:12]}"
+            await AgentRepository(db).add_agent(
+                agent_id=agent_id,
+                # Normalized before the fallback: "   " is truthy, so an `or` on
+                # the raw value skips the default and the agent ends up nameless.
+                agent_name=normalize_agent_text(plan.agent_name) or "Imported Agent",
+                created_by=user_id,
+                agent_description="Imported via Agent Migration",
+                agent_type="chat",
+            )
+            # provisions AwarenessModule + the other agent-level module instances
+            await InstanceFactory(db).create_agent_level_instances(agent_id)
+            created = True
+        else:
+            await InstanceFactory(db).ensure_agent_instances_exist(agent_id)
+
+        result = ApplyResult(
+            agent_id=agent_id,
+            created=created,
+            warnings=list(plan.warnings),
+        )
         await _populate(db, user_id, plan, agent_id, created, import_id, result)
     finally:
-        # However this apply ends — normally, or through an exception in any
-        # of the steps below — the hurry mark must not outlive it. A leaked
+        # However this apply ends — normally, or through an exception in agent
+        # creation or any populate step — the hurry mark must not outlive it. A leaked
         # mark would make the user's later RETRY of the same row degrade its
         # summaries although nobody pressed stop that time.
         hurry.clear(import_id)

@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — framework 标签/图标改走 `lib/frameworkBrand`
+
+本地 `FRAMEWORK_BRAND_ICONS` 与 `formatFramework` 删除（评审二轮 I2）。
 
 ## 2026-09-03 (评审修订) — 行不再是 `role="link"`；渠道图标区分开关
 

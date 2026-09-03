@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/AgentProfilePage.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — framework 标签/图标改走 `lib/frameworkBrand`
+
+本地 `FRAMEWORK_ICONS` 与 `formatFramework` 删除，`frameworkBrandIcon(undefined)` 仍返回
+Bot、`formatFramework(undefined)` 仍返回 `—`（评审二轮 I2）。
 
 ## 2026-09-03 (评审修订) — owner 门禁、删除清 store、`key` 只留 agentId、框架不兜底
 

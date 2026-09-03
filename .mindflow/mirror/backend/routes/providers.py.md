@@ -1,8 +1,10 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
 
 ## 2026-09-03 (评审修订) — 删 `/slots/agents-overview`；provider 卡带 `auto_provisioned`
 

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -151,3 +151,8 @@ register。本文件里改到的是该 handler 注册的 `user_reply_tool_names`
 但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
 `render_origin_declaration` 取 label 的同一条记录。规范解释见
 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-03 — 再导出 `BoundChannel`
+
+从 [[api_schema.py]] 再导出 `BoundChannel`（`AgentInfo.bound_channels` 的元素模型），
+消费方是 `backend/routes/auth.py` 的目录投影。纯转发，字段语义见 api_schema 的 mirror。

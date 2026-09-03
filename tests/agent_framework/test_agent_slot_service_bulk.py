@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 import pytest
@@ -34,6 +35,15 @@ class _FakeDB:
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
         return rows[0] if rows else None
+
+    async def execute(self, query, params=None):
+        # Just enough SQL for the batch reads the slot service issues:
+        #   SELECT ... FROM <table> WHERE <col> IN (%s, %s, ...)
+        m = re.search(r"FROM\s+(\w+)\s+WHERE\s+(\w+)\s+IN\s*\(", query)
+        assert m, f"fake db cannot run: {query}"
+        table, col = m.group(1), m.group(2)
+        wanted = set(params or ())
+        return [dict(r) for r in self.tables[table] if r.get(col) in wanted]
 
     async def insert(self, table, data):
         self.tables[table].append(dict(data))
@@ -280,3 +290,18 @@ async def test_clear_also_removes_stub_rows_but_still_snapshots():
     cleared = (await AgentSlotService(db).clear_owner_agents_slots("owner1", ["agent"]))["agent"]
     assert cleared == 1
     assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is None
+
+
+@pytest.mark.asyncio
+async def test_overview_agent_ids_filter_never_leaks_a_foreign_agent():
+    # The directory passes the ids it is about to list; a public agent owned
+    # by someone else must come back ABSENT, not resolved from its owner's slots.
+    db = _FakeDB()
+    await _mk_agent(db, "mine", "owner1")
+    await _mk_agent(db, "theirs", "owner2")
+    await _mk_user_slot(db, "owner2", "agent", "their-secret-model")
+    overview = await AgentSlotService(db).owner_agents_overview("owner1", agent_ids=["mine", "theirs"])
+    assert set(overview) == {"mine"}
+    # and narrowing really narrows
+    await _mk_agent(db, "mine2", "owner1")
+    assert set(await AgentSlotService(db).owner_agents_overview("owner1", agent_ids=["mine2"])) == {"mine2"}

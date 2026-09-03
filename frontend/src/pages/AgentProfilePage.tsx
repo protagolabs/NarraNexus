@@ -47,8 +47,8 @@ import {
   SunkenWell,
 } from '@/components/nm';
 import { useConfirm } from '@/components/ui';
-import { ClaudeBrandIcon, OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
-import { NexusPowerBrandIcon } from '@/components/icons/ChannelBrandIcons';
+import { OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
+import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
 import { getModelBrandIcon } from '@/lib/modelBrandIcons';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 import { cn, formatMessageAge } from '@/lib/utils';
@@ -70,12 +70,6 @@ type ProfileEntryState = { from?: 'chat' | 'dashboard' };
  *  table-row pill). */
 const agentChatButtonClass =
   'inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] bg-[var(--nm-card)] px-4 py-2 text-sm font-medium text-[var(--nm-ink70)] shadow-[var(--nm-elev-1)] transition-colors hover:border-[var(--nm-ink30)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]';
-
-const FRAMEWORK_ICONS: Record<string, BrandIcon> = {
-  claude_code: ClaudeBrandIcon,
-  codex_cli: OpenAIBrandIcon,
-  nexus_power: NexusPowerBrandIcon,
-};
 
 const CAPABILITIES: Array<{
   id: CapabilityId;
@@ -171,7 +165,7 @@ export function AgentProfilePage() {
   // as '—' rather than as a brand this agent may not be running on.
   const framework = agent?.agent_framework;
   const model = agent?.model || null;
-  const FrameworkIcon = (framework && FRAMEWORK_ICONS[framework]) || Bot;
+  const FrameworkIcon = frameworkBrandIcon(framework);
   const ModelIcon = model ? getModelBrandIcon(model) ?? Bot : Bot;
   const runningTask = agent?.active_run;
   const capabilityPanel = CAPABILITY_TO_PANEL[capability];
@@ -419,7 +413,7 @@ export function AgentProfilePage() {
             <AgentOverviewCard
               frameworkLabel={formatFramework(framework)}
               FrameworkIcon={FrameworkIcon}
-              frameworkInvertDark={FrameworkIcon === OpenAIBrandIcon}
+              frameworkInvertDark={frameworkIconInvertsInDark(FrameworkIcon)}
               modelLabel={model || '—'}
               ModelIcon={ModelIcon}
               modelInvertDark={ModelIcon === OpenAIBrandIcon}
@@ -530,7 +524,7 @@ export function AgentProfilePage() {
                       value={formatFramework(framework)}
                       icon={Blocks}
                       brandIcon={FrameworkIcon}
-                      brandInvertDark={FrameworkIcon === OpenAIBrandIcon}
+                      brandInvertDark={frameworkIconInvertsInDark(FrameworkIcon)}
                       testId="profile-framework-config"
                     />
                     <ConfigValue
@@ -854,18 +848,6 @@ function ConfigValue({
       </div>
     </SunkenWell>
   );
-}
-
-function formatFramework(framework?: string): string {
-  if (!framework) return '—';
-  if (framework === 'claude_code') return 'Claude Code';
-  if (framework === 'codex_cli') return 'Codex';
-  if (framework === 'nexus_power') return 'Nexus Power';
-  return framework
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 export default AgentProfilePage;

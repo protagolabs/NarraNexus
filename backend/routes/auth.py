@@ -76,6 +76,8 @@ from backend.auth_errors import (
 )
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.agent_profile import apply_agent_profile_change
+from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from xyz_agent_context.bundle.channel_credential_tables import channel_binding_tables
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -805,10 +807,11 @@ async def get_agents(request: Request):
         }
         if agent_ids:
             try:
-                from xyz_agent_context.agent_framework.providers.slot_service import (
-                    AgentSlotService,
+                # Only the caller's own agents; the service re-checks ownership
+                # itself, so a public agent in `agent_ids` comes back absent.
+                overview = await AgentSlotService(db_client).owner_agents_overview(
+                    user_id, agent_ids=agent_ids
                 )
-                overview = await AgentSlotService(db_client).owner_agents_overview(user_id)
                 for aid, slots_view in overview.items():
                     if aid not in llm_by_agent:
                         continue
@@ -818,7 +821,10 @@ async def get_agents(request: Request):
                         "model": agent_view.get("model") or None,
                     }
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"[/api/auth/agents] llm summary enrichment failed: {e}")
+                # Degrade to "unknown" rather than 500 the directory (that would
+                # lock the app out at startup) — but this is NOT an expected
+                # path, so it logs at error, not warning.
+                logger.error(f"[/api/auth/agents] llm summary enrichment failed: {e}")
 
         # Channel presence for the directory table: one UNION query across the
         # channel-table registry (bundle/channel_credential_tables — the same
@@ -827,9 +833,6 @@ async def get_agents(request: Request):
         # table's on/off column so the UI can tell "configured" from "live".
         # Only owned agents participate: exposing a public agent's
         # integrations would leak private account metadata to viewers.
-        from xyz_agent_context.bundle.channel_credential_tables import (
-            channel_binding_tables,
-        )
         binding_tables = channel_binding_tables()
         channel_order = [channel for channel, _table, _active in binding_tables]
         bound_channels_by_agent: dict[str, list[BoundChannel]] = {
@@ -871,7 +874,9 @@ async def get_agents(request: Request):
                         if channel in state
                     ]
             except Exception as e:  # noqa: BLE001
-                logger.warning(
+                # Same shape as above: the column degrades to "—" for everyone,
+                # which is exactly why it must be loud in the log.
+                logger.error(
                     f"[/api/auth/agents] channel summary enrichment failed: {e}"
                 )
 

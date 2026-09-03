@@ -91,9 +91,14 @@ CHANNEL_KEY_BY_TABLE: Dict[str, str] = {
     "channel_wechat_credentials": "wechat",
     "channel_narramessenger_credentials": "narramessenger",
 }
-assert set(CHANNEL_KEY_BY_TABLE) == set(CHANNEL_CREDENTIAL_TABLES), (
-    "every credential table needs a channel key, and vice versa"
-)
+# A registry-consistency contract, not a debug assertion: `python -O` strips
+# `assert`, and this must fail at import in every build rather than surface as
+# a KeyError inside the first request that touches it.
+if set(CHANNEL_KEY_BY_TABLE) != set(CHANNEL_CREDENTIAL_TABLES):
+    raise RuntimeError(
+        "channel_credential_tables: CHANNEL_KEY_BY_TABLE and "
+        "CHANNEL_CREDENTIAL_TABLES must list the same tables"
+    )
 
 
 class _BindingTableSpec(TypedDict):
@@ -115,7 +120,11 @@ def channel_binding_tables() -> List[tuple]:
     """``(channel_key, table, active_col | None)`` for every table that binds
     an agent to a channel — credential-backed and binding-only alike. The
     directory query is built from this so it cannot drift from the bundle
-    registry above."""
+    registry above.
+
+    The RETURN ORDER is also the display order of the directory's channel
+    icons (credential tables in registry order, then binding-only tables).
+    Re-ordering ``CHANNEL_CREDENTIAL_TABLES`` therefore re-orders the UI."""
     out: List[tuple] = [
         (CHANNEL_KEY_BY_TABLE[table], table, spec["active_col"])
         for table, spec in CHANNEL_CREDENTIAL_TABLES.items()

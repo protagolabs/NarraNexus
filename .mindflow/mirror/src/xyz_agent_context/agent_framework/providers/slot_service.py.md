@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — 批量读 + `agent_ids` 入参
+
+`_slot_rows_by_agent` 一条 `IN (...)` 把 owner 全部 agent 的 `agent_slots` 行取回按 agent
+分组，`owner_agents_overview` / `count_owner_overrides` 都走它：成本从 1+1+N 变成 3 次，
+与 agent 数无关。`owner_agents_overview(owner_id, agent_ids=None)`：调用方可传候选 id
+缩小范围，但**归属永远在这里按 `created_by` 重查**——别人的公开 agent 传进来也拿不到
+配置，这是 `/api/auth/agents` 依赖的隐私边界。测试里的 `_FakeDB` 为此多了一个只认
+`FROM t WHERE col IN (...)` 的 `execute`。
 
 ## 2026-09-03 (评审修订) — `owner_agents_overview` 补 `agent_framework`
 

@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — 目录富化：传 id、import 提到模块顶、失败记 error
+
+`owner_agents_overview(user_id, agent_ids=agent_ids)`（service 内部批量读且重查归属）；
+`AgentSlotService` / `channel_binding_tables` 的 import 提到模块顶部——原来一个在 `try`
+里会把 ImportError 降级成一列空数据，另一个在 `try` 外会让路由 500。两个富化块的
+`except` 仍然降级（500 会锁死应用启动）但改记 `logger.error`：那不是预期路径。
+`tests/backend/test_auth_agents_directory.py` 用真 SQLite 钉住投影、开关列、注册表顺序
+与「失败降级仍 200」。
 
 ## 2026-09-03 (评审修订) — `/api/auth/agents` 的模型/框架投影改调唯一真源
 

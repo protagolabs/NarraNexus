@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_identity.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `FRAMEWORK_DISPLAY_NAMES` 注释改为实话
+
+它是 agent 在 system prompt 里的**自称**，不是 UI 标签；前端标签在
+[[../../../../frontend/src/lib/frameworkBrand.ts]]，文案刻意不同（"Claude Code" vs SDK 名）。
+原注释「Mirrors the frontend's provider dropdown copy」三处都对不上。改这里的值等于改
+prompt，需单独确认。
 
 ## 2026-09-03 (评审修订) — 覆盖规则抽成纯函数，供目录投影共用
 

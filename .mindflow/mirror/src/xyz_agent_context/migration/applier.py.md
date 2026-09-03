@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/migration/applier.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
+
+## 2026-09-04 — `try/finally` 上移，盖住 agent 创建两步
+
+评审二轮 M1：`add_agent` / `create_agent_level_instances` 抛出时标记也会泄漏。现在
+`try:` 从 `created = False` 起，注释「However this apply ends」成为实话。
 
 ## 2026-09-03 (评审修订) — `hurry.clear` 真的在 `finally` 里了
 

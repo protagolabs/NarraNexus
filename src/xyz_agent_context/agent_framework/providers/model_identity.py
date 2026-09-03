@@ -38,9 +38,13 @@ from typing import Any
 
 from loguru import logger
 
-# Canonical framework name → human-facing label shown in the prompt.
-# Mirrors the frontend's provider dropdown copy. Unknown names fall
-# back to the raw canonical string (never invent a brand).
+# Canonical framework name → how the agent names its own runtime INSIDE the
+# system prompt. This is prompt copy, deliberately NOT the UI label: the
+# frontend's directory / profile labels live in `lib/frameworkBrand.ts` and
+# read differently ("Claude Code" vs the SDK name here). Changing a value
+# below changes what the agent says about itself — treat it as a prompt
+# edit. Unknown names fall back to the raw canonical string (never invent a
+# brand).
 FRAMEWORK_DISPLAY_NAMES: dict[str, str] = {
     "codex_cli": "Codex CLI",
     "claude_code": "Claude Agent SDK",

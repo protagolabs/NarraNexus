@@ -800,9 +800,9 @@ async def validate_slots(request: Request):
 # overrides, so these endpoints let the owner (a) see how many agents override
 # and (b) clear those overrides so they fall back to inheriting the new
 # default (clear-to-inherit; NOT a value snapshot). The directory's per-agent
-# model column is served by GET /api/auth/agents through the same service;
-# the Dashboard model chip in one HTTP call (the DB layer is still one
-# agent_slots read per owned agent, not a single query).
+# framework / model columns are served by GET /api/auth/agents through the same
+# service (``owner_agents_overview``); these two endpoints only answer "how many
+# agents override" and "clear the overrides".
 
 
 class ApplyToAgentsRequest(BaseModel):

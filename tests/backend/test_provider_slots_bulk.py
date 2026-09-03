@@ -2,11 +2,12 @@
 @file_name: test_provider_slots_bulk.py
 @author:
 @date: 2026-08-26
-@description: Owner-scoped bulk slot endpoints — override-stats / apply-to-agents
+@description: Owner-scoped bulk slot endpoints — override-stats / apply-to-agents.
     Uses an in-memory _FakeDB (equality-filter store) wired
     via monkeypatching providers.get_db_client, plus a fake auth middleware that
     lifts X-User-Id into request.state (same shape auth_middleware guarantees).
 """
+import re
 from collections import defaultdict
 
 import pytest
@@ -35,6 +36,15 @@ class _FakeDB:
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
         return rows[0] if rows else None
+
+    async def execute(self, query, params=None):
+        # Just enough SQL for the batch reads the slot service issues:
+        #   SELECT ... FROM <table> WHERE <col> IN (%s, %s, ...)
+        m = re.search(r"FROM\s+(\w+)\s+WHERE\s+(\w+)\s+IN\s*\(", query)
+        assert m, f"fake db cannot run: {query}"
+        table, col = m.group(1), m.group(2)
+        wanted = set(params or ())
+        return [dict(r) for r in self.tables[table] if r.get(col) in wanted]
 
     async def insert(self, table, data):
         self.tables[table].append(dict(data))
@@ -147,8 +157,6 @@ async def test_apply_to_agents_writes_audit_snapshot(client, db):
     assert len(audit) == 1 and audit[0]["model"] == "pinned-x"
 
 
-
-
 @pytest.mark.asyncio
 async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
     # A valid slot alongside a bad one must NOT be partially cleared: the whole
@@ -158,8 +166,6 @@ async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
                     json={"slots": ["agent", "bogus"]}, headers=OWNER)
     assert r.status_code == 400
     assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is not None
-
-
 
 
 def test_override_stats_requires_identity(client):

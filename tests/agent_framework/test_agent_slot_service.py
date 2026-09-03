@@ -12,6 +12,7 @@ resolution and upsert/get/clear round-trip are covered here too.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 import pytest
@@ -36,6 +37,15 @@ class _FakeDB:
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
         return rows[0] if rows else None
+
+    async def execute(self, query, params=None):
+        # Just enough SQL for the batch reads the slot service issues:
+        #   SELECT ... FROM <table> WHERE <col> IN (%s, %s, ...)
+        m = re.search(r"FROM\s+(\w+)\s+WHERE\s+(\w+)\s+IN\s*\(", query)
+        assert m, f"fake db cannot run: {query}"
+        table, col = m.group(1), m.group(2)
+        wanted = set(params or ())
+        return [dict(r) for r in self.tables[table] if r.get(col) in wanted]
 
     async def insert(self, table, data):
         self.tables[table].append(dict(data))

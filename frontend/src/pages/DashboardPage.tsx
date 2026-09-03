@@ -61,13 +61,13 @@ import {
   HomeAssistantBrandIcon,
   LarkBrandIcon,
   NarraMessengerBrandIcon,
-  NexusPowerBrandIcon,
   SlackBrandIcon,
   TelegramBrandIcon,
   WeChatBrandIcon,
 } from '@/components/icons/ChannelBrandIcons';
-import { ClaudeBrandIcon, OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
+import { OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
 import { getModelBrandIcon } from '@/lib/modelBrandIcons';
+import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { AgentInfo, AgentStatus, OwnedAgentStatus } from '@/types';
 
@@ -94,15 +94,9 @@ type StatusCell = {
 
 type BrandIconComponent = ComponentType<{ className?: string }>;
 
-// Framework / channel ids → their real brand mark. Both maps fall back to a
-// generic Bot glyph at the call site, so a framework or channel added later
-// degrades to "unknown but present" instead of rendering nothing.
-const FRAMEWORK_BRAND_ICONS: Record<string, BrandIconComponent> = {
-  claude_code: ClaudeBrandIcon,
-  codex_cli: OpenAIBrandIcon,
-  nexus_power: NexusPowerBrandIcon,
-};
-
+// Channel ids → their real brand mark (framework marks come from
+// lib/frameworkBrand). Falls back to a generic Bot glyph at the call site, so a
+// channel added later degrades to "unknown but present" instead of nothing.
 const CHANNEL_BRANDS: Record<string, { label: string; Icon: BrandIconComponent }> = {
   lark: { label: 'Lark / Feishu', Icon: LarkBrandIcon },
   slack: { label: 'Slack', Icon: SlackBrandIcon },
@@ -805,9 +799,7 @@ export function DashboardPage() {
                     const isImported = importedAgentIds.has(a.agent_id);
                     const isOwnerRow = a.created_by === userId;
                     const lastActiveAt = status?.status.last_activity_at;
-                    const FrameworkIcon = a.agent_framework
-                      ? FRAMEWORK_BRAND_ICONS[a.agent_framework] ?? Bot
-                      : null;
+                    const FrameworkIcon = a.agent_framework ? frameworkBrandIcon(a.agent_framework) : null;
                     const ModelIcon = a.model ? getModelBrandIcon(a.model) ?? Bot : null;
                     const boundChannels = a.bound_channels ?? [];
                     // The whole row is a mouse target for the profile, but the
@@ -919,7 +911,7 @@ export function DashboardPage() {
                                 <FrameworkIcon
                                   className={cn(
                                     'h-3.5 w-3.5',
-                                    FrameworkIcon === OpenAIBrandIcon && 'dark:invert',
+                                    frameworkIconInvertsInDark(FrameworkIcon) && 'dark:invert',
                                   )}
                                 />
                               </span>
@@ -1215,21 +1207,6 @@ function teamAvatarInitials(name: string): string {
     return words.slice(0, 2).map((word) => word.charAt(0).toUpperCase()).join('');
   }
   return name.slice(0, 2).toUpperCase();
-}
-
-// Slot ids are snake_case identifiers; the two shipped frameworks get a proper
-// product name, anything else is title-cased so a newly-added framework still
-// reads as a name rather than a database value.
-function formatFramework(framework?: string): string {
-  if (!framework) return '—';
-  if (framework === 'claude_code') return 'Claude Code';
-  if (framework === 'codex_cli') return 'Codex';
-  if (framework === 'nexus_power') return 'Nexus Power';
-  return framework
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 export default DashboardPage;

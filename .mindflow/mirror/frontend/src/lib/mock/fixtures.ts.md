@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/mock/fixtures.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-03 — `bound_channels` 形状变为 `[{channel, active}]`
+
+跟随 `AgentInfo.bound_channels` 的类型变化（PR #383 评审 M2）。两个自有 agent 分别是
+`[lark(on), slack(off)]` 与 `[telegram(on)]`：slack **故意** `active: false`，因为 mock 模式
+是不连后端就能看到 Dashboard Channels 列「配过但关着」那条渲染（降透明 + `channelOff`
+tooltip）的唯一地方。别人的公开 agent 仍是 `[]`。08-27 条里「`['lark','slack']` 和
+`['telegram']`」的字面量以本条为准。
 
 ## 2026-08-27 — 三个 mock agent 有了 `bound_channels`,queue 补三个状态
 
