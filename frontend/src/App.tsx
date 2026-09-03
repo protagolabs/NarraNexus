@@ -38,6 +38,7 @@ const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
 const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CreateTeamPage = lazy(() => import('@/pages/CreateTeamPage'));
+const ChooseCreateMethodPage = lazy(() => import('@/pages/ChooseCreateMethodPage'));
 const AccountPage = lazy(() => import('@/pages/AccountPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
@@ -577,6 +578,9 @@ function App() {
           <Route path="templates/install" element={<BundleImportPage />} />
           {/* Static segment ranks above :teamId in v6 route ranking, but it
               also reads clearer listed first. */}
+          {/* Creation studio entry. Creates nothing itself — both cards end
+              in the same useCreateAgent() call (see the page's header). */}
+          <Route path="agents/new" element={<ChooseCreateMethodPage />} />
           <Route path="teams/new" element={<CreateTeamPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           {/* Team group chat — element null; MainLayout renders TeamChatView

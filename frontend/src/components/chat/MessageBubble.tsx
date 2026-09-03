@@ -30,6 +30,7 @@ import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
+import { stripBuilderInstruction } from '@/lib/builderPrompt';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -215,15 +216,26 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     setShowDetails((prev) => !prev);
   }, [inlineEvents.length, canLoadEventLog, hasEventLogData, loadEventLog]);
 
+  // Creation studio (v0): the Agent Builder instruction travels inside the
+  // user's FIRST message, because the conversation runs on the user's own
+  // agent and there is nowhere else to put it (v0 never writes Awareness
+  // unprompted). Strip it from every surface that shows message text —
+  // bubble, copy, download — so the user only ever sees what they typed.
+  // Plain messages pass through untouched, so this is safe for all traffic.
+  const visibleContent = useMemo(
+    () => stripBuilderInstruction(message.content),
+    [message.content],
+  );
+
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(visibleContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const ta = document.createElement('textarea');
-      ta.value = message.content;
+      ta.value = visibleContent;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -231,10 +243,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [message.content]);
+  }, [visibleContent]);
 
   const handleDownload = useCallback(() => {
-    const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([visibleContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -243,7 +255,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [message.content, message.timestamp]);
+  }, [visibleContent, message.timestamp]);
 
   // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
   // Only the human side renders an avatar now (the agent's turn is a
@@ -527,7 +539,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
               <>
-                <span className="whitespace-pre-wrap text-sm">{message.content}</span>
+                <span className="whitespace-pre-wrap text-sm">{visibleContent}</span>
                 {message.steerStatus && (
                   // Mid-run follow-up state: queued → merged, or rejected.
                   <span

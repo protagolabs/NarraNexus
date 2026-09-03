@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-31
+last_verified: 2026-09-03
 ---
 
+## 2026-09-03 — 剥掉 Builder 指令块
+
+新增 `visibleContent = stripBuilderInstruction(message.content)`，用在**所有
+展示消息文本的出口**：用户气泡、复制、下载。
+
+为什么必须做：创建工作室 v0 的 Builder 指令藏在**用户消息**里（对话跑在用户
+自己的 agent 上，没有别处可放 —— v0 不擅自写 Awareness）。漏一处，整段 prompt
+就出现在用户自己的气泡里。普通消息原样透传，所以对全部流量安全。
+
+助手侧分支没有改 —— 我们的标记只会出现在用户消息里。
 ## 2026-08-31 — 历史轮次的抽屉：自己把自己卸载了
 
 Owner 报了两个症状：点开「查看推理与工具」后**推理仍是折叠的**，而且**再也

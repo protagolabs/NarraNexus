@@ -41,6 +41,8 @@ import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
+import { buildBuilderFirstMessage } from '@/lib/builderPrompt';
+import { takeBuilderPending } from '@/lib/builderSession';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -877,6 +879,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       return;
     }
 
+    // Creation studio (v0): on a studio-marked agent the Agent Builder
+    // instruction wraps the user's FIRST message. It cannot be sent on
+    // arrival — it exists to frame the request, and the request is whatever
+    // the user just typed. The mark is consume-once, so later turns send
+    // plain text (see lib/builderSession). MessageBubble strips the block so
+    // the user's own bubble shows only what they wrote.
+    // Deliberately after the steer branch: a steer must never burn the mark.
+    const outgoing = takeBuilderPending(agentId)
+      ? (buildBuilderFirstMessage(content) ?? content)
+      : content;
+
     const attachmentsToSend = pendingAttachments;
     composerRef.current?.clear();
     setPendingAttachments([]);
@@ -908,7 +921,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }));
     }
 
-    addUserMessage(agentId, content, attachmentsToSend.length ? attachmentsToSend : undefined);
+    addUserMessage(agentId, outgoing, attachmentsToSend.length ? attachmentsToSend : undefined);
     startStreaming(agentId);
     captureProductEvent('message_submitted', {
       agent_id: agentId,
@@ -917,7 +930,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const agentName = currentAgent?.name || agentId;
-      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
+      run(agentId, userId, outgoing, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }

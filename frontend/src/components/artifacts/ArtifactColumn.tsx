@@ -22,6 +22,8 @@ import { useArtifactStore } from '@/stores';
 import ArtifactTabStrip from './ArtifactTabStrip';
 import ArtifactDownloadMenu from './ArtifactDownloadMenu';
 import ArtifactRenderer from './ArtifactRenderer';
+import { ApplyDraftBar } from '@/components/builder';
+import { isConfigDraft } from '@/lib/builderPrompt';
 import ArtifactZoomModal from './ArtifactZoomModal';
 
 interface Props {
@@ -192,6 +194,12 @@ export default function ArtifactColumn({
               were removed with the sliver branch. */}
         </div>
       </div>
+      {/* Creation studio (v0): the config draft is the only artifact that can
+          be written into the agent's instructions, and only on this button.
+          Keyed off the title the builder instruction names, so any other
+          markdown artifact renders exactly as before. */}
+      {isConfigDraft(active) && active && <ApplyDraftBar artifact={active} />}
+
       <div
         ref={contentRef}
         className="flex-1 min-h-0 overflow-hidden relative"

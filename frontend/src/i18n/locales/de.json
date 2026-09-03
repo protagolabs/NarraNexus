@@ -2246,5 +2246,50 @@
     "settings": "Einstellungen öffnen",
     "dismiss": "Verstanden",
     "bodyManaged": "Diese Installation sendet diagnostische Service-Logs (Fehler und Diagnoseereignisse) an den eigenen Collector von NarraNexus, wie von deinem Administrator konfiguriert. Auf Installationen mit der Stufe \"full\" können Logzeilen Nachrichteninhalte enthalten."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Agent erstellen",
+      "title": "Wo möchten Sie beginnen?",
+      "subtitle": "Mit einer leeren Konfiguration starten oder beschreiben, was Sie brauchen, und es im Gespräch erstellen.",
+      "blankTitle": "Leer beginnen",
+      "blankBody": "Jedes Feld selbst konfigurieren. Für Nutzer, die schon wissen, wie der Agent arbeiten soll.",
+      "aiTitle": "Mit KI erstellen",
+      "aiBody": "Beschreiben Sie das gewünschte Ergebnis. Der Agent Builder stellt die entscheidenden Fragen und entwirft mit.",
+      "continue": "Weiter",
+      "recommended": "Empfohlen"
+    },
+    "gate": {
+      "title": "Agent erstellen",
+      "probing": "Anbieter werden geprüft",
+      "chooseTitle": "Anbieter wählen",
+      "chooseHint": "Wählen Sie einen vorhandenen Anbieter oder verbinden Sie einen neuen. Das bestimmt, welche Engine den Agent ausführt.",
+      "accessApiKey": "API-Key",
+      "accessCli": "CLI-Anmeldung",
+      "emptyLead": "Noch keine Engine verfügbar. Verbinden Sie einen Anbieter — er bestimmt, wer diesen Agent ausführt.",
+      "addLabel": "Anbieter hinzufügen",
+      "addApiKey": "API-Key",
+      "addCli": "CLI-Anmeldung",
+      "back": "Zurück",
+      "next": "Weiter",
+      "cliDesktopHint": "Die Anmeldung öffnet Ihren Browser, um die Claude CLI zu autorisieren.",
+      "cliLogin": "Mit Claude anmelden",
+      "cliLoggingIn": "Anmeldung läuft…",
+      "cliWebHint": "Nicht angemeldet — führen Sie `claude auth login` im Terminal aus und öffnen Sie diesen Dialog erneut.",
+      "cliMissingHint": "Die Claude CLI ist hier nicht verfügbar. Installieren Sie sie, melden Sie sich im Terminal an und öffnen Sie den Dialog erneut."
+    },
+    "apply": {
+      "cta": "Auf diesen Agent anwenden",
+      "applied": "Angewendet",
+      "hint": "Schreibt den Entwurf in die Anweisungen dieses Agents.",
+      "savingHint": "Ihre Änderungen werden gespeichert — bitte kurz erneut versuchen.",
+      "doneHint": "Anweisungen aktualisiert. Name, Skills und Kanäle richten Sie selbst ein.",
+      "confirmTitle": "Entwurf anwenden?",
+      "confirmBody": "Dies ersetzt die aktuellen Anweisungen dieses Agents durch den Entwurf. Name, Skills und Kanäle bleiben unberührt.",
+      "confirmCta": "Anwenden",
+      "emptyDraft": "Der Entwurf ist leer — nichts anzuwenden.",
+      "readFailed": "Entwurf konnte nicht gelesen werden: {{detail}}",
+      "writeFailed": "Anweisungen konnten nicht geschrieben werden: {{detail}}"
+    }
   }
 }

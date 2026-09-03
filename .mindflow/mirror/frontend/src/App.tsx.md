@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 创建工作室入口路由
+
+新增 `agents/new` → [[ChooseCreateMethodPage.tsx]]，与 `teams/new` 同层的
+lazy 路由。这一页**自己不创建任何东西**（创建在下一步），所以路由上没有任何
+守卫或清理需求。
 ## 2026-08-19 — /app/account 路由降级为别名
 
 路由本体保留,但语义变了:账户面板住进 Settings 的 ?tab=account pane

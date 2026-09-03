@@ -2246,5 +2246,50 @@
     "settings": "Ouvrir les paramètres",
     "dismiss": "Compris",
     "bodyManaged": "Cette installation envoie les journaux de service de diagnostic (erreurs et événements de diagnostic) au collecteur propre à NarraNexus, conformément à la configuration de votre administrateur. Sur les installations qui utilisent le niveau \"full\", les lignes de journal peuvent inclure du contenu de messages."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Créer un agent",
+      "title": "Par où voulez-vous commencer ?",
+      "subtitle": "Partez d'une configuration vierge, ou décrivez votre besoin et construisez-le par la conversation.",
+      "blankTitle": "Partir de zéro",
+      "blankBody": "Configurez chaque champ vous-même. Pour les utilisateurs qui savent déjà comment l'agent doit fonctionner.",
+      "aiTitle": "Créer avec l'IA",
+      "aiBody": "Décrivez le résultat souhaité. L'Agent Builder pose les questions clés et rédige au fur et à mesure.",
+      "continue": "Continuer",
+      "recommended": "Recommandé"
+    },
+    "gate": {
+      "title": "Créer un agent",
+      "probing": "Vérification des fournisseurs",
+      "chooseTitle": "Choisir un fournisseur",
+      "chooseHint": "Choisissez un fournisseur existant ou connectez-en un nouveau. Cela détermine le moteur qui exécute l'agent.",
+      "accessApiKey": "Clé API",
+      "accessCli": "Connexion CLI",
+      "emptyLead": "Aucun moteur disponible pour l'instant. Connectez un fournisseur — c'est lui qui exécutera cet agent.",
+      "addLabel": "Ajouter un fournisseur",
+      "addApiKey": "Clé API",
+      "addCli": "Connexion CLI",
+      "back": "Retour",
+      "next": "Suivant",
+      "cliDesktopHint": "La connexion ouvre votre navigateur pour autoriser la CLI Claude.",
+      "cliLogin": "Se connecter avec Claude",
+      "cliLoggingIn": "Connexion…",
+      "cliWebHint": "Non connecté — exécutez `claude auth login` dans votre terminal, puis rouvrez cette fenêtre.",
+      "cliMissingHint": "La CLI Claude n'est pas disponible ici. Installez-la, connectez-vous depuis le terminal, puis rouvrez cette fenêtre."
+    },
+    "apply": {
+      "cta": "Appliquer à cet agent",
+      "applied": "Appliqué",
+      "hint": "Écrit le brouillon dans les instructions de cet agent.",
+      "savingHint": "Vos modifications sont en cours d'enregistrement — réessayez dans un instant.",
+      "doneHint": "Instructions mises à jour. Le nom, les skills et les canaux restent à votre charge.",
+      "confirmTitle": "Appliquer le brouillon ?",
+      "confirmBody": "Cela remplace les instructions actuelles de cet agent par le brouillon. Le nom, les skills et les canaux ne sont pas touchés.",
+      "confirmCta": "Appliquer",
+      "emptyDraft": "Le brouillon est vide — rien à appliquer.",
+      "readFailed": "Impossible de lire le brouillon : {{detail}}",
+      "writeFailed": "Impossible d'écrire les instructions : {{detail}}"
+    }
   }
 }

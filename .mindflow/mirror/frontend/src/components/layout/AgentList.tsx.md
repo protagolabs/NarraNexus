@@ -1,9 +1,17 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 零 agent 空态 CTA 改为进创建分叉页
+
+`handleCreateAgent` 从 `await createAgent()` 改为导航到
+[[ChooseCreateMethodPage.tsx]]。这个空态服务的正是首次使用者 —— 分叉页存在的
+理由就是他。
+
+`handleCreateAgentInTeam` **没有**改道：团队内创建已经有明确目的地（团队群聊）
+和明确意图，不需要再问一次「你想从哪里开始」。
 ## 2026-08-19 — 改名的两个"成功但你得知道"报给用户了
 
 后端在改名时会算出两件**不是失败**的事,所以它们永远不会进错误分支——而三个改名

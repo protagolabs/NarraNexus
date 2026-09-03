@@ -36,7 +36,7 @@ import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useCreateAgent, useAgentImported, useDismissOnOutside } from '@/hooks';
+import { useAgentImported, useDismissOnOutside } from '@/hooks';
 import {
   useConfigStore,
   useChatStore,
@@ -97,7 +97,6 @@ export function Sidebar() {
   const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
-  const { createAgent, creating: creatingAgent } = useCreateAgent();
   const handleImportApplied = useAgentImported();
   // Import-from-other-source is local-only: the scanner reads the user's
   // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
@@ -247,11 +246,14 @@ export function Sidebar() {
       <div className="px-2 pb-2 flex flex-col gap-px border-b border-[var(--nm-hairline)]">
         <span data-help-id="sidebar.create-agent">
           <CreateMenu
-            onCreateAgent={() => void createAgent()}
+            // The "+" opens the creation studio's fork rather than creating
+            // straight away: a one-click create is what left users unaware
+            // they had created an agent at all. The blank path there calls
+            // the same useCreateAgent().
+            onCreateAgent={() => navigate('/app/agents/new')}
             onCreateTeam={() => navigate('/app/teams/new')}
             onImportBundle={() => navigate('/app/bundle/import')}
             onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
-            disabled={creatingAgent}
           />
         </span>
         <button

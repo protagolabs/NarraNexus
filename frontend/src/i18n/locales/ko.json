@@ -2245,5 +2245,50 @@
     "settings": "설정 열기",
     "dismiss": "확인",
     "bodyManaged": "이 설치본은 관리자가 구성한 대로 진단 서비스 로그(오류 및 진단 이벤트)를 NarraNexus 자체 수집 서버로 전송합니다. \"full\" 수준으로 실행되는 설치본에서는 로그 줄에 메시지 내용이 포함될 수 있습니다."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "에이전트 만들기",
+      "title": "어디에서 시작할까요?",
+      "subtitle": "빈 설정에서 시작하거나, 필요한 것을 설명해 대화로 만들 수 있습니다.",
+      "blankTitle": "빈 상태로 시작",
+      "blankBody": "모든 항목을 직접 설정합니다. 동작 방식을 이미 아는 사용자에게 적합합니다.",
+      "aiTitle": "AI로 만들기",
+      "aiBody": "원하는 결과를 설명하세요. Agent Builder가 핵심을 묻고 초안을 만듭니다.",
+      "continue": "계속",
+      "recommended": "추천"
+    },
+    "gate": {
+      "title": "에이전트 만들기",
+      "probing": "제공자 확인 중",
+      "chooseTitle": "제공자 선택",
+      "chooseHint": "기존 제공자를 선택하거나 새로 연결하세요. 이 에이전트를 실행할 엔진이 결정됩니다.",
+      "accessApiKey": "API 키",
+      "accessCli": "CLI 로그인",
+      "emptyLead": "아직 사용할 수 있는 엔진이 없습니다. 제공자를 연결하세요 — 이 에이전트를 실행할 주체가 됩니다.",
+      "addLabel": "제공자 추가",
+      "addApiKey": "API 키",
+      "addCli": "CLI 로그인",
+      "back": "뒤로",
+      "next": "다음",
+      "cliDesktopHint": "로그인하면 브라우저가 열려 Claude CLI를 승인합니다.",
+      "cliLogin": "Claude로 로그인",
+      "cliLoggingIn": "로그인 중…",
+      "cliWebHint": "로그인되지 않음 — 터미널에서 `claude auth login`을 실행한 뒤 이 창을 다시 열어 주세요.",
+      "cliMissingHint": "여기서는 Claude CLI를 사용할 수 없습니다. 설치하고 터미널에서 로그인한 뒤 다시 열어 주세요."
+    },
+    "apply": {
+      "cta": "이 에이전트에 적용",
+      "applied": "적용됨",
+      "hint": "초안을 이 에이전트의 지침에 씁니다.",
+      "savingHint": "편집 내용을 저장하고 있습니다 — 잠시 후 다시 시도하세요.",
+      "doneHint": "지침이 업데이트되었습니다. 이름, 스킬, 채널은 직접 설정해야 합니다.",
+      "confirmTitle": "초안을 적용할까요?",
+      "confirmBody": "이 에이전트의 현재 지침을 초안으로 대체합니다. 이름, 스킬, 채널은 변경되지 않습니다.",
+      "confirmCta": "적용",
+      "emptyDraft": "초안이 비어 있어 적용할 내용이 없습니다.",
+      "readFailed": "초안을 읽지 못했습니다: {{detail}}",
+      "writeFailed": "지침을 쓰지 못했습니다: {{detail}}"
+    }
   }
 }

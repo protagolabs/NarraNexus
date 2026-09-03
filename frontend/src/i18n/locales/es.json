@@ -2246,5 +2246,50 @@
     "settings": "Abrir ajustes",
     "dismiss": "Entendido",
     "bodyManaged": "Esta instalación envía registros de servicio de diagnóstico (errores y eventos de diagnóstico) al colector propio de NarraNexus, según lo configurado por tu administrador. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Crear agente",
+      "title": "¿Por dónde quieres empezar?",
+      "subtitle": "Empieza con una configuración en blanco, o describe lo que necesitas y créalo conversando.",
+      "blankTitle": "Empezar en blanco",
+      "blankBody": "Configura cada campo tú mismo. Para quien ya sabe cómo debe funcionar el agente.",
+      "aiTitle": "Crear con IA",
+      "aiBody": "Describe el resultado que quieres. El Agent Builder hace las preguntas clave y redacta el borrador.",
+      "continue": "Continuar",
+      "recommended": "Recomendado"
+    },
+    "gate": {
+      "title": "Crear agente",
+      "probing": "Comprobando proveedores",
+      "chooseTitle": "Elige un proveedor",
+      "chooseHint": "Elige un proveedor existente o conecta uno nuevo. Esto decide qué motor ejecuta el agente.",
+      "accessApiKey": "Clave API",
+      "accessCli": "Inicio de sesión CLI",
+      "emptyLead": "Todavía no hay ningún motor disponible. Conecta un proveedor: será quien ejecute este agente.",
+      "addLabel": "Añadir proveedor",
+      "addApiKey": "Clave API",
+      "addCli": "Inicio de sesión CLI",
+      "back": "Atrás",
+      "next": "Siguiente",
+      "cliDesktopHint": "Al iniciar sesión se abre el navegador para autorizar la CLI de Claude.",
+      "cliLogin": "Iniciar sesión con Claude",
+      "cliLoggingIn": "Iniciando sesión…",
+      "cliWebHint": "Sin iniciar sesión: ejecuta `claude auth login` en tu terminal y vuelve a abrir este diálogo.",
+      "cliMissingHint": "La CLI de Claude no está disponible aquí. Instálala, inicia sesión desde el terminal y vuelve a abrir este diálogo."
+    },
+    "apply": {
+      "cta": "Aplicar a este agente",
+      "applied": "Aplicado",
+      "hint": "Escribe el borrador en las instrucciones de este agente.",
+      "savingHint": "Guardando tus cambios: inténtalo de nuevo en un momento.",
+      "doneHint": "Instrucciones actualizadas. El nombre, los skills y los canales siguen siendo tu tarea.",
+      "confirmTitle": "¿Aplicar el borrador?",
+      "confirmBody": "Esto sustituye las instrucciones actuales del agente por el borrador. El nombre, los skills y los canales no se tocan.",
+      "confirmCta": "Aplicar",
+      "emptyDraft": "El borrador está vacío: no hay nada que aplicar.",
+      "readFailed": "No se pudo leer el borrador: {{detail}}",
+      "writeFailed": "No se pudieron escribir las instrucciones: {{detail}}"
+    }
   }
 }

@@ -1,9 +1,18 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 配置草稿多一条 apply bar
+
+`isConfigDraft(active)` 为真时，在 tab strip 与内容区之间插入
+[[ApplyDraftBar.tsx]]。判定键在 [[builderPrompt.ts]]，只认 Builder 指令写死的
+那个标题 + `text/markdown`，**其他任何 markdown artifact 渲染完全不变**。
+
+这一列因此成了创建工作室 v0 的「右侧配置面板」——没有为它写任何新面板：本列
+已经是第 4 列、新 artifact 到达自动展开，`text/markdown` 又是 block-editor +
+防抖自动保存，用户能直接改草稿。
 ## 2026-08-19 — sliver 分支删除(更正 08-13 条的「sliver 机制保留未动」)
 
 v4 后唯一挂载点是 BookmarkPanelHost 且带 `forceExpanded`,

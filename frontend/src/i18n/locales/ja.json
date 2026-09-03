@@ -2245,5 +2245,50 @@
     "settings": "設定を開く",
     "dismiss": "了解",
     "bodyManaged": "このインストールは、管理者の設定に従い、診断用サービスログ(エラーおよび診断イベント)を NarraNexus 自身のコレクターに送信します。\"full\" レベルで動作するインストールでは、ログ行にメッセージ内容が含まれることがあります。"
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "エージェントを作成",
+      "title": "どこから始めますか？",
+      "subtitle": "空の設定から始めるか、必要なことを説明して対話で作成します。",
+      "blankTitle": "空から始める",
+      "blankBody": "すべての項目を自分で設定します。動作が既に明確なユーザー向けです。",
+      "aiTitle": "AI で作成",
+      "aiBody": "望む成果を説明してください。Agent Builder が要点を尋ね、下書きを作ります。",
+      "continue": "続ける",
+      "recommended": "おすすめ"
+    },
+    "gate": {
+      "title": "エージェントを作成",
+      "probing": "プロバイダーを確認中",
+      "chooseTitle": "プロバイダーを選択",
+      "chooseHint": "既存のプロバイダーを選ぶか、新しく接続します。エージェントを動かすエンジンが決まります。",
+      "accessApiKey": "API キー",
+      "accessCli": "CLI サインイン",
+      "emptyLead": "利用できるエンジンがまだありません。プロバイダーを接続してください — このエージェントを動かす主体になります。",
+      "addLabel": "プロバイダーを追加",
+      "addApiKey": "API キー",
+      "addCli": "CLI サインイン",
+      "back": "戻る",
+      "next": "次へ",
+      "cliDesktopHint": "サインインするとブラウザーが開き、Claude CLI を承認します。",
+      "cliLogin": "Claude でサインイン",
+      "cliLoggingIn": "サインイン中…",
+      "cliWebHint": "未サインイン — ターミナルで `claude auth login` を実行し、このダイアログを開き直してください。",
+      "cliMissingHint": "ここでは Claude CLI を利用できません。インストールしてターミナルでサインインし、開き直してください。"
+    },
+    "apply": {
+      "cta": "このエージェントに適用",
+      "applied": "適用しました",
+      "hint": "下書きをこのエージェントの指示に書き込みます。",
+      "savingHint": "編集を保存中です — 少し待ってからもう一度お試しください。",
+      "doneHint": "指示を更新しました。名前・スキル・チャネルはご自身で設定してください。",
+      "confirmTitle": "下書きを適用しますか？",
+      "confirmBody": "このエージェントの現在の指示を下書きで置き換えます。名前・スキル・チャネルは変更されません。",
+      "confirmCta": "適用",
+      "emptyDraft": "下書きが空です。適用する内容がありません。",
+      "readFailed": "下書きを読み込めませんでした: {{detail}}",
+      "writeFailed": "指示を書き込めませんでした: {{detail}}"
+    }
   }
 }

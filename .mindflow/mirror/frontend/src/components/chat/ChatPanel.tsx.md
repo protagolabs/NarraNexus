@@ -1,9 +1,20 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 创建工作室 v0：首条消息包裹 Builder 指令
+
+提交路径新增 `outgoing`：agent 被 [[builderSession.ts]] 标记过时，用
+[[builderPrompt.ts]] 的 `buildBuilderFirstMessage` 包裹用户那句话，
+`addUserMessage` 与 `run` 都发包裹后的内容。
+
+**位置刻意放在 steer 分支之后** —— 一次 mid-run 追问绝不能烧掉这个标记。
+标记是 consume-once 的，所以后续回合发的是纯文本。
+
+指令为什么不能在进入聊天页时就发：它的作用是框住用户**自己**那句需求，而那
+句话在用户敲之前并不存在。渲染侧由 [[MessageBubble.tsx]] 剥掉。
 ## 2026-08-31（四）— 「正在处理…」删除
 
 直播块尾部那个 `Loader2 + chat.execution.acting` 的行内指示器删掉，i18n key

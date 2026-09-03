@@ -2762,5 +2762,50 @@
     "settings": "打开设置",
     "dismiss": "知道了",
     "bodyManaged": "本安装实例会按管理员的配置,将诊断服务日志发送到 NarraNexus 自有收集端。运行 \"full\" 档位的实例,日志行可能包含消息内容。"
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "创建智能体",
+      "title": "你想从哪里开始？",
+      "subtitle": "从空白配置开始，或者直接描述需求，通过对话完成创建。",
+      "blankTitle": "从空白开始",
+      "blankBody": "自己配置每个字段。适合已经明确知道智能体应该如何工作的用户。",
+      "aiTitle": "通过 AI 创建",
+      "aiBody": "描述你想要的结果。Agent Builder 会提出关键问题并实时生成草稿。",
+      "continue": "继续",
+      "recommended": "推荐"
+    },
+    "gate": {
+      "title": "创建智能体",
+      "probing": "正在检查引擎",
+      "chooseTitle": "选择一个引擎",
+      "chooseHint": "选择已有的 provider，或连接一个新的。它决定由谁来运行这个智能体。",
+      "accessApiKey": "API Key",
+      "accessCli": "命令行登录",
+      "emptyLead": "还没有可用的引擎。连接一个 provider 就能开始 —— 它决定由谁来运行这个智能体。",
+      "addLabel": "添加 provider",
+      "addApiKey": "API Key",
+      "addCli": "命令行登录",
+      "back": "返回",
+      "next": "下一步",
+      "cliDesktopHint": "登录会打开浏览器完成 Claude CLI 授权。",
+      "cliLogin": "使用 Claude 登录",
+      "cliLoggingIn": "正在登录…",
+      "cliWebHint": "未登录 —— 请在终端运行 `claude auth login`，然后重新打开此对话框。",
+      "cliMissingHint": "这里没有 Claude CLI。请先安装并在终端登录，然后重新打开此对话框。"
+    },
+    "apply": {
+      "cta": "应用到当前智能体",
+      "applied": "已应用",
+      "hint": "把草稿写入这个智能体的指令。",
+      "savingHint": "正在保存你的修改 —— 稍后再试。",
+      "doneHint": "指令已更新。名称、Skills 和渠道仍需你自己配置。",
+      "confirmTitle": "应用这份草稿？",
+      "confirmBody": "这会用草稿替换这个智能体当前的指令。名称、Skills 和渠道不受影响。",
+      "confirmCta": "应用",
+      "emptyDraft": "草稿是空的，没有可应用的内容。",
+      "readFailed": "读取草稿失败：{{detail}}",
+      "writeFailed": "写入指令失败：{{detail}}"
+    }
   }
 }
