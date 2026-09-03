@@ -40,7 +40,7 @@ import { api } from '@/lib/api';
 import { Button, Input, Textarea, ScrollArea } from '@/components/ui';
 import { AwarenessPanel } from '@/components/awareness';
 import { SkillsPanel } from '@/components/skills';
-import { useConfigStore, usePreloadStore } from '@/stores';
+import { useConfigStore, usePreloadStore, useUIStore } from '@/stores';
 import { closeStudio, readRecommendations } from '@/lib/builderSession';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
@@ -55,6 +55,7 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const refreshAgents = useConfigStore((s) => s.refreshAgents);
   const awareness = usePreloadStore((s) => s.awareness);
   const refreshAwareness = usePreloadStore((s) => s.refreshAwareness);
+  const requestPanel = useUIStore((s) => s.requestPanel);
 
   const agent = agents.find((a) => a.agent_id === agentId);
   const recommendations = readRecommendations(agentId);
@@ -120,8 +121,16 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     } finally {
       setFinishing(false);
       closeStudio(agentId);
+      // AND close the drawer. Clearing the studio flag alone leaves this very
+      // panel on screen — the flag is sessionStorage, so nothing re-renders —
+      // which reads as "Done does nothing", and clicking again just repeats it.
+      //
+      // requestPanel is the TOGGLE, and toggling our own tab is exactly
+      // "close me": this component only renders while `builder` IS the open
+      // tab, so the toggle can never accidentally open something.
+      requestPanel('builder');
     }
-  }, [commitName, commitAwareness, agentId]);
+  }, [commitName, commitAwareness, agentId, requestPanel]);
 
   const install = useCallback(
     async (skillId: string) => {
