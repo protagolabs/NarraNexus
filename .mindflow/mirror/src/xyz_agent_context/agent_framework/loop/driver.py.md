@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/driver.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `AgentLoopDriver` Protocol 搬到 `narranexus.contracts.framework`，本模块 re-export
+
+插件平台批 0：Protocol 正文（含 `capabilities()` 全部 docstring）逐字迁入契约层，本模块顶部
+`from narranexus.contracts.framework import AgentLoopDriver` 保证 `driver.AgentLoopDriver` 仍是同一个
+对象（契约测试钉住）。注册表 `_REGISTRY`、选择优先级、`FrameworkNotInstalledError`、executor seam
+全部不动；注册表改用内核 `Registry[T]` 是下一提交的事。词表从 docstring 升格为
+`CAPABILITY_VOCABULARY` 常量，`test_driver_contract.py` 的「只准声明已知词」以后应改为引用它。
 
 ## 2026-08-28 — fail-closed：未装插件的框架拒绝构建
 

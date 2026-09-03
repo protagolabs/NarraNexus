@@ -12,15 +12,17 @@ and asserting nothing from kernel / legacy / backend was pulled in.
 from __future__ import annotations
 
 import importlib
+import json
+import subprocess
 import sys
 
-_FORBIDDEN_PREFIXES = ("narranexus.kernel", "xyz_agent_context", "backend.")
-
-
-def _purge(prefixes: tuple[str, ...]) -> None:
-    for name in list(sys.modules):
-        if name.startswith(prefixes) or name == "backend":
-            del sys.modules[name]
+_PROBE = """
+import importlib, json, sys
+importlib.import_module("narranexus.contracts")
+forbidden = ("narranexus.kernel", "xyz_agent_context", "backend")
+leaked = sorted(n for n in sys.modules if n.startswith(forbidden))
+print(json.dumps(leaked))
+"""
 
 
 def test_narranexus_package_imports():
@@ -29,7 +31,10 @@ def test_narranexus_package_imports():
 
 
 def test_contracts_do_not_import_kernel_or_legacy():
-    _purge(("narranexus",) + _FORBIDDEN_PREFIXES)
-    importlib.import_module("narranexus.contracts")
-    leaked = sorted(n for n in sys.modules if n.startswith(_FORBIDDEN_PREFIXES) or n == "backend")
+    # A fresh interpreter: purging sys.modules in-process would re-import the
+    # legacy package later and break class identity for every other test.
+    out = subprocess.run(
+        [sys.executable, "-c", _PROBE], capture_output=True, text=True, check=True, timeout=120
+    )
+    leaked = json.loads(out.stdout.strip().splitlines()[-1])
     assert leaked == [], f"contracts pulled in non-contract modules: {leaked}"
