@@ -142,6 +142,57 @@ async def get_channel_activity(db, channel_id: str) -> List[dict]:
 # --- Writer side (MessageBusTrigger only) ----------------------------------
 
 
+#: The step a team turn ends on when it made no `message_team` call. Written
+#: by `MessageBusTrigger` (`note_silent_turn`, private like the rest of the
+#: write side); read through `activity.last_turn_was_silent` by
+#: `backend/routes/teams.py::_member_activity` (→ ``last_turn_silent``).
+SILENT_PHASE = "silent"
+
+
+async def note_silent_turn(db, agent_id: str, channel_id: str) -> None:
+    """Record that the turn just finished said nothing to the room.
+
+    2026-09-03. A silent team turn used to post a platform line into the
+    transcript ("This turn ended without delivering a reply"). The prompt
+    tells the agent silence is legitimate; the transcript then filed it as a
+    failure, and 16% of prod team-room rows were that line — so agents
+    learned to say *something*. The fact still has to exist somewhere,
+    because "ran and said nothing" must stay distinguishable from "never
+    ran": it now lives on the member's activity row, appended as a final
+    step to the turn that `TurnActivity.finish` just wrote, and the roster
+    shows it. No bus row, no schema change. Write side, so trigger-only —
+    the `activity` facade exports only the reader, `last_turn_was_silent`.
+
+    Appends rather than replaces so the turn's own timeline stays readable.
+    Read-modify-write without a guard, on the assumption the bus runs at most
+    one turn per (agent, channel) at a time — a concurrent ``start()`` would
+    be overwritten with the previous timeline until its first phase write
+    self-heals it. Never raises — status must never break delivery.
+    """
+    try:
+        row = await db.get_one(
+            "bus_agent_activity", {"agent_id": agent_id, "channel_id": channel_id}
+        )
+        blob = parse_steps(row)
+        items = list(blob.get("items") or [])
+        items.append({"phase": SILENT_PHASE, "at": _now_iso()})
+        dropped = int(blob.get("dropped") or 0)
+        if len(items) > MAX_STEPS:
+            dropped += len(items) - MAX_STEPS
+            items = items[-MAX_STEPS:]
+        await _upsert(db, agent_id, channel_id, {
+            "steps": json.dumps({"items": items, "dropped": dropped}),
+        })
+    except Exception as e:  # noqa: BLE001 — see docstring
+        logger.warning(f"[bus-activity] silent mark failed for {agent_id}: {e}")
+
+
+def last_turn_was_silent(row: Any) -> bool:
+    """True when the row's step log ends on `SILENT_PHASE`."""
+    items = parse_steps(row).get("items") or []
+    return bool(items) and (items[-1] or {}).get("phase") == SILENT_PHASE
+
+
 class TurnActivity:
     """Owns the activity mirror for ONE team-room turn.
 

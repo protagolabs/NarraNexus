@@ -81,7 +81,15 @@ async def _notices(db_client, channel_id, msg_type):
 
 
 @pytest.mark.asyncio
-async def test_a_silent_team_turn_leaves_a_visible_line(db_client, monkeypatch):
+async def test_a_silent_team_turn_posts_nothing_and_marks_the_roster(db_client, monkeypatch):
+    """2026-09-03: the room gets no line; the member's activity row does.
+
+    Delete the `is_team` branch in `_announce_undelivered_turn` and this goes
+    red twice — a `system_undelivered` row appears, and the step log no
+    longer ends on `silent`.
+    """
+    from xyz_agent_context.message_bus import activity as bus_activity
+
     _patch_db_factory(monkeypatch, db_client)
     await _seed_agent(db_client)
     trigger = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
@@ -95,12 +103,11 @@ async def test_a_silent_team_turn_leaves_a_visible_line(db_client, monkeypatch):
         channel_owner=f"{TEAM_ROOM_OWNER_PREFIX}team_1",
     )
 
-    notices = await _notices(db_client, ROOM, UNDELIVERED_MSG_TYPE)
-    assert len(notices) == 1
-    assert notices[0]["from_agent"] == "agent_a"
-    # Nobody is blocked on a room silence; waking every member over it would
-    # be worse than the silence.
-    assert not notices[0]["mentions"]
+    assert await _notices(db_client, ROOM, UNDELIVERED_MSG_TYPE) == []
+    rows = await bus_activity.get_channel_activity(db_client, ROOM)
+    row = next(r for r in rows if r["agent_id"] == "agent_a")
+    assert row["state"] == "idle"
+    assert bus_activity.last_turn_was_silent(row) is True
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/message_bus/_bus_activity.py
-last_verified: 2026-08-12
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 沉默的一轮记在活动行上（`note_silent_turn` / `last_turn_was_silent`）
+
+团队房里一轮没调 `message_team`,以前由 trigger 往 bus 贴一条 `system_undelivered`
+(prod 团队房 21 天里 16% 的行是它);prompt 说沉默合法、房间却记成失败,agent 就学会硬说。
+现在 `note_silent_turn(db, agent, channel)` 读回该 (agent, channel) 行,把
+`{"phase": "silent"}` **追加**到 `finish()` 刚写完的 steps 尾部(保留本轮时间线,
+同样受 `MAX_STEPS` 截断),无 bus 行、无 schema 改动;下一轮 `start()` 重写 steps
+自然清掉。`last_turn_was_silent(row)` 是读侧判定,[[../../../backend/routes/teams]]
+的 `_member_activity` 在 idle 条目上输出 `last_turn_silent`。永不抛。
+写侧只给 trigger(直接 import 本模块);读侧判定 `last_turn_was_silent` 经 [[activity]] 外露。
+测试:`test_bus_activity.py` 末四条。
+
 
 ## 2026-07-30 — bind the turn's event_id onto the activity row
 

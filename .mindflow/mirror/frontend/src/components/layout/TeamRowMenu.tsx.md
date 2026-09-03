@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/TeamRowMenu.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 去掉「清理数据」项
+
+`onClearData` prop 与菜单项删除;清理入口统一在房间的团队管理 tab
+([[../chat/team/TeamManagePanel.tsx]])。加 agent/改名/删除三项不动。i18n `layout.teamRowMenu.clearData`(zh/en)随之删除。
+
 
 ## 2026-08-19 — 点击页面任意处可关闭 + Add agent 接入 i18n
 

@@ -158,7 +158,7 @@ def test_a_mixed_batch_marks_which_ones_were_routed():
     text = _prompt(msgs)
 
     # The pointer section, not the scrollback — both texts appear in each.
-    pointer = text[text.index("Address ALL of them"):]
+    pointer = text[text.index("Reply to the ones that ask you"):]
     routed_line = next(ln for ln in pointer.splitlines() if "nobody named" in ln)
     real_line = next(ln for ln in pointer.splitlines() if "Ana, look at this" in ln)
     assert "no @mention" in routed_line

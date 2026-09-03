@@ -29,7 +29,6 @@ const teamMenuProps = {
   onAddAgent: vi.fn(),
   addingAgent: false,
   onRename: vi.fn(),
-  onClearData: vi.fn(),
   onDelete: vi.fn(),
 };
 

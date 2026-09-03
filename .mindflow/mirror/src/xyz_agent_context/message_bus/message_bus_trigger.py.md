@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-24
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 团队房沉默不再贴系统行；prompt 从「全都回」改成「回有实质要求的」
+
+owner 反馈「team 协作太啰嗦、agent 之间交互繁琐」,实测 dev 一房 19 字提问→23 条接力。
+本文件两处:
+
+- **`_announce_undelivered_turn` 的 `is_team` 分支**:不再 `announce_undelivered`,
+  改调 `_bus_activity.note_silent_turn`(直接 import 私有模块,门面只公开读侧)把沉默记到
+  成员活动行(花名册 idle/queued 态显示「上一轮未发言」),并打一行
+  `[team-turn] silent agent=… channel=…` INFO 日志——旧的 `msg_type='system_undelivered'`
+  计数改用这行日志统计。
+  A2A 私聊分支原样(对方真的在等,靠这条唤醒;owner inbox 通知也只剩这条路)。
+  `wake_peer` 少了恒真的 `not is_team`。
+- **`_build_team_prompt`**:①默认应答者:「Answer it yourself. Hand it to a teammate
+  only when the work is clearly theirs — and then hand it over, do not also
+  half-answer」,不再「hand it to whoever is the better owner」;②批量 @:
+  「Address ALL of them」→「Reply to the ones that ask you for something … one that
+  only informs you, or confirms what you said, needs no reply」;③交付规则:沉默
+  「leaves no mark in the room」;④写作规则加两条:只说新东西(不 收到 开头、不复述队友
+  已接受的、不发 wrap-up 除非用户要)、只回问你的人(别为了「同步」@ 全屋,每个 @ 都是一轮)。
+  锁:`test_team_reply_discipline_prompt.py`;`test_default_responder_honesty` 锚点改
+  「Reply to the ones that ask you」。prompt 不是守卫(铁律 #15),守卫是 [[errand]] 的
+  `opens_handoffs` 和这里的沉默标记。
+  **残留**:成员→成员的「完成后交给你 @A4」不再上板,那种形状只剩 Dunhuang 那条 prompt 规则
+  在管(errand.py 明知的取舍);团队房也不发 owner inbox 通知(owner 就在房里,花名册有标记)。
+  文案:`chat.team.guide.relay`(zh/en)不再写「4 次」,改为「达到平台上限后停止并在群里说明」。
+
 
 ## 2026-08-21 — patrol 注入的「别调发送工具」对齐 suppression 实际范围（🟢 review 收尾）
 
