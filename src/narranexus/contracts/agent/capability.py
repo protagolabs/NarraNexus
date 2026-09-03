@@ -12,7 +12,7 @@ contract with more or fewer cells of the capability × stage matrix filled
     CONTEXT_PROVIDER  Assemble only (instructions / turn context / data)
     SKILL             Assemble (its entry in the skills table) + Act (scripts)
     MEMORY_KIND       Recall (``recall``) + Commit + Reflect
-    MODULE            any stages + tools + tables + triggers
+    MODULE            every participant stage (all but Compose) + tools + tables + triggers
 
 A ``StageParticipant`` is what a capability exposes for one stage. Every
 method is optional (structural Protocol): a participant declares only the

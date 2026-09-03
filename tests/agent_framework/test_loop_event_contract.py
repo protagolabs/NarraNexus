@@ -1,7 +1,7 @@
 """
 @file_name: test_loop_event_contract.py
 @date: 2026-07-27
-@description: Contract tests for agent_framework.loop.events — the single
+@description: Contract tests for narranexus.contracts.agent_events — the single
 source of truth for the legacy driver event-dict shapes.
 
 The six shapes (raw_response_event × {text.delta, done, error} and

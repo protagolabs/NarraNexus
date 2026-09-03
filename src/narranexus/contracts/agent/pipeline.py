@@ -42,7 +42,9 @@ class TurnPipeline(Protocol):
     platform's (alpha), like ``StageStrategy.run``'s inputs.
     """
 
-    async def run(self, ingress: Any, profile: "PipelineProfile") -> AsyncIterator[Any]: ...
+    # An async generator: declared with plain ``def`` so the annotation is the
+    # iterator itself, not a coroutine resolving to one.
+    def run(self, ingress: Any, profile: "PipelineProfile") -> AsyncIterator[Any]: ...
 
 
 # The Act stage's strategy (slot ``turn.pipeline.act``) has the shape every
