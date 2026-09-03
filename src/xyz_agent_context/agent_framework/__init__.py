@@ -35,7 +35,10 @@ lazily.
 
 from . import plugin_paths
 from .api_config import CodexConfig, codex_config
+from narranexus.contracts.framework import FrameworkInstall, FrameworkMeta, InstallComponent
 from narranexus.kernel.plugins.registry import Contribution
+
+from .adapters.claude.cli_binary import PINNED_CLI_VERSION
 
 from .loop.driver import (
     AgentLoopDriver,
@@ -78,9 +81,42 @@ def _codex_cli_factory(**factory_kwargs):
 # 0). Registered here at import for today's call sites, and named by the
 # builtin manifests in narranexus.kernel.plugins.builtins so the loader
 # registers the very same objects (an idempotent no-op on the registry).
-NEXUS_POWER = Contribution("nexus_power", lambda: _nexus_power_factory, meta={"display_name": "NexusPower"})
-CLAUDE_CODE = Contribution("claude_code", lambda: _claude_code_factory, meta={"display_name": "Claude Code"})
-CODEX_CLI = Contribution("codex_cli", lambda: _codex_cli_factory, meta={"display_name": "Codex"})
+# Version pins for the on-demand SDKs. The npm CLI pin is the same constant the
+# agent loop uses to pick which binary to launch; the two pip pins are EXACT
+# because the installer must request one concrete version while pyproject
+# declares ranges — tests/backend/integrations/plugins/test_registry.py keeps
+# them in step with uv.lock.
+_CLAUDE_CODE_INSTALL = FrameworkInstall(
+    components=(
+        InstallComponent(kind="pip", requirement="claude-agent-sdk==0.1.43"),
+        InstallComponent(kind="npm", requirement=f"@anthropic-ai/claude-code@{PINNED_CLI_VERSION}"),
+    ),
+    probe_package="claude_agent_sdk",
+    user_version_source="npm_cli",
+    size_hint="~190 MB",
+)
+_CODEX_CLI_INSTALL = FrameworkInstall(
+    components=(InstallComponent(kind="pip", requirement="openai-codex==0.1.0b3"),),
+    probe_package="openai_codex",
+    user_version_source="pip_pkg",
+    size_hint="~60 MB",
+)
+
+NEXUS_POWER = Contribution(
+    "nexus_power",
+    lambda: _nexus_power_factory,
+    meta={"framework": FrameworkMeta("nexus_power", "NexusPower")},
+)
+CLAUDE_CODE = Contribution(
+    "claude_code",
+    lambda: _claude_code_factory,
+    meta={"framework": FrameworkMeta("claude_code", "Claude Code", install=_CLAUDE_CODE_INSTALL)},
+)
+CODEX_CLI = Contribution(
+    "codex_cli",
+    lambda: _codex_cli_factory,
+    meta={"framework": FrameworkMeta("codex_cli", "Codex CLI", install=_CODEX_CLI_INSTALL)},
+)
 
 for _contribution, _owner in (
     (NEXUS_POWER, "builtin.frameworks.nexus_power"),

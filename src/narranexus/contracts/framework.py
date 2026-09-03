@@ -85,11 +85,32 @@ class AgentLoopDriver(Protocol):
 
 
 @dataclass(frozen=True)
-class InstallSpec:
-    """How a framework's optional runtime dependency is installed on demand."""
+class InstallComponent:
+    """One pip wheel or npm package, version pinned inside ``requirement``.
+
+    ``requirement`` is passed to the package manager verbatim
+    (``"claude-agent-sdk==0.1.43"``, ``"@anthropic-ai/claude-code@2.1.220"``);
+    installers never re-derive a version.
+    """
 
     kind: Literal["pip", "npm"]
     requirement: str
+
+
+@dataclass(frozen=True)
+class FrameworkInstall:
+    """How an on-demand framework is installed and how "installed" is detected.
+
+    ``probe_package`` is the Python import name whose presence means the
+    framework's code is there; ``user_version_source`` picks which component's
+    detected version the UI shows when there is more than one; ``size_hint``
+    is the download-size hint shown before installing.
+    """
+
+    components: tuple[InstallComponent, ...]
+    probe_package: str
+    user_version_source: Literal["npm_cli", "pip_pkg"]
+    size_hint: str
 
 
 @dataclass(frozen=True)
@@ -97,12 +118,20 @@ class FrameworkMeta:
     """Static description of a framework, used by the plugin factory UI and loader.
 
     ``install`` is ``None`` for frameworks that ship inside the host (nexus_power)
-    and an ``InstallSpec`` for the on-demand ones (claude_code / codex_cli).
+    and a ``FrameworkInstall`` for the on-demand ones (claude_code / codex_cli).
+    Carried as ``Contribution.meta["framework"]`` so the installer table in the
+    backend is derived from the framework registry instead of duplicating it.
     """
 
     name: str
     display_name: str
-    install: InstallSpec | None = None
+    install: FrameworkInstall | None = None
 
 
-__all__ = ["CAPABILITY_VOCABULARY", "AgentLoopDriver", "InstallSpec", "FrameworkMeta"]
+__all__ = [
+    "CAPABILITY_VOCABULARY",
+    "AgentLoopDriver",
+    "InstallComponent",
+    "FrameworkInstall",
+    "FrameworkMeta",
+]

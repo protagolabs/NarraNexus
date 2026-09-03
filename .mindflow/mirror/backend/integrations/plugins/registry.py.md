@@ -1,10 +1,17 @@
 ---
 code_file: backend/integrations/plugins/registry.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
 
 # registry.py — 两个插件的唯一登记表
+
+## 2026-09-03（批 1）— `PLUGIN_SPECS` 从框架注册表派生
+
+不再手写两条 `PluginSpec`：遍历 `FRAMEWORK_REGISTRY.entries()`，`meta["framework"].install` 非空的
+框架各生成一条（`build_plugin_specs`）。钉版本的唯一来源移到 `agent_framework/__init__.py`；
+`tests/backend/integrations/plugins/test_registry.py` 的全部断言（键集、组件、pin 与 uv.lock 锁步）
+原样通过。
 
 ## 为什么存在
 

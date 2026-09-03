@@ -13,7 +13,7 @@ import pytest
 
 from narranexus.contracts import API_VERSIONS
 from narranexus.contracts.events import HOST_EVENTS
-from narranexus.contracts.framework import CAPABILITY_VOCABULARY, AgentLoopDriver, FrameworkMeta, InstallSpec
+from narranexus.contracts.framework import CAPABILITY_VOCABULARY, AgentLoopDriver, FrameworkInstall, FrameworkMeta, InstallComponent
 from narranexus.contracts.llm_client import LlmClient
 from narranexus.contracts.testing.llm_client import LlmClientContractTests
 from narranexus.contracts.memory import MemoryKindContract
@@ -43,7 +43,7 @@ def test_legacy_driver_module_re_exports_the_contract_protocol():
 
 
 def test_framework_meta_is_frozen():
-    meta = FrameworkMeta(name="x", display_name="X", install=InstallSpec(kind="pip", requirement="x>=1"))
+    meta = FrameworkMeta(name="x", display_name="X", install=FrameworkInstall(components=(InstallComponent(kind="pip", requirement="x>=1"),), probe_package="x", user_version_source="pip_pkg", size_hint="~1 MB"))
     with pytest.raises(Exception):
         meta.name = "y"  # type: ignore[misc]
 

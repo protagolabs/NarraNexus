@@ -5,6 +5,13 @@ stub: false
 ---
 # agent_framework/__init__.py — agent-loop driver 注册中心
 
+## 2026-09-03（批 1）— 三个 Contribution 携带 `FrameworkMeta`（含安装配方）
+
+`NEXUS_POWER/CLAUDE_CODE/CODEX_CLI` 的 `meta["framework"]` 是 `FrameworkMeta`；claude_code/codex_cli
+的 `FrameworkInstall` 把原来 `backend/integrations/plugins/registry.py` 里的 pip/npm 钉版本、探测包、
+体积提示搬到这里（npm 版本仍引用 `adapters.claude.cli_binary.PINNED_CLI_VERSION`）。backend 的
+`PLUGIN_SPECS` 从注册表派生，锁步测试 `test_pip_pins_match_uv_lock` 继续守 uv.lock。
+
 ## 2026-09-03 — 三框架改为 `Contribution` 常量（`NEXUS_POWER/CLAUDE_CODE/CODEX_CLI`）
 
 插件平台批 0：三个惰性工厂不再经 `register_agent_loop_driver` 注册，而是各自包成
