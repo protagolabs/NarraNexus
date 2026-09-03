@@ -50,7 +50,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-14 * ONE_DAY),
     is_public: false,
     created_by: MOCK_USER_ID,
-    bound_channels: ['lark', 'slack'],
+    bound_channels: [{ channel: 'lark', active: true }, { channel: 'slack', active: false }],
     bootstrap_active: false,
   },
   {
@@ -61,7 +61,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-7 * ONE_DAY),
     is_public: true,
     created_by: MOCK_USER_ID,
-    bound_channels: ['telegram'],
+    bound_channels: [{ channel: 'telegram', active: true }],
     bootstrap_active: false,
   },
   {

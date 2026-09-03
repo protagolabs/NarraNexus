@@ -47,7 +47,10 @@ FRAMEWORK_DISPLAY_NAMES: dict[str, str] = {
     "nexus_power": "NexusPower-beta",
 }
 
-_DEFAULT_FRAMEWORK = "nexus_power"
+# Platform default since 2026-08-20 (#336). THE constant: user_service's
+# owner-level read, slot_service's directory projection and the identity
+# overlay below all import it, so changing the default is one edit.
+DEFAULT_AGENT_FRAMEWORK = "nexus_power"
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,40 @@ def _display_for(framework: str) -> str:
     return FRAMEWORK_DISPLAY_NAMES.get(framework, framework)
 
 
+def slot_rebinds(override: dict | None) -> bool:
+    """Whether an ``agent_slots`` row rebinds the agent slot for identity.
+
+    True only when the row carries BOTH a ``provider_id`` AND an
+    ``agent_framework``. A provider-only or framework-only stub does not win:
+    the config resolver skips empty-provider rows, and honouring a
+    framework-only stub here would run e.g. the Codex driver against a Claude
+    config.
+    """
+    return bool(override and override.get("provider_id") and override.get("agent_framework"))
+
+
+def effective_agent_slot(
+    override: dict | None, owner_default: dict | None
+) -> dict | None:
+    """The slot row THIS agent actually runs on — the one place that rule lives.
+
+    Pure, so every projection of "what does this agent run" (the system
+    prompt, the driver dispatch, the agents directory) can share it instead of
+    re-deriving it against a hand-written query and drifting — which is how the
+    directory once showed a framework-only stub's brand for an agent that was
+    running on the owner default.
+    """
+    if slot_rebinds(override):
+        return override
+    return owner_default
+
+
+def framework_of(slot: dict | None) -> str:
+    """Framework name a slot row resolves to; the platform default when the
+    row is missing or the column is null."""
+    return (slot or {}).get("agent_framework") or DEFAULT_AGENT_FRAMEWORK
+
+
 async def resolve_agent_model_identity(
     agent_id: str, db: Any
 ) -> AgentModelIdentity:
@@ -87,7 +124,7 @@ async def resolve_agent_model_identity(
     displayed identity matches what the driver actually runs.
 
     Never raises: any missing row / null column / DB error degrades to
-    ``(_DEFAULT_FRAMEWORK, "")`` so identity resolution can never break
+    ``(DEFAULT_AGENT_FRAMEWORK, "")`` so identity resolution can never break
     the system-prompt build. The default framework is displayed via the
     same map, so the prompt still says something truthful-by-fallback
     rather than a wrong brand.
@@ -97,23 +134,23 @@ async def resolve_agent_model_identity(
         override = await db.get_one(
             "agent_slots", {"agent_id": agent_id, "slot_name": "agent"}
         )
-        if override and override.get("provider_id") and override.get("agent_framework"):
-            slot = override
-        else:
+        owner_default: dict | None = None
+        if not slot_rebinds(override):
             agent_row = await db.get_one("agents", {"agent_id": agent_id})
             owner = (agent_row or {}).get("created_by")
             if owner:
-                slot = await db.get_one(
+                owner_default = await db.get_one(
                     "user_slots", {"user_id": owner, "slot_name": "agent"}
                 )
+        slot = effective_agent_slot(override, owner_default)
     except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
         logger.warning(
             f"[agent_identity] slot lookup failed for agent={agent_id}: {e}; "
-            f"falling back to {_DEFAULT_FRAMEWORK}"
+            f"falling back to {DEFAULT_AGENT_FRAMEWORK}"
         )
         slot = None
 
-    framework = (slot or {}).get("agent_framework") or _DEFAULT_FRAMEWORK
+    framework = framework_of(slot)
     model = (slot or {}).get("model") or ""
     return AgentModelIdentity(
         framework=framework,

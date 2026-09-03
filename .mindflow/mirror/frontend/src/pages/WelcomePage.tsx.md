@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/WelcomePage.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — mode 不再映射
+
+`buildWelcomeSteps` / `shouldProbeDetections` 直接吃 runtimeStore 的 `AppMode`；null 只在
+ProtectedRoute 尚未放行时出现，按 local 处理与原语义一致。
 
 # pages/WelcomePage.tsx — the first-run flow
 

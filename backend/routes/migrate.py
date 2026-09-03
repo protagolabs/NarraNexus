@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 from xyz_agent_context.utils.db.db_factory import get_db_client
@@ -93,7 +93,11 @@ class ApplyRequest(BaseModel):
 
 
 class HurryRequest(BaseModel):
-    import_id: str
+    # Bounded because the id is kept in a process-level registry (hurry.py)
+    # and this route is exempt from the body-size middleware. Ownership is NOT
+    # checked: the route is local-only (single user, single process) and the
+    # id is minted by that same client — a check would guard against nobody.
+    import_id: str = Field(min_length=1, max_length=128)
 
 
 @router.post("/hurry")

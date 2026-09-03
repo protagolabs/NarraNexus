@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — `/api/auth/agents` 的模型/框架投影改调唯一真源
+
+PR #383 评审 🔴C1/C2：路由里自研的 `agent_slots` / `user_slots` 解析是这条规则的
+**第四份实现**，且不看 `provider_id`（framework-only stub 会被当成有效覆盖），兜底又写死
+`claude_code`（平台默认自 2026-08-20 起是 `nexus_power`）——目录表对多数用户显示错误品牌。
+现在直接调 `AgentSlotService.owner_agents_overview(user_id)`，规则在
+[[../../src/xyz_agent_context/agent_framework/providers/model_identity.py]]，路由里**没有任何**
+框架字面量。只解析调用者自己的 agent；别人的公开 agent 两字段为 None（前端渲染 `—`）。
+
+渠道列改从 [[../../src/xyz_agent_context/bundle/channel_credential_tables.py]] 的
+`channel_binding_tables()` 生成 UNION（评审 M1：原是第二份表清单），每支带上该表的
+开关列（M2：原只看行存在），`bound_channels` 变成 `[{channel, active}]`。
 
 ## 2026-08-27 — `/api/auth/agents` 再加两段富化:运行时身份 + 已绑渠道
 

@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/pages/AgentProfilePage.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — owner 门禁、删除清 store、`key` 只留 agentId、框架不兜底
+
+- **I2**：`isOwner = agent.created_by === userId`，据此隐藏头部 ⋮ 与 Settings tab。用
+  agent 列表而不是 `ownedStatus`：后者来自 dashboard 状态流，首帧为 null 会让 owner 自己的
+  按钮闪一下。这是侧栏 kebab 下线时丢掉的既有门禁。
+- **I3**：删除成功后 `await refreshAgents()` → `clearAgent` → `setAgentId(remaining[0] ?? '')`
+  再导航。本页挂载时把全局 active agent 指到了它，不复位就会让 /app/chat 挂在死 agent 上，
+  且 `agents` 持久化在 localStorage 里会留鬼行。
+- **I5**：`GeneralSettingsPanel` 的 `key` 只留 `agentId`。含 name/description 时改名成功
+  即换 key 重挂载，「已保存」永远不出现。
+- **C2**：`framework` 不再 `|| 'claude_code'`；缺失渲染 `—`。兜底在后端 model_identity。
 
 ## 2026-08-27 (3) — Overview 补上「最近怎么样」这一层
 

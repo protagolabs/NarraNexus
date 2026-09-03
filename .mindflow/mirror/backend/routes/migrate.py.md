@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-09-03
 ---
 
+## 2026-09-03 (评审修订) — `HurryRequest.import_id` 加长度上限
+
+评审 M3：`hurry.py` 注释说「Ids are bounded」但只界了条数没界长度，而这条路由又在
+body-size 豁免表里。`Field(min_length=1, max_length=128)`。不校验归属：local-only、
+单进程、id 由同一客户端生成，校验守的是不存在的对手——写进了字段注释。
+
 ## Why it exists
 
 The HTTP surface of Agent Migration. `/detect` + `/scan` are the read side

@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 删 `getAgentsModelOverview`
+
+后端端点已删（评审 I6）；每 agent 的有效模型/框架来自 `getAgents()` 的
+`agent_framework` / `model`。
+
 ## 2026-09-03 — `setTeamPatrol` 带 15s 超时
 
 `PATROL_WRITE_TIMEOUT_MS = 15_000` 导出;`setTeamPatrol` 的 fetch 加 `signal: AbortSignal.timeout(...)`。

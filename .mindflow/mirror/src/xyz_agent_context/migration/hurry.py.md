@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 注释里的两条承诺现在都成立
+
+「finally 里 clear」由 [[applier.py]] 09-03 修订兑现；「Ids are bounded」由
+[[../../../backend/routes/migrate.py]] 的长度上限兑现。前端每次尝试换新 id
+（[[../../../frontend/src/hooks/useAgentImport.ts]]），重试天然不继承上一次的 stop。
+
 # migration/hurry.py — "stop waiting for this import"
 
 ## Why it exists

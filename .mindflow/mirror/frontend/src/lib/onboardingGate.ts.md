@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/onboardingGate.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — 「哪些卡是 login 自动开的」交回后端
+
+删掉 `AUTO_PROVISIONED_PROVIDER_SOURCES`，改读每张卡的 `auto_provisioned`
+（GET /api/providers，由后端在 provisioner 旁派生）。前端那份集合与后端事实没有机械约束，
+后端多开一张卡的那天所有新用户都会被判成老用户、首程流程静默消失——正是本文件存在
+要防的 bug。顺带删掉一行紧接着被覆盖的死 `inFlight.set`（M7）。
 
 # lib/onboardingGate.ts — "does this user still owe the first-run flow?"
 

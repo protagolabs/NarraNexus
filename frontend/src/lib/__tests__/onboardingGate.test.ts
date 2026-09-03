@@ -51,7 +51,12 @@ describe('owesWelcomeFlow', () => {
     mockGetAgents.mockResolvedValue({ agents: [guideAgent] });
     mockGetProviders.mockResolvedValue({
       success: true,
-      data: { providers: { p1: { source: 'netmind' }, p2: { source: 'netmind_free' } } },
+      data: {
+        providers: {
+          p1: { source: 'netmind', auto_provisioned: true },
+          p2: { source: 'netmind_free', auto_provisioned: true },
+        },
+      },
     });
     const { owesWelcomeFlow } = await loadGate();
     expect(await owesWelcomeFlow('u_new')).toBe(true);
@@ -69,11 +74,24 @@ describe('owesWelcomeFlow', () => {
   it('backfills an existing user who wired their own provider', async () => {
     mockGetProviders.mockResolvedValue({
       success: true,
-      data: { providers: { p1: { source: 'codex_oauth' } } },
+      data: { providers: { p1: { source: 'codex_oauth', auto_provisioned: false } } },
     });
     const { owesWelcomeFlow } = await loadGate();
     expect(await owesWelcomeFlow('u_old2')).toBe(false);
     expect(mockMarkStep).toHaveBeenCalledWith('u_old2', 'landing_completed');
+  });
+
+  it('trusts the server flag, not the source name — a new auto card must not age an account', async () => {
+    // The backend decides which cards login made. A source this file has never
+    // heard of, flagged auto_provisioned, still does not count as the user's.
+    mockGetAgents.mockResolvedValue({ agents: [guideAgent] });
+    mockGetProviders.mockResolvedValue({
+      success: true,
+      data: { providers: { p9: { source: 'some_new_wallet', auto_provisioned: true } } },
+    });
+    const { owesWelcomeFlow } = await loadGate();
+    expect(await owesWelcomeFlow('u_new2')).toBe(true);
+    expect(mockMarkStep).not.toHaveBeenCalled();
   });
 
   it('asks once per user, however many routes mount', async () => {

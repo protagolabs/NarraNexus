@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — 行不再是 `role="link"`；渠道图标区分开关
+
+- **M10**：外层 div 去掉 `role/tabIndex/onKeyDown`，只保留鼠标 onClick；进档案页的**可访问**
+  入口是 agent 名称那个真按钮。链接里嵌复选框和按钮对辅助技术是语义混乱。
+- **M2**：`bound_channels` 现在是 `{channel, active}`；关着的渠道图标降透明度 + 去饱和，
+  tooltip 用 `pages.dashboard.channelOff`（10 locale）。
+- `formatFramework` 认 `nexus_power` → "Nexus Power"。model-overview 那条死通道
+  （AgentModelCard / AgentModelChip / getAgentsModelOverview / AgentModelOverview）随
+  评审 I6 整体删除。
 
 ## 2026-08-26 — 就地看/改单 agent 模型
 

@@ -700,8 +700,6 @@
       "noAgentsShort": "لا يوجد وكلاء بعد."
     },
     "agentRow": {
-      "saveTitle": "حفظ (Enter)",
-      "cancelTitle": "إلغاء (Esc)",
       "publicBy": "عام · بواسطة {{name}}"
     },
     "agentRowMenu": {
@@ -1281,7 +1279,8 @@
       "memberOwnerLabel": "المالك",
       "memberPrivate": "خاص",
       "memberPublic": "عام",
-      "openProfile": "فتح ملف {{name}}"
+      "openProfile": "فتح ملف {{name}}",
+      "channelOff": "{{name}} · متوقف"
     },
     "createUser": {
       "title": "إنشاء مستخدم جديد",
@@ -1840,6 +1839,54 @@
       "activityToday": "اليوم",
       "activityAxisStart": "قبل 24 ساعة",
       "activityAxisNow": "الآن"
+    },
+    "welcome": {
+      "logout": "تسجيل الخروج",
+      "continue": "متابعة",
+      "rail": {
+        "model": {
+          "title": "اربط نموذجًا",
+          "detail": "مفتاح واحد يكفي — يمكنك تغييره في أي وقت."
+        },
+        "import": {
+          "title": "انقل وكلاءك",
+          "detail_one": "تم العثور على {{count}} على هذا الجهاز.",
+          "detail_other": "تم العثور على {{count}} على هذا الجهاز."
+        },
+        "agent": {
+          "title": "تعرّف على {{name}}",
+          "detail": "وكيلك الأول، في انتظارك."
+        }
+      },
+      "model": {
+        "title": "اربط نموذجًا أولًا.",
+        "skip": "تخطَّ الآن — يمكنك إضافة مفتاح في الإعدادات",
+        "advanced": "إعداد متقدم — تسجيل دخول بالاشتراك، نقاط نهاية مخصصة، نماذج لكل فتحة",
+        "subscriptionTitle": "استخدم اشتراك Claude أو ChatGPT",
+        "subscriptionSubtitle": "لا حاجة لمفتاح API — سجّل الدخول بالاشتراك الذي لديك بالفعل."
+      },
+      "import": {
+        "title": "انقل الوكلاء الذين لديك بالفعل.",
+        "subtitle": "كل شيء يُقرأ من هذا الجهاز — لا يُرفَع أي شيء.",
+        "lede": "كل وكيل تحدده يصبح وكيل NarraNexus، مع الاحتفاظ بسجل محادثاته كذاكرة.",
+        "importAndContinue_one": "استيراد {{count}} والمتابعة",
+        "importAndContinue_other": "استيراد {{count}} والمتابعة",
+        "skip": "تخطّي هذه الخطوة"
+      },
+      "agent": {
+        "title": "تعرّف على {{name}}.",
+        "subtitle": "وكيلك الأول، أُنشئ لك عند تسجيل الدخول. يتذكر كل ما تتحدثان عنه — هذا هو الفرق بين NarraNexus ومحادثة عابرة.",
+        "role": "مرشدك · سيليكون",
+        "capMemory": "ذاكرة طويلة، على شكل قصص",
+        "capCheckin": "يتواصل معك يوميًا",
+        "cta": "ابدأ استخدام NarraNexus",
+        "skip": "الانتقال مباشرة إلى التطبيق",
+        "preparingTitle": "نجهّز وكيلك الأول…",
+        "preparingSubtitle": "نختار اسمه وشخصيته. بضع ثوانٍ.",
+        "notReady": "وكيلك الأول لا يزال قيد الإنشاء — سيظهر في الشريط الجانبي قريبًا.",
+        "fallbackName": "وكيلك",
+        "rename": "إعادة تسمية"
+      }
     }
   },
   "rail": {

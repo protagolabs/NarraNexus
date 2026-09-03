@@ -20,7 +20,7 @@ const { configState, dashboardState, preloadState, chatState } = vi.hoisted(() =
       created_by: 'owner-1',
       agent_framework: 'codex_cli',
       model: 'gpt-5.5',
-      bound_channels: ['lark'],
+      bound_channels: [{ channel: 'lark', active: true }],
     }],
     setAgentId: vi.fn(),
     refreshAgents: vi.fn(),
@@ -246,6 +246,42 @@ describe('AgentProfilePage', () => {
     // the temporal "how has it been doing".
     expect(summary.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+  });
+
+  test('someone else\'s public agent offers no kebab and no Settings tab', () => {
+    // Regression: the sidebar kebab this page replaced hid Clear data / Delete
+    // behind an owner check; the first cut of this page rendered them for any
+    // agent in the list, and the backend then answered 404 — which reads as
+    // "the platform is broken", not "not yours".
+    const own = configState.agents[0];
+    configState.agents = [{ ...own, created_by: 'someone-else' }];
+    try {
+      render(
+        <MemoryRouter initialEntries={['/app/agents/agent-1']}>
+          <Routes>
+            <Route path="/app/agents/:agentId" element={<AgentProfilePage />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      expect(screen.queryByLabelText('Agent options')).toBeNull();
+      expect(screen.queryByRole('tab', { name: 'Settings' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Overview' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Capabilities' })).toBeTruthy();
+    } finally {
+      configState.agents = [own];
+    }
+  });
+
+  test('the owner keeps the kebab and the Settings tab', () => {
+    render(
+      <MemoryRouter initialEntries={['/app/agents/agent-1']}>
+        <Routes>
+          <Route path="/app/agents/:agentId" element={<AgentProfilePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Agent options')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Settings' })).toBeTruthy();
   });
 
   test('a public agent gets neither banners nor the activity band', () => {

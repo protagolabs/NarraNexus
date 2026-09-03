@@ -29,18 +29,16 @@
  *   - login auto-registers NetMind provider cards (`_provision_providers` in
  *     backend/routes/auth.py), so `providers > 0` can be too.
  * So both probes now discount what login made: agents OTHER than the guide, and
- * providers the user wired themselves.
+ * providers the user wired themselves. Which cards login made is the BACKEND's
+ * knowledge: each card carries `auto_provisioned` from GET /api/providers,
+ * derived next to the provisioners that write them. This file used to keep its
+ * own copy of that source list — the day the backend adds a card the copy does
+ * not know, every new account would be read as a veteran and the flow would
+ * silently disappear for all of them, which is exactly the bug above.
  */
 
 import { api } from './api';
 import { pickGuideAgent } from './guideAgent';
-
-/** `user_providers.source` values that login creates on the user's behalf — the
- *  free-tier wallet and the Power-account card. Neither is a decision the user
- *  made, so neither proves they have onboarded. (A user who pastes their own
- *  NetMind key also lands as 'netmind'; the cost of that collision is one extra
- *  showing of the flow, which then writes the flag itself.) */
-const AUTO_PROVISIONED_PROVIDER_SOURCES = new Set(['netmind', 'netmind_free']);
 
 /** Resolved answers, per user. `undefined` = not asked yet this session. */
 const cache = new Map<string, boolean>();
@@ -72,10 +70,10 @@ export function owesWelcomeFlow(userId: string): Promise<boolean> {
         api
           .getProviders()
           .then((r) => {
-            const providers = Object.values(r.data?.providers ?? {}) as Array<{ source?: string }>;
-            return providers.filter(
-              (p) => !AUTO_PROVISIONED_PROVIDER_SOURCES.has(p?.source ?? ''),
-            ).length;
+            const providers = Object.values(r.data?.providers ?? {}) as Array<{
+              auto_provisioned?: boolean;
+            }>;
+            return providers.filter((p) => p?.auto_provisioned !== true).length;
           })
           .catch(() => 0),
       ]);
@@ -94,7 +92,6 @@ export function owesWelcomeFlow(userId: string): Promise<boolean> {
     }
   })();
 
-  inFlight.set(userId, probe);
   const settled = probe.then((owes) => {
     cache.set(userId, owes);
     inFlight.delete(userId);

@@ -205,8 +205,24 @@ async def _get_service():
     return UserProviderService(db)
 
 
+# ``user_providers.source`` values that LOGIN writes on the user's behalf (see
+# auth._provision_providers): the free-tier wallet and the Power-account card.
+# Neither is a decision the user made, so neither proves they have onboarded;
+# the first-run gate reads the per-card ``auto_provisioned`` flag derived from
+# this set instead of keeping its own copy of these names. Lives next to the
+# provisioners' own constants so a new auto-provisioned card is one edit here.
+# Known collision, accepted: a NetMind key the user pastes also lands as
+# NETMIND_SOURCE — the cost is one extra showing of the welcome flow.
+def _auto_provisioned_sources() -> frozenset[str]:
+    from backend.integrations.netmind.netmind_provisioner import NETMIND_SOURCE
+    from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+
+    return frozenset({NETMIND_SOURCE, FREE_TIER_SOURCE})
+
+
 def _config_to_response(config: LLMConfig) -> dict:
     """Convert LLMConfig to API response dict with masked api_key."""
+    auto_sources = _auto_provisioned_sources()
     providers = {}
     for pid, prov in config.providers.items():
         d = prov.model_dump(mode="json")
@@ -215,6 +231,7 @@ def _config_to_response(config: LLMConfig) -> dict:
         else:
             d["api_key_masked"] = "***"
         del d["api_key"]
+        d["auto_provisioned"] = d.get("source") in auto_sources
         providers[pid] = d
 
     slots = {}
@@ -782,7 +799,8 @@ async def validate_slots(request: Request):
 # override in ``agent_slots``. Changing the default does NOT touch existing
 # overrides, so these endpoints let the owner (a) see how many agents override
 # and (b) clear those overrides so they fall back to inheriting the new
-# default (clear-to-inherit; NOT a value snapshot). ``agents-overview`` feeds
+# default (clear-to-inherit; NOT a value snapshot). The directory's per-agent
+# model column is served by GET /api/auth/agents through the same service;
 # the Dashboard model chip in one HTTP call (the DB layer is still one
 # agent_slots read per owned agent, not a single query).
 
@@ -824,17 +842,6 @@ async def apply_slots_to_agents(req: ApplyToAgentsRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     logger.info(f"[providers] apply-to-agents user={uid} cleared={cleared}")
     return {"success": True, "data": {"cleared": cleared}}
-
-
-@router.get("/slots/agents-overview")
-async def slot_agents_overview(request: Request):
-    """Effective (agent + helper_llm) model per owned agent, in one call —
-    feeds the Dashboard model chip without an N+1 of per-agent llm-config."""
-    uid = _get_user_id(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    overview = await AgentSlotService(db).owner_agents_overview(uid)
-    return {"success": True, "data": {"agents": overview}}
 
 
 # =============================================================================

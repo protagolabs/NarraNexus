@@ -696,8 +696,6 @@
       "noAgentsShort": "エージェントはまだありません。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "キャンセル（Esc）",
       "publicBy": "公開 · {{name}} による"
     },
     "agentRowMenu": {
@@ -1272,7 +1270,8 @@
       "memberOwnerLabel": "オーナー",
       "memberPrivate": "非公開",
       "memberPublic": "公開",
-      "openProfile": "{{name}} のプロフィールを開く"
+      "openProfile": "{{name}} のプロフィールを開く",
+      "channelOff": "{{name}} · オフ"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1831,6 +1830,54 @@
       "activityToday": "今日",
       "activityAxisStart": "24 時間前",
       "activityAxisNow": "現在"
+    },
+    "welcome": {
+      "logout": "ログアウト",
+      "continue": "続ける",
+      "rail": {
+        "model": {
+          "title": "モデルをつなぐ",
+          "detail": "キーは1つで十分 — いつでも差し替えられます。"
+        },
+        "import": {
+          "title": "エージェントを引き継ぐ",
+          "detail_one": "このマシンで {{count}} 件見つかりました。",
+          "detail_other": "このマシンで {{count}} 件見つかりました。"
+        },
+        "agent": {
+          "title": "{{name}} に会う",
+          "detail": "最初のエージェントが待っています。"
+        }
+      },
+      "model": {
+        "title": "まずモデルをつなぎましょう。",
+        "skip": "今はスキップ — キーは後で設定から追加できます",
+        "advanced": "詳細設定 — サブスクリプションでのサインイン、カスタムエンドポイント、スロットごとのモデル",
+        "subscriptionTitle": "Claude または ChatGPT のサブスクリプションを使う",
+        "subscriptionSubtitle": "API キーは不要 — お持ちのサブスクリプションでサインインします。"
+      },
+      "import": {
+        "title": "すでにあるエージェントを引き継ぐ。",
+        "subtitle": "すべてこのマシンから読み取ります — アップロードはしません。",
+        "lede": "チェックしたものは NarraNexus のエージェントになり、会話履歴は記憶として引き継がれます。",
+        "importAndContinue_one": "{{count}} 件をインポートして続ける",
+        "importAndContinue_other": "{{count}} 件をインポートして続ける",
+        "skip": "この手順をスキップ"
+      },
+      "agent": {
+        "title": "{{name}} に会う。",
+        "subtitle": "ログイン時にあなたのために作られた最初のエージェント。二人で話したことをすべて覚えています — それが NarraNexus と使い捨てチャットの違いです。",
+        "role": "あなたのガイド · シリコン",
+        "capMemory": "ストーリーとして残る長期記憶",
+        "capCheckin": "毎日あなたに声をかけます",
+        "cta": "NarraNexus を使い始める",
+        "skip": "そのままアプリへ",
+        "preparingTitle": "最初のエージェントを準備中…",
+        "preparingSubtitle": "名前と性格を選んでいます。数秒お待ちください。",
+        "notReady": "最初のエージェントはまだ作成中です — まもなくサイドバーに表示されます。",
+        "fallbackName": "あなたのエージェント",
+        "rename": "名前を変更"
+      }
     }
   },
   "rail": {

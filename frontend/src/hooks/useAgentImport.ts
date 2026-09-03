@@ -240,7 +240,13 @@ export function useAgentImport({ initialDetections }: UseAgentImportOptions = {}
     (d: FrameworkDetection): ImportQueueItem => {
       const key = detectionKey(d);
       const scan = scans[key];
-      importIds.current[key] ??= `imp_${key.replace(/[^a-zA-Z0-9]/g, '').slice(-16)}_${
+      // A NEW id per attempt, never reused across a retry. The id is the
+      // handle "stop" marks server-side; if a previous attempt of this row
+      // was stopped (or died and leaked its mark), a retry under the same id
+      // would run hurried — degraded summaries although the user is now
+      // willing to wait. Assigned here, before the row enters `importing`,
+      // so `requestStop` always finds the id of the attempt actually running.
+      importIds.current[key] = `imp_${key.replace(/[^a-zA-Z0-9]/g, '').slice(-16)}_${
         performance.now().toString(36).replace('.', '')
       }`;
       return {

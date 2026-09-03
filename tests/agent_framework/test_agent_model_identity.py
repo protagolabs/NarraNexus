@@ -20,6 +20,10 @@ from collections import defaultdict
 import pytest
 
 from xyz_agent_context.agent_framework.providers.model_identity import (
+    DEFAULT_AGENT_FRAMEWORK,
+    effective_agent_slot,
+    framework_of,
+    slot_rebinds,
     FRAMEWORK_DISPLAY_NAMES,
     resolve_agent_model_identity,
 )
@@ -144,3 +148,29 @@ async def test_unknown_framework_falls_back_to_raw_name():
     # Unknown canonical name is shown verbatim — never invent a brand.
     assert "some_future_cli" not in FRAMEWORK_DISPLAY_NAMES
     assert ident.framework_display == "some_future_cli"
+
+
+# ── the pure overlay rule, shared with the agents directory ─────────────────
+
+
+def test_slot_rebinds_needs_both_provider_and_framework():
+    assert slot_rebinds({"provider_id": "p", "agent_framework": "codex_cli"}) is True
+    assert slot_rebinds({"provider_id": "", "agent_framework": "codex_cli"}) is False
+    assert slot_rebinds({"provider_id": "p", "agent_framework": None}) is False
+    assert slot_rebinds(None) is False
+
+
+def test_effective_agent_slot_falls_to_owner_default_for_a_stub():
+    owner = {"agent_framework": "claude_code", "model": "m"}
+    stub = {"provider_id": "", "agent_framework": "codex_cli"}
+    assert effective_agent_slot(stub, owner) is owner
+    full = {"provider_id": "p", "agent_framework": "codex_cli"}
+    assert effective_agent_slot(full, owner) is full
+    assert effective_agent_slot(None, None) is None
+
+
+def test_framework_of_defaults_to_the_platform_default():
+    assert DEFAULT_AGENT_FRAMEWORK == "nexus_power"
+    assert framework_of(None) == "nexus_power"
+    assert framework_of({"agent_framework": None}) == "nexus_power"
+    assert framework_of({"agent_framework": "codex_cli"}) == "codex_cli"

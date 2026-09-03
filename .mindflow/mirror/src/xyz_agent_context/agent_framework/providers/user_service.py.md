@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `get_user_agent_framework` 兜底改用 `model_identity.framework_of`
+
+不再写 `"nexus_power"` 字面量；平台默认只在 [[model_identity.py]] 一处。
 
 ## 2026-08-27(review 第 2 轮)— OAuth 三字段收敛到 `_cli_subscription_row_fields`
 

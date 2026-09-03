@@ -110,7 +110,6 @@ import type {
   AgentSlotView,
   AgentSlotEffective,
   SlotOverrideStats,
-  AgentModelOverview,
   WorkerStatus,
   WorkerLiveness,
   PluginId,
@@ -1632,11 +1631,6 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slots }),
     });
-  }
-
-  /** Effective model per owned agent, one call — for the Dashboard chip. */
-  async getAgentsModelOverview(): Promise<{ success: boolean; data?: { agents: AgentModelOverview } }> {
-    return this.request(`/api/providers/slots/agents-overview`);
   }
 
   /**

@@ -384,6 +384,13 @@ export interface ActiveRunInfo {
   current_stage?: string;
 }
 
+/** One channel an owned agent is bound to. `active` false = configured but
+ *  switched off (the credential's enable switch is 0). */
+export interface BoundChannel {
+  channel: string;
+  active: boolean;
+}
+
 export interface AgentInfo {
   agent_id: string;
   name?: string;
@@ -393,19 +400,20 @@ export interface AgentInfo {
   is_public?: boolean;
   created_by?: string;
   /**
-   * Effective agent-slot runtime identity, resolved server-side: a per-agent
-   * override wins over the owner's default. Present so the Dashboard's agent
-   * directory can show Framework / Model per row without one /llm-config
-   * request per agent.
+   * Effective agent-slot runtime identity, resolved server-side through the
+   * same overlay the runtime dispatches on (a rebinding per-agent override,
+   * else the owner's default, else the platform default). Present for the
+   * viewer's OWN agents only; absent for someone else's public agent, and
+   * the UI renders absent as '—' rather than inventing a brand.
    */
   agent_framework?: string;
   model?: string;
   /**
-   * Names of credential-backed channels bound to this agent. Always [] for a
+   * Channels bound to this agent, each with its on/off state. Always [] for a
    * public agent owned by someone else — another user's integrations are not
    * the viewer's business.
    */
-  bound_channels: string[];
+  bound_channels: BoundChannel[];
   bootstrap_active?: boolean;
   /** Per-agent first-run greeting (Arena etc.); falls back to the generic
    *  constant when absent. Must match the DB-persisted greeting so the
@@ -1378,14 +1386,6 @@ export interface SlotOverrideStats {
   agent: number;
   helper_llm: number;
   total_agents: number;
-}
-
-/** Per owned-agent effective model per slot, for the Dashboard model chip. */
-export interface AgentModelOverview {
-  [agentId: string]: {
-    agent: { model: string; inheriting: boolean };
-    helper_llm: { model: string; inheriting: boolean };
-  };
 }
 
 // ── local-only plugin installs (Settings › Plugins) ────────────────────────

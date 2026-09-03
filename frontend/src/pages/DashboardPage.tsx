@@ -810,20 +810,15 @@ export function DashboardPage() {
                       : null;
                     const ModelIcon = a.model ? getModelBrandIcon(a.model) ?? Bot : null;
                     const boundChannels = a.bound_channels ?? [];
+                    // The whole row is a mouse target for the profile, but the
+                    // ACCESSIBLE link is the name button below: a row-level
+                    // role="link" wrapping a checkbox and a Chat button gave
+                    // assistive tech a link with focusable children inside it.
                     return (
                       <div
                         key={a.agent_id}
                         data-testid={`dash-row-${a.agent_id}`}
-                        role="link"
-                        tabIndex={0}
-                        aria-label={t('pages.dashboard.openProfile', { name: a.name || a.agent_id })}
                         onClick={() => openProfile(a.agent_id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            openProfile(a.agent_id);
-                          }
-                        }}
                       >
                         <div
                           className={cn(
@@ -851,7 +846,14 @@ export function DashboardPage() {
                             />
                             <span className="min-w-0 flex flex-col gap-px">
                               <span className="flex items-center gap-1.5 min-w-0">
-                                <span className="text-[13px] font-semibold text-[var(--nm-ink)] truncate">{a.name || a.agent_id}</span>
+                                <button
+                                  type="button"
+                                  aria-label={t('pages.dashboard.openProfile', { name: a.name || a.agent_id })}
+                                  onClick={(e) => { e.stopPropagation(); openProfile(a.agent_id); }}
+                                  className="min-w-0 truncate text-left text-[13px] font-semibold text-[var(--nm-ink)] outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[var(--nm-ink30)] rounded-[var(--radius-xs)]"
+                                >
+                                  {a.name || a.agent_id}
+                                </button>
                                 {a.is_public && !isOwnerRow && (
                                   <span title={t('layout.agentRow.publicBy', { name: a.created_by })} className="shrink-0">
                                     <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
@@ -875,18 +877,26 @@ export function DashboardPage() {
                               <span className="text-[11px] text-[var(--nm-ink30)]">—</span>
                             ) : (
                               <TooltipProvider delayDuration={180} skipDelayDuration={80}>
-                                {boundChannels.map((channel) => {
+                                {boundChannels.map(({ channel, active }) => {
                                   const brand = CHANNEL_BRANDS[channel];
                                   const ChannelIcon = brand?.Icon ?? Bot;
-                                  const label = brand?.label ?? channel;
+                                  const name = brand?.label ?? channel;
+                                  // A configured-but-switched-off channel is
+                                  // shown dimmed and says so: the icon alone
+                                  // would claim the agent is reachable there.
+                                  const label = active ? name : t('pages.dashboard.channelOff', { name });
                                   return (
                                     <Tooltip key={channel}>
                                       <TooltipTrigger asChild>
                                         <span
                                           data-channel={channel}
+                                          data-active={active ? 'true' : 'false'}
                                           aria-label={label}
                                           tabIndex={0}
-                                          className="inline-flex h-5 w-5 items-center justify-center rounded-[var(--radius-xs)] outline-none transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--nm-ink30)]"
+                                          className={cn(
+                                            'inline-flex h-5 w-5 items-center justify-center rounded-[var(--radius-xs)] outline-none transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--nm-ink30)]',
+                                            !active && 'opacity-40 grayscale',
+                                          )}
                                         >
                                           <span aria-hidden="true">
                                             <ChannelIcon className="h-4 w-4" />
@@ -1214,6 +1224,7 @@ function formatFramework(framework?: string): string {
   if (!framework) return '—';
   if (framework === 'claude_code') return 'Claude Code';
   if (framework === 'codex_cli') return 'Codex';
+  if (framework === 'nexus_power') return 'Nexus Power';
   return framework
     .split('_')
     .filter(Boolean)

@@ -780,8 +780,6 @@
       "noAgentsShort": "暂无智能体。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "取消（Esc）",
       "publicBy": "公开 · 由 {{name}}"
     },
     "agentRowMenu": {
@@ -1653,7 +1651,8 @@
       "memberOwnerLabel": "所有者",
       "memberPrivate": "私有",
       "memberPublic": "公开",
-      "openProfile": "打开 {{name}} 的档案"
+      "openProfile": "打开 {{name}} 的档案",
+      "channelOff": "{{name}} · 已关闭"
     },
     "createUser": {
       "title": "创建新用户",

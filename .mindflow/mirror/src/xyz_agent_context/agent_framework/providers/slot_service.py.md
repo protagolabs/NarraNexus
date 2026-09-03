@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — `owner_agents_overview` 补 `agent_framework`
+
+agent 槽视图多一个字段，走 [[model_identity.py]] 的 `effective_agent_slot`（override 只在
+同时有 provider_id 与 agent_framework 时才赢，否则 owner 默认，否则平台默认）。`model` /
+`inheriting` 仍按 `_is_effective_override`（provider_id）——这正是 config resolver 的运行时
+规则，两者对同一个 stub 的答案各自对应运行时真相。消费方从 `/slots/agents-overview`
+（已删）变成 `/api/auth/agents`。N+1 保留并在 docstring 里说明原因：`agent_slots` 一个
+agent 多行，顺序保持的 `get_by_ids` 批不了。
 
 ## 2026-08-27 (r2) — auto-review 二轮修正（编排收回 service / 审计透传 NULL）
 

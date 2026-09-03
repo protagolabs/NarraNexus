@@ -696,8 +696,6 @@
       "noAgentsShort": "아직 에이전트가 없습니다."
     },
     "agentRow": {
-      "saveTitle": "저장 (Enter)",
-      "cancelTitle": "취소 (Esc)",
       "publicBy": "공개 · {{name}} 작성"
     },
     "agentRowMenu": {
@@ -1272,7 +1270,8 @@
       "memberOwnerLabel": "소유자",
       "memberPrivate": "비공개",
       "memberPublic": "공개",
-      "openProfile": "{{name}} 프로필 열기"
+      "openProfile": "{{name}} 프로필 열기",
+      "channelOff": "{{name}} · 꺼짐"
     },
     "createUser": {
       "title": "새 사용자 만들기",
@@ -1831,6 +1830,54 @@
       "activityToday": "오늘",
       "activityAxisStart": "24시간 전",
       "activityAxisNow": "지금"
+    },
+    "welcome": {
+      "logout": "로그아웃",
+      "continue": "계속",
+      "rail": {
+        "model": {
+          "title": "모델 연결",
+          "detail": "키 하나면 충분합니다 — 언제든 바꿀 수 있어요."
+        },
+        "import": {
+          "title": "에이전트 가져오기",
+          "detail_one": "이 컴퓨터에서 {{count}}개 발견.",
+          "detail_other": "이 컴퓨터에서 {{count}}개 발견."
+        },
+        "agent": {
+          "title": "{{name}} 만나기",
+          "detail": "첫 에이전트가 기다리고 있어요."
+        }
+      },
+      "model": {
+        "title": "먼저 모델을 연결하세요.",
+        "skip": "지금은 건너뛰기 — 설정에서 키를 추가할 수 있어요",
+        "advanced": "고급 설정 — 구독 로그인, 사용자 지정 엔드포인트, 슬롯별 모델",
+        "subscriptionTitle": "Claude 또는 ChatGPT 구독 사용",
+        "subscriptionSubtitle": "API 키 없이 — 이미 가진 구독으로 로그인하세요."
+      },
+      "import": {
+        "title": "이미 있는 에이전트를 가져오세요.",
+        "subtitle": "모두 이 컴퓨터에서 읽습니다 — 업로드되는 것은 없어요.",
+        "lede": "체크한 항목은 각각 NarraNexus 에이전트가 되고, 대화 기록은 기억으로 유지됩니다.",
+        "importAndContinue_one": "{{count}}개 가져오고 계속",
+        "importAndContinue_other": "{{count}}개 가져오고 계속",
+        "skip": "이 단계 건너뛰기"
+      },
+      "agent": {
+        "title": "{{name}} 만나기.",
+        "subtitle": "로그인할 때 당신을 위해 만들어진 첫 에이전트. 둘이 나눈 이야기를 모두 기억합니다 — 그것이 NarraNexus와 일회용 채팅의 차이입니다.",
+        "role": "당신의 가이드 · 실리콘",
+        "capMemory": "스토리라인으로 남는 긴 기억",
+        "capCheckin": "매일 안부를 묻습니다",
+        "cta": "NarraNexus 시작하기",
+        "skip": "바로 앱으로",
+        "preparingTitle": "첫 에이전트를 준비하는 중…",
+        "preparingSubtitle": "이름과 성격을 고르고 있어요. 몇 초면 됩니다.",
+        "notReady": "첫 에이전트가 아직 만들어지는 중입니다 — 곧 사이드바에 나타납니다.",
+        "fallbackName": "당신의 에이전트",
+        "rename": "이름 바꾸기"
+      }
     }
   },
   "rail": {

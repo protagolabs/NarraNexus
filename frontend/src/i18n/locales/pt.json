@@ -696,8 +696,6 @@
       "noAgentsShort": "Nenhum agente ainda."
     },
     "agentRow": {
-      "saveTitle": "Salvar (Enter)",
-      "cancelTitle": "Cancelar (Esc)",
       "publicBy": "Público · por {{name}}"
     },
     "agentRowMenu": {
@@ -1273,7 +1271,8 @@
       "memberOwnerLabel": "Proprietário",
       "memberPrivate": "Privado",
       "memberPublic": "Público",
-      "openProfile": "Abrir o perfil de {{name}}"
+      "openProfile": "Abrir o perfil de {{name}}",
+      "channelOff": "{{name}} · desligado"
     },
     "createUser": {
       "title": "Criar novo usuário",
@@ -1832,6 +1831,54 @@
       "activityToday": "Hoje",
       "activityAxisStart": "há 24 h",
       "activityAxisNow": "agora"
+    },
+    "welcome": {
+      "logout": "Sair",
+      "continue": "Continuar",
+      "rail": {
+        "model": {
+          "title": "Conectar um modelo",
+          "detail": "Uma chave basta — troque quando quiser."
+        },
+        "import": {
+          "title": "Trazer seus agentes",
+          "detail_one": "{{count}} encontrado nesta máquina.",
+          "detail_other": "{{count}} encontrados nesta máquina."
+        },
+        "agent": {
+          "title": "Conheça {{name}}",
+          "detail": "Seu primeiro agente, já à espera."
+        }
+      },
+      "model": {
+        "title": "Conecte um modelo primeiro.",
+        "skip": "Pular por enquanto — você pode adicionar uma chave em Configurações",
+        "advanced": "Configuração avançada — login por assinatura, endpoints personalizados, modelos por slot",
+        "subscriptionTitle": "Usar uma assinatura do Claude ou do ChatGPT",
+        "subscriptionSubtitle": "Sem chave de API — entre com a assinatura que você já tem."
+      },
+      "import": {
+        "title": "Traga os agentes que você já tem.",
+        "subtitle": "Tudo é lido desta máquina — nada é enviado.",
+        "lede": "Cada um que você marcar vira um agente NarraNexus, com o histórico de conversa mantido como memória.",
+        "importAndContinue_one": "Importar {{count}} e continuar",
+        "importAndContinue_other": "Importar {{count}} e continuar",
+        "skip": "Pular esta etapa"
+      },
+      "agent": {
+        "title": "Conheça {{name}}.",
+        "subtitle": "Seu primeiro agente, criado para você no login. Ele lembra tudo o que vocês conversam — essa é a diferença entre o NarraNexus e um chat descartável.",
+        "role": "seu guia · silício",
+        "capMemory": "Memória longa, em forma de histórias",
+        "capCheckin": "Fala com você todo dia",
+        "cta": "Começar a usar o NarraNexus",
+        "skip": "Ir direto para o app",
+        "preparingTitle": "Preparando seu primeiro agente…",
+        "preparingSubtitle": "Escolhendo nome e personalidade. Alguns segundos.",
+        "notReady": "Seu primeiro agente ainda está sendo criado — ele aparecerá na barra lateral em breve.",
+        "fallbackName": "seu agente",
+        "rename": "Renomear"
+      }
     }
   },
   "rail": {

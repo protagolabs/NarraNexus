@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/bundle/channel_credential_tables.py
-last_verified: 2026-07-13
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — 成为目录表「渠道列」的来源
+
+新增 `CHANNEL_KEY_BY_TABLE`（表 → 前端品牌 key，断言与 `CHANNEL_CREDENTIAL_TABLES` 键集
+相等）、`BINDING_ONLY_TABLES`（Home Assistant：绑定表但不是 bundle 凭据对象，无开关列）、
+`channel_binding_tables()`。`/api/auth/agents` 从这里生成 UNION，第 8 个 IM 渠道只需在本
+模块加一条（评审 M1）。`active_col` 顺带让目录能区分「配过」与「在用」（M2）。
 
 ## 2026-07-13 — Lark identity key fixed to app_id
 

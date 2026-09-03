@@ -90,6 +90,17 @@ class ActiveRunInfo(BaseModel):
     current_stage: Optional[str] = None
 
 
+class BoundChannel(BaseModel):
+    """One channel an owned agent is bound to, with whether it is switched on.
+
+    ``active`` is False when the credential row exists but its enable switch
+    is off (``is_active`` / ``enabled`` = 0) — configured, not currently
+    reachable. Tables without a switch always report True.
+    """
+    channel: str
+    active: bool = True
+
+
 class AgentInfo(BaseModel):
     """Response model for agent info"""
     agent_id: str
@@ -99,15 +110,16 @@ class AgentInfo(BaseModel):
     created_at: Optional[str] = None
     is_public: bool = False
     created_by: Optional[str] = None
-    # Effective agent-slot runtime identity. A per-agent override wins over
-    # the owner's user_slots row; resolved in bulk by GET /api/auth/agents so
-    # directory UIs do not need one llm-config request per agent.
+    # Effective agent-slot runtime identity, resolved by GET /api/auth/agents
+    # through AgentSlotService.owner_agents_overview — the same overlay the
+    # driver dispatch and the system prompt use. Populated for the caller's OWN
+    # agents only; a public agent owned by someone else reports None for both
+    # (their configuration is not the viewer's business).
     agent_framework: Optional[str] = None
     model: Optional[str] = None
-    # Names of credential-backed channels bound to this owned agent. Presence
-    # means bound even when the credential is currently inactive. Public
+    # Channels bound to this owned agent, each with its on/off state. Public
     # agents owned by another user always expose an empty list.
-    bound_channels: List[str] = Field(default_factory=list)
+    bound_channels: List[BoundChannel] = Field(default_factory=list)
     bootstrap_active: bool = False
     # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
     # set by scenario provisioners like Arena onboarding). None → the frontend

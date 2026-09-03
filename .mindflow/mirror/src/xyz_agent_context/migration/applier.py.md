@@ -4,6 +4,12 @@ stub: false
 last_verified: 2026-09-03
 ---
 
+## 2026-09-03 (评审修订) — `hurry.clear` 真的在 `finally` 里了
+
+评审 I4：注释承诺 finally，代码平铺在函数尾；步骤 0–5 里任何裸调用抛出都会让标记
+泄漏进进程级注册表，用户对同一行点 Retry 就会无故降级。步骤 0–5 抽成 `_populate`，
+`apply_plan` 用一个 `try/finally` 包住。测试 `test_hurry_mark_is_dropped_when_the_apply_raises`。
+
 ## 2026-08-17 — 默认串在归一之后判
 
 `agent_name=plan.agent_name or "Imported Agent"` 改成

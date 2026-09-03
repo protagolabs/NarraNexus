@@ -30,11 +30,16 @@
  * both simpler and what the Owner expects to see on screen one.
  */
 
+import type { AppMode } from '@/types/platform';
+
 export type WelcomeStepId = 'model' | 'import' | 'agent';
 
 export interface WelcomeStepsInput {
-  /** Deployment mode. Cloud never imports (no user filesystem). */
-  mode: 'local' | 'cloud';
+  /** Deployment mode — the app's own vocabulary, not a private local/cloud
+   *  re-encoding: a third AppMode must fail these branches loudly rather than
+   *  be silently mapped onto 'local' and probe a filesystem it has no right
+   *  to. Cloud never imports (no user filesystem). */
+  mode: AppMode;
   /** Detections from `/api/migrate/detect`; undefined = not probed (cloud). */
   detectionCount?: number;
   /** Whether this deployment provisions a guide agent at all. */
@@ -64,4 +69,4 @@ export const isWelcomeFlowEmpty = (steps: WelcomeStepId[]): boolean => steps.len
 /** Should the caller run `/api/migrate/detect` at all? Cloud must not: the
  *  endpoint 503s there, and a failed probe on the first screen after signup is
  *  a bad first impression for a step that can never appear. */
-export const shouldProbeDetections = (mode: 'local' | 'cloud'): boolean => mode === 'local';
+export const shouldProbeDetections = (mode: AppMode): boolean => mode === 'local';

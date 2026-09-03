@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/welcomeSteps.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — `mode` 直接用 `AppMode`
+
+不再私造 `'local' | 'cloud'` 词汇（评审 M6）：`cloud-web ? 'cloud' : 'local'` 是负向匹配，
+第三个 AppMode 会被静默当成 local 去探测文件系统。内部只判 `mode === 'local'`。
 
 # lib/welcomeSteps.ts — which first-run steps apply, in order
 

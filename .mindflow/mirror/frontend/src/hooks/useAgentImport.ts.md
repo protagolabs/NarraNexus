@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (评审修订) — 每次尝试换新的 importId
+
+原 `??=` 让同一行永远复用一个 id。stop 标记的是 id；上次被 stop（或异常泄漏标记）的行，
+Retry 会带着同一个 id 全程降级。现在 `buildItem` 每次生成新 id，且在行进入 `importing`
+之前，`requestStop` 拿到的永远是正在跑的那一次。
+
 # hooks/useAgentImport.ts — state behind "import agents from other tools"
 
 ## Why it exists

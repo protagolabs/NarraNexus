@@ -323,7 +323,37 @@ async def apply_plan(
         created=created,
         warnings=list(plan.warnings),
     )
+    try:
+        await _populate(db, user_id, plan, agent_id, created, import_id, result)
+    finally:
+        # However this apply ends — normally, or through an exception in any
+        # of the steps below — the hurry mark must not outlive it. A leaked
+        # mark would make the user's later RETRY of the same row degrade its
+        # summaries although nobody pressed stop that time.
+        hurry.clear(import_id)
 
+    logger.info(
+        f"[migrate.apply] agent={agent_id} created={created} "
+        f"awareness={result.awareness_written} memory={result.memory_written} "
+        f"defaults={len(result.default_skills_installed)} "
+        f"skills_copied={len(result.skills_copied)} installed={len(result.skills_installed)} "
+        f"unmatched={len(result.skills_unmatched)} mcp={len(result.mcp_added)} "
+        f"narratives={len(result.narratives_created)} turns={result.memory_turns_retained}"
+    )
+    return result
+
+
+async def _populate(
+    db,
+    user_id: str,
+    plan: MigrationPlan,
+    agent_id: str,
+    created: bool,
+    import_id: Optional[str],
+    result: ApplyResult,
+) -> None:
+    """Steps 0–5 of the apply, mutating ``result`` in place. Split out so
+    ``apply_plan`` can wrap the whole thing in one ``try/finally``."""
     svc = None  # lazily-created SkillMarketplaceService, shared by steps 0 & 3
 
     # 0) Default NarraNexus skills — the same is_default set (netmind-vision,
@@ -445,14 +475,3 @@ async def apply_plan(
             f"[migrate.apply] hurried: {result.summaries_degraded} of "
             f"{len(plan.narratives)} sessions summarized without the LLM"
         )
-    hurry.clear(import_id)
-
-    logger.info(
-        f"[migrate.apply] agent={agent_id} created={created} "
-        f"awareness={result.awareness_written} memory={result.memory_written} "
-        f"defaults={len(result.default_skills_installed)} "
-        f"skills_copied={len(result.skills_copied)} installed={len(result.skills_installed)} "
-        f"unmatched={len(result.skills_unmatched)} mcp={len(result.mcp_added)} "
-        f"narratives={len(result.narratives_created)} turns={result.memory_turns_retained}"
-    )
-    return result

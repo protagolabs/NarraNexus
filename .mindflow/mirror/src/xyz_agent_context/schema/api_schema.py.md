@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `BoundChannel` + `AgentInfo.bound_channels` 改为对象列表
+
+`{channel, active}`：active=False 是「配置了但开关关着」。`agent_framework` / `model`
+的注释改为实情——只为调用者自己的 agent 解析，别人的公开 agent 为 None。
 
 ## 2026-08-30 — `EventLogTimelineEntry.monologue: Optional[bool] = None`
 

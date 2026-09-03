@@ -33,6 +33,7 @@ import {
   type WelcomeRailStep,
 } from '@/components/welcome';
 import { pickGuideAgent } from '@/lib/guideAgent';
+import type { AppMode } from '@/types/platform';
 import { useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
 import { dismissGuideCoachmark, isGuideCoachmarkPending } from '@/lib/guideCoachmark';
@@ -71,11 +72,10 @@ export function WelcomePage() {
   // hands them back — otherwise the gate would cost them their destination.
   const nextParam = params.get('next');
   const destination = isSafeReturnTo(nextParam) ? nextParam : '/app/chat';
-  // runtimeStore's AppMode is 'local' | 'cloud-web'; welcomeSteps speaks
-  // local/cloud. An unresolved mode counts as local — only local has anything
-  // extra to probe, and ProtectedRoute never renders this before mode resolves.
-  const mode: 'local' | 'cloud' =
-    useRuntimeStore((s) => s.mode) === 'cloud-web' ? 'cloud' : 'local';
+  // ProtectedRoute never renders this before the mode has resolved, so a
+  // null here is not a real state; local is the only mode with anything
+  // extra to probe, and the step builder speaks AppMode directly.
+  const mode: AppMode = useRuntimeStore((s) => s.mode) ?? 'local';
   const userId = useConfigStore((s) => s.userId);
   const onImported = useAgentImported();
 

@@ -46,6 +46,7 @@ const COMPLETE_NAMESPACES = [
   'pages.settings.personalization',
   'pages.manageAgents',
   'pages.agentProfile',
+  'pages.welcome',
 ];
 
 // zh is the co-source locale: it must mirror en in FULL, so a new en key

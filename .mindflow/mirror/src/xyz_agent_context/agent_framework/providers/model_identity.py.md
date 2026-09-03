@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_identity.py
-last_verified: 2026-07-10
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 (评审修订) — 覆盖规则抽成纯函数，供目录投影共用
+
+`slot_rebinds` / `effective_agent_slot` / `framework_of` + `DEFAULT_AGENT_FRAMEWORK`：
+`resolve_agent_model_identity` 自己也改走它们。动机是 PR #383 评审 C1——
+`/api/auth/agents` 手写了第四份解析并写错；现在 [[slot_service.py]] 的
+`owner_agents_overview` 与这里同一份规则。`DEFAULT_AGENT_FRAMEWORK` 也被
+[[user_service.py]] 的 owner 级读取引用——改平台默认只动一处。
 
 # providers/model_identity.py — 解析 agent 真实的 (framework, model) 供 prompt 展示
 

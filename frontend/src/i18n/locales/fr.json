@@ -696,8 +696,6 @@
       "noAgentsShort": "Aucun agent pour l'instant."
     },
     "agentRow": {
-      "saveTitle": "Enregistrer (Entrée)",
-      "cancelTitle": "Annuler (Échap)",
       "publicBy": "Public · par {{name}}"
     },
     "agentRowMenu": {
@@ -1273,7 +1271,8 @@
       "memberOwnerLabel": "Propriétaire",
       "memberPrivate": "Privé",
       "memberPublic": "Public",
-      "openProfile": "Ouvrir le profil de {{name}}"
+      "openProfile": "Ouvrir le profil de {{name}}",
+      "channelOff": "{{name}} · désactivé"
     },
     "createUser": {
       "title": "Créer un utilisateur",
@@ -1832,6 +1831,54 @@
       "activityToday": "Aujourd'hui",
       "activityAxisStart": "il y a 24 h",
       "activityAxisNow": "maintenant"
+    },
+    "welcome": {
+      "logout": "Se déconnecter",
+      "continue": "Continuer",
+      "rail": {
+        "model": {
+          "title": "Brancher un modèle",
+          "detail": "Une seule clé suffit — changez-la quand vous voulez."
+        },
+        "import": {
+          "title": "Rapatrier vos agents",
+          "detail_one": "{{count}} trouvé sur cette machine.",
+          "detail_other": "{{count}} trouvés sur cette machine."
+        },
+        "agent": {
+          "title": "Rencontrez {{name}}",
+          "detail": "Votre premier agent, déjà là."
+        }
+      },
+      "model": {
+        "title": "Branchez d'abord un modèle.",
+        "skip": "Passer pour l'instant — vous pourrez ajouter une clé dans les Réglages",
+        "advanced": "Configuration avancée — connexion par abonnement, endpoints personnalisés, modèles par slot",
+        "subscriptionTitle": "Utiliser un abonnement Claude ou ChatGPT",
+        "subscriptionSubtitle": "Pas de clé API — connectez-vous avec l'abonnement que vous avez déjà."
+      },
+      "import": {
+        "title": "Rapatriez les agents que vous avez déjà.",
+        "subtitle": "Tout est lu depuis cette machine — rien n'est envoyé.",
+        "lede": "Chaque agent coché devient un agent NarraNexus, son historique de conversation conservé comme mémoire.",
+        "importAndContinue_one": "Importer {{count}} et continuer",
+        "importAndContinue_other": "Importer {{count}} et continuer",
+        "skip": "Passer cette étape"
+      },
+      "agent": {
+        "title": "Rencontrez {{name}}.",
+        "subtitle": "Votre premier agent, créé pour vous à la connexion. Il retient tout ce que vous vous dites — c'est la différence entre NarraNexus et un chat jetable.",
+        "role": "votre guide · silicium",
+        "capMemory": "Mémoire longue, sous forme de récits",
+        "capCheckin": "Prend des nouvelles chaque jour",
+        "cta": "Commencer avec NarraNexus",
+        "skip": "Aller directement à l'app",
+        "preparingTitle": "Préparation de votre premier agent…",
+        "preparingSubtitle": "Choix de son nom et de sa personnalité. Quelques secondes.",
+        "notReady": "Votre premier agent est encore en cours de création — il apparaîtra bientôt dans la barre latérale.",
+        "fallbackName": "votre agent",
+        "rename": "Renommer"
+      }
     }
   },
   "rail": {

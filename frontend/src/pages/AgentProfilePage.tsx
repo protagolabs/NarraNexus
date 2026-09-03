@@ -106,6 +106,7 @@ export function AgentProfilePage() {
   const { t, i18n } = useTranslation();
   const {
     agents,
+    userId,
     setAgentId,
     refreshAgents,
   } = useConfigStore();
@@ -126,6 +127,17 @@ export function AgentProfilePage() {
   const agent = agents.find((item) => item.agent_id === agentId);
   const status = statusAgents.find((item) => item.agent_id === agentId);
   const ownedStatus = status?.owned_by_viewer ? status as OwnedAgentStatus : null;
+  // Owner gate for every mutating affordance (kebab, Settings tab). Read off
+  // the agent list, which is synchronous and carries `created_by`, NOT off
+  // `ownedStatus`: that comes from the dashboard status feed and is null on
+  // the first frame, so the owner's own buttons would blink in a poll late.
+  // The list already includes other users' PUBLIC agents, and the sidebar
+  // kebab this page replaced hid these actions behind the same check.
+  const isOwner = agent?.created_by === userId;
+  const tabs: ProfileTab[] = isOwner
+    ? ['overview', 'capabilities', 'settings']
+    : ['overview', 'capabilities'];
+  const activeTab: ProfileTab = tabs.includes(tab) ? tab : 'overview';
   const agentTeams = useMemo(
     () => teams.filter((team) => team.member_agent_ids.includes(agentId)),
     [agentId, teams],
@@ -153,9 +165,13 @@ export function AgentProfilePage() {
   const description = agent?.description || status?.description || '';
   const lastActiveAt = status?.status.last_activity_at || agent?.last_assistant_at || null;
   const isRunning = Boolean(agent?.active_run) || (status ? status.status.kind !== 'idle' : false);
-  const framework = agent?.agent_framework || 'claude_code';
+  // No client-side fallback: the backend resolves the effective framework
+  // through the same overlay the runtime uses and the platform default lives
+  // there. Absent means "not known here" (someone else's agent) and renders
+  // as '—' rather than as a brand this agent may not be running on.
+  const framework = agent?.agent_framework;
   const model = agent?.model || null;
-  const FrameworkIcon = FRAMEWORK_ICONS[framework] ?? Bot;
+  const FrameworkIcon = (framework && FRAMEWORK_ICONS[framework]) || Bot;
   const ModelIcon = model ? getModelBrandIcon(model) ?? Bot : Bot;
   const runningTask = agent?.active_run;
   const capabilityPanel = CAPABILITY_TO_PANEL[capability];
@@ -262,6 +278,18 @@ export function AgentProfilePage() {
     try {
       const res = await api.deleteAgent(agentId);
       if (res.success) {
+        // This page pointed the global active agent at the one just deleted
+        // (mount effect), so leave the stores clean before navigating: server
+        // list first (it is the truth and `agents` is persisted to
+        // localStorage — a stale row would ghost in the sidebar until the next
+        // refresh), then drop the cached session, then re-point the active
+        // agent so /app/chat cannot open on an agent that no longer exists.
+        const remaining = agents.filter((item) => item.agent_id !== agentId);
+        await refreshAgents();
+        clearAgent(agentId);
+        const next = remaining[0]?.agent_id ?? '';
+        setAgentId(next);
+        if (next) setActiveAgent(next);
         // The agents tab is the Dashboard's default and carries NO `?tab=`
         // (see [[DashboardPage.tsx]]: `?tab=` is the single source of truth
         // and `agents` is written back as "param removed").
@@ -343,29 +371,31 @@ export function AgentProfilePage() {
                 <MessageSquare className="w-4 h-4" />
                 {t('pages.agentProfile.chat')}
               </button>
-              <AgentHeaderMenu
-                onClearData={() => setClearOpen(true)}
-                onDelete={handleDeleteAgent}
-                disabled={deleting}
-              />
+              {isOwner && (
+                <AgentHeaderMenu
+                  onClearData={() => setClearOpen(true)}
+                  onDelete={handleDeleteAgent}
+                  disabled={deleting}
+                />
+              )}
             </span>
           </div>
 
           <div className="flex gap-7" role="tablist" aria-label={t('pages.agentProfile.views')}>
-            {(['overview', 'capabilities', 'settings'] as const).map((item) => (
+            {tabs.map((item) => (
               <button
                 key={item}
                 type="button"
                 role="tab"
-                aria-selected={tab === item}
+                aria-selected={activeTab === item}
                 onClick={() => setTab(item)}
                 className={cn(
                   'relative py-3 text-sm font-medium transition-colors',
-                  tab === item ? 'text-[var(--nm-ink)]' : 'text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
+                  activeTab === item ? 'text-[var(--nm-ink)]' : 'text-[var(--nm-ink50)] hover:text-[var(--nm-ink)]',
                 )}
               >
                 {t(`pages.agentProfile.${item}`)}
-                {tab === item && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[var(--nm-ink)]" />}
+                {activeTab === item && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[var(--nm-ink)]" />}
               </button>
             ))}
           </div>
@@ -373,7 +403,7 @@ export function AgentProfilePage() {
       </header>
 
       <main className="mx-auto max-w-[1180px] px-6 py-6">
-        {tab === 'overview' ? (
+        {activeTab === 'overview' ? (
           <div className="space-y-5" role="tabpanel">
             {/* Alerts first: failed jobs, blocked dependencies and quota stops
                 are not one panel's business, and this is the only surface that
@@ -415,7 +445,7 @@ export function AgentProfilePage() {
               </PaperCard>
             </div>
           </div>
-        ) : tab === 'capabilities' ? (
+        ) : activeTab === 'capabilities' ? (
           <div className="grid min-h-[600px] gap-5 md:grid-cols-[220px_minmax(0,1fr)]" role="tabpanel">
             <nav className="space-y-1" aria-label={t('pages.agentProfile.capabilities')}>
               {CAPABILITIES.map((item) => {
@@ -470,7 +500,7 @@ export function AgentProfilePage() {
             <PaperCard padding="none" className="min-h-[600px] overflow-hidden">
               {settingsSection === 'general' ? (
                 <GeneralSettingsPanel
-                  key={`${agentId}:${name}:${description}`}
+                  key={agentId}
                   agentId={agentId}
                   initialName={name}
                   initialDescription={description}
@@ -600,6 +630,14 @@ function ProfileEmpty({ label }: { label: string }) {
   );
 }
 
+/**
+ * Name + description form. Mounted with `key={agentId}` and NOTHING else:
+ * switching agents resets the form, but keying on name/description too meant
+ * a successful rename changed the key, remounted the panel and dropped the
+ * "saved" state on the floor — the one save that succeeded was the one that
+ * never said so. The user's just-saved values ARE the truth, so nothing needs
+ * re-syncing from the store after `onSaved`.
+ */
 function GeneralSettingsPanel({
   agentId,
   initialName,

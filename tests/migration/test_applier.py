@@ -294,3 +294,23 @@ async def test_unhurried_apply_still_summarizes(db_client, workspace, monkeypatc
     )
     assert len(llm_calls) == 2
     assert result.summaries_degraded == 0
+
+
+@pytest.mark.asyncio
+async def test_hurry_mark_is_dropped_when_the_apply_raises(db_client, workspace, monkeypatch):
+    """PR #383 review I4: ``hurry.clear`` used to sit at the end of apply_plan,
+    so any exception in the steps above it leaked the mark into the process-
+    level registry. The user's later RETRY of that same row (the frontend
+    reused the import id) then ran hurried although nobody pressed stop."""
+    from xyz_agent_context.migration import hurry
+    import xyz_agent_context.migration.applier as applier_mod
+
+    async def _boom(db, agent_id):
+        raise RuntimeError("awareness lookup exploded")
+    monkeypatch.setattr(applier_mod, "_awareness_instance_id", _boom)
+
+    plan = build_plan(_import_with_two_sessions())
+    hurry.mark("imp_leak_1")
+    with pytest.raises(RuntimeError):
+        await apply_plan(db_client, "u1", plan, import_id="imp_leak_1")
+    assert hurry.is_hurried("imp_leak_1") is False

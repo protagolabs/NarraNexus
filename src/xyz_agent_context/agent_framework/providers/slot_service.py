@@ -32,6 +32,10 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
     framework_allowed_in_cloud,
 )
+from xyz_agent_context.agent_framework.providers.model_identity import (
+    effective_agent_slot,
+    framework_of,
+)
 from xyz_agent_context.agent_framework.providers.user_service import (
     validate_slot_binding,
 )
@@ -321,35 +325,45 @@ class AgentSlotService:
     async def owner_agents_overview(self, owner_id: str) -> Dict[str, dict]:
         """Effective (agent + helper_llm) model per owned agent.
 
-        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool},
-        "helper_llm": {...}}}``. ``inheriting`` is True when the agent has no
-        *effective* override row for that slot (no row, or a stub with empty
-        provider_id) and falls back to the owner default — matching the
-        runtime resolver and the per-agent llm-config endpoint.
+        Shape: ``{agent_id: {"agent": {"model": str, "inheriting": bool,
+        "agent_framework": str}, "helper_llm": {"model": str, "inheriting":
+        bool}}}``. ``inheriting`` is True when the agent has no *effective*
+        override row for that slot (no row, or a stub with empty provider_id)
+        and falls back to the owner default — matching the runtime resolver
+        and the per-agent llm-config endpoint.
 
-        Serves the Dashboard chip via ONE HTTP call instead of a per-agent
-        llm-config request; the DB layer is still 1 (agents) + N (one
-        agent_slots read per owned agent), bounded by the owner's agent count.
+        ``agent_framework`` follows the identity overlay
+        (``model_identity.effective_agent_slot``): an override supplies the
+        framework only when it rebinds the slot with BOTH a provider and a
+        framework; otherwise the owner's ``user_slots`` row does, and a
+        missing/null column reads as the platform default. This is the same
+        rule the driver dispatch and the system prompt use, so the directory
+        can never show a brand the agent is not running.
+
+        Feeds ``GET /api/auth/agents`` (the agents directory + the profile
+        page). DB cost is 1 (user_slots) + 1 (agents) + N (one agent_slots
+        read per owned agent) — ``agent_slots`` has several rows per agent, so
+        the order-preserving ``get_by_ids`` cannot batch it.
         """
         owner_rows = await self.db.get("user_slots", {"user_id": owner_id})
-        owner_default = {
-            r.get("slot_name"): (r.get("model") or "")
-            for r in owner_rows or []
-        }
+        owner_by_slot = {r.get("slot_name"): r for r in owner_rows or []}
         out: Dict[str, dict] = {}
         for aid in await self._owner_agent_ids(owner_id):
             override_rows = await self.db.get("agent_slots", {"agent_id": aid})
-            override_by_slot = {
-                r.get("slot_name"): (r.get("model") or "")
-                for r in override_rows or []
-                if _is_effective_override(r)
-            }
+            override_by_slot = {r.get("slot_name"): r for r in override_rows or []}
             slots_view: Dict[str, dict] = {}
             for slot in (SlotName.AGENT.value, SlotName.HELPER_LLM.value):
-                if slot in override_by_slot:
-                    slots_view[slot] = {"model": override_by_slot[slot], "inheriting": False}
+                override = override_by_slot.get(slot)
+                owner_default = owner_by_slot.get(slot)
+                if _is_effective_override(override):
+                    view = {"model": (override or {}).get("model") or "", "inheriting": False}
                 else:
-                    slots_view[slot] = {"model": owner_default.get(slot, ""), "inheriting": True}
+                    view = {"model": (owner_default or {}).get("model") or "", "inheriting": True}
+                if slot == SlotName.AGENT.value:
+                    view["agent_framework"] = framework_of(
+                        effective_agent_slot(override, owner_default)
+                    )
+                slots_view[slot] = view
             out[aid] = slots_view
         return out
 

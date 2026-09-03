@@ -134,9 +134,13 @@ async def test_owner_agents_overview_effective_and_inheriting():
     overview = await AgentSlotService(db).owner_agents_overview("owner1")
 
     assert set(overview.keys()) == {"a1", "a2"}          # own agents only
-    assert overview["a1"]["agent"] == {"model": "pinned-agent-model", "inheriting": False}
+    assert overview["a1"]["agent"] == {
+        "model": "pinned-agent-model", "inheriting": False, "agent_framework": "nexus_power",
+    }
     assert overview["a1"]["helper_llm"] == {"model": "default-helper-model", "inheriting": True}
-    assert overview["a2"]["agent"] == {"model": "default-agent-model", "inheriting": True}
+    assert overview["a2"]["agent"] == {
+        "model": "default-agent-model", "inheriting": True, "agent_framework": "nexus_power",
+    }
 
 
 async def _mk_stub_override(db, agent_id, slot_name):
@@ -166,8 +170,50 @@ async def test_stub_override_row_reads_as_inheriting_in_overview():
     await _mk_user_slot(db, "owner1", "agent", "default-agent-model")
     await _mk_stub_override(db, "a1", "agent")
     overview = await AgentSlotService(db).owner_agents_overview("owner1")
-    # stub → inheriting, model comes from owner default (matches runtime/card).
-    assert overview["a1"]["agent"] == {"model": "default-agent-model", "inheriting": True}
+    # stub → inheriting, model comes from owner default (matches runtime/card),
+    # and the stub's codex_cli framework does NOT win either: the agent runs
+    # on the owner default, so the directory must not show the Codex brand.
+    assert overview["a1"]["agent"] == {
+        "model": "default-agent-model", "inheriting": True, "agent_framework": "nexus_power",
+    }
+
+
+@pytest.mark.asyncio
+async def test_overview_framework_follows_the_owner_default_when_set():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await db.insert(
+        "user_slots",
+        {"user_id": "owner1", "slot_name": "agent", "provider_id": "p1",
+         "model": "def-a", "params_json": "{}", "agent_framework": "codex_cli"},
+    )
+    overview = await AgentSlotService(db).owner_agents_overview("owner1")
+    assert overview["a1"]["agent"]["agent_framework"] == "codex_cli"
+
+
+@pytest.mark.asyncio
+async def test_overview_framework_defaults_to_nexus_power_with_no_rows_at_all():
+    # A brand-new owner: no user_slots row, no override. The platform default
+    # (2026-08-20) is nexus_power — never a literal claude_code anywhere.
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    overview = await AgentSlotService(db).owner_agents_overview("owner1")
+    assert overview["a1"]["agent"] == {"model": "", "inheriting": True, "agent_framework": "nexus_power"}
+
+
+@pytest.mark.asyncio
+async def test_overview_framework_from_a_rebinding_override():
+    db = _FakeDB()
+    await _mk_agent(db, "a1", "owner1")
+    await _mk_user_slot(db, "owner1", "agent", "def-a")
+    await db.insert(
+        "agent_slots",
+        {"agent_id": "a1", "slot_name": "agent", "provider_id": "p9",
+         "model": "gpt-5", "params_json": "{}", "agent_framework": "codex_cli",
+         "created_at": "x", "updated_at": "x"},
+    )
+    overview = await AgentSlotService(db).owner_agents_overview("owner1")
+    assert overview["a1"]["agent"] == {"model": "gpt-5", "inheriting": False, "agent_framework": "codex_cli"}
 
 
 @pytest.mark.asyncio

@@ -24,12 +24,12 @@ describe('buildWelcomeSteps', () => {
   });
 
   it('drops the import step on cloud — there is no user filesystem there', () => {
-    expect(buildWelcomeSteps({ ...base, mode: 'cloud', detectionCount: undefined })).toEqual([
+    expect(buildWelcomeSteps({ ...base, mode: 'cloud-web', detectionCount: undefined })).toEqual([
       'model',
       'agent',
     ]);
     // even if a caller wrongly passes detections, cloud still has no import step
-    expect(buildWelcomeSteps({ ...base, mode: 'cloud', detectionCount: 12 })).toEqual([
+    expect(buildWelcomeSteps({ ...base, mode: 'cloud-web', detectionCount: 12 })).toEqual([
       'model',
       'agent',
     ]);
@@ -45,7 +45,7 @@ describe('buildWelcomeSteps', () => {
     // `providerCount === 0`, but login auto-registers NetMind cards, so a
     // brand-new account arrived with two providers and never saw screen one.
     expect(buildWelcomeSteps(base)[0]).toBe('model');
-    expect(buildWelcomeSteps({ ...base, mode: 'cloud', detectionCount: undefined })[0]).toBe(
+    expect(buildWelcomeSteps({ ...base, mode: 'cloud-web', detectionCount: undefined })[0]).toBe(
       'model',
     );
   });
@@ -57,7 +57,7 @@ describe('buildWelcomeSteps', () => {
   it('is never empty in practice — the model step always applies', () => {
     // isWelcomeFlowEmpty still has to exist: a future deployment could switch
     // every step off, and the page must redirect instead of rendering a shell.
-    const steps = buildWelcomeSteps({ mode: 'cloud', guideAgentEnabled: false });
+    const steps = buildWelcomeSteps({ mode: 'cloud-web', guideAgentEnabled: false });
     expect(steps).toEqual(['model']);
     expect(isWelcomeFlowEmpty(steps)).toBe(false);
     expect(isWelcomeFlowEmpty([])).toBe(true);

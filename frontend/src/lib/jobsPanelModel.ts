@@ -262,8 +262,12 @@ function describeInterval(seconds: number): RowSegment {
 function describeSchedule(job: Job, formatTime: (iso: string) => string): RowSegment | null {
   const deps = job.depends_on ?? [];
   // A blocked job's headline fact is what it is blocked ON, not its cron.
+  // ONE place builds this segment: two returns of the same key once carried
+  // different param names ({ n } vs { count }), and the second rendered the
+  // raw "{{n}}" placeholder — `count` is also i18next's plural magic key.
+  const afterDeps: RowSegment = { key: 'jobs.row.afterDeps', params: { n: deps.length } };
   if (deps.length > 0 && (job.status === 'blocked' || job.status === 'blocked_failed')) {
-    return { key: 'jobs.row.afterDeps', params: { n: deps.length } };
+    return afterDeps;
   }
 
   const cfg = job.trigger_config;
@@ -281,7 +285,7 @@ function describeSchedule(job: Job, formatTime: (iso: string) => string): RowSeg
     }
   }
 
-  if (deps.length > 0) return { key: 'jobs.row.afterDeps', params: { count: deps.length } };
+  if (deps.length > 0) return afterDeps;
   return null;
 }
 

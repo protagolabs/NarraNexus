@@ -780,8 +780,6 @@
       "noAgentsShort": "No agents yet."
     },
     "agentRow": {
-      "saveTitle": "Save (Enter)",
-      "cancelTitle": "Cancel (Esc)",
       "publicBy": "Public · by {{name}}"
     },
     "agentRowMenu": {
@@ -1653,7 +1651,8 @@
       "memberOwnerLabel": "Owner",
       "memberPrivate": "Private",
       "memberPublic": "Public",
-      "openProfile": "Open {{name}} profile"
+      "openProfile": "Open {{name}} profile",
+      "channelOff": "{{name}} · switched off"
     },
     "createUser": {
       "title": "Create New User",

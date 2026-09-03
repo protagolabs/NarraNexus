@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-08-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `BoundChannel`；删 `AgentModelOverview`
+
+`AgentInfo.bound_channels: BoundChannel[]`（`{channel, active}`）。`agent_framework` /
+`model` 注释改为实情：只对自己的 agent 存在，缺失渲染 `—`。
 
 ## 2026-08-30 — `EventLogTimelineEntry.monologue?: boolean`
 

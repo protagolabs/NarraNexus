@@ -3,7 +3,7 @@
 @author:
 @date: 2026-08-26
 @description: Owner-scoped bulk slot endpoints — override-stats / apply-to-agents
-    / agents-overview. Uses an in-memory _FakeDB (equality-filter store) wired
+    Uses an in-memory _FakeDB (equality-filter store) wired
     via monkeypatching providers.get_db_client, plus a fake auth middleware that
     lifts X-User-Id into request.state (same shape auth_middleware guarantees).
 """
@@ -147,19 +147,6 @@ async def test_apply_to_agents_writes_audit_snapshot(client, db):
     assert len(audit) == 1 and audit[0]["model"] == "pinned-x"
 
 
-@pytest.mark.asyncio
-async def test_agents_overview_stub_row_reads_inheriting(client, db):
-    await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
-                                   "provider_id": "p1", "model": "def-a",
-                                   "params_json": "{}", "agent_framework": "nexus_power"})
-    await db.insert("agents", {"agent_id": "a1", "created_by": "owner1", "name": "a1"})
-    await db.insert("agent_slots", {"agent_id": "a1", "slot_name": "agent",
-                                    "provider_id": "", "model": "",
-                                    "params_json": "{}", "agent_framework": "codex_cli",
-                                    "created_at": "x", "updated_at": "x"})
-    r = client.get("/api/providers/slots/agents-overview", headers=OWNER)
-    ov = r.json()["data"]["agents"]
-    assert ov["a1"]["agent"] == {"model": "def-a", "inheriting": True}
 
 
 @pytest.mark.asyncio
@@ -173,18 +160,6 @@ async def test_apply_to_agents_bad_slot_is_fail_closed(client, db):
     assert await db.get_one("agent_slots", {"agent_id": "a1", "slot_name": "agent"}) is not None
 
 
-@pytest.mark.asyncio
-async def test_agents_overview(client, db):
-    await db.insert("user_slots", {"user_id": "owner1", "slot_name": "agent",
-                                   "provider_id": "p1", "model": "def-a",
-                                   "params_json": "{}", "agent_framework": "nexus_power"})
-    await _seed(db, "a1", "owner1", slot="agent", model="pinned")
-    await _seed(db, "a2", "owner1")
-    r = client.get("/api/providers/slots/agents-overview", headers=OWNER)
-    assert r.status_code == 200
-    ov = r.json()["data"]["agents"]
-    assert ov["a1"]["agent"] == {"model": "pinned", "inheriting": False}
-    assert ov["a2"]["agent"] == {"model": "def-a", "inheriting": True}
 
 
 def test_override_stats_requires_identity(client):

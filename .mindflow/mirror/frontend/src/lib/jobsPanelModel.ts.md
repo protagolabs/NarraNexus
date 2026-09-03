@@ -1,7 +1,13 @@
 ---
 code_file: frontend/src/lib/jobsPanelModel.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03 (评审修订) — `afterDeps` 只在一处构造
+
+评审 I1：两个返回点参数名不同（`{ n }` vs `{ count }`），后者在依赖链上已跑过/排队的
+job 上把 `{{n}}` 原样渲染出来（`count` 还是 i18next 的复数魔法键）。现在一个
+`afterDeps` 段两处复用；测试补「有依赖无排程」与「有依赖有 cron 未 blocked」两条。
 
 # jobsPanelModel.ts — What each band of the Jobs panel should show
 

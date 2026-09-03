@@ -66,7 +66,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getDashboardStatus: vi.fn().mockResolvedValue({ success: true, agents: [] }),
     deleteAgent: vi.fn(),
-    getAgentsModelOverview: vi.fn().mockResolvedValue({ success: true, data: { agents: {} } }),
+   
     getAgentLlmConfig: vi.fn().mockResolvedValue({ success: true, data: { slots: {} } }),
   },
 }));

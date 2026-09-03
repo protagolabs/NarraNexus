@@ -208,6 +208,18 @@ describe('describeRow — schedule half of line 2', () => {
       .toEqual({ key: 'jobs.row.afterDeps', params: { n: 2 } });
   });
 
+  it('names the dependency count for an unscheduled dependent job — same params as the blocked form', () => {
+    // Regression: this branch passed { count } while the locale string reads
+    // {{n}}, so the row showed the literal placeholder.
+    expect(describeRow(job('pending', { depends_on: ['inst_a'] }), { now: NOW, formatTime: fmt }).schedule)
+      .toEqual({ key: 'jobs.row.afterDeps', params: { n: 1 } });
+  });
+
+  it('prefers the schedule over the dependency count while not blocked', () => {
+    expect(describeRow(job('pending', { depends_on: ['inst_a'], trigger_config: { cron: '0 9 * * *' } }), { now: NOW, formatTime: fmt }).schedule)
+      .toEqual({ key: 'jobs.row.daily', params: { time: '09:00' } });
+  });
+
   it('is null when there is nothing schedulable to say', () => {
     expect(describeRow(job('completed'), { now: NOW, formatTime: fmt }).schedule).toBeNull();
   });
