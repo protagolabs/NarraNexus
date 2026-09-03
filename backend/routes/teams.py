@@ -630,6 +630,7 @@ async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list
             )
             if row is not None:
                 entry["event_id"] = row.get("event_id")
+            if row is not None and steps["items"]:
                 # The row still holds the PREVIOUS turn's steps while this
                 # one waits, so the mark survives the owner's natural next
                 # move — asking again. (Not on running/stalled: `start()`

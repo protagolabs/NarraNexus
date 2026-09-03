@@ -8,12 +8,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, X, Trash2, Users, FileText, Loader2, Check } from 'lucide-react';
+import { Plus, X, Trash2, Users, Loader2, Check } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 import { COLOR_PRESETS } from './teamColors';
+import { TeamProfileForm } from './TeamProfileForm';
 
 interface Props {
   open: boolean;
@@ -22,12 +23,9 @@ interface Props {
    *  clicked). Only applied on the open transition — switching teams inside
    *  the modal is never overridden. */
   initialTeamId?: string | null;
-  /** Show only name / colour / intro (and save). Members and lead are edited
-   *  elsewhere by the caller. */
-  profileOnly?: boolean;
 }
 
-export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly = false }: Props) {
+export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
@@ -40,9 +38,6 @@ export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly 
   const [creating, setCreating] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamColor, setNewTeamColor] = useState(COLOR_PRESETS[0]);
-  const [editName, setEditName] = useState('');
-  const [editIntro, setEditIntro] = useState('');
-  const [editColor, setEditColor] = useState('');
   const [editLead, setEditLead] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
 
@@ -72,9 +67,6 @@ export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly 
 
   useEffect(() => {
     if (selected) {
-      setEditName(selected.team.name);
-      setEditIntro(selected.team.intro_md || '');
-      setEditColor(selected.team.color || COLOR_PRESETS[0]);
       setEditLead(selected.team.lead_agent_id || '');
     }
   }, [selected?.team.team_id, selected?.team.updated_at]);
@@ -96,20 +88,25 @@ export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly 
     }
   };
 
-  const handleSaveMeta = async () => {
+  // Profile (name / colour / intro) is saved by TeamProfileForm; the lead
+  // has its own Save below. They used to be one call writing both — which
+  // is how a stale lead snapshot could revert a change made elsewhere.
+  const handleSaveProfile = async (patch: { name: string; color: string; intro_md: string }) => {
+    if (!selected) return;
+    try {
+      await updateTeam(selected.team.team_id, patch);
+    } catch (e) {
+      void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+
+  const handleSaveLead = async () => {
     if (!selected) return;
     setSavingMeta(true);
     try {
-      await updateTeam(selected.team.team_id, {
-        name: editName,
-        color: editColor,
-        intro_md: editIntro,
-        // "" clears the lead back to the earliest-joined fallback (backend
-        // treats empty string as clear; a member id sets an explicit lead).
-        // Omitted in profileOnly mode: the lead is edited live next to this
-        // modal, and resubmitting the snapshot taken at open would revert it.
-        ...(profileOnly ? {} : { lead_agent_id: editLead }),
-      });
+      // "" clears the lead back to the earliest-joined fallback (backend
+      // treats empty string as clear; a member id sets an explicit lead).
+      await updateTeam(selected.team.team_id, { lead_agent_id: editLead });
     } catch (e) {
       void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
@@ -257,60 +254,18 @@ export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly 
               </div>
             ) : (
               <div className="p-5 space-y-5">
-                {/* Meta */}
-                <div className="space-y-2">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.nameLabel')}</label>
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
-                  />
-                  <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-                    <span>{t('teams.colorLabel')}</span>
-                    {COLOR_PRESETS.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => setEditColor(c)}
-                        className={cn(
-                          'w-5 h-5 rounded-full',
-                          editColor === c ? 'ring-2 ring-offset-1 ring-[var(--text-primary)]' : ''
-                        )}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <TeamProfileForm
+                  team={selected.team}
+                  onSave={handleSaveProfile}
+                  trailing={
+                    <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {t('teams.deleteTeam')}
+                    </Button>
+                  }
+                />
 
-                {/* intro_md */}
-                <div className="space-y-2">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)] flex items-center gap-1">
-                    <FileText className="w-3 h-3" /> {t('teams.introLabel')}
-                  </label>
-                  <textarea
-                    value={editIntro}
-                    onChange={(e) => setEditIntro(e.target.value)}
-                    rows={6}
-                    placeholder={t('teams.introPlaceholder', { name: editName })}
-                    className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none resize-y"
-                  />
-                </div>
-
-                <div className="flex justify-between">
-                  <Button onClick={handleSaveMeta} disabled={savingMeta} size="sm" className="gap-1">
-                    {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    {t('teams.saveChanges')}
-                  </Button>
-                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {t('teams.deleteTeam')}
-                  </Button>
-                </div>
-
-                {/* Members + lead. Hidden for `profileOnly`: the team room's
-                    management tab (2026-09-03) owns those two and opens this
-                    modal for name / colour / intro only — two live editors of
-                    one field is how a save silently reverts the other. */}
-                {!profileOnly && (<>
+                {/* Members */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
                   <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.membersLabel', { selected: selected.member_agent_ids.length, total: agents.length })}</label>
                   <div className="border border-[var(--border-default)] divide-y divide-[var(--border-subtle)] max-h-[280px] overflow-y-auto">
@@ -359,12 +314,11 @@ export function TeamManagementModal({ open, onClose, initialTeamId, profileOnly 
                     ))}
                   </select>
                   <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
-                  <Button onClick={handleSaveMeta} disabled={savingMeta} size="sm" variant="ghost" className="gap-1">
+                  <Button onClick={handleSaveLead} disabled={savingMeta} size="sm" variant="ghost" className="gap-1">
                     {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     {t('teams.saveChanges')}
                   </Button>
                 </div>
-                </>)}
               </div>
             )}
           </div>

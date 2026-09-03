@@ -16,7 +16,7 @@ stub: false
 Dunhuang 的保证不丢:组长→A3 的差事在 A3 的承诺下仍然开着(`is_promise_only`);
 A3→A4 的接力只唤醒不记账——**A4 不交付时无人追**,是明知的取舍。
 `lead_agent_id` 是 **keyword-only 且无默认值**:忘传就是 TypeError,而不是一块永远不填的板子
-(事故教训 #5 的形状);被门拒绝时打 `[errand] no hand-offs …` debug 日志留痕。
+(事故教训 #5 的形状);被门拒绝时打 `[errand] no hand-offs …` debug 日志留痕(只打 mentions 数量与前 3 个)。
 调用方:[[team_posting]] 从 `teams` 行读组长;路由(用户)显式传 `lead_agent_id=None` 并注明原因。
 测试:`test_errand_auto_board.py` 「Who may open one」一节 + `test_the_post_path_reads_the_lead_from_the_team_row`。
 

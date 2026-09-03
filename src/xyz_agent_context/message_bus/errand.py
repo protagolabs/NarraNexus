@@ -234,10 +234,10 @@ async def record_handoffs(
     board is the thing patrol trusts.
 
     ``lead_agent_id`` is the team's lead (``teams.lead_agent_id``); with it,
-    `opens_handoffs` decides whether this sender assigns work at all. Like every
-    other argument here it is keyword-only, and it has NO default on purpose: a caller that forgot it would
-    otherwise get a board that silently never fills (the shape incident
-    lesson #5 warns about). A user sender always opens, so the route passes
+    `opens_handoffs` decides whether this sender assigns work at all. Like
+    every other argument here it is keyword-only, and it has NO default on
+    purpose: a caller that forgot it would otherwise get a board that silently
+    never fills (the shape incident lesson #5 warns about). A user sender always opens, so the route passes
     ``lead_agent_id=None`` explicitly and says why.
 
     Best-effort by contract — the caller has already delivered the reply, and a
@@ -250,7 +250,7 @@ async def record_handoffs(
         logger.debug(
             f"[errand] no hand-offs from {from_agent} (lead={lead_agent_id!r}) "
             f"in {channel_id}: sender is neither the user nor the lead; "
-            f"mentions={list(mentions or [])}"
+            f"mentions={len(mentions or [])} ({', '.join(list(mentions or [])[:3])})"
         )
         return []
     targets = [

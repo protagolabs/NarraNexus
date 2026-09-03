@@ -45,7 +45,9 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<TeamWorkItem[]>([]);
   const [lastPatrolAt, setLastPatrolAt] = useState<string | null>(null);
-  const [patrolEnabled, setPatrolEnabled] = useState(true);
+  // One copy of the switch: the store's. This poll feeds it; the trace text
+  // below reads it, so a flip made in the management tab shows here at once.
+  const patrolEnabled = useTeamsStore((s) => s.patrolByTeam[teamId]) ?? true;
   const notePatrol = useTeamsStore((s) => s.notePatrol);
   const [resuming, setResuming] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -56,7 +58,6 @@ export function TeamWorkBoard({ teamId, now }: TeamWorkBoardProps) {
       if (r.success) {
         setItems(r.items);
         setLastPatrolAt(r.last_patrol_at ?? null);
-        setPatrolEnabled(r.patrol_enabled);
         notePatrol(teamId, r.patrol_enabled);
       }
     } catch {

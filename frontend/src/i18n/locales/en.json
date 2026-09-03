@@ -214,8 +214,6 @@
           "stalled": "stalled",
           "paused": "paused"
         },
-        "turnOff": "Turn off",
-        "turnOn": "Turn on",
         "awaitingReply": "awaiting reply",
         "nameSep": ", "
       },

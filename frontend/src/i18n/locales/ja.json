@@ -179,8 +179,6 @@
           "stalled": "停滞",
           "paused": "一時停止"
         },
-        "turnOff": "オフ",
-        "turnOn": "オン",
         "awaitingReply": "返信待ち",
         "nameSep": "、"
       },

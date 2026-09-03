@@ -1380,6 +1380,7 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
             <TeamManagePanel
               teamId={teamId}
               teamName={team.team.name}
+              team={team.team}
               members={members}
               allAgents={agents}
               leadAgentId={leadAgentId}

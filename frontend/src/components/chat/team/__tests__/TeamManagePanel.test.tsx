@@ -16,6 +16,7 @@ const clearDataMock = vi.fn();
 const addMemberMock = vi.fn();
 const removeMemberMock = vi.fn();
 const deleteTeamMock = vi.fn();
+const updateTeamMock = vi.fn();
 const navigateMock = vi.fn();
 const confirmMock = vi.fn();
 
@@ -33,6 +34,7 @@ vi.mock('@/stores', () => ({
       addMember: (...a: unknown[]) => addMemberMock(...a),
       removeMember: (...a: unknown[]) => removeMemberMock(...a),
       deleteTeam: (...a: unknown[]) => deleteTeamMock(...a),
+      updateTeam: (...a: unknown[]) => updateTeamMock(...a),
       patrolByTeam,
       notePatrol: (...a: unknown[]) => notePatrolMock(...a),
       setPatrol: (...a: unknown[]) => setPatrolMock(...a),
@@ -55,9 +57,16 @@ vi.mock('@/components/ui', () => ({
 
 // The modal and the clear dialog are exercised by their own tests; here they
 // only need to be mountable.
-vi.mock('@/components/teams/TeamManagementModal', () => ({
-  TeamManagementModal: ({ open, profileOnly }: { open: boolean; profileOnly?: boolean }) =>
-    open ? <div data-testid="profile-modal" data-profile-only={String(!!profileOnly)} /> : null,
+// The profile form has its own tests; here it only has to hand its patch up.
+vi.mock('@/components/teams/TeamProfileForm', () => ({
+  TeamProfileForm: ({ onSave }: { onSave: (p: unknown) => Promise<void> }) => (
+    <button
+      data-testid="profile-form"
+      onClick={() => void onSave({ name: 'Desk 2', color: '#123', intro_md: 'hi' })}
+    >
+      form
+    </button>
+  ),
 }));
 vi.mock('@/components/teams/ClearTeamDataDialog', () => ({
   ClearTeamDataDialog: ({
@@ -95,6 +104,7 @@ function renderPanel(over: Partial<React.ComponentProps<typeof TeamManagePanel>>
   const props: React.ComponentProps<typeof TeamManagePanel> = {
     teamId: 't1',
     teamName: 'Desk',
+    team: { team_id: 't1', name: 'Desk', color: '#abc', intro_md: '' },
     members: [ANA, BRUNO] as never,
     allAgents: [ANA, BRUNO, CY] as never,
     leadAgentId: 'a1',
@@ -122,6 +132,7 @@ beforeEach(() => {
   addMemberMock.mockResolvedValue(undefined);
   removeMemberMock.mockResolvedValue(undefined);
   deleteTeamMock.mockResolvedValue(undefined);
+  updateTeamMock.mockResolvedValue(undefined);
   confirmMock.mockResolvedValue(true);
 });
 
@@ -171,13 +182,16 @@ describe('TeamManagePanel', () => {
     await waitFor(() => expect(removeMemberMock).toHaveBeenCalledWith('t1', 'a2'));
   });
 
-  test('edit profile opens the existing modal in profile-only mode', () => {
-    // Lead and members have exactly one live editor — this panel — so the
-    // modal must not offer them too (a stale snapshot saved there would
-    // silently revert a change made here).
+  test('the profile form is inline and saves through the store — no team manager modal', async () => {
+    // The modal switches teams, creates teams and its delete does not leave
+    // the room; none of that belongs in this tab. Lead, members, delete
+    // each have one live editor here.
     renderPanel();
-    fireEvent.click(screen.getByTestId('manage-edit-profile'));
-    expect(screen.getByTestId('profile-modal').getAttribute('data-profile-only')).toBe('true');
+    expect(screen.queryByTestId('profile-modal')).toBeNull();
+    fireEvent.click(screen.getByTestId('profile-form'));
+    await waitFor(() =>
+      expect(updateTeamMock).toHaveBeenCalledWith('t1', { name: 'Desk 2', color: '#123', intro_md: 'hi' }),
+    );
   });
 
   test('clearing data reports the scopes back so the room can drop them', async () => {

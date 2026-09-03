@@ -8,7 +8,7 @@ stub: false
 
 `_member_activity` 的 idle 分支多一个布尔 `last_turn_silent`(来自
 [[../../src/xyz_agent_context/message_bus/_bus_activity]] 的 `last_turn_was_silent`)。
-**queued 态也带**(row 里仍是上一轮的 steps;running/stalled 不带——`start()` 已重写 steps,读出来是假的「说过话」)。
+**queued 态也带**(与 idle 同样要求 `steps["items"]` 非空;row 里仍是上一轮的 steps;running/stalled 不带——`start()` 已重写 steps,读出来是假的「说过话」)。
 房间不再为沉默贴行,「跑了但没说」和「没跑」靠花名册这一格区分,owner 追问把成员排进队列时标记不丢。
 同日 `get_team_chat` 响应加 `patrol_enabled`(`_patrol_enabled(team)`):巡查开关随房间轮询下发,
 前端 teamsStore 单一副本,管理 tab 不再自己拉整张工作板。

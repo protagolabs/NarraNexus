@@ -11,7 +11,7 @@ owner 反馈「找不到公告栏填写位置」:唯一入口是工具条最末�
 换成一个带文字标签的 `manage-toggle`(Settings2 + 「团队管理」,公告栏条数角标保留);
 ②`drawerTab === 'manage'` 渲染 [[TeamManagePanel.tsx]],公告栏 state/`reloadBulletin`/
 `bulletinAction` 仍归本组件(改动会贴系统行,transcript 与面板要同源),只是往下传;
-③尾部那块 `bulletinOpen` w-72 侧栏删除;⑤`refresh` 把响应里的 `patrol_enabled` 写进 teamsStore(`notePatrol`)——巡查开关的单一数据源;④新增 `handleCleared(scopes)`:清聊天→清空
+③尾部那块 `bulletinOpen` w-72 侧栏删除;④`refresh` 把响应里的 `patrol_enabled` 写进 teamsStore(`notePatrol`)——巡查开关的单一数据源;⑤新增 `handleCleared(scopes)`:清聊天→清空
 messages(下一次 3s 轮询无 since 游标全量重取;`historyRefreshTick` 只有单聊面板订阅,这里不调),清文件/公告栏→`requestWorkspaceRefresh`
 (原先这段逻辑在 [[../../layout/AgentList.tsx]] 的右键清理里)。
 测试:`TeamChatPanel.roster.test.tsx` 「discoverable panel chrome」改断言 manage-toggle、

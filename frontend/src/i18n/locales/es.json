@@ -179,8 +179,6 @@
           "stalled": "estancado",
           "paused": "en pausa"
         },
-        "turnOff": "Desactivar",
-        "turnOn": "Activar",
         "awaitingReply": "esperando respuesta",
         "nameSep": ", "
       },

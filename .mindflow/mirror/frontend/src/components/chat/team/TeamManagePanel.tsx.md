@@ -13,8 +13,9 @@ state 归 [[TeamChatPanel.tsx]]);②组长 select(回调 `onSetLead`,与花名�
 `updateTeam` 链);③patrol 开关(从 [[TeamWorkBoard.tsx]] 搬来:**只读 teamsStore 的 `patrolByTeam[teamId]`**,
 由房间 3s 轮询与看板轮询写入,写走 store `setPatrol`(乐观+失败回滚);未上报时按钮禁用而不是猜;
 文案用 `chat.team.manage.patrolOn/patrolOff`);④成员增删(账号下全部 agent,
-走 teamsStore `addMember/removeMember`);⑤「编辑资料」以 `profileOnly` 打开既有 `TeamManagementModal`
-(只剩名称/颜色/简介;成员与组长在本面板唯一编辑,弹窗不再提交组长快照);⑥清理数据(`ClearTeamDataDialog`
+走 teamsStore `addMember/removeMember`);⑤「编辑资料」= 内联 [[../../teams/TeamProfileForm]](名称/颜色/简介,走 store `updateTeam`);
+**不挂** TeamManagementModal——它左栏可切任意团队、可建团队、其删除不会带房间离开(I9)。
+组长/成员/删除各只有本面板一个编辑入口;⑥清理数据(`ClearTeamDataDialog`
 → `api.clearTeamData` → `onCleared(scopes)` 让房间丢掉对应内容);⑦删除团队(confirm 后
 `deleteTeam`,`navigate('/app/chat')`)。
 

@@ -11,8 +11,9 @@
  *      says nothing in the room by design
  */
 import { describe, expect, test, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TeamWorkBoard } from '../TeamWorkBoard';
+import { useTeamsStore } from '@/stores';
 
 const getBoardMock = vi.fn();
 const resumeMock = vi.fn();
@@ -55,6 +56,7 @@ const PARKED = {
 };
 
 beforeEach(() => {
+  useTeamsStore.setState({ patrolByTeam: {}, patrolPendingUntil: {} });
   getBoardMock.mockReset();
   resumeMock.mockReset();
   resumeMock.mockResolvedValue({ success: true });
@@ -221,6 +223,16 @@ describe('TeamWorkBoard · patrol switch moved out (2026-09-03)', () => {
     expect(await screen.findByText('chat.team.board.patrolPending')).toBeTruthy();
     expect(screen.queryByTestId('patrol-toggle')).toBeNull();
     expect(setPatrolMock).not.toHaveBeenCalled();
+  });
+
+  test('the trace text reads the store, so a flip elsewhere shows at once', async () => {
+    getBoardMock.mockResolvedValue(board({ items: [LIVE], patrol_enabled: true }));
+    render(<TeamWorkBoard teamId="t1" now={NOW} />);
+    expect(await screen.findByText('chat.team.board.patrolPending')).toBeTruthy();
+
+    act(() => useTeamsStore.getState().notePatrol('t1', false));
+
+    expect(await screen.findByText('chat.team.board.patrolOff')).toBeTruthy();
   });
 
   test('an empty board is absent even with patrol OFF', async () => {

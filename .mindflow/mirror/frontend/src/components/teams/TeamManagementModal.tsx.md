@@ -4,12 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-## 2026-09-03 — 新增调用方 + `profileOnly` 模式
+## 2026-09-03 — 资料区改用共享的 TeamProfileForm；房间的管理 tab **不再挂本弹窗**
 
-[[../chat/team/TeamManagePanel]] 的「编辑资料」以 `profileOnly` 打开本弹窗:只显示
-名称/颜色/简介+保存,**隐藏成员增删与组长 select**,并且保存时**不提交 `lead_agent_id`**
-——面板旁边就是组长的实时编辑器,提交打开时的快照会把刚改的组长静默覆盖回去。
-旧入口([[TeamRowMenu]] → [[AgentList]]、Dashboard 建团队)不带 `profileOnly`,行为不变。
+名称/颜色/简介三个字段与它们的 Save 抽成 [[TeamProfileForm]](本弹窗把「删除团队」按钮放进
+它的 `trailing` 槽);组长 select 改为**自己的 Save**(`handleSaveLead`,只提交 `lead_agent_id`)。
+此前一个 `handleSaveMeta` 同时写资料+组长,正是「过期组长快照覆盖别处改动」的来源。
+入口不变:[[TeamRowMenu]] → [[AgentList]]、Dashboard 建团队。房间的
+[[../chat/team/TeamManagePanel]] 曾短暂以 `profileOnly` 打开本弹窗(同日撤回,auto-review I9:
+左栏切团队/建团队/弹窗删除不带房间离开都不该出现在那个 tab 里),现在内联 TeamProfileForm。
 
 
 ## 2026-08-19 — 删除后落到相邻团队

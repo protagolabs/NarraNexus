@@ -23,12 +23,20 @@ interface TeamsState {
    *  poll both write it (`notePatrol`); the management tab reads it and
    *  writes through `setPatrol`. Not persisted: it is server state. */
   patrolByTeam: Record<string, boolean>;
+  /** Per team: until when (epoch ms) a poll-reported value is ignored, so a
+   *  GET already in flight at click time cannot overwrite the optimistic
+   *  write with the pre-click value. Infinity while the PUT is in flight. */
+  patrolPendingUntil: Record<string, number>;
   notePatrol: (teamId: string, enabled: boolean) => void;
   setPatrol: (teamId: string, enabled: boolean) => Promise<void>;
 
   // selectors
   teamsForAgent: (agentId: string) => TeamWithMembers[];
 }
+
+/** Longer than one room poll (3s) so the in-flight GET is covered; short
+ *  enough that a flip from another device shows within seconds. */
+export const PATROL_SETTLE_MS = 4000;
 
 export const useTeamsStore = create<TeamsState>()(
   persist(
@@ -83,19 +91,40 @@ export const useTeamsStore = create<TeamsState>()(
       },
 
       patrolByTeam: {},
+      patrolPendingUntil: {},
       notePatrol: (teamId, enabled) =>
-        set((s) =>
-          s.patrolByTeam[teamId] === enabled
+        set((s) => {
+          // A poll value is only stale — never wrong — inside the window a
+          // write just opened; outside it, another tab's real flip must land.
+          if ((s.patrolPendingUntil[teamId] ?? 0) > Date.now()) return s;
+          return s.patrolByTeam[teamId] === enabled
             ? s
-            : { patrolByTeam: { ...s.patrolByTeam, [teamId]: enabled } },
-        ),
+            : { patrolByTeam: { ...s.patrolByTeam, [teamId]: enabled } };
+        }),
       setPatrol: async (teamId, enabled) => {
         const prev = get().patrolByTeam[teamId];
-        get().notePatrol(teamId, enabled); // optimistic
+        set((s) => ({
+          patrolByTeam: { ...s.patrolByTeam, [teamId]: enabled }, // optimistic
+          patrolPendingUntil: { ...s.patrolPendingUntil, [teamId]: Infinity },
+        }));
         try {
           await api.setTeamPatrol(teamId, enabled);
+          // Keep ignoring polls for one poll cycle: a GET that left before
+          // the PUT committed still carries the old value.
+          set((s) => ({
+            patrolPendingUntil: { ...s.patrolPendingUntil, [teamId]: Date.now() + PATROL_SETTLE_MS },
+          }));
         } catch (e) {
-          if (prev !== undefined) get().notePatrol(teamId, prev);
+          set((s) => {
+            const patrolByTeam = { ...s.patrolByTeam };
+            // Roll back to what was reported; with nothing reported, back to
+            // "unknown" — never to a guessed boolean the switch would trust.
+            if (prev === undefined) delete patrolByTeam[teamId];
+            else patrolByTeam[teamId] = prev;
+            const patrolPendingUntil = { ...s.patrolPendingUntil };
+            delete patrolPendingUntil[teamId];
+            return { patrolByTeam, patrolPendingUntil };
+          });
           throw e;
         }
       },

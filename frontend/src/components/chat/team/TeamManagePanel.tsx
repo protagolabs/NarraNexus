@@ -9,9 +9,11 @@
  * the bulletin behind a small button at the far end of the header, the
  * patrol switch at the bottom of the work board, lead + members inside the
  * edit modal behind the settings page, and "clear data" in the sidebar row's
- * ⋮ menu. The edit modal is still opened from here for name / colour /
- * intro — in `profileOnly` mode, so lead and members have exactly one live
- * editor (this panel). The 2026-09-03 feedback was literally "I cannot find where to
+ * ⋮ menu. The profile (name / colour / intro) is the shared TeamProfileForm
+ * rendered inline — the team manager modal is NOT mounted here (it switches
+ * and creates teams, and its delete would not leave this room), so lead,
+ * members and delete each have exactly one live editor: this panel. The
+ * 2026-09-03 feedback was literally "I cannot find where to
  * write the bulletin". So: one tab, sections top to bottom in the order a
  * team is usually managed — what the team must know (bulletin), who answers
  * (lead), whether the lead chases (patrol), who is in it (members), and the
@@ -33,7 +35,7 @@ import { useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { TeamBulletinPanel } from './TeamBulletinPanel';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
+import { TeamProfileForm } from '@/components/teams/TeamProfileForm';
 import { ClearTeamDataDialog } from '@/components/teams/ClearTeamDataDialog';
 import type { AgentInfo } from '@/types';
 import type { TeamBulletin } from '@/types/teams';
@@ -41,6 +43,8 @@ import type { TeamBulletin } from '@/types/teams';
 export interface TeamManagePanelProps {
   teamId: string;
   teamName: string;
+  /** The team row — what the profile form edits. */
+  team: { team_id: string; name: string; color?: string | null; intro_md?: string | null; updated_at?: string | null };
   /** The team's current members, in membership order. */
   members: AgentInfo[];
   /** Every agent the account owns — the pool members are added from. */
@@ -64,6 +68,7 @@ export interface TeamManagePanelProps {
 export function TeamManagePanel({
   teamId,
   teamName,
+  team,
   members,
   allAgents,
   leadAgentId,
@@ -87,6 +92,7 @@ export function TeamManagePanel({
   const addMember = useTeamsStore((s) => s.addMember);
   const removeMember = useTeamsStore((s) => s.removeMember);
   const deleteTeam = useTeamsStore((s) => s.deleteTeam);
+  const updateTeam = useTeamsStore((s) => s.updateTeam);
 
   // Patrol — ONE copy, in the teams store. The room's 3s poll (and the work
   // board's, when that tab is open) keep it current; this panel only reads
@@ -119,7 +125,16 @@ export function TeamManagePanel({
     }
   };
 
-  const [editing, setEditing] = useState(false);
+  const saveProfile = async (patch: { name: string; color: string; intro_md: string }) => {
+    try {
+      await updateTeam(teamId, patch);
+    } catch (e) {
+      void notifyError(
+        t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }),
+      );
+    }
+  };
+
   const [clearing, setClearing] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
 
@@ -281,17 +296,18 @@ export function TeamManagePanel({
         </div>
       </section>
 
-      {/* 5–7. Profile, then the destructive tail. */}
+      {/* 5. Profile — the same form the team manager modal uses, inline.
+          Not the modal: that one switches teams, creates teams, and its
+          delete does not leave this room. */}
+      <section className="space-y-1.5 border-b border-[var(--border-subtle)] px-3 py-3">
+        <h4 className={cn(sectionLabel, 'flex items-center gap-1.5')}>
+          <Pencil className="h-3 w-3" /> {t('chat.team.manage.editProfile')}
+        </h4>
+        <TeamProfileForm team={team} onSave={saveProfile} />
+      </section>
+
+      {/* 6–7. The destructive tail. */}
       <section className="flex flex-col gap-1.5 px-3 py-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="justify-start gap-1.5"
-          data-testid="manage-edit-profile"
-          onClick={() => setEditing(true)}
-        >
-          <Pencil className="h-3.5 w-3.5" /> {t('chat.team.manage.editProfile')}
-        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -312,12 +328,6 @@ export function TeamManagePanel({
         </Button>
       </section>
 
-      <TeamManagementModal
-        open={editing}
-        initialTeamId={teamId}
-        profileOnly
-        onClose={() => setEditing(false)}
-      />
       {clearing && (
         <ClearTeamDataDialog
           teamName={teamName}
