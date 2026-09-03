@@ -76,6 +76,15 @@ def test_kernel_seed_tree_has_the_batch0_roots_and_is_docs_friendly():
     assert all(r["stability"] == Stability.ALPHA.value for r in rows)
 
 
+def test_every_kernel_slot_contract_symbol_resolves():
+    import importlib
+
+    for row in build_kernel_slot_tree().to_rows():
+        module_path, _, symbol = row["contract"].partition(":")
+        module = importlib.import_module(module_path)
+        assert hasattr(module, symbol), f"{row['path']}: {row['contract']} does not exist"
+
+
 def test_version_parse_order_and_str():
     assert Version.parse("1.2.3") < Version.parse("1.10.0")
     assert Version.parse("1.2") == Version.parse("1.2.0")

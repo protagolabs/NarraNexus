@@ -18,7 +18,7 @@ of the public contract yet — alpha).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Mapping, Protocol, runtime_checkable
 
 from narranexus.contracts.agent.stages import Budgets, Stage
 
@@ -30,6 +30,24 @@ class StageStrategy(Protocol):
     stage: Stage
 
     async def run(self, inputs: Any) -> Any: ...
+
+
+@runtime_checkable
+class TurnPipeline(Protocol):
+    """The whole turn runtime (slots ``turn`` / ``turn.pipeline``).
+
+    ``run`` executes the seven stages for one turn under ``profile`` and
+    yields the platform's progress/response messages until Commit has
+    finished (Reflect runs in the background). The message vocabulary is the
+    platform's (alpha), like ``StageStrategy.run``'s inputs.
+    """
+
+    async def run(self, ingress: Any, profile: "PipelineProfile") -> AsyncIterator[Any]: ...
+
+
+# The Act stage's strategy (slot ``turn.pipeline.act``) has the shape every
+# other stage strategy has; the name exists so the slot tree can point at it.
+ActStrategy = StageStrategy
 
 
 @dataclass(frozen=True)
@@ -84,8 +102,10 @@ BUILTIN_PROFILE_IDS: tuple[str, ...] = ("default", "fast", "voice", "job", "sile
 
 __all__ = [
     "BUILTIN_PROFILE_IDS",
+    "ActStrategy",
     "CapabilityFilter",
     "PipelineProfile",
     "StageStrategy",
     "TurnOverride",
+    "TurnPipeline",
 ]

@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
+
+`agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的
+引用全部指向契约包；语义与线上值不变（`tests/snapshots/golden/agent_events.json` 钉住）。
+
 ## 2026-09-03 — 订阅账号瞬时错误：报错原样透传 + 同会话 resume 重试
 
 背景：从 SDK 0.1.43 内置 CLI 2.1.56 二进制读出的重试判据是

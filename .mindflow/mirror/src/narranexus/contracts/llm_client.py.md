@@ -10,7 +10,10 @@ stub: false
 客户端（`honour_requested=True`，openai 协议）用调用点偏好，其余（anthropic / cli）用各自默认。
 研究文档 H9 说三份实现「各写各的」，合一时发现 openai 版的「官方端点 vs 自定义端点」两种模式返回值
 相同，端点判断本来就不影响结果（`test_openai_helper_official_and_custom_endpoints_agree` 钉住）。
-纯函数、stdlib-only，第三方 `llmClients` 插件直接复用。
+纯函数、stdlib-only，第三方 `llmClients` 插件直接复用。`ModelResolver` Protocol 是 `model.resolver` 位的
+契约符号（可替换的解析策略），`resolve_helper_model` 是它的内置实现规则。
+openai 客户端在 slot 为空时原本回落到自身默认，现在与 `"default"` 哨兵同样先看调用点偏好——
+`test_openai_helper_empty_slot_honours_call_site` 钉住这一行为。
 
 ## 2026-09-03 — helper LLM 客户端契约（用户点名的「LLM client」轴）
 

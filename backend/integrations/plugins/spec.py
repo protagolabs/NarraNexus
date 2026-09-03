@@ -6,9 +6,10 @@
               framework plugin is made of and how to tell it apart from
               "not installed".
 
-InstallComponent is the atomic install unit (one pip wheel or one npm
-package, always carrying its pinned version in ``requirement`` — the
-installer layer never invents a version). PluginSpec groups the components
+The atomic install unit is the contract's ``InstallComponent`` (one pip
+wheel or one npm package, its pinned version inside ``requirement`` — the
+installer layer never invents a version); it is re-exported here for the
+installers. PluginSpec groups the components
 that together make one user-facing plugin, plus the metadata needed to
 report status (probe_package, user_version_source, size_hint).
 """
@@ -17,19 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
-@dataclass(frozen=True)
-class InstallComponent:
-    """One pip wheel or npm package to install, with its version pinned in.
-
-    ``requirement`` is a ready-to-pass string for the underlying package
-    manager (e.g. ``"claude-agent-sdk==0.1.43"`` or
-    ``"@anthropic-ai/claude-code@2.1.220"``) — installers never re-derive or
-    re-type a version, they only pass this string through.
-    """
-
-    kind: Literal["pip", "npm"]
-    requirement: str
+from narranexus.contracts.framework import InstallComponent
 
 
 @dataclass(frozen=True)
@@ -51,3 +40,5 @@ class PluginSpec:
     probe_package: str
     user_version_source: Literal["npm_cli", "pip_pkg"]
     size_hint: str
+
+__all__ = ["InstallComponent", "PluginSpec"]

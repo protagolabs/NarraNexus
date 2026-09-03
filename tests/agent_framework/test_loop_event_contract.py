@@ -14,7 +14,7 @@ LegacyEventAdapter) and any consumer reference one shared definition.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     CLI_ERROR_TYPES,
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,

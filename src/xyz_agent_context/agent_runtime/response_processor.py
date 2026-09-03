@@ -29,7 +29,7 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
 )
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,

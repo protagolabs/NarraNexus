@@ -22,7 +22,7 @@ only honoured that when a ToolResultBlock happened to be present.
 
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.events import DATA_TYPE_TEXT_DELTA
+from narranexus.contracts.agent_events import DATA_TYPE_TEXT_DELTA
 from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
 
 # The literal trailer the Claude Code CLI appends to every auto-compaction

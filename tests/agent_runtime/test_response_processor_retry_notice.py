@@ -8,7 +8,7 @@ as agent text — so the backoff wait is visible without being alarming.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_RETRY,
     TYPE_RAW_RESPONSE_EVENT,
 )

@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-09-03（批 1）— 模型解析合一
 
-`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=False)`；忽略调用点模型时的 debug 日志保留。行为不变。
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=False)`。「忽略调用点模型」的 debug 日志只在 slot 真配了具体模型且与调用点不同时才打（slot 为 `"default"`/空时回落 dataclass 默认不是「忽略用户选择」，不再刷日志）。解析结果不变。
 
 ## 2026-07-30 — 记账改为分桶，不再压平成一个数
 

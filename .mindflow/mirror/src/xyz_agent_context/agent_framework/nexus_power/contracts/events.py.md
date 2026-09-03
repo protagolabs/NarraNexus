@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/contracts/events.py
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
+
+`agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的
+引用全部指向契约包；语义与线上值不变（`tests/snapshots/golden/agent_events.json` 钉住）。
 
 ## 2026-07-30 — TYPE_TOOL_USE_START（ui 轨）
 

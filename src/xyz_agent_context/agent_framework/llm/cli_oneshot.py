@@ -42,7 +42,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_TEXT_DELTA,

@@ -72,7 +72,7 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
 from xyz_agent_context.agent_framework.adapters.materializer import (
     flatten_for_file,
 )
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     ITEM_TYPE_TOOL_CALL,
     TYPE_RUN_ITEM_STREAM_EVENT,
 )

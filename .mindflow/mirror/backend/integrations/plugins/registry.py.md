@@ -4,25 +4,26 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-# registry.py — 两个插件的唯一登记表
+# registry.py — 可安装框架插件的派生表
 
-## 2026-09-03（批 1）— `PLUGIN_SPECS` 从框架注册表派生
+## 2026-09-03（批 1）— `build_plugin_specs()` 从框架注册表按需派生（无 import 期快照）
 
-不再手写两条 `PluginSpec`：遍历 `FRAMEWORK_REGISTRY.entries()`，`meta["framework"].install` 非空的
-框架各生成一条（`build_plugin_specs`）。钉版本的唯一来源移到 `agent_framework/__init__.py`；
+不再手写两条 `PluginSpec`，也不再有模块级 `PLUGIN_SPECS` 常量：遍历 `FRAMEWORK_REGISTRY.entries()`，
+`meta["framework"].install` 非空的框架各生成一条。去掉 import 期快照是因为注册表可在启动后继续
+注册框架插件，快照会漏掉后注册者；`PluginService` 在构造时调用它。钉版本的唯一来源移到 `agent_framework/__init__.py`；
 `tests/backend/integrations/plugins/test_registry.py` 的全部断言（键集、组件、pin 与 uv.lock 锁步）
 原样通过。
 
 ## 为什么存在
 
-`PLUGIN_SPECS` 是"装什么"这个问题唯一的答案来源。Phase 3 的路由、
-`service.PluginService`（默认参数）都直接读这个 dict,不接受任何一方
+`build_plugin_specs()` 是"装什么"这个问题唯一的答案来源。Phase 3 的路由、
+`service.PluginService`（默认参数）都从它取 dict,不接受任何一方
 自己再列一遍两个插件叫什么名字、钉了哪个版本——那样版本号迟早会在两个
 地方走岔。
 
 ## 上下游关系
 
-- **被谁用**：`service.PluginService.__init__` 默认用它初始化
+- **被谁用**：`service.PluginService.__init__` 默认调用它初始化
   `self._specs`;Phase 3 路由（未实现）会直接 import `PLUGIN_SPECS` 渲染
   插件列表页。
 - **依赖谁**：`xyz_agent_context.agent_framework.adapters.claude.

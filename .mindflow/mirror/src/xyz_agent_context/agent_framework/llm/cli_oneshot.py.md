@@ -1,10 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_oneshot.py
-last_verified: 2026-07-31
+last_verified: 2026-09-03
 stub: false
 ---
-
 # cli_oneshot.py — codex 一发调用的共享内核
+
+## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
+
+`agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的
+引用全部指向契约包；语义与线上值不变（`tests/snapshots/golden/agent_events.json` 钉住）。
 
 ## 为什么存在
 

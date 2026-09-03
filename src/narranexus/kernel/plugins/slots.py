@@ -196,7 +196,7 @@ def build_kernel_slot_tree() -> SlotTree:
              default="builtin.providers", doc="Model-name resolution (the three legacy _resolve_model paths, unified in batch 1)."),
         Slot("agent", one, "narranexus.contracts:Namespace", KERNEL_OWNER, default=KERNEL_OWNER,
              doc="Agent capability domain root."),
-        Slot("agent.capabilities", one, "narranexus.contracts.agent.capability:CapabilitySet", KERNEL_OWNER,
+        Slot("agent.capabilities", one, "narranexus.contracts.agent.agent_spec:CapabilitySet", KERNEL_OWNER,
              default=KERNEL_OWNER, doc="Capability namespace; children are the four capability tiers."),
         Slot("agent.capabilities.memory_kinds", many, "narranexus.contracts.memory:MemoryKindContract", KERNEL_OWNER,
              doc="Memory kinds (recall / commit / reflect participants)."),

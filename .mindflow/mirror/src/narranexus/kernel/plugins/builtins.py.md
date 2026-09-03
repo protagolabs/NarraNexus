@@ -15,7 +15,7 @@ backend/mcp/workers。
 
 ## 2026-09-03 — 内置插件清单（显式注册，唯一真源）
 
-D4「内置即插件」的落点：五份 manifest 常量——三个框架（各一个插件，`nexus_power` 常驻、
+D4「内置即插件」的落点：六份 manifest 常量（批 1 加 `builtin.llm_clients`）——三个框架（各一个插件，`nexus_power` 常驻、
 `claude_code`/`codex_cli` 依赖 `on_demand`，吸收 D7 的安装表语义）、`builtin.providers`（九个 driver
 的 `CONTRIBUTION`，`system` 给 `CONTRIBUTIONS` 在本地为空）、`builtin.memory_kinds`。
 `provides` 指向遗留模块里的 `Contribution` 常量（`agent_framework:NEXUS_POWER`、

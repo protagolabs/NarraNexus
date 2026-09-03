@@ -67,3 +67,13 @@ def test_anthropic_helper_ignores_requested_and_cli_helper_picks_framework_defau
     assert _with_ctx(api_config._cli_helper_ctx, claude, lambda: CliHelperSDK._resolve_model("gpt-4o-mini")) == cli_helper._DEFAULT_CLAUDE_HELPER_MODEL
     forced = api_config.CliHelperConfig(model="slot-model", framework="claude_code")
     assert _with_ctx(api_config._cli_helper_ctx, forced, lambda: CliHelperSDK._resolve_model("gpt-4o-mini")) == "slot-model"
+
+
+def test_openai_helper_empty_slot_honours_call_site():
+    """An empty slot model is treated like the "default" sentinel: the call-site preference wins."""
+    from xyz_agent_context.agent_framework import api_config
+    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+
+    empty = api_config.OpenAIConfig(model="", base_url="https://custom.example/v1")
+    assert _with_ctx(api_config._openai_ctx, empty, lambda: OpenAIAgentsSDK._resolve_model("gpt-4o-mini")) == "gpt-4o-mini"
+    assert _with_ctx(api_config._openai_ctx, empty, lambda: OpenAIAgentsSDK._resolve_model(None)) == api_config.OpenAIConfig.model

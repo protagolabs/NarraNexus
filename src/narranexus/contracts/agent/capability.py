@@ -4,12 +4,14 @@
 @date: 2026-09-03
 @description: A capability is a set of stage participations plus metadata (the horizontal axis).
 
-The four tiers are not four mechanisms — they are the same ``Capability``
-contract with more or fewer cells of the capability × stage matrix filled:
+The five tiers are not five mechanisms — they are the same ``Capability``
+contract with more or fewer cells of the capability × stage matrix filled
+(``TIER_STAGES`` is the table):
 
-    TOOL              Act only
+    TOOL              Act only (``tools``)
     CONTEXT_PROVIDER  Assemble only (instructions / turn context / data)
-    MEMORY_KIND       Recall + Commit + Reflect
+    SKILL             Assemble (its entry in the skills table) + Act (scripts)
+    MEMORY_KIND       Recall (``recall``) + Commit + Reflect
     MODULE            any stages + tools + tables + triggers
 
 A ``StageParticipant`` is what a capability exposes for one stage. Every
@@ -28,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Mapping, Protocol, runtime_checkable
+from typing import Any, Awaitable, Mapping, Protocol, Sequence, runtime_checkable
 
 from narranexus.contracts.agent.stages import Stage
 
@@ -78,11 +80,17 @@ class StageParticipant(Protocol):
     # Ingress
     def claims_source(self, working_source: str) -> bool: ...
 
+    # Recall
+    async def recall(self, ctx_data: Any) -> Any: ...
+
     # Assemble
     async def gather(self, ctx_data: Any) -> Any: ...
     async def contribute_instructions(self, ctx_data: Any) -> str: ...
     async def contribute_turn_context(self, ctx_data: Any) -> str: ...
     async def contribute_tools(self, ctx_data: Any) -> ToolSurface: ...
+
+    # Act
+    def tools(self) -> Sequence[Any]: ...
 
     # Commit / Reflect
     async def persist_turn(self, params: Any) -> None: ...
@@ -104,14 +112,28 @@ class Capability(Protocol):
 # legacy adapter both derive from this single table.
 STAGE_METHODS: Mapping[Stage, tuple[str, ...]] = {
     Stage.INGRESS: ("claims_source",),
+    Stage.RECALL: ("recall",),
     Stage.ASSEMBLE: ("gather", "contribute_instructions", "contribute_turn_context", "contribute_tools"),
+    Stage.ACT: ("tools",),
     Stage.COMMIT: ("persist_turn",),
     Stage.REFLECT: ("after_turn",),
+}
+
+# The stages each tier may fill. Compose is the platform's own stage (no
+# participant method); a capability whose participations exceed its tier is
+# mis-tiered and the runtime rejects it.
+TIER_STAGES: Mapping[CapabilityTier, frozenset[Stage]] = {
+    CapabilityTier.TOOL: frozenset({Stage.ACT}),
+    CapabilityTier.CONTEXT_PROVIDER: frozenset({Stage.ASSEMBLE}),
+    CapabilityTier.SKILL: frozenset({Stage.ASSEMBLE, Stage.ACT}),
+    CapabilityTier.MEMORY_KIND: frozenset({Stage.RECALL, Stage.COMMIT, Stage.REFLECT}),
+    CapabilityTier.MODULE: frozenset(s for s in Stage if s is not Stage.COMPOSE),
 }
 
 
 __all__ = [
     "STAGE_METHODS",
+    "TIER_STAGES",
     "Capability",
     "CapabilityMeta",
     "CapabilityTier",

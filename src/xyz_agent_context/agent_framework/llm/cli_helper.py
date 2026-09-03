@@ -192,9 +192,9 @@ class CliHelperSDK:
         # budget (API_TIMEOUT_MS=llm_api_timeout_ms ≈ 10 min/request ×
         # CLAUDE_CODE_MAX_RETRIES=llm_max_retries), which for a one-shot helper
         # extraction means a bad/hijacked endpoint could hang ~100 min — the
-        # "Job stuck at 正在创建" symptom when helper_llm was set to Claude.
+        # "Job stuck at creating" symptom when helper_llm was set to Claude.
         # A helper one-shot is NOT the agent_loop (single turn, tool-free), so
-        # bounding it does not violate 铁律 #14.
+        # bounding it does not violate binding rule #14.
         env["API_TIMEOUT_MS"] = str(settings.helper_cli_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = str(settings.helper_cli_max_retries)
         # OAuth helper runs against the isolated CLAUDE_CONFIG_DIR that to_cli_env
@@ -261,7 +261,7 @@ class CliHelperSDK:
         # process_query tears the subprocess down in its own try/finally
         # (await query.close()) as the cancellation propagates. Raises a
         # classifiable error so the caller surfaces it (never an infinite
-        # "创建中").
+        # "creating").
         try:
             return await asyncio.wait_for(
                 _consume(), timeout=settings.helper_cli_total_timeout_seconds

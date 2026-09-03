@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-07-29
 @description: LegacyEventAdapter — the ONE place that speaks the legacy
-dict event contract (``agent_framework.loop.events``).
+dict event contract (``narranexus.contracts.agent_events``).
 
 Inside the framework everything is a typed ``LoopEvent``; the legacy
 shapes are produced here and nowhere else, so grey-release coexistence
@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,

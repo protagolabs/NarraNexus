@@ -5,8 +5,8 @@
 @description: The agent-loop event-dict contract (what every AgentLoopDriver yields).
 
 Moved verbatim from ``xyz_agent_context.agent_framework.loop.events`` in
-batch 1 of the plugin platform; that module re-exports every name so producers
-and consumers keep importing from either place and see the same objects.
+batch 1 of the plugin platform; that module is gone and every producer and
+consumer imports from here.
 
 Every ``AgentLoopDriver`` yields event dicts in exactly two top-level
 families; the platform's ResponseProcessor (and, through it, the frontend WS

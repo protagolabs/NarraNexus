@@ -10,7 +10,7 @@ circuit breaker, frontend actionable badges — and, unique to this
 framework, reactive compaction (``CONTEXT_OVERFLOW`` is a signal, not a
 failure: the loop compacts and retries the step instead of dying).
 
-The first six values mirror ``loop.events.CLI_ERROR_TYPES`` so the
+The first six values mirror ``agent_events.CLI_ERROR_TYPES`` so the
 platform's existing consumers keep working unchanged. The two beyond
 them are SIGNALS rather than failures — the loop repairs the request and
 retries the step (compaction for ``CONTEXT_OVERFLOW``, a continuation

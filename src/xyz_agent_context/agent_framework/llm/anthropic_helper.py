@@ -23,7 +23,7 @@ from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
 
-from narranexus.contracts.llm_client import resolve_helper_model
+from narranexus.contracts.llm_client import DEFAULT_MODEL_SENTINEL, resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
 from anthropic import AsyncAnthropic
 
@@ -84,7 +84,13 @@ class AnthropicHelperSDK:
             default=AnthropicHelperConfig.model,
             honour_requested=False,
         )
-        if requested_model and requested_model != resolved:
+        slot_model = anthropic_helper_config.model
+        if (
+            slot_model
+            and slot_model != DEFAULT_MODEL_SENTINEL
+            and requested_model
+            and requested_model != resolved
+        ):
             logger.debug(
                 f"[AnthropicHelper] ignoring per-call model "
                 f"{requested_model!r} (OpenAI-flavored); using slot "

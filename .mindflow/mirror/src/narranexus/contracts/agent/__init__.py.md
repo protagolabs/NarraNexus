@@ -10,4 +10,5 @@ stub: false
 `PipelineProfile` 选择，整个 Agent 是 `agent_spec.AgentSpec` 一个值对象，阶段观察钩子在 `events`。
 全部是值类型或结构化 Protocol：平台实现阶段，插件实现能力与策略，双方都不 import 对方。
 批 1 只立契约与 `LegacyModuleAdapter`（expand）；`platform/turn/` 的阶段编排器与
-`stageStrategies/pipelineProfiles/contextProviders` 三 kind 是批 3。契约版本 `API_VERSIONS["agent"]`。
+`stageStrategies/pipelineProfiles/contextProviders` 三 kind 是批 3。契约版本 `API_VERSIONS["agent"]`。公开面额外带 `TurnPipeline`/`ActStrategy`（扩展位契约符号）
+与 `ToolSurfaceView`（Assemble 输出里的工具面视图）。

@@ -4,9 +4,9 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-## 2026-09-03（批 1）— `API_VERSIONS` 新增 `agent_events`
+## 2026-09-03（批 1）— `API_VERSIONS` 新增 `agent_events` / `agent` / `services` / `ui`；`Namespace`
 
-事件字典契约独立计版本（线上协议），与 `framework`（driver Protocol）分开 bump。
+事件字典契约独立计版本（线上协议），与 `framework`（driver Protocol）分开 bump；`agent`（纵横模型）、`services`（`kernel.*` 位的宿主服务 Protocol）、`ui`（前端壳描述）各自一个 kind，全部 alpha。`Namespace` 是分组位（`model`/`agent`/`backend`/`ingress`/`content`）的契约符号：内核拥有、永不绑定，存在只为让 `kernel/plugins/slots.py` 里每个契约字符串都能 import 到（`test_every_kernel_slot_contract_symbol_resolves`）。
 
 ## 2026-09-03 — 公开 API 面的唯一入口
 

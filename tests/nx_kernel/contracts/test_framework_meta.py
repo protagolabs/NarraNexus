@@ -22,9 +22,20 @@ def test_builtin_frameworks_carry_framework_meta():
     assert metas["codex_cli"].install.probe_package == "openai_codex"
 
 
-def test_backend_installer_table_is_derived_from_the_registry():
-    from backend.integrations.plugins.registry import PLUGIN_SPECS, build_plugin_specs
+def metas_install_component():
+    from xyz_agent_context.agent_framework.loop.driver import FRAMEWORK_REGISTRY
 
-    assert set(PLUGIN_SPECS) == {"claude_code", "codex_cli"}
-    assert build_plugin_specs() == PLUGIN_SPECS
-    assert PLUGIN_SPECS["claude_code"].components[1].requirement.startswith("@anthropic-ai/claude-code@")
+    entry = next(e for e in FRAMEWORK_REGISTRY.entries() if e.name == "claude_code")
+    return entry.meta["framework"].install.components[0]
+
+
+def test_backend_installer_table_is_derived_from_the_registry():
+    from backend.integrations.plugins.registry import build_plugin_specs
+    from backend.integrations.plugins.service import PluginService
+
+    specs = build_plugin_specs()
+    assert set(specs) == {"claude_code", "codex_cli"}
+    assert specs["claude_code"].components[1].requirement.startswith("@anthropic-ai/claude-code@")
+    # The component objects are the contract's own (no backend copy).
+    assert specs["claude_code"].components[0] is metas_install_component()
+    assert set(PluginService()._specs) == set(specs)

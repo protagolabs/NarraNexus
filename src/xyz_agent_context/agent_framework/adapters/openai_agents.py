@@ -157,7 +157,7 @@ def json_repair_note(reason: str) -> str:
     by the API. Complex nested schemas on cheaper models (Haiku, CLI one-shot)
     sometimes come back wrapped in prose / markdown or schema-divergent; a
     bounded re-prompt recovers most. Kept generic (no scenario specifics) per
-    铁律 #4.
+    binding rule #4.
     """
     return (
         "\n\nYour previous response was NOT valid JSON matching the required "
@@ -267,7 +267,6 @@ def _is_response_format_unsupported_error(exc: Exception) -> bool:
     return False
 
 
-_OFFICIAL_OPENAI_BASE_URLS = {"", "https://api.openai.com/v1", "https://api.openai.com/v1/"}
 
 
 class OpenAIAgentsSDK:
@@ -276,29 +275,15 @@ class OpenAIAgentsSDK:
 
     @staticmethod
     def _resolve_model(requested_model: str | None) -> str:
+        """Resolve the model for this call with the shared contract rule.
+
+        A configured slot model always wins. When the slot is the ``"default"``
+        sentinel (or empty), the per-call-site preference is honoured because
+        call sites name models in this client's own namespace; without one the
+        system preset (``OpenAIConfig.model``) applies. The old "official vs
+        custom endpoint" distinction never changed the answer and is gone. The
+        return value is always a concrete model identifier.
         """
-        Resolve which model to use based on the provider endpoint and slot config.
-
-        Three modes:
-        1. Slot model is "default" + official OpenAI → honor per-call-site model
-           (e.g., narrative uses gpt-4o-mini, instance decision uses gpt-4o-mini).
-           This is the recommended mode for official OpenAI users.
-
-        2. Slot model is a specific name + official OpenAI → force that model
-           for ALL helper_llm calls. User explicitly chose this.
-
-        3. Non-official endpoint → always use slot config model, because the
-           endpoint may not support OpenAI model names.
-
-        "default" is never a real model name — it's a UI sentinel meaning
-        "use the system preset". This method guarantees the return value
-        is always a concrete model identifier.
-        """
-        # Modes 2 and 3 both return the slot model (the "official endpoint"
-        # distinction never changed the answer), so the whole rule is the
-        # shared contract function with the openai-protocol twist: call sites
-        # name models in this client's own namespace, so their preference is
-        # honoured when the slot says "default".
         from xyz_agent_context.agent_framework.api_config import OpenAIConfig
 
         return resolve_helper_model(

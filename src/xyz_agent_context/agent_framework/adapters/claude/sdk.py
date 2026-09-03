@@ -30,7 +30,7 @@ from xyz_agent_context.agent_framework import plugin_paths
 from xyz_agent_context.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,

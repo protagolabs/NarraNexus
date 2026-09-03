@@ -27,7 +27,7 @@ from typing import Any, Literal, TypedDict
 Track = Literal["model", "ui"]
 
 # Internal event vocabulary. The mapping to the legacy dict contract
-# (agent_framework.loop.events) is owned exclusively by LegacyEventAdapter.
+# (narranexus.contracts.agent_events) is owned exclusively by LegacyEventAdapter.
 TYPE_TEXT_DELTA = "text_delta"
 TYPE_THINKING_DELTA = "thinking_delta"
 TYPE_TOOL_USE = "tool_use"
@@ -132,7 +132,7 @@ class Usage:
 
     def as_legacy_dict(self) -> dict[str, int]:
         """Both spellings of the legacy usage vocabulary (see
-        ``loop.events.USAGE_CACHE_READ_KEYS``): Anthropic-style keys are
+        ``agent_events.USAGE_CACHE_READ_KEYS``): Anthropic-style keys are
         authoritative; consumers probing OpenAI-style keys also succeed."""
         return {
             "input_tokens": self.input_tokens,

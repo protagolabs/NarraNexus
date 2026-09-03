@@ -81,7 +81,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "displayName": "Helper LLM clients",
         "description": "anthropic / openai / cli protocol clients for the helper-LLM slot.",
         "hosts": ["backend", "mcp", "workers"],
-        "provides": {"model.clients": ["xyz_agent_context.agent_framework.llm.helper_sdk:CONTRIBUTIONS"]},
+        "provides": {"model.clients": [f"{_FRAMEWORK}.llm.helper_sdk:CONTRIBUTIONS"]},
         "quality": "gold",
     },
     {

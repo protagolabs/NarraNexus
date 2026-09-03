@@ -8,7 +8,7 @@ stub: false
 
 `Stage` 顺序固定（Ingress→Recall→Compose→Assemble→Act→Commit→Reflect），一比一对应现有
 step_0 / step_1+1.5 / step_2+2.5 / context_runtime+模块 get_* / step_3 / step_4+hook_persist_turn /
-step_5。七个 `*Context` 只收「跨阶段边界」的字段（从 118 行的 `RunContext` 里挑），
+step_5。七个 `*Context` 只收「跨阶段边界」的字段（从平台私有的 `RunContext` 里挑），
 `AssembleContext` 用 sha256+长度而不是整段提示，保持值小且字节稳定（approval 快照切点）。
 `Budgets` 只约束插件参与（同步 hook 超时/总预算、上下文 token 提示、成本），绝不给 agent loop
 本身设上限（铁律 #14）。

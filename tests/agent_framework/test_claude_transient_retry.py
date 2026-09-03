@@ -35,7 +35,7 @@ from xyz_agent_context.agent_framework.api_config import (
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,

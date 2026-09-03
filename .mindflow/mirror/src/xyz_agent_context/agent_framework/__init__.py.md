@@ -10,12 +10,12 @@ stub: false
 `NEXUS_POWER/CLAUDE_CODE/CODEX_CLI` 的 `meta["framework"]` 是 `FrameworkMeta`；claude_code/codex_cli
 的 `FrameworkInstall` 把原来 `backend/integrations/plugins/registry.py` 里的 pip/npm 钉版本、探测包、
 体积提示搬到这里（npm 版本仍引用 `adapters.claude.cli_binary.PINNED_CLI_VERSION`）。backend 的
-`PLUGIN_SPECS` 从注册表派生，锁步测试 `test_pip_pins_match_uv_lock` 继续守 uv.lock。
+`build_plugin_specs()` 按需从注册表派生（不再有 import 期快照），锁步测试 `test_pip_pins_match_uv_lock` 继续守 uv.lock。
 
 ## 2026-09-03 — 三框架改为 `Contribution` 常量（`NEXUS_POWER/CLAUDE_CODE/CODEX_CLI`）
 
 插件平台批 0：三个惰性工厂不再经 `register_agent_loop_driver` 注册，而是各自包成
-`narranexus.kernel.plugins.registry.Contribution`（名字 + `lambda: 工厂` + display_name meta），
+`narranexus.kernel.plugins.registry.Contribution`（名字 + `lambda: 工厂` + `meta["framework"]` 的 `FrameworkMeta`，display_name 在其中），
 以各自的插件 id（`builtin.frameworks.<name>`）作 owner 注册进 `FRAMEWORK_REGISTRY`。
 `narranexus.kernel.plugins.builtins` 的 manifest 按符号名引用这三个常量，loader 注册同一对象是
 幂等 no-op。惰性/`activate_pyenv`/PEP 562 逻辑全部不变。

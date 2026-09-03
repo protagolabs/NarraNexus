@@ -45,7 +45,7 @@ from xyz_agent_context.agent_framework.api_config import (
 )
 from xyz_agent_context.agent_framework.loop.cancellation_view import CancellationView
 from xyz_agent_context.schema.turn_profile import TurnProfile
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     TYPE_RAW_RESPONSE_EVENT,
     raw_error_event,

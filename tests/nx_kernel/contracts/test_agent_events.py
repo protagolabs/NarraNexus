@@ -2,20 +2,21 @@
 @file_name: test_agent_events.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: The agent-loop event contract lives in contracts and the legacy module re-exports the same objects; wire values are pinned.
+@description: The agent-loop event contract lives in contracts (the legacy loop module is gone); wire values are pinned.
 """
 from __future__ import annotations
 
 from narranexus.contracts import API_VERSIONS
 from narranexus.contracts import agent_events as contract
 from tests.snapshots._approval import approve
-from xyz_agent_context.agent_framework.loop import events as legacy
 
 
-def test_legacy_module_re_exports_every_contract_name():
-    assert set(legacy.__all__) == set(contract.__all__)
+def test_every_public_name_exists_and_the_legacy_module_is_gone():
+    import importlib.util
+
     for name in contract.__all__:
-        assert getattr(legacy, name) is getattr(contract, name), name
+        assert hasattr(contract, name), name
+    assert importlib.util.find_spec("xyz_agent_context.agent_framework.loop.events") is None
 
 
 def test_wire_values_are_pinned():

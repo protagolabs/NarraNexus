@@ -8,3 +8,10 @@ Sub-packages: ``plugins`` (registry / hooks / slots / bindings / manifest /
 loader), ``events`` (host event bus), plus ``deployment`` (the single
 cloud-vs-local resolver). Nothing here knows any concrete plugin.
 """
+
+
+class Kernel:
+    """Contract of the ``kernel`` root slot: the kernel itself is never rebound."""
+
+
+__all__ = ["Kernel"]

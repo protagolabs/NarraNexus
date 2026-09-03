@@ -33,6 +33,8 @@ API_VERSIONS: dict[str, int] = {
     "framework": 0,
     "agent_events": 0,
     "agent": 0,
+    "services": 0,
+    "ui": 0,
     "provider": 0,
     "llm_client": 0,
     "memory": 0,
@@ -41,9 +43,14 @@ API_VERSIONS: dict[str, int] = {
 
 STABILITY: dict[str, Stability] = {kind: Stability.ALPHA for kind in API_VERSIONS}
 
+
+class Namespace:
+    """Contract of a grouping slot (``model``, ``agent``, ``backend``, ...): owned by the kernel, never bound."""
+
 __all__ = [
     "API_VERSIONS",
     "STABILITY",
+    "Namespace",
     "Stability",
     "PluginError",
     "RegistryConflict",

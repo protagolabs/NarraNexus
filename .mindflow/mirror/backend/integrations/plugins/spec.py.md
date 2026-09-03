@@ -1,10 +1,17 @@
 ---
 code_file: backend/integrations/plugins/spec.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
 
 # spec.py — 插件安装的不可变数据契约
+
+## 2026-09-03（批 1）— `InstallComponent` 改为契约层的那一个
+
+原来这里有一份与 `narranexus.contracts.framework.InstallComponent` 字段相同的副本，`registry.py`
+还要逐个转换；现在本文件直接 re-export 契约类型，`PluginSpec.components` 就是 `FrameworkInstall`
+里的同一批对象（`test_backend_installer_table_is_derived_from_the_registry` 用 `is` 钉住）。
+安装器签名不变。
 
 ## 为什么存在
 

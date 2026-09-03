@@ -1,10 +1,15 @@
 ---
 code_file: backend/integrations/plugins/service.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
 
 # service.py — 插件安装子系统对外的唯一门面
+
+## 2026-09-03（批 1）— 默认插件表在构造时派生
+
+`specs=None` 时调用 `registry.build_plugin_specs()`，不再读 import 期常量：启动后才注册的框架插件对
+之后创建的 service 可见。
 
 ## 为什么存在
 
@@ -17,7 +22,7 @@ Phase 3 的安装/状态路由不应该知道"Claude Code 有两个安装动作�
 
 - **被谁用**：Phase 3 路由（未实现,本次任务范围之外）会实例化一个
   `PluginService` 单例并调用 `list_plugins` / `install` / `uninstall`。
-- **依赖谁**：`registry.PLUGIN_SPECS`（默认插件表)、`_installers.pip_target
+- **依赖谁**：`registry.build_plugin_specs`（默认插件表)、`_installers.pip_target
   .PipTargetInstaller` 和 `_installers.npm_prefix.NpmPrefixInstaller`
   （两个具体策略)、`errors.classify_error`（安装异常翻译)。
 

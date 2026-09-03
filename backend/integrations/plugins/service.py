@@ -25,7 +25,7 @@ from ._installers.base import InstalledState, PluginInstaller
 from ._installers.npm_prefix import NpmPrefixInstaller
 from ._installers.pip_target import PipTargetInstaller
 from .errors import PluginBusyError, classify_error
-from .registry import PLUGIN_SPECS
+from .registry import build_plugin_specs
 from .spec import InstallComponent, PluginSpec
 
 # Where each plugin's login/auth state lives — a plain file-existence probe
@@ -56,7 +56,9 @@ class PluginService:
     """Orchestrates install/detect/uninstall across a plugin's components."""
 
     def __init__(self, specs: dict[str, PluginSpec] | None = None) -> None:
-        self._specs = specs if specs is not None else PLUGIN_SPECS
+        # Derived at construction, not import: a framework registered later in
+        # startup is visible to every service created after it.
+        self._specs = specs if specs is not None else build_plugin_specs()
         self._locks: dict[str, asyncio.Lock] = {}
         self._busy: set[str] = set()
         self._installers: dict[str, PluginInstaller] = {

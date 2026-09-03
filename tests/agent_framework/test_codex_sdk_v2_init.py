@@ -345,13 +345,13 @@ def test_response_processor_recognises_thinking_item():
         ResponseProcessor,
     )
 
-    from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_THINKING
+    from narranexus.contracts.agent_events import ITEM_TYPE_THINKING
 
     handler_src = _inspect.getsource(
         ResponseProcessor._handle_run_item_stream_event
     )
     # 2026-07-27: the handler now branches on the shared constant from
-    # loop/events.py instead of an inline literal. The contract chain is:
+    # narranexus/contracts/agent_events.py instead of an inline literal. The contract chain is:
     # translator emits ITEM_TYPE_THINKING → handler matches
     # ITEM_TYPE_THINKING → the constant's VALUE stays "thinking_item"
     # (pinned here and in test_loop_event_contract.py).

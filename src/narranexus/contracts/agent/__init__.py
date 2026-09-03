@@ -25,7 +25,14 @@ from narranexus.contracts.agent.capability import (
     ToolSurface,
 )
 from narranexus.contracts.agent.events import STAGE_HOOKS, hook_name
-from narranexus.contracts.agent.pipeline import CapabilityFilter, PipelineProfile, StageStrategy, TurnOverride
+from narranexus.contracts.agent.pipeline import (
+    ActStrategy,
+    CapabilityFilter,
+    PipelineProfile,
+    StageStrategy,
+    TurnOverride,
+    TurnPipeline,
+)
 from narranexus.contracts.agent.stages import (
     STAGES,
     ActContext,
@@ -37,12 +44,14 @@ from narranexus.contracts.agent.stages import (
     RecallContext,
     ReflectContext,
     Stage,
+    ToolSurfaceView,
 )
 
 __all__ = [
     "STAGES",
     "STAGE_HOOKS",
     "ActContext",
+    "ActStrategy",
     "AgentSpec",
     "AssembleContext",
     "Budgets",
@@ -63,6 +72,8 @@ __all__ = [
     "StageParticipant",
     "StageStrategy",
     "ToolSurface",
+    "ToolSurfaceView",
     "TurnOverride",
+    "TurnPipeline",
     "hook_name",
 ]

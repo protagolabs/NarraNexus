@@ -49,6 +49,13 @@ class LlmClient(Protocol):
         ...
 
 
+@runtime_checkable
+class ModelResolver(Protocol):
+    """Slot ``model.resolver``: map (configured slot model, call-site preference) to a concrete model id."""
+
+    def resolve(self, slot_model: str | None, requested_model: str | None) -> str: ...
+
+
 # The sentinel the UI writes into a slot to mean "use the system preset".
 DEFAULT_MODEL_SENTINEL = "default"
 
@@ -77,4 +84,4 @@ def resolve_helper_model(
     return default
 
 
-__all__ = ["DEFAULT_MODEL_SENTINEL", "LlmClient", "resolve_helper_model"]
+__all__ = ["DEFAULT_MODEL_SENTINEL", "LlmClient", "ModelResolver", "resolve_helper_model"]

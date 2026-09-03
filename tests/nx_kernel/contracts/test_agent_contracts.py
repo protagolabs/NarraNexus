@@ -28,7 +28,7 @@ from narranexus.contracts.agent import (
     TurnOverride,
     hook_name,
 )
-from narranexus.contracts.agent.capability import STAGE_METHODS, StageParticipant
+from narranexus.contracts.agent.capability import STAGE_METHODS, TIER_STAGES, StageParticipant
 from narranexus.contracts.agent.pipeline import BUILTIN_PROFILE_IDS
 from narranexus.kernel.plugins.hooks import HookRegistry, HookSpec
 
@@ -49,6 +49,17 @@ def test_stage_methods_cover_exactly_the_participant_protocol():
     declared = {m for methods in STAGE_METHODS.values() for m in methods}
     protocol = set(StageParticipant.__protocol_attrs__)  # type: ignore[attr-defined]
     assert declared == protocol
+
+
+def test_every_tier_is_expressible_through_stage_methods():
+    assert set(TIER_STAGES) == set(CapabilityTier)
+    for tier, stages in TIER_STAGES.items():
+        assert stages, tier
+        for stage in stages:
+            assert stage in STAGE_METHODS, (tier, stage)
+    assert TIER_STAGES[CapabilityTier.TOOL] == {Stage.ACT}
+    assert TIER_STAGES[CapabilityTier.MEMORY_KIND] == {Stage.RECALL, Stage.COMMIT, Stage.REFLECT}
+    assert Stage.COMPOSE not in TIER_STAGES[CapabilityTier.MODULE]
 
 
 def test_capability_filter_and_set_semantics():

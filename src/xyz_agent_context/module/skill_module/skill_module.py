@@ -324,10 +324,11 @@ async def platform_env_available(db, user_id: Optional[str]) -> set:
 
 # The OpenClaw / ClawHub skill format declares runtime requirements under
 # ``metadata.openclaw`` and accepts the older ``clawdbot`` and ``clawdis``
-# spellings as aliases (the project was renamed twice). First present key wins,
+# spellings as aliases, plus ``moltbot`` (the migration detector knows the same
+# four names). First present key wins,
 # newest name first, so a skill published under any of the three names gates
-# its env/bins the same way.
-SKILL_METADATA_KEYS: tuple[str, ...] = ("openclaw", "clawdbot", "clawdis")
+# its env/bins the same way regardless of which name it was published under.
+SKILL_METADATA_KEYS: tuple[str, ...] = ("openclaw", "clawdbot", "clawdis", "moltbot")
 
 
 def _skill_runtime_requires(metadata_field: dict) -> dict:
@@ -693,7 +694,7 @@ class SkillModule(XYZBaseModule):
                     fm = parts[1]
                     meta = yaml.safe_load(fm)
                     if meta:
-                        # Parse structured metadata (e.g., clawdbot format)
+                        # Parse structured metadata (the OpenClaw skill format and its aliases)
                         fm_requires_env = []
                         fm_requires_bins = []
                         metadata_field = meta.get("metadata", {})

@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-09-03（批 1）— 模型解析合一
 
-`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=True)`；旧 docstring 的「三种模式」中模式 2/3 返回值相同，`_OFFICIAL_OPENAI_BASE_URLS` 不再参与模型解析（常量保留给其他用途）。行为不变，`tests/nx_kernel/contracts/test_resolve_model.py` 对官方/自定义端点两组输入断言相同输出。
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=True)`；旧 docstring 的「三种模式」中模式 2/3 返回值相同，「官方端点 vs 自定义端点」判断从未影响结果，`_OFFICIAL_OPENAI_BASE_URLS` 已连同它删除（零其他引用）。唯一行为差异：slot 为空串时以前直接回落 `OpenAIConfig.model`，现在与 `"default"` 哨兵一致先取调用点偏好——这是三份实现合一后的统一语义，`tests/nx_kernel/contracts/test_resolve_model.py` 钉住官方/自定义端点同输出与空 slot 行为。
 
 ## 2026-08-25 — helper 调用子相位计时（诊断埋点，无行为变化）
 

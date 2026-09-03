@@ -92,6 +92,7 @@ def capability_meta_for(module: XYZBaseModule) -> CapabilityMeta:
         always_load=config.module_type == "capability",
         is_task_capability=config.module_type == "task",
         provides_chat_history=type(module).provides_chat_history(),
+        requires={"enabled": config.enabled},
     )
 
 

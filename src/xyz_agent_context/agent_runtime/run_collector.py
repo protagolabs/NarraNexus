@@ -37,7 +37,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
+from narranexus.contracts.agent_events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from xyz_agent_context.agent_framework.adapters.claude.cli_binary import PINNED_CLI_VERSION
 
-from backend.integrations.plugins.registry import PLUGIN_SPECS
+from backend.integrations.plugins.registry import build_plugin_specs
+
+PLUGIN_SPECS = build_plugin_specs()
 
 
 def test_registry_has_exactly_claude_and_codex():
@@ -53,7 +55,7 @@ def test_plugin_id_equals_framework_name_and_dict_key():
     probes pyenv/<framework_name>/ and reports 'not installed' forever. This
     turns that docstring-only contract into a guard (same shape as
     test_plugins_extra_lockstep / test_claude_cli_pin)."""
-    from backend.integrations.plugins.registry import PLUGIN_SPECS
+    pass
 
     for key, spec in PLUGIN_SPECS.items():
         assert key == spec.id == spec.framework_name, (
@@ -74,7 +76,7 @@ def test_pip_pins_match_uv_lock():
     import tomllib
     from pathlib import Path
 
-    from backend.integrations.plugins.registry import PLUGIN_SPECS
+    pass
 
     repo = Path(__file__).resolve().parents[4]
     lock = tomllib.loads((repo / "uv.lock").read_text(encoding="utf-8"))
