@@ -18,6 +18,9 @@ import { Loader2 } from 'lucide-react';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { markTabOpened, type AtomicTabId } from './tabs';
 
+const BuilderConfigPanel = lazy(() =>
+  import('@/components/builder').then((m) => ({ default: m.BuilderConfigPanel })),
+);
 const AwarenessPanel = lazy(() =>
   import('@/components/awareness/AwarenessPanel').then((m) => ({ default: m.AwarenessPanel })),
 );
@@ -68,6 +71,7 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <Suspense fallback={<PanelFallback />}>
+        {tab === 'builder' && <BuilderConfigPanel agentId={agentId} />}
         {tab === 'awareness' && <AwarenessPanel embedded section="awareness" />}
         {tab === 'workspace' && <AwarenessPanel embedded section="workspace" />}
         {tab === 'channels' && <AwarenessPanel embedded section="channels" />}

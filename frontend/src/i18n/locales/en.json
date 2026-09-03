@@ -2294,8 +2294,10 @@
       "skills": "Installed abilities the agent can use. Add more from the Marketplace, or install from GitHub / zip.",
       "mcp": "External MCP tool servers the agent can call — plug in third-party capabilities.",
       "memory": "The agent's long-term memory, organized as narratives — what it carries across conversations.",
-      "social": "Who the agent knows — contacts accumulate as it works with people and other agents."
-    }
+      "social": "Who the agent knows — contacts accumulate as it works with people and other agents.",
+      "builder": "Describe what you need; the conversation fills in this panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Jobs",
@@ -2794,18 +2796,25 @@
       "cliWebHint": "Not signed in — run `claude auth login` in your terminal, then reopen this dialog.",
       "cliMissingHint": "The Claude CLI is not available here. Install it, sign in from your terminal, then reopen this dialog."
     },
-    "apply": {
-      "cta": "Apply to this agent",
-      "applied": "Applied",
-      "hint": "Writes the draft into this agent's instructions.",
-      "savingHint": "Saving your edits — try again in a moment.",
-      "doneHint": "Instructions updated. Name, skills and channels are still yours to set up.",
-      "confirmTitle": "Apply the draft?",
-      "confirmBody": "This replaces this agent's current instructions with the draft. Name, skills and channels are not touched.",
-      "confirmCta": "Apply",
-      "emptyDraft": "The draft is empty — nothing to apply.",
-      "readFailed": "Could not read the draft: {{detail}}",
-      "writeFailed": "Could not write the instructions: {{detail}}"
+    "panel": {
+      "intro": "The conversation writes name, description and instructions straight to this agent. Skills and channels are suggested — you install them.",
+      "identity": "Identity",
+      "name": "Name",
+      "namePlaceholder": "e.g. Morning Market Brief",
+      "description": "Description",
+      "descriptionPlaceholder": "One sentence. Other agents read this to decide whether to route work here.",
+      "behaviour": "Behaviour",
+      "instructions": "Instructions",
+      "instructionsPlaceholder": "What this agent does, how it works, what to avoid…",
+      "recommended": "Recommended",
+      "recommendedHint": "Suggestions from the conversation. Nothing is installed or connected until you say so.",
+      "noRecommendations": "No suggestions yet.",
+      "install": "Install",
+      "installed": "Installed",
+      "setUp": "Set up",
+      "saving": "Saving…",
+      "savedHint": "Changes save when you leave a field.",
+      "done": "Done"
     }
   }
 }

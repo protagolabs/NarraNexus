@@ -3,6 +3,16 @@ code_file: frontend/src/components/chat/MessageBubble.tsx
 last_verified: 2026-09-03
 ---
 
+## 2026-09-03 (修订同日早条) — 两个方向都要剥
+
+早条只讲了用户消息里的指令。现在两个方向都有机器：**用户**消息裹着指令 +
+当前配置信封，**助手**消息尾部有 `<agent_draft>` 配置块。`visibleContent` 按
+`isUser` 分派到 `decodeBuilderTurn` / `stripAgentDraft`，用在气泡、复制、下载
+三处出口。
+
+剥离必须留在**渲染路径**而不是 store：[[useStudioTurn.ts]] 要从已落定消息里
+parse 出原始块。
+
 ## 2026-09-03 — 剥掉 Builder 指令块
 
 新增 `visibleContent = stripBuilderInstruction(message.content)`，用在**所有

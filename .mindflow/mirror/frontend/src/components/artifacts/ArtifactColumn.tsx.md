@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (作废同日早条) — apply bar 已移除
+
+早条记的「配置草稿多一条 apply bar」是 markdown 草稿方案的产物。Owner 于
+2026-09-03 选定**结构化面板 + 实时落库**（见
+`reference/self_notebook/specs/2026-08-26-agent-creation-studio-prd.md`），
+那条路径整体作废，本文件已还原为改动前状态，artifact 列**没有** studio 相关
+逻辑。
+
 ## 2026-09-03 — 配置草稿多一条 apply bar
 
 `isConfigDraft(active)` 为真时，在 tab strip 与内容区之间插入

@@ -1838,8 +1838,10 @@
       "skills": "Compétences installées de l'agent. Ajoutez-en depuis le Marketplace, ou installez depuis GitHub / zip.",
       "mcp": "Serveurs d'outils MCP externes que l'agent peut appeler — branchez des capacités tierces.",
       "memory": "La mémoire longue de l'agent, organisée en narratifs — ce qu'il retient d'une conversation à l'autre.",
-      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations."
-    }
+      "social": "Qui l'agent connaît — les contacts s'accumulent au fil de ses collaborations.",
+      "builder": "Décrivez votre besoin ; la conversation remplit ce panneau."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Tâches",
@@ -2278,18 +2280,25 @@
       "cliWebHint": "Non connecté — exécutez `claude auth login` dans votre terminal, puis rouvrez cette fenêtre.",
       "cliMissingHint": "La CLI Claude n'est pas disponible ici. Installez-la, connectez-vous depuis le terminal, puis rouvrez cette fenêtre."
     },
-    "apply": {
-      "cta": "Appliquer à cet agent",
-      "applied": "Appliqué",
-      "hint": "Écrit le brouillon dans les instructions de cet agent.",
-      "savingHint": "Vos modifications sont en cours d'enregistrement — réessayez dans un instant.",
-      "doneHint": "Instructions mises à jour. Le nom, les skills et les canaux restent à votre charge.",
-      "confirmTitle": "Appliquer le brouillon ?",
-      "confirmBody": "Cela remplace les instructions actuelles de cet agent par le brouillon. Le nom, les skills et les canaux ne sont pas touchés.",
-      "confirmCta": "Appliquer",
-      "emptyDraft": "Le brouillon est vide — rien à appliquer.",
-      "readFailed": "Impossible de lire le brouillon : {{detail}}",
-      "writeFailed": "Impossible d'écrire les instructions : {{detail}}"
+    "panel": {
+      "intro": "La conversation écrit le nom, la description et les instructions directement dans cet agent. Les skills et canaux sont suggérés — c'est vous qui les installez.",
+      "identity": "Identité",
+      "name": "Nom",
+      "namePlaceholder": "ex. Brief financier du matin",
+      "description": "Description",
+      "descriptionPlaceholder": "Une phrase. Les autres agents la lisent pour décider s'ils envoient du travail ici.",
+      "behaviour": "Comportement",
+      "instructions": "Instructions",
+      "instructionsPlaceholder": "Ce que fait cet agent, comment il travaille, ce qu'il doit éviter…",
+      "recommended": "Suggestions",
+      "recommendedHint": "Suggestions issues de la conversation. Rien n'est installé ni connecté avant votre accord.",
+      "noRecommendations": "Aucune suggestion pour l'instant.",
+      "install": "Installer",
+      "installed": "Installé",
+      "setUp": "Configurer",
+      "saving": "Enregistrement…",
+      "savedHint": "Les modifications sont enregistrées quand vous quittez un champ.",
+      "done": "Terminé"
     }
   }
 }

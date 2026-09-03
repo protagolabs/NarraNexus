@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — AI 路径改为开 studio + 亮出面板
+
+建完 agent 后 `openStudio(agentId)` 并 `requestPanel('builder')`。面板必须在第一
+条消息之前就可见 —— 这条路径的卖点就是「对话把面板填好」，面板不在场就看不出
+发生了什么。
+
 # ChooseCreateMethodPage.tsx — 创建路径的分叉页
 
 ## 为什么存在（产品理由，不是技术理由）

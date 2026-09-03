@@ -26,7 +26,8 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronRight, FileText, MessageSquare, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useCreateAgent } from '@/hooks';
-import { markBuilderPending } from '@/lib/builderSession';
+import { openStudio } from '@/lib/builderSession';
+import { useUIStore } from '@/stores';
 import { ProviderPickerModal } from '@/components/builder';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +37,7 @@ export default function ChooseCreateMethodPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { createAgent } = useCreateAgent();
+  const requestPanel = useUIStore((s) => s.requestPanel);
   const [phase, setPhase] = useState<Phase>('idle');
 
   const busy = phase === 'probing' || phase === 'creating';
@@ -50,10 +52,16 @@ export default function ChooseCreateMethodPage() {
         setPhase('idle');
         return;
       }
-      if (studio) markBuilderPending(agentId);
+      if (studio) {
+        openStudio(agentId);
+        // Reveal the configuration panel straight away: the whole point of
+        // this path is that the conversation fills in a panel, so the panel
+        // has to be visible before the first message.
+        requestPanel('builder');
+      }
       navigate('/app/chat');
     },
-    [createAgent, navigate],
+    [createAgent, navigate, requestPanel],
   );
 
   /**

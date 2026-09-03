@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-08-06
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 新增 `builder` 原子 tab
+
+创建工作室的配置面板。放在 Config 组**首位** —— 它是配置的「从这里开始」：一段
+把其余 tab 填好的对话。遵守既有 IA（一个 tab 一个 panel），没有嵌套堆叠。
 
 ## 2026-08-06 (2) — tabDescKey:每个面板一句话说明
 

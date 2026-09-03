@@ -4,31 +4,31 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-# builderSession.ts — 「下一条消息带 Builder 指令」这一个标记
+# builderSession.ts — studio 开关 + 未落地的推荐
 
-## 为什么存在
+## 2026-09-03 — 从「一次性标记」改成「持久开关」
 
-创建工作室 v0 的指令必须包住用户**自己打的第一句话**（见
-[[builderPrompt.ts]]），所以不能在进入聊天页时就发出去。
-[[ChooseCreateMethodPage.tsx]] 建完 agent 后打一个标记，
-[[ChatPanel.tsx]] 的提交路径消费它一次。
+初版是 consume-once：只包裹第一条消息。改成结构化面板 + 实时落库之后这不成立
+了 —— 指令必须**每轮**都带（信封里的当前配置才是让用户手改成为权威的东西），
+而且弱模型被告知一次后过几轮就不再吐 `<agent_draft>` 块。所以读操作
+`isStudioOpen` 是**只读的**，绝不消费。
 
 ## 为什么用 sessionStorage
 
-不是路由 state，也不是 store 字段：
+不是路由 state，也不是 store 字段：比路由 state 活得久（刷新还在）、按标签页
+隔离（两个 studio 不互相抢）、不用改 chatStore 那条承重的提交路径。
 
-- **比路由 state 活得久**：刷新页面标记还在，路由 state 会丢。
-- **按标签页隔离**：两个标签页各开一个创建流程，不会互相抢标记。
-- **不用改 chatStore**：v0 的全部意义就是不碰承重路径。
+## 两块状态，边界很重要
 
-## 关键决策：consume-once
+| 存什么 | 存哪 | 为什么 |
+|---|---|---|
+| studio 开关 | 这里 | 纯 UI 状态，服务端不该知道 |
+| **推荐**的 skills / channels | 这里 | **不是 agent 状态** —— 服务端没有「某个 agent 被建议用 web-search」这回事 |
+| 名称 / 描述 / 指令 | **agent 上** | 直接写进去，服务端是它们的唯一真相，本模块绝不影子存一份 |
 
-`takeBuilderPending` 读完即清。标记若泄漏到后续回合，用户每发一条消息都会
-重新携带整段指令 —— 既烧 context，又在反复教一个已经被教过的模型。
+推荐要按 agent 存，是为了出站信封每轮能重述它们；不然模型每条回复都会把同一个
+skill 再推荐一遍。
 
-## Gotcha
+## 没有「放弃」
 
-- 私密模式 Safari 访问 `sessionStorage` 会抛，SSR / 测试环境可能没有
-  `window`，所以取用包在 try 里，拿不到就整体降级为「没有标记」。
-- 空 `agentId` 在三个方向上都是惰性的，不会写出 `nn.builderPending.` 这种
-  没有主键的垃圾键。
+面板写的是真实 agent，用户离开时没有可回滚的东西。离开 studio 只是清掉开关。

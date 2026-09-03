@@ -30,7 +30,7 @@ import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
-import { stripBuilderInstruction } from '@/lib/builderPrompt';
+import { decodeBuilderTurn, stripAgentDraft } from '@/lib/builderProtocol';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -216,15 +216,19 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     setShowDetails((prev) => !prev);
   }, [inlineEvents.length, canLoadEventLog, hasEventLogData, loadEventLog]);
 
-  // Creation studio (v0): the Agent Builder instruction travels inside the
-  // user's FIRST message, because the conversation runs on the user's own
-  // agent and there is nowhere else to put it (v0 never writes Awareness
-  // unprompted). Strip it from every surface that shows message text —
-  // bubble, copy, download — so the user only ever sees what they typed.
-  // Plain messages pass through untouched, so this is safe for all traffic.
+  // Creation studio: both directions carry machinery the reader must never
+  // see. A USER message wraps the builder instruction plus the agent's
+  // current config (the conversation runs on the user's own agent, so there
+  // is nowhere else to put it); an ASSISTANT message ends with the
+  // <agent_draft> config block. Strip the matching one from every surface
+  // that shows message text — bubble, copy, download.
+  //
+  // Ordinary traffic passes through untouched, so this is safe for all
+  // messages, and it must stay on the render path rather than the store:
+  // useStudioTurn parses the raw block out of the settled message.
   const visibleContent = useMemo(
-    () => stripBuilderInstruction(message.content),
-    [message.content],
+    () => (isUser ? decodeBuilderTurn(message.content) : stripAgentDraft(message.content)),
+    [isUser, message.content],
   );
 
   const handleCopy = useCallback(async () => {
@@ -577,9 +581,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 })}
               </span>
             ) : message.isError ? (
-              <span className="whitespace-pre-wrap">{message.content}</span>
+              <span className="whitespace-pre-wrap">{visibleContent}</span>
             ) : (
-              <Markdown content={message.content} />
+              <Markdown content={visibleContent} />
             )}
             {isStreaming && (
               <span className="inline-block w-0.5 h-4 ml-0.5 bg-[var(--accent-primary)] animate-pulse rounded-full" />

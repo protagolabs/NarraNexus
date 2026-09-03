@@ -2294,8 +2294,10 @@
       "skills": "Agent 已安装的技能。可以去 Marketplace 添加，或从 GitHub / zip 安装。",
       "mcp": "Agent 可调用的外部 MCP 工具服务器 — 接入第三方能力。",
       "memory": "Agent 的长期记忆，以叙事（Narrative）组织 — 跨会话记住的内容。",
-      "social": "Agent 认识的人和 Agent — 随着协作交往，联系人会自动累积。"
-    }
+      "social": "Agent 认识的人和 Agent — 随着协作交往，联系人会自动累积。",
+      "builder": "描述你的需求，对话会把这个面板填好。"
+    },
+    "builder": "配置向导"
   },
   "jobs": {
     "title": "任务",
@@ -2794,18 +2796,25 @@
       "cliWebHint": "未登录 —— 请在终端运行 `claude auth login`，然后重新打开此对话框。",
       "cliMissingHint": "这里没有 Claude CLI。请先安装并在终端登录，然后重新打开此对话框。"
     },
-    "apply": {
-      "cta": "应用到当前智能体",
-      "applied": "已应用",
-      "hint": "把草稿写入这个智能体的指令。",
-      "savingHint": "正在保存你的修改 —— 稍后再试。",
-      "doneHint": "指令已更新。名称、Skills 和渠道仍需你自己配置。",
-      "confirmTitle": "应用这份草稿？",
-      "confirmBody": "这会用草稿替换这个智能体当前的指令。名称、Skills 和渠道不受影响。",
-      "confirmCta": "应用",
-      "emptyDraft": "草稿是空的，没有可应用的内容。",
-      "readFailed": "读取草稿失败：{{detail}}",
-      "writeFailed": "写入指令失败：{{detail}}"
+    "panel": {
+      "intro": "对话会把名称、描述和指令直接写进这个智能体。Skills 和渠道只是建议，由你来安装。",
+      "identity": "身份",
+      "name": "名称",
+      "namePlaceholder": "例如：金融晨报",
+      "description": "描述",
+      "descriptionPlaceholder": "一句话。其他智能体靠它判断要不要把任务派到这里。",
+      "behaviour": "行为与能力",
+      "instructions": "指令",
+      "instructionsPlaceholder": "这个智能体做什么、怎么做、要避开什么…",
+      "recommended": "建议",
+      "recommendedHint": "来自对话的建议。在你点之前，不会安装也不会连接任何东西。",
+      "noRecommendations": "还没有建议。",
+      "install": "安装",
+      "installed": "已安装",
+      "setUp": "去配置",
+      "saving": "保存中…",
+      "savedHint": "离开输入框时自动保存。",
+      "done": "完成"
     }
   }
 }

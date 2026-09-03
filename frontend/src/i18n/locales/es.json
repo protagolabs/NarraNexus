@@ -1838,8 +1838,10 @@
       "skills": "Habilidades instaladas del agente. Añade más desde el Marketplace o instala desde GitHub / zip.",
       "mcp": "Servidores de herramientas MCP externos que el agente puede llamar — conecta capacidades de terceros.",
       "memory": "La memoria a largo plazo del agente, organizada en narrativas — lo que recuerda entre conversaciones.",
-      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes."
-    }
+      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes.",
+      "builder": "Describe lo que necesitas; la conversación rellena este panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Trabajos",
@@ -2278,18 +2280,25 @@
       "cliWebHint": "Sin iniciar sesión: ejecuta `claude auth login` en tu terminal y vuelve a abrir este diálogo.",
       "cliMissingHint": "La CLI de Claude no está disponible aquí. Instálala, inicia sesión desde el terminal y vuelve a abrir este diálogo."
     },
-    "apply": {
-      "cta": "Aplicar a este agente",
-      "applied": "Aplicado",
-      "hint": "Escribe el borrador en las instrucciones de este agente.",
-      "savingHint": "Guardando tus cambios: inténtalo de nuevo en un momento.",
-      "doneHint": "Instrucciones actualizadas. El nombre, los skills y los canales siguen siendo tu tarea.",
-      "confirmTitle": "¿Aplicar el borrador?",
-      "confirmBody": "Esto sustituye las instrucciones actuales del agente por el borrador. El nombre, los skills y los canales no se tocan.",
-      "confirmCta": "Aplicar",
-      "emptyDraft": "El borrador está vacío: no hay nada que aplicar.",
-      "readFailed": "No se pudo leer el borrador: {{detail}}",
-      "writeFailed": "No se pudieron escribir las instrucciones: {{detail}}"
+    "panel": {
+      "intro": "La conversación escribe el nombre, la descripción y las instrucciones directamente en este agente. Los skills y canales solo se sugieren: los instalas tú.",
+      "identity": "Identidad",
+      "name": "Nombre",
+      "namePlaceholder": "p. ej. Resumen financiero matinal",
+      "description": "Descripción",
+      "descriptionPlaceholder": "Una frase. Otros agentes la leen para decidir si envían trabajo aquí.",
+      "behaviour": "Comportamiento",
+      "instructions": "Instrucciones",
+      "instructionsPlaceholder": "Qué hace este agente, cómo trabaja, qué debe evitar…",
+      "recommended": "Sugerencias",
+      "recommendedHint": "Sugerencias de la conversación. No se instala ni se conecta nada hasta que tú lo indiques.",
+      "noRecommendations": "Todavía no hay sugerencias.",
+      "install": "Instalar",
+      "installed": "Instalado",
+      "setUp": "Configurar",
+      "saving": "Guardando…",
+      "savedHint": "Los cambios se guardan al salir de un campo.",
+      "done": "Listo"
     }
   }
 }

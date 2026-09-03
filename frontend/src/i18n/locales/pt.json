@@ -1838,8 +1838,10 @@
       "skills": "Habilidades instaladas do agente. Adicione mais no Marketplace ou instale via GitHub / zip.",
       "mcp": "Servidores de ferramentas MCP externos que o agente pode chamar — conecte capacidades de terceiros.",
       "memory": "A memória de longo prazo do agente, organizada em narrativas — o que ele leva entre conversas.",
-      "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes."
-    }
+      "social": "Quem o agente conhece — contatos se acumulam conforme ele trabalha com pessoas e outros agentes.",
+      "builder": "Descreva o que precisa; a conversa preenche este painel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Tarefas",
@@ -2278,18 +2280,25 @@
       "cliWebHint": "Não conectado — execute `claude auth login` no terminal e reabra esta janela.",
       "cliMissingHint": "A CLI do Claude não está disponível aqui. Instale-a, entre pelo terminal e reabra esta janela."
     },
-    "apply": {
-      "cta": "Aplicar a este agente",
-      "applied": "Aplicado",
-      "hint": "Escreve o rascunho nas instruções deste agente.",
-      "savingHint": "Salvando suas edições — tente de novo em instantes.",
-      "doneHint": "Instruções atualizadas. Nome, skills e canais continuam sob sua responsabilidade.",
-      "confirmTitle": "Aplicar o rascunho?",
-      "confirmBody": "Isso substitui as instruções atuais deste agente pelo rascunho. Nome, skills e canais não são alterados.",
-      "confirmCta": "Aplicar",
-      "emptyDraft": "O rascunho está vazio — nada a aplicar.",
-      "readFailed": "Não foi possível ler o rascunho: {{detail}}",
-      "writeFailed": "Não foi possível escrever as instruções: {{detail}}"
+    "panel": {
+      "intro": "A conversa escreve nome, descrição e instruções direto neste agente. Skills e canais são apenas sugeridos — você é quem instala.",
+      "identity": "Identidade",
+      "name": "Nome",
+      "namePlaceholder": "ex.: Resumo financeiro da manhã",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Uma frase. Outros agentes leem isso para decidir se mandam trabalho para cá.",
+      "behaviour": "Comportamento",
+      "instructions": "Instruções",
+      "instructionsPlaceholder": "O que este agente faz, como trabalha, o que deve evitar…",
+      "recommended": "Sugestões",
+      "recommendedHint": "Sugestões vindas da conversa. Nada é instalado ou conectado até você mandar.",
+      "noRecommendations": "Ainda não há sugestões.",
+      "install": "Instalar",
+      "installed": "Instalado",
+      "setUp": "Configurar",
+      "saving": "Salvando…",
+      "savedHint": "As alterações são salvas ao sair de um campo.",
+      "done": "Concluir"
     }
   }
 }

@@ -22,6 +22,7 @@ import {
   Network,
   ListTodo,
   Inbox,
+  Wand2,
   Puzzle,
   Server,
   BookOpen,
@@ -62,6 +63,7 @@ export const ArtifactsGlyph = forwardRef<SVGSVGElement, LucideProps>(
 ) as unknown as LucideIcon;
 
 export type AtomicTabId =
+  | 'builder'
   | 'awareness'
   | 'workspace'
   | 'channels'
@@ -109,6 +111,9 @@ export const STRIP_CATEGORIES: StripCategory[] = [
     label: 'Config',
     labelKey: 'rail.category.config',
     tabs: [
+      // Creation studio. Sits first in Config because it is the "start here"
+      // of configuration — a conversation that fills the other tabs in.
+      { id: 'builder', label: 'Builder', labelKey: 'rail.builder', icon: Wand2 },
       { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
       { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
       { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },

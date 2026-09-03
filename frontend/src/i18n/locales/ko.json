@@ -1837,8 +1837,10 @@
       "skills": "설치된 스킬 목록. Marketplace에서 추가하거나 GitHub / zip으로 설치할 수 있습니다.",
       "mcp": "에이전트가 호출할 수 있는 외부 MCP 도구 서버 — 서드파티 기능을 연결합니다.",
       "memory": "내러티브로 정리된 에이전트의 장기 기억 — 대화를 넘어 유지되는 내용입니다.",
-      "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다."
-    }
+      "social": "에이전트가 아는 사람들 — 사람·에이전트와 협업하며 연락처가 쌓입니다.",
+      "builder": "필요한 것을 설명하면 대화가 이 패널을 채웁니다."
+    },
+    "builder": "빌더"
   },
   "jobs": {
     "title": "작업",
@@ -2277,18 +2279,25 @@
       "cliWebHint": "로그인되지 않음 — 터미널에서 `claude auth login`을 실행한 뒤 이 창을 다시 열어 주세요.",
       "cliMissingHint": "여기서는 Claude CLI를 사용할 수 없습니다. 설치하고 터미널에서 로그인한 뒤 다시 열어 주세요."
     },
-    "apply": {
-      "cta": "이 에이전트에 적용",
-      "applied": "적용됨",
-      "hint": "초안을 이 에이전트의 지침에 씁니다.",
-      "savingHint": "편집 내용을 저장하고 있습니다 — 잠시 후 다시 시도하세요.",
-      "doneHint": "지침이 업데이트되었습니다. 이름, 스킬, 채널은 직접 설정해야 합니다.",
-      "confirmTitle": "초안을 적용할까요?",
-      "confirmBody": "이 에이전트의 현재 지침을 초안으로 대체합니다. 이름, 스킬, 채널은 변경되지 않습니다.",
-      "confirmCta": "적용",
-      "emptyDraft": "초안이 비어 있어 적용할 내용이 없습니다.",
-      "readFailed": "초안을 읽지 못했습니다: {{detail}}",
-      "writeFailed": "지침을 쓰지 못했습니다: {{detail}}"
+    "panel": {
+      "intro": "대화가 이름·설명·지침을 이 에이전트에 바로 씁니다. 스킬과 채널은 제안일 뿐이며 설치는 사용자가 합니다.",
+      "identity": "신원",
+      "name": "이름",
+      "namePlaceholder": "예: 금융 모닝 브리핑",
+      "description": "설명",
+      "descriptionPlaceholder": "한 문장으로. 다른 에이전트가 여기로 작업을 보낼지 판단할 때 읽습니다.",
+      "behaviour": "동작",
+      "instructions": "지침",
+      "instructionsPlaceholder": "이 에이전트가 무엇을 하고 어떻게 일하며 무엇을 피할지…",
+      "recommended": "제안",
+      "recommendedHint": "대화에서 나온 제안입니다. 직접 누르기 전에는 아무것도 설치·연결되지 않습니다.",
+      "noRecommendations": "아직 제안이 없습니다.",
+      "install": "설치",
+      "installed": "설치됨",
+      "setUp": "설정하기",
+      "saving": "저장 중…",
+      "savedHint": "입력란을 벗어나면 저장됩니다.",
+      "done": "완료"
     }
   }
 }

@@ -1838,8 +1838,10 @@
       "skills": "Installierte Fähigkeiten des Agenten. Mehr im Marketplace oder per GitHub / zip installieren.",
       "mcp": "Externe MCP-Tool-Server, die der Agent aufrufen kann — Drittanbieter-Fähigkeiten anschließen.",
       "memory": "Das Langzeitgedächtnis des Agenten, als Narrative organisiert — was er über Gespräche hinweg behält.",
-      "social": "Wen der Agent kennt — Kontakte sammeln sich an, während er mit Menschen und Agenten arbeitet."
-    }
+      "social": "Wen der Agent kennt — Kontakte sammeln sich an, während er mit Menschen und Agenten arbeitet.",
+      "builder": "Beschreiben Sie, was Sie brauchen — das Gespräch füllt dieses Panel."
+    },
+    "builder": "Builder"
   },
   "jobs": {
     "title": "Jobs",
@@ -2278,18 +2280,25 @@
       "cliWebHint": "Nicht angemeldet — führen Sie `claude auth login` im Terminal aus und öffnen Sie diesen Dialog erneut.",
       "cliMissingHint": "Die Claude CLI ist hier nicht verfügbar. Installieren Sie sie, melden Sie sich im Terminal an und öffnen Sie den Dialog erneut."
     },
-    "apply": {
-      "cta": "Auf diesen Agent anwenden",
-      "applied": "Angewendet",
-      "hint": "Schreibt den Entwurf in die Anweisungen dieses Agents.",
-      "savingHint": "Ihre Änderungen werden gespeichert — bitte kurz erneut versuchen.",
-      "doneHint": "Anweisungen aktualisiert. Name, Skills und Kanäle richten Sie selbst ein.",
-      "confirmTitle": "Entwurf anwenden?",
-      "confirmBody": "Dies ersetzt die aktuellen Anweisungen dieses Agents durch den Entwurf. Name, Skills und Kanäle bleiben unberührt.",
-      "confirmCta": "Anwenden",
-      "emptyDraft": "Der Entwurf ist leer — nichts anzuwenden.",
-      "readFailed": "Entwurf konnte nicht gelesen werden: {{detail}}",
-      "writeFailed": "Anweisungen konnten nicht geschrieben werden: {{detail}}"
+    "panel": {
+      "intro": "Das Gespräch schreibt Name, Beschreibung und Anweisungen direkt in diesen Agent. Skills und Kanäle werden nur vorgeschlagen — installieren tun Sie.",
+      "identity": "Identität",
+      "name": "Name",
+      "namePlaceholder": "z. B. Finanz-Morgenbriefing",
+      "description": "Beschreibung",
+      "descriptionPlaceholder": "Ein Satz. Andere Agents lesen ihn, um zu entscheiden, ob Arbeit hierher geht.",
+      "behaviour": "Verhalten",
+      "instructions": "Anweisungen",
+      "instructionsPlaceholder": "Was dieser Agent tut, wie er arbeitet, was er vermeiden soll…",
+      "recommended": "Vorschläge",
+      "recommendedHint": "Vorschläge aus dem Gespräch. Nichts wird installiert oder verbunden, bevor Sie es sagen.",
+      "noRecommendations": "Noch keine Vorschläge.",
+      "install": "Installieren",
+      "installed": "Installiert",
+      "setUp": "Einrichten",
+      "saving": "Wird gespeichert…",
+      "savedHint": "Änderungen werden beim Verlassen eines Feldes gespeichert.",
+      "done": "Fertig"
     }
   }
 }

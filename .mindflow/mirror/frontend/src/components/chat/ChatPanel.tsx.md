@@ -4,6 +4,19 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (修订 09-03 早条) — studio 改为每轮包裹 + 落定即应用
+
+早先那条写的是「包裹**第一条**消息」，随结构化面板一起作废。现在：
+
+- 提交路径 `outgoing = await encodeOutgoing(content)` —— studio 打开期间**每轮**
+  都带 Builder 指令 + 当前配置。位置仍在 steer 分支之后（mid-run 追问不是一个
+  回合）。返回原文即降级，studio 出问题不能吞掉用户的消息。
+- 新增一个 effect 监听**流式落定沿**（true → false），把最后一条 assistant
+  消息交给 `applyFromReply`。刻意不监听消息列表：草稿块只有回合结束才完整，
+  流式中途应用会把半序列化的 JSON 写进 agent 的指令。
+
+两个调用都来自 [[useStudioTurn.ts]]，本文件不含 studio 逻辑。
+
 ## 2026-09-03 — 创建工作室 v0：首条消息包裹 Builder 指令
 
 提交路径新增 `outgoing`：agent 被 [[builderSession.ts]] 标记过时，用

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkPanelHost.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 挂载 `builder` 面板
+
+`tab === 'builder'` → lazy 的 [[BuilderConfigPanel.tsx]]。与其他 panel 一样
+lazy，所以不打开就不拉这块 chunk。
 
 ## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
 

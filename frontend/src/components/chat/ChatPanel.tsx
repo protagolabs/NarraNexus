@@ -41,8 +41,7 @@ import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
 import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
-import { buildBuilderFirstMessage } from '@/lib/builderPrompt';
-import { takeBuilderPending } from '@/lib/builderSession';
+import { useStudioTurn } from '@/hooks/useStudioTurn';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -256,6 +255,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const currentToolCalls = useDeferredValue(_rtToolCalls);
   const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+  // Creation studio: two touch points only — wrap the outgoing message, and
+  // apply the settled reply's config block. Everything else lives in the hook.
+  const { encodeOutgoing, applyFromReply } = useStudioTurn(agentId);
   const { t } = useTranslation();
 
   // Read artifact list at component scope so it can be safely passed into
@@ -622,6 +624,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
+  // ── Creation studio: apply the config block when a turn settles ──
+  //
+  // Watches the streaming edge (true -> false) rather than the message list:
+  // the draft block is only complete once the turn is done, and applying
+  // mid-stream would write a half-serialised JSON value into the agent's
+  // instructions. The reply text is read from the store's settled message,
+  // not from the streaming buffer, for the same reason.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    const settled = wasStreamingRef.current && !isStreaming;
+    wasStreamingRef.current = isStreaming;
+    if (!settled) return;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role !== 'assistant') continue;
+      void applyFromReply(messages[i].content);
+      return;
+    }
+  }, [isStreaming, messages, applyFromReply]);
+
   // ── Inner Thoughts defaults to the bottom (newest activity) ──
   // Like a chat log, not an inbox: the newest activity sits at the bottom, so
   // opening the tab (or a new activity arriving) snaps to the end and the user
@@ -879,16 +900,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       return;
     }
 
-    // Creation studio (v0): on a studio-marked agent the Agent Builder
-    // instruction wraps the user's FIRST message. It cannot be sent on
-    // arrival — it exists to frame the request, and the request is whatever
-    // the user just typed. The mark is consume-once, so later turns send
-    // plain text (see lib/builderSession). MessageBubble strips the block so
-    // the user's own bubble shows only what they wrote.
-    // Deliberately after the steer branch: a steer must never burn the mark.
-    const outgoing = takeBuilderPending(agentId)
-      ? (buildBuilderFirstMessage(content) ?? content)
-      : content;
+    // Creation studio: while it is open, every outgoing message carries the
+    // Agent Builder instruction plus this agent's CURRENT configuration.
+    // Restating the config each turn is what makes the user's own panel edits
+    // authoritative — the model revises what the panel holds instead of
+    // overwriting it. Returns `content` untouched when the studio is shut, or
+    // on any failure: a studio hiccup must not swallow the user's message.
+    // Deliberately after the steer branch — a mid-run steer is not a turn.
+    const outgoing = await encodeOutgoing(content);
 
     const attachmentsToSend = pendingAttachments;
     composerRef.current?.clear();
