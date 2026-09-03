@@ -45,61 +45,41 @@ Cloud deployments set ``NARRANEXUS_DEPLOYMENT_MODE=cloud`` in their
 installs do nothing — the default is ``local``, which is also the
 safer default for ad-hoc / dev environments.
 
-Priority:
-
-1. ``NARRANEXUS_DEPLOYMENT_MODE`` env var (case-insensitive, trimmed).
-   Values: ``cloud`` or ``local``. Anything else → fall back to local.
-2. Legacy heuristic: if ``DATABASE_URL`` points at a non-sqlite DB,
-   treat as cloud. This keeps existing cloud deployments working
-   without requiring them to redeploy just to set a new env var.
-3. Otherwise → ``local``.
+The resolver itself lives in ``narranexus.kernel.deployment`` since the
+plugin platform's batch 0 (its loader needs exactly one answer to fail
+closed on the cloud); this module re-exports it and keeps the power-login
+axis. Precedence: explicit env var → ``DATABASE_URL`` → ``DB_HOST`` → local.
 """
 from __future__ import annotations
 
 import os
-from typing import Literal
 
+from narranexus.kernel.deployment import (
+    DEPLOYMENT_MODE_ENV_VAR,
+    DeploymentMode,
+    get_deployment_mode,
+    is_cloud_mode,
+    is_local_mode,
+)
 
-DEPLOYMENT_MODE_ENV_VAR = "NARRANEXUS_DEPLOYMENT_MODE"
+__all__ = [
+    "DEPLOYMENT_MODE_ENV_VAR",
+    "DeploymentMode",
+    "POWER_LOGIN_ENV_VAR",
+    "get_deployment_mode",
+    "is_cloud_mode",
+    "is_local_mode",
+    "is_power_login_enabled",
+]
 
 # Local opt-in for NetMind ("Power") account login. Cloud always has it; a
 # local/desktop install turns it on to offer Power login alongside pure-local
 # username login.
 POWER_LOGIN_ENV_VAR = "NARRANEXUS_ENABLE_POWER_LOGIN"
 
-DeploymentMode = Literal["cloud", "local"]
-
-_VALID_MODES: tuple[DeploymentMode, ...] = ("cloud", "local")
-
 # Truthy spellings for boolean opt-in env vars (mirrors backend/auth.py flag
 # parsing so all env booleans behave the same).
 _TRUTHY = ("1", "true", "yes")
-
-
-def get_deployment_mode() -> DeploymentMode:
-    """Return ``"cloud"`` or ``"local"`` based on env.
-
-    See module docstring for the precedence rules.
-    """
-    explicit = os.environ.get(DEPLOYMENT_MODE_ENV_VAR, "").strip().lower()
-    if explicit in _VALID_MODES:
-        return explicit  # type: ignore[return-value]
-
-    # Legacy heuristic — preserves behaviour for cloud deployments that
-    # haven't updated their .env yet.
-    db_url = os.environ.get("DATABASE_URL", "").strip().lower()
-    if db_url and not db_url.startswith("sqlite"):
-        return "cloud"
-
-    return "local"
-
-
-def is_cloud_mode() -> bool:
-    return get_deployment_mode() == "cloud"
-
-
-def is_local_mode() -> bool:
-    return get_deployment_mode() == "local"
 
 
 def _local_power_login_opt_in() -> bool:

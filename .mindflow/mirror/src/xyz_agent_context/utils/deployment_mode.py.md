@@ -1,10 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/deployment_mode.py
-last_verified: 2026-07-13
+last_verified: 2026-09-03
 stub: false
 ---
 
 # deployment_mode.py — 部署模式 / Power 登录能力的唯一真源
+
+## 2026-09-03 — 解析器搬到 `narranexus.kernel.deployment`，本模块只保留 power-login 轴并 re-export
+
+`get_deployment_mode/is_cloud_mode/is_local_mode/DEPLOYMENT_MODE_ENV_VAR` 现在是内核同名对象的
+re-export（测试钉住 `legacy.is_cloud_mode is kernel.is_cloud_mode`）。唯一语义变化：新增 `DB_HOST`
+回退（与 `backend/auth.py` 一致）。`is_power_login_enabled` 与两轴说明不变。
 
 ## Why it exists
 

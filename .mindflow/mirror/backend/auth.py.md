@@ -1,8 +1,13 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `_is_cloud_mode()` 转发到 `narranexus.kernel.deployment.is_cloud_mode`
+
+函数与 docstring 里的 DMG 安全理由保留，实现改为一行转发；优先级（显式 env > DATABASE_URL >
+DB_HOST > local）与本文件原实现完全相同，只是不再是第二份副本。
 
 ## 2026-08-19 — AUTH_EXEMPT_PATHS 新增 `/api/admin/warn-user`
 
