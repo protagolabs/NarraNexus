@@ -32,3 +32,8 @@ class CustomOpenAIDriver(_DriverBase):
             base_url=self.card.base_url,
             model=model,
         )
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = CustomOpenAIDriver.contribution

@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import List
 
 from xyz_agent_context.memory.record import MemoryRecord
-from xyz_agent_context.memory.spec import MemoryKindSpec, RecallWeights, register_spec
+from xyz_agent_context.memory.spec import MemoryKindSpec, RecallWeights, contribution_for, register_spec
 from xyz_agent_context.utils.timezone import utc_now
 
 # ── shared policy helpers ────────────────────────────────────────────────────
@@ -142,3 +142,10 @@ register_spec(MemoryKindSpec(
     recall=RecallWeights(recency=0.3, proof=0.4, salience=0.3),
     render=lambda rs: _bullets("Relevant memories:", rs),
 ))
+
+
+# Plugin-platform contributions named by ``builtin.memory_kinds`` (see
+# narranexus.kernel.plugins.builtins); the loader registers these same objects.
+CONTRIBUTIONS = tuple(
+    contribution_for(kind) for kind in ("event", "bus", "narrative", "entity", "job", "observation")
+)

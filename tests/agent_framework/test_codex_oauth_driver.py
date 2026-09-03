@@ -15,7 +15,7 @@ from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
 from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
     CodexOAuthDriver,
 )
-from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY
+from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY, get_driver_class
 
 
 def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> ProviderCard:
@@ -35,7 +35,7 @@ def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> Provide
 
 def test_driver_registered_under_codex_oauth_key():
     assert "codex_oauth" in DRIVER_REGISTRY
-    assert DRIVER_REGISTRY["codex_oauth"] is CodexOAuthDriver
+    assert get_driver_class("codex_oauth") is CodexOAuthDriver
 
 
 def test_driver_type_classmethod():

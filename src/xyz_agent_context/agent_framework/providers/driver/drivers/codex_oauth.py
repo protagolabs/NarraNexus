@@ -270,3 +270,8 @@ class CodexOAuthDriver(_DriverBase):
                 detail=f"credentials path exists but is not a file: {path}",
             )
         return DriverHealth(ok=True, detail=f"credentials present at {path}")
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = CodexOAuthDriver.contribution

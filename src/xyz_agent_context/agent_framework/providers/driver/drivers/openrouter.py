@@ -74,3 +74,8 @@ class OpenRouterDriver(_DriverBase):
             model=model,
             auth_type=self.card.auth_type or "api_key",
         )
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = OpenRouterDriver.contribution

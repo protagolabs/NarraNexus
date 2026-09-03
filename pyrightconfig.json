@@ -9,7 +9,7 @@
     // a permanently-red gate is a gate turned off — so only the two
     // diagnostics that catch the incident class are enabled. Widen the file
     // scope and diagnostics as the legacy noise below is paid down.
-    "include": ["src/xyz_agent_context/module"],
+    "include": ["src/xyz_agent_context/module", "src/narranexus"],
     "exclude": [
         // Legacy dynamic-attribute noise, tracked for paydown — mostly
         // ContextData dynamic fields and MCP content-union access.

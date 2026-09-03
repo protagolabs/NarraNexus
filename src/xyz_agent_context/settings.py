@@ -460,13 +460,16 @@ class Settings(BaseSettings):
 
     @property
     def is_cloud_mode(self) -> bool:
-        """True when DATABASE_URL points at a non-sqlite backend (mysql in prod).
+        """Cloud (MySQL) vs local (SQLite), via the kernel's single resolver.
 
-        Mirrors backend.auth._is_cloud_mode but without the cross-package
-        import — settings is a leaf module and mustn't depend on backend.
+        ``narranexus.kernel.deployment`` reads the same environment this
+        Settings instance was built from (``.env`` is pre-injected into
+        ``os.environ`` above), so the answer matches ``backend.auth`` and
+        ``utils.deployment_mode`` by construction.
         """
-        url = (self.database_url or os.environ.get("DATABASE_URL") or "").strip()
-        return bool(url) and not url.startswith("sqlite")
+        from narranexus.kernel.deployment import is_cloud_mode
+
+        return is_cloud_mode()
 
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":

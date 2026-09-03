@@ -39,6 +39,11 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check src/ backend/
 
+      - name: Import direction (import-linter)
+        # Plugin-platform layering: contracts are a leaf, kernel sees only
+        # contracts. Exceptions live in pyproject with an issue and expiry.
+        run: uv run lint-imports
+
       # pyrightconfig.json is deliberately narrowed (typeCheckingMode off,
       # only the two diagnostics that catch the recurring incident class:
       # undefined names + attribute typos). It was green-but-unwired since
@@ -154,6 +159,9 @@ jobs:
 
       - name: ESLint
         run: npm run lint || echo "::warning::ESLint has pre-existing issues — not blocking CI yet"
+
+      - name: Dependency direction (dependency-cruiser)
+        run: npm run lint:deps
 
       - name: Unit tests
         # Nothing in CI ran vitest before 2026-07-30, which made the

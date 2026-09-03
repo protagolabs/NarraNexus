@@ -1,10 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/netmind_free.py
-last_verified: 2026-07-28
+last_verified: 2026-09-03
 stub: false
 ---
 
 # netmind_free.py — 免费额度卡的 Driver
+
+## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
+
+`CONTRIBUTION = <Driver>.contribution`：`@register` 生成的 `Contribution` 对象，被
+`narranexus.kernel.plugins.builtins` 的 `builtin.providers` manifest 按符号名引用。行为不变。
 
 ## 为什么是一个空壳子类
 

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/memory/specs.py
-last_verified: 2026-06-08
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 末尾新增 `CONTRIBUTIONS`（六个 kind 的插件贡献）
+
+`narranexus.kernel.plugins.builtins` 的 `builtin.memory_kinds` manifest 指向本文件的
+`CONTRIBUTIONS`；对象与 import 期 `register_spec` 注册的是同一批，loader 注册为幂等 no-op。
 
 ## 2026-06-08 — passive flags + `chat` kind retired
 
