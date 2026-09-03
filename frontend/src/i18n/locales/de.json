@@ -2285,20 +2285,21 @@
       "identity": "Identität",
       "name": "Name",
       "namePlaceholder": "z. B. Finanz-Morgenbriefing",
-      "description": "Beschreibung",
-      "descriptionPlaceholder": "Ein Satz. Andere Agents lesen ihn, um zu entscheiden, ob Arbeit hierher geht.",
       "behaviour": "Verhalten",
-      "instructions": "Anweisungen",
-      "instructionsPlaceholder": "Was dieser Agent tut, wie er arbeitet, was er vermeiden soll…",
-      "recommended": "Vorschläge",
-      "recommendedHint": "Vorschläge aus dem Gespräch. Nichts wird installiert oder verbunden, bevor Sie es sagen.",
-      "noRecommendations": "Noch keine Vorschläge.",
       "install": "Installieren",
       "installed": "Installiert",
-      "setUp": "Einrichten",
       "saving": "Wird gespeichert…",
       "savedHint": "Änderungen werden beim Verlassen eines Feldes gespeichert.",
-      "done": "Fertig"
+      "done": "Fertig",
+      "identityHint": "Geben Sie dem Agent einen gut erkennbaren Namen.",
+      "behaviourHint": "Definieren Sie seine Arbeitsweise. Das ist das Awareness-Feld, mit dem der Agent tatsächlich läuft.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Was dieser Agent tut, wie er arbeitet, was er vermeiden soll…",
+      "skills": "Skills",
+      "skillsHint": "Workspace-Skills, die dieser Agent nutzen kann.",
+      "channels": "Kanäle",
+      "channelsHint": "Wo er erreichbar ist. Zugangsdaten gehen direkt ans Backend — nie ins Gespräch.",
+      "suggested": "Aus dem Gespräch"
     }
   }
 }

@@ -2284,20 +2284,21 @@
       "identity": "アイデンティティ",
       "name": "名前",
       "namePlaceholder": "例：金融モーニングブリーフ",
-      "description": "説明",
-      "descriptionPlaceholder": "一文で。他のエージェントがここに仕事を回すか判断するために読みます。",
       "behaviour": "振る舞い",
-      "instructions": "指示",
-      "instructionsPlaceholder": "このエージェントが何をし、どう動き、何を避けるか…",
-      "recommended": "提案",
-      "recommendedHint": "会話からの提案です。あなたが操作するまで何も導入・接続されません。",
-      "noRecommendations": "まだ提案はありません。",
       "install": "導入",
       "installed": "導入済み",
-      "setUp": "設定する",
       "saving": "保存中…",
       "savedHint": "入力欄を離れると保存されます。",
-      "done": "完了"
+      "done": "完了",
+      "identityHint": "見分けやすい名前を付けます。",
+      "behaviourHint": "働き方を定義します。ここがエージェントが実際に動く awareness です。",
+      "awareness": "認知",
+      "awarenessPlaceholder": "このエージェントが何をし、何に注目し、何を避けるか…",
+      "skills": "スキル",
+      "skillsHint": "このエージェントが使えるワークスペースの skill。",
+      "channels": "チャネル",
+      "channelsHint": "どこで到達できるか。認証情報はバックエンドへ直接送られ、会話には入りません。",
+      "suggested": "会話から"
     }
   }
 }

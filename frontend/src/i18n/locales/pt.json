@@ -2285,20 +2285,21 @@
       "identity": "Identidade",
       "name": "Nome",
       "namePlaceholder": "ex.: Resumo financeiro da manhã",
-      "description": "Descrição",
-      "descriptionPlaceholder": "Uma frase. Outros agentes leem isso para decidir se mandam trabalho para cá.",
       "behaviour": "Comportamento",
-      "instructions": "Instruções",
-      "instructionsPlaceholder": "O que este agente faz, como trabalha, o que deve evitar…",
-      "recommended": "Sugestões",
-      "recommendedHint": "Sugestões vindas da conversa. Nada é instalado ou conectado até você mandar.",
-      "noRecommendations": "Ainda não há sugestões.",
       "install": "Instalar",
       "installed": "Instalado",
-      "setUp": "Configurar",
       "saving": "Salvando…",
       "savedHint": "As alterações são salvas ao sair de um campo.",
-      "done": "Concluir"
+      "done": "Concluir",
+      "identityHint": "Dê ao agente um nome fácil de reconhecer.",
+      "behaviourHint": "Defina como ele trabalha. Este é o campo awareness com que o agente realmente roda.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "O que este agente faz, como trabalha, o que deve evitar…",
+      "skills": "Skills",
+      "skillsHint": "Skills do workspace que este agente pode usar.",
+      "channels": "Canais",
+      "channelsHint": "Onde ele pode ser encontrado. Credenciais vão direto ao backend — nunca para a conversa.",
+      "suggested": "Da conversa"
     }
   }
 }

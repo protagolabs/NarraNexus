@@ -25,6 +25,16 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// The panel embeds the drawer's own Skills and Channels sections. Stub them:
+// this test defends the STUDIO panel's structure, and mounting those two
+// would re-test them plus drag in their API surface.
+vi.mock('@/components/skills', () => ({
+  SkillsPanel: () => <div data-testid="skills-section" />,
+}));
+vi.mock('@/components/awareness', () => ({
+  AwarenessPanel: () => <div data-testid="channels-section" />,
+}));
+
 describe('uiStore panel intent', () => {
   beforeEach(() => {
     useUIStore.getState().clearPendingPanel();
@@ -66,8 +76,31 @@ describe('builder tab', () => {
     await waitFor(() => {
       expect(screen.getByText('Identity')).toBeInTheDocument();
     });
-    expect(screen.getByText('Instructions')).toBeInTheDocument();
-    expect(screen.getByText('Recommended')).toBeInTheDocument();
+    // Per the Owner's 2026-09-03 reference: name only, the instruction box
+    // named after the field it writes, plus real Skills and Channels.
+    expect(screen.getByText('Name')).toBeInTheDocument();
+    expect(screen.getByText('Awareness')).toBeInTheDocument();
+    expect(screen.getAllByText('Skills').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Channels').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('skills-section')).toBeInTheDocument();
+    expect(screen.getByTestId('channels-section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+  });
+
+  test('drops the avatar and description the reference removed', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <BookmarkPanelHost tab="builder" agentId="agent_test" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Identity')).toBeInTheDocument();
+    });
+    // No avatar affordance (the project has no agent-avatar capability) and no
+    // description field (machine-facing copy — the conversation writes it and
+    // Agent Profile shows it).
+    expect(screen.queryByText('Description')).not.toBeInTheDocument();
+    expect(screen.queryByText(/avatar/i)).not.toBeInTheDocument();
   });
 });

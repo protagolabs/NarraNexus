@@ -2801,20 +2801,21 @@
       "identity": "Identity",
       "name": "Name",
       "namePlaceholder": "e.g. Morning Market Brief",
-      "description": "Description",
-      "descriptionPlaceholder": "One sentence. Other agents read this to decide whether to route work here.",
       "behaviour": "Behaviour",
-      "instructions": "Instructions",
-      "instructionsPlaceholder": "What this agent does, how it works, what to avoid…",
-      "recommended": "Recommended",
-      "recommendedHint": "Suggestions from the conversation. Nothing is installed or connected until you say so.",
-      "noRecommendations": "No suggestions yet.",
       "install": "Install",
       "installed": "Installed",
-      "setUp": "Set up",
       "saving": "Saving…",
       "savedHint": "Changes save when you leave a field.",
-      "done": "Done"
+      "done": "Done",
+      "identityHint": "Give the agent a name that is easy to recognise.",
+      "behaviourHint": "Define how it works. This is the awareness field the agent actually runs on.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "What this agent does, how it works, what to avoid…",
+      "skills": "Skills",
+      "skillsHint": "Workspace skills this agent can use.",
+      "channels": "Channels",
+      "channelsHint": "Where it can be reached. Credentials go straight to the backend — never into the conversation.",
+      "suggested": "From the conversation"
     }
   }
 }

@@ -2285,20 +2285,21 @@
       "identity": "Identidad",
       "name": "Nombre",
       "namePlaceholder": "p. ej. Resumen financiero matinal",
-      "description": "Descripción",
-      "descriptionPlaceholder": "Una frase. Otros agentes la leen para decidir si envían trabajo aquí.",
       "behaviour": "Comportamiento",
-      "instructions": "Instrucciones",
-      "instructionsPlaceholder": "Qué hace este agente, cómo trabaja, qué debe evitar…",
-      "recommended": "Sugerencias",
-      "recommendedHint": "Sugerencias de la conversación. No se instala ni se conecta nada hasta que tú lo indiques.",
-      "noRecommendations": "Todavía no hay sugerencias.",
       "install": "Instalar",
       "installed": "Instalado",
-      "setUp": "Configurar",
       "saving": "Guardando…",
       "savedHint": "Los cambios se guardan al salir de un campo.",
-      "done": "Listo"
+      "done": "Listo",
+      "identityHint": "Dale al agente un nombre fácil de reconocer.",
+      "behaviourHint": "Define cómo trabaja. Este es el campo awareness con el que el agente funciona de verdad.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Qué hace este agente, cómo trabaja, qué debe evitar…",
+      "skills": "Skills",
+      "skillsHint": "Skills del espacio de trabajo que este agente puede usar.",
+      "channels": "Canales",
+      "channelsHint": "Dónde se le puede contactar. Las credenciales van directas al backend, nunca a la conversación.",
+      "suggested": "De la conversación"
     }
   }
 }

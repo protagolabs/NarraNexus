@@ -2801,20 +2801,21 @@
       "identity": "身份",
       "name": "名称",
       "namePlaceholder": "例如：金融晨报",
-      "description": "描述",
-      "descriptionPlaceholder": "一句话。其他智能体靠它判断要不要把任务派到这里。",
       "behaviour": "行为与能力",
-      "instructions": "指令",
-      "instructionsPlaceholder": "这个智能体做什么、怎么做、要避开什么…",
-      "recommended": "建议",
-      "recommendedHint": "来自对话的建议。在你点之前，不会安装也不会连接任何东西。",
-      "noRecommendations": "还没有建议。",
       "install": "安装",
       "installed": "已安装",
-      "setUp": "去配置",
       "saving": "保存中…",
       "savedHint": "离开输入框时自动保存。",
-      "done": "完成"
+      "done": "完成",
+      "identityHint": "为智能体设置容易识别的名称。",
+      "behaviourHint": "定义它的工作方式。这里写的就是 agent 真正运行的认知内容。",
+      "awareness": "认知",
+      "awarenessPlaceholder": "这个智能体该做什么、关注什么、要避开什么…",
+      "skills": "技能",
+      "skillsHint": "这个智能体可以使用的工作区 skill。",
+      "channels": "频道",
+      "channelsHint": "它能在哪里被找到。凭证只在你和后端之间，绝不进入对话。",
+      "suggested": "来自对话"
     }
   }
 }
