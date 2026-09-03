@@ -4,6 +4,17 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (评审修订) — 可见性规则收口到注册表
+
+`builder` 曾只在两个消费点被过滤（MainLayout 的切换器、ChatHeader 的硬编码菜单），
+而 `ALL_TABS` 这条派生链没被扫到：⌘K 面板（移动端主入口）对任意 agent 都列出
+Builder。现在 `AtomicTabDef.conditional?: 'studio'` 是**唯一**的规则所在，
+`visibleCategories(ctx)` / `visibleTabs(ctx)` 是所有「可选列表」的出口 ——
+切换器与 palette 都调它，新消费者自动继承。`ALL_TABS` / `tabLabelKey` /
+`tabDescKey` 仍含 `builder`：注册表不过滤，否则已经停在这个 tab 上的抽屉标题会回
+落成 `rail.builder` 字面量。测试 `builderTab.test.tsx` 钉住「关 studio 时
+visibleTabs 恰好少这一个」。
+
 ## 2026-09-03 — 新增 `builder` 原子 tab
 
 创建工作室的配置面板。放在 Config 组**首位** —— 它是配置的「从这里开始」：一段

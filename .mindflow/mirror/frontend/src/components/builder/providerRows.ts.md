@@ -27,5 +27,6 @@ stub: false
   顺序。同样一批 provider 在两个界面里顺序不同，读起来就是 bug。
 - **`is_active` 缺失视为健康**：不带这个字段的后端不该让每个 provider 都被画成
   故障。
+- `source` 字段今天没有渲染消费者，注释只陈述事实，不承诺「以后画品牌图标」。
 - 导出的类型叫 `PickerRow`，**不叫 `ProviderRow`** —— 后者是
   `providersApi.ProviderRow`，那是规范全量行，这里只是它的窄化投影。

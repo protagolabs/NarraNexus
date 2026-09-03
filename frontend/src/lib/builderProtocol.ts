@@ -29,7 +29,13 @@
  *      the caller's catalogue, channels outside the supported set, missing
  *      fields. Fail-closed, and a parse failure degrades to "no config change
  *      this turn" — it never interrupts the conversation.
+ *   4. The instruction below hands the model an EMPTY skeleton as the shape to
+ *      copy, so a model that copies it verbatim is a normal turn, not an
+ *      anomaly. Empty text therefore means "not touching this field", never
+ *      "blank it" — losing the user's instructions is unrecoverable, and the
+ *      panel holds no backup of what was there.
  */
+import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
 /** Opening tag of the inbound config block. */
 export const DRAFT_OPEN = '<agent_draft>';
@@ -67,10 +73,30 @@ export interface AgentDraft {
   channels: SupportedChannel[];
 }
 
+/**
+ * One catalogue entry as the model sees it. id + name only: the envelope is
+ * restated on EVERY turn, and a description per skill multiplied by the
+ * catalogue size is kilobytes of prompt the user pays for each message. The
+ * name is what a marketplace shows in a list; a model that needs more asks.
+ */
 export interface SkillOption {
   id: string;
   name: string;
-  description: string;
+}
+
+/**
+ * The skill catalogue as known to this turn.
+ *
+ * `null` means "not known" — the fetch failed or has not landed — and is
+ * distinct from an empty list, which means "known, and there is nothing".
+ * The distinction matters downstream: an unknown catalogue must not reject
+ * every proposed id (and wipe the recommendations already accepted), while an
+ * empty one correctly rejects them all.
+ */
+export interface SkillCatalogue {
+  items: SkillOption[];
+  /** Total entries on the server; larger than `items.length` when cut. */
+  total: number;
 }
 
 /** An empty draft — also the shape the merge falls back to field by field. */
@@ -123,13 +149,13 @@ show, and do not paste the block's contents into your prose.`;
 export function encodeBuilderTurn(input: {
   request: string;
   current: AgentDraft;
-  availableSkills: SkillOption[];
+  catalogue: SkillCatalogue | null;
 }): string | null {
   const request = input.request.trim();
   if (!request) return null;
   const envelope = {
     current_config: input.current,
-    available_skills: input.availableSkills,
+    available_skills: describeCatalogue(input.catalogue),
     supported_channels: SUPPORTED_CHANNELS,
   };
   return [
@@ -145,19 +171,51 @@ export function encodeBuilderTurn(input: {
 }
 
 /**
+ * The catalogue as the envelope states it. A cut catalogue SAYS it is cut —
+ * "first N of M" — so the model knows an absent skill may still exist rather
+ * than silently never recommending anything past the page. An unknown
+ * catalogue says so too, and the merge ignores skill_ids that turn.
+ */
+function describeCatalogue(catalogue: SkillCatalogue | null): {
+  status: 'known' | 'unavailable';
+  items: SkillOption[];
+  note?: string;
+} {
+  if (!catalogue) {
+    return {
+      status: 'unavailable',
+      items: [],
+      note: 'The skill catalogue could not be loaded this turn; do not propose skill_ids.',
+    };
+  }
+  const shown = catalogue.items.length;
+  if (catalogue.total > shown) {
+    return {
+      status: 'known',
+      items: catalogue.items,
+      note: `Showing the first ${shown} of ${catalogue.total} skills; others exist but cannot be proposed by id this turn.`,
+    };
+  }
+  return { status: 'known', items: catalogue.items };
+}
+
+/**
  * Recover what the user typed, for rendering their bubble.
  *
  * Safe on every message: content without the markers is returned unchanged.
- * An unterminated envelope is dropped through to the end so a truncated
- * marker cannot leak the instruction into the bubble.
+ * The envelope is only ever the PREFIX of a message (see encodeBuilderTurn),
+ * so both patterns are anchored to the start — a user who types the marker
+ * literally in their own sentence keeps the rest of the sentence. An
+ * unterminated envelope at the start is dropped through to the end so a
+ * truncated marker cannot leak the instruction into the bubble.
  */
 export function decodeBuilderTurn(content: string): string {
-  if (!content.includes(TURN_OPEN)) return content;
+  if (!content.startsWith(TURN_OPEN)) return content;
   const open = escapeForRegExp(TURN_OPEN);
   const close = escapeForRegExp(TURN_CLOSE);
   return content
-    .replace(new RegExp(`${open}[\\s\\S]*?${close}`, 'g'), '')
-    .replace(new RegExp(`${open}[\\s\\S]*$`), '')
+    .replace(new RegExp(`^${open}[\\s\\S]*?${close}`), '')
+    .replace(new RegExp(`^${open}[\\s\\S]*$`), '')
     .trim();
 }
 
@@ -211,25 +269,44 @@ export function parseAgentDraft(content: string): Record<string, unknown> | null
 /**
  * Validate a parsed block against the current config and the catalogues.
  *
- * Every field falls back to its current value: a model that omits a field, or
- * sends the wrong type, must not blank the user's configuration. skill_ids and
- * channels are intersected with what the caller says exists — an id the
- * catalogue does not list would otherwise become a failed install request.
+ * Every text field falls back to its current value: a model that omits a
+ * field, sends the wrong type, or sends an EMPTY string must not blank the
+ * user's configuration. Empty is treated as "not touching this field" because
+ * the instruction itself shows the model an all-empty skeleton to copy, and a
+ * copied skeleton must be a no-op turn rather than a wipe of name,
+ * description and instructions at once. Each field is judged on its own —
+ * a turn that fills only `awareness` and leaves `name` empty is normal.
+ *
+ * name and description are additionally cut to the server's column width. A
+ * too-long value usually means the model DID mean to change the field and was
+ * merely verbose, so cutting keeps the intent where falling back would make
+ * the user feel ignored. Cutting here, not at write time, keeps `next` equal
+ * to what gets written — otherwise every later diff would see a change and
+ * re-send the same 422 forever. awareness is long text and is not cut.
+ *
+ * skill_ids: `null` for the catalogue means "the catalogue is not known yet"
+ * (the fetch failed or has not landed), and the proposed ids are left alone
+ * as the current recommendations rather than filtered to nothing — a catalogue
+ * that IS known and simply does not list an id still rejects it. channels are
+ * intersected with the compile-time set, which is always known.
  */
 export function mergeAgentDraft(
   current: AgentDraft,
   parsed: Record<string, unknown> | null,
-  availableSkillIds: string[],
+  availableSkillIds: string[] | null,
 ): AgentDraft {
   if (!parsed) return current;
-  const allowedSkills = new Set(availableSkillIds);
   const allowedChannels = new Set<string>(SUPPORTED_CHANNELS);
+  const allowedSkills = availableSkillIds === null ? null : new Set(availableSkillIds);
 
   return {
-    name: takeString(parsed.name, current.name),
-    description: takeString(parsed.description, current.description),
-    awareness: takeString(parsed.awareness, current.awareness),
-    skill_ids: takeList(parsed.skill_ids, current.skill_ids, (v) => allowedSkills.has(v)),
+    name: takeText(parsed.name, current.name, AGENT_TEXT_MAX_LENGTH),
+    description: takeText(parsed.description, current.description, AGENT_TEXT_MAX_LENGTH),
+    awareness: takeText(parsed.awareness, current.awareness),
+    skill_ids:
+      allowedSkills === null
+        ? current.skill_ids
+        : takeList(parsed.skill_ids, current.skill_ids, (v) => allowedSkills.has(v)),
     channels: takeList(parsed.channels, current.channels, (v) =>
       allowedChannels.has(v),
     ) as SupportedChannel[],
@@ -238,8 +315,14 @@ export function mergeAgentDraft(
 
 // ── internals ───────────────────────────────────────────────────────────
 
-function takeString(value: unknown, fallback: string): string {
-  return typeof value === 'string' ? value : fallback;
+/**
+ * A non-empty string, cut to `maxLength` when given; anything else — wrong
+ * type, empty, whitespace only — yields the fallback. Whitespace-only counts
+ * as empty because it reads as empty everywhere the value is shown.
+ */
+function takeText(value: unknown, fallback: string, maxLength?: number): string {
+  if (typeof value !== 'string' || value.trim() === '') return fallback;
+  return maxLength !== undefined && value.length > maxLength ? value.slice(0, maxLength) : value;
 }
 
 function takeList<T extends string>(

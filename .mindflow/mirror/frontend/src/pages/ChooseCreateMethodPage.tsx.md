@@ -6,7 +6,7 @@ stub: false
 
 ## 2026-09-03 — AI 路径改为开 studio + 亮出面板
 
-建完 agent 后 `openStudio(agentId)` 并 `requestPanel('builder')`。面板必须在第一
+建完 agent 后 `openStudio(agentId)`（[[../stores/studioStore.ts]]）并 `openPanel('builder')`。面板必须在第一
 条消息之前就可见 —— 这条路径的卖点就是「对话把面板填好」，面板不在场就看不出
 发生了什么。
 
@@ -27,8 +27,8 @@ stub: false
 AI 路径只多两件事：
 
 1. 先过 [[ProviderPickerModal.tsx]] 确认有 provider；
-2. 给新 agent 打一个 [[builderSession.ts]] 的标记，让它的**第一条**出站消息
-   携带 Builder 指令。
+2. 在 [[../stores/studioStore.ts]] 上打开这个 agent 的 studio，让它的**每一条**出站
+   消息携带 Builder 指令，直到用户离开 studio。
 
 ## 关键决策
 

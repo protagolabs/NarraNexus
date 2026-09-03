@@ -37,12 +37,11 @@ import { ResizableDivider } from './ResizableDivider';
 import {
   BookmarkDrawer,
   BookmarkPanelHost,
-  STRIP_CATEGORIES,
+  visibleCategories,
   tabLabelKey,
   tabDescKey,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
-import { isStudioOpen } from '@/lib/builderSession';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
@@ -55,7 +54,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
+import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore, useStudioStore, selectStudioOpen } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAutoRefresh } from '@/hooks';
 import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
@@ -115,26 +114,19 @@ export function ChatView() {
   // The creation studio's tab is offered ONLY while the studio is open on
   // this agent — i.e. only on the "Create with AI" path. Everywhere else the
   // panel would be a form the conversation does not drive, which reads as
-  // broken rather than as an extra feature.
-  //
-  // Re-read on agent / tab change rather than subscribing: the flag lives in
-  // sessionStorage (see lib/builderSession), and those two are exactly the
-  // transitions that can turn it on or off — entering the studio opens the
-  // tab, and finishing closes the drawer.
-  const [studioOpen, setStudioOpen] = useState(false);
-  useEffect(() => {
-    setStudioOpen(isStudioOpen(agentId));
-  }, [agentId, drawerTab]);
-  const switcherCategories = useMemo(
-    () =>
-      studioOpen
-        ? STRIP_CATEGORIES
-        : STRIP_CATEGORIES.map((c) => ({ ...c, tabs: c.tabs.filter((t) => t.id !== 'builder') }))
-          .filter((c) => c.tabs.length > 0),
-    [studioOpen],
-  );
+  // broken rather than as an extra feature. The rule itself lives in
+  // bookmarks/tabs (`conditional: 'studio'`); this is just the context.
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
+  const closeStudio = useStudioStore((s) => s.closeStudio);
+  const switcherCategories = useMemo(() => visibleCategories({ studioOpen }), [studioOpen]);
 
+  // Closing the drawer while the studio panel is showing ENDS the studio.
+  // The panel's own Done button is not a gate the user has to find: dismissing
+  // the panel with the X, or just moving on, must not leave every later
+  // message wrapped in the builder envelope and every reply writing config
+  // the user can no longer see happening.
   const handleDrawerClose = () => {
+    if (drawerTab === 'builder' && agentId) closeStudio(agentId);
     setDrawerTab(null);
     setShowDrawerCoach(false);
   };

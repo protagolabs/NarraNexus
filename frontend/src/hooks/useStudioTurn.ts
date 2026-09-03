@@ -16,65 +16,73 @@
  * to do after a few exchanges (binding rule #15: the platform does not police
  * the user's model choice, so it has to tolerate one).
  *
- * The skill catalogue is fetched once per mount and only when the studio is
- * open — it exists solely so `mergeAgentDraft` can reject ids that do not
- * exist, and so the panel can install a recommendation by id.
+ * The skill catalogue is fetched while the studio is open. It exists so
+ * `mergeAgentDraft` can reject ids that do not exist, and so the panel can
+ * install a recommendation by id. Until the fetch lands — or when it fails —
+ * the catalogue is UNKNOWN (`null`), which is not the same as empty: an
+ * unknown catalogue leaves the accepted recommendations alone instead of
+ * filtering every proposed id to nothing and persisting the wipe. A failed
+ * fetch is retried on the next turn, so one marketplace hiccup does not
+ * degrade the whole session.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
-import { useConfigStore, usePreloadStore } from '@/stores';
+import { useConfigStore, usePreloadStore, useStudioStore, selectStudioOpen, isStudioOpen } from '@/stores';
 import {
   encodeBuilderTurn,
   mergeAgentDraft,
   parseAgentDraft,
-  type SkillOption,
+  type SkillCatalogue,
 } from '@/lib/builderProtocol';
 import { applyLiveFields, readCurrentConfig } from '@/lib/builderApply';
-import { isStudioOpen, readRecommendations, saveRecommendations } from '@/lib/builderSession';
 
+/**
+ * How many catalogue entries the envelope carries. The envelope TELLS the
+ * model when the catalogue is cut ("first N of M"), so this is a page size,
+ * not a silent ceiling on what can be recommended.
+ */
 const CATALOGUE_LIMIT = 60;
 
 export function useStudioTurn(agentId: string | null) {
   const agents = useConfigStore((s) => s.agents);
   const refreshAgents = useConfigStore((s) => s.refreshAgents);
   const refreshAwareness = usePreloadStore((s) => s.refreshAwareness);
+  const setRecommendations = useStudioStore((s) => s.setRecommendations);
+  const setApplyError = useStudioStore((s) => s.setApplyError);
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
 
-  const [catalogue, setCatalogue] = useState<SkillOption[]>([]);
-  // Read inside callbacks without making them re-created per fetch.
-  const catalogueRef = useRef<SkillOption[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // A ref, not state: callbacks read it without being re-created per fetch,
+  // and nothing renders from it. `null` = unknown.
+  const catalogueRef = useRef<SkillCatalogue | null>(null);
 
-  const studioOpen = isStudioOpen(agentId);
+  const loadCatalogue = useCallback(async (): Promise<SkillCatalogue | null> => {
+    if (catalogueRef.current) return catalogueRef.current;
+    try {
+      const res = await api.searchMarketplaceSkills({ limit: CATALOGUE_LIMIT });
+      const items = (res.items ?? []).map((s) => ({ id: s.skill_id, name: s.name }));
+      const next: SkillCatalogue = { items, total: Math.max(res.total ?? items.length, items.length) };
+      catalogueRef.current = next;
+      return next;
+    } catch {
+      // Stays unknown; the next turn tries again.
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!studioOpen) return;
-    let cancelled = false;
-    api
-      .searchMarketplaceSkills({ limit: CATALOGUE_LIMIT })
-      .then((res) => {
-        if (cancelled) return;
-        const next = (res.items ?? []).map((s) => ({
-          id: s.skill_id,
-          name: s.name,
-          description: s.description ?? '',
-        }));
-        catalogueRef.current = next;
-        setCatalogue(next);
-      })
-      .catch(() => {
-        // No catalogue means the merge rejects every proposed skill id, which
-        // is the safe direction: recommendations vanish, text fields still work.
-        if (!cancelled) catalogueRef.current = [];
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [studioOpen]);
+    void loadCatalogue();
+  }, [studioOpen, loadCatalogue]);
 
   const identity = useCallback(() => {
     const found = agents.find((a) => a.agent_id === agentId);
     return { name: found?.name ?? '', description: found?.description ?? '' };
   }, [agents, agentId]);
+
+  const recommendationsFor = useCallback(
+    (id: string) => useStudioStore.getState().recommendations[id] ?? { skill_ids: [], channels: [] },
+    [],
+  );
 
   /**
    * Wrap an outgoing message, or return it untouched when the studio is shut.
@@ -85,23 +93,16 @@ export function useStudioTurn(agentId: string | null) {
     async (request: string): Promise<string> => {
       if (!agentId || !isStudioOpen(agentId)) return request;
       try {
-        const current = await readCurrentConfig(
-          agentId,
-          identity(),
-          readRecommendations(agentId),
-        );
-        return (
-          encodeBuilderTurn({
-            request,
-            current,
-            availableSkills: catalogueRef.current,
-          }) ?? request
-        );
+        const [current, catalogue] = await Promise.all([
+          readCurrentConfig(agentId, identity(), recommendationsFor(agentId)),
+          loadCatalogue(),
+        ]);
+        return encodeBuilderTurn({ request, current, catalogue }) ?? request;
       } catch {
         return request;
       }
     },
-    [agentId, identity],
+    [agentId, identity, recommendationsFor, loadCatalogue],
   );
 
   /**
@@ -110,7 +111,9 @@ export function useStudioTurn(agentId: string | null) {
    * Text fields are written; skills and channels are stored as
    * recommendations for the panel to offer. A parse failure is a no-op by
    * design: "this turn changed no configuration" is a perfectly good outcome
-   * and must never interrupt the conversation.
+   * and must never interrupt the conversation. Write failures land in the
+   * studio store, where the panel shows them as one line — never a modal,
+   * never a disabled composer (binding rule #15).
    */
   const applyFromReply = useCallback(
     async (replyText: string): Promise<void> => {
@@ -118,28 +121,30 @@ export function useStudioTurn(agentId: string | null) {
       const parsed = parseAgentDraft(replyText);
       if (!parsed) return;
       try {
-        const prev = await readCurrentConfig(agentId, identity(), readRecommendations(agentId));
+        const [prev, catalogue] = await Promise.all([
+          readCurrentConfig(agentId, identity(), recommendationsFor(agentId)),
+          loadCatalogue(),
+        ]);
         const next = mergeAgentDraft(
           prev,
           parsed,
-          catalogueRef.current.map((s) => s.id),
+          catalogue ? catalogue.items.map((s) => s.id) : null,
         );
         const outcome = await applyLiveFields(agentId, prev, next);
-        saveRecommendations(agentId, {
-          skill_ids: next.skill_ids,
-          channels: next.channels,
-        });
-        setError(outcome.errors.length ? outcome.errors.join('; ') : null);
+        // The store is reactive, so a turn that ONLY recommended a skill
+        // re-renders the panel's suggestions — no refresh of unrelated data.
+        setRecommendations(agentId, { skill_ids: next.skill_ids, channels: next.channels });
+        setApplyError(agentId, outcome.errors.length ? outcome.errors.join('; ') : null);
         // Refresh only what actually changed, so a turn that touched one field
         // does not refetch the other.
         if (outcome.changed.includes('identity')) void refreshAgents();
         if (outcome.changed.includes('awareness')) void refreshAwareness(agentId, true);
       } catch (e) {
-        setError(String(e));
+        setApplyError(agentId, String(e));
       }
     },
-    [agentId, identity, refreshAgents, refreshAwareness],
+    [agentId, identity, recommendationsFor, loadCatalogue, setRecommendations, setApplyError, refreshAgents, refreshAwareness],
   );
 
-  return { studioOpen, catalogue, error, encodeOutgoing, applyFromReply };
+  return { encodeOutgoing, applyFromReply };
 }

@@ -631,17 +631,32 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // mid-stream would write a half-serialised JSON value into the agent's
   // instructions. The reply text is read from the store's settled message,
   // not from the streaming buffer, for the same reason.
-  const wasStreamingRef = useRef(false);
+  //
+  // Two guards, because `isStreaming` / `messages` are flat fields derived
+  // from whichever agent is ACTIVE and this panel switches agents in place:
+  //   - the edge is tracked per agent, so switching from a streaming agent A
+  //     back to a settled agent B does not read as "B just settled";
+  //   - each assistant message is applied at most once (by id), so a genuine
+  //     re-settle on the same agent cannot replay an old draft over edits the
+  //     user has since made in the panel. Content is not a usable key — the
+  //     model is allowed to restate an identical block on a later turn.
+  const wasStreamingByAgentRef = useRef<Record<string, boolean>>({});
+  const appliedReplyIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const settled = wasStreamingRef.current && !isStreaming;
-    wasStreamingRef.current = isStreaming;
-    if (!settled) return;
+    if (!agentId) return;
+    const wasStreaming = wasStreamingByAgentRef.current[agentId] ?? false;
+    wasStreamingByAgentRef.current[agentId] = isStreaming;
+    if (!wasStreaming || isStreaming) return;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role !== 'assistant') continue;
-      void applyFromReply(messages[i].content);
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const key = `${agentId}:${m.id}`;
+      if (appliedReplyIdsRef.current.has(key)) return;
+      appliedReplyIdsRef.current.add(key);
+      void applyFromReply(m.content);
       return;
     }
-  }, [isStreaming, messages, applyFromReply]);
+  }, [agentId, isStreaming, messages, applyFromReply]);
 
   // ── Inner Thoughts defaults to the bottom (newest activity) ──
   // Like a chat log, not an inbox: the newest activity sits at the bottom, so

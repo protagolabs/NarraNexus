@@ -35,7 +35,7 @@ vi.mock('@/components/awareness', () => ({
 
 import { api } from '@/lib/api';
 import { useUIStore } from '@/stores/uiStore';
-import { isStudioOpen, openStudio, saveRecommendations } from '@/lib/builderSession';
+import { useStudioStore, isStudioOpen } from '@/stores/studioStore';
 import { BuilderConfigPanel } from '../BuilderConfigPanel';
 
 const AGENT = 'agent_test';
@@ -50,9 +50,15 @@ function renderPanel() {
   return within(container);
 }
 
+const openStudio = (id: string) => useStudioStore.getState().openStudio(id);
+const saveRecommendations = (id: string, rec: { skill_ids: string[]; channels: string[] }) =>
+  useStudioStore.getState().setRecommendations(id, rec);
+
 beforeEach(() => {
   window.sessionStorage.clear();
+  useStudioStore.setState({ open: {}, recommendations: {}, applyError: {} });
   useUIStore.getState().clearPendingPanel();
+  vi.mocked(api.updateAgent).mockClear().mockResolvedValue({ success: true } as never);
   vi.mocked(api.updateAwareness).mockClear().mockResolvedValue({ success: true } as never);
   vi.mocked(api.installMarketplaceSkill).mockClear().mockResolvedValue({} as never);
 });
@@ -82,6 +88,39 @@ describe('studio panel structure', () => {
     const view = renderPanel();
     expect(view.queryByText('Description')).not.toBeInTheDocument();
     expect(view.queryByText(/avatar/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('live state from the conversation', () => {
+  test('a recommendation that arrives AFTER mount shows up without any text change', async () => {
+    // Regression: recommendations were read from sessionStorage at render
+    // time, so a turn that only recommended a skill (no name/awareness
+    // change, hence no other re-render) never surfaced in the panel.
+    const view = renderPanel();
+    expect(view.queryByText('From the conversation')).not.toBeInTheDocument();
+    saveRecommendations(AGENT, { skill_ids: ['web-search'], channels: [] });
+    await waitFor(() => {
+      expect(view.getByText('From the conversation')).toBeInTheDocument();
+    });
+    expect(view.getByText('web-search')).toBeInTheDocument();
+  });
+
+  test('a failed model-driven write is shown as one line', async () => {
+    const view = renderPanel();
+    useStudioStore.getState().setApplyError(AGENT, 'Error: 422 description too long');
+    await waitFor(() => {
+      expect(view.getByText(/422 description too long/)).toBeInTheDocument();
+    });
+  });
+
+  test('blurring an EMPTY name does not write it', async () => {
+    // Same rule as the model path: empty means "not changing it".
+    const view = renderPanel();
+    const input = view.getByPlaceholderText(/Morning Market Brief/i);
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.blur(input);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.updateAgent).not.toHaveBeenCalled();
   });
 });
 

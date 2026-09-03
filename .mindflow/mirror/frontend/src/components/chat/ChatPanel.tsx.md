@@ -4,6 +4,21 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (评审修订) — 落定沿按 agent 记 + 已应用消息去重
+
+`wasStreamingRef` 原是跨 agent 共用的一个布尔，而 `isStreaming` / `messages` 是从
+`activeAgentId` 派生的扁平字段。可复现丢数据路径：B 已落定并应用 → 用户在面板里
+手改 name / awareness 落库 → 切到 A 发消息（A streaming）→ **A 还在跑时**切回 B：
+扁平 `isStreaming` true → false，被判成「B 落定」，`applyFromReply` 重跑 B 的旧草稿，
+两个 PUT 把用户手改**全部覆盖回旧值**，无备份无提示。多 agent 后台并跑是核心场景，
+这直接否证了整个协议的立论「面板手改是权威」。
+
+现在两道闸：`wasStreamingByAgentRef` 按 agent 记沿；`appliedReplyIdsRef` 以
+`agentId:message.id` 记「已应用」，命中即 return。去重键不能用内容 —— 模型被允许
+在后一轮重述同一份草稿。测试 `chatPanelStudioSettle.test.tsx` 复现上述四步。
+这条修完 [[../../lib/builderProtocol.ts]] 的空串保护**仍然必需**：本条只防重放，
+不防新草稿本身是空的。
+
 ## 2026-09-03 (修订 09-03 早条) — studio 改为每轮包裹 + 落定即应用
 
 早先那条写的是「包裹**第一条**消息」，随结构化面板一起作废。现在：

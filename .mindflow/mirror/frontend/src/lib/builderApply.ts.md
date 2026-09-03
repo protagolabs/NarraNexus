@@ -27,7 +27,8 @@ Skills 和 Channel 不行。安装 skill 会把文件复制进 agent 的 workspa
 
 ## 为什么错误只收集不抛
 
-一次写失败在面板里呈现，但**不能打断用户正在进行的对话**（铁律 #15 —— 平台不
+一次写失败在面板里呈现（经 [[../stores/studioStore.ts]] 的 `applyError`，
+[[../hooks/useStudioTurn.ts]] 写、[[../components/builder/BuilderConfigPanel.tsx]] 读），但**不能打断用户正在进行的对话**（铁律 #15 —— 平台不
 许成为中断源）。读 awareness 失败也同理：降级成空串告诉模型「还没有指令」是可
 恢复的，卡住发送不是。
 

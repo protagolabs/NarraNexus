@@ -2,31 +2,45 @@
  * @file_name: builderSession.ts
  * @author: NetMind.AI
  * @date: 2026-09-03
- * @description: One per-agent flag: "the creation studio is open on this
- * agent".
+ * @description: sessionStorage persistence for the creation studio — the
+ * per-agent "studio is open" flag and the skills/channels the conversation
+ * recommended but nobody installed or bound.
  *
- * While it is set, two things happen — the configuration panel is the drawer's
- * active tab, and every outgoing message is wrapped with the builder
- * instruction plus the agent's current config (see [[builderProtocol.ts]]).
+ * This module is the STORAGE BACKEND only. The reactive source of truth is
+ * `stores/studioStore`, which hydrates from here once and writes back through
+ * these functions. Components never read this module directly: a render-time
+ * sessionStorage read has no subscribers, so a change made elsewhere (the
+ * model recommending a skill, the drawer closing the studio) would not
+ * re-render anything — that exact bug is why the store exists.
  *
- * It is a PERSISTENT flag, not a one-shot mark. The instruction has to ride
- * along on every turn, not just the first: the config envelope is what makes
- * the user's manual panel edits authoritative, and a model told once at turn 1
- * reliably stops emitting the draft block a few turns later. Re-stating costs
- * tokens; a silently-stopped draft block costs the whole feature.
+ * sessionStorage rather than localStorage: it survives the reload that router
+ * state does not, yet is scoped to the tab, so two studio sessions in two
+ * tabs cannot steal each other's state.
  *
- * sessionStorage rather than router state or a store field:
- *   - survives the reload that router state does not;
- *   - scoped to the tab, so two studio sessions in two tabs cannot steal each
- *     other's state;
- *   - needs no change to chatStore, whose submit path is load-bearing.
- *
- * There is no "discard": the panel writes to the real agent as the
- * conversation goes, so by the time the user leaves there is nothing to roll
- * back. Leaving the studio just clears this flag.
+ * Recommendations live client-side because they are not agent state — nothing
+ * on the server records "an agent was advised to use web-search". Name,
+ * description and instructions are different: those are written straight to
+ * the agent, so the server is their truth and nothing here shadows them.
  */
 
-const KEY_PREFIX = 'nn.studio.';
+const FLAG_PREFIX = 'nn.studio.';
+const REC_PREFIX = 'nn.studioRec.';
+
+/**
+ * Skills and channels the builder SUGGESTED but nobody installed or bound.
+ * Kept per agent so the outbound envelope can restate them each turn; without
+ * that the model re-suggests the same skill every single reply.
+ */
+export interface StudioRecommendations {
+  skill_ids: string[];
+  channels: string[];
+}
+
+export interface StoredStudioSession {
+  /** Agents the studio is open on. */
+  open: Record<string, true>;
+  recommendations: Record<string, StudioRecommendations>;
+}
 
 function storage(): Storage | null {
   try {
@@ -37,73 +51,58 @@ function storage(): Storage | null {
   }
 }
 
-/** Open the studio on this agent. */
-export function openStudio(agentId: string): void {
-  if (!agentId) return;
-  storage()?.setItem(`${KEY_PREFIX}${agentId}`, '1');
+/** Everything persisted for this tab, read once at store creation. */
+export function loadStudioSession(): StoredStudioSession {
+  const out: StoredStudioSession = { open: {}, recommendations: {} };
+  const store = storage();
+  if (!store) return out;
+  for (let i = 0; i < store.length; i += 1) {
+    const key = store.key(i);
+    if (!key) continue;
+    if (key.startsWith(FLAG_PREFIX)) {
+      const agentId = key.slice(FLAG_PREFIX.length);
+      if (agentId) out.open[agentId] = true;
+    } else if (key.startsWith(REC_PREFIX)) {
+      const agentId = key.slice(REC_PREFIX.length);
+      const rec = parseRecommendations(store.getItem(key));
+      if (agentId && rec) out.recommendations[agentId] = rec;
+    }
+  }
+  return out;
 }
 
-/** Leave the studio. Configuration already written to the agent stays. */
-export function closeStudio(agentId: string): void {
-  if (!agentId) return;
-  storage()?.removeItem(`${KEY_PREFIX}${agentId}`);
-}
-
-/** Whether the studio is open on this agent. Read-only — never consumes. */
-export function isStudioOpen(agentId: string | null | undefined): boolean {
-  if (!agentId) return false;
-  return storage()?.getItem(`${KEY_PREFIX}${agentId}`) !== null;
-}
-
-// ── recommendations ─────────────────────────────────────────────────────
-
-const REC_PREFIX = 'nn.studioRec.';
-
-/**
- * Skills and channels the builder SUGGESTED but nobody installed or bound.
- *
- * These live here, client-side, because they are not agent state — nothing on
- * the server records "an agent was advised to use web-search". Name,
- * description and instructions are different: those are written straight to
- * the agent, so the server is their truth and this module must not shadow
- * them.
- *
- * Kept per agent so the outbound envelope can restate them each turn; without
- * that the model re-suggests the same skill every single reply.
- */
-export interface StudioRecommendations {
-  skill_ids: string[];
-  channels: string[];
-}
-
-export function saveRecommendations(agentId: string, rec: StudioRecommendations): void {
+export function persistStudioFlag(agentId: string, open: boolean): void {
   if (!agentId) return;
   try {
-    storage()?.setItem(`${REC_PREFIX}${agentId}`, JSON.stringify(rec));
+    if (open) storage()?.setItem(`${FLAG_PREFIX}${agentId}`, '1');
+    else storage()?.removeItem(`${FLAG_PREFIX}${agentId}`);
   } catch {
-    // Quota or private mode — recommendations are a convenience, never block.
+    // Quota or private mode — the in-memory store still holds the flag for
+    // this page; only the reload guarantee is lost.
   }
 }
 
-export function readRecommendations(agentId: string | null | undefined): StudioRecommendations {
-  const empty: StudioRecommendations = { skill_ids: [], channels: [] };
-  if (!agentId) return empty;
-  const raw = storage()?.getItem(`${REC_PREFIX}${agentId}`);
-  if (!raw) return empty;
+export function persistRecommendations(agentId: string, rec: StudioRecommendations | null): void {
+  if (!agentId) return;
+  try {
+    if (rec) storage()?.setItem(`${REC_PREFIX}${agentId}`, JSON.stringify(rec));
+    else storage()?.removeItem(`${REC_PREFIX}${agentId}`);
+  } catch {
+    // Same as above — recommendations are a convenience, never block.
+  }
+}
+
+function parseRecommendations(raw: string | null): StudioRecommendations | null {
+  if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return empty;
+    if (!parsed || typeof parsed !== 'object') return null;
     const rec = parsed as Partial<StudioRecommendations>;
     return {
       skill_ids: Array.isArray(rec.skill_ids) ? rec.skill_ids.filter((s) => typeof s === 'string') : [],
       channels: Array.isArray(rec.channels) ? rec.channels.filter((s) => typeof s === 'string') : [],
     };
   } catch {
-    return empty;
+    return null;
   }
-}
-
-export function clearRecommendations(agentId: string): void {
-  if (!agentId) return;
-  storage()?.removeItem(`${REC_PREFIX}${agentId}`);
 }

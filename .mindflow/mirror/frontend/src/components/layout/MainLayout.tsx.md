@@ -4,16 +4,18 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-## 2026-09-03 — 抽屉切换器按 studio 状态过滤
+## 2026-09-03 (评审修订) — 关抽屉即退出 studio；可见性走注册表
 
-`switcherCategories` 不再直接传 `STRIP_CATEGORIES`：studio 没在当前 agent 上打开
-时，`builder` tab 从切换器里滤掉。理由同 [[ChatHeader.tsx]] —— 面板只在
-「通过 AI 创建」路径上有意义。
-
-**为什么用 state + effect 而不是订阅**：开关存在 sessionStorage
-（[[builderSession.ts]]），不是响应式的。`[agentId, drawerTab]` 正好覆盖能让它
-翻转的两个转换 —— 进 studio 会打开这个 tab，点「完成」会关抽屉，两者都改变
-`drawerTab`。
+- `switcherCategories = visibleCategories({ studioOpen })`，规则在
+  [[../bookmarks/tabs.ts]]，`studioOpen` 直接订阅 [[../../stores/studioStore.ts]]
+  （早条那套 state + effect 是因为 flag 不响应式而做的补丁，随 store 一起作废）。
+- `handleDrawerClose` 在 `drawerTab === 'builder'` 时一并 `closeStudio(agentId)`。
+  此前「离开 studio」唯一的实现是面板底部那个用户根本不需要点的「完成」：用 X
+  关掉抽屉、切走再回来、或者直接不理面板继续聊，flag 都还在 —— 每条消息仍被包上
+  完整指令 + 全量目录，模型继续以 Builder 身份回话并往 agent 写配置，而面板已经
+  关了，用户看不到任何变化发生。「关掉配置面板 = 结束 studio」语义自洽。
+  `BuilderConfigPanel.finish()` 走的是 `closeStudio` + `requestPanel` toggle，不
+  经过这里，不会双重清理。
 
 ## 2026-08-19(二)— 手机永不钉 + 透明宽度地板
 

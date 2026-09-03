@@ -4,6 +4,20 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (评审修订) — 降级为纯持久化层
+
+评审 🟡#3 / #6 / #7 指向同一个根因：**sessionStorage 直读没有订阅者**。面板只在
+name / awareness 变化时重渲染，所以只推荐 skill 的一轮面板什么都不出现；关抽屉
+无法结束 studio（没人会因为 flag 变了而重渲染编码器）；`useStudioTurn` 收集的写
+失败没有任何读者。
+
+现在响应式真相在 [[../stores/studioStore.ts]]，本模块只剩三件事：启动时
+`loadStudioSession()` 一次性把整个命名空间读出来、`persistStudioFlag` /
+`persistRecommendations` 写透。**组件不再直接 import 本模块。** 原来的
+`openStudio / closeStudio / isStudioOpen / readRecommendations /
+saveRecommendations / clearRecommendations` 全部迁到 store（死导出
+`clearRecommendations` 由 `closeStudio` 顺带覆盖 —— 离开 studio 即清推荐）。
+
 # builderSession.ts — studio 开关 + 未落地的推荐
 
 ## 2026-09-03 — 从「一次性标记」改成「持久开关」

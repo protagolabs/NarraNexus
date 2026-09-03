@@ -40,8 +40,13 @@ import { api } from '@/lib/api';
 import { Button, Input, Textarea, ScrollArea } from '@/components/ui';
 import { AwarenessPanel } from '@/components/awareness';
 import { SkillsPanel } from '@/components/skills';
-import { useConfigStore, usePreloadStore, useUIStore } from '@/stores';
-import { closeStudio, readRecommendations } from '@/lib/builderSession';
+import {
+  useConfigStore,
+  usePreloadStore,
+  useUIStore,
+  useStudioStore,
+  selectRecommendations,
+} from '@/stores';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
 interface BuilderConfigPanelProps {
@@ -56,9 +61,15 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const awareness = usePreloadStore((s) => s.awareness);
   const refreshAwareness = usePreloadStore((s) => s.refreshAwareness);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  // Reactive: a turn that only recommended a skill re-renders this section
+  // even though no text field (and therefore no other subscription) changed.
+  const recommendations = useStudioStore(selectRecommendations(agentId));
+  const closeStudio = useStudioStore((s) => s.closeStudio);
+  // A model-driven write that failed. The conversation was not interrupted
+  // (binding rule #15); this line is where the user finds out.
+  const applyError = useStudioStore((s) => s.applyError[agentId] ?? null);
 
   const agent = agents.find((a) => a.agent_id === agentId);
-  const recommendations = readRecommendations(agentId);
 
   // Local mirrors of the two live fields. The server value wins whenever it
   // changes underneath — that is how the model's writes appear here; typing
@@ -76,7 +87,10 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
 
   const commitName = useCallback(async () => {
     const next = name.trim();
-    if (next === (agent?.name ?? '')) return;
+    // An empty name is never committed — the same rule the model's path
+    // applies in mergeAgentDraft, so a blank field reads as "not changing it"
+    // from either side rather than wiping the agent's name.
+    if (!next || next === (agent?.name ?? '')) return;
     setSaving(true);
     setError(null);
     try {
@@ -278,9 +292,9 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
             </EmbeddedSection>
           </Section>
 
-          {error && (
+          {(error || applyError) && (
             <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
-              {error}
+              {error ?? applyError}
             </p>
           )}
         </div>

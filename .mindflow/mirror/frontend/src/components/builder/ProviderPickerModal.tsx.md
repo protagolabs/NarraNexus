@@ -35,7 +35,8 @@ provider 类型识别、没有可辨前缀的聚合器 key、key 探活、以及
 弹窗都成立。
 
 **不写 per-agent LLM override。** provider 和 slot 在本项目是 per-user 的，
-`Next` 只是确认用户指的是哪个已有 provider。副文案里那句 "This decides which
+`Next` 只是确认用户指的是哪个已有 provider。所以 `onReady` **没有参数**（09-03
+评审修订：原先传 providerId 但唯一调用方从不接，删掉免得读者去找不存在的消费者）。副文案里那句 "This decides which
 engine runs the agent" 描述的是关系，不是要落 `setAgentLlmConfig`。
 
 ## 上游 / 下游

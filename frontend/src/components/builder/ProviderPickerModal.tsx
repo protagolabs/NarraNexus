@@ -40,8 +40,9 @@ import { deriveProviderRows, type PickerRow } from './providerRows';
 type AddMode = null | 'api_key' | 'cli';
 
 interface ProviderPickerModalProps {
-  /** Called once the user has a provider selected and confirms. */
-  onReady: (providerId: string) => void;
+  /** Called once the user has a provider selected and confirms. No argument: this modal never writes
+   *  a per-agent LLM override, so WHICH provider is not the caller's concern. */
+  onReady: () => void;
   /** Cancel / close — the caller decides where that goes. */
   onCancel: () => void;
 }
@@ -273,7 +274,7 @@ export function ProviderPickerModal({ onReady, onCancel }: ProviderPickerModalPr
         <Button variant="ghost" onClick={onCancel}>
           {t('common.cancel')}
         </Button>
-        <Button disabled={!selected} onClick={() => selected && onReady(selected)} className="gap-1.5">
+        <Button disabled={!selected} onClick={() => selected && onReady()} className="gap-1.5">
           {t('builder.gate.next')}
           <ChevronRight className="w-4 h-4" />
         </Button>

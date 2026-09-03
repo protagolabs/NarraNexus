@@ -86,6 +86,20 @@ export interface AtomicTabDef {
   stripLabel?: string;
   /** i18n key for `stripLabel` when present. */
   stripLabelKey?: string;
+  /**
+   * Offered only in a specific context. `'studio'`: the creation studio is
+   * open on the current agent. The tab stays REGISTERED regardless (so
+   * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
+   * only the pickable lists — drawer switcher, ⌘K palette — filter on it.
+   * One field here rather than a filter in each consumer: a new consumer of
+   * `STRIP_CATEGORIES` inherits the rule instead of re-deriving it.
+   */
+  conditional?: 'studio';
+}
+
+/** What the pickable lists need to know to decide what to offer. */
+export interface TabVisibilityContext {
+  studioOpen: boolean;
 }
 
 export interface StripCategory {
@@ -113,7 +127,13 @@ export const STRIP_CATEGORIES: StripCategory[] = [
     tabs: [
       // Creation studio. Sits first in Config because it is the "start here"
       // of configuration — a conversation that fills the other tabs in.
-      { id: 'builder', label: 'Builder', labelKey: 'rail.builder', icon: Wand2 },
+      {
+        id: 'builder',
+        label: 'Builder',
+        labelKey: 'rail.builder',
+        icon: Wand2,
+        conditional: 'studio',
+      },
       { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
       { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
       { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },
@@ -172,6 +192,27 @@ export const STRIP_CATEGORIES: StripCategory[] = [
 ];
 
 export const ALL_TABS: AtomicTabDef[] = STRIP_CATEGORIES.flatMap((c) => c.tabs);
+
+function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
+  return tab.conditional !== 'studio' || ctx.studioOpen;
+}
+
+/**
+ * The categories a user may PICK from right now — `STRIP_CATEGORIES` with the
+ * conditional tabs removed (and a category dropped once it is empty). The
+ * drawer's switcher and the ⌘K palette both go through here, so a conditional
+ * tab can never leak out of one entry while being hidden in another.
+ */
+export function visibleCategories(ctx: TabVisibilityContext): StripCategory[] {
+  return STRIP_CATEGORIES.map((c) => ({ ...c, tabs: c.tabs.filter((t) => tabOffered(t, ctx)) })).filter(
+    (c) => c.tabs.length > 0,
+  );
+}
+
+/** Flat form of `visibleCategories`. */
+export function visibleTabs(ctx: TabVisibilityContext): AtomicTabDef[] {
+  return ALL_TABS.filter((t) => tabOffered(t, ctx));
+}
 
 export function tabLabel(id: AtomicTabId): string {
   return ALL_TABS.find((t) => t.id === id)?.label ?? id;

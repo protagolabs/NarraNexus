@@ -4,6 +4,16 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 (评审修订) — 推荐与错误改为订阅 store；空名不提交
+
+- `recommendations` 从渲染期直读 sessionStorage 改为 `useStudioStore(selectRecommendations)`。
+  修的是「只推荐 skill、不改文本的那一轮，面板永远不出现建议」—— 直读没有订阅者，
+  面板只在 name / awareness 变化时才重渲染。
+- 新增一行 `applyError`：模型驱动写入的失败（如 description 超长 422）此前落在一个
+  没人渲染的 state 里，用户只看到「名字一直没变」。与手改的 `error` 合成同一条提示。
+- `commitName` 对空名 / 全空白**不提交**，与模型路径 `mergeAgentDraft` 同一把尺子。
+- `closeStudio` 来自 store，不再 import [[../../lib/builderSession.ts]]。
+
 ## 2026-09-03 (修正) — 「完成」必须同时关抽屉
 
 改版时我把关抽屉那一步删了，还在注释里写了「抽屉的关闭由打开它的那方负责」——

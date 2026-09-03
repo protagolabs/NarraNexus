@@ -26,8 +26,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronRight, FileText, MessageSquare, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useCreateAgent } from '@/hooks';
-import { openStudio } from '@/lib/builderSession';
-import { useUIStore } from '@/stores';
+import { useStudioStore, useUIStore } from '@/stores';
 import { ProviderPickerModal } from '@/components/builder';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +37,7 @@ export default function ChooseCreateMethodPage() {
   const navigate = useNavigate();
   const { createAgent } = useCreateAgent();
   const openPanel = useUIStore((s) => s.openPanel);
+  const openStudio = useStudioStore((s) => s.openStudio);
   const [phase, setPhase] = useState<Phase>('idle');
 
   const busy = phase === 'probing' || phase === 'creating';
@@ -65,7 +65,7 @@ export default function ChooseCreateMethodPage() {
       }
       navigate('/app/chat');
     },
-    [createAgent, navigate, openPanel],
+    [createAgent, navigate, openPanel, openStudio],
   );
 
   /**

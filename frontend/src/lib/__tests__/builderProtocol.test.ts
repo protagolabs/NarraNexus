@@ -23,7 +23,8 @@ import {
   type AgentDraft,
 } from '../builderProtocol';
 
-const SKILLS = [{ id: 'web-search', name: 'Web Search', description: 'search' }];
+const SKILLS = [{ id: 'web-search', name: 'Web Search' }];
+const CATALOGUE = { items: SKILLS, total: SKILLS.length };
 
 function draftBlock(obj: unknown): string {
   return `${DRAFT_OPEN}${JSON.stringify(obj)}${DRAFT_CLOSE}`;
@@ -34,7 +35,7 @@ describe('encodeBuilderTurn / decodeBuilderTurn', () => {
     const msg = encodeBuilderTurn({
       request: '每天早上给我一份金融晨报',
       current: emptyDraft(),
-      availableSkills: SKILLS,
+      catalogue: CATALOGUE,
     });
     expect(msg).not.toBeNull();
     expect(msg!.endsWith('每天早上给我一份金融晨报')).toBe(true);
@@ -49,19 +50,40 @@ describe('encodeBuilderTurn / decodeBuilderTurn', () => {
       skill_ids: ['web-search'],
       channels: ['telegram'],
     };
-    const msg = encodeBuilderTurn({ request: '改一下', current, availableSkills: SKILLS })!;
+    const msg = encodeBuilderTurn({ request: '改一下', current, catalogue: CATALOGUE })!;
     expect(msg).toContain('我手改的名字');
     expect(msg).toContain('web-search');
   });
 
   test('refuses an empty request', () => {
-    expect(encodeBuilderTurn({ request: '  ', current: emptyDraft(), availableSkills: [] })).toBeNull();
+    expect(encodeBuilderTurn({ request: '  ', current: emptyDraft(), catalogue: null })).toBeNull();
   });
 
   test('decode leaves ordinary messages untouched and drops a truncated envelope', () => {
     expect(decodeBuilderTurn('普通消息')).toBe('普通消息');
     expect(decodeBuilderTurn(`${TURN_OPEN}\nhalf an instruction`)).toBe('');
     expect(decodeBuilderTurn(`${TURN_OPEN}x${TURN_CLOSE}\nreq`)).toBe('req');
+  });
+
+  test('a marker the USER typed inside their own sentence is not eaten', () => {
+    // The envelope is only ever the prefix, so the strip is anchored there.
+    const typed = `what does ${TURN_OPEN} mean? and this part too`;
+    expect(decodeBuilderTurn(typed)).toBe(typed);
+    const msg = encodeBuilderTurn({ request: typed, current: emptyDraft(), catalogue: CATALOGUE })!;
+    expect(decodeBuilderTurn(msg)).toBe(typed);
+  });
+
+  test('a cut catalogue tells the model it is cut; an unknown one says so too', () => {
+    const cut = encodeBuilderTurn({
+      request: 'r',
+      current: emptyDraft(),
+      catalogue: { items: SKILLS, total: 200 },
+    })!;
+    expect(cut).toContain('first 1 of 200');
+    const unknown = encodeBuilderTurn({ request: 'r', current: emptyDraft(), catalogue: null })!;
+    expect(unknown).toContain('"status":"unavailable"');
+    const full = encodeBuilderTurn({ request: 'r', current: emptyDraft(), catalogue: CATALOGUE })!;
+    expect(full).not.toContain('note');
   });
 });
 
@@ -173,6 +195,47 @@ describe('mergeAgentDraft', () => {
     const got = mergeAgentDraft(current, { skill_ids: [], channels: [] }, ['web-search']);
     expect(got.skill_ids).toEqual([]);
     expect(got.channels).toEqual([]);
+  });
+
+  test('EMPTY strings fall back — a copied skeleton must not wipe the agent', () => {
+    // The instruction shows the model an all-empty skeleton as the shape to
+    // copy; a weaker model copies it verbatim. That turn must be a no-op.
+    const got = mergeAgentDraft(current, { name: '', description: '', awareness: '' }, ['web-search']);
+    expect(got.name).toBe('cur-name');
+    expect(got.description).toBe('cur-desc');
+    expect(got.awareness).toBe('cur-aware');
+  });
+
+  test('whitespace-only text counts as empty', () => {
+    const got = mergeAgentDraft(current, { name: '   ', awareness: '\n\t' }, []);
+    expect(got.name).toBe('cur-name');
+    expect(got.awareness).toBe('cur-aware');
+  });
+
+  test('each text field is judged on its own — one filled, one empty is normal', () => {
+    const got = mergeAgentDraft(current, { name: '', awareness: 'new instructions' }, []);
+    expect(got.name).toBe('cur-name');
+    expect(got.awareness).toBe('new instructions');
+  });
+
+  test('name and description are cut to the server column width; awareness is not', () => {
+    const long = 'x'.repeat(400);
+    const got = mergeAgentDraft(current, { name: long, description: long, awareness: long }, []);
+    expect(got.name).toHaveLength(255);
+    expect(got.description).toHaveLength(255);
+    expect(got.awareness).toHaveLength(400);
+  });
+
+  test('an UNKNOWN catalogue leaves skill recommendations untouched', () => {
+    // null = the fetch failed or has not landed. Filtering against nothing
+    // would reject every id and persist the wipe over accepted ones.
+    const got = mergeAgentDraft(current, { skill_ids: ['web-search', 'other'] }, null);
+    expect(got.skill_ids).toEqual(['web-search']);
+    expect(mergeAgentDraft(current, { skill_ids: [] }, null).skill_ids).toEqual(['web-search']);
+  });
+
+  test('a KNOWN empty catalogue still rejects every id', () => {
+    expect(mergeAgentDraft(current, { skill_ids: ['web-search'] }, []).skill_ids).toEqual([]);
   });
 
   test('duplicates and blanks are squeezed out', () => {

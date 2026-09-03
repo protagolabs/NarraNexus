@@ -13,9 +13,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { LayoutDashboard, SlidersHorizontal, Server, MessagesSquare, CornerDownLeft } from 'lucide-react';
-import { useConfigStore, useUIStore } from '@/stores';
+import { useConfigStore, useUIStore, useStudioStore, selectStudioOpen } from '@/stores';
 import { RingAvatar } from '@/components/nm';
-import { ALL_TABS } from '@/components/bookmarks';
+import { visibleTabs } from '@/components/bookmarks';
 import { cn } from '@/lib/utils';
 
 interface CommandPaletteProps {
@@ -41,6 +41,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const setAgentId = useConfigStore((s) => s.setAgentId);
   const agentId = useConfigStore((s) => s.agentId);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,8 +67,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     ];
     // Context panels (awareness/jobs/…) — only meaningful with an agent
     // selected. This is the mobile entry point now that the right strip hides.
+    // Same visibility rule as the drawer switcher: a conditional tab (the
+    // creation studio's panel) is offered only while its context holds.
     const panelCmds: Cmd[] = agentId
-      ? ALL_TABS.map((tab) => ({
+      ? visibleTabs({ studioOpen }).map((tab) => ({
           id: `panel:${tab.id}`,
           label: t(tab.labelKey),
           hint: t('layout.commandPalette.hintPanel'),
@@ -80,7 +83,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         }))
       : [];
     return [...agentCmds, ...pageCmds, ...panelCmds];
-  }, [agents, navigate, setAgentId, agentId, requestPanel, t]);
+  }, [agents, navigate, setAgentId, agentId, studioOpen, requestPanel, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

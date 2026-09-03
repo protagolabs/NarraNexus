@@ -4,23 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
-## 2026-09-03 (作废同日早条) — apply bar 已移除
+## 2026-09-03 — 与创建工作室无关
 
-早条记的「配置草稿多一条 apply bar」是 markdown 草稿方案的产物。Owner 于
-2026-09-03 选定**结构化面板 + 实时落库**（见
-`reference/self_notebook/specs/2026-08-26-agent-creation-studio-prd.md`），
-那条路径整体作废，本文件已还原为改动前状态，artifact 列**没有** studio 相关
-逻辑。
+创建工作室（studio）最终采用结构化面板 + 实时落库，配置面板是抽屉里的
+[[BuilderConfigPanel.tsx]]。本文件曾在同日的一个已放弃的 markdown 草稿方案里
+被改过又还原，最终状态与改动前完全一致 —— artifact 列**没有**任何 studio 逻辑。
 
-## 2026-09-03 — 配置草稿多一条 apply bar
-
-`isConfigDraft(active)` 为真时，在 tab strip 与内容区之间插入
-[[ApplyDraftBar.tsx]]。判定键在 [[builderPrompt.ts]]，只认 Builder 指令写死的
-那个标题 + `text/markdown`，**其他任何 markdown artifact 渲染完全不变**。
-
-这一列因此成了创建工作室 v0 的「右侧配置面板」——没有为它写任何新面板：本列
-已经是第 4 列、新 artifact 到达自动展开，`text/markdown` 又是 block-editor +
-防抖自动保存，用户能直接改草稿。
 ## 2026-08-19 — sliver 分支删除(更正 08-13 条的「sliver 机制保留未动」)
 
 v4 后唯一挂载点是 BookmarkPanelHost 且带 `forceExpanded`,

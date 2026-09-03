@@ -29,7 +29,7 @@ export interface PickerRow {
   name: string;
   /** Drives the sub-label: 'cli' → "CLI sign-in", 'api_key' → "API Key". */
   access: 'api_key' | 'cli';
-  /** Raw driver source, kept so the row can pick a brand glyph later. */
+  /** Raw driver source (e.g. 'anthropic'). Not rendered today. */
   source: string;
   /** Server's own health verdict — drives the status dot, not our guess. */
   active: boolean;
