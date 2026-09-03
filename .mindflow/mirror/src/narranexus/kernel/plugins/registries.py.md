@@ -6,6 +6,8 @@ stub: false
 
 ## 2026-09-03（预审修订）— `SLOT_KINDS`/`_NORMALIZERS` 的框架位路径改为 `turn.pipeline.act.framework`
 
+两张表是路径键，随扩展位树的路径重排一起改；对象身份与语义不变。
+
 ## 2026-09-03 — `Registries` 门面：每个扩展位一张注册表，进程内唯一实例
 
 平台代码从这里取注册表（`registry_for(path)`），不再各处私建 dict——批 0 的出口判据

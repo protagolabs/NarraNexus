@@ -165,6 +165,16 @@ def test_resolved_snapshot_is_written_atomically_and_names_layers(tmp_path):
     assert not (tmp_path / "run" / "bindings.resolved.json.tmp").exists()
 
 
+def test_binding_an_unknown_slot_fails_loud_naming_the_origin():
+    tree = _tree()
+    with pytest.raises(BindingConflict, match=r"turn.act.framework \(from env\)"):
+        resolve(
+            tree,
+            [_src(Layer.DISTRIBUTION, model__resolver="builtin.providers"),
+             parse_env({"NX_BIND__TURN__ACT__FRAMEWORK": "x"})],
+        )
+
+
 def test_nesting_rule_fires_on_the_kernel_tree():
     """Replacing the whole turn runtime hides the framework slot unless redeclared."""
     tree = build_kernel_slot_tree()

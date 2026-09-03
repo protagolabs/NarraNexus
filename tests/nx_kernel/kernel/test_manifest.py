@@ -129,6 +129,17 @@ def test_min_app_version_gate():
     parse_manifest(data, tree=_tree(), host_version="2.0.0")
 
 
+def test_provider_of_a_composite_may_declare_its_children():
+    data = _base(
+        id="builtin.turn",
+        provides={"turn.pipeline": "backend.turn:PIPELINE"},
+        declares={"turn.pipeline.recall": {"arity": "one", "contract": "backend.contracts:RecallStrategy", "default": "builtin.turn"}},
+    )
+    m = parse_manifest(data, tree=_tree(), allow_builtin=True)
+    (slot,) = m.declared_slots()
+    assert (slot.path, slot.owner, slot.default) == ("turn.pipeline.recall", "builtin.turn", "builtin.turn")
+
+
 def test_redeclares_must_be_under_a_provided_composite_slot():
     tree = _tree()
     data = _base(provides={"turn.pipeline.act": "backend.act:Strategy"}, redeclares=["turn.pipeline.act.framework"])

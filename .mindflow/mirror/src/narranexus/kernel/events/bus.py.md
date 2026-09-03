@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（二审修订）— 自有有界线程池 + 订阅者熔断
+
+二审指出 `asyncio.to_thread` 用的是进程共享的默认线程池：被放弃的阻塞 handler 会一直占着线程，
+坏插件能把全应用的 `to_thread` 饿死（平台自己成了打断源）。现在总线持有自己的
+`ThreadPoolExecutor(max_workers=8, "nx-events")`，同步 handler 走 `run_in_executor`；`close()` 释放。
+同时加订阅者熔断：某 owner 连续超时 `slow_threshold`（默认 3）次后不再投递（`EmitReport.suppressed`），
+`reset_owner` 由工场页「重试」解除——熔断的是订阅者，永远不是回合。
+
 ## 2026-09-03（预审修订）— 同步 handler 走线程池；并发投递
 
 预审指出：同步 handler 在协程里直接调用会卡住事件循环，`wait_for` 永远打不到超时（文档承诺的

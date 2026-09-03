@@ -11,7 +11,7 @@ Layers, highest precedence first:
 
     TURN           per-turn override (a value object the runtime passes in)
     AGENT          the agent's PipelineProfile (only turn.* / agent.capabilities.*)
-    ENV            NX_BIND__TURN__ACT__FRAMEWORK=builtin.frameworks.claude_code
+    ENV            NX_BIND__TURN__PIPELINE__ACT__FRAMEWORK=builtin.frameworks.claude_code
     USER_CONFIG    ~/.narranexus/narranexus.toml  [bindings] "turn.recall" = "acme.graph_recall"
     DISTRIBUTION   narranexus-dist.json  "bindings": {...}
     DEFAULT        the slot's declared default
@@ -181,6 +181,18 @@ def resolve(
     redeclared: dict[str, set[str]] = {k: set(v) for k, v in (redeclarations or {}).items()}
     ordered = sorted(sources, key=lambda s: s.layer)
     resolved = ResolvedBindings()
+
+    # A binding for a slot that does not exist is a typo (or a stale example)
+    # that would otherwise be dropped silently — the config-driven promise
+    # fails without a word. Name the layer and origin so the user can find it.
+    unknown = [
+        f"{path} (from {src.origin or src.layer.name})"
+        for src in ordered
+        for path in src.entries
+        if path not in tree
+    ]
+    if unknown:
+        raise BindingConflict(f"bindings name slots that do not exist: {', '.join(unknown)}")
 
     for path in tree.paths():
         slot = tree.get(path)

@@ -6,7 +6,7 @@ Fixed vocabulary for code, docs and reviews. Use these words and no synonyms.
   declare new slots. Builtin plugins (`builtin.*`) ship with the host; user plugins are
   installed at runtime on local deployments only.
 - **Slot** — A named, contract-bearing extension point identified by a dotted path
-  (`turn.act.framework`). Has an arity, a contract, an owner and, for `one` slots, a
+  (`turn.pipeline.act.framework`). Has an arity, a contract, an owner and, for `one` slots, a
   default provider.
 - **Arity** — `one`: exactly one provider fills the slot at a time (replaceable). `many`:
   any number of providers contribute (additive).

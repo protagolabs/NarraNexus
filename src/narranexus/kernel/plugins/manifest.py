@@ -294,17 +294,22 @@ def _check_provides_against_tree(manifest: Manifest, tree: SlotTree) -> None:
 
 
 def _check_declares_in_own_namespace(manifest: Manifest) -> None:
-    """A plugin may only declare slots under its own id (``<plugin_id>.<...>``).
+    """A plugin may declare slots under its own id or under a composite slot it provides.
 
-    This keeps every plugin-declared extension point attributable and makes
-    the missing ancestors safe to auto-create as namespaces owned by the
-    declaring plugin.
+    Own namespace (``acme.weather.sources``) keeps third-party extension points
+    attributable, and its missing ancestors are safe to auto-create. Under a
+    provided composite (``builtin.turn`` provides ``turn.pipeline`` and declares
+    ``turn.pipeline.recall``) is the ownership rule of the slot tree itself:
+    the provider of a composite owns its children.
     """
+    provided = set(manifest.provides)
     for path in manifest.declares:
-        if path == manifest.id or not path.startswith(manifest.id + "."):
+        own = path != manifest.id and path.startswith(manifest.id + ".")
+        under_provided = any(path.startswith(p + ".") for p in provided)
+        if not (own or under_provided):
             raise ManifestError(
                 f"{manifest.id}: declares[{path!r}] must live under this plugin's own namespace "
-                f"({manifest.id!r}.<name>)"
+                f"({manifest.id!r}.<name>) or under a composite slot this plugin provides"
             )
 
 

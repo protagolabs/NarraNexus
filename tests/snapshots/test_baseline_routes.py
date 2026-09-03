@@ -33,10 +33,11 @@ print(json.dumps(rows))
 """
 
 
-def _routes(tmp_path, *, manyfold: bool) -> list[list[str]]:
-    dist = tmp_path / "dist"
-    (dist / "assets").mkdir(parents=True, exist_ok=True)  # main.py mounts dist/assets
-    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+def _routes(tmp_path, *, manyfold: bool, frontend: bool = True) -> list[list[str]]:
+    dist = tmp_path / ("dist" if frontend else "no-dist")
+    if frontend:
+        (dist / "assets").mkdir(parents=True, exist_ok=True)  # main.py mounts dist/assets
+        (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
     env = {"NARRANEXUS_DEPLOYMENT_MODE": "local", "FRONTEND_DIST": str(dist)}
     if manyfold:
         env["ENABLE_MANYFOLD_API"] = "1"
@@ -47,6 +48,13 @@ def test_registered_routes_are_unchanged(tmp_path):
     rows = _routes(tmp_path, manyfold=False)
     assert ["GET", "/{full_path:path}", "spa_fallback"] in rows, "the SPA fallback must be part of the pinned shape"
     approve("routes", rows)
+
+
+def test_api_only_shape_keeps_the_root_endpoint(tmp_path):
+    """Without a built frontend the app serves a JSON root instead of the SPA fallback."""
+    rows = _routes(tmp_path, manyfold=False, frontend=False)
+    assert ["GET", "/", "root"] in rows
+    approve("routes_api_only", rows)
 
 
 def test_manyfold_gated_routes_are_unchanged(tmp_path):

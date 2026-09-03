@@ -19,7 +19,17 @@ from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES, Registries
 from narranexus.kernel.plugins.registry import Contribution
 from narranexus.kernel.plugins.slots import build_kernel_slot_tree
 
-GOLDEN = Path(__file__).resolve().parents[2] / "snapshots" / "golden" / "registries_local.json"
+GOLDEN_DIR = Path(__file__).resolve().parents[2] / "snapshots" / "golden"
+
+
+def _golden_for_this_process() -> dict:
+    # The provider registry is populated at import time and depends on the
+    # deployment mode of THIS process (SystemDriver registers on cloud only),
+    # so compare against the golden captured for the same mode.
+    from narranexus.kernel.deployment import is_cloud_mode
+
+    name = "registries_cloud.json" if is_cloud_mode() else "registries_local.json"
+    return json.loads((GOLDEN_DIR / name).read_text())
 
 
 # ---------------------------------------------------------------- registries
@@ -75,13 +85,12 @@ def test_discover_is_builtins_only_and_ignores_user_registry_on_cloud(tmp_path):
 # -------------------------------------------------------------------- loader
 
 
-def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot(monkeypatch):
-    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot():
     regs = Registries()
     report = load(regs, builtin_manifests(), role="backend")
     assert report.errors == [] and report.skipped == []
     snap = regs.snapshot()
-    golden = json.loads(GOLDEN.read_text())
+    golden = _golden_for_this_process()
     assert sorted(snap["turn.pipeline.act.framework"]) == sorted(golden["agent_loop_frameworks"])
     assert sorted(snap["turn.pipeline.act.framework"].values()) == sorted(
         f"builtin.frameworks.{n}" for n in golden["agent_loop_frameworks"]
@@ -95,8 +104,7 @@ def test_loading_builtins_into_a_fresh_registries_reproduces_the_snapshot(monkey
     assert all(p.duration_ms >= 0 for p in report.loaded)
 
 
-def test_loading_twice_into_the_process_registries_is_idempotent(monkeypatch):
-    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+def test_loading_twice_into_the_process_registries_is_idempotent():
     from xyz_agent_context.agent_framework import available_agent_loop_frameworks
 
     before = available_agent_loop_frameworks()

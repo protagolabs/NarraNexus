@@ -84,6 +84,36 @@ async def test_blocking_sync_handler_is_abandoned_and_counted_as_slow():
     assert elapsed < 0.4, "the loop must not wait for the blocking handler"
 
 
+async def test_repeatedly_slow_subscriber_is_suppressed_until_reset():
+    import time
+
+    bus = EventBus(timeout_s=0.02, slow_threshold=2)
+    state = {"block": True}
+    bus.subscribe("onDidStartRun", lambda p: time.sleep(0.2) if state["block"] else None, owner="flaky")
+    for _ in range(2):
+        report = await bus.emit("onDidStartRun", {})
+        assert report.timed_out == ["flaky"]
+    assert bus.is_suppressed("flaky")
+    report = await bus.emit("onDidStartRun", {})
+    assert report.suppressed == ["flaky"] and report.timed_out == [] and report.delivered == 0
+    state["block"] = False
+    bus.reset_owner("flaky")
+    report = await bus.emit("onDidStartRun", {})
+    assert report.delivered == 1 and not bus.is_suppressed("flaky")
+    bus.close()
+
+
+async def test_bus_uses_its_own_bounded_pool_not_the_loop_default():
+    import threading
+
+    names: list[str] = []
+    bus = EventBus(max_workers=2)
+    bus.subscribe("onDidStartRun", lambda p: names.append(threading.current_thread().name), owner="a")
+    await bus.emit("onDidStartRun", {})
+    assert names and names[0].startswith("nx-events")
+    bus.close()
+
+
 async def test_delivery_is_concurrent_so_latency_is_one_timeout():
     bus = EventBus(timeout_s=0.5)
 

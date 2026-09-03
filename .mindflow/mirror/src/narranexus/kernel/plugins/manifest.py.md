@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（二审修订）— `declares` 允许两种归属
+
+二审指出「只许本插件命名空间」会让 `builtin.turn` 无法声明 `turn.pipeline.recall`、`builtin.ui`
+无法声明 `ui.pages`。规则改为：路径在 `<plugin_id>.` 之下，**或**在本插件 `provides` 的某个复合位之下
+（与 `_check_redeclares` 用同一条「复合位提供者拥有子位」关系）。
+
 ## 2026-09-03（预审修订）— `api` 版本严格相等；`declares` 限本插件命名空间；`hosts` 空=全部
 
 `api[kind]` 必须**等于**宿主版本（bump 即破坏，policy §5「不匹配 fail-closed」）。`declares` 的路径

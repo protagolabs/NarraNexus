@@ -2,7 +2,7 @@
 @file_name: framework.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: Contract for agent-loop frameworks (slot ``turn.act.framework``).
+@description: Contract for agent-loop frameworks (slot ``turn.pipeline.act.framework``).
 
 A framework driver runs one agent turn as a stream of raw, provider-agnostic
 event dicts. This is the canonical home of the ``AgentLoopDriver`` Protocol
