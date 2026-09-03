@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — `builder` 进 ⋯ 详情菜单
+
+创建工作室的配置面板加进 `DETAIL_GROUP_A` 首位。
+
+**这里有个陷阱**：`DETAIL_GROUP_A` / `DETAIL_GROUP_B` 是**写死的 id 列表**，
+不从 `STRIP_CATEGORIES` 派生。所以在 [[tabs.ts]] 里注册一个新 tab **不够** ——
+不同步改这里的话，那个 tab 只能从抽屉自身的切换器进得去，⋯ 菜单里根本看不到。
+本次就是这么漏的一轮。
 
 ## 2026-08-20 — 面板入口按钮换 Radix 悬停 tooltip
 

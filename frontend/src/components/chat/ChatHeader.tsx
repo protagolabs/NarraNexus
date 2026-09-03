@@ -51,6 +51,11 @@ import type { Step } from '@/types';
 /** Detail-menu layout: config panels first, then the Narra/Nexus pair —
  *  mirrors the retired strip's category order, flattened into one menu. */
 const DETAIL_GROUP_A: AtomicTabId[] = [
+  // Creation studio. First, matching its position in the Config category —
+  // it is the "start here" of configuration. NB this list is hardcoded and
+  // does NOT derive from STRIP_CATEGORIES, so a new tab must be added here
+  // too or it is only reachable from the drawer's own switcher.
+  'builder',
   'awareness',
   'workspace',
   'channels',
