@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -56,6 +57,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/unist": "^3.0.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "dependency-cruiser": "^16.10.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
