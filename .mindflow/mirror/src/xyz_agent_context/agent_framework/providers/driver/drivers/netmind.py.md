@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/netmind.py
-last_verified: 2026-06-10
+last_verified: 2026-09-03
 stub: false
 ---
+## 2026-09-03 — 末尾新增 `CONTRIBUTION`（插件平台批 0）
+
+`CONTRIBUTION = <Driver>.contribution`：`@register` 生成的 `Contribution` 对象，被
+`narranexus.kernel.plugins.builtins` 的 `builtin.providers` manifest 按符号名引用。行为不变。
+
 ## 2026-06-10 — build_anthropic_helper_config
 
 Implements the new helper-slot builder for anthropic-protocol rows

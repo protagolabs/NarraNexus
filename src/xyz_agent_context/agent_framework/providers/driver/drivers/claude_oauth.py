@@ -358,3 +358,8 @@ class ClaudeOAuthDriver(_DriverBase):
             return (await proc.wait()) == 0
         except Exception:  # noqa: BLE001 — probe is best-effort
             return False
+
+
+# Plugin-platform contribution named by ``builtin.providers`` (see
+# narranexus.kernel.plugins.builtins); the loader registers this same object.
+CONTRIBUTION = ClaudeOAuthDriver.contribution

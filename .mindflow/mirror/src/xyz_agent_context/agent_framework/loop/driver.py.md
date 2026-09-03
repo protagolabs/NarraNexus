@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — `FRAMEWORK_REGISTRY` 改从 `KERNEL_REGISTRIES.registry_for("turn.act.framework")` 取
+
+同一个对象，不再在本模块构造；契约版本与大小写归一化由内核门面按扩展位提供。
+
 ## 2026-09-03 — 注册表改用内核 `Registry[T]`（`FRAMEWORK_REGISTRY`），行为不变
 
 `_REGISTRY: dict` 换成 `narranexus.kernel.plugins.registry.Registry`，键仍大小写不敏感、

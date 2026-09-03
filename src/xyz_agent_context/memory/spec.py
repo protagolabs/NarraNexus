@@ -18,8 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
-from narranexus.contracts import API_VERSIONS
-from narranexus.kernel.plugins.registry import Registry
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+from narranexus.kernel.plugins.registry import Contribution, Registry
 from xyz_agent_context.memory.record import MemoryRecord, SCOPE_AGENT
 
 # Policy callables (all pure; the Engine supplies context, the Spec supplies how)
@@ -79,15 +79,23 @@ class MemoryKindSpec:
 # Kernel registry for slot ``agent.capabilities.memory_kinds`` (plugin platform,
 # batch 0). Specs are registered eagerly (the factory returns the spec itself);
 # ``replace=True`` keeps re-import idempotent.
-MEMORY_KIND_REGISTRY: Registry[MemoryKindSpec] = Registry(
-    "memoryKinds", api_version=API_VERSIONS["memory"]
+MEMORY_KIND_REGISTRY: Registry[MemoryKindSpec] = KERNEL_REGISTRIES.registry_for(
+    "agent.capabilities.memory_kinds"
 )
+_CONTRIBUTIONS: Dict[str, Contribution[MemoryKindSpec]] = {}
 
 
 def register_spec(spec: MemoryKindSpec, *, owner: str = "builtin.memory_kinds") -> MemoryKindSpec:
     """Register (or replace) a kind's spec. Idempotent — re-import safe."""
-    MEMORY_KIND_REGISTRY.register(spec.kind, lambda: spec, owner=owner, replace=True)
+    contribution: Contribution[MemoryKindSpec] = Contribution(spec.kind, lambda: spec)
+    _CONTRIBUTIONS[spec.kind] = contribution
+    MEMORY_KIND_REGISTRY.register_contribution(contribution, owner=owner, replace=True)
     return spec
+
+
+def contribution_for(kind: str) -> Contribution[MemoryKindSpec]:
+    """The plugin-platform contribution behind a registered kind (for builtin manifests)."""
+    return _CONTRIBUTIONS[kind]
 
 
 def get_spec(kind: str) -> MemoryKindSpec:

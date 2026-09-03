@@ -100,3 +100,9 @@ class SystemDriver(_DriverBase):
 # registry waiting to be selected by a misconfigured row.
 if is_cloud_mode():
     SystemDriver = register(SystemDriver)  # type: ignore[assignment]
+
+
+# Plugin-platform contribution list for ``builtin.providers``: empty on local
+# deployments (SystemDriver only registers on cloud), so the loader stays a
+# no-op there exactly like the import-time gate above.
+CONTRIBUTIONS = tuple(c for c in (getattr(SystemDriver, "contribution", None),) if c is not None)

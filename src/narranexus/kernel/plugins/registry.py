@@ -35,6 +35,22 @@ T = TypeVar("T")
 
 
 @dataclass(frozen=True)
+class Contribution(Generic[T]):
+    """What a plugin hands the loader for one slot: a name and a lazy factory.
+
+    Builtin modules define these as module-level constants and register them
+    at import; the loader registers the very same objects from the manifest,
+    which the registry treats as an idempotent no-op (same factory object under
+    the same name). That is how import-time and manifest-driven registration
+    coexist without double entries during the migration.
+    """
+
+    name: str
+    factory: Callable[[], T]
+    meta: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Entry(Generic[T]):
     """One registration: who provided what, plus free-form metadata for UIs/docs."""
 
@@ -82,6 +98,10 @@ class Registry(Generic[T]):
             raise RegistryFrozen(f"{self.kind}: cannot register {name!r} after freeze()")
         key = self._key(name)
         existing = self._entries.get(key)
+        if existing is not None and existing.factory is factory:
+            # Idempotent: the same contribution registered twice (import-time
+            # and manifest-driven) is one entry.
+            return Disposable(lambda: None)
         if existing is not None and not replace:
             raise RegistryConflict(
                 f"{self.kind}: {key!r} is already provided by {existing.owner!r}; "
@@ -100,6 +120,17 @@ class Registry(Generic[T]):
                 del self._entries[key]
 
         return Disposable(_dispose)
+
+    def register_contribution(
+        self, contribution: Contribution[T], *, owner: str, replace: bool = False
+    ) -> Disposable:
+        return self.register(
+            contribution.name,
+            contribution.factory,
+            owner=owner,
+            meta=contribution.meta,
+            replace=replace,
+        )
 
     def freeze(self) -> None:
         self._frozen = True
@@ -149,4 +180,4 @@ class Registry(Generic[T]):
         return f"Registry(kind={self.kind!r}, names={list(self._entries)}, frozen={self._frozen})"
 
 
-__all__ = ["Entry", "Registry"]
+__all__ = ["Contribution", "Entry", "Registry"]

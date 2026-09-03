@@ -35,9 +35,12 @@ lazily.
 
 from . import plugin_paths
 from .api_config import CodexConfig, codex_config
+from narranexus.kernel.plugins.registry import Contribution
+
 from .loop.driver import (
     AgentLoopDriver,
     DEFAULT_AGENT_LOOP_FRAMEWORK,
+    FRAMEWORK_REGISTRY,
     FrameworkNotInstalledError,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
@@ -71,9 +74,20 @@ def _codex_cli_factory(**factory_kwargs):
     return CodexSDKv2(**factory_kwargs)
 
 
-register_agent_loop_driver("nexus_power", _nexus_power_factory)
-register_agent_loop_driver("claude_code", _claude_code_factory)
-register_agent_loop_driver("codex_cli", _codex_cli_factory)
+# The three builtin frameworks as plugin contributions (plugin platform, batch
+# 0). Registered here at import for today's call sites, and named by the
+# builtin manifests in narranexus.kernel.plugins.builtins so the loader
+# registers the very same objects (an idempotent no-op on the registry).
+NEXUS_POWER = Contribution("nexus_power", lambda: _nexus_power_factory, meta={"display_name": "NexusPower"})
+CLAUDE_CODE = Contribution("claude_code", lambda: _claude_code_factory, meta={"display_name": "Claude Code"})
+CODEX_CLI = Contribution("codex_cli", lambda: _codex_cli_factory, meta={"display_name": "Codex"})
+
+for _contribution, _owner in (
+    (NEXUS_POWER, "builtin.frameworks.nexus_power"),
+    (CLAUDE_CODE, "builtin.frameworks.claude_code"),
+    (CODEX_CLI, "builtin.frameworks.codex_cli"),
+):
+    FRAMEWORK_REGISTRY.register_contribution(_contribution, owner=_owner)
 
 # Cover plugins already installed at process START: append the pyenv subdirs
 # once so the lazy imports resolve without any per-call activation. Idempotent;

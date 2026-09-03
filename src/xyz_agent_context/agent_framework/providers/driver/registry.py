@@ -25,10 +25,10 @@ from typing import Optional, Type
 
 from loguru import logger
 
-from narranexus.contracts import API_VERSIONS
-from narranexus.kernel.plugins.registry import Registry
+from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+from narranexus.kernel.plugins.registry import Contribution, Registry
 
-DRIVER_REGISTRY: Registry[Type] = Registry("providerDrivers", api_version=API_VERSIONS["provider"])
+DRIVER_REGISTRY: Registry[Type] = KERNEL_REGISTRIES.registry_for("model.providers")
 
 
 def register(driver_cls, *, owner: str = "builtin.providers"):
@@ -49,7 +49,12 @@ def register(driver_cls, *, owner: str = "builtin.providers"):
             f"{existing.__module__}.{existing.__name__} -> "
             f"{driver_cls.__module__}.{driver_cls.__name__}"
         )
-    DRIVER_REGISTRY.register(key, lambda: driver_cls, owner=owner, replace=True)
+    # The contribution is attached to the class so the builtin manifest can
+    # name it (``<module>:CONTRIBUTION``) and the loader registers the same
+    # object — an idempotent no-op after this import-time registration.
+    contribution: Contribution[Type] = Contribution(key, lambda: driver_cls)
+    driver_cls.contribution = contribution
+    DRIVER_REGISTRY.register_contribution(contribution, owner=owner, replace=True)
     return driver_cls
 
 
