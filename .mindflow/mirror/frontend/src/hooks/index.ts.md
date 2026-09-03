@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 再导出 `useStudioLifecycle`
+
+见 [[useStudioLifecycle.ts]]。
 
 ## 2026-08-19
 

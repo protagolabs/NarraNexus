@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/layout/CommandPalette.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 面板列表也认「可恢复」
+
+`visibleTabs({ studioOpen, studioResumable })`：收起后的 studio 仍能从 ⌘K 选 Builder 回去，
+选中后由 [[../../hooks/useStudioLifecycle.ts]] 恢复。
 
 ## 2026-09-03 — 面板列表改走 `visibleTabs`
 

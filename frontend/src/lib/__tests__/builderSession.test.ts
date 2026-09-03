@@ -6,11 +6,11 @@
  */
 import { describe, test, expect, beforeEach } from 'vitest';
 import { loadStudioSession } from '../builderSession';
-import { useStudioStore, isStudioOpen, selectRecommendations } from '@/stores/studioStore';
+import { useStudioStore, isStudioOpen, selectRecommendations, selectStudioResumable } from '@/stores/studioStore';
 
 beforeEach(() => {
   window.sessionStorage.clear();
-  useStudioStore.setState({ open: {}, recommendations: {}, applyError: {} });
+  useStudioStore.setState({ open: {}, visited: {}, recommendations: {}, applyError: {} });
 });
 
 const store = () => useStudioStore.getState();
@@ -27,15 +27,38 @@ describe('studio flag', () => {
     expect(isStudioOpen('agt_1')).toBe(true);
   });
 
-  test('close clears it, and clears that agent\'s recommendations and error', () => {
+  test('close COLLAPSES: flag and error go, recommendations stay, and it is resumable', () => {
+    // The drawer's X must not be an unlabeled, irreversible "end the AI
+    // creation flow" button — collapsing keeps the suggestions and the way back.
     store().openStudio('agt_1');
     store().setRecommendations('agt_1', { skill_ids: ['web-search'], channels: [] });
     store().setApplyError('agt_1', 'boom');
     store().closeStudio('agt_1');
     expect(isStudioOpen('agt_1')).toBe(false);
+    expect(store().applyError['agt_1']).toBeUndefined();
+    expect(selectRecommendations('agt_1')(store()).skill_ids).toEqual(['web-search']);
+    expect(selectStudioResumable('agt_1')(store())).toBe(true);
+    // and resuming brings it back with the suggestions intact
+    store().openStudio('agt_1');
+    expect(isStudioOpen('agt_1')).toBe(true);
+    expect(selectStudioResumable('agt_1')(store())).toBe(false);
+    expect(selectRecommendations('agt_1')(store()).skill_ids).toEqual(['web-search']);
+  });
+
+  test('finish ENDS: flag, resumability, recommendations and error all go', () => {
+    store().openStudio('agt_1');
+    store().setRecommendations('agt_1', { skill_ids: ['web-search'], channels: [] });
+    store().setApplyError('agt_1', 'boom');
+    store().finishStudio('agt_1');
+    expect(isStudioOpen('agt_1')).toBe(false);
+    expect(selectStudioResumable('agt_1')(store())).toBe(false);
     expect(selectRecommendations('agt_1')(store()).skill_ids).toEqual([]);
     expect(store().applyError['agt_1']).toBeUndefined();
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  test('an agent that never entered the studio is not resumable', () => {
+    expect(selectStudioResumable('agt_9')(store())).toBe(false);
   });
 
   test('the flag is per agent', () => {
@@ -57,6 +80,7 @@ describe('studio flag', () => {
     expect(isStudioOpen(null)).toBe(false);
     expect(isStudioOpen(undefined)).toBe(false);
     expect(() => store().closeStudio('')).not.toThrow();
+    expect(() => store().finishStudio('')).not.toThrow();
     expect(window.sessionStorage.length).toBe(0);
   });
 
@@ -71,11 +95,14 @@ describe('studio flag', () => {
 });
 
 describe('persistence', () => {
-  test('flag and recommendations survive a fresh hydration of this tab', () => {
+  test('flag, visited marker and recommendations survive a fresh hydration of this tab', () => {
     store().openStudio('agt_1');
     store().setRecommendations('agt_1', { skill_ids: ['web-search'], channels: ['telegram'] });
+    store().openStudio('agt_2');
+    store().closeStudio('agt_2');
     const again = loadStudioSession();
     expect(again.open).toEqual({ agt_1: true });
+    expect(again.visited).toEqual({ agt_1: true, agt_2: true });
     expect(again.recommendations['agt_1']).toEqual({ skill_ids: ['web-search'], channels: ['telegram'] });
   });
 

@@ -35,7 +35,8 @@ vi.mock('@/components/awareness', () => ({
 
 import { api } from '@/lib/api';
 import { useUIStore } from '@/stores/uiStore';
-import { useStudioStore, isStudioOpen } from '@/stores/studioStore';
+import { useConfigStore } from '@/stores/configStore';
+import { useStudioStore, isStudioOpen, selectStudioResumable } from '@/stores/studioStore';
 import { BuilderConfigPanel } from '../BuilderConfigPanel';
 
 const AGENT = 'agent_test';
@@ -56,9 +57,10 @@ const saveRecommendations = (id: string, rec: { skill_ids: string[]; channels: s
 
 beforeEach(() => {
   window.sessionStorage.clear();
-  useStudioStore.setState({ open: {}, recommendations: {}, applyError: {} });
+  useStudioStore.setState({ open: {}, visited: {}, recommendations: {}, applyError: {} });
   useUIStore.getState().clearPendingPanel();
   vi.mocked(api.updateAgent).mockClear().mockResolvedValue({ success: true } as never);
+  useConfigStore.setState({ agents: [] });
   vi.mocked(api.updateAwareness).mockClear().mockResolvedValue({ success: true } as never);
   vi.mocked(api.installMarketplaceSkill).mockClear().mockResolvedValue({} as never);
 });
@@ -113,14 +115,30 @@ describe('live state from the conversation', () => {
     });
   });
 
-  test('blurring an EMPTY name does not write it', async () => {
-    // Same rule as the model path: empty means "not changing it".
+  test('blurring an EMPTY name does not write it, and the field snaps back', async () => {
+    // Same rule as the model path: empty means "not changing it" — so the
+    // field must show the real name again, not stay blank as if cleared.
+    useConfigStore.setState({ agents: [{ agent_id: AGENT, name: 'Kept' } as never] });
     const view = renderPanel();
-    const input = view.getByPlaceholderText(/Morning Market Brief/i);
+    const input = view.getByPlaceholderText(/Morning Market Brief/i) as HTMLInputElement;
+    expect(input.value).toBe('Kept');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.blur(input);
     await new Promise((r) => setTimeout(r, 0));
     expect(api.updateAgent).not.toHaveBeenCalled();
+    expect(input.value).toBe('Kept');
+  });
+
+  test('a manual-edit error does not hide a later model-write error', async () => {
+    vi.mocked(api.updateAgent).mockResolvedValueOnce({ success: false, message: 'manual nope' } as never);
+    const view = renderPanel();
+    const input = view.getByPlaceholderText(/Morning Market Brief/i);
+    fireEvent.change(input, { target: { value: 'New name' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(view.getByText(/manual nope/)).toBeInTheDocument());
+    useStudioStore.getState().setApplyError(AGENT, 'model nope');
+    await waitFor(() => expect(view.getByText(/model nope/)).toBeInTheDocument());
+    expect(view.getByText(/manual nope/)).toBeInTheDocument();
   });
 });
 
@@ -137,6 +155,8 @@ describe('Done', () => {
     await waitFor(() => {
       expect(isStudioOpen(AGENT)).toBe(false);
     });
+    // Done ENDS the studio — unlike collapsing the drawer, it is not resumable.
+    expect(selectStudioResumable(AGENT)(useStudioStore.getState())).toBe(false);
     expect(useUIStore.getState().pendingPanel).toBe('builder');
     expect(useUIStore.getState().pendingPanelMode).toBe('toggle');
   });

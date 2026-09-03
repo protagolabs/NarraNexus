@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `conditional: 'studio'` 也在「可恢复」时提供
+
+`TabVisibilityContext` 多 `studioResumable`；`tabOffered` = open || resumable。条件仍然落在
+「这个 agent 走过 AI 创建路径且没按完成」上，不是「所有 agent 都能开 studio」。
 
 ## 2026-09-03 (评审修订) — 可见性规则收口到注册表
 

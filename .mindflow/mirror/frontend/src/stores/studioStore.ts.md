@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/stores/studioStore.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — 「收起」与「结束」分开；studio 可恢复
+
+评审 🟡#12：上一轮把关抽屉接成出口后，抽屉 X 成了一个没标签、不确认、不可逆的「结束 AI
+创建流程」按钮，还顺手把推荐删了盘，且 `openStudio` 只在建 agent 时调用——一次误触永远
+回不来。现在：
+
+- `closeStudio` = **收起**：清 flag 与 error，**保留** `recommendations` 与新增的
+  `visited`（「进过 studio 且没按完成」）。`selectStudioResumable` = visited && !open。
+- `finishStudio` = **结束**（面板「完成」）：flag / visited / recommendations / error 全清。
+- 何时算「收起」不在这里判，也不在每个关闭入口判，统一在
+  [[../hooks/useStudioLifecycle.ts]] 一个对账 effect 里。
+- 上一条里「顺带让死导出 `clearRecommendations` 有了唯一真实调用」作废：推荐只在
+  `finishStudio` 时清。
 
 # studioStore.ts — 创建工作室的响应式状态（按 agent）
 
@@ -23,8 +37,7 @@ sessionStorage 里、**渲染期直读**，没有订阅者。于是：
 
 - **flag 是持久开关，读不消费。** 指令必须每轮都带（信封里的当前配置才是让用户
   手改成为权威的东西），弱模型被告知一次后几轮就不再吐草稿块（铁律 #15）。
-- **`closeStudio` 连推荐和错误一起清**。推荐是这一次 studio 会话的产物，不该在
-  agent 上永久挂着；也顺带让原来的死导出 `clearRecommendations` 有了唯一真实调用。
+- ~~`closeStudio` 连推荐和错误一起清~~ —— 见 09-04 条，已改为只清 flag 与 error。
 - **selector 返回稳定的空对象** `EMPTY_RECOMMENDATIONS`，避免没有推荐的 agent 每
   次 selector 都造新引用触发重渲染。
 - `isStudioOpen(agentId)` 是给回调用的非 hook 读法（`getState()`），

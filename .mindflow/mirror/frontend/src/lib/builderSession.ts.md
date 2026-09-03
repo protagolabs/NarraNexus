@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/builderSession.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — 多持久化一个 `visited` 标记
+
+`nn.studioVisited.<agentId>`：进过 studio 且未按完成，用来在收起后仍提供 Builder tab 作为
+再入口。与 flag 一样是 per-tab 的（换标签页后再入口消失）——接受，不是 bug，文件头已写明。
 
 ## 2026-09-03 (评审修订) — 降级为纯持久化层
 

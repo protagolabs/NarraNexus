@@ -55,7 +55,7 @@ describe('uiStore panel intent', () => {
 
 describe('builder tab', () => {
   beforeEach(() => {
-    useStudioStore.setState({ open: {}, recommendations: {}, applyError: {} });
+    useStudioStore.setState({ open: {}, visited: {}, recommendations: {}, applyError: {} });
   });
 
   test('is registered, so the drawer can label and switch to it', () => {
@@ -65,13 +65,18 @@ describe('builder tab', () => {
   test('is OFFERED only while the studio is open — one rule for every picker', () => {
     // MainLayout's switcher and the ⌘K palette both derive from these; a tab
     // hidden in one and offered in the other is the bug this pins.
-    expect(visibleTabs({ studioOpen: false }).some((t) => t.id === 'builder')).toBe(false);
-    expect(visibleTabs({ studioOpen: true }).some((t) => t.id === 'builder')).toBe(true);
-    const closed = visibleCategories({ studioOpen: false }).flatMap((c) => c.tabs);
-    expect(closed.some((t) => t.id === 'builder')).toBe(false);
+    const never = { studioOpen: false, studioResumable: false };
+    const open = { studioOpen: true, studioResumable: false };
+    const collapsed = { studioOpen: false, studioResumable: true };
+    expect(visibleTabs(never).some((t) => t.id === 'builder')).toBe(false);
+    expect(visibleTabs(open).some((t) => t.id === 'builder')).toBe(true);
+    // Collapsed (drawer X, another tab) keeps the way back on offer.
+    expect(visibleTabs(collapsed).some((t) => t.id === 'builder')).toBe(true);
+    const gone = visibleCategories(never).flatMap((c) => c.tabs);
+    expect(gone.some((t) => t.id === 'builder')).toBe(false);
     // Every other tab is unaffected either way.
-    expect(closed.length).toBe(ALL_TABS.length - 1);
-    expect(visibleTabs({ studioOpen: true })).toEqual(ALL_TABS);
+    expect(gone.length).toBe(ALL_TABS.length - 1);
+    expect(visibleTabs(open)).toEqual(ALL_TABS);
   });
 
   test('does not mount the panel when the studio is shut (restored tab, deep link)', async () => {

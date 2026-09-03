@@ -12,3 +12,4 @@ export { useAgentImported } from './useAgentImported';
 export { useBookmarkSignals } from './useBookmarkSignals';
 export { useFastMode } from './useFastMode';
 export { useDismissOnOutside } from './useDismissOnOutside';
+export { useStudioLifecycle } from './useStudioLifecycle';

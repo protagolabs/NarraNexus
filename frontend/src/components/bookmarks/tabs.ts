@@ -88,7 +88,10 @@ export interface AtomicTabDef {
   stripLabelKey?: string;
   /**
    * Offered only in a specific context. `'studio'`: the creation studio is
-   * open on the current agent. The tab stays REGISTERED regardless (so
+   * open — or can be resumed — on the current agent, i.e. this agent went
+   * through "Create with AI" and has not pressed Done. Never for an agent that
+   * did not: a studio panel with no conversation driving it reads as broken.
+   * The tab stays REGISTERED regardless (so
    * `tabLabelKey` / `tabDescKey` resolve for a drawer that is already on it);
    * only the pickable lists — drawer switcher, ⌘K palette — filter on it.
    * One field here rather than a filter in each consumer: a new consumer of
@@ -100,6 +103,8 @@ export interface AtomicTabDef {
 /** What the pickable lists need to know to decide what to offer. */
 export interface TabVisibilityContext {
   studioOpen: boolean;
+  /** The studio was collapsed on this agent and can be picked up again. */
+  studioResumable: boolean;
 }
 
 export interface StripCategory {
@@ -194,7 +199,7 @@ export const STRIP_CATEGORIES: StripCategory[] = [
 export const ALL_TABS: AtomicTabDef[] = STRIP_CATEGORIES.flatMap((c) => c.tabs);
 
 function tabOffered(tab: AtomicTabDef, ctx: TabVisibilityContext): boolean {
-  return tab.conditional !== 'studio' || ctx.studioOpen;
+  return tab.conditional !== 'studio' || ctx.studioOpen || ctx.studioResumable;
 }
 
 /**

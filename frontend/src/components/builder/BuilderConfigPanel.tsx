@@ -64,7 +64,7 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   // Reactive: a turn that only recommended a skill re-renders this section
   // even though no text field (and therefore no other subscription) changed.
   const recommendations = useStudioStore(selectRecommendations(agentId));
-  const closeStudio = useStudioStore((s) => s.closeStudio);
+  const finishStudio = useStudioStore((s) => s.finishStudio);
   // A model-driven write that failed. The conversation was not interrupted
   // (binding rule #15); this line is where the user finds out.
   const applyError = useStudioStore((s) => s.applyError[agentId] ?? null);
@@ -89,8 +89,14 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
     const next = name.trim();
     // An empty name is never committed — the same rule the model's path
     // applies in mergeAgentDraft, so a blank field reads as "not changing it"
-    // from either side rather than wiping the agent's name.
-    if (!next || next === (agent?.name ?? '')) return;
+    // from either side rather than wiping the agent's name. The field snaps
+    // back to the real name too: leaving it blank would look like the name
+    // WAS cleared, the opposite of what just happened.
+    if (!next) {
+      setName(agent?.name ?? '');
+      return;
+    }
+    if (next === (agent?.name ?? '')) return;
     setSaving(true);
     setError(null);
     try {
@@ -134,7 +140,9 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
       await commitAwareness();
     } finally {
       setFinishing(false);
-      closeStudio(agentId);
+      // Done ENDS the studio (flag, recommendations, resumability). Merely
+      // collapsing the panel is the drawer's business, see useStudioLifecycle.
+      finishStudio(agentId);
       // AND close the drawer. Clearing the studio flag alone leaves this very
       // panel on screen — the flag is sessionStorage, so nothing re-renders —
       // which reads as "Done does nothing", and clicking again just repeats it.
@@ -144,7 +152,7 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
       // tab, so the toggle can never accidentally open something.
       requestPanel('builder');
     }
-  }, [commitName, commitAwareness, agentId, requestPanel]);
+  }, [commitName, commitAwareness, agentId, finishStudio, requestPanel]);
 
   const install = useCallback(
     async (skillId: string) => {
@@ -292,11 +300,14 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
             </EmbeddedSection>
           </Section>
 
-          {(error || applyError) && (
-            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
-              {error ?? applyError}
+          {/* Both lines, not one: a manual-edit error is cleared only by the
+              next manual commit, so a single slot would let one old error hide
+              every later model-driven failure. */}
+          {[applyError, error].filter(Boolean).map((line) => (
+            <p key={line} className="text-[11px] leading-relaxed" style={{ color: 'var(--color-error)' }}>
+              {line}
             </p>
-          )}
+          ))}
         </div>
       </ScrollArea>
 

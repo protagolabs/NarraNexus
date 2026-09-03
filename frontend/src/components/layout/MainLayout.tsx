@@ -47,6 +47,7 @@ import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
 import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
+import { useStudioLifecycle } from '@/hooks/useStudioLifecycle';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
@@ -54,7 +55,7 @@ import { CostPopover } from '@/components/cost/CostPopover';
 import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore, useStudioStore, selectStudioOpen } from '@/stores';
+import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAutoRefresh } from '@/hooks';
 import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
@@ -111,22 +112,18 @@ export function ChatView() {
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
   const requestPanel = useUIStore((s) => s.requestPanel);
 
-  // The creation studio's tab is offered ONLY while the studio is open on
-  // this agent — i.e. only on the "Create with AI" path. Everywhere else the
-  // panel would be a form the conversation does not drive, which reads as
-  // broken rather than as an extra feature. The rule itself lives in
-  // bookmarks/tabs (`conditional: 'studio'`); this is just the context.
-  const studioOpen = useStudioStore(selectStudioOpen(agentId));
-  const closeStudio = useStudioStore((s) => s.closeStudio);
-  const switcherCategories = useMemo(() => visibleCategories({ studioOpen }), [studioOpen]);
+  // The creation studio lives exactly as long as its panel is what this
+  // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
+  // not at each way the drawer can close. Its tab is offered only while the
+  // studio is open or resumable on this agent, i.e. only on the "Create with
+  // AI" path; the rule itself lives in bookmarks/tabs (`conditional: 'studio'`).
+  const { studioOpen, studioResumable } = useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  const switcherCategories = useMemo(
+    () => visibleCategories({ studioOpen, studioResumable }),
+    [studioOpen, studioResumable],
+  );
 
-  // Closing the drawer while the studio panel is showing ENDS the studio.
-  // The panel's own Done button is not a gate the user has to find: dismissing
-  // the panel with the X, or just moving on, must not leave every later
-  // message wrapped in the builder envelope and every reply writing config
-  // the user can no longer see happening.
   const handleDrawerClose = () => {
-    if (drawerTab === 'builder' && agentId) closeStudio(agentId);
     setDrawerTab(null);
     setShowDrawerCoach(false);
   };

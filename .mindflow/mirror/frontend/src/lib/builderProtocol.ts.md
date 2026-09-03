@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/builderProtocol.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `takeText` 先 trim 再截断，截断不留孤立高位代理
+
+入库值就是侧边栏显示的值（原来判空用 trim、返回却是原串）；第 255 位正好切在 emoji 中间时
+削掉尾部孤立高位代理。测试里 `not.toContain('note')` 那条易碎断言改为解析信封后断言
+`available_skills` 对象。
 
 ## 2026-09-03 (评审修订) — 空串回落、长度截断、目录「未知」、锚定剥离
 

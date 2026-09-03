@@ -881,7 +881,22 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   };
 
   // ── Handlers ────────────────────────────────────────
+  // One submit at a time. `handleSubmit` awaits (the studio's encode, which
+  // reads the agent's instructions) BEFORE the composer clears and
+  // `startStreaming` flips `isLoading`, so a second Enter in that window used
+  // to run the whole path again and send the same message twice.
+  const submittingRef = useRef(false);
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await submitOnce();
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  const submitOnce = async () => {
     const trimmed = (composerRef.current?.getText() ?? '').trim();
     const hasContent = trimmed.length > 0 || pendingAttachments.length > 0;
     if (!hasContent || !agentId || !userId || uploadingCount > 0) return;

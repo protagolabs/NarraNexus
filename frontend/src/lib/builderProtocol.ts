@@ -316,13 +316,18 @@ export function mergeAgentDraft(
 // ── internals ───────────────────────────────────────────────────────────
 
 /**
- * A non-empty string, cut to `maxLength` when given; anything else — wrong
- * type, empty, whitespace only — yields the fallback. Whitespace-only counts
- * as empty because it reads as empty everywhere the value is shown.
+ * A trimmed, non-empty string, cut to `maxLength` when given; anything else —
+ * wrong type, empty, whitespace only — yields the fallback. Whitespace-only
+ * counts as empty because it reads as empty everywhere the value is shown.
+ * Trimmed before the cut so the stored value is what the sidebar shows, and
+ * a cut never leaves a lone high surrogate (half an emoji) at the end.
  */
 function takeText(value: unknown, fallback: string, maxLength?: number): string {
-  if (typeof value !== 'string' || value.trim() === '') return fallback;
-  return maxLength !== undefined && value.length > maxLength ? value.slice(0, maxLength) : value;
+  if (typeof value !== 'string') return fallback;
+  const text = value.trim();
+  if (text === '') return fallback;
+  if (maxLength === undefined || text.length <= maxLength) return text;
+  return text.slice(0, maxLength).replace(/[\uD800-\uDBFF]$/, '');
 }
 
 function takeList<T extends string>(

@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/hooks/useStudioTurn.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — 目录请求移出发送路径 + in-flight 去重
+
+评审 🟡#11：上一轮把「目录未知就重试」放进了 `encodeOutgoing` 的 `await`，等于把 marketplace
+的可用性挂到 Enter 键上——它挂着的时候输入框不清、气泡不出、`isLoading` 还是 false，再按
+一次 Enter 同一句话发两遍（铁律 #16）。现在 `encodeOutgoing` 只读 `catalogueRef`（信封写明
+unavailable、merge 侧整体回落），`void loadCatalogue()` 供下一轮；`applyFromReply` 不在发送
+路径上，仍可 await。`loadCatalogue` 用 `catalogueInFlightRef` 保证同一时刻只有一个请求
+（挂载 effect 与首条消息原本会并发打两个）。测试 `useStudioTurn.test.tsx`。
 
 ## 2026-09-03 (评审修订) — 目录「未知」+ 错误有出口 + 状态走 store
 

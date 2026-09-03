@@ -83,7 +83,11 @@ describe('encodeBuilderTurn / decodeBuilderTurn', () => {
     const unknown = encodeBuilderTurn({ request: 'r', current: emptyDraft(), catalogue: null })!;
     expect(unknown).toContain('"status":"unavailable"');
     const full = encodeBuilderTurn({ request: 'r', current: emptyDraft(), catalogue: CATALOGUE })!;
-    expect(full).not.toContain('note');
+    const envelope = JSON.parse(full.split('\n').find((l) => l.startsWith('{'))!) as {
+      available_skills: Record<string, unknown>;
+    };
+    expect(envelope.available_skills.status).toBe('known');
+    expect('note' in envelope.available_skills).toBe(false);
   });
 });
 
@@ -224,6 +228,17 @@ describe('mergeAgentDraft', () => {
     expect(got.name).toHaveLength(255);
     expect(got.description).toHaveLength(255);
     expect(got.awareness).toHaveLength(400);
+  });
+
+  test('text is stored trimmed, and a cut never leaves half an emoji', () => {
+    const got = mergeAgentDraft(current, { name: '  Morning Brief  ', awareness: '  a  ' }, []);
+    expect(got.name).toBe('Morning Brief');
+    expect(got.awareness).toBe('a');
+    // 254 ASCII chars + an emoji (two UTF-16 units) straddles the 255 cut.
+    const straddle = 'x'.repeat(254) + '😀';
+    const cut = mergeAgentDraft(current, { name: straddle }, []).name;
+    expect(cut).toBe('x'.repeat(254));
+    expect(cut).not.toMatch(/[\uD800-\uDBFF]$/);
   });
 
   test('an UNKNOWN catalogue leaves skill recommendations untouched', () => {

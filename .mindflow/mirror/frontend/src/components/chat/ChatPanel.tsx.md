@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `handleSubmit` 一次只跑一个
+
+`submittingRef` 门：`await encodeOutgoing`（读 awareness）在 composer 清空与 `startStreaming`
+之前，`isLoading` 那时还是 false，第二个 Enter 会把整条路径再跑一遍、同一句话发两遍。这条在
+dev 上因 `getAwareness` 已存在，不是 studio 引入，但同一处修最省。测试
+`chatPanelSubmitGuard.test.tsx`。早条里 `builderPrompt.ts` 的 wikilink 降为反引号（该文件
+同 PR 内创建又删除，仓库里从未存在）。
 
 ## 2026-09-03 (评审修订) — 落定沿按 agent 记 + 已应用消息去重
 
@@ -35,7 +43,7 @@ stub: false
 ## 2026-09-03 — 创建工作室 v0：首条消息包裹 Builder 指令
 
 提交路径新增 `outgoing`：agent 被 [[builderSession.ts]] 标记过时，用
-[[builderPrompt.ts]] 的 `buildBuilderFirstMessage` 包裹用户那句话，
+`builderPrompt.ts`（同 PR 内创建又删除，仓库里从未存在）的 `buildBuilderFirstMessage` 包裹用户那句话，
 `addUserMessage` 与 `run` 都发包裹后的内容。
 
 **位置刻意放在 steer 分支之后** —— 一次 mid-run 追问绝不能烧掉这个标记。

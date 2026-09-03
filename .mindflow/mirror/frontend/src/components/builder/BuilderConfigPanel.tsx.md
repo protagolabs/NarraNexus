@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/builder/BuilderConfigPanel.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — 「完成」= `finishStudio`；两条错误都显示；空名回滚输入框
+
+- Done 调 `finishStudio`（结束、不可恢复），与抽屉 X 的「收起」（可恢复）区分。
+- 手改错误与模型写失败**各一行**：`error` 只在下一次手改 commit 才清，单槽位会让一条旧的
+  手改错误永久遮住之后所有模型写失败。
+- 空名 blur 不提交之外，`setName(agent.name)` 让输入框回到真名；否则界面看起来像「名字被
+  清掉了」，与这条修复要表达的语义正好相反。
 
 ## 2026-09-03 (评审修订) — 推荐与错误改为订阅 store；空名不提交
 

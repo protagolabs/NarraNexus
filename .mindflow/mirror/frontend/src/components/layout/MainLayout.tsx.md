@@ -1,15 +1,25 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 (评审二轮) — studio 生命周期交给 `useStudioLifecycle`
+
+评审 🟡#10：「关抽屉即结束」只盖住了 X 这一条路径，⌘K toggle 关抽屉 / 抽屉内切 tab / 切
+agent 三条都漏 flag，切 agent 不关抽屉还会留下一个标题 Builder、内容空白的抽屉。现在
+`handleDrawerClose` 里那行显式 `closeStudio` 删掉，对账 effect 在
+[[../../hooks/useStudioLifecycle.ts]]（studio 活着 ⇔ 它的面板正为这个 agent 显示），
+`switcherCategories` 传 `{ studioOpen, studioResumable }`。**语义选择**：抽屉内切到别的 tab
+算「收起」（可一键恢复，推荐保留）；不算的话 `applyError` 又没读者。
 
 ## 2026-09-03 (评审修订) — 关抽屉即退出 studio；可见性走注册表
 
 - `switcherCategories = visibleCategories({ studioOpen })`，规则在
   [[../bookmarks/tabs.ts]]，`studioOpen` 直接订阅 [[../../stores/studioStore.ts]]
   （早条那套 state + effect 是因为 flag 不响应式而做的补丁，随 store 一起作废）。
-- `handleDrawerClose` 在 `drawerTab === 'builder'` 时一并 `closeStudio(agentId)`。
+- ~~`handleDrawerClose` 在 `drawerTab === 'builder'` 时一并 `closeStudio(agentId)`~~（09-04 起改由
+  useStudioLifecycle 对账，见上条）。
   此前「离开 studio」唯一的实现是面板底部那个用户根本不需要点的「完成」：用 X
   关掉抽屉、切走再回来、或者直接不理面板继续聊，flag 都还在 —— 每条消息仍被包上
   完整指令 + 全量目录，模型继续以 Builder 身份回话并往 agent 写配置，而面板已经
