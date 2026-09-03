@@ -65,6 +65,7 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
   const [name, setName] = useState(agent?.name ?? '');
   const [instructions, setInstructions] = useState(awareness ?? '');
   const [saving, setSaving] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const [installed, setInstalled] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +103,25 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
       setSaving(false);
     }
   }, [instructions, awareness, agentId, refreshAwareness]);
+
+  /**
+   * Leave the studio, but flush pending field edits first.
+   *
+   * A textarea's onBlur fires BEFORE the button's onClick, so a user who types
+   * and then clicks Done has a commit in flight at click time. Awaiting both
+   * commits here (each a no-op when unchanged) means the last thing they typed
+   * is persisted before the studio closes, instead of racing it.
+   */
+  const finish = useCallback(async () => {
+    setFinishing(true);
+    try {
+      await commitName();
+      await commitAwareness();
+    } finally {
+      setFinishing(false);
+      closeStudio(agentId);
+    }
+  }, [commitName, commitAwareness, agentId]);
 
   const install = useCallback(
     async (skillId: string) => {
@@ -266,9 +286,15 @@ export function BuilderConfigPanel({ agentId }: BuilderConfigPanelProps) {
         </span>
         {/* No "discard": every field here is already written to the agent, so
             there is nothing to roll back. Finishing only leaves the studio —
-            the drawer close is owned by the caller that opened it. */}
-        <Button size="sm" onClick={() => closeStudio(agentId)}>
-          {t('builder.panel.done')}
+            the drawer close is owned by the caller that opened it.
+
+            Disabled ONLY while flushing this panel's own field writes. A skill
+            that is installing or studying must NOT block it: study runs for
+            minutes inside the agent's workspace and keeps running after the
+            studio closes, so gating on it would strand the user in a panel
+            waiting for something that does not need them. */}
+        <Button size="sm" disabled={finishing} onClick={() => void finish()}>
+          {finishing ? t('builder.panel.saving') : t('builder.panel.done')}
         </Button>
       </div>
     </div>

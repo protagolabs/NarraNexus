@@ -10,11 +10,13 @@
  *    feature is not wired up".
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
-import { render, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useUIStore } from '@/stores/uiStore';
 import { BookmarkPanelHost } from '../BookmarkPanelHost';
 import { ALL_TABS } from '../tabs';
+import { saveRecommendations } from '@/lib/builderSession';
+import { api } from '@/lib/api';
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -22,6 +24,7 @@ vi.mock('@/lib/api', () => ({
     updateAgent: vi.fn().mockResolvedValue({ success: true }),
     updateAwareness: vi.fn().mockResolvedValue({ success: true }),
     installMarketplaceSkill: vi.fn().mockResolvedValue({}),
+    listSkills: vi.fn().mockResolvedValue({ skills: [] }),
   },
 }));
 
@@ -117,6 +120,33 @@ describe('builder tab', () => {
       { timeout: LAZY_MOUNT_TIMEOUT },
     );
     expect(view.getAllByText('Optional')).toHaveLength(2);
+  });
+
+  test('Done stays clickable while a skill is installing', async () => {
+    // Requirement (Owner, 2026-09-03): installing/studying a skill must NOT
+    // gate Done. Study runs for minutes inside the agent's workspace and keeps
+    // running after the studio closes — blocking on it would strand the user
+    // in a panel waiting for something that does not need them.
+    window.sessionStorage.clear();
+    saveRecommendations('agent_test', { skill_ids: ['web-search'], channels: [] });
+    vi.mocked(api.installMarketplaceSkill).mockReturnValue(
+      new Promise(() => undefined) as never,
+    );
+
+    const view = renderBuilder();
+    await waitFor(
+      () => {
+        expect(view.getByText('Identity')).toBeInTheDocument();
+      },
+      { timeout: LAZY_MOUNT_TIMEOUT },
+    );
+
+    fireEvent.click(view.getByRole('button', { name: /Install/i }));
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: /Install/i })).toBeDisabled();
+    });
+    // The install is still in flight; Done must be unaffected.
+    expect(view.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
 
   test('drops the avatar and description the reference removed', async () => {
