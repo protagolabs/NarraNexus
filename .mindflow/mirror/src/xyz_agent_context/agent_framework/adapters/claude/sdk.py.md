@@ -31,11 +31,16 @@ stub: false
      （`_run_once` 新增 `user_message` 参数）。
    * session id：resume 轮 = 我们写的 transcript id；冷轮 = 失败那次 `response.done`
      里 CLI 报的 `session_id`（没有就不重试）。
-   * 失败那次 run 的 `response.done` **仍放行**（打上 `superseded_by_retry` 标记）：
+   * 决定重试时，替代掉的那次 run 在错误之后产出的事件**除错误本身外全部放行**
+     （`_is_discarded_on_retry` 写的是"丢什么"：瞬时错误事件 + 零输出标记；done / streamed
+     usage / 空 delta 都放行并打上 [[events]] 的 `DATA_TYPE_DONE_SUPERSEDED_KEY`）：
      `accumulate_usage` 的唯一来源是 done、按 run 累加，丢掉它就把 429 之前已花的 token
-     漏记；只吞错误事件本身。resume 路径的 `yielded_any` 门对 `response.retry` 与带该标记
-     的 done 不置位（否则 resume 被拒的零输出冷重试安全网会被这两个记账事件废掉），live run
-     自己的 done 仍照旧置位。
+     漏记。resume 路径的 `yielded_any` 门对 `response.retry` 与带该标记的事件不置位
+     （否则 resume 被拒的零输出冷重试安全网会被记账事件废掉），live run 自己的事件仍照旧置位。
+   * 重试计数是 **turn 级**（`transient_retry_attempt` nonlocal）：一轮最多驱动包装器两次
+     （resume run + 被拒后的 cold run），次数预算与 `response.retry` 的 attempt 编号跨两次
+     连续，步骤 id `3.4.retry.N` 一轮内唯一。
+   * CLI 在错误后自己续上（出现实质事件）而放弃重试时打一条 info 日志，写明是哪种事件。
    * session id 优先取失败那次 done 里 CLI **上报**的 `session_id`（CLI resume 时 fork 出新
      会话则以新 id 为准，那份文件才含本轮工具结果），两者不一致打 warning；没有才退回我们
      的 resume 句柄。

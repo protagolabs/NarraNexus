@@ -8,8 +8,15 @@ stub: false
 
 新分支（在 `DATA_TYPE_ERROR` 之前）：把 [[events]] 的 `DATA_TYPE_RETRY` 变成
 `ProgressMessage(step="3.4.retry.<attempt>", status=COMPLETED（RUNNING 会被 popover 当成"当前活动"长期挂住）, title="Retrying after a
-provider rate limit", description="… attempt N/M in Ds", details={error_type, attempt,
-max_attempts, delay_seconds})`，`ResponseType.OTHER` + `increment_response`。
+transient provider error"（可重试枚举含 server_error，标题不写死 rate limit）, description="… attempt N/M in Ds",
+details={error_type, attempt, max_attempts, delay_seconds})`，`ResponseType.OTHER` + `increment_response`；
+缺 `error_type` 时默认 `"api_error"`，与错误分支同口径。
+
+同一改动收窄 `_is_auth_failure`：裸 `"401"` 从 `_AUTH_FAILURE_PHRASES` 移出，改为
+`_AUTH_FAILURE_AND_GROUPS`（`("401","unauthorized")` / `("401","authentication")` /
+`("401","invalid")` 全部共现才算）。原因：CLI 内联错误正文现在原样进 `error_message`，
+订阅限流文案常带 epoch（`…limit reached|1774015401`）或 token 数，裸子串会把限流判成
+fatal 的「登录失效」并跳过 fallback —— 与 [[failure]] 里 403 marker 的收窄纪律同款。
 不是 ErrorMessage、不进文本累积：被适配器吞掉的那次失败永远不到用户面前，全部尝试都
 失败时最终错误仍以普通 `DATA_TYPE_ERROR` 到达并走既有分类。日志前缀
 `[AGENT-LOOP-RETRY]`。测试 `tests/agent_runtime/test_response_processor_retry_notice.py`。

@@ -114,7 +114,17 @@ _AUTH_FAILURE_PHRASES: tuple[str, ...] = (
     "invalid_api_key",
     "incorrect api key",  # OpenAI's bad-key message wording
     "expired token",
-    "401",
+)
+# Bare "401" used to sit in the list above. It also appears inside epoch
+# timestamps ("usage limit reached|1774015401") and token counts, and since
+# the inline CLI error text now rides error_message verbatim (2026-09-03)
+# that haystack is wider — a rate-limit turn was one digit away from being
+# declared a dead login (fatal, fallback skipped). Same narrowing discipline
+# as ``llm/failure.py``'s 403 markers: every part of a group must co-occur.
+_AUTH_FAILURE_AND_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("401", "unauthorized"),
+    ("401", "authentication"),
+    ("401", "invalid"),
 )
 
 
@@ -130,7 +140,9 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
     if et in _AUTH_FAILURE_TYPES or "auth" in et or "unauthor" in et:
         return True
     em = (error_message or "").lower()
-    return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
+    if any(frag in em for frag in _AUTH_FAILURE_PHRASES):
+        return True
+    return any(all(part in em for part in group) for group in _AUTH_FAILURE_AND_GROUPS)
 
 
 # ``AUTH_EXPIRED_ERROR_TYPE`` (imported from schema above) is the
@@ -420,7 +432,7 @@ class ResponseProcessor:
             attempt = data.get("attempt", 1)
             max_attempts = data.get("max_attempts", attempt)
             delay = data.get("delay_seconds", 0)
-            error_type = data.get("error_type", "rate_limit")
+            error_type = data.get("error_type", "api_error")
             logger.warning(
                 f"[AGENT-LOOP-RETRY] {error_type}: attempt {attempt}/{max_attempts} "
                 f"in {delay}s"
@@ -429,7 +441,7 @@ class ResponseProcessor:
                 type=ResponseType.OTHER,
                 message=ProgressMessage(
                     step=f"3.4.retry.{attempt}",
-                    title="Retrying after a provider rate limit",
+                    title="Retrying after a transient provider error",
                     description=(
                         f"The model provider reported {error_type}; "
                         f"retrying (attempt {attempt}/{max_attempts}) in {delay:g}s"

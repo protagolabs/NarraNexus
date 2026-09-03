@@ -12,7 +12,7 @@ Claude Code agent loop 在**订阅账号**（oauth / oauth_token）遇到 `rate_
 `CLAUDE_CODE_MAX_RETRIES` 在那条路上无效，故单独一组旋钮：次数默认 3（0 关闭），退避
 `"15,30,60"` 逗号秒数、不够用最后一个值。只限 RETRIES OF A FAILING CALL，不封顶轮长
 （铁律 #14）。Env `CLAUDE_TRANSIENT_RETRY_ATTEMPTS` / `CLAUDE_TRANSIENT_RETRY_BACKOFF_SECONDS`，
-已进 `.env.example`。
+已进 `.env.example`。**作用域**：env 覆盖只在 agent_loop 跑在 backend 进程里时生效（本地 / `bash run.sh` / DMG）；云端 agent_loop 在 per-user executor 容器里，其 env 是 deploy 仓 broker 的严格白名单（`broker/broker.py`，同 `NEXUS_POWER_POOL_SIZE` 的形状），未加 passthrough 前云端走代码默认值 3 次 15/30/60s。
 
 ## 2026-08-19 — 取消/恢复改为显式带 channel（本条不是 08-18 就定下的）
 

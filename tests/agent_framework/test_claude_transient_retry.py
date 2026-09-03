@@ -37,8 +37,10 @@ from xyz_agent_context.agent_framework.api_config import (
 )
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
+    DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,
     DATA_TYPE_RETRY,
+    DATA_TYPE_USAGE,
 )
 
 from tests.agent_framework.test_claude_sdk_resume import ResultMessage, _StubClient
@@ -237,7 +239,47 @@ async def test_failed_run_usage_is_still_billed():
     assert [d["usage"]["input_tokens"] for d in dones] == [100, 10]
     # The replaced run's marker is flagged so the resume gate does not read
     # it as content; the live run's marker is not.
-    assert [bool(d.get("superseded_by_retry")) for d in dones] == [True, False]
+    assert [bool(d.get(DATA_TYPE_DONE_SUPERSEDED_KEY)) for d in dones] == [True, False]
+
+
+class StreamEvent:
+    """A streamed message_delta: output_transfer turns it into response.usage."""
+
+    def __init__(self, output_tokens: int):
+        self.event = {"type": "message_delta", "usage": {"output_tokens": output_tokens}}
+
+
+@pytest.mark.asyncio
+async def test_everything_but_the_error_is_released_on_retry():
+    """The discard set is written as 'what is dropped' (the error itself), so
+    a usage event between the error and the completion marker still reaches
+    downstream — flagged superseded, like the marker."""
+    _StubClient.scripts = [
+        {"messages": [_error_message(), StreamEvent(42), ResultMessage("s")]},
+        {"messages": [ResultMessage("s")]},
+    ]
+    events = await _run()
+    usage = [e["data"] for e in events if e.get("data", {}).get("type") == DATA_TYPE_USAGE]
+    assert len(usage) == 1 and usage[0]["usage"]["output_tokens"] == 42
+    assert usage[0][DATA_TYPE_DONE_SUPERSEDED_KEY] is True
+    assert _errors(events) == []
+
+
+@pytest.mark.asyncio
+async def test_retry_budget_and_numbering_span_the_whole_turn():
+    """A turn can drive the wrapper twice (resume run, then the cold run after
+    a refused resume). Attempts are numbered and bounded across both, so two
+    `3.4.retry.1` rows can never appear in one turn."""
+    _StubClient.scripts = [
+        {"messages": [_error_message(), ResultMessage("s")]},  # resume run: 429
+        {"messages": []},                                       # retry refused → cold
+        {"messages": [_error_message(), ResultMessage("c")]},  # cold run: 429 again
+        {"messages": [ResultMessage("c")]},                     # its retry succeeds
+    ]
+    events = await _run()
+    retries = [e["data"]["attempt"] for e in events if e.get("data", {}).get("type") == DATA_TYPE_RETRY]
+    assert retries == [1, 2]
+    assert len(_StubClient.instances) == 4
 
 
 @pytest.mark.asyncio

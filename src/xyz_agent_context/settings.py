@@ -237,6 +237,12 @@ class Settings(BaseSettings):
     # (CLAUDE_CODE_MAX_RETRIES above already covers it). This bounds RETRIES OF
     # A FAILING CALL, not turn length (铁律 #14). 0 disables.
     # Env: CLAUDE_TRANSIENT_RETRY_ATTEMPTS / CLAUDE_TRANSIENT_RETRY_BACKOFF_SECONDS.
+    # SCOPE: the env override reaches this knob only where agent_loop runs in
+    # the backend process (local / `bash run.sh` / DMG). On cloud the loop
+    # runs in the per-user executor, whose env is the broker's strict
+    # allowlist (deploy broker/broker.py) — the code defaults apply there
+    # until a NEXUS_POWER_POOL_SIZE-style passthrough is added on the deploy
+    # side.
     claude_transient_retry_attempts: int = 3
     # Comma-separated seconds before retry 1, 2, 3, …; a short list pads with
     # its last value. Tens of seconds on purpose: capacity shedding does not

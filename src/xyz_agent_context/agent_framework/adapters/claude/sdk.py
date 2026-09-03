@@ -32,6 +32,7 @@ from xyz_agent_context.agent_framework.loop.cancellation_view import (
 )
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
+    DATA_TYPE_DONE_SUPERSEDED_KEY,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
     DATA_TYPE_RETRY,
@@ -544,6 +545,13 @@ def _is_substantive_event(event: dict) -> bool:
     return False
 
 
+def _event_label(event: dict) -> str:
+    """Short human label of an event for log lines."""
+    if event.get("type") == TYPE_RUN_ITEM_STREAM_EVENT:
+        return str((event.get("item") or {}).get("type") or "run_item")
+    return str((event.get("data") or {}).get("type") or event.get("type") or "event")
+
+
 def _is_retry_notice_event(event: dict) -> bool:
     """True for the ``response.retry`` notice the transient retry emits."""
     return (
@@ -559,16 +567,28 @@ def _is_done_event(event: dict) -> bool:
     )
 
 
-# Set on the completion marker of a run the transient retry replaced. The
-# marker is still released — its usage is what the billing chain sums — but
-# it no longer means "this turn produced output": the resume-refused gate
-# must not read it as content (2026-09-03 review C1).
-_SUPERSEDED_DONE_KEY = "superseded_by_retry"
+# Events of a replaced run that the retry swallows: the transient error
+# itself (the retry IS its remedy) and the adapter's own zero-output marker.
+# Everything else the run produced after the error — its completion marker,
+# streamed usage, empty deltas — is released with
+# ``DATA_TYPE_DONE_SUPERSEDED_KEY`` set, so the billing chain still sums what
+# that run spent while the resume-refused gate does not read it as content
+# (2026-09-03 review C1 / I2). Written as "what is discarded", not "what is
+# kept", so a future event type is delivered by default.
+def _is_discarded_on_retry(event: dict) -> bool:
+    return _transient_error_type(event) is not None or _is_zero_output_error_event(event)
 
 
-def _is_superseded_done_event(event: dict) -> bool:
-    return _is_done_event(event) and bool(
-        (event.get("data") or {}).get(_SUPERSEDED_DONE_KEY)
+def _mark_superseded(event: dict) -> dict:
+    data = event.get("data")
+    if isinstance(data, dict):
+        data[DATA_TYPE_DONE_SUPERSEDED_KEY] = True
+    return event
+
+
+def _is_superseded_event(event: dict) -> bool:
+    return event.get("type") == TYPE_RAW_RESPONSE_EVENT and bool(
+        (event.get("data") or {}).get(DATA_TYPE_DONE_SUPERSEDED_KEY)
     )
 
 
@@ -1498,6 +1518,11 @@ class ClaudeAgentSDK:
                     except Exception as e:
                         logger.warning(f"Error during client disconnect: {e}")
 
+        # Turn-level retry counter: a turn may drive the wrapper twice (the
+        # resume run and, if the CLI refuses it, the cold run). One budget and
+        # one numbering across both, so `response.retry` step ids stay unique.
+        transient_retry_attempt = 0
+
         async def _run_with_transient_retry(
             run_kwargs: dict[str, Any],
         ) -> AsyncGenerator[dict[str, Any], None]:
@@ -1524,9 +1549,10 @@ class ClaudeAgentSDK:
                 max_attempts > 0
                 and claude_config.auth_type in _SUBSCRIPTION_AUTH_TYPES
             )
+            nonlocal transient_retry_attempt
             kwargs = dict(run_kwargs)
             user_message = this_turn_user_message
-            attempt = 0
+            attempt = transient_retry_attempt
             while True:
                 resume_handle: str | None = kwargs.get("resume") or None
                 reported_session: str | None = None
@@ -1550,6 +1576,11 @@ class ClaudeAgentSDK:
                                 # The CLI kept going after the inline error —
                                 # release everything in its original order and
                                 # stop holding; a retry now would double the work.
+                                logger.info(
+                                    f"[ClaudeAgentSDK] {held_error_type} followed by "
+                                    f"{_event_label(event)} — the CLI continued on its "
+                                    f"own, transient retry not taken"
+                                )
                                 for pending in held:
                                     yield pending
                                 held.clear()
@@ -1599,6 +1630,7 @@ class ClaudeAgentSDK:
                     return
 
                 attempt += 1
+                transient_retry_attempt = attempt
                 delay = _retry_delay_seconds(
                     _s.claude_transient_retry_backoff_seconds, attempt
                 )
@@ -1607,15 +1639,16 @@ class ClaudeAgentSDK:
                     f"subscription account — retry {attempt}/{max_attempts} in "
                     f"{delay:g}s, resuming session {session_id[:12]}"
                 )
-                # The failed run's completion marker still carries its usage
-                # and cost — release it so the billing chain (accumulate_usage,
-                # whose sole source is response.done) counts the tokens that
-                # run really spent. Only the error event is swallowed.
+                # Release what the replaced run produced after the error —
+                # its completion marker (usage + cost: the billing chain's
+                # sole source, summed per run), streamed usage, empty deltas —
+                # flagged as superseded. Only the error itself (and a
+                # zero-output marker) is swallowed: the retry is its remedy.
                 error_event = held[0]
                 for pending in held[1:]:
-                    if _is_done_event(pending):
-                        pending["data"][_SUPERSEDED_DONE_KEY] = True
-                        yield pending
+                    if _is_discarded_on_retry(pending):
+                        continue
+                    yield _mark_superseded(pending)
                 held.clear()
                 yield _retry_notice_event(held_error_type, attempt, max_attempts, delay)
                 if not await _wait_before_retry(delay, cancellation):
@@ -1681,10 +1714,10 @@ class ClaudeAgentSDK:
             try:
                 async with aclosing(_run_with_transient_retry(options_kwargs)) as resume_run:
                     async for event in resume_run:
-                        if _is_retry_notice_event(event) or _is_superseded_done_event(event):
+                        if _is_retry_notice_event(event) or _is_superseded_event(event):
                             # Bookkeeping, not content: the transient-retry
-                            # notice and the superseded run's completion
-                            # marker (released for its usage) must not arm
+                            # notice and the superseded run's released events
+                            # (done / usage, kept for billing) must not arm
                             # `yielded_any`, or a resume the CLI then refuses
                             # (zero output) would surface as a bare no_output
                             # error instead of taking the cold retry below
