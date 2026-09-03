@@ -81,11 +81,6 @@
   ],
   [
     "GET",
-    "/",
-    "root"
-  ],
-  [
-    "GET",
     "/api/admin/account-state/{user_id}",
     "get_account_state"
   ],
@@ -635,9 +630,24 @@
     "healthz"
   ],
   [
+    "GET",
+    "/{full_path:path}",
+    "spa_fallback"
+  ],
+  [
+    "HEAD",
+    "/",
+    "preflight_head"
+  ],
+  [
     "HEAD",
     "/api/public/artifacts/raw/{token}/{file_path:path}",
     "get_raw"
+  ],
+  [
+    "HEAD",
+    "/{full_path:path}",
+    "spa_fallback"
   ],
   [
     "PATCH",

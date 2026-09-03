@@ -38,6 +38,8 @@ def test_unknown_name_fails_loud_and_try_get_returns_none():
         r.get("nope")
     with pytest.raises(KeyError):
         r.get("nope")
+    with pytest.raises(UnknownEntry):
+        r.owner_of("nope")
     assert r.try_get("nope") is None
 
 

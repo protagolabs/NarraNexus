@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（补注）— `is_cloud_mode` 不再读 `self.database_url`
+
+转发到内核后只看进程环境；`Settings()` 从不带参构造（`settings.py` 末尾与 `backend/config.py`），
+且 `.env` 已预注入 `os.environ`，所以实际无差。唯一消费者 `backend/routes/bundle.py:302`。
+
 ## 2026-09-03 — `Settings.is_cloud_mode()` 转发到内核解析器
 
 原实现只看 `self.database_url`；现在与 auth/deployment_mode 同一答案（多认显式

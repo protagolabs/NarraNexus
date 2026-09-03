@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— 同步 handler 走线程池；并发投递
+
+预审指出：同步 handler 在协程里直接调用会卡住事件循环，`wait_for` 永远打不到超时（文档承诺的
+「不能挟持回合」对一半的 handler 形态不成立）。现在同步 handler 经 `asyncio.to_thread` 执行，
+超时后被放弃（线程继续跑完但不再阻塞回合，计入 `slow_counts`）；所有订阅者用 `gather` 并发投递，
+最坏延迟是一个超时而不是 N 个。测试新增「阻塞 `time.sleep` 的同步 handler 被放弃」与「5 个
+100ms handler 总耗时 < 0.4s」。
+
 ## 2026-09-03 — 进程内宿主事件总线（hooks kind 的底座）
 
 平台在观察点 `emit(name, payload)`，插件 `subscribe(name, handler, owner)` 得到 `Disposable`。

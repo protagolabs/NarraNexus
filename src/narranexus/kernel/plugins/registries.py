@@ -24,7 +24,7 @@ from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 
 # slot path -> contract kind (drives api_version on the registry)
 SLOT_KINDS: dict[str, str] = {
-    "turn.act.framework": "framework",
+    "turn.pipeline.act.framework": "framework",
     "model.providers": "provider",
     "model.clients": "llm_client",
     "agent.capabilities.memory_kinds": "memory",
@@ -32,7 +32,7 @@ SLOT_KINDS: dict[str, str] = {
 
 # slot path -> key normalisation
 _NORMALIZERS: dict[str, Callable[[str], str]] = {
-    "turn.act.framework": lambda s: s.strip().lower(),
+    "turn.pipeline.act.framework": lambda s: s.strip().lower(),
 }
 
 

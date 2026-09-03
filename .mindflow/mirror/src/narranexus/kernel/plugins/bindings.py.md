@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— 逗号即列表；嵌套规则在真实树上有回归测试
+
+`_parse_value`：只要含逗号就按列表解析（`a,b` ≡ `+a,+b`），避免 env 里 `a,b` 被当成一个叫
+`a,b` 的提供者。嵌套规则以前只在自造树上测；现在 slot 树把阶段放在 `turn.pipeline.*` 之下，
+`test_nesting_rule_fires_on_the_kernel_tree` 用 `build_kernel_slot_tree()` 证明「换整个 pipeline
+但未 redeclare `turn.pipeline.act.framework` 却绑定它」在启动期报 `BindingConflict`。
+「绑定目标是否为已安装且声明了该位的插件」的校验属于批 2（loader 接 registry.json 时）。
+
 ## 2026-09-03 — 六层绑定解析：改配置即替换实现（spec §6.4）
 
 `Layer` 是 IntEnum，数字即优先级：DEFAULT < DISTRIBUTION < USER_CONFIG < ENV < AGENT < TURN。

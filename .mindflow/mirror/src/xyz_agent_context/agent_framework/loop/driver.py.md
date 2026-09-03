@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— 注册表路径 `turn.pipeline.act.framework`
+
+同日早些的 `turn.act.framework` 因嵌套规则改成 `turn.pipeline` 的后代路径；对象仍来自
+`KERNEL_REGISTRIES.registry_for(...)`。
+
 ## 2026-09-03 — `FRAMEWORK_REGISTRY` 改从 `KERNEL_REGISTRIES.registry_for("turn.act.framework")` 取
 
 同一个对象，不再在本模块构造；契约版本与大小写归一化由内核门面按扩展位提供。

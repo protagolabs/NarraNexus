@@ -4,6 +4,11 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（补注）— Protocol 里 `capabilities()` 不再带 `return set()` 默认体
+
+Protocol 方法体是 `...`；每个 adapter 都自己实现 `capabilities()`，`runtime_checkable` 只查存在性，
+所以没有消费者依赖旧的默认返回。刻意去掉，避免「继承 Protocol 就白得一个空实现」的错觉。
+
 ## 2026-09-03 — `AgentLoopDriver` 的正式家（从 loop/driver.py 搬来）
 
 批 0 把 agent-loop 框架的 Protocol 从 `xyz_agent_context/agent_framework/loop/driver.py`

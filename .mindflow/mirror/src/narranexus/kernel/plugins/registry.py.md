@@ -4,6 +4,12 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— `Contribution`、同对象幂等、`owner_of` 统一错误
+
+新增 `Contribution(name, factory, meta)` 与 `register_contribution`；同名且**同一工厂对象**的重复
+注册是 no-op（import 期与 manifest 驱动两条路径注册同一对象），不同对象仍 `RegistryConflict`
+（除非 `replace=True`）。`owner_of` 对未知名也抛 `UnknownEntry`（之前是裸 KeyError）。
+
 ## 2026-09-03 — `Registry[T]`：one 位的唯一注册表形状
 
 范本是 `agent_framework/loop/driver.py` 的框架注册表（名字→惰性工厂、未知名 fail-loud、

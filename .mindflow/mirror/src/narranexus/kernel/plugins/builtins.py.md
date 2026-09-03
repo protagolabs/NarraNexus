@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— 框架位路径改为 `turn.pipeline.act.framework`；缓存拆分
+
+`builtin_manifests()` 零参 `lru_cache`，`build_builtin_manifests(tree)` 不缓存，避免用可变树做缓存键。
+
 ## 2026-09-03 — 内置插件清单（显式注册，唯一真源）
 
 D4「内置即插件」的落点：五份 manifest 常量——三个框架（各一个插件，`nexus_power` 常驻、

@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— 阶段位搬到 `turn.pipeline.*` 之下；命名空间自动补全
+
+预审发现 `turn.act` 与 `turn.pipeline` 是兄弟，路径后代关系与「复合位提供者拥有子位」不一致，
+嵌套规则在真实树上永远打不到。现在 `turn.pipeline.act` / `turn.pipeline.act.framework` 是
+`turn.pipeline` 的后代（v3 spec §6.2 的示意树需同步改成这个写法）。`declare(create_namespaces=True)`
+用 `namespace_slot` 自动补出缺失祖先（owner 同声明者），供插件声明自己的扩展点。
+
 ## 2026-09-03 — 扩展位树：插件定义的正式基础（spec §6，D25）
 
 `Slot` = 路径 + 契约符号 + 元数（`one` 可替换 / `many` 可追加）+ 默认提供者 + owner + 稳定级别 +

@@ -37,6 +37,14 @@ def test_declare_requires_parent_and_rejects_duplicates():
         tree.declare(Slot("turn.recall", "one", "x:Y", "q", default="q"))
 
 
+def test_create_namespaces_fills_missing_ancestors_owned_by_the_declarer():
+    tree = SlotTree()
+    tree.declare(Slot("acme.weather.sources", "many", "x:Y", "acme.weather"), create_namespaces=True)
+    assert tree.paths() == ("acme", "acme.weather", "acme.weather.sources")
+    ns = tree.get("acme.weather")
+    assert (ns.arity, ns.owner, ns.default) == ("one", "acme.weather", "acme.weather")
+
+
 def test_navigation_children_descendants_paths():
     tree = SlotTree()
     tree.declare(Slot("turn", "one", "x:Y", "p", default="p"))
@@ -55,11 +63,13 @@ def test_navigation_children_descendants_paths():
 
 def test_kernel_seed_tree_has_the_batch0_roots_and_is_docs_friendly():
     tree = build_kernel_slot_tree()
-    for path in ("kernel.db", "kernel.auth", "turn.pipeline", "turn.act.framework",
+    for path in ("kernel.db", "kernel.auth", "turn.pipeline", "turn.pipeline.act.framework",
                  "model.providers", "model.clients", "agent.capabilities.memory_kinds", "ui"):
         assert path in tree
     assert tree.get("kernel.auth").distribution_only is True
-    assert tree.get("turn.act.framework").default == "builtin.frameworks.nexus_power"
+    assert tree.get("turn.pipeline.act.framework").default == "builtin.frameworks.nexus_power"
+    assert tree.get("turn.pipeline.act.framework").parent == "turn.pipeline.act"
+    assert [s.path for s in tree.descendants("turn.pipeline")] == ["turn.pipeline.act", "turn.pipeline.act.framework"]
     assert tree.get("model.providers").arity == "many"
     rows = tree.to_rows()
     assert rows == sorted(rows, key=lambda r: r["path"])

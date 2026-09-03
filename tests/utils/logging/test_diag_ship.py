@@ -33,6 +33,7 @@ def _clean_env(monkeypatch, tmp_path):
         "MANYFOLD_SYNC_WEBHOOK_URL",
         "NARRANEXUS_DEPLOYMENT_MODE",
         "DATABASE_URL",
+        "DB_HOST",
         "NEXUS_DIAG_DEFAULT_SHIP",
         "NEXUS_DIAG_OPTOUT_FILE",
         "NARRA_SURFACE",

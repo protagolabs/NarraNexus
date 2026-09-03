@@ -4,6 +4,14 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（预审修订）— `load_order`、`declares` 先于 `provides`、空贡献可见
+
+`load_order(manifests)`：内置按声明序、用户插件按 id 排序——这才是 `Registry.names()` 跨重启字节
+稳定的真正保证（此前只在 docstring 里承诺）。插件的 `declares` 在解析 `provides` 前先进 slot 树
+（`create_namespaces=True` 自动补出 `<plugin_id>` 命名空间祖先），所以「声明并提供自己的扩展点」
+一次装载即成立。`hosts` 为空按 `effective_hosts()`（= 全部宿主）解释；某个 provides 符号解析出
+零个贡献时记 debug 日志（`system.py` 在本地合法为空，但要可 grep）。依赖拓扑排序留批 2。
+
 ## 2026-09-03 — 批 0 的 loader：只装内置，云端 fail-closed，import 只发生在这里
 
 `discover(cloud, user_registry_path)` 现在只返回内置 manifest；`cloud=True` 时用户注册表路径

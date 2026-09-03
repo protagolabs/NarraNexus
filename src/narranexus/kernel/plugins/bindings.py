@@ -148,10 +148,16 @@ def from_mapping(layer: Layer, mapping: Mapping[str, Any], *, origin: str) -> Bi
 
 
 def _parse_value(raw: Any) -> str | list[str]:
+    """A plain id for one-slots; a verb list for many-slots.
+
+    A comma anywhere means a list (``a,b`` is shorthand for ``+a,+b``), so a
+    user who writes ``NX_BIND__MODEL__PROVIDERS=a,b`` never registers a
+    provider literally named ``a,b``.
+    """
     if isinstance(raw, list):
         return [str(v).strip() for v in raw]
     text = str(raw).strip()
-    if text.startswith("=") or text.startswith("+") or text.startswith("-"):
+    if text.startswith(("=", "+", "-")) or "," in text:
         return [t.strip() for t in text.split(",") if t.strip()]
     return text
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.contracts import RegistryConflict, UnknownEntry
+from narranexus.contracts import RegistryConflict, RegistryFrozen, UnknownEntry
 from narranexus.kernel.plugins.hooks import HookCaller, HookRegistry, HookSpec
 
 SPEC = HookSpec("onDidThing", params=("a", "b"))
@@ -128,6 +128,42 @@ async def test_block_removes_every_impl_of_an_owner_and_dispose_removes_one():
     d.dispose()
     assert len(caller) == 0
     assert (await caller.call(a=1, b=2)).results == []
+
+
+async def test_failed_wrapper_before_half_is_closed_so_finally_runs():
+    caller = HookCaller(SPEC)
+    closed: list[str] = []
+
+    def bad_wrapper(a):
+        try:
+            raise RuntimeError("before failed")
+            yield  # noqa: unreachable — makes this a generator
+        finally:
+            closed.append("sync")
+
+    async def bad_async_wrapper(a):
+        try:
+            raise RuntimeError("before failed")
+            yield
+        finally:
+            closed.append("async")
+
+    caller.add(bad_wrapper, owner="w1", wrapper=True)
+    caller.add(bad_async_wrapper, owner="w2", wrapper=True)
+    outcome = await caller.call(a=1, b=2)
+    assert sorted(o for o, _ in outcome.errors) == ["w1", "w2"]
+    assert sorted(closed) == ["async", "sync"]
+
+
+def test_freeze_stops_adding_implementations_but_declaring_stays_frozen_too():
+    reg = HookRegistry()
+    reg.declare(SPEC)
+    reg.freeze()
+    assert reg.frozen and reg.caller("onDidThing").frozen
+    with pytest.raises(RegistryFrozen):
+        reg.add("onDidThing", lambda a: a, owner="late")
+    late = reg.declare(HookSpec("onDidLate", params=()))
+    assert late.frozen
 
 
 async def test_registry_declares_specs_and_dispatches_by_name():
