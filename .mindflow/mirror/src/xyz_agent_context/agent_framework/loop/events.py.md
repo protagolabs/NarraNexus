@@ -4,6 +4,13 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03 — 正文搬到 `narranexus.contracts.agent_events`，本模块只 re-export
+
+事件字典是 framework kind 的第二份契约（与 `AgentLoopDriver` 并列），批 1 把常量、TypedDict 与两个
+构造器逐字迁入契约层；本模块显式 re-export 全部名字，生产者/消费者两边 import 路径都不用改，
+`tests/nx_kernel/contracts/test_agent_events.py` 钉住对象同一性，approval 快照 `agent_events.json`
+钉住线上值。改线上值 = bump `API_VERSIONS["agent_events"]`。
+
 ## 2026-09-03 — 新增 `DATA_TYPE_RETRY`
 
 `DATA_TYPE_RETRY = "response.retry"`：Claude 适配器在订阅账号瞬时错误后、resume 同一

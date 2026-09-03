@@ -4,6 +4,10 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 1）— `API_VERSIONS` 新增 `agent_events`
+
+事件字典契约独立计版本（线上协议），与 `framework`（driver Protocol）分开 bump。
+
 ## 2026-09-03 — 公开 API 面的唯一入口
 
 插件只允许 `from narranexus.contracts import ...`（宪章 8/11）。本文件导出 `_base` 的原语
