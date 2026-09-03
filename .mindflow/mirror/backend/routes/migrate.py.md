@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/migrate.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 ---
 
 ## Why it exists
@@ -33,3 +33,11 @@ the write side (map → `apply_plan` → a populated NarraNexus agent).
   seconds (铁律 #15 — the platform must not become the interruption source), so
   both go through `asyncio.to_thread`. The blocking `shutil` copy in
   `applier._copy_local_skill` is likewise `to_thread`'d.
+
+## 2026-09-03 — POST /hurry
+
+`/apply` accepts a client-minted `import_id`, and `/hurry` marks it (see
+[[hurry]]) so a RUNNING apply stops summarizing and just finishes. It exists
+because the alternatives are both bad: cutting the HTTP request leaves a
+half-populated agent, and waiting out N sequential helper-LLM summaries can take
+minutes. Local-only and identity-resolved like the rest of the router.

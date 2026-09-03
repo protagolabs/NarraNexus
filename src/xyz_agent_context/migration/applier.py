@@ -35,6 +35,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
+from xyz_agent_context.migration import hurry
 from xyz_agent_context.migration.mapper import MigrationPlan, PlannedNarrative
 from xyz_agent_context.schema import normalize_agent_text
 from xyz_agent_context.memory import (
@@ -73,6 +74,10 @@ class ApplyResult(BaseModel):
     narratives_created: List[str] = Field(default_factory=list)
     # Total imported conversation turns retained as event memory (per Narrative).
     memory_turns_retained: int = 0
+    # Sessions whose summary took the deterministic no-LLM path because the user
+    # asked this import to hurry (see migration/hurry.py). Reported so the UI can
+    # say so out loud instead of silently importing thinner narratives.
+    summaries_degraded: int = 0
     warnings: List[str] = Field(default_factory=list)
 
 
@@ -152,11 +157,31 @@ async def _seed_chat_history(db, agent_id: str, user_id: str, narrative, planned
         logger.warning(f"[migrate.apply] chat-history seed failed for {narrative.id}: {e}")
 
 
-async def _summarize_session(planned: PlannedNarrative) -> _NarrativeSummary:
+def _fallback_summary(planned: PlannedNarrative) -> _NarrativeSummary:
+    """The no-LLM summary: the session's own title + its raw text. Used when the
+    model call fails, when there is nothing to summarize, and when the user has
+    asked the import to hurry."""
+    src = planned.summary_source.strip()
+    return _NarrativeSummary(
+        description=planned.title,
+        current_summary=src[:2000] or planned.title,
+    )
+
+
+async def _summarize_session(
+    planned: PlannedNarrative,
+    *,
+    hurried: bool = False,
+) -> _NarrativeSummary:
     """One helper_llm call → the Narrative's AI fields. Best-effort: on any
     failure (or empty source) fall back to a deterministic summary from the
-    title + raw source, so import never breaks on the LLM."""
+    title + raw source, so import never breaks on the LLM.
+
+    ``hurried`` skips the model entirely: the user pressed stop and is waiting on
+    this row, so a plain summary now beats a good one in a minute."""
     src = planned.summary_source.strip()
+    if hurried:
+        return _fallback_summary(planned)
     if src:
         try:
             result = await get_helper_sdk().llm_function(
@@ -169,17 +194,20 @@ async def _summarize_session(planned: PlannedNarrative) -> _NarrativeSummary:
                 return out
         except Exception as e:  # noqa: BLE001 — summary must never break import
             logger.warning(f"[migrate.apply] session summary llm failed: {e}")
-    # deterministic fallback
-    return _NarrativeSummary(
-        description=planned.title,
-        current_summary=src[:2000] or planned.title,
-    )
+    return _fallback_summary(planned)
 
 
-async def _import_narrative(db, agent_id: str, user_id: str, planned: PlannedNarrative) -> int:
+async def _import_narrative(
+    db,
+    agent_id: str,
+    user_id: str,
+    planned: PlannedNarrative,
+    *,
+    hurried: bool = False,
+) -> int:
     """Create one Narrative from a planned session (summarized) and retain its
     turns as event memory scoped to that Narrative. Returns turns retained."""
-    summary = await _summarize_session(planned)
+    summary = await _summarize_session(planned, hurried=hurried)
     svc = NarrativeService(agent_id, db)
     narrative = await svc.create_narrative(
         agent_id=agent_id, user_id=user_id, narrative_type=NarrativeType.CHAT,
@@ -263,8 +291,15 @@ async def apply_plan(
     user_id: str,
     plan: MigrationPlan,
     agent_id: Optional[str] = None,
+    import_id: Optional[str] = None,
 ) -> ApplyResult:
-    """Create/populate an agent from a plan. `db` is an AsyncDatabaseClient."""
+    """Create/populate an agent from a plan. `db` is an AsyncDatabaseClient.
+
+    ``import_id`` lets the caller be told mid-flight to stop summarizing (see
+    migration/hurry.py): the session loop re-checks it before every remaining
+    session, so pressing stop costs the user the current session, not the whole
+    project. The import still completes — every session lands, the remaining
+    ones just get the deterministic summary."""
     created = False
     if not agent_id:
         agent_id = f"agent_{uuid4().hex[:12]}"
@@ -393,12 +428,24 @@ async def apply_plan(
         except Exception as e:  # noqa: BLE001 — degrade to fallback summaries, never abort
             logger.warning(f"[migrate.apply] provider resolve failed; summaries degrade: {e}")
     for planned in plan.narratives:
+        # Re-read per session, not once: the user may press stop at any point
+        # during a long project, and this is the only place we can honour it
+        # without abandoning a half-written agent.
+        hurried = hurry.is_hurried(import_id)
         try:
-            n = await _import_narrative(db, agent_id, user_id, planned)
+            n = await _import_narrative(db, agent_id, user_id, planned, hurried=hurried)
             result.narratives_created.append(planned.title or "Imported session")
             result.memory_turns_retained += n
+            if hurried:
+                result.summaries_degraded += 1
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[migrate.apply] narrative '{planned.title}' failed: {e}")
+    if result.summaries_degraded:
+        logger.info(
+            f"[migrate.apply] hurried: {result.summaries_degraded} of "
+            f"{len(plan.narratives)} sessions summarized without the LLM"
+        )
+    hurry.clear(import_id)
 
     logger.info(
         f"[migrate.apply] agent={agent_id} created={created} "

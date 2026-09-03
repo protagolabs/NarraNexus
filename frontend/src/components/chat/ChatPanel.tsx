@@ -23,10 +23,9 @@ import { OnboardingJourney } from './OnboardingJourney';
 import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
 import { ComposerFastToggle } from './ComposerFastToggle';
-import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket, useFastMode } from '@/hooks';
-import { cn, formatChatTimestamp, generateId } from '@/lib/utils';
+import { cn, generateId } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { streamForTab } from '@/lib/chatStreams';
@@ -187,10 +186,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
-  // Per-agent model/framework panel, opened from the header. A bump on save
-  // tells the composer model chip to re-read the (possibly changed) model.
-  const [agentCfgOpen, setAgentCfgOpen] = useState(false);
-  const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -199,6 +194,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // narrations (turns whose working_source isn't chat/manyfold) so they aren't
   // shown as if the agent were speaking to the owner.
   const [chatTab, setChatTab] = useState<'conversation' | 'inner'>('conversation');
+  // Declared up here (not next to the zero-state block below) because the
+  // attachment intake handlers need it too: the Activity Log has no composer,
+  // so a drag/paste there must not silently queue a file no surface can show.
+  const isActivityTab = chatTab === 'inner';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -571,16 +570,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     return null;
   }, [visibleTimeline]);
 
-  // v4 header side label: "session · <last activity time>" — the most recent
-  // visible message anchors the label; empty until history lands.
-  const sessionLabel = useMemo(() => {
-    const last = visibleTimeline.length
-      ? visibleTimeline[visibleTimeline.length - 1]
-      : null;
-    if (!last?.timestamp) return '';
-    return t('chat.header.sessionLabel', { time: formatChatTimestamp(last.timestamp) });
-  }, [visibleTimeline, t]);
-
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
   // After fresh history loads, wait one animation frame for MessageBubble
@@ -792,7 +781,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // need preventDefault on dragover (to opt the element in as a drop
   // target) and on drop (to cancel the textarea's default).
   const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    // No composer on the Activity Log tab → nothing to attach to. Bail before
+    // preventDefault so the browser keeps its own "not a drop target" cursor
+    // instead of us claiming the drag and then dropping it on the floor.
+    if (!agentId || isActivityTab) return;
     // Only treat the drag as an attachment intent if it actually carries
     // files — typing-style drags (selected text from another tab) should
     // still fall through to the textarea's normal text-paste behavior.
@@ -812,7 +804,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsDragging(false);
   };
   const handleDrop = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    if (!agentId || isActivityTab) return;
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length === 0) return;
     e.preventDefault();
@@ -885,7 +877,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     // streaming starts. The streaming effect takes over from there.
     initialScrollPendingRef.current = true;
 
-    if (showBootstrapGreeting) {
+    if (bootstrapGreetingPending) {
       useChatStore.setState((state) => ({
         agentSessions: {
           ...state.agentSessions,
@@ -939,8 +931,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const stableDrop = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.drop(e), []);
   const stablePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => dragFnsRef.current.paste(e), []);
 
-  const showBootstrapGreeting = isBootstrap && historyLoaded && historyMessages.length === 0 && messages.length === 0;
-  const showEmptyState = !showBootstrapGreeting && historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
+  // Zero-state is PER TAB, and it keys on `visibleTimeline` — exactly the rows
+  // this tab renders — not on the raw stream + session pair. Two bugs came out
+  // of the old form: the conversation's onboarding card / bootstrap greeting
+  // were drawn on an empty Activity Log too (so switching tabs looked like a
+  // dead button — the user could never reach the legitimately blank Activity
+  // Log), and any live session message (conversation-only) suppressed the
+  // Activity Log's zero-state into an unexplained blank area.
+  // (`isActivityTab` is declared with the tab state above — the attachment
+  // intake handlers need it before this point.)
+  // Day-zero of the CONVERSATION. Deliberately tab-independent (it reads the
+  // chat stream's own slot, not the active one) because handleSubmit also uses
+  // it to fold the greeting into the session on the user's first send — which
+  // can happen while the Activity Log tab is open.
+  const bootstrapGreetingPending =
+    isBootstrap && loadedByStream.chat && historyByStream.chat.length === 0 && messages.length === 0;
+  const tabIsEmpty = historyLoaded && visibleTimeline.length === 0;
+  const showBootstrapGreeting = !isActivityTab && bootstrapGreetingPending;
+  const showEmptyState = !isActivityTab && !showBootstrapGreeting && tabIsEmpty && !isStreaming;
+  const showActivityEmptyState = isActivityTab && tabIsEmpty;
 
   // ── Render ──────────────────────────────────────────
   return (
@@ -958,20 +967,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* v4 header — agent-name protagonist + session label; Chat / Inner
-          Thoughts segmented toggle; Jobs / Inbox / Artifacts / Cost entries
-          and the ⋯ detail menu (doors only — panels unchanged). Hidden on
-          mobile: the top strip shows the breadcrumb there and the tab pair
-          below stands in. */}
+      {/* v4 header — agent-name protagonist (now a link into the agent's
+          profile page); Chat / Inner Thoughts segmented toggle; Jobs / Inbox /
+          Artifacts / Cost entries and the ⋯ detail menu (doors only — panels
+          unchanged). Hidden on mobile: the top strip shows the breadcrumb
+          there and the tab pair below stands in. */}
       <ChatHeader
         agentId={agentId}
         agentName={currentAgent?.name || agentId || 'AI'}
-        sessionLabel={sessionLabel}
         isStreaming={isStreaming}
         currentSteps={currentSteps}
         chatTab={chatTab}
         onChatTabChange={setChatTab}
-        onOpenAgentConfig={() => setAgentCfgOpen(true)}
       />
 
       {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
@@ -1051,10 +1058,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             />
           ) : (
             <BracketEmptyState
-              label="Select an agent"
-              hint="Choose an agent from the sidebar to begin your interaction."
+              label={t('chat.selectAgent')}
+              hint={t('chat.selectAgentHint')}
             />
           )
+        )}
+
+        {/* Activity Log zero-state. An agent that has never run on its own has
+            a genuinely empty stream — say so, instead of handing the tab the
+            conversation's onboarding card (which read as "the tab button does
+            nothing") or an unexplained blank column. */}
+        {showActivityEmptyState && (
+          <BracketEmptyState
+            label={agentId ? t('chat.activityEmpty') : t('chat.selectAgent')}
+            hint={agentId ? t('chat.activityEmptyHint') : t('chat.selectAgentHint')}
+          />
         )}
 
         {/* Bootstrap greeting */}
@@ -1245,9 +1263,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </div>
       </ScrollArea>
 
-      {/* Input area — drop is handled at the Card root, so this wrapper
-          no longer needs its own onDragOver/onDragLeave/onDrop. Inner
-          wrapper mirrors the 820px stream measure (v4). */}
+      {/* Input area — CONVERSATION ONLY. The Activity Log is a read-only window
+          onto runs the agent started by itself (jobs, channels, teammates);
+          there is no reply channel to type into, so the whole footer goes —
+          composer, attach/voice row, transcription notice and the live
+          ProcessPanel alike, since every one of them describes the owner↔agent
+          run. This matches the live reply block above, already gated to
+          `chatTab === 'conversation'`. Unmounting <Composer> does NOT lose a
+          draft: it flushes to the per-agent draft store on unmount and restores
+          on remount (see Composer.tsx).
+          Drop is handled at the Card root, so this wrapper no longer needs its
+          own onDragOver/onDragLeave/onDrop. Inner wrapper mirrors the 820px
+          stream measure (v4). */}
+      {!isActivityTab && (
       <div className="border-t border-[var(--rule)]">
       <div className="mx-auto w-full max-w-[820px] px-6 max-md:px-3 pt-3.5 pb-3">
         {/* Audio transcription unavailable notice — only shown when an
@@ -1514,20 +1542,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onToggle={setFastMode}
               disabled={!agentId}
             />
-            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+            <ComposerModelBadge agentId={agentId} />
           </div>
         </div>
       </div>
       </div>
-
-      {/* Per-agent model & framework panel (opened from the header). */}
-      {agentId && (
-        <AgentLlmConfigPanel
-          agentId={agentId}
-          isOpen={agentCfgOpen}
-          onClose={() => setAgentCfgOpen(false)}
-          onSaved={() => setModelReloadKey((k) => k + 1)}
-        />
       )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

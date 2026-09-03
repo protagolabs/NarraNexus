@@ -260,7 +260,6 @@
         "download": "Download {{name}}",
         "loading": "Loading…"
       },
-      "drawerCategory": "Team room",
       "manage": {
         "title": "Manage",
         "patrol": "Lead patrol",
@@ -353,10 +352,8 @@
       "ops": "ops"
     },
     "header": {
-      "sessionLabel": "session · {{time}}",
       "detailMenuTitle": "Agent detail — panels",
-      "modelFramework": "Model & framework",
-      "switchAgent": "Switch agent"
+      "viewProfile": "View agent profile"
     },
     "composerPrivacyHint": "Avoid sharing sensitive personal information.",
     "steer": {
@@ -372,7 +369,9 @@
         "run_ended": "the run finished first",
         "unknown": "couldn't be delivered"
       }
-    }
+    },
+    "activityEmpty": "No background activity yet",
+    "activityEmptyHint": "Runs the agent started on its own — jobs, channels, teammates — show up here."
   },
   "awareness": {
     "common": {
@@ -702,19 +701,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Queue",
-      "jobs": "jobs",
-      "totalInQueue": "{{count}} jobs in queue"
-    },
-    "jobState": {
-      "running": "running",
-      "active": "active",
-      "pending": "pending",
-      "blocked": "blocked",
-      "paused": "paused",
-      "failed": "failed"
-    },
     "jobStateLabel": {
       "running": "running",
       "active": "active",
@@ -739,25 +725,6 @@
         "up": "slower than yesterday",
         "down": "faster than yesterday",
         "flat": "same as yesterday"
-      }
-    },
-    "jobs": {
-      "title": "Jobs ({{count}})",
-      "running": "{{count}} running",
-      "step": "step {{current}}/{{total}}",
-      "next": "next {{time}}",
-      "action": {
-        "retry": "Retry",
-        "pause": "Pause",
-        "resume": "Resume",
-        "failed": "{{label}} failed"
-      },
-      "detail": {
-        "manual": "(manual)",
-        "nextRun": "Next run",
-        "iterations": "Iterations",
-        "trigger": "Trigger",
-        "lastError": "Last error"
       }
     },
     "sessions": {
@@ -819,25 +786,8 @@
     },
     "agentRowMenu": {
       "options": "Agent options",
-      "rename": "Rename",
-      "edit": "Edit…",
-      "setPrivate": "Set to Private",
-      "setPublic": "Set to Public",
       "clearData": "Clear data",
       "delete": "Delete"
-    },
-    "editAgentDialog": {
-      "title": "Edit agent",
-      "nameLabel": "Name",
-      "descriptionLabel": "Description",
-      "descriptionPlaceholder": "What is this agent for? Shown to the agent itself and to other agents.",
-      "tooLong": "Must be {{max}} characters or fewer.",
-      "save": "Save",
-      "cancel": "Cancel",
-      "saveFailedTitle": "Update failed",
-      "renameWarnTitle": "Renamed, with something to know",
-      "renameClashWarn": "Another of your agents ({{agentId}}) already answers to this name. The rename was applied — if that was not intended, decide which agent should keep it.",
-      "renameMemoryWarn": "The name was changed, but this agent's identity memory could not be updated, so it may still introduce itself by the old name."
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",
@@ -918,45 +868,77 @@
       "drawerTitle": "Drag to resize the panel"
     },
     "importAgent": {
-      "title": "Import an Agent",
-      "previewTitle": "Review before importing",
+      "title": "Import agents",
       "doneTitle": "Import complete",
       "detecting": "Scanning your machine…",
       "noneFound": "No other-framework agents found in the standard locations. Enter a path below to scan a specific folder.",
-      "manualPathLabel": "Or scan a specific folder",
+      "manualPathLabel": "Or scan a folder",
       "scan": "Scan",
       "unnamed": "Untitled agent",
       "skills": "Skills",
       "memories": "Memories",
       "mcpServers": "MCP servers",
-      "willCopy": "will copy",
-      "willMatch": "from marketplace",
-      "deferred": "not yet imported",
-      "secretWarning": "Some MCP servers carry credentials shown in plaintext. Review them before importing.",
-      "narrative": "Narrative",
-      "notes": "Notes",
       "credentialNote": "Credential keys not imported (re-enter in Settings): {{keys}}",
       "unmappedNote": "{{count}} file(s) were recognized but not mapped.",
-      "confirmImport": "Import",
-      "openAgent": "Open agent",
-      "awareness": "Awareness",
-      "skillsCopied": "Skills copied",
-      "skillsInstalled": "Skills installed",
-      "mcpAdded": "MCP servers added",
-      "doneMsg": "The agent was created and populated.",
       "skillsUnmatchedNote": "Skills with no local source or marketplace match: {{names}}",
       "stdioSkippedNote": "Local (stdio) MCP servers captured but not wired yet: {{names}}",
-      "sourceTitle": "Choose a source",
-      "frameworkHint": "We found agents from these frameworks on this machine. Pick one, or scan a folder directly.",
-      "sourceHint": "Pick which {{framework}} source to import.",
-      "countProjects": "{{count}} project(s)",
-      "countSources": "{{count}} source(s)",
-      "defaultSkills": "Default skills",
-      "sessionsHint": "{{count}} session(s) will each become a Narrative (summarized on import), with their turns kept as memory.",
       "narrativesCreated": "Narratives",
       "turnsRetained": "Memory turns",
       "untitledSession": "Untitled session",
-      "turnCount": "{{count}} turns"
+      "turnCount": "{{count}} turns",
+      "runningTitle": "Importing agents",
+      "lede": "Pick the agents you want to bring into NarraNexus. Everything is read from this machine — nothing is uploaded.",
+      "agentsFound_one": "agent found",
+      "agentsFound_other": "agents found",
+      "toolsCount_one": "{{count}} tool",
+      "toolsCount_other": "{{count}} tools",
+      "rescan": "Rescan",
+      "selectAll": "Select all {{count}}",
+      "selectGroup": "Select all {{framework}} agents",
+      "groupCountSelected": "{{selected}} of {{total}} checked",
+      "groupCount": "{{count}} found",
+      "selectedOf": "{{selected}} of {{total}} selected",
+      "sessionCount_one": "{{count}} session",
+      "sessionCount_other": "{{count}} sessions",
+      "noSessions": "no sessions",
+      "sharedConfig": "shared config",
+      "nameLabel": "Name",
+      "sessionsLabel": "Sessions · {{selected}}/{{total}}",
+      "secretWarning_one": "1 MCP server carries credentials in plaintext. It is imported as-is — review it in Settings afterwards.",
+      "secretWarning_other": "{{count}} MCP servers carry credentials in plaintext. They are imported as-is — review them in Settings afterwards.",
+      "footerSelected": "{{count}} selected · {{sessions}} sessions",
+      "importCount": "Import {{count}}",
+      "runningHint": "Importing one agent at a time — keep this window open.",
+      "stoppingHint": "Wrapping up the current agent without AI summaries — a few seconds.",
+      "runningProgress": "{{done}} of {{total}} done",
+      "stopAfterThis": "Stop",
+      "stopping": "Stopping…",
+      "importedCount_one": "agent imported",
+      "importedCount_other": "agents imported",
+      "failedCount": "{{count}} failed",
+      "skippedCount": "{{count}} not started",
+      "importRemaining": "Import remaining {{count}}",
+      "openNamed": "Open {{name}}",
+      "doneMeta": "{{narratives}} narratives · {{turns}} memory turns",
+      "retry": "Retry",
+      "status": {
+        "queued": "queued",
+        "scanning": "scanning",
+        "importing": "importing",
+        "done": "done",
+        "failed": "failed",
+        "skipped": "skipped"
+      },
+      "hurriedNote": "{{count}} session(s) were imported with plain summaries because you stopped early. Their transcripts are intact."
+    },
+    "agentRename": {
+      "warnTitle": "Renamed, with something to know",
+      "clashWarn": "Another of your agents ({{agentId}}) already answers to this name. The rename was applied — if that was not intended, decide which agent should keep it.",
+      "memoryWarn": "The name was changed, but this agent's identity memory could not be updated, so it may still introduce itself by the old name."
+    },
+    "noProvider": {
+      "message": "No model wired yet — your agent can't reply.",
+      "action": "Wire one now"
     }
   },
   "settings": {
@@ -1116,10 +1098,6 @@
     "provider": {
       "oneKeyTitle": "One key to start",
       "oneKeyDescription": "Pick a provider and paste its API key — the agent, models, and endpoints are configured for you.",
-      "officialAnthropic": "Anthropic (official)",
-      "officialOpenai": "OpenAI (official)",
-      "officialAnthropicDesc": "Official Anthropic API key (sk-ant-...). Agent and helper both run on Claude.",
-      "officialOpenaiDesc": "Official OpenAI API key. The agent runs on Codex CLI (gpt-5.5).",
       "netmindDesc": "One key covers both Anthropic and OpenAI endpoints.",
       "proxyDesc": "Proxies the official Claude and OpenAI APIs.",
       "getProviderKey": "Get your {{provider}} API key",
@@ -1270,7 +1248,6 @@
       "addProviderTitle": "Add a provider",
       "addProviderSubtitle": "Choose how to add a provider.",
       "backToMethods": "Back",
-      "tabApiKey": "API key",
       "tabSignin": "CLI sign-in",
       "tabCustom": "Custom",
       "protocolLabel": "Protocol",
@@ -1298,7 +1275,11 @@
       "freeTierHowToTitle": "About your free credit",
       "freeTierHowToSwitch": "The “Free Tier” card is already wired to your Agent and Helper slots. To run on your own key instead, add a provider below, then pick it for the Agent / Helper slot in Model Defaults — that switch takes effect on your next message.",
       "freeTierAnytime": "You can switch at any time. You do not have to spend the free credit first, and switching away does not forfeit it — the balance stays and you can switch back.",
-      "freeTierNoDelete": "The Free Tier card can’t be deleted while credit remains: it holds the only key to that balance. Once it’s spent, you can remove it."
+      "freeTierNoDelete": "The Free Tier card can’t be deleted while credit remains: it holds the only key to that balance. Once it’s spent, you can remove it.",
+      "claudeCodeSdk": "Claude Code SDK",
+      "codexSdk": "Codex SDK",
+      "claudeCodeSdkDesc": "Anthropic API key (sk-ant-…). Agent and helper both run on the Claude Code SDK.",
+      "codexSdkDesc": "OpenAI API key. The agent runs on the Codex SDK (gpt-5.5)."
     }
   },
   "system": {
@@ -1402,8 +1383,7 @@
     "drawer": {
       "unpin": "Unpin panel",
       "pin": "Pin panel",
-      "close": "Close panel",
-      "switchPanel": "Switch panel"
+      "close": "Close panel"
     },
     "coach": {
       "title": "Your artifacts live here",
@@ -1561,10 +1541,9 @@
   },
   "onboarding": {
     "migrationGuide": {
-      "title": "Import an existing agent",
-      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
-      "import": "Import",
-      "later": "Later"
+      "later": "Later",
+      "lede_one": "One agent from another tool is already sitting on this machine. Bring it into NarraNexus?",
+      "lede_other": "{{count}} agents from other tools are already sitting on this machine. Pick the ones to bring into NarraNexus."
     },
     "guideCoachmark": {
       "text": "Your first agent is already here — and you can create more of your own anytime with this button.",
@@ -1659,7 +1638,22 @@
       "modelChip": {
         "inherit": "default",
         "override": "custom"
-      }
+      },
+      "colLeader": "Leader",
+      "colCreatedBy": "Created by",
+      "colChannels": "Channels",
+      "colFramework": "Framework",
+      "colModel": "Model",
+      "colLastActive": "Last active",
+      "noLeader": "No leader",
+      "teamProfileNoDescription": "No team description.",
+      "agentProfileNoDescription": "No description.",
+      "memberRuntimeLabel": "Runtime",
+      "memberModelLabel": "Model",
+      "memberOwnerLabel": "Owner",
+      "memberPrivate": "Private",
+      "memberPublic": "Public",
+      "openProfile": "Open {{name}} profile"
     },
     "createUser": {
       "title": "Create New User",
@@ -1674,19 +1668,6 @@
       "enterUserId": "Please enter a User ID",
       "failed": "Failed to create user",
       "connectionFailed": "Connection failed. Please try again."
-    },
-    "setup": {
-      "oneKeyLabel": "Setup · One Key to Start",
-      "welcome": "Welcome to NarraNexus",
-      "subscriptionTitle": "Use a Claude or ChatGPT subscription",
-      "subscriptionSubtitle": "No API key needed — sign in with the subscription you already have.",
-      "advancedSetup": "Advanced setup — subscription sign-in, custom endpoints, per-slot models",
-      "sectionLabel": "Setup · Configure LLM Providers",
-      "title": "Configure LLM Providers",
-      "subtitle": "Set up your API keys so NarraNexus can connect to language models.",
-      "skipForNow": "Skip for now",
-      "getStarted": "Get Started",
-      "done": "Done"
     },
     "settings": {
       "title": "Settings",
@@ -1900,7 +1881,8 @@
       "addedToTeamResultWithFailures": "{{success}} added, {{failedCount}} failed ({{failedIds}}).",
       "removedFromTeamTitle": "Removed from team",
       "removedFromTeamMessage": "Removed {{count}} agents from the team.",
-      "removedFromTeamResultWithFailures": "{{success}} removed, {{failedCount}} failed ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "{{success}} removed, {{failedCount}} failed ({{failedIds}}).",
+      "openChat": "Open chat"
     },
     "bundleImport": {
       "installTemplate": "Install template",
@@ -2263,6 +2245,109 @@
     },
     "account": {
       "powerOnlyHint": "Account, billing and subscription are NetMind account features — sign in with a NetMind account to see them here."
+    },
+    "agentProfile": {
+      "breadcrumb": "Agents",
+      "backToChat": "Chat",
+      "overview": "Overview",
+      "capabilities": "Capabilities",
+      "settings": "Settings",
+      "views": "Agent profile views",
+      "chat": "Chat",
+      "running": "Running",
+      "idleStatus": "Idle",
+      "currentTask": "Current task",
+      "idle": "No task is currently running.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} jobs",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} conversations",
+      "overviewCardLabel": "Agent overview",
+      "jobsNoun": "jobs",
+      "inboxNoun": "conversations",
+      "jobsRunningFlag": "running",
+      "inboxUnreadFlag": "{{count}} new",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} connected",
+      "noSkills": "No skills installed",
+      "noMcp": "No MCP servers",
+      "moreCount": "+{{count}} more",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model & Framework",
+      "modelFrameworkHint": "The effective runtime configuration used for the agent's next run.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Configure",
+      "general": "General",
+      "generalHint": "Manage how this agent is presented across the workspace.",
+      "avatar": "Avatar",
+      "avatarHint": "Shown in task assignment, activity, and chat.",
+      "name": "Name",
+      "description": "Description",
+      "saveGeneral": "Save changes",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "saveFailed": "Could not save changes.",
+      "missingAgent": "No agent was selected",
+      "notFound": "Agent not found",
+      "activity": "Activity",
+      "activityLast24h": "Past 24 hours",
+      "activityToday": "Today",
+      "activityAxisStart": "24h ago",
+      "activityAxisNow": "now"
+    },
+    "welcome": {
+      "logout": "Log out",
+      "continue": "Continue",
+      "rail": {
+        "model": {
+          "title": "Wire a model",
+          "detail": "One key is enough — swap it any time."
+        },
+        "import": {
+          "title": "Bring your agents over",
+          "detail_one": "{{count}} found on this machine.",
+          "detail_other": "{{count}} found on this machine."
+        },
+        "agent": {
+          "title": "Meet {{name}}",
+          "detail": "Your first agent, already waiting."
+        }
+      },
+      "model": {
+        "title": "Wire a model first.",
+        "skip": "Skip for now — you can add a key in Settings",
+        "advanced": "Advanced setup — subscription sign-in, custom endpoints, per-slot models",
+        "subscriptionTitle": "Use a Claude or ChatGPT subscription",
+        "subscriptionSubtitle": "No API key needed — sign in with the subscription you already have."
+      },
+      "import": {
+        "title": "Bring the agents you already have.",
+        "subtitle": "Everything is read from this machine — nothing is uploaded.",
+        "lede": "Each one you check becomes a NarraNexus agent, with its conversation history kept as memory.",
+        "importAndContinue_one": "Import {{count}} and continue",
+        "importAndContinue_other": "Import {{count}} and continue",
+        "skip": "Skip this step"
+      },
+      "agent": {
+        "title": "Meet {{name}}.",
+        "subtitle": "Your first agent, created for you at login. It remembers everything you two talk about — that is the difference between NarraNexus and a throwaway chat.",
+        "role": "your guide · silicon",
+        "capMemory": "Long memory, as storylines",
+        "capCheckin": "Checks in with you daily",
+        "cta": "Start using NarraNexus",
+        "skip": "Go straight to the app",
+        "preparingTitle": "Getting your first agent ready…",
+        "preparingSubtitle": "Picking its name and personality. A few seconds.",
+        "notReady": "Your first agent is still being created — it will show up in the sidebar shortly.",
+        "fallbackName": "your agent",
+        "rename": "Rename"
+      }
     }
   },
   "rail": {
@@ -2326,9 +2411,6 @@
       "cancelled": "Cancelled"
     },
     "metrics": {
-      "active": "Active",
-      "success": "Success",
-      "failed": "Failed",
       "rate": "Rate"
     },
     "view": {
@@ -2437,17 +2519,6 @@
       "waiting": "Waiting...",
       "noTimeData": "No time data"
     },
-    "distribution": {
-      "title": "Status Distribution",
-      "total": "{{count}} total",
-      "legend": {
-        "completed": "{{count}} completed",
-        "running": "{{count}} running",
-        "active": "{{count}} active",
-        "paused": "{{count}} paused",
-        "failed": "{{count}} failed"
-      }
-    },
     "editSchedule": {
       "title": "Edit Execution Time",
       "hint": "Adjust when this job runs. Changes take effect on the next run.",
@@ -2467,6 +2538,18 @@
       "modeLabel": "Trigger mode",
       "modeInterval": "Interval",
       "modeCron": "Cron expression"
+    },
+    "row": {
+      "every": "Every {{interval}}",
+      "daily": "Daily {{time}}",
+      "hourly": "Hourly :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Once {{time}}",
+      "afterDeps": "Blocked by {{n}}",
+      "next": "next {{time}}",
+      "elapsed": "elapsed {{duration}}",
+      "failedAt": "failed {{time}}",
+      "lastRun": "last run {{time}}"
     }
   },
   "artifacts": {

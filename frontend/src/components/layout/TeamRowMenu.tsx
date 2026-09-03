@@ -2,10 +2,11 @@
  * @file_name: TeamRowMenu.tsx
  * @author:
  * @date: 2026-06-23
- * @description: Kebab (⋮) context menu for the team group-chat row — mirrors
- * AgentRowMenu so a team's row offers the same Rename / Delete affordances as
- * an agent row. Inline absolute panel (no portal) so it works inside the
- * sidebar scroll container.
+ * @description: Kebab (⋮) context menu for the team group-chat row. The last
+ * per-row menu in the sidebar: agent rows lost theirs on 2026-08-27 (their
+ * actions moved to the agent profile page), and a team has no profile page to
+ * move Rename / Clear / Delete to. Inline absolute panel (no portal) so it
+ * works inside the sidebar scroll container.
  */
 
 import { useState } from 'react';

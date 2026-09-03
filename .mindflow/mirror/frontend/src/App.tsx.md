@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-08-19
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 新路由 /app/agents/:agentId(Agent Profile)
+
+`agents/:agentId` 挂 [[pages/AgentProfilePage]](懒加载,与其它子页一致),
+放在 `teams/:teamId` **之前**只为可读性——两条路径首段不同,不存在 v6 排序
+冲突。两个入口写进 `state.from`:Chat 头部身份块(`'chat'`)与 Dashboard
+智能体行的身份块(`'dashboard'`),profile 的面包屑据此决定回哪儿。
+**没有**引入 `agents/new`——本分支创建 Agent 仍走弹窗
+([[hooks/useCreateAgent]]),不是整页向导。
 
 ## 2026-08-19 — /app/account 路由降级为别名
 
@@ -83,7 +92,7 @@ console.warn。2026-08-02 事故复盘时，客户端侧对"是哪个请求把�
 ## 2026-08-04 — PageFallback 根 h-screen → h-dvh-safe
 
 整屏 loading 占位的高度改用 index.css 的 `.h-dvh-safe`（100vh 兜底 +
-100dvh 覆盖），与 MainLayout/SetupPage 同批收口移动端「100vh 含浏览器
+100dvh 覆盖），与 MainLayout/WelcomePage 同批收口移动端「100vh 含浏览器
 可伸缩 UI」问题。纯样式，无逻辑变化。
 ## 2026-07-31 — /pay 路由(官网→Stripe 跳板)
 
@@ -251,3 +260,23 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 
 2026-08-19：needsSetup 段注释更新——"onboarding checklist" 改指 balance
 panel + 自动供给的引导 Agent（checklist 卡片已退役，纯注释同步，无行为变化）。
+
+## 2026-08-27 — first-run routing
+
+`/setup` (the provider-only first-run page) is now a redirect to `/welcome`, the
+one-page first-run flow ([[WelcomePage]]); old bookmarks and docs still work.
+
+The gate itself lives in **`ProtectedRoute`**, not just `RootRedirect` — see
+[[onboardingGate]] for why: `/` is one way in, and a `?next=/app/chat` login, a
+bookmark or a refresh would each have skipped a flow that only guarded `/`. Both
+routes now ask the same cached question ("does this user still owe the welcome
+flow?"), and `ProtectedRoute` forwards the intended URL as `?next=` so the flow
+can hand the user back to it.
+
+Two routes opt out via `skipWelcomeGate`: `/welcome` (it IS the flow — gating it
+would loop) and `/pay` (that route carries a payment intent through login and out
+to Stripe; interrupting it with onboarding would lose the checkout).
+
+`RootRedirect`'s old question — "does this LOCAL user have zero providers?" — is
+gone. Both modes are eligible for the flow; its own step list adapts, and it
+redirects itself out when that list is empty, so no branch here can trap anyone.

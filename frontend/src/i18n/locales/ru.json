@@ -204,7 +204,6 @@
         "download": "Скачать {{name}}",
         "loading": "Загрузка…"
       },
-      "drawerCategory": "Комната команды",
       "manage": {
         "title": "Управление командой",
         "patrol": "Обход лидера",
@@ -286,12 +285,12 @@
       "ops": "опер."
     },
     "header": {
-      "sessionLabel": "сессия · {{time}}",
       "detailMenuTitle": "Детали агента — панели",
-      "modelFramework": "Модель и фреймворк",
-      "switchAgent": "Сменить агента"
+      "viewProfile": "Открыть профиль агента"
     },
-    "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией."
+    "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией.",
+    "activityEmpty": "Фоновой активности пока нет",
+    "activityEmptyHint": "Запуски, которые агент начал сам — задачи, каналы, товарищи по команде — появятся здесь."
   },
   "awareness": {
     "common": {
@@ -620,19 +619,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Очередь",
-      "jobs": "задач",
-      "totalInQueue": "{{count}} задач в очереди"
-    },
-    "jobState": {
-      "running": "выполняется",
-      "active": "активна",
-      "pending": "ожидает",
-      "blocked": "заблокирована",
-      "paused": "приостановлена",
-      "failed": "не удалось"
-    },
     "jobStateLabel": {
       "running": "выполняется",
       "active": "активна",
@@ -657,25 +643,6 @@
         "up": "медленнее, чем вчера",
         "down": "быстрее, чем вчера",
         "flat": "как вчера"
-      }
-    },
-    "jobs": {
-      "title": "Задачи ({{count}})",
-      "running": "{{count}} выполняется",
-      "step": "шаг {{current}}/{{total}}",
-      "next": "следующий {{time}}",
-      "action": {
-        "retry": "Повторить",
-        "pause": "Пауза",
-        "resume": "Возобновить",
-        "failed": "Не удалось: {{label}}"
-      },
-      "detail": {
-        "manual": "(вручную)",
-        "nextRun": "Следующий запуск",
-        "iterations": "Итерации",
-        "trigger": "Триггер",
-        "lastError": "Последняя ошибка"
       }
     },
     "sessions": {
@@ -737,10 +704,6 @@
     },
     "agentRowMenu": {
       "options": "Параметры агента",
-      "rename": "Переименовать",
-      "edit": "Изменить…",
-      "setPrivate": "Сделать приватным",
-      "setPublic": "Сделать публичным",
       "clearData": "Очистить данные",
       "delete": "Удалить"
     },
@@ -1084,8 +1047,7 @@
     "drawer": {
       "unpin": "Открепить панель",
       "pin": "Закрепить панель",
-      "close": "Закрыть панель",
-      "switchPanel": "Сменить панель"
+      "close": "Закрыть панель"
     },
     "coach": {
       "title": "Ваши артефакты появляются здесь",
@@ -1300,7 +1262,22 @@
       "noTeamsLabel": "Команд пока нет",
       "noTeamsHint": "Создайте её через меню «Создать» в боковой панели.",
       "manageTeam": "Управлять",
-      "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников."
+      "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников.",
+      "colLeader": "Лидер",
+      "colCreatedBy": "Создатель",
+      "colChannels": "Каналы",
+      "colFramework": "Фреймворк",
+      "colModel": "Модель",
+      "colLastActive": "Последняя активность",
+      "noLeader": "Нет лидера",
+      "teamProfileNoDescription": "Нет описания команды.",
+      "agentProfileNoDescription": "Нет описания.",
+      "memberRuntimeLabel": "Среда выполнения",
+      "memberModelLabel": "Модель",
+      "memberOwnerLabel": "Владелец",
+      "memberPrivate": "Приватный",
+      "memberPublic": "Публичный",
+      "openProfile": "Открыть профиль {{name}}"
     },
     "createUser": {
       "title": "Создать пользователя",
@@ -1315,14 +1292,6 @@
       "enterUserId": "Введите ID пользователя",
       "failed": "Не удалось создать пользователя",
       "connectionFailed": "Сбой подключения. Попробуйте снова."
-    },
-    "setup": {
-      "sectionLabel": "Настройка · Провайдеры LLM",
-      "title": "Настройка провайдеров LLM",
-      "subtitle": "Укажите API-ключи, чтобы NarraNexus мог подключаться к языковым моделям.",
-      "skipForNow": "Пропустить",
-      "getStarted": "Начать",
-      "done": "Готово"
     },
     "settings": {
       "title": "Настройки",
@@ -1458,7 +1427,8 @@
       "addedToTeamResultWithFailures": "Добавлено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
       "removedFromTeamTitle": "Удалены из команды",
       "removedFromTeamMessage": "Из команды удалено агентов: {{count}}.",
-      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
+      "openChat": "Открыть чат"
     },
     "bundleImport": {
       "installTemplate": "Установить шаблон",
@@ -1811,6 +1781,61 @@
     },
     "account": {
       "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."
+    },
+    "agentProfile": {
+      "breadcrumb": "Агенты",
+      "backToChat": "Чат",
+      "overview": "Обзор",
+      "capabilities": "Возможности",
+      "settings": "Настройки",
+      "views": "Виды профиля агента",
+      "chat": "Чат",
+      "running": "Выполняется",
+      "idleStatus": "Простой",
+      "currentTask": "Текущая задача",
+      "idle": "Сейчас не выполняется ни одна задача.",
+      "jobs": "Jobs",
+      "jobsCount": "Jobs: {{count}}",
+      "inbox": "Inbox",
+      "inboxCount": "Диалогов: {{count}}",
+      "overviewCardLabel": "Обзор агента",
+      "jobsNoun": "jobs",
+      "inboxNoun": "диалогов",
+      "jobsRunningFlag": "выполняется",
+      "inboxUnreadFlag": "{{count}} новых",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "подключено: {{count}}",
+      "noSkills": "Skills не установлены",
+      "noMcp": "Нет серверов MCP",
+      "moreCount": "ещё {{count}}",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model и Framework",
+      "modelFrameworkHint": "Фактическая конфигурация выполнения для следующего запуска агента.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Настроить",
+      "general": "Общее",
+      "generalHint": "Управляйте тем, как этот агент отображается в рабочем пространстве.",
+      "avatar": "Аватар",
+      "avatarHint": "Отображается при назначении задач, в активности и в чате.",
+      "name": "Имя",
+      "description": "Описание",
+      "saveGeneral": "Сохранить изменения",
+      "saving": "Сохранение…",
+      "saved": "Сохранено",
+      "saveFailed": "Не удалось сохранить изменения.",
+      "missingAgent": "Агент не выбран",
+      "notFound": "Агент не найден",
+      "activity": "Активность",
+      "activityLast24h": "За последние 24 часа",
+      "activityToday": "Сегодня",
+      "activityAxisStart": "24 ч назад",
+      "activityAxisNow": "сейчас"
     }
   },
   "rail": {
@@ -1874,9 +1899,6 @@
       "cancelled": "Отменена"
     },
     "metrics": {
-      "active": "Активные",
-      "success": "Успешно",
-      "failed": "Неудачи",
       "rate": "Доля"
     },
     "view": {
@@ -1985,17 +2007,6 @@
       "waiting": "Ожидание...",
       "noTimeData": "Нет данных о времени"
     },
-    "distribution": {
-      "title": "Распределение статусов",
-      "total": "всего {{count}}",
-      "legend": {
-        "completed": "{{count}} завершено",
-        "running": "{{count}} выполняется",
-        "active": "{{count}} активно",
-        "paused": "{{count}} приостановлено",
-        "failed": "{{count}} с ошибкой"
-      }
-    },
     "editSchedule": {
       "title": "Изменить время выполнения",
       "hint": "Настройте, когда выполняется эта задача. Изменения вступят в силу при следующем запуске.",
@@ -2015,6 +2026,18 @@
       "modeLabel": "Режим запуска",
       "modeInterval": "Интервал",
       "modeCron": "Выражение cron"
+    },
+    "row": {
+      "every": "Каждые {{interval}}",
+      "daily": "Ежедневно {{time}}",
+      "hourly": "Ежечасно :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Однократно {{time}}",
+      "afterDeps": "Заблокировано: {{n}}",
+      "next": "следующий {{time}}",
+      "elapsed": "выполняется {{duration}}",
+      "failedAt": "ошибка {{time}}",
+      "lastRun": "последний {{time}}"
     }
   },
   "artifacts": {

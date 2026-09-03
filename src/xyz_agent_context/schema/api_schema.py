@@ -99,6 +99,15 @@ class AgentInfo(BaseModel):
     created_at: Optional[str] = None
     is_public: bool = False
     created_by: Optional[str] = None
+    # Effective agent-slot runtime identity. A per-agent override wins over
+    # the owner's user_slots row; resolved in bulk by GET /api/auth/agents so
+    # directory UIs do not need one llm-config request per agent.
+    agent_framework: Optional[str] = None
+    model: Optional[str] = None
+    # Names of credential-backed channels bound to this owned agent. Presence
+    # means bound even when the credential is currently inactive. Public
+    # agents owned by another user always expose an empty list.
+    bound_channels: List[str] = Field(default_factory=list)
     bootstrap_active: bool = False
     # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
     # set by scenario provisioners like Arena onboarding). None → the frontend
@@ -251,12 +260,19 @@ class OnboardingProgress(BaseModel):
     card from oscillating. `dismissed` permanently hides the card.
 
     `provider_configured` is intentionally NOT stored here — it is derived
-    live from the user's provider count by the frontend, because that step
-    is gated by SetupPage before the checklist card is ever shown.
+    live from the user's provider count by the frontend, because the welcome
+    flow decides that step from a live probe, not from stored state.
+
+    `landing_completed` marks the one-time first-run flow (WelcomePage) as
+    seen — reached the end OR skipped, both count. Server-side rather than
+    localStorage so a user who logs in from another browser/machine is not
+    walked through it a second time; existing users are backfilled silently
+    (they have agents/providers already, so there is nothing to onboard).
     """
     first_agent_created: bool = False
     template_applied: bool = False
     dismissed: bool = False
+    landing_completed: bool = False
 
 
 class OnboardingResponse(BaseModel):
@@ -276,6 +292,7 @@ class UpdateOnboardingRequest(BaseModel):
     first_agent_created: Optional[bool] = None
     template_applied: Optional[bool] = None
     dismissed: Optional[bool] = None
+    landing_completed: Optional[bool] = None
 
 
 # ===== Awareness Schemas =====

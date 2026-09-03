@@ -1,6 +1,7 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
 last_verified: 2026-08-31
+stub: false
 ---
 
 ## 2026-08-31 — 历史轮次的抽屉：自己把自己卸载了
@@ -98,6 +99,27 @@ false，chips 要等下次按历史加载时才出现。这是刻意不动的既
 有工具调用的纯回复，fetch 回来只有 meta，漏掉它会让"是否已加载"对这类轮次一
 直为 false。今天无害（`eventLogCacheRef` 会短路重复请求），但这个标志一旦在
 缓存加上过期策略后就开始说谎。
+
+## 2026-08-26 — assistant 回答改纯文本(答案无气泡),从 feat/chat-ui-v4-dev-merge 分支移植
+
+从 `40d353e1`(feat/chat-ui-v4-dev-merge 分支,未并入 dev 主线)移植「answer 无气泡」这一处
+设计改动到 dev。`isPlainAssistant = !isUser && !message.isError`:仅 user 轮保留纸面气泡 +
+`RingAvatar`(carbon 环);assistant 正常回复变成无卡片、无描边、无头像的纯文本块
+(`block w-full`,只留 `color: var(--nm-ink)`)。**推翻**了 2026-08-06「own/AI 气泡都是纸面
++ 3px 描边」的决定 —— 现在只有 own 气泡还保留 `--nm-paper-warm` 填色 + 右侧 carbon 描边;
+AI 侧的 `--nm-paper` 填色 + 左侧 silicon 描边整套退役。
+
+isError 气泡是唯一仍保留卡片处理的 assistant 情形 —— 红色实心卡片是需要用户主动注意的
+标记态,不是普通回复,所以不下放到纯文本。
+
+连带清理:`agentName` prop 整个删除(assistant 侧不再需要头像,`avatarLabel` 也就只剩
+user 分支),**推翻** 2026-05-20 那条「assistant 头像用 agent 名字前两位」的决定 —— 头像
+本体已经不存在了。`RingAvatar` 渲染也从无条件改为 `{isUser && <RingAvatar .../>}`。
+`ChatPanel` 两处 `<MessageBubble agentName={...} />` 随之删除。
+
+只移植了这一处气泡改动,未连带 `40d353e1` 里的 Messenger 侧栏合并 / AgentOverviewCard /
+Provider 创建向导拆分等其余内容(那些是同一个 commit 里打包的独立功能,未经评估不应该
+一起带过来)。
 
 ## 2026-08-24 — user 气泡三态尾标
 

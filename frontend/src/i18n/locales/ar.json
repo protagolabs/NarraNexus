@@ -206,7 +206,6 @@
         "download": "تنزيل {{name}}",
         "loading": "جارٍ التحميل…"
       },
-      "drawerCategory": "غرفة الفريق",
       "manage": {
         "title": "إدارة الفريق",
         "patrol": "جولة القائد",
@@ -288,12 +287,12 @@
       "ops": "عمليات"
     },
     "header": {
-      "sessionLabel": "الجلسة · {{time}}",
       "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
-      "modelFramework": "النموذج وإطار العمل",
-      "switchAgent": "تبديل الوكيل"
+      "viewProfile": "عرض ملف الوكيل"
     },
-    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة."
+    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة.",
+    "activityEmpty": "لا يوجد نشاط في الخلفية بعد",
+    "activityEmptyHint": "عمليات التشغيل التي يبدأها الوكيل بنفسه — المهام والقنوات وزملاء الفريق — تظهر هنا."
   },
   "awareness": {
     "common": {
@@ -622,19 +621,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "قائمة الانتظار",
-      "jobs": "مهام",
-      "totalInQueue": "{{count}} مهمة في قائمة الانتظار"
-    },
-    "jobState": {
-      "running": "قيد التشغيل",
-      "active": "نشطة",
-      "pending": "قيد الانتظار",
-      "blocked": "محظورة",
-      "paused": "متوقفة مؤقتًا",
-      "failed": "فاشلة"
-    },
     "jobStateLabel": {
       "running": "قيد التشغيل",
       "active": "نشطة",
@@ -659,25 +645,6 @@
         "up": "أبطأ من الأمس",
         "down": "أسرع من الأمس",
         "flat": "كما الأمس"
-      }
-    },
-    "jobs": {
-      "title": "المهام ({{count}})",
-      "running": "{{count}} قيد التشغيل",
-      "step": "الخطوة {{current}}/{{total}}",
-      "next": "التالي {{time}}",
-      "action": {
-        "retry": "إعادة المحاولة",
-        "pause": "إيقاف مؤقت",
-        "resume": "استئناف",
-        "failed": "فشل {{label}}"
-      },
-      "detail": {
-        "manual": "(يدوي)",
-        "nextRun": "التشغيل التالي",
-        "iterations": "التكرارات",
-        "trigger": "المُشغِّل",
-        "lastError": "آخر خطأ"
       }
     },
     "sessions": {
@@ -739,10 +706,6 @@
     },
     "agentRowMenu": {
       "options": "خيارات الوكيل",
-      "rename": "إعادة تسمية",
-      "edit": "تعديل…",
-      "setPrivate": "تعيين كخاص",
-      "setPublic": "تعيين كعام",
       "clearData": "مسح البيانات",
       "delete": "حذف"
     },
@@ -1088,8 +1051,7 @@
     "drawer": {
       "unpin": "إلغاء تثبيت اللوحة",
       "pin": "تثبيت اللوحة",
-      "close": "إغلاق اللوحة",
-      "switchPanel": "تبديل اللوحة"
+      "close": "إغلاق اللوحة"
     },
     "coach": {
       "title": "تظهر عناصرك هنا",
@@ -1304,7 +1266,22 @@
       "noTeamsLabel": "لا توجد فرق بعد",
       "noTeamsHint": "أنشئ فريقًا من قائمة جديد في الشريط الجانبي.",
       "manageTeam": "إدارة",
-      "teamsTip": "أنشئ الفرق من قائمة جديد؛ هنا يمكنك إعادة التسمية وتغيير اللون وتحرير الأعضاء."
+      "teamsTip": "أنشئ الفرق من قائمة جديد؛ هنا يمكنك إعادة التسمية وتغيير اللون وتحرير الأعضاء.",
+      "colLeader": "القائد",
+      "colCreatedBy": "أنشأه",
+      "colChannels": "القنوات",
+      "colFramework": "الإطار",
+      "colModel": "النموذج",
+      "colLastActive": "آخر نشاط",
+      "noLeader": "لا يوجد قائد",
+      "teamProfileNoDescription": "لا يوجد وصف للفريق.",
+      "agentProfileNoDescription": "لا يوجد وصف.",
+      "memberRuntimeLabel": "بيئة التشغيل",
+      "memberModelLabel": "النموذج",
+      "memberOwnerLabel": "المالك",
+      "memberPrivate": "خاص",
+      "memberPublic": "عام",
+      "openProfile": "فتح ملف {{name}}"
     },
     "createUser": {
       "title": "إنشاء مستخدم جديد",
@@ -1319,14 +1296,6 @@
       "enterUserId": "يُرجى إدخال معرّف المستخدم",
       "failed": "فشل إنشاء المستخدم",
       "connectionFailed": "فشل الاتصال. يُرجى المحاولة مجددًا."
-    },
-    "setup": {
-      "sectionLabel": "الإعداد · ضبط مزوّدي نماذج اللغة",
-      "title": "ضبط مزوّدي نماذج اللغة",
-      "subtitle": "أعدّ مفاتيح API لكي يتمكن NarraNexus من الاتصال بنماذج اللغة.",
-      "skipForNow": "تخطٍ الآن",
-      "getStarted": "ابدأ الآن",
-      "done": "تم"
     },
     "settings": {
       "title": "الإعدادات",
@@ -1462,7 +1431,8 @@
       "addedToTeamResultWithFailures": "تمت إضافة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
       "removedFromTeamTitle": "تمت الإزالة من الفريق",
       "removedFromTeamMessage": "تمت إزالة {{count}} من الوكلاء من الفريق.",
-      "removedFromTeamResultWithFailures": "تمت إزالة {{success}}، وفشل {{failedCount}} ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "تمت إزالة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
+      "openChat": "فتح المحادثة"
     },
     "bundleImport": {
       "installTemplate": "تثبيت قالب",
@@ -1815,6 +1785,61 @@
     },
     "account": {
       "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."
+    },
+    "agentProfile": {
+      "breadcrumb": "الوكلاء",
+      "backToChat": "المحادثة",
+      "overview": "نظرة عامة",
+      "capabilities": "القدرات",
+      "settings": "الإعدادات",
+      "views": "طرق عرض ملف الوكيل",
+      "chat": "محادثة",
+      "running": "قيد التشغيل",
+      "idleStatus": "خامل",
+      "currentTask": "المهمة الحالية",
+      "idle": "لا توجد مهمة قيد التشغيل حاليًا.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} مهمة",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} محادثة",
+      "overviewCardLabel": "نظرة عامة على الوكيل",
+      "jobsNoun": "مهمة",
+      "inboxNoun": "محادثة",
+      "jobsRunningFlag": "قيد التشغيل",
+      "inboxUnreadFlag": "{{count}} جديدة",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} متصل",
+      "noSkills": "لا توجد مهارات مثبتة",
+      "noMcp": "لا توجد خوادم MCP",
+      "moreCount": "+{{count}} أخرى",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model و Framework",
+      "modelFrameworkHint": "إعدادات التشغيل الفعلية المستخدمة في التشغيل التالي للوكيل.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "تهيئة",
+      "general": "عام",
+      "generalHint": "تحكّم في طريقة عرض هذا الوكيل داخل مساحة العمل.",
+      "avatar": "الصورة الرمزية",
+      "avatarHint": "تظهر عند إسناد المهام وفي النشاط والمحادثة.",
+      "name": "الاسم",
+      "description": "الوصف",
+      "saveGeneral": "حفظ التغييرات",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ",
+      "saveFailed": "تعذّر حفظ التغييرات.",
+      "missingAgent": "لم يتم اختيار وكيل",
+      "notFound": "لم يتم العثور على الوكيل",
+      "activity": "النشاط",
+      "activityLast24h": "آخر 24 ساعة",
+      "activityToday": "اليوم",
+      "activityAxisStart": "قبل 24 ساعة",
+      "activityAxisNow": "الآن"
     }
   },
   "rail": {
@@ -1878,9 +1903,6 @@
       "cancelled": "ملغاة"
     },
     "metrics": {
-      "active": "نشطة",
-      "success": "ناجحة",
-      "failed": "فاشلة",
       "rate": "المعدل"
     },
     "view": {
@@ -1989,17 +2011,6 @@
       "waiting": "في الانتظار...",
       "noTimeData": "لا توجد بيانات زمنية"
     },
-    "distribution": {
-      "title": "توزيع الحالات",
-      "total": "{{count}} الإجمالي",
-      "legend": {
-        "completed": "{{count}} مكتملة",
-        "running": "{{count}} قيد التشغيل",
-        "active": "{{count}} نشطة",
-        "paused": "{{count}} متوقفة مؤقتًا",
-        "failed": "{{count}} فاشلة"
-      }
-    },
     "editSchedule": {
       "title": "تعديل وقت التنفيذ",
       "hint": "اضبط موعد تشغيل هذه المهمة. تُطبَّق التغييرات عند التشغيل التالي.",
@@ -2019,6 +2030,18 @@
       "modeLabel": "وضع التشغيل",
       "modeInterval": "الفاصل",
       "modeCron": "تعبير cron"
+    },
+    "row": {
+      "every": "كل {{interval}}",
+      "daily": "يوميًا {{time}}",
+      "hourly": "كل ساعة :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "مرة واحدة {{time}}",
+      "afterDeps": "محجوب بـ {{n}}",
+      "next": "التالي {{time}}",
+      "elapsed": "منقضي {{duration}}",
+      "failedAt": "فشل {{time}}",
+      "lastRun": "الأخير {{time}}"
     }
   },
   "artifacts": {

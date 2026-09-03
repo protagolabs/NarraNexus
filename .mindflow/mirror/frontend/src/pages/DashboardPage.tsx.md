@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/DashboardPage.tsx
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 stub: false
 ---
 
@@ -18,6 +18,105 @@ stub: false
 roster agent id 集合的**值 key**（`rosterIdsKey`），这样新建/删除 agent 会触发
 一次重拉给新 agent 上 chip，但不会随轮询 tick 变成请求风暴（别把 agents 数组
 本身放进依赖）。
+
+## 2026-08-27 (3) — 行内展开详情整块移除,整行变成 Profile 链接
+
+Owner 说的「下拉」指的是**行展开出来的那块运行详情**(不是任何 `<select>`)。
+现在整块删掉,行回到 chat-ui-v4 分支的形态:**整行就是一个链接**
+(`role="link"` + `tabIndex` + Enter/Space 键盘路径 → `openProfile()`),没有第二种
+手势,所以上一节那个「身份块 vs 行」的 `stopPropagation` 分工也随之取消——身份块
+退回普通 `<span>`。勾选格、Teams/Channels 格、Chat 按钮仍各自 `stopPropagation`。
+
+连带清掉:`expanded` Set、`toggleExpand`、`ChevronRight`、`isOpen`/`owned` 两个
+行内局部量,以及只有这块用到的七个 import(`AttentionBanners` / `SessionSection` /
+`JobsSection` / `QueueBar` / `Sparkline` / `RecentFeed` / `MetricsRow`)。
+
+**这七个组件当时全仓库没有调用方了**(`expandState.ts` 和 `senderIdentity.ts` 里
+只是注释提到名字,不是 import)。刻意没删——它们表达的信息在 [[AgentProfilePage]]
+上没有对应位置,是把那部分信息搬进 Profile 时的现成材料。
+
+> **同日已落地(见 [[AgentProfilePage]] 2026-08-27 (3))**:`AttentionBanners` 置顶,
+> `Sparkline` / `MetricsRow` / `SessionSection` / `RecentFeed` 收进新的
+> [[../components/agents/AgentActivityCard.tsx]]。**仍然没有调用方的只剩
+> `QueueBar` 和 `JobsSection`**:前者的位置被 [[../components/jobs/JobStatusMeter.tsx]]
+> 占了(同款比例条 + 计数图例,塞第二个就是重复),后者的内容 JobsPanel 本来就覆盖。
+> **这两个已于同日删除**(Owner 拍板),连同 `dashboard.jobState` /
+> `dashboard.queue` / `dashboard.jobs` 三棵已无调用方的 i18n 子树。
+> `lib/api.ts` 的 `retryJob` / `getJobDetail` **保留**——它们对应的后端端点仍然
+> 存在(见 [[../../../../backend/routes/dashboard/routes.py]] 的端点清单),
+> 客户端缺一个方法比留一个未调用的方法更糟。
+
+`pages.dashboard.noStatusYet` 同样失去调用方,留在 locales 里没删。
+
+## 2026-08-27 (2) — 两张表统一成无边框目录
+
+**表格 chrome 换成 chat-ui-v4 那套无边框目录**:外层不再是
+`rounded + border + overflow-hidden` 的卡片,表头不再是 `font-mono` + 下边框,行
+之间不再有 hairline 分隔线。改成表头 `font-medium` 小字压在 `--nm-paper` 上、行
+`px-4 py-3` 靠 `hover:bg-[var(--nm-row-hover)]` 区分,整表 `font-sans`(agent_id
+子行也不再 `font-mono`)。展开详情的左缩进从 `pl-[60px]` 跟到 `pl-[68px]`,对齐新的
+`px-4` 行内距。
+
+**团队表也一起改了**,虽然来源 commit 里它仍是带边框的老样式——那更像是没顾上,
+不是决定。同一页两张表用两套表格语言在设计系统层面说不通(见
+`design_system.md` §2.5 surface ladder)。要严格照搬来源分支的话,把团队表那两处
+类名改回 `rounded/border/font-mono/border-b` 即可。
+
+## 2026-08-27 — 两张表都换成「身份 + 运行时」目录(从 chat-ui-v4 择要迁入)
+
+来源是 `feat/chat-ui-v4-dev-merge` 的 `40d353e1`。那个 commit 把整页重写成了
+无左栏的 directory,本次**只取两张表的信息密度,不取它的 IA**:左栏三标签、KPI 四格、
+团队筛选、勾选列、批量操作条、行内展开详情**全部保留**(Owner 2026-08-27 拍板)。
+来源那边把批量管理挪去了别处,直接照搬等于删掉本页当前唯一的批量入口。
+
+**智能体表 10 列**:勾选 / 身份(头像+名称+ID,公开且非己有时带 Globe) / 状态 /
+Teams / Channels / Framework / Model / Last active / 来源 / Chat。
+
+- Teams 列从彩色文字 chip 换成 [[../components/agents/AgentTeamAvatars.tsx]] 的
+  重叠头像 + hover 简介卡。**代价:团队颜色不再出现在本页**——`GroupAvatar` 不接
+  color。颜色仍可在 `TeamManagementModal` 里看到和改。这是取舍不是遗漏。
+- Channels / Framework / Model 三列的数据来自 `AgentInfo` 的三个新字段,由
+  [[../../../../backend/routes/auth.py]] 批量投影。**没有后端那两段富化,这三列
+  永远是 `—`**。品牌图标见 [[../components/icons/ChannelBrandIcons.tsx]] /
+  [[../components/icons/ModelBrandIcons.tsx]];OpenAI 的黑标在暗色下要 `dark:invert`。
+- 容器 `max-w` 从 960 放到 **1180**:10 列挤在 960 里第一个被截断的是 model id,
+  而那恰好是用户扫这张表时要看的东西。
+
+**团队表 6 列**:Team(`GroupAvatar` + 行内改名) / Leader / Members / Created by /
+来源 / 操作。操作列是 Chat + **保留的「管理」按钮** + `TeamRowMenu` 三者并存——
+来源 commit 用 `TeamRowMenu` 顶掉了「管理」,但本仓库里 `TeamManagementModal` 是
+改成员/改颜色的唯一入口,顶掉就没了。
+`Created by` 取 `tm.team.owner_user_id` 而不是当前用户:来源 commit 硬编码了
+`displayName || userId`,今天 teams 列表确实只含自己的团队所以看不出问题,但共享
+团队一出现它就会说谎。
+
+`AGENT_GRID` / `TEAM_GRID` 是模块级常量,表头、数据行、只读公开行共用同一份轨道
+定义——10 列的 track list 抄三遍正是表格悄悄错位的经典成因。
+
+**公开 agent 行的 Teams/Channels/Framework/Model 一律留空**,不是没做:那是别人的
+私有配置,后端根本不会投影过来。
+
+## 2026-08-27 — 身份块变成 Profile 的门,行展开原样保留
+
+> **已被同日 (3) 推翻**:行展开整块删掉了,现在整行就是链接。下面这节保留是为了
+> 记录中间态和当时的理由——尤其是「展开里的 sparkline / recent events 在 profile
+> 页没有对应位置」这条判断,它今天依然成立,只是 Owner 选择接受这个信息缺口。
+
+智能体行现在有两个手势,**刻意分工**:
+
+- 点头像+名字这一块 → `navigate('/app/agents/<id>',
+  { state: { from: 'dashboard' } })`,进 [[AgentProfilePage]];
+- 点行内其它任何位置 → 仍旧是 `toggleExpand`,展开那块行内详情
+  (verb_line / QueueBar / sessions / jobs / sparkline / recent events)。
+
+两者靠身份块 `onClick` 里的 `stopPropagation` 分开。**没有**照搬
+chat-ui-v4 分支「整行即链接、行展开取消」的做法:那块展开详情里的
+sparkline 和 recent events 在 profile 页没有对应位置,直接换掉是净丢
+信息(Owner 2026-08-27 拍板保留展开)。
+
+无障碍:身份块是真 `<button>`,带 `pages.dashboard.openProfile`
+的 title/aria-label(10 语言全补),因此键盘可达,不需要给外层
+`div` 硬套 `role="link"`。
 
 ## 2026-08-20 — 顶部 Agents/Teams 切换 → 左侧三标签(和设置一致)
 

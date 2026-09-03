@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/team/TeamWorkspacePanel.tsx
-last_verified: 2026-08-19
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 「一个面板两个 tab」的入口回到 member bar
+
+组件本身零改动(仍是受控 `tab: 'artifacts'|'files'` + 列表/查看器)。变的是
+上游:抽屉标题下拉退役后([[../../bookmarks/BookmarkDrawer]]),两个 tab 各自
+由 member bar 的 `artifacts-toggle` / `files-toggle` 打开。§5.2 的「一个工作台
+两种模式」没有回退成两个面板——两种模式共用同一套列表+查看器布局,预览区
+与当前 tab 无关(芯片选中不切 tab,见 2026-08-07 条目),这一点正是它仍然是
+**一个**面板的原因。文件头注释同步(不再写「壳含标题切换」)。
 
 ## 2026-08-19(二)— 列表让位查看器
 

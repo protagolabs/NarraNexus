@@ -50,6 +50,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-14 * ONE_DAY),
     is_public: false,
     created_by: MOCK_USER_ID,
+    bound_channels: ['lark', 'slack'],
     bootstrap_active: false,
   },
   {
@@ -60,6 +61,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-7 * ONE_DAY),
     is_public: true,
     created_by: MOCK_USER_ID,
+    bound_channels: ['telegram'],
     bootstrap_active: false,
   },
   {
@@ -70,6 +72,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-30 * ONE_DAY),
     is_public: false,
     created_by: 'ops.team',
+    bound_channels: [],
     bootstrap_active: false,
   },
 ];
@@ -753,7 +756,7 @@ const ownedAtlas: OwnedAgentStatus = {
     active_narratives: 2,
     unread_bus_messages: 4,
   },
-  queue: { running: 1, active: 1, pending: 2, blocked: 1, paused: 1, failed: 1, total: 7 },
+  queue: { running: 1, active: 1, pending: 2, blocked: 1, paused: 1, failed: 1, cooling: 0, paused_no_quota: 0, blocked_failed: 0, total: 7 },
   recent_events: [
     { event_id: 'evt_001', kind: 'running', verb: 'summarising', target: 'Chen et al. 2026', created_at: iso(-2 * ONE_MIN) },
     { event_id: 'evt_002', kind: 'completed', verb: 'fetched', target: '12 papers', duration_ms: 3800, created_at: iso(-10 * ONE_MIN) },
@@ -793,7 +796,7 @@ const ownedScribe: OwnedAgentStatus = {
   running_jobs: [],
   pending_jobs: [],
   enhanced: { recent_errors_1h: 0, token_rate_1h: null, active_narratives: 1, unread_bus_messages: 1 },
-  queue: { running: 0, active: 0, pending: 0, blocked: 0, paused: 0, failed: 0, total: 0 },
+  queue: { running: 0, active: 0, pending: 0, blocked: 0, paused: 0, failed: 0, cooling: 0, paused_no_quota: 0, blocked_failed: 0, total: 0 },
   recent_events: [
     { event_id: 'evt_s01', kind: 'chat', verb: 'replied', target: 'dana.kim', duration_ms: 800, created_at: iso(-2 * ONE_HOUR) },
   ],
@@ -821,7 +824,7 @@ const ownedSentry: OwnedAgentStatus = {
   ],
   pending_jobs: [],
   enhanced: { recent_errors_1h: 2, token_rate_1h: 820, active_narratives: 1, unread_bus_messages: 3 },
-  queue: { running: 1, active: 0, pending: 0, blocked: 0, paused: 0, failed: 1, total: 2 },
+  queue: { running: 1, active: 0, pending: 0, blocked: 0, paused: 0, failed: 1, cooling: 0, paused_no_quota: 0, blocked_failed: 0, total: 2 },
   recent_events: [
     { event_id: 'evt_x01', kind: 'failed', verb: 'build failed', target: 'main#4821', duration_ms: 185000, created_at: iso(-2 * ONE_MIN) },
   ],

@@ -29,6 +29,18 @@ size_hint/busy）镜像后端 `backend/integrations/plugins` 的插件状态；
 `AgentModelOverview`（per-agent 每槽 effective model + inheriting，喂 Dashboard
 chip），经 `@/types` barrel 暴露给 `lib/api.ts`。
 
+## 2026-08-27 — `AgentInfo` 三个新字段 + `QueueCounts` 补三个状态
+
+- `AgentInfo` 加 `agent_framework?` / `model?` / **`bound_channels: string[]`**。
+  最后一个**故意是必填**:Dashboard 之外还有 mock fixtures 和
+  [[../hooks/useCreateAgent.ts]] 的乐观插入在手工构造 `AgentInfo`,设成可选的话
+  这些地方会静默漏字段、目录里整列显示 `—` 而没人发现。必填让 `tsc` 当场点名。
+  语义见 [[../../../src/xyz_agent_context/schema/api_schema.py]]。
+- `QueueCounts` 加 `cooling` / `paused_no_quota` / `blocked_failed`。后端算 `total`
+  时一直包含这三项,这里缺字段就意味着**分项之和永远对不上 total**。
+
+本文件是 Pydantic 类型的手工复刻,没有生成器也没有契约测试(见下方既有 Gotcha)。
+后端改了这两个模型,这里不改的话 `tsc` 不会红——TS 对多出来的运行时字段是宽容的。
 ## 2026-08-19 — `UpdateAgentResponse` 补两个可选字段
 
 `name_clash_with?: string | null` 与 `identity_record_updated?: boolean | null`,
@@ -208,3 +220,8 @@ last_run_timezone?: string;
 `job_schema.TriggerConfig.end_at`）；`NetmindLoginResponse`/`CreateUserResponse`
 增 `guide_agent_provisioning?: boolean`（服务端 kill-switch 回显，见
 api.ts.md 的 coachmark 门控段）。
+
+## 2026-08-27
+
+`OnboardingProgress.landing_completed` mirrors the backend field the first-run
+flow writes (see `api_schema.py`).

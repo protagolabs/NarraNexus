@@ -392,6 +392,20 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  /**
+   * Effective agent-slot runtime identity, resolved server-side: a per-agent
+   * override wins over the owner's default. Present so the Dashboard's agent
+   * directory can show Framework / Model per row without one /llm-config
+   * request per agent.
+   */
+  agent_framework?: string;
+  model?: string;
+  /**
+   * Names of credential-backed channels bound to this agent. Always [] for a
+   * public agent owned by someone else — another user's integrations are not
+   * the viewer's business.
+   */
+  bound_channels: string[];
   bootstrap_active?: boolean;
   /** Per-agent first-run greeting (Arena etc.); falls back to the generic
    *  constant when absent. Must match the DB-persisted greeting so the
@@ -484,6 +498,9 @@ export interface OnboardingProgress {
   first_agent_created: boolean;
   template_applied: boolean;
   dismissed: boolean;
+  /** The one-time first-run flow (WelcomePage) has been seen — finished OR
+   *  skipped. Server-side so another browser/machine doesn't replay it. */
+  landing_completed: boolean;
 }
 
 export interface OnboardingResponse extends ApiResponse {
@@ -756,6 +773,9 @@ export interface QueueCounts {
   blocked: number;
   paused: number;
   failed: number;
+  cooling: number;
+  paused_no_quota: number;
+  blocked_failed: number;
   total: number;
 }
 

@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { CornerDownLeft, FileText, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
+import { CornerDownLeft, FileText, FolderOpen, HelpCircle, Image as ImageIcon, Loader2, Mic, Plus, Settings2, Users2, X } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { Button, Textarea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
@@ -26,7 +26,7 @@ import { AudioRecorder } from '../AudioRecorder';
 import { VoiceTranscript } from '../VoiceTranscript';
 import { GuideRuleCards, TeamRoomHero } from './TeamRoomHero';
 import { TeamRosterPanel } from './TeamRosterPanel';
-import { teamDrawerCategories, teamTabLabelKey, type TeamTabId } from './teamTabs';
+import { teamTabLabelKey, type TeamTabId } from './teamTabs';
 import { BookmarkDrawer } from '@/components/bookmarks/BookmarkDrawer';
 import { ResizableDivider } from '@/components/layout/ResizableDivider';
 import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
@@ -971,6 +971,28 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           )}
         </button>
 
+        {/* Shared files — its own entry, because the drawer title is plain text
+            now and this panel has no other way in. A file the team shared is
+            invisible unless something advertises it, so the count rides here. */}
+        <button
+          type="button"
+          onClick={() => toggleDrawerTab('files')}
+          aria-pressed={drawerTab === 'files'}
+          data-testid="files-toggle"
+          title={t('chat.team.workspace.tabFiles')}
+          aria-label={t('chat.team.workspace.tabFiles')}
+          className={cn(
+            'shrink-0 flex h-7 items-center gap-1 rounded-[var(--radius-xs)] px-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]',
+            drawerTab === 'files' && 'bg-[var(--nm-paper-warm)] text-[var(--color-carbon)]',
+          )}
+        >
+          <FolderOpen className="w-3.5 h-3.5" />
+          <span className="text-[11px]">{t('chat.team.workspace.tabFiles')}</span>
+          {wsFiles.length > 0 && (
+            <span className="text-[10px] font-mono">{wsFiles.length}</span>
+          )}
+        </button>
+
         {/* Team management — bulletin, lead, patrol, members, clear, delete —
             as a drawer tab like the others. It replaces the settings gear
             (which led to a page with none of those controls) and the bulletin
@@ -1348,9 +1370,6 @@ export function TeamChatPanel({ teamId }: TeamChatPanelProps) {
           onPinnedChange={setDrawerPinned}
           onClose={() => setDrawerTab(null)}
           title={drawerTab ? t(teamTabLabelKey(drawerTab)) : ''}
-          activeTab={drawerTab}
-          onSelectTab={(id) => setDrawerTab(id)}
-          switcherCategories={teamDrawerCategories({ members: members.length, artifacts: wsArtifacts.length, files: wsFiles.length })}
           edgeReservePx={0}
           pinnedWidth={drawerWidth}
           inset={!isMobile}

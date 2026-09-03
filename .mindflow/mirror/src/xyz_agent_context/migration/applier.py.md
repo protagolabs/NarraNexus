@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/migration/applier.py
 stub: false
-last_verified: 2026-08-17
+last_verified: 2026-09-03
 ---
 
 ## 2026-08-17 — 默认串在归一之后判
@@ -100,3 +100,17 @@ counts.
   helper task (see `providers.resolver.inject_owner_helper_credentials`). Verified
   live: with it, the summary uses the user's anthropic helper (real keywords);
   without it, 401 → fallback.
+
+## 2026-09-03 — hurried imports
+
+`apply_plan` takes an optional `import_id` and re-reads [[hurry]] **before every
+session**: once the user has pressed stop, the remaining sessions take
+`_fallback_summary` (title + raw transcript) instead of a helper-LLM call. The
+loop, not the request boundary, is where this has to happen — sessions are
+summarized serially, one model call each, so "finish the current project" was an
+unbounded wait (Owner objection 2026-09-03). Nothing is skipped and nothing is
+aborted: every session still becomes a Narrative, and `summaries_degraded` counts
+the plain ones so the UI can state the trade instead of hiding it.
+
+The deterministic fallback is not new — it already covered LLM failure and empty
+sources; this change just makes it reachable on purpose.

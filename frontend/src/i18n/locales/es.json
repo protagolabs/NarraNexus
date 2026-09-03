@@ -202,7 +202,6 @@
         "download": "Descargar {{name}}",
         "loading": "Cargando…"
       },
-      "drawerCategory": "Sala del equipo",
       "manage": {
         "title": "Gestionar equipo",
         "patrol": "Revisión del líder",
@@ -284,12 +283,12 @@
       "ops": "ops"
     },
     "header": {
-      "sessionLabel": "sesión · {{time}}",
       "detailMenuTitle": "Detalle del agente — paneles",
-      "modelFramework": "Modelo y framework",
-      "switchAgent": "Cambiar de agente"
+      "viewProfile": "Ver perfil del agente"
     },
-    "composerPrivacyHint": "Evita compartir información personal sensible."
+    "composerPrivacyHint": "Evita compartir información personal sensible.",
+    "activityEmpty": "Todavía no hay actividad en segundo plano",
+    "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí."
   },
   "awareness": {
     "common": {
@@ -618,19 +617,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Cola",
-      "jobs": "trabajos",
-      "totalInQueue": "{{count}} trabajos en cola"
-    },
-    "jobState": {
-      "running": "en ejecución",
-      "active": "activo",
-      "pending": "pendiente",
-      "blocked": "bloqueado",
-      "paused": "pausado",
-      "failed": "fallido"
-    },
     "jobStateLabel": {
       "running": "en ejecución",
       "active": "activo",
@@ -655,25 +641,6 @@
         "up": "más lento que ayer",
         "down": "más rápido que ayer",
         "flat": "igual que ayer"
-      }
-    },
-    "jobs": {
-      "title": "Trabajos ({{count}})",
-      "running": "{{count}} en ejecución",
-      "step": "paso {{current}}/{{total}}",
-      "next": "siguiente {{time}}",
-      "action": {
-        "retry": "Reintentar",
-        "pause": "Pausar",
-        "resume": "Reanudar",
-        "failed": "{{label}} falló"
-      },
-      "detail": {
-        "manual": "(manual)",
-        "nextRun": "Próxima ejecución",
-        "iterations": "Iteraciones",
-        "trigger": "Disparador",
-        "lastError": "Último error"
       }
     },
     "sessions": {
@@ -735,10 +702,6 @@
     },
     "agentRowMenu": {
       "options": "Opciones del agente",
-      "rename": "Renombrar",
-      "edit": "Editar…",
-      "setPrivate": "Hacer privado",
-      "setPublic": "Hacer público",
       "clearData": "Limpiar datos",
       "delete": "Eliminar"
     },
@@ -1080,8 +1043,7 @@
     "drawer": {
       "unpin": "Desanclar panel",
       "pin": "Anclar panel",
-      "close": "Cerrar panel",
-      "switchPanel": "Cambiar panel"
+      "close": "Cerrar panel"
     },
     "coach": {
       "title": "Tus artefactos aparecen aquí",
@@ -1296,7 +1258,22 @@
       "noTeamsLabel": "Aún no hay equipos",
       "noTeamsHint": "Crea uno desde el menú Nuevo de la barra lateral.",
       "manageTeam": "Gestionar",
-      "teamsTip": "Crea equipos desde el menú Nuevo; renombra, cambia el color y edita miembros aquí."
+      "teamsTip": "Crea equipos desde el menú Nuevo; renombra, cambia el color y edita miembros aquí.",
+      "colLeader": "Líder",
+      "colCreatedBy": "Creado por",
+      "colChannels": "Canales",
+      "colFramework": "Framework",
+      "colModel": "Modelo",
+      "colLastActive": "Última actividad",
+      "noLeader": "Sin líder",
+      "teamProfileNoDescription": "Sin descripción del equipo.",
+      "agentProfileNoDescription": "Sin descripción.",
+      "memberRuntimeLabel": "Runtime",
+      "memberModelLabel": "Modelo",
+      "memberOwnerLabel": "Propietario",
+      "memberPrivate": "Privado",
+      "memberPublic": "Público",
+      "openProfile": "Abrir el perfil de {{name}}"
     },
     "createUser": {
       "title": "Crear nuevo usuario",
@@ -1311,14 +1288,6 @@
       "enterUserId": "Introduce un ID de usuario",
       "failed": "No se pudo crear el usuario",
       "connectionFailed": "Error de conexión. Inténtalo de nuevo."
-    },
-    "setup": {
-      "sectionLabel": "Configuración · Configurar proveedores de LLM",
-      "title": "Configurar proveedores de LLM",
-      "subtitle": "Configura tus claves de API para que NarraNexus pueda conectarse a los modelos de lenguaje.",
-      "skipForNow": "Omitir por ahora",
-      "getStarted": "Comenzar",
-      "done": "Listo"
     },
     "settings": {
       "title": "Ajustes",
@@ -1454,7 +1423,8 @@
       "addedToTeamResultWithFailures": "{{success}} añadidos, {{failedCount}} fallidos ({{failedIds}}).",
       "removedFromTeamTitle": "Eliminados del equipo",
       "removedFromTeamMessage": "Se eliminaron {{count}} agentes del equipo.",
-      "removedFromTeamResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}})."
+      "removedFromTeamResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}}).",
+      "openChat": "Abrir chat"
     },
     "bundleImport": {
       "installTemplate": "Instalar plantilla",
@@ -1807,6 +1777,61 @@
     },
     "account": {
       "powerOnlyHint": "Cuenta, facturación y suscripción son funciones de la cuenta NetMind — inicia sesión con una cuenta NetMind para verlas aquí."
+    },
+    "agentProfile": {
+      "breadcrumb": "Agentes",
+      "backToChat": "Chat",
+      "overview": "Resumen",
+      "capabilities": "Capacidades",
+      "settings": "Ajustes",
+      "views": "Vistas del perfil del agente",
+      "chat": "Chat",
+      "running": "En ejecución",
+      "idleStatus": "Inactivo",
+      "currentTask": "Tarea actual",
+      "idle": "No hay ninguna tarea en ejecución.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} jobs",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} conversaciones",
+      "overviewCardLabel": "Resumen del agente",
+      "jobsNoun": "jobs",
+      "inboxNoun": "conversaciones",
+      "jobsRunningFlag": "en ejecución",
+      "inboxUnreadFlag": "{{count}} nuevos",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} conectados",
+      "noSkills": "No hay skills instalados",
+      "noMcp": "No hay servidores MCP",
+      "moreCount": "+{{count}} más",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model & Framework",
+      "modelFrameworkHint": "La configuración de ejecución efectiva para la próxima ejecución del agente.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Configurar",
+      "general": "General",
+      "generalHint": "Gestiona cómo se presenta este agente en el espacio de trabajo.",
+      "avatar": "Avatar",
+      "avatarHint": "Se muestra en la asignación de tareas, la actividad y el chat.",
+      "name": "Nombre",
+      "description": "Descripción",
+      "saveGeneral": "Guardar cambios",
+      "saving": "Guardando…",
+      "saved": "Guardado",
+      "saveFailed": "No se pudieron guardar los cambios.",
+      "missingAgent": "No se ha seleccionado ningún agente",
+      "notFound": "Agente no encontrado",
+      "activity": "Actividad",
+      "activityLast24h": "Últimas 24 horas",
+      "activityToday": "Hoy",
+      "activityAxisStart": "hace 24 h",
+      "activityAxisNow": "ahora"
     }
   },
   "rail": {
@@ -1870,9 +1895,6 @@
       "cancelled": "Cancelado"
     },
     "metrics": {
-      "active": "Activos",
-      "success": "Éxitos",
-      "failed": "Fallidos",
       "rate": "Tasa"
     },
     "view": {
@@ -1981,17 +2003,6 @@
       "waiting": "Esperando...",
       "noTimeData": "Sin datos de tiempo"
     },
-    "distribution": {
-      "title": "Distribución de estados",
-      "total": "{{count}} en total",
-      "legend": {
-        "completed": "{{count}} completados",
-        "running": "{{count}} en ejecución",
-        "active": "{{count}} activos",
-        "paused": "{{count}} pausados",
-        "failed": "{{count}} fallidos"
-      }
-    },
     "editSchedule": {
       "title": "Editar hora de ejecución",
       "hint": "Ajusta cuándo se ejecuta esta tarea. Los cambios se aplican en la próxima ejecución.",
@@ -2011,6 +2022,18 @@
       "modeLabel": "Modo de activación",
       "modeInterval": "Intervalo",
       "modeCron": "Expresión cron"
+    },
+    "row": {
+      "every": "Cada {{interval}}",
+      "daily": "Diario {{time}}",
+      "hourly": "Cada hora :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Única vez {{time}}",
+      "afterDeps": "Bloqueado por {{n}}",
+      "next": "próxima {{time}}",
+      "elapsed": "en curso {{duration}}",
+      "failedAt": "falló {{time}}",
+      "lastRun": "última {{time}}"
     }
   },
   "artifacts": {

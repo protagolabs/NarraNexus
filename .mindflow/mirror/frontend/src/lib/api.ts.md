@@ -374,7 +374,7 @@ Every panel and store needs to talk to the backend. Without a centralized HTTP c
 
 Imports `getApiBaseUrl` from `stores/runtimeStore` — the single source of truth for base URL across the app. `getApiBaseUrl` is re-exported from `api.ts` as `getBaseUrl` for backward compatibility (some older call sites use `getBaseUrl`).
 
-Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`SetupPage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
+Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`WelcomePage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
 
 ## Design decisions
 
@@ -459,3 +459,10 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 ## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
 
 `frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。
+
+## 2026-08-27 — onboarding read + landing flag
+
+`getOnboarding()` was added (the GET had no frontend caller for a while) because
+[[App]]'s root redirect needs `landing_completed` to decide whether a user still
+owes the first-run flow. `markOnboardingStep` accepts `'landing_completed'`,
+which [[WelcomePage]] writes on every exit — finish, skip, or nothing-to-do.

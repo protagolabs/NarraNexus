@@ -297,6 +297,33 @@ mono 小标签的固定语法:大写 + `tracking-[0.10em]`~`[0.22em]` 宽字距
 - `fill` 属性只允许 `none`/`transparent`/`currentColor`;`stroke-width`
   用 lucide 默认(2),小于 12px 的场景可降到 1.5,不出现第三种值。
 
+### 5.1 唯一例外:第三方产品身份用真 mark
+
+(2026-08-27 Owner 定案。此前 `ChannelBrandIcons` / `ModelBrandIcons` 已经先破了
+§5,这里把边界写清楚,而不是留一条谁都在违反的禁令。)
+
+**允许**:当 UI 要指认一个**第三方产品**(某个 LLM 厂商、某个 IM 渠道、某个
+可导入的 agent 工具)时,用它自己的品牌 mark,而不是灰色线性剪影——一列 29 行
+全是同一个机器人图标,用户读到的是噪音;换成各自的 mark 才读得出"这些是我的
+工具"。落地文件只有三个:`components/icons/{Model,Channel,Framework}BrandIcons.tsx`。
+
+**仍然禁止**:UI 语义图标(关闭、展开、警告、状态…)一律 lucide;不得为了
+"好看"给自家功能造 mark;不得引入第三方图标库当通用图标集。
+
+规则:
+
+1. **只用厂商自己的资产**,不自造、不改色重画。优先 Simple Icons(CC0)的
+   path data + 品牌自己的 hex;没有收录的从其官网/官方仓库取。
+2. **一律 vendored,不连运行时 CDN**。DMG 必须离线可用(铁律 #7);远程
+   `<img>` 等于把"用户装了哪些工具"漏给第三方;对方换图我们的 UI 会静默变样。
+   raster 资产放 `public/{channel,framework}-logos/`。
+3. **深色可见性**:写死 `#000000` 的黑色 mark 在暗色纸上等于隐形(OpenAI mark
+   就是这个情况),必须换成 `var(--nm-ink)` 之类的主题变量。
+4. **没有可用 glyph 时用字母牌**:品牌色底 + 该品牌 wordmark 的首字母
+   (Hermes 就是这样)。这是"诚实的占位",不是伪造 logo;等厂商出 glyph 直接替。
+5. 尺寸仍走 §5 的三档;raster mark 加 1px 发丝线描边 + 1px 内边距,避免深色
+   圆章糊进背景。
+
 ---
 
 ## 6. 组件选型:nm/ 是现在,ui/ 是存留
