@@ -1,0 +1,20 @@
+---
+code_file: src/narranexus/kernel/events/bus.py
+last_verified: 2026-09-03
+stub: false
+---
+
+## 2026-09-03 — 进程内宿主事件总线（hooks kind 的底座）
+
+平台在观察点 `emit(name, payload)`，插件 `subscribe(name, handler, owner)` 得到 `Disposable`。
+三条设计决定：
+1. **词表门**：只有 `contracts/events.HOST_EVENTS` 与 `declare` 过的名字能订阅/发射，拼错在订阅期
+   `UnknownEntry`，而不是永远收不到（宪章 4）。
+2. **隔离不吞**：handler 异常记 `error_counts[owner]` 并 warning，其余照送；总线本身绝不因插件
+   而炸回合（铁律 #15「平台不能成为打断源」的另一面：插件也不能）。
+3. **每 handler 超时**（默认 200ms，spec §10.2 的同步 hook 预算）：超时取消并记 `slow_counts`，
+   `EmitReport.timed_out` 列出 owner，观察窗自动停用（批 2）靠这两张计数表。
+`block(owner)` 一次摘掉某插件的全部订阅，与 `hooks.HookRegistry.block` 同语义。
+批 0 只有总线与测试；平台各观察点接 `emit` 是批 2/3（D9）。与 `hooks.py` 的关系：hooks 是
+「带返回值合成语义的调用点」（wrapper/firstresult），事件总线是「只通知的广播」；两者共享
+错误隔离与 owner 归因的思路，但不共享实现，因为通知不需要 pluggy 的排序语义。
