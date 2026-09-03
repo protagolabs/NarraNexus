@@ -6,10 +6,11 @@ stub: false
 
 ## 2026-09-03 — 路由表来自 `PAGES` 注册表
 
-14 个 `lazy(() => import(...))` 常量与 JSX 路由表移到 `platform/builtin.ts`；本文件按 `layout`
-分两组渲染（顶层按 `guard` 套守卫；`/app` 子路由直接渲染，父路由已守卫），index 重定向、
-根重定向与 `*` 兜底仍在这里。`useRegistryEntries(PAGES)` 让插件晚注册也能出现。
-`platform/__tests__/builtin.test.ts` 用改造前抓取的 `routes-before.json` 逐条比对顺序。
+页面的 `lazy(() => import(...))` 常量与 JSX 路由表移到 `platform/builtin.ts`；本文件只做
+`pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute })` 并把返回的两组元素
+放进 `<Routes>`（构造逻辑在 `platform/pageRoutes.tsx`，那里有渲染级测试）。index 重定向、根重定向
+与 `*` 兜底仍在这里。`platform/__tests__/builtin.test.ts` 用改造前抓取的 `routes-before.json`
+逐条比对顺序；`bootstrap.test.ts` 钉住 `main.tsx` 在 `App` 之前 import `platform/builtin`。
 
 ## 2026-08-19 — /app/account 路由降级为别名
 

@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
-import type { ReactNode } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
@@ -23,7 +22,8 @@ import {
 } from '@/lib/tokenExpiry';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { captureProductEvent } from '@/lib/productAnalytics';
-import { PAGES, useRegistryEntries, type PageDef } from '@/platform/registries';
+import { PAGES, useRegistryEntries } from '@/platform/registries';
+import { pageRouteElements } from '@/platform/pageRoutes';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -448,16 +448,7 @@ function App() {
 
   // Pages come from the registry; a plugin registering after first render
   // re-renders the route table.
-  const pages = useRegistryEntries(PAGES);
-  const topLevelPages = pages.filter((e) => e.value.layout === 'top');
-  const appPages = pages.filter((e) => e.value.layout === 'app');
-  const pageElement = (def: PageDef): ReactNode => (def.element ? <def.element /> : null);
-  const guarded = (def: PageDef): ReactNode => {
-    const inner = pageElement(def);
-    if (def.guard === 'protected') return <ProtectedRoute>{inner}</ProtectedRoute>;
-    if (def.guard === 'public') return <PublicRoute>{inner}</PublicRoute>;
-    return inner;
-  };
+  const pageRoutes = pageRouteElements(useRegistryEntries(PAGES), { ProtectedRoute, PublicRoute });
 
   return (
     <>
@@ -529,9 +520,7 @@ function App() {
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>
       <Routes>
-        {topLevelPages.map(({ id, value }) => (
-          <Route key={id} path={value.path} element={guarded(value)} />
-        ))}
+        {pageRoutes.top}
 
         {/* Protected app routes: MainLayout is the shell; its children come
             from the page registry in registration order (builtin first). */}
@@ -540,9 +529,7 @@ function App() {
           element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
         >
           <Route index element={<Navigate to="chat" replace />} />
-          {appPages.map(({ id, value }) => (
-            <Route key={id} path={value.path} element={pageElement(value)} />
-          ))}
+          {pageRoutes.app}
         </Route>
 
         {/* Root redirect + catch-all */}

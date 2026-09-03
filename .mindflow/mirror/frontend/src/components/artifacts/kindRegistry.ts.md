@@ -8,8 +8,11 @@ stub: false
 
 ## 2026-09-03 — `registerArtifactKind`：插件可加渲染器
 
-`KIND_REGISTRY` 类型改为 `Record<BuiltinArtifactKind, KindDescriptor> & Record<string, KindDescriptor>`
-（内置键仍穷举，未知键允许）；`registerArtifactKind` 返回撤销函数（恢复被覆盖的旧描述符或删除）。
+`KIND_REGISTRY` 类型改为 `Record<BuiltinArtifactKind, KindDescriptor> & Partial<Record<string, KindDescriptor>>`
+：内置键仍穷举，任意字符串键读出来是 `KindDescriptor | undefined`，消费方必须 `?.`（原来的
+`Record<string, ...>` 让未知键假装总存在）。`registerArtifactKind` 每 kind 维护一个注册栈，内置描述符是
+隐式栈底：撤销函数只移除自己那一项，当前值取栈顶或内置——插件按任意顺序卸载都不会把别人的描述符
+打掉，也不会让已撤销的描述符"复活"（首版的 previous 快照法会）。测试 `registerArtifactKind` 三段。
 
 ## 2026-08-21 — `downloadExt` 变 optional + 新增 `downloadExtFor`(深圳复测 .bin bug)
 

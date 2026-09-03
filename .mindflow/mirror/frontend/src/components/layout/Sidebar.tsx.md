@@ -6,7 +6,9 @@ stub: false
 
 ## 2026-09-03 — Zone 2a 的六行来自 `SIDEBAR` 注册表
 
-内联按钮改为遍历 `useRegistryEntries(SIDEBAR)`（按 `visible` 过滤、`order` 排序）。
+内联按钮改为 `sortedSidebarItems(features, useRegistryEntries(SIDEBAR))`（过滤/排序只有注册表模块
+这一份实现，组件不再自己抄一遍；订阅让插件晚注册也重渲染）。原 `dashboardTab` 的孤儿注释已随
+函数一起搬走。
 `isActive` 谓词、`prefetch`、`titleKey`、`data-help-id` 都随数据走；`prefetchDashboard` 与
 `dashboardTab` 搬去 `platform/builtin.ts`。既有的 `sidebarExportEntry` 测试原样通过。
 

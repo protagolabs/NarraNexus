@@ -39,7 +39,7 @@ import {
   useUIStore,
 } from '@/stores';
 import { cn } from '@/lib/utils';
-import { SIDEBAR, useRegistryEntries } from '@/platform/registries';
+import { SIDEBAR, sortedSidebarItems, useRegistryEntries } from '@/platform/registries';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
@@ -69,10 +69,6 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
-  // Active dashboard tab (drives the Manage-Agents vs Export highlight). Parsed,
-  // not `search.includes('tab=export')`, so `?tab=exportfoo`/`?x=tab=export`
-  // can't false-match.
-
   const { userId, displayName, logout } = useConfigStore();
   const netmindToken = useConfigStore((s) => s.netmindToken);
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
@@ -89,10 +85,7 @@ export function Sidebar() {
   const isLocalMode = mode === 'local';
   // Nav rows come from the sidebar registry (builtin rows are registered by
   // platform/builtin.ts; a plugin registering later re-renders this list).
-  const sidebarEntries = useRegistryEntries(SIDEBAR);
-  const navItems = sidebarEntries
-    .filter((e) => e.value.visible?.(features) ?? true)
-    .sort((a, b) => a.value.order - b.value.order);
+  const navItems = sortedSidebarItems(features, useRegistryEntries(SIDEBAR));
 
   // The cloud/local mode switcher is hidden — we don't want users choosing
   // the deployment mode. All the switching logic (handleSwitchMode, mode

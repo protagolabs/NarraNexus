@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ArtifactKind } from '@/types/artifact';
-import { KIND_REGISTRY, downloadExtFor } from '../kindRegistry';
+import { KIND_REGISTRY, downloadExtFor, registerArtifactKind, type KindDescriptor } from '../kindRegistry';
 
 const ALL_KINDS: ArtifactKind[] = [
   'text/html',
@@ -213,5 +213,40 @@ describe('KIND_REGISTRY', () => {
       return surface !== 'none' && surface !== 'office-watch';
     });
     expect(putEditable.sort()).toEqual(['text/csv', 'text/html', 'text/markdown']);
+  });
+});
+
+describe('registerArtifactKind', () => {
+  const fake = (): KindDescriptor => ({
+    renderer: KIND_REGISTRY['text/markdown'].renderer,
+    editSurface: 'none',
+    saveMode: null,
+    selectionToAI: false,
+    preview: 'none',
+    label: 'Fake',
+  });
+
+  it('adds an unknown kind and the disposer removes it again', () => {
+    const dispose = registerArtifactKind('application/x-acme', fake());
+    expect(KIND_REGISTRY['application/x-acme']?.label).toBe('Fake');
+    dispose();
+    expect(KIND_REGISTRY['application/x-acme']).toBeUndefined();
+  });
+
+  it('replacing a builtin kind restores the original on dispose', () => {
+    const original = KIND_REGISTRY['text/markdown'];
+    const dispose = registerArtifactKind('text/markdown', fake());
+    expect(KIND_REGISTRY['text/markdown'].label).toBe('Fake');
+    dispose();
+    expect(KIND_REGISTRY['text/markdown']).toBe(original);
+  });
+
+  it('a stale disposer does not clobber a newer registration', () => {
+    const first = registerArtifactKind('application/x-acme', fake());
+    const second = registerArtifactKind('application/x-acme', { ...fake(), label: 'Second' });
+    first();
+    expect(KIND_REGISTRY['application/x-acme']?.label).toBe('Second');
+    second();
+    expect(KIND_REGISTRY['application/x-acme']).toBeUndefined();
   });
 });

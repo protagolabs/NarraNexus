@@ -16,6 +16,9 @@ describe('plugin i18n namespace', () => {
     expect(pluginT('acme.weather', 'nested.deep')).toBe('ok');
     expect(i18n.t('title')).toBe('title'); // shell namespace untouched
     expect(pluginT('acme.weather', 'missing')).toBe('missing');
+    // A key containing i18next's namespace separator is looked up verbatim.
+    addPluginBundle('acme.weather', 'en', { 'unit:celsius': '°C' });
+    expect(pluginT('acme.weather', 'unit:celsius')).toBe('°C');
     removePluginBundles('acme.weather');
     expect(i18n.hasResourceBundle('en', pluginNamespace('acme.weather'))).toBe(false);
   });

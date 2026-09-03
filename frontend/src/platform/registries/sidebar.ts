@@ -11,7 +11,7 @@
  */
 import type { LucideIcon } from 'lucide-react';
 
-import { Registry } from './registry';
+import { Registry, type RegistryEntry } from './registry';
 
 export interface SidebarLocation {
   pathname: string;
@@ -38,8 +38,13 @@ export interface SidebarItemDef {
 
 export const SIDEBAR = new Registry<SidebarItemDef>('ui.sidebar');
 
-export function sortedSidebarItems(features: SidebarFeatures) {
-  return SIDEBAR.list()
+/**
+ * The rows to draw, filtered by feature gates and sorted by `order`. Pass
+ * the entries from `useRegistryEntries(SIDEBAR)` inside a component so the
+ * list follows late registrations; the default reads the registry directly.
+ */
+export function sortedSidebarItems(features: SidebarFeatures, entries: RegistryEntry<SidebarItemDef>[] = SIDEBAR.list()) {
+  return entries
     .filter((e) => e.value.visible?.(features) ?? true)
     .sort((a, b) => a.value.order - b.value.order);
 }

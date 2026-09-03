@@ -93,7 +93,12 @@ export interface KindDescriptor {
   chartImageExport?: boolean;
 }
 
-export const KIND_REGISTRY: Record<BuiltinArtifactKind, KindDescriptor> & Record<string, KindDescriptor> = {
+/**
+ * Builtin kinds are always present (exhaustive Record); any other string
+ * key may or may not be registered by a plugin, so it reads as
+ * `KindDescriptor | undefined` and consumers must `?.` it.
+ */
+export const KIND_REGISTRY: Record<BuiltinArtifactKind, KindDescriptor> & Partial<Record<string, KindDescriptor>> = {
   'text/html': {
     renderer: HtmlRenderer,
     editSurface: 'per-element',
@@ -202,16 +207,37 @@ export function downloadExtFor(artifact: Pick<Artifact, 'kind' | 'file_path'>): 
 }
 
 /**
+ * Registrations per kind, oldest first; the last one is what
+ * `KIND_REGISTRY` holds. A builtin descriptor is the implicit bottom of the
+ * stack (it is not in the list; disposing the last plugin entry restores it).
+ */
+const registrations = new Map<string, KindDescriptor[]>();
+const BUILTIN: Readonly<Record<string, KindDescriptor | undefined>> = { ...KIND_REGISTRY };
+
+function currentFor(kind: string): KindDescriptor | undefined {
+  const stack = registrations.get(kind);
+  return stack && stack.length > 0 ? stack[stack.length - 1] : BUILTIN[kind];
+}
+
+/**
  * Register (or replace) the renderer set for an artifact kind. Plugins use
- * this to render kinds the shell does not know; the disposer removes the
- * registration again when the plugin is unloaded.
+ * this to render kinds the shell does not know; the disposer removes
+ * exactly this registration again when the plugin is unloaded. Disposing
+ * in any order is safe: a plugin unloaded while another one has since
+ * replaced the same kind neither clobbers the newer descriptor nor comes
+ * back when the newer one is disposed.
  */
 export function registerArtifactKind(kind: ArtifactKind, descriptor: KindDescriptor): () => void {
-  const previous = KIND_REGISTRY[kind];
+  const stack = registrations.get(kind) ?? [];
+  stack.push(descriptor);
+  registrations.set(kind, stack);
   KIND_REGISTRY[kind] = descriptor;
   return () => {
-    if (KIND_REGISTRY[kind] !== descriptor) return;
-    if (previous) KIND_REGISTRY[kind] = previous;
+    const at = stack.indexOf(descriptor);
+    if (at === -1) return;
+    stack.splice(at, 1);
+    const current = currentFor(kind);
+    if (current) KIND_REGISTRY[kind] = current;
     else delete KIND_REGISTRY[kind];
   };
 }

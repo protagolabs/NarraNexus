@@ -5,11 +5,13 @@
  * @description: Where UI crashes are reported, attributed to the code that owns them.
  *
  * Until now a render crash only reached `console.error`. The sink keeps the
- * console output and adds subscribers (the plugin factory's health view, a
- * backend report) plus attribution: a crash inside a plugin's chunk is
- * blamed on that plugin (by the chunk URL the plugin loader recorded), so
- * the observation window can suppress a misbehaving plugin instead of the
- * whole page.
+ * console output and adds subscribers (batch 2 wires the plugin factory's
+ * health view and a backend report) plus attribution. Attribution is a
+ * best-effort heuristic: the plugin loader records each plugin's chunk URL
+ * prefix, and a crash whose `error.stack` text contains that prefix is
+ * blamed on the plugin; anything else is "shell". Stacks are not
+ * normalised across browsers, so this can under-attribute (never
+ * mis-attribute to another plugin unless two prefixes overlap).
  */
 
 export interface UiErrorReport {
@@ -61,7 +63,9 @@ export function reportUiError(error: Error, opts: { componentStack?: string; kin
 
 export function onUiError(listener: Listener): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function recentUiErrors(): readonly UiErrorReport[] {

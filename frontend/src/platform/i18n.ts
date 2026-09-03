@@ -9,7 +9,9 @@
  * override shell keys. Namespacing per plugin id makes collisions
  * impossible and lets a plugin be unloaded without leaving strings behind.
  * Lookups pass the namespace as an option (`t(key, { ns })`) rather than in
- * the key string, because the namespace itself contains i18next's `:`.
+ * the key string, because the namespace itself contains i18next's `:`; the
+ * key is looked up verbatim (`nsSeparator: false`) so a plugin key may
+ * contain `:` too.
  */
 import i18n from 'i18next';
 
@@ -32,5 +34,5 @@ export function removePluginBundles(pluginId: string): void {
 
 /** Translate a plugin's key in its namespace (falls back to the key itself). */
 export function pluginT(pluginId: string, key: string, options: Record<string, unknown> = {}): string {
-  return i18n.t(key, { ...options, ns: pluginNamespace(pluginId) });
+  return i18n.t(key, { ...options, ns: pluginNamespace(pluginId), nsSeparator: false });
 }

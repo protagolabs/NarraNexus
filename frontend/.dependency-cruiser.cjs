@@ -17,10 +17,10 @@ module.exports = {
     },
     {
       name: 'registries-are-pure',
-      comment: 'src/platform/registries/** holds types and registries only — no components, pages, stores or lib',
+      comment: 'src/platform/registries/** holds types and registries only — it imports nothing else from src/',
       severity: 'error',
       from: { path: '^src/platform/registries/' },
-      to: { path: '^src/(components|pages|stores|lib|hooks)/' },
+      to: { path: '^src/', pathNot: '^src/platform/registries/' },
     },
     {
       name: 'contracts-are-a-leaf',

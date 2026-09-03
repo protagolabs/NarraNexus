@@ -6,7 +6,9 @@ stub: false
 
 ## 2026-09-03 — `AtomicTabId` 放开为 `BuiltinTabId | (string & {})`
 
-内置 id 收进 `BUILTIN_TAB_IDS` 常量元组（保留自动补全），消费方不得再穷举 switch。
+内置 id 收进 `BUILTIN_TAB_IDS` 常量元组（保留自动补全）。本文件只剩条带布局数据（分类/图标/文案）；
+「哪个 tab 渲染哪个面板」不在这里——那是 `platform/registries/panels.ts` 的事，消费方不得再穷举 switch
+或 `&&` 链。
 
 ## 2026-08-06 (2) — tabDescKey:每个面板一句话说明
 

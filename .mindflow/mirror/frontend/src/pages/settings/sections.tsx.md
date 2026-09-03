@@ -8,5 +8,5 @@ stub: false
 
 每个左导航项一个组件（Account/Providers/ModelDefaults/Plugins/Artifacts/Privacy/Personalization/
 Updates），`SectionHeader`/`UpdatesSection`/`ProvidersSection`/`ArtifactsContent` 逐字搬来，
-Account/ModelDefaults 两个分支的内联 JSX 收成组件；`ModelDefaultsSection` 通过 `navigate` prop 跳转
+原 `SettingsPage` 里 Account 与 ModelDefaults 两段内联 JSX 收成 `AccountSection`/`ModelDefaultsSection`；`ModelDefaultsSection` 通过 `navigate` prop 跳转
 （云端不给 plugins 跳转，保持原来「纯文本提示」的行为）。

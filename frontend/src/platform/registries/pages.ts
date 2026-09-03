@@ -25,10 +25,14 @@ export interface PageDef {
   /** Route path: relative under /app for `layout: 'app'`, absolute for `'top'`. */
   path: string;
   element: LazyExoticComponent<PageComponent> | PageComponent | null;
+  /**
+   * Wrapper the shell applies to a `layout: 'top'` page. Pages under the
+   * /app layout inherit the layout's own ProtectedRoute and MUST declare
+   * `'protected'` (the route builder rejects anything else so a plugin
+   * cannot believe it published a public page under /app).
+   */
   guard: PageGuard;
   layout: PageLayout;
-  /** i18n key of the page title (plugins use their `plugin:<id>` namespace). */
-  titleKey?: string;
 }
 
 export const PAGES = new Registry<PageDef>('ui.pages');

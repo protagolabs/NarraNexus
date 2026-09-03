@@ -28,8 +28,8 @@ export default function SettingsPage() {
   // list on the very FIRST frame and a cloud `?tab=plugins` deep link falls
   // back to the first visible pane instead of opening an empty one.
   const isCloud = isForcedCloud();
-  useRegistryEntries(SETTINGS_SECTIONS); // re-render when a plugin adds a section
-  const items = sortedSettingsSections({ isTauri: isTauri(), isCloud });
+  // Subscribed: a plugin adding a section re-renders the nav.
+  const items = sortedSettingsSections({ isTauri: isTauri(), isCloud }, useRegistryEntries(SETTINGS_SECTIONS));
   const [searchParams] = useSearchParams();
   // `?tab=<section id>` opens a pane directly (Stripe returns payers to
   // /app/settings?tab=account&status=…). Only the FIRST render honors the

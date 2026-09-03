@@ -1,10 +1,15 @@
 ---
 code_file: frontend/test-setup.ts
-last_verified: 2026-08-20
+last_verified: 2026-09-03
 stub: false
 ---
-
 # test-setup.ts — 让 jsdom 足够像浏览器，测试才能测真东西
+
+## 2026-09-03（插件平台批 1）— 同步 import `src/platform/builtin`
+
+应用里由 `main.tsx` 在首帧前注册壳的页面/侧栏/面板；渲染壳的测试需要同样的注册，所以 setup 也
+side-effect import 一次（设置分区由 `SettingsPage` 自己的 chunk 注册，不在这里）。
+`src/platform/__tests__/bootstrap.test.ts` 钉住这一行与 `main.tsx` 的顺序。
 
 ## 为什么存在
 

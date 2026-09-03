@@ -11,7 +11,7 @@
 import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
-import { Registry } from './registry';
+import { Registry, type RegistryEntry } from './registry';
 
 export interface SettingsSectionProps {
   /** Navigate to another section (used by cross-links such as "manage providers"). */
@@ -30,8 +30,12 @@ export interface SettingsSectionDef {
 
 export const SETTINGS_SECTIONS = new Registry<SettingsSectionDef>('ui.settingsSections');
 
-export function sortedSettingsSections(opts: { isTauri: boolean; isCloud: boolean }) {
-  return SETTINGS_SECTIONS.list()
+/** Visible sections in nav order; pass `useRegistryEntries(SETTINGS_SECTIONS)` from a component. */
+export function sortedSettingsSections(
+  opts: { isTauri: boolean; isCloud: boolean },
+  entries: RegistryEntry<SettingsSectionDef>[] = SETTINGS_SECTIONS.list(),
+) {
+  return entries
     .filter((e) => (!e.value.desktopOnly || opts.isTauri) && !(e.value.cloudHidden && opts.isCloud))
     .sort((a, b) => a.value.order - b.value.order);
 }

@@ -6,7 +6,8 @@ stub: false
 
 ## 2026-09-03 — 按 `PANELS` 注册表查表渲染
 
-`&&` 链与六个 lazy import 移到 `platform/builtinPanels.tsx` + `platform/builtin.ts`；
+原来按 tab id 的 `&&` 渲染链与各面板的 lazy import 移到 `platform/builtinPanels.tsx` +
+`platform/builtin.ts`（11 个内置面板各一条 `PANELS.register`）；本文件只 `PANELS.get(tab)` 查表；
 未注册的 tab 渲染空（插件加了条带 tab 又被禁用时不崩）。
 
 ## 2026-08-19 — forceExpanded 随 sliver 一起退役(下方 08-06 条以本条为准)
