@@ -6,7 +6,7 @@
 
 A *slot* is a named, contract-bearing hole. Its ``arity`` says whether exactly
 one provider fills it (``one``, replaceable) or any number do (``many``,
-additive). Slots form a tree by dotted path (``turn.act.framework``); the
+additive). Slots form a tree by dotted path (``turn.pipeline.act.framework``); the
 provider of a composite slot owns the definition of its children, which is how
 "replace the whole runtime" and "replace one stage inside it" coexist.
 

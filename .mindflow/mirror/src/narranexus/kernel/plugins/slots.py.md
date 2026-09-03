@@ -15,7 +15,7 @@ stub: false
 
 `Slot` = 路径 + 契约符号 + 元数（`one` 可替换 / `many` 可追加）+ 默认提供者 + owner + 稳定级别 +
 `distribution_only`。树按点分路径组织，**复合位的提供者拥有其子位的定义**：所以
-`build_kernel_slot_tree()` 只种根（`kernel.*`、`turn.pipeline`、`turn.act.framework`、`model.*`、
+`build_kernel_slot_tree()` 只种根（`kernel.*`、`turn.pipeline`、`turn.pipeline.act.framework`、`model.*`、
 `agent.capabilities.memory_kinds`、`ui`、各域根），七个阶段子位 `turn.ingress…reflect` 由批 3 的
 `builtin.turn` 声明，nexus_power 的内接缝由 `builtin.frameworks.nexus_power` 声明——放在这里
 就会把定义放错 owner。
