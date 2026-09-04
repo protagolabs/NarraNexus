@@ -182,8 +182,23 @@ def build_kernel_slot_tree() -> SlotTree:
              default="builtin.turn", doc="Turn domain root."),
         Slot("turn.pipeline", one, "narranexus.contracts.agent.pipeline:TurnPipeline", KERNEL_OWNER,
              default="builtin.turn", doc="The whole turn runtime; its provider declares the stage slots."),
+        # The seven stage slots (spec section 7.2). Kernel-declared so every host
+        # role loads the builtin.turn strategies at boot — a process must never
+        # discover a stage slot only when a platform module happens to import.
+        Slot("turn.pipeline.ingress", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Ingress stage strategies; a profile names one."),
+        Slot("turn.pipeline.recall", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Recall stage strategies; a profile names one."),
+        Slot("turn.pipeline.compose", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Compose stage strategies; a profile names one."),
+        Slot("turn.pipeline.assemble", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Assemble stage strategies; a profile names one."),
         Slot("turn.pipeline.act", many, "narranexus.contracts.agent.pipeline:ActStrategy", KERNEL_OWNER,
              doc="Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it."),
+        Slot("turn.pipeline.commit", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Commit stage strategies; a profile names one."),
+        Slot("turn.pipeline.reflect", many, "narranexus.contracts.agent.pipeline:StageStrategy", KERNEL_OWNER,
+             doc="Reflect stage strategies; a profile names one."),
         Slot("turn.pipeline.act.framework", one, "narranexus.contracts.framework:AgentLoopDriver", KERNEL_OWNER,
              default="builtin.frameworks.nexus_power", doc="Agent-loop framework used by the Act stage."),
         Slot("turn.profiles", many, "narranexus.contracts.agent.pipeline:PipelineProfile", KERNEL_OWNER,

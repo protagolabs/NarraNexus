@@ -27,7 +27,8 @@ def slot_path(stage: Stage) -> str:
 
 
 def declare_stage_slots(registries: Registries = KERNEL_REGISTRIES) -> None:
-    """Declare the seven stage slots (idempotent) — the platform owns the slots, plugins fill them."""
+    """The seven stage slots are kernel-declared (slots.py) since batch 6; this keeps declaring any
+    missing one for a hand-built slot tree (idempotent)."""
     for stage in Stage:
         path = slot_path(stage)
         if path not in registries.slots:

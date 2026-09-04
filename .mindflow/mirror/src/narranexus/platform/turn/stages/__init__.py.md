@@ -12,3 +12,5 @@ loader 再注册是幂等 no-op（与 frameworks/providers 同一模式）。`en
 `Registries` 也能起流水线。
 
 Batch 6b.2b: only the slot declarations remain here (`OWNER`, `STAGE_CONTRACT`, `slot_path`, `declare_stage_slots`, `ensure_registered`); the default strategies are the `builtin.turn` plugin package.
+
+Batch 6 fix: the stage slots are kernel-declared; `declare_stage_slots` only fills gaps of a hand-built tree.

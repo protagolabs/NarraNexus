@@ -119,7 +119,10 @@ def test_hosts_filter_skips_manifests_not_for_this_role():
     assert sorted(report.skipped) == sorted(
         d["id"] for d in BUILTIN_MANIFEST_DATA if "mcp" not in d["hosts"]
     )
-    assert "turn.pipeline.act.framework" not in regs.paths()
+    # batch 6: frameworks/turn load for every turn-running role; the backend-only
+    # worker contribution (builtin.teams) is what mcp must not see.
+    assert "turn.pipeline.act.framework" in regs.paths()
+    assert "backend.workers" not in regs.paths()
 
 
 def _user_manifest(**overrides):

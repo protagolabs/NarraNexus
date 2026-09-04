@@ -4,7 +4,9 @@
   "displayName": "Claude Code agent loop",
   "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
   "hosts": [
-    "backend"
+    "backend",
+    "mcp",
+    "workers"
   ],
   "provides": {
     "turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"

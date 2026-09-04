@@ -4,7 +4,9 @@
   "displayName": "Codex agent loop",
   "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
   "hosts": [
-    "backend"
+    "backend",
+    "mcp",
+    "workers"
   ],
   "provides": {
     "turn.pipeline.act.framework": "narranexus_plugins.frameworks_codex_cli.contribution:CONTRIBUTION"

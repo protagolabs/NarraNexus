@@ -74,6 +74,12 @@ bound only from the distribution or default layers.
 | `turn.pipeline` | one | `narranexus.contracts.agent.pipeline:TurnPipeline` | `builtin.turn` | `builtin.kernel` | — | The whole turn runtime; its provider declares the stage slots. |
 | `turn.pipeline.act` | many | `narranexus.contracts.agent.pipeline:ActStrategy` | — | `builtin.kernel` | — | Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. |
 | `turn.pipeline.act.framework` | one | `narranexus.contracts.framework:AgentLoopDriver` | `builtin.frameworks.nexus_power` | `builtin.kernel` | — | Agent-loop framework used by the Act stage. |
+| `turn.pipeline.assemble` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Assemble stage strategies; a profile names one. |
+| `turn.pipeline.commit` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Commit stage strategies; a profile names one. |
+| `turn.pipeline.compose` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Compose stage strategies; a profile names one. |
+| `turn.pipeline.ingress` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Ingress stage strategies; a profile names one. |
+| `turn.pipeline.recall` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Recall stage strategies; a profile names one. |
+| `turn.pipeline.reflect` | many | `narranexus.contracts.agent.pipeline:StageStrategy` | — | `builtin.kernel` | — | Reflect stage strategies; a profile names one. |
 | `turn.profiles` | many | `narranexus.contracts.agent.pipeline:PipelineProfile` | — | `builtin.kernel` | — | Named pipeline profiles (default/fast/voice/job/silent + plugin-defined). |
 | `ui` | one | `narranexus.contracts.ui:Shell` | `builtin.ui` | `builtin.kernel` | distribution-only | Frontend shell; distribution-level choice. |
 | `ui.themes` | many | `narranexus.contracts.ui:Theme` | — | `builtin.kernel` | — | Frontend themes (override declared design tokens only). |
@@ -82,14 +88,14 @@ bound only from the distribution or default layers.
 
 | Plugin | Version | Hosts | Provides | Quality |
 |---|---|---|---|---|
-| `builtin.frameworks.nexus_power` | 1.0.0 | backend | `turn.pipeline.act.framework`, `builtin.frameworks.nexus_power.stop`, `builtin.frameworks.nexus_power.compaction`, `builtin.frameworks.nexus_power.projector`, `builtin.frameworks.nexus_power.expression`, `builtin.frameworks.nexus_power.policy` | gold |
-| `builtin.frameworks.claude_code` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
-| `builtin.frameworks.codex_cli` | 1.0.0 | backend | `turn.pipeline.act.framework` | gold |
+| `builtin.frameworks.nexus_power` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework`, `builtin.frameworks.nexus_power.stop`, `builtin.frameworks.nexus_power.compaction`, `builtin.frameworks.nexus_power.projector`, `builtin.frameworks.nexus_power.expression`, `builtin.frameworks.nexus_power.policy` | gold |
+| `builtin.frameworks.claude_code` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework` | gold |
+| `builtin.frameworks.codex_cli` | 1.0.0 | backend, mcp, workers | `turn.pipeline.act.framework` | gold |
 | `builtin.providers` | 1.0.0 | backend, mcp, workers | `model.providers` | gold |
 | `builtin.llm_clients` | 1.0.0 | backend, mcp, workers | `model.clients` | gold |
 | `builtin.memory_kinds` | 1.0.0 | backend, mcp, workers | `agent.capabilities.memory_kinds` | gold |
 | `builtin.nexus_plugins_module` | 1.0.0 | backend, mcp | `agent.capabilities.modules` | gold |
-| `builtin.turn` | 1.0.0 | backend | `turn.pipeline`, `turn.pipeline.ingress`, `turn.pipeline.recall`, `turn.pipeline.compose`, `turn.pipeline.assemble`, `turn.pipeline.act`, `turn.pipeline.commit`, `turn.pipeline.reflect`, `turn.profiles` | gold |
+| `builtin.turn` | 1.0.0 | backend, mcp, workers | `turn.pipeline`, `turn.pipeline.ingress`, `turn.pipeline.recall`, `turn.pipeline.compose`, `turn.pipeline.assemble`, `turn.pipeline.act`, `turn.pipeline.commit`, `turn.pipeline.reflect`, `turn.profiles` | gold |
 | `builtin.awareness` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes`, `backend.hooks` | gold |
 | `builtin.basic_info` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `agent.capabilities.data_access`, `backend.routes` | gold |
 | `builtin.chat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `agent.capabilities.data_access`, `backend.routes` | gold |

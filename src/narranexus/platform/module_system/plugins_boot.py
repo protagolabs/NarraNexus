@@ -16,6 +16,7 @@ from __future__ import annotations
 from narranexus.hosts.boot import BootReport, Role, boot
 from narranexus.kernel.deployment import is_cloud_mode
 from narranexus.kernel.plugins.compat import host_version
+from narranexus.kernel.plugins.distribution import resolve_from_env
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
 _REPORTS: dict[str, BootReport] = {}
@@ -27,7 +28,10 @@ def _boot(role: Role) -> BootReport:
     if KERNEL_REGISTRIES.frozen:
         # Already booted in this process (tests, or a second runner call).
         return _REPORTS.setdefault(role, BootReport(role=role))
-    report = boot(role, registries=KERNEL_REGISTRIES, cloud=is_cloud_mode(), host_version=host_version())
+    report = boot(
+        role, registries=KERNEL_REGISTRIES, cloud=is_cloud_mode(), host_version=host_version(),
+        distribution=resolve_from_env(host_version=host_version()),
+    )
     report.mark_healthy()  # no separate health probe here: reaching this line is health
     _REPORTS[role] = report
     return report

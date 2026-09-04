@@ -69,7 +69,10 @@ def test_kernel_seed_tree_has_the_batch0_roots_and_is_docs_friendly():
     assert tree.get("kernel.auth").distribution_only is True
     assert tree.get("turn.pipeline.act.framework").default == "builtin.frameworks.nexus_power"
     assert tree.get("turn.pipeline.act.framework").parent == "turn.pipeline.act"
-    assert [s.path for s in tree.descendants("turn.pipeline")] == ["turn.pipeline.act", "turn.pipeline.act.framework"]
+    assert {s.path for s in tree.descendants("turn.pipeline")} == {
+        "turn.pipeline.ingress", "turn.pipeline.recall", "turn.pipeline.compose", "turn.pipeline.assemble",
+        "turn.pipeline.act", "turn.pipeline.act.framework", "turn.pipeline.commit", "turn.pipeline.reflect",
+    }
     assert tree.get("model.providers").arity == "many"
     rows = tree.to_rows()
     assert rows == sorted(rows, key=lambda r: r["path"])

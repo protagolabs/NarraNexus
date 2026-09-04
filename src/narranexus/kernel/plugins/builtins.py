@@ -33,7 +33,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "version": "1.0.0",
         "displayName": "NexusPower agent loop",
         "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
-        "hosts": ["backend"],
+        "hosts": ["backend", "mcp", "workers"],
         "provides": {
             "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",
             "builtin.frameworks.nexus_power.stop": f"{_NP}:STOP_DEFAULT",
@@ -58,7 +58,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "version": "1.0.0",
         "displayName": "Claude Code agent loop",
         "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
-        "hosts": ["backend"],
+        "hosts": ["backend", "mcp", "workers"],
         "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
@@ -68,7 +68,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "version": "1.0.0",
         "displayName": "Codex agent loop",
         "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
-        "hosts": ["backend"],
+        "hosts": ["backend", "mcp", "workers"],
         "provides": {"turn.pipeline.act.framework": "narranexus_plugins.frameworks_codex_cli.contribution:CONTRIBUTION"},
         "install": {"deps": "on_demand"},
         "quality": "gold",
@@ -128,7 +128,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "version": "1.0.0",
         "displayName": "Turn Pipeline",
         "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
-        "hosts": ["backend"],
+        "hosts": ["backend", "mcp", "workers"],
         "api": {"stage_strategy": 0, "pipeline_profile": 0, "agent": 0},
         "provides": {
             "turn.pipeline": "narranexus.platform.turn.pipeline:PIPELINE_CONTRIBUTION",
@@ -364,6 +364,18 @@ def register_builtin_provides(slot: str, registries: Any = None) -> int:
     Returns the number of contributions registered.
     """
     from narranexus.kernel.plugins.loader import _as_contributions, resolve_symbol
+
+    regs_obj = registries
+    if regs_obj is None:
+        from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES as regs_obj  # noqa: N811
+    if regs_obj.frozen and not regs_obj.registry_for(slot).names():
+        # A frozen process (a host after boot) can only use what its boot loaded:
+        # the manifest providing this slot must list the host's role. Say so
+        # instead of failing deep inside a turn with RegistryFrozen.
+        raise RuntimeError(
+            f"{slot}: no contribution loaded at boot and the registries are frozen — "
+            "the builtin manifest providing this slot must list this process's host role"
+        )
 
     regs = registries
     if regs is None:

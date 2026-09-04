@@ -4,7 +4,9 @@
   "displayName": "NexusPower agent loop",
   "description": "The home-grown agent loop; always available. Declares its strategy seats as extension points.",
   "hosts": [
-    "backend"
+    "backend",
+    "mcp",
+    "workers"
   ],
   "provides": {
     "turn.pipeline.act.framework": "narranexus_plugins.frameworks_nexus_power.contribution:CONTRIBUTION",

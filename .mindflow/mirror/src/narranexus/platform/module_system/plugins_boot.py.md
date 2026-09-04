@@ -13,3 +13,5 @@ store、服务定位器、事件总线），不注册插件表（backend 拥有�
 ## 2026-09-04 · ingress triggers (batch 3c.3)
 
 `boot_channel_plugins()` — the standalone channels supervisor boots the `workers` role so `CHANNEL_TRIGGER_MAP` (a registry view) is populated and overrides applied before any channel starts.
+
+Batch 6c: the mcp/workers boots pass `resolve_from_env()` so `NARRANEXUS_DIST` shapes every role the same way as the backend.

@@ -95,3 +95,5 @@ Batch 6b.2b: `register_builtin_provides(slot, registries=None)` resolves a slot'
 Batch 6b.3: builtin.teams provides two routers, the worker and a `backend.hooks` implementation, all under `narranexus_plugins.teams`.
 
 Batch 6c: two authProviders builtins `builtin.auth.local` and `builtin.auth.netmind` (distributionOnly, protected, provide `kernel.auth`).
+
+Batch 6 fix: builtin.turn and the three frameworks list hosts backend+mcp+workers (every turn-running process); `register_builtin_provides` raises a clear RuntimeError when the registries are frozen and the slot is empty (the manifest must list the role) instead of RegistryFrozen mid-turn.

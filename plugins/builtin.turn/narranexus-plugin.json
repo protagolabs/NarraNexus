@@ -4,7 +4,9 @@
   "displayName": "Turn Pipeline",
   "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
   "hosts": [
-    "backend"
+    "backend",
+    "mcp",
+    "workers"
   ],
   "api": {
     "stage_strategy": 0,

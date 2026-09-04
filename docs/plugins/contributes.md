@@ -26,6 +26,12 @@ the symbol is a `Contribution` (or a list of them) whose factory builds the cont
 | `model.clients` | llm_client | 0 | `narranexus.contracts.llm_client:LlmClient` | `"model.clients": ["pkg.module:SYMBOL"]` |
 | `model.providers` | provider | 0 | `narranexus.contracts.provider:ProviderDriver` | `"model.providers": ["pkg.module:SYMBOL"]` |
 | `turn.pipeline.act` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:ActStrategy` | `"turn.pipeline.act": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.assemble` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.assemble": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.commit` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.commit": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.compose` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.compose": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.ingress` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.ingress": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.recall` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.recall": ["pkg.module:SYMBOL"]` |
+| `turn.pipeline.reflect` | stage_strategy | 0 | `narranexus.contracts.agent.pipeline:StageStrategy` | `"turn.pipeline.reflect": ["pkg.module:SYMBOL"]` |
 | `turn.profiles` | pipeline_profile | 0 | `narranexus.contracts.agent.pipeline:PipelineProfile` | `"turn.profiles": ["pkg.module:SYMBOL"]` |
 | `ui.themes` | theme | 0 | `narranexus.contracts.ui:Theme` | `"ui.themes": ["pkg.module:SYMBOL"]` |
 
