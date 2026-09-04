@@ -32,7 +32,7 @@ related_playbooks:
 
 ```python
 class ModuleConfig(BaseModel):
-    name: str           # 必须与 MODULE_MAP 的 key 及类名匹配
+    name: str           # 必须与 module_registry 的 key 及类名匹配
     priority: int       # 指令排序优先级（0 最高，Awareness=0, Chat=1）
     enabled: bool       # 模块是否激活
     description: str    # 人类可读的模块用途描述
@@ -199,7 +199,7 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 3. 编写 `prompts.py` 定义模块指令（Layer 1）
 4. 编写 `_*_mcp_tools.py` 定义工具（照旧声明 `agent_id` 参数——服务端会把它
    校正为真实调用者，见 §5，无需自己做任何身份处理）
-5. 在 `module/__init__.py` 的 `MODULE_MAP` 中注册
+5. 在 `module/__init__.py` 的 `module_registry` 中注册
 6. 在 `schema_registry.py` 中使用 `_register(TableDef(...))` 添加数据表
 7. 在 `repository/` 创建对应的数据访问类
 8. 在 `schema/` 创建对应的 Pydantic 模型

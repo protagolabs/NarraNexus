@@ -21,7 +21,7 @@ stub: false
 
 ## 和外部目录的协作
 
-**被 ModuleService 管理**：通过 `module/__init__.py` 的 `MODULE_MAP` 注册，ModuleService 按需实例化。
+**被 ModuleService 管理**：通过 `module/__init__.py` 的 `module_registry` 注册，ModuleService 按需实例化。
 
 **调用 message_bus/**：`_message_bus_mcp_tools.py` 里的每个工具函数都接受一个 `MessageBusService` 实例参数，在运行时注入 `LocalMessageBus`。这保持了工具函数对具体实现的解耦。
 

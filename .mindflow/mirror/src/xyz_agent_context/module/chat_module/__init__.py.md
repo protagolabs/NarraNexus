@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/__init__.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -15,4 +15,8 @@ backend 孪生路由 [[chat_history]]、测试 import 包而非私有叶子（�
 叶子，正是为了让这个「单写入方」seam 能被 `bootstrap/`/agent_runtime 侧看见地调用（铁律 #3：
 `bootstrap/` 不 import chat_module 私有 `_*_impl`）。
 
-故意不 re-export ChatModule 类（MODULE_MAP 从 .chat_module 引，避 init-order 耦合）。
+故意不 re-export ChatModule 类（module_registry 从 .chat_module 引，避 init-order 耦合）。
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

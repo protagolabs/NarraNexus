@@ -25,3 +25,7 @@ The descriptor now declares generic storage like every other channel: the platfo
 ## 2026-09-04 · no `agent_instance` meta (batch 5b.2)
 
 The module declares its agent-level instance in its own `ModuleConfig`.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

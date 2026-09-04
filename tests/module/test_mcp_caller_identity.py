@@ -323,11 +323,11 @@ def test_every_registered_module_resolves_caller_identity():
     """
     import inspect as _inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
     gaps: list[str] = []
     total = 0
-    for name, cls in sorted(MODULE_MAP.items()):
+    for name, cls in sorted(module_registry.items()):
         module = cls(agent_id=REAL, user_id="u", database_client=None)
         server = module.build_instrumented_mcp_server()
         if server is None:

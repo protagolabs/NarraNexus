@@ -7,7 +7,7 @@
 Data-access layer (NOT a Module) providing narrative-level Memory storage.
 Historically this lived under module/event_memory_module/ and subclassed
 XYZBaseModule, which made ChatModule import a sibling "module" — a false
-iron-rule-#3 violation, since it was never registered in MODULE_MAP and
+iron-rule-#3 violation, since it was never registered in module_registry and
 its Module hooks were never scheduled. It is in fact pure data access, so
 it now lives in repository/ as EventMemoryRepository with a plain
 constructor (no Module base, no get_config/mcp_server).

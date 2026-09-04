@@ -28,7 +28,7 @@ miloco-miot 是因为其 License 禁商用/软件(设计记录为作者本地)�
 
 ## 上下游
 
-- **被谁用**:MODULE_MAP(`module/__init__`)、module_runner(端口 7810)。
+- **被谁用**:module_registry(`module/__init__`)、module_runner(端口 7810)。
 - **依赖**:`_home_assistant_impl/{ha_client,binding}`、`prompts`、`repository`(经 binding)。
 - **MVP 限制**:一 instance 一绑定(Agent 级)。云端多租户 per-user 绑定是 Phase-2(见 spec)。
 

@@ -538,11 +538,14 @@ class ArenaProvisioningService:
             InstanceAwarenessRepository,
         )
 
+        from xyz_agent_context.module import module_by_role
+
+        awareness_module = module_by_role("awareness")
         rows = await InstanceRepository(self.db).get_by_agent(
-            agent_id, module_class="AwarenessModule", is_public=True
-        )
+            agent_id, module_class=awareness_module, is_public=True
+        ) if awareness_module else []
         if not rows:
-            raise RuntimeError(f"no AwarenessModule instance for {agent_id}")
+            raise RuntimeError(f"no awareness module instance for {agent_id}")
         await InstanceAwarenessRepository(self.db).upsert(rows[0].instance_id, awareness_text)
 
     async def _create_paused_jobs(self, agent_id: str, user_id: str) -> list:

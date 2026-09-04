@@ -945,13 +945,13 @@ async def _confirm_inner(
                             written_summary["events_created"] += 1
 
         # instances. Filter out rows whose module_class isn't registered in
-        # MODULE_MAP on this side: importing them produces zombie rows the
+        # module_registry on this side: importing them produces zombie rows the
         # runtime would log "Unknown module type X, skipping" against on every
         # agent turn (and they'd be dead weight forever, since cascade-delete
         # only fires when the agent itself is deleted). Cascade-drop their
         # instance-scoped children (jobs / social / memory / narrative_links)
         # by remembering the skipped instance_ids.
-        from xyz_agent_context.module import MODULE_MAP
+        from xyz_agent_context.module import module_registry
         skipped_instance_ids: set = set()
         skipped_by_class: Dict[str, int] = {}
         inst_dir = adir / "instances"
@@ -964,7 +964,7 @@ async def _confirm_inner(
                         continue
                     irec = json.loads(ifile.read_text(encoding="utf-8"))
                     mclass = irec.get("module_class") or kdir.name
-                    if mclass not in MODULE_MAP:
+                    if mclass not in module_registry:
                         skipped_instance_ids.add(irec.get("instance_id") or "")
                         skipped_by_class[mclass] = skipped_by_class.get(mclass, 0) + 1
                         continue

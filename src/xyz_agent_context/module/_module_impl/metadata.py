@@ -62,9 +62,9 @@ def get_all_modules_metadata() -> str:
 
 def get_available_module_names() -> List[str]:
     """Every registered module class name."""
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
-    return list(MODULE_MAP)
+    return list(module_registry)
 
 
 def get_persistent_modules() -> List[str]:

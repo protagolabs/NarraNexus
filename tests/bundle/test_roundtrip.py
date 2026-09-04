@@ -391,7 +391,7 @@ async def test_unknown_module_class_skipped_with_warning(db_client, tmp_workspac
     rogue_inst = "matrix_unkclasinst"
     await db_client.insert("module_instances", {
         "instance_id": rogue_inst,
-        "module_class": "MatrixModule",  # NOT in MODULE_MAP
+        "module_class": "MatrixModule",  # NOT in module_registry
         "agent_id": aid,
         "user_id": user_id,
         "is_public": 0,

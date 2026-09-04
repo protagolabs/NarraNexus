@@ -2,7 +2,7 @@
 @file_name: test_disable_builtin_degrades_cleanly.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: Disabling any builtin module plugin through registry.json removes its row everywhere (MODULE_MAP, MCP ports, always-load) and the rest keeps booting; protected builtins cannot be disabled.
+@description: Disabling any builtin module plugin through registry.json removes its row everywhere (module_registry, MCP ports, always-load) and the rest keeps booting; protected builtins cannot be disabled.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import ENV_PLUGIN_HOME
 from narranexus.kernel.plugins.registries import Registries
 from xyz_agent_context.module._module_impl.loader import ModuleLoader
-from xyz_agent_context.module._module_map import ModuleMapView
+from xyz_agent_context.module.registry import ModuleRegistry
 from xyz_agent_context.module.contributions import MODULES_SLOT, MODULE_SPECS, register_all
 
 DISABLEABLE = [s for s in MODULE_SPECS if s.plugin_id != "builtin.nexus_plugins_module"]
@@ -39,7 +39,7 @@ def _boot_with_override(tmp_path: Path, monkeypatch, plugin_id: str, enabled: bo
 def test_disable_builtin_degrades_cleanly(spec, tmp_path: Path, monkeypatch):
     regs, report = _boot_with_override(tmp_path, monkeypatch, spec.plugin_id, enabled=False)
     assert report.disabled_builtins == (spec.plugin_id,)
-    view = ModuleMapView(MODULES_SLOT, regs)
+    view = ModuleRegistry(regs)
     assert spec.class_name not in view
     others = {s.class_name for s in MODULE_SPECS if s.plugin_id != spec.plugin_id}
     assert others <= set(view)  # every other module still loads
@@ -51,12 +51,12 @@ def test_disable_builtin_degrades_cleanly(spec, tmp_path: Path, monkeypatch):
 def test_protected_builtin_ignores_the_override(tmp_path: Path, monkeypatch):
     regs, report = _boot_with_override(tmp_path, monkeypatch, "builtin.nexus_plugins_module", enabled=False)
     assert report.disabled_builtins == ()
-    assert "NexusPluginsModule" in ModuleMapView(MODULES_SLOT, regs)
+    assert "NexusPluginsModule" in ModuleRegistry(regs)
 
 
 def test_override_enabled_true_is_a_no_op(tmp_path: Path, monkeypatch):
     regs, report = _boot_with_override(tmp_path, monkeypatch, "builtin.chat", enabled=True)
-    assert report.disabled_builtins == () and "ChatModule" in ModuleMapView(MODULES_SLOT, regs)
+    assert report.disabled_builtins == () and "ChatModule" in ModuleRegistry(regs)
 
 
 TRIGGER_OWNERS = [s for s in DISABLEABLE if s.channel or s.plugin_id == "builtin.job"]

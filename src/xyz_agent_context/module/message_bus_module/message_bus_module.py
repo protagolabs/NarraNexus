@@ -160,6 +160,7 @@ class MessageBusModule(XYZBaseModule):
     def get_config() -> ModuleConfig:
         return ModuleConfig(
             name="MessageBusModule",
+            discovery_hidden=True,
             agent_instance=ModuleAgentInstance(description="Agent-to-agent communication via message bus", keywords=["message_bus", "communication", "messaging", "agent"], topic_hint="Inter-agent messaging via message bus"),
             default=True,
             instance_prefix="bus",

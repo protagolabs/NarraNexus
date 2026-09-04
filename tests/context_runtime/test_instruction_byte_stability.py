@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
+from xyz_agent_context.module import module_registry
 from xyz_agent_context.schema.context_schema import ContextData
 
 # ContextData fields that legitimately differ between two turns of the SAME
@@ -115,7 +115,7 @@ _KNOWN_DRIFT: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize("module_name", sorted(MODULE_MAP))
+@pytest.mark.parametrize("module_name", sorted(module_registry))
 @pytest.mark.asyncio
 async def test_module_instruction_is_byte_stable_across_volatile_state(
     module_name, request
@@ -134,7 +134,7 @@ async def test_module_instruction_is_byte_stable_across_volatile_state(
         )
 
     try:
-        module = MODULE_MAP[module_name](agent_id=_BASE["agent_id"])
+        module = module_registry[module_name](agent_id=_BASE["agent_id"])
         a = await module.contribute_instructions(_low())
         b = await module.contribute_instructions(_high())
     except (KeyError, AttributeError, TypeError) as e:
@@ -162,7 +162,7 @@ async def test_the_guard_actually_catches_a_drift_source():
     # Subclass a module the guard already constructs successfully, so this
     # exercises the SAME rendering path the parametrized cases use — only the
     # template differs.
-    class _Drifting(MODULE_MAP["ChatModule"]):  # type: ignore[misc]
+    class _Drifting(module_registry["ChatModule"]):  # type: ignore[misc]
         """A module whose template interpolates a volatile field."""
 
     drifting = _Drifting(agent_id="agent_stability")

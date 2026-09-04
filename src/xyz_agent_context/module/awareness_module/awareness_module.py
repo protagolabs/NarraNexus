@@ -60,6 +60,7 @@ class AwarenessModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="AwarenessModule",
+            discovery_hidden=True,
             agent_instance=ModuleAgentInstance(description="Agent self-awareness and cognitive state management", keywords=["awareness", "self", "cognition"], topic_hint="Agent's self-cognition, goals and state"),
             role="awareness",
             base=True,

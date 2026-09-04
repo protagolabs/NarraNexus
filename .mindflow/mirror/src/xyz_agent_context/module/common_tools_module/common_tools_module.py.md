@@ -167,7 +167,7 @@ agent (two ways to do the same thing).
 ## Upstream / Downstream
 
 Upstream:
-- `xyz_agent_context.module.__init__.MODULE_MAP` registers the module
+- `xyz_agent_context.module.__init__.module_registry` registers the module
 - `xyz_agent_context.module.module_runner` instantiates the MCP server
   on port 7807 (single shared process for all agents)
 - `xyz_agent_context.context_runtime.context_runtime` calls

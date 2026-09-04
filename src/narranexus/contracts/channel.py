@@ -5,7 +5,7 @@
 @description: Contract for IM channels (slot ``ingress.channels``) — one descriptor per channel.
 
 A channel used to be six scattered facts: a trigger class in the trigger
-map, a module in MODULE_MAP, a credential manager + bind service in the
+map, a module in module_registry, a credential manager + bind service in the
 data-access ``CHANNELS`` table, a ``WorkingSource`` enum member, a
 message-source handler and a hard-coded frontend row. ``ChannelDescriptor``
 is that record as data: the platform reads every one of those tables from

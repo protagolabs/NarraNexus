@@ -17,7 +17,7 @@ module 在不同 narrative 下的状态。
 
 2026-05-29 之前它叫 `EventMemoryModule`，住在 `module/event_memory_module/`，
 继承 `XYZBaseModule`。这让 ChatModule `import` 了一个兄弟「module」，表面违反
-铁律 #3。但它**从来不是真 module**：不在 MODULE_MAP、没有 MCP server、它的
+铁律 #3。但它**从来不是真 module**：不在 module_registry、没有 MCP server、它的
 Module hooks 从不被调度。本质就是数据访问层，所以移到 repository/、去掉 Module
 基类、改名 EventMemoryRepository、用普通构造函数注入 db client。
 ChatModule 现在从 repository 层依赖它（modules → repository 是允许方向）。
@@ -33,3 +33,7 @@ ChatModule 现在从 repository 层依赖它（modules → repository 是允许�
 - SQL 用 MySQL 方言（`information_schema`、`ON DUPLICATE KEY`）；本地 SQLite 下
   这些表路径可能不可用——属于历史遗留，narrative 级 module 记忆在纯 SQLite 本地
   模式下未必启用。
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

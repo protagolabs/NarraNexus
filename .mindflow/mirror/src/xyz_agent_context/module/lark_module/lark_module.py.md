@@ -442,7 +442,7 @@ sender so other modules can send Lark messages on behalf of an agent.
   `_sender_registered` flag ensures the sender is registered exactly
   once across all LarkModule instances.
 - **`get_config()` is `@staticmethod`** — matches the framework contract
-  where `MODULE_MAP` may call it without an instance.
+  where `module_registry` may call it without an instance.
 - **Static instruction fragments as module-level constants**
   (`_NO_BOT_INSTRUCTION`, `_THREE_CLICK_BACKGROUND`, `_IRON_RULES`):
   wording stays identical across turns, and cheap f-string concatenation
@@ -450,7 +450,7 @@ sender so other modules can send Lark messages on behalf of an agent.
 
 ## Upstream / downstream
 
-- **Upstream**: `module/__init__.py` (MODULE_MAP), `module_service.py`.
+- **Upstream**: `module/__init__.py` (module_registry), `module_service.py`.
 - **Downstream**: `_lark_mcp_tools.py` (tool registration),
   `_lark_credential_manager.py` (`current_click_stage` drives matrix;
   `gather` reads `permission_state`),

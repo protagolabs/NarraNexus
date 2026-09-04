@@ -259,9 +259,9 @@ def test_every_module_expressive_signature_accepts_ctx_data():
     where fail-open silently drops that module's whole declaration."""
     import inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
-    for name, cls in MODULE_MAP.items():
+    for name, cls in module_registry.items():
         fn = cls.expressive_tools
         params = list(inspect.signature(fn).parameters.values())
         assert any(
@@ -345,9 +345,9 @@ def test_every_module_disallow_signature_accepts_ctx_data():
     """
     import inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
-    for name, cls in MODULE_MAP.items():
+    for name, cls in module_registry.items():
         hook = getattr(cls, "disallowed_tools", None)
         if hook is None:
             continue
@@ -439,7 +439,7 @@ async def test_a_stale_disallow_signature_is_logged_loudly(monkeypatch, caplog):
     consequence is worse here: suppression that fails open leaves BOTH send verbs
     on the desk, which on a patrol turn is a desk whose own prompt forbids them.
 
-    `test_every_module_disallow_signature_accepts_ctx_data` covers `MODULE_MAP`;
+    `test_every_module_disallow_signature_accepts_ctx_data` covers `module_registry`;
     this covers the case that guard cannot see — a module class that never
     reaches the map.
     """

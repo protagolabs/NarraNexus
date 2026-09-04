@@ -15,7 +15,7 @@ stub: false
 
 真正的代价在铁律 #3：`PUT /api/auth/agents/{id}` 和 manyfold 的 provisioning
 是核心平台路由，它们 import 了一个**可热插拔的 Module**。把 AwarenessModule 从
-`MODULE_MAP` 摘掉，不是"少一个功能"，是 route 模块 import 时就 ImportError ——
+`module_registry` 摘掉，不是"少一个功能"，是 route 模块 import 时就 ImportError ——
 **后端起不来**。而且当时 mirror 里那句「别再新增写入方，要写就调这个函数」等于
 用文档把这个反向依赖固化了。第三轮独立审查指出来的。
 

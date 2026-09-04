@@ -50,5 +50,5 @@ def test_no_module_owns_a_port():
     from xyz_agent_context.module.contributions import MODULE_SPECS
 
     assert not any(hasattr(spec, "mcp_port") for spec in MODULE_SPECS)
-    for name in mod.MODULE_MAP:
-        assert not hasattr(mod.MODULE_MAP[name], "mcp_port"), name
+    for name in mod.module_registry:
+        assert not hasattr(mod.module_registry[name], "mcp_port"), name

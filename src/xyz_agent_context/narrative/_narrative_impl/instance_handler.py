@@ -164,9 +164,9 @@ class InstanceHandler:
                 logger.info(f"Activated blocked instance: {inst_id}")
 
                 # 2. Let the module react (a task module reschedules its work)
-                from xyz_agent_context.module import MODULE_MAP
+                from xyz_agent_context.module import module_registry
 
-                module_class = MODULE_MAP.get(inst.module_class)
+                module_class = module_registry.get(inst.module_class)
                 if module_class is not None:
                     await module_class.on_instance_activated(inst_id, db_client)
 

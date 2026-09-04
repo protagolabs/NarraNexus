@@ -76,6 +76,8 @@ class ModuleConfig(BaseModel):
     role: str = ""  # platform-facing role the orchestration layer looks up ("chat", "awareness", "social_network", "jobs")
     always_available_tools: bool = False  # keep a virtual instance so the module's MCP tools stay reachable even when unselected
     context_cost_hint: Optional[int] = None  # order of magnitude of prompt tokens this module adds
+    discovery_hidden: bool = False  # every agent has it, so it says nothing about what an agent can DO for a peer (bus discovery)
+    long_running_instances: bool = False  # in_progress instances are expected to run long (dashboard never marks them stale)
     display: Optional[ModuleDisplay] = None
     decision: Optional[ModuleDecisionMeta] = None
     agent_instance: Optional[ModuleAgentInstance] = None  # created (is_public) for every agent when declared

@@ -102,3 +102,7 @@ bus 钩子（[[message_bus_module]]，现在只是**幂等兜底**）。注册�
 - "描述算不算没设置"的判断：[[entity_schema]] 的 `is_agent_description_unset`
 - 读这张表的：`LocalMessageBus.search_agents` / `get_agent_profile`
 - 测试：`tests/message_bus/test_agent_discovery_sync.py`
+
+## 2026-09-04 · no module list (batch 5d)
+
+`_uninteresting(module_class)` reads `ModuleConfig.discovery_hidden` instead of the frozen three-name set.

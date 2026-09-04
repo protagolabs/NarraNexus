@@ -189,7 +189,7 @@ class ChannelModuleBase(XYZBaseModule):
         """Remove all per-agent state owned by this channel.
 
         Called by ``backend/routes/auth.py:delete_agent`` for each
-        ``ChannelModuleBase`` subclass in MODULE_MAP — single registry-
+        ``ChannelModuleBase`` subclass in module_registry — single registry-
         driven cleanup walk replaces what used to be inline channel-
         specific blocks in ``delete_agent``. Returns ``{table_name: n,
         ...}`` for the caller to merge into its stats dict.

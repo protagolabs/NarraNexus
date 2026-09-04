@@ -128,3 +128,7 @@ network to Arena); everything else is sub-200ms. Total cold provision ≈ 0.7s.
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `_create_paused_jobs` obtains `JobInstanceService` through the `jobs.instances` service.
+
+## 2026-09-04 · awareness by role (batch 5d)
+
+`_set_awareness` targets the module declaring role "awareness".

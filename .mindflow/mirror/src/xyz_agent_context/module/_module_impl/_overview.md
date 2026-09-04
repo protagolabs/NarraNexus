@@ -25,7 +25,7 @@ last_verified: 2026-04-10
 
 ## 和外部目录的协作
 
-- `module/__init__.py` 的 `MODULE_MAP`：`instance_factory.py` 通过这个注册表把字符串 `"JobModule"` 映射到实际类；`loader.py` 在 `_get_all_module_classes()` 里遍历它
+- `module/__init__.py` 的 `module_registry`：`instance_factory.py` 通过这个注册表把字符串 `"JobModule"` 映射到实际类；`loader.py` 在 `_get_all_module_classes()` 里遍历它
 - `module/base.py` 的 `ModuleConfig`：`metadata.py` 通过 `get_config()` 收集每个 Module 的能力描述，注入到 LLM 实例决策提示词里
 - `services/InstanceSyncService`：`instance_decision.py` 里的 `task_key → instance_id` 转换通过 `InstanceSyncService` 完成——`task_key` 是 LLM 输出的语义标识符，`InstanceSyncService` 负责查找或创建对应的真实 `instance_id`
 - `repository/InstanceRepository`：`loader.py` 的 `_load_current_instances()` 直接查 DB 取当前活跃实例

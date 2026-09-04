@@ -32,7 +32,7 @@ WARNING——**三句全是假的**，那个 agent 根本没有身份记录。�
 
 1. **延迟导入的隔离效果被我说大了**。实测 `from xyz_agent_context.module import
    awareness_module` 会连带拉进 **22 个兄弟模块包**（Python 必然先导入父包，
-   父包 `__init__` 建 MODULE_MAP）。延迟买到的是**归属**——本包与其上的路由不再
+   父包 `__init__` 建 module_registry）。延迟买到的是**归属**——本包与其上的路由不再
    持有对 Module 层的模块作用域依赖——**不是** import 期隔离。docstring 已改准。
    这是本次第三次把断言写得比事实强。
 2. **`not_applied` 那一支现在也刷名录**。dev 上的承诺是「每个被接受的请求都刷」，

@@ -86,6 +86,7 @@ class BasicInfoModule(XYZBaseModule):
         """
         return ModuleConfig(
             name="BasicInfoModule",
+            discovery_hidden=True,
             agent_instance=ModuleAgentInstance(description="Basic information and environment context", keywords=["basic", "info", "time", "context"], topic_hint="Basic information, time, environment context"),
             base=True,
             default=True,

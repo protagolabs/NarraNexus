@@ -242,3 +242,7 @@ not each against a constant.
 ## 2026-09-04 · data-access providers (batch 3c.4)
 
 `DirectStore` no longer imports any builtin module: each capability method resolves its body by name from `agent.capabilities.data_access` (`_handler`, on the injected registries or the process kernel registries) and passes the db client first. What stays here is platform policy — the parity rejects/clamps, the never-raise wrapping per failure shape (`_dict_call`, `_social`, `_job_write`), `_awareness_instance_id` (a platform InstanceRepository query the awareness provider receives the result of) and the message constants — plus `_unavailable_msg` for a provider that is absent because its builtin is disabled. `HttpStore` is untouched.
+
+## 2026-09-04 · awareness by role (batch 5d)
+
+The awareness instance lookup asks `module_by_role("awareness")`; None when that plugin is disabled.

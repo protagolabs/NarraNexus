@@ -125,3 +125,7 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its agent-level instance (batch 5b.2)
 
 `agent_instance` in `get_config()` (description / keywords / topic hint) replaces the factory's or descriptor's copy; the InstanceFactory creates it for every agent.
+
+## 2026-09-04 · declares its discovery / long-run flag (batch 5d)
+
+`discovery_hidden` (awareness / basic info / message bus) or `long_running_instances` (skills) moved from platform lists into `get_config()`.

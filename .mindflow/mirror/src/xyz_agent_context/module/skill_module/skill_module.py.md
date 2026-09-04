@@ -181,3 +181,7 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its platform metadata (batch 5b)
 
 `get_config()` is static and carries what the platform used to table about this module (default / base / always-load membership, instance prefix, role, display, decision metadata as applicable).
+
+## 2026-09-04 · declares its discovery / long-run flag (batch 5d)
+
+`discovery_hidden` (awareness / basic info / message bus) or `long_running_instances` (skills) moved from platform lists into `get_config()`.

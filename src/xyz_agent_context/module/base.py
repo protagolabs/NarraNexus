@@ -296,7 +296,7 @@ MCPs: {mcp_tools}
     # does without hard-coding WHICH concrete class does it (e.g. avoid
     # `type(m).__name__ == "ChatModule"`). A capability flag is a classmethod
     # so it can be queried from both a live module object and a class-name
-    # string (via MODULE_MAP) — see module.module_class_provides_chat_history.
+    # string (via module_registry) — see module.module_class_provides_chat_history.
 
     @classmethod
     def provides_chat_history(cls) -> bool:

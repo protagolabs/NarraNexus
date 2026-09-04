@@ -35,11 +35,9 @@ class CapabilityService:
     # ---- registry views ----------------------------------------------------
 
     def _module_map(self):
-        from xyz_agent_context.module import MODULE_MAP
-        from xyz_agent_context.module._module_map import ModuleMapView
-        from xyz_agent_context.module.contributions import MODULES_SLOT
+        from xyz_agent_context.module.registry import ModuleRegistry, module_registry
 
-        return MODULE_MAP if self._registries is None else ModuleMapView(MODULES_SLOT, self._registries)
+        return module_registry if self._registries is None else ModuleRegistry(self._registries)
 
     def owner_of(self, module_class: str) -> str:
         return self._module_map().owner_of(module_class)

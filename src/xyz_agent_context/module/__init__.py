@@ -58,33 +58,17 @@ from ._mcp_identity import (
 # =============================================================================
 
 # Module mapping table.
-from xyz_agent_context.module.contributions import MODULES_SLOT, register_all as _register_module_contributions
-from xyz_agent_context.module._module_map import ModuleMapView
+from xyz_agent_context.module.contributions import register_all as _register_module_contributions
+from xyz_agent_context.module.registry import ModuleRegistry, module_registry
 
 # All builtin modules register themselves into the kernel registry
 # (agent.capabilities.modules); the manifests in narranexus.kernel.plugins.builtins
-# name the same Contribution objects. MODULE_MAP is a live VIEW of that registry:
+# name the same Contribution objects. ``module_registry`` is the live VIEW of
+# that registry (plugin platform batch 5d: there is no module_registry table and the
+# package re-exports no module class — import a module from its own package):
 # a builtin disabled through registry.json's builtin_overrides disappears from
-# it (and from the derived MCP port / always-load tables) at boot.
+# it, and from every derived view, at boot.
 _register_module_contributions()
-MODULE_MAP = ModuleMapView(MODULES_SLOT)
-
-_MODULE_CLASS_NAMES = frozenset(MODULE_MAP._registry().names())
-
-
-def __getattr__(name: str):
-    """``from xyz_agent_context.module import ChatModule`` keeps working, lazily.
-
-    The platform no longer imports any builtin module at import time (spec
-    §20 batch 3 exit criterion); the class is resolved through the registry
-    view the first time a caller asks for it.
-    """
-    if name in _MODULE_CLASS_NAMES:
-        try:
-            return MODULE_MAP[name]
-        except KeyError:
-            raise AttributeError(f"module {name!r} is disabled or failed to import") from None
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def module_config(module_class: str) -> "Optional[ModuleConfig]":
@@ -94,13 +78,13 @@ def module_config(module_class: str) -> "Optional[ModuleConfig]":
     default / base / always-load sets, instance prefix, role) — a plugin module
     is described exactly like a builtin because it declares the same fields.
     """
-    cls = MODULE_MAP.get(module_class)
+    cls = module_registry.get(module_class)
     return cls.get_config() if cls else None
 
 
 def module_configs() -> "dict[str, ModuleConfig]":
     """Every registered module's declaration, keyed by class name."""
-    return {name: cls.get_config() for name, cls in MODULE_MAP.items()}
+    return {name: cls.get_config() for name, cls in module_registry.items()}
 
 
 def is_task_module(module_class: str) -> bool:
@@ -128,11 +112,11 @@ def module_class_provides_chat_history(module_class: str) -> bool:
 
     The pipeline stores instances by `module_class` string, so it can't call
     a method on a live object. This maps the stored name to the module's
-    `provides_chat_history()` capability flag via MODULE_MAP, letting the
+    `provides_chat_history()` capability flag via module_registry, letting the
     orchestration layer find the chat-bearing module without hard-coding
     `== "ChatModule"`. Unknown names → False.
     """
-    cls = MODULE_MAP.get(module_class)
+    cls = module_registry.get(module_class)
     return bool(cls and cls.provides_chat_history())
 
 
@@ -185,25 +169,9 @@ __all__ = [
     # ===== Base class =====
     "XYZBaseModule",
 
-    # ===== Concrete modules =====
-    "MemoryModule",
-    "AwarenessModule",
-    "BasicInfoModule",
-    "ChatModule",
-    "SocialNetworkModule",
-    "JobModule",
-    "SkillModule",
-    "MessageBusModule",
-    "LarkModule",
-    "SlackModule",
-    "TelegramModule",
-    "WeChatModule",
-    "NarramessengerModule",
-    "DiscordModule",
-    "CommonToolsModule",
-
     # ===== Module mapping =====
-    "MODULE_MAP",
+    "module_registry",
+    "ModuleRegistry",
     "module_class_provides_chat_history",
     "module_config",
     "module_configs",

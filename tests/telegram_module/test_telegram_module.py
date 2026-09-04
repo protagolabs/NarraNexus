@@ -3,12 +3,12 @@
 @date: 2026-05-09
 @description: Tests for TelegramModule — config metadata, prompt
 branching across owner trust states, extra_data shape, and registration
-in MODULE_MAP.
+in module_registry.
 
 Why this file exists:
     The module is the surface the orchestrator + frontend talk to. Its
     contract: priority=7 capability, ctx_data_key=telegram_info,
-    register-once in MODULE_MAP. The instructions branch off three
+    register-once in module_registry. The instructions branch off three
     owner-trust states (no owner / owner match / owner mismatch) which
     must each render distinct guidance to the agent.
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
+from xyz_agent_context.module import module_registry
 from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
@@ -66,8 +66,8 @@ def test_get_config_returns_capability_module_with_priority_seven():
 
 
 def test_module_map_registers_telegram_module():
-    assert "TelegramModule" in MODULE_MAP
-    assert MODULE_MAP["TelegramModule"] is TelegramModule
+    assert "TelegramModule" in module_registry
+    assert module_registry["TelegramModule"] is TelegramModule
 
 
 # ── build_extra_data ───────────────────────────────────────────────────

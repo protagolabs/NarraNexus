@@ -114,7 +114,7 @@ origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第�
 
 签名扫尾漏了本类:基类/调用点已改带参,本覆写仍是 (self)-only →
 每次调用 TypeError → 收集点 fail-open 吞掉 → owner chat 默认回复工具
-声明静默清零(NexusPower 路径致哑)。已补参;并新增 MODULE_MAP 全量
+声明静默清零(NexusPower 路径致哑)。已补参;并新增 module_registry 全量
 签名守卫测试 + 收集点对 TypeError 单独 logger.error(签名漂移是接线
 bug,不许长得像"某模块声明崩了,无所谓")。
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)

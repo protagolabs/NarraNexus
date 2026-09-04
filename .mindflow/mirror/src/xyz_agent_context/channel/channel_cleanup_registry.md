@@ -11,7 +11,7 @@ This is a **concept** mirror md — there is no separate
 ``channel_cleanup_registry.py``. The "registry" lives implicitly as a
 virtual method (``cleanup_for_agent``) on ``ChannelModuleBase`` plus
 the dynamic walk in ``backend/routes/auth.py:delete_agent`` that
-iterates every ``ChannelModuleBase`` subclass in ``MODULE_MAP``. The
+iterates every ``ChannelModuleBase`` subclass in ``module_registry``. The
 combination IS the registry.
 
 This pattern was added in Phase 4 (Task 14) to fix Phase 3 lesson #4:
@@ -46,8 +46,8 @@ function. Registry-driven walk replaces them.
   Lark predates the ``channel_*_credentials`` naming convention; its
   table is just ``lark_credentials``. The hook lets each channel
   declare its table name without forcing migration.
-- **Walks ``MODULE_MAP``, not a separate registry list.**
-  ``MODULE_MAP`` is the ground truth for "which Modules exist". The
+- **Walks ``module_registry``, not a separate registry list.**
+  ``module_registry`` is the ground truth for "which Modules exist". The
   walk filters with ``issubclass(cls, ChannelModuleBase)``. No
   duplicate registry that could drift out of sync with the module
   loader.
@@ -72,7 +72,7 @@ function. Registry-driven walk replaces them.
   workspace dir teardown).
 - **Inherited unchanged by**: ``SlackModule``, ``TelegramModule``.
 - **Walked by**: ``backend/routes/auth.py:delete_agent`` (loop over
-  ``MODULE_MAP`` filtered to ``ChannelModuleBase`` subclasses).
+  ``module_registry`` filtered to ``ChannelModuleBase`` subclasses).
 
 ## Gotchas
 

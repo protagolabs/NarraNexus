@@ -72,14 +72,14 @@ from loguru import logger
 
 from xyz_agent_context.schema import is_agent_description_unset
 
-# Module classes whose presence says nothing about what an agent can DO for a
-# peer — every agent has them, so advertising them is pure noise in a
-# capability search.
-_UNINTERESTING_MODULE_CLASSES = frozenset({
-    "BasicInfoModule",
-    "AwarenessModule",
-    "MessageBusModule",
-})
+def _uninteresting(module_class: str) -> bool:
+    """A module whose presence says nothing about what an agent can DO for a
+    peer — every agent has it — declares ``discovery_hidden``; advertising it
+    would be pure noise in a capability search."""
+    from xyz_agent_context.module import module_config
+
+    cfg = module_config(module_class)
+    return bool(cfg and cfg.discovery_hidden)
 
 
 def _module_capability_token(module_class: str) -> str:
@@ -123,7 +123,7 @@ async def collect_agent_capabilities(db, agent_id: str) -> List[str]:
         )
         for row in rows or []:
             module_class = (row.get("module_class") or "").strip()
-            if not module_class or module_class in _UNINTERESTING_MODULE_CLASSES:
+            if not module_class or _uninteresting(module_class):
                 continue
             token = _module_capability_token(module_class)
             if token:

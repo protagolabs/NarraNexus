@@ -22,7 +22,7 @@ channel entrypoint must have a registered dedicated-trigger handler.
 from pathlib import Path
 
 # Importing the module package registers every module's MessageSourceHandler
-# (module/__init__.py builds MODULE_MAP by importing all module packages).
+# (module/__init__.py builds module_registry by importing all module packages).
 import xyz_agent_context.module  # noqa: F401
 from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
 from xyz_agent_context.message_bus.message_bus_trigger import im_channel_prefixes

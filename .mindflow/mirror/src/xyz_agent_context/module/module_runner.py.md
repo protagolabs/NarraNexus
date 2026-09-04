@@ -6,7 +6,7 @@ last_verified: 2026-09-04
 ## 2026-09-04（批 3c.1）— 端口表从贡献表派生
 
 `CORE_MCP_MODULES`/`CORE_MODULE_PORTS` 由 `MODULE_SPECS` 计算（名字保留：port preflight 测试与调用方 import 它们）；
-`all_mcp_modules()`/`all_module_ports()` 只列 MODULE_MAP 里还在的（禁用感知）。三条直接类 import 删除。
+`all_mcp_modules()`/`all_module_ports()` 只列 module_registry 里还在的（禁用感知）。三条直接类 import 删除。
 
 ## 2026-09-03（批 2f.1）— `NexusPluginsModule` 进 `CORE_MCP_MODULES`，端口 7811
 
@@ -106,7 +106,7 @@ mcp runner stands up its SSE server (the narrative-awareness tools — see
 ## 上下游关系
 
 - **被谁用**：`run.sh` / `Makefile` 通过 `python -m xyz_agent_context.module.module_runner mcp` 直接调用；`Tauri desktop` 通过 sidecar 启动；`backend/main.py` 在启动时可选调用
-- **依赖谁**：`MODULE_MAP`（`__init__.py`）提供可用模块；`MODULE_PORTS` 字典持有各模块的固定端口；`chat_module/chat_trigger.py` 提供 A2A API Server；MCP 事件循环内 `XYZBaseModule.get_mcp_db_client()` lazy 建池
+- **依赖谁**：`module_registry`（`__init__.py`）提供可用模块；`MODULE_PORTS` 字典持有各模块的固定端口；`chat_module/chat_trigger.py` 提供 A2A API Server；MCP 事件循环内 `XYZBaseModule.get_mcp_db_client()` lazy 建池
 
 ## 设计决策
 
@@ -140,3 +140,7 @@ mcp runner stands up its SSE server (the narrative-awareness tools — see
 ## 2026-09-04 · one MCP host, every module mounted by path (batch 5a)
 
 `run_mcp_servers_async` builds ONE uvicorn server (`_build_host_server`) on `MCP_PORT` (`module/base.py mcp_port()`, default 7801): a Starlette host app that mounts each module's dual-transport app (`_build_module_app`: FastMCP `sse_app` routes for Claude Code + `streamable_http_app` routes for Codex, the streamable lifespan kept) at `/mcp/<server_name>` — the `server_name` the module advertises in its `MCPServerConfig` — plus `GET /mcp/healthz` (mounted servers) and the caller-identity middleware once at the host. The host lifespan enters every mounted app's lifespan (Starlette does not run a Mount's). The SSE transport is mount-aware (`root_path`), which is what lets one port serve every module. Gone: `CORE_MODULE_PORTS`, `MODULE_PORTS`, `all_module_ports`, the port half of `discover_channel_modules`, the multiprocessing modes (`run_all_mcp_servers`, `_run_single_mcp`, `run_mcp_server`) and `_is_single_process_mode` — single loop was already the production shape and the reason per-process ports existed is gone. `run_module` runs the A2A API process + the host on its own loop. Shutdown: one SIGINT/SIGTERM handler stops the host (the port always releases).
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

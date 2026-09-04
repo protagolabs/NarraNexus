@@ -2,7 +2,7 @@
 @file_name: test_module_registry_view.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: MODULE_MAP is a live view of the agent.capabilities.modules registry; the module facade resolves classes lazily; derived tables follow it.
+@description: module_registry is a live view of the agent.capabilities.modules registry; the module facade resolves classes lazily; derived tables follow it.
 """
 from __future__ import annotations
 
@@ -12,22 +12,26 @@ import pytest
 
 from narranexus.kernel.plugins.builtins import builtin_manifests
 from narranexus.kernel.plugins.registries import Registries
-from xyz_agent_context.module import MODULE_MAP
-from xyz_agent_context.module._module_map import ModuleMapView
+from xyz_agent_context.module import module_registry
+from xyz_agent_context.module.registry import ModuleRegistry
 from xyz_agent_context.module.contributions import MODULES_SLOT, MODULE_SPECS, register_all
 
 
 def test_module_map_lists_every_builtin_module_and_meta():
-    names = set(MODULE_MAP)
-    assert {s.class_name for s in MODULE_SPECS} == names and "ChatModule" in MODULE_MAP
-    assert MODULE_MAP["SkillModule"].get_config().always_load is True  # the module declares it (batch 5b)
-    assert MODULE_MAP.meta("LarkModule")["channel"] is True and MODULE_MAP.owner_of("LarkModule") == "builtin.channels.lark"
-    assert MODULE_MAP["ChatModule"].__name__ == "ChatModule"
+    names = set(module_registry)
+    assert {s.class_name for s in MODULE_SPECS} == names and "ChatModule" in module_registry
+    assert module_registry["SkillModule"].get_config().always_load is True  # the module declares it (batch 5b)
+    assert module_registry.meta("LarkModule")["channel"] is True and module_registry.owner_of("LarkModule") == "builtin.channels.lark"
+    assert module_registry["ChatModule"].__name__ == "ChatModule"
 
 
-def test_facade_resolves_classes_lazily():
+def test_package_re_exports_no_module_class():
+    """Batch 5d: the registry is the only way to name a module — the package
+    neither imports a builtin nor re-exports its class."""
     mod = importlib.import_module("xyz_agent_context.module")
-    assert mod.ChatModule is MODULE_MAP["ChatModule"]
+    assert module_registry["ChatModule"].__name__ == "ChatModule"
+    with pytest.raises(AttributeError):
+        _ = mod.ChatModule
     with pytest.raises(AttributeError):
         _ = mod.NoSuchModule
 
@@ -38,7 +42,7 @@ def test_every_module_has_a_builtin_manifest_and_view_drops_removed_owner():
         assert spec.plugin_id in ids, spec.plugin_id
     regs = Registries()
     register_all(regs)
-    view = ModuleMapView(MODULES_SLOT, regs)
+    view = ModuleRegistry(regs)
     assert "DiscordModule" in view
     regs.remove_owner("builtin.channels.discord")
     assert "DiscordModule" not in view and "ChatModule" in view
@@ -49,7 +53,7 @@ def test_derived_tables_follow_the_view():
     from xyz_agent_context.module.module_runner import CORE_MCP_MODULES, all_mcp_modules
 
     assert set(CORE_MCP_MODULES) == {s.class_name for s in MODULE_SPECS if not s.channel}
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
-    assert {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule", "LarkModule"} <= set(ModuleLoader.always_load_modules(MODULE_MAP))
+    assert {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule", "LarkModule"} <= set(ModuleLoader.always_load_modules(module_registry))
     assert "LarkModule" in all_mcp_modules() and "ChatModule" in all_mcp_modules()

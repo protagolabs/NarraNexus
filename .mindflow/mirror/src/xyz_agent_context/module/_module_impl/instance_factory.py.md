@@ -43,7 +43,7 @@ MessageBus / Lark / HomeAssistant 各一条 agent 级实例（`is_public=1`，�
   （导入）、`arena_provisioning_service.py`、以及自己的
   `ensure_agent_instances_exist`（幂等补齐，老 agent 缺实例时走这条）
 - **依赖谁**：`InstanceRepository` / `InstanceNarrativeLinkRepository` 写表；
-  [[agent_discovery_sync]] 写同伴发现行；`MODULE_MAP` 把 `module_class` 字符串
+  [[agent_discovery_sync]] 写同伴发现行；`module_registry` 把 `module_class` 字符串
   映射到类
 
 ## 设计决策

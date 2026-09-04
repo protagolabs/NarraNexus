@@ -15,3 +15,7 @@ Which registered modules take part in an agent's turns is the owner's choice (pl
 - **Owner decides builtin-ness.** `default_enabled` reads the module registry's owner (`builtin.*`), not a list — a plugin module is recognised the moment it registers.
 - **Budget is declared, not measured.** `budget()` sums the modules' `context_cost_hint` (order-of-magnitude tokens each module declares) for the enabled set against the builtin baseline; `warn_if_over_budget` logs past 2× (`BUDGET_WARN_RATIO`). It is a signal for the owner and on-call, never an automatic disable (the platform does not police choices).
 - **Applies next run.** The loader reads the table per turn; nothing hot-reloads a running loop.
+
+## 2026-09-04 · reads `module_registry` (batch 5d)
+
+`ModuleRegistry(registries)` when a test passes its own registries, else the process-wide view.

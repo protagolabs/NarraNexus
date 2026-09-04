@@ -707,3 +707,7 @@ fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `_schedule_login_rearm` is async and fires `onDidChangeUserRunnability`; builtin.job's hook schedules the re-arm (login still responds immediately).
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

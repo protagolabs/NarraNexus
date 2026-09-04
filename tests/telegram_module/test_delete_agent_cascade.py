@@ -6,7 +6,7 @@ extended to Telegram.
 
 Why this file exists:
     Phase 3 introduced ``ChannelModuleBase.cleanup_for_agent`` so the
-    auth.delete_agent route walks every channel module in MODULE_MAP
+    auth.delete_agent route walks every channel module in module_registry
     and lets each one tear down its own state. We verify that when
     Telegram is the channel under test, calling
     ``TelegramModule().cleanup_for_agent(agent_id, db)``:

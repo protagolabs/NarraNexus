@@ -129,3 +129,7 @@ IM integration: subclass two bases + write platform-specific content.
 ## 2026-09-04 · no `mcp_port` (batch 5a)
 
 A channel module declares `mcp_server_name` only; `mcp_server` advertises `mcp_server_url(mcp_server_name)` and the host mounts it there. A plugin channel therefore never picks a port.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

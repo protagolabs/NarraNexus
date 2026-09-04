@@ -2,7 +2,7 @@
 @file_name: test_module.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: The module is registered (MODULE_MAP, core MCP list, port 7811, always-load), is a protected builtin manifest, exposes the sixteen tools, and is silent on cloud.
+@description: The module is registered (module_registry, core MCP list, port 7811, always-load), is a protected builtin manifest, exposes the sixteen tools, and is silent on cloud.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import asyncio
 import pytest
 
 from narranexus.kernel.plugins.builtins import builtin_manifests
-from xyz_agent_context.module import MODULE_MAP
+from xyz_agent_context.module import module_registry
 from xyz_agent_context.module._module_impl.loader import ModuleLoader
 from xyz_agent_context.module.module_runner import CORE_MCP_MODULES
 from xyz_agent_context.module.nexus_plugins_module import NexusPluginsModule
@@ -24,9 +24,9 @@ TOOLS = {
 
 
 def test_registration():
-    assert MODULE_MAP["NexusPluginsModule"] is NexusPluginsModule
+    assert module_registry["NexusPluginsModule"] is NexusPluginsModule
     assert "NexusPluginsModule" in CORE_MCP_MODULES
-    assert "NexusPluginsModule" in ModuleLoader.always_load_modules(MODULE_MAP)
+    assert "NexusPluginsModule" in ModuleLoader.always_load_modules(module_registry)
     m = next(m for m in builtin_manifests() if m.id == "builtin.nexus_plugins_module")
     assert m.protected and m.hosts == ("backend", "mcp")
 

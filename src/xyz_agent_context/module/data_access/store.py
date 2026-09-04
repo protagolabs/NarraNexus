@@ -313,11 +313,13 @@ class DirectStore:
     async def _awareness_instance_id(self, db, agent_id: str) -> Optional[str]:
         # "Which instance of module X does this agent have" is a platform query
         # (InstanceRepository), so it stays here; the provider gets the id.
+        from xyz_agent_context.module import module_by_role
         from xyz_agent_context.repository import InstanceRepository
 
-        instances = await InstanceRepository(db).get_by_agent(
-            agent_id=agent_id, module_class="AwarenessModule"
-        )
+        awareness_module = module_by_role("awareness")
+        if awareness_module is None:
+            return None
+        instances = await InstanceRepository(db).get_by_agent(agent_id=agent_id, module_class=awareness_module)
         return instances[0].instance_id if instances else None
 
     def _handler(self, name: str):

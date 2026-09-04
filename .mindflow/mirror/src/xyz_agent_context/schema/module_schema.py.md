@@ -43,3 +43,7 @@ This distinction drives the loading strategy in `ModuleService` without needing 
 ## 2026-09-04 · `ModuleAgentInstance` (batch 5b.2)
 
 `ModuleConfig.agent_instance` declares the public agent-level instance a module wants at agent creation (description / keywords / topic hint) — the InstanceFactory creates one per declaring module; the four core creators and the channel descriptors' `meta["agent_instance"]` are gone.
+
+## 2026-09-04 · `discovery_hidden` / `long_running_instances` (batch 5d)
+
+The last two platform lists about modules become declarations: bus discovery skips modules every agent has (`discovery_hidden`: awareness, basic info, message bus); the dashboard never marks a `long_running_instances` module's in-progress instances stale (skills).

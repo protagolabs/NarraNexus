@@ -64,9 +64,9 @@ class ModuleService:
         self.user_id = user_id
         self.database_client = database_client
 
-        # Get MODULE_MAP (lazy import to avoid circular references)
-        from xyz_agent_context.module import MODULE_MAP
-        self._module_map = MODULE_MAP
+        # Get module_registry (lazy import to avoid circular references)
+        from xyz_agent_context.module import module_registry
+        self._module_map = module_registry
 
         # Implementation modules
         self._loader = ModuleLoader(

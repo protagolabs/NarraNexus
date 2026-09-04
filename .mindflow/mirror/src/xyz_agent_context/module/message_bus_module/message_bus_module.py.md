@@ -420,7 +420,7 @@ Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会�
 
 ## 上下游关系
 
-**被谁加载**：ModuleService 根据 `MODULE_MAP` 在 AgentRuntime 初始化时按需加载；MCP 服务器通过 `module_runner.py` 启动时实例化。
+**被谁加载**：ModuleService 根据 `module_registry` 在 AgentRuntime 初始化时按需加载；MCP 服务器通过 `module_runner.py` 启动时实例化。
 
 **调用谁**：实例化一个 `LocalMessageBus`（通过 `get_db_client()` 取 backend）；调用 `_message_bus_mcp_tools.py` 里的工具函数暴露 MCP 工具；在 `gather()` 里调用 `bus.get_unread()`、`bus.get_channel_members()` 等取数据。
 
@@ -579,3 +579,7 @@ The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP 
 ## 2026-09-04 · declares its agent-level instance (batch 5b.2)
 
 `agent_instance` in `get_config()` (description / keywords / topic hint) replaces the factory's or descriptor's copy; the InstanceFactory creates it for every agent.
+
+## 2026-09-04 · declares its discovery / long-run flag (batch 5d)
+
+`discovery_hidden` (awareness / basic info / message bus) or `long_running_instances` (skills) moved from platform lists into `get_config()`.

@@ -5,7 +5,7 @@
 @description: builtin.channels.telegram's ChannelDescriptor — the channel as one record for the ``ingress.channels`` registry.
 
 Everything the platform used to know about Telegram from six scattered
-tables (trigger map, MODULE_MAP, the data-access CHANNELS table, the
+tables (trigger map, module_registry, the data-access CHANNELS table, the
 WorkingSource member, the frontend row) now reads from this descriptor.
 Class references are strings so registering it never imports the SDK.
 """

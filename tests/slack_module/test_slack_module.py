@@ -2,13 +2,13 @@
 @file_name: test_slack_module.py
 @date: 2026-05-08
 @description: Tests for SlackModule — config metadata, prompt branching,
-extra_data shape, and registration in MODULE_MAP.
+extra_data shape, and registration in module_registry.
 """
 from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
+from xyz_agent_context.module import module_registry
 from xyz_agent_context.module.slack_module._slack_credential_manager import (
     SlackCredential,
 )
@@ -54,8 +54,8 @@ def test_get_config_returns_capability_module_with_priority_six():
 
 
 def test_module_map_registers_slack_module():
-    assert "SlackModule" in MODULE_MAP
-    assert MODULE_MAP["SlackModule"] is SlackModule
+    assert "SlackModule" in module_registry
+    assert module_registry["SlackModule"] is SlackModule
 
 
 def test_class_level_channel_metadata():

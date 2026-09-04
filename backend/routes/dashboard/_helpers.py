@@ -20,7 +20,7 @@ Notes:
     parametrizes to prevent SQLi.
   - fetch_instances v2.2 G3: returns {agent_id: {"active": [...], "stale": [...]}}
     where "stale" = in_progress instances past STALE_THRESHOLD_SECONDS that are NOT
-    in LONGRUN_MODULE_WHITELIST. Stale instances do NOT count as running toward kind
+    declares long_running_instances. Stale instances do NOT count as running toward kind
     derivation; they surface in OwnedAgentStatus.stale_instances for UI zombie badge.
 """
 from __future__ import annotations
@@ -47,11 +47,13 @@ from backend.routes.dashboard._schema import (
 # considered "stale" (zombie). Env-configurable for testing / ops overrides.
 STALE_THRESHOLD_SECONDS: int = int(os.environ.get("STALE_INSTANCE_THRESHOLD_SECONDS", "600"))
 
-# Modules whose in_progress instances are expected to be long-running.
-# They are excluded from the stale bucket regardless of updated_at age.
-LONGRUN_MODULE_WHITELIST: frozenset[str] = frozenset({
-    "SkillModule",
-})
+def _long_running(module_class: str) -> bool:
+    """A module whose in_progress instances are expected to run long declares
+    ``long_running_instances`` (SkillModule); they never enter the stale bucket."""
+    from xyz_agent_context.module import module_config
+
+    cfg = module_config(module_class)
+    return bool(cfg and cfg.long_running_instances)
 
 
 # -------- action_line helpers ----------------------------------------------
@@ -655,7 +657,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
 
     Stale detection:
       - An in_progress instance is stale if updated_at is older than
-        STALE_THRESHOLD_SECONDS AND the module_class is NOT in LONGRUN_MODULE_WHITELIST.
+        STALE_THRESHOLD_SECONDS AND the module does NOT declare long_running_instances.
       - Whitelisted long-running modules (SkillModule) are always
         placed in "active" regardless of updated_at age.
       - "active" instances count toward running_count / kind derivation.
@@ -691,7 +693,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
             "description": r.get("description"),
         }
         module_class = r["module_class"] or ""
-        if module_class in LONGRUN_MODULE_WHITELIST:
+        if _long_running(module_class):
             out[aid]["active"].append(entry)
             continue
         # Check updated_at age against threshold

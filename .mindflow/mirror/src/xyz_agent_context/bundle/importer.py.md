@@ -350,7 +350,7 @@ UX 要求用户先看预览再决定。preflight 解压 + 解析 + 检测冲突�
 
 ### Unknown module_class 兜底（2026-05-09）
 
-import 时 `module_class` 不在 `MODULE_MAP` 里的 `module_instances` 行**直接丢弃**（不进 DB），并把 `instance_id` 收集进 `skipped_instance_ids`。同 agent 下的子表 (`instance_jobs`, `instance_social_entities`, `instance_rag_store`, `instance_awareness`, `instance_narrative_links`, memory family) 在 insert 前都做这个集合检查 → cascade-skip。一份 `skipped {n} {Class} instance(s) — module class not registered in this build` warning 加到 `summary.warnings`。
+import 时 `module_class` 不在 `module_registry` 里的 `module_instances` 行**直接丢弃**（不进 DB），并把 `instance_id` 收集进 `skipped_instance_ids`。同 agent 下的子表 (`instance_jobs`, `instance_social_entities`, `instance_rag_store`, `instance_awareness`, `instance_narrative_links`, memory family) 在 insert 前都做这个集合检查 → cascade-skip。一份 `skipped {n} {Class} instance(s) — module class not registered in this build` warning 加到 `summary.warnings`。
 
 为什么这么做：跨机器 import 经常带"源端有但目标端没装"的自定义 Module（比如 MatrixModule）。如果让这些 row 留在 DB 里，runtime 每个 turn 都会 log `Unknown module type, skipping`，而且永远不会被 cascade-delete（除非 agent 整体被删）。
 
@@ -402,3 +402,7 @@ Skill installs go through `skills.workspaces` (`utils/plugin_services.skill_work
 ## 2026-09-04 · credentials land in the generic store (batch 4d.2)
 
 Both the preflight clash check and the landing loop iterate `channel_credential_tables.bundle_rows(payload)` (4d bundles and pre-4d per-table bundles alike). Clash = `GenericCredentialStore.find_one(channel, external_id=…)` already bound in this install → skipped, counted in `channel_credentials_skipped_conflict`. Landing = `rewrite_row("channel_credentials", row)` (agent_id remapped through `id_field_map`, IM-side owner ids untouched) then `store.upsert(channel, new_agent_id, values, enabled=False)` — invariant 1 (force-inactive) is now the `enabled` argument, not a per-table column name. A channel this install does not know (`UnknownChannel`, e.g. a plugin channel not installed here) is reported as a warning and skipped, never crashes the import.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

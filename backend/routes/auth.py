@@ -1532,7 +1532,7 @@ async def delete_agent(
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
         # 14. Channel cleanups — registry-driven walk over every
-        # ChannelModuleBase subclass in MODULE_MAP. Each subclass owns
+        # ChannelModuleBase subclass in module_registry. Each subclass owns
         # its own cleanup_for_agent (default: credential row + inbox
         # channels by channel_id prefix; Lark overrides to also drop
         # CLI profile + workspace dir). Adding a new IM channel requires
@@ -1541,9 +1541,9 @@ async def delete_agent(
             from xyz_agent_context.channel.channel_module_base import (
                 ChannelModuleBase,
             )
-            from xyz_agent_context.module import MODULE_MAP
+            from xyz_agent_context.module import module_registry
 
-            for module_name, cls in MODULE_MAP.items():
+            for module_name, cls in module_registry.items():
                 if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):
                     continue
                 try:

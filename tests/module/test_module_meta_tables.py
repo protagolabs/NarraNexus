@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.kernel.plugins.registry import Contribution
-from xyz_agent_context.module import MODULE_MAP, instance_prefix_for, is_task_module, module_by_role, module_config
+from xyz_agent_context.module import module_registry, instance_prefix_for, is_task_module, module_by_role, module_config
 from xyz_agent_context.module._module_impl.loader import ModuleLoader
 from xyz_agent_context.module._module_impl.metadata import get_all_modules_metadata, get_module_metadata, get_task_modules
 from xyz_agent_context.module._module_impl.selector import ModuleSelector
@@ -48,8 +48,8 @@ def plugin_module():
 
 def test_builtin_declarations_reproduce_the_former_tables():
     assert ModuleSelector().get_base_modules() == ["AwarenessModule", "BasicInfoModule", "ChatModule"]
-    assert ModuleLoader.default_modules(MODULE_MAP) == ["ChatModule", "BasicInfoModule", "AwarenessModule", "SocialNetworkModule", "JobModule", "MessageBusModule"]
-    always = ModuleLoader.always_load_modules(MODULE_MAP)
+    assert ModuleLoader.default_modules(module_registry) == ["ChatModule", "BasicInfoModule", "AwarenessModule", "SocialNetworkModule", "JobModule", "MessageBusModule"]
+    always = ModuleLoader.always_load_modules(module_registry)
     assert {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule"} <= set(always) and "LarkModule" in always
     assert instance_prefix_for("ChatModule") == "chat" and instance_prefix_for("AwarenessModule") == "aware" and instance_prefix_for("LarkModule") == "lark"
     assert is_task_module("JobModule") and not is_task_module("ChatModule") and not is_task_module("Nope")
@@ -61,7 +61,7 @@ def test_builtin_declarations_reproduce_the_former_tables():
 def test_a_plugin_module_is_described_like_a_builtin(plugin_module):
     from xyz_agent_context.agent_runtime._agent_runtime_steps.step_display import module_display
 
-    assert "AcmeNotesModule" in ModuleLoader.default_modules(MODULE_MAP)
+    assert "AcmeNotesModule" in ModuleLoader.default_modules(module_registry)
     assert instance_prefix_for("AcmeNotesModule") == "notes" and instance_prefix_for("UnknownThingModule") == "unknownthing"
     assert module_display("AcmeNotesModule") == {"icon": "📝", "name": "Notes", "desc": "Personal notes"}
     assert module_display("NoSuchModule") == {"icon": "🔌", "name": "NoSuch", "desc": ""}

@@ -12,7 +12,7 @@ A full personal-WeChat channel integration built on the shared
 ``ChannelModuleBase`` / ``ChannelTriggerBase`` framework — the same
 spine that backs Lark, Slack, and Telegram. The package's
 ``__init__.py`` re-exports ``WeChatModule`` so the module registry
-(``module/__init__.py`` ``MODULE_MAP``) can pick it up like any other
+(``module/__init__.py`` ``module_registry``) can pick it up like any other
 channel.
 
 The distinguishing trait vs. the bot channels: this connects a

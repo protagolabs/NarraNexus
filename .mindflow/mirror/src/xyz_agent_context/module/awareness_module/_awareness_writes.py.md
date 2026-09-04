@@ -233,7 +233,7 @@ turn 1 它叫美食家并如此自我介绍，改名回小绿，turn 2 再问：
 ## 2026-08-18 (四改) — 事务搬去 [[_overview]]，本文件只留身份记录那一步
 
 第三轮审查：改名事务住在**可热插拔的 Module** 里，而两个核心平台路由 import 了它。
-把 AwarenessModule 从 `MODULE_MAP` 摘掉不是功能降级，是 route import 期
+把 AwarenessModule 从 `module_registry` 摘掉不是功能降级，是 route import 期
 ImportError——**后端起不来**（铁律 #3 的方向被反过来了）。而本文件上一版那句
 「别再新增写入方，要写就调这个函数」，等于用文档把这个反向依赖固化。
 

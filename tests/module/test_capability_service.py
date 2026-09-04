@@ -78,12 +78,12 @@ async def test_loader_drops_disabled_capabilities_before_binding(db_client, plug
     """`_drop_disabled` is the one chokepoint every load path (decision, fast
     path) runs before `_create_module_objects`: a disabled module's instance
     never binds, so its instructions, tools and hooks stay out of the turn."""
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
     from xyz_agent_context.module._module_impl.loader import ModuleLoader
     from xyz_agent_context.schema.module_schema import InstanceStatus, ModuleInstance
 
     await db_client.insert("agents", {"agent_id": "agent_l", "agent_name": "L", "created_by": "u1"})
-    loader = ModuleLoader(agent_id="agent_l", user_id="u1", database_client=db_client, module_map=dict(MODULE_MAP))
+    loader = ModuleLoader(agent_id="agent_l", user_id="u1", database_client=db_client, module_map=dict(module_registry))
     insts = [ModuleInstance(instance_id=f"{n.lower()}_1", module_class=n, description="", status=InstanceStatus.ACTIVE, agent_id="agent_l", dependencies=[]) for n in ("ChatModule", "JobModule", "AcmeHeavyModule")]
     kept = {i.module_class for i in await loader._drop_disabled(insts)}
     assert kept == {"ChatModule", "JobModule"}  # the plugin module is off by default
@@ -96,4 +96,4 @@ async def test_loader_drops_disabled_capabilities_before_binding(db_client, plug
     bound = loader._create_module_objects(await loader._drop_disabled(insts))
     assert {i.module_class for i in bound if i.module is not None} == {"ChatModule", "AcmeHeavyModule"}
     # no database client → nothing filtered (unit-test shape)
-    assert len(await ModuleLoader("a", "u", None, dict(MODULE_MAP))._drop_disabled(insts)) == 3
+    assert len(await ModuleLoader("a", "u", None, dict(module_registry))._drop_disabled(insts)) == 3

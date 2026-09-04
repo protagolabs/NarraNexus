@@ -98,3 +98,7 @@ route/FastAPI coupling.
 ## 2026-09-04 · `classify_kind` for any channel (batch 4e)
 
 The core kinds stay in `_KIND_MAP`; an IM channel source (`WorkingSource.is_channel`) maps to its upper-cased value (`LARK`, a plugin's `ACME_CHAT`) — no channel entry in the table.
+
+## 2026-09-04 · no long-run whitelist (batch 5d)
+
+`_long_running(module_class)` reads `ModuleConfig.long_running_instances`; `LONGRUN_MODULE_WHITELIST` is gone.

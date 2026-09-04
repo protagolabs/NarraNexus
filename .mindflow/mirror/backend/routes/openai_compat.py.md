@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-26
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -66,7 +66,7 @@ last_error_msg。客户端断线时 finally 仍执行——inbox/审计不因掉
 turn 用各渠道注册的 extract_reply_fn,lark 的 `--markdown` 解析等免费
 获得)。语义变化:reply 工具名命中但提取不到文本的调用,从"静默丢弃"
 改为按 tool_call 展示(对 lark_cli 的非发送命令这是必须的)。
-`_ensure_source_handlers_registered()` 在分类前 import MODULE_MAP 强制
+`_ensure_source_handlers_registered()` 在分类前 import module_registry 强制
 注册,防"进程首个请求撞上空 registry"。无回复兜底文案按来源分叉
 (`_no_reply_fallback`):MANYFOLD 保留诊断文案;渠道 turn 是中性回执
 ——agent 经本地渠道工具带外投递,无 owner 可见文本是正常结果(Q5 决策)。
@@ -149,3 +149,7 @@ agent_response → `delta.reasoning_content`；
   无害，但若它是终结语义必须加进 `_TERMINAL_TYPES`。
 - subscribe 必须发生在 run 启动后尽快完成，否则可能错过早期事件
   （见 L373 注释）。
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

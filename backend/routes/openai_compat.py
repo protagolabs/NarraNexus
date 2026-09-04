@@ -228,12 +228,12 @@ _TERMINAL_TYPES = ("complete", "run_ended", "completed", "done", "failed", "canc
 
 def _ensure_source_handlers_registered() -> None:
     """Channel modules register their MessageSourceHandler at import time
-    (lark_module, wechat_module, ...). Importing MODULE_MAP forces those
+    (lark_module, wechat_module, ...). Importing module_registry forces those
     imports so a managed-IM turn classifies with the channel's declared
     reply tools even when this request is the process's first
     agent-related code path. Cached by sys.modules after the first call."""
     try:
-        from xyz_agent_context.module import MODULE_MAP  # noqa: F401
+        from xyz_agent_context.module import module_registry  # noqa: F401
     except Exception as e:  # pragma: no cover - broken module tree
         logger.warning(f"MessageSource registration import failed: {e}")
 

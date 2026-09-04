@@ -66,7 +66,7 @@ src/xyz_agent_context/
 ## Files you'll edit
 
 ```
-src/xyz_agent_context/module/__init__.py       # add EmailModule to MODULE_MAP
+src/xyz_agent_context/module/__init__.py       # add EmailModule to module_registry
 src/xyz_agent_context/utils/db/schema_registry.py # _register(TableDef(...)) for instance_email_messages
 ```
 
@@ -91,7 +91,7 @@ class EmailModule(XYZBaseModule):
     @staticmethod
     def get_config() -> ModuleConfig:
         return ModuleConfig(
-            name="EmailModule",          # must match class name + MODULE_MAP key
+            name="EmailModule",          # must match class name + module_registry key
             priority=10,                 # 0 = Awareness; pick a free integer
             enabled=True,
             description="Send and receive email on behalf of an agent.",
@@ -102,7 +102,7 @@ class EmailModule(XYZBaseModule):
 The instance ID prefix (`email_<random>`) is auto-derived from the
 class name — don't set it manually.
 
-### 2. Register in `MODULE_MAP`
+### 2. Register in `module_registry`
 
 `src/xyz_agent_context/module/__init__.py` — add the import and an
 entry. Key must equal `EmailModule.get_config().name`.
@@ -201,7 +201,7 @@ because you created mirror md files in step 7.
 ## Done checklist
 
 - [ ] New `_email_impl/` directory, private — not imported outside the module
-- [ ] `MODULE_MAP` entry added in `module/__init__.py`
+- [ ] `module_registry` entry added in `module/__init__.py`
 - [ ] MCP port picked, added to `CLAUDE.md`'s port table in a follow-up PR (CLAUDE.md edits are owner-only — open a separate issue tagged `docs` asking the owner to add the port)
 - [ ] `instance_email_messages` table registered in `schema_registry.py`
 - [ ] `email_repository.py` with `BaseRepository` subclass

@@ -22,7 +22,7 @@ last_verified: 2026-04-10
 | 文件 | 职责 |
 |------|------|
 | `base.py` | 所有 Module 必须满足的抽象契约 |
-| `__init__.py` | `MODULE_MAP` 注册表 + 包导出 |
+| `__init__.py` | `module_registry` 注册表 + 包导出 |
 | `module_service.py` | Facade：AgentRuntime 只与此交互 |
 | `hook_manager.py` | 并行化并编排 hook 调用 |
 | `module_runner.py` | 部署 MCP 服务器（多进程或线程）+ A2A API |
@@ -41,7 +41,7 @@ last_verified: 2026-04-10
 
 ## Gotchas
 
-- `MODULE_MAP` 是唯一的模块注册入口。忘记在这里注册新模块，即使类存在也永远不会被加载，且不会有任何报错。
+- `module_registry` 是唯一的模块注册入口。忘记在这里注册新模块，即使类存在也永远不会被加载，且不会有任何报错。
 - `ALWAYS_LOAD_MODULES`（目前只有 `SkillModule`）完全绕过实例决策，以合成的内存实例（ID 固定为 `skill_default`）注入。
 - 存在"虚拟 JobModule 注入"机制：如果 LLM 决策返回零个 JobModule 实例，`loader.py` 仍会插入一个空 `instance_id` 的虚拟实例，确保 `job_create` MCP 工具可访问。
 - `gather` 默认是**顺序执行**——改为 `parallel_data_gathering=True` 需要确保各模块写入 `ContextData` 的不同字段，否则 `ContextDataMerger` 的 last-write-wins 合并策略会静默丢弃数据。

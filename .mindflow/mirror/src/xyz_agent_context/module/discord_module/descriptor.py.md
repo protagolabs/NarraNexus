@@ -21,3 +21,7 @@ stub: false
 ## 2026-09-04 · registers its WorkingSource (batch 4e)
 
 `SOURCE = WorkingSource.register("discord")` at import (and the `TriggerType` twin); the package `__init__` imports this module first so `WorkingSource.DISCORD` exists before the module/trigger class bodies read it. The platform (`hook_schema`) seeds no channel names any more.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

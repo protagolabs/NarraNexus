@@ -2,7 +2,7 @@
 @file_name: contributions.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: The builtin modules as ``agent.capabilities.modules`` contributions — the single table the platform derives MODULE_MAP, MCP ports and the always-load list from.
+@description: The builtin modules as ``agent.capabilities.modules`` contributions — the single table the platform derives module_registry, MCP ports and the always-load list from.
 
 Each entry names the module class lazily (the module package is imported
 only when the factory runs) and carries the metadata the platform used to

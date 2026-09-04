@@ -8,7 +8,7 @@ start rather than one feature degrading.
 
 The Awareness step it still needs is reached through a deferred import — which
 buys ownership, not isolation. Python imports parent packages, so that call
-still loads the whole MODULE_MAP; what it removes is any module-scope dependency
+still loads the whole module_registry; what it removes is any module-scope dependency
 from this package or the routes onto the Module layer.
 """
 from .agent_profile_service import AgentProfileWrite, apply_agent_profile_change

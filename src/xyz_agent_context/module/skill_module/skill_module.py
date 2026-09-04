@@ -384,6 +384,7 @@ class SkillModule(XYZBaseModule):
         """Return SkillModule configuration"""
         return ModuleConfig(
             name="SkillModule",
+            long_running_instances=True,
             always_load=True,
             instance_prefix="skill",
             priority=90,

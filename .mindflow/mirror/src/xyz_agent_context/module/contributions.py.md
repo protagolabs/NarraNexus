@@ -4,7 +4,7 @@ last_verified: 2026-09-04
 stub: false
 ---
 
-## 2026-09-04（批 3c.1）— 内置模块贡献表：MODULE_MAP / MCP 端口 / 常驻列表的唯一来源
+## 2026-09-04（批 3c.1）— 内置模块贡献表：module_registry / MCP 端口 / 常驻列表的唯一来源
 
 一行一个内置模块（包名、类名、插件 id、核心端口或渠道读类属性、always_load）。`load_class` 从
 `<pkg>.<pkg>` 叶子模块取类（chat/awareness/basic_info/general_memory 的 `__init__` 刻意不 re-export 类，
@@ -42,3 +42,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · `ModuleSpec` is (package, class, plugin id) (batch 5b)
 
 `always_load` moved to the module's own `ModuleConfig`; the registry meta carries `plugin_id` / `channel` only.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

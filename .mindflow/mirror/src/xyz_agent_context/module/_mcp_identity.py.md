@@ -253,7 +253,7 @@ query 在 SSE 上丢失的原因:工具调用 POST 到 `/messages/?session_id=�
 - 注入方:[[context_runtime]] 的 `mcp_servers` 组装(单点,两个适配器
   共用同一个 spec dict)
 - 安装方:[[base]] `build_instrumented_mcp_server` ← [[module_runner]]
-- 测试:`tests/module/test_mcp_caller_identity.py`(含全 MODULE_MAP 覆盖断言)
+- 测试:`tests/module/test_mcp_caller_identity.py`(含全 module_registry 覆盖断言)
 
 ## 2026-08-03 真机验证(两个框架都过了)
 

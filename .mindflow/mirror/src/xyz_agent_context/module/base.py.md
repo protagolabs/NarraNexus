@@ -75,7 +75,7 @@ channel base override ([[channel_module_base]]). Collected by
 Added `provides_chat_history()` classmethod (default False). Capability
 flags let the pipeline reason about WHAT a module does without hard-coding
 WHICH class (`type(m).__name__ == "ChatModule"`). It's a classmethod so it
-works on both a live object and a class-name string via MODULE_MAP (see
+works on both a live object and a class-name string via module_registry (see
 `module.module_class_provides_chat_history`). ChatModule overrides it to
 True. New capabilities should follow this same pattern rather than adding
 class-name checks in the orchestration layer.
@@ -101,7 +101,7 @@ summaries). Default for both is no-op.
 
 ## 上下游关系
 
-- **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `MODULE_MAP` 按名实例化子类；`HookManager` 循环调用 `gather` / `after_turn`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
+- **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `module_registry` 按名实例化子类；`HookManager` 循环调用 `gather` / `after_turn`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
 - **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
 
 ## 设计决策
@@ -138,7 +138,7 @@ summaries). Default for both is no-op.
 覆写者需同步签名（[[channel_module_base]] / [[chat_module]] / [[message_bus_module]]）——
 旧签名会在调用点 TypeError，而该处 **fail-open**，结果是压制静默失效、两把动词都留在桌上。
 `tests/context_runtime/test_expressive_collection.py` 新增两条守卫：桌面自洽性（跑真实模块、
-按生产顺序、三种轮次断言声明∩压制为空）与 MODULE_MAP 全量签名检查。
+按生产顺序、三种轮次断言声明∩压制为空）与 module_registry 全量签名检查。
 
 教训：此前所有守卫都直接调两个 hook 且**反着生产顺序**调，因此在坏代码上全绿。
 接缝类不变量必须经真实调用点断言。
@@ -158,3 +158,7 @@ Classmethod no-op the narrative instance handler calls when a blocked instance o
 ## 2026-09-04 · a module IS a Capability (batch 5c)
 
 The nine lifecycle methods carry their stage names — `claims_source` (Ingress), `gather` / `contribute_instructions` / `contribute_turn_context` / `contribute_tools` (Assemble), `persist_turn` (Commit), `after_turn` (Reflect); the old names (`hook_data_gathering`, `get_instructions`, `get_turn_context`, `get_mcp_config`, `get_expressive_tools`, `get_disallowed_tools`, `hook_persist_turn`, `hook_after_event_execution`, `owns_working_source`) are gone (rule #2, no aliases). `meta` derives `CapabilityMeta` from `ModuleConfig`; `participations()` answers each MODULE-tier stage with the module itself; `contribute_tools` composes `mcp_server` / `expressive_tools` / `disallowed_tools` into a `ToolSurface` fail-open per part, logging a stale override SIGNATURE loudly (`_is_signature_typeerror` moved here). `LegacyModuleAdapter` is deleted.
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

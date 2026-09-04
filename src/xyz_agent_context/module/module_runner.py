@@ -77,7 +77,7 @@ from typing import Any, List, Optional, Type, Union
 from loguru import logger
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule, MODULE_MAP
+from xyz_agent_context.module import XYZBaseModule, module_registry
 from xyz_agent_context.module.base import mcp_mount_path, mcp_port
 from xyz_agent_context.module.contributions import MODULE_SPECS
 
@@ -108,7 +108,7 @@ def _no_signal_capture():
 
 # Core MCP-bearing modules (NOT channels). Channel modules (Lark, Slack,
 # Telegram, a plugin channel) are discovered as ChannelModuleBase subclasses of
-# MODULE_MAP, so adding an IM channel needs zero edits here. No module owns a
+# module_registry, so adding an IM channel needs zero edits here. No module owns a
 # port (plugin platform batch 5a): the host serves every module server on ONE
 # port (``module/base.py`` ``mcp_port()``), each mounted at ``/mcp/<server_name>``.
 CORE_MCP_MODULES = [spec.class_name for spec in MODULE_SPECS if not spec.channel]
@@ -127,12 +127,12 @@ def discover_channel_modules(module_map: dict) -> list[str]:
 
 def all_mcp_modules() -> list[str]:
     """All MCP-bearing modules (core + every ChannelModuleBase subclass)."""
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
-    return list(CORE_MCP_MODULES) + discover_channel_modules(MODULE_MAP)
+    return list(CORE_MCP_MODULES) + discover_channel_modules(module_registry)
 
 
-# Computed once at import; if MODULE_MAP changes after import (rare), use
+# Computed once at import; if module_registry changes after import (rare), use
 # ``all_mcp_modules()`` instead.
 DEFAULT_MCP_MODULES = all_mcp_modules()
 
@@ -163,7 +163,7 @@ class ModuleRunner:
 
     Features:
     - One MCP host: every module server on one port, mounted by path
-    - Automatic module discovery from MODULE_MAP
+    - Automatic module discovery from module_registry
     - Flexible configuration (module names or classes)
 
     Usage:
@@ -220,11 +220,11 @@ class ModuleRunner:
         resolved = []
         for module in modules:
             if isinstance(module, str):
-                # Resolve by name from MODULE_MAP
-                if module not in MODULE_MAP:
-                    logger.warning(f"Module '{module}' not found in MODULE_MAP, skipping")
+                # Resolve by name from module_registry
+                if module not in module_registry:
+                    logger.warning(f"Module '{module}' not found in module_registry, skipping")
                     continue
-                resolved.append(MODULE_MAP[module])
+                resolved.append(module_registry[module])
             elif isinstance(module, type) and issubclass(module, XYZBaseModule):
                 resolved.append(module)
             else:
@@ -612,9 +612,9 @@ class ModuleRunner:
         List all available modules that can be loaded.
 
         Returns:
-            List of module names from MODULE_MAP
+            List of module names from module_registry
         """
-        return list(MODULE_MAP.keys())
+        return list(module_registry.keys())
 
     def get_default_mcp_modules(self) -> List[str]:
         """

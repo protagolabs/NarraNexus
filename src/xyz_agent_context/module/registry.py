@@ -1,13 +1,15 @@
 """
-@file_name: _module_map.py
+@file_name: registry.py
 @author: Bin Liang
 @date: 2026-09-04
-@description: ``ModuleMapView`` — the read-only ``MODULE_MAP`` mapping (name → module class) backed by the kernel ``agent.capabilities.modules`` registry.
+@description: ``ModuleRegistry`` — the read-only mapping (class name → module class) over the kernel ``agent.capabilities.modules`` registry; ``module_registry`` is the process-wide one.
 
-Every consumer that did ``MODULE_MAP[name]`` / ``in`` / ``.items()`` keeps
-working; what changed is where the truth lives. Builds are cached per
-registry generation so hot paths pay a dict lookup, and a disabled builtin
-(removed from the registry at boot) is simply absent.
+The platform's ONLY way to name a module (plugin platform batch 5d): there is
+no ``MODULE_MAP`` table any more — a builtin and a plugin module are both
+just contributions in the registry, a builtin disabled through
+registry.json is simply absent, and the package no longer re-exports module
+classes. Builds are cached per registry generation so hot paths pay a dict
+lookup; ``meta`` / ``owner_of`` expose the contribution's plugin id.
 """
 from __future__ import annotations
 
@@ -15,9 +17,11 @@ from collections.abc import Mapping
 from typing import Any, Iterator
 
 
-class ModuleMapView(Mapping[str, type]):
-    def __init__(self, slot: str, registries: Any = None) -> None:
-        self._slot = slot
+class ModuleRegistry(Mapping[str, type]):
+    def __init__(self, registries: Any = None) -> None:
+        from xyz_agent_context.module.contributions import MODULES_SLOT
+
+        self._slot = MODULES_SLOT
         self._registries = registries
         self._cache: dict[str, type] | None = None
         self._cache_key: tuple[str, ...] | None = None
@@ -68,7 +72,12 @@ class ModuleMapView(Mapping[str, type]):
         return name in self._build()
 
     def __repr__(self) -> str:
-        return f"ModuleMapView({list(self._build())})"
+        return f"ModuleRegistry({list(self._build())})"
 
 
-__all__ = ["ModuleMapView"]
+
+
+#: The process-wide registry view (KERNEL_REGISTRIES).
+module_registry = ModuleRegistry()
+
+__all__ = ["ModuleRegistry", "module_registry"]

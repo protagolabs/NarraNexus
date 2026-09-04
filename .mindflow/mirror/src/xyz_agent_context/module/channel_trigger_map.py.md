@@ -21,7 +21,7 @@ every IM channel in ONE process. Born from the 2026-07-08 trigger-consolidation
   is fine.
 - **Key derived from `cls.channel_name`, not hand-written.** `CHANNEL_TRIGGER_MAP`
   keys off each class's own `channel_name`, so the map key and the class
-  attribute can never drift. Contrast `MODULE_MAP` in `module/__init__.py`, which
+  attribute can never drift. Contrast `module_registry` in `module/__init__.py`, which
   hand-writes keys.
 - **Defensive per-channel import.** Classes are imported one-by-one from
   `_TRIGGER_SPECS` (a `(module_path, class_name)` list), NOT with top-level

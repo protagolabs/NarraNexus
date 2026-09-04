@@ -341,11 +341,11 @@ def test_every_agent_id_tool_is_async():
     would silently bypass the policy."""
     import inspect
 
-    from xyz_agent_context.module import MODULE_MAP
+    from xyz_agent_context.module import module_registry
 
     offenders = []
     checked = 0
-    for name, cls in MODULE_MAP.items():
+    for name, cls in module_registry.items():
         try:
             m = cls(agent_id="probe", user_id="probe", database_client=None)
             mcp = m.create_mcp_server()
