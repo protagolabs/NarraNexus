@@ -42,6 +42,7 @@ class CredentialRecord:
     secret: dict[str, Any] = field(default_factory=dict)
     created_at: Any = None
     updated_at: Any = None
+    version: int = 0
 
     @property
     def app_id(self) -> str:
@@ -111,6 +112,7 @@ class GenericCredentialStore:
             secret=decode_secrets(row.get("secret_json") or ""),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
+            version=int(row.get("version") or 0),
         )
 
     async def upsert(self, channel: str, agent_id: str, values: dict[str, Any], *, enabled: Optional[bool] = None) -> CredentialRecord:
@@ -127,21 +129,71 @@ class GenericCredentialStore:
         if enabled is not None:
             row["enabled"] = 1 if enabled else 0
         if existing:
+            row["version"] = int(existing.get("version") or 0) + 1
             await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id}, row)
         else:
             row.setdefault("enabled", 1)
-            await self._db.insert(TABLE, {"channel": channel, "agent_id": agent_id, **row})
+            await self._db.insert(TABLE, {"channel": channel, "agent_id": agent_id, "created_at": utc_now(), "version": 0, **row})
         record = await self.get(channel, agent_id)
         assert record is not None
         return record
 
+    async def patch(self, channel: str, agent_id: str, fields: dict[str, Any], *, expect: Optional[dict[str, Any]] = None, enabled: Optional[bool] = None) -> Optional[CredentialRecord]:
+        """Merge ``fields`` into the stored values with optimistic concurrency.
+
+        Re-reads and retries when the row's ``version`` moved under us, so two
+        writers patching DISJOINT fields (the bind panel and a trigger's
+        auth-status update) never clobber each other. ``expect`` is a
+        compare-and-set on current values (``{"owner_user_id": ""}`` = only
+        while unresolved). Returns the record, or None when the binding is
+        missing or ``expect`` does not hold.
+        """
+        descriptor = self.descriptor(channel)
+        for _ in range(8):
+            current = await self.get(channel, agent_id)
+            if current is None:
+                return None
+            merged_values = {**current.public, **current.secret}
+            if expect is not None and any(merged_values.get(k, "") != v for k, v in expect.items()):
+                return None
+            merged_values.update(fields)
+            public, secret, external_id = split_values(descriptor, merged_values)
+            row = {
+                "external_id": external_id,
+                "public_json": json.dumps(public, sort_keys=True, default=str),
+                "secret_json": encode_secrets(secret),
+                "updated_at": utc_now(),
+                "version": current.version + 1,
+            }
+            if enabled is not None:
+                row["enabled"] = 1 if enabled else 0
+            affected = await self._db.update(TABLE, {"channel": channel, "agent_id": agent_id, "version": current.version}, row)
+            if affected:
+                return await self.get(channel, agent_id)
+        raise RuntimeError(f"{channel}/{agent_id}: credential patch kept losing the version race")
+
     async def update(self, channel: str, agent_id: str, patch: dict[str, Any]) -> Optional[CredentialRecord]:
         """Merge ``patch`` into the stored values (missing binding → None)."""
-        current = await self.get(channel, agent_id)
-        if current is None:
+        return await self.patch(channel, agent_id, patch)
+
+    async def update_if(self, channel: str, agent_id: str, expect: dict[str, Any], fields: dict[str, Any]) -> bool:
+        """Compare-and-set: apply ``fields`` only while ``expect`` holds; False when it does not (or no binding)."""
+        return await self.patch(channel, agent_id, fields, expect=expect) is not None
+
+    async def find_one(self, channel: str, *, external_id: Optional[str] = None, **public_equals: Any) -> Optional[CredentialRecord]:
+        """The binding whose external id / public fields match (channel-wide lookups: 'is this bot already bound?')."""
+        if external_id is not None:
+            row = await self._db.get_one(TABLE, {"channel": channel, "external_id": external_id})
+            if row is None:
+                return None
+            record = self._row_to_record(row)
+            if all(record.public.get(k) == v for k, v in public_equals.items()):
+                return record
             return None
-        merged = {**current.public, **current.secret, **patch}
-        return await self.upsert(channel, agent_id, merged)
+        for record in await self.list_all(channel):
+            if all(record.public.get(k) == v for k, v in public_equals.items()):
+                return record
+        return None
 
     async def get(self, channel: str, agent_id: str) -> Optional[CredentialRecord]:
         row = await self._db.get_one(TABLE, {"channel": channel, "agent_id": agent_id})

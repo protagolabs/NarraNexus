@@ -22,15 +22,21 @@ import pytest
 
 
 async def _seed(db, table, agent_id, active_col, active_val):
-    row = {"agent_id": agent_id, "bot_token_encoded": "dG9rZW4=", active_col: active_val}
     if table == "lark_credentials":
         row = {
             "agent_id": agent_id, "app_id": f"cli_{agent_id}", "app_secret_ref": "r",
             "brand": "lark", "profile_name": f"prof_{agent_id}", "is_active": active_val,
         }
-    elif table == "channel_slack_credentials":
-        row["app_token_encoded"] = "eGFwcC10b2tlbg=="
-    await db.insert(table, row)
+        await db.insert(table, row)
+        return
+    # The four `enabled` channels persist in channel_credentials (batch 4d).
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    channel = table.removeprefix("channel_").removesuffix("_credentials")
+    values = {"bot_token": "token"}
+    if channel == "slack":
+        values["app_token"] = "xapp-token"
+    await GenericCredentialStore(db).upsert(channel, agent_id, values, enabled=bool(active_val))
 
 
 async def test_lark_set_is_active_flips_flag(db_client):
@@ -69,7 +75,7 @@ async def test_set_enabled_flips_flag(db_client, channel):
     mgr = mgr_cls(db_client)
 
     assert await mgr.set_enabled(f"agent_{channel}", True) is True
-    row = await db_client.get_one(table, {"agent_id": f"agent_{channel}"})
+    row = await db_client.get_one("channel_credentials", {"channel": channel, "agent_id": f"agent_{channel}"})
     assert row["enabled"] in (1, True)
 
     assert await mgr.set_enabled("agent_missing", True) is False

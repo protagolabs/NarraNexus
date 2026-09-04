@@ -39,6 +39,7 @@ DESCRIPTOR = ChannelDescriptor(
     has_bind=True,
     has_test=True,
     unbind_service=False,
+    meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials; no mirror needed
     ui=ChannelUi(label="Slack", icon="hash", order=20),
 )
 

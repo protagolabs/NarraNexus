@@ -1091,3 +1091,7 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 ## 2026-09-04 · webhook transport (batch 4c)
 
 `channel_webhook_events` — the webhook transport inbox (channel, agent_id, payload_json, received_at, claimed_at).
+
+## 2026-09-04 · generic store as the source of truth (batch 4d.1)
+
+`channel_credentials.version` for the store's optimistic patches. `channel_telegram_credentials` / `channel_slack_credentials` / `channel_discord_credentials` / `channel_wechat_credentials` are retired (no longer read or written) and kept, never dropped (rule #6).

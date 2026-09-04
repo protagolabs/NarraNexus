@@ -13,3 +13,7 @@ The ONE credential store every IM channel is served from (table `channel_credent
 ## 2026-09-04 · webhook transport (batch 4c)
 
 `CredentialRecord.app_id` (external id, else agent id) — the subscriber key `ChannelTriggerBase` expects on a credential, so generic-store records drive a trigger directly.
+
+## 2026-09-04 · generic store as the source of truth (batch 4d.1)
+
+`patch(channel, agent_id, fields, expect=)` is an optimistic field-level merge: the row carries `version`, a write only lands when the version it read is still current, else re-read and retry — so two writers on DISJOINT fields (a bind panel and a trigger's status update) never clobber each other; `expect` makes it a compare-and-set (`update_if`). `find_one(channel, external_id=…, **public)` answers the channel-wide 'is this bot already bound?' question. `upsert` bumps the version and stamps `created_at` on insert.

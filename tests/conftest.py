@@ -170,3 +170,15 @@ def _clear_health_cache():
     _reset()
     yield
     _reset()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _channel_credential_key_dir(tmp_path_factory):
+    """Channel credential secrets (channel_credentials.secret_json) are encrypted
+    with a per-install key; point the codec at a session temp dir so the suite
+    never touches the developer's real key file."""
+    from xyz_agent_context.channel import credential_codec
+
+    credential_codec.use_key_dir(tmp_path_factory.mktemp("channel-keys"))
+    yield
+    credential_codec.use_key_dir(None)

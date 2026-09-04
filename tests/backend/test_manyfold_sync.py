@@ -14,6 +14,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from xyz_agent_context.channel.credential_store import GenericCredentialStore
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
 
@@ -131,17 +133,8 @@ async def test_jobs_endpoint_excludes_terminal_jobs(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_channels_endpoint_decodes_telegram_binding(db_client, monkeypatch):
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": "agent_1",
-            "bot_token_encoded": base64.b64encode(
-                b"123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            ).decode(),
-            "bot_user_id": "42",
-            "bot_username": "nx_bot",
-            "enabled": 1,
-        },
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")
@@ -164,15 +157,8 @@ async def test_channels_rows_declare_agent_managed_reply(db_client, monkeypatch)
     declaration's control. Flipping a provider is a config change
     (NEXUS_MANAGED_REPLY_PROVIDERS), not a code change.
     """
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": "agent_1",
-            "bot_token_encoded": base64.b64encode(b"123:tok").decode(),
-            "bot_user_id": "42",
-            "bot_username": "nx_bot",
-            "enabled": 1,
-        },
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123:tok", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
     )
     monkeypatch.delenv("NEXUS_MANAGED_REPLY_PROVIDERS", raising=False)
     app = _make_app(db_client, monkeypatch, authed=True)

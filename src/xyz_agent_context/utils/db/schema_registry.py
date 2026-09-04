@@ -1336,6 +1336,9 @@ _register(
             Column("external_id", "TEXT", "VARCHAR(255)"),
             Column("public_json", "TEXT", "MEDIUMTEXT", nullable=False, default="'{}'"),
             Column("secret_json", "TEXT", "MEDIUMTEXT", nullable=False, default="''"),
+            # Optimistic concurrency for field-level patches: a writer re-reads
+            # when the version moved under it (GenericCredentialStore.patch).
+            Column("version", "INTEGER", "BIGINT", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

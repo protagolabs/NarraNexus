@@ -19,7 +19,6 @@ deltas vs Slack:
 
 from __future__ import annotations
 
-import base64
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -40,16 +39,6 @@ from .telegram_sdk_client import TelegramSDKClient, TelegramSDKError
 _TELEGRAM_TOKEN_RE = re.compile(r"^\d{6,}:[A-Za-z0-9_-]{20,}$")
 
 
-def _encode_token(raw: str) -> str:
-    if not raw:
-        return ""
-    return base64.b64encode(raw.encode()).decode()
-
-
-def _decode_token(encoded: str) -> str:
-    if not encoded:
-        return ""
-    return base64.b64decode(encoded.encode()).decode()
 
 
 @dataclass
@@ -107,10 +96,21 @@ def _cred_from_raw(raw: dict[str, Any]) -> TelegramCredential:
     )
 
 
+def _store(db: Any):
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    return GenericCredentialStore(db)
+
+
+CHANNEL = "telegram"
+
+
 class TelegramCredentialManager:
     """Manages per-agent Telegram credentials in `channel_telegram_credentials`."""
 
-    TABLE = "channel_telegram_credentials"
+    # Persistence: the generic channel_credentials table (plugin platform batch 4d);
+    # the historical channel_telegram_credentials table is retired, never dropped.
+    TABLE = "channel_telegram_credentials"  # retired — kept for the m0004 backfill and diagnostics
 
     def __init__(self, db: AsyncDatabaseClient):
         self._db = db
@@ -172,15 +172,13 @@ class TelegramCredentialManager:
 
             # Bot-uniqueness check (app-level — DB UNIQUE INDEX is the final
             # guard against concurrent races; this gives a friendly error).
-            existing_other = await self._db.get_one(
-                self.TABLE, {"bot_user_id": bot_user_id}
-            )
-            if existing_other and existing_other.get("agent_id") != agent_id:
+            existing_other = await _store(self._db).find_one(CHANNEL, external_id=bot_user_id)
+            if existing_other and existing_other.agent_id != agent_id:
                 return {
                     "success": False,
                     "error": (
                         f"This Telegram bot (@{bot_username}) is already bound "
-                        f"to another agent ({existing_other.get('agent_id')}). "
+                        f"to another agent ({existing_other.agent_id}). "
                         f"Each Telegram bot can only serve one agent — create "
                         f"a separate bot via @BotFather for this agent, or "
                         f"unbind the bot from the other agent first."
@@ -221,32 +219,25 @@ class TelegramCredentialManager:
                     )
 
             # Upsert
-            existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-            now_iso = self._now_iso()
-            row = {
-                "agent_id": agent_id,
-                "bot_token_encoded": _encode_token(bot_token),
-                "bot_user_id": bot_user_id,
-                "bot_username": bot_username,
-                "owner_username": owner_username,
-                "owner_user_id": owner_user_id,
-                "owner_name": owner_name,
-                "enabled": 1,
-                "updated_at": now_iso,
-            }
-            if existing:
-                await self._db.update(self.TABLE, {"agent_id": agent_id}, row)
-                logger.info(
-                    f"[telegram:{agent_id}] credentials updated, bot=@{bot_username}, "
-                    f"owner={owner_name or '-'}"
-                )
-            else:
-                row["created_at"] = now_iso
-                await self._db.insert(self.TABLE, row)
-                logger.info(
-                    f"[telegram:{agent_id}] credentials inserted, bot=@{bot_username}, "
-                    f"owner={owner_name or '-'}"
-                )
+            store = _store(self._db)
+            existed = await store.get(CHANNEL, agent_id) is not None
+            await store.upsert(
+                CHANNEL,
+                agent_id,
+                {
+                    "bot_token": bot_token,
+                    "bot_user_id": bot_user_id,
+                    "bot_username": bot_username,
+                    "owner_username": owner_username,
+                    "owner_user_id": owner_user_id,
+                    "owner_name": owner_name,
+                },
+                enabled=True,
+            )
+            logger.info(
+                f"[telegram:{agent_id}] credentials {'updated' if existed else 'inserted'}, "
+                f"bot=@{bot_username}, owner={owner_name or '-'}"
+            )
 
             return {
                 "success": True,
@@ -262,10 +253,8 @@ class TelegramCredentialManager:
 
     async def get(self, agent_id: str) -> Optional[TelegramCredential]:
         """Fetch credential by agent_id (decoded). Returns None if missing."""
-        row = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not row:
-            return None
-        return self._row_to_cred(row)
+        record = await _store(self._db).get(CHANNEL, agent_id)
+        return _cred_from_raw(record.to_raw_dict()) if record else None
 
     async def get_public(self, agent_id: str) -> Optional[dict[str, Any]]:
         """Fetch sanitised credential view (no raw token)."""
@@ -273,10 +262,8 @@ class TelegramCredentialManager:
         return cred.to_public_dict() if cred else None
 
     async def unbind(self, agent_id: str) -> bool:
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
+        if not await _store(self._db).unbind(CHANNEL, agent_id):
             return False
-        await self._db.delete(self.TABLE, {"agent_id": agent_id})
         logger.info(f"[telegram:{agent_id}] credentials unbound")
         return True
 
@@ -285,17 +272,10 @@ class TelegramCredentialManager:
         ``SlackCredentialManager.set_enabled`` for the rationale — used by
         the trigger to break out of a reconnect loop against a revoked
         token (Telegram ``Unauthorized``)."""
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
-            return False
-        await self._db.update(
-            self.TABLE, {"agent_id": agent_id}, {"enabled": 1 if enabled else 0},
-        )
-        return True
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
 
     async def list_active(self) -> list[TelegramCredential]:
-        rows = await self._db.get(self.TABLE, {"enabled": 1})
-        return [self._row_to_cred(r) for r in rows]
+        return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]
 
     async def update_bot_identity(
         self,
@@ -310,17 +290,14 @@ class TelegramCredentialManager:
         refresh the UI's "DM @{bot_username} once" hint can point to a
         non-existent handle.
         """
-        updates: dict[str, Any] = {"updated_at": self._now_iso()}
+        updates: dict[str, Any] = {}
         if bot_username:
             updates["bot_username"] = bot_username
         if bot_user_id:
             updates["bot_user_id"] = bot_user_id
-        if len(updates) == 1:  # only timestamp
+        if not updates:
             return False
-        affected = await self._db.update(
-            self.TABLE, {"agent_id": agent_id}, updates,
-        )
-        return bool(affected)
+        return await _store(self._db).patch(CHANNEL, agent_id, updates) is not None
 
     async def update_owner(
         self,
@@ -346,16 +323,9 @@ class TelegramCredentialManager:
         owner was already resolved (caller can ignore False — it means
         "lock has already been consumed").
         """
-        affected = await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id, "owner_user_id": ""},
-            {
-                "owner_user_id": owner_user_id,
-                "owner_name": owner_name,
-                "updated_at": self._now_iso(),
-            },
-        )
-        if not affected:
+        if not await _store(self._db).update_if(
+            CHANNEL, agent_id, {"owner_user_id": ""}, {"owner_user_id": owner_user_id, "owner_name": owner_name}
+        ):
             return False
         logger.info(
             f"[telegram:{agent_id}] owner late-resolved: "
@@ -367,19 +337,6 @@ class TelegramCredentialManager:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _row_to_cred(self, row: dict[str, Any]) -> TelegramCredential:
-        return TelegramCredential(
-            agent_id=row.get("agent_id", ""),
-            bot_token=_decode_token(row.get("bot_token_encoded", "")),
-            bot_user_id=row.get("bot_user_id", "") or "",
-            bot_username=row.get("bot_username", "") or "",
-            owner_username=row.get("owner_username", "") or "",
-            owner_user_id=row.get("owner_user_id", "") or "",
-            owner_name=row.get("owner_name", "") or "",
-            enabled=bool(row.get("enabled", 1)),
-            created_at=self._parse_dt(row.get("created_at")),
-            updated_at=self._parse_dt(row.get("updated_at")),
-        )
 
     @staticmethod
     def _now_iso() -> str:

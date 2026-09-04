@@ -99,8 +99,8 @@ def install_manager_mirrors(registries: Any = None) -> tuple[str, ...]:
     wired: list[str] = []
     for entry in regs.registry_for("ingress.channels").entries():
         descriptor = descriptor_for(entry.name, regs)
-        if not descriptor.credential_manager_ref:
-            continue
+        if not descriptor.credential_manager_ref or descriptor.meta.get("storage") == "generic":
+            continue  # a manager already persisting in channel_credentials needs no mirror
         try:
             cls = descriptor.resolve(descriptor.credential_manager_ref)
         except Exception as exc:  # noqa: BLE001 — a channel whose SDK is absent has no manager to mirror
@@ -124,7 +124,7 @@ async def backfill(db: Any, *, registries: Any = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for entry in regs.registry_for("ingress.channels").entries():
         descriptor = descriptor_for(entry.name, regs)
-        if not descriptor.credential_manager_ref:
+        if not descriptor.credential_manager_ref or descriptor.meta.get("storage") == "generic":
             continue
         try:
             manager = descriptor.resolve(descriptor.credential_manager_ref)(db)

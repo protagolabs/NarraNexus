@@ -970,6 +970,13 @@
         false
       ],
       [
+        "version",
+        "INTEGER",
+        "BIGINT",
+        false,
+        false
+      ],
+      [
         "created_at",
         "TEXT",
         "DATETIME(6)",

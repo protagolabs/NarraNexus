@@ -22,6 +22,8 @@ import json
 
 import pytest
 
+from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
 from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
@@ -339,21 +341,9 @@ async def test_late_owner_resolution_fires_on_username_match(
     # Pre-create the pending credential row in DB
     mgr = TelegramCredentialManager(db_client)
     # Bypass bind() to avoid the SDK call — directly insert via underlying
-    from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
-        _encode_token,
+    await GenericCredentialStore(db_client).upsert(  # persisted in channel_credentials (batch 4d)
+        "telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001", "bot_username": "acme_bot", "owner_username": "ctong201", "owner_user_id": "", "owner_name": ""}, enabled=True,
     )
-    await db_client.insert("channel_telegram_credentials", {
-        "agent_id": "agent_a",
-        "bot_token_encoded": _encode_token("1234:tok"),
-        "bot_user_id": "1001",
-        "bot_username": "acme_bot",
-        "owner_username": "ctong201",
-        "owner_user_id": "",
-        "owner_name": "",
-        "enabled": 1,
-        "created_at": "2026-05-11T00:00:00+00:00",
-        "updated_at": "2026-05-11T00:00:00+00:00",
-    })
 
     trigger = TelegramTrigger()
     trigger._db = db_client
@@ -389,21 +379,12 @@ async def test_late_owner_resolution_ignores_username_mismatch(
     claim owner. owner_username is the lock; only matching usernames
     unlock."""
     from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
-        TelegramCredentialManager, _encode_token,
+        TelegramCredentialManager,
     )
 
-    await db_client.insert("channel_telegram_credentials", {
-        "agent_id": "agent_a",
-        "bot_token_encoded": _encode_token("1234:tok"),
-        "bot_user_id": "1001",
-        "bot_username": "acme_bot",
-        "owner_username": "ctong201",
-        "owner_user_id": "",
-        "owner_name": "",
-        "enabled": 1,
-        "created_at": "2026-05-11T00:00:00+00:00",
-        "updated_at": "2026-05-11T00:00:00+00:00",
-    })
+    await GenericCredentialStore(db_client).upsert(  # persisted in channel_credentials (batch 4d)
+        "telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001", "bot_username": "acme_bot", "owner_username": "ctong201", "owner_user_id": "", "owner_name": ""}, enabled=True,
+    )
 
     trigger = TelegramTrigger()
     trigger._db = db_client
@@ -433,21 +414,12 @@ async def test_late_owner_resolution_case_insensitive(db_client):
     """Telegram usernames are case-preserving but case-insensitive at
     match time (@CTONG201 == @ctong201). The lock must match the same way."""
     from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
-        TelegramCredentialManager, _encode_token,
+        TelegramCredentialManager,
     )
 
-    await db_client.insert("channel_telegram_credentials", {
-        "agent_id": "agent_a",
-        "bot_token_encoded": _encode_token("1234:tok"),
-        "bot_user_id": "1001",
-        "bot_username": "acme_bot",
-        "owner_username": "ctong201",  # lowercase lock
-        "owner_user_id": "",
-        "owner_name": "",
-        "enabled": 1,
-        "created_at": "2026-05-11T00:00:00+00:00",
-        "updated_at": "2026-05-11T00:00:00+00:00",
-    })
+    await GenericCredentialStore(db_client).upsert(  # persisted in channel_credentials (batch 4d)
+        "telegram", "agent_a", {"bot_token": "1234:tok", "bot_user_id": "1001", "bot_username": "acme_bot", "owner_username": "ctong201", "owner_user_id": "", "owner_name": ""}, enabled=True,
+    )
 
     trigger = TelegramTrigger()
     trigger._db = db_client

@@ -15,7 +15,6 @@ Mirrors ``telegram_module/_telegram_credential_manager.py``. Deltas vs Telegram:
 """
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -25,12 +24,6 @@ from loguru import logger
 from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
-def _encode_token(raw: str) -> str:
-    return base64.b64encode(raw.encode()).decode() if raw else ""
-
-
-def _decode_token(encoded: str) -> str:
-    return base64.b64decode(encoded.encode()).decode() if encoded else ""
 
 
 @dataclass
@@ -88,10 +81,21 @@ def _cred_from_raw(raw: dict[str, Any]) -> WeChatCredential:
     )
 
 
+def _store(db: Any):
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    return GenericCredentialStore(db)
+
+
+CHANNEL = "wechat"
+
+
 class WeChatCredentialManager:
     """Manages per-agent WeChat credentials in `channel_wechat_credentials`."""
 
-    TABLE = "channel_wechat_credentials"
+    # Persistence: the generic channel_credentials table (plugin platform batch 4d);
+    # the historical channel_wechat_credentials table is retired, never dropped.
+    TABLE = "channel_wechat_credentials"  # retired — kept for the m0004 backfill and diagnostics
 
     def __init__(self, db: AsyncDatabaseClient):
         self._db = db
@@ -110,59 +114,44 @@ class WeChatCredentialManager:
         if not bot_token:
             return {"success": False, "error": "bot_token is empty (QR bind not confirmed)"}
 
-        now_iso = self._now_iso()
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        row: dict[str, Any] = {
-            "agent_id": agent_id,
-            "bot_token_encoded": _encode_token(bot_token),
+        store = _store(self._db)
+        existing = await store.get(CHANNEL, agent_id)
+        kept = existing.public if existing else {}
+        # owner_wx_id stays the empty string (never absent) so the first-DM
+        # claim_owner compare-and-set (owner_wx_id == "") can match this row.
+        values = {
+            "bot_token": bot_token,
             "base_url": base_url or "",
-            "owner_user_id": owner_user_id or (existing or {}).get("owner_user_id", "") or "",
-            "enabled": 1,
-            "updated_at": now_iso,
+            "owner_user_id": owner_user_id or kept.get("owner_user_id", "") or "",
+            "owner_wx_id": kept.get("owner_wx_id", "") or "",
+            "bot_wx_id": kept.get("bot_wx_id", "") or "",
+            "owner_name": kept.get("owner_name", "") or "",
         }
-        if existing:
-            await self._db.update(self.TABLE, {"agent_id": agent_id}, row)
-            logger.info(f"[wechat:{agent_id}] credentials updated")
-        else:
-            row["created_at"] = now_iso
-            # owner_wx_id MUST be the empty string (never NULL) so the first-DM
-            # claim_owner CAS (`WHERE owner_wx_id = ''`) can match this row.
-            row.setdefault("owner_wx_id", "")
-            row.setdefault("bot_wx_id", "")
-            await self._db.insert(self.TABLE, row)
-            logger.info(f"[wechat:{agent_id}] credentials inserted")
-        return {"success": True, "data": {"base_url": row["base_url"]}}
+        await store.upsert(CHANNEL, agent_id, values, enabled=True)
+        logger.info(f"[wechat:{agent_id}] credentials {'updated' if existing else 'inserted'}")
+        return {"success": True, "data": {"base_url": values["base_url"]}}
 
     async def get(self, agent_id: str) -> Optional[WeChatCredential]:
-        row = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        return self._row_to_cred(row) if row else None
+        record = await _store(self._db).get(CHANNEL, agent_id)
+        return _cred_from_raw(record.to_raw_dict()) if record else None
 
     async def get_public(self, agent_id: str) -> Optional[dict[str, Any]]:
         cred = await self.get(agent_id)
         return cred.to_public_dict() if cred else None
 
     async def unbind(self, agent_id: str) -> bool:
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
+        if not await _store(self._db).unbind(CHANNEL, agent_id):
             return False
-        await self._db.delete(self.TABLE, {"agent_id": agent_id})
         logger.info(f"[wechat:{agent_id}] credentials unbound")
         return True
 
     async def set_enabled(self, agent_id: str, enabled: bool) -> bool:
         """Flip ``enabled`` without deleting — the trigger uses this to stop
         reconnecting against a dead session (iLink getupdates ret!=0)."""
-        existing = await self._db.get_one(self.TABLE, {"agent_id": agent_id})
-        if not existing:
-            return False
-        await self._db.update(
-            self.TABLE, {"agent_id": agent_id}, {"enabled": 1 if enabled else 0}
-        )
-        return True
+        return await _store(self._db).set_enabled(CHANNEL, agent_id, enabled)
 
     async def list_active(self) -> list[WeChatCredential]:
-        rows = await self._db.get(self.TABLE, {"enabled": 1})
-        return [self._row_to_cred(r) for r in rows]
+        return [_cred_from_raw(r.to_raw_dict()) for r in await _store(self._db).list_active(CHANNEL)]
 
     async def claim_owner(self, agent_id: str, owner_wx_id: str) -> bool:
         """First-DM owner claim — compare-and-set on an empty ``owner_wx_id``.
@@ -173,12 +162,7 @@ class WeChatCredentialManager:
         ``owner_wx_id = ''``) means only the first DM wins and a re-bind is
         needed to re-open the claim. Returns True iff this call claimed it.
         """
-        affected = await self._db.update(
-            self.TABLE,
-            {"agent_id": agent_id, "owner_wx_id": ""},
-            {"owner_wx_id": owner_wx_id, "updated_at": self._now_iso()},
-        )
-        if not affected:
+        if not await _store(self._db).update_if(CHANNEL, agent_id, {"owner_wx_id": ""}, {"owner_wx_id": owner_wx_id}):
             return False
         logger.info(f"[wechat:{agent_id}] owner claimed via first DM: {owner_wx_id}")
         return True
@@ -187,19 +171,6 @@ class WeChatCredentialManager:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _row_to_cred(self, row: dict[str, Any]) -> WeChatCredential:
-        return WeChatCredential(
-            agent_id=row.get("agent_id", ""),
-            bot_token=_decode_token(row.get("bot_token_encoded", "")),
-            base_url=row.get("base_url", "") or "",
-            bot_wx_id=row.get("bot_wx_id", "") or "",
-            owner_wx_id=row.get("owner_wx_id", "") or "",
-            owner_user_id=row.get("owner_user_id", "") or "",
-            owner_name=row.get("owner_name", "") or "",
-            enabled=bool(row.get("enabled", 1)),
-            created_at=self._parse_dt(row.get("created_at")),
-            updated_at=self._parse_dt(row.get("updated_at")),
-        )
 
     @staticmethod
     def _now_iso() -> str:
