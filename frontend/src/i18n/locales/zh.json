@@ -1886,7 +1886,8 @@
           "noPermissions": "未申请特殊权限",
           "builtinsTitle": "内置功能",
           "builtinsHint": "随 NarraNexus 一起发布的功能级插件。禁用后其 API、后台任务和页面在重启后一起消失；受保护的内置不可关闭。",
-          "protected": "受保护"
+          "protected": "受保护",
+          "installDeps": "安装依赖（{{pip}}）"
         }
       }
     },

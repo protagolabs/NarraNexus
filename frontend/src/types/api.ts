@@ -1451,6 +1451,11 @@ export interface FactoryBuiltin {
   hosts: string[];
   provides: string[];
   dependencies: Record<string, string>;
+  /** Declares heavy dependencies installed on first boot of a slim build. */
+  on_demand?: boolean;
+  pip?: string[];
+  /** Why the last boot ran without this builtin (its on-demand dependencies are unavailable); null when fine. */
+  deps_missing?: string | null;
 }
 
 export interface FactoryListResponse extends ApiResponse {

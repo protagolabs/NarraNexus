@@ -1176,6 +1176,11 @@
   ],
   [
     "POST",
+    "/api/plugin-factory/builtin/{plugin_id}/install-deps",
+    "builtin_install_deps"
+  ],
+  [
+    "POST",
     "/api/plugin-factory/install",
     "install"
   ],

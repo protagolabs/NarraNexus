@@ -51,6 +51,9 @@ class BackendSpec(_Strict):
     package: str = "backend"
     pip: tuple[str, ...] = ()
     activate: bool = False
+    # Import names that prove ``pip`` is present (``lark-oapi`` → ``lark_oapi``);
+    # an on-demand builtin is checked against these at boot.
+    imports: tuple[str, ...] = ()
 
 
 class UiPage(_Strict):

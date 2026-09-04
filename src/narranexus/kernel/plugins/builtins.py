@@ -251,8 +251,13 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "id": "builtin.channels.lark",
         "version": "1.0.0",
         "displayName": "Lark",
-        "description": "Builtin module LarkModule (IM channel: trigger + module + tools).",
+        "description": "Builtin module LarkModule (IM channel: trigger + module + tools). The lark-oapi SDK installs on demand on a slim build.",
         "hosts": ["backend", "mcp", "workers"],
+        # Heavy dependency (spec section 843): declared here so a distribution
+        # that leaves lark-oapi out of the base install self-heals on first boot
+        # (wheels-only into ~/.narranexus/plugin-deps) or boots without Lark.
+        "backend": {"pip": ["lark-oapi>=1.4.0,<2.0.0"], "imports": ["lark_oapi"]},
+        "install": {"deps": "on_demand"},
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0},
         "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_LARK"], "backend.routes": ["backend.routes.channels.lark:ROUTES"], "backend.hooks": ["xyz_agent_context.module.lark_module.plugin_hooks:HOOKS"]},
         "quality": "gold",

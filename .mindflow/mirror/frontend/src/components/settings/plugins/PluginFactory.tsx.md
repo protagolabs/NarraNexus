@@ -21,3 +21,7 @@ enable/disable/upgrade/uninstall（`protected` 插件不能停用/卸载）；LK
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 A "Built-in features" section lists the builtins with enabled/protected badges and an enable/disable toggle (hidden for protected ones) that hits `factoryBuiltinSetEnabled` and shows the restart notice.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+A builtin with `deps_missing` shows a warning badge, the reason, and an install-retry button (`factoryBuiltinInstallDeps`).

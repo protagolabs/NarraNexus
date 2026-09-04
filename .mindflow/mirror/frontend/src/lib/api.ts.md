@@ -468,3 +468,7 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `factoryBuiltinSetEnabled(id, enabled)` → `POST /api/plugin-factory/builtin/{id}/enable|disable`.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`factoryBuiltinInstallDeps(id)` → `POST /api/plugin-factory/builtin/{id}/install-deps`.

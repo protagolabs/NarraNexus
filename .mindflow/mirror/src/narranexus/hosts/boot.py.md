@@ -17,3 +17,7 @@ import 时登记的贡献（模块类等）在 stage1 之前按 owner 移除并 
 激活器记下事件 → 状态推进到 `enabled`；最后 `registries.freeze()`。启动标记：本地在 stage2 前 `enter`，宿主
 健康后 `mark_healthy()` 才 `exit`；连续两次残留 → 写 `safe_mode` 并只装内置。一切决定都回到 `BootReport`
 （工场页要展示），不只写日志。
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+Before stage 1 every builtin passes `ensure_builtin_deps` (probe / install on the local build); a builtin whose on-demand dependencies are unavailable is recorded in `BootReport.deps_missing`, its contributions removed, and the boot continues without it.

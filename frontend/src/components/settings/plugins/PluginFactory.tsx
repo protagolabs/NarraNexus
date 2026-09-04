@@ -328,9 +328,21 @@ export function PluginFactory() {
                 </div>
                 <div className="flex items-center gap-2">
                   {b.protected && <StatusBadge status="info">{t(`${fp}.protected`)}</StatusBadge>}
-                  <StatusBadge status={b.enabled ? 'success' : 'neutral'}>{t(`${fp}.state.${b.enabled ? 'enabled' : 'disabled'}`)}</StatusBadge>
+                  {b.deps_missing ? (
+                    <StatusBadge status="warning">{t(`${fp}.state.deps_missing`)}</StatusBadge>
+                  ) : (
+                    <StatusBadge status={b.enabled ? 'success' : 'neutral'}>{t(`${fp}.state.${b.enabled ? 'enabled' : 'disabled'}`)}</StatusBadge>
+                  )}
                 </div>
               </div>
+              {b.deps_missing && (
+                <div className="space-y-1" data-testid={`builtin-deps-${b.id}`}>
+                  <p className="text-xs text-[var(--color-warning)]">{b.deps_missing}</p>
+                  <Button size="sm" variant="secondary" leading={<Download className="h-3.5 w-3.5" />} disabled={busy !== null} loading={busy === `${b.id}:deps`} onClick={() => void run(`${b.id}:deps`, () => api.factoryBuiltinInstallDeps(b.id), t(`${fp}.restartRequired`))}>
+                    {t(`${fp}.installDeps`, { pip: (b.pip ?? []).join(', ') })}
+                  </Button>
+                </div>
+              )}
               {!b.protected && (
                 <div className="flex items-center gap-2">
                   {b.enabled ? (

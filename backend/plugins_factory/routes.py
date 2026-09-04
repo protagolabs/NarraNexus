@@ -104,6 +104,11 @@ async def builtin_enable(plugin_id: str) -> dict[str, Any]:
     return {"success": True, "data": await _run(service().set_builtin_enabled, plugin_id, True)}
 
 
+@router.post("/builtin/{plugin_id}/install-deps")
+async def builtin_install_deps(plugin_id: str) -> dict[str, Any]:
+    return {"success": True, "data": await _run(service().install_builtin_deps, plugin_id)}
+
+
 @router.post("/builtin/{plugin_id}/disable")
 async def builtin_disable(plugin_id: str) -> dict[str, Any]:
     return {"success": True, "data": await _run(service().set_builtin_enabled, plugin_id, False)}

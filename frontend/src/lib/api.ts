@@ -1504,6 +1504,10 @@ class ApiClient {
     return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
   }
 
+  async factoryBuiltinInstallDeps(id: string): Promise<ApiResponse & { data?: { id: string; installed: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/install-deps`, { method: 'POST' });
+  }
+
   async factoryRollback(): Promise<ApiResponse> {
     return this.request(`/api/plugin-factory/rollback`, { method: 'POST' });
   }

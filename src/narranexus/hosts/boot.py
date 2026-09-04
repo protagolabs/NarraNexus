@@ -47,6 +47,8 @@ class BootReport:
     rejected: dict[str, str] = field(default_factory=dict)
     isolated: dict[str, str] = field(default_factory=dict)
     disabled_builtins: tuple[str, ...] = ()
+    # builtin id -> why its on-demand dependencies are unavailable (booted without it)
+    deps_missing: dict[str, str] = field(default_factory=dict)
     activation_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
     duration_ms: float = 0.0
     _marker: BootMarker | None = None
@@ -118,8 +120,23 @@ def boot(
         removed = registries.remove_owner(pid)
         logger.info(f"[plugins] {pid}: disabled ({removed} contribution(s) removed)")
 
+    # ---- on-demand builtin dependencies: probe / install; a builtin whose deps
+    # are unavailable boots as if disabled (deps_missing, retry from the factory)
+    from narranexus.kernel.plugins.install.builtin_deps import ensure_builtin_deps
+
+    builtins = []
+    for manifest in found.manifests:
+        if not manifest.is_builtin:
+            continue
+        status = ensure_builtin_deps(manifest, cloud=cloud)
+        if status.ok:
+            builtins.append(manifest)
+            continue
+        report.deps_missing[manifest.id] = status.error or "dependencies missing"
+        removed = registries.remove_owner(manifest.id)
+        logger.warning(f"[plugins] {manifest.id}: deps_missing — booting without it ({removed} contribution(s) removed): {status.error}")
+
     # ---- stage 1: builtins (fail-fast inside load())
-    builtins = [m for m in found.manifests if m.is_builtin]
     report.builtins = load(registries, builtins, role=role)
 
     # ---- stage 2: user plugins, isolated

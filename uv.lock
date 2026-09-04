@@ -3338,6 +3338,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+channels-lark = [
+    { name = "lark-oapi" },
+]
 plugins = [
     { name = "claude-agent-sdk" },
     { name = "openai-codex" },
@@ -3373,6 +3376,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.0.0" },
     { name = "httpx", extras = ["socks"] },
     { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
+    { name = "lark-oapi", marker = "extra == 'channels-lark'", specifier = ">=1.4.0,<2.0.0" },
     { name = "litellm", specifier = ">=1.94.0,<2" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "matrix-nio", specifier = ">=0.25.0" },
@@ -3393,7 +3397,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
-provides-extras = ["plugins"]
+provides-extras = ["plugins", "channels-lark"]
 
 [package.metadata.requires-dev]
 dev = [

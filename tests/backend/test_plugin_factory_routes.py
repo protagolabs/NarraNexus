@@ -165,3 +165,19 @@ def test_disabling_a_builtin_cascades_to_its_dependants(client):
     assert r.status_code == 200 and "builtin.teams" in r.json()["data"]["also_disabled"]
     overrides = json.loads((home / "registry.json").read_text())["builtin_overrides"]
     assert overrides["builtin.teams"] == {"enabled": False, "because": "builtin.message_bus"}
+
+
+def test_builtin_install_deps_retry(client, monkeypatch):
+    from narranexus.kernel.plugins.install import builtin_deps
+
+    c, svc, home = client
+    # lark's SDK is present here, so the retry is a no-op success.
+    r = c.post("/api/plugin-factory/builtin/builtin.channels.lark/install-deps", headers=H)
+    assert r.status_code == 200 and r.json()["data"]["restart_required"]
+    # a builtin without on-demand deps is a 400; unknown is a 404
+    assert c.post("/api/plugin-factory/builtin/builtin.teams/install-deps", headers=H).status_code == 400
+    assert c.post("/api/plugin-factory/builtin/acme.nope/install-deps", headers=H).status_code == 404
+    rows = {b["id"]: b for b in c.get("/api/plugin-factory", headers=H).json()["data"]["builtins"]}
+    assert rows["builtin.channels.lark"]["on_demand"] and rows["builtin.channels.lark"]["pip"] == ["lark-oapi>=1.4.0,<2.0.0"]
+    assert rows["builtin.teams"]["on_demand"] is False and rows["builtin.teams"]["deps_missing"] is None
+    assert builtin_deps.is_on_demand

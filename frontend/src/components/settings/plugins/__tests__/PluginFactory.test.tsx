@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   factoryProposals: vi.fn(),
   factoryDecide: vi.fn(),
   factoryBuiltinSetEnabled: vi.fn(),
+  factoryBuiltinInstallDeps: vi.fn(),
 }));
 vi.mock('@/lib/api', () => ({ api: mocks }));
 
@@ -151,4 +152,21 @@ it('protected plugins cannot be disabled or uninstalled', async () => {
   expect((screen.getByText('Disable').closest('button') as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByText('Uninstall')).toBeNull();
   expect(screen.queryByText('Upgrade')).toBeNull();
+});
+
+it('a builtin whose on-demand dependencies are missing shows the reason and an install retry', async () => {
+  mocks.factoryBuiltinInstallDeps.mockResolvedValue({ success: true, data: { id: 'builtin.channels.lark', installed: ['lark-oapi'], restart_required: true } });
+  mocks.factoryList.mockResolvedValue(
+    listing({
+      builtins: [
+        { id: 'builtin.channels.lark', display_name: 'Lark', description: '', version: '1.0.0', enabled: true, protected: false, hosts: ['backend'], provides: [], dependencies: {}, on_demand: true, pip: ['lark-oapi>=1.4.0,<2.0.0'], deps_missing: 'missing lark_oapi; dependency install failed (rc=1)' },
+      ],
+    }),
+  );
+  render(<PluginFactory />);
+  const card = await screen.findByTestId('builtin-builtin.channels.lark');
+  expect(card).toHaveTextContent('dependencies missing');
+  expect(card).toHaveTextContent('missing lark_oapi');
+  fireEvent.click(screen.getByText('Install dependencies (lark-oapi>=1.4.0,<2.0.0)'));
+  await waitFor(() => expect(mocks.factoryBuiltinInstallDeps).toHaveBeenCalledWith('builtin.channels.lark'));
 });

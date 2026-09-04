@@ -43,3 +43,7 @@ stub: false
 ## 2026-09-04 · UI slot points (batch 3d.2)
 
 `frontend.ui` gains `conversationKinds`, `messageRenderers` (id + role / contentPrefix gate shape), `timelineEvents` (id + type) and `slots` (id, point ∈ the six slot points, label, `when` validated against the closed grammar, order); `derive_activation_events` adds `onRenderer:` / `onTimelineEvent:` / `onSlot:`.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`BackendSpec.imports` — import names that prove `pip` is present; on-demand builtins are probed against them.

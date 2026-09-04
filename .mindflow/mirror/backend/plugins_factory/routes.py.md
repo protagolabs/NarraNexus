@@ -16,3 +16,7 @@ safe-mode/leave/bisect/{start,answer,stop}/errors（GET/POST）/assets（带 `X-
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `POST /builtin/{id}/enable|disable` toggles builtin feature plugins (404 unknown, 400 protected, 403 cloud), declared before the `/{plugin_id}/...` routes so `builtin` is never read as a plugin id.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`POST /builtin/{id}/install-deps`.

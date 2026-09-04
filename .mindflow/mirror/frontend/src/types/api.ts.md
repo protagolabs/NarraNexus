@@ -217,3 +217,7 @@ api.ts.md 的 coachmark 门控段）。
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `FactoryBuiltin` + optional `builtins` on `FactoryListResponse.data` mirror the factory service's builtin rows.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`FactoryBuiltin` gains `on_demand`, `pip`, `deps_missing`.

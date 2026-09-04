@@ -1886,7 +1886,8 @@
           "noPermissions": "No special permissions requested",
           "builtinsTitle": "Built-in features",
           "builtinsHint": "Feature-level plugins that ship with NarraNexus. Disabling one removes its API, workers and pages after a restart; protected ones cannot be turned off.",
-          "protected": "protected"
+          "protected": "protected",
+          "installDeps": "Install dependencies ({{pip}})"
         }
       }
     },

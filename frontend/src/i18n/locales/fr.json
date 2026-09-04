@@ -1442,7 +1442,8 @@
           "noPermissions": "Aucune permission particulière demandée",
           "builtinsTitle": "Fonctions intégrées",
           "builtinsHint": "Plugins fonctionnels livrés avec NarraNexus. En désactiver un retire son API, ses workers et ses pages après redémarrage ; les protégés ne peuvent pas être désactivés.",
-          "protected": "protégé"
+          "protected": "protégé",
+          "installDeps": "Installer les dépendances ({{pip}})"
         }
       }
     },

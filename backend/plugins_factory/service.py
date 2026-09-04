@@ -26,6 +26,7 @@ from narranexus.kernel.deployment import is_cloud_mode
 from narranexus.kernel.plugins.bisect import Bisect
 from narranexus.kernel.plugins.install import Installer, InstallResult
 from narranexus.kernel.plugins.install.index import Index
+from narranexus.kernel.plugins.install.installer import InstallError
 from narranexus.kernel.plugins.lifecycle import RegistryError, RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest, derive_activation_events, load_manifest
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, frontend_dist_dir, plugin_home, registry_path
@@ -139,10 +140,12 @@ class FactoryService:
             ),
         }
 
-    @staticmethod
-    def _builtin_rows(reg) -> list[dict[str, Any]]:
+    def _builtin_rows(self, reg) -> list[dict[str, Any]]:
         from narranexus.kernel.plugins.builtins import builtin_manifests
 
+        from narranexus.kernel.plugins.install.builtin_deps import is_on_demand
+
+        deps_missing = dict(self.boot_report.deps_missing) if self.boot_report is not None else {}
         rows = []
         for m in builtin_manifests():
             override = reg.builtin_overrides.get(m.id, {})
@@ -157,9 +160,30 @@ class FactoryService:
                     "hosts": list(m.hosts),
                     "provides": sorted(m.provides),
                     "dependencies": dict(m.dependencies),
+                    "on_demand": is_on_demand(m),
+                    "pip": list(m.backend.pip) if m.backend is not None else [],
+                    "deps_missing": deps_missing.get(m.id),
                 }
             )
         return rows
+
+    def install_builtin_deps(self, plugin_id: str) -> dict[str, Any]:
+        """Retry an on-demand builtin's dependency install (local build only); a restart picks it up."""
+        self._guard_mutation()
+        from narranexus.kernel.plugins.builtins import builtin_manifests
+        from narranexus.kernel.plugins.install.builtin_deps import ensure_builtin_deps, is_on_demand
+
+        manifest = next((m for m in builtin_manifests() if m.id == plugin_id), None)
+        if manifest is None:
+            raise NotInstalled(f"{plugin_id} is not a builtin plugin")
+        if not is_on_demand(manifest):
+            raise RegistryError(f"{plugin_id} has no on-demand dependencies")
+        status = ensure_builtin_deps(manifest, cloud=False, runner=self.installer.runner)
+        if not status.ok:
+            raise InstallError(status.error or "dependency install failed")
+        if self.boot_report is not None:
+            self.boot_report.deps_missing.pop(plugin_id, None)
+        return {"id": plugin_id, "installed": list(status.installed), "restart_required": True}
 
     def set_builtin_enabled(self, plugin_id: str, enabled: bool) -> dict[str, Any]:
         """Toggle a builtin through registry.json builtin_overrides (protected builtins refuse)."""

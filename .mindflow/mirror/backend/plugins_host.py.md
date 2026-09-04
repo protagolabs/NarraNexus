@@ -21,3 +21,7 @@ include；之后直通。认证中间件在主 app 上先跑，所以未登录�
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `register_builtins_for_import()` runs at `backend.main` import so builtin contributions (notably `builtin.teams`' router) exist before `mount_plugin_routes`; it drops `builtin_overrides`-disabled owners first, and the lifespan `boot` repeats the load idempotently. `start_backend_workers()/stop_backend_workers()` are the only consumer of `backend.workers` specs with `host="backend"`: they run inside the API process, one task per spec, failures isolated per plugin, stop awaited with a bounded timeout. Nothing in this file knows what teams is.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`register_builtins_for_import` applies the same on-demand dependency probe as the boot, so a deps-missing builtin's routes/workers are not mounted at import either.

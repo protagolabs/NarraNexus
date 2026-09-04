@@ -25,3 +25,7 @@ stub: false
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `list()` also returns `builtins` (id/display_name/enabled/protected/provides/dependencies from the manifests + overrides). `set_builtin_enabled()` writes `builtin_overrides` and cascades a disable to dependants (`because: <id>`); protected builtins refuse; enabling pops the override.
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+Builtin rows carry `on_demand` / `pip` / `deps_missing` (from the boot report); `install_builtin_deps` retries the install on the local build (400 for a builtin without on-demand deps, 404 unknown).

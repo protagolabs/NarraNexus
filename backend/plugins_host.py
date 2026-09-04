@@ -150,12 +150,24 @@ def register_builtins_for_import(registries: Registries) -> tuple[str, ...]:
     """
     from narranexus.kernel.deployment import is_cloud_mode
     from narranexus.kernel.plugins.compat import host_version
+    from narranexus.kernel.plugins.install.builtin_deps import ensure_builtin_deps
     from narranexus.kernel.plugins.loader import discover, load
 
-    found = discover(cloud=is_cloud_mode(), host_version=host_version())
+    cloud = is_cloud_mode()
+    found = discover(cloud=cloud, host_version=host_version())
     for pid in found.disabled_builtins:
         registries.remove_owner(pid)
-    load(registries, [m for m in found.manifests if m.is_builtin], role="backend")
+    loadable = []
+    for manifest in found.manifests:
+        if not manifest.is_builtin:
+            continue
+        status = ensure_builtin_deps(manifest, cloud=cloud)
+        if status.ok:
+            loadable.append(manifest)
+        else:
+            registries.remove_owner(manifest.id)
+            logger.warning(f"[plugins] {manifest.id}: deps_missing at import — routes/workers not mounted: {status.error}")
+    load(registries, loadable, role="backend")
     return tuple(found.disabled_builtins)
 
 

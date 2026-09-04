@@ -69,3 +69,7 @@ builtin.job / builtin.awareness / the six channel builtins provide `backend.hook
 ## 2026-09-04 · extension points (batch 3d.1)
 
 `builtin.frameworks.nexus_power` declares its five seat slots (`builtin.frameworks.nexus_power.{stop,compaction,projector,expression,policy}`, contracts = the NexusPower protocols) and provides their default implementations from `nexus_power/extension_points.py` (one-arity seats as a single Contribution symbol, the policy seat as a tuple).
+
+## 2026-09-04 · on-demand builtin dependencies (batch 3d.3)
+
+`builtin.channels.lark` declares `backend.pip` lark-oapi + `imports` lark_oapi with `install.deps: on_demand` (still in the base install today; see install/builtin_deps.py).

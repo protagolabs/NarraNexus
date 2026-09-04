@@ -108,6 +108,15 @@ plugins = [
     "claude-agent-sdk~=0.1.43",
     "openai-codex>=0.1.0b3,<0.2",
 ]
+# The Lark channel's SDK as its own group. It is STILL in the base
+# `dependencies` today (every image and the DMG ship it); builtin.channels.lark
+# declares it `install.deps: on_demand`, so a future slim build may drop it from
+# the base list and the builtin installs it on first boot (or boots without
+# Lark, state deps_missing). Dropping it from the base list is a deploy-repo
+# lockstep change (Dockerfile.python / Dockerfile.executor), not a repo-local one.
+channels-lark = [
+    "lark-oapi>=1.4.0,<2.0.0",
+]
 
 [project.scripts]
 narranexus = "narranexus.cli.main:main"
