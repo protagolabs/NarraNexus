@@ -202,6 +202,10 @@ class _ChannelSpecs(Mapping[str, ChannelSpec]):
         out: dict[str, ChannelSpec] = {}
         for entry in self._registry().entries():
             d = entry.factory()
+            if d.has_inbound:
+                from xyz_agent_context.schema.hook_schema import WorkingSource
+
+                WorkingSource.register(d.name)  # a plugin channel's inbound turns need their source
             if d.credential_manager_ref:
                 out[d.name] = _spec_from_descriptor(d)
         return out

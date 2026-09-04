@@ -1,6 +1,6 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -402,3 +402,7 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 客户端 auth 漏斗故障上报：上报者按定义刚登录失败、没有 session。路由自带
 stage 白名单+限流+log-only 防护（见 routes/auth.py mirror）。
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+`_is_channel_webhook_path` — the exact `/api/channels/{channel}/webhook/{agent_id}` shape is auth-exempt (the handler verifies the binding's secret); every other `/api/channels/*` route keeps the normal auth.

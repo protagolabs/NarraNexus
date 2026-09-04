@@ -67,3 +67,7 @@ Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `CHANNELS` is `_ChannelSpecs`, a live Mapping over `ingress.channels` (ChannelSpec derived from each descriptor's manager / read method / bind-test service / unbind service); `SUPPORTED_CHANNELS` is the live name set. The hand-written table is gone: adding a channel is a descriptor in its plugin, and a disabled builtin answers "unknown channel".
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+`_ChannelSpecs._build` registers the `WorkingSource` of every inbound descriptor, so a plugin channel's turns have their source in any process that reads channels.

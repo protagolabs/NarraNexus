@@ -1,6 +1,6 @@
 ---
 code_file: backend/middleware/body_size.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 # body_size.py — declared-length 体积门的唯一有效层(#334 r3 I1)
@@ -62,3 +62,7 @@ env-gated 模板采样,而 `test_every_env_gated_capped_template_has_a_cap`
 反向保证每条声明的模板真有 cap(静态对静态,与 flag 无关)。
 2026-08-20 实核:dev 与 prod 容器均未设 `ENABLE_MANYFOLD_API`,
 该无上界入口不是现网敞口。
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+Generic channel routes: 64 KiB for bind/test/unbind/set-active, 256 KiB for `/api/channels/{channel}/webhook/{agent_id}`.

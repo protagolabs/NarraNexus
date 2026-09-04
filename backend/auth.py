@@ -13,6 +13,8 @@ bypassed — no JWT required.
 
 from __future__ import annotations
 
+import re
+
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -423,9 +425,19 @@ def _is_marketplace_public_read(request: "Request") -> bool:
 # code. A set (not the tuple below) because it is populated at runtime.
 PLUGIN_EXEMPT_PREFIXES: set[str] = set()
 
+# Inbound channel webhooks (plugin platform batch 4c): the external platform
+# has no session; the binding's webhook_secret is the auth, verified in the
+# handler (backend/routes/channels/generic.py). Exact shape only — every
+# other /api/channels/* route keeps the normal auth.
+_CHANNEL_WEBHOOK_RE = re.compile(r"^/api/channels/[^/]+/webhook/[^/]+$")
+
+
+def _is_channel_webhook_path(path: str) -> bool:
+    return bool(_CHANNEL_WEBHOOK_RE.match(path))
+
 
 def _is_plugin_exempt(path: str) -> bool:
-    return any(path.startswith(p) for p in PLUGIN_EXEMPT_PREFIXES)
+    return any(path.startswith(p) for p in PLUGIN_EXEMPT_PREFIXES) or _is_channel_webhook_path(path)
 
 
 AUTH_EXEMPT_PREFIXES = (

@@ -1742,6 +1742,63 @@
       ]
     ]
   },
+  "channel_webhook_events": {
+    "columns": [
+      [
+        "id",
+        "INTEGER",
+        "BIGINT UNSIGNED",
+        false,
+        true
+      ],
+      [
+        "channel",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "agent_id",
+        "TEXT",
+        "VARCHAR(64)",
+        false,
+        false
+      ],
+      [
+        "payload_json",
+        "TEXT",
+        "MEDIUMTEXT",
+        false,
+        false
+      ],
+      [
+        "received_at",
+        "TEXT",
+        "DATETIME(6)",
+        false,
+        false
+      ],
+      [
+        "claimed_at",
+        "TEXT",
+        "DATETIME(6)",
+        true,
+        false
+      ]
+    ],
+    "indexes": [
+      [
+        "idx_channel_webhook_pending",
+        [
+          "channel",
+          "agent_id",
+          "claimed_at"
+        ],
+        false
+      ]
+    ]
+  },
   "channel_wechat_credentials": {
     "columns": [
       [

@@ -1296,6 +1296,29 @@ _register(
 # for the uniqueness check.
 _register(
     TableDef(
+        name="channel_webhook_events",
+        # Plugin platform batch 4c: the webhook transport's inbox. The backend
+        # API process receives a channel's webhook and appends the raw event
+        # here; the channel trigger (workers process) pulls and claims rows in
+        # order. A DB-backed queue on purpose — one host today, and the seam a
+        # broker can replace later (rule #20).
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("payload_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("received_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("claimed_at", "TEXT", "DATETIME(6)"),
+        ],
+        indexes=[
+            Index("idx_channel_webhook_pending", ["channel", "agent_id", "claimed_at"]),
+        ],
+    )
+)
+
+
+_register(
+    TableDef(
         name="channel_credentials",
         # Plugin platform batch 4b: the ONE credential table every IM channel
         # (builtin or plugin) is served from. A row is one (channel, agent)

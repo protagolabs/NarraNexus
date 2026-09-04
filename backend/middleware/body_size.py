@@ -67,6 +67,9 @@ MAX_PLUGIN_FACTORY_BYTES = 64 * 1024
 # Generic channel routes (plugin platform batch 4b): a bind body is a handful
 # of credential fields; 64 KiB leaves room for long tokens and select options.
 MAX_CHANNEL_BIND_BYTES = 64 * 1024
+# Inbound channel webhooks carry a platform's event envelope (a message plus
+# metadata); 256 KiB covers rich events without letting a push flood the inbox.
+MAX_CHANNEL_WEBHOOK_BYTES = 256 * 1024
 
 #: (methods, path regex, max declared bytes). First match wins.
 BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
@@ -84,6 +87,11 @@ BODY_CAPS: List[Tuple[frozenset, re.Pattern, int]] = [
         frozenset({"POST"}),
         re.compile(r"^/api/channels/[^/]+/(bind|test|unbind|set-active)$"),
         MAX_CHANNEL_BIND_BYTES,
+    ),
+    (
+        frozenset({"POST"}),
+        re.compile(r"^/api/channels/[^/]+/webhook/[^/]+$"),
+        MAX_CHANNEL_WEBHOOK_BYTES,
     ),
     (
         frozenset({"PUT"}),

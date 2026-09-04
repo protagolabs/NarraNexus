@@ -1087,3 +1087,7 @@ run 外staging 的行(如 HTTP 删除)会迟到 drain——刻意如此:前端 u
 ## 2026-09-04 · generic channel credentials (batch 4b)
 
 `channel_credentials` — the generic channel credential table (channel, agent_id, enabled, external_id, public_json, encrypted secret_json; unique (channel, agent_id) and (channel, external_id)). The six per-channel tables stay (never dropped) through the dual-write phase.
+
+## 2026-09-04 · webhook transport (batch 4c)
+
+`channel_webhook_events` — the webhook transport inbox (channel, agent_id, payload_json, received_at, claimed_at).

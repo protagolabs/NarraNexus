@@ -14,6 +14,7 @@ directly. Ownership is the one canonical check (``_ownership.check_owned``).
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -23,6 +24,8 @@ from pydantic import BaseModel, Field
 from backend.routes._ownership import check_owned
 from narranexus.contracts.channel import ChannelDescriptor
 from xyz_agent_context.channel.credential_store import GenericCredentialStore, UnknownChannel, descriptor_for, missing_required
+from xyz_agent_context.channel.webhook_inbox import WebhookInbox
+from xyz_agent_context.channel.webhook_transport import SECRET_FIELD, new_webhook_secret, verify_webhook
 
 router = APIRouter()
 
@@ -95,9 +98,49 @@ async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[s
         if result.get("success"):
             logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
         return result
-    record = await GenericCredentialStore(db).upsert(channel, body.agent_id, body.fields, enabled=True)
+    fields = dict(body.fields)
+    issued_secret: Optional[str] = None
+    if d.transport == "webhook" and not str(fields.get(SECRET_FIELD, "") or "").strip():
+        # The binding's inbound token, generated once and shown once (it is a secret).
+        existing = await GenericCredentialStore(db).get(channel, body.agent_id)
+        kept = existing.secret.get(SECRET_FIELD) if existing else None
+        fields[SECRET_FIELD] = kept or new_webhook_secret()
+        issued_secret = None if kept else fields[SECRET_FIELD]  # shown once, at first bind
+    record = await GenericCredentialStore(db).upsert(channel, body.agent_id, fields, enabled=True)
     logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
-    return {"success": True, "data": record.to_public_dict()}
+    data = record.to_public_dict()
+    if d.transport == "webhook":
+        data["webhook_path"] = f"/api/channels/{channel}/webhook/{body.agent_id}"
+        if issued_secret:
+            data["webhook_secret"] = issued_secret
+    return {"success": True, "data": data}
+
+
+@router.post("/{channel}/webhook/{agent_id}")
+async def channel_webhook(request: Request, channel: str, agent_id: str, token: Optional[str] = None) -> dict[str, Any]:
+    """Inbound webhook for a webhook-transport channel: verify the binding's secret, append the event to the inbox.
+
+    Auth-exempt at the middleware (no session) — the credential's
+    ``webhook_secret`` IS the auth: ``X-Webhook-Token`` / ``?token=`` or an
+    HMAC-SHA256 signature of the raw body in ``X-Webhook-Signature``.
+    """
+    d = _descriptor(channel)
+    if d.transport != "webhook":
+        raise HTTPException(status_code=404, detail=f"{channel} is not a webhook channel")
+    raw = await request.body()
+    record = await GenericCredentialStore(await _db()).get(channel, agent_id)
+    if record is None or not record.enabled:
+        raise HTTPException(status_code=404, detail="no active binding for this agent")
+    if not verify_webhook(str(record.secret.get(SECRET_FIELD, "") or ""), raw, dict(request.headers), token):
+        raise HTTPException(status_code=401, detail="webhook token or signature invalid")
+    try:
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="body must be JSON") from None
+    if not isinstance(payload, dict):
+        payload = {"value": payload}
+    await WebhookInbox(await _db()).push(channel, agent_id, payload)
+    return {"success": True, "queued": True}
 
 
 @router.get("/{channel}/credential")

@@ -97,6 +97,9 @@ class TriggerMapView(MutableMapping[str, type[ChannelTriggerBase]]):
             if cls.channel_name != spec.name:
                 logger.error(f"channel trigger {entry.name!r}: spec name != class channel_name {cls.channel_name!r}; skipped")
                 continue
+            from xyz_agent_context.schema.hook_schema import WorkingSource
+
+            WorkingSource.register(cls.channel_name)  # plugin channels name their own inbound source
             loaded[cls.channel_name] = cls
         for name in self._hidden:
             loaded.pop(name, None)

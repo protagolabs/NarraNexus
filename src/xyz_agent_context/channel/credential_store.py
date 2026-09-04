@@ -43,6 +43,11 @@ class CredentialRecord:
     created_at: Any = None
     updated_at: Any = None
 
+    @property
+    def app_id(self) -> str:
+        """The subscriber key ChannelTriggerBase expects on a credential (external id, else the agent id)."""
+        return self.external_id or self.agent_id
+
     def to_public_dict(self) -> dict[str, Any]:
         return {"channel": self.channel, "agent_id": self.agent_id, "enabled": self.enabled, "external_id": self.external_id, **self.public}
 

@@ -1031,6 +1031,11 @@
   ],
   [
     "POST",
+    "/api/channels/{channel}/webhook/{agent_id}",
+    "channel_webhook"
+  ],
+  [
+    "POST",
     "/api/dashboard/jobs/{job_id}/pause",
     "pause_job"
   ],
