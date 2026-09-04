@@ -860,6 +860,10 @@ export interface DashboardResponse extends ApiResponse {
 }
 
 // Lark / Feishu Integration types
+//
+// The credential views below are the generic channel store's public half
+// (`/api/channels/<channel>/credential`): identity fields plus `enabled`;
+// secrets never leave the server.
 export interface LarkCredentialData {
   agent_id: string;
   app_id: string;
@@ -868,12 +872,9 @@ export interface LarkCredentialData {
   owner_open_id: string;
   owner_name: string;
   auth_status: string;
-  is_active: boolean;
+  enabled: boolean;
 }
 
-export interface LarkCredentialResponse extends ApiResponse {
-  data: LarkCredentialData | null;
-}
 
 /**
  * Structured Lark/Feishu bind failure — translator-rendered.
@@ -949,13 +950,8 @@ export interface SlackCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface SlackCredentialResponse extends ApiResponse {
-  data: SlackCredentialData | null;
-}
 
 export interface SlackBindResponse extends ApiResponse {
   data?: {
@@ -989,13 +985,8 @@ export interface TelegramCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface TelegramCredentialResponse extends ApiResponse {
-  data: TelegramCredentialData | null;
-}
 
 export interface NarramessengerCredentialData {
   agent_id: string;
@@ -1009,13 +1000,8 @@ export interface NarramessengerCredentialData {
   owner_name: string;
   connection_mode: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface NarramessengerCredentialResponse extends ApiResponse {
-  data: NarramessengerCredentialData | null;
-}
 
 export interface NarramessengerBindResponse extends ApiResponse {
   data?: {
@@ -1050,13 +1036,8 @@ export interface WeChatCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface WeChatCredentialResponse extends ApiResponse {
-  data: WeChatCredentialData | null;
-}
 
 // /qrcode/start → the login QR. `qr_url` is a WeChat URL the user scans;
 // `qrcode` is the opaque handle passed back to /qrcode/poll. `base_url` is
@@ -1096,13 +1077,8 @@ export interface DiscordCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
 }
 
-export interface DiscordCredentialResponse extends ApiResponse {
-  data: DiscordCredentialData | null;
-}
 
 export interface DiscordBindResponse extends ApiResponse {
   data?: {
@@ -1459,7 +1435,10 @@ export interface ChannelSchema {
   has_bind: boolean;
   has_test: boolean;
   manager_backed: boolean;
+  /** The stored credential shape (identity fields shown back after bind). */
   fields: ChannelSchemaField[];
+  /** What a bind call takes — differs from `fields` for builtin channels whose service binds from e.g. a pasted link. */
+  bind_fields: ChannelSchemaField[];
   external_id_field: string;
 }
 

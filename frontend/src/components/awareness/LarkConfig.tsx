@@ -14,7 +14,7 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } f
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
-import type { LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
+import type { LarkBindResponse, LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
 
 // App ID validation regex — matches the `cli_<16+ alphanumeric>` pattern
 // the Lark/Feishu developer console mints. Catches the most common user
@@ -63,7 +63,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getLarkCredential(agentId);
+      const res = await api.channelCredential<LarkCredentialData>('lark', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -122,7 +122,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setErrorDetail(null);
     setWarnings([]);
     try {
-      const res = await api.bindLarkBot(agentId, appId, appSecret, brand, ownerEmail);
+      const res = await api.channelBind<LarkBindResponse>('lark', agentId, { app_id: appId, app_secret: appSecret, brand, owner_email: ownerEmail });
       if (!mountedRef.current) return;
       if (res.success) {
         setAppId('');
@@ -224,7 +224,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.unbindLarkBot(agentId);
+      const res = await api.channelUnbind('lark', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(null);
@@ -243,11 +243,11 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   };
 
   // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
-  // credential live (or the reverse). Flipping is_active is what makes the
+  // credential live (or the reverse). Flipping enabled is what makes the
   // trigger's watcher claim / release this app's single Lark WS slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setLarkActive(agentId, next);
+    const res = await api.channelSetActive('lark', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();
@@ -621,7 +621,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         )}
 
         {credential && (
-          <ChannelActiveToggle active={!!credential.is_active} onToggle={handleToggleActive} />
+          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

@@ -122,3 +122,7 @@ The frontend "paste the bind link" entry point for NarraMessenger:
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 `ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.narramessenger` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/narramessenger/*` together with the trigger and MCP tools.
+
+## 2026-09-04 · prewarm only (batch 4d.3)
+
+credential / bind / unbind moved to `/api/channels/narramessenger/…` — bind still runs `_narramessenger_service.do_bind(db, agent_id, bind_command)` (the descriptor's `bind_fields` declares the single `bind_command` input, `bind_takes="db"`), unbind runs `do_unbind(db, agent_id)` through the seam (`unbind_service=True`) so the gateway-side unbind is kept. This router keeps the machine-to-machine prewarm pair.

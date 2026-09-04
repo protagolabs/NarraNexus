@@ -225,3 +225,7 @@ api.ts.md 的 coachmark 门控段）。
 ## 2026-09-04 · generic channel credentials (batch 4b)
 
 `ChannelSchema` / `ChannelSchemaField` / `ChannelCredentialView`.
+
+## 2026-09-04 · credential views are the generic store's public half (batch 4d.3)
+
+`*CredentialResponse` wrappers deleted (the generic methods wrap `*CredentialData`); `LarkCredentialData.is_active` → `enabled` (every channel reads the same flag); `created_at/updated_at` dropped from the views (the public view carries identity fields + `enabled`); `ChannelSchema.bind_fields` added next to `fields`.

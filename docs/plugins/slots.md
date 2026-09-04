@@ -100,9 +100,9 @@ bound only from the distribution or default layers.
 | `builtin.general_memory` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules` | gold |
 | `builtin.home_assistant` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `backend.routes`, `ingress.channels` | gold |
 | `builtin.channels.lark` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
-| `builtin.channels.slack` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
-| `builtin.channels.telegram` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
+| `builtin.channels.slack` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `ingress.channels` | gold |
+| `builtin.channels.telegram` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `ingress.channels` | gold |
 | `builtin.channels.wechat` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
 | `builtin.channels.narramessenger` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
-| `builtin.channels.discord` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.routes`, `backend.hooks`, `ingress.channels` | gold |
+| `builtin.channels.discord` | 1.0.0 | backend, mcp, workers | `agent.capabilities.modules`, `ingress.triggers`, `backend.hooks`, `ingress.channels` | gold |
 | `builtin.teams` | 1.0.0 | backend | `backend.routes`, `backend.workers` | gold |

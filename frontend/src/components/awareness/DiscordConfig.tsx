@@ -30,7 +30,7 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } f
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
-import type { DiscordCredentialData } from '@/types';
+import type { DiscordBindResponse, DiscordCredentialData, DiscordTestResponse } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
@@ -58,7 +58,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getDiscordCredential(agentId);
+      const res = await api.channelCredential<DiscordCredentialData>('discord', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -97,7 +97,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindDiscordBot(agentId, botToken.trim(), ownerUserId.trim());
+      const res = await api.channelBind<DiscordBindResponse>('discord', agentId, { bot_token: botToken.trim(), owner_user_id: ownerUserId.trim() });
       if (res.success) {
         setBotToken('');
         setOwnerUserId('');
@@ -118,7 +118,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setTestLoading(true);
     setError('');
     try {
-      const res = await api.testDiscordConnection(agentId);
+      const res = await api.channelTest<DiscordTestResponse>('discord', agentId);
       if (!res.success) {
         setError(res.error || t('awareness.discord.errTest'));
       } else {
@@ -150,7 +150,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindDiscordBot(agentId);
+      const res = await api.channelUnbind('discord', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -169,7 +169,7 @@ export function DiscordConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setDiscordActive(agentId, next);
+    const res = await api.channelSetActive('discord', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();

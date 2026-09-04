@@ -35,6 +35,10 @@ DESCRIPTOR = ChannelDescriptor(
     credential_read_method="get",
     service_ref=f"{_MOD}.discord_module._discord_service",
     bind_takes="mgr",
+    bind_fields=(
+        CredentialField("bot_token", "secret", label="Bot token", required=True),
+        CredentialField("owner_user_id", "string", label="Owner user id", required=False),
+    ),
     has_bind=True,
     has_test=True,
     unbind_service=False,

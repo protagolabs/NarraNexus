@@ -27,7 +27,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
-import type { NarramessengerCredentialData } from '@/types';
+import type { NarramessengerBindResponse, NarramessengerCredentialData } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
@@ -51,7 +51,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     try {
       setLoading(true);
       setError('');
-      const res = await api.getNarramessengerCredential(agentId);
+      const res = await api.channelCredential<NarramessengerCredentialData>('narramessenger', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -85,7 +85,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindNarramessenger(agentId, bindCommand.trim());
+      const res = await api.channelBind<NarramessengerBindResponse>('narramessenger', agentId, { bind_command: bindCommand.trim() });
       if (res.success) {
         setBindCommand('');
         await fetchCredential();
@@ -112,7 +112,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindNarramessenger(agentId);
+      const res = await api.channelUnbind('narramessenger', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();

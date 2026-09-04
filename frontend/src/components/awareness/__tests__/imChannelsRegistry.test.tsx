@@ -14,12 +14,7 @@ import { IMChannelsSection } from '../IMChannelsSection';
 const unbound = vi.fn(async () => ({ success: false }));
 vi.mock('@/lib/api', () => ({
   api: {
-    getLarkCredential: (...a: unknown[]) => unbound(...a),
-    getSlackCredential: (...a: unknown[]) => unbound(...a),
-    getTelegramCredential: (...a: unknown[]) => unbound(...a),
-    getWeChatCredential: (...a: unknown[]) => unbound(...a),
-    getNarramessengerCredential: (...a: unknown[]) => unbound(...a),
-    getDiscordCredential: (...a: unknown[]) => unbound(...a),
+    channelCredential: (...a: unknown[]) => unbound(...a),
   },
 }));
 vi.mock('@/stores', () => ({ useConfigStore: () => ({ agentId: 'a1' }) }));

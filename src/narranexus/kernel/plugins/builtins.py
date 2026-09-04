@@ -269,7 +269,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module SlackModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.routes": ["backend.routes.channels.slack:ROUTES"], "backend.hooks": ["xyz_agent_context.module.slack_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.slack_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.hooks": ["xyz_agent_context.module.slack_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.slack_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -279,7 +279,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module TelegramModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.routes": ["backend.routes.channels.telegram:ROUTES"], "backend.hooks": ["xyz_agent_context.module.telegram_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.telegram_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.hooks": ["xyz_agent_context.module.telegram_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.telegram_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -309,7 +309,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module DiscordModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.routes": ["backend.routes.channels.discord:ROUTES"], "backend.hooks": ["xyz_agent_context.module.discord_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.discord_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["xyz_agent_context.module.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["xyz_agent_context.module.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.hooks": ["xyz_agent_context.module.discord_module.plugin_hooks:HOOKS"], "ingress.channels": ["xyz_agent_context.module.discord_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {

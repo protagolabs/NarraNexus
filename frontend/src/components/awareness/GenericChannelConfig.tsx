@@ -116,13 +116,13 @@ export function GenericChannelConfig({ channel, onBindStateChange }: Props) {
   const bind = (e: FormEvent) => {
     e.preventDefault();
     if (!agentId || !schema) return;
-    const missing = schema.fields.filter((f) => f.required && !(values[f.name] ?? '').trim());
+    const missing = schema.bind_fields.filter((f) => f.required && !(values[f.name] ?? '').trim());
     if (missing.length) {
       setError(t('awareness.generic.fieldRequired', { field: missing[0].label }));
       return;
     }
     const fields: Record<string, unknown> = {};
-    for (const f of schema.fields) {
+    for (const f of schema.bind_fields) {
       const v = values[f.name];
       if (v === undefined || v === '') continue;
       fields[f.name] = f.kind === 'bool' ? v === 'true' : f.kind === 'int' ? Number(v) : v;
@@ -176,7 +176,7 @@ export function GenericChannelConfig({ channel, onBindStateChange }: Props) {
 
   return (
     <form className="space-y-3" onSubmit={bind} data-testid={`generic-channel-${channel}`}>
-      {schema.fields.map((f) => (
+      {schema.bind_fields.map((f) => (
         <Field key={f.name} field={f} value={values[f.name] ?? ''} onChange={(v) => setValues((s) => ({ ...s, [f.name]: v }))} />
       ))}
       <div className="flex items-center gap-2">

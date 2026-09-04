@@ -356,11 +356,6 @@
   ],
   [
     "GET",
-    "/api/discord/credential",
-    "get_discord_credential"
-  ],
-  [
-    "GET",
     "/api/home-assistant/binding",
     "get_binding"
   ],
@@ -388,11 +383,6 @@
     "GET",
     "/api/lark/auth/status",
     "lark_auth_status"
-  ],
-  [
-    "GET",
-    "/api/lark/credential",
-    "get_lark_credential"
   ],
   [
     "GET",
@@ -453,11 +443,6 @@
     "GET",
     "/api/migrate/detect",
     "detect"
-  ],
-  [
-    "GET",
-    "/api/narramessenger/credential",
-    "get_credential"
   ],
   [
     "GET",
@@ -601,11 +586,6 @@
   ],
   [
     "GET",
-    "/api/slack/credential",
-    "get_slack_credential"
-  ],
-  [
-    "GET",
     "/api/teams",
     "list_teams"
   ],
@@ -646,11 +626,6 @@
   ],
   [
     "GET",
-    "/api/telegram/credential",
-    "get_telegram_credential"
-  ],
-  [
-    "GET",
     "/api/transcription/availability",
     "availability"
   ],
@@ -658,11 +633,6 @@
     "GET",
     "/api/users/{user_id}/artifacts",
     "list_user_artifacts"
-  ],
-  [
-    "GET",
-    "/api/wechat/credential",
-    "get_wechat_credential"
   ],
   [
     "GET",
@@ -1041,26 +1011,6 @@
   ],
   [
     "POST",
-    "/api/discord/bind",
-    "bind_discord_bot"
-  ],
-  [
-    "POST",
-    "/api/discord/set-active",
-    "set_discord_active"
-  ],
-  [
-    "POST",
-    "/api/discord/test",
-    "test_discord_connection"
-  ],
-  [
-    "POST",
-    "/api/discord/unbind",
-    "unbind_discord_bot"
-  ],
-  [
-    "POST",
     "/api/feedback",
     "submit_feedback"
   ],
@@ -1088,26 +1038,6 @@
     "POST",
     "/api/lark/auth/login",
     "lark_auth_login"
-  ],
-  [
-    "POST",
-    "/api/lark/bind",
-    "bind_lark_bot"
-  ],
-  [
-    "POST",
-    "/api/lark/set-active",
-    "set_lark_active"
-  ],
-  [
-    "POST",
-    "/api/lark/test",
-    "test_lark_connection"
-  ],
-  [
-    "POST",
-    "/api/lark/unbind",
-    "unbind_lark_bot"
   ],
   [
     "POST",
@@ -1141,18 +1071,8 @@
   ],
   [
     "POST",
-    "/api/narramessenger/bind",
-    "bind"
-  ],
-  [
-    "POST",
     "/api/narramessenger/prewarm",
     "prewarm"
-  ],
-  [
-    "POST",
-    "/api/narramessenger/unbind",
-    "unbind"
   ],
   [
     "POST",
@@ -1326,26 +1246,6 @@
   ],
   [
     "POST",
-    "/api/slack/bind",
-    "bind_slack_bot"
-  ],
-  [
-    "POST",
-    "/api/slack/set-active",
-    "set_slack_active"
-  ],
-  [
-    "POST",
-    "/api/slack/test",
-    "test_slack_connection"
-  ],
-  [
-    "POST",
-    "/api/slack/unbind",
-    "unbind_slack_bot"
-  ],
-  [
-    "POST",
     "/api/teams",
     "create_team"
   ],
@@ -1381,26 +1281,6 @@
   ],
   [
     "POST",
-    "/api/telegram/bind",
-    "bind_telegram_bot"
-  ],
-  [
-    "POST",
-    "/api/telegram/set-active",
-    "set_telegram_active"
-  ],
-  [
-    "POST",
-    "/api/telegram/test",
-    "test_telegram_connection"
-  ],
-  [
-    "POST",
-    "/api/telegram/unbind",
-    "unbind_telegram_bot"
-  ],
-  [
-    "POST",
     "/api/wechat/qrcode/poll",
     "wechat_qrcode_poll"
   ],
@@ -1408,16 +1288,6 @@
     "POST",
     "/api/wechat/qrcode/start",
     "wechat_qrcode_start"
-  ],
-  [
-    "POST",
-    "/api/wechat/set-active",
-    "set_wechat_active"
-  ],
-  [
-    "POST",
-    "/api/wechat/unbind",
-    "unbind_wechat"
   ],
   [
     "PUT",

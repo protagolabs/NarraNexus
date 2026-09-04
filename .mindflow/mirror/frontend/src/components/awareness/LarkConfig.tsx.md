@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/awareness/LarkConfig.tsx
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -64,3 +64,7 @@ Falls back to the plain `error` string when `error_detail` is absent
   mid-polling.
 - `mountedRef` guards every async setState — the parent (`IMChannelsSection`)
   can unmount this mid-flight when the user closes the panel.
+
+## 2026-09-04 · generic channel API (batch 4d.3)
+
+Calls `api.channel*('lark', …)` with the channel's own typed envelopes; the bind body is the descriptor's `bind_fields` as a `fields` object. UI and flow unchanged. Reads `credential.enabled` (was `is_active`) for the active toggle.

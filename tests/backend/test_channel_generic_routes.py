@@ -68,6 +68,9 @@ def test_schema_and_unknown_channel(client):
     assert client.get("/api/channels/nope/schema").status_code == 404
     lark = client.get("/api/channels/lark/schema").json()["data"]
     assert lark["manager_backed"] and lark["display_name"] == "Lark"
+    # a manager-backed channel's bind input differs from its stored shape
+    assert [f["name"] for f in lark["bind_fields"]] == ["app_id", "app_secret", "brand", "owner_email"]
+    assert [f["name"] for f in data["bind_fields"]] == ["bot_token", "bot_id"]  # plugin: stored == bind input
 
 
 def test_plugin_channel_bind_flow_is_owner_gated(client):
@@ -86,3 +89,50 @@ def test_plugin_channel_bind_flow_is_owner_gated(client):
     assert other["success"] is False
     assert client.post("/api/channels/acme_chat/unbind", json={"agent_id": "a1"}, headers=H).json() == {"success": True, "data": {"unbound": True}}
     assert client.post("/api/channels/acme_chat/unbind", json={"agent_id": "a1"}, headers=H).json()["success"] is False
+
+
+def test_builtin_bind_body_is_checked_against_bind_fields(client, monkeypatch):
+    """The retired per-channel routes carried Pydantic models; the generic route
+    checks the body against the descriptor's bind_fields BEFORE the service runs —
+    unknown names (they would reach do_bind(**fields)), missing required ones and
+    a bad select value are envelopes, never a TypeError/500."""
+    H = {"X-User-Id": "u1"}
+    called = []
+
+    async def _bind(self, channel, agent_id, fields):
+        called.append((channel, agent_id, fields))
+        return {"success": True, "data": {"bound": True}}
+
+    from xyz_agent_context.module.data_access import channel_store
+
+    monkeypatch.setattr(channel_store.DirectStore, "bind", _bind)
+    r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {"app_id": "cli_1", "app_secret": "s", "brand": "feishu", "evil": "x"}}, headers=H)
+    assert r.json() == {"success": False, "error": "unknown field(s): evil"}
+    r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {"app_id": "cli_1", "app_secret": "s"}}, headers=H)
+    assert r.json() == {"success": False, "error": "missing required field(s): brand"}
+    r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {"app_id": "cli_1", "app_secret": "s", "brand": "wechat"}}, headers=H)
+    assert r.json() == {"success": False, "error": "brand must be one of: feishu, lark"}
+    r = client.post("/api/channels/narramessenger/bind", json={"agent_id": "a1", "fields": {"bind_command": "https://x/setup-guide.md"}}, headers=H)
+    assert r.json()["success"] is True
+    assert called == [("narramessenger", "a1", {"bind_command": "https://x/setup-guide.md"})]
+    # the QR-only channel has no bind call at all
+    assert client.post("/api/channels/wechat/bind", json={"agent_id": "a1", "fields": {"bot_token": "t"}}, headers=H).json()["success"] is False
+
+
+def test_builtin_set_active_and_credential_read_the_generic_store(client, db_client):
+    """Lark's binding flips through the same store row as every channel (its
+    manager has set_is_active, not set_enabled — the route no longer cares)."""
+    from xyz_agent_context.module.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager, _encode_secret
+
+    H = {"X-User-Id": "u1"}
+    asyncio_run = __import__("asyncio").run
+    asyncio_run(LarkCredentialManager(db_client).save_credential(LarkCredential(
+        agent_id="a1", app_id="cli_x", app_secret_ref="r", app_secret_encoded=_encode_secret("s"), brand="feishu",
+        profile_name="p", auth_status="bot_ready", is_active=False,
+    )))
+    cred = client.get("/api/channels/lark/credential", params={"agent_id": "a1"}, headers=H).json()["data"]
+    assert cred["enabled"] is False and cred["app_id"] == "cli_x" and cred["auth_status"] == "bot_ready"
+    assert "app_secret_encoded" not in cred and "app_secret_ref" not in cred
+    assert client.post("/api/channels/lark/set-active", json={"agent_id": "a1", "active": True}, headers=H).json() == {"success": True, "enabled": True}
+    assert asyncio_run(LarkCredentialManager(db_client).get_credential("a1")).is_active is True
+    assert client.post("/api/channels/lark/set-active", json={"agent_id": "a2", "active": True}, headers=H).json()["success"] is False  # owned, unbound

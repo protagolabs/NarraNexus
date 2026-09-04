@@ -71,3 +71,7 @@ Protocol 除 `get_credential`/`get_agent_name` 外加 `get_agent_owner`（agents
 ## 2026-09-04 · webhook transport (batch 4c)
 
 `_ChannelSpecs._build` registers the `WorkingSource` of every inbound descriptor, so a plugin channel's turns have their source in any process that reads channels.
+
+## 2026-09-04 · HttpStore on the generic routes; unbind follows `bind_takes` (batch 4d.3)
+
+`HttpStore.bind/unbind/test_connection` POST `/api/channels/<channel>/{bind,unbind,test}` (bind body `{agent_id, fields}`) — the per-channel routes are retired. `ChannelSpec.unbind_takes` mirrors the descriptor's `bind_takes`, so a channel whose service unbind is `do_unbind(db, agent_id)` (narramessenger, now `unbind_service=True`) is called with the right signature instead of the lark-shaped `(mgr, agent_id, db)`.

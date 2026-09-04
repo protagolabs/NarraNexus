@@ -3,7 +3,7 @@
 @date: 2026-05-08
 @description: Shared bind/test helpers for Slack channel.
 
-Both REST routes (`backend/routes/channels/slack.py`) and MCP tools
+Both the generic REST route (`backend/routes/channels/generic.py`, via the data-access seam) and MCP tools
 (`_slack_mcp_tools.py`) call into here so bind / test logic lives in one
 place. Pattern mirrors `lark_module/_lark_service.py`.
 """

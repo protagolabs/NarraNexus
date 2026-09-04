@@ -35,6 +35,12 @@ DESCRIPTOR = ChannelDescriptor(
     credential_read_method="get_credential",
     service_ref=f"{_MOD}.lark_module._lark_service",
     bind_takes="mgr",
+    bind_fields=(
+        CredentialField("app_id", "string", label="App ID", required=True),
+        CredentialField("app_secret", "secret", label="App Secret", required=True),
+        CredentialField("brand", "select", label="Brand", required=True, options=("feishu", "lark")),
+        CredentialField("owner_email", "string", label="Owner e-mail", required=False),
+    ),
     has_bind=True,
     has_test=False,
     unbind_service=True,

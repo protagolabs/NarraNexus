@@ -20,12 +20,14 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({ api: mocks }));
 vi.mock('@/stores', () => ({ useConfigStore: (sel: (s: { agentId: string }) => unknown) => sel({ agentId: 'a1' }) }));
 
+const fields = [
+  { name: 'bot_token', kind: 'secret', label: 'Bot token', help: '', required: true, options: [], public: false },
+  { name: 'bot_id', kind: 'string', label: 'Bot id', help: 'from the platform', required: false, options: [], public: true },
+];
 const schema = {
   channel: 'acme_chat', display_name: 'Acme Chat', transport: 'webhook', has_bind: true, has_test: false, manager_backed: false, external_id_field: 'bot_id',
-  fields: [
-    { name: 'bot_token', kind: 'secret', label: 'Bot token', help: '', required: true, options: [], public: false },
-    { name: 'bot_id', kind: 'string', label: 'Bot id', help: 'from the platform', required: false, options: [], public: true },
-  ],
+  fields,
+  bind_fields: fields, // a plugin channel binds with its stored shape
 };
 
 beforeEach(() => {

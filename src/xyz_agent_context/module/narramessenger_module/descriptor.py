@@ -35,9 +35,12 @@ DESCRIPTOR = ChannelDescriptor(
     credential_read_method="get",
     service_ref=f"{_MOD}.narramessenger_module._narramessenger_service",
     bind_takes="db",
+    bind_fields=(
+        CredentialField("bind_command", "string", label="Bind link or command", required=True, public=False),
+    ),
     has_bind=True,
     has_test=False,
-    unbind_service=False,
+    unbind_service=True,  # do_unbind(db, agent_id): the gateway-side unbind rides along
     meta={"storage": "generic"},  # 4d: the manager persists in channel_credentials
     ui=ChannelUi(label="NarraMessenger", icon="message-circle", order=50),
 )

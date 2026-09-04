@@ -918,7 +918,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 "success": False,
                 "error": (
                     "Agent already has a Lark bot (or a pending setup). "
-                    "Unbind first via frontend LarkConfig or DELETE /api/lark/unbind."
+                    "Unbind first via frontend LarkConfig or POST /api/channels/lark/unbind."
                 ),
             }
 
@@ -1142,7 +1142,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         """
         # do_unbind (credential row + inbox channels + keychain + workspace)
         # runs through the seam's unbind: local DirectStore calls do_unbind,
-        # cloud HttpStore POSTs /api/lark/unbind (which runs the same do_unbind).
+        # cloud HttpStore POSTs /api/channels/lark/unbind (which runs the same do_unbind).
         return await get_channel_credential_store().unbind("lark", agent_id)
 
     @mcp.tool()

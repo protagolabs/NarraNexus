@@ -20,23 +20,22 @@ import { SlackConfig } from './SlackConfig';
 import { TelegramConfig } from './TelegramConfig';
 import { WeChatConfig } from './WeChatConfig';
 
-const probe = (fetch: () => Promise<{ success: boolean; data?: unknown }>, active: (d: unknown) => boolean) => async (): Promise<ChannelStatus> => {
+/** Bound + enabled → active; bound but disabled → inactive; anything else (unbound, denied, network) → unbound. */
+const probe = (channel: string) => async (agentId: string): Promise<ChannelStatus> => {
   try {
-    const res = await fetch();
+    const res = await api.channelCredential(channel, agentId);
     if (!res.success || !res.data) return 'unbound';
-    return active(res.data) ? 'active' : 'inactive';
+    return res.data.enabled ? 'active' : 'inactive';
   } catch {
     return 'unbound';
   }
 };
 
-const enabled = (d: unknown) => Boolean((d as { enabled?: boolean }).enabled);
-
 if (!CHANNELS.has('lark')) {
-  CHANNELS.register('lark', { label: 'Lark / Feishu', icon: MessageSquare, component: LarkConfig, order: 10, fetchStatus: (agentId) => probe(() => api.getLarkCredential(agentId), (d) => Boolean((d as { is_active?: boolean }).is_active))() }, { owner: 'builtin.channels.lark' });
-  CHANNELS.register('slack', { label: 'Slack', icon: Hash, component: SlackConfig, order: 20, fetchStatus: (agentId) => probe(() => api.getSlackCredential(agentId), enabled)() }, { owner: 'builtin.channels.slack' });
-  CHANNELS.register('telegram', { label: 'Telegram', icon: Send, component: TelegramConfig, order: 30, fetchStatus: (agentId) => probe(() => api.getTelegramCredential(agentId), enabled)() }, { owner: 'builtin.channels.telegram' });
-  CHANNELS.register('wechat', { label: 'WeChat', icon: QrCode, component: WeChatConfig, order: 40, fetchStatus: (agentId) => probe(() => api.getWeChatCredential(agentId), enabled)() }, { owner: 'builtin.channels.wechat' });
-  CHANNELS.register('narramessenger', { label: 'NarraMessenger', icon: MessageCircle, component: NarramessengerConfig, order: 50, fetchStatus: (agentId) => probe(() => api.getNarramessengerCredential(agentId), enabled)() }, { owner: 'builtin.channels.narramessenger' });
-  CHANNELS.register('discord', { label: 'Discord', icon: Bot, component: DiscordConfig, order: 60, fetchStatus: (agentId) => probe(() => api.getDiscordCredential(agentId), enabled)() }, { owner: 'builtin.channels.discord' });
+  CHANNELS.register('lark', { label: 'Lark / Feishu', icon: MessageSquare, component: LarkConfig, order: 10, fetchStatus: probe('lark') }, { owner: 'builtin.channels.lark' });
+  CHANNELS.register('slack', { label: 'Slack', icon: Hash, component: SlackConfig, order: 20, fetchStatus: probe('slack') }, { owner: 'builtin.channels.slack' });
+  CHANNELS.register('telegram', { label: 'Telegram', icon: Send, component: TelegramConfig, order: 30, fetchStatus: probe('telegram') }, { owner: 'builtin.channels.telegram' });
+  CHANNELS.register('wechat', { label: 'WeChat', icon: QrCode, component: WeChatConfig, order: 40, fetchStatus: probe('wechat') }, { owner: 'builtin.channels.wechat' });
+  CHANNELS.register('narramessenger', { label: 'NarraMessenger', icon: MessageCircle, component: NarramessengerConfig, order: 50, fetchStatus: probe('narramessenger') }, { owner: 'builtin.channels.narramessenger' });
+  CHANNELS.register('discord', { label: 'Discord', icon: Bot, component: DiscordConfig, order: 60, fetchStatus: probe('discord') }, { owner: 'builtin.channels.discord' });
 }

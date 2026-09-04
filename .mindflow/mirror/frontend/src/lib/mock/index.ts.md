@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-07-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -25,3 +25,7 @@ ApiClient，让 UI 全链路可渲染。**契约**：方法集必须与 api.ts �
 
 - 桩返回值多为最小合法形态（如 `{ enabled: false }`），面板测试不要依赖
   mock 层的数据真实性——组件测试自带 vi.mock 的 api 层。
+
+## 2026-09-04 · generic channel stubs (batch 4d.3)
+
+`channelCredential/channelBind/channelUnbind/channelSetActive` stubs replace the Lark-specific ones; the Lark OAuth stubs stay.

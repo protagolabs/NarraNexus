@@ -476,3 +476,7 @@ useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
 ## 2026-09-04 · generic channel credentials (batch 4b)
 
 `channelSchema` / `channelCredential` / `channelBind` / `channelTest` / `channelUnbind` / `channelSetActive` — the generic channel API.
+
+## 2026-09-04 · one channel API (batch 4d.3)
+
+The 26 per-channel credential/bind/test/unbind/set-active methods are gone; every channel config uses `channelCredential<D>` / `channelBind<R>` / `channelTest<R>` / `channelUnbind` / `channelSetActive` on `/api/channels/<channel>/…`. The type parameters keep each builtin's precise envelope (the route returns the service's dict verbatim — Lark's `error_detail`/`warnings`, Slack's test data). Channel-specific flows keep their methods: Lark OAuth (`larkAuthLogin/Complete`, `getLarkAuthStatus`), WeChat QR (`startWeChatQrcode`, `pollWeChatQrcode`).

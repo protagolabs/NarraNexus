@@ -109,3 +109,7 @@ paste), bind is a two-step QR flow instead of a single ``POST /bind``.
 ## 2026-09-04 · plugin-owned router (batch 3c.5)
 
 `ROUTES` — this router is the `backend.routes` contribution of `builtin.channels.wechat` (mounted by `backend/plugins_host`, no longer included by `backend/main.py`); its module-internal imports (credential manager / service) are now intra-plugin, and disabling the channel builtin 404s `/api/wechat/*` together with the trigger and MCP tools.
+
+## 2026-09-04 · QR flow only (batch 4d.3)
+
+credential / unbind / set-active moved to `/api/channels/wechat/…`; this router keeps the two-step QR bind (`qrcode/start`, `qrcode/poll`), the only WeChat-specific entry. `has_bind=False` on the descriptor means the generic bind answers "binds through its own flow".

@@ -65,8 +65,6 @@ import type {
   SkillEnvConfigResponse,
   DashboardResponse,
   ApiResponse,
-  LarkCredentialResponse,
-  LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
   TeamListResponse,
@@ -84,20 +82,8 @@ import type {
   BundleArtifactPreview,
   BundleMcpPreview,
   SkillArchiveRecord,
-  SlackCredentialResponse,
-  SlackBindResponse,
-  SlackTestResponse,
-  TelegramCredentialResponse,
-  TelegramBindResponse,
-  NarramessengerCredentialResponse,
-  NarramessengerBindResponse,
-  TelegramTestResponse,
-  WeChatCredentialResponse,
   WeChatQrStartResponse,
   WeChatQrPollResponse,
-  DiscordCredentialResponse,
-  DiscordBindResponse,
-  DiscordTestResponse,
   PlanListResponse,
   SubscriptionMeResponse,
   SubscribeResponse,
@@ -1750,18 +1736,6 @@ class ApiClient {
     });
   }
 
-  // Lark / Feishu Integration API
-  async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
-    return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindLarkBot(agentId: string, appId: string, appSecret: string, brand: string, ownerEmail: string = ''): Promise<LarkBindResponse> {
-    return this.request<LarkBindResponse>('/api/lark/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, app_id: appId, app_secret: appSecret, brand, owner_email: ownerEmail }),
-    });
-  }
-
   async larkAuthLogin(agentId: string): Promise<LarkAuthLoginResponse> {
     return this.request<LarkAuthLoginResponse>('/api/lark/auth/login', {
       method: 'POST',
@@ -1780,142 +1754,37 @@ class ApiClient {
     return this.request<ApiResponse>(`/api/lark/auth/status?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async testLarkConnection(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindLarkBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Activate/deactivate a bound channel credential (flip is_active/enabled)
-  // without re-binding. Used to turn a bundle-imported (inactive) channel live.
-  async setLarkActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  // Slack Integration API
-  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
-    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindSlackBot(
-    agentId: string,
-    botToken: string,
-    appToken: string,
-    ownerEmail: string = '',
-  ): Promise<SlackBindResponse> {
-    return this.request<SlackBindResponse>('/api/slack/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        app_token: appToken,
-        owner_email: ownerEmail,
-      }),
-    });
-  }
-
-  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
-    return this.request<SlackTestResponse>('/api/slack/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setSlackActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
   // Telegram Integration API
-  // ---- generic channels (/api/channels/{channel}): any channel in ingress.channels (plugin platform batch 4b).
+  // ---- generic channels (/api/channels/{channel}): every channel in ingress.channels — the six
+  // builtins and plugin channels alike (plugin platform batch 4d.3 retired the per-channel
+  // bind/credential/test/unbind/set-active routes). The type parameters let a builtin's config
+  // component keep its precise credential / bind envelope (the service's response is returned
+  // verbatim by the route); channel-specific flows (Lark OAuth, WeChat QR) keep their own methods.
   async channelSchema(channel: string): Promise<ApiResponse & { data?: ChannelSchema }> {
     return this.request(`/api/channels/${encodeURIComponent(channel)}/schema`);
   }
 
-  async channelCredential(channel: string, agentId: string): Promise<ApiResponse & { data?: ChannelCredentialView | null }> {
+  async channelCredential<D extends object = ChannelCredentialView>(channel: string, agentId: string): Promise<ApiResponse & { data?: D | null }> {
     return this.request(`/api/channels/${encodeURIComponent(channel)}/credential?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async channelBind(channel: string, agentId: string, fields: Record<string, unknown>): Promise<ApiResponse & { data?: ChannelCredentialView }> {
-    return this.request(`/api/channels/${encodeURIComponent(channel)}/bind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, fields }) });
+  async channelBind<R extends ApiResponse = ApiResponse & { data?: ChannelCredentialView }>(channel: string, agentId: string, fields: Record<string, unknown>): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/bind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, fields }) });
   }
 
-  async channelTest(channel: string, agentId: string): Promise<ApiResponse & { data?: Record<string, unknown> }> {
-    return this.request(`/api/channels/${encodeURIComponent(channel)}/test`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
+  async channelTest<R extends ApiResponse = ApiResponse & { data?: Record<string, unknown> }>(channel: string, agentId: string): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/test`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
   async channelUnbind(channel: string, agentId: string): Promise<ApiResponse> {
     return this.request(`/api/channels/${encodeURIComponent(channel)}/unbind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
+  /** Flip a bound credential's active flag without re-binding (a bundle-imported binding goes live here). */
   async channelSetActive(channel: string, agentId: string, active: boolean): Promise<ApiResponse & { enabled?: boolean }> {
     return this.request(`/api/channels/${encodeURIComponent(channel)}/set-active`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, active }) });
   }
 
-  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
-    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindTelegramBot(
-    agentId: string,
-    botToken: string,
-    ownerUsername: string = '',
-  ): Promise<TelegramBindResponse> {
-    return this.request<TelegramBindResponse>('/api/telegram/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_username: ownerUsername,
-      }),
-    });
-  }
-
-  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
-    return this.request<TelegramTestResponse>('/api/telegram/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setTelegramActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
-  async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
-    return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
 
   async startWeChatQrcode(agentId: string): Promise<WeChatQrStartResponse> {
     return this.request<WeChatQrStartResponse>('/api/wechat/qrcode/start', {
@@ -1933,79 +1802,6 @@ class ApiClient {
     return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId, qrcode }),
-    });
-  }
-
-  async unbindWeChat(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setWeChatActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  async getNarramessengerCredential(agentId: string): Promise<NarramessengerCredentialResponse> {
-    return this.request<NarramessengerCredentialResponse>(`/api/narramessenger/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindNarramessenger(agentId: string, bindCommand: string): Promise<NarramessengerBindResponse> {
-    return this.request<NarramessengerBindResponse>('/api/narramessenger/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, bind_command: bindCommand }),
-    });
-  }
-
-  async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/narramessenger/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Discord Integration API
-  async getDiscordCredential(agentId: string): Promise<DiscordCredentialResponse> {
-    return this.request<DiscordCredentialResponse>(`/api/discord/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindDiscordBot(
-    agentId: string,
-    botToken: string,
-    ownerUserId: string = '',
-  ): Promise<DiscordBindResponse> {
-    return this.request<DiscordBindResponse>('/api/discord/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_user_id: ownerUserId,
-      }),
-    });
-  }
-
-  async testDiscordConnection(agentId: string): Promise<DiscordTestResponse> {
-    return this.request<DiscordTestResponse>('/api/discord/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindDiscordBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setDiscordActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 

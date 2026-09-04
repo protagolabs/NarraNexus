@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/TelegramConfig.tsx
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-13 — activation toggle + parent-list sync
@@ -81,3 +81,7 @@ delivery failures.
   actions race (user spam-clicks), the loading spinner is correct
   but the result-set in state may show the latest only. Acceptable
   for v1.
+
+## 2026-09-04 · generic channel API (batch 4d.3)
+
+Calls `api.channel*('telegram', …)` with the channel's own typed envelopes; the bind body is the descriptor's `bind_fields` as a `fields` object. UI and flow unchanged.

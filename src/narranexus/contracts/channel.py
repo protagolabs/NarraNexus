@@ -83,6 +83,10 @@ class ChannelDescriptor:
     credential_read_method: str = "get"
     service_ref: str = ""  # module with do_bind / do_test_connection / do_unbind
     bind_takes: Literal["mgr", "db"] = "mgr"
+    # What a bind CALL accepts for a manager-backed channel (the service's do_bind
+    # keyword arguments — a pasted bind link, an owner e-mail to resolve, …). Empty
+    # means the stored credential schema IS the bind input (plugin channels).
+    bind_fields: tuple[CredentialField, ...] = ()
     has_bind: bool = True
     has_test: bool = True
     unbind_service: bool = False  # unbind goes through the service (lark) rather than the manager

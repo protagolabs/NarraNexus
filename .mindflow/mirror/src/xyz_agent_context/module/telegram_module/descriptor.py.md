@@ -13,3 +13,7 @@ stub: false
 ## 2026-09-04 · generic store as the source of truth (batch 4d.1)
 
 `meta.storage = "generic"`: the manager persists in `channel_credentials`, so the dual-write mirror skips this channel.
+
+## 2026-09-04 · bind input declared (batch 4d.3)
+
+`bind_fields`: `bot_token` (secret) + optional `owner_username` — the `do_bind` keyword arguments the generic bind passes through.

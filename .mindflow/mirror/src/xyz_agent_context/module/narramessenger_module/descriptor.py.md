@@ -13,3 +13,7 @@ stub: false
 ## 2026-09-04 · `meta.storage = "generic"` (batch 4d.2)
 
 Bindings live in `channel_credentials`; no mirror, no bespoke table.
+
+## 2026-09-04 · bind input declared (batch 4d.3)
+
+`bind_fields`: the single `bind_command` (pasted link/command, not stored) — the stored schema is the Matrix identity `do_bind` derives from it. `unbind_service=True` with `bind_takes="db"` routes unbind through `do_unbind(db, agent_id)` (gateway-side unbind included).

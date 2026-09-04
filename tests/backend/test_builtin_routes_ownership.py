@@ -28,7 +28,10 @@ OWNED = {
     "builtin.job": {"agents_jobs", "jobs", "dashboard_jobs"},
     "builtin.skills": {"skills"},
     "builtin.home_assistant": {"home_assistant"},
-    **{f"builtin.channels.{ch}": {f"channel_{ch}"} for ch in ("lark", "slack", "telegram", "wechat", "narramessenger", "discord")},
+    # Only the channels with a channel-SPECIFIC flow keep a router (Lark OAuth,
+    # WeChat QR, NarraMessenger prewarm); slack/telegram/discord bind through the
+    # shell-level generic /api/channels router since batch 4d.3 and own no routes.
+    **{f"builtin.channels.{ch}": {f"channel_{ch}"} for ch in ("lark", "wechat", "narramessenger")},
 }
 
 

@@ -21,3 +21,7 @@ The ONE credential store every IM channel is served from (table `channel_credent
 ## 2026-09-04 · every builtin channel reads here; `list_for_agent` (batch 4d.2)
 
 NarraMessenger and Lark joined the four managers switched in 4d.1, and `credential_mirror` is deleted — there is no second copy of any binding any more. `list_for_agent(agent_id)` returns an agent's bindings across channels (bundle export, agent deletion); records decode secrets for the caller, so the caller decides what leaves the process (the bundle exporter ships them only under the explicit opt-in).
+
+## 2026-09-04 · bind-input validation (batch 4d.3)
+
+`bind_fields_for(descriptor)` (the descriptor's `bind_fields`, else the stored schema) and `validate_bind_fields(descriptor, values)` — unknown names rejected (fail-closed: they would reach a service's `do_bind(**fields)` as a TypeError), required non-blank, select within options — are what the generic bind route checks before any service runs.

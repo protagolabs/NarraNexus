@@ -19,8 +19,8 @@ into the other.
   serialised via ``to_raw_dict()`` (NOT ``to_public_dict()`` — the whole
   reason this seam exists is to carry the secret across the HTTP hop).
 - HttpStore: cloud — calls the owner-gated backend endpoints
-  (``backend/routes/agents/channel_credentials.py`` for reads, the per-channel
-  ``/api/<channel>/<op>`` routes for writes), forwarding the caller identity
+  (``backend/routes/agents/channel_credentials.py`` for reads, the generic
+  ``/api/channels/<channel>/<op>`` routes for writes), forwarding the caller identity
   headers the same way AgentDataStore's HttpStore does. Never raises, but the
   degradation shape differs by call kind: a READ (GET) failure — unreachable,
   non-2xx, unbound, non-JSON — degrades to ``None`` so a send tool falls to its
@@ -157,10 +157,12 @@ class ChannelSpec:
     # back to the raw channel string (fine: those channels never call it).
     display_name: str = ""
     bind: Optional[_BindSpec] = None  # None → no bind tool (wechat QR / HA panel)
-    # Module with a ``do_unbind(mgr, agent_id, db)`` for channels whose unbind is
-    # MORE than ``mgr.unbind`` (lark also tears down inbox channels). "" → the
-    # uniform ``mgr.unbind`` path.
+    # Module with a ``do_unbind`` for channels whose unbind is MORE than
+    # ``mgr.unbind`` (lark also tears down inbox channels, narramessenger tells
+    # its gateway). "" → the uniform ``mgr.unbind`` path. The signature follows
+    # ``bind.takes``: ``do_unbind(mgr, agent_id, db)`` or ``do_unbind(db, agent_id)``.
     unbind_service: str = ""
+    unbind_takes: str = "mgr"
 
 
 def _spec_from_descriptor(d: Any) -> ChannelSpec:
@@ -174,6 +176,7 @@ def _spec_from_descriptor(d: Any) -> ChannelSpec:
         display_name=d.display_name if d.name != "narramessenger" else "",
         bind=bind,
         unbind_service=d.service_ref if d.unbind_service else "",
+        unbind_takes=d.bind_takes,
     )
 
 
@@ -340,6 +343,8 @@ class DirectStore:
             import importlib
 
             do_unbind = getattr(importlib.import_module(spec.unbind_service), "do_unbind")
+            if spec.unbind_takes == "db":
+                return await do_unbind(db, agent_id)
             return await do_unbind(mgr, agent_id, db)
         removed = await mgr.unbind(agent_id)
         if not removed:
@@ -471,22 +476,20 @@ class HttpStore:
         return body.get("owner_user_id") or ""
 
     async def bind(self, channel: str, agent_id: str, fields: dict) -> dict:
-        # POST the channel's owner-gated /bind route (same do_bind the local path
-        # runs). The route already accepts the nx-service identity (check_owned
-        # reads request.state.user_id, which auth_middleware sets from the bearer).
-        # NOTE: the route's Pydantic model also enforces VALUE constraints (e.g.
-        # bot_token min_length) that the local do_bind leaves to the platform API,
-        # so a MALFORMED field (a truncated token) 422s here where DirectStore
-        # would return a friendlier "invalid token" from the API. Both are still
-        # {success:False} the tool relays — never-raise holds — the wording just
-        # differs for bad input; well-formed input is byte-parity.
-        return await self._post_json(f"/api/{_seg(channel)}/bind", {"agent_id": agent_id, **fields})
+        # POST the generic owner-gated bind route (same do_bind the local path
+        # runs, behind the descriptor's bind_fields check). The route accepts the
+        # nx-service identity (check_owned reads request.state.user_id, which
+        # auth_middleware sets from the bearer). An unknown/missing field is a
+        # {success:False} envelope there where DirectStore would raise TypeError
+        # inside do_bind — never-raise holds on this leg; well-formed input is
+        # byte-parity.
+        return await self._post_json(f"/api/channels/{_seg(channel)}/bind", {"agent_id": agent_id, "fields": dict(fields)})
 
     async def unbind(self, channel: str, agent_id: str) -> dict:
-        return await self._post_json(f"/api/{_seg(channel)}/unbind", {"agent_id": agent_id})
+        return await self._post_json(f"/api/channels/{_seg(channel)}/unbind", {"agent_id": agent_id})
 
     async def test_connection(self, channel: str, agent_id: str) -> dict:
-        return await self._post_json(f"/api/{_seg(channel)}/test", {"agent_id": agent_id})
+        return await self._post_json(f"/api/channels/{_seg(channel)}/test", {"agent_id": agent_id})
 
     # -- credential-mutation primitives: PATCH/PUT/DELETE the generic endpoint --
 

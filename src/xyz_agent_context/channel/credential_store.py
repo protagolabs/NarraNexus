@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from narranexus.contracts.channel import ChannelDescriptor
+from narranexus.contracts.channel import ChannelDescriptor, CredentialField
 from xyz_agent_context.channel.credential_codec import decode_secrets, encode_secrets
 from xyz_agent_context.utils import utc_now
 
@@ -90,6 +90,31 @@ def split_values(descriptor: ChannelDescriptor, values: dict[str, Any]) -> tuple
 
 def missing_required(descriptor: ChannelDescriptor, values: dict[str, Any]) -> tuple[str, ...]:
     return tuple(f.name for f in descriptor.credential_schema.fields if f.required and not str(values.get(f.name, "") or "").strip())
+
+
+def bind_fields_for(descriptor: ChannelDescriptor) -> tuple[CredentialField, ...]:
+    """The fields a bind call accepts: the descriptor's ``bind_fields`` (manager-backed
+    channels whose service takes something other than the stored shape) or the stored schema."""
+    return descriptor.bind_fields or descriptor.credential_schema.fields
+
+
+def validate_bind_fields(descriptor: ChannelDescriptor, values: dict[str, Any]) -> Optional[str]:
+    """Fail-closed check of a bind body against ``bind_fields_for``: unknown names are
+    rejected (they would reach a service's ``do_bind(**fields)``), required ones must be
+    non-blank, a ``select`` must be one of its options. Returns the error text or None."""
+    fields = bind_fields_for(descriptor)
+    known = {f.name: f for f in fields}
+    unknown = sorted(k for k in values if k not in known)
+    if unknown:
+        return f"unknown field(s): {', '.join(unknown)}"
+    missing = [f.name for f in fields if f.required and not str(values.get(f.name, "") or "").strip()]
+    if missing:
+        return f"missing required field(s): {', '.join(missing)}"
+    for f in fields:
+        v = values.get(f.name)
+        if f.kind == "select" and f.options and v not in (None, "") and str(v) not in f.options:
+            return f"{f.name} must be one of: {', '.join(f.options)}"
+    return None
 
 
 class GenericCredentialStore:
@@ -231,4 +256,4 @@ class GenericCredentialStore:
         return [self._row_to_record(r) for r in rows]
 
 
-__all__ = ["CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "descriptor_for", "missing_required", "split_values"]
+__all__ = ["CredentialRecord", "GenericCredentialStore", "TABLE", "UnknownChannel", "bind_fields_for", "descriptor_for", "missing_required", "split_values", "validate_bind_fields"]

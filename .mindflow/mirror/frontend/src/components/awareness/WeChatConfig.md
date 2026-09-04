@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/WeChatConfig.tsx
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-13 — activation toggle + parent-list sync
@@ -93,3 +93,7 @@ generic IM-channel framing has to accommodate.
 - The yellow "personal account / third-party gateway" caution is a
   deliberate honesty signal, not boilerplate. Keep it: personal-WeChat
   automation carries account-risk the user should see before binding.
+
+## 2026-09-04 · generic channel API (batch 4d.3)
+
+Calls `api.channel*('wechat', …)` with the channel's own typed envelopes; the bind body is the descriptor's `bind_fields` as a `fields` object. UI and flow unchanged.

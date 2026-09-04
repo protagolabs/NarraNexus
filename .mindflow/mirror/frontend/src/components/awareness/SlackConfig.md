@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/SlackConfig.tsx
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-13 — activation toggle + parent-list sync
@@ -103,3 +103,7 @@ talking to Slack within ~5 seconds.
   user-facing prose, not a functional value — the paste is the source
   of truth, so the number drift is cosmetic. Bump the prose if it
   starts to mislead, but don't treat it as the scope count.
+
+## 2026-09-04 · generic channel API (batch 4d.3)
+
+Calls `api.channel*('slack', …)` with the channel's own typed envelopes; the bind body is the descriptor's `bind_fields` as a `fields` object. UI and flow unchanged.

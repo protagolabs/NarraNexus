@@ -339,7 +339,7 @@ def test_http_unbind_posts_the_route_and_returns_its_json(monkeypatch):
 
     _patch_http(monkeypatch, handler)
     out = asyncio.run(_http().unbind("discord", AGENT))
-    assert seen["path"] == "/api/discord/unbind"
+    assert seen["path"] == "/api/channels/discord/unbind"
     assert seen["body"] == {"agent_id": AGENT}
     assert out == {"success": True, "data": {"unbound": True}}
 
@@ -355,8 +355,8 @@ def test_http_bind_posts_agent_id_plus_fields(monkeypatch):
 
     _patch_http(monkeypatch, handler)
     out = asyncio.run(_http().bind("discord", AGENT, {"bot_token": "tok", "owner_user_id": "o"}))
-    assert seen["path"] == "/api/discord/bind"
-    assert seen["body"] == {"agent_id": AGENT, "bot_token": "tok", "owner_user_id": "o"}
+    assert seen["path"] == "/api/channels/discord/bind"
+    assert seen["body"] == {"agent_id": AGENT, "fields": {"bot_token": "tok", "owner_user_id": "o"}}
     assert out["success"] is True
 
 
@@ -500,7 +500,7 @@ def test_http_test_connection_posts_the_test_route(monkeypatch):
 
     _patch_http(monkeypatch, handler)
     out = asyncio.run(_http().test_connection("telegram", AGENT))
-    assert seen["path"] == "/api/telegram/test"
+    assert seen["path"] == "/api/channels/telegram/test"
     assert out["success"] is True
 
 
@@ -752,7 +752,7 @@ def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
 
 
 def test_http_lark_unbind_is_byte_parity_with_direct(monkeypatch):
-    # The route (/api/lark/unbind) returns do_unbind's envelope VERBATIM, so the
+    # The route (/api/channels/lark/unbind) returns do_unbind's envelope VERBATIM, so the
     # HttpStore result must equal the DirectStore result byte-for-byte — assert
     # the WHOLE dict, not just success, against the real route body. Both the
     # success envelope and the no_credential failure must round-trip unchanged
@@ -780,5 +780,25 @@ def test_http_lark_unbind_is_byte_parity_with_direct(monkeypatch):
     for key, body in ROUTE_BODIES.items():
         current["body"] = body
         out = asyncio.run(store.unbind("lark", AGENT))
-        assert seen["path"] == "/api/lark/unbind"
+        assert seen["path"] == "/api/channels/lark/unbind"
         assert out == body, f"{key}: HttpStore must return the route body verbatim"
+
+
+def test_direct_narramessenger_unbind_goes_through_the_service_with_db(db_client):
+    """narramessenger's do_unbind takes (db, agent_id) — the seam follows the
+    descriptor's bind_takes for unbind too (4d.3), so the gateway-side unbind is
+    not skipped by the uniform mgr.unbind path."""
+    from xyz_agent_context.channel.credential_store import GenericCredentialStore
+
+    asyncio.run(GenericCredentialStore(db_client).upsert("narramessenger", AGENT, {
+        "matrix_homeserver_url": "https://hs", "matrix_user_id": "@bot:hs", "matrix_access_token": "tok",
+    }, enabled=True))
+    store = ChannelDirectStore()
+
+    async def fake_db():
+        return db_client
+
+    store._db = fake_db  # type: ignore[method-assign]
+    assert asyncio.run(store.unbind("narramessenger", AGENT)) == {"success": True, "unbound": True}
+    assert asyncio.run(GenericCredentialStore(db_client).get("narramessenger", AGENT)) is None
+    assert asyncio.run(store.unbind("narramessenger", AGENT)) == {"success": True, "unbound": False}

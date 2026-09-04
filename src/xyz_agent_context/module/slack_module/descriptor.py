@@ -36,6 +36,11 @@ DESCRIPTOR = ChannelDescriptor(
     credential_read_method="get",
     service_ref=f"{_MOD}.slack_module._slack_service",
     bind_takes="mgr",
+    bind_fields=(
+        CredentialField("bot_token", "secret", label="Bot token", required=True),
+        CredentialField("app_token", "secret", label="App-level token", required=True),
+        CredentialField("owner_email", "string", label="Owner e-mail", required=False),
+    ),
     has_bind=True,
     has_test=True,
     unbind_service=False,

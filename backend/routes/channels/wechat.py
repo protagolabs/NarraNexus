@@ -10,8 +10,9 @@ telegram.py the bind is two steps:
   POST /api/wechat/qrcode/start   — get a login QR (qrcode + scannable URL)
   POST /api/wechat/qrcode/poll    — poll scan status; on "confirmed" persist the
                                     iLink bot_token + base_url for the agent
-  GET  /api/wechat/credential     — sanitized binding view (NO token)
-  POST /api/wechat/unbind         — remove the binding
+
+credential / unbind / set-active are the generic ``/api/channels/wechat/…``
+routes (batch 4d.3); only the QR flow is WeChat-specific.
 
 ``get_qrcode_status`` long-polls on the gateway side; the frontend re-calls
 /poll until it returns ``status:"confirmed"`` (or the user cancels).
@@ -45,11 +46,6 @@ _SAFE_ID_PATTERN = r"^[a-zA-Z0-9_\-]+$"
 
 class AgentRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64, pattern=_SAFE_ID_PATTERN)
-
-
-class SetActiveRequest(BaseModel):
-    agent_id: str = Field(min_length=1, max_length=64, pattern=_SAFE_ID_PATTERN)
-    active: bool
 
 
 class QrStartRequest(AgentRequest):
@@ -137,55 +133,6 @@ async def wechat_qrcode_poll(request: Request, body: QrPollRequest) -> dict[str,
         logger.info(f"WeChat account bound: agent={body.agent_id}")
         return {"success": True, "data": {"status": "confirmed"}}
     return result
-
-
-@router.get("/credential")
-async def get_wechat_credential(request: Request, agent_id: str) -> dict[str, Any]:
-    """Return the sanitised binding view (NO raw token)."""
-    auth_err = await _verify_agent_ownership(request, agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
-    db = await _get_db()
-    mgr = WeChatCredentialManager(db)
-    return {"success": True, "data": await mgr.get_public(agent_id)}
-
-
-@router.post("/unbind")
-async def unbind_wechat(request: Request, body: AgentRequest) -> dict[str, Any]:
-    """Remove the WeChat binding for an agent."""
-    auth_err = await _verify_agent_ownership(request, body.agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
-    db = await _get_db()
-    mgr = WeChatCredentialManager(db)
-    removed = await mgr.unbind(body.agent_id)
-    if not removed:
-        return {"success": False, "error": "no WeChat credential bound for this agent"}
-    logger.info(f"WeChat account unbound: agent={body.agent_id}")
-    return {"success": True, "data": {"unbound": True}}
-
-
-@router.post("/set-active")
-async def set_wechat_active(request: Request, body: SetActiveRequest) -> dict[str, Any]:
-    """Activate/deactivate the WeChat credential (flip ``enabled``) without a
-    re-bind. Primary use: activating a credential imported (inactive) from a
-    bundle. The trigger's credential watcher picks up the change on its next
-    poll and claims the single connection slot for this bot — so only activate
-    here once the source environment is no longer connected to the same bot.
-    """
-    auth_err = await _verify_agent_ownership(request, body.agent_id)
-    if auth_err:
-        return {"success": False, "error": auth_err}
-    db = await _get_db()
-    mgr = WeChatCredentialManager(db)
-    ok = await mgr.set_enabled(body.agent_id, body.active)
-    if not ok:
-        return {"success": False, "error": "No WeChat bot bound to this agent."}
-    logger.info(
-        f"WeChat credential {'activated' if body.active else 'deactivated'}: "
-        f"agent={body.agent_id}"
-    )
-    return {"success": True, "enabled": body.active}
 
 
 # ---- plugin contribution (batch 3c.5): this router belongs to builtin.channels.wechat and is

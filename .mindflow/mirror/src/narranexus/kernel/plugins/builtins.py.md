@@ -77,3 +77,7 @@ builtin.job / builtin.awareness / the six channel builtins provide `backend.hook
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 The six channel builtins and builtin.home_assistant provide `ingress.channels` (`<module>.descriptor:CHANNEL`).
+
+## 2026-09-04 · telegram / slack / discord provide no routes (batch 4d.3)
+
+Their bespoke routers were retired (the generic `/api/channels` router serves them); the manifests keep modules, triggers, hooks and the channel descriptor. lark / wechat / narramessenger still provide their channel-specific routers (OAuth, QR, prewarm).
