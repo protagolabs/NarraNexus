@@ -65,3 +65,22 @@ See `publishing.md`. `narranexus plugin publish-check .` runs the checklist.
 - Two crashes disable a plugin; two dead boots enter safe mode (user plugins
   skipped); the bisect wizard finds the culprit in O(log N) restarts.
 - `narranexus plugin rollback` restores the last-known-good registry.
+
+## Slot points: adding to surfaces the shell already draws
+
+Structural registries (`pages`, `panels`, `commands`, …) add whole surfaces. Slot points add *inside* one:
+
+| Slot point | Where it shows | Entry shape |
+|---|---|---|
+| `chatHeaderActions` | the chat header's ⋯ menu | `{ label, run(ctx) }` |
+| `composerExtensions` | a strip above the message input | `{ component }` (receives `agentId`) |
+| `messageActions` | a message's hover strip (next to Copy) | `{ label, run({ agentId, message }) }` |
+| `sidebarSections` | under the sidebar nav rows | `{ component }` |
+| `agentCardBadges` | next to an agent's name in the sidebar | `{ component }` (receives that `agentId`) |
+| `topBarItems` | the top bar's right cluster | `{ component }` |
+| `messageRenderers` | replaces the bubble of a message `match(message)` recognises | `{ match, component }` |
+| `timelineEvents` | renders a timeline event `type` the shell does not know | `{ component }` keyed by the type |
+
+Every slot entry may carry `when` — a closed grammar the host evaluates: `conversationKind:<kind>` (`chat`, `team`, or a kind a plugin registered in `conversationKinds`), `agentHas:<ModuleClass>`, `setting:<key>`; prefix `!` to negate, pass a list to AND. A typo is a registration error, never "always visible". `order` sorts within the slot (builtins use 10, 20, …).
+
+Declare them in the manifest (`frontend.ui.slots`, `messageRenderers`, `timelineEvents`, `conversationKinds`) so the shell mounts a gate before your bundle loads; the gate activates the plugin (`onSlot:<id>`, `onRenderer:<id>`, `onTimelineEvent:<id>`) and hands over to what you register under the same id in `activate(host)`.

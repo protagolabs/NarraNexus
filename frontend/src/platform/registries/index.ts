@@ -19,3 +19,30 @@ export { THEMES, applyTheme, clearTheme, validateThemeTokens } from './themes';
 export type { ThemeDef } from './themes';
 export { COMMANDS } from './commands';
 export type { CommandDef } from './commands';
+export { evaluateWhen, parseWhen } from './when';
+export type { WhenClause, WhenContext } from './when';
+export {
+  AGENT_CARD_BADGES,
+  CHAT_HEADER_ACTIONS,
+  COMPOSER_EXTENSIONS,
+  CONVERSATION_KINDS,
+  MESSAGE_ACTIONS,
+  MESSAGE_RENDERERS,
+  SIDEBAR_SECTIONS,
+  TIMELINE_EVENTS,
+  TOP_BAR_ITEMS,
+  rendererFor,
+  visibleSlotEntries,
+} from './slotPoints';
+export type {
+  ConversationKindDef,
+  MessageRendererDef,
+  MessageRendererProps,
+  SlotActionContext,
+  SlotActionDef,
+  SlotComponentDef,
+  SlotComponentProps,
+  SlotEntryBase,
+  TimelineEventDef,
+  TimelineEventProps,
+} from './slotPoints';

@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/activation.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -12,3 +12,7 @@ stub: false
 `RegistryStore.record_crash`，第二次自动 disable）且**永不向触发方抛**——打开一个页面不能因为某插件坏了
 而失败。事件不重试已失败者，`activate_now` 是显式重试（工场页/自我扩展模块用）。`deactivate` 调可选
 `deactivate(ctx)` 后无论如何 `ctx.dispose()`。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+`EVENT_PREFIXES` accepts `onRenderer:`, `onTimelineEvent:`, `onSlot:` (the frontend slot-point gates fire them).

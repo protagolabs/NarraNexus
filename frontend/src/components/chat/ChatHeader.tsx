@@ -29,6 +29,7 @@ import {
   PanelLeft,
   SlidersHorizontal,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { RingAvatar } from '@/components/nm';
 import { CostPopover } from '@/components/cost/CostPopover';
@@ -47,6 +48,8 @@ import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { Step } from '@/types';
+import { CHAT_HEADER_ACTIONS, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
 
 /** Detail-menu layout: config panels first, then the Narra/Nexus pair —
  *  mirrors the retired strip's category order, flattened into one menu. */
@@ -91,6 +94,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const [detailOpen, setDetailOpen] = useState(false);
+  const headerActions = visibleSlotEntries(useRegistryEntries(CHAT_HEADER_ACTIONS), useWhenContext({ conversationKind: 'chat', agentId }));
   const detailRef = useDismissOnOutside<HTMLDivElement>(detailOpen, () => setDetailOpen(false));
   // Agent switcher under the name. Clicking the agent's NAME must answer
   // "talk to someone else", not open settings — settings keep their own
@@ -340,6 +344,25 @@ export function ChatHeader({
                   <SlidersHorizontal className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
                   {t('chat.header.modelFramework')}
                 </button>
+                {/* Plugin actions (ui.chatHeaderActions), gated by `when`. */}
+                {headerActions.map((entry) => {
+                  const Icon = entry.value.icon ?? Sparkles;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      data-slot-action={entry.id}
+                      onClick={() => {
+                        setDetailOpen(false);
+                        void entry.value.run({ agentId });
+                      }}
+                      className="w-full flex items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-[13px] font-medium text-[var(--nm-ink)] transition-colors hover:bg-[var(--nm-paper-warm)]"
+                    >
+                      <Icon className="h-[15px] w-[15px] text-[var(--nm-ink70)]" />
+                      {entry.value.labelIsKey ? t(entry.value.label) : entry.value.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

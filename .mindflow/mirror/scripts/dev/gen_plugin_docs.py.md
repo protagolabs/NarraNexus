@@ -1,6 +1,6 @@
 ---
 code_file: scripts/dev/gen_plugin_docs.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -10,3 +10,7 @@ stub: false
 STABILITY`、`build_kernel_slot_tree().to_rows()`、`builtin_manifests()` 渲染，不手写——
 spec §13「文档不落后」。`tests/nx_kernel/test_docs_generated.py` 断言提交的文件与 `render()` 逐字
 相等，改了扩展位或版本却没跑 `--write` 会红。放在 `scripts/dev/` 与 `narranexus_migrate.py` 同组。
+
+## 2026-09-04 · slot points in the Host API table
+
+The hand-written `HOST_API_TABLE` lists the content registries and the seven slot points with the `when` grammar.

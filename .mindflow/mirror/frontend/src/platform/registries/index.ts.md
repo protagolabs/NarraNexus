@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/registries/index.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -11,3 +11,7 @@ stub: false
 插件 bundle 只被允许 import 这一个文件（`.dependency-cruiser.cjs`
 `plugins-only-import-contracts` 规则的例外项）。`registries-are-pure` 规则禁止本目录 import
 components/pages/stores/lib/hooks：注册表只存类型与表，不认识任何具体页面。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+Exports the `when` grammar and the slot-point / content registries with their defs and the `visibleSlotEntries` / `rendererFor` reads.

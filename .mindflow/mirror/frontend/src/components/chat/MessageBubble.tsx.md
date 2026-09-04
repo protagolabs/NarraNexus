@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-08-31
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-31 — 历史轮次的抽屉：自己把自己卸载了
@@ -326,3 +326,7 @@ This design avoids loading event log details for every message in a long history
 The event log cache (`eventLogCacheRef`) is per-component-instance. If the same message is rendered multiple times (e.g., after re-keying), the cache is lost and the API is called again.
 
 `tool_output` is only present on `EventLogToolCall` (history), not on `AgentToolCall` (real-time WebSocket). The output section only renders for history messages.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+Two plugin surfaces: a registered message renderer that `match`es the message owns the whole bubble (evaluated after the hooks, before the shell's own layout), and `messageActions` (when-filtered for `conversationKind:chat`) join the hover strip next to Copy/Download, receiving `{agentId, message}`.

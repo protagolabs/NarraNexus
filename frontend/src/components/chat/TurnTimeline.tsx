@@ -37,6 +37,7 @@ import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useNarrationTier } from '@/hooks/useNarrationTier';
+import { TIMELINE_EVENTS, useRegistryEntries } from '@/platform/registries';
 
 interface TurnTimelineProps {
   events: TurnEvent[];
@@ -283,11 +284,14 @@ export function TurnTimeline({
   // filtered out here — keeping it would print the same sentence in both
   // the bubble and the collapsed region. Plans don't render here either:
   // they live in the pinned PlanStrip above the composer.
+  // Plugin-owned event types (ui.timelineEvents) render in the same rail;
+  // subscribing keeps a late registration from being filtered out.
+  const pluginEvents = useRegistryEntries(TIMELINE_EVENTS);
   const processEvents = useMemo(
     () => events.filter(
-      (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output',
+      (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output' || pluginEvents.some((p) => p.id === (e as { type: string }).type),
     ),
-    [events],
+    [events, pluginEvents],
   );
   // Display preference (default on). Off restores the pre-A′ look: the same
   // blocks, same text, same order — only the tone goes back to receded.
@@ -335,8 +339,12 @@ export function TurnTimeline({
                 isStreaming={isStreaming}
               />
             );
-          default:
-            return null;
+          default: {
+            const plugin = pluginEvents.find((p) => p.id === (event as { type: string }).type);
+            if (!plugin) return null;
+            const Custom = plugin.value.component;
+            return <Custom key={event.id} event={event as unknown as { id: string; type: string }} isStreaming={isStreaming} />;
+          }
         }
       })}
     </div>

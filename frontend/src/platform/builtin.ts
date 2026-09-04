@@ -12,7 +12,7 @@
 import { lazy } from 'react';
 import { BookOpen, LayoutDashboard, Server, Sliders, Store, Upload } from 'lucide-react';
 
-import { PAGES, PANELS, SIDEBAR } from '@/platform/registries';
+import { CONVERSATION_KINDS, PAGES, PANELS, SIDEBAR } from '@/platform/registries';
 import {
   ArtifactsTab,
   AwarenessTab,
@@ -63,6 +63,12 @@ PAGES.register('templates-install', { path: 'templates/install', element: lazy((
 PAGES.register('teams-new', { path: 'teams/new', element: lazy(() => import('@/pages/CreateTeamPage')), guard: 'protected', layout: 'app' }, TEAMS);
 PAGES.register('team-detail', { path: 'teams/:teamId', element: lazy(() => import('@/pages/TeamDetailPage')), guard: 'protected', layout: 'app' }, TEAMS);
 PAGES.register('team-chat', { path: 'teams/:teamId/chat', element: null, guard: 'protected', layout: 'app' }, TEAMS);
+
+// -------------------------------------------------------------- conversation kinds
+// `when: conversationKind:<k>` may name these; the shell's single chat is
+// `chat`, builtin.teams brings `team` (gone with the plugin).
+CONVERSATION_KINDS.register('chat', { labelKey: 'sidebar.chats' }, OWNER);
+CONVERSATION_KINDS.register('team', { labelKey: 'sidebar.teams' }, TEAMS);
 
 // -------------------------------------------------------------- sidebar
 const prefetchDashboard = () => {

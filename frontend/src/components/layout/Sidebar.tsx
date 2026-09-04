@@ -39,7 +39,9 @@ import {
   useUIStore,
 } from '@/stores';
 import { cn } from '@/lib/utils';
-import { SIDEBAR, sortedSidebarItems, useRegistryEntries } from '@/platform/registries';
+import { SIDEBAR, SIDEBAR_SECTIONS, sortedSidebarItems, useRegistryEntries } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 import { AgentList } from './AgentList';
 import { CreateMenu } from './CreateMenu';
 import { ImportAgentModal } from './ImportAgentModal';
@@ -86,6 +88,7 @@ export function Sidebar() {
   // Nav rows come from the sidebar registry (builtin rows are registered by
   // platform/builtin.ts; a plugin registering later re-renders this list).
   const navItems = sortedSidebarItems(features, useRegistryEntries(SIDEBAR));
+  const whenCtx = useWhenContext({});
 
   // The cloud/local mode switcher is hidden — we don't want users choosing
   // the deployment mode. All the switching logic (handleSwitchMode, mode
@@ -258,6 +261,8 @@ export function Sidebar() {
           );
         })}
       </div>
+      {/* Plugin sections under the nav (ui.sidebarSections), gated by `when`. */}
+      <SlotOutlet registry={SIDEBAR_SECTIONS} ctx={whenCtx} agentId={null} as="div" className="px-2 pb-1 space-y-1" />
 
       {/* ── Zone 2b: Chats (teams + agents, owned by AgentList) ─────────── */}
       <ScrollArea className="flex-1">

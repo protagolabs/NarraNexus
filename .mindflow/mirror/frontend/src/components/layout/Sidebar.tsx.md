@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -193,3 +193,7 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
   `features.showSystemPage` (runtimeStore). The mode-switch popup is a raw
   positioned `div`, not a Popover — it doesn't close on outside-click; you toggle
   it by clicking the button again.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+A `SlotOutlet` under the nav rows mounts `sidebarSections`.

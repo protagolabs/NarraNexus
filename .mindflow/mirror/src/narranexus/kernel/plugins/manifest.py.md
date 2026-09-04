@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/kernel/plugins/manifest.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -39,3 +39,7 @@ stub: false
 `derive_activation_events`：VS Code 1.74 规则的批 0 子集——`ui.pages`/`ui.panels` 推出
 `onPage/onPanel:<id>`，其余提供项推出 `onStartup`。`builtin.` 前缀保留，只有
 `allow_builtin=True`（内核 `builtins.py`）能用。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+`frontend.ui` gains `conversationKinds`, `messageRenderers` (id + role / contentPrefix gate shape), `timelineEvents` (id + type) and `slots` (id, point ∈ the six slot points, label, `when` validated against the closed grammar, order); `derive_activation_events` adds `onRenderer:` / `onTimelineEvent:` / `onSlot:`.

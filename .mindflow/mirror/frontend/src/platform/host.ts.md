@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/host.ts
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -12,3 +12,7 @@ stub: false
 `http.prefix=/api/x/<id>`、`i18n`（自动 `plugin:<id>` 命名空间）、`log.error`（归因到本插件）、`dispose()`
 逆序展开。`exposeHostGlobals()` 把框架库挂到 `window.__narranexus_host__` 一次，供 SDK vite preset 的
 externals 解析。stores/组件/内部实现一律不承诺。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+`HostAPI.registries` gains `messageRenderers`, `timelineEvents`, `conversationKinds` and the six slot points (`chatHeaderActions`, `composerExtensions`, `messageActions`, `sidebarSections`, `agentCardBadges`, `topBarItems`); `host.register` works on them like on the structural registries (disposer tracked, may replace only its own gate).

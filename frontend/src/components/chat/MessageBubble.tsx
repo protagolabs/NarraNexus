@@ -37,6 +37,8 @@ import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
 import { RunStatChips } from './RunStatChips';
 import { hasRunStats } from '@/lib/runStats';
+import { MESSAGE_ACTIONS, MESSAGE_RENDERERS, rendererFor, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -249,6 +251,17 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   // Only the human side renders an avatar now (the agent's turn is a
   // full-width document, see the render below), so this is the user initial.
   const avatarLabel = (userId || 'U').slice(0, 1);
+
+  // Plugin surfaces (batch 3d): a registered renderer that recognises this
+  // message owns its whole bubble; message actions join the hover strip.
+  const rendererEntries = useRegistryEntries(MESSAGE_RENDERERS);
+  const whenCtx = useWhenContext({ conversationKind: 'chat', agentId: agentId ?? null });
+  const messageActions = visibleSlotEntries(useRegistryEntries(MESSAGE_ACTIONS), whenCtx);
+  const renderer = rendererFor(rendererEntries, message);
+  if (renderer) {
+    const Renderer = renderer.component;
+    return <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />;
+  }
 
   return (
     <div
@@ -709,6 +722,23 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Download className="w-3 h-3" />
                 </button>
               )}
+              {messageActions.map((entry) => {
+                const Icon = entry.value.icon ?? Sparkles;
+                const label = entry.value.labelIsKey ? t(entry.value.label) : entry.value.label;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => void entry.value.run({ agentId: agentId ?? null, message })}
+                    className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                    title={label}
+                    aria-label={label}
+                    data-slot-action={entry.id}
+                  >
+                    <Icon className="w-3 h-3" />
+                  </button>
+                );
+              })}
             </>
           )}
           <span

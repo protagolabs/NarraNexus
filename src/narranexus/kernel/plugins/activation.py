@@ -31,7 +31,7 @@ ContextFactory = Callable[[Manifest], PluginContext]
 CrashSink = Callable[[str, str], None]  # (plugin_id, error)
 ActivatedSink = Callable[[str, str], Awaitable[None] | None]  # (plugin_id, version)
 
-EVENT_PREFIXES = ("onStartup", "onPage:", "onPanel:", "onCommand:", "onChannel:", "onEvent:", "onModule:", "onTool:")
+EVENT_PREFIXES = ("onStartup", "onPage:", "onPanel:", "onCommand:", "onRenderer:", "onTimelineEvent:", "onSlot:", "onChannel:", "onEvent:", "onModule:", "onTool:")
 
 
 def validate_event_name(event: str) -> str:

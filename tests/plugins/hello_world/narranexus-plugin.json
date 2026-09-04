@@ -52,6 +52,33 @@
       ],
       "themes": [
         "acme.hello_world.theme"
+      ],
+      "messageRenderers": [
+        {
+          "id": "acme.hello_world.greeting",
+          "contentPrefix": "hello:"
+        }
+      ],
+      "timelineEvents": [
+        {
+          "id": "acme.hello_world.wave_event",
+          "type": "hello_wave"
+        }
+      ],
+      "slots": [
+        {
+          "id": "acme.hello_world.strip",
+          "point": "composerExtensions",
+          "when": [
+            "conversationKind:chat"
+          ],
+          "order": 50
+        },
+        {
+          "id": "acme.hello_world.header_wave",
+          "point": "chatHeaderActions",
+          "label": "Wave from header"
+        }
       ]
     }
   },

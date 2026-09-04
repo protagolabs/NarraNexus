@@ -12,5 +12,18 @@ export { definePlugin } from './definePlugin';
 export type { PluginDefinition } from './definePlugin';
 export type { HostAPI, Disposable } from '@/platform/host';
 export type { PageDef, PanelDef, CommandDef, ThemeDef, SettingsSectionDef, SidebarItemDef } from '@/platform/registries';
+export type {
+  ConversationKindDef,
+  MessageRendererDef,
+  MessageRendererProps,
+  SlotActionContext,
+  SlotActionDef,
+  SlotComponentDef,
+  SlotComponentProps,
+  TimelineEventDef,
+  TimelineEventProps,
+  WhenClause,
+  WhenContext,
+} from '@/platform/registries';
 export { HOST_EXTERNALS, hostShimModule, vitePreset } from './vitePreset';
 export { THEME_TOKENS } from '@/platform/registries/themeTokens.generated';

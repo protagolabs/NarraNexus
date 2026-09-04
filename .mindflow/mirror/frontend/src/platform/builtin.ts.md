@@ -14,3 +14,7 @@ stub: false
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 Feature-level builtins register with their plugin id as owner (`TEAMS = { owner: 'builtin.teams' }` for teams-new/team-detail/team-chat) so `disableBuiltinUi` can remove the whole row; shell pages keep `builtin.ui`.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+Registers the conversation kinds `chat` (shell) and `team` (owner builtin.teams, gone with the plugin) so `when: conversationKind:<k>` has something to name.

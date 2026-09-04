@@ -39,6 +39,9 @@ import {
 import { Textarea } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { COMPOSER_EXTENSIONS } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
 
 export interface ComposerHandle {
   /** Current textarea value (read at send time). */
@@ -100,6 +103,7 @@ export const Composer = memo(
     const wasEmptyRef = useRef(text.trim().length === 0);
     const isComposingRef = useRef(false);
     const compositionEndTimeRef = useRef(0);
+    const whenCtx = useWhenContext({ conversationKind: 'chat', agentId });
 
     const reportEmpty = (value: string) => {
       const empty = value.trim().length === 0;
@@ -222,6 +226,8 @@ export const Composer = memo(
 
     return (
       <div className="flex-1 relative">
+        {/* Plugin controls above the input (ui.composerExtensions), gated by `when`. */}
+        <SlotOutlet registry={COMPOSER_EXTENSIONS} ctx={whenCtx} agentId={agentId} as="div" className="flex flex-wrap items-center gap-2 px-1 pb-1" />
         <Textarea
           ref={textareaRef}
           value={text}

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -108,3 +108,7 @@ AgentList so the list file stays orchestration-only.
 Rename commit fires from both mouse (buttons) and keyboard
 (Enter/Escape) — `onSaveEdit`/`onCancelEdit` are typed
 `React.SyntheticEvent`, not MouseEvent. Don't narrow them back.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+`AgentRow` mounts `agentCardBadges` next to the name (when-context built per agent, so `agentHas:<Module>` works per row).

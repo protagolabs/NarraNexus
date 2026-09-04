@@ -71,6 +71,48 @@ class UiCommand(_Strict):
     hint: str = ""
 
 
+class UiConversationKind(_Strict):
+    id: str
+    label: str = ""
+
+
+class UiMessageRenderer(_Strict):
+    """A renderer gate: matches messages by role and/or content prefix until the plugin registers the real one."""
+
+    id: str
+    role: Literal["user", "assistant", ""] = ""
+    content_prefix: str = Field(default="", alias="contentPrefix")
+
+
+class UiTimelineEvent(_Strict):
+    id: str
+    type: str
+
+
+UiSlotPoint = Literal["chatHeaderActions", "composerExtensions", "messageActions", "sidebarSections", "agentCardBadges", "topBarItems"]
+_WHEN_RE = re.compile(r"^!?(conversationKind|agentHas|setting):[A-Za-z0-9_.:-]+$")
+
+
+class UiSlot(_Strict):
+    """A slot-point entry declared up front (spec section 658): component slots mount a silent gate, action slots a labelled one."""
+
+    id: str
+    point: UiSlotPoint
+    label: str = ""
+    when: tuple[str, ...] = ()
+    order: int = 100
+
+    @field_validator("when")
+    @classmethod
+    def _when_grammar(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        for clause in v:
+            if not _WHEN_RE.match(clause):
+                raise ValueError(
+                    f"when clause {clause!r}: expected conversationKind:<kind> | agentHas:<module> | setting:<key> (optionally prefixed with !)"
+                )
+        return tuple(v)
+
+
 class UiContributions(_Strict):
     """Declarative UI metadata the frontend registers BEFORE importing the plugin's code.
 
@@ -84,6 +126,10 @@ class UiContributions(_Strict):
     panels: tuple[UiPanel, ...] = ()
     commands: tuple[UiCommand, ...] = ()
     themes: tuple[str, ...] = ()
+    conversation_kinds: tuple[UiConversationKind, ...] = Field(default=(), alias="conversationKinds")
+    message_renderers: tuple[UiMessageRenderer, ...] = Field(default=(), alias="messageRenderers")
+    timeline_events: tuple[UiTimelineEvent, ...] = Field(default=(), alias="timelineEvents")
+    slots: tuple[UiSlot, ...] = ()
 
 
 class FrontendSpec(_Strict):
@@ -298,6 +344,9 @@ def derive_activation_events(manifest: Manifest) -> tuple[str, ...]:
         events += [f"onPage:{p.id}" for p in ui.pages]
         events += [f"onPanel:{p.id}" for p in ui.panels]
         events += [f"onCommand:{c.id}" for c in ui.commands]
+        events += [f"onRenderer:{r.id}" for r in ui.message_renderers]
+        events += [f"onTimelineEvent:{e.id}" for e in ui.timeline_events]
+        events += [f"onSlot:{s.id}" for s in ui.slots]
     for path in manifest.provides:
         if path == "ui.pages" or path.startswith("ui.pages."):
             events.append(f"onPage:{manifest.id}")

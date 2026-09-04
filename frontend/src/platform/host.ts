@@ -22,7 +22,24 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders } from '@/lib/authHeaders';
 import { addPluginBundle, pluginT } from './i18n';
 import { reportUiError } from './errorSink';
-import { COMMANDS, PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, THEMES, type Registry } from './registries';
+import {
+  AGENT_CARD_BADGES,
+  CHAT_HEADER_ACTIONS,
+  COMMANDS,
+  COMPOSER_EXTENSIONS,
+  CONVERSATION_KINDS,
+  MESSAGE_ACTIONS,
+  MESSAGE_RENDERERS,
+  PAGES,
+  PANELS,
+  SETTINGS_SECTIONS,
+  SIDEBAR,
+  SIDEBAR_SECTIONS,
+  THEMES,
+  TIMELINE_EVENTS,
+  TOP_BAR_ITEMS,
+  type Registry,
+} from './registries';
 
 export const HOST_API_VERSION = 1;
 
@@ -49,6 +66,17 @@ export interface HostAPI {
     settingsSections: typeof SETTINGS_SECTIONS;
     commands: typeof COMMANDS;
     themes: typeof THEMES;
+    /** Content registries: own the rendering of a message / a timeline event type. */
+    messageRenderers: typeof MESSAGE_RENDERERS;
+    timelineEvents: typeof TIMELINE_EVENTS;
+    /** Slot points inside existing surfaces (gated by `when`, ordered by `order`). */
+    conversationKinds: typeof CONVERSATION_KINDS;
+    chatHeaderActions: typeof CHAT_HEADER_ACTIONS;
+    composerExtensions: typeof COMPOSER_EXTENSIONS;
+    messageActions: typeof MESSAGE_ACTIONS;
+    sidebarSections: typeof SIDEBAR_SECTIONS;
+    agentCardBadges: typeof AGENT_CARD_BADGES;
+    topBarItems: typeof TOP_BAR_ITEMS;
   };
   /** Register into any host registry as this plugin; the disposer is tracked. */
   register<T>(registry: Registry<T>, id: string, value: T): Disposable;
@@ -105,7 +133,23 @@ export function createHostApi(pluginId: string, hostVersion: string): HostAPI {
     api: { ui: HOST_API_VERSION },
     pluginId,
     libs: { react: React, reactDom: ReactDOM, router: ReactRouter, zustand: Zustand, i18next, icons: Icons },
-    registries: { pages: PAGES, sidebar: SIDEBAR, panels: PANELS, settingsSections: SETTINGS_SECTIONS, commands: COMMANDS, themes: THEMES },
+    registries: {
+      pages: PAGES,
+      sidebar: SIDEBAR,
+      panels: PANELS,
+      settingsSections: SETTINGS_SECTIONS,
+      commands: COMMANDS,
+      themes: THEMES,
+      messageRenderers: MESSAGE_RENDERERS,
+      timelineEvents: TIMELINE_EVENTS,
+      conversationKinds: CONVERSATION_KINDS,
+      chatHeaderActions: CHAT_HEADER_ACTIONS,
+      composerExtensions: COMPOSER_EXTENSIONS,
+      messageActions: MESSAGE_ACTIONS,
+      sidebarSections: SIDEBAR_SECTIONS,
+      agentCardBadges: AGENT_CARD_BADGES,
+      topBarItems: TOP_BAR_ITEMS,
+    },
     register<T>(registry: Registry<T>, id: string, value: T): Disposable {
       // A plugin may replace the lazy gate the loader registered under its own id.
       const dispose = registry.register(id, value, { ...owner, replace: registry.has(id) && registryOwnerIs(registry, id, pluginId) });

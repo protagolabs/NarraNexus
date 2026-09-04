@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatHeader.tsx
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -77,3 +77,7 @@ deriveTabStatus / artifactStore)→ CostPopover → ⋯ detail 菜单。
   + Memory | Model & framework(AgentLlmConfigPanel 的新入口)。
 - Artifacts 图标 `openPanel('artifacts')` 开抽屉面板(collapsed 机制已退役)。
 - 徽标/markTabOpened 语义沿用 tabs.ts 注册表,不另造信号源。
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+The ⋯ menu lists `chatHeaderActions` entries (when-filtered for `conversationKind:chat`, ordered) after the model/framework row; each runs with `{agentId}` and closes the menu.

@@ -16,3 +16,7 @@ ArrayBuffer，测试用 node:crypto）比对，再由 Blob URL `import()`（动�
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `loadPlugins` reads `data.builtins` from the factory listing and calls `disableBuiltinUi(id)` for every disabled non-protected builtin, which removes that owner from every shell registry — so a disabled `builtin.teams` has no `/teams/*` pages without any teams-specific code in the loader.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+`registerDeclaredUi` also registers gates for `frontend.ui.conversationKinds` / `messageRenderers` (a renderer gate matching by role / content prefix) / `timelineEvents` (a gate per event type) / `slots` (silent component gates, labelled action gates) and derives `onRenderer:` / `onTimelineEvent:` / `onSlot:` activation events; `disableBuiltinUi` sweeps the new registries too.

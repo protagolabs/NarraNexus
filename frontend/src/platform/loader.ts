@@ -19,9 +19,29 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders } from '@/lib/authHeaders';
 import { fireActivation, registerActivation } from './activation';
 import { attributeChunkUrl, reportUiError } from './errorSink';
-import { makePageGate, makePanelGate } from './gates';
+import { makeActionGate } from './actionGate';
+import { makePageGate, makePanelGate, makeRendererGate, makeSlotGate, makeTimelineGate } from './gates';
 import { createHostApi, exposeHostGlobals, type HostAPI } from './host';
-import { COMMANDS, PAGES, PANELS, SETTINGS_SECTIONS, SIDEBAR, THEMES } from './registries';
+import {
+  AGENT_CARD_BADGES,
+  CHAT_HEADER_ACTIONS,
+  COMMANDS,
+  COMPOSER_EXTENSIONS,
+  CONVERSATION_KINDS,
+  MESSAGE_ACTIONS,
+  MESSAGE_RENDERERS,
+  PAGES,
+  PANELS,
+  SETTINGS_SECTIONS,
+  SIDEBAR,
+  SIDEBAR_SECTIONS,
+  THEMES,
+  TIMELINE_EVENTS,
+  TOP_BAR_ITEMS,
+  type Registry,
+  type SlotActionDef,
+  type SlotComponentDef,
+} from './registries';
 
 export interface FactoryPluginRow {
   id: string;
@@ -38,6 +58,13 @@ export interface FactoryPluginRow {
       panels?: { id: string; label?: string }[];
       commands?: { id: string; label: string; hint?: string }[];
       themes?: string[];
+      /** Kinds `when: conversationKind:<k>` may name; registered up front. */
+      conversationKinds?: { id: string; label?: string }[];
+      /** A gate renders until the plugin registers the real renderer under the same id. */
+      messageRenderers?: { id: string; role?: 'user' | 'assistant'; contentPrefix?: string }[];
+      timelineEvents?: { id: string; type: string }[];
+      /** Slot-point entries declared up front (component slots mount a silent gate; action slots a labelled one). */
+      slots?: { id: string; point: SlotPoint; label?: string; when?: string[]; order?: number }[];
     };
   };
   activation_events?: string[];
@@ -49,8 +76,6 @@ export interface FactoryBuiltinRow {
   protected: boolean;
 }
 
-const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES] as const;
-
 /**
  * Remove every shell registration owned by a disabled builtin plugin (its pages,
  * sidebar rows, panels, commands…). `platform/builtin.ts` tags feature-level
@@ -61,6 +86,22 @@ export function disableBuiltinUi(pluginId: string): string[] {
   for (const reg of SHELL_REGISTRIES) removed.push(...reg.removeOwner(pluginId).map((id) => `${reg.kind}:${id}`));
   return removed;
 }
+
+export type SlotPoint = 'chatHeaderActions' | 'composerExtensions' | 'messageActions' | 'sidebarSections' | 'agentCardBadges' | 'topBarItems';
+
+const COMPONENT_SLOTS: Record<string, Registry<SlotComponentDef>> = {
+  composerExtensions: COMPOSER_EXTENSIONS,
+  sidebarSections: SIDEBAR_SECTIONS,
+  agentCardBadges: AGENT_CARD_BADGES,
+  topBarItems: TOP_BAR_ITEMS,
+};
+const ACTION_SLOTS: Record<string, Registry<SlotActionDef>> = {
+  chatHeaderActions: CHAT_HEADER_ACTIONS,
+  messageActions: MESSAGE_ACTIONS,
+};
+
+/** Every shell registry a disabled builtin's UI row is removed from (`disableBuiltinUi`). */
+const SHELL_REGISTRIES = [PAGES, PANELS, COMMANDS, SIDEBAR, SETTINGS_SECTIONS, THEMES, MESSAGE_RENDERERS, TIMELINE_EVENTS, CONVERSATION_KINDS, ...Object.values(COMPONENT_SLOTS), ...Object.values(ACTION_SLOTS)] as const;
 
 export interface PluginModule {
   plugin?: { activate(host: HostAPI): void | Promise<void>; deactivate?(host: HostAPI): void | Promise<void> };
@@ -121,6 +162,27 @@ export function registerDeclaredUi(row: FactoryPluginRow): string[] {
   for (const panel of ui?.panels ?? []) {
     if (!PANELS.has(panel.id)) PANELS.register(panel.id, { component: makePanelGate(row.id, panel.id) }, owner);
     events.push(`onPanel:${panel.id}`);
+  }
+  for (const kind of ui?.conversationKinds ?? []) {
+    if (!CONVERSATION_KINDS.has(kind.id)) CONVERSATION_KINDS.register(kind.id, { labelKey: kind.label ?? kind.id }, owner);
+  }
+  for (const r of ui?.messageRenderers ?? []) {
+    if (!MESSAGE_RENDERERS.has(r.id)) MESSAGE_RENDERERS.register(r.id, makeRendererGate(row.id, r.id, { role: r.role, contentPrefix: r.contentPrefix }), owner);
+    events.push(`onRenderer:${r.id}`);
+  }
+  for (const te of ui?.timelineEvents ?? []) {
+    if (!TIMELINE_EVENTS.has(te.type)) TIMELINE_EVENTS.register(te.type, { component: makeTimelineGate(row.id, te.id, te.type) }, owner);
+    events.push(`onTimelineEvent:${te.id}`);
+  }
+  for (const slot of ui?.slots ?? []) {
+    const component = COMPONENT_SLOTS[slot.point];
+    const action = ACTION_SLOTS[slot.point];
+    if (component && !component.has(slot.id)) {
+      component.register(slot.id, { component: makeSlotGate(row.id, slot.id), when: slot.when, order: slot.order }, owner);
+    } else if (action && !action.has(slot.id)) {
+      action.register(slot.id, makeActionGate(row.id, slot.id, action, slot.label ?? slot.id, slot.when, slot.order), owner);
+    }
+    events.push(`onSlot:${slot.id}`);
   }
   for (const cmd of ui?.commands ?? []) {
     if (!COMMANDS.has(cmd.id)) {
