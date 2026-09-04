@@ -49,3 +49,5 @@ loader 测试拿它和 approval golden 比对。测试自建 `Registries()` 得�
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `SLOT_KINDS["ingress.channels"] = "channel"`.
+
+Batch 6c: `SLOT_KINDS["kernel.auth"] = "auth"`.

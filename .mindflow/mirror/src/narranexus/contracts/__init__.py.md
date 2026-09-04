@@ -37,3 +37,5 @@ stub: false
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `API_VERSIONS["channel"] = 0`.
+
+Batch 6c: contract kind `auth` (the `kernel.auth` slot / authProviders, spec section 19.5) joins `API_VERSIONS`.

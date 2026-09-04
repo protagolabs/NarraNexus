@@ -24,6 +24,7 @@ from narranexus.kernel.plugins.slots import SlotTree, build_kernel_slot_tree
 
 # slot path -> contract kind (drives api_version on the registry)
 SLOT_KINDS: dict[str, str] = {
+    "kernel.auth": "auth",
     "turn.pipeline.act.framework": "framework",
     "model.providers": "provider",
     "model.clients": "llm_client",

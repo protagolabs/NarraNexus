@@ -93,3 +93,5 @@ A platform package that needs one slot populated at first use (memory kinds, pro
 Batch 6b.2b: `register_builtin_provides(slot, registries=None)` resolves a slot's contributions from the builtin manifests and registers them — the seam platform code uses so it never imports `narranexus_plugins`. Framework/turn/llm-client refs now point at the plugin packages.
 
 Batch 6b.3: builtin.teams provides two routers, the worker and a `backend.hooks` implementation, all under `narranexus_plugins.teams`.
+
+Batch 6c: two authProviders builtins `builtin.auth.local` and `builtin.auth.netmind` (distributionOnly, protected, provide `kernel.auth`).

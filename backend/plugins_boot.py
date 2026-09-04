@@ -23,6 +23,7 @@ from narranexus.kernel.deployment import is_cloud_mode
 from narranexus.kernel.events.bus import EventBus
 from narranexus.kernel.plugins.activation import Activator
 from narranexus.kernel.plugins.compat import host_version
+from narranexus.kernel.plugins.distribution import DistributionResolution, resolve_from_env
 from narranexus.kernel.plugins.context import PluginContext, build_context
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.manifest import Manifest
@@ -99,6 +100,41 @@ def activator() -> Activator:
     return _ACTIVATOR
 
 
+_DISTRIBUTION: dict[str, DistributionResolution | None] = {}
+
+
+def distribution() -> DistributionResolution | None:
+    """The distribution this backend runs (``NARRANEXUS_DIST``), resolved once; ``None`` = all builtins."""
+    if "res" not in _DISTRIBUTION:
+        _DISTRIBUTION["res"] = resolve_from_env(host_version=host_version())
+    return _DISTRIBUTION["res"]
+
+
+def write_runtime_bindings(res: DistributionResolution | None) -> Path | None:
+    """Resolve the slot bindings once at startup (default < distribution < narranexus.toml < env) and
+    snapshot them to ``<plugin home>/run/bindings.resolved.json`` for the factory page and ``dist doctor``.
+    A conflict is loud (spec section 6.4); a slot nobody binds is only logged."""
+    from narranexus.contracts import UnboundSlot
+    from narranexus.kernel.plugins.bindings import parse_env, parse_toml, resolve, write_resolved
+    from narranexus.kernel.plugins.builtins import slot_tree_with_builtins
+    from narranexus.kernel.plugins.paths import plugin_home
+
+    home = plugin_home()
+    sources = []
+    if res is not None:
+        sources.append(res.bindings)
+    toml_path = home / "narranexus.toml"
+    if toml_path.is_file():
+        sources.append(parse_toml(toml_path.read_text(encoding="utf-8"), origin=str(toml_path)))
+    sources.append(parse_env())
+    try:
+        resolved = resolve(slot_tree_with_builtins(), sources)
+    except UnboundSlot as exc:
+        logger.warning(f"[plugins] bindings not snapshotted: {exc}")
+        return None
+    return write_resolved(resolved, home / "run" / "bindings.resolved.json")
+
+
 def boot_backend_plugins() -> BootReport:
     if HOST_SERVICES.try_require(HOST_VERSION) is None:
         HOST_SERVICES.expose(HOST_VERSION, host_version(), owner="builtin.kernel")
@@ -106,7 +142,8 @@ def boot_backend_plugins() -> BootReport:
         # Lifespan ran more than once in this process (tests build several
         # TestClients); the registries are already populated and frozen.
         return BootReport(role="backend")
-    return boot(
+    res = distribution()
+    report = boot(
         "backend",
         registries=KERNEL_REGISTRIES,
         cloud=is_cloud_mode(),
@@ -114,11 +151,17 @@ def boot_backend_plugins() -> BootReport:
         activator=activator(),
         register_table=register_table,
         store=registry_store(),
+        distribution=res,
     )
+    try:
+        write_runtime_bindings(res)
+    except OSError as exc:
+        logger.warning(f"[plugins] bindings snapshot not written: {exc}")
+    return report
 
 
 async def fire_startup() -> None:
     await activator().fire("onStartup")
 
 
-__all__ = ["HOST_BUS", "HOST_SERVICES", "activator", "boot_backend_plugins", "fire_startup", "registry_store"]
+__all__ = ["HOST_BUS", "HOST_SERVICES", "activator", "boot_backend_plugins", "distribution", "fire_startup", "registry_store", "write_runtime_bindings"]

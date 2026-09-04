@@ -2,7 +2,7 @@
 @file_name: main.py
 @author: Bin Liang
 @date: 2026-09-03
-@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check`` and ``narranexus docs gen``.
+@description: ``narranexus plugin new|link|install|list|enable|disable|uninstall|doctor|bisect|publish-check``, ``narranexus dist doctor|lock`` and ``narranexus docs gen``.
 
 Every mutating verb goes through the same kernel objects the factory API
 uses (``Installer`` / ``RegistryStore`` / ``Bisect``), so the CLI and the
@@ -236,6 +236,47 @@ def cmd_docs_gen(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------ parser
 
 
+def _distribution(args: argparse.Namespace):
+    from narranexus.kernel.plugins.distribution import load_distribution, resolve_distribution
+
+    spec, base = load_distribution(Path(args.path))
+    return resolve_distribution(spec, base)
+
+
+def cmd_dist_doctor(args: argparse.Namespace) -> int:
+    """Resolve a distribution against this engine and print the report; non-zero on any problem."""
+    from narranexus.kernel.plugins.distribution import doctor_report
+
+    report = doctor_report(_distribution(args))
+    if args.json:
+        _print(report, as_json=True)
+    else:
+        print(f"{report['id']}: engine {report['engine']['host']} (wants {report['engine']['wanted']}), "
+              f"{report['deployment']}, auth={report['auth']}, userPlugins={report['userPlugins']}")
+        for row in report["plugins"]:
+            flag = " distributionOnly" if row["distributionOnly"] else ""
+            where = f" ({row['path']})" if row["path"] else ""
+            print(f"  {row['id']} {row['version']} [{row['source']}{flag}]{where}")
+        if report["excluded"]:
+            print(f"  excluded: {', '.join(report['excluded'])}")
+        print(f"  size: backend deps {report['size']['backend_deps_mb']} MB, frontend {report['size']['frontend_kb']} kB")
+        for problem in report["problems"]:
+            print(f"  PROBLEM: {problem}")
+        print("ok" if report["ok"] else f"{len(report['problems'])} problem(s)")
+    return 0 if report["ok"] else 1
+
+
+def cmd_dist_lock(args: argparse.Namespace) -> int:
+    """Write the resolved plugin set next to the declaration (or at --out)."""
+    from narranexus.kernel.plugins.distribution import LOCK_FILENAME, write_lock
+
+    res = _distribution(args)
+    out = Path(args.out) if args.out else res.base_dir / LOCK_FILENAME
+    path = write_lock(res, out)
+    print(str(path))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="narranexus", description="NarraNexus plugin tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -293,6 +334,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = psub.add_parser("publish-check", help="release checklist for a plugin directory")
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(fn=cmd_publish_check)
+
+    dist = sub.add_parser("dist", help="distributions (narranexus-dist.json)")
+    dsub_ = dist.add_subparsers(dest="verb", required=True)
+    p = dsub_.add_parser("doctor", help="resolve a distribution against this engine and report problems")
+    p.add_argument("path", nargs="?", default=".", help="narranexus-dist.json or its directory")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_dist_doctor)
+    p = dsub_.add_parser("lock", help="write narranexus-dist.lock.json with the resolved plugin set")
+    p.add_argument("path", nargs="?", default=".")
+    p.add_argument("--out", default="")
+    p.set_defaults(fn=cmd_dist_lock)
 
     docs = sub.add_parser("docs", help="generated documentation")
     dsub = docs.add_subparsers(dest="verb", required=True)

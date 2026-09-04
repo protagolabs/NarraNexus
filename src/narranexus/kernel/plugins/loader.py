@@ -132,6 +132,9 @@ def discover(
         if manifest.id != pid:
             found.rejected[pid] = f"incompatible: manifest id {manifest.id!r} does not match registry entry {pid!r}"
             continue
+        if manifest.distribution_only:
+            found.rejected[pid] = "incompatible: distribution-only plugin (authProviders and other kernel slots) cannot be installed at runtime; build it into a distribution"
+            continue
         reason = blocked_reason(blocked_versions or {}, pid, manifest.version)
         if reason:
             found.rejected[pid] = f"blocked: {reason}"

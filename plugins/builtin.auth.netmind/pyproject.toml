@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-auth-netmind"
+version = "1.0.0"
+description = "Authentication provider of the cloud distribution: the NetMind-issued JWT bearer token names the user (authProviders, distribution-only)."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# The engine (narranexus) hosts this package; a distribution installs both.
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]

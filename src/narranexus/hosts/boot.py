@@ -28,6 +28,7 @@ from loguru import logger
 from narranexus.kernel.plugins.activation import Activator
 from narranexus.kernel.plugins.importer import install_synthetic_package, plugin_finder
 from narranexus.kernel.plugins.lifecycle import BootMarker, RegistryError, RegistryStore
+from narranexus.kernel.plugins.distribution import DistributionResolution
 from narranexus.kernel.plugins.loader import Discovery, LoadReport, discover, load
 from narranexus.kernel.plugins.manifest import Manifest
 from narranexus.kernel.plugins.paths import deps_dir, registry_path
@@ -47,6 +48,8 @@ class BootReport:
     rejected: dict[str, str] = field(default_factory=dict)
     isolated: dict[str, str] = field(default_factory=dict)
     disabled_builtins: tuple[str, ...] = ()
+    distribution: str | None = None  # id of the distribution that shaped this boot
+    excluded_builtins: tuple[str, ...] = ()  # builtins the distribution left out
     # builtin id -> why its on-demand dependencies are unavailable (booted without it)
     deps_missing: dict[str, str] = field(default_factory=dict)
     activation_events: dict[str, tuple[str, ...]] = field(default_factory=dict)
@@ -88,6 +91,7 @@ def boot(
     store: RegistryStore | None = None,
     blocked_versions: dict[str, dict[str, str]] | None = None,
     stage2_deadline_s: float = 120.0,
+    distribution: "DistributionResolution | None" = None,
 ) -> BootReport:
     started = time.perf_counter()
     report = BootReport(role=role)
@@ -124,10 +128,29 @@ def boot(
     # are unavailable boots as if disabled (deps_missing, retry from the factory)
     from narranexus.kernel.plugins.install.builtin_deps import ensure_builtin_deps
 
+    # ---- the distribution (spec section 19): its plugin set IS the stage-1 set —
+    # builtins it leaves out lose their import-time registrations like a
+    # disabled builtin, bundled plugins get their package and deps like a user
+    # plugin but boot in stage 1 (fail-fast: they are the distribution's own code).
+    stage1 = [m for m in found.manifests if m.is_builtin]
+    if distribution is not None:
+        distribution.raise_for_problems()
+        report.distribution = distribution.spec.id
+        selected = {m.id for m in distribution.manifests}
+        left_out = tuple(m.id for m in stage1 if m.id not in selected)
+        for pid in left_out:
+            removed = registries.remove_owner(pid)
+            logger.info(f"[plugins] {pid}: not in distribution {distribution.spec.id} ({removed} contribution(s) removed)")
+        report.excluded_builtins = left_out
+        disabled = set(found.disabled_builtins)
+        stage1 = [m for m in distribution.manifests if m.id not in disabled]
+        finder = plugin_finder()
+        for pick in distribution.picks:
+            if pick.path is not None and pick.id not in disabled:
+                _prepare_user_plugin(pick.manifest, pick.path, finder, store)
+
     builtins = []
-    for manifest in found.manifests:
-        if not manifest.is_builtin:
-            continue
+    for manifest in stage1:
         status = ensure_builtin_deps(manifest, cloud=cloud)
         if status.ok:
             builtins.append(manifest)
@@ -141,6 +164,9 @@ def boot(
 
     # ---- stage 2: user plugins, isolated
     users = [m for m in found.manifests if not m.is_builtin]
+    if users and distribution is not None and not distribution.spec.runtime.user_plugins:
+        logger.info(f"[plugins] distribution {distribution.spec.id} disallows runtime plugins: {len(users)} skipped")
+        users = []
     if users:
         deadline = time.perf_counter() + stage2_deadline_s
         finder = plugin_finder()

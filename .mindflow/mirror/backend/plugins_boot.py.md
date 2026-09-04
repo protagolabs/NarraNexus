@@ -15,3 +15,5 @@ stub: false
 ## 2026-09-04 · services + host hooks (batch 3c.6)
 
 `HOST_SERVICES` is `KERNEL_REGISTRIES.services` (no separate locator), so builtin services and user-plugin services share one namespace.
+
+Batch 6c: `distribution()` resolves `NARRANEXUS_DIST` once per process (None = all builtins) and `boot_backend_plugins()` passes it to `boot`; `write_runtime_bindings(res)` resolves the slot bindings (default < distribution < `<plugin home>/narranexus.toml` < `NX_BIND__*` env) and snapshots them to `<plugin home>/run/bindings.resolved.json` — a `BindingConflict` is loud, an unbound slot only logged.

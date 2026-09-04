@@ -50,3 +50,5 @@ crash 计数与自动禁用）。每插件计时进 `PluginLoad.duration_ms`，�
 与 import 期注册共存的机制：内置模块在 import 时用同一个 `Contribution` 对象注册，`Registry`
 对同名同工厂对象的重复注册是 no-op，所以「先 import 再 load」和「只 load 不 import」得到同一张表
 （`test_loading_twice_into_the_process_registries_is_idempotent`）。
+
+Batch 6c: `discover()` rejects a registry.json plugin whose manifest is `distributionOnly` (`incompatible: distribution-only plugin ... cannot be installed at runtime`); such plugins only enter through a distribution.

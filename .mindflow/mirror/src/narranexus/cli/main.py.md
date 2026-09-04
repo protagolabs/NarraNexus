@@ -14,3 +14,5 @@ stub: false
 ## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
 
 `plugin enable|disable <builtin.*>` toggles a builtin through registry.json `builtin_overrides` (protected builtins refuse, unknown ids error) instead of the user-plugin record path.
+
+Batch 6c: `narranexus dist doctor [path] [--json]` (resolve against this engine, print plugin rows / excluded / size / problems, exit 1 on any problem) and `narranexus dist lock [path] [--out]` (write `narranexus-dist.lock.json`).

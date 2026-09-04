@@ -327,6 +327,30 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         },
         "quality": "gold",
     },
+    {
+        "id": "builtin.auth.local",
+        "version": "1.0.0",
+        "displayName": "Local auth",
+        "description": "Authentication provider of the desktop/local distribution: the X-User-Id header names the user (authProviders, distribution-only).",
+        "hosts": ["backend"],
+        "api": {"auth": 0},
+        "distributionOnly": True,
+        "protected": True,
+        "provides": {"kernel.auth": "narranexus_plugins.auth_local.provider:CONTRIBUTION"},
+        "quality": "gold",
+    },
+    {
+        "id": "builtin.auth.netmind",
+        "version": "1.0.0",
+        "displayName": "NetMind auth",
+        "description": "Authentication provider of the cloud distribution: the NetMind-issued JWT bearer token names the user (authProviders, distribution-only).",
+        "hosts": ["backend"],
+        "api": {"auth": 0},
+        "distributionOnly": True,
+        "protected": True,
+        "provides": {"kernel.auth": "narranexus_plugins.auth_netmind.provider:CONTRIBUTION"},
+        "quality": "gold",
+    },
 )
 
 
