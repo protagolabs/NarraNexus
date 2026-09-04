@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/nexus_plugins_module/nexus_plugins_module.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -10,3 +10,7 @@ stub: false
 agent_id/user_id）。指令块很短（一行流程 + 本 Agent 的插件状态摘要），控制每回合上下文成本。**只在本地生效**：
 云端指令为空、`get_mcp_config` 返回 None、服务层直接拒绝（D1）。它自己也是插件 `builtin.nexus_plugins_module`
 且 `protected`，任何工具都不能改它。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

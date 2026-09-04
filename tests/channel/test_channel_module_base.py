@@ -30,7 +30,6 @@ class _ConcreteFakeModule(ChannelModuleBase):
     working_source = WorkingSource.LARK  # reuse existing enum value
     ctx_data_key = "fake_info"
     mcp_server_name = "fake_module"
-    mcp_port = 8765
 
     # Test-controllable internals
     _next_credential: Any = None
@@ -240,7 +239,7 @@ async def test_get_mcp_config_returns_well_formed_config():
     cfg = await module.get_mcp_config()
     assert cfg is not None
     assert cfg.server_name == "fake_module"
-    assert ":8765/sse" in cfg.server_url
+    assert cfg.server_url.endswith("/mcp/fake_module/sse")  # the single MCP host + the mount path (batch 5a)
     assert cfg.type == "sse"
 
 

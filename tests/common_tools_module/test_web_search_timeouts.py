@@ -263,7 +263,7 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
 
     monkeypatch.setattr(tools, "_web_search_with_retry", _hang_forever)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
     tool_entries = await mcp.list_tools()
     ws_entry = next((t for t in tool_entries if t.name == "web_search"), None)
     assert ws_entry is not None, "web_search tool must be registered"

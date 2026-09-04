@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 ---
 
 ## 2026-09-03（批 2f.1）— `REQUIRED_PORTS` 加 7811（NexusPluginsModule）
@@ -155,3 +155,7 @@ Entry #1 in a 3-step plan recorded in the Lark Base TODO tracker:
 - **Depends on:** system `lsof` (optional, improves error message),
   `osascript` (always present on macOS)
 - **On conflict:** calls `std::process::exit(1)` — no recovery path by design
+
+## 2026-09-04 · REQUIRED_PORTS shrinks to four (batch 5a)
+
+8000 / 8100 / 7801 (the module MCP host — every module server mounted by path, so a plugin adds no port) / 47831. `tests/module/test_port_preflight_ports_sync.py` now asserts equality with the Python side in both directions.

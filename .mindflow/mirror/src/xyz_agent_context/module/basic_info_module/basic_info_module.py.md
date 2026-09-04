@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-18 — `_format_current_time_for_agent` 搬去 utils/timezone
@@ -113,3 +113,7 @@ BasicInfoModule 是 Agent 了解自身运行环境的最小化通道。核心职
 ## 新人易踩的坑
 
 - 这是系统里最简单的 Module，适合作为"新建 Module 的最小参考模板"来理解 Module 的基本结构。唯一不典型的地方是它没有 hook 和 MCP 服务器。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

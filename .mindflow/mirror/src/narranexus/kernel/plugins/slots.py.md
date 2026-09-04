@@ -50,3 +50,7 @@ stub: false
 ## 2026-09-04 · channels as descriptors (batch 4a)
 
 `ingress.channels` (many, `ChannelDescriptor`).
+
+## 2026-09-04 · modules slot doc (batch 5a)
+
+The `agent.capabilities.modules` meta no longer mentions `mcp_port`; module servers are mounted by path on the single host.

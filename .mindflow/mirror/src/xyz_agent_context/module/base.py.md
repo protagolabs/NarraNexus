@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-04 (review 修正) — working_source_matches 公共谓词
@@ -142,3 +142,7 @@ summaries). Default for both is no-op.
 
 教训：此前所有守卫都直接调两个 hook 且**反着生产顺序**调，因此在坏代码上全绿。
 接缝类不变量必须经真实调用点断言。
+
+## 2026-09-04 · the one MCP address (batch 5a)
+
+`mcp_port()` (`MCP_PORT`, default 7801), `mcp_base_url()` (`MCP_BASE_URL` for a reverse proxy, else `http://<MCP_HOST>:<MCP_PORT>`), `mcp_mount_path(server_name)` = `/mcp/<server_name>`, `mcp_server_url(server_name)` = base + mount + `/sse`. Every module's `get_mcp_config` builds its URL from these — no module owns a port, and the agent side (context_runtime → adapters) only ever learns this one base. Codex's adapter still rewrites the trailing `/sse` to the streamable `/mcp` endpoint under the same mount.

@@ -2,7 +2,7 @@
 //
 // Problem:
 //   Every sidecar service binds a hardcoded port (backend 8000, sqlite_proxy
-//   8100, MCP 7801, lark_trigger 7830). If any of those ports is already held
+//   8100, the module MCP host 7801, lark health 47831). If any of those ports is already held
 //   by another process — very common for :8000 because every Django / Flask /
 //   Jupyter workflow binds it — the Python service fails to bind, exits
 //   immediately after spawn, and the user sees "black screen loading forever"
@@ -48,29 +48,15 @@ use std::process::Command;
 /// run_*_trigger.py):
 ///   8000   — backend uvicorn
 ///   8100   — sqlite_proxy
-///   7801   — MCP AwarenessModule
-///   7802   — MCP SocialNetworkModule
-///   7803   — MCP JobModule
-///   7804   — MCP ChatModule
-///   7806   — MCP SkillModule (7805 retired, leave a gap)
-///   7807   — MCP CommonToolsModule
-///   7808   — MCP BasicInfoModule
-///   7809   — MCP GeneralMemoryModule
-///   7810   — MCP HomeAssistantModule
-///   7811   — MCP NexusPluginsModule (agent self-extension, local only)
-///   7820   — MCP MessageBusModule
-///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
-///   7831   — MCP SlackModule
-///   7832   — MCP TelegramModule
-///   7833   — MCP NarramessengerModule
-///   7834   — MCP DiscordModule
-///   7835   — MCP WeChatModule
+///   7801   — the module MCP host (MCP_PORT): since plugin platform batch 5a
+///            EVERY module server (core, channel, plugin) is mounted by path
+///            under this one port (http://127.0.0.1:7801/mcp/<server>/sse), so
+///            no module owns a port and installing a plugin adds none.
 ///   47831  — LarkTrigger health endpoint (_health_server.py)
 ///
-/// This list is the single Rust-side copy of module_runner.all_module_ports().
-/// The Python test tests/module/test_port_preflight_ports_sync.py fails if any
-/// MCP port here is missing, so a new module / channel can't silently drift out
-/// of preflight coverage.
+/// This list is the single Rust-side copy of the Python side's ports
+/// (module/base.py mcp_port() + the trigger health port). The Python test
+/// tests/module/test_port_preflight_ports_sync.py fails if the two diverge.
 ///
 /// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
 /// 7830]`. A real incident with the Owner showed that when a
@@ -83,10 +69,9 @@ use std::process::Command;
 /// next launch auto-recovers from every sidecar port, not just the
 /// "primary four".
 pub const REQUIRED_PORTS: &[u16] = &[
-    8000, 8100,                                                   // backend + sqlite proxy
-    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7809, 7810, 7811, 7820, // core MCP modules
-    7830, 7831, 7832, 7833, 7834, 7835,                          // channel MCP modules
-    47831,                                                        // LarkTrigger health endpoint
+    8000, 8100, // backend + sqlite proxy
+    7801,       // the module MCP host — every module server mounted by path (plugin platform batch 5a)
+    47831,      // LarkTrigger health endpoint
 ];
 
 #[derive(Debug, Clone)]

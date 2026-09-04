@@ -46,9 +46,8 @@ def test_every_module_has_a_builtin_manifest_and_view_drops_removed_owner():
 
 def test_derived_tables_follow_the_view():
     from xyz_agent_context.module._module_impl.loader import ModuleLoader
-    from xyz_agent_context.module.module_runner import CORE_MCP_MODULES, CORE_MODULE_PORTS, all_module_ports
+    from xyz_agent_context.module.module_runner import CORE_MCP_MODULES, all_mcp_modules
 
     assert set(CORE_MCP_MODULES) == {s.class_name for s in MODULE_SPECS if not s.channel}
-    assert CORE_MODULE_PORTS["ChatModule"] == 7804 and CORE_MODULE_PORTS["NexusPluginsModule"] == 7811
     assert set(ModuleLoader.CORE_ALWAYS_LOAD) == {"SkillModule", "CommonToolsModule", "GeneralMemoryModule", "NexusPluginsModule"}
-    assert "LarkModule" in all_module_ports() and all_module_ports()["ChatModule"] == 7804
+    assert "LarkModule" in all_mcp_modules() and "ChatModule" in all_mcp_modules()

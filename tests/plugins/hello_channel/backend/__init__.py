@@ -113,7 +113,6 @@ class HelloChannelModule(ChannelModuleBase):
     working_source = HELLO_SOURCE
     ctx_data_key = "hello_channel_info"
     mcp_server_name = "hello_channel"
-    mcp_port = 7898
     all_tool_names = ("hello_send",)
     reply_tool_names = ("hello_send",)
 
@@ -146,6 +145,6 @@ class HelloChannelModule(ChannelModuleBase):
 
 CHANNEL = (Contribution(CHANNEL_NAME, lambda: DESCRIPTOR),)
 TRIGGERS = (Contribution(CHANNEL_NAME, lambda: TriggerSpec(CHANNEL_NAME, "nxplugins.acme_hello_channel:HelloChannelTrigger")),)
-MODULES = (Contribution("HelloChannelModule", lambda: HelloChannelModule, meta={"plugin_id": "acme.hello_channel", "mcp_port": 7898, "always_load": False, "channel": True}),)
+MODULES = (Contribution("HelloChannelModule", lambda: HelloChannelModule, meta={"plugin_id": "acme.hello_channel", "always_load": False, "channel": True}),)
 
 __all__ = ["CHANNEL", "DESCRIPTOR", "HELLO_SOURCE", "HelloChannelModule", "HelloChannelTrigger", "MODULES", "SENT", "TRIGGERS"]

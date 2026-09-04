@@ -18,19 +18,15 @@ from typing import Any, Optional
 from loguru import logger
 
 from narranexus.kernel.deployment import is_cloud_mode
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import XYZBaseModule, mcp_server_url
 from xyz_agent_context.schema.context_schema import ContextData
 from xyz_agent_context.schema.module_schema import MCPServerConfig, ModuleConfig
-
-MCP_PORT = 7811
-
 
 class NexusPluginsModule(XYZBaseModule):
     """Agent-facing self-extension: scaffold → validate → test → register → canary → observe."""
 
-    def __init__(self, agent_id: str, user_id: Optional[str], database_client: Any = None, instance_id: Optional[str] = None, instance_ids: Optional[list[str]] = None, port: int = MCP_PORT):
+    def __init__(self, agent_id: str, user_id: Optional[str], database_client: Any = None, instance_id: Optional[str] = None, instance_ids: Optional[list[str]] = None):
         super().__init__(agent_id=agent_id, user_id=user_id, database_client=database_client, instance_id=instance_id, instance_ids=instance_ids)
-        self.port = port
 
     def get_config(self) -> ModuleConfig:
         return ModuleConfig(
@@ -62,13 +58,12 @@ class NexusPluginsModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         if is_cloud_mode():
             return None
-        return MCPServerConfig(server_name="nexus_plugins_module", server_url=f"http://{mcp_host()}:{self.port}/sse", type="sse")
+        return MCPServerConfig(server_name="nexus_plugins_module", server_url=mcp_server_url("nexus_plugins_module"), type="sse")
 
     def create_mcp_server(self) -> Optional[Any]:
         from xyz_agent_context.module.nexus_plugins_module._nexus_plugins_impl.tools import create_nexus_plugins_mcp_server
 
-        logger.debug(f"NexusPluginsModule: creating MCP server on port {self.port}")
-        return create_nexus_plugins_mcp_server(self.port)
+        return create_nexus_plugins_mcp_server()
 
 
-__all__ = ["MCP_PORT", "NexusPluginsModule"]
+__all__ = ["NexusPluginsModule"]

@@ -485,3 +485,7 @@ register。本文件里改到的是该 handler 注册的 `user_reply_tool_names`
 ## 2026-09-04 · cleanup reads the credential through the manager (batch 4d.2)
 
 `cleanup_for_agent` fetches the workspace path via `LarkCredentialManager(db).get_credential` (generic store) before the base class unbinds the generic row; it no longer reads `lark_credentials`.
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

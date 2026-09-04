@@ -42,10 +42,6 @@ from ._discord_credential_manager import DiscordCredential, DiscordCredentialMan
 from ._discord_mcp_tools import register_discord_mcp_tools
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 
-
-DISCORD_MCP_PORT = 7834
-
-
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — let ChatModule extract the actual reply a
 # Discord agent emits, instead of dumping a "Background activity (discord)"
@@ -188,7 +184,6 @@ class DiscordModule(ChannelModuleBase):
     working_source = WorkingSource.DISCORD
     ctx_data_key = "discord_info"
     mcp_server_name = "discord_module"
-    mcp_port = DISCORD_MCP_PORT
     # Setup-residency (B++): while unbound, only discord_bind stays visible;
     # the other tools' schemas are suppressed via disallowed_tools. Keep in
     # sync with register_discord_mcp_tools — unit test asserts equality.

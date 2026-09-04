@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-21 — 活动摘要的 bus-source 判定改用共享常量
@@ -525,3 +525,7 @@ assistant 行)。两者一并删除,测试改指仍然活着的 `_origin_deliver
 
 跟随 [[base.py]] 2026-08-18 的接缝修复：压制 hook 改读本轮自己的 ctx，不再依赖声明 hook
 留下的实例状态（`_last_ctx` 已删）。收集环先压制后声明，旧写法在全新实例上必然误判。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

@@ -126,7 +126,7 @@ OptionalTriggerConfigInput = Annotated[
 ]
 
 
-def create_job_mcp_server(port: int) -> FastMCP:
+def create_job_mcp_server() -> FastMCP:
     """
     Create a JobModule MCP Server instance
 
@@ -135,13 +135,11 @@ def create_job_mcp_server(port: int) -> FastMCP:
     mcp container needs no DB credentials. No get_db_client_fn is threaded in.
 
     Args:
-        port: MCP Server port
 
     Returns:
         FastMCP instance with all tools configured
     """
     mcp = FastMCP("job_module")
-    mcp.settings.port = port
 
     # -----------------------------------------------------------------
     # Tool: job_create

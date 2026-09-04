@@ -24,18 +24,16 @@ def _get_skill_module(agent_id: str, user_id: str):
     return SkillModule(agent_id=agent_id, user_id=user_id)
 
 
-def create_skill_mcp_server(port: int) -> FastMCP:
+def create_skill_mcp_server() -> FastMCP:
     """
     Create a SkillModule MCP Server instance.
 
     Args:
-        port: MCP Server port
 
     Returns:
         FastMCP instance with all tools configured
     """
     mcp = FastMCP("skill_module")
-    mcp.settings.port = port
 
     @mcp.tool()
     async def skill_save_config(

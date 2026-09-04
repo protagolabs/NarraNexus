@@ -17,7 +17,7 @@ from typing import Any, List, Optional
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 from xyz_agent_context.module.home_assistant_module._home_assistant_impl.binding import resolve_client
 from xyz_agent_context.module.home_assistant_module._home_assistant_impl.ha_client import HAError
 from xyz_agent_context.module.home_assistant_module.prompts import HOME_ASSISTANT_MODULE_INSTRUCTIONS
@@ -48,7 +48,6 @@ class HomeAssistantModule(XYZBaseModule):
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
         self.instructions = HOME_ASSISTANT_MODULE_INSTRUCTIONS
-        self.port = 7810
 
     def get_config(self) -> ModuleConfig:
         return ModuleConfig(
@@ -62,13 +61,12 @@ class HomeAssistantModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="home_assistant_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("home_assistant_module"),
             type="sse",
         )
 
     def create_mcp_server(self) -> Optional[Any]:
         mcp = FastMCP("home_assistant_module")
-        mcp.settings.port = self.port
 
         @mcp.tool()
         async def ha_list_entities(agent_id: str, domain: Optional[str] = None) -> Any:

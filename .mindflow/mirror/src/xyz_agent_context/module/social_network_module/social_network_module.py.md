@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-08-25
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-25 — hook 里接住「失败」与「空结果」的区分
@@ -194,3 +194,7 @@ pre-open review #2)。方法接纯数据参数,内部自解析 instance/repo。
 
 - MCP Server 由 `create_social_network_mcp_server(port)` 构造（单参）。数据操作工具通过 [[data_access/store]] 的 seam 解析实例并临时构造 Module（本地 DirectStore / 云端 backend 路由），工具层不再接收 `SocialNetworkModule` 类引用或 db 客户端注入（旧 `module_class` PR-5 删、`get_db_client_fn` PR-6 删）。
 - `extract_and_update_entity_info()` / `merge_entities()` / `delete_entity()` / `search_network()` / `recall_entity_info()` / `get_agent_stats()` 是 Module 的 public API，被 seam（DirectStore + backend 社交路由）调用。`get_agent_stats` 曾是私有 `_get_agent_stats`，PR-5 因成为跨包（backend 路由）契约而提升为公开命名。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

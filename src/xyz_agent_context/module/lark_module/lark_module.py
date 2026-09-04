@@ -34,8 +34,6 @@ from .lark_cli_client import LarkCLIClient
 
 # MCP server port — must not conflict with other modules
 # MessageBusModule: 7820, JobModule: 7803
-LARK_MCP_PORT = 7830
-
 # Shared CLI client (stateless)
 _cli = LarkCLIClient()
 
@@ -523,7 +521,6 @@ class LarkModule(ChannelModuleBase):
     working_source = WorkingSource.LARK
     ctx_data_key = "lark_info"
     mcp_server_name = "lark_module"
-    mcp_port = LARK_MCP_PORT
     # Setup-residency (B++): while unbound, only the two entry points
     # (lark_setup for a NEW app, lark_bind for an EXISTING app) stay
     # visible; the other tools' schemas are suppressed via

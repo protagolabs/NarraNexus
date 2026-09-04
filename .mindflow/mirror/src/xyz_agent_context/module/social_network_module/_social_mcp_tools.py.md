@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-08-21
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-21 — `extract_entity_info` 的 `updates` 参数说明补 `entity_name_if_new`（PR-2 增量审 Minor）
@@ -116,3 +116,7 @@ contain those words"——Agent 看到这条提示后会自然把 query 重写�
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

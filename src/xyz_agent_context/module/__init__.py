@@ -28,7 +28,7 @@ Usage:
 # =============================================================================
 # Base class (imported from base.py)
 # =============================================================================
-from .base import XYZBaseModule, mcp_host
+from .base import XYZBaseModule, mcp_base_url, mcp_host, mcp_mount_path, mcp_port, mcp_server_url
 
 # Injection-side surface of caller identity. Published here so callers
 # OUTSIDE this package (context_runtime builds the per-agent mcp spec) do not

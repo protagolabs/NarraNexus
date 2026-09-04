@@ -48,6 +48,30 @@ def mcp_host() -> str:
     return os.getenv("MCP_HOST", "127.0.0.1")
 
 
+def mcp_port() -> int:
+    """The ONE port the module MCP host listens on (plugin platform batch 5a):
+    every module server is mounted by path under it, so no module owns a port."""
+    return int(os.getenv("MCP_PORT", "7801"))
+
+
+def mcp_base_url() -> str:
+    """Base URL of the module MCP host as seen from THIS process — ``MCP_BASE_URL``
+    when a reverse proxy fronts it, else ``http://<MCP_HOST>:<MCP_PORT>``."""
+    return (os.getenv("MCP_BASE_URL") or f"http://{mcp_host()}:{mcp_port()}").rstrip("/")
+
+
+def mcp_mount_path(server_name: str) -> str:
+    """Where a module's MCP server is mounted on the host: ``/mcp/<server_name>``."""
+    return f"/mcp/{server_name}"
+
+
+def mcp_server_url(server_name: str) -> str:
+    """The SSE endpoint a module advertises in its ``MCPServerConfig`` — the
+    single host + the module's mount path (``…/mcp/<server_name>/sse``). Codex's
+    adapter rewrites the trailing ``/sse`` to the streamable ``/mcp`` endpoint."""
+    return f"{mcp_base_url()}{mcp_mount_path(server_name)}/sse"
+
+
 def working_source_matches(working_source: Any, source_name: str) -> bool:
     """True when ``working_source`` names ``source_name``.
 

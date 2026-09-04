@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT, get_spec, passive_kinds
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import XYZBaseModule, mcp_server_url
 from xyz_agent_context.schema.context_schema import ContextData
 from xyz_agent_context.schema.hook_schema import HookAfterExecutionParams
 from xyz_agent_context.schema.module_schema import ModuleConfig, MCPServerConfig
@@ -34,8 +34,6 @@ from xyz_agent_context.settings import settings
 
 # MCP port for the remember / grep_memory tools. Registered in
 # module_runner CORE_MODULE_PORTS. 7809 = next free after BasicInfo(7808).
-_MCP_PORT = 7809
-
 _RECALL_LIMIT = 8
 _RECALL_TOKENS = 800
 _VALID_SUBTYPES = {"world", "experience"}
@@ -82,7 +80,6 @@ class GeneralMemoryModule(XYZBaseModule):
 
     def __init__(self, agent_id, user_id=None, database_client=None, instance_id=None, instance_ids=None):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        self.port = _MCP_PORT
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -186,7 +183,7 @@ class GeneralMemoryModule(XYZBaseModule):
         """Hosts the agent-wide `remember` / `grep_memory` tools."""
         return MCPServerConfig(
             server_name="general_memory_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("general_memory_module"),
             type="sse",
         )
 
@@ -194,4 +191,4 @@ class GeneralMemoryModule(XYZBaseModule):
         from xyz_agent_context.module.general_memory_module._general_memory_mcp_tools import (
             create_general_memory_mcp_server,
         )
-        return create_general_memory_mcp_server(self.port)
+        return create_general_memory_mcp_server()

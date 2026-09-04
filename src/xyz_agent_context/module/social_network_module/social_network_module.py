@@ -19,7 +19,7 @@ from loguru import logger
 from datetime import datetime
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
 from xyz_agent_context.schema import (
@@ -213,7 +213,6 @@ class SocialNetworkModule(XYZBaseModule):
         instance_ids: Optional[List[str]] = None
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        self.port = 7802  # Use a different port to avoid conflict with awareness_module (7801)
 
         # Initialize repository (lazy initialization, since db may only be available at call time)
         self._social_repo: Optional[SocialNetworkRepository] = None
@@ -817,7 +816,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         """
         return MCPServerConfig(
             server_name="social_network_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("social_network_module"),
             type="sse"
         )
 
@@ -827,7 +826,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
         Tool definitions have been extracted to _social_mcp_tools.py.
         """
-        return create_social_network_mcp_server(self.port)
+        return create_social_network_mcp_server()
 
     # ============================================================================= Helper Methods
 

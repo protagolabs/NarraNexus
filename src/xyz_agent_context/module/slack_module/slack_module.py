@@ -39,10 +39,6 @@ from ._slack_credential_manager import SlackCredential, SlackCredentialManager
 from ._slack_mcp_tools import register_slack_mcp_tools
 from .slack_sdk_client import SlackSDKClient, SlackSDKError
 
-
-SLACK_MCP_PORT = 7831
-
-
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — let ChatModule extract the actual reply
 # Slack agents emit, instead of dumping a "Background activity (slack)"
@@ -358,7 +354,6 @@ class SlackModule(ChannelModuleBase):
     working_source = WorkingSource.SLACK
     ctx_data_key = "slack_info"
     mcp_server_name = "slack_module"
-    mcp_port = SLACK_MCP_PORT
     # Setup-residency (B++): while unbound, only slack_bind stays visible;
     # the other tools' schemas are suppressed via disallowed_tools. Keep in
     # sync with register_slack_mcp_tools — unit test asserts equality.

@@ -22,7 +22,7 @@ from typing import Any, List, Optional
 from loguru import logger
 
 from xyz_agent_context.artifact import ArtifactService, office_lock_present
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import XYZBaseModule, mcp_server_url
 from xyz_agent_context.repository.team_workspace_repository import (
     ArtifactHistoryRepository,
 )
@@ -248,7 +248,6 @@ class CommonToolsModule(XYZBaseModule):
         instance_ids: Optional[List[str]] = None,
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        self.port = 7807
         self.instructions = COMMON_TOOLS_INSTRUCTIONS
 
     def get_config(self) -> ModuleConfig:
@@ -464,7 +463,7 @@ class CommonToolsModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="common_tools_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("common_tools_module"),
             type="sse",
         )
 
@@ -472,5 +471,4 @@ class CommonToolsModule(XYZBaseModule):
         from xyz_agent_context.module.common_tools_module._common_tools_mcp_tools import (
             create_common_tools_mcp_server,
         )
-        logger.debug(f"CommonToolsModule: creating MCP server on port {self.port}")
-        return create_common_tools_mcp_server(self.port)
+        return create_common_tools_mcp_server()

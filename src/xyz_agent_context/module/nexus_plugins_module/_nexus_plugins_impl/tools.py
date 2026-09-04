@@ -27,9 +27,8 @@ def _run(fn) -> str:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
 
-def create_nexus_plugins_mcp_server(port: int) -> FastMCP:
+def create_nexus_plugins_mcp_server() -> FastMCP:
     mcp = FastMCP("nexus_plugins_module")
-    mcp.settings.port = port
 
     @mcp.tool()
     async def plugin_list(agent_id: str, user_id: str) -> str:

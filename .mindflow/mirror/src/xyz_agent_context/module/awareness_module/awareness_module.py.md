@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/awareness_module.py
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-19 — 下面 2026-08-10 那条的指路已经过期
@@ -120,3 +120,7 @@ AwarenessModule 是让 Agent 拥有"长期记忆用户偏好"能力的组件。�
 
 - 以为修改 Awareness Profile 可以通过直接写 `ctx_data.awareness` 来持久化——实际上 `ctx_data.awareness` 是每轮重新从数据库加载的，持久化必须通过 MCP 工具 `update_awareness` 调用 `InstanceAwarenessRepository.upsert()`。
 - 在 `hook_data_gathering` 里调试时看到 awareness 是旧值——因为 MCP 工具在独立进程里更新了数据库，但当前进程的连接缓存可能还持有旧连接状态，通常重启即可。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

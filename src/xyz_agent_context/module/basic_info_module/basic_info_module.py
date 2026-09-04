@@ -16,7 +16,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule
-from xyz_agent_context.module.base import mcp_host
+from xyz_agent_context.module.base import mcp_server_url
 
 # Schema
 from xyz_agent_context.schema import (
@@ -77,7 +77,6 @@ class BasicInfoModule(XYZBaseModule):
         self.instructions = BASIC_INFO_MODULE_INSTRUCTIONS
         # MCP port for the narrative-awareness tools (Fix #2 P3). Registered in
         # module_runner CORE_MODULE_PORTS. 7808 = next free after CommonTools(7807).
-        self.port = 7808
 
     def get_config(self) -> ModuleConfig:
         """
@@ -276,7 +275,7 @@ class BasicInfoModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="basic_info_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("basic_info_module"),
             type="sse",
         )
 
@@ -284,5 +283,4 @@ class BasicInfoModule(XYZBaseModule):
         from xyz_agent_context.module.basic_info_module._basic_info_mcp_tools import (
             create_basic_info_mcp_server,
         )
-        logger.debug(f"BasicInfoModule: creating MCP server on port {self.port}")
-        return create_basic_info_mcp_server(self.port)
+        return create_basic_info_mcp_server()

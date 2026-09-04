@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/general_memory_module/_general_memory_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -43,3 +43,7 @@ Part of the unified memory system (`refactor/agent-memory`). The unified design 
 (author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

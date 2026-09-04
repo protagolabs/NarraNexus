@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-08-20
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -261,3 +261,7 @@ user 行;agent 重注册(updated/registered)自动清标。office kind 另查
 
 串行 await 链改 Semaphore(4)+gather;单行失败仅降该行标记,不再
 杀整个 pass。并发只针对不同 artifact_id 行,写侧天然不冲突。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

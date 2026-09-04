@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/_basic_info_mcp_tools.py
-last_verified: 2026-08-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -65,3 +65,7 @@ let the agent inspect threads/events and correct the routing.
   artifact-tool convention — the agent fills them from its instructions.
 - `view_event` reads `events.event_log` (may be bytes) and truncates large
   fields to keep the tool result bounded.
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

@@ -32,7 +32,7 @@ from loguru import logger
 
 from xyz_agent_context.module.base import (
     XYZBaseModule,
-    mcp_host,
+    mcp_server_url,
     working_source_matches,
 )
 from xyz_agent_context.schema import (
@@ -57,8 +57,6 @@ from xyz_agent_context.settings import settings
 
 
 # MCP server port for MessageBus tools
-MESSAGE_BUS_MCP_PORT = 7820
-
 # Context-injection caps to prevent pollution
 MAX_UNREAD_IN_CONTEXT = 20
 MAX_KNOWN_AGENTS_IN_CONTEXT = 50
@@ -177,7 +175,7 @@ class MessageBusModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="message_bus_module",
-            server_url=f"http://{mcp_host()}:{MESSAGE_BUS_MCP_PORT}/sse",
+            server_url=mcp_server_url("message_bus_module"),
             type="sse",
         )
 
@@ -192,7 +190,6 @@ class MessageBusModule(XYZBaseModule):
             from mcp.server.fastmcp import FastMCP
 
             mcp = FastMCP("message_bus_module")
-            mcp.settings.port = MESSAGE_BUS_MCP_PORT
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools
             register_message_bus_mcp_tools(mcp, get_message_bus_fn=_get_default_bus_async)
@@ -204,7 +201,7 @@ class MessageBusModule(XYZBaseModule):
             from ._work_board_mcp_tools import register_work_board_mcp_tools
             register_work_board_mcp_tools(mcp)
 
-            logger.info(f"MessageBusModule MCP server created on port {MESSAGE_BUS_MCP_PORT}")
+            logger.info("MessageBusModule MCP server created")
             return mcp
         except Exception as e:
             logger.exception(f"Failed to create MessageBusModule MCP server: {e}")

@@ -125,3 +125,7 @@ IM integration: subclass two bases + write platform-specific content.
 ## 2026-09-04 · cleanup deletes the generic binding (batch 4d.2)
 
 `cleanup_for_agent` unbinds the agent's row in `channel_credentials` through `GenericCredentialStore` (stat key `channel_credentials`); the retired per-channel table name (`_credential_table_name`) is gone. Subclasses that need the decoded credential during cleanup (lark: workspace path) read it through their manager first.
+
+## 2026-09-04 · no `mcp_port` (batch 5a)
+
+A channel module declares `mcp_server_name` only; `get_mcp_config` advertises `mcp_server_url(mcp_server_name)` and the host mounts it there. A plugin channel therefore never picks a port.

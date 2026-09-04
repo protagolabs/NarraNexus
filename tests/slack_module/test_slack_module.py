@@ -63,7 +63,6 @@ def test_class_level_channel_metadata():
     assert SlackModule.brand_display == "Slack"
     assert SlackModule.ctx_data_key == "slack_info"
     assert SlackModule.mcp_server_name == "slack_module"
-    assert SlackModule.mcp_port == 7831
 
 
 # ── build_extra_data ───────────────────────────────────────────────────

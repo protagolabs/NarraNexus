@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/home_assistant_module/home_assistant_module.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 stub: false
 ---
 ## 2026-08-11 (PR-G) — 4 个 HA 工具去 db，走 seam
@@ -31,3 +31,7 @@ miloco-miot 是因为其 License 禁商用/软件(设计记录为作者本地)�
 - **被谁用**:MODULE_MAP(`module/__init__`)、module_runner(端口 7810)。
 - **依赖**:`_home_assistant_impl/{ha_client,binding}`、`prompts`、`repository`(经 binding)。
 - **MVP 限制**:一 instance 一绑定(Agent 级)。云端多租户 per-user 绑定是 Phase-2(见 spec)。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

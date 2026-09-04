@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-09-03
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -567,3 +567,7 @@ docstring 里写「比缺标签更糟」的那种误标。MySQL 上正常，所�
 6433 个通过的测试没碰到它 —— `test_turn_context_split.py` 用手写的 `bus_room_labels` 覆盖
 渲染器，自带输入的渲染器测试证明渲染器，对输入从哪来一言不发。新增
 `tests/message_bus/test_room_labels_producer.py` 打真实数据库，已变异验证。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_mcp_tools.py
-last_verified: 2026-08-17
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-17 — 复用 helper + 日志级别提到 warning
@@ -142,3 +142,7 @@ ongoing 也接上了地平线、one_off 显式忽略——语义必须一句话�
 "接下来两周每天提醒我"只能建无限期 job + 让模型记得自己暂停（已被证明会被
 finalize 回滚的机制）。沿用 NotRequired 而非 Optional（见上方 $ref/anyOf-
 null 说明）；真校验仍在 TriggerConfig（naive validator 的报错足够模型自纠）。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

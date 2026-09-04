@@ -44,10 +44,6 @@ from ._narramessenger_credential_manager import (
 )
 from ._narramessenger_mcp_tools import register_narramessenger_mcp_tools
 
-
-NARRAMESSENGER_MCP_PORT = 7833
-
-
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — so ChatModule captures NarraMessenger
 # replies into chat history. The agent replies via ``narra_reply`` (or sends
@@ -209,7 +205,6 @@ class NarramessengerModule(ChannelModuleBase):
     working_source = WorkingSource.NARRAMESSENGER
     ctx_data_key = "narramessenger_info"
     mcp_server_name = "narramessenger_module"
-    mcp_port = NARRAMESSENGER_MCP_PORT
     # Setup-residency (B++): while unbound, only narra_bind stays visible;
     # the other tools' schemas are suppressed via disallowed_tools. Keep in
     # sync with register_narramessenger_mcp_tools — unit test asserts

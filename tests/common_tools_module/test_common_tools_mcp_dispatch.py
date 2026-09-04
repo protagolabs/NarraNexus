@@ -36,7 +36,7 @@ async def test_without_brave_key_registers_ddgs_tool(monkeypatch):
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
 
     assert register_calls == ["ddgs"]
     tools = await mcp.list_tools()
@@ -66,7 +66,7 @@ async def test_with_brave_key_registers_brave_tool(monkeypatch):
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
 
     assert register_calls == [("brave", "tvly-test-key")]
     tools = await mcp.list_tools()
@@ -100,7 +100,7 @@ async def test_empty_string_brave_key_treated_as_missing(monkeypatch):
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    factory.create_common_tools_mcp_server(port=0)
+    factory.create_common_tools_mcp_server()
     assert register_calls == ["ddgs"]
 
 
@@ -127,5 +127,5 @@ async def test_whitespace_only_brave_key_treated_as_missing(monkeypatch):
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    factory.create_common_tools_mcp_server(port=0)
+    factory.create_common_tools_mcp_server()
     assert register_calls == ["ddgs"]

@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-08-25
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-25 — `_BEHAVIOUR` 的 DM 指令改为服从 Communication Protocol
@@ -233,3 +233,7 @@ behaviour), and `build_extra_data` (trust signal + threaded ids). Mirrors
 | `ChannelInboxWriter` | `InboxRecorder`（且改写自己的两张表，不再写 bus 表） |
 
 规范解释见 [[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

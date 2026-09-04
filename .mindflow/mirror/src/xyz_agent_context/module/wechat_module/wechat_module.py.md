@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-08-19
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-19 — owner 工具判定改用 is_owner_tool
@@ -169,3 +169,7 @@ Telegram:
   untrusted. Don't paper over it by defaulting an owner at bind time —
   the wxid genuinely isn't known then.
 - ``priority=7`` is intentional. Not a free knob.
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

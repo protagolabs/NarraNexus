@@ -215,7 +215,7 @@ def test_build_mcp_server_installs_identity_auth_middleware():
 
     from xyz_agent_context.module.module_runner import ModuleRunner
 
-    server = ModuleRunner._build_mcp_server(FastMCP("probe_module"), "probe_module", 7999)
+    server = ModuleRunner._build_host_server([("probe_module", FastMCP("probe_module"))], 7999)
     installed = [m.cls for m in server.config.app.user_middleware]
     assert IdentityAuthMiddleware in installed
 
@@ -515,8 +515,9 @@ def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypat
         return {"ok": True}
 
     install_caller_identity(mcp)
-    server = ModuleRunner._build_mcp_server(mcp, "itest_module", 7998)
+    server = ModuleRunner._build_host_server([("itest_module", mcp)], 7998)
     app = server.config.app
+    endpoint = "/mcp/itest_module/mcp"  # the module's streamable endpoint under its mount (batch 5a)
 
     token = sign_identity_token("usr_1", priv, issuer=ISSUER_LOCAL)
     id_headers = agent_id_headers(AGENT, user_id="usr_1", identity_token=token)
@@ -525,7 +526,7 @@ def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypat
     with TestClient(app) as client:
         # Door check first: enforce 401s a tokenless initialize POST.
         r = client.post(
-            "/mcp",
+            endpoint,
             headers=accept,
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -538,7 +539,7 @@ def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypat
         assert r.status_code == 401
 
         r = client.post(
-            "/mcp",
+            endpoint,
             headers={**accept, **id_headers},
             json={
                 "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -552,14 +553,14 @@ def test_real_streamable_transport_carries_proof_to_the_tool(tmp_path, monkeypat
         session = {"mcp-session-id": r.headers["mcp-session-id"]}
 
         r = client.post(
-            "/mcp",
+            endpoint,
             headers={**accept, **id_headers, **session},
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
         )
         assert r.status_code in (200, 202), r.text
 
         r = client.post(
-            "/mcp",
+            endpoint,
             headers={**accept, **id_headers, **session},
             json={
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",

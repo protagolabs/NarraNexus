@@ -72,3 +72,7 @@ stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 
 ## 新人易踩的坑
 
 - 注册了新 Module 但忘记在 `DEFAULT_MCP_MODULES`（`module_runner.py`）和对应的 `MODULE_PORTS` 里添加端口配置，导致 MCP 服务器启动时端口冲突或无法访问。
+
+## 2026-09-04 · exports the MCP address helpers (batch 5a)
+
+`mcp_port`, `mcp_base_url`, `mcp_mount_path`, `mcp_server_url` re-exported next to `mcp_host` for the modules that import from the package.

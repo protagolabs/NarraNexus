@@ -67,10 +67,9 @@ def with_mcp_timeout(
     return _deco
 
 
-def create_common_tools_mcp_server(port: int) -> FastMCP:
+def create_common_tools_mcp_server() -> FastMCP:
     """Create the CommonToolsModule MCP server with the env-appropriate backend."""
     mcp = FastMCP("common_tools_module")
-    mcp.settings.port = port
 
     brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
     if brave_key:

@@ -34,8 +34,6 @@ from .wechat_outbound import send_wechat_text
 
 # MCP port. 7833=NarraMessenger, 7834=Discord (moved there on dev to clear a
 # NarraMessenger clash), so WeChat takes 7835.
-WECHAT_MCP_PORT = 7835
-
 
 def _extract_wechat_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from a WeChat agent tool call.
@@ -101,7 +99,6 @@ class WeChatModule(ChannelModuleBase):
     working_source = WorkingSource.WECHAT
     ctx_data_key = "wechat_info"
     mcp_server_name = "wechat_module"
-    mcp_port = WECHAT_MCP_PORT
     # Setup-residency (B++): WeChat binding is a QR-scan flow in the
     # Channels panel — there is NO in-chat bind tool, so while unbound
     # EVERY tool is suppressed (empty setup_tool_names) and the one-liner
@@ -229,4 +226,4 @@ To reply, call `wechat_send(to_user_id, context_token, text)`:
         }
 
 
-logger.debug(f"WeChatModule defined (MCP port {WECHAT_MCP_PORT})")
+logger.debug("WeChatModule defined")

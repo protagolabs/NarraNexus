@@ -17,7 +17,7 @@ from loguru import logger
 
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
 from xyz_agent_context.schema import (
@@ -52,7 +52,6 @@ class AwarenessModule(XYZBaseModule):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
         
         self.instructions = AWARENESS_MODULE_INSTRUCTIONS 
-        self.port = 7801
 
     def get_config(self) -> ModuleConfig:
         """
@@ -141,7 +140,7 @@ class AwarenessModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="awareness_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("awareness_module"),
             type="sse"
         )
         
@@ -155,7 +154,6 @@ class AwarenessModule(XYZBaseModule):
         """
 
         mcp = FastMCP("awareness_module")
-        mcp.settings.port = self.port
 
         @mcp.tool()
         async def update_awareness(agent_id: str, new_awareness: str) -> str:

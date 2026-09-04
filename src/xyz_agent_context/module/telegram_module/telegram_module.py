@@ -46,10 +46,6 @@ from ._telegram_credential_manager import TelegramCredential, TelegramCredential
 from ._telegram_mcp_tools import register_telegram_mcp_tools
 from .telegram_sdk_client import TelegramSDKClient, TelegramSDKError
 
-
-TELEGRAM_MCP_PORT = 7832
-
-
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — see slack_module._extract_slack_reply for
 # the full rationale. TL;DR: ChatModule's default extractor only knows
@@ -257,7 +253,6 @@ class TelegramModule(ChannelModuleBase):
     working_source = WorkingSource.TELEGRAM
     ctx_data_key = "telegram_info"
     mcp_server_name = "telegram_module"
-    mcp_port = TELEGRAM_MCP_PORT
     # Setup-residency (B++): while unbound, only tg_bind stays visible;
     # the other tools' schemas are suppressed via disallowed_tools. Keep in
     # sync with register_telegram_mcp_tools — unit test asserts equality.

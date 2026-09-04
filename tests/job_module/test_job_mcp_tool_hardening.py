@@ -31,7 +31,7 @@ API_MOD = "xyz_agent_context.agent_framework.api_config"
 
 
 def _server():
-    return create_job_mcp_server(port=0)
+    return create_job_mcp_server()
 
 
 def _tool(mcp, name):

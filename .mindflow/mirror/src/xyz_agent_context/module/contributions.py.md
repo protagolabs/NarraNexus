@@ -34,3 +34,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · no mirror installation (batch 4d.2)
 
 `install_manager_mirrors` no longer exists; `register_all` registers channels, triggers, data-access, hooks and services only. All seven `CHANNEL_SPECS` descriptors declare `storage: generic`.
+
+## 2026-09-04 · no port on the spec (batch 5a)
+
+`ModuleSpec` is (package, class, plugin id, always_load); `mcp_port` / `port()` and the contribution meta's `mcp_port` are gone — the host mounts by `server_name`.

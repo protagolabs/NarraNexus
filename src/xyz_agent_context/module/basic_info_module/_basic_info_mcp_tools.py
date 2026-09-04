@@ -37,14 +37,13 @@ SWITCH_NARRATIVE_TOOL = "switch_narrative"
 CREATE_NARRATIVE_TOOL = "create_narrative"
 
 
-def create_basic_info_mcp_server(port: int) -> FastMCP:
+def create_basic_info_mcp_server() -> FastMCP:
     """Create the BasicInfoModule MCP server with the narrative + feedback tools."""
     mcp = FastMCP("basic_info_module")
-    mcp.settings.port = port
     _register_narrative_tools(mcp)
     _register_feedback_tool(mcp)
     logger.info(
-        f"BasicInfo MCP: tools registered on port {port} "
+        "BasicInfo MCP: tools registered "
         f"(view_narrative, view_event, {SWITCH_NARRATIVE_TOOL}, {CREATE_NARRATIVE_TOOL}, "
         f"submit_feedback)"
     )

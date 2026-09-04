@@ -25,7 +25,6 @@ Subclass MUST set class attrs
 ``ctx_data_key``       — key under which ``build_extra_data`` is injected
                          into ``ctx_data.extra_data`` (e.g. "lark_info")
 ``mcp_server_name``    — string name passed to FastMCP constructor
-``mcp_port``           — TCP port the MCP server binds to
 
 Subclass MUST implement
 -----------------------
@@ -62,7 +61,7 @@ from loguru import logger
 
 from xyz_agent_context.module.base import (
     XYZBaseModule,
-    mcp_host,
+    mcp_server_url,
     working_source_matches,
 )
 from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
@@ -83,7 +82,6 @@ class ChannelModuleBase(XYZBaseModule):
     working_source: WorkingSource = WorkingSource.CHAT  # subclass overrides
     ctx_data_key: str = ""
     mcp_server_name: str = ""
-    mcp_port: int = 0
 
     # ── Setup-residency contract (B++ channel gating, 2026-07-24) ─────────
     # While an agent has NO binding for this channel, the module stays
@@ -369,7 +367,7 @@ class ChannelModuleBase(XYZBaseModule):
         """Standard MCP config built from class attrs."""
         return MCPServerConfig(
             server_name=self.mcp_server_name,
-            server_url=f"http://{mcp_host()}:{self.mcp_port}/sse",
+            server_url=mcp_server_url(self.mcp_server_name),
             type="sse",
         )
 
@@ -383,10 +381,9 @@ class ChannelModuleBase(XYZBaseModule):
         try:
             from mcp.server.fastmcp import FastMCP
             mcp = FastMCP(self.mcp_server_name)
-            mcp.settings.port = self.mcp_port
             self.register_mcp_tools(mcp)
             logger.info(
-                f"{type(self).__name__} MCP server created on port {self.mcp_port}"
+                f"{type(self).__name__} MCP server created"
             )
             return mcp
         except Exception as e:

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_mcp_tools.py
-last_verified: 2026-08-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -72,3 +72,7 @@ CommonToolsModule MCP server 的薄入口层。它做两件事：
 ## 2026-08-18 — 注册 list_artifacts
 
 factory 里紧随 artifact_tool.register 调 register_list_artifacts。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

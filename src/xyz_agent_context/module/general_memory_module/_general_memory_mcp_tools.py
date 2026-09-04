@@ -24,9 +24,8 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 
-def create_general_memory_mcp_server(port: int) -> FastMCP:
+def create_general_memory_mcp_server() -> FastMCP:
     mcp = FastMCP("general_memory_module")
-    mcp.settings.port = port
 
     @mcp.tool(
         description=(
@@ -79,6 +78,6 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
         return await get_agent_data_store().memory_retain(agent_id, content, source)
 
     logger.info(
-        f"GeneralMemory MCP: remember + grep_memory + memory_retain registered on port {port}"
+        "GeneralMemory MCP: remember + grep_memory + memory_retain registered"
     )
     return mcp

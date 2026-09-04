@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/general_memory_module/general_memory_module.py
-last_verified: 2026-07-28
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -53,3 +53,7 @@ in recall and the agent picks the latest by timestamp. The timestamps already
 existed on `MemoryRecord` (created_at column DEFAULT); this change only
 surfaces them in the passive-injection path (the `remember`/`grep_memory`
 tools already returned `when`).
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

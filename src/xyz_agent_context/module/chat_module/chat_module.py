@@ -25,7 +25,7 @@ from loguru import logger
 
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 from xyz_agent_context.channel.message_source_handler import is_owner_tool
 from xyz_agent_context.module.base import working_source_matches
 from xyz_agent_context.repository import EventMemoryRepository
@@ -233,8 +233,6 @@ class ChatModule(XYZBaseModule):
         else:
             self.event_memory_module = None
 
-        self.port = 7804  # MCP Server port (avoid conflict with SocialNetworkModule 7802)
-
         self.instructions = CHAT_MODULE_INSTRUCTIONS
         self.instance_ids = instance_ids    # TODO: Improve this capability in the future
 
@@ -271,7 +269,7 @@ class ChatModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="chat_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("chat_module"),
             type="sse"
         )
 
@@ -353,7 +351,7 @@ class ChatModule(XYZBaseModule):
         Delegates tool registration to _chat_mcp_tools module.
         """
         from xyz_agent_context.module.chat_module._chat_mcp_tools import create_chat_mcp_server
-        return create_chat_mcp_server(self.port)
+        return create_chat_mcp_server()
 
 
     # ============================================================================= Private Helper Methods
@@ -365,7 +363,7 @@ class ChatModule(XYZBaseModule):
         Returns:
             MCP Server URL
         """
-        return f"http://{mcp_host()}:{self.port}/sse"
+        return mcp_server_url("chat_module")
     
     
     # ============================================================================= Hooks

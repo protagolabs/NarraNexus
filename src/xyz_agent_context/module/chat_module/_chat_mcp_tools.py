@@ -15,12 +15,11 @@ Tools:
 
 from mcp.server.fastmcp import FastMCP
 
-def create_chat_mcp_server(port: int) -> FastMCP:
+def create_chat_mcp_server() -> FastMCP:
     """
     Create a ChatModule MCP Server instance
 
     Args:
-        port: MCP Server port
 
     Returns:
         FastMCP instance with all tools configured
@@ -30,7 +29,6 @@ def create_chat_mcp_server(port: int) -> FastMCP:
     never touch the db.)
     """
     mcp = FastMCP("chat_module")
-    mcp.settings.port = port
 
     @mcp.tool()
     async def get_chat_history(

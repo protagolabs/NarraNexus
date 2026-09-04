@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/_skill_mcp_tools.py
-last_verified: 2026-08-13
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-13 (review 轮) — 「已配置」判定统一到单一 helper
@@ -48,3 +48,7 @@ Agent 应转告用户去 Skill tab 配置。桌面模式下这些工具经 cloud
 ## `skill_list_required_env` 的配置判定必须与全局同源（2026-08-13）
 
 「某 env 是否已配置」这一判定散落过六处（list/detail/MCP/hook/install/enrich），是历史 bug 温床。现统一到 [[skill_module]] 模块级 `configured_env_var_names(env_config)`——**唯一真源**：present ∧ 可解密。`skill_list_required_env` 里 `configured = key in configured_set or key in PLATFORM_RESOLVED_ENV`——平台可解析变量（`NETMIND_API_KEY`）走并集补上，不然平台变量会被误判未配置。密文在轮换/丢钥后解不开的值**不算已配置**（fail-closed，2026-08-01 事件），驱动前端提示重新录入而不是拿密文当凭证跑。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.

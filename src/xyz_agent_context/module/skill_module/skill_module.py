@@ -34,7 +34,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule, mcp_host
+from xyz_agent_context.module.base import XYZBaseModule, mcp_server_url
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -373,7 +373,6 @@ class SkillModule(XYZBaseModule):
         self.skills_dir = self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills" if user_id else None
 
         # MCP Server port
-        self.port = 7806
 
         # Instructions template
         # Note: Agent's cwd is already {base_working_path}/{agent_id}_{user_id}/
@@ -476,7 +475,7 @@ class SkillModule(XYZBaseModule):
         - skill_save_study_summary: Save structured study summary
         """
         return MCPServerConfig(
-            server_name="skill_module", server_url=f"http://{mcp_host()}:{self.port}/sse", type="sse"
+            server_name="skill_module", server_url=mcp_server_url("skill_module"), type="sse"
         )
 
     def create_mcp_server(self):
@@ -488,7 +487,7 @@ class SkillModule(XYZBaseModule):
         """
         from xyz_agent_context.module.skill_module._skill_mcp_tools import create_skill_mcp_server
 
-        return create_skill_mcp_server(self.port)
+        return create_skill_mcp_server()
 
     # =========================================================================
     # Built-in Skills

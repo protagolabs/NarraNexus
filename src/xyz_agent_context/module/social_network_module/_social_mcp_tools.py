@@ -18,12 +18,11 @@ from typing import Optional, Any
 from mcp.server.fastmcp import FastMCP
 
 
-def create_social_network_mcp_server(port: int) -> FastMCP:
+def create_social_network_mcp_server() -> FastMCP:
     """
     Create a SocialNetworkModule MCP Server instance
 
     Args:
-        port: MCP Server port
 
     Returns:
         FastMCP instance with all tools configured
@@ -33,7 +32,6 @@ def create_social_network_mcp_server(port: int) -> FastMCP:
     ``get_db_client_fn`` and ``module_class`` parameters are both gone.
     """
     mcp = FastMCP("social_network_module")
-    mcp.settings.port = port
 
     @mcp.tool()
     async def extract_entity_info(

@@ -58,7 +58,7 @@ from loguru import logger
 from fastmcp import Client
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule, mcp_host
+from xyz_agent_context.module import XYZBaseModule, mcp_server_url
 
 # Schema
 from xyz_agent_context.schema import (
@@ -317,7 +317,6 @@ class JobModule(XYZBaseModule):
             instance_ids: All instance IDs associated with the Narrative
         """
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        self.port = 7803  # MCP Server port
 
         # Initialize repository (lazy initialization)
         self._job_repo: Optional[JobRepository] = None
@@ -670,7 +669,7 @@ class JobModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="job_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            server_url=mcp_server_url("job_module"),
             type="sse"
         )
 
@@ -680,7 +679,7 @@ class JobModule(XYZBaseModule):
 
         Tool definitions have been extracted to _job_mcp_tools.py.
         """
-        return create_job_mcp_server(self.port)
+        return create_job_mcp_server()
 
 
     # =========================================================================

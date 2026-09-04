@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_module.py
-last_verified: 2026-08-11
+last_verified: 2026-09-04
 ---
 
 ## 2026-08-11 — create_mcp_server 去掉 db 工厂
@@ -92,3 +92,7 @@ ongoing 都有效、one_off 无效；用户给有界时长就用它，别依赖�
 onboarding 引导判断告别日）只能从 payload 文本里抠自己的到期日。注意新增
 行都不含 `job_type` 反引号字样，test_instructions_match_schema 的 token
 抓取不受影响。
+
+## 2026-09-04 · no per-module port (batch 5a)
+
+The MCP server URL comes from `mcp_server_url("<server_name>")` (the single MCP host + `/mcp/<server_name>/sse`); the module-level port constant / `self.port` and the factory's `port` parameter are gone.
