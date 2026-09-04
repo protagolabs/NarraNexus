@@ -36,7 +36,7 @@ import type { ChannelConfigProps } from './IMChannelsSection';
 // Slack App Manifest — paste-and-go YAML for "Create app from manifest".
 //
 // Single source of truth for the BACKEND copy lives in
-// src/narranexus/platform/module_system/slack_module/slack_module.py
+// plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_module.py
 // (constant SLACK_APP_MANIFEST_YAML). When Slack adds a scope we need,
 // update BOTH (the diff is grep-able). Hard-coding here avoids one extra
 // network round-trip when the user opens the disclosure.

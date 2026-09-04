@@ -11,7 +11,7 @@ import asyncio
 import pytest
 
 from narranexus.platform.channel.credential_store import GenericCredentialStore
-from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
     _encode_secret,

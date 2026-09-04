@@ -125,7 +125,7 @@ async def main() -> None:
     print(f"    job next_run_times: {[j['next_run_time'] for j in jobs]}")
 
     # 7. SkillModule round-trip (runtime consumes the files)
-    from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+    from narranexus_plugins.skill_module.skill_module import SkillModule
     sm = SkillModule(agent_id=agent_id, user_id=user_id, database_client=db)
     env = sm.get_all_skill_env_vars()
     _check(env.get("ARENA_API_KEY", "").startswith("arena_sk_"),

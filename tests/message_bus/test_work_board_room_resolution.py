@@ -25,7 +25,7 @@ import contextlib
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module import _work_board_mcp_tools as mod
+from narranexus_plugins.message_bus_module import _work_board_mcp_tools as mod
 
 
 class _Headers:

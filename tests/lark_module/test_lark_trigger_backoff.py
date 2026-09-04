@@ -20,7 +20,7 @@ After the fix:
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.lark_module.lark_trigger import (
+from narranexus_plugins.lark_module.lark_trigger import (
     _compute_next_backoff,
 )
 

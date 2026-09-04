@@ -24,7 +24,7 @@ from narranexus.platform.marketplace._skill_marketplace_impl.registry import (
     LocalMarketplaceSource,
     RegistryService,
 )
-from narranexus.platform.module_system.skill_module import SkillModule
+from narranexus_plugins.skill_module import SkillModule
 
 AGENT_ID = "agt_test"
 USER_ID = "usr_test"
@@ -266,7 +266,7 @@ async def test_declared_requires_suppresses_body_scan(db_client, workspace, tmp_
 
 @pytest.mark.asyncio
 async def test_platform_env_available_truthful(db_client, workspace):
-    from narranexus.platform.module_system.skill_module.skill_module import platform_env_available
+    from narranexus_plugins.skill_module.skill_module import platform_env_available
 
     assert await platform_env_available(db_client, USER_ID) == set()
     await db_client.insert(

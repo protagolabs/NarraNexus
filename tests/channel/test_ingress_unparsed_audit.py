@@ -17,8 +17,8 @@ import pytest
 from narranexus.platform.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_UNPARSED,
 )
-from narranexus.platform.module_system.wechat_module.wechat_trigger import WeChatTrigger
-from narranexus.platform.module_system.wechat_module._wechat_credential_manager import (
+from narranexus_plugins.wechat_module.wechat_trigger import WeChatTrigger
+from narranexus_plugins.wechat_module._wechat_credential_manager import (
     WeChatCredential,
 )
 

@@ -98,7 +98,7 @@ def _wire_real_service(monkeypatch, db_client):
         return None
 
     monkeypatch.setattr(providers_mod, "_resume_agent_circuit_breakers", _noop_resume)
-    import narranexus.platform.module_system.job_module.job_recovery as job_recovery_mod
+    import narranexus_plugins.job_module.job_recovery as job_recovery_mod
 
     monkeypatch.setattr(
         job_recovery_mod, "schedule_user_no_quota_rearm", lambda _uid: None
@@ -330,7 +330,7 @@ def _stub_add_service(monkeypatch):
         return None
 
     monkeypatch.setattr(providers_mod, "_resume_agent_circuit_breakers", _noop_resume)
-    import narranexus.platform.module_system.job_module.job_recovery as job_recovery_mod
+    import narranexus_plugins.job_module.job_recovery as job_recovery_mod
 
     monkeypatch.setattr(
         job_recovery_mod, "schedule_user_no_quota_rearm", lambda _uid: None

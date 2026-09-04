@@ -93,7 +93,7 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
 
 async def _seed_lark_cred(db, agent_id: str, profile_name: str, is_active: int = 1,
                           app_id: str | None = None):
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+    from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredential, LarkCredentialManager, _encode_secret,
     )
 

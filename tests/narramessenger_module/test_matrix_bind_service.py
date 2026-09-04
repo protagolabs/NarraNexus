@@ -26,10 +26,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module import (
+from narranexus_plugins.narramessenger_module import (
     _narramessenger_service as svc,
 )
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
 

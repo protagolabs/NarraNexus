@@ -17,7 +17,7 @@ from datetime import datetime, timezone as dt_tz
 import pytest
 
 from narranexus.platform.utils.job_scheduling import past_schedule_horizon
-from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module.job_trigger import JobTrigger
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus, TriggerConfig
 

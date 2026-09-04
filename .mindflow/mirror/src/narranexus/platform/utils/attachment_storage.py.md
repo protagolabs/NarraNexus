@@ -42,7 +42,7 @@ Upstream callers:
   `resolve_attachment_path`
 - `narranexus.platform.schema.attachment_schema.Attachment.synthesize_marker`
   reads via `resolve_attachment_path`
-- `narranexus.platform.module_system.common_tools_module.common_tools_module
+- `narranexus_plugins.common_tools_module.common_tools_module
   .CommonToolsModule.contribute_instructions` reads via
   `format_attachments_for_system_prompt`
 

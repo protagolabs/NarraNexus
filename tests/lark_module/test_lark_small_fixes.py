@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.lark_module.lark_trigger import (
+from narranexus_plugins.lark_module.lark_trigger import (
     LarkTrigger,
     _ThreadLocalLoopProxy,
     _install_lark_oapi_loop_proxy,

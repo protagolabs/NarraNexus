@@ -30,14 +30,14 @@ from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from narranexus.platform.module_system.telegram_module.telegram_sdk_client import (
+from narranexus_plugins.telegram_module.telegram_sdk_client import (
     TELEGRAM_BOT_DOWNLOAD_CAP_BYTES,
     TelegramSDKError,
 )
-from narranexus.platform.module_system.telegram_module.telegram_trigger import (
+from narranexus_plugins.telegram_module.telegram_trigger import (
     TelegramTrigger,
 )
 from narranexus.platform.schema.attachment_schema import AttachmentCategory
@@ -295,7 +295,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(
 
     # When fetch_attachments doesn't find a cached client, it spins one up.
     # We patch the constructor so the call returns our stub.
-    import narranexus.platform.module_system.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(
         tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _StubClient()
     )
@@ -355,7 +355,7 @@ async def test_fetch_attachments_audits_oversized_before_download(
         async def close(self):
             pass
 
-    import narranexus.platform.module_system.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     # Force backend cap to a tiny value so size_hint trivially exceeds it.
@@ -401,7 +401,7 @@ async def test_fetch_attachments_audits_telegram_20mb_cap(
         async def close(self):
             pass
 
-    import narranexus.platform.module_system.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     parsed = trigger.parse_event(_msg(
@@ -448,7 +448,7 @@ async def test_fetch_attachments_audits_fetch_failure(
         async def close(self):
             pass
 
-    import narranexus.platform.module_system.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     parsed = trigger.parse_event(_msg(

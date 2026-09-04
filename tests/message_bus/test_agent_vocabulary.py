@@ -32,7 +32,7 @@ import inspect
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -91,7 +91,7 @@ def _tool_descriptions() -> str:
     Registered against a stub server so the real docstrings are collected rather
     than re-typed here, which is the only version that cannot drift.
     """
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools
 
     collected: list[str] = []
 
@@ -191,8 +191,8 @@ def _agent_facing_texts() -> list[tuple[str, str]]:
     # leaking is a property of the literal, not the rendered form).
     for label, dotted in (
         ("channel_prompts", "narranexus.platform.channel.channel_prompts"),
-        ("job_module prompts", "narranexus.platform.module_system.job_module.prompts"),
-        ("basic_info_module prompts", "narranexus.platform.module_system.basic_info_module.prompts"),
+        ("job_module prompts", "narranexus_plugins.job_module.prompts"),
+        ("basic_info_module prompts", "narranexus_plugins.basic_info_module.prompts"),
     ):
         out.append((f"{label} constants", _module_prompt_constants(dotted)))
     return out
@@ -228,7 +228,7 @@ def test_the_error_strings_returned_to_the_agent_name_no_subsystem():
     failure branch means faking a downed backend per tool, and the property under
     test is about the string, not the path to it.
     """
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools
 
     src = inspect.getsource(_message_bus_mcp_tools)
     for line in src.splitlines():

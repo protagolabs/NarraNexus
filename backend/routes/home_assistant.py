@@ -95,7 +95,7 @@ async def test_connection(request: Request, body: HATestBody) -> dict:
     """Probe a base_url+token: ping the HA API and count entities."""
     await resolve_current_user_id(request)
     # Import here to avoid pulling module code into route import time.
-    from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.ha_client import HAClient, HAError
+    from narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client import HAClient, HAError
 
     try:
         client = HAClient(body.base_url, body.token, body.verify_tls)
@@ -122,7 +122,7 @@ async def verify_binding(request: Request, body: HAVerifyBody) -> dict:
     db = await get_db_client()
     await assert_owned(request, body.agent_id)
     # Import here to avoid pulling module code into route import time.
-    from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.binding import resolve_client
+    from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import resolve_client
 
     client, reason = await resolve_client(body.agent_id)
     if client is None:

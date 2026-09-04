@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema import ProgressMessage
 from narranexus.platform.schema.runtime_message import ProgressStatus
 

@@ -25,10 +25,10 @@ from fastapi import APIRouter, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from narranexus.platform.module_system.wechat_module._wechat_credential_manager import (
+from narranexus_plugins.wechat_module._wechat_credential_manager import (
     WeChatCredentialManager,
 )
-from narranexus.platform.module_system.wechat_module.wechat_sdk_client import (
+from narranexus_plugins.wechat_module.wechat_sdk_client import (
     fetch_qrcode,
     poll_qrcode_status,
 )

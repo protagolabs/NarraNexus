@@ -8,7 +8,7 @@ helpers introduced by the three-click authorization redesign.
 
 from __future__ import annotations
 
-from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
 )
 

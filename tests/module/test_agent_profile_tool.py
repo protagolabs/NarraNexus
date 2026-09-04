@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.awareness_module.awareness_module import AwarenessModule
+from narranexus_plugins.awareness_module.awareness_module import AwarenessModule
 # The identity-note helpers moved to the shared _awareness_writes when
 # update_agent_profile was routed through the AgentDataStore seam; import from
 # the package surface (which re-exports them).
-from narranexus.platform.module_system.awareness_module import (
+from narranexus_plugins.awareness_module import (
     IDENTITY_CHANGE_SECTION,
     MAX_IDENTITY_CHANGE_ENTRIES,
     build_identity_change_note,
@@ -414,7 +414,7 @@ def test_every_identity_note_states_the_current_name_readably():
     the whole mechanism exists to remove survives. That is exactly what the
     reconciliation note did on its first draft ("Your name is 「X」").
     """
-    from narranexus.platform.module_system.awareness_module import (
+    from narranexus_plugins.awareness_module import (
         build_identity_reconciliation_note,
         identity_note_asserts,
     )
@@ -439,7 +439,7 @@ class TestSelfNameLine:
     """
 
     def test_the_self_name_line_is_rewritten(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = (
             "# Agent Awareness Profile\n\n"
@@ -461,7 +461,7 @@ class TestSelfNameLine:
         ],
     )
     def test_the_common_spellings_are_covered(self, line):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name(f"## Role\n{line}\n", "美食家", "小绿")
         assert "小绿" in out and "美食家" not in out
@@ -470,7 +470,7 @@ class TestSelfNameLine:
         """The line match is narrow on purpose. An owner observation that
         happens to contain the old name is not a self-name declaration, and
         losing it to a rename would be a worse bug than the one being fixed."""
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = (
             "## 4. Role and Identity\n- 名称：美食家\n\n"
@@ -485,7 +485,7 @@ class TestSelfNameLine:
         )
 
     def test_a_name_that_is_not_declared_anywhere_changes_nothing(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = "## 4. Role and Identity\n- 我擅长推荐美食\n"
         assert retire_self_name(profile, "美食家", "小绿") == profile
@@ -509,7 +509,7 @@ class TestSelfNameLine:
         cause. Only "the name IS the value" — optionally followed by a
         separator that opens a description — counts.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = f"## 5. Owner observations\n{line}\n"
         assert retire_self_name(profile, "美食家", "小绿") == profile
@@ -519,7 +519,7 @@ class TestSelfNameLine:
         """Openers only. `/` and `-` were in this list and are the reason three
         rounds produced corrupted names: they live inside names, so the name now
         runs through them to the first opener."""
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name(f"- 名称：美食家{sep}精通各地美食\n", "美食家", "小绿")
         assert out == f"- 名称：小绿{sep}精通各地美食\n"
@@ -554,7 +554,7 @@ class TestSelfNameLine:
         silently replaced by the agent's new one — unrecoverable, because
         instance_awareness is overwritten by upsert and nothing logged it.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name(self.FULL_PROFILE, "美食家", "小绿")
 
@@ -567,7 +567,7 @@ class TestSelfNameLine:
         The model writes these headings; requiring an exact "## 4. Role and
         Identity" would make retirement stop silently the first time it drifts.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         drifted = (
             "## 1. Narrative Management Preferences\n- 姓名：美食家\n\n"
@@ -591,7 +591,7 @@ class TestSelfNameLine:
         record). So the identity section is matched POSITIVELY and everything
         else is owner territory.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = (
             "## 4. Role and Identity\n- 名称：美食家\n\n"
@@ -617,7 +617,7 @@ async def test_a_model_rewrite_cannot_delete_the_platform_record(db):
     a supplement, never the mechanism, so the section is carried over in code.
     """
     from narranexus.platform.module_system.data_access.store import DirectStore
-    from narranexus.platform.module_system.awareness_module import (
+    from narranexus_plugins.awareness_module import (
         IDENTITY_CHANGE_SECTION, build_identity_change_note,
         merge_identity_change_note,
     )
@@ -659,7 +659,7 @@ class TestNamesContainingSeparators:
         exactly why the caller passes it. The two-argument form is the contract;
         the one-argument form is a best effort and says so.
         """
-        from narranexus.platform.module_system.awareness_module import declared_self_name
+        from narranexus_plugins.awareness_module import declared_self_name
 
         profile = "## 4. Role and Identity\n- 名称：小绿-2\n"
         assert declared_self_name(profile, "小绿-2") == "小绿-2"
@@ -668,7 +668,7 @@ class TestNamesContainingSeparators:
         assert declared_self_name(profile, "美食家") == "小绿-2"
 
     def test_the_description_tail_still_comes_off(self):
-        from narranexus.platform.module_system.awareness_module import declared_self_name
+        from narranexus_plugins.awareness_module import declared_self_name
 
         profile = "## 4. Role and Identity\n- 名称：美食家；精通各地美食推荐\n"
         assert declared_self_name(profile) == "美食家"
@@ -698,7 +698,7 @@ class TestNamesContainingSeparators:
         to refuse, and nothing to rewrite. The refusal was rejecting exact
         renames (小绿 → 小绿2) as collateral.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = "## 4. Role and Identity\n- 名称：小绿-3\n"
         assert retire_self_name(profile, "小绿", "小绿-2") == profile
@@ -716,13 +716,13 @@ class TestAppendingToAName:
     """
 
     def test_a_suffix_rename_retires_the_line(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name("## Role and Identity\n- 名称：小绿\n", "小绿", "小绿2")
         assert "- 名称：小绿2\n" in out
 
     def test_a_suffix_rename_keeps_the_description(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name(
             "## Role and Identity\n- 名称：小绿；精通各地美食推荐\n", "小绿", "小绿2"
@@ -733,7 +733,7 @@ class TestAppendingToAName:
         """The property the guard was protecting, now carried by the opener rule:
         `- 名称：小绿-3` does not declare `小绿`, because a hyphen does not end a
         name — so there is nothing here to retire."""
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = "## Role and Identity\n- 名称：小绿-3\n"
         assert retire_self_name(profile, "小绿", "小绿2") == profile
@@ -763,10 +763,10 @@ class TestInferredNameIsNeverTrusted:
         ],
     )
     def test_a_value_whose_boundary_was_not_found_is_refused(self, line):
-        from narranexus.platform.module_system.awareness_module._awareness_writes import (
+        from narranexus_plugins.awareness_module._awareness_writes import (
             _AmbiguousSelfName,
         )
-        from narranexus.platform.module_system.awareness_module import (
+        from narranexus_plugins.awareness_module import (
             declared_self_name, retire_self_name,
         )
 
@@ -778,7 +778,7 @@ class TestInferredNameIsNeverTrusted:
 
     def test_an_opener_boundary_is_still_trusted(self):
         """The shape the template produces and prod held — unchanged."""
-        from narranexus.platform.module_system.awareness_module import (
+        from narranexus_plugins.awareness_module import (
             declared_self_name, retire_self_name,
         )
 
@@ -790,7 +790,7 @@ class TestInferredNameIsNeverTrusted:
     def test_the_rename_path_is_unaffected(self):
         """Told the old name by the row, a rewrite needs no inference — and a
         line that merely starts with it is still not a declaration."""
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         exact = "## 4. Role and Identity\n- 名称：美食家\n"
         assert "- 名称：小绿" in retire_self_name(exact, "美食家", "小绿")
@@ -816,7 +816,7 @@ class TestMarkerOnlyLinesInsideTheIdentitySection:
         ],
     )
     def test_prose_in_the_identity_section_is_still_not_a_declaration(self, line):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = f"## 4. Role and Identity\n{line}\n"
         assert retire_self_name(profile, "美食家", "小绿") == profile
@@ -834,7 +834,7 @@ class TestHeadingLevels:
     """
 
     def test_an_h1_owner_section_is_not_editable(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = (
             "# 1. Owner preferences\n- 姓名：美食家\n\n"
@@ -847,7 +847,7 @@ class TestHeadingLevels:
         assert "# 4. Role and Identity\n- 名称：小绿" in out
 
     def test_an_h3_owner_subsection_is_not_editable(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = (
             "## 3. Communication Style\n### Tone\n- 姓名：美食家\n\n"
@@ -865,7 +865,7 @@ class TestHeadingLevels:
         would silently stop. Only a heading at the same level or higher may end
         it, and this one names no keyword on purpose.
         """
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         profile = "## 4. Role and Identity\n### Definition\n- 名称：美食家\n"
         out = retire_self_name(profile, "美食家", "小绿")
@@ -893,7 +893,7 @@ class TestScopeAfterAShallowerFirstHeading:
     )
 
     def test_an_owner_section_after_the_identity_section_stays_closed(self):
-        from narranexus.platform.module_system.awareness_module import retire_self_name
+        from narranexus_plugins.awareness_module import retire_self_name
 
         out = retire_self_name(self.HEADED, "美食家", "小绿")
         assert "## 5. Owner observations\n- 姓名：美食家" in out, (
@@ -905,7 +905,7 @@ class TestScopeAfterAShallowerFirstHeading:
         """The repair-path half: the identity section has no name line, so the
         first declaration the scan finds comes from the leaked `## 5` — and the
         owner's name (bare, no separator) passes every inferred-name check."""
-        from narranexus.platform.module_system.awareness_module import declared_self_name
+        from narranexus_plugins.awareness_module import declared_self_name
 
         profile = (
             "# Agent Awareness Profile\n"

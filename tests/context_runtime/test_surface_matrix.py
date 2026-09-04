@@ -77,9 +77,9 @@ def _instances():
     Deliberately fresh: the defect this file exists for was a module answering
     about the PREVIOUS turn, which a loop reusing instances would hide.
     """
-    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
-    from narranexus.platform.module_system.lark_module.lark_module import LarkModule
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.lark_module.lark_module import LarkModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 

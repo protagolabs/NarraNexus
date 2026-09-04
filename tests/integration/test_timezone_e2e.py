@@ -40,9 +40,9 @@ from narranexus.platform.utils.job_scheduling import (
     NextRunTuple,
     compute_next_run,
 )
-from narranexus.platform.module_system.job_module.job_service import JobInstanceService
-from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
-from narranexus.platform.module_system.job_module._job_response import job_to_llm_dict
+from narranexus_plugins.job_module.job_service import JobInstanceService
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module._job_response import job_to_llm_dict
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus, JobType, TriggerConfig
 
@@ -266,7 +266,7 @@ async def test_S2_poller_query_finds_due_via_alpha(db_client):
 async def _drive_lifecycle(db_client, job_id: str, instance_id: str, status: JobStatus):
     """Invoke handle_job_execution_result with OpenAIAgentsSDK.llm_function mocked."""
     from narranexus.platform.schema.job_schema import JobExecutionResult
-    from narranexus.platform.module_system.job_module._job_lifecycle import handle_job_execution_result
+    from narranexus_plugins.job_module._job_lifecycle import handle_job_execution_result
     from narranexus.platform.schema.hook_schema import (
         HookAfterExecutionParams,
         HookExecutionContext,

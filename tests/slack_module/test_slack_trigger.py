@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from narranexus.platform.module_system.slack_module import slack_trigger as st_mod
-from narranexus.platform.module_system.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module import slack_trigger as st_mod
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from narranexus.platform.module_system.slack_module.slack_sdk_client import SlackSDKError
-from narranexus.platform.module_system.slack_module.slack_trigger import SlackTrigger
+from narranexus_plugins.slack_module.slack_sdk_client import SlackSDKError
+from narranexus_plugins.slack_module.slack_trigger import SlackTrigger
 from narranexus.platform.schema.parsed_message import ChatType
 
 

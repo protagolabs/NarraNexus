@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 from narranexus.platform.schema.team_schema import TEAM_ROOM_OWNER_PREFIX

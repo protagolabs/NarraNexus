@@ -23,10 +23,10 @@ import time
 
 import pytest
 
-from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
+from narranexus_plugins.common_tools_module._common_tools_impl import (
     web_search_ddgs_tool as tools,
 )
-from narranexus.platform.module_system.common_tools_module import _common_tools_mcp_tools as factory
+from narranexus_plugins.common_tools_module import _common_tools_mcp_tools as factory
 
 
 def _fake_runner_script(body: str) -> list[str]:

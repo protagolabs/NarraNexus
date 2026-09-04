@@ -30,14 +30,14 @@ import pytest
 
 from narranexus.platform.channel.channel_module_base import ChannelModuleBase
 from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
-from narranexus.platform.module_system.discord_module.discord_module import DiscordModule
-from narranexus.platform.module_system.lark_module.lark_module import LarkModule
-from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
+from narranexus_plugins.discord_module.discord_module import DiscordModule
+from narranexus_plugins.lark_module.lark_module import LarkModule
+from narranexus_plugins.narramessenger_module.narramessenger_module import (
     NarramessengerModule,
 )
-from narranexus.platform.module_system.slack_module.slack_module import SlackModule
-from narranexus.platform.module_system.telegram_module.telegram_module import TelegramModule
-from narranexus.platform.module_system.wechat_module.wechat_module import WeChatModule
+from narranexus_plugins.slack_module.slack_module import SlackModule
+from narranexus_plugins.telegram_module.telegram_module import TelegramModule
+from narranexus_plugins.wechat_module.wechat_module import WeChatModule
 
 
 CHANNEL_MODULES = [
@@ -188,16 +188,16 @@ def _bind_tool(register_fn, tool_name: str):
 
 
 def _bind_registrations():
-    from narranexus.platform.module_system.discord_module._discord_mcp_tools import (
+    from narranexus_plugins.discord_module._discord_mcp_tools import (
         register_discord_mcp_tools,
     )
-    from narranexus.platform.module_system.narramessenger_module._narramessenger_mcp_tools import (
+    from narranexus_plugins.narramessenger_module._narramessenger_mcp_tools import (
         register_narramessenger_mcp_tools,
     )
-    from narranexus.platform.module_system.slack_module._slack_mcp_tools import (
+    from narranexus_plugins.slack_module._slack_mcp_tools import (
         register_slack_mcp_tools,
     )
-    from narranexus.platform.module_system.telegram_module._telegram_mcp_tools import (
+    from narranexus_plugins.telegram_module._telegram_mcp_tools import (
         register_telegram_mcp_tools,
     )
 
@@ -226,7 +226,7 @@ async def test_lark_entry_tools_zero_credential_args_return_setup_guide():
     """Lark's entry points keep their orchestrator shape; calling them
     with empty credential args must yield the discovery guide, not an
     error."""
-    from narranexus.platform.module_system.lark_module._lark_mcp_tools import (
+    from narranexus_plugins.lark_module._lark_mcp_tools import (
         register_lark_mcp_tools,
     )
 

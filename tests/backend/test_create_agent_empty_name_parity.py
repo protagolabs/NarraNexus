@@ -23,7 +23,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from narranexus.platform.module_system.social_network_module import (
+from narranexus_plugins.social_network_module import (
     CREATE_AGENT_EMPTY_NAME_MSG,
     CREATE_AGENT_TEXT_TOO_LONG_MSG,
     create_agent_text_reject,

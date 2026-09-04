@@ -19,7 +19,7 @@ this test pins the same guarantee for `_resolve_skill_dir`.
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+from narranexus_plugins.skill_module.skill_module import SkillModule
 from narranexus.platform.settings import settings
 
 

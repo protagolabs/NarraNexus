@@ -10,7 +10,7 @@ _semantic / _by_keywords) and writes (job_update, job_create, job_pause,
 job_cancel) — so the HttpStore path of AgentDataStore can serve them without db
 credentials in the mcp container. Each endpoint returns the EXACT dict the
 seam's DirectStore returns — both call the shared, dialect-safe
-``narranexus.platform.module_system.job_module`` helpers — so the Http and in-process
+``narranexus_plugins.job_module`` helpers — so the Http and in-process
 paths are byte-identical. job_create's owner LLM-context setup + similar-title
 embedding check run backend-side here (create_job_from_args), which is where the
 DB lives in cloud; the mcp container has no creds to load the owner's config.
@@ -41,7 +41,7 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.routes._ownership import assert_owned
-from narranexus.platform.module_system.job_module import (
+from narranexus_plugins.job_module import (
     fetch_job_by_id,
     search_jobs_semantic,
     search_jobs_by_keywords,

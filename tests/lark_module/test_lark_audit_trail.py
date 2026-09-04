@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 from narranexus.platform.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
@@ -167,7 +167,7 @@ async def test_audit_records_inbox_write_failure(db_client, monkeypatch):
         raise RuntimeError("inbox db down")
 
     # get_db_client resolves inside _write_to_inbox; patch it
-    from narranexus.platform.module_system.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
     monkeypatch.setattr(lt_mod, "get_db_client", _boom)
 
     await t._write_to_inbox(

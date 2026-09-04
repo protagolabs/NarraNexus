@@ -10,6 +10,24 @@ readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.13"
 dependencies = [
+    # builtin plugins — workspace members (plugin platform batch 6b)
+    "narranexus-plugin-awareness",
+    "narranexus-plugin-basic-info",
+    "narranexus-plugin-channels-discord",
+    "narranexus-plugin-channels-lark",
+    "narranexus-plugin-channels-narramessenger",
+    "narranexus-plugin-channels-slack",
+    "narranexus-plugin-channels-telegram",
+    "narranexus-plugin-channels-wechat",
+    "narranexus-plugin-chat",
+    "narranexus-plugin-common-tools",
+    "narranexus-plugin-general-memory",
+    "narranexus-plugin-home-assistant",
+    "narranexus-plugin-job",
+    "narranexus-plugin-message-bus",
+    "narranexus-plugin-nexus-plugins-module",
+    "narranexus-plugin-skills",
+    "narranexus-plugin-social-network",
     "anthropic>=0.72.0",
     "openai>=2.7.1",
     "openai-agents>=0.19.1",
@@ -124,6 +142,28 @@ narranexus = "narranexus.cli.main:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xyz_agent_context", "src/narranexus", "backend"]
 
+[tool.uv.workspace]
+members = ["plugins/*"]
+
+[tool.uv.sources]
+narranexus-plugin-awareness = { workspace = true }
+narranexus-plugin-basic-info = { workspace = true }
+narranexus-plugin-channels-discord = { workspace = true }
+narranexus-plugin-channels-lark = { workspace = true }
+narranexus-plugin-channels-narramessenger = { workspace = true }
+narranexus-plugin-channels-slack = { workspace = true }
+narranexus-plugin-channels-telegram = { workspace = true }
+narranexus-plugin-channels-wechat = { workspace = true }
+narranexus-plugin-chat = { workspace = true }
+narranexus-plugin-common-tools = { workspace = true }
+narranexus-plugin-general-memory = { workspace = true }
+narranexus-plugin-home-assistant = { workspace = true }
+narranexus-plugin-job = { workspace = true }
+narranexus-plugin-message-bus = { workspace = true }
+narranexus-plugin-nexus-plugins-module = { workspace = true }
+narranexus-plugin-skills = { workspace = true }
+narranexus-plugin-social-network = { workspace = true }
+
 [tool.uv]
 # Pre-release policy. ``openai-codex`` 0.1.0b3 + its transitive
 # ``openai-codex-cli-bin`` 0.137.0a4 (the wheel that ships the codex
@@ -182,21 +222,21 @@ ignore = [
 # change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
 
 [tool.ruff.lint.isort]
-known-first-party = ["narranexus", "backend"]
+known-first-party = ["narranexus", "narranexus_plugins", "backend"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Make `uv run pytest` work without a manual PYTHONPATH or editable install:
 # `src` for the xyz_agent_context package, `.` for the backend package.
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src"]
 
 [tool.importlinter]
 # Dependency direction for the plugin platform (batch 0). Contracts are a
 # leaf; the kernel sees only contracts; the legacy package may see both.
 # Exceptions, if ever needed, go in ``ignore_imports`` with an issue link
 # and an expiry date — the list only shrinks.
-root_packages = ["narranexus", "xyz_agent_context", "backend"]
+root_packages = ["narranexus", "narranexus_plugins", "xyz_agent_context", "backend"]
 
 [[tool.importlinter.contracts]]
 name = "contracts is a leaf: no kernel, no legacy, no backend"
@@ -265,64 +305,91 @@ source_modules = [
     "narranexus.platform.module_system.run_channel_triggers",
     "narranexus.platform.module_system.run_worker_supervisor",
 ]
-forbidden_modules = [
-    "narranexus.platform.module_system.awareness_module",
-    "narranexus.platform.module_system.basic_info_module",
-    "narranexus.platform.module_system.chat_module",
-    "narranexus.platform.module_system.common_tools_module",
-    "narranexus.platform.module_system.discord_module",
-    "narranexus.platform.module_system.general_memory_module",
-    "narranexus.platform.module_system.home_assistant_module",
-    "narranexus.platform.module_system.job_module",
-    "narranexus.platform.module_system.lark_module",
-    "narranexus.platform.module_system.message_bus_module",
-    "narranexus.platform.module_system.narramessenger_module",
-    "narranexus.platform.module_system.nexus_plugins_module",
-    "narranexus.platform.module_system.skill_module",
-    "narranexus.platform.module_system.slack_module",
-    "narranexus.platform.module_system.social_network_module",
-    "narranexus.platform.module_system.telegram_module",
-    "narranexus.platform.module_system.wechat_module",
-]
+forbidden_modules = ["narranexus_plugins"]
 unmatched_ignore_imports_alerting = "none"
 ignore_imports = [
     # builtin.channels.* routers
-    "backend.routes.channels.lark -> narranexus.platform.module_system.lark_module.**",
-    "backend.routes.channels.lark -> narranexus.platform.module_system.lark_module",
-    "backend.routes.channels.slack -> narranexus.platform.module_system.slack_module.**",
-    "backend.routes.channels.slack -> narranexus.platform.module_system.slack_module",
-    "backend.routes.channels.telegram -> narranexus.platform.module_system.telegram_module.**",
-    "backend.routes.channels.telegram -> narranexus.platform.module_system.telegram_module",
-    "backend.routes.channels.wechat -> narranexus.platform.module_system.wechat_module.**",
-    "backend.routes.channels.wechat -> narranexus.platform.module_system.wechat_module",
-    "backend.routes.channels.narramessenger -> narranexus.platform.module_system.narramessenger_module.**",
-    "backend.routes.channels.narramessenger -> narranexus.platform.module_system.narramessenger_module",
-    "backend.routes.channels.discord -> narranexus.platform.module_system.discord_module.**",
-    "backend.routes.channels.discord -> narranexus.platform.module_system.discord_module",
+    "backend.routes.channels.lark -> narranexus_plugins.lark_module.**",
+    "backend.routes.channels.lark -> narranexus_plugins.lark_module",
+    "backend.routes.channels.slack -> narranexus_plugins.slack_module.**",
+    "backend.routes.channels.slack -> narranexus_plugins.slack_module",
+    "backend.routes.channels.telegram -> narranexus_plugins.telegram_module.**",
+    "backend.routes.channels.telegram -> narranexus_plugins.telegram_module",
+    "backend.routes.channels.wechat -> narranexus_plugins.wechat_module.**",
+    "backend.routes.channels.wechat -> narranexus_plugins.wechat_module",
+    "backend.routes.channels.narramessenger -> narranexus_plugins.narramessenger_module.**",
+    "backend.routes.channels.narramessenger -> narranexus_plugins.narramessenger_module",
+    "backend.routes.channels.discord -> narranexus_plugins.discord_module.**",
+    "backend.routes.channels.discord -> narranexus_plugins.discord_module",
     # builtin.job routers
-    "backend.routes.jobs -> narranexus.platform.module_system.job_module.**",
-    "backend.routes.jobs -> narranexus.platform.module_system.job_module",
-    "backend.routes.agents.jobs -> narranexus.platform.module_system.job_module.**",
-    "backend.routes.agents.jobs -> narranexus.platform.module_system.job_module",
-    "backend.routes.dashboard.jobs -> narranexus.platform.module_system.job_module.**",
-    "backend.routes.dashboard.jobs -> narranexus.platform.module_system.job_module",
+    "backend.routes.jobs -> narranexus_plugins.job_module.**",
+    "backend.routes.jobs -> narranexus_plugins.job_module",
+    "backend.routes.agents.jobs -> narranexus_plugins.job_module.**",
+    "backend.routes.agents.jobs -> narranexus_plugins.job_module",
+    "backend.routes.dashboard.jobs -> narranexus_plugins.job_module.**",
+    "backend.routes.dashboard.jobs -> narranexus_plugins.job_module",
     # builtin.skills / builtin.home_assistant routers
-    "backend.routes.skills -> narranexus.platform.module_system.skill_module.**",
-    "backend.routes.skills -> narranexus.platform.module_system.skill_module",
-    "backend.routes.home_assistant -> narranexus.platform.module_system.home_assistant_module.**",
-    "backend.routes.home_assistant -> narranexus.platform.module_system.home_assistant_module",
+    "backend.routes.skills -> narranexus_plugins.skill_module.**",
+    "backend.routes.skills -> narranexus_plugins.skill_module",
+    "backend.routes.home_assistant -> narranexus_plugins.home_assistant_module.**",
+    "backend.routes.home_assistant -> narranexus_plugins.home_assistant_module",
     # data-access twins
-    "backend.routes.agents.awareness -> narranexus.platform.module_system.awareness_module.**",
-    "backend.routes.agents.awareness -> narranexus.platform.module_system.awareness_module",
-    "backend.routes.agents.profile -> narranexus.platform.module_system.awareness_module.**",
-    "backend.routes.agents.profile -> narranexus.platform.module_system.awareness_module",
-    "backend.routes.agents.social_network -> narranexus.platform.module_system.social_network_module.**",
-    "backend.routes.agents.social_network -> narranexus.platform.module_system.social_network_module",
-    "backend.routes.agents.narrative -> narranexus.platform.module_system.basic_info_module.**",
-    "backend.routes.agents.narrative -> narranexus.platform.module_system.basic_info_module",
-    "backend.routes.agents.chat_history -> narranexus.platform.module_system.chat_module.**",
-    "backend.routes.agents.chat_history -> narranexus.platform.module_system.chat_module",
+    "backend.routes.agents.awareness -> narranexus_plugins.awareness_module.**",
+    "backend.routes.agents.awareness -> narranexus_plugins.awareness_module",
+    "backend.routes.agents.profile -> narranexus_plugins.awareness_module.**",
+    "backend.routes.agents.profile -> narranexus_plugins.awareness_module",
+    "backend.routes.agents.social_network -> narranexus_plugins.social_network_module.**",
+    "backend.routes.agents.social_network -> narranexus_plugins.social_network_module",
+    "backend.routes.agents.narrative -> narranexus_plugins.basic_info_module.**",
+    "backend.routes.agents.narrative -> narranexus_plugins.basic_info_module",
+    "backend.routes.agents.chat_history -> narranexus_plugins.chat_module.**",
+    "backend.routes.agents.chat_history -> narranexus_plugins.chat_module",
     # the plugin factory drives the PROTECTED self-extension module (part of the distribution)
-    "backend.plugins_factory.service -> narranexus.platform.module_system.nexus_plugins_module.**",
-    "backend.plugins_factory.service -> narranexus.platform.module_system.nexus_plugins_module",
+    "backend.plugins_factory.service -> narranexus_plugins.nexus_plugins_module.**",
+    "backend.plugins_factory.service -> narranexus_plugins.nexus_plugins_module",
+]
+
+# Batch 6b: builtin packages never import each other's internals — only a
+# plugin's ``api`` facade (spec section 19.1, charter 8).
+[[tool.importlinter.contracts]]
+name = "builtin packages are independent (api facades excepted)"
+type = "independence"
+unmatched_ignore_imports_alerting = "none"
+modules = [
+    "narranexus_plugins.awareness_module",
+    "narranexus_plugins.basic_info_module",
+    "narranexus_plugins.chat_module",
+    "narranexus_plugins.common_tools_module",
+    "narranexus_plugins.discord_module",
+    "narranexus_plugins.general_memory_module",
+    "narranexus_plugins.home_assistant_module",
+    "narranexus_plugins.job_module",
+    "narranexus_plugins.lark_module",
+    "narranexus_plugins.message_bus_module",
+    "narranexus_plugins.narramessenger_module",
+    "narranexus_plugins.nexus_plugins_module",
+    "narranexus_plugins.skill_module",
+    "narranexus_plugins.slack_module",
+    "narranexus_plugins.social_network_module",
+    "narranexus_plugins.telegram_module",
+    "narranexus_plugins.wechat_module",
+]
+ignore_imports = [
+    "narranexus_plugins.** -> narranexus_plugins.awareness_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.basic_info_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.chat_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.common_tools_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.discord_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.general_memory_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.home_assistant_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.job_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.lark_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.message_bus_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.narramessenger_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.nexus_plugins_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.skill_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.slack_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.social_network_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.telegram_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.wechat_module.api",
 ]

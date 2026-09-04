@@ -23,7 +23,7 @@ import pytest
 
 async def _seed(db, table, agent_id, active_col, active_val):
     if table == "lark_credentials":
-        from narranexus.platform.module_system.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+        from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
 
         await LarkCredentialManager(db).save_credential(
             LarkCredential(agent_id=agent_id, app_id=f"cli_{agent_id}", app_secret_ref="r", brand="lark", profile_name=f"prof_{agent_id}", is_active=bool(active_val))
@@ -41,7 +41,7 @@ async def _seed(db, table, agent_id, active_col, active_val):
 
 async def test_lark_set_is_active_flips_flag(db_client):
     """Lark's new set_is_active flips is_active and returns False when missing."""
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+    from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredentialManager,
     )
     await _seed(db_client, "lark_credentials", "agent_lk", "is_active", 0)
@@ -66,7 +66,7 @@ async def test_set_enabled_flips_flag(db_client, channel):
 
     table = f"channel_{channel}_credentials"
     mgr_mod = importlib.import_module(
-        f"narranexus.platform.module_system.{channel}_module._{channel}_credential_manager"
+        f"narranexus_plugins.{channel}_module._{channel}_credential_manager"
     )
     mgr_cls = next(
         getattr(mgr_mod, n) for n in dir(mgr_mod) if n.endswith("CredentialManager")

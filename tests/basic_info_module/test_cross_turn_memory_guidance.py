@@ -23,7 +23,7 @@ from __future__ import annotations
 
 
 def _prompt_text() -> str:
-    from narranexus.platform.module_system.basic_info_module.prompts import (
+    from narranexus_plugins.basic_info_module.prompts import (
         BASIC_INFO_MODULE_INSTRUCTIONS,
     )
 

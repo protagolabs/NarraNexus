@@ -129,7 +129,7 @@ async def _set_awareness(db, agent_id: str) -> None:
 
 
 def _verify(db, agent_id: str, user_id: str, skill_dir: Path) -> None:
-    from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+    from narranexus_plugins.skill_module.skill_module import SkillModule
 
     print("\n=== VERIFY (real SkillModule round-trip) ===")
     files = sorted(p.name for p in skill_dir.iterdir())

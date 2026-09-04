@@ -19,7 +19,7 @@ import pytest
 
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
 from narranexus.platform.message_bus.team_rooms import team_room_marker
-from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 
@@ -159,7 +159,7 @@ async def test_create_team_rejects_an_unknown_agent_without_writing_a_team(db_cl
 async def test_create_team_rejects_over_the_member_cap_without_writing_a_team(db_client, monkeypatch):
     """`members` is a model-supplied string; the cardinality bound is the code's,
     not the model's. Over the cap → rejected before any write."""
-    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         CREATE_TEAM_MAX_MEMBERS,
     )
 

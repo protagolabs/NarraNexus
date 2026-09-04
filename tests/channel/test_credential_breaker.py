@@ -426,10 +426,10 @@ async def test_unstartable_credential_is_never_started_and_audited_once():
 @pytest.mark.asyncio
 async def test_lark_pre_flight_rejects_cleared_secret():
     """The exact prod condition: App Secret cleared → zero restarts."""
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+    from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredential,
     )
-    from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+    from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
     trigger = LarkTrigger()
     base = dict(
@@ -496,7 +496,7 @@ async def test_startable_again_clears_the_unstartable_mark_while_isolated(db_cli
 
 @pytest.mark.asyncio
 async def test_matrix_excludes_since_token_from_fingerprint():
-    from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+    from narranexus_plugins.narramessenger_module.matrix_trigger import (
         MatrixTrigger,
     )
 

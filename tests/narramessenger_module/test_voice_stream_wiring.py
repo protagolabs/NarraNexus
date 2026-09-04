@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
     _StreamReplyState,
 )
@@ -176,7 +176,7 @@ async def test_claimant_sanitize_empty_text_keeps_plain_fallback():
     """Review 2026-08-13 Critical #2: an emoji-only reply sanitizes to ""
     — the bridge delivers nothing, so the raw text must survive in the
     legacy capture for finalize's plain fresh-send."""
-    from narranexus.platform.module_system.narramessenger_module._voice_delivery import (
+    from narranexus_plugins.narramessenger_module._voice_delivery import (
         VoiceDeliveryBridge,
     )
 
@@ -205,7 +205,7 @@ async def test_narra_reply_stream_end_to_end_no_duplicate_delivery():
     """Real-bridge scenario: narra_reply deltas + authoritative completion
     produce ONE live lifecycle (base + final edit) with the final text —
     never a second plain send of the same content."""
-    from narranexus.platform.module_system.narramessenger_module._voice_delivery import (
+    from narranexus_plugins.narramessenger_module._voice_delivery import (
         VoiceDeliveryBridge,
     )
 
@@ -269,7 +269,7 @@ async def test_narra_reply_progress_only_still_delivers_via_bridge():
     """Provider without arg-delta streaming: the completed narra_reply
     text alone must still ride the bridge (one final send), keeping the
     no-delta path alive."""
-    from narranexus.platform.module_system.narramessenger_module._voice_delivery import (
+    from narranexus_plugins.narramessenger_module._voice_delivery import (
         VoiceDeliveryBridge,
     )
 
@@ -305,7 +305,7 @@ async def test_text_turn_ignores_deltas_as_before():
 
 
 def test_voice_timing_line_shape():
-    from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+    from narranexus_plugins.narramessenger_module.matrix_trigger import (
         _format_voice_timing,
     )
 
@@ -328,7 +328,7 @@ def test_voice_timing_line_shape():
 
 
 def test_voice_timing_line_tolerates_missing_stamps():
-    from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+    from narranexus_plugins.narramessenger_module.matrix_trigger import (
         _format_voice_timing,
     )
 

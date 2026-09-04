@@ -20,8 +20,8 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport
 
 import backend.routes.manyfold.sync as mod
-from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
-from narranexus.platform.module_system.job_module import run_once as ro
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module import run_once as ro
 from narranexus.platform.repository.job_repository import JobRepository
 
 
@@ -187,7 +187,7 @@ async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
     # original test only covered telegram, which is why it slipped — hit
     # live during the 2026-08-03 local managed-IM E2E (fix ported from the
     # feat/manyfold-cloud experiment branch).
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+    from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
 
     await LarkCredentialManager(db_client).save_credential(  # lark persists in channel_credentials (batch 4d)
         LarkCredential(

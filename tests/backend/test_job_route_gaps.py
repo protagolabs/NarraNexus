@@ -8,7 +8,7 @@ PUT /{job_id}/pause (job_pause), GET /search/semantic (job_retrieval_semantic),
 GET /search/keywords (job_retrieval_by_keywords).
 
 Each endpoint mirrors the matching tool in
-src/narranexus/platform/module_system/job_module/_job_mcp_tools.py — same
+plugins/builtin.job/src/narranexus_plugins/job_module/_job_mcp_tools.py — same
 JobRepository/JobInstanceService calls, same response shape. Ownership
 (assert_owned) is exercised once per endpoint the same way
 test_channel_routes_owner_gate.py pins channel routes to the canonical
@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 import backend.routes._ownership as own
 import backend.routes.jobs as jobs_module
-from narranexus.platform.module_system.job_module import job_service as job_service_module
+from narranexus_plugins.job_module import job_service as job_service_module
 from narranexus.platform.schema import JobStatus, JobType
 
 

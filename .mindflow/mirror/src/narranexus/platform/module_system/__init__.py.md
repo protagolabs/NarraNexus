@@ -84,3 +84,7 @@ stamp broker/本地签的身份 token)与 backend/auth、identity/verify(bearer 
 ## 2026-09-04 · `module_registry` (batch 5d)
 
 `MODULE_MAP`, `_MODULE_CLASS_NAMES` and the lazy `__getattr__` class re-export are gone; `module_registry` / `ModuleRegistry` are the registry view and the helpers (`module_config`, `module_by_role`, …) read it. Import a module class from its own package.
+
+## 2026-09-04 · no module packages under module_system (batch 6b)
+
+The 17 builtin module packages moved to `plugins/builtin.*` (`narranexus_plugins.<pkg>`); what remains here is the module SYSTEM: base class, registry, loader, hooks, seam, runner, capability service.

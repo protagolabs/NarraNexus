@@ -34,7 +34,7 @@ from typing import List
 
 import pytest
 
-from narranexus.platform.module_system.chat_module.chat_module import (
+from narranexus_plugins.chat_module.chat_module import (
     ChatModule,
     _apply_failed_turn_filter,
 )

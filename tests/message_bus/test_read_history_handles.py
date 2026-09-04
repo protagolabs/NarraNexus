@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     _resolve_conversation,
 )
 
@@ -188,7 +188,7 @@ def test_the_dm_lookup_sql_has_exactly_one_definition():
     import inspect
 
     from narranexus.platform.message_bus import local_bus
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools
 
     src = inspect.getsource(local_bus) + inspect.getsource(_message_bus_mcp_tools)
     assert src.count("channel_type = 'direct'") == 1, (
@@ -216,7 +216,7 @@ async def test_history_returns_the_recent_page_not_the_rooms_founding_messages(
     the wrong primitive — the primitives themselves were both correct.
     """
     from narranexus.platform.message_bus.local_bus import LocalMessageBus
-    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         register_message_bus_mcp_tools,
     )
 
@@ -261,7 +261,7 @@ async def test_the_limit_has_a_ceiling_the_model_does_not_choose(
     module is capped; this was the one that left the cap to the model.
     """
     from narranexus.platform.message_bus.local_bus import LocalMessageBus
-    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         READ_HISTORY_MAX,
         register_message_bus_mcp_tools,
     )

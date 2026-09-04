@@ -52,7 +52,7 @@ async def _run(args: argparse.Namespace) -> int:
     import narranexus.platform.settings  # noqa: F401
     from narranexus.platform.utils.db.db_factory import get_db_client
     from narranexus.platform.utils.db.schema_registry import auto_migrate
-    from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+    from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
         NarramessengerCredential,
         NarramessengerCredentialManager,
     )

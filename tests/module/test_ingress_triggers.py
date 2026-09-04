@@ -65,7 +65,7 @@ def test_disabling_builtin_job_removes_the_jobs_worker_without_reordering():
 
 @pytest.mark.asyncio
 async def test_trigger_worker_factory_builds_start_and_stop(monkeypatch):
-    from narranexus.platform.module_system.job_module import job_trigger as jt
+    from narranexus_plugins.job_module import job_trigger as jt
 
     events: list[str] = []
 
@@ -130,7 +130,7 @@ async def _run_step_1(monkeypatch, regs):
     monkeypatch.setattr("narranexus.platform.bootstrap.greeting_seed.resolve_bootstrap_greeting_to_seed", AsyncMock(return_value="Hello!"))
     monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", AsyncMock(return_value=object()))
     seed_spy = AsyncMock(return_value=True)
-    monkeypatch.setattr("narranexus.platform.module_system.chat_module.seed_bootstrap_greeting", seed_spy)
+    monkeypatch.setattr("narranexus_plugins.chat_module.seed_bootstrap_greeting", seed_spy)
     async for _ in mod.step_1_select_narrative(_greeting_ctx(regs), narrative_service, session_service):
         pass
     return seed_spy
@@ -157,7 +157,7 @@ def test_step_1_does_not_import_chat_module():
     from narranexus.platform.agent_runtime._agent_runtime_steps import step_1_select_narrative as mod
 
     src = inspect.getsource(mod)
-    assert "from narranexus.platform.module_system.chat_module" not in src and "import narranexus.platform.module_system.chat_module" not in src
+    assert "from narranexus_plugins.chat_module" not in src and "import narranexus_plugins.chat_module" not in src
 
 
 def test_channel_map_override_layer_shadows_and_restores(monkeypatch):

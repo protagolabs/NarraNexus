@@ -13,7 +13,7 @@ enum is the single source of truth; this test pins the prompt to it.
 """
 import re
 
-from narranexus.platform.module_system.job_module.job_module import (
+from narranexus_plugins.job_module.job_module import (
     JOB_MODULE_INSTRUCTIONS,
     JOB_MODULE_INSTRUCTIONS_STABLE,
 )

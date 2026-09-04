@@ -127,7 +127,7 @@ async def test_marketplace_install_end_to_end(db_client, workspace, tmp_path):
     )
     assert result.status == "installed"
 
-    from narranexus.platform.module_system.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     module = SkillModule(agent_id=AGENT_ID, user_id=USER_ID)
     meta = module.read_skill_meta("demo-skill")
@@ -180,7 +180,7 @@ async def test_marketplace_install_resolves_dependencies(db_client, workspace, t
     )
     assert result.status == "installed"
 
-    from narranexus.platform.module_system.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     names = {s.name for s in SkillModule(agent_id=AGENT_ID, user_id=USER_ID).list_skills()}
     assert {"base-skill", "dependent-skill"} <= names
@@ -207,7 +207,7 @@ async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace,
     )
     assert result.status == "installed"
 
-    from narranexus.platform.module_system.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     # On-disk directory and meta both keyed on the catalog id, not "Fancy Name".
     module = SkillModule(agent_id=AGENT_ID, user_id=USER_ID)

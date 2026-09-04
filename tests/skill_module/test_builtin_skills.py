@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from narranexus.platform.module_system.skill_module import skill_module as sm_mod
-from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+from narranexus_plugins.skill_module import skill_module as sm_mod
+from narranexus_plugins.skill_module.skill_module import SkillModule
 from narranexus.platform.settings import settings
 
 

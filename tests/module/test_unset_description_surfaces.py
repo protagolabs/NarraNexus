@@ -39,7 +39,7 @@ PLACEHOLDER = LEGACY_AGENT_DESCRIPTION_PLACEHOLDER
 
 
 def _roster(known: list[dict]) -> str:
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -94,7 +94,7 @@ def test_one_configured_peer_stays_distinguishable_among_blank_ones():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stored", [PLACEHOLDER, "", None])
 async def test_the_agent_reads_an_instruction_not_a_false_status(stored, monkeypatch):
-    from narranexus.platform.module_system.basic_info_module import basic_info_module as mod
+    from narranexus_plugins.basic_info_module import basic_info_module as mod
 
     ctx = await _gather_basic_info(mod, monkeypatch, stored)
 
@@ -106,7 +106,7 @@ async def test_the_agent_reads_an_instruction_not_a_false_status(stored, monkeyp
 
 @pytest.mark.asyncio
 async def test_a_real_self_description_is_passed_through_verbatim(monkeypatch):
-    from narranexus.platform.module_system.basic_info_module import basic_info_module as mod
+    from narranexus_plugins.basic_info_module import basic_info_module as mod
 
     ctx = await _gather_basic_info(mod, monkeypatch, "Reviews lesson plans.")
 
@@ -163,7 +163,7 @@ def test_no_second_registry_writer_is_exposed_as_a_tool():
     ``update_agent_profile``, capabilities are derived from installed skills
     and active modules.
     """
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools
 
     source = inspect.getsource(_message_bus_mcp_tools)
     assert "bus_register_agent" not in source
@@ -173,7 +173,7 @@ def test_the_instruction_no_longer_points_at_the_deleted_tool():
     """A prompt naming a tool that does not exist teaches the model to fail;
     this one used to send it there precisely when it wanted to fix its
     profile."""
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 

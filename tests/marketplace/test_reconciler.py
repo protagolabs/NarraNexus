@@ -19,7 +19,7 @@ import pytest
 
 import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
 from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
-from narranexus.platform.module_system.skill_module import SkillModule
+from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )

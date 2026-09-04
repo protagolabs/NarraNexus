@@ -16,8 +16,8 @@ Two halves:
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.social_network_module import format_contact_result
-from narranexus.platform.module_system.social_network_module.prompts import (
+from narranexus_plugins.social_network_module import format_contact_result
+from narranexus_plugins.social_network_module.prompts import (
     SOCIAL_NETWORK_MODULE_INSTRUCTIONS,
 )
 

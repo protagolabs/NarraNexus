@@ -34,8 +34,8 @@ from typing import Any
 import pytest
 
 from tests.voice_sim.hybrid_sim import LIVE_KEY, build_voice_content
-from narranexus.platform.module_system.narramessenger_module import matrix_trigger as mt
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module import matrix_trigger as mt
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
 from narranexus.platform.schema.runtime_message import MessageType

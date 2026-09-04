@@ -15,7 +15,7 @@ import pytest
 
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus
-from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module.job_trigger import JobTrigger
 
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 

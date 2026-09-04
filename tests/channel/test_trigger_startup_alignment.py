@@ -40,6 +40,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_DIR = REPO_ROOT / "src" / "narranexus" / "platform" / "module_system"
+PLUGINS_DIR = REPO_ROOT / "plugins"  # builtin module packages (batch 6b): plugins/builtin.*/src/narranexus_plugins/<pkg>/
 
 SUPERVISOR_ENTRYPOINT = "narranexus.platform.module_system.run_worker_supervisor"
 WORKER_SUPERVISOR_FILE = MODULE_DIR / "run_worker_supervisor.py"
@@ -60,7 +61,7 @@ _SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\(\s*ChannelTriggerBase\s*\)")
 def discover_channel_trigger_classes() -> set[str]:
     """Class names of every ``ChannelTriggerBase`` subclass under module/*."""
     found: set[str] = set()
-    for path in MODULE_DIR.glob("*_module/*_trigger.py"):
+    for path in PLUGINS_DIR.glob("*/src/narranexus_plugins/*_module/*_trigger.py"):
         text = path.read_text(encoding="utf-8")
         found.update(_SUBCLASS_RE.findall(text))
     return found

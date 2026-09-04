@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from narranexus.platform.module_system.common_tools_module.common_tools_module import (
+from narranexus_plugins.common_tools_module.common_tools_module import (
     ARTIFACT_STATE_BLOCK_LIMIT,
     CommonToolsModule,
 )

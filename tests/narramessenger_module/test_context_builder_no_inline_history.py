@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus.platform.module_system.narramessenger_module.narramessenger_context_builder import (
+from narranexus_plugins.narramessenger_module.narramessenger_context_builder import (
     NarramessengerContextBuilder,
 )
 from narranexus.platform.schema.parsed_message import (

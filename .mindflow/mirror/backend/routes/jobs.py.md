@@ -58,7 +58,7 @@ test_update_job_type_switch_recomputes_next_run_with_new_type 钉住。
 
 Added four endpoints that are the backend half of the MCP data-access seam —
 each one mirrors a specific tool in
-`src/narranexus/platform/module_system/job_module/_job_mcp_tools.py` exactly (same
+`plugins/builtin.job/src/narranexus_plugins/job_module/_job_mcp_tools.py` exactly (same
 `JobRepository` / `JobInstanceService` calls, same response shape), so a
 non-agent HTTP caller gets identical semantics to what the agent's own tools
 would produce:
@@ -140,9 +140,9 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 - **依赖谁**：
   - `JobRepository` — Job 的基础查询、状态更新、`pause_job`、BM25 关键词检索 (`search_keyword`)、多关键词检索 (`search_by_keywords`)
   - `narranexus.platform.utils.db.db_factory.get_db_client` — 直接查询 `instance_jobs` 和 `module_instances` 表
-  - `narranexus.platform.module_system.job_module.job_service.JobInstanceService` — 创建 Job Complex 时同时创建 ModuleInstance 和 Job 记录；`update_job` 承担 PUT /{job_id} 的实际写入（含 append-to-payload、related_entity_id 的 diff sync）
+  - `narranexus_plugins.job_module.job_service.JobInstanceService` — 创建 Job Complex 时同时创建 ModuleInstance 和 Job 记录；`update_job` 承担 PUT /{job_id} 的实际写入（含 append-to-payload、related_entity_id 的 diff sync）
   - `narranexus.platform.utils.job_scheduling.compute_next_run` — PUT /{job_id} 改 trigger_config 时原子重算 next_run 的 alpha/beta 对
-  - `narranexus.platform.module_system.job_module._job_response.job_to_llm_dict` — 两个搜索端点把 JobModel 整形成 LLM 友好 dict（复用同一份整形逻辑，保证 HTTP 调用方和 agent 看到同一套字段）
+  - `narranexus_plugins.job_module._job_response.job_to_llm_dict` — 两个搜索端点把 JobModel 整形成 LLM 友好 dict（复用同一份整形逻辑，保证 HTTP 调用方和 agent 看到同一套字段）
   - `backend/routes/_ownership.py` (`assert_owned`) — 新增四个端点的授权门；调用时机在 try/except 之外（见 2026-08-10 entry），失败直接抛 HTTPException，不落入本文件其他端点惯用的 `{"success": False, ...}` 200 shape
 
 ## 设计决策

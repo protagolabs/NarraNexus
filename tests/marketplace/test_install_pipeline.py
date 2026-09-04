@@ -23,7 +23,7 @@ from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline im
     InstallPipeline,
     compute_content_hash,
 )
-from narranexus.platform.module_system.skill_module import SkillModule
+from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 import backend.routes.providers as providers_mod
 import narranexus.platform.utils.db.db_factory as db_factory
 import backend.integrations.netmind.netmind_provisioner as prov_mod
-import narranexus.platform.module_system.job_module.job_recovery as jr_mod
+import narranexus_plugins.job_module.job_recovery as jr_mod
 from backend.integrations.netmind.netmind_key_client import KeyAuthError, KeyUpstreamError
 from narranexus.platform.settings import settings
 

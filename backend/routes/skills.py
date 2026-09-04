@@ -30,7 +30,7 @@ from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from backend.routes._mcp_egress import filter_public_mcp_servers
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.module_system.skill_module import SkillModule
+from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.schema.skill_schema import (
     SkillInfo,
     SkillListResponse,
@@ -142,7 +142,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     as configured purely on the platform assumption and are not self-stored, so
     a user who manually entered the key in the Skill tab is never downgraded.
     """
-    from narranexus.platform.module_system.skill_module.skill_module import (
+    from narranexus_plugins.skill_module.skill_module import (
         platform_env_available,
     )
 
@@ -588,7 +588,7 @@ async def get_skill_env(
 
         # Platform-resolved vars (e.g. NETMIND_API_KEY) count as configured
         # when the user's provider config can back them at run time.
-        from narranexus.platform.module_system.skill_module.skill_module import (
+        from narranexus_plugins.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
             configured_env_var_names,
             platform_env_available,
@@ -642,7 +642,7 @@ async def set_skill_env(
         updated_config = skill_module.get_skill_env_config(skill_name)
         requires_env = skill.requires_env or [] if skill else []
 
-        from narranexus.platform.module_system.skill_module.skill_module import (
+        from narranexus_plugins.skill_module.skill_module import (
             PLATFORM_RESOLVED_ENV,
             configured_env_var_names,
             platform_env_available,

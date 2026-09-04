@@ -35,7 +35,7 @@ holds a single operation under ``post`` or ``get``. Args live in flat
 
 Output layout::
 
-    src/narranexus/platform/module_system/slack_module/skills/
+    plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/skills/
     ├── chat.postMessage.md
     ├── conversations.history.md
     ├── ...

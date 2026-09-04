@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from narranexus.platform.module_system.telegram_module.telegram_module import (
+from narranexus_plugins.telegram_module.telegram_module import (
     _extract_telegram_reply,
 )
 
@@ -138,7 +138,7 @@ def test_telegram_handler_is_registered_in_message_source_registry():
     from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
     )
-    from narranexus.platform.module_system.telegram_module import telegram_module
+    from narranexus_plugins.telegram_module import telegram_module
 
     if "telegram" not in MessageSourceRegistry._handlers:  # type: ignore[attr-defined]
         importlib.reload(telegram_module)

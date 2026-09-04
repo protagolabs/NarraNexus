@@ -14,7 +14,7 @@ Why this file exists:
 """
 from __future__ import annotations
 
-from narranexus.platform.module_system.telegram_module._telegram_skill_loader import (
+from narranexus_plugins.telegram_module._telegram_skill_loader import (
     TelegramSkillLoader,
     get_skill_loader,
 )

@@ -598,7 +598,7 @@ async def test_before_run_stamps_group_room_type(monkeypatch):
 
 
 def test_wechat_trigger_managed_reply_kwargs_carries_reply_token():
-    from narranexus.platform.module_system.wechat_module.wechat_trigger import WeChatTrigger
+    from narranexus_plugins.wechat_module.wechat_trigger import WeChatTrigger
 
     trigger = WeChatTrigger.__new__(WeChatTrigger)
     assert trigger.managed_reply_kwargs({"reply_token": "ctx-1"}) == {
@@ -777,7 +777,7 @@ async def test_base_managed_after_run_error_fallback_then_inbox(monkeypatch):
 
 
 async def test_wechat_managed_before_run_claims_owner(monkeypatch):
-    from narranexus.platform.module_system.wechat_module import wechat_trigger as wt
+    from narranexus_plugins.wechat_module import wechat_trigger as wt
 
     trig = wt.WeChatTrigger()
     cred = SimpleNamespace(agent_id="a1", owner_wx_id="")
@@ -805,7 +805,7 @@ async def test_wechat_managed_before_run_claims_owner(monkeypatch):
 
 
 async def test_matrix_managed_before_run_paths(monkeypatch):
-    from narranexus.platform.module_system.narramessenger_module import matrix_trigger as mt
+    from narranexus_plugins.narramessenger_module import matrix_trigger as mt
 
     trig = mt.MatrixTrigger()
     msg = ingress_mod.synthesize_managed_message(_tagged_extra(), "hi")
@@ -972,7 +972,7 @@ from unittest.mock import MagicMock  # noqa: E402
 
 
 def _nm_module():
-    from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
+    from narranexus_plugins.narramessenger_module.narramessenger_module import (
         NarramessengerModule,
     )
 

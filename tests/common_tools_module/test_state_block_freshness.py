@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from narranexus.platform.module_system.common_tools_module.common_tools_module import CommonToolsModule
+from narranexus_plugins.common_tools_module.common_tools_module import CommonToolsModule
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
 from narranexus.platform.utils.workspace_paths import agent_workspace_relpath

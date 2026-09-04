@@ -154,7 +154,7 @@ async def update_agent_awareness(
         # This is the CLOUD half: the twin in module/data_access/store.py does the
         # same for the local path, and fixing only one protects the environment
         # the incident did not happen in.
-        from narranexus.platform.module_system.awareness_module import (
+        from narranexus_plugins.awareness_module import (
             carry_over_platform_record,
         )
 

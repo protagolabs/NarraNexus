@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 def _make_trigger() -> LarkTrigger:

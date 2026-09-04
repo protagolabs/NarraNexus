@@ -19,7 +19,7 @@ import pytest
 
 from narranexus.platform.schema.job_schema import TriggerConfig, JobType
 from narranexus.platform.utils.job_scheduling import compute_next_run
-from narranexus.platform.module_system.job_module.job_service import JobInstanceService
+from narranexus_plugins.job_module.job_service import JobInstanceService
 
 
 def test_immediate_is_naive_utc_oneoff():

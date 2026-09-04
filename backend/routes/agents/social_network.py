@@ -37,7 +37,7 @@ from narranexus.platform.repository import (
     AgentRepository,
 )
 from narranexus.platform.bootstrap.provision import provision_new_agent
-from narranexus.platform.module_system.social_network_module import (
+from narranexus_plugins.social_network_module import (
     SocialNetworkModule,
     social_instance_not_found_msg,
     format_contact_result,

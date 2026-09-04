@@ -227,7 +227,7 @@ async def test_scope_renders_without_anyof_null_in_the_real_schema():
     """
     from mcp.server.fastmcp import FastMCP
 
-    from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         artifact_tool,
     )
 
@@ -255,7 +255,7 @@ async def test_scope_did_not_widen_the_tools_strict_schema_exposure():
     """
     from mcp.server.fastmcp import FastMCP
 
-    from narranexus.platform.module_system.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         artifact_tool,
     )
 

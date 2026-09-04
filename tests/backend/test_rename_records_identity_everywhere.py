@@ -28,7 +28,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from narranexus.platform.module_system.awareness_module import IDENTITY_CHANGE_SECTION
+from narranexus_plugins.awareness_module import IDENTITY_CHANGE_SECTION
 
 OWNER = "owner_shenzhen"
 AGENT_ID = "agent_4a0ae5f40af2"
@@ -648,7 +648,7 @@ async def test_a_name_that_could_break_the_record_format_still_round_trips(
     forged platform record that then pruned the real one.
     """
     from narranexus.platform.agent_profile import apply_agent_profile_change
-    from narranexus.platform.module_system.awareness_module import identity_note_asserts
+    from narranexus_plugins.awareness_module import identity_note_asserts
 
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
 
@@ -794,7 +794,7 @@ async def test_a_rename_whose_record_could_not_be_written_says_so_in_the_respons
     # the write is made to fail. Distinct from having no instance at all, which
     # is "nothing to correct" and must not warn.
     await _seed(db_client, name="美食家", profile=STALE_PROFILE)
-    import narranexus.platform.module_system.awareness_module as aw
+    import narranexus_plugins.awareness_module as aw
 
     async def _boom(_db, _agent_id, _old, _new):  # noqa: ANN001
         return False
@@ -841,7 +841,7 @@ async def test_a_repair_that_failed_is_not_reported_as_nothing_to_do(
     gets the same success either way. That is #320's shape, one layer down.
     """
     from narranexus.platform.agent_profile import apply_agent_profile_change
-    import narranexus.platform.module_system.awareness_module as aw
+    import narranexus_plugins.awareness_module as aw
 
     await _seed(db_client, name="小绿", profile=STALE_PROFILE)
 
@@ -994,7 +994,7 @@ async def test_the_cloud_awareness_route_also_keeps_the_platform_record(db_clien
     from fastapi import FastAPI, Request
     from fastapi.testclient import TestClient
     import backend.routes.agents.awareness as aw_route
-    from narranexus.platform.module_system.awareness_module import (
+    from narranexus_plugins.awareness_module import (
         IDENTITY_CHANGE_SECTION, build_identity_change_note,
         merge_identity_change_note,
     )
@@ -1063,7 +1063,7 @@ async def test_a_correct_record_does_not_excuse_a_stale_self_name_line(db_client
     different route — a rename that filed a record before retirement existed.
     """
     from narranexus.platform.agent_profile import apply_agent_profile_change
-    from narranexus.platform.module_system.awareness_module import (
+    from narranexus_plugins.awareness_module import (
         build_identity_change_note, merge_identity_change_note,
     )
 
@@ -1093,7 +1093,7 @@ async def test_a_correct_record_does_not_excuse_a_stale_self_name_line(db_client
 async def test_an_agent_correct_in_both_places_is_left_alone(db_client):
     """Checking both must not mean acting twice, or every call rewrites."""
     from narranexus.platform.agent_profile import apply_agent_profile_change
-    from narranexus.platform.module_system.awareness_module import (
+    from narranexus_plugins.awareness_module import (
         build_identity_change_note, merge_identity_change_note,
     )
 
@@ -1265,7 +1265,7 @@ async def test_a_name_containing_a_separator_is_never_auto_repaired_only_reporte
     nothing here.
     """
     from narranexus.platform.agent_profile import apply_agent_profile_change
-    from narranexus.platform.module_system.awareness_module import IDENTITY_CHANGE_SECTION
+    from narranexus_plugins.awareness_module import IDENTITY_CHANGE_SECTION
 
     line = "- 名称：小绿-2-2-2"
     await _seed(

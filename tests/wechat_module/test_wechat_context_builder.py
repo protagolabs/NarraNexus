@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from narranexus.platform.module_system.wechat_module.wechat_context_builder import (
+from narranexus_plugins.wechat_module.wechat_context_builder import (
     WeChatContextBuilder,
 )
 from narranexus.platform.schema.parsed_message import ParsedMessage

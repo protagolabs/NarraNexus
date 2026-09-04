@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema.instance_schema import ModuleInstanceRecord
 
 

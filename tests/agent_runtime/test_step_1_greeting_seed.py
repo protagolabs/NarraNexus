@@ -78,7 +78,7 @@ async def test_seeds_greeting_once_into_head_narrative(monkeypatch):
     )
     seed_spy = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "narranexus.platform.module_system.chat_module.seed_bootstrap_greeting", seed_spy
+        "narranexus_plugins.chat_module.seed_bootstrap_greeting", seed_spy
     )
     monkeypatch.setattr(
         "narranexus.platform.utils.db.db_factory.get_db_client",
@@ -134,7 +134,7 @@ async def test_no_seed_when_not_bootstrapping(monkeypatch):
     )
     seed_spy = AsyncMock(return_value=True)
     monkeypatch.setattr(
-        "narranexus.platform.module_system.chat_module.seed_bootstrap_greeting", seed_spy
+        "narranexus_plugins.chat_module.seed_bootstrap_greeting", seed_spy
     )
     monkeypatch.setattr(
         "narranexus.platform.utils.db.db_factory.get_db_client",

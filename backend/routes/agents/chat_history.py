@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
-from narranexus.platform.module_system.chat_module import fetch_chat_history
+from narranexus_plugins.chat_module import fetch_chat_history
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
 from narranexus.platform.repository import InstanceRepository, AgentRepository

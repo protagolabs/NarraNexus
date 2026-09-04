@@ -7,6 +7,28 @@ resolution-markers = [
     "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 
+[manifest]
+members = [
+    "narranexus-plugin-awareness",
+    "narranexus-plugin-basic-info",
+    "narranexus-plugin-channels-discord",
+    "narranexus-plugin-channels-lark",
+    "narranexus-plugin-channels-narramessenger",
+    "narranexus-plugin-channels-slack",
+    "narranexus-plugin-channels-telegram",
+    "narranexus-plugin-channels-wechat",
+    "narranexus-plugin-chat",
+    "narranexus-plugin-common-tools",
+    "narranexus-plugin-general-memory",
+    "narranexus-plugin-home-assistant",
+    "narranexus-plugin-job",
+    "narranexus-plugin-message-bus",
+    "narranexus-plugin-nexus-plugins-module",
+    "narranexus-plugin-skills",
+    "narranexus-plugin-social-network",
+    "xyz-agent-context",
+]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -1737,6 +1759,148 @@ wheels = [
 ]
 
 [[package]]
+name = "narranexus-plugin-awareness"
+version = "1.0.0"
+source = { editable = "plugins/builtin.awareness" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-basic-info"
+version = "1.0.0"
+source = { editable = "plugins/builtin.basic_info" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-discord"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.discord" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-lark"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.lark" }
+
+[package.optional-dependencies]
+full = [
+    { name = "lark-oapi" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "lark-oapi", marker = "extra == 'full'", specifier = ">=1.4.0,<2.0.0" }]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-narramessenger"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.narramessenger" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-slack"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.slack" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-telegram"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.telegram" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-wechat"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.wechat" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-chat"
+version = "1.0.0"
+source = { editable = "plugins/builtin.chat" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-common-tools"
+version = "1.0.0"
+source = { editable = "plugins/builtin.common_tools" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-general-memory"
+version = "1.0.0"
+source = { editable = "plugins/builtin.general_memory" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-home-assistant"
+version = "1.0.0"
+source = { editable = "plugins/builtin.home_assistant" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-job"
+version = "1.0.0"
+source = { editable = "plugins/builtin.job" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-message-bus"
+version = "1.0.0"
+source = { editable = "plugins/builtin.message_bus" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-nexus-plugins-module"
+version = "1.0.0"
+source = { editable = "plugins/builtin.nexus_plugins_module" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-skills"
+version = "1.0.0"
+source = { editable = "plugins/builtin.skills" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-social-network"
+version = "1.0.0"
+source = { editable = "plugins/builtin.social_network" }
+
+[package.metadata]
+provides-extras = ["full"]
+
+[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3321,6 +3485,23 @@ dependencies = [
     { name = "loguru" },
     { name = "matrix-nio" },
     { name = "mcp", extra = ["cli"] },
+    { name = "narranexus-plugin-awareness" },
+    { name = "narranexus-plugin-basic-info" },
+    { name = "narranexus-plugin-channels-discord" },
+    { name = "narranexus-plugin-channels-lark" },
+    { name = "narranexus-plugin-channels-narramessenger" },
+    { name = "narranexus-plugin-channels-slack" },
+    { name = "narranexus-plugin-channels-telegram" },
+    { name = "narranexus-plugin-channels-wechat" },
+    { name = "narranexus-plugin-chat" },
+    { name = "narranexus-plugin-common-tools" },
+    { name = "narranexus-plugin-general-memory" },
+    { name = "narranexus-plugin-home-assistant" },
+    { name = "narranexus-plugin-job" },
+    { name = "narranexus-plugin-message-bus" },
+    { name = "narranexus-plugin-nexus-plugins-module" },
+    { name = "narranexus-plugin-skills" },
+    { name = "narranexus-plugin-social-network" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openai-agents" },
@@ -3381,6 +3562,23 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "matrix-nio", specifier = ">=0.25.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.20.0" },
+    { name = "narranexus-plugin-awareness", editable = "plugins/builtin.awareness" },
+    { name = "narranexus-plugin-basic-info", editable = "plugins/builtin.basic_info" },
+    { name = "narranexus-plugin-channels-discord", editable = "plugins/builtin.channels.discord" },
+    { name = "narranexus-plugin-channels-lark", editable = "plugins/builtin.channels.lark" },
+    { name = "narranexus-plugin-channels-narramessenger", editable = "plugins/builtin.channels.narramessenger" },
+    { name = "narranexus-plugin-channels-slack", editable = "plugins/builtin.channels.slack" },
+    { name = "narranexus-plugin-channels-telegram", editable = "plugins/builtin.channels.telegram" },
+    { name = "narranexus-plugin-channels-wechat", editable = "plugins/builtin.channels.wechat" },
+    { name = "narranexus-plugin-chat", editable = "plugins/builtin.chat" },
+    { name = "narranexus-plugin-common-tools", editable = "plugins/builtin.common_tools" },
+    { name = "narranexus-plugin-general-memory", editable = "plugins/builtin.general_memory" },
+    { name = "narranexus-plugin-home-assistant", editable = "plugins/builtin.home_assistant" },
+    { name = "narranexus-plugin-job", editable = "plugins/builtin.job" },
+    { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
+    { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
+    { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
+    { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "openai", specifier = ">=2.7.1" },
     { name = "openai-agents", specifier = ">=0.19.1" },

@@ -15,10 +15,10 @@ import pytest
 
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus
-from narranexus.platform.module_system.job_module.job_recovery import rearm_user_no_quota_jobs
+from narranexus_plugins.job_module.job_recovery import rearm_user_no_quota_jobs
 
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
-_READINESS = "narranexus.platform.module_system.job_module.job_recovery.ProviderReadiness"
+_READINESS = "narranexus_plugins.job_module.job_recovery.ProviderReadiness"
 
 
 async def _insert_paused(db, job_id, user_id="user_1"):

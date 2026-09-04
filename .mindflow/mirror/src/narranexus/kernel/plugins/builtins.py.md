@@ -81,3 +81,7 @@ The six channel builtins and builtin.home_assistant provide `ingress.channels` (
 ## 2026-09-04 · telegram / slack / discord provide no routes (batch 4d.3)
 
 Their bespoke routers were retired (the generic `/api/channels` router serves them); the manifests keep modules, triggers, hooks and the channel descriptor. lark / wechat / narramessenger still provide their channel-specific routers (OAuth, QR, prewarm).
+
+## 2026-09-04 · builtin module packages live under plugins/ (batch 6b)
+
+The 17 module builtins' contributions are named through `_PLUG = "narranexus_plugins"` — each is a uv workspace member at `plugins/<id>/src/narranexus_plugins/<pkg>/` with its own `pyproject.toml`, `narranexus-plugin.json` (an on-disk copy of the entry here; the package test asserts equality until distributions generate this list in 6c), `api.py` facade, README, CHANGELOG and tests. The platform-side contribution tables (`module_system.contributions`) stay in the engine.

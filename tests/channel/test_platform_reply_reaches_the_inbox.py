@@ -190,7 +190,7 @@ class TestStreamingPathCapturesPlatformReply:
 
     @staticmethod
     def _handler_and_state():
-        from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+        from narranexus_plugins.narramessenger_module.matrix_trigger import (
             MatrixTrigger,
             _StreamReplyState,
         )

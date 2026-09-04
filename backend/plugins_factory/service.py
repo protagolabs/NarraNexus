@@ -293,7 +293,7 @@ class FactoryService:
         log.append(UiError(at=time.time(), kind=kind, message=message[:2000], stack=stack[:8000]))
         try:
             # The self-extension observation window reads these rows (audit timeline in the plugin home).
-            from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.state import Audit
+            from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.state import Audit
 
             Audit().record(agent_id="", user_id="", plugin_id=plugin_id, action="ui_error", why=kind, extra={"message": message[:500]})
         except Exception as exc:  # noqa: BLE001 — never fail an error report
@@ -303,14 +303,14 @@ class FactoryService:
     # ----------------------------------------------------------- proposals
 
     def proposals(self, *, pending_only: bool = True) -> list[dict[str, Any]]:
-        from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+        from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
 
         return [asdict(p) for p in ProposalStore().list(pending_only=pending_only)]
 
     def decide_proposal(self, proposal_id: str, *, approved: bool, by: str) -> dict[str, Any]:
         self._guard_mutation()
-        from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
-        from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
+        from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.service import SelfExtensionService
+        from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.state import ProposalStore
 
         p = ProposalStore().get(proposal_id)
         if p is None:

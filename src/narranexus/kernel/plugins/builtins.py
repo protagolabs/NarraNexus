@@ -25,6 +25,7 @@ _FRAMEWORK = "narranexus.platform.agent_framework"
 _NP = "narranexus.platform.agent_framework.nexus_power.extension_points"
 _NP_PROTO = "narranexus.platform.agent_framework.nexus_power.contracts.protocols"
 _MODULE = "narranexus.platform.module_system"
+_PLUG = "narranexus_plugins"  # the builtin module packages (workspace members under plugins/, batch 6b)
 _DRIVERS = "narranexus.platform.agent_framework.providers.driver.drivers"
 
 BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
@@ -154,7 +155,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module AwarenessModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0, "hook": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_AWARENESS"], "agent.capabilities.data_access": ["narranexus.platform.module_system.awareness_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.awareness:ROUTES", "backend.routes.agents.profile:ROUTES"], "backend.hooks": ["narranexus.platform.module_system.awareness_module.plugin_hooks:HOOKS"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_AWARENESS"], "agent.capabilities.data_access": ["narranexus_plugins.awareness_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.awareness:ROUTES", "backend.routes.agents.profile:ROUTES"], "backend.hooks": ["narranexus_plugins.awareness_module.plugin_hooks:HOOKS"]},
         "quality": "gold",
     },
     {
@@ -164,7 +165,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module BasicInfoModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_BASIC_INFO"], "agent.capabilities.data_access": ["narranexus.platform.module_system.basic_info_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.narrative:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_BASIC_INFO"], "agent.capabilities.data_access": ["narranexus_plugins.basic_info_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.narrative:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -174,7 +175,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module ChatModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "hook": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHAT"], "backend.hooks": ["narranexus.platform.module_system.chat_module.plugin_hooks:HOOKS"], "agent.capabilities.data_access": ["narranexus.platform.module_system.chat_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.chat_history:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHAT"], "backend.hooks": ["narranexus_plugins.chat_module.plugin_hooks:HOOKS"], "agent.capabilities.data_access": ["narranexus_plugins.chat_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.chat_history:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -184,7 +185,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module SocialNetworkModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "data_access": 0, "route": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SOCIAL_NETWORK"], "agent.capabilities.data_access": ["narranexus.platform.module_system.social_network_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.social_network:ROUTES"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_SOCIAL_NETWORK"], "agent.capabilities.data_access": ["narranexus_plugins.social_network_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.social_network:ROUTES"]},
         "quality": "gold",
     },
     {
@@ -194,7 +195,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module JobModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "data_access": 0, "route": 0, "hook": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_JOB"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["narranexus.platform.module_system.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"], "backend.hooks": ["narranexus.platform.module_system.job_module.plugin_hooks:HOOKS"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_JOB"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_JOB"], "agent.capabilities.data_access": ["narranexus_plugins.job_module.data_access:DATA_ACCESS"], "backend.routes": ["backend.routes.agents.jobs:ROUTES", "backend.routes.jobs:ROUTES", "backend.routes.dashboard.jobs:ROUTES"], "backend.hooks": ["narranexus_plugins.job_module.plugin_hooks:HOOKS"]},
         "quality": "gold",
     },
     {
@@ -244,7 +245,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module HomeAssistantModule.",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "route": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_HOME_ASSISTANT"], "backend.routes": ["backend.routes.home_assistant:ROUTES"], "ingress.channels": ["narranexus.platform.module_system.home_assistant_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_HOME_ASSISTANT"], "backend.routes": ["backend.routes.home_assistant:ROUTES"], "ingress.channels": ["narranexus_plugins.home_assistant_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -259,7 +260,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "backend": {"pip": ["lark-oapi>=1.4.0,<2.0.0"], "imports": ["lark_oapi"]},
         "install": {"deps": "on_demand"},
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_LARK"], "backend.routes": ["backend.routes.channels.lark:ROUTES"], "backend.hooks": ["narranexus.platform.module_system.lark_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.lark_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_LARK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_LARK"], "backend.routes": ["backend.routes.channels.lark:ROUTES"], "backend.hooks": ["narranexus_plugins.lark_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.lark_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -269,7 +270,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module SlackModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.hooks": ["narranexus.platform.module_system.slack_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.slack_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_SLACK"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_SLACK"], "backend.hooks": ["narranexus_plugins.slack_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.slack_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -279,7 +280,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module TelegramModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.hooks": ["narranexus.platform.module_system.telegram_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.telegram_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_TELEGRAM"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_TELEGRAM"], "backend.hooks": ["narranexus_plugins.telegram_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.telegram_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -289,7 +290,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module WeChatModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_WECHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_WECHAT"], "backend.routes": ["backend.routes.channels.wechat:ROUTES"], "backend.hooks": ["narranexus.platform.module_system.wechat_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.wechat_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_WECHAT"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_WECHAT"], "backend.routes": ["backend.routes.channels.wechat:ROUTES"], "backend.hooks": ["narranexus_plugins.wechat_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.wechat_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -299,7 +300,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module NarramessengerModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"], "backend.routes": ["backend.routes.channels.narramessenger:ROUTES"], "backend.hooks": ["narranexus.platform.module_system.narramessenger_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.narramessenger_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"], "backend.routes": ["backend.routes.channels.narramessenger:ROUTES"], "backend.hooks": ["narranexus_plugins.narramessenger_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.narramessenger_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {
@@ -309,7 +310,7 @@ BUILTIN_MANIFEST_DATA: tuple[dict[str, Any], ...] = (
         "description": "Builtin module DiscordModule (IM channel: trigger + module + tools).",
         "hosts": ["backend", "mcp", "workers"],
         "api": {"module": 0, "trigger": 0, "route": 0, "hook": 0, "channel": 0},
-        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.hooks": ["narranexus.platform.module_system.discord_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus.platform.module_system.discord_module.descriptor:CHANNEL"]},
+        "provides": {"agent.capabilities.modules": ["narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_DISCORD"], "ingress.triggers": ["narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_DISCORD"], "backend.hooks": ["narranexus_plugins.discord_module.plugin_hooks:HOOKS"], "ingress.channels": ["narranexus_plugins.discord_module.descriptor:CHANNEL"]},
         "quality": "gold",
     },
     {

@@ -218,7 +218,7 @@ class TestModulePromptsDoNotContradictTheProtocol:
     """
 
     def test_narramessenger_dm_instruction_defers_to_the_protocol(self):
-        from narranexus.platform.module_system.narramessenger_module import (
+        from narranexus_plugins.narramessenger_module import (
             narramessenger_module as nm,
         )
 
@@ -231,7 +231,7 @@ class TestModulePromptsDoNotContradictTheProtocol:
     def test_the_module_prompt_only_references_and_does_not_copy(self):
         """If the rule text itself is duplicated, the next protocol edit
         silently leaves a stale copy behind."""
-        from narranexus.platform.module_system.narramessenger_module import (
+        from narranexus_plugins.narramessenger_module import (
             narramessenger_module as nm,
         )
 

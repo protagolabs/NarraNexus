@@ -1,0 +1,38 @@
+{
+  "id": "builtin.job",
+  "version": "1.0.0",
+  "displayName": "Job",
+  "description": "Builtin module JobModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "data_access": 0,
+    "route": 0,
+    "hook": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus.platform.module_system.contributions:PLUGIN_JOB"
+    ],
+    "ingress.triggers": [
+      "narranexus.platform.module_system.contributions:TRIGGERS_JOB"
+    ],
+    "agent.capabilities.data_access": [
+      "narranexus_plugins.job_module.data_access:DATA_ACCESS"
+    ],
+    "backend.routes": [
+      "backend.routes.agents.jobs:ROUTES",
+      "backend.routes.jobs:ROUTES",
+      "backend.routes.dashboard.jobs:ROUTES"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.job_module.plugin_hooks:HOOKS"
+    ]
+  },
+  "quality": "gold"
+}

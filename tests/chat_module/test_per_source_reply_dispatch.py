@@ -25,10 +25,10 @@ import pytest
 
 # Import the lark_module so it registers its handler. We rely on
 # import-time registration here, mirroring how production backends boot.
-import narranexus.platform.module_system.lark_module  # noqa: F401
+import narranexus_plugins.lark_module  # noqa: F401
 import narranexus.platform.message_bus  # noqa: F401
 
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,

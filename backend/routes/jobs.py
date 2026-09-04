@@ -23,7 +23,7 @@ Refactoring notes (2026-01-04):
 Refactoring notes (2026-08-10):
 - Added update/pause/search-semantic/search-keywords — the backend half of the
   MCP data-access seam. Each mirrors the matching tool in
-  src/narranexus/platform/module_system/job_module/_job_mcp_tools.py exactly (same
+  plugins/builtin.job/src/narranexus_plugins/job_module/_job_mcp_tools.py exactly (same
   repository/service calls, same response shape) so a non-agent caller (e.g. a
   frontend panel) gets identical semantics to the agent's own tools. Gated by
   `assert_owned` — the dashboard route's pause/resume (job_recovery, status
@@ -44,7 +44,7 @@ from backend.routes._ownership import assert_owned
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
 from narranexus.platform.repository import JobRepository
-from narranexus.platform.module_system.job_module import (
+from narranexus_plugins.job_module import (
     # aliased: the search route handlers below share these names
     search_jobs_semantic as _shared_search_semantic,
     search_jobs_by_keywords as _shared_search_keywords,
@@ -490,7 +490,7 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
 
         # 3. Create Jobs via JobInstanceService (creates ModuleInstance + Job records)
         db_client = await get_db_client()
-        from narranexus.platform.module_system.job_module.job_service import JobInstanceService
+        from narranexus_plugins.job_module.job_service import JobInstanceService
         job_service = JobInstanceService(db_client)
 
         job_ids = []
@@ -557,7 +557,7 @@ async def create_job_complex(body: CreateJobComplexRequest, request: Request):
 async def update_job(job_id: str, request: Request, body: JobUpdateBody):
     """
     Update Job fields — mirrors the `job_update` MCP tool, sharing the
-    `narranexus.platform.module_system.job_module.update_job_from_args` implementation.
+    `narranexus_plugins.job_module.update_job_from_args` implementation.
     Only passed fields change.
     """
     await assert_owned(request, body.agent_id)
@@ -587,7 +587,7 @@ async def update_job(job_id: str, request: Request, body: JobUpdateBody):
 async def pause_job(job_id: str, request: Request, body: JobPauseBody):
     """
     Pause a Job — mirrors the `job_pause` MCP tool
-    (narranexus.platform.module_system.job_module._job_mcp_tools job_pause).
+    (narranexus_plugins.job_module._job_mcp_tools job_pause).
 
     Unconditional: sets status to PAUSED regardless of the current status (no
     precondition check). This differs from the dashboard route's
@@ -637,7 +637,7 @@ async def search_jobs_semantic(
     Search jobs by relevance to a natural-language query — the frontend-facing
     twin of the `job_retrieval_semantic` MCP tool. Both this route and the
     MCP-tool/seam path now call the ONE shared implementation
-    (`narranexus.platform.module_system.job_module.search_jobs_semantic`), so the job read
+    (`narranexus_plugins.job_module.search_jobs_semantic`), so the job read
     semantics can't drift between the browser API and the agent path.
 
     Despite the name, this is BM25 keyword ranking, not vector cosine similarity
@@ -673,7 +673,7 @@ async def search_jobs_by_keywords(
     """
     Search jobs by keyword matching — the frontend-facing twin of the
     `job_retrieval_by_keywords` MCP tool. Shares the ONE implementation
-    (`narranexus.platform.module_system.job_module.search_jobs_by_keywords`) with the
+    (`narranexus_plugins.job_module.search_jobs_by_keywords`) with the
     agent path — see search_jobs_semantic above for the user-scoping rationale.
     """
     await assert_owned(request, agent_id)

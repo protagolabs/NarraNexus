@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module import narra_cli_client as ncc
-from narranexus.platform.module_system.narramessenger_module.narra_cli_client import (
+from narranexus_plugins.narramessenger_module import narra_cli_client as ncc
+from narranexus_plugins.narramessenger_module.narra_cli_client import (
     NarraCliClient,
     _resolve_narra_cli,
 )

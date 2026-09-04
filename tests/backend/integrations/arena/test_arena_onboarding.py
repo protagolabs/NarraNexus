@@ -543,7 +543,7 @@ def test_generic_awareness_has_confidentiality_rule():
     # Defense-in-depth: the generic confidentiality principle is in the awareness
     # instruction template, so every agent (incl. already-provisioned ones) gets
     # it live, with no scenario naming (铁律 #4: generic stays generic).
-    from narranexus.platform.module_system.awareness_module.prompts import (
+    from narranexus_plugins.awareness_module.prompts import (
         AWARENESS_MODULE_INSTRUCTIONS,
     )
 

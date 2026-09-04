@@ -46,3 +46,7 @@ Also the home of `TRIGGER_SPECS` (six channel triggers, the `jobs` clock as host
 ## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
 
 The registry view is the only module table; usages renamed.
+
+## 2026-09-04 · module specs load from `narranexus_plugins` (batch 6b)
+
+`ModuleSpec.load_class` imports `narranexus_plugins.<package>.<package>`; the descriptor refs (`_MOD`) name the same namespace. The builtin module code is no longer under `module_system/`.

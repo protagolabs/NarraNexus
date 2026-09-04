@@ -16,9 +16,9 @@ import pytest
 
 from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from narranexus.platform.module_system.lark_module import lark_trigger as lark_trigger_mod
-from narranexus.platform.module_system.lark_module._lark_credential_manager import LarkCredential
-from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module import lark_trigger as lark_trigger_mod
+from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 def _make_cred(agent_id: str = "agent_test") -> LarkCredential:

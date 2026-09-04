@@ -33,7 +33,7 @@ from narranexus.platform.message_bus.message_bus_trigger import (
     TurnResult,
 )
 from narranexus.platform.module_system._mcp_identity import agent_id_headers
-from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 from narranexus.platform.schema.team_schema import (

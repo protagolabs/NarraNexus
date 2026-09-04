@@ -180,7 +180,7 @@ def test_the_tools_take_no_team_argument():
     in — the thing this design removes rather than validates."""
     import inspect
 
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools as m
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools as m
 
     src = inspect.getsource(m)
     pin = src[src.index("async def team_pin_rule(") :]

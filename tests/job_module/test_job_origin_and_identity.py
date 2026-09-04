@@ -38,8 +38,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from narranexus.platform.module_system.job_module.job_service import JobInstanceService
-from narranexus.platform.module_system.job_module._job_writes import create_job_from_args
+from narranexus_plugins.job_module.job_service import JobInstanceService
+from narranexus_plugins.job_module._job_writes import create_job_from_args
 from narranexus.platform.schema.job_schema import JobOrigin
 
 
@@ -217,7 +217,7 @@ def test_a_room_job_is_told_its_reply_goes_to_the_room():
     pin the tool NAMES rather than prose, because a name is what the agent has
     to be able to call.
     """
-    from narranexus.platform.module_system.job_module.prompts import (
+    from narranexus_plugins.job_module.prompts import (
         JOB_DELIVERY_TO_OWNER,
         JOB_DELIVERY_TO_ROOM,
         job_delivery_instructions,
@@ -245,7 +245,7 @@ def test_a_room_job_is_told_its_reply_goes_to_the_room():
 @pytest.mark.asyncio
 async def test_the_report_lands_in_the_room_that_asked(db_client, monkeypatch):
     """Acceptance #4, end to end on the delivery side."""
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _async_db():
@@ -283,7 +283,7 @@ async def test_an_owner_chat_job_posts_nowhere(db_client, monkeypatch):
     must not ALSO get a platform post, or every private reminder would grow a
     duplicate somewhere.
     """
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _async_db():
@@ -316,7 +316,7 @@ async def test_the_report_carries_its_provenance(db_client, monkeypatch):
     watched this turn happen, so an unstamped line is a piece of text with no
     way back to what produced it.
     """
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _async_db():
@@ -356,7 +356,7 @@ async def test_a_failed_room_job_says_so_in_the_room(db_client, monkeypatch):
     reminder, and without this they simply never hear about it again — the same
     broken hand-off, one surface over.
     """
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _async_db():
@@ -399,7 +399,7 @@ async def test_an_empty_run_does_not_put_a_metadata_block_in_the_room(
     (PRD acceptance #8), which the return value below pins.
     """
     from narranexus.platform.agent_runtime.run_collector import RunCollection
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _async_db():
@@ -422,7 +422,7 @@ async def test_an_empty_run_does_not_put_a_metadata_block_in_the_room(
             return RunCollection(output_text="", tool_calls=[], event_id="evt_x")
 
     monkeypatch.setattr(
-        "narranexus.platform.module_system.job_module.job_trigger."
+        "narranexus_plugins.job_module.job_trigger."
         "get_agent_runtime_client",
         lambda: _Client(),
     )
@@ -446,7 +446,7 @@ async def test_an_undeliverable_report_does_not_fail_the_job(db_client, monkeypa
     failed one and re-arm it, so the same work runs again for a bookkeeping
     error.
     """
-    from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+    from narranexus_plugins.job_module.job_trigger import JobTrigger
     from narranexus.platform.schema.job_schema import JobModel, TriggerConfig
 
     async def _boom():

@@ -24,10 +24,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from nio import RoomSendError, RoomSendResponse
 
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
 from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
@@ -253,7 +253,7 @@ def test_extract_output_ignores_other_tool_calls():
 
 # ── memory extractor (MessageSourceRegistry handler) ────────────────────
 def test_memory_extractor_recognises_narra_reply_and_send():
-    from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
+    from narranexus_plugins.narramessenger_module.narramessenger_module import (
         _extract_narramessenger_reply,
     )
     assert _extract_narramessenger_reply(
@@ -265,7 +265,7 @@ def test_memory_extractor_recognises_narra_reply_and_send():
 
 
 def test_memory_extractor_ignores_owner_and_others():
-    from narranexus.platform.module_system.narramessenger_module.narramessenger_module import (
+    from narranexus_plugins.narramessenger_module.narramessenger_module import (
         _extract_narramessenger_reply,
     )
     # notify_owner is the OWNER channel — not a room reply.

@@ -23,31 +23,31 @@ _DT = datetime(2026, 8, 11, 3, 4, 5, tzinfo=timezone.utc)
 
 
 def _cases():
-    from narranexus.platform.module_system.discord_module._discord_credential_manager import (
+    from narranexus_plugins.discord_module._discord_credential_manager import (
         DiscordCredential,
         _cred_from_raw as discord_from_raw,
     )
-    from narranexus.platform.module_system.slack_module._slack_credential_manager import (
+    from narranexus_plugins.slack_module._slack_credential_manager import (
         SlackCredential,
         _cred_from_raw as slack_from_raw,
     )
-    from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
+    from narranexus_plugins.telegram_module._telegram_credential_manager import (
         TelegramCredential,
         _cred_from_raw as telegram_from_raw,
     )
-    from narranexus.platform.module_system.wechat_module._wechat_credential_manager import (
+    from narranexus_plugins.wechat_module._wechat_credential_manager import (
         WeChatCredential,
         _cred_from_raw as wechat_from_raw,
     )
-    from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+    from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
         NarramessengerCredential,
         _cred_from_raw as narra_from_raw,
     )
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+    from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredential,
         _cred_from_raw as lark_from_raw,
     )
-    from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.binding import (
+    from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import (
         _HABindingCred,
         _cred_from_raw as ha_from_raw,
     )

@@ -19,10 +19,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus.platform.module_system.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
 from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage

@@ -19,7 +19,7 @@ is_runnable, and a classifier error stays conservatively False.
 import pytest
 
 from narranexus.platform.agent_framework.providers.resolver import ProviderAvailability
-from narranexus.platform.module_system.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module.job_trigger import JobTrigger
 
 _PATH = "narranexus.platform.agent_framework.providers.resolver.classify_provider_for_user"
 

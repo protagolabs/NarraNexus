@@ -36,7 +36,7 @@ from narranexus.platform.agent_framework.loop.broker_client import (
     wait_until_ready,
 )
 from narranexus.platform.agent_runtime.executor_reaper import no_live_recorded_run_for
-from narranexus.platform.module_system.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
 from narranexus.platform.repository.agent_repository import AgentRepository

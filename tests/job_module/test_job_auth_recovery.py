@@ -19,7 +19,7 @@ import pytest
 
 from narranexus.platform.repository import JobRepository
 from narranexus.platform.schema.job_schema import JobStatus
-from narranexus.platform.module_system.job_module.job_trigger import (
+from narranexus_plugins.job_module.job_trigger import (
     JobTrigger,
     _is_auth_failure,
     _MAX_CONSECUTIVE_FAILURES,
@@ -109,7 +109,7 @@ async def test_repeated_auth_failures_never_escalate_to_failed(db_client):
 
 @pytest.mark.asyncio
 async def test_reactivating_zombie_recomputes_next_run_and_clears_failure(db_client):
-    from narranexus.platform.module_system.job_module.job_service import JobInstanceService
+    from narranexus_plugins.job_module.job_service import JobInstanceService
 
     # Zombie: active but next_run NULL, stale pause/failure state.
     await _insert_job(

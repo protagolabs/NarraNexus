@@ -28,7 +28,7 @@ import time
 
 import pytest
 
-from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 from narranexus.platform.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )

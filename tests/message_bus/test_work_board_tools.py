@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module import _work_board_mcp_tools as mod
+from narranexus_plugins.message_bus_module import _work_board_mcp_tools as mod
 from narranexus.platform.repository.team_work_repository import TeamWorkItemRepository
 from narranexus.platform.schema.team_work_schema import WorkItemStatus
 

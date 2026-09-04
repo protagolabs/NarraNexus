@@ -16,10 +16,10 @@ import pytest
 
 from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from narranexus.platform.module_system.telegram_module.telegram_context_builder import (
+from narranexus_plugins.telegram_module.telegram_context_builder import (
     TelegramContextBuilder,
 )
 from narranexus.platform.schema.parsed_message import (

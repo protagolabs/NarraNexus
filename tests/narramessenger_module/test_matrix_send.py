@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from narranexus.platform.module_system.narramessenger_module import _matrix_send as ms
-from narranexus.platform.module_system.narramessenger_module._matrix_send import (
+from narranexus_plugins.narramessenger_module import _matrix_send as ms
+from narranexus_plugins.narramessenger_module._matrix_send import (
     MatrixSendError,
     msgtype_for_mime,
     resolve_workspace_file,

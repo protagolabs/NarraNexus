@@ -17,10 +17,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from narranexus.platform.module_system.discord_module._discord_credential_manager import (
+from narranexus_plugins.discord_module._discord_credential_manager import (
     DiscordCredential,
 )
-from narranexus.platform.module_system.discord_module.discord_trigger import DiscordTrigger
+from narranexus_plugins.discord_module.discord_trigger import DiscordTrigger
 from narranexus.platform.schema.parsed_message import ChatType, MessageContentType
 
 

@@ -39,7 +39,7 @@ step3 = importlib.import_module(
     "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
 )
 from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema import AgentTextDelta, ProgressMessage
 
 WECHAT_TAG = {"channel": "wechat", "room_id": "wxid_peer", "agent_id": "agent_x"}

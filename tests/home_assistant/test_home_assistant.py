@@ -17,11 +17,11 @@ import socket
 
 import pytest
 
-from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.binding import (
+from narranexus_plugins.home_assistant_module._home_assistant_impl.binding import (
     NOT_CONFIGURED,
     resolve_client,
 )
-from narranexus.platform.module_system.home_assistant_module._home_assistant_impl.ha_client import (
+from narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client import (
     HAClient,
     HAError,
     validate_base_url,
@@ -76,7 +76,7 @@ def test_validate_base_url_rejects_metadata_host():
 def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
     # In cloud mode the backend shares a network with internal services, so a
     # user-supplied private/loopback host is an SSRF vector — reject it.
-    import narranexus.platform.module_system.home_assistant_module._home_assistant_impl.ha_client as hc
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
     monkeypatch.setattr(hc, "is_cloud_mode", lambda: True)
     for internal in ("http://127.0.0.1:8123", "http://192.168.1.10:8123", "http://10.0.0.5:8000"):
@@ -87,7 +87,7 @@ def test_validate_base_url_cloud_blocks_private_ssrf(monkeypatch):
 
 
 def test_validate_base_url_local_allows_lan(monkeypatch):
-    import narranexus.platform.module_system.home_assistant_module._home_assistant_impl.ha_client as hc
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
 
     monkeypatch.setattr(hc, "is_cloud_mode", lambda: False)
     assert hc.validate_base_url("http://192.168.1.10:8123") == "http://192.168.1.10:8123"
@@ -178,7 +178,7 @@ class _StubBindingRepo:
 def test_resolve_client_unconfigured(monkeypatch):
     # With no binding row, resolve_client returns the actionable NOT_CONFIGURED
     # message (never raises) so the tool can relay it to the user.
-    import narranexus.platform.module_system.home_assistant_module._home_assistant_impl.binding as b
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.binding as b
 
     monkeypatch.setattr(b, "HomeAssistantBindingRepository", _StubBindingRepo)
 

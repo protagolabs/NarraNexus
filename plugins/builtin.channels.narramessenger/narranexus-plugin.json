@@ -1,0 +1,36 @@
+{
+  "id": "builtin.channels.narramessenger",
+  "version": "1.0.0",
+  "displayName": "Narramessenger",
+  "description": "Builtin module NarramessengerModule (IM channel: trigger + module + tools).",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "route": 0,
+    "hook": 0,
+    "channel": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus.platform.module_system.contributions:PLUGIN_CHANNELS_NARRAMESSENGER"
+    ],
+    "ingress.triggers": [
+      "narranexus.platform.module_system.contributions:TRIGGERS_CHANNELS_NARRAMESSENGER"
+    ],
+    "backend.routes": [
+      "backend.routes.channels.narramessenger:ROUTES"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.narramessenger_module.plugin_hooks:HOOKS"
+    ],
+    "ingress.channels": [
+      "narranexus_plugins.narramessenger_module.descriptor:CHANNEL"
+    ]
+  },
+  "quality": "gold"
+}

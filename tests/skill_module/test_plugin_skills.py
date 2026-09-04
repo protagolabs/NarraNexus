@@ -11,7 +11,7 @@ from pathlib import Path
 from narranexus.contracts.skill import SkillSpec
 from narranexus.kernel.plugins.registries import Registries
 from narranexus.kernel.plugins.registry import Contribution
-from narranexus.platform.module_system.skill_module.skill_module import SkillModule
+from narranexus_plugins.skill_module.skill_module import SkillModule
 
 
 def _skill(dir_: Path, name: str, desc: str) -> Path:

@@ -587,7 +587,7 @@ def listen_wechat(agent_id: str, max_messages: int = 0) -> None:
     one home — run via `uv run python`."""
     import asyncio as _asyncio
 
-    from narranexus.platform.module_system.wechat_module.wechat_sdk_client import (
+    from narranexus_plugins.wechat_module.wechat_sdk_client import (
         WeChatSDKClient,
         extract_text,
     )

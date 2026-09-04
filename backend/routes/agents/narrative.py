@@ -16,7 +16,7 @@ without db credentials in the mcp container.
 
 The read endpoints (view_narrative / view_event / switch) return the EXACT dict
 the seam's DirectStore returns — both call the shared, dialect-safe
-``narranexus.platform.module_system.basic_info_module._narrative_reads`` helpers — so the
+``narranexus_plugins.basic_info_module._narrative_reads`` helpers — so the
 Http and in-process paths are byte-identical (the raw-SQL MCP tools they replace
 are migrated onto this seam).
 
@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 from backend.auth import resolve_current_user_id
 from backend.routes._ownership import assert_owned
 from narranexus.platform.narrative import NarrativeService
-from narranexus.platform.module_system.basic_info_module import (
+from narranexus_plugins.basic_info_module import (
     fetch_narrative_view,
     fetch_event_view,
     check_narrative_switch,

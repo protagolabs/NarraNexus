@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from narranexus.platform.module_system.chat_module._chat_writes import (
+from narranexus_plugins.chat_module._chat_writes import (
     agent_chat_has_history,
     build_bootstrap_greeting_row,
     seed_bootstrap_greeting,

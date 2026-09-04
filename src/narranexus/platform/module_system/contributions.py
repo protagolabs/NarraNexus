@@ -38,7 +38,7 @@ class ModuleSpec:
     def load_class(self) -> type:
         # The class lives in the leaf named like its package (chat_module/chat_module.py);
         # several packages deliberately do not re-export it from __init__.
-        leaf = importlib.import_module(f"narranexus.platform.module_system.{self.package}.{self.package}")
+        leaf = importlib.import_module(f"narranexus_plugins.{self.package}.{self.package}")
         return getattr(leaf, self.class_name)
 
     def contribution(self) -> Contribution[type]:
@@ -92,7 +92,7 @@ def spec_for(class_name: str) -> ModuleSpec:
 # is absent (matrix-nio, ...) isolates itself instead of breaking the map —
 # the same per-channel import isolation channel_trigger_map.py always had.
 TRIGGERS_SLOT = "ingress.triggers"
-_MOD = "narranexus.platform.module_system"
+_MOD = "narranexus_plugins"
 
 TRIGGER_SPECS: tuple[tuple[str, TriggerSpec], ...] = (
     ("builtin.channels.lark", TriggerSpec("lark", f"{_MOD}.lark_module.lark_trigger:LarkTrigger")),

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import narranexus.platform.message_bus  # noqa: F401 — triggers registration
 from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema import ProgressMessage
 from narranexus.platform.schema.runtime_message import ProgressStatus
 
@@ -62,7 +62,7 @@ def test_non_delivery_bus_tools_do_not_count():
     Enumerated rather than listed, so a tool added later is covered without
     anyone remembering to add it here.
     """
-    from narranexus.platform.module_system.message_bus_module import _message_bus_mcp_tools
+    from narranexus_plugins.message_bus_module import _message_bus_mcp_tools
 
     SENDS = {"message_agent", "message_team"}
     names: list[str] = []

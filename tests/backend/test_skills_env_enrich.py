@@ -49,7 +49,7 @@ def _patch_available(monkeypatch, vars_available):
         "narranexus.platform.utils.db.db_factory.get_db_client", _db, raising=False
     )
     monkeypatch.setattr(
-        "narranexus.platform.module_system.skill_module.skill_module.platform_env_available",
+        "narranexus_plugins.skill_module.skill_module.platform_env_available",
         _available,
     )
 

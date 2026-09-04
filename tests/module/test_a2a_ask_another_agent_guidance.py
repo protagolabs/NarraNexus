@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -110,7 +110,7 @@ def test_instructions_stay_byte_stable_across_calls():
 
 @pytest.mark.asyncio
 async def test_get_contact_info_description_disclaims_and_redirects():
-    from narranexus.platform.module_system.social_network_module.social_network_module import (
+    from narranexus_plugins.social_network_module.social_network_module import (
         SocialNetworkModule,
     )
 

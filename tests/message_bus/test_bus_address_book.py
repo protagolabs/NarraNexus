@@ -24,8 +24,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from narranexus.platform.module_system.message_bus_module import message_bus_module as mbm
-from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module import message_bus_module as mbm
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MAX_TEAMS_IN_CONTEXT,
     MessageBusModule,
 )

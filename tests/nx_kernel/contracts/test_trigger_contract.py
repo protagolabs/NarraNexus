@@ -32,7 +32,7 @@ def test_invalid_specs_fail_loud(kwargs):
 
 
 def test_resolve_imports_lazily_and_class_name_is_static():
-    spec = TriggerSpec("lark", "narranexus.platform.module_system.lark_module.lark_trigger:LarkTrigger")
+    spec = TriggerSpec("lark", "narranexus_plugins.lark_module.lark_trigger:LarkTrigger")
     assert spec.class_name == "LarkTrigger" and spec.host == "channels"
     assert spec.resolve().channel_name == "lark"
     with pytest.raises(ModuleNotFoundError):

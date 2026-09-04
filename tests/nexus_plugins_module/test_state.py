@@ -10,8 +10,8 @@ import time
 
 import pytest
 
-from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl import state as st
-from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.guards import APPROVAL_TIMEOUT_S
+from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl import state as st
+from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.guards import APPROVAL_TIMEOUT_S
 
 
 def test_proposal_lifecycle(env):

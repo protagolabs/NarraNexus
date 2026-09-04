@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl import guards as g
+from narranexus_plugins.nexus_plugins_module._nexus_plugins_impl import guards as g
 
 
 def test_ids_and_kinds():

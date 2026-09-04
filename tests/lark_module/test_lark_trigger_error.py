@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from narranexus.platform.agent_runtime.run_collector import RunError
-from narranexus.platform.module_system.lark_module.lark_trigger import (
+from narranexus_plugins.lark_module.lark_trigger import (
     LarkTrigger,
     format_lark_error_reply,
 )
@@ -108,7 +108,7 @@ class _ErrorRuntime:
 async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
     """On ERROR, the trigger must call lark-cli send_message with a
     user-friendly text and return the same text."""
-    from narranexus.platform.module_system.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
 
     # 1) Stub out AgentRuntime so we don't need a real DB / LLM / MCP.
     monkeypatch.setattr(
@@ -155,7 +155,7 @@ async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
 async def test_build_and_run_agent_swallows_lark_send_failure(monkeypatch):
     """If the error-reply itself fails to send, _build_and_run_agent must
     still return the friendly text so the inbox row is written correctly."""
-    from narranexus.platform.module_system.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
 
     monkeypatch.setattr(
         "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",

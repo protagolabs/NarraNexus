@@ -285,7 +285,7 @@ def test_every_out_of_credit_reason_pauses_the_circuit_breaker():
 def test_every_out_of_credit_reason_resumes_only_on_an_edge():
     """A balance top-up leaves config unchanged, so the static readiness check
     cannot observe it. Any out-of-credit reason must therefore be edge-only."""
-    from narranexus.platform.module_system.job_module.job_trigger import (
+    from narranexus_plugins.job_module.job_trigger import (
         _EDGE_ONLY_RESUME_REASONS,
     )
 

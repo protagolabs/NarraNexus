@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from narranexus.platform.module_system.common_tools_module._common_tools_impl.artifact_tool import (
+from narranexus_plugins.common_tools_module._common_tools_impl.artifact_tool import (
     LIST_ARTIFACTS_PAGE_SIZE,
     list_artifacts_impl,
 )

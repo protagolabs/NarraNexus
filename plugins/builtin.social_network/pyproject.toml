@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-social-network"
+version = "1.0.0"
+description = "Builtin module SocialNetworkModule."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# The engine (narranexus) hosts this package; a distribution installs both.
+dependencies = []
+
+[project.optional-dependencies]
+full = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]

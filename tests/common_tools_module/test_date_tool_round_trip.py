@@ -33,8 +33,8 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 
 from narranexus.platform.context_runtime.context_runtime import ContextRuntime
-from narranexus.platform.module_system.common_tools_module._common_tools_impl import date_tool
-from narranexus.platform.module_system.common_tools_module._common_tools_impl.date_tool import (
+from narranexus_plugins.common_tools_module._common_tools_impl import date_tool
+from narranexus_plugins.common_tools_module._common_tools_impl.date_tool import (
     _parse_date,
 )
 from narranexus.platform.utils.timezone import (

@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.platform.module_system._mcp_identity import agent_id_headers
-from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     _send_turn_source,
 )
 from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE

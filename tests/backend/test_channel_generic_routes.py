@@ -122,7 +122,7 @@ def test_builtin_bind_body_is_checked_against_bind_fields(client, monkeypatch):
 def test_builtin_set_active_and_credential_read_the_generic_store(client, db_client):
     """Lark's binding flips through the same store row as every channel (its
     manager has set_is_active, not set_enabled — the route no longer cares)."""
-    from narranexus.platform.module_system.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager, _encode_secret
+    from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager, _encode_secret
 
     H = {"X-User-Id": "u1"}
     asyncio_run = __import__("asyncio").run

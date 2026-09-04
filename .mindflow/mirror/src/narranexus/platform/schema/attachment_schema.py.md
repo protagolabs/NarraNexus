@@ -34,10 +34,10 @@ Producers:
 Consumers:
 - `backend/routes/websocket.py::AgentRunRequest` accepts a list of
   Attachment dicts via `attachments`
-- `narranexus.platform.module_system.chat_module.chat_module` persists them on
+- `narranexus_plugins.chat_module.chat_module` persists them on
   the user message in JSON memory and synthesizes natural-language
   markers (with absolute paths) for chat_history
-- `narranexus.platform.module_system.common_tools_module.common_tools_module`
+- `narranexus_plugins.common_tools_module.common_tools_module`
   injects the same paths into a system-prompt block for the current turn
 - `frontend/src/components/chat/MessageBubble.tsx` renders thumbnails
   for `category=image`, file chips otherwise

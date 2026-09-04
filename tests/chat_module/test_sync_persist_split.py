@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,

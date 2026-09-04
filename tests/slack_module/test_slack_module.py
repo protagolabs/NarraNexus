@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 
 from narranexus.platform.module_system import module_registry
-from narranexus.platform.module_system.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from narranexus.platform.module_system.slack_module.slack_module import SlackModule
+from narranexus_plugins.slack_module.slack_module import SlackModule
 from narranexus.platform.schema import ContextData, ModuleConfig
 
 
@@ -118,7 +118,7 @@ async def test_no_bot_block_clarifies_manifest_name_fields_are_editable():
     Setup-residency note (2026-07-24): the walkthrough left the per-turn
     prompt; it is served by slack_bind() with no arguments. The wording
     guards below now assert against the constant it returns."""
-    from narranexus.platform.module_system.slack_module.slack_module import (
+    from narranexus_plugins.slack_module.slack_module import (
         _NO_BOT_INSTRUCTION,
     )
     text = _NO_BOT_INSTRUCTION
@@ -180,7 +180,7 @@ async def test_iron_rules_enforce_at_mention_only_in_channels():
     Setup-residency note (2026-07-24): iron rules only matter for BOUND
     agents now (unbound ones get a one-liner), so assert against the
     constants directly."""
-    from narranexus.platform.module_system.slack_module.slack_module import (
+    from narranexus_plugins.slack_module.slack_module import (
         _NO_BOT_INSTRUCTION,
         _SLACK_IRON_RULES,
     )

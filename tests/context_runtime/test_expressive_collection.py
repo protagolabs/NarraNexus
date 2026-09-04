@@ -195,8 +195,8 @@ async def test_real_modules_bus_turn_defaults_to_bus_delivery(monkeypatch):
     to pick."""
     from unittest.mock import MagicMock
 
-    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -229,8 +229,8 @@ async def test_team_room_turn_declares_the_room_send(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
     from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
@@ -298,8 +298,8 @@ async def test_the_desk_never_declares_a_tool_it_suppresses(monkeypatch):
     """
     from unittest.mock import MagicMock
 
-    from narranexus.platform.module_system.chat_module.chat_module import ChatModule
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.chat_module.chat_module import ChatModule
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
     from narranexus.platform.schema import BUS_TEAM_ROOM_EXTRA_KEY
@@ -379,7 +379,7 @@ async def test_patrol_declares_nothing_and_keeps_both_verbs_off_the_desk(monkeyp
     """
     from unittest.mock import MagicMock
 
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
     from narranexus.platform.schema import (

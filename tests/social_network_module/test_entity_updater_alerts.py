@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-import narranexus.platform.module_system.social_network_module._entity_updater as eu
+import narranexus_plugins.social_network_module._entity_updater as eu
 
 class _BoomSDK:
     """A helper SDK whose LLM is dead — the 2026-07 expired-key shape."""

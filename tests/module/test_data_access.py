@@ -540,7 +540,7 @@ def _social_direct(monkeypatch, *, has_instance=True, method_result=None,
 
     monkeypatch.setattr("narranexus.platform.repository.InstanceRepository", FakeInstanceRepo)
     monkeypatch.setattr(
-        "narranexus.platform.module_system.social_network_module.SocialNetworkModule", FakeSocial
+        "narranexus_plugins.social_network_module.SocialNetworkModule", FakeSocial
     )
     return store
 
@@ -568,7 +568,7 @@ def test_social_extract_success_parity(monkeypatch):
 
 
 def test_social_no_instance_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import social_instance_not_found_msg
+    from narranexus_plugins.social_network_module import social_instance_not_found_msg
 
     expected = {"success": False, "message": social_instance_not_found_msg(AGENT)}
     d = _social_direct(monkeypatch, has_instance=False)
@@ -736,7 +736,7 @@ def test_social_contact_parity(monkeypatch):
     # Both DirectStore and the route shape recall_entity_info via the SAME
     # format_contact_result — feed the http side the real function's output so
     # the equality is a genuine cross-path check.
-    from narranexus.platform.module_system.social_network_module import format_contact_result
+    from narranexus_plugins.social_network_module import format_contact_result
 
     recall = {"success": True, "entity": {"entity_name": "Alice", "contact_info": {"email": "a@x.com"}}}
     expected = {"success": True, "entity_id": "u1", "entity_name": "Alice", "contact_info": {"email": "a@x.com"}}
@@ -749,7 +749,7 @@ def test_social_contact_parity(monkeypatch):
 
 
 def test_social_contact_not_found_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import format_contact_result
+    from narranexus_plugins.social_network_module import format_contact_result
 
     recall = {"success": False, "message": "No information found for entity: u9"}
     expected = {"success": False, "message": "No information found for entity: u9"}
@@ -762,7 +762,7 @@ def test_social_contact_not_found_parity(monkeypatch):
 
 
 def test_social_stats_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import format_stats_result
+    from narranexus_plugins.social_network_module import format_stats_result
 
     stats_list = [{"entity_name": "Bob", "interaction_count": 3}]
     expected = {"success": True, "sort_by": "recent", "count": 1, "results": stats_list}
@@ -775,7 +775,7 @@ def test_social_stats_parity(monkeypatch):
 
 
 def test_social_read_no_instance_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import social_instance_not_found_msg
+    from narranexus_plugins.social_network_module import social_instance_not_found_msg
 
     # search/stats no-instance carry results:[]; contact does NOT (matches tools).
     search_exp = {"success": False, "message": social_instance_not_found_msg(AGENT), "results": []}
@@ -866,7 +866,7 @@ def _create_agent_direct(monkeypatch, *, caller_created_by="u1", caller_exists=T
 
 
 def test_create_agent_success_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import format_create_agent_success
+    from narranexus_plugins.social_network_module import format_create_agent_success
 
     expected = format_create_agent_success("Scout", "agent_new123", [])
     d = _create_agent_direct(monkeypatch)
@@ -881,7 +881,7 @@ def test_create_agent_success_parity(monkeypatch):
 
 
 def test_create_agent_warnings_surfaced_on_both(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import format_create_agent_success
+    from narranexus_plugins.social_network_module import format_create_agent_success
 
     expected = format_create_agent_success("Scout", "agent_n", ["instance_factory: boom"])
     assert expected["warnings"] == ["instance_factory: boom"]
@@ -893,7 +893,7 @@ def test_create_agent_warnings_surfaced_on_both(monkeypatch):
 
 
 def test_create_agent_no_owner_parity(monkeypatch):
-    from narranexus.platform.module_system.social_network_module import CREATE_AGENT_NO_OWNER_MSG
+    from narranexus_plugins.social_network_module import CREATE_AGENT_NO_OWNER_MSG
 
     expected = {"success": False, "message": CREATE_AGENT_NO_OWNER_MSG}
     d = _create_agent_direct(monkeypatch, caller_created_by=None)
@@ -970,7 +970,7 @@ def _basic_direct(monkeypatch, db):
 
 
 def test_view_narrative_parity(monkeypatch):
-    from narranexus.platform.module_system.basic_info_module._narrative_reads import fetch_narrative_view
+    from narranexus_plugins.basic_info_module._narrative_reads import fetch_narrative_view
 
     db = _FakeNarrDb(
         narratives={"nar_1": {"agent_id": AGENT, "narrative_info": {"name": "Trip", "description": "d", "current_summary": "s"}, "topic_keywords": ["k"]}},
@@ -1000,7 +1000,7 @@ def test_view_narrative_cross_tenant_is_not_found_on_both(monkeypatch):
 
 
 def test_view_event_parity_and_agent_scoped(monkeypatch):
-    from narranexus.platform.module_system.basic_info_module._narrative_reads import fetch_event_view
+    from narranexus_plugins.basic_info_module._narrative_reads import fetch_event_view
 
     db = _FakeNarrDb(events={"evt_1": {"agent_id": AGENT, "narrative_id": "nar_1", "trigger": "manual", "trigger_source": "user", "env_context": {"input": "go"}, "final_output": "done", "event_log": "log", "created_at": "2026-01-01T00:00:00"}})
     expected = asyncio.run(fetch_event_view(db, AGENT, "evt_1"))
@@ -1121,11 +1121,11 @@ def _patch_job_repo(monkeypatch, *, job=None, search_hits=None, keyword_hits=Non
         async def search_by_keywords(self, agent_id, keywords, user_id, status, limit):
             return keyword_hits or []
 
-    monkeypatch.setattr("narranexus.platform.module_system.job_module._job_reads.JobRepository", _FakeJobRepo)
+    monkeypatch.setattr("narranexus_plugins.job_module._job_reads.JobRepository", _FakeJobRepo)
 
 
 def test_job_by_id_parity(monkeypatch):
-    from narranexus.platform.module_system.job_module import fetch_job_by_id
+    from narranexus_plugins.job_module import fetch_job_by_id
 
     job = _FakeJob()
     _patch_job_repo(monkeypatch, job=job)
@@ -1156,7 +1156,7 @@ def test_job_by_id_not_found(monkeypatch):
 
 
 def test_job_semantic_parity_and_limit_clamp(monkeypatch):
-    from narranexus.platform.module_system.job_module import search_jobs_semantic
+    from narranexus_plugins.job_module import search_jobs_semantic
 
     job = _FakeJob()
     _patch_job_repo(monkeypatch, search_hits=[(job, 0.9)])
@@ -1185,7 +1185,7 @@ def test_job_semantic_invalid_status_parity(monkeypatch):
 
 
 def test_job_by_keywords_parity_and_truncation(monkeypatch):
-    from narranexus.platform.module_system.job_module import search_jobs_by_keywords
+    from narranexus_plugins.job_module import search_jobs_by_keywords
 
     long_desc = "x" * 250
     job = _FakeJob(description=long_desc)
@@ -1305,12 +1305,12 @@ def _patch_job_writes(monkeypatch, *, job=None, update_result=None, capture=None
             return {"success": True, "job_id": job_id,
                     "updated_fields": list(updates.keys()), "message": "Updated"}
 
-    monkeypatch.setattr("narranexus.platform.module_system.job_module._job_writes.JobRepository", _FakeJobRepo)
-    monkeypatch.setattr("narranexus.platform.module_system.job_module.job_service.JobInstanceService", _FakeService)
+    monkeypatch.setattr("narranexus_plugins.job_module._job_writes.JobRepository", _FakeJobRepo)
+    monkeypatch.setattr("narranexus_plugins.job_module.job_service.JobInstanceService", _FakeService)
 
 
 def test_job_update_parity(monkeypatch):
-    from narranexus.platform.module_system.job_module import update_job_from_args
+    from narranexus_plugins.job_module import update_job_from_args
 
     result = {"success": True, "job_id": "job_1", "updated_fields": ["title"], "message": "Updated"}
     _patch_job_writes(monkeypatch, job=_FakeJob(), update_result=result)
@@ -1379,7 +1379,7 @@ def test_job_update_one_off_to_scheduled_recomputes_next_run(monkeypatch):
     # regressed, compute_next_run would see the OLD one_off type, return None,
     # and silently zombify the job (pre-open review #4). This asserts the
     # computed `updates` directly so a reordering ships red, not green.
-    from narranexus.platform.module_system.job_module import update_job_from_args
+    from narranexus_plugins.job_module import update_job_from_args
     from narranexus.platform.schema import JobType
 
     job = _FakeJob()  # job_type == one_off, trigger_config is None
@@ -1432,7 +1432,7 @@ def _patch_job_create(monkeypatch, *, result, capture=None):
                 capture.update(kw)
             return result
 
-    monkeypatch.setattr("narranexus.platform.module_system.job_module.job_service.JobInstanceService", _FakeService)
+    monkeypatch.setattr("narranexus_plugins.job_module.job_service.JobInstanceService", _FakeService)
 
 
 def _patch_job_pause_cancel(monkeypatch, *, job, rows=1):
@@ -1449,7 +1449,7 @@ def _patch_job_pause_cancel(monkeypatch, *, job, rows=1):
         async def cancel_job(self, job_id):
             return rows
 
-    monkeypatch.setattr("narranexus.platform.module_system.job_module._job_writes.JobRepository", _FakeJobRepo)
+    monkeypatch.setattr("narranexus_plugins.job_module._job_writes.JobRepository", _FakeJobRepo)
 
 
 def test_job_create_parity(monkeypatch):
@@ -1539,7 +1539,7 @@ def test_update_agent_profile_direct_delegates_to_shared_fn(monkeypatch):
         return "Profile updated successfully (agent_name)."
 
     monkeypatch.setattr(
-        "narranexus.platform.module_system.awareness_module.update_agent_profile_from_args", fake_fn
+        "narranexus_plugins.awareness_module.update_agent_profile_from_args", fake_fn
     )
     d = _basic_direct(monkeypatch, object())
     out = asyncio.run(d.update_agent_profile(AGENT, "New", None))
@@ -1637,7 +1637,7 @@ def _chat_memory(*msgs):
 
 
 def test_get_chat_history_parity(monkeypatch):
-    from narranexus.platform.module_system.chat_module import fetch_chat_history
+    from narranexus_plugins.chat_module import fetch_chat_history
 
     db = _FakeChatDb(
         {"chat_1": AGENT},
@@ -1660,7 +1660,7 @@ def test_get_chat_history_foreign_instance_is_empty_no_oracle(monkeypatch):
     # chat_1 belongs to other_agent; AGENT asking for it must get EMPTY history,
     # indistinguishable from an own instance with no messages — closes the IDOR.
     # Non-vacuous: without the instance-scope check fetch would return the secret.
-    from narranexus.platform.module_system.chat_module import fetch_chat_history
+    from narranexus_plugins.chat_module import fetch_chat_history
 
     db = _FakeChatDb(
         {"chat_1": "other_agent"},
@@ -1675,14 +1675,14 @@ def test_get_chat_history_foreign_instance_is_empty_no_oracle(monkeypatch):
 
 
 def test_get_chat_history_unknown_instance_is_empty(monkeypatch):
-    from narranexus.platform.module_system.chat_module import fetch_chat_history
+    from narranexus_plugins.chat_module import fetch_chat_history
     db = _FakeChatDb({}, {})
     out = asyncio.run(fetch_chat_history(db, AGENT, "chat_ghost", 20))
     assert out["success"] is True and out["messages"] == []
 
 
 def test_get_chat_history_limit_tail_and_all(monkeypatch):
-    from narranexus.platform.module_system.chat_module import fetch_chat_history
+    from narranexus_plugins.chat_module import fetch_chat_history
     msgs = [{"role": "user", "content": str(i)} for i in range(10)]
     db = _FakeChatDb({"chat_1": AGENT}, {"chat_1": _chat_memory(*msgs)})
     out5 = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 5))
@@ -1695,7 +1695,7 @@ def test_get_chat_history_limit_tail_and_all(monkeypatch):
 
 
 def test_get_chat_history_bad_json_is_a_format_error(monkeypatch):
-    from narranexus.platform.module_system.chat_module import fetch_chat_history
+    from narranexus_plugins.chat_module import fetch_chat_history
     db = _FakeChatDb({"chat_1": AGENT}, {"chat_1": "{not valid json"})
     out = asyncio.run(fetch_chat_history(db, AGENT, "chat_1", 20))
     assert out["success"] is False and "format error" in out["error"]

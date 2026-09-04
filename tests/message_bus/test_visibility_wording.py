@@ -25,7 +25,7 @@ that knows.
 from __future__ import annotations
 
 from narranexus.platform.message_bus.system_messages import SYSTEM_SENDER_LABEL
-from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -289,7 +289,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     """
     import inspect
 
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         MessageBusModule,
     )
 
@@ -335,7 +335,7 @@ def test_the_input_tagging_branch_is_gone_not_merely_unreachable():
     # held: the prompt text has several negatives, this docstring has the two
     # above, the mirror is held by review. Re-adding the retracted line up there
     # would have left the suite green.
-    from narranexus.platform.module_system.message_bus_module import message_bus_module as mod
+    from narranexus_plugins.message_bus_module import message_bus_module as mod
 
     assert "prefixed with [MessageBus" not in (mod.__doc__ or "")
 
@@ -348,7 +348,7 @@ def test_the_worked_example_is_the_tag_the_code_actually_emits():
     is never there and finds the CHANNEL in the position it was told holds an
     id. Generated from the same helper so the two cannot drift again.
     """
-    from narranexus.platform.module_system.message_bus_module.message_bus_module import (
+    from narranexus_plugins.message_bus_module.message_bus_module import (
         _bus_tag,
     )
 

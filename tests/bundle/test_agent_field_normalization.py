@@ -261,7 +261,7 @@ async def test_a_dedupe_rename_corrects_the_imported_identity_memory(
     justified this file as a creation path with "no previous name to correct" —
     which was not true of it, and a gate is only worth its reasons.
     """
-    from narranexus.platform.module_system.awareness_module import IDENTITY_CHANGE_SECTION
+    from narranexus_plugins.awareness_module import IDENTITY_CHANGE_SECTION
 
     await _seed_agent(db_client, "agent_idm0001src", "owner", "小绿")
     await _seed_agent(db_client, "agent_idm0001own", "importer_idm", "小绿")

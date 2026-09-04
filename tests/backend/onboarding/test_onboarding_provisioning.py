@@ -111,7 +111,7 @@ def _wire(monkeypatch, rec, *, users, agents=(), job_fails=False, provision_dela
         FakeSkillSvc,
     )
     monkeypatch.setattr(
-        "narranexus.platform.module_system.job_module.job_service.JobInstanceService", FakeJobSvc
+        "narranexus_plugins.job_module.job_service.JobInstanceService", FakeJobSvc
     )
     monkeypatch.setattr(ob, "is_cloud_mode", lambda: True)
 

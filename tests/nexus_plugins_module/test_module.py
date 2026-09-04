@@ -14,7 +14,7 @@ from narranexus.kernel.plugins.builtins import builtin_manifests
 from narranexus.platform.module_system import module_registry
 from narranexus.platform.module_system._module_impl.loader import ModuleLoader
 from narranexus.platform.module_system.module_runner import CORE_MCP_MODULES
-from narranexus.platform.module_system.nexus_plugins_module import NexusPluginsModule
+from narranexus_plugins.nexus_plugins_module import NexusPluginsModule
 from narranexus.platform.schema.context_schema import ContextData
 
 TOOLS = {
@@ -60,7 +60,7 @@ def test_tools_answer_json_never_raise(env, tool, monkeypatch):
     }[tool]
     import json
 
-    monkeypatch.setattr("narranexus.platform.module_system.nexus_plugins_module._nexus_plugins_impl.service.agent_workspace_path", lambda a, u: env["workspace"])
+    monkeypatch.setattr("narranexus_plugins.nexus_plugins_module._nexus_plugins_impl.service.agent_workspace_path", lambda a, u: env["workspace"])
     result = asyncio.run(mcp.call_tool(tool, {**args, **extra}))
     content = result[0] if isinstance(result, tuple) else result  # (content, structured) on newer fastmcp
     first = content[0] if isinstance(content, list) else content.content[0]

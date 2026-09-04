@@ -177,7 +177,7 @@ def main() -> None:
     # Import channel modules so they register their MessageSourceHandlers.
     # In the live process this happens at startup; here we trigger it
     # manually so the dump renders rows with the right source prefixes.
-    import narranexus.platform.module_system.lark_module  # noqa: F401
+    import narranexus_plugins.lark_module  # noqa: F401
     import narranexus.platform.message_bus  # noqa: F401
 
     conn = sqlite3.connect(DB_PATH)

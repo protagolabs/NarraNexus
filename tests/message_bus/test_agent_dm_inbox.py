@@ -28,7 +28,7 @@ from narranexus.platform.channel.inbox_recorder import (
     agent_dm_thread_id,
 )
 from narranexus.platform.message_bus.local_bus import LocalMessageBus
-from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     register_message_bus_mcp_tools,
 )
 

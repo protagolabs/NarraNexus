@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
 )
-from narranexus.platform.module_system.lark_module import _lark_mcp_tools as tools
+from narranexus_plugins.lark_module import _lark_mcp_tools as tools
 
 
 # ───────────────────────── Fixtures ─────────────────────────

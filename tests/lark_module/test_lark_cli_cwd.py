@@ -36,7 +36,7 @@ from narranexus.platform.module_system.data_access.workspace_cwd import (
     _cwd_owner_cache,
     resolve_agent_workspace_cwd,
 )
-from narranexus.platform.module_system.lark_module.lark_cli_client import LarkCLIClient
+from narranexus_plugins.lark_module.lark_cli_client import LarkCLIClient
 
 # The shared owner cache is cleared by the repo-wide autouse fixture in
 # tests/conftest.py — every channel CLI test module shares that cache.
@@ -194,7 +194,7 @@ def _seam_env(cred, store, resolver):
             return_value=store,
         ),
         patch(
-            "narranexus.platform.module_system.lark_module._lark_credential_manager._cred_from_raw",
+            "narranexus_plugins.lark_module._lark_credential_manager._cred_from_raw",
             return_value=cred,
         ),
         patch.object(
@@ -206,7 +206,7 @@ def _seam_env(cred, store, resolver):
             new=AsyncMock(return_value={"success": True}),
         ),
         patch(
-            "narranexus.platform.module_system.lark_module.lark_cli_client."
+            "narranexus_plugins.lark_module.lark_cli_client."
             "resolve_agent_workspace_cwd",
             new=resolver,
         ),
@@ -250,7 +250,7 @@ async def test_run_with_agent_id_tolerates_unresolved_cwd(tmp_path: Path):
 async def test_run_with_agent_id_lazy_migration_persists_via_seam():
     """workspace_path=='' → path computed and persisted through the seam
     (works in both direct-db and zero-cred deployments)."""
-    from narranexus.platform.module_system.lark_module._lark_workspace import (
+    from narranexus_plugins.lark_module._lark_workspace import (
         get_workspace_path,
     )
 
@@ -276,7 +276,7 @@ async def test_run_with_agent_id_warns_when_migration_write_fails():
         return_value={"success": False, "error": "write_failed"}
     )
     with _seam_env(cred, store, AsyncMock(return_value=None)), patch(
-        "narranexus.platform.module_system.lark_module.lark_cli_client.logger"
+        "narranexus_plugins.lark_module.lark_cli_client.logger"
     ) as log:
         result = await LarkCLIClient()._run_with_agent_id(["im", "+ping"], "agent_x")
     assert result == {"success": True}, "a failed persist must not fail the call"

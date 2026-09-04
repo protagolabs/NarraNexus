@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.telegram_module import (
+from narranexus_plugins.telegram_module import (
     _telegram_credential_manager as cm_mod,
 )
-from narranexus.platform.module_system.telegram_module._telegram_credential_manager import (
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredentialManager,
 )
-from narranexus.platform.module_system.telegram_module.telegram_sdk_client import (
+from narranexus_plugins.telegram_module.telegram_sdk_client import (
     TelegramSDKError,
 )
 

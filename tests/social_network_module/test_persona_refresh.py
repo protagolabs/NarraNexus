@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.social_network_module._entity_updater import (
+from narranexus_plugins.social_network_module._entity_updater import (
     should_update_persona,
 )
 from narranexus.platform.schema import SocialNetworkEntity

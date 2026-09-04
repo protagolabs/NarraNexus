@@ -415,7 +415,7 @@ def test_direct_bind_delegates_to_do_bind(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"ok": 1}}
 
-    import narranexus.platform.module_system.discord_module._discord_service as ds
+    import narranexus_plugins.discord_module._discord_service as ds
     monkeypatch.setattr(ds, "do_bind", fake_do_bind)
     monkeypatch.setattr(
         "narranexus.platform.module_system.data_access.channel_store._manager_class",
@@ -442,7 +442,7 @@ def test_direct_bind_db_taker_passes_the_raw_db_not_a_manager(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"bound": 1}}
 
-    import narranexus.platform.module_system.narramessenger_module._narramessenger_service as ns
+    import narranexus_plugins.narramessenger_module._narramessenger_service as ns
     monkeypatch.setattr(ns, "do_bind", fake_do_bind)
     store = ChannelDirectStore()
 
@@ -460,7 +460,7 @@ def test_direct_test_connection_delegates_to_do_test(monkeypatch):
     async def fake_do_test(mgr, agent_id):
         return {"success": True, "data": {"live": True}}
 
-    import narranexus.platform.module_system.discord_module._discord_service as ds
+    import narranexus_plugins.discord_module._discord_service as ds
     monkeypatch.setattr(ds, "do_test_connection", fake_do_test)
     monkeypatch.setattr(
         "narranexus.platform.module_system.data_access.channel_store._manager_class",
@@ -704,7 +704,7 @@ def test_direct_lark_bind_dispatches_to_do_bind(monkeypatch):
         captured["fields"] = fields
         return {"success": True, "data": {"bound": True}}
 
-    import narranexus.platform.module_system.lark_module._lark_service as ls
+    import narranexus_plugins.lark_module._lark_service as ls
     monkeypatch.setattr(ls, "do_bind", fake_do_bind)
     monkeypatch.setattr(
         "narranexus.platform.module_system.data_access.channel_store._manager_class",
@@ -734,7 +734,7 @@ def test_direct_lark_unbind_uses_do_unbind_with_mgr_and_db(monkeypatch):
         seen["agent"] = agent_id
         return {"success": True, "data": {"unbound": True}}
 
-    import narranexus.platform.module_system.lark_module._lark_service as ls
+    import narranexus_plugins.lark_module._lark_service as ls
     monkeypatch.setattr(ls, "do_unbind", fake_do_unbind)
     monkeypatch.setattr(
         "narranexus.platform.module_system.data_access.channel_store._manager_class",

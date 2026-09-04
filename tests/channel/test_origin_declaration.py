@@ -89,10 +89,10 @@ def test_labels_speak_the_agent_s_two_situations(source, expected):
     third concept for nothing) and each channel says its own brand, cased the
     way that brand is actually written.
     """
-    import narranexus.platform.module_system.job_module  # noqa: F401
-    import narranexus.platform.module_system.lark_module  # noqa: F401
-    import narranexus.platform.module_system.narramessenger_module  # noqa: F401
-    import narranexus.platform.module_system.wechat_module  # noqa: F401
+    import narranexus_plugins.job_module  # noqa: F401
+    import narranexus_plugins.lark_module  # noqa: F401
+    import narranexus_plugins.narramessenger_module  # noqa: F401
+    import narranexus_plugins.wechat_module  # noqa: F401
 
     assert MessageSourceRegistry.get(source).label == expected
 

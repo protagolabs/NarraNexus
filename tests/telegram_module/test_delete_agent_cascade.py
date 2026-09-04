@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.telegram_module.telegram_module import TelegramModule
+from narranexus_plugins.telegram_module.telegram_module import TelegramModule
 
 
 @pytest.mark.asyncio

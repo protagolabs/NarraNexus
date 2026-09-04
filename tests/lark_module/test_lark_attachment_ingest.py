@@ -27,10 +27,10 @@ from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
 )
-from narranexus.platform.module_system.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 from narranexus.platform.schema.attachment_schema import AttachmentCategory
 
 

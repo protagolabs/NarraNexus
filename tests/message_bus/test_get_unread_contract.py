@@ -135,7 +135,7 @@ async def test_the_mark_read_path_must_see_beyond_the_injection_window(
     """
     from types import SimpleNamespace
 
-    from narranexus.platform.module_system.message_bus_module import message_bus_module as mod
+    from narranexus_plugins.message_bus_module import message_bus_module as mod
 
     await _room(db_client)
     await db_client.insert("bus_channels", {

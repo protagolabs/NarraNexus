@@ -156,7 +156,7 @@ already shows the volume pattern; k8s manifests need to mirror it.
 - `src/narranexus/platform/bundle/builder.py` — `_pack_workspace_sync` (path
   candidates: `_user_<user_id>` and `_<user_id>`)
 - `src/narranexus/platform/bundle/importer.py` — workspace tar extract target
-- `src/narranexus/platform/module_system/skill_module/skill_module.py` — pre-existing
+- `plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py` — pre-existing
   workspace path resolution
 
 ---

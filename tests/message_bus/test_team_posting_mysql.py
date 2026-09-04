@@ -182,7 +182,7 @@ async def test_platform_rows_are_excluded_in_sql_not_afterwards(env):
 
 @pytest.mark.asyncio
 async def test_the_dm_lookup_join_runs_on_mysql_and_gates_on_membership(env):
-    from narranexus.platform.module_system.message_bus_module._message_bus_mcp_tools import (
+    from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
         _resolve_conversation,
     )
 

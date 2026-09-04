@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from narranexus.platform.module_system.slack_module.slack_context_builder import (
+from narranexus_plugins.slack_module.slack_context_builder import (
     SlackContextBuilder,
 )
 from narranexus.platform.schema.parsed_message import (

@@ -30,13 +30,13 @@ import json
 
 import pytest
 
-from narranexus.platform.module_system.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     AUTH_STATUS_BOT_READY,
     AUTH_STATUS_BRAND_MISMATCH,
     LarkCredential,
     LarkCredentialManager,
 )
-from narranexus.platform.module_system.lark_module.lark_trigger import (
+from narranexus_plugins.lark_module.lark_trigger import (
     LarkTrigger,
     _is_brand_mismatch_error,
 )

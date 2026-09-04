@@ -29,13 +29,13 @@ from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from narranexus.platform.module_system.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from narranexus.platform.module_system.slack_module.slack_sdk_client import (
+from narranexus_plugins.slack_module.slack_sdk_client import (
     SlackSDKError,
 )
-from narranexus.platform.module_system.slack_module.slack_trigger import (
+from narranexus_plugins.slack_module.slack_trigger import (
     SlackTrigger,
 )
 from narranexus.platform.schema.attachment_schema import AttachmentCategory
@@ -254,7 +254,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(
             assert url.endswith("/report.pdf")
             return _FAKE_PDF
 
-    import narranexus.platform.module_system.slack_module.slack_trigger as st_mod
+    import narranexus_plugins.slack_module.slack_trigger as st_mod
     monkeypatch.setattr(st_mod, "SlackSDKClient", lambda *_a, **_kw: _StubSDK())
 
     parsed = trigger.parse_event(_dm_event(
@@ -308,7 +308,7 @@ async def test_fetch_attachments_hydrates_missing_url_via_files_info(
             assert url == "https://files.slack.com/recovered/report.pdf"
             return _FAKE_PDF
 
-    import narranexus.platform.module_system.slack_module.slack_trigger as st_mod
+    import narranexus_plugins.slack_module.slack_trigger as st_mod
     monkeypatch.setattr(st_mod, "SlackSDKClient", lambda *_a, **_kw: _StubSDK())
 
     parsed = trigger.parse_event(_dm_event(
@@ -343,7 +343,7 @@ async def test_fetch_attachments_oversized_pre_check(
             download_called.append(url)
             return b"should never run"
 
-    import narranexus.platform.module_system.slack_module.slack_trigger as st_mod
+    import narranexus_plugins.slack_module.slack_trigger as st_mod
     monkeypatch.setattr(st_mod, "SlackSDKClient", lambda *_a, **_kw: _StubSDK())
 
     from backend.config import settings as backend_settings
@@ -381,7 +381,7 @@ async def test_fetch_attachments_download_failure_audited(
         async def download_url(self, url, *, max_bytes):
             raise SlackSDKError("client_error:ClientConnectionError", "boom")
 
-    import narranexus.platform.module_system.slack_module.slack_trigger as st_mod
+    import narranexus_plugins.slack_module.slack_trigger as st_mod
     monkeypatch.setattr(st_mod, "SlackSDKClient", lambda *_a, **_kw: _StubSDK())
 
     parsed = trigger.parse_event(_dm_event(
@@ -417,7 +417,7 @@ async def test_fetch_attachments_partial_success(
                 raise SlackSDKError("http_500", "server error")
             return _FAKE_PDF
 
-    import narranexus.platform.module_system.slack_module.slack_trigger as st_mod
+    import narranexus_plugins.slack_module.slack_trigger as st_mod
     monkeypatch.setattr(st_mod, "SlackSDKClient", lambda *_a, **_kw: _StubSDK())
 
     parsed = trigger.parse_event(_dm_event(

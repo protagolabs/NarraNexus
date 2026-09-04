@@ -5,7 +5,7 @@ own suites; these assert the @mcp.tool() functions glue them correctly — a
 blocked command short-circuits before spawning, a valid command is sanitized and
 forwarded, and narra_guide serves the fetched doc.
 """
-from narranexus.platform.module_system.narramessenger_module import (
+from narranexus_plugins.narramessenger_module import (
     _narramessenger_mcp_tools as mt,
 )
 

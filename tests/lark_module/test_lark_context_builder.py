@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.lark_module.lark_context_builder import (
+from narranexus_plugins.lark_module.lark_context_builder import (
     LarkContextBuilder,
 )
 

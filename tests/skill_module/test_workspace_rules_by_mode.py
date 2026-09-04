@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.skill_module.skill_module import (
+from narranexus_plugins.skill_module.skill_module import (
     SKILL_INSTRUCTIONS_TEMPLATE,
     SkillModule,
     WORKSPACE_RULES_CLOUD,

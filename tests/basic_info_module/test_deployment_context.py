@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system.basic_info_module.basic_info_module import (
+from narranexus_plugins.basic_info_module.basic_info_module import (
     BasicInfoModule,
 )
-from narranexus.platform.module_system.basic_info_module.prompts import (
+from narranexus_plugins.basic_info_module.prompts import (
     BASIC_INFO_MODULE_INSTRUCTIONS,
     DEPLOYMENT_CONTEXT_CLOUD,
     DEPLOYMENT_CONTEXT_LOCAL,

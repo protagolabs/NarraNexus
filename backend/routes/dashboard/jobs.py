@@ -41,7 +41,7 @@ async def pause_job(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core (repository, not backend-specific SQL) — also keeps pause
     # semantics consistent with the JobTrigger state machine.
-    from narranexus.platform.module_system.job_module.job_recovery import pause_job as _pause
+    from narranexus_plugins.job_module.job_recovery import pause_job as _pause
     ok, detail = await _pause(job_id, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)
@@ -65,7 +65,7 @@ async def resume_job(job_id: str, request: Request):
         raise HTTPException(status_code=403, detail="not owned")
     # Portable core: handles paused / paused_no_quota / cooling / blocked_failed,
     # recomputes next_run, clears backoff state, flips to ACTIVE.
-    from narranexus.platform.module_system.job_module.job_recovery import resume_job as _resume
+    from narranexus_plugins.job_module.job_recovery import resume_job as _resume
     ok, detail = await _resume(job_id, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)
@@ -104,7 +104,7 @@ async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
     # exclude_none: only overlay the fields the user actually changed, so e.g.
     # editing just the cron keeps the existing timezone.
     new_fields = body.model_dump(exclude_none=True)
-    from narranexus.platform.module_system.job_module.job_recovery import reschedule_job as _reschedule
+    from narranexus_plugins.job_module.job_recovery import reschedule_job as _reschedule
     ok, detail = await _reschedule(job_id, new_fields, db)
     if not ok:
         raise HTTPException(status_code=400, detail=detail)

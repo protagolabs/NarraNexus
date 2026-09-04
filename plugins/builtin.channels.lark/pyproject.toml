@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-channels-lark"
+version = "1.0.0"
+description = "Builtin module LarkModule (IM channel: trigger + module + tools). The lark-oapi SDK installs on demand on a slim build."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# The engine (narranexus) hosts this package; a distribution installs both.
+dependencies = []
+
+[project.optional-dependencies]
+full = ["lark-oapi>=1.4.0,<2.0.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]

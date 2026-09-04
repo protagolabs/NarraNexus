@@ -38,7 +38,7 @@ Before writing any code:
    reference. Module base class, Instance lifecycle, three-tier
    Prompts, how MCP tools get per-agent context.
 3. **One existing module as a worked example.** Recommended:
-   `src/narranexus/platform/module_system/awareness_module/` — small, well-mirrored.
+   `plugins/builtin.awareness/src/narranexus_plugins/awareness_module/` — small, well-mirrored.
 
 ## Files you'll create
 

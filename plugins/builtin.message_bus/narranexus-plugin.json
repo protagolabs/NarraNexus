@@ -1,0 +1,20 @@
+{
+  "id": "builtin.message_bus",
+  "version": "1.0.0",
+  "displayName": "MessageBus",
+  "description": "Builtin module MessageBusModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus.platform.module_system.contributions:PLUGIN_MESSAGE_BUS"
+    ]
+  },
+  "quality": "gold"
+}

@@ -114,7 +114,7 @@ class _FakeMCP:
 
 @pytest.mark.asyncio
 async def test_mcp_tool_wrapper_resolves_its_own_db(db_client, monkeypatch):
-    from narranexus.platform.module_system.message_bus_module import (
+    from narranexus_plugins.message_bus_module import (
         _message_bus_mcp_tools as mod,
     )
     from narranexus.platform.utils.db import db_factory
