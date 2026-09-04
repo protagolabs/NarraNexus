@@ -47,9 +47,8 @@ import {
   SunkenWell,
 } from '@/components/nm';
 import { useConfirm } from '@/components/ui';
-import { OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
 import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
-import { getModelBrandIcon } from '@/lib/modelBrandIcons';
+import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { OwnedAgentStatus, UpdateAgentResponse } from '@/types';
@@ -416,7 +415,7 @@ export function AgentProfilePage() {
               frameworkInvertDark={frameworkIconInvertsInDark(FrameworkIcon)}
               modelLabel={model || '—'}
               ModelIcon={ModelIcon}
-              modelInvertDark={ModelIcon === OpenAIBrandIcon}
+              modelInvertDark={iconInvertsInDark(ModelIcon)}
               isRunning={isRunning}
               taskLabel={runningTask?.current_stage || ownedStatus?.verb_line || t('pages.agentProfile.idle')}
               jobsCount={jobs.length}
@@ -532,7 +531,7 @@ export function AgentProfilePage() {
                       value={model || '—'}
                       icon={Bot}
                       brandIcon={ModelIcon}
-                      brandInvertDark={ModelIcon === OpenAIBrandIcon}
+                      brandInvertDark={iconInvertsInDark(ModelIcon)}
                       testId="profile-model-config"
                     />
                   </div>

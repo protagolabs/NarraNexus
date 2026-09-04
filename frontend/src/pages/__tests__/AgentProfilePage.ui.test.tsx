@@ -206,7 +206,7 @@ describe('AgentProfilePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Model & Framework' }));
     expect(screen.getByTestId('profile-framework-config').querySelectorAll('svg, img')).toHaveLength(2);
     expect(screen.getByTestId('profile-model-config').querySelectorAll('svg, img')).toHaveLength(2);
-    expect(screen.getAllByText('Codex').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Codex CLI').length).toBeGreaterThan(0);
     expect(screen.getAllByText('gpt-5.5').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Configure' })).toBeTruthy();
   });

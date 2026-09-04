@@ -2,14 +2,18 @@
  * @file_name: frameworkBrand.ts
  * @author: NetMind.AI
  * @date: 2026-09-04
- * @description: The ONE place an agent framework id becomes a label and a
- * brand mark in the UI.
+ * @description: framework id → brand mark, plus the two rendering fallbacks
+ * the directory and the profile page rely on. LABELS ARE NOT DEFINED HERE:
+ * they are forwarded from `agentFramework.AGENT_FRAMEWORKS`, the list the
+ * framework pickers already render — so the directory column, the profile
+ * card and the settings dropdown can never disagree on a name.
  *
  * The Dashboard directory and the Agent Profile page each carried their own
- * copy of this map, and the two had already drifted once (one knew
- * `nexus_power`, the other did not — one page showed "Nexus Power", the other
- * the raw `nexus_power`, and tsc said nothing). Same layer as
- * `getModelBrandIcon` and the channel brand map.
+ * label + icon map, and the two had already drifted once (one knew
+ * `nexus_power`, the other did not — tsc said nothing). The first cut of this
+ * module fixed that by adding a THIRD label table, which disagreed with the
+ * pickers on two of three names ("Codex" vs "Codex CLI") — the same page could
+ * show both. Deriving from the picker list is the actual fix.
  *
  * Two behaviours callers rely on, both deliberate:
  *   - an UNKNOWN id is title-cased from the raw string, never mapped to some
@@ -19,22 +23,18 @@
  *     viewer's to see; inventing a default here would show a brand the agent
  *     may not be running on.
  *
- * The backend keeps a separate map for how the agent names its runtime in
- * its own system prompt (`model_identity.FRAMEWORK_DISPLAY_NAMES`). That is
- * prompt copy, not UI copy, and is not required to match these labels.
+ * Read the bare `AGENT_FRAMEWORKS`, never `availableFrameworks()`: the latter
+ * is filtered by what the current user's providers can back, and an agent
+ * running a framework this user cannot pick must still be labelled truthfully.
  */
 import type { ComponentType } from 'react';
 import { Bot } from 'lucide-react';
 import { ClaudeBrandIcon, OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
 import { NexusPowerBrandIcon } from '@/components/icons/ChannelBrandIcons';
+import { AGENT_FRAMEWORKS } from '@/lib/agentFramework';
+import { iconInvertsInDark } from '@/lib/modelBrandIcons';
 
 export type BrandIconComponent = ComponentType<{ className?: string }>;
-
-const FRAMEWORK_LABELS: Record<string, string> = {
-  claude_code: 'Claude Code',
-  codex_cli: 'Codex',
-  nexus_power: 'Nexus Power',
-};
 
 const FRAMEWORK_ICONS: Record<string, BrandIconComponent> = {
   claude_code: ClaudeBrandIcon,
@@ -42,17 +42,16 @@ const FRAMEWORK_ICONS: Record<string, BrandIconComponent> = {
   nexus_power: NexusPowerBrandIcon,
 };
 
-/** Human label for a framework id; '—' when unknown to the viewer. */
+/** Human label for a framework id — the picker's label; '—' when missing. */
 export function formatFramework(framework?: string | null): string {
   if (!framework) return '—';
-  return (
-    FRAMEWORK_LABELS[framework] ??
-    framework
-      .split('_')
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ')
-  );
+  const known = AGENT_FRAMEWORKS.find((f) => f.id === framework);
+  if (known) return known.label;
+  return framework
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 /** Brand mark for a framework id; the generic Bot glyph when unknown or missing. */
@@ -60,7 +59,8 @@ export function frameworkBrandIcon(framework?: string | null): BrandIconComponen
   return (framework && FRAMEWORK_ICONS[framework]) || Bot;
 }
 
-/** The OpenAI mark is black-on-transparent and needs inverting in dark mode. */
+/** Forwarded to the brand-icon layer's rule; kept so callers of this module
+ *  need not import icon components to ask. */
 export function frameworkIconInvertsInDark(icon: BrandIconComponent): boolean {
-  return icon === OpenAIBrandIcon;
+  return iconInvertsInDark(icon);
 }

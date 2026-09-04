@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/modelBrandIcons.ts
-last_verified: 2026-08-27
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-09-04 — `iconInvertsInDark`：黑底透明品牌图的唯一名单
+
+原来四处各自 `=== OpenAIBrandIcon`。再进一个黑底透明的 mark 时改这里一处，不用每页找。
+[[frameworkBrand.ts]] 与两个页面都改问它。
 
 # modelBrandIcons.ts — protocol / model-id → 品牌图标的匹配
 

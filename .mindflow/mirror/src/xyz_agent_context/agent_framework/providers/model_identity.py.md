@@ -8,7 +8,8 @@ stub: false
 
 它是 agent 在 system prompt 里的**自称**，不是 UI 标签；前端标签在
 [[../../../../frontend/src/lib/frameworkBrand.ts]]，文案刻意不同（"Claude Code" vs SDK 名）。
-原注释「Mirrors the frontend's provider dropdown copy」三处都对不上。改这里的值等于改
+二轮时我把注释改成「整体不要求一致」，三轮核对后更准的说法是：`codex_cli` / `nexus_power`
+与选择器一字不差，只有 `claude_code` 刻意不同（prompt 侧自称 SDK 名）；注释按此事实写。改这里的值等于改
 prompt，需单独确认。
 
 ## 2026-09-03 (评审修订) — 覆盖规则抽成纯函数，供目录投影共用

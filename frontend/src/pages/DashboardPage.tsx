@@ -65,8 +65,7 @@ import {
   TelegramBrandIcon,
   WeChatBrandIcon,
 } from '@/components/icons/ChannelBrandIcons';
-import { OpenAIBrandIcon } from '@/components/icons/ModelBrandIcons';
-import { getModelBrandIcon } from '@/lib/modelBrandIcons';
+import { getModelBrandIcon, iconInvertsInDark } from '@/lib/modelBrandIcons';
 import { formatFramework, frameworkBrandIcon, frameworkIconInvertsInDark } from '@/lib/frameworkBrand';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { AgentInfo, AgentStatus, OwnedAgentStatus } from '@/types';
@@ -928,7 +927,7 @@ export function DashboardPage() {
                                 <ModelIcon
                                   className={cn(
                                     'h-3.5 w-3.5',
-                                    ModelIcon === OpenAIBrandIcon && 'dark:invert',
+                                    iconInvertsInDark(ModelIcon) && 'dark:invert',
                                   )}
                                 />
                               </span>

@@ -4,7 +4,16 @@ last_verified: 2026-09-04
 stub: false
 ---
 
-# frameworkBrand.ts — framework id → UI 标签与品牌图标的唯一出处
+## 2026-09-04 (评审三轮) — 标签不再自己列，转发自 `AGENT_FRAMEWORKS`
+
+首版消掉两份拷贝时又造出第三份标签表，且与既有真源 `agentFramework.AGENT_FRAMEWORKS`
+（选择器渲染的那份）两项对不上（"Codex" vs "Codex CLI"、"Nexus Power" vs
+"NexusPower-beta"），同一页上能看到两个名字。现在 `formatFramework` 查
+`AGENT_FRAMEWORKS`（裸列表，不是按用户 provider 过滤的 `availableFrameworks()`），本模块只
+剩图标映射 + 两条兜底。暗色反色判定转发 [[modelBrandIcons.ts]] 的 `iconInvertsInDark`。
+测试 `frameworkBrand.test.ts` 钉住「标签等于选择器」「未知 title-case」「缺失 —」。
+
+# frameworkBrand.ts — framework id → 品牌图标 + 渲染兜底（标签转发自 agentFramework）
 
 ## 为什么存在
 

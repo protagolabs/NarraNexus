@@ -31,6 +31,16 @@ export function getProtocolBrandIcon(protocol: string | undefined): ProtocolIcon
  *  MODEL_SUGGESTION_GROUPS. A custom base_url provider can carry an
  *  arbitrary model id this can't place; callers fall back to a generic icon
  *  when this returns null. */
+/** Which brand marks are drawn black-on-transparent and need `dark:invert`
+ *  in dark mode. The ONE list — every page that renders a brand mark asks
+ *  here instead of comparing against a specific icon component, so a new
+ *  black-on-transparent mark is one entry rather than one edit per page. */
+const INVERTS_IN_DARK: ReadonlySet<unknown> = new Set([OpenAIBrandIcon]);
+
+export function iconInvertsInDark(icon: unknown): boolean {
+  return INVERTS_IN_DARK.has(icon);
+}
+
 export function getModelBrandIcon(modelId: string | undefined): ProtocolIconComponent | null {
   if (!modelId) return null;
   const id = modelId.toLowerCase();

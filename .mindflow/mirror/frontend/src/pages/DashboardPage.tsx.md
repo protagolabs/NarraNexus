@@ -6,7 +6,8 @@ stub: false
 
 ## 2026-09-04 — framework 标签/图标改走 `lib/frameworkBrand`
 
-本地 `FRAMEWORK_BRAND_ICONS` 与 `formatFramework` 删除（评审二轮 I2）。
+本地 `FRAMEWORK_BRAND_ICONS` 与 `formatFramework` 删除（评审二轮 I2）；模型图标的暗色反色改问
+`iconInvertsInDark`，不再 import `OpenAIBrandIcon`（三轮 M4）。
 
 ## 2026-09-03 (评审修订) — 行不再是 `role="link"`；渠道图标区分开关
 

@@ -7,10 +7,10 @@
     via monkeypatching providers.get_db_client, plus a fake auth middleware that
     lifts X-User-Id into request.state (same shape auth_middleware guarantees).
 """
-import re
-from collections import defaultdict
 
 import pytest
+
+from tests.fake_db import FakeDB
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -19,45 +19,7 @@ import backend.routes.providers as providers_mod
 OWNER = {"X-User-Id": "owner1"}
 
 
-class _FakeDB:
-    def __init__(self):
-        self.tables: dict[str, list[dict]] = defaultdict(list)
-
-    async def get(self, table, filters=None, fields=None, **_kw):
-        filters = filters or {}
-        rows = [
-            r for r in self.tables[table]
-            if all(r.get(k) == v for k, v in filters.items())
-        ]
-        if fields:
-            rows = [{k: r.get(k) for k in fields} for r in rows]
-        return rows
-
-    async def get_one(self, table, filters):
-        rows = await self.get(table, filters)
-        return rows[0] if rows else None
-
-    async def execute(self, query, params=None):
-        # Just enough SQL for the batch reads the slot service issues:
-        #   SELECT ... FROM <table> WHERE <col> IN (%s, %s, ...)
-        m = re.search(r"FROM\s+(\w+)\s+WHERE\s+(\w+)\s+IN\s*\(", query)
-        assert m, f"fake db cannot run: {query}"
-        table, col = m.group(1), m.group(2)
-        wanted = set(params or ())
-        return [dict(r) for r in self.tables[table] if r.get(col) in wanted]
-
-    async def insert(self, table, data):
-        self.tables[table].append(dict(data))
-
-    async def delete(self, table, filters):
-        before = len(self.tables[table])
-        self.tables[table] = [
-            r for r in self.tables[table]
-            if not all(r.get(k) == v for k, v in filters.items())
-        ]
-        return before - len(self.tables[table])
-
-
+_FakeDB = FakeDB
 @pytest.fixture
 def db():
     return _FakeDB()

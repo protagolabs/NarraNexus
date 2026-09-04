@@ -12,10 +12,10 @@ resolution and upsert/get/clear round-trip are covered here too.
 """
 from __future__ import annotations
 
-import re
-from collections import defaultdict
 
 import pytest
+
+from tests.fake_db import FakeDB
 
 from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
 from xyz_agent_context.agent_framework.providers.user_service import (
@@ -23,48 +23,7 @@ from xyz_agent_context.agent_framework.providers.user_service import (
 )
 
 
-class _FakeDB:
-    def __init__(self):
-        self.tables: dict[str, list[dict]] = defaultdict(list)
-
-    async def get(self, table, filters=None):
-        filters = filters or {}
-        return [
-            r for r in self.tables[table]
-            if all(r.get(k) == v for k, v in filters.items())
-        ]
-
-    async def get_one(self, table, filters):
-        rows = await self.get(table, filters)
-        return rows[0] if rows else None
-
-    async def execute(self, query, params=None):
-        # Just enough SQL for the batch reads the slot service issues:
-        #   SELECT ... FROM <table> WHERE <col> IN (%s, %s, ...)
-        m = re.search(r"FROM\s+(\w+)\s+WHERE\s+(\w+)\s+IN\s*\(", query)
-        assert m, f"fake db cannot run: {query}"
-        table, col = m.group(1), m.group(2)
-        wanted = set(params or ())
-        return [dict(r) for r in self.tables[table] if r.get(col) in wanted]
-
-    async def insert(self, table, data):
-        self.tables[table].append(dict(data))
-
-    async def update(self, table, filters, data):
-        rows = await self.get(table, filters)
-        for r in rows:
-            r.update(data)
-        return len(rows)
-
-    async def delete(self, table, filters):
-        before = len(self.tables[table])
-        self.tables[table] = [
-            r for r in self.tables[table]
-            if not all(r.get(k) == v for k, v in filters.items())
-        ]
-        return before - len(self.tables[table])
-
-
+_FakeDB = FakeDB
 async def _owned_agent(db, agent_id="ag1", owner="u1"):
     await db.insert("agents", {"agent_id": agent_id, "created_by": owner})
     return UserProviderService(db)
