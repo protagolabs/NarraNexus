@@ -95,8 +95,15 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     reg = _store().read()
+
+    def _quality(path: str) -> str:
+        try:
+            return str(json.loads((Path(path) / "narranexus-plugin.json").read_text(encoding="utf-8")).get("quality", "bronze"))
+        except (OSError, ValueError):
+            return "?"
+
     rows = [
-        {"id": pid, "version": r.installed_version, "enabled": r.enabled, "state": r.state, "mode": r.mode, "scope": r.scope, "path": r.path, "error": r.last_error}
+        {"id": pid, "version": r.installed_version, "enabled": r.enabled, "state": r.state, "mode": r.mode, "scope": r.scope, "quality": _quality(r.path), "path": r.path, "error": r.last_error}
         for pid, r in sorted(reg.plugins.items())
     ]
     if args.json:
@@ -108,7 +115,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("no user plugins")
     for r in rows:
         flag = "on " if r["enabled"] else "off"
-        print(f"{flag} {r['id']:<32} {r['version']:<10} {r['state']:<14} {r['mode']:<5} {r['scope']}  {r['error'] or ''}")
+        print(f"{flag} {r['id']:<32} {r['version']:<10} {r['state']:<14} {r['mode']:<5} {r['scope']:<6} {r['quality']:<7} {r['error'] or ''}")
     return 0
 
 

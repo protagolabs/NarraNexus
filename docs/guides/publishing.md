@@ -12,6 +12,12 @@
 5. To enter the index, open a metadata PR to `protagolabs/narranexus-plugins`
    (`id`, `repo`, `author`, `description`, `tags`, `kinds`). Inclusion is a
    metadata check, not a code review — the factory page says so to users.
+   The index repo's layout and its validator are in `examples/index-repo/`.
+
+`narranexus plugin new` writes `.github/workflows/plugin-ci.yml` into the plugin
+repo: every push runs the tests and `publish-check`; a tag equal to the manifest
+version publishes the release assets of step 3. `narranexus plugin list` shows
+each installed plugin's quality level.
 
 ## Quality levels
 

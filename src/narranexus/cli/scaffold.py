@@ -54,6 +54,46 @@ def _is_artifact(rel: Path) -> bool:
     return any(part in _ARTIFACT_DIRS for part in rel.parts) or rel.name in _ARTIFACT_FILES or rel.suffix == ".pyc"
 
 
+PLUGIN_CI_WORKFLOW = """name: plugin
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv && uv pip install narranexus pytest pytest-asyncio
+      - run: uv run pytest tests -q
+      - run: uv run narranexus plugin publish-check .
+  release:
+    # A tag equal to the manifest version publishes the release assets a host installs from
+    # (owner/repo@<version>): the manifest, backend.zip, versions.json and the built frontend bundle.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          test "$(python3 -c 'import json;print(json.load(open("narranexus-plugin.json"))["version"])')" = "${GITHUB_REF_NAME}"
+          zip -r backend.zip backend
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            narranexus-plugin.json
+            backend.zip
+            versions.json
+            frontend/dist/plugin.js
+            frontend/dist/styles.css
+          fail_on_unmatched_files: false
+"""
+
+
 def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str, templates_dir: Path = TEMPLATES_DIR) -> list[Path]:
     manifest: dict[str, Any] = {
         "id": plugin_id,
@@ -117,6 +157,11 @@ def scaffold(plugin_id: str, kinds: list[str], dest: Path, *, display_name: str,
         versions.write_text(json.dumps({"0.1.0": manifest["minAppVersion"]}, indent=2) + "\n", encoding="utf-8")
         written.append(versions)
     (dest / "tests").mkdir(exist_ok=True)
+    workflow = dest / ".github" / "workflows" / "plugin-ci.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text(PLUGIN_CI_WORKFLOW, encoding="utf-8")
+    written.append(workflow)
+
     return written
 
 

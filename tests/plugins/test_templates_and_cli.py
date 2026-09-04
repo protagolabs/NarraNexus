@@ -94,3 +94,35 @@ def test_cli_toggles_builtins_through_overrides(home: Path, capsys):
     assert "builtin.teams" not in json.loads(registry_path().read_text())["builtin_overrides"]
     assert cli(["plugin", "disable", "builtin.nexus_plugins_module"]) != 0  # protected
     assert cli(["plugin", "disable", "builtin.does_not_exist"]) != 0
+
+
+def test_scaffold_writes_the_plugin_ci_workflow_and_list_shows_quality(tmp_path: Path, home: Path, capsys):
+    import json
+
+    dest = tmp_path / "acme.ci"
+    files = scaffold("acme.ci", ["hook"], dest, display_name="CI")
+    wf = dest / ".github" / "workflows" / "plugin-ci.yml"
+    assert wf in files and "publish-check" in wf.read_text() and "softprops/action-gh-release" in wf.read_text()
+    assert cli(["plugin", "link", str(dest)]) == 0
+    capsys.readouterr()
+    assert cli(["plugin", "list", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)["plugins"]
+    assert rows[0]["id"] == "acme.ci" and rows[0]["quality"] == "bronze"
+
+
+def test_index_repo_template_validates_and_matches_index_entry():
+    import importlib.util
+    import json
+
+    root = Path(__file__).resolve().parents[2] / "examples" / "index-repo"
+    spec = importlib.util.spec_from_file_location("validate_index", root / "validate_index.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.check(root) == []
+    from narranexus.kernel.plugins.install.index import IndexEntry
+
+    entries = [IndexEntry(**{**e, "tags": tuple(e.get("tags", ())), "kinds": tuple(e.get("kinds", ()))}) for e in json.loads((root / "index.json").read_text())]
+    assert entries[0].id == "acme.hello_world"
+    bad = {"id": "nodot", "repo": "x"}
+    tmp = root.parent / "index-repo"
+    assert mod.ID_RE.match(bad["id"]) is None and mod.REPO_RE.match(bad["repo"]) is None and tmp.is_dir()

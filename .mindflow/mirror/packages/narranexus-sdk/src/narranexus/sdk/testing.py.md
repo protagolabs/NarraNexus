@@ -16,3 +16,5 @@ stub: false
 `names()` and `test_app()` are scoped to the plugin under test: builtin feature plugins (`builtin.teams` in `backend.routes`) boot alongside it, and a plugin author's tests must not break when the host gains a builtin. `all_names()` keeps the unfiltered view for host-composition tests.
 
 `_unshadow_platform_packages` runs on enter: if the plugin dir sits on sys.path (a plugin author ran pytest from inside it) it is removed and a shadowing `backend` import is forgotten, so the builtins that import `backend.*` boot in the plugin's own test run.
+
+Batch 6d: `PluginTestHost.module(name="")` returns the plugin's imported backend package (or a submodule) so plugin tests never import the kernel importer.

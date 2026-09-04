@@ -13,3 +13,5 @@ versions.json/tests。测试逐 kind 生成后在子进程里跑生成物自己�
 ## 2026-09-04 · artifact filter
 
 Template directories accumulate `__pycache__`/`.pyc` and test-run leftovers when their own tests run in place; `_is_artifact` keeps them out of scaffolded plugins (a `.pyc` copied as text raised UnicodeDecodeError).
+
+Batch 6d: `scaffold()` also writes `.github/workflows/plugin-ci.yml` (`PLUGIN_CI_WORKFLOW`): tests + `publish-check` on every push, and on a tag equal to the manifest version a GitHub release with the install assets.

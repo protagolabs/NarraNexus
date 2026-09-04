@@ -116,6 +116,12 @@ class PluginTestHost:
     def loaded(self) -> tuple[str, ...]:
         return self.report.user_plugin_ids if self.report else ()
 
+    def module(self, name: str = "") -> Any:
+        """The plugin's imported backend package (or ``name`` relative to it), so a test can read module state without touching the kernel importer."""
+        from narranexus.kernel.plugins.importer import import_plugin_module
+
+        return import_plugin_module(self.plugin_id, name) if name else import_plugin_module(self.plugin_id)
+
     @property
     def plugin_id(self) -> str:
         assert self.report is not None

@@ -18,3 +18,5 @@ stub: false
 Batch 6c: `narranexus dist doctor [path] [--json]` (resolve against this engine, print plugin rows / excluded / size / problems, exit 1 on any problem) and `narranexus dist lock [path] [--out]` (write `narranexus-dist.lock.json`).
 
 Batch 6c.3: `narranexus create-app <id> [--dir --display-name --base --auth --deployment]` and `narranexus build <path> --target desktop|docker|wheel [--out --dockerfile --dry-run]`.
+
+Batch 6d: `plugin list` rows carry `quality` (read from each plugin's manifest).
