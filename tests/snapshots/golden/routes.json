@@ -471,6 +471,31 @@
   ],
   [
     "GET",
+    "/api/plugin-factory",
+    "list_plugins"
+  ],
+  [
+    "GET",
+    "/api/plugin-factory/index",
+    "search_index"
+  ],
+  [
+    "GET",
+    "/api/plugin-factory/{plugin_id}/assets/{path:path}",
+    "asset"
+  ],
+  [
+    "GET",
+    "/api/plugin-factory/{plugin_id}/errors",
+    "errors"
+  ],
+  [
+    "GET",
+    "/api/plugin-factory/{plugin_id}/update-check",
+    "update_check"
+  ],
+  [
+    "GET",
     "/api/plugins",
     "list_plugins"
   ],
@@ -1118,6 +1143,66 @@
     "POST",
     "/api/office-watch/edit",
     "office_watch_edit"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/bisect/answer",
+    "bisect_answer"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/bisect/start",
+    "bisect_start"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/bisect/stop",
+    "bisect_stop"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/install",
+    "install"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/rollback",
+    "rollback"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/safe-mode/leave",
+    "leave_safe_mode"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/acknowledge-permissions",
+    "acknowledge"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/disable",
+    "disable"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/enable",
+    "enable"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/errors",
+    "report_error"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/uninstall",
+    "uninstall"
+  ],
+  [
+    "POST",
+    "/api/plugin-factory/{plugin_id}/upgrade",
+    "upgrade"
   ],
   [
     "POST",

@@ -4,6 +4,8 @@ last_verified: 2026-09-03
 stub: false
 ---
 
+## 2026-09-03（批 2c）— 挂 `plugin_factory_router`，启动报告交给工场 service
+
 ## 2026-09-03（批 2b.5）— lifespan 接插件启动
 
 `get_db_client()` 之后、`auto_migrate` 之前 `boot_backend_plugins()`；迁移完成后 `fire_startup()` +

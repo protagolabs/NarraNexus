@@ -170,6 +170,9 @@ async def lifespan(app: FastAPI):
     from backend.plugins_boot import boot_backend_plugins, fire_startup
 
     app.state.plugin_boot = boot_backend_plugins()
+    from backend.plugins_factory.routes import service as _factory_service
+
+    _factory_service().boot_report = app.state.plugin_boot
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
     from xyz_agent_context.utils.db.schema_registry import auto_migrate
@@ -527,6 +530,7 @@ from backend.routes.marketplace_teams import router as marketplace_teams_router
 from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.plugins.routes import router as plugins_router
+from backend.plugins_factory.routes import router as plugin_factory_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
 from backend.routes.dashboard.routes import router as dashboard_router
@@ -581,6 +585,7 @@ app.include_router(
 )
 app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["HomeAssistant"])
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
+app.include_router(plugin_factory_router, tags=["PluginFactory"])
 app.include_router(plugins_router, tags=["Plugins"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
