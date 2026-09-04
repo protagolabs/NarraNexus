@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/__init__.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
 # agent_framework/__init__.py — agent-loop driver 注册中心
+
+## 2026-09-03 — 三框架改为 `Contribution` 常量（`NEXUS_POWER/CLAUDE_CODE/CODEX_CLI`）
+
+插件平台批 0：三个惰性工厂不再经 `register_agent_loop_driver` 注册，而是各自包成
+`narranexus.kernel.plugins.registry.Contribution`（名字 + `lambda: 工厂` + display_name meta），
+以各自的插件 id（`builtin.frameworks.<name>`）作 owner 注册进 `FRAMEWORK_REGISTRY`。
+`narranexus.kernel.plugins.builtins` 的 manifest 按符号名引用这三个常量，loader 注册同一对象是
+幂等 no-op。惰性/`activate_pyenv`/PEP 562 逻辑全部不变。
 
 ## 2026-08-28 — 轻量化插件：三 driver 全惰性工厂 + 惰性公共名
 

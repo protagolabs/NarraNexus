@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/memory/spec.py
-last_verified: 2026-06-08
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 注册表来自内核门面；`contribution_for(kind)` 供内置 manifest 引用
+
+`MEMORY_KIND_REGISTRY = KERNEL_REGISTRIES.registry_for("agent.capabilities.memory_kinds")`；
+`register_spec` 生成并缓存 `Contribution(kind, lambda: spec)`，`specs.py` 用 `contribution_for`
+拼出 `CONTRIBUTIONS` 元组给 `builtin.memory_kinds` manifest。
+
+## 2026-09-03 — kind 注册表改用内核 `Registry`（`MEMORY_KIND_REGISTRY`）
+
+`_REGISTRY: Dict` → `narranexus.kernel.plugins.registry.Registry`，`register_spec` 用
+`replace=True` 保持「re-import 幂等」，`get_spec` 的 KeyError 文案原样保留，`all_kinds` 顺序 =
+注册顺序（与之前 dict 插入序一致，快照 `registries.json` 钉住）。`register_spec` 多一个
+keyword-only `owner`（默认 `builtin.memory_kinds`）。契约层 `narranexus.contracts.memory.
+MemoryKindContract` 只要求 `kind`/`passive`，六个内置 spec 满足（契约测试）。
 
 ## 2026-06-08 — `passive` flag splits the two recall surfaces
 

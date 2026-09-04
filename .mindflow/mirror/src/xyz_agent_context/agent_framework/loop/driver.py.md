@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/driver.py
-last_verified: 2026-08-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（预审修订）— 注册表路径 `turn.pipeline.act.framework`
+
+同日早些的 `turn.act.framework` 因嵌套规则改成 `turn.pipeline` 的后代路径；对象仍来自
+`KERNEL_REGISTRIES.registry_for(...)`。
+
+## 2026-09-03 — `FRAMEWORK_REGISTRY` 改从 `KERNEL_REGISTRIES.registry_for("turn.act.framework")` 取
+
+同一个对象，不再在本模块构造；契约版本与大小写归一化由内核门面按扩展位提供。
+
+## 2026-09-03 — 注册表改用内核 `Registry[T]`（`FRAMEWORK_REGISTRY`），行为不变
+
+`_REGISTRY: dict` 换成 `narranexus.kernel.plugins.registry.Registry`，键仍大小写不敏感、
+选择优先级/错误文案不变（`UnknownEntry` 被翻译回原来的 `ValueError` 文案，调用方无感）。
+两处可见变化：`register_agent_loop_driver` 现在**返回 `Disposable`**（测试夹具用它撤销注册，
+取代直接 `_REGISTRY.pop`），并多一个 keyword-only `owner`（默认 `builtin.frameworks`，插件
+loader 会传自己的 id）。覆盖注册仍允许（`replace=True`，spec 记为遗留口子，批 1 收紧）。
+快照 `tests/snapshots/golden/registries.json` 证明三个框架名与顺序未变。
+
+## 2026-09-03 — `AgentLoopDriver` Protocol 搬到 `narranexus.contracts.framework`，本模块 re-export
+
+插件平台批 0：Protocol 正文（含 `capabilities()` 全部 docstring）逐字迁入契约层，本模块顶部
+`from narranexus.contracts.framework import AgentLoopDriver` 保证 `driver.AgentLoopDriver` 仍是同一个
+对象（契约测试钉住）。注册表 `_REGISTRY`、选择优先级、`FrameworkNotInstalledError`、executor seam
+全部不动；注册表改用内核 `Registry[T]` 是下一提交的事。词表从 docstring 升格为
+`CAPABILITY_VOCABULARY` 常量，`test_driver_contract.py` 的「只准声明已知词」以后应改为引用它。
 
 ## 2026-08-28 — fail-closed：未装插件的框架拒绝构建
 

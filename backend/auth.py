@@ -22,6 +22,8 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
 
+from narranexus.kernel.deployment import is_cloud_mode as _kernel_is_cloud_mode
+
 from xyz_agent_context.schema import NON_TRANSACTING_USER_STATUSES
 
 from backend.auth_errors import (
@@ -195,30 +197,15 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
-    Precedence (consistent with utils.deployment_mode, the canonical
-    resolver the rest of the codebase uses):
-      1. An explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") wins —
-         this is what lets a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud
-         local smoke run cloud semantics.
-      2. Else the legacy heuristic below.
-
-    SAFETY: with NO explicit env var, an unset / empty / sqlite DATABASE_URL
-    MUST default to local mode, not cloud. A packaged desktop app (Tauri
-    dmg) sets DATABASE_URL via Rust's std::env::set_var, which is NOT
-    thread-safe on macOS — the tokio-spawned Python subprocess may not see
-    it. If we defaulted to cloud here, the bundled backend would demand
-    NetMind login from users running the desktop app in its intended local
-    mode (the v0.1.0 dmg bug). The dmg does NOT set
-    NARRANEXUS_DEPLOYMENT_MODE, so step 1 never trips it into cloud.
+    Forwards to the kernel's single resolver (``narranexus.kernel.deployment``):
+    explicit ``NARRANEXUS_DEPLOYMENT_MODE`` wins, then the ``DATABASE_URL``
+    heuristic, then ``DB_HOST``. With NO explicit env var an unset / empty /
+    sqlite ``DATABASE_URL`` MUST resolve to local — a packaged desktop app
+    (Tauri dmg) sets ``DATABASE_URL`` via Rust's ``std::env::set_var``, which is
+    NOT thread-safe on macOS, so the bundled backend must never demand a
+    NetMind login because the variable failed to propagate (the v0.1.0 dmg bug).
     """
-    explicit = os.environ.get("NARRANEXUS_DEPLOYMENT_MODE", "").strip().lower()
-    if explicit in ("cloud", "local"):
-        return explicit == "cloud"
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url:
-        return not db_url.startswith("sqlite")
-    # Fallback: individual DB_HOST field means cloud deployment
-    return bool(os.environ.get("DB_HOST", ""))
+    return _kernel_is_cloud_mode()
 
 
 # =============================================================================
